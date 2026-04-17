@@ -65,3 +65,45 @@ describe('upsertObservations', () => {
     expect(verm.isNotable).toBe(true);
   });
 });
+
+describe('getObservations filters', () => {
+  beforeEach(async () => {
+    await db.pool.query('TRUNCATE observations');
+    await upsertObservations(db.pool, [
+      { subId: 'S200', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 31.72, lng: -110.88, obsDt: '2026-04-15T08:00:00Z',
+        locId: 'L1', locName: 'X', howMany: 1, isNotable: false },
+      { subId: 'S201', speciesCode: 'annhum', comName: 'Anna\'s Hummingbird',
+        lat: 32.30, lng: -110.99, obsDt: '2026-04-10T08:00:00Z',
+        locId: 'L2', locName: 'Y', howMany: 1, isNotable: true },
+      { subId: 'S202', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 32.30, lng: -110.99, obsDt: '2026-03-01T08:00:00Z',
+        locId: 'L3', locName: 'Z', howMany: 3, isNotable: false },
+    ]);
+  });
+
+  it('filters by since=14d', async () => {
+    // Note: tests assume the DB clock is "now" — these dates are illustrative.
+    // We reset obs_dt to relative to now() to make the test stable:
+    await db.pool.query(`UPDATE observations SET obs_dt = now() - interval '5 days' WHERE sub_id='S200'`);
+    await db.pool.query(`UPDATE observations SET obs_dt = now() - interval '20 days' WHERE sub_id='S201'`);
+    await db.pool.query(`UPDATE observations SET obs_dt = now() - interval '40 days' WHERE sub_id='S202'`);
+    const rows = await getObservations(db.pool, { since: '14d' });
+    expect(rows.map(r => r.subId)).toEqual(['S200']);
+  });
+
+  it('filters by notable=true', async () => {
+    const rows = await getObservations(db.pool, { notable: true });
+    expect(rows.map(r => r.subId).sort()).toEqual(['S201']);
+  });
+
+  it('filters by species code', async () => {
+    const rows = await getObservations(db.pool, { speciesCode: 'vermfly' });
+    expect(rows.map(r => r.subId).sort()).toEqual(['S200', 'S202']);
+  });
+
+  it('filters by family code', async () => {
+    const rows = await getObservations(db.pool, { familyCode: 'trochilidae' });
+    expect(rows.map(r => r.subId)).toEqual(['S201']);
+  });
+});

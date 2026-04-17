@@ -90,12 +90,12 @@ export async function getObservations(
     conditions.push('is_notable = true');
   }
   if (f.speciesCode) {
-    conditions.push(`species_code = $${params.length + 1}`);
+    conditions.push(`o.species_code = $${params.length + 1}`);
     params.push(f.speciesCode);
   }
   if (f.familyCode) {
     conditions.push(
-      `species_code IN (SELECT species_code FROM species_meta WHERE family_code = $${params.length + 1})`
+      `o.species_code IN (SELECT species_code FROM species_meta WHERE family_code = $${params.length + 1})`
     );
     params.push(f.familyCode);
   }
