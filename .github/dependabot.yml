@@ -1,0 +1,30 @@
+# .github/dependabot.yml
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      testing:
+        patterns: ["vitest", "@vitest/*", "@playwright/*", "playwright", "@testing-library/*"]
+      react:
+        patterns: ["react", "react-*", "react-dom", "@types/react", "@types/react-*"]
+      vite:
+        patterns: ["vite", "@vitejs/*"]
+      db:
+        patterns: ["pg", "@types/pg", "node-pg-migrate", "postgres", "@neondatabase/*"]
+      hono:
+        patterns: ["hono", "@hono/*"]
+      cloudflare:
+        patterns: ["wrangler", "@cloudflare/*"]
+      eslint:
+        patterns: ["eslint", "eslint-*", "@eslint/*", "typescript-eslint"]
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+  - package-ecosystem: "terraform"
+    directory: "/infra/terraform"
+    schedule:
+      interval: "monthly"
