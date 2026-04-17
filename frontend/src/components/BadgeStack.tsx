@@ -52,6 +52,7 @@ export function BadgeStack(props: BadgeStackProps) {
         const row = Math.floor(i / cols);
         const cx = props.x + (col + 0.5) * (BADGE_DIAMETER + PADDING);
         const cy = props.y + (row + 0.5) * (BADGE_DIAMETER + PADDING);
+        const onSelectSpecies = props.onSelectSpecies;
         return (
           <Badge
             key={g.speciesCode}
@@ -62,11 +63,9 @@ export function BadgeStack(props: BadgeStackProps) {
             color={props.colorFor(g.silhouetteId)}
             comName={g.comName}
             selected={props.selectedSpeciesCode === g.speciesCode}
-            onClick={
-              props.onSelectSpecies
-                ? () => props.onSelectSpecies!(g.speciesCode)
-                : undefined
-            }
+            {...(onSelectSpecies !== undefined
+              ? { onClick: () => onSelectSpecies(g.speciesCode) }
+              : {})}
           />
         );
       })}

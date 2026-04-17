@@ -9,7 +9,7 @@ export interface MapProps {
   expandedRegionId: string | null;
   selectedSpeciesCode: string | null;
   onSelectRegion: (id: string | null) => void;
-  onSelectSpecies?: (code: string | null) => void;
+  onSelectSpecies?: (code: string) => void;
   silhouetteFor: (silhouetteId: string | null) => string;
   colorFor: (silhouetteId: string | null) => string;
 }
@@ -68,7 +68,9 @@ export function Map(props: MapProps) {
               expanded={isExpanded}
               selectedSpeciesCode={props.selectedSpeciesCode}
               onSelect={() => props.onSelectRegion(isExpanded ? null : r.id)}
-              onSelectSpecies={props.onSelectSpecies}
+              {...(props.onSelectSpecies !== undefined
+                ? { onSelectSpecies: props.onSelectSpecies }
+                : {})}
               silhouetteFor={props.silhouetteFor}
               colorFor={props.colorFor}
             />

@@ -52,8 +52,12 @@ export function Region(props: RegionProps) {
         height={stackH}
         silhouetteFor={props.silhouetteFor}
         colorFor={props.colorFor}
-        onSelectSpecies={props.onSelectSpecies}
-        selectedSpeciesCode={props.selectedSpeciesCode}
+        {...(props.onSelectSpecies !== undefined
+          ? { onSelectSpecies: props.onSelectSpecies }
+          : {})}
+        {...(props.selectedSpeciesCode !== undefined
+          ? { selectedSpeciesCode: props.selectedSpeciesCode }
+          : {})}
       />
     </g>
   );
