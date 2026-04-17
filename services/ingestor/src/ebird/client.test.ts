@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { setupServer } from 'msw/node';
 import { http, HttpResponse } from 'msw';
-import { EbirdClient } from './client.js';
+import { EbirdClient, EbirdServerError } from './client.js';
 
 const server = setupServer();
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
@@ -105,5 +105,19 @@ describe('EbirdClient retries', () => {
     const client = new EbirdClient({ apiKey: 'k', retryBaseMs: 1, maxRetries: 2 });
     await expect(client.fetchRecent('US-AZ')).rejects.toThrow(/502/);
     expect(calls).toBe(3); // 1 initial + 2 retries
+  });
+
+  it('retries on request timeout then throws EbirdServerError', async () => {
+    let calls = 0;
+    server.use(
+      http.get('https://api.ebird.org/v2/data/obs/US-AZ/recent', async () => {
+        calls++;
+        await new Promise(r => setTimeout(r, 50));
+        return HttpResponse.json([]);
+      })
+    );
+    const client = new EbirdClient({ apiKey: 'k', maxRetries: 1, retryBaseMs: 1, requestTimeoutMs: 5 });
+    await expect(client.fetchRecent('US-AZ')).rejects.toThrow(EbirdServerError);
+    expect(calls).toBe(2); // initial + 1 retry
   });
 });

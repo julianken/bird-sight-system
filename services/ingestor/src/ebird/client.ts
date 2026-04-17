@@ -5,6 +5,7 @@ export interface EbirdClientOptions {
   baseUrl?: string;
   maxRetries?: number;
   retryBaseMs?: number;
+  requestTimeoutMs?: number;
 }
 
 export interface FetchRecentOptions {
@@ -17,12 +18,14 @@ export class EbirdClient {
   private readonly baseUrl: string;
   private readonly maxRetries: number;
   private readonly retryBaseMs: number;
+  private readonly requestTimeoutMs: number;
 
   constructor(opts: EbirdClientOptions) {
     this.apiKey = opts.apiKey;
     this.baseUrl = opts.baseUrl ?? 'https://api.ebird.org/v2';
     this.maxRetries = opts.maxRetries ?? 3;
     this.retryBaseMs = opts.retryBaseMs ?? 250;
+    this.requestTimeoutMs = opts.requestTimeoutMs ?? 30_000;
   }
 
   async fetchRecent(
@@ -68,6 +71,7 @@ export class EbirdClient {
       try {
         const res = await fetch(url, {
           headers: { 'x-ebirdapitoken': this.apiKey, accept: 'application/json' },
+          signal: AbortSignal.timeout(this.requestTimeoutMs),
         });
         if (res.status >= 500) {
           throw new EbirdServerError(res.status, await res.text());
@@ -81,9 +85,16 @@ export class EbirdClient {
         lastError = err;
         if (err instanceof EbirdClientError) throw err; // 4xx — don't retry
         if (attempt === this.maxRetries) break;
-        const delay = this.retryBaseMs * 2 ** attempt;
-        await sleep(delay);
+        // Full-jitter exponential backoff (AWS write-up variant).
+        // Timeouts (AbortError) are treated as transient — same retry path as 5xx.
+        const backoff = this.retryBaseMs * Math.pow(2, attempt);
+        const withJitter = Math.floor(Math.random() * backoff);
+        await sleep(withJitter);
       }
+    }
+    // If the final error is a timeout, surface a clear EbirdServerError.
+    if (isAbortError(lastError)) {
+      throw new EbirdServerError(0, `Request timed out after ${this.requestTimeoutMs}ms`);
     }
     throw lastError instanceof Error ? lastError : new Error(String(lastError));
   }
@@ -103,3 +114,7 @@ export class EbirdServerError extends Error {
 }
 
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
+/** True for both manual AbortController aborts and AbortSignal.timeout() expirations. */
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError');
+}
