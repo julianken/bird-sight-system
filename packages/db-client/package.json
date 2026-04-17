@@ -1,0 +1,21 @@
+{
+  "name": "@bird-watch/db-client",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@bird-watch/shared-types": "*",
+    "pg": "^8.11.3"
+  },
+  "devDependencies": {
+    "@testcontainers/postgresql": "^10.7.0",
+    "@types/pg": "^8.11.0",
+    "testcontainers": "^10.7.0",
+    "vitest": "^1.2.0"
+  }
+}
