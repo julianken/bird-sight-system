@@ -34,11 +34,8 @@ npm install
 # Start local Postgres with PostGIS
 npm run db:up
 
-# Run migrations
+# Run migrations (seeds are applied as SQL migrations)
 npm run db:migrate
-
-# Seed reference data (ecoregion polygons + Phylopic slugs)
-npm run db:seed
 
 # Run all tests
 npm run test
