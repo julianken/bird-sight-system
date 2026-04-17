@@ -26,42 +26,15 @@ export function Region(props: RegionProps) {
       className={`region${props.expanded ? ' region-expanded' : ''}`}
       data-region-id={props.region.id}
     >
-      {/* Decorative fill — pointer-events disabled so badge circles can intercept their own clicks */}
       <path
         className="region-shape"
         d={props.region.svgPath}
         fill={props.region.displayColor}
         stroke="#fff"
         strokeWidth={3}
-        style={{ pointerEvents: 'none' }}
-      />
-      <BadgeStack
-        observations={props.observations}
-        x={stackX}
-        y={stackY}
-        width={stackW}
-        height={stackH}
-        silhouetteFor={props.silhouetteFor}
-        colorFor={props.colorFor}
-        {...(props.onSelectSpecies !== undefined
-          ? { onSelectSpecies: props.onSelectSpecies }
-          : {})}
-        {...(props.selectedSpeciesCode !== undefined
-          ? { selectedSpeciesCode: props.selectedSpeciesCode }
-          : {})}
-      />
-      {/* Transparent overlay rendered above BadgeStack so region background receives
-          clicks in the spaces between badge circles, while badges retain their own
-          pointer events. Carries full accessibility attributes (role, aria-label,
-          tabIndex, onKeyDown) as the interactive element in the AX tree. */}
-      <path
-        className="region-shape"
-        d={props.region.svgPath}
-        fill="transparent"
-        stroke="none"
         role="button"
-        tabIndex={0}
         aria-label={props.region.name}
+        tabIndex={0}
         onClick={() => props.onSelect(props.region.id)}
         onKeyDown={e => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -69,8 +42,25 @@ export function Region(props: RegionProps) {
             props.onSelect(props.region.id);
           }
         }}
-        style={{ cursor: 'pointer', pointerEvents: 'all' }}
+        style={{ cursor: 'pointer' }}
       />
+      {props.observations.length > 0 && (
+        <BadgeStack
+          observations={props.observations}
+          x={stackX}
+          y={stackY}
+          width={stackW}
+          height={stackH}
+          silhouetteFor={props.silhouetteFor}
+          colorFor={props.colorFor}
+          {...(props.onSelectSpecies !== undefined
+            ? { onSelectSpecies: props.onSelectSpecies }
+            : {})}
+          {...(props.selectedSpeciesCode !== undefined
+            ? { selectedSpeciesCode: props.selectedSpeciesCode }
+            : {})}
+        />
+      )}
     </g>
   );
 }

@@ -5,7 +5,7 @@ import type { FamilyOption, SpeciesOption } from './components/FiltersBar.js';
 // deriveFamilies uses o.silhouetteId as a proxy for the family code.
 // This works today because the seed migration (1700000009000_seed_family_silhouettes.sql)
 // sets family_silhouettes.id == family_code, and the ingestor stamps observations.silhouette_id
-// via `JOIN family_silhouettes fs ON fs.family_code = sm.family_code` (services/ingestor/src/upsert.ts).
+// via `JOIN family_silhouettes fs ON fs.family_code = sm.family_code` (packages/db-client/src/observations.ts:65).
 // If the silhouette IDs ever diverge from family codes (e.g. a Phylopic migration renames them),
 // this function will group by silhouette bucket instead of taxonomic family.
 //
