@@ -33,3 +33,34 @@ describe('EbirdClient.fetchRecent', () => {
     expect(obs[0]?.speciesCode).toBe('vermfly');
   });
 });
+
+describe('EbirdClient.fetchNotable', () => {
+  it('returns notable observations only', async () => {
+    server.use(
+      http.get('https://api.ebird.org/v2/data/obs/US-AZ/recent/notable', () => {
+        return HttpResponse.json([{ ...SAMPLE_OBS[0], speciesCode: 'eltrog' }]);
+      })
+    );
+    const client = new EbirdClient({ apiKey: 'k' });
+    const obs = await client.fetchNotable('US-AZ');
+    expect(obs[0]?.speciesCode).toBe('eltrog');
+  });
+});
+
+describe('EbirdClient.fetchHotspots', () => {
+  it('returns hotspots for a region', async () => {
+    server.use(
+      http.get('https://api.ebird.org/v2/ref/hotspot/US-AZ', () => {
+        return HttpResponse.json([
+          { locId: 'L1', locName: 'Sweetwater', countryCode: 'US',
+            subnational1Code: 'US-AZ', lat: 32.30, lng: -110.99,
+            numSpeciesAllTime: 280 },
+        ]);
+      })
+    );
+    const client = new EbirdClient({ apiKey: 'k' });
+    const h = await client.fetchHotspots('US-AZ');
+    expect(h[0]?.locId).toBe('L1');
+    expect(h[0]?.numSpeciesAllTime).toBe(280);
+  });
+});
