@@ -1,0 +1,24 @@
+{
+  "name": "@bird-watch/read-api",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "dev": "tsx src/local.ts"
+  },
+  "dependencies": {
+    "@bird-watch/db-client": "*",
+    "@bird-watch/shared-types": "*",
+    "hono": "^4.0.0"
+  },
+  "devDependencies": {
+    "@hono/node-server": "^1.7.0",
+    "@testcontainers/postgresql": "^10.7.0",
+    "testcontainers": "^10.7.0",
+    "tsx": "^4.7.0",
+    "vitest": "^1.2.0"
+  }
+}
