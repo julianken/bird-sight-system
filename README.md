@@ -76,3 +76,44 @@ Each plan is fully independent and produces working software on its own.
 ## Stack at a glance
 
 TypeScript · React 18 · Vite · Hono · `pg` · PostGIS · Vitest · Playwright · Docker · GCP Cloud Run · Cloud Scheduler · Cloudflare Pages · Neon · Terraform.
+
+## Deployment
+
+This project deploys to **GCP Cloud Run + Neon Postgres + Cloudflare Pages** — true serverless, scale-to-zero, hobbyist free tier.
+
+### Prerequisites
+
+- GCP account with a project, `gcloud` CLI authenticated, billing enabled (free tier covers our usage)
+- Neon account (Neon dashboard → Settings → API keys)
+- Cloudflare account with a zone you control (used for Pages + DNS only)
+- eBird API key (free at ebird.org/api/keygen)
+- Terraform >= 1.6
+- Docker + `docker buildx` for multi-arch builds
+- `psql` on `$PATH`
+
+### One-time setup
+
+1. `cp infra/terraform/terraform.tfvars.example infra/terraform/terraform.tfvars` and fill in:
+   - `gcp_project_id`, `gcp_region`
+   - `neon_api_key`
+   - `cloudflare_account_id`, `cloudflare_api_token`, `cloudflare_zone_id`, `domain`
+   - `ebird_api_key`
+2. `gcloud auth login && gcloud auth application-default login`
+3. `cd infra/terraform && terraform init`
+4. `./scripts/deploy.sh` — provisions infra, builds + pushes images, deploys frontend
+5. `./scripts/smoke-test.sh`
+
+### Subsequent deploys
+
+After code changes: `./scripts/deploy.sh` rebuilds and rolls Cloud Run to the new image. Terraform sees no diff and skips infra.
+
+### Portability
+
+The compute is plain Docker. To migrate to AWS / Azure / Fly:
+
+| Move | What changes | What stays |
+|---|---|---|
+| **GCP → AWS** | Push Dockerfiles to ECR; deploy to App Runner or Fargate; replace Cloud Scheduler with EventBridge Rules; replace Secret Manager with AWS Secrets Manager | Application code, Neon DB, frontend |
+| **GCP → Azure** | Push Dockerfiles to ACR; deploy to Azure Container Apps; replace Cloud Scheduler with Azure Logic Apps or Functions Timer; replace Secret Manager with Key Vault | Application code, Neon DB, frontend |
+| **GCP → Fly.io** | Push Dockerfiles to Fly registry; `fly deploy` for the API service; use Fly's Cron Manager (JSON schedules) for arbitrary crons — `fly machines run --schedule` only accepts `hourly`/`daily`/`weekly`/`monthly` literals, which covers the backfill + hotspots jobs but not the 30-minute recent cron | Application code, frontend (could move to Fly too) |
+| **Neon → another Postgres** | `pg_dump` from Neon → restore to RDS / Cloud SQL / Azure DB / self-hosted; update `DATABASE_URL` secret | Compute layer, all application code |
