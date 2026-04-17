@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import type { Since } from '../state/url-state.js';
 
 export interface FamilyOption { code: string; name: string; }
@@ -17,6 +18,25 @@ export interface FiltersBarProps {
 }
 
 export function FiltersBar(props: FiltersBarProps) {
+  // Draft state so users can type multi-character species without URL updating on every keystroke.
+  // The URL is only updated on blur or when Enter is pressed.
+  const [speciesDraft, setSpeciesDraft] = useState<string>(
+    () => props.speciesIndex.find(s => s.code === props.speciesCode)?.comName ?? ''
+  );
+
+  // Sync draft when the URL-driven speciesCode changes externally (e.g. browser back/forward).
+  useEffect(() => {
+    const comName = props.speciesIndex.find(s => s.code === props.speciesCode)?.comName ?? '';
+    setSpeciesDraft(comName);
+  }, [props.speciesCode, props.speciesIndex]);
+
+  function commitSpeciesDraft(value: string) {
+    const match = props.speciesIndex.find(
+      s => s.comName.toLowerCase() === value.toLowerCase()
+    );
+    props.onChange({ speciesCode: match?.code ?? null });
+  }
+
   return (
     <div className="filters-bar" role="region" aria-label="Filters">
       <label>
@@ -61,13 +81,13 @@ export function FiltersBar(props: FiltersBarProps) {
           aria-label="Species"
           list="species-options"
           placeholder="Common name"
-          value={props.speciesIndex.find(s => s.code === props.speciesCode)?.comName ?? ''}
-          onChange={e => {
-            const v = e.target.value;
-            const match = props.speciesIndex.find(s =>
-              s.comName.toLowerCase() === v.toLowerCase()
-            );
-            props.onChange({ speciesCode: match?.code ?? null });
+          value={speciesDraft}
+          onChange={e => setSpeciesDraft(e.target.value)}
+          onBlur={e => commitSpeciesDraft(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter') {
+              commitSpeciesDraft((e.target as HTMLInputElement).value);
+            }
           }}
         />
         <datalist id="species-options">

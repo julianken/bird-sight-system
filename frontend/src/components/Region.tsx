@@ -33,8 +33,8 @@ export function Region(props: RegionProps) {
         stroke="#fff"
         strokeWidth={3}
         role="button"
-        tabIndex={0}
         aria-label={props.region.name}
+        tabIndex={0}
         onClick={() => props.onSelect(props.region.id)}
         onKeyDown={e => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -44,21 +44,23 @@ export function Region(props: RegionProps) {
         }}
         style={{ cursor: 'pointer' }}
       />
-      <BadgeStack
-        observations={props.observations}
-        x={stackX}
-        y={stackY}
-        width={stackW}
-        height={stackH}
-        silhouetteFor={props.silhouetteFor}
-        colorFor={props.colorFor}
-        {...(props.onSelectSpecies !== undefined
-          ? { onSelectSpecies: props.onSelectSpecies }
-          : {})}
-        {...(props.selectedSpeciesCode !== undefined
-          ? { selectedSpeciesCode: props.selectedSpeciesCode }
-          : {})}
-      />
+      {props.observations.length > 0 && (
+        <BadgeStack
+          observations={props.observations}
+          x={stackX}
+          y={stackY}
+          width={stackW}
+          height={stackH}
+          silhouetteFor={props.silhouetteFor}
+          colorFor={props.colorFor}
+          {...(props.onSelectSpecies !== undefined
+            ? { onSelectSpecies: props.onSelectSpecies }
+            : {})}
+          {...(props.selectedSpeciesCode !== undefined
+            ? { selectedSpeciesCode: props.selectedSpeciesCode }
+            : {})}
+        />
+      )}
     </g>
   );
 }

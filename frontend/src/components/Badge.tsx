@@ -23,6 +23,12 @@ export function Badge(props: BadgeProps) {
       tabIndex={props.onClick ? 0 : undefined}
       aria-label={`${props.comName}${props.count > 1 ? ` (${props.count} sightings)` : ''}`}
       style={{ cursor }}
+      onKeyDown={props.onClick ? (e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          props.onClick!();
+        }
+      }) : undefined}
     >
       <circle
         className="badge-circle"

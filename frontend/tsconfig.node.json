@@ -6,5 +6,5 @@
     "noEmit": true,
     "rootDir": "."
   },
-  "include": ["vite.config.ts"]
+  "include": ["vite.config.ts", "playwright.config.ts"]
 }

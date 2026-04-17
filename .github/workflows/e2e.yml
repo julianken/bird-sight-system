@@ -34,4 +34,65 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
+      - run: npm run build -w @bird-watch/shared-types
+      - run: npm run build -w @bird-watch/family-mapping
+      - run: npm run build -w @bird-watch/db-client
       - run: npm run db:migrate
+      - name: Seed a handful of observations for E2E
+        run: |
+          psql "$DATABASE_URL" <<'SEED_SQL'
+            \set ON_ERROR_STOP on
+
+            -- 1. Insert species_meta rows first (observations.silhouette_id is stamped via this table).
+            INSERT INTO species_meta (species_code, com_name, sci_name, family_code, family_name, taxon_order)
+            VALUES
+              ('vermfly',  'Vermilion Flycatcher', 'Pyrocephalus rubinus',   'tyrannidae',   'Tyrant Flycatchers',  4400),
+              ('annhum',   'Anna''s Hummingbird',   'Calypte anna',           'trochilidae',  'Hummingbirds',        840),
+              ('eletro1',  'Elegant Trogon',        'Trogon elegans',         'trogonidae',   'Trogons',             1200)
+            ON CONFLICT (species_code) DO NOTHING;
+
+            -- 2. Insert observations using actual schema (no com_name/sci_name columns on this table).
+            --    Composite PK is (sub_id, species_code).
+            INSERT INTO observations (sub_id, species_code, lat, lng, obs_dt, loc_id, loc_name, how_many, is_notable)
+            VALUES
+              ('S_e2e_1', 'vermfly',  31.73, -110.88, NOW(), 'L_e2e_1', 'Madera Canyon',  1, false),
+              ('S_e2e_2', 'vermfly',  31.71, -110.85, NOW(), 'L_e2e_2', 'Madera Canyon',  2, false),
+              ('S_e2e_3', 'annhum',   32.22, -110.96, NOW(), 'L_e2e_3', 'Tucson',         1, false),
+              ('S_e2e_4', 'eletro1',  31.75, -110.87, NOW(), 'L_e2e_4', 'Madera Canyon',  1, true)
+            ON CONFLICT (sub_id, species_code) DO NOTHING;
+
+            -- 3. Stamp region_id (smallest-area ST_Contains) and silhouette_id (via species_meta → family_silhouettes).
+            UPDATE observations o
+            SET
+              region_id = (
+                SELECT r.id FROM regions r
+                WHERE ST_Contains(r.geom, o.geom)
+                ORDER BY ST_Area(r.geom) ASC
+                LIMIT 1
+              ),
+              silhouette_id = (
+                SELECT fs.id
+                FROM species_meta sm
+                JOIN family_silhouettes fs ON fs.family_code = sm.family_code
+                WHERE sm.species_code = o.species_code
+                LIMIT 1
+              )
+            WHERE o.sub_id LIKE 'S_e2e_%';
+
+            -- 4. Confirm rows landed with region stamps.
+            SELECT count(*) FROM observations WHERE region_id IS NOT NULL;
+          SEED_SQL
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - name: Run Playwright E2E
+        run: npm run test:e2e --workspace @bird-watch/frontend
+        env:
+          DATABASE_URL: postgres://birdwatch:birdwatch@localhost:5432/birdwatch
+          CI: "true"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: frontend/.playwright-out/
+          retention-days: 7
