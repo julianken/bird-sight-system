@@ -32,8 +32,8 @@ Three external dependencies + four internal services.
 
 ### Cross-cutting
 
-- **Terraform** — all four internal services provisioned from `infra/terraform/`. Hosting platform deferred; code is portable across Lambda / Cloudflare Workers / Vercel Functions.
-- **Connection pooler** — required between serverless functions and Postgres. Provider-specific (Neon HTTP driver, Supabase PgBouncer, Cloudflare Hyperdrive, AWS RDS Proxy).
+- **Terraform** — all four internal services provisioned from `infra/terraform/`. Hosting platform: **GCP Cloud Run** for compute (Service for Read API, Job for Ingestor + Cloud Scheduler triggers), **Neon** for Postgres + PostGIS, **Cloudflare Pages** for the static frontend + DNS. The compute artifact is a Docker container, so the same image moves to AWS Fargate / Azure Container Apps / Fly Machines / Kubernetes with config-only changes (see Plan 5's migration table).
+- **Connection pooler** — required between serverless functions and Postgres. Currently Neon's built-in pooler endpoint (`-pooler` host suffix). If the Postgres provider changes later, equivalent options exist (Supabase PgBouncer, AWS RDS Proxy, Cloudflare Hyperdrive) — the swap is contained in `db-client`.
 
 ## Components
 
@@ -311,9 +311,8 @@ bird-watch/
       dns.tf
       variables.tf
   docs/
-    superpowers/
-      specs/
-        2026-04-16-bird-watch-design.md  (this file)
+    specs/
+      2026-04-16-bird-watch-design.md  (this file)
   package.json                       # workspaces root
   README.md
 ```
@@ -330,11 +329,6 @@ bird-watch/
 
 ## Open questions (deferred)
 
-- **Hosting platform.** Three viable combinations:
-  - Cloudflare Workers + Hyperdrive + Neon (recommended for fastest cold starts, edge distribution)
-  - Vercel Functions + Neon
-  - AWS Lambda + RDS Proxy + Aurora Serverless
-  - Decision punted until first deploy.
 - **Animation library for inline expansion.** Framer Motion vs. plain CSS transitions vs. d3 transitions. Decide during frontend implementation.
 - **Specific Phylopic silhouettes.** ~15 family silhouettes need to be picked + attributed. Curation step before first ingest.
 - **Tag-based cache purge** (post-MVP). If freshness latency becomes a real issue, add `Cache-Tag` headers + Ingestor-side purge call. Mechanism depends on chosen CDN.
