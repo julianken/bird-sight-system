@@ -1,0 +1,14 @@
+{
+  "name": "@bird-watch/family-mapping",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^1.2.0"
+  }
+}
