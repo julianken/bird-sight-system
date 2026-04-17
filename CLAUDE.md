@@ -48,7 +48,13 @@ Direct push to `main` is blocked by branch protection. Workflow:
 1. Make changes on a feature branch.
 2. Open a PR (`gh pr create`).
 3. Dispatch the bot for review via the `julianken-bot` Agent subagent (it loads its credentials from macOS Keychain and posts as the `@julianken-bot` collaborator). Do NOT use `gh pr review` from the main session — that would post under Julian's identity.
-4. Once `reviewDecision == APPROVED`, squash-merge with `gh pr merge <N> --squash --delete-branch`.
+4. Once `reviewDecision == APPROVED` and all checks are green, enter the Mergify queue by posting a comment on the PR: `@Mergifyio queue`. Mergify squash-merges and deletes the branch automatically. **Do NOT use `gh pr merge`.**
+
+**Mergify queue comment rules (critical):**
+- The comment body must be exactly `@Mergifyio queue` — no prose before or after. Mergify silently ignores prose-prefixed comments.
+- If you need to leave explanatory context (e.g. "addressed the SUGGESTION in commit X"), post it as a separate comment first, then post `@Mergifyio queue` as its own standalone comment.
+
+**Until CI lands (Plan 1):** `.mergify.yml` requires `check-success` on `test`, `lint`, `build`, and `e2e`. The queue will stall on any PR opened before those workflows exist. Once CI is wired up, re-apply branch protection's `required_status_checks` via `gh api -X PUT repos/julianken/bird-sight-system/branches/main/protection`.
 
 The bot is a `push` collaborator on the repo; its APPROVE counts toward the 1-review requirement. `enforce_admins=true` means even repo owners can't bypass.
 
