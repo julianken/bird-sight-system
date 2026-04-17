@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach } from
 import { setupServer } from 'msw/node';
 import { http, HttpResponse } from 'msw';
 import { startTestDb, type TestDb } from '@bird-watch/db-client/dist/test-helpers.js';
-import { upsertSpeciesMeta, getObservations } from '@bird-watch/db-client';
+import { upsertSpeciesMeta, getObservations, getRecentIngestRuns } from '@bird-watch/db-client';
 import { runBackfill } from './run-backfill.js';
 import { runIngest } from './run-ingest.js';
 import { EbirdClient } from './ebird/client.js';
@@ -142,5 +142,22 @@ describe('runBackfill', () => {
     const subIds = obs.map(o => o.subId).sort();
     expect(subIds).toContain('SDay15');
     expect(subIds).toContain('SDay13');
+  });
+
+  it('records failure when pre-loop fetchNotable throws exhausted retries', async () => {
+    server.use(
+      http.get('https://api.ebird.org/v2/data/obs/US-AZ/recent/notable', () =>
+        new HttpResponse('bad gateway', { status: 502 })
+      )
+    );
+    const client = new EbirdClient({ apiKey: 'k', maxRetries: 0, retryBaseMs: 1 });
+    const summary = await runBackfill({
+      pool: db.pool, apiKey: 'k', regionCode: 'US-AZ', days: 3, client,
+    });
+    expect(summary.status).toBe('failure');
+    expect(summary.error).toMatch(/502|server/i);
+
+    const runs = await getRecentIngestRuns(db.pool, 10);
+    expect(runs[0]?.status).toBe('failure');
   });
 });

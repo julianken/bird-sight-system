@@ -26,50 +26,65 @@ export async function runBackfill(o: RunBackfillOptions): Promise<RunBackfillSum
   const runId = await startIngestRun(o.pool, 'backfill');
   const today = o.today ?? new Date();
 
-  // eBird /recent/notable only accepts back=1..30. Cap at 30; observations
-  // older than 30 days won't be flagged notable in this run (OR-coalesce in
-  // upsertObservations preserves any previously-stamped true values).
-  const notableBack = Math.min(o.days, 30);
-  const notables = await client.fetchNotable(o.regionCode, { back: notableBack });
-  const notableKeys = notableKeyset(notables);
-
   let totalFetched = 0;
   let totalUpserted = 0;
   let daysProcessed = 0;
   let firstError: string | undefined;
 
-  for (let i = 1; i <= o.days; i++) {
-    const date = new Date(today.getTime() - i * 24 * 3600 * 1000);
-    const y = date.getUTCFullYear();
-    const m = date.getUTCMonth() + 1;
-    const d = date.getUTCDate();
-    try {
-      const obs = await client.fetchHistoric(o.regionCode, y, m, d);
-      const inputs = obs.map(eb => toObservationInput(eb, notableKeys));
-      const upserted = await upsertObservations(o.pool, inputs);
-      totalFetched += obs.length;
-      totalUpserted += upserted;
-      daysProcessed++;
-    } catch (err) {
-      if (!firstError) firstError = err instanceof Error ? err.message : String(err);
+  try {
+    // eBird /recent/notable only accepts back=1..30. Cap at 30; observations
+    // older than 30 days won't be flagged notable in this run (OR-coalesce in
+    // upsertObservations preserves any previously-stamped true values).
+    const notableBack = Math.min(o.days, 30);
+    const notables = await client.fetchNotable(o.regionCode, { back: notableBack });
+    const notableKeys = notableKeyset(notables);
+
+    for (let i = 1; i <= o.days; i++) {
+      const date = new Date(today.getTime() - i * 24 * 3600 * 1000);
+      const y = date.getUTCFullYear();
+      const m = date.getUTCMonth() + 1;
+      const d = date.getUTCDate();
+      try {
+        const obs = await client.fetchHistoric(o.regionCode, y, m, d);
+        const inputs = obs.map(eb => toObservationInput(eb, notableKeys));
+        const upserted = await upsertObservations(o.pool, inputs);
+        totalFetched += obs.length;
+        totalUpserted += upserted;
+        daysProcessed++;
+      } catch (err) {
+        if (!firstError) firstError = err instanceof Error ? err.message : String(err);
+      }
     }
+
+    const status: RunBackfillSummary['status'] =
+      daysProcessed === o.days ? 'success'
+        : daysProcessed === 0 ? 'failure'
+          : 'partial';
+
+    await finishIngestRun(o.pool, runId, {
+      status,
+      obsFetched: totalFetched,
+      obsUpserted: totalUpserted,
+      ...(firstError !== undefined && { errorMessage: firstError }),
+    });
+
+    return {
+      status, fetched: totalFetched, upserted: totalUpserted,
+      daysProcessed,
+      ...(firstError !== undefined && { error: firstError }),
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await finishIngestRun(o.pool, runId, {
+      status: 'failure',
+      obsFetched: totalFetched,
+      obsUpserted: totalUpserted,
+      errorMessage: message,
+    });
+    return {
+      status: 'failure', fetched: totalFetched, upserted: totalUpserted,
+      daysProcessed,
+      error: message,
+    };
   }
-
-  const status: RunBackfillSummary['status'] =
-    daysProcessed === o.days ? 'success'
-      : daysProcessed === 0 ? 'failure'
-        : 'partial';
-
-  await finishIngestRun(o.pool, runId, {
-    status,
-    obsFetched: totalFetched,
-    obsUpserted: totalUpserted,
-    ...(firstError !== undefined && { errorMessage: firstError }),
-  });
-
-  return {
-    status, fetched: totalFetched, upserted: totalUpserted,
-    daysProcessed,
-    ...(firstError !== undefined && { error: firstError }),
-  };
 }
