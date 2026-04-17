@@ -81,7 +81,3 @@ The following libraries change quickly enough that training-data knowledge is of
 | `node-pg-migrate` | 1 | CLI flags and `-- Up/Down Migration` marker semantics |
 
 For everything else (TypeScript, React 18, Vite, `pg`, PostGIS SQL, React Testing Library, Docker, npm workspaces) training data is reliable enough — skip context7 and only fetch if a real failure surfaces.
-
-## CI status
-
-No CI workflows exist yet. `.mergify.yml` references `test`, `lint`, `build`, and `e2e` checks — when the first CI workflow lands (likely as part of Plan 1's followups), those job names must match, and `required_status_checks` on branch protection should be re-applied via `gh api -X PUT repos/julianken/bird-sight-system/branches/main/protection` to actually enforce them.
