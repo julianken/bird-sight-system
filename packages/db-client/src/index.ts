@@ -6,3 +6,7 @@ export {
   getObservations, upsertObservations, type ObservationInput,
 } from './observations.js';
 export { getSpeciesMeta, upsertSpeciesMeta } from './species.js';
+export {
+  startIngestRun, finishIngestRun, getRecentIngestRuns,
+  type IngestKind, type IngestStatus, type FinishOptions,
+} from './ingest-runs.js';
