@@ -1,0 +1,23 @@
+{
+  "name": "@bird-watch/ingestor",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "ingest:local": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "@bird-watch/db-client": "*",
+    "@bird-watch/shared-types": "*"
+  },
+  "devDependencies": {
+    "@testcontainers/postgresql": "^10.7.0",
+    "msw": "^2.1.0",
+    "testcontainers": "^10.7.0",
+    "tsx": "^4.7.0",
+    "vitest": "^1.2.0"
+  }
+}
