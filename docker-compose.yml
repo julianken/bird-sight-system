@@ -1,0 +1,22 @@
+name: birdwatch
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: birdwatch_pg
+    environment:
+      POSTGRES_DB: birdwatch
+      POSTGRES_USER: birdwatch
+      POSTGRES_PASSWORD: birdwatch
+    ports:
+      - "${HOST_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - birdwatch_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U birdwatch -d birdwatch"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  birdwatch_pgdata:

@@ -23,6 +23,30 @@ Compute and DB are both true serverless — scale to zero, $0/month at hobbyist 
 
 See `docs/specs/2026-04-16-bird-watch-design.md` for the full spec.
 
+## Local development
+
+**Prerequisites:** Node >= 20, Docker (for Postgres + PostGIS), npm >= 9.
+
+```bash
+# Install all workspace dependencies
+npm install
+
+# Start local Postgres with PostGIS
+npm run db:up
+
+# Run migrations (seeds are applied as SQL migrations)
+npm run db:migrate
+
+# Run all tests
+npm run test
+```
+
+Set `DATABASE_URL` in a `.env` file at the repo root (not committed):
+
+```
+DATABASE_URL=postgres://birdwatch:birdwatch@localhost:5432/birdwatch
+```
+
 ## Repo layout
 
 ```

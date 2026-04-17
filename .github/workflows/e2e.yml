@@ -1,0 +1,37 @@
+name: e2e
+on:
+  pull_request:
+  push:
+    branches: [main]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  e2e:
+    name: e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_DB: birdwatch
+          POSTGRES_USER: birdwatch
+          POSTGRES_PASSWORD: birdwatch
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U birdwatch -d birdwatch"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://birdwatch:birdwatch@localhost:5432/birdwatch
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run db:migrate
