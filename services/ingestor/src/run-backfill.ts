@@ -57,11 +57,12 @@ export async function runBackfill(o: RunBackfillOptions): Promise<RunBackfillSum
     status,
     obsFetched: totalFetched,
     obsUpserted: totalUpserted,
-    errorMessage: firstError,
+    ...(firstError !== undefined && { errorMessage: firstError }),
   });
 
   return {
     status, fetched: totalFetched, upserted: totalUpserted,
-    daysProcessed, error: firstError,
+    daysProcessed,
+    ...(firstError !== undefined && { error: firstError }),
   };
 }

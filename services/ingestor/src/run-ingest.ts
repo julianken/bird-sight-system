@@ -24,11 +24,12 @@ export interface RunSummary {
 }
 
 export async function runIngest(opts: RunIngestOptions): Promise<RunSummary> {
-  const client = opts.client ?? new EbirdClient({
+  const clientOpts: import('./ebird/client.js').EbirdClientOptions = {
     apiKey: opts.apiKey,
-    maxRetries: opts.maxRetries,
-    retryBaseMs: opts.retryBaseMs,
-  });
+    ...(opts.maxRetries !== undefined && { maxRetries: opts.maxRetries }),
+    ...(opts.retryBaseMs !== undefined && { retryBaseMs: opts.retryBaseMs }),
+  };
+  const client = opts.client ?? new EbirdClient(clientOpts);
 
   const runId = await startIngestRun(opts.pool, 'recent');
   try {
