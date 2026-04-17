@@ -47,7 +47,7 @@ npm run test
 Set `DATABASE_URL` in a `.env` file at the repo root (not committed):
 
 ```
-DATABASE_URL=postgres://postgres:postgres@localhost:5432/birdwatch
+DATABASE_URL=postgres://birdwatch:birdwatch@localhost:5432/birdwatch
 ```
 
 ## Repo layout
