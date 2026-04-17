@@ -1,0 +1,30 @@
+{
+  "name": "bird-watch",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "services/*",
+    "frontend"
+  ],
+  "scripts": {
+    "test": "npm run test --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "db:up": "docker-compose up -d db",
+    "db:down": "docker-compose down",
+    "db:migrate": "node-pg-migrate up -m migrations -d $DATABASE_URL",
+    "db:rollback": "node-pg-migrate down -m migrations -d $DATABASE_URL",
+    "db:seed": "tsx scripts/seed.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "node-pg-migrate": "^7.4.0",
+    "pg": "^8.11.3",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
