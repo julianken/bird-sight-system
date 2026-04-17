@@ -30,8 +30,12 @@ export function notableKeyset(obs: EbirdObservation[]): Set<string> {
 }
 
 function parseEbirdDate(s: string): string {
-  // "2026-04-15 08:00" → "2026-04-15T08:00:00.000Z"
-  const normalized = s.replace(' ', 'T') + ':00.000Z';
+  // eBird returns either "YYYY-MM-DD HH:MM" or "YYYY-MM-DD" (date-only for some obs).
+  // Normalize both to ISO 8601 UTC; treat as midnight UTC when time is absent.
+  const hasTime = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(s);
+  const normalized = hasTime
+    ? s.replace(' ', 'T') + ':00.000Z'
+    : s + 'T00:00:00.000Z';
   const d = new Date(normalized);
   if (isNaN(d.getTime())) {
     throw new Error(`Invalid eBird obsDt: ${s}`);
