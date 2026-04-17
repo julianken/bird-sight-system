@@ -107,6 +107,22 @@ describe('GET /api/observations', () => {
   });
 });
 
+describe('error handling', () => {
+  it('returns 503 when DB query throws a connection error', async () => {
+    const pg = await import('pg');
+    const badPool = new pg.default.Pool({
+      connectionString: 'postgres://nope:nope@127.0.0.1:1/none',
+      max: 1,
+      connectionTimeoutMillis: 200,
+    });
+    const app = createApp({ pool: badPool as unknown as Parameters<typeof createApp>[0]['pool'] });
+    const res = await app.request('/api/regions');
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: 'database unavailable' });
+    await badPool.end();
+  });
+});
+
 describe('GET /api/species/:code', () => {
   it('returns species meta for a known code', async () => {
     const app = createApp({ pool: db.pool });
