@@ -1,4 +1,25 @@
 -- Up Migration
+--
+-- MVP bounding-box approximations of Arizona birding regions.
+-- Per plan section 5 (Task 11): "simplified bounding-polygon approximations...
+-- good enough to assign observations to regions for MVP." A future migration
+-- will replace geom with high-fidelity EPA Level III ecoregion polygons.
+--
+-- KNOWN LIMITATION — overlapping top-level siblings:
+--   mogollon-rim / sonoran-phoenix / sonoran-tucson / lower-colorado are all
+--   parent_id=NULL and their bounding boxes overlap. A single point can match
+--   >1 region via ST_Contains.
+--
+-- INGEST CONTRACT for Plan 2 (services/ingestor/src/upsert.ts):
+--   region lookup MUST be deterministic. Pick the smallest-area region at the
+--   point, with id as the tie-breaker:
+--     SELECT id FROM regions
+--     WHERE ST_Contains(geom, ST_SetSRID(ST_MakePoint($1,$2),4326))
+--     ORDER BY ST_Area(geom) ASC, id ASC
+--     LIMIT 1;
+--   This gives parent/child precedence (grand-canyon wins over colorado-plateau)
+--   AND deterministic behavior for sibling overlaps.
+
 INSERT INTO regions (id, name, parent_id, geom, display_color, svg_path) VALUES
 
 ('colorado-plateau',
