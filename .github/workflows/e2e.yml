@@ -34,4 +34,31 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
+      - run: npm run build -w @bird-watch/shared-types
+      - run: npm run build -w @bird-watch/family-mapping
+      - run: npm run build -w @bird-watch/db-client
       - run: npm run db:migrate
+      - name: Seed a handful of observations for E2E
+        run: |
+          psql "$DATABASE_URL" <<'SEED_SQL'
+            INSERT INTO observations (sub_id, species_code, com_name, sci_name, lat, lng, obs_dt, loc_id, loc_name, how_many, is_notable, region_id, silhouette_id)
+            VALUES
+              ('S_e2e_1', 'whsowl1', 'Whiskered Screech-Owl', 'Megascops trichopsis', 31.7, -110.9, NOW(), 'L_e2e_1', 'Ramsey Canyon', 1, false, 'sky-islands-huachucas', 'strigidae'),
+              ('S_e2e_2', 'vermfly', 'Vermilion Flycatcher',  'Pyrocephalus rubinus',  31.5, -110.9, NOW(), 'L_e2e_1', 'Ramsey Canyon', 2, false, 'sky-islands-santa-ritas', 'tyrannidae'),
+              ('S_e2e_3', 'buggro',  'Buff-collared Nightjar', 'Antrostomus ridgwayi',  31.4, -110.7, NOW(), 'L_e2e_2', 'Cave Creek', 1, true,  'sky-islands-chiricahuas', 'strigidae')
+            ON CONFLICT (sub_id) DO NOTHING;
+          SEED_SQL
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - name: Run Playwright E2E
+        run: npm run test:e2e --workspace @bird-watch/frontend
+        env:
+          DATABASE_URL: postgres://birdwatch:birdwatch@localhost:5432/birdwatch
+          CI: "true"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: frontend/.playwright-out/
+          retention-days: 7
