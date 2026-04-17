@@ -217,6 +217,15 @@ resource "neon_endpoint" "main" {
   pooler_enabled = true
 }
 
+# Neon inserts "-pooler" after the endpoint id (the first dot-separated
+# segment of the host), NOT before ".neon.tech":
+#   ep-cool-xxx.us-east-2.aws.neon.tech         (direct)
+#   ep-cool-xxx-pooler.us-east-2.aws.neon.tech  (pooled)
+locals {
+  neon_pooled_host = replace(neon_endpoint.main.host, "/^([^.]+)\\./", "$1-pooler.")
+  neon_pooled_url  = "postgres://${neon_project.birdwatch.default_role_name}:${neon_project.birdwatch.default_role_password}@${local.neon_pooled_host}/${neon_database.main.name}?sslmode=require"
+}
+
 output "neon_db_url" {
   value     = "postgres://${neon_project.birdwatch.default_role_name}:${neon_project.birdwatch.default_role_password}@${neon_endpoint.main.host}/${neon_database.main.name}?sslmode=require"
   sensitive = true
@@ -224,7 +233,7 @@ output "neon_db_url" {
 
 # Pooled URL — what Cloud Run uses. Each connection is multiplexed via PgBouncer.
 output "neon_pooled_url" {
-  value     = "postgres://${neon_project.birdwatch.default_role_name}:${neon_project.birdwatch.default_role_password}@${replace(neon_endpoint.main.host, ".neon.tech", "-pooler.neon.tech")}/${neon_database.main.name}?sslmode=require"
+  value     = local.neon_pooled_url
   sensitive = true
 }
 ```
@@ -360,7 +369,7 @@ COPY tsconfig.base.json ./
 COPY packages ./packages
 COPY services/read-api ./services/read-api
 
-RUN npm ci --workspaces --include-workspace-root --omit=dev=false
+RUN npm ci --workspaces --include-workspace-root --include=dev
 RUN npm run build --workspace @bird-watch/shared-types
 RUN npm run build --workspace @bird-watch/db-client
 RUN npm run build --workspace @bird-watch/family-mapping
@@ -462,7 +471,7 @@ resource "google_secret_manager_secret" "db_url" {
 
 resource "google_secret_manager_secret_version" "db_url" {
   secret      = google_secret_manager_secret.db_url.id
-  secret_data = "postgres://${neon_project.birdwatch.default_role_name}:${neon_project.birdwatch.default_role_password}@${replace(neon_endpoint.main.host, ".neon.tech", "-pooler.neon.tech")}/${neon_database.main.name}?sslmode=require"
+  secret_data = local.neon_pooled_url
 }
 
 # Service account the Read API runs as.
@@ -580,7 +589,7 @@ COPY tsconfig.base.json ./
 COPY packages ./packages
 COPY services/ingestor ./services/ingestor
 
-RUN npm ci --workspaces --include-workspace-root --omit=dev=false
+RUN npm ci --workspaces --include-workspace-root --include=dev
 RUN npm run build --workspace @bird-watch/shared-types
 RUN npm run build --workspace @bird-watch/db-client
 RUN npm run build --workspace @bird-watch/family-mapping
