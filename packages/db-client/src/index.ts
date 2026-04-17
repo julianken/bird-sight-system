@@ -5,3 +5,4 @@ export { getHotspots, upsertHotspots, type HotspotInput } from './hotspots.js';
 export {
   getObservations, upsertObservations, type ObservationInput,
 } from './observations.js';
+export { getSpeciesMeta, upsertSpeciesMeta } from './species.js';
