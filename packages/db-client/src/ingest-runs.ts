@@ -1,5 +1,5 @@
 import type { Pool } from './pool.js';
-import type { IngestRun } from '@bird-watch/shared-types';
+import type { IngestRun, IngestRunTerminalStatus } from '@bird-watch/shared-types';
 
 export type IngestKind = IngestRun['kind'];
 export type IngestStatus = IngestRun['status'];
@@ -14,7 +14,7 @@ export async function startIngestRun(pool: Pool, kind: IngestKind): Promise<numb
 }
 
 export interface FinishOptions {
-  status: IngestStatus;
+  status: IngestRunTerminalStatus;
   obsFetched?: number;
   obsUpserted?: number;
   errorMessage?: string;

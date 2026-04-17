@@ -33,6 +33,17 @@ describe('ingest runs', () => {
     expect(rows[0]?.errorMessage).toBe('eBird timeout');
   });
 
+  it('type-rejects finishing to running status', () => {
+    // This test is compile-time only. The @ts-expect-error below confirms that
+    // passing 'running' to finishIngestRun is rejected by TypeScript.
+    // The function is never actually called at runtime.
+    const _typeCheck = (pool: typeof db.pool, id: number) => {
+      // @ts-expect-error — 'running' is not a terminal status
+      void finishIngestRun(pool, id, { status: 'running' });
+    };
+    void _typeCheck; // suppress unused-variable warning
+  });
+
   it('records a started run with status=running until finished', async () => {
     const id = await startIngestRun(db.pool, 'recent');
     const runs = await getRecentIngestRuns(db.pool, 10);

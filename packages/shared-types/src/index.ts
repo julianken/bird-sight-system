@@ -60,6 +60,9 @@ export interface IngestRun {
   errorMessage: string | null;
 }
 
+// All terminal statuses — what finishIngestRun accepts. Excludes 'running' (the initial state).
+export type IngestRunTerminalStatus = Exclude<IngestRun['status'], 'running'>;
+
 export type ObservationFilters = {
   since?: '1d' | '7d' | '14d' | '30d';
   notable?: boolean;
