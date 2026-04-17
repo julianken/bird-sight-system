@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repo state
 
-This repository currently contains **planning artifacts only** — no application code, no `package.json`, no tests, no CI workflows. The full system is described in `docs/superpowers/specs/2026-04-16-bird-watch-design.md` and broken into five executable plans under `docs/superpowers/plans/`.
+This repository currently contains **planning artifacts only** — no application code, no `package.json`, no tests, no CI workflows. The full system is described in `docs/specs/2026-04-16-bird-watch-design.md` and broken into five executable plans under `docs/plans/`.
 
 The directory on disk is `bird-watch/`; the GitHub repo is `julianken/bird-sight-system`. They will not match.
 

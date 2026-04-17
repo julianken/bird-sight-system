@@ -116,7 +116,7 @@ coverage/
 ```markdown
 # bird-watch
 
-Visualize Arizona bird sightings on a stylized map. See `docs/superpowers/specs/2026-04-16-bird-watch-design.md` for the full design.
+Visualize Arizona bird sightings on a stylized map. See `docs/specs/2026-04-16-bird-watch-design.md` for the full design.
 
 ## Local development
 
@@ -135,7 +135,7 @@ npm test              # run all workspace tests
 - `frontend/` — React + Vite app
 - `migrations/` — plain SQL Postgres migrations
 - `infra/terraform/` — Infrastructure as Code
-- `docs/superpowers/` — design specs and implementation plans
+- `docs/specs/` and `docs/plans/` — design specs and implementation plans
 ```
 
 - [ ] **Step 6: Install dependencies**

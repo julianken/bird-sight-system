@@ -2,7 +2,7 @@
 
 Visualize Arizona bird sightings on a stylized ecoregion map.
 
-Status: **design + plans only** — no application code yet. Execution begins from `docs/superpowers/plans/2026-04-16-plan-1-db-foundation.md`.
+Status: **design + plans only** — no application code yet. Execution begins from `docs/plans/2026-04-16-plan-1-db-foundation.md`.
 
 ## What it is
 
@@ -21,13 +21,13 @@ Three external dependencies + four internal services. Monorepo. Everything provi
 
 Compute and DB are both true serverless — scale to zero, $0/month at hobbyist usage. Everything ships as Docker containers, so the same images move to AWS Fargate / Azure Container Apps / Fly Machines / Kubernetes with config-only changes.
 
-See `docs/superpowers/specs/2026-04-16-bird-watch-design.md` for the full spec.
+See `docs/specs/2026-04-16-bird-watch-design.md` for the full spec.
 
 ## Repo layout
 
 ```
 bird-sight-system/
-  docs/superpowers/
+  docs/
     specs/   ← design docs
     plans/   ← implementation plans (5 sub-projects)
   packages/  ← shared libs (created during Plan 1)

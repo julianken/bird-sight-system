@@ -311,9 +311,8 @@ bird-watch/
       dns.tf
       variables.tf
   docs/
-    superpowers/
-      specs/
-        2026-04-16-bird-watch-design.md  (this file)
+    specs/
+      2026-04-16-bird-watch-design.md  (this file)
   package.json                       # workspaces root
   README.md
 ```
