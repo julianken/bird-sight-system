@@ -25,8 +25,8 @@ export async function startTestDb(): Promise<TestDb> {
   for (const f of files) {
     const sql = readFileSync(join(migrationsDir, f), 'utf-8');
     // node-pg-migrate uses "-- Up Migration" / "-- Down Migration" markers.
-    const upPart = sql.split(/-- Down Migration/i)[0]
-      .replace(/-- Up Migration/i, '');
+    const [rawUpPart = ''] = sql.split(/-- Down Migration/i);
+    const upPart = rawUpPart.replace(/-- Up Migration/i, '');
     if (upPart.trim()) {
       await pool.query(upPart);
     }
