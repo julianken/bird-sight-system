@@ -115,5 +115,5 @@ The compute is plain Docker. To migrate to AWS / Azure / Fly:
 |---|---|---|
 | **GCP → AWS** | Push Dockerfiles to ECR; deploy to App Runner or Fargate; replace Cloud Scheduler with EventBridge Rules; replace Secret Manager with AWS Secrets Manager | Application code, Neon DB, frontend |
 | **GCP → Azure** | Push Dockerfiles to ACR; deploy to Azure Container Apps; replace Cloud Scheduler with Azure Logic Apps or Functions Timer; replace Secret Manager with Key Vault | Application code, Neon DB, frontend |
-| **GCP → Fly.io** | Push Dockerfiles to Fly registry; `fly deploy` for the API service; `fly machines run --schedule` for the cron jobs | Application code, frontend (could move to Fly too) |
+| **GCP → Fly.io** | Push Dockerfiles to Fly registry; `fly deploy` for the API service; use Fly's Cron Manager (JSON schedules) for arbitrary crons — `fly machines run --schedule` only accepts `hourly`/`daily`/`weekly`/`monthly` literals, which covers the backfill + hotspots jobs but not the 30-minute recent cron | Application code, frontend (could move to Fly too) |
 | **Neon → another Postgres** | `pg_dump` from Neon → restore to RDS / Cloud SQL / Azure DB / self-hosted; update `DATABASE_URL` secret | Compute layer, all application code |

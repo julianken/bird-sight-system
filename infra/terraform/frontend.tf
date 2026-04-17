@@ -32,3 +32,16 @@ output "frontend_url" {
 output "root_domain" {
   value = var.domain
 }
+
+output "gcp_region" {
+  value = var.gcp_region
+}
+
+# Consumed by scripts/deploy.sh to authenticate `wrangler pages deploy`
+# for the one-shot deploy flow. Marked sensitive so `terraform apply`
+# does not echo it; the operator still retrieves it via
+# `terraform output -raw cloudflare_api_token`.
+output "cloudflare_api_token" {
+  value     = var.cloudflare_api_token
+  sensitive = true
+}

@@ -17,17 +17,20 @@ echo "[4/6] build + push ingestor image..."
 ./scripts/build-push.sh ingestor latest
 
 echo "[5/6] roll Cloud Run to new revisions..."
-REGION=$(cd infra/terraform && terraform output -raw gcp_region 2>/dev/null || echo us-west1)
+REGION=$(cd infra/terraform && terraform output -raw gcp_region)
+REGISTRY=$(cd infra/terraform && terraform output -raw artifact_registry_url)
 gcloud run services update bird-read-api \
   --region="$REGION" \
-  --image="$(cd infra/terraform && terraform output -raw artifact_registry_url)/read-api:latest"
+  --image="$REGISTRY/read-api:latest"
 gcloud run jobs update bird-ingestor \
   --region="$REGION" \
-  --image="$(cd infra/terraform && terraform output -raw artifact_registry_url)/ingestor:latest"
+  --image="$REGISTRY/ingestor:latest"
 
 echo "[6/6] build + deploy frontend..."
 DOMAIN=$(cd infra/terraform && terraform output -raw root_domain)
 echo "VITE_API_BASE_URL=https://api.$DOMAIN" > frontend/.env.production
+CLOUDFLARE_API_TOKEN=$(cd infra/terraform && terraform output -raw cloudflare_api_token)
+export CLOUDFLARE_API_TOKEN
 (cd frontend && npm run build && npx wrangler pages deploy dist --project-name=birdwatch --branch=main)
 
 echo
