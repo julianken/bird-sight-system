@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Pool } from '@bird-watch/db-client';
-import { getRegions, getHotspots, getObservations } from '@bird-watch/db-client';
+import { getRegions, getHotspots, getObservations, getSpeciesMeta } from '@bird-watch/db-client';
 import { cacheControlFor } from './cache-headers.js';
 
 export interface AppDeps {
@@ -41,6 +41,14 @@ export function createApp(deps: AppDeps): Hono {
     });
     c.header('Cache-Control', cacheControlFor('observations'));
     return c.json(rows);
+  });
+
+  app.get('/api/species/:code', async c => {
+    const code = c.req.param('code');
+    const meta = await getSpeciesMeta(deps.pool, code);
+    if (!meta) return c.json({ error: 'not found' }, 404);
+    c.header('Cache-Control', cacheControlFor('species'));
+    return c.json(meta);
   });
 
   app.onError((err, c) => {

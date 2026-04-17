@@ -106,3 +106,22 @@ describe('GET /api/observations', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('GET /api/species/:code', () => {
+  it('returns species meta for a known code', async () => {
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/species/vermfly');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control'))
+      .toBe('public, max-age=604800, immutable');
+    const body = await res.json() as { speciesCode: string; comName: string };
+    expect(body.speciesCode).toBe('vermfly');
+    expect(body.comName).toBe('Vermilion Flycatcher');
+  });
+
+  it('returns 404 for unknown species', async () => {
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/species/notreal');
+    expect(res.status).toBe(404);
+  });
+});
