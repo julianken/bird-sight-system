@@ -19,6 +19,15 @@ function silhouetteFor(_silhouetteId: string | null): string {
   return GENERIC_SILHOUETTE_PATH;
 }
 
+// COUPLING NOTE (Plan 3 scope, not 4c):
+// colorFor receives silhouetteId (observations.silhouette_id) and passes it to
+// colorForFamily(), which expects a familyCode. This works only while
+// family_silhouettes.id == family_code (true for the current seed data).
+// Once Observation carries a first-class `familyCode` field (requires adding
+// sm.family_code to the getObservations SELECT in db-client/observations.ts and
+// to the Observation type in shared-types/src/index.ts), replace with:
+//   colorForFamily(observation.familyCode ?? '')
+// See deriveFamilies() in derived.ts for the same coupling.
 function colorFor(silhouetteId: string | null): string {
   return colorForFamily(silhouetteId ?? '');
 }
