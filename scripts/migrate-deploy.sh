@@ -10,7 +10,7 @@ if [ -z "${DATABASE_URL:-}" ]; then
 fi
 
 echo "Enabling PostGIS on Neon..."
-psql "$DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS postgis;"
 
 echo "Running migrations..."
 npx node-pg-migrate up -m migrations -d "$DATABASE_URL"
