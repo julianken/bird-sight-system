@@ -2,11 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Provision and deploy the full system on Cloudflare Workers + Cloudflare Pages + Neon Postgres, with all infrastructure managed by Terraform. After `terraform apply` and the deploy scripts, the live URL serves the frontend that talks to the Read API Worker that reads from Neon, with the Ingestor Worker running on a 30-min cron.
+**Goal:** Provision and deploy the full system on **GCP Cloud Run + Neon Postgres**, with all infrastructure managed by Terraform. Both compute and DB scale to zero. After `terraform apply` and the deploy scripts, the live URL serves the frontend that talks to the Read API on Cloud Run that reads from Neon, with the Ingestor running as a Cloud Run Job triggered by Cloud Scheduler.
 
-**Architecture:** Terraform provisions: Neon Postgres project & branch, Cloudflare Hyperdrive (for pooled DB connections from Workers), the two Worker scripts (ingestor + read-api) with their cron + Hyperdrive bindings, the Pages project for the frontend, and DNS records. Application code is bundled by Wrangler and deployed via `wrangler deploy` (called from a single `scripts/deploy.sh`). Migrations run against the Neon DB via `node-pg-migrate`.
+**Architecture:** Two Cloud Run targets — a Service (Read API, HTTP, scale-to-zero, behind a CDN) and a Job (Ingestor, invoked by Cloud Scheduler on cron). Both ship as Docker containers in Google Artifact Registry; the same images run unchanged on AWS Fargate, Azure Container Apps, Fly Machines, or any Kubernetes cluster — that's the portability story. Neon Postgres is reached via its built-in pooler URL. The frontend deploys to Cloudflare Pages (free, unlimited bandwidth) with DNS managed by Cloudflare; could be moved to GCP Cloud Storage + Cloud CDN later if you want a single-cloud setup.
 
-**Tech Stack:** Terraform, `cloudflare/cloudflare` provider, `kislerdm/neon` provider, Cloudflare Workers, Wrangler 3, Cloudflare Pages, Cloudflare Hyperdrive, Neon serverless Postgres.
+**Tech Stack:** Terraform, `hashicorp/google` provider, `kislerdm/neon` provider, `cloudflare/cloudflare` provider (for Pages + DNS), Docker, Google Cloud Run (Service + Job), Google Cloud Scheduler, Google Artifact Registry, Neon serverless Postgres + PostGIS.
+
+**Cost estimate at hobbyist usage:** $0/month indefinitely. Cloud Run always-free tier (2M req/mo, 360k vCPU-sec, 180k GiB-sec) covers our load with several orders of magnitude headroom. Neon free tier (0.5 GB) covers years of AZ data. Cloudflare Pages free tier covers static hosting and DNS. Total monthly bill: $0.
 
 **Depends on:** Plans 1, 2, 3, 4 must all be complete and tested locally.
 
@@ -27,13 +29,21 @@
 terraform {
   required_version = ">= 1.6.0"
   required_providers {
-    cloudflare = {
-      source  = "cloudflare/cloudflare"
-      version = "~> 4.20"
+    google = {
+      source  = "hashicorp/google"
+      version = "~> 5.20"
     }
     neon = {
       source  = "kislerdm/neon"
       version = "~> 0.6"
+    }
+    cloudflare = {
+      source  = "cloudflare/cloudflare"
+      version = "~> 4.20"
+    }
+    docker = {
+      source  = "kreuzwerker/docker"
+      version = "~> 3.0"
     }
   }
 }
@@ -42,21 +52,37 @@ terraform {
 - [ ] **Step 2: Write `variables.tf`**
 
 ```hcl
-variable "cloudflare_account_id" {
+variable "gcp_project_id" {
   type        = string
-  description = "Cloudflare account ID (find at Cloudflare dashboard → Workers → right sidebar)."
+  description = "GCP project ID (create one at console.cloud.google.com)."
 }
 
-variable "cloudflare_api_token" {
+variable "gcp_region" {
   type        = string
-  sensitive   = true
-  description = "Cloudflare API token with Workers + Pages + DNS + Hyperdrive perms."
+  default     = "us-west1"
+  description = "Cloud Run + Artifact Registry region. us-west1 keeps latency to AZ users low."
 }
 
 variable "neon_api_key" {
   type        = string
   sensitive   = true
   description = "Neon API key (Neon dashboard → Settings → API keys)."
+}
+
+variable "cloudflare_account_id" {
+  type        = string
+  description = "Cloudflare account ID (used for Pages + DNS only)."
+}
+
+variable "cloudflare_api_token" {
+  type        = string
+  sensitive   = true
+  description = "Cloudflare API token with Pages + DNS perms."
+}
+
+variable "cloudflare_zone_id" {
+  type        = string
+  description = "Cloudflare zone ID for `domain`."
 }
 
 variable "ebird_api_key" {
@@ -69,37 +95,57 @@ variable "domain" {
   type        = string
   description = "Domain you control on Cloudflare, e.g. birdwatch.example.com"
 }
-
-variable "zone_id" {
-  type        = string
-  description = "Cloudflare zone ID for `domain`."
-}
 ```
 
 - [ ] **Step 3: Write `main.tf`**
 
 ```hcl
-provider "cloudflare" {
-  api_token = var.cloudflare_api_token
+provider "google" {
+  project = var.gcp_project_id
+  region  = var.gcp_region
 }
 
 provider "neon" {
   api_key = var.neon_api_key
+}
+
+provider "cloudflare" {
+  api_token = var.cloudflare_api_token
+}
+
+# Enable required GCP APIs once
+resource "google_project_service" "run" {
+  service = "run.googleapis.com"
+  disable_on_destroy = false
+}
+resource "google_project_service" "scheduler" {
+  service = "cloudscheduler.googleapis.com"
+  disable_on_destroy = false
+}
+resource "google_project_service" "artifactregistry" {
+  service = "artifactregistry.googleapis.com"
+  disable_on_destroy = false
+}
+resource "google_project_service" "secretmanager" {
+  service = "secretmanager.googleapis.com"
+  disable_on_destroy = false
 }
 ```
 
 - [ ] **Step 4: Write `terraform.tfvars.example`**
 
 ```hcl
+gcp_project_id        = "REPLACE_ME"
+gcp_region            = "us-west1"
+neon_api_key          = "REPLACE_ME"
 cloudflare_account_id = "REPLACE_ME"
 cloudflare_api_token  = "REPLACE_ME"
-neon_api_key          = "REPLACE_ME"
+cloudflare_zone_id    = "REPLACE_ME"
 ebird_api_key         = "REPLACE_ME"
 domain                = "birdwatch.example.com"
-zone_id               = "REPLACE_ME"
 ```
 
-- [ ] **Step 5: Write `infra/terraform/.gitignore`**
+- [ ] **Step 5: Write `.gitignore`**
 
 ```
 .terraform/
@@ -110,21 +156,29 @@ terraform.tfvars
 *.auto.tfvars
 ```
 
-- [ ] **Step 6: Initialize Terraform**
+- [ ] **Step 6: Authenticate gcloud and Terraform**
 
 ```bash
+gcloud auth login
+gcloud auth application-default login
+gcloud config set project <YOUR_PROJECT_ID>
+
 cd infra/terraform
-cp terraform.tfvars.example terraform.tfvars  # then fill in real values out-of-band
+cp terraform.tfvars.example terraform.tfvars  # fill in real values
 terraform init
+terraform apply -target=google_project_service.run \
+                -target=google_project_service.scheduler \
+                -target=google_project_service.artifactregistry \
+                -target=google_project_service.secretmanager
 ```
 
-Expected: `Terraform has been successfully initialized!`
+Expected: APIs enabled. Subsequent `terraform apply` calls won't re-prompt for these.
 
 - [ ] **Step 7: Commit**
 
 ```bash
 git add infra/terraform/{main.tf,variables.tf,versions.tf,terraform.tfvars.example,.gitignore}
-git commit -m "infra: scaffold Terraform with Cloudflare + Neon providers"
+git commit -m "infra: scaffold Terraform with GCP + Neon + Cloudflare providers"
 ```
 
 ---
@@ -138,8 +192,8 @@ git commit -m "infra: scaffold Terraform with Cloudflare + Neon providers"
 
 ```hcl
 resource "neon_project" "birdwatch" {
-  name      = "bird-watch"
-  region_id = "aws-us-west-2"  # close to AZ; pick another if you prefer
+  name       = "bird-watch"
+  region_id  = "aws-us-west-2"  # close to gcp_region
   pg_version = 16
 }
 
@@ -155,11 +209,12 @@ resource "neon_database" "main" {
   owner_name = neon_project.birdwatch.default_role_name
 }
 
-# A role + endpoint give us a connection string.
+# Endpoint with pooled connection enabled — required for serverless.
 resource "neon_endpoint" "main" {
   project_id = neon_project.birdwatch.id
   branch_id  = neon_branch.main.id
   type       = "read_write"
+  pooler_enabled = true
 }
 
 output "neon_db_url" {
@@ -167,8 +222,9 @@ output "neon_db_url" {
   sensitive = true
 }
 
-output "neon_pgbouncer_url" {
-  value     = "postgres://${neon_project.birdwatch.default_role_name}:${neon_project.birdwatch.default_role_password}@${neon_endpoint.main.host}-pooler/${neon_database.main.name}?sslmode=require"
+# Pooled URL — what Cloud Run uses. Each connection is multiplexed via PgBouncer.
+output "neon_pooled_url" {
+  value     = "postgres://${neon_project.birdwatch.default_role_name}:${neon_project.birdwatch.default_role_password}@${replace(neon_endpoint.main.host, ".neon.tech", "-pooler.neon.tech")}/${neon_database.main.name}?sslmode=require"
   sensitive = true
 }
 ```
@@ -176,11 +232,10 @@ output "neon_pgbouncer_url" {
 - [ ] **Step 2: Apply**
 
 ```bash
-terraform plan
 terraform apply
 ```
 
-Expected: a Neon project, branch, database, and endpoint exist in the Neon dashboard.
+Expected: Neon project + DB + pooled endpoint exist.
 
 - [ ] **Step 3: Verify connectivity**
 
@@ -189,13 +244,11 @@ DB_URL=$(terraform output -raw neon_db_url)
 psql "$DB_URL" -c "SELECT version();"
 ```
 
-Expected: prints Postgres 16 version string.
-
 - [ ] **Step 4: Commit**
 
 ```bash
 git add infra/terraform/db.tf
-git commit -m "infra: provision Neon Postgres + database"
+git commit -m "infra: provision Neon Postgres with pooled endpoint"
 ```
 
 ---
@@ -207,7 +260,6 @@ git commit -m "infra: provision Neon Postgres + database"
 
 - [ ] **Step 1: Write the script**
 
-`scripts/migrate-deploy.sh`:
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
@@ -229,26 +281,18 @@ npx node-pg-migrate up -m migrations -d "$DATABASE_URL"
 echo "Done."
 ```
 
-- [ ] **Step 2: Make it executable and run**
+- [ ] **Step 2: Make executable + run**
 
 ```bash
 chmod +x scripts/migrate-deploy.sh
 export DATABASE_URL=$(cd infra/terraform && terraform output -raw neon_db_url)
 ./scripts/migrate-deploy.sh
-```
-
-Expected: PostGIS extension enabled; all migrations applied; 9 regions + 15 silhouettes seeded.
-
-- [ ] **Step 3: Verify**
-
-```bash
 psql "$DATABASE_URL" -c "SELECT count(*) FROM regions;"
-psql "$DATABASE_URL" -c "SELECT count(*) FROM family_silhouettes;"
 ```
 
-Expected: `9` and `15`.
+Expected: `9` regions, `15` silhouettes.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add scripts/migrate-deploy.sh
@@ -257,34 +301,25 @@ git commit -m "infra: migration runner for Neon"
 
 ---
 
-### Task 4: Provision Cloudflare Hyperdrive (DB connection pooling for Workers)
+### Task 4: Google Artifact Registry for Docker images
 
 **Files:**
-- Create: `infra/terraform/hyperdrive.tf`
+- Create: `infra/terraform/registry.tf`
 
-- [ ] **Step 1: Write `hyperdrive.tf`**
+- [ ] **Step 1: Write `registry.tf`**
 
 ```hcl
-resource "cloudflare_hyperdrive_config" "birdwatch" {
-  account_id = var.cloudflare_account_id
-  name       = "birdwatch-pg"
+resource "google_artifact_registry_repository" "birdwatch" {
+  repository_id = "birdwatch"
+  location      = var.gcp_region
+  format        = "DOCKER"
+  description   = "Container images for bird-watch services"
 
-  origin = {
-    database = neon_database.main.name
-    host     = neon_endpoint.main.host
-    port     = 5432
-    user     = neon_project.birdwatch.default_role_name
-    password = neon_project.birdwatch.default_role_password
-    scheme   = "postgres"
-  }
-
-  caching = {
-    disabled = false
-  }
+  depends_on = [google_project_service.artifactregistry]
 }
 
-output "hyperdrive_id" {
-  value = cloudflare_hyperdrive_config.birdwatch.id
+output "artifact_registry_url" {
+  value = "${var.gcp_region}-docker.pkg.dev/${var.gcp_project_id}/${google_artifact_registry_repository.birdwatch.repository_id}"
 }
 ```
 
@@ -292,331 +327,499 @@ output "hyperdrive_id" {
 
 ```bash
 terraform apply
+gcloud auth configure-docker $(terraform output -raw artifact_registry_url | cut -d/ -f1)
 ```
 
-Expected: `cloudflare_hyperdrive_config.birdwatch: Creation complete`.
-
-- [ ] **Step 3: Capture the ID**
-
-```bash
-terraform output hyperdrive_id
-```
-
-Expected: a hex string. Save it for the Worker bindings (next tasks reference it via Terraform output).
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add infra/terraform/hyperdrive.tf
-git commit -m "infra: Cloudflare Hyperdrive for Neon connection pooling"
-```
-
----
-
-### Task 5: Cloudflare wrapper for the Ingestor Worker
-
-**Files:**
-- Create: `services/ingestor/src/worker.ts`
-- Create: `services/ingestor/wrangler.toml`
-- Create: `services/ingestor/tsconfig.worker.json`
-
-- [ ] **Step 1: Write the Worker entrypoint**
-
-`services/ingestor/src/worker.ts`:
-```typescript
-import { handleScheduled, type ScheduledKind } from './handler.js';
-
-export interface Env {
-  HYPERDRIVE: { connectionString: string };
-  EBIRD_API_KEY: string;
-}
-
-export default {
-  async scheduled(event: ScheduledController, env: Env, _ctx: ExecutionContext) {
-    const kind = mapCronToKind(event.cron);
-    const result = await handleScheduled(kind, {
-      DATABASE_URL: env.HYPERDRIVE.connectionString,
-      EBIRD_API_KEY: env.EBIRD_API_KEY,
-    });
-    console.log(JSON.stringify({ event: 'ingest_done', kind, result }));
-  },
-} satisfies ExportedHandler<Env>;
-
-function mapCronToKind(cron: string): ScheduledKind {
-  // Match the cron strings declared in wrangler.toml
-  if (cron === '*/30 * * * *') return 'recent';
-  if (cron === '0 4 * * *') return 'backfill';
-  if (cron === '0 5 * * 0') return 'hotspots';
-  return 'recent';
-}
-
-interface ScheduledController { cron: string; scheduledTime: number; }
-interface ExecutionContext { waitUntil(promise: Promise<unknown>): void; }
-type ExportedHandler<E> = { scheduled(e: ScheduledController, env: E, ctx: ExecutionContext): Promise<void>; };
-```
-
-- [ ] **Step 2: Write `wrangler.toml`**
-
-```toml
-name = "birdwatch-ingestor"
-main = "src/worker.ts"
-compatibility_date = "2026-04-01"
-compatibility_flags = ["nodejs_compat"]
-
-[[hyperdrive]]
-binding = "HYPERDRIVE"
-id = "REPLACE_WITH_HYPERDRIVE_ID"
-
-[[triggers.crons]]
-cron = "*/30 * * * *"
-
-[[triggers.crons]]
-cron = "0 4 * * *"
-
-[[triggers.crons]]
-cron = "0 5 * * 0"
-
-[vars]
-# EBIRD_API_KEY is set via `wrangler secret put EBIRD_API_KEY`
-```
-
-- [ ] **Step 3: Write `tsconfig.worker.json`**
-
-```json
-{
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": {
-    "lib": ["ES2022"],
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "types": ["@cloudflare/workers-types"]
-  },
-  "include": ["src/worker.ts", "src/handler.ts", "src/run-ingest.ts", "src/run-hotspots.ts", "src/run-backfill.ts", "src/transform.ts", "src/ebird"]
-}
-```
-
-- [ ] **Step 4: Add `@cloudflare/workers-types` and `wrangler` as devDependencies**
-
-Edit `services/ingestor/package.json`, add:
-```json
-"devDependencies": {
-  "@cloudflare/workers-types": "^4.20240117.0",
-  "wrangler": "^3.25.0",
-  ...
-}
-```
-
-Then:
-```bash
-npm install
-```
-
-- [ ] **Step 5: Deploy after filling Hyperdrive ID**
-
-```bash
-HYPERDRIVE_ID=$(cd ../../infra/terraform && terraform output -raw hyperdrive_id)
-sed -i.bak "s/REPLACE_WITH_HYPERDRIVE_ID/$HYPERDRIVE_ID/" wrangler.toml
-rm wrangler.toml.bak
-
-cd services/ingestor
-npx wrangler secret put EBIRD_API_KEY  # paste your eBird key
-npx wrangler deploy
-```
-
-Expected: `Deployed birdwatch-ingestor`. The cron triggers are registered.
-
-- [ ] **Step 6: Trigger a test invocation**
-
-```bash
-npx wrangler tail birdwatch-ingestor &
-# In Cloudflare dashboard → Workers → birdwatch-ingestor → "Schedule" → "Test schedule" → cron "*/30 * * * *"
-```
-
-Expected: a log line `{"event":"ingest_done","kind":"recent","result":{"status":"success",...}}`.
-
-- [ ] **Step 7: Verify rows in Neon**
-
-```bash
-psql "$DATABASE_URL" -c "SELECT count(*) FROM observations;"
-```
-
-Expected: a non-zero count (real eBird data for AZ in the last 14 days).
-
-- [ ] **Step 8: Commit**
-
-```bash
-git add services/ingestor/src/worker.ts services/ingestor/wrangler.toml services/ingestor/tsconfig.worker.json services/ingestor/package.json package-lock.json
-git commit -m "infra: deploy ingestor as Cloudflare Worker with cron + Hyperdrive"
-```
-
----
-
-### Task 6: Cloudflare wrapper for the Read API Worker
-
-**Files:**
-- Create: `services/read-api/src/worker.ts`
-- Create: `services/read-api/wrangler.toml`
-- Create: `services/read-api/tsconfig.worker.json`
-
-- [ ] **Step 1: Write the Worker entrypoint**
-
-`services/read-api/src/worker.ts`:
-```typescript
-import { createApp } from './app.js';
-import { createPool } from '@bird-watch/db-client';
-
-export interface Env {
-  HYPERDRIVE: { connectionString: string };
-}
-
-let cachedPool: ReturnType<typeof createPool> | null = null;
-
-export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
-    if (!cachedPool) {
-      cachedPool = createPool({
-        databaseUrl: env.HYPERDRIVE.connectionString,
-        key: 'worker-pool',
-        max: 4,
-      });
-    }
-    const app = createApp({ pool: cachedPool });
-    return app.fetch(req);
-  },
-} satisfies ExportedHandler<Env>;
-
-type ExportedHandler<E> = { fetch(req: Request, env: E): Promise<Response>; };
-```
-
-- [ ] **Step 2: Write `services/read-api/wrangler.toml`**
-
-```toml
-name = "birdwatch-read-api"
-main = "src/worker.ts"
-compatibility_date = "2026-04-01"
-compatibility_flags = ["nodejs_compat"]
-
-[[hyperdrive]]
-binding = "HYPERDRIVE"
-id = "REPLACE_WITH_HYPERDRIVE_ID"
-
-[[routes]]
-pattern = "api.${DOMAIN}/*"
-zone_name = "${DOMAIN}"
-```
-
-(`${DOMAIN}` is illustrative — wrangler doesn't expand env vars in TOML by default. We'll patch it from a deploy script.)
-
-- [ ] **Step 3: Write `tsconfig.worker.json`**
-
-```json
-{
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": {
-    "lib": ["ES2022"],
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "types": ["@cloudflare/workers-types"]
-  },
-  "include": ["src/worker.ts", "src/app.ts", "src/cache-headers.ts"]
-}
-```
-
-- [ ] **Step 4: Add Workers types + wrangler to dev deps**
-
-Edit `services/read-api/package.json`, add to devDependencies:
-```json
-"@cloudflare/workers-types": "^4.20240117.0",
-"wrangler": "^3.25.0"
-```
-
-Run `npm install`.
-
-- [ ] **Step 5: Deploy**
-
-```bash
-cd services/read-api
-HYPERDRIVE_ID=$(cd ../../infra/terraform && terraform output -raw hyperdrive_id)
-DOMAIN=$(cd ../../infra/terraform && terraform output -raw root_domain 2>/dev/null || echo "your.domain")
-sed -i.bak "s/REPLACE_WITH_HYPERDRIVE_ID/$HYPERDRIVE_ID/; s|\${DOMAIN}|$DOMAIN|g" wrangler.toml
-rm wrangler.toml.bak
-npx wrangler deploy
-```
-
-Expected: `Deployed birdwatch-read-api` + a route `api.<your-domain>/*`.
-
-- [ ] **Step 6: Smoke-test**
-
-```bash
-curl -i "https://api.${DOMAIN}/health"
-curl -i "https://api.${DOMAIN}/api/regions"
-```
-
-Expected: 200 OK with JSON; `Cache-Control` header set per spec.
-
-- [ ] **Step 7: Commit**
-
-```bash
-git add services/read-api/src/worker.ts services/read-api/wrangler.toml services/read-api/tsconfig.worker.json services/read-api/package.json package-lock.json
-git commit -m "infra: deploy read-api as Cloudflare Worker"
-```
-
----
-
-### Task 7: DNS records via Terraform
-
-**Files:**
-- Create: `infra/terraform/dns.tf`
-
-- [ ] **Step 1: Write `dns.tf`**
-
-```hcl
-# A worker.dev route is created automatically; this adds a CNAME
-# from your custom api subdomain to the Worker for nicer URLs.
-resource "cloudflare_record" "api" {
-  zone_id = var.zone_id
-  name    = "api"
-  type    = "AAAA"
-  value   = "100::"  # placeholder; Cloudflare proxy handles the actual routing
-  proxied = true
-  ttl     = 1
-}
-
-# The Pages project below issues its own custom domain config.
-output "api_url" {
-  value = "https://api.${var.domain}"
-}
-
-output "root_domain" {
-  value = var.domain
-}
-```
-
-- [ ] **Step 2: Apply**
-
-```bash
-cd infra/terraform
-terraform apply
-```
-
-Expected: a CNAME-style AAAA record for `api.<your-domain>` pointing through Cloudflare's proxy.
+Expected: Registry exists; `docker push` to the registry URL is now authenticated.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add infra/terraform/dns.tf
-git commit -m "infra: DNS record for api subdomain"
+git add infra/terraform/registry.tf
+git commit -m "infra: Artifact Registry for Docker images"
 ```
 
 ---
 
-### Task 8: Cloudflare Pages for the frontend
+### Task 5: Dockerize the Read API
 
 **Files:**
-- Create: `infra/terraform/pages.tf`
+- Create: `services/read-api/Dockerfile`
+- Create: `services/read-api/.dockerignore`
+
+- [ ] **Step 1: Write `services/read-api/Dockerfile`**
+
+```dockerfile
+# Build stage — uses the monorepo root context.
+FROM node:20-alpine AS build
+WORKDIR /repo
+
+# Copy package manifests first for cached install.
+COPY package.json package-lock.json ./
+COPY tsconfig.base.json ./
+COPY packages ./packages
+COPY services/read-api ./services/read-api
+
+RUN npm ci --workspaces --include-workspace-root --omit=dev=false
+RUN npm run build --workspace @bird-watch/shared-types
+RUN npm run build --workspace @bird-watch/db-client
+RUN npm run build --workspace @bird-watch/family-mapping
+RUN npm run build --workspace @bird-watch/read-api
+
+# Runtime stage — copy only what we need.
+FROM node:20-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=8080
+
+COPY --from=build /repo/package.json /repo/package-lock.json ./
+COPY --from=build /repo/packages ./packages
+COPY --from=build /repo/services/read-api/package.json ./services/read-api/
+COPY --from=build /repo/services/read-api/dist ./services/read-api/dist
+
+RUN npm ci --omit=dev --workspaces --include-workspace-root
+
+EXPOSE 8080
+CMD ["node", "services/read-api/dist/local.js"]
+```
+
+- [ ] **Step 2: Write `services/read-api/.dockerignore`**
+
+```
+node_modules
+dist
+*.log
+.env
+.env.local
+src/**/*.test.ts
+```
+
+- [ ] **Step 3: Build the image locally to confirm**
+
+```bash
+cd /Users/j/repos/bird-watch
+docker build -f services/read-api/Dockerfile -t bird-read-api:local .
+docker run --rm -p 8080:8080 -e DATABASE_URL="$DATABASE_URL" bird-read-api:local &
+sleep 3
+curl -i http://localhost:8080/health
+docker kill $(docker ps -q --filter ancestor=bird-read-api:local)
+```
+
+Expected: `{"ok":true}`.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add services/read-api/Dockerfile services/read-api/.dockerignore
+git commit -m "feat(read-api): Dockerfile for Cloud Run"
+```
+
+---
+
+### Task 6: Push Read API image + provision Cloud Run Service
+
+**Files:**
+- Create: `infra/terraform/read-api.tf`
+- Create: `scripts/build-push.sh`
+
+- [ ] **Step 1: Write `scripts/build-push.sh`**
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+REGISTRY=$(cd infra/terraform && terraform output -raw artifact_registry_url)
+SERVICE="${1:?usage: build-push.sh <service> (read-api | ingestor)}"
+TAG="${2:-latest}"
+
+echo "Building $SERVICE → $REGISTRY/$SERVICE:$TAG ..."
+docker buildx build --platform linux/amd64 \
+  -f "services/$SERVICE/Dockerfile" \
+  -t "$REGISTRY/$SERVICE:$TAG" \
+  --push .
+
+echo "Pushed $REGISTRY/$SERVICE:$TAG"
+```
+
+- [ ] **Step 2: Make executable + push**
+
+```bash
+chmod +x scripts/build-push.sh
+./scripts/build-push.sh read-api latest
+```
+
+- [ ] **Step 3: Write `infra/terraform/read-api.tf`**
+
+```hcl
+# Store the Neon pooled URL in Secret Manager so we don't ship it in plain env.
+resource "google_secret_manager_secret" "db_url" {
+  secret_id = "bird-watch-db-url"
+  replication { auto {} }
+  depends_on = [google_project_service.secretmanager]
+}
+
+resource "google_secret_manager_secret_version" "db_url" {
+  secret      = google_secret_manager_secret.db_url.id
+  secret_data = "postgres://${neon_project.birdwatch.default_role_name}:${neon_project.birdwatch.default_role_password}@${replace(neon_endpoint.main.host, ".neon.tech", "-pooler.neon.tech")}/${neon_database.main.name}?sslmode=require"
+}
+
+# Service account the Read API runs as.
+resource "google_service_account" "read_api" {
+  account_id   = "bird-read-api"
+  display_name = "bird-watch Read API"
+}
+
+resource "google_secret_manager_secret_iam_member" "read_api_db" {
+  secret_id = google_secret_manager_secret.db_url.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.read_api.email}"
+}
+
+resource "google_cloud_run_v2_service" "read_api" {
+  name     = "bird-read-api"
+  location = var.gcp_region
+
+  template {
+    service_account = google_service_account.read_api.email
+
+    scaling {
+      min_instance_count = 0   # true scale-to-zero
+      max_instance_count = 5
+    }
+
+    containers {
+      image = "${google_artifact_registry_repository.birdwatch.location}-docker.pkg.dev/${var.gcp_project_id}/${google_artifact_registry_repository.birdwatch.repository_id}/read-api:latest"
+
+      ports { container_port = 8080 }
+
+      resources {
+        limits = { cpu = "1", memory = "256Mi" }
+        cpu_idle = true                 # CPU only allocated during requests (cheaper)
+        startup_cpu_boost = true        # quicker cold starts
+      }
+
+      env {
+        name = "DATABASE_URL"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.db_url.secret_id
+            version = "latest"
+          }
+        }
+      }
+    }
+  }
+
+  traffic {
+    type    = "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST"
+    percent = 100
+  }
+
+  depends_on = [
+    google_project_service.run,
+    google_secret_manager_secret_iam_member.read_api_db,
+  ]
+}
+
+# Allow public access (CDN sits in front).
+resource "google_cloud_run_v2_service_iam_member" "read_api_public" {
+  name     = google_cloud_run_v2_service.read_api.name
+  location = google_cloud_run_v2_service.read_api.location
+  role     = "roles/run.invoker"
+  member   = "allUsers"
+}
+
+output "read_api_url" {
+  value = google_cloud_run_v2_service.read_api.uri
+}
+```
+
+- [ ] **Step 4: Apply**
+
+```bash
+terraform apply
+```
+
+Expected: a Cloud Run service URL, e.g. `https://bird-read-api-abcd1234-uw.a.run.app`.
+
+- [ ] **Step 5: Smoke-test**
+
+```bash
+URL=$(terraform output -raw read_api_url)
+curl -fsS "$URL/health"
+curl -fsS "$URL/api/regions" | head -c 200
+```
+
+Expected: `{"ok":true}` and a JSON array of 9 regions.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add scripts/build-push.sh infra/terraform/read-api.tf
+git commit -m "infra: deploy read-api as Cloud Run service with secret-managed DB URL"
+```
+
+---
+
+### Task 7: Dockerize the Ingestor
+
+**Files:**
+- Create: `services/ingestor/Dockerfile`
+- Create: `services/ingestor/.dockerignore`
+
+- [ ] **Step 1: Write `services/ingestor/Dockerfile`**
+
+```dockerfile
+FROM node:20-alpine AS build
+WORKDIR /repo
+
+COPY package.json package-lock.json ./
+COPY tsconfig.base.json ./
+COPY packages ./packages
+COPY services/ingestor ./services/ingestor
+
+RUN npm ci --workspaces --include-workspace-root --omit=dev=false
+RUN npm run build --workspace @bird-watch/shared-types
+RUN npm run build --workspace @bird-watch/db-client
+RUN npm run build --workspace @bird-watch/family-mapping
+RUN npm run build --workspace @bird-watch/ingestor
+
+FROM node:20-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+
+COPY --from=build /repo/package.json /repo/package-lock.json ./
+COPY --from=build /repo/packages ./packages
+COPY --from=build /repo/services/ingestor/package.json ./services/ingestor/
+COPY --from=build /repo/services/ingestor/dist ./services/ingestor/dist
+
+RUN npm ci --omit=dev --workspaces --include-workspace-root
+
+# The Cloud Run Job invokes this entrypoint with the kind as $1.
+ENTRYPOINT ["node", "services/ingestor/dist/cli.js"]
+```
+
+- [ ] **Step 2: Write `.dockerignore`** (same content as Task 5)
+
+- [ ] **Step 3: Push the image**
+
+```bash
+./scripts/build-push.sh ingestor latest
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add services/ingestor/Dockerfile services/ingestor/.dockerignore
+git commit -m "feat(ingestor): Dockerfile for Cloud Run Job"
+```
+
+---
+
+### Task 8: Cloud Run Job + Cloud Scheduler triggers for Ingestor
+
+**Files:**
+- Create: `infra/terraform/ingestor.tf`
+
+- [ ] **Step 1: Write `infra/terraform/ingestor.tf`**
+
+```hcl
+resource "google_service_account" "ingestor" {
+  account_id   = "bird-ingestor"
+  display_name = "bird-watch Ingestor"
+}
+
+resource "google_secret_manager_secret_iam_member" "ingestor_db" {
+  secret_id = google_secret_manager_secret.db_url.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.ingestor.email}"
+}
+
+resource "google_secret_manager_secret" "ebird_key" {
+  secret_id = "bird-watch-ebird-key"
+  replication { auto {} }
+  depends_on = [google_project_service.secretmanager]
+}
+
+resource "google_secret_manager_secret_version" "ebird_key" {
+  secret      = google_secret_manager_secret.ebird_key.id
+  secret_data = var.ebird_api_key
+}
+
+resource "google_secret_manager_secret_iam_member" "ingestor_ebird" {
+  secret_id = google_secret_manager_secret.ebird_key.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.ingestor.email}"
+}
+
+resource "google_cloud_run_v2_job" "ingestor" {
+  name     = "bird-ingestor"
+  location = var.gcp_region
+
+  template {
+    template {
+      service_account = google_service_account.ingestor.email
+      timeout         = "300s"
+      max_retries     = 1
+
+      containers {
+        image = "${google_artifact_registry_repository.birdwatch.location}-docker.pkg.dev/${var.gcp_project_id}/${google_artifact_registry_repository.birdwatch.repository_id}/ingestor:latest"
+
+        # Args are appended to ENTRYPOINT. CLI takes "recent" | "hotspots" | "backfill".
+        args = ["recent"]
+
+        resources {
+          limits = { cpu = "1", memory = "512Mi" }
+        }
+
+        env {
+          name = "DATABASE_URL"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.db_url.secret_id
+              version = "latest"
+            }
+          }
+        }
+        env {
+          name = "EBIRD_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.ebird_key.secret_id
+              version = "latest"
+            }
+          }
+        }
+      }
+    }
+  }
+
+  depends_on = [
+    google_project_service.run,
+    google_secret_manager_secret_iam_member.ingestor_db,
+    google_secret_manager_secret_iam_member.ingestor_ebird,
+  ]
+}
+
+# Service account that Scheduler uses to invoke the Job.
+resource "google_service_account" "scheduler" {
+  account_id   = "bird-scheduler"
+  display_name = "bird-watch Cloud Scheduler invoker"
+}
+
+resource "google_cloud_run_v2_job_iam_member" "scheduler_invoke" {
+  name     = google_cloud_run_v2_job.ingestor.name
+  location = google_cloud_run_v2_job.ingestor.location
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.scheduler.email}"
+}
+
+locals {
+  job_run_url = "https://${var.gcp_region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.gcp_project_id}/jobs/${google_cloud_run_v2_job.ingestor.name}:run"
+}
+
+# Three crons matching the spec: every 30 min, daily 4am UTC, weekly Sun 5am UTC.
+resource "google_cloud_scheduler_job" "ingest_recent" {
+  name      = "bird-ingest-recent"
+  region    = var.gcp_region
+  schedule  = "*/30 * * * *"
+  time_zone = "Etc/UTC"
+
+  http_target {
+    uri         = local.job_run_url
+    http_method = "POST"
+    headers     = { "Content-Type" = "application/json" }
+    body = base64encode(jsonencode({
+      overrides = {
+        containerOverrides = [{ args = ["recent"] }]
+      }
+    }))
+    oauth_token {
+      service_account_email = google_service_account.scheduler.email
+    }
+  }
+
+  depends_on = [google_project_service.scheduler]
+}
+
+resource "google_cloud_scheduler_job" "ingest_backfill" {
+  name      = "bird-ingest-backfill"
+  region    = var.gcp_region
+  schedule  = "0 4 * * *"
+  time_zone = "Etc/UTC"
+
+  http_target {
+    uri         = local.job_run_url
+    http_method = "POST"
+    headers     = { "Content-Type" = "application/json" }
+    body = base64encode(jsonencode({
+      overrides = {
+        containerOverrides = [{ args = ["backfill"] }]
+      }
+    }))
+    oauth_token {
+      service_account_email = google_service_account.scheduler.email
+    }
+  }
+}
+
+resource "google_cloud_scheduler_job" "ingest_hotspots" {
+  name      = "bird-ingest-hotspots"
+  region    = var.gcp_region
+  schedule  = "0 5 * * 0"
+  time_zone = "Etc/UTC"
+
+  http_target {
+    uri         = local.job_run_url
+    http_method = "POST"
+    headers     = { "Content-Type" = "application/json" }
+    body = base64encode(jsonencode({
+      overrides = {
+        containerOverrides = [{ args = ["hotspots"] }]
+      }
+    }))
+    oauth_token {
+      service_account_email = google_service_account.scheduler.email
+    }
+  }
+}
+```
+
+- [ ] **Step 2: Apply**
+
+```bash
+terraform apply
+```
+
+Expected: 1 Job + 3 Scheduler jobs created.
+
+- [ ] **Step 3: Trigger one ingest run manually**
+
+```bash
+gcloud run jobs execute bird-ingestor --region=$(terraform output -raw gcp_region 2>/dev/null || echo us-west1) --args=recent
+gcloud logging read 'resource.type="cloud_run_job" AND resource.labels.job_name="bird-ingestor"' --limit=20
+```
+
+Expected: log lines from the ingestor; `psql "$DATABASE_URL" -c "SELECT count(*) FROM observations;"` returns a non-zero count.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add infra/terraform/ingestor.tf
+git commit -m "infra: deploy ingestor as Cloud Run Job + 3 Scheduler triggers"
+```
+
+---
+
+### Task 9: Frontend on Cloudflare Pages + DNS
+
+**Files:**
+- Create: `infra/terraform/frontend.tf`
 - Create: `frontend/.env.production`
 
-- [ ] **Step 1: Write `pages.tf`**
+- [ ] **Step 1: Write `infra/terraform/frontend.tf`**
 
 ```hcl
 resource "cloudflare_pages_project" "frontend" {
@@ -631,13 +834,20 @@ resource "cloudflare_pages_domain" "root" {
   domain       = var.domain
 }
 
-output "pages_subdomain" {
-  value = cloudflare_pages_project.frontend.subdomain
+# Subdomain "api" → CNAME to the Cloud Run service URL (proxied through Cloudflare for caching).
+resource "cloudflare_record" "api" {
+  zone_id = var.cloudflare_zone_id
+  name    = "api"
+  type    = "CNAME"
+  # Strip protocol; CF wants just the host
+  value   = trimprefix(google_cloud_run_v2_service.read_api.uri, "https://")
+  proxied = true
+  ttl     = 1
 }
 
-output "frontend_url" {
-  value = "https://${var.domain}"
-}
+output "api_url"       { value = "https://api.${var.domain}" }
+output "frontend_url"  { value = "https://${var.domain}" }
+output "root_domain"   { value = var.domain }
 ```
 
 - [ ] **Step 2: Apply**
@@ -646,53 +856,41 @@ output "frontend_url" {
 terraform apply
 ```
 
-- [ ] **Step 3: Tell the frontend the API base URL**
-
-`frontend/.env.production`:
-```
-VITE_API_BASE_URL=https://api.<your-domain-here>
-```
-
-(Replace at deploy time with a `sed` invocation, or set in Cloudflare Pages env vars.)
-
-Modify `frontend/src/api/client.ts` constructor default:
-```typescript
-constructor(opts: ApiClientOptions = {}) {
-  this.baseUrl = opts.baseUrl ?? import.meta.env.VITE_API_BASE_URL ?? '';
-}
-```
-
-- [ ] **Step 4: Build + deploy**
+- [ ] **Step 3: Build + deploy frontend**
 
 ```bash
+DOMAIN=$(terraform output -raw root_domain)
+echo "VITE_API_BASE_URL=https://api.$DOMAIN" > frontend/.env.production
 cd frontend
 npm run build
 npx wrangler pages deploy dist --project-name=birdwatch --branch=main
 ```
 
-Expected: a deploy URL like `https://abcd1234.birdwatch.pages.dev`. After DNS propagates, also reachable at your custom domain.
+Expected: a deploy URL like `https://abcd.birdwatch.pages.dev`. Custom domain reachable after DNS propagates (~1 min).
 
-- [ ] **Step 5: Smoke-test**
-
-Visit `https://<your-domain>`. Expected: map renders, observations load (DB has data from ingestor's first run).
-
-- [ ] **Step 6: Commit**
+- [ ] **Step 4: Smoke-test**
 
 ```bash
-git add infra/terraform/pages.tf frontend/.env.production frontend/src/api/client.ts
-git commit -m "infra: Cloudflare Pages for frontend with API base URL"
+curl -fsS "https://api.$DOMAIN/health"
+curl -fsS "https://$DOMAIN" | grep -q '<title>bird-watch'
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add infra/terraform/frontend.tf frontend/.env.production
+git commit -m "infra: Cloudflare Pages for frontend + CNAME for API"
 ```
 
 ---
 
-### Task 9: One-shot deploy script
+### Task 10: One-shot deploy script
 
 **Files:**
 - Create: `scripts/deploy.sh`
 
 - [ ] **Step 1: Write the script**
 
-`scripts/deploy.sh`:
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
@@ -702,70 +900,56 @@ cd "$(dirname "$0")/.."
 echo "[1/6] terraform apply..."
 (cd infra/terraform && terraform apply -auto-approve)
 
-echo "[2/6] resolve outputs..."
-HYPERDRIVE_ID=$(cd infra/terraform && terraform output -raw hyperdrive_id)
+echo "[2/6] migrations..."
 DB_URL=$(cd infra/terraform && terraform output -raw neon_db_url)
-DOMAIN=$(cd infra/terraform && terraform output -raw root_domain)
-
-echo "[3/6] migrations..."
 DATABASE_URL="$DB_URL" ./scripts/migrate-deploy.sh
 
-echo "[4/6] deploy ingestor..."
-(cd services/ingestor
- sed -i.bak "s/REPLACE_WITH_HYPERDRIVE_ID/$HYPERDRIVE_ID/" wrangler.toml || true
- rm -f wrangler.toml.bak
- npx wrangler deploy)
+echo "[3/6] build + push read-api image..."
+./scripts/build-push.sh read-api latest
 
-echo "[5/6] deploy read-api..."
-(cd services/read-api
- sed -i.bak "s/REPLACE_WITH_HYPERDRIVE_ID/$HYPERDRIVE_ID/; s|\${DOMAIN}|$DOMAIN|g" wrangler.toml || true
- rm -f wrangler.toml.bak
- npx wrangler deploy)
+echo "[4/6] build + push ingestor image..."
+./scripts/build-push.sh ingestor latest
+
+echo "[5/6] roll Cloud Run to new revisions..."
+REGION=$(cd infra/terraform && terraform output -raw gcp_region 2>/dev/null || echo us-west1)
+gcloud run services update bird-read-api --region="$REGION" --image="$(cd infra/terraform && terraform output -raw artifact_registry_url)/read-api:latest"
+gcloud run jobs update bird-ingestor --region="$REGION" --image="$(cd infra/terraform && terraform output -raw artifact_registry_url)/ingestor:latest"
 
 echo "[6/6] build + deploy frontend..."
+DOMAIN=$(cd infra/terraform && terraform output -raw root_domain)
 echo "VITE_API_BASE_URL=https://api.$DOMAIN" > frontend/.env.production
-(cd frontend
- npm run build
- npx wrangler pages deploy dist --project-name=birdwatch --branch=main)
+(cd frontend && npm run build && npx wrangler pages deploy dist --project-name=birdwatch --branch=main)
 
 echo
 echo "Deployed."
 echo "  Frontend:  https://$DOMAIN"
 echo "  API:       https://api.$DOMAIN"
-echo "  Ingestor:  birdwatch-ingestor (cron-driven)"
+echo "  Ingestor:  bird-ingestor (cron-driven via Cloud Scheduler)"
 ```
 
-- [ ] **Step 2: Make executable**
+- [ ] **Step 2: Make executable + run**
 
 ```bash
 chmod +x scripts/deploy.sh
-```
-
-- [ ] **Step 3: Run end-to-end**
-
-```bash
 ./scripts/deploy.sh
 ```
 
-Expected: every step prints "complete"; final URLs printed.
-
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add scripts/deploy.sh
-git commit -m "infra: one-shot deploy script"
+git commit -m "infra: one-shot deploy script (terraform + images + frontend)"
 ```
 
 ---
 
-### Task 10: Post-deploy smoke test
+### Task 11: Post-deploy smoke test
 
 **Files:**
 - Create: `scripts/smoke-test.sh`
 
 - [ ] **Step 1: Write the script**
 
-`scripts/smoke-test.sh`:
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
@@ -807,8 +991,6 @@ chmod +x scripts/smoke-test.sh
 ./scripts/smoke-test.sh
 ```
 
-Expected: every check prints success; final line `All smoke checks passed.`
-
 - [ ] **Step 3: Commit**
 
 ```bash
@@ -818,118 +1000,84 @@ git commit -m "infra: post-deploy smoke test"
 
 ---
 
-### Task 11: Update root README with deploy instructions
+### Task 12: Update root README with deploy instructions
 
 **Files:**
 - Modify: `README.md`
 
-- [ ] **Step 1: Append a "Deployment" section to `README.md`**
+- [ ] **Step 1: Append a "Deployment" section**
 
 ```markdown
 ## Deployment
 
-This project deploys to Cloudflare Workers + Cloudflare Pages + Neon Postgres.
+This project deploys to **GCP Cloud Run + Neon Postgres + Cloudflare Pages** — true serverless, scale-to-zero, hobbyist free tier.
 
 ### Prerequisites
 
-- Cloudflare account with a zone you control
-- Neon account
+- GCP account with a project, `gcloud` CLI authenticated, billing enabled (free tier covers our usage)
+- Neon account (Neon dashboard → Settings → API keys)
+- Cloudflare account with a zone you control (used for Pages + DNS only)
 - eBird API key (free at ebird.org/api/keygen)
 - Terraform ≥ 1.6
-- `psql` on `$PATH` (for migrations)
+- Docker + `docker buildx` for multi-arch builds
+- `psql` on `$PATH`
 
 ### One-time setup
 
-1. Copy `infra/terraform/terraform.tfvars.example` to `infra/terraform/terraform.tfvars` and fill in:
-   - `cloudflare_account_id`, `cloudflare_api_token`, `zone_id`, `domain`
+1. `cp infra/terraform/terraform.tfvars.example infra/terraform/terraform.tfvars` and fill in:
+   - `gcp_project_id`, `gcp_region`
    - `neon_api_key`
+   - `cloudflare_account_id`, `cloudflare_api_token`, `cloudflare_zone_id`, `domain`
    - `ebird_api_key`
-2. Initialize Terraform:
-   ```bash
-   cd infra/terraform && terraform init
-   ```
-3. Run the full deploy:
-   ```bash
-   ./scripts/deploy.sh
-   ```
-4. Smoke-test:
-   ```bash
-   ./scripts/smoke-test.sh
-   ```
+2. `gcloud auth login && gcloud auth application-default login`
+3. `cd infra/terraform && terraform init`
+4. `./scripts/deploy.sh` — provisions infra, builds + pushes images, deploys frontend
+5. `./scripts/smoke-test.sh`
 
 ### Subsequent deploys
 
-After code changes:
-- Frontend / Worker code only: `./scripts/deploy.sh` (Terraform sees no diff and skips infra changes)
-- Schema changes: add a migration file under `migrations/`, then `./scripts/deploy.sh`
-- Infra changes: edit `infra/terraform/*.tf`, then `./scripts/deploy.sh`
+After code changes: `./scripts/deploy.sh` rebuilds and rolls Cloud Run to the new image. Terraform sees no diff and skips infra.
+
+### Portability
+
+The compute is plain Docker. To migrate to AWS / Azure / Fly:
+- Same Dockerfiles → push to ECR / ACR / Fly registry
+- AWS App Runner / ECS Fargate / Azure Container Apps / Fly Machines all run the same image
+- Neon is portable Postgres — `pg_dump` and restore to RDS / Cloud SQL / Azure DB / self-hosted
 ```
 
 - [ ] **Step 2: Commit**
 
 ```bash
 git add README.md
-git commit -m "docs: deployment instructions"
-```
-
----
-
-### Task 12: Record outputs for documentation
-
-**Files:**
-- Create: `infra/terraform/outputs.tf` (consolidated)
-
-- [ ] **Step 1: Write a consolidated outputs file (the others can stay as inline outputs; this is a summary)**
-
-```hcl
-output "summary" {
-  value = {
-    frontend_url = "https://${var.domain}"
-    api_url      = "https://api.${var.domain}"
-    db_host      = neon_endpoint.main.host
-    hyperdrive   = cloudflare_hyperdrive_config.birdwatch.id
-  }
-}
-```
-
-- [ ] **Step 2: Apply (no resource changes — output added)**
-
-```bash
-cd infra/terraform
-terraform apply
-terraform output summary
-```
-
-Expected: a single block printing all four URLs/IDs.
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add infra/terraform/outputs.tf
-git commit -m "infra: consolidated summary output"
+git commit -m "docs: deployment instructions for GCP Cloud Run"
 ```
 
 ---
 
 ## Self-review checklist (run before declaring Plan 5 done)
 
-- [ ] `terraform init` and `terraform validate` succeed in `infra/terraform/`
-- [ ] `terraform apply` provisions all resources (Neon project + branch + DB + endpoint, Hyperdrive, Pages project + domain, DNS, no Worker scripts in TF — those are deployed by Wrangler)
+- [ ] `terraform init` and `terraform validate` succeed
+- [ ] `terraform apply` provisions: APIs enabled, Neon project + DB + pooled endpoint, Artifact Registry, Read API Cloud Run service, Ingestor Cloud Run Job, 3 Cloud Scheduler triggers, Cloudflare Pages project + custom domain, DNS CNAME for API
 - [ ] `./scripts/deploy.sh` runs end-to-end without errors
 - [ ] `./scripts/smoke-test.sh` passes
 - [ ] Browsing `https://<domain>` renders the live map with real eBird data
-- [ ] After 30 min, a fresh ingest run is visible in `ingest_runs` table
-- [ ] No secret values are committed to git (verified by `git log -p | grep -iE 'api_key|password|secret'` returning no matches)
+- [ ] After 30 min, a fresh ingest run is visible in `ingest_runs` table and Cloud Logging
+- [ ] Cloud Run Read API revision shows `min_instance_count=0` (verify in console — confirms scale-to-zero)
+- [ ] Monthly bill remains $0 in GCP billing dashboard after a week of normal usage
+- [ ] No secret values committed to git: `git log -p | grep -iE 'api_key|password|secret' | grep -v '\.example'` returns nothing
 
-When all checked: Plan 5 is done. The system is live.
+When all checked: Plan 5 is done. The system is live, truly serverless, scale-to-zero, $0/month.
 
 ---
 
-## What the live system looks like
+## Migration paths (when you outgrow free tier or want to leave GCP)
 
-- **Web:** `https://<your-domain>` — React app loads, fetches `/api/observations`, `/api/regions`, `/api/hotspots`, renders map.
-- **API:** `https://api.<your-domain>/api/*` — Cloudflare Worker, Hyperdrive-pooled DB, CDN cache per spec TTLs.
-- **Ingestor:** `birdwatch-ingestor` Worker, `*/30` cron pulls eBird, `0 4 * * *` does the daily back-fill, `0 5 * * 0` refreshes hotspot list weekly.
-- **DB:** Neon Postgres with PostGIS, ~240 MB/year growth, queryable from any BI tool via `terraform output -raw neon_db_url`.
+| Move | What changes | What stays |
+|---|---|---|
+| **GCP → AWS** | Push Dockerfiles to ECR; deploy to App Runner or Fargate; replace Cloud Scheduler with EventBridge Rules; replace Secret Manager with AWS Secrets Manager | Application code, Neon DB, frontend |
+| **GCP → Azure** | Push Dockerfiles to ACR; deploy to Azure Container Apps; replace Cloud Scheduler with Azure Logic Apps or Functions Timer; replace Secret Manager with Key Vault | Application code, Neon DB, frontend |
+| **GCP → Fly.io** | Push Dockerfiles to Fly registry; `fly deploy` for the API service; `fly machines run --schedule` for the cron jobs | Application code, frontend (could move to Fly too) |
+| **Neon → another Postgres** | `pg_dump` from Neon → restore to RDS / Cloud SQL / Azure DB / self-hosted; update `DATABASE_URL` secret | Compute layer, all application code |
 
-Everything reproducible from `git clone` + `./scripts/deploy.sh` (with secrets in `terraform.tfvars`).
+The Docker container is the portable artifact. The cloud is just one host for it.
