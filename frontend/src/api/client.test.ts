@@ -24,7 +24,7 @@ describe('ApiClient', () => {
     vi.spyOn(global, 'fetch').mockResolvedValue(new Response('[]', { status: 200 }));
     const client = new ApiClient({ baseUrl: '' });
     await client.getObservations({ since: '14d', notable: true, speciesCode: 'vermfly' });
-    const call = (fetch as unknown as { mock: { calls: [string, unknown][] } }).mock.calls[0];
+    const call = (fetch as unknown as { mock: { calls: [string, unknown][] } }).mock.calls[0]!;
     const url = call[0];
     expect(url).toContain('since=14d');
     expect(url).toContain('notable=true');

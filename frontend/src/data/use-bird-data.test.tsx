@@ -8,7 +8,7 @@ function makeClient(overrides: Partial<ApiClient>): ApiClient {
 }
 
 describe('useBirdData', () => {
-  beforeEach(() => vi.restoreAllMocks());
+  beforeEach(() => { vi.restoreAllMocks(); });
 
   it('loads regions, hotspots, and observations on mount', async () => {
     const client = makeClient({
