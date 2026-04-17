@@ -2,14 +2,11 @@
 
 <!-- PRIMARY comprehension surface. Reviewers should be able to grasp the full
 change from the diagram(s) alone — Summary and code diff are supporting context,
-not the primary explanation.
-
-Use ```mermaid fenced blocks (GitHub renders them inline). Good shapes: data
-flows, sequence diagrams, state machines, component trees, migration graphs,
-infra topology. Multiple diagrams are encouraged when the PR spans layers.
-
-If the change genuinely cannot be diagrammed (one-line typo, dep bump,
-comment-only), write: N/A — <reason>
+not the primary explanation. Replace the example below with your own diagram(s).
+Good shapes: data flows, sequence diagrams, state machines, component trees,
+migration graphs, infra topology. Multiple diagrams are encouraged when the PR
+spans layers. If the change genuinely cannot be diagrammed (one-line typo, dep
+bump, comment-only), delete the block and write: N/A — <reason> -->
 
 ```mermaid
 sequenceDiagram
@@ -21,7 +18,6 @@ sequenceDiagram
     Ingestor->>eBird: GET /data/obs/US-AZ/recent/notable
     Ingestor->>Postgres: INSERT observations (with ST_Contains region stamp)
 ```
--->
 
 ## Summary
 
