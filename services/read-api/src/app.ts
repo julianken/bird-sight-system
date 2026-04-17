@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Pool } from '@bird-watch/db-client';
-import { getRegions } from '@bird-watch/db-client';
+import { getRegions, getHotspots } from '@bird-watch/db-client';
 import { cacheControlFor } from './cache-headers.js';
 
 export interface AppDeps {
@@ -15,6 +15,12 @@ export function createApp(deps: AppDeps): Hono {
   app.get('/api/regions', async c => {
     const rows = await getRegions(deps.pool);
     c.header('Cache-Control', cacheControlFor('regions'));
+    return c.json(rows);
+  });
+
+  app.get('/api/hotspots', async c => {
+    const rows = await getHotspots(deps.pool);
+    c.header('Cache-Control', cacheControlFor('hotspots'));
     return c.json(rows);
   });
 
