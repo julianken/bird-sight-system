@@ -46,7 +46,7 @@ export async function upsertObservations(
       loc_id     = EXCLUDED.loc_id,
       loc_name   = EXCLUDED.loc_name,
       how_many   = EXCLUDED.how_many,
-      is_notable = EXCLUDED.is_notable,
+      is_notable = observations.is_notable OR EXCLUDED.is_notable,
       ingested_at = now()
   `;
 
