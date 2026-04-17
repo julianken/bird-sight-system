@@ -8,16 +8,12 @@ test.describe('happy path', () => {
     const regions = page.locator('[data-region-id]');
     await expect(regions).toHaveCount(9, { timeout: 15_000 });
 
-    // Click the Santa Ritas region to expand it.
-    // force:true skips Playwright's intercept check.  We also supply a position near
-    // the top of the element's bounding box to land on a pixel that is visually part
-    // of the region-shape path but not covered by any badge circle (badges are laid
-    // out from the top-left of the stack area with padding, so the very top strip of
-    // the path is reliably badge-free).
-    await page.locator('.region-shape[aria-label="Sky Islands — Santa Ritas"]').click({
-      force: true,
-      position: { x: 263, y: 34 },
-    });
+    // Expand the Santa Ritas region via its keyboard-activation path.
+    // This intentionally avoids pixel positions (fragile under CSS layout changes)
+    // and exercises the same onKeyDown handler we ship for real keyboard users.
+    const santaRitas = page.locator('.region-shape[aria-label="Sky Islands — Santa Ritas"]');
+    await santaRitas.focus();
+    await page.keyboard.press('Enter');
 
     // URL should update to include region param.
     await expect.poll(() => page.url(), { timeout: 5_000 }).toContain('region=sky-islands-santa-ritas');
