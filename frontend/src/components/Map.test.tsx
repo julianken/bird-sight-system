@@ -1,0 +1,69 @@
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { Map } from './Map.js';
+import type { Region, Observation, Hotspot } from '@bird-watch/shared-types';
+
+const regions: Region[] = [
+  { id: 'r1', name: 'R1', parentId: null, displayColor: '#FF0808', svgPath: 'M 0 0 L 100 0 L 100 100 L 0 100 Z' },
+  { id: 'r2', name: 'R2', parentId: null, displayColor: '#00A6F3', svgPath: 'M 200 0 L 300 0 L 300 100 L 200 100 Z' },
+];
+const observations: Observation[] = [];
+const hotspots: Hotspot[] = [];
+
+describe('Map', () => {
+  it('renders one region per region prop', () => {
+    render(
+      <Map
+        regions={regions}
+        observations={observations}
+        hotspots={hotspots}
+        expandedRegionId={null}
+        selectedSpeciesCode={null}
+        onSelectRegion={() => {}}
+        silhouetteFor={() => 'M0 0'}
+        colorFor={() => '#000'}
+      />
+    );
+    expect(screen.getByRole('button', { name: 'R1' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'R2' })).toBeInTheDocument();
+  });
+
+  it('marks the expanded region with the region-expanded class', () => {
+    const { container } = render(
+      <Map
+        regions={regions}
+        observations={observations}
+        hotspots={hotspots}
+        expandedRegionId="r1"
+        selectedSpeciesCode={null}
+        onSelectRegion={() => {}}
+        silhouetteFor={() => 'M0 0'}
+        colorFor={() => '#000'}
+      />
+    );
+    const expanded = container.querySelector('[data-region-id="r1"]');
+    expect(expanded?.classList.contains('region-expanded')).toBe(true);
+    const other = container.querySelector('[data-region-id="r2"]');
+    expect(other?.classList.contains('region-expanded')).toBe(false);
+  });
+
+  it('calls onSelectRegion when a region is clicked', async () => {
+    const onSelect = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <Map
+        regions={regions}
+        observations={observations}
+        hotspots={hotspots}
+        expandedRegionId={null}
+        selectedSpeciesCode={null}
+        onSelectRegion={onSelect}
+        silhouetteFor={() => 'M0 0'}
+        colorFor={() => '#000'}
+      />
+    );
+    await user.click(screen.getByRole('button', { name: 'R1' }));
+    expect(onSelect).toHaveBeenCalledWith('r1');
+  });
+});
