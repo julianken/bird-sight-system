@@ -9,9 +9,9 @@ test.describe('happy path', () => {
     await expect(regions).toHaveCount(9, { timeout: 15_000 });
 
     // Click the Santa Ritas region to expand it.
-    // The region-shape SVG path may be overlapped by badge circles, so we dispatch
-    // a synthetic click event directly on the element to bypass pointer-event interception.
-    await page.locator('.region-shape[aria-label="Sky Islands — Santa Ritas"]').dispatchEvent('click');
+    // A transparent overlay path (rendered above the BadgeStack) has the aria-label and
+    // receives real pointer clicks in any gap between badge circles.
+    await page.locator('.region-shape[aria-label="Sky Islands — Santa Ritas"]').click();
 
     // URL should update to include region param.
     await expect.poll(() => page.url(), { timeout: 5_000 }).toContain('region=sky-islands-santa-ritas');

@@ -26,23 +26,14 @@ export function Region(props: RegionProps) {
       className={`region${props.expanded ? ' region-expanded' : ''}`}
       data-region-id={props.region.id}
     >
+      {/* Decorative fill — pointer-events disabled so badge circles can intercept their own clicks */}
       <path
         className="region-shape"
         d={props.region.svgPath}
         fill={props.region.displayColor}
         stroke="#fff"
         strokeWidth={3}
-        role="button"
-        tabIndex={0}
-        aria-label={props.region.name}
-        onClick={() => props.onSelect(props.region.id)}
-        onKeyDown={e => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            props.onSelect(props.region.id);
-          }
-        }}
-        style={{ cursor: 'pointer' }}
+        style={{ pointerEvents: 'none' }}
       />
       <BadgeStack
         observations={props.observations}
@@ -58,6 +49,27 @@ export function Region(props: RegionProps) {
         {...(props.selectedSpeciesCode !== undefined
           ? { selectedSpeciesCode: props.selectedSpeciesCode }
           : {})}
+      />
+      {/* Transparent overlay rendered above BadgeStack so region background receives
+          clicks in the spaces between badge circles, while badges retain their own
+          pointer events. Carries full accessibility attributes (role, aria-label,
+          tabIndex, onKeyDown) as the interactive element in the AX tree. */}
+      <path
+        className="region-shape"
+        d={props.region.svgPath}
+        fill="transparent"
+        stroke="none"
+        role="button"
+        tabIndex={0}
+        aria-label={props.region.name}
+        onClick={() => props.onSelect(props.region.id)}
+        onKeyDown={e => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            props.onSelect(props.region.id);
+          }
+        }}
+        style={{ cursor: 'pointer', pointerEvents: 'all' }}
       />
     </g>
   );
