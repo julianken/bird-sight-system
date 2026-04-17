@@ -5,3 +5,22 @@ body {
   background: #f4f1ea;
   color: #1a1a1a;
 }
+
+.bird-map { width: 100%; height: 100%; display: block; }
+.region { transition: transform 350ms ease; transform-origin: center; }
+.region-expanded .region-shape { filter: drop-shadow(0 4px 16px rgba(0,0,0,0.3)); }
+.region-expanded .badge-stack { transform: scale(1.5); transform-origin: center; }
+.badge { transition: transform 200ms ease; }
+.badge-selected .badge-circle { stroke: #1a1a1a; stroke-width: 4; }
+
+.filters-bar {
+  display: flex;
+  gap: 16px;
+  padding: 12px 16px;
+  background: #fff;
+  border-bottom: 1px solid #d8d3c3;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.filters-bar label { display: flex; gap: 6px; align-items: center; font-size: 13px; }
+.filters-bar select, .filters-bar input { padding: 4px 8px; }
