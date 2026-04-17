@@ -46,7 +46,7 @@ These are non-obvious commitments the plans enforce:
 Direct push to `main` is blocked by branch protection. Workflow:
 
 1. Make changes on a feature branch.
-2. Open a PR (`gh pr create`).
+2. Open a PR (`gh pr create`). **The PR description MUST follow `.github/PULL_REQUEST_TEMPLATE.md`** — all five sections (Summary, Plan/Task reference, Test plan, Review focus, Diagram) are mandatory. GitHub applies the template to UI-created PRs automatically; when using `gh pr create --body`, paste the template body verbatim and fill every section. Skipping sections wastes the bot's review cycles because the diagram-first section is load-bearing for fast architectural review.
 3. Dispatch the bot for review via the `julianken-bot` Agent subagent (it loads its credentials from macOS Keychain and posts as the `@julianken-bot` collaborator). Do NOT use `gh pr review` from the main session — that would post under Julian's identity.
 4. Once `reviewDecision == APPROVED`, post a comment on the PR: `@Mergifyio queue`. Mergify enters the queue and waits asynchronously for checks to pass, then squash-merges and deletes the branch. **Do NOT use `gh pr merge`.**
 
@@ -54,7 +54,9 @@ Direct push to `main` is blocked by branch protection. Workflow:
 - The comment body must be exactly `@Mergifyio queue` — no prose before or after. Mergify's command parser matches the comment body against a literal string; a comment like "Looks good, @Mergifyio queue" does not match and is silently skipped. Validated in the ear-training-station workflow (17+ review cycles).
 - If you need to leave explanatory context (e.g. "addressed the SUGGESTION in commit X"), post it as a separate comment first, then post `@Mergifyio queue` as its own standalone comment.
 
-**Until CI lands (Plan 1):** `.mergify.yml` requires `check-success` on `test`, `lint`, `build`, and `e2e`. The queue will stall on any PR opened before those workflows exist. Once CI is wired up, re-apply branch protection's `required_status_checks` via `gh api -X PUT repos/julianken/bird-sight-system/branches/main/protection`.
+**CI is now live.** `.mergify.yml` requires `check-success` on `test`, `lint`, `build`, and `e2e`, and branch protection enforces the same four as `required_status_checks` (applied 2026-04-17 after PR #9 merged). Every PR blocks on all four being green.
+
+**Mergify config compatibility:** `.mergify.yml` uses `queue_rules[].checks_timeout` and `merge_queue.max_parallel_checks: 1` with `batch_size: 1` so it works with branch protection's `strict: true` (require branches up-to-date). If branch protection's strictness is ever flipped off, those settings can be relaxed.
 
 The bot is a `push` collaborator on the repo; its APPROVE counts toward the 1-review requirement. `enforce_admins=true` means even repo owners can't bypass.
 
