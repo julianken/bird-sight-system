@@ -11,10 +11,9 @@ export interface HandlerEnv {
 export type ScheduledKind = 'recent' | 'hotspots' | 'backfill';
 
 /**
- * Platform-agnostic entry. Accepts `kind` and an env object; constructs a
- * pool, runs the appropriate flow, closes the pool, returns the summary.
- *
- * Cloudflare Worker wrapper (Plan 5) calls this from `scheduled()`.
+ * Platform-agnostic handler: invoked by the Cloud Run Job entry point
+ * (Plan 5 — services/ingestor/cmd/cloud-run-job.ts). Returns a JSON-
+ * serializable summary the platform-specific wrapper logs.
  */
 export async function handleScheduled(
   kind: ScheduledKind,

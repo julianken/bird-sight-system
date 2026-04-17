@@ -2,7 +2,7 @@ import {
   upsertObservations, startIngestRun, finishIngestRun, type Pool,
 } from '@bird-watch/db-client';
 import { EbirdClient } from './ebird/client.js';
-import { toObservationInput } from './transform.js';
+import { toObservationInput, notableKeyset } from './transform.js';
 
 export interface RunBackfillOptions {
   pool: Pool;
@@ -26,6 +26,13 @@ export async function runBackfill(o: RunBackfillOptions): Promise<RunBackfillSum
   const runId = await startIngestRun(o.pool, 'backfill');
   const today = o.today ?? new Date();
 
+  // eBird /recent/notable only accepts back=1..30. Cap at 30; observations
+  // older than 30 days won't be flagged notable in this run (OR-coalesce in
+  // upsertObservations preserves any previously-stamped true values).
+  const notableBack = Math.min(o.days, 30);
+  const notables = await client.fetchNotable(o.regionCode, { back: notableBack });
+  const notableKeys = notableKeyset(notables);
+
   let totalFetched = 0;
   let totalUpserted = 0;
   let daysProcessed = 0;
@@ -38,7 +45,7 @@ export async function runBackfill(o: RunBackfillOptions): Promise<RunBackfillSum
     const d = date.getUTCDate();
     try {
       const obs = await client.fetchHistoric(o.regionCode, y, m, d);
-      const inputs = obs.map(eb => toObservationInput(eb, new Set()));
+      const inputs = obs.map(eb => toObservationInput(eb, notableKeys));
       const upserted = await upsertObservations(o.pool, inputs);
       totalFetched += obs.length;
       totalUpserted += upserted;
