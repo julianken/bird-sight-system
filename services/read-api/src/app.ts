@@ -25,20 +25,23 @@ export function createApp(deps: AppDeps): Hono {
   });
 
   app.get('/api/observations', async c => {
-    const since = c.req.query('since') as '1d' | '7d' | '14d' | '30d' | undefined;
-    if (since !== undefined && !['1d', '7d', '14d', '30d'].includes(since)) {
+    const sinceRaw = c.req.query('since');
+    const validSince = ['1d', '7d', '14d', '30d'] as const;
+    if (sinceRaw !== undefined && !(validSince as readonly string[]).includes(sinceRaw)) {
       return c.json({ error: 'invalid since' }, 400);
     }
+    const since = sinceRaw as '1d' | '7d' | '14d' | '30d' | undefined;
     const notableParam = c.req.query('notable');
     const speciesCode = c.req.query('species');
     const familyCode = c.req.query('family');
 
-    const rows = await getObservations(deps.pool, {
-      since,
-      notable: notableParam === 'true',
-      speciesCode,
-      familyCode,
-    });
+    const filters: Parameters<typeof getObservations>[1] = {};
+    if (since !== undefined) filters.since = since;
+    if (notableParam === 'true') filters.notable = true;
+    if (speciesCode !== undefined) filters.speciesCode = speciesCode;
+    if (familyCode !== undefined) filters.familyCode = familyCode;
+
+    const rows = await getObservations(deps.pool, filters);
     c.header('Cache-Control', cacheControlFor('observations'));
     return c.json(rows);
   });
