@@ -1,5 +1,11 @@
 import pg from 'pg';
 
+// PostgreSQL NUMERIC (OID 1700) defaults to string to preserve arbitrary precision.
+// None of our NUMERIC columns need that — species_meta.taxon_order is the only
+// NUMERIC in the schema and it's a small integer-ish taxonomic ordering value.
+// Parse to number so shared-types' number annotations are actually truthful.
+pg.types.setTypeParser(pg.types.builtins.NUMERIC, (v: string) => (v === null ? null : parseFloat(v)));
+
 export interface PoolOptions {
   databaseUrl: string;
   key?: string;          // when set, pool is memoized by key

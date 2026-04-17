@@ -7,7 +7,7 @@ export type IngestStatus = IngestRun['status'];
 export async function startIngestRun(pool: Pool, kind: IngestKind): Promise<number> {
   const { rows } = await pool.query<{ id: number }>(
     `INSERT INTO ingest_runs (kind, started_at, status)
-     VALUES ($1, now(), 'success') RETURNING id`,
+     VALUES ($1, now(), 'running') RETURNING id`,
     [kind]
   );
   return rows[0]!.id;

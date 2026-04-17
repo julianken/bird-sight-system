@@ -23,4 +23,16 @@ describe('species meta', () => {
     const row = await getSpeciesMeta(db.pool, 'doesnotexist');
     expect(row).toBeNull();
   });
+
+  it('returns taxon_order as a number, not a string', async () => {
+    await upsertSpeciesMeta(db.pool, [
+      { speciesCode: 'verfly', comName: 'Vermilion Flycatcher',
+        sciName: 'Pyrocephalus rubinus', familyCode: 'tyrannidae',
+        familyName: 'Tyrannidae', taxonOrder: 30501 },
+    ]);
+    const meta = await getSpeciesMeta(db.pool, 'verfly');
+    expect(meta).toBeDefined();
+    expect(typeof meta!.taxonOrder).toBe('number');
+    expect(meta!.taxonOrder).toBe(30501);
+  });
 });

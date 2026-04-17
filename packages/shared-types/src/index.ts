@@ -56,7 +56,7 @@ export interface IngestRun {
   finishedAt: string | null;
   obsFetched: number | null;
   obsUpserted: number | null;
-  status: 'success' | 'partial' | 'failure';
+  status: 'running' | 'success' | 'partial' | 'failure';
   errorMessage: string | null;
 }
 

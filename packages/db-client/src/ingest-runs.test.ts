@@ -32,4 +32,15 @@ describe('ingest runs', () => {
     expect(rows[0]?.status).toBe('failure');
     expect(rows[0]?.errorMessage).toBe('eBird timeout');
   });
+
+  it('records a started run with status=running until finished', async () => {
+    const id = await startIngestRun(db.pool, 'recent');
+    const runs = await getRecentIngestRuns(db.pool, 10);
+    const run = runs.find(r => r.id === id);
+    expect(run).toBeDefined();
+    expect(run!.status).toBe('running');
+    await finishIngestRun(db.pool, id, { status: 'success', obsFetched: 5, obsUpserted: 5 });
+    const after = (await getRecentIngestRuns(db.pool, 10)).find(r => r.id === id);
+    expect(after!.status).toBe('success');
+  });
 });

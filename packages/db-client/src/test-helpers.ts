@@ -2,6 +2,9 @@ import { PostgreSqlContainer, StartedPostgreSqlContainer } from '@testcontainers
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import pg from 'pg';
+// Side-effect import: registers pool-wide type parsers (e.g. NUMERIC → number)
+// before any test pool executes queries.
+import './pool.js';
 
 export interface TestDb {
   pool: pg.Pool;
