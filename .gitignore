@@ -16,3 +16,7 @@ coverage/
 # Local session artifacts
 .superpowers/
 .remember/
+
+# Playwright output (screenshots, traces from local runs)
+frontend/.playwright-out/
+frontend/playwright-report/
