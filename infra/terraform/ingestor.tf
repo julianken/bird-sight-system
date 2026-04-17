@@ -91,7 +91,10 @@ resource "google_cloud_run_v2_job_iam_member" "scheduler_invoke" {
 }
 
 locals {
-  job_run_url = "https://${var.gcp_region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.gcp_project_id}/jobs/${google_cloud_run_v2_job.ingestor.name}:run"
+  # Cloud Run Jobs v2 REST endpoint. v2 is the current API surface for
+  # google_cloud_run_v2_job and uses a cleaner path than the v1 Knative
+  # alias (/apis/run.googleapis.com/v1/namespaces/...).
+  job_run_url = "https://run.googleapis.com/v2/projects/${var.gcp_project_id}/locations/${var.gcp_region}/jobs/${google_cloud_run_v2_job.ingestor.name}:run"
 }
 
 # Three crons matching the spec: every 30 min, daily 4am UTC, weekly Sun 5am UTC.
