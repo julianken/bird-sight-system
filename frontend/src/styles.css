@@ -13,6 +13,24 @@ body {
 .badge { transition: transform 200ms ease; }
 .badge-selected .badge-circle { stroke: #1a1a1a; stroke-width: 4; }
 
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+.map-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.error-screen {
+  padding: 32px;
+  max-width: 500px;
+  margin: 0 auto;
+}
+
 .filters-bar {
   display: flex;
   gap: 16px;
