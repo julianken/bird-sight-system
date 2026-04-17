@@ -11,8 +11,8 @@
     "test": "npm run test --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
-    "db:up": "docker-compose up -d db",
-    "db:down": "docker-compose down",
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose down",
     "db:migrate": "node-pg-migrate up -m migrations",
     "db:rollback": "node-pg-migrate down -m migrations",
     "db:seed": "tsx scripts/seed.ts"
