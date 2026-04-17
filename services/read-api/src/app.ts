@@ -55,11 +55,18 @@ export function createApp(deps: AppDeps): Hono {
   });
 
   app.onError((err, c) => {
-    const msg = (err as { code?: string }).code ?? '';
-    if (['ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND'].includes(msg)) {
+    const code = (err as { code?: string }).code ?? '';
+    // OS-level connection errors
+    if (['ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND'].includes(code)) {
       return c.json({ error: 'database unavailable' }, 503);
     }
+    // pg-pool timeout (no .code, matched by name/message)
     if (err.name === 'TimeoutError' || /timeout/i.test(err.message)) {
+      return c.json({ error: 'database unavailable' }, 503);
+    }
+    // Postgres server-side connection errors: 53xxx class (insufficient resources)
+    // 53300 = too_many_connections, 53200 = out_of_memory, 53100 = disk_full
+    if (code.startsWith('53')) {
       return c.json({ error: 'database unavailable' }, 503);
     }
     console.error('Unhandled error', err);
