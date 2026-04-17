@@ -64,3 +64,46 @@ describe('EbirdClient.fetchHotspots', () => {
     expect(h[0]?.numSpeciesAllTime).toBe(280);
   });
 });
+
+describe('EbirdClient retries', () => {
+  it('retries on 5xx and eventually succeeds', async () => {
+    let calls = 0;
+    server.use(
+      http.get('https://api.ebird.org/v2/data/obs/US-AZ/recent', () => {
+        calls++;
+        if (calls < 3) return new HttpResponse('boom', { status: 503 });
+        return HttpResponse.json(SAMPLE_OBS);
+      })
+    );
+    const client = new EbirdClient({ apiKey: 'k', retryBaseMs: 1, maxRetries: 5 });
+    const obs = await client.fetchRecent('US-AZ');
+    expect(calls).toBe(3);
+    expect(obs).toHaveLength(1);
+  });
+
+  it('throws immediately on 4xx (no retry)', async () => {
+    let calls = 0;
+    server.use(
+      http.get('https://api.ebird.org/v2/data/obs/US-AZ/recent', () => {
+        calls++;
+        return new HttpResponse('forbidden', { status: 403 });
+      })
+    );
+    const client = new EbirdClient({ apiKey: 'k', retryBaseMs: 1, maxRetries: 5 });
+    await expect(client.fetchRecent('US-AZ')).rejects.toThrow(/403/);
+    expect(calls).toBe(1);
+  });
+
+  it('throws after exhausting retries on 5xx', async () => {
+    let calls = 0;
+    server.use(
+      http.get('https://api.ebird.org/v2/data/obs/US-AZ/recent', () => {
+        calls++;
+        return new HttpResponse('always broken', { status: 502 });
+      })
+    );
+    const client = new EbirdClient({ apiKey: 'k', retryBaseMs: 1, maxRetries: 2 });
+    await expect(client.fetchRecent('US-AZ')).rejects.toThrow(/502/);
+    expect(calls).toBe(3); // 1 initial + 2 retries
+  });
+});
