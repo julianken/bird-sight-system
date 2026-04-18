@@ -67,7 +67,7 @@ describe('Map', () => {
     expect(onSelect).toHaveBeenCalledWith('r1');
   });
 
-  it('SVG root has width="100%", height="100%", and preserveAspectRatio="xMidYMid meet"', () => {
+  it('SVG root uses inline style width/height (beats .bird-map CSS) + preserveAspectRatio', () => {
     const { container } = render(
       <Map
         regions={regions}
@@ -80,9 +80,11 @@ describe('Map', () => {
         colorFor={() => '#000'}
       />
     );
-    const svg = container.querySelector('svg.bird-map');
-    expect(svg?.getAttribute('width')).toBe('100%');
-    expect(svg?.getAttribute('height')).toBe('100%');
+    const svg = container.querySelector('svg.bird-map') as SVGSVGElement | null;
+    // Inline style — required because `.bird-map { width: auto; height: auto }`
+    // in styles.css would override a plain width/height attribute.
+    expect(svg?.style.width).toBe('100%');
+    expect(svg?.style.height).toBe('100%');
     expect(svg?.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');
   });
 });
