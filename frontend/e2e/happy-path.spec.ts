@@ -22,6 +22,12 @@ test.describe('happy path', () => {
     await expect(page.locator('[data-region-id="sky-islands-santa-ritas"]'))
       .toHaveClass(/region-expanded/);
 
+    // The expanded <g> must carry a non-empty transform (translate+scale from
+    // computeExpandTransform) so the region physically grows to fill the canvas.
+    const expandedG = page.locator('[data-region-id="sky-islands-santa-ritas"]');
+    const transformAttr = await expandedG.getAttribute('transform');
+    expect(transformAttr).toBeTruthy();
+
     // Toggle "Notable only" checkbox.
     await page.getByLabel(/Notable only/).check();
     await expect.poll(() => page.url(), { timeout: 5_000 }).toContain('notable=true');
