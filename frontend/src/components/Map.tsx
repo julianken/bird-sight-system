@@ -45,6 +45,9 @@ export function Map(props: MapProps) {
     <svg
       className="bird-map"
       viewBox={`0 0 ${VIEWBOX_W} ${VIEWBOX_H}`}
+      width="100%"
+      height="100%"
+      preserveAspectRatio="xMidYMid meet"
       role="application"
       aria-label="Arizona ecoregions map"
       onClick={e => {

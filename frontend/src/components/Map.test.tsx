@@ -66,4 +66,23 @@ describe('Map', () => {
     await user.click(screen.getByRole('button', { name: 'R1' }));
     expect(onSelect).toHaveBeenCalledWith('r1');
   });
+
+  it('SVG root has width="100%", height="100%", and preserveAspectRatio="xMidYMid meet"', () => {
+    const { container } = render(
+      <Map
+        regions={regions}
+        observations={observations}
+        hotspots={hotspots}
+        expandedRegionId={null}
+        selectedSpeciesCode={null}
+        onSelectRegion={() => {}}
+        silhouetteFor={() => 'M0 0'}
+        colorFor={() => '#000'}
+      />
+    );
+    const svg = container.querySelector('svg.bird-map');
+    expect(svg?.getAttribute('width')).toBe('100%');
+    expect(svg?.getAttribute('height')).toBe('100%');
+    expect(svg?.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');
+  });
 });
