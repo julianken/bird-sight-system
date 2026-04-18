@@ -45,6 +45,12 @@ export function Map(props: MapProps) {
     <svg
       className="bird-map"
       viewBox={`0 0 ${VIEWBOX_W} ${VIEWBOX_H}`}
+      preserveAspectRatio="xMidYMid meet"
+      // Inline style beats `.bird-map { width: auto; height: auto }` in styles.css.
+      // Without this the SVG sizes to its intrinsic viewBox (360/380 aspect) and
+      // leaves ~40% horizontal gutters at 1440×900. The class's `max-height: 100%`
+      // still protects against vertical overflow (PR #16's rule).
+      style={{ width: '100%', height: '100%' }}
       role="application"
       aria-label="Arizona ecoregions map"
       onClick={e => {

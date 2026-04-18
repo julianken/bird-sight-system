@@ -66,4 +66,25 @@ describe('Map', () => {
     await user.click(screen.getByRole('button', { name: 'R1' }));
     expect(onSelect).toHaveBeenCalledWith('r1');
   });
+
+  it('SVG root uses inline style width/height (beats .bird-map CSS) + preserveAspectRatio', () => {
+    const { container } = render(
+      <Map
+        regions={regions}
+        observations={observations}
+        hotspots={hotspots}
+        expandedRegionId={null}
+        selectedSpeciesCode={null}
+        onSelectRegion={() => {}}
+        silhouetteFor={() => 'M0 0'}
+        colorFor={() => '#000'}
+      />
+    );
+    const svg = container.querySelector('svg.bird-map') as SVGSVGElement | null;
+    // Inline style — required because `.bird-map { width: auto; height: auto }`
+    // in styles.css would override a plain width/height attribute.
+    expect(svg?.style.width).toBe('100%');
+    expect(svg?.style.height).toBe('100%');
+    expect(svg?.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');
+  });
 });

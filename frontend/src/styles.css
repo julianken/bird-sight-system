@@ -8,7 +8,9 @@ body {
 
 .region { transition: transform 350ms ease; transform-origin: center; }
 .region-expanded .region-shape { filter: drop-shadow(0 4px 16px rgba(0,0,0,0.3)); }
-.region-expanded .badge-stack { transform: scale(1.5); transform-origin: center; }
+/* Removed: .region-expanded .badge-stack { transform: scale(1.5); ... }
+   The parent .region <g> now scales the entire group via its inline
+   transform attribute, so badges scale with it automatically. */
 .badge { transition: transform 200ms ease; }
 .badge-selected .badge-circle { stroke: #1a1a1a; stroke-width: 4; }
 

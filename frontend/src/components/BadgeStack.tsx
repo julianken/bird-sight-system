@@ -32,6 +32,7 @@ export interface BadgeStackProps {
   y: number;
   width: number;
   height: number;
+  expanded?: boolean;
   silhouetteFor: (silhouetteId: string | null) => string;
   colorFor: (silhouetteId: string | null) => string;
   onSelectSpecies?: (speciesCode: string) => void;
@@ -41,9 +42,21 @@ export interface BadgeStackProps {
 const BADGE_DIAMETER = 30;
 const PADDING = 4;
 
+/** Max badges shown when the region is collapsed. The last slot becomes "+N more". */
+const MAX_COLLAPSED_BADGES = 12;
+
 export function BadgeStack(props: BadgeStackProps) {
-  const groups = layoutBadges(props.observations);
+  const allGroups = layoutBadges(props.observations);
+  const isExpanded = props.expanded ?? false;
   const cols = Math.max(1, Math.floor(props.width / (BADGE_DIAMETER + PADDING)));
+
+  // Determine which groups to render and whether we need an overflow pip.
+  const overflow = !isExpanded && allGroups.length > MAX_COLLAPSED_BADGES
+    ? allGroups.length - (MAX_COLLAPSED_BADGES - 1)
+    : 0;
+  const groups = isExpanded
+    ? allGroups
+    : allGroups.slice(0, overflow > 0 ? MAX_COLLAPSED_BADGES - 1 : MAX_COLLAPSED_BADGES);
 
   return (
     <g className="badge-stack">
@@ -69,6 +82,36 @@ export function BadgeStack(props: BadgeStackProps) {
           />
         );
       })}
+      {overflow > 0 && (() => {
+        // Render "+N more" pip in the slot after the last badge
+        const pipIdx = groups.length;
+        const col = pipIdx % cols;
+        const row = Math.floor(pipIdx / cols);
+        const cx = props.x + (col + 0.5) * (BADGE_DIAMETER + PADDING);
+        const cy = props.y + (row + 0.5) * (BADGE_DIAMETER + PADDING);
+        const r = BADGE_DIAMETER / 2;
+        return (
+          <g
+            key="overflow-pip"
+            data-role="overflow-pip"
+            role="img"
+            aria-label={`${overflow} more species — expand region to view`}
+            transform={`translate(${cx},${cy})`}
+          >
+            <circle r={r} fill="#888" />
+            <text
+              textAnchor="middle"
+              dominantBaseline="central"
+              fill="#fff"
+              fontSize={9}
+              fontWeight="bold"
+              fontFamily="-apple-system, sans-serif"
+            >
+              +{overflow}
+            </text>
+          </g>
+        );
+      })()}
     </g>
   );
 }
