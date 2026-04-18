@@ -14,7 +14,15 @@ export interface RegionProps {
 }
 
 const VIEWBOX = { w: 360, h: 380 };
+const EXPAND_PAD = 0.85; // leave ~7.5% margin on each side of the expanded region
 
+// Parses ONLY absolute `M x y` / `L x y` commands. The 9 seeded AZ region paths
+// (see migrations/1700000008000_seed_regions.sql) use exactly this subset, and
+// any future paths in the same seed should too. If someone authors a curve (`C`,
+// `Q`, `S`, `T`, `A`), a relative command (`m`, `l`), or the shortcuts `H`/`V`,
+// this parser silently drops them and `computeExpandTransform` returns an
+// off-center transform. Extend this parser (or use getBBox() from the DOM) if
+// the seed grammar changes.
 function parsePoints(svgPath: string): Array<{ x: number; y: number }> {
   const tokens = svgPath.split(/[\s,]+/).filter(Boolean);
   const points: Array<{ x: number; y: number }> = [];
@@ -26,6 +34,8 @@ function parsePoints(svgPath: string): Array<{ x: number; y: number }> {
       const y = parseFloat(tokens[i + 2] ?? '0');
       points.push({ x, y });
       i += 3;
+    } else if (t === 'Z' || t === 'z') {
+      i += 1; // closing verb — no coordinates to skip
     } else {
       i += 1;
     }
@@ -46,8 +56,7 @@ export function computeExpandTransform(
   const width = maxX - minX;
   const height = maxY - minY;
   if (width === 0 || height === 0) return '';
-  const pad = 0.85; // leave ~7.5% margin on each side
-  const scale = Math.min(viewBox.w / width, viewBox.h / height) * pad;
+  const scale = Math.min(viewBox.w / width, viewBox.h / height) * EXPAND_PAD;
   const cx = minX + width / 2;
   const cy = minY + height / 2;
   const tx = viewBox.w / 2 - cx * scale;

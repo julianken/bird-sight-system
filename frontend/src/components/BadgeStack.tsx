@@ -94,6 +94,8 @@ export function BadgeStack(props: BadgeStackProps) {
           <g
             key="overflow-pip"
             data-role="overflow-pip"
+            role="img"
+            aria-label={`${overflow} more species — expand region to view`}
             transform={`translate(${cx},${cy})`}
           >
             <circle r={r} fill="#888" />
