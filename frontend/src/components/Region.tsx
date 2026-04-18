@@ -13,6 +13,48 @@ export interface RegionProps {
   colorFor: (silhouetteId: string | null) => string;
 }
 
+const VIEWBOX = { w: 360, h: 380 };
+
+function parsePoints(svgPath: string): Array<{ x: number; y: number }> {
+  const tokens = svgPath.split(/[\s,]+/).filter(Boolean);
+  const points: Array<{ x: number; y: number }> = [];
+  let i = 0;
+  while (i < tokens.length) {
+    const t = tokens[i];
+    if (t === 'M' || t === 'L') {
+      const x = parseFloat(tokens[i + 1] ?? '0');
+      const y = parseFloat(tokens[i + 2] ?? '0');
+      points.push({ x, y });
+      i += 3;
+    } else {
+      i += 1;
+    }
+  }
+  return points;
+}
+
+export function computeExpandTransform(
+  svgPath: string,
+  viewBox: { w: number; h: number } = VIEWBOX,
+): string {
+  const points = parsePoints(svgPath);
+  if (points.length === 0) return '';
+  const xs = points.map(p => p.x);
+  const ys = points.map(p => p.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const width = maxX - minX;
+  const height = maxY - minY;
+  if (width === 0 || height === 0) return '';
+  const pad = 0.85; // leave ~7.5% margin on each side
+  const scale = Math.min(viewBox.w / width, viewBox.h / height) * pad;
+  const cx = minX + width / 2;
+  const cy = minY + height / 2;
+  const tx = viewBox.w / 2 - cx * scale;
+  const ty = viewBox.h / 2 - cy * scale;
+  return `translate(${tx} ${ty}) scale(${scale})`;
+}
+
 export function Region(props: RegionProps) {
   const bbox = boundingBoxOfPath(props.region.svgPath);
   const padding = 8;
@@ -21,10 +63,15 @@ export function Region(props: RegionProps) {
   const stackW = bbox.width - padding * 2;
   const stackH = bbox.height - padding * 2;
 
+  const expandTransform = props.expanded
+    ? computeExpandTransform(props.region.svgPath)
+    : undefined;
+
   return (
     <g
       className={`region${props.expanded ? ' region-expanded' : ''}`}
       data-region-id={props.region.id}
+      transform={expandTransform}
     >
       <path
         className="region-shape"
@@ -51,6 +98,7 @@ export function Region(props: RegionProps) {
           y={stackY}
           width={stackW}
           height={stackH}
+          expanded={props.expanded}
           silhouetteFor={props.silhouetteFor}
           colorFor={props.colorFor}
           {...(props.onSelectSpecies !== undefined
