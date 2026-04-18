@@ -6,7 +6,11 @@ body {
   color: #1a1a1a;
 }
 
-.region { transition: transform 350ms ease; transform-origin: center; }
+/* transform-origin MUST be 0 0 (SVG default) because computeExpandTransform in
+   Region.tsx bakes the pivot into its translate() component. `center` (a.k.a.
+   50% 50%) pre/post-translates the transform by the element's bbox center and
+   pushes the expanded region off-screen. */
+.region { transition: transform 350ms ease; transform-origin: 0 0; }
 .region-expanded .region-shape { filter: drop-shadow(0 4px 16px rgba(0,0,0,0.3)); }
 /* Removed: .region-expanded .badge-stack { transform: scale(1.5); ... }
    The parent .region <g> now scales the entire group via its inline
