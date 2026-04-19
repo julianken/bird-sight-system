@@ -85,8 +85,13 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
         working-directory: frontend
-      - name: Run Playwright E2E
-        run: npm run test:e2e --workspace @bird-watch/frontend
+      - name: Run Playwright E2E (dev-server)
+        run: npm run test:e2e --workspace @bird-watch/frontend -- --project=dev-server
+        env:
+          DATABASE_URL: postgres://birdwatch:birdwatch@localhost:5432/birdwatch
+          CI: "true"
+      - name: Run Playwright E2E (preview-build)
+        run: npm run test:e2e --workspace @bird-watch/frontend -- --project=preview-build
         env:
           DATABASE_URL: postgres://birdwatch:birdwatch@localhost:5432/birdwatch
           CI: "true"
