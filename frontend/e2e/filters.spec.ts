@@ -36,7 +36,7 @@ test.describe('filter flows', () => {
     // Draft only — URL should not have species param yet.
     await expect.poll(() => page.url(), { timeout: 3_000 }).not.toContain('species=');
 
-    await page.keyboard.press('Tab');
+    await input.blur();
     // After blur with no exact match, URL still has no species param.
     await expect.poll(() => page.url(), { timeout: 5_000 }).not.toContain('species=');
   });
@@ -44,14 +44,16 @@ test.describe('filter flows', () => {
   test('species input commits exact match on blur', async ({ page }) => {
     const input = page.getByLabel('Species');
     await input.focus();
+    await expect(page.locator('datalist#species-options option').first()).toBeAttached({ timeout: 10_000 });
     await input.fill('Vermilion Flycatcher');
-    await page.keyboard.press('Tab');
+    await input.blur();
     await expect.poll(() => page.url(), { timeout: 5_000 }).toContain('species=vermfly');
   });
 
   test('species input commits on Enter', async ({ page }) => {
     const input = page.getByLabel('Species');
     await input.focus();
+    await expect(page.locator('datalist#species-options option').first()).toBeAttached({ timeout: 10_000 });
     await input.fill('Vermilion Flycatcher');
     await page.keyboard.press('Enter');
     await expect.poll(() => page.url(), { timeout: 5_000 }).toContain('species=vermfly');
