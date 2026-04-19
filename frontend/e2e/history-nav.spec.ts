@@ -31,15 +31,15 @@ test.describe('history back navigation', () => {
     await expect(page.locator('[data-region-id]')).toHaveCount(9, { timeout: 15_000 });
 
     await page.getByLabel('Notable only').check();
-    await expect.poll(() => page.url()).toContain('notable=true');
+    await expect.poll(() => page.url(), { timeout: 5_000 }).toContain('notable=true');
 
     await page.getByLabel('Time window').selectOption('1d');
-    await expect.poll(() => page.url()).toContain('since=1d');
+    await expect.poll(() => page.url(), { timeout: 5_000 }).toContain('since=1d');
 
     await page.goBack();
 
-    await expect.poll(() => page.url()).not.toContain('since=');
-    await expect.poll(() => page.url()).toContain('notable=true');
+    await expect.poll(() => page.url(), { timeout: 5_000 }).not.toContain('since=');
+    await expect.poll(() => page.url(), { timeout: 5_000 }).toContain('notable=true');
     await expect(page.getByLabel('Notable only')).toBeChecked();
     await expect(page.getByLabel('Time window')).toHaveValue('14d');
   });
