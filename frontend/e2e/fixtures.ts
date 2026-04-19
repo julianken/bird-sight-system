@@ -1,5 +1,5 @@
 import { test as base } from '@playwright/test';
-import type { Observation } from '@bird-watch/shared-types';
+import type { Observation, SpeciesMeta } from '@bird-watch/shared-types';
 
 /** Read API endpoints that can be stubbed. Keep in sync with services/read-api/src/app.ts. */
 export type StubbableEndpoint = 'regions' | 'hotspots' | 'observations' | 'species';
@@ -19,6 +19,13 @@ export interface ApiStub {
   stubEmpty(): Promise<void>;
   /** Stubs `/api/observations` to return `200` with the provided list. */
   stubObservations(obs: Observation[]): Promise<void>;
+  /**
+   * Stubs `**\/api/species/{code}` to return `200` with the provided
+   * SpeciesMeta. The glob captures the exact code as a path suffix so
+   * other codes fall through to the real dev-server handler (useful when a
+   * test selects exactly one species and wants deterministic contents).
+   */
+  stubSpecies(code: string, meta: SpeciesMeta): Promise<void>;
   /**
    * Stubs `**\/api/${endpoint}**` to respond with HTTP `status` and a
    * `text/plain` body. Use for HTTP-level error paths (500, 401, etc.).
@@ -54,6 +61,15 @@ export const test = base.extend<{ apiStub: ApiStub }>({
             status: 200,
             contentType: 'application/json',
             body: JSON.stringify(obs),
+          });
+        });
+      },
+      async stubSpecies(code, meta) {
+        await page.route(`**/api/species/${code}`, async route => {
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(meta),
           });
         });
       },
