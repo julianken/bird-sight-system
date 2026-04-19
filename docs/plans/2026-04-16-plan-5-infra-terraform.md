@@ -338,7 +338,7 @@ npx node-pg-migrate up -m migrations -d "$DATABASE_URL"
 echo "Done."
 ```
 
-> Note (#52 follow-up): `node-pg-migrate`'s `-d` flag takes the **connection string itself**, not the name of an env var — a subtle but important distinction vs. the older `-d DATABASE_URL` usage (which would look up `process.env.DATABASE_URL`). Both happen to work in practice because the env var is also set, but the explicit pass is canonical. The CD workflow that runs this script on every push (issue #65, Wave 1.5 — not yet shipped) is what bundles issue #52's scripted variant. Until then, run locally from a trusted workstation.
+> Note (#52 follow-up): `node-pg-migrate`'s `-d` / `--database-url-var` flag takes the **NAME of an env var** that contains the connection string — NOT the connection string itself (per the CLI docs at salsita.github.io/node-pg-migrate/cli; default value is `DATABASE_URL`). The snippet above writes `-d "$DATABASE_URL"`, which bash expands shell-side into the literal URL; `node-pg-migrate` then treats that URL as an env var name, fails the lookup, and falls back to its default of reading `process.env.DATABASE_URL`. It works by accident. The canonical form is `-d DATABASE_URL` (the literal variable name, unexpanded) — that is what issue #52 tracks and what the Wave 1.5 CD workflow (issue #65, not yet shipped) will ship. Until then, run locally from a trusted workstation and be aware the `"$DATABASE_URL"` form is load-bearing only because the env var is also exported.
 
 - [ ] **Step 2: Make executable + run**
 
