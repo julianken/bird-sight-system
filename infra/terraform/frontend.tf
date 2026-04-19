@@ -10,15 +10,54 @@ resource "cloudflare_pages_domain" "root" {
   domain       = var.domain
 }
 
-# Subdomain "api" → CNAME to the Cloud Run service URL (proxied through Cloudflare for caching).
+# Apex "@" → CNAME to the Pages project's auto-assigned pages.dev subdomain.
+# cloudflare_pages_domain binds the domain on the Pages side but does NOT
+# create the DNS record; without this resource the zone serves NXDOMAIN for
+# the apex. Reference the provider-exposed `subdomain` attribute rather than
+# hardcoding "birdwatch-1xe.pages.dev" — if the project is ever recreated,
+# Cloudflare may assign a different pages.dev suffix. proxied=true lets CF
+# auto-flatten the apex CNAME.
+resource "cloudflare_record" "root" {
+  zone_id = var.cloudflare_zone_id
+  name    = "@"
+  type    = "CNAME"
+  content = cloudflare_pages_project.frontend.subdomain
+  proxied = true
+  ttl     = 1
+}
+
+# Subdomain "api" → CNAME to Cloud Run's documented CNAME target.
+# Cloud Run rejects requests whose Host header is not a registered domain
+# mapping, so pointing straight at the run.app URL returns 404. The canonical
+# path is a CNAME to ghs.googlehosted.com plus a google_cloud_run_domain_mapping
+# below; proxied MUST be false so Cloud Run's own Let's Encrypt cert serves
+# (proxying through Cloudflare breaks the SSL handshake).
 resource "cloudflare_record" "api" {
   zone_id = var.cloudflare_zone_id
   name    = "api"
   type    = "CNAME"
-  # Strip protocol; CF wants just the host
-  value   = trimprefix(google_cloud_run_v2_service.read_api.uri, "https://")
-  proxied = true
+  content = "ghs.googlehosted.com"
+  proxied = false
   ttl     = 1
+}
+
+# NOTE: google_cloud_run_domain_mapping is the v1-Knative resource. The rest
+# of the infra uses google_cloud_run_v2_service, but the v2 provider does
+# not yet expose a domain-mapping resource; the v1 resource is the canonical
+# path and the v1/v2 mix is intentional here. Prerequisite: the operator
+# must verify `var.domain` in Google Search Console (one-time out-of-band
+# TXT record) before `terraform apply` — otherwise this resource fails.
+resource "google_cloud_run_domain_mapping" "api" {
+  location = var.gcp_region
+  name     = "api.${var.domain}"
+
+  metadata {
+    namespace = var.gcp_project_id
+  }
+
+  spec {
+    route_name = google_cloud_run_v2_service.read_api.name
+  }
 }
 
 output "api_url" {
