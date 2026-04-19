@@ -15,12 +15,9 @@ test.describe('region collapse', () => {
     await expandSantaRitas(page);
     // Dispatch a synthetic click directly on the <svg> element. The AZ viewBox
     // tiles all 9 regions densely enough that no coordinate is guaranteed to
-    // land on bare SVG, so page.evaluate bypasses hit-testing and guarantees
+    // land on bare SVG, so dispatchEvent bypasses hit-testing and guarantees
     // e.target === e.currentTarget (the exact condition Map.tsx guards).
-    await page.evaluate(() => {
-      const svg = document.querySelector('.bird-map') as SVGSVGElement;
-      svg.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
+    await page.locator('.bird-map').dispatchEvent('click');
     await expect(page.locator('[data-region-id="sky-islands-santa-ritas"]'))
       .not.toHaveClass(/region-expanded/);
     await expect.poll(() => page.url(), { timeout: 5_000 }).not.toContain('region=');
@@ -38,13 +35,16 @@ test.describe('region collapse', () => {
 
   test('clicking expanded region collapses', async ({ page }) => {
     await expandSantaRitas(page);
-    await page.locator('.region-shape[aria-label="Sky Islands — Santa Ritas"]').click();
+    // Same rationale as test 1: badge overlays can cover the region center, so
+    // dispatch directly on the path element to guarantee it receives the click
+    // regardless of hit-testing.
+    await page.locator('.region-shape[aria-label="Sky Islands — Santa Ritas"]').dispatchEvent('click');
     await expect(page.locator('[data-region-id="sky-islands-santa-ritas"]'))
       .not.toHaveClass(/region-expanded/);
     await expect.poll(() => page.url(), { timeout: 5_000 }).not.toContain('region=');
   });
 
-  test('Escape collapses expanded region (not yet implemented)', async ({ page }) => {
+  test('Escape collapses expanded region', async ({ page }) => {
     // test.fail asserts this test MUST fail. When Escape handling ships and
     // this test unexpectedly passes, CI turns red and the annotation must be
     // removed. test.fixme silently skips forever with no signal — do NOT use
