@@ -154,8 +154,12 @@ export function BadgeStack(props: BadgeStackProps) {
   // Expanded mode: use bbox directly (the whole region is scaled up to the
   // canvas by Region's `computeExpandTransform`, so the polygon already
   // fills the screen — inscribed-rect math would just shrink the usable
-  // area inside the expanded view unnecessarily).
+  // area inside the expanded view unnecessarily). Expanded mode also adds
+  // a label row per badge (issue #54); vertical cell pitch grows to
+  // prevent the next row's badge from overlapping the previous row's
+  // label text.
   const bbox = { x: props.x, y: props.y, width: props.width, height: props.height };
+  const EXPANDED_LABEL_HEIGHT = 14; // ~9px label + 5px padding; matches Badge's font-size floor.
   const layout = isExpanded
     ? {
         x: bbox.x,
@@ -164,6 +168,9 @@ export function BadgeStack(props: BadgeStackProps) {
         height: bbox.height,
         diameter: MAX_BADGE_DIAMETER,
         cell: MAX_BADGE_DIAMETER + PADDING,
+        // Row stride must clear the label; horizontal stride stays
+        // `cell` so columns remain tight.
+        rowStride: MAX_BADGE_DIAMETER + PADDING + EXPANDED_LABEL_HEIGHT,
         cols: Math.max(1, Math.floor(bbox.width / (MAX_BADGE_DIAMETER + PADDING))),
         fallback: false as const,
       }
@@ -229,13 +236,19 @@ export function BadgeStack(props: BadgeStackProps) {
     : allGroups.slice(0, overflow > 0 ? MAX_COLLAPSED_BADGES - 1 : MAX_COLLAPSED_BADGES);
   const r = layout.diameter / 2;
 
+  // Row stride differs from column stride only in expanded mode, where
+  // we reserve extra vertical space for the label text below each circle.
+  const rowStride = 'rowStride' in layout && typeof layout.rowStride === 'number'
+    ? layout.rowStride
+    : layout.cell;
+
   return (
     <g className="badge-stack">
       {groups.map((g, i) => {
         const col = i % cols;
         const row = Math.floor(i / cols);
         const cx = layout.x + (col + 0.5) * layout.cell;
-        const cy = layout.y + (row + 0.5) * layout.cell;
+        const cy = layout.y + (row + 0.5) * rowStride;
         const onSelectSpecies = props.onSelectSpecies;
         return (
           <Badge
@@ -248,6 +261,7 @@ export function BadgeStack(props: BadgeStackProps) {
             color={props.colorFor(g.silhouetteId)}
             comName={g.comName}
             selected={props.selectedSpeciesCode === g.speciesCode}
+            expanded={isExpanded}
             {...(onSelectSpecies !== undefined
               ? { onClick: () => onSelectSpecies(g.speciesCode) }
               : {})}
@@ -260,7 +274,7 @@ export function BadgeStack(props: BadgeStackProps) {
         const col = pipIdx % cols;
         const row = Math.floor(pipIdx / cols);
         const cx = layout.x + (col + 0.5) * layout.cell;
-        const cy = layout.y + (row + 0.5) * layout.cell;
+        const cy = layout.y + (row + 0.5) * rowStride;
         return (
           <g
             key="overflow-pip"
