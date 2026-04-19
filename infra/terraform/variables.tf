@@ -15,6 +15,11 @@ variable "neon_api_key" {
   description = "Neon API key (Neon dashboard → Settings → API keys)."
 }
 
+variable "neon_org_id" {
+  type        = string
+  description = "Neon organization ID (visible in console URL after sign-in, e.g. org-green-boat-15736536)."
+}
+
 variable "cloudflare_account_id" {
   type        = string
   description = "Cloudflare account ID (used for Pages + DNS only)."
