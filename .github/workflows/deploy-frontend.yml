@@ -26,6 +26,10 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
+      - name: Build workspace dependencies
+        run: |
+          npm run build -w @bird-watch/shared-types
+          npm run build -w @bird-watch/family-mapping
       - name: Build frontend
         env:
           VITE_API_BASE_URL: https://api.bird-maps.com
