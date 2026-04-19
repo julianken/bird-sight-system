@@ -10,9 +10,15 @@ if [ -z "${DATABASE_URL:-}" ]; then
 fi
 
 echo "Enabling PostGIS on Neon..."
+# NOTE: redundant with migrations/1700000001000_enable_postgis.sql, which runs
+# CREATE EXTENSION IF NOT EXISTS postgis via the migrations ledger. Kept for
+# belt-and-suspenders on brand-new Neon branches where the ledger is empty.
+# Safe to delete in a follow-up cleanup (see issue #65 Gotchas, "optional").
 psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS postgis;"
 
 echo "Running migrations..."
-npx node-pg-migrate up -m migrations -d "$DATABASE_URL"
+# -d (a.k.a. --database-url-var) takes the NAME of the env var, not the URL value.
+# (salsita.github.io/node-pg-migrate/cli)
+npx node-pg-migrate up -m migrations -d DATABASE_URL
 
 echo "Done."

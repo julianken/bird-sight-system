@@ -7,8 +7,7 @@ echo "[1/6] terraform apply..."
 (cd infra/terraform && terraform apply -auto-approve)
 
 echo "[2/6] migrations..."
-DB_URL=$(cd infra/terraform && terraform output -raw neon_db_url)
-DATABASE_URL="$DB_URL" ./scripts/migrate-deploy.sh
+echo "migrations deploy handled by .github/workflows/deploy-migrations.yml"
 
 echo "[3/6] read-api deploy handled by .github/workflows/deploy-read-api.yml"
 
