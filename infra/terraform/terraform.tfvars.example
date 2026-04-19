@@ -1,6 +1,7 @@
 gcp_project_id        = "REPLACE_ME"
 gcp_region            = "us-west1"
 neon_api_key          = "REPLACE_ME"
+neon_org_id           = "REPLACE_ME"
 cloudflare_account_id = "REPLACE_ME"
 cloudflare_api_token  = "REPLACE_ME"
 cloudflare_zone_id    = "REPLACE_ME"
