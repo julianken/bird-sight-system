@@ -1,61 +1,60 @@
 import { test, expect } from '@playwright/test';
+import { AppPage } from './pages/app-page.js';
 
 test.describe('filter flows', () => {
+  let app: AppPage;
+
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-    await expect(page.locator('[data-region-id]')).toHaveCount(9, { timeout: 15_000 });
+    app = new AppPage(page);
+    await app.goto();
+    await app.waitForMapLoad();
   });
 
-  test('time window select updates URL and respects default-omit', async ({ page }) => {
-    const sel = page.getByLabel('Time window');
-    await sel.selectOption('1d');
-    await expect.poll(() => page.url(), { timeout: 5_000 }).toContain('since=1d');
-    await sel.selectOption('14d');
-    await expect.poll(() => page.url(), { timeout: 5_000 }).not.toContain('since=');
+  test('time window select updates URL and respects default-omit', async () => {
+    await app.filters.selectTimeWindow('1d');
+    await expect.poll(() => app.getUrlParams().get('since'), { timeout: 5_000 }).toBe('1d');
+    await app.filters.selectTimeWindow('14d');
+    await expect.poll(() => app.getUrlParams().get('since'), { timeout: 5_000 }).toBeNull();
   });
 
-  test('family select updates URL when options exist', async ({ page }) => {
-    const sel = page.getByLabel('Family');
-    const count = await sel.locator('option').count();
+  test('family select updates URL when options exist', async () => {
+    const count = await app.filters.family.locator('option').count();
     test.skip(count <= 1, 'species_meta is empty — no families to filter by');
 
-    const firstValue = await sel.locator('option').nth(1).getAttribute('value');
+    const firstValue = await app.filters.family.locator('option').nth(1).getAttribute('value');
     expect(firstValue).toBeTruthy();
-    await sel.selectOption(firstValue!);
-    await expect.poll(() => page.url(), { timeout: 5_000 }).toContain(`family=${firstValue}`);
+    await app.filters.selectFamily(firstValue!);
+    await expect.poll(() => app.getUrlParams().get('family'), { timeout: 5_000 }).toBe(firstValue);
 
-    await sel.selectOption({ label: 'All families' });
-    await expect.poll(() => page.url(), { timeout: 5_000 }).not.toContain('family=');
+    await app.filters.family.selectOption({ label: 'All families' });
+    await expect.poll(() => app.getUrlParams().get('family'), { timeout: 5_000 }).toBeNull();
   });
 
-  test('species input does not commit on keystroke (draft isolation + no-match blur)', async ({ page }) => {
-    const input = page.getByLabel('Species');
-    await input.focus();
-    await input.fill('Vermilio'); // partial, no match
+  test('species input does not commit on keystroke (draft isolation + no-match blur)', async () => {
+    await app.filters.species.focus();
+    await app.filters.setSpecies('Vermilio'); // partial, no match
 
     // Draft only — URL should not have species param yet.
-    await expect.poll(() => page.url(), { timeout: 3_000 }).not.toContain('species=');
+    await expect.poll(() => app.getUrlParams().get('species'), { timeout: 3_000 }).toBeNull();
 
-    await input.blur();
+    await app.filters.species.blur();
     // After blur with no exact match, URL still has no species param.
-    await expect.poll(() => page.url(), { timeout: 5_000 }).not.toContain('species=');
+    await expect.poll(() => app.getUrlParams().get('species'), { timeout: 5_000 }).toBeNull();
   });
 
   test('species input commits exact match on blur', async ({ page }) => {
-    const input = page.getByLabel('Species');
-    await input.focus();
+    await app.filters.species.focus();
     await expect(page.locator('datalist#species-options option').first()).toBeAttached({ timeout: 10_000 });
-    await input.fill('Vermilion Flycatcher');
-    await input.blur();
-    await expect.poll(() => page.url(), { timeout: 5_000 }).toContain('species=vermfly');
+    await app.filters.setSpecies('Vermilion Flycatcher');
+    await app.filters.species.blur();
+    await expect.poll(() => app.getUrlParams().get('species'), { timeout: 5_000 }).toBe('vermfly');
   });
 
   test('species input commits on Enter', async ({ page }) => {
-    const input = page.getByLabel('Species');
-    await input.focus();
+    await app.filters.species.focus();
     await expect(page.locator('datalist#species-options option').first()).toBeAttached({ timeout: 10_000 });
-    await input.fill('Vermilion Flycatcher');
+    await app.filters.setSpecies('Vermilion Flycatcher');
     await page.keyboard.press('Enter');
-    await expect.poll(() => page.url(), { timeout: 5_000 }).toContain('species=vermfly');
+    await expect.poll(() => app.getUrlParams().get('species'), { timeout: 5_000 }).toBe('vermfly');
   });
 });
