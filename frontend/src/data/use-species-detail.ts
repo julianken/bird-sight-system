@@ -51,8 +51,13 @@ export function useSpeciesDetail(
     setState({ loading: true, error: null, data: null });
     client.getSpecies(speciesCode)
       .then(meta => {
-        if (cancelled) return;
+        // Populate the cache BEFORE the cancelled-check. The fetched row is
+        // useful to the next consumer of this hook (fast open/close/reopen
+        // cycle) even if the current effect's consumer has unmounted. Only
+        // the React state update is gated on `cancelled` so we don't call
+        // setState on a stale/unmounted tree.
         cacheRef.current.set(speciesCode, meta);
+        if (cancelled) return;
         setState({ loading: false, error: null, data: meta });
       })
       .catch(err => {
