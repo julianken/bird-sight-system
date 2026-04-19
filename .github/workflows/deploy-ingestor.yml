@@ -1,0 +1,76 @@
+name: deploy-ingestor
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'services/ingestor/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.base.json'
+      - '.github/workflows/deploy-ingestor.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-ingestor-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GCP_PROJECT: bird-maps-prod
+  GCP_REGION: us-west1          # matches var.gcp_region default
+  AR_REPO: birdwatch            # matches google_artifact_registry_repository.birdwatch.repository_id (no hyphen)
+  IMAGE_NAME: ingestor          # matches the image path Terraform pins in ingestor.tf (…/birdwatch/ingestor)
+  JOB_NAME: bird-ingestor       # Cloud Run job name from ingestor.tf:32
+
+jobs:
+  deploy:
+    name: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write   # required for WIF
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SA_EMAIL }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure docker for Artifact Registry
+        run: gcloud auth configure-docker ${GCP_REGION}-docker.pkg.dev --quiet
+
+      - name: Build and push image
+        run: |
+          IMAGE="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT}/${AR_REPO}/${IMAGE_NAME}:${GITHUB_SHA}"
+          docker build -f services/ingestor/Dockerfile -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Deploy to Cloud Run Job
+        run: |
+          gcloud run jobs update "$JOB_NAME" \
+            --region="$GCP_REGION" \
+            --image="$IMAGE" \
+            --quiet
+
+      - name: Verify image pinned
+        run: |
+          # Cloud Run Jobs aren't HTTP endpoints, so we can't curl a /health URL the way
+          # deploy-read-api does. The closest equivalent is verifying the job resource now
+          # points at the commit-SHA image tag we just pushed. This confirms the update
+          # succeeded end-to-end (auth → AR push → Cloud Run control plane) without burning
+          # a live ingest run on every deploy. The three schedulers (every 30 min, daily
+          # 4am, weekly Sun 5am) bind to the job by name, so they pick up the new image
+          # on their next tick automatically.
+          DEPLOYED=$(gcloud run jobs describe "$JOB_NAME" \
+            --region="$GCP_REGION" \
+            --format='value(template.template.containers[0].image)')
+          echo "Deployed image: $DEPLOYED"
+          echo "Expected image: $IMAGE"
+          test "$DEPLOYED" = "$IMAGE"
