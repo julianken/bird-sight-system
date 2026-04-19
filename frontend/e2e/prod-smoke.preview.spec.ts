@@ -2,7 +2,10 @@ import { test, expect } from '@playwright/test';
 
 test.describe('production build smoke', () => {
   test('map renders 9 regions when served by vite preview', async ({ page }) => {
-    test.fail(); // Expected: preview server has no /api proxy; remove when baseUrl fix lands
+    // Expected to fail today: preview has no /api proxy.
+    // When the baseUrl fix lands, this will start PASSING, which
+    // fails test.fail() — that's your cue to delete this line.
+    test.fail();
     await page.goto('/');
     const regions = page.locator('[data-region-id]');
     await expect(regions).toHaveCount(9, { timeout: 15_000 });
