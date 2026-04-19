@@ -4,6 +4,7 @@ import { useUrlState } from './state/url-state.js';
 import { useBirdData } from './data/use-bird-data.js';
 import { Map } from './components/Map.js';
 import { FiltersBar } from './components/FiltersBar.js';
+import { SpeciesPanel } from './components/SpeciesPanel.js';
 import { deriveFamilies, deriveSpeciesIndex } from './derived.js';
 import { colorForFamily } from '@bird-watch/family-mapping';
 
@@ -77,6 +78,15 @@ export function App() {
           colorFor={colorFor}
         />
       </div>
+      {/* Species detail panel — mounts unconditionally; the component
+          returns null when speciesCode is null. Panel is URL-driven: when
+          `onSelectRegion` clears speciesCode (see above), the panel
+          dismisses automatically. See issue #56 Design notes (gotcha #5). */}
+      <SpeciesPanel
+        speciesCode={state.speciesCode}
+        onDismiss={() => set({ speciesCode: null })}
+        apiClient={apiClient}
+      />
     </div>
   );
 }
