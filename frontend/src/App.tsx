@@ -7,7 +7,7 @@ import { FiltersBar } from './components/FiltersBar.js';
 import { deriveFamilies, deriveSpeciesIndex } from './derived.js';
 import { colorForFamily } from '@bird-watch/family-mapping';
 
-const apiClient = new ApiClient({ baseUrl: '' });
+const apiClient = new ApiClient({ baseUrl: import.meta.env.VITE_API_BASE_URL ?? '' });
 
 // Generic bird silhouette SVG path used for every badge (MVP).
 // Each family is distinguished by color. A future enhancement can fetch

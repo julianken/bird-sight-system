@@ -2,11 +2,11 @@ import { test, expect } from '@playwright/test';
 
 test.describe('production build smoke', () => {
   test('map renders 9 regions when served by vite preview', async ({ page }) => {
-    // Expected to fail today: preview runs with proxy: {} (vite.config.ts)
-    // so /api hits the static origin (no handler). The baseUrl fix will
-    // switch App.tsx to an env-driven absolute URL — when that lands, this
-    // test will start PASSING, which fails test.fail(). That's your cue
-    // to delete the annotation.
+    // Still expected to fail after the #48 baseUrl fix: the preview bundle
+    // now fetches http://localhost:8787/api/* cross-origin, but the read-api
+    // has no CORS middleware yet (tracked as #49 — paired with this PR).
+    // Delete test.fail() once #49 lands and the preflight/ACAO headers are
+    // in place.
     test.fail();
     await page.goto('/');
     const regions = page.locator('[data-region-id]');
