@@ -64,6 +64,14 @@ resource "google_cloud_run_v2_service" "read_api" {
     percent = 100
   }
 
+  # The image tag is rolled forward by .github/workflows/deploy-read-api.yml
+  # (Cloud Run service update on every push to main touching read-api).
+  # Without this, `terraform apply` would revert the service to the :latest
+  # tag pinned above and silently roll back the CD deploy.
+  lifecycle {
+    ignore_changes = [template[0].containers[0].image]
+  }
+
   depends_on = [
     google_project_service.run,
     google_secret_manager_secret_iam_member.read_api_db,

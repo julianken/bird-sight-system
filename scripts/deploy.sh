@@ -10,8 +10,7 @@ echo "[2/6] migrations..."
 DB_URL=$(cd infra/terraform && terraform output -raw neon_db_url)
 DATABASE_URL="$DB_URL" ./scripts/migrate-deploy.sh
 
-echo "[3/6] build + push read-api image..."
-./scripts/build-push.sh read-api latest
+echo "[3/6] read-api deploy handled by .github/workflows/deploy-read-api.yml"
 
 echo "[4/6] build + push ingestor image..."
 ./scripts/build-push.sh ingestor latest
@@ -19,9 +18,6 @@ echo "[4/6] build + push ingestor image..."
 echo "[5/6] roll Cloud Run to new revisions..."
 REGION=$(cd infra/terraform && terraform output -raw gcp_region)
 REGISTRY=$(cd infra/terraform && terraform output -raw artifact_registry_url)
-gcloud run services update bird-read-api \
-  --region="$REGION" \
-  --image="$REGISTRY/read-api:latest"
 gcloud run jobs update bird-ingestor \
   --region="$REGION" \
   --image="$REGISTRY/ingestor:latest"

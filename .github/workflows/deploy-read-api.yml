@@ -1,0 +1,71 @@
+name: deploy-read-api
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'services/read-api/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.base.json'
+      - '.github/workflows/deploy-read-api.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-read-api-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GCP_PROJECT: bird-maps-prod
+  GCP_REGION: us-west1          # matches var.gcp_region default
+  AR_REPO: birdwatch            # matches google_artifact_registry_repository.birdwatch.repository_id (no hyphen)
+  IMAGE_NAME: read-api          # matches the image path Terraform pins in read-api.tf:40 (…/birdwatch/read-api)
+  SERVICE_NAME: bird-read-api   # Cloud Run service name from read-api.tf:28
+
+jobs:
+  deploy:
+    name: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write   # required for WIF
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SA_EMAIL }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure docker for Artifact Registry
+        run: gcloud auth configure-docker ${GCP_REGION}-docker.pkg.dev --quiet
+
+      - name: Build and push image
+        run: |
+          IMAGE="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT}/${AR_REPO}/${IMAGE_NAME}:${GITHUB_SHA}"
+          docker build -f services/read-api/Dockerfile -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run services update "$SERVICE_NAME" \
+            --region="$GCP_REGION" \
+            --image="$IMAGE" \
+            --quiet
+
+      - name: Smoke test
+        run: |
+          # Retry to absorb DNS / Cloud LB / custom-domain propagation after a revision swap.
+          # `gcloud run services update` returns when the new revision serves on its .run.app URL,
+          # but api.bird-maps.com goes through a Cloud LB + custom domain mapping with its own
+          # warm-up window. --retry 5 --retry-delay 3 covers up to ~15s of propagation lag without
+          # masking a genuinely broken deploy.
+          curl -sSfv --retry 5 --retry-delay 3 --retry-all-errors \
+            "https://api.bird-maps.com/health" | tee /tmp/health.json
+          grep -q '"ok":true' /tmp/health.json
