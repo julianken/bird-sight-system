@@ -1,0 +1,65 @@
+name: deploy-migrations
+
+# Partial-failure contract: if any `-- Up Migration` statement errors, this
+# workflow exits non-zero and leaves Neon in whatever state the runner reached
+# up to the last committed migration. It does NOT auto-rollback. A human must
+# inspect and either fix-forward with a new migration or manually revert.
+#
+# Ordering with app code: if a schema-changing migration ships alongside a
+# read-api or ingestor code change that depends on the new column, (1) ship
+# the migration PR, (2) wait for this workflow to succeed, (3) ship the code
+# in a follow-up PR. Not enforced in YAML — developer discipline.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'migrations/**'
+      - 'scripts/migrate-deploy.sh'
+      - '.github/workflows/deploy-migrations.yml'
+  workflow_dispatch:
+
+concurrency:
+  # NEVER cancel mid-migration — DB transactions don't always roll back cleanly
+  # on CI cancellation, and `node-pg-migrate`'s per-migration lock doesn't
+  # protect against a SIGKILL'd runner leaving a half-applied `-- Up` block.
+  group: deploy-migrations-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # No id-token: write needed — Neon auth is via DATABASE_URL password,
+      # not GCP WIF like the read-api / ingestor workflows.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Verify DATABASE_URL uses Neon pooled endpoint
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [[ -z "${DATABASE_URL:-}" ]]; then
+            echo "::error::DATABASE_URL secret is not set"
+            exit 1
+          fi
+          if [[ ! "$DATABASE_URL" =~ -pooler ]]; then
+            echo "::error::DATABASE_URL must use Neon pooled endpoint (-pooler suffix). See infra/terraform/db.tf locals.neon_pooled_url."
+            exit 1
+          fi
+          echo "DATABASE_URL points at a pooled endpoint (host contains '-pooler')."
+
+      - name: Apply migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: ./scripts/migrate-deploy.sh
