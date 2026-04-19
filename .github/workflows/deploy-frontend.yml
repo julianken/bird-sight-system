@@ -1,0 +1,60 @@
+name: deploy-frontend
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/deploy-frontend.yml'
+  workflow_dispatch:
+concurrency:
+  group: deploy-frontend-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  deploy:
+    name: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Build frontend
+        env:
+          VITE_API_BASE_URL: https://api.bird-maps.com
+        run: npm run build -w @bird-watch/frontend
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy frontend/dist --project-name=birdwatch --branch=main --commit-dirty=true
+      - name: Post-deploy bundle-hash check
+        run: |
+          set -euo pipefail
+          # Fetch the live site, extract the first /assets/*.js path, fetch that
+          # bundle, grep for the production API base URL. If the deployed bundle
+          # does not bake in api.bird-maps.com, the build env did not propagate
+          # and the site is broken - fail the workflow so the previous CF Pages
+          # deployment stays live (fail-forward).
+          HTML=$(curl -sSf --retry 5 --retry-delay 3 --retry-all-errors https://bird-maps.com/)
+          ASSET=$(printf '%s' "$HTML" | grep -oE '/assets/[^"]+\.js' | head -1)
+          if [ -z "$ASSET" ]; then
+            echo "ERROR: no /assets/*.js found in served HTML" >&2
+            printf '%s\n' "$HTML" | head -40 >&2
+            exit 1
+          fi
+          echo "Checking bundle: $ASSET"
+          COUNT=$(curl -sSf --retry 5 --retry-delay 3 --retry-all-errors "https://bird-maps.com$ASSET" | grep -c 'api.bird-maps.com' || true)
+          echo "api.bird-maps.com occurrences in bundle: $COUNT"
+          if [ "$COUNT" -lt 1 ]; then
+            echo "ERROR: deployed bundle does not contain api.bird-maps.com" >&2
+            exit 1
+          fi

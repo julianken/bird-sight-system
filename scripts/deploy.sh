@@ -26,13 +26,10 @@ gcloud run jobs update bird-ingestor \
   --region="$REGION" \
   --image="$REGISTRY/ingestor:latest"
 
-echo "[6/6] build + deploy frontend..."
-DOMAIN=$(cd infra/terraform && terraform output -raw root_domain)
-echo "VITE_API_BASE_URL=https://api.$DOMAIN" > frontend/.env.production
-CLOUDFLARE_API_TOKEN=$(cd infra/terraform && terraform output -raw cloudflare_api_token)
-export CLOUDFLARE_API_TOKEN
-(cd frontend && npm run build && npx wrangler pages deploy dist --project-name=birdwatch --branch=main)
+echo "[6/6] frontend deploy..."
+echo "frontend deploy handled by .github/workflows/deploy-frontend.yml"
 
+DOMAIN=$(cd infra/terraform && terraform output -raw root_domain)
 echo
 echo "Deployed."
 echo "  Frontend:  https://$DOMAIN"
