@@ -8,6 +8,8 @@ const ROOT = path.resolve(__dirname, '..');
 export default defineConfig({
   testDir: './e2e',
   timeout: 60_000,
+  fullyParallel: true,
+  workers: process.env.CI ? 2 : undefined,
   use: {
     headless: true,
     screenshot: 'only-on-failure',
