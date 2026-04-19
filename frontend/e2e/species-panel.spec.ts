@@ -39,16 +39,7 @@ test.describe('species detail panel (#56)', () => {
     const count = await badge.count();
     test.skip(count === 0, 'Vermilion Flycatcher not in recent observations — seed drift');
 
-    // `force: true` bypasses Playwright's actionability check (specifically
-    // the "receives events" gate). Pre-existing z-order bug from PR #77:
-    // Vermilion Flycatcher is in sky-islands-santa-ritas (parent =
-    // sonoran-tucson). Map.tsx renders regions in alphabetical id order, so
-    // sky-islands-santa-ritas paints BEFORE sonoran-tucson — the tucson
-    // `<path>` then overlays the santa-ritas badges and intercepts the
-    // pointer event. Forcing the click still exercises the badge's click
-    // handler, which is what this test cares about. Real fix: render parent
-    // regions first (follow-up issue tracked separately).
-    await badge.click({ force: true });
+    await badge.click();
 
     // Panel renders with the stubbed contents.
     const panel = page.getByRole('complementary');
