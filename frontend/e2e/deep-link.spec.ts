@@ -37,4 +37,14 @@ test.describe('deep-link restore', () => {
     test.skip(optionCount <= 1, 'species_meta is empty — no families to restore from URL');
     await expect(familySel).toHaveValue('tyrannidae');
   });
+
+  test('empty URL leaves all controls at defaults', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('[data-region-id]')).toHaveCount(9, { timeout: 15_000 });
+    await expect(page.getByLabel('Time window')).toHaveValue('14d');
+    await expect(page.getByLabel('Notable only')).not.toBeChecked();
+    await expect(page.getByLabel('Family')).toHaveValue('');
+    await expect(page.getByLabel('Species')).toHaveValue('');
+    await expect(page.locator('.region-expanded')).toHaveCount(0);
+  });
 });
