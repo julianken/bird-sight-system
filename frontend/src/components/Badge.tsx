@@ -7,13 +7,30 @@ export interface BadgeProps {
   comName: string;
   selected?: boolean;
   onClick?: () => void;
+  /**
+   * Outer radius in polygon-local SVG units. Defaults to `DEFAULT_RADIUS`
+   * (14) to preserve behaviour for callers that don't size the badge
+   * explicitly. Polygon-aware layout (`BadgeStack`) overrides this for
+   * small regions so a 30-unit-wide sky-island still gets a contained
+   * circle, and scales the count chip + silhouette proportionally.
+   */
+  radius?: number;
 }
 
-const RADIUS = 14;
-const CHIP_RADIUS = 7;
+export const DEFAULT_RADIUS = 14;
 
 export function Badge(props: BadgeProps) {
   const cursor = props.onClick ? 'pointer' : 'default';
+  const radius = props.radius ?? DEFAULT_RADIUS;
+  // Chip + stroke + text sizing all scale proportionally to the radius so
+  // a small badge still reads as a badge (not a fat-stroke disc with a
+  // detached chip). These constants were chosen by eye at RADIUS=14 (chip
+  // ≈ half the circle, stroke ≈ 1/7 the diameter); `scale` adapts them
+  // when BadgeStack sizes a small region's badge below the default.
+  const scale = radius / DEFAULT_RADIUS;
+  const chipRadius = 7 * scale;
+  const strokeWidth = 2 * scale;
+  const chipFontSize = 9 * scale;
   return (
     <g
       className={`badge${props.selected ? ' badge-selected' : ''}`}
@@ -32,22 +49,22 @@ export function Badge(props: BadgeProps) {
     >
       <circle
         className="badge-circle"
-        r={RADIUS}
+        r={radius}
         fill={props.color}
         stroke="#fff"
-        strokeWidth={2}
+        strokeWidth={strokeWidth}
       />
-      <g transform={`translate(-${RADIUS},-${RADIUS}) scale(${(RADIUS * 2) / 24})`}>
+      <g transform={`translate(-${radius},-${radius}) scale(${(radius * 2) / 24})`}>
         <path d={props.silhouettePath} fill="#fff" />
       </g>
       {props.count > 1 && (
-        <g transform={`translate(${RADIUS - 2},${-RADIUS + 2})`}>
-          <circle r={CHIP_RADIUS} fill="#1a1a1a" />
+        <g transform={`translate(${radius - 2 * scale},${-radius + 2 * scale})`}>
+          <circle r={chipRadius} fill="#1a1a1a" />
           <text
             textAnchor="middle"
             dominantBaseline="central"
             fill="#fff"
-            fontSize={9}
+            fontSize={chipFontSize}
             fontWeight="bold"
             fontFamily="-apple-system, sans-serif"
           >
