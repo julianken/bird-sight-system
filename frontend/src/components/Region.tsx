@@ -103,6 +103,7 @@ export function Region(props: RegionProps) {
       {props.observations.length > 0 && (
         <BadgeStack
           observations={props.observations}
+          polygonSvgPath={props.region.svgPath}
           x={stackX}
           y={stackY}
           width={stackW}

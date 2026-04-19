@@ -8,10 +8,16 @@ export class FiltersBar {
   readonly species: Locator;
 
   constructor(page: Page) {
-    this.timeWindow = page.getByLabel('Time window');
-    this.notableOnly = page.getByLabel('Notable only');
-    this.family = page.getByLabel('Family');
-    this.species = page.getByLabel('Species');
+    // `exact: true` is mandatory on this page object. BadgeStack renders an
+    // overflow-pip <g role="img" aria-label="N more species — expand region
+    // to view"> whenever a polygon is too small to host every species badge
+    // at MIN_BADGE_DIAMETER (see issue #59) — the substring "Species" /
+    // "species" in that label collides with the filter input's aria-label.
+    // Exact match keeps this locator pinned to the form control.
+    this.timeWindow = page.getByLabel('Time window', { exact: true });
+    this.notableOnly = page.getByLabel('Notable only', { exact: true });
+    this.family = page.getByLabel('Family', { exact: true });
+    this.species = page.getByLabel('Species', { exact: true });
   }
 
   async selectTimeWindow(value: Since) {
