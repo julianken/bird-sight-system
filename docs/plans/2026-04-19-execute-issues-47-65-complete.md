@@ -1,11 +1,11 @@
 # Execute Issues #47–#65 — Execution Log
 
 **Date:** 2026-04-19
-**Status:** Complete. 15 PRs merged; 2 issues intentionally deferred; 1 follow-up filed.
+**Status:** Complete. 16 PRs merged; 2 issues intentionally deferred; 1 follow-up filed.
 
 ## What shipped
 
-17 pull requests merged to `main` in the following order (oldest first):
+16 pull requests merged to `main` in the following order (oldest first):
 
 | PR | Title | Commit |
 |---|---|---|
