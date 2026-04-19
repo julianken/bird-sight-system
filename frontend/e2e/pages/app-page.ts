@@ -21,6 +21,12 @@ export class AppPage {
     await expect(this.page.locator('[data-region-id]')).toHaveCount(9, { timeout });
   }
 
+  /**
+   * Expand a region via the keyboard path (focus + Enter). Intentionally
+   * avoids click to exercise the Region keydown handler and avoid pixel-
+   * layout fragility. If a future spec needs click-based expansion, add
+   * a separate `expandRegionByClick` method rather than changing this one.
+   */
   async expandRegion(ariaName: string) {
     const region = this.page.locator(`.region-shape[aria-label="${ariaName}"]`);
     await region.focus();

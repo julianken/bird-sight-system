@@ -1,4 +1,5 @@
 import type { Page, Locator } from '@playwright/test';
+import type { Since } from '../../src/state/url-state.js';
 
 export class FiltersBar {
   readonly timeWindow: Locator;
@@ -13,7 +14,7 @@ export class FiltersBar {
     this.species = page.getByLabel('Species');
   }
 
-  async selectTimeWindow(value: '1d' | '7d' | '14d' | '30d') {
+  async selectTimeWindow(value: Since) {
     await this.timeWindow.selectOption(value);
   }
 
