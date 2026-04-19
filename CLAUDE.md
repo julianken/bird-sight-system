@@ -64,6 +64,45 @@ The bot is a `push` collaborator on the repo; its APPROVE counts toward the 1-re
 
 Conventional commits style with scope where useful: `feat(scope):`, `chore:`, `ci:`, `infra:`, `docs:`, `test(scope):`, `plan(N):`. Multi-line messages should explain *why*, not *what* — diffs show what.
 
+## Testing
+
+### Spec authoring conventions
+
+E2E specs live in `frontend/e2e/*.spec.ts` and run under `@playwright/test`.
+Shared selectors live in `frontend/e2e/pages/*.ts` (Page Object Model); shared
+API route stubs live in `frontend/e2e/fixtures.ts`.
+
+**Concurrency.** `playwright.config.ts` sets `workers: 2` in CI and
+`workers: undefined` locally (defaults to half the available CPUs, typically
+4–8 on dev machines — this is intentional; local dev benefits from max
+throughput, and flakes surface quickly at a human-visible rate).
+`fullyParallel: true` is enabled everywhere — 2 parallel workers in CI matches
+typical GitHub Actions runner sizes, is strictly faster than serial, and
+catches ordering bugs that a single-worker config would mask. Do not raise CI
+workers to 4+ without re-auditing isolation; do not drop to 1 (hides real
+bugs).
+
+**No retries.** `retries: 0` is deliberate. If a test flakes, fix the root
+cause — don't paper over it. Retries are only appropriate for out-of-our-
+control dependencies, and this suite has none.
+
+**Navigation contract.** Every test begins by issuing `page.goto(...)`
+(optionally with query params or a preceding `page.route` stub) — tests never
+rely on state left over from a prior test. Tests that expect a healthy map
+wait for the 9-region render before asserting (`app.waitForMapLoad()` via the
+Page Object Model); tests that deliberately fail the API skip that wait and
+assert directly on `.error-screen`.
+
+**No DB writes.** E2E specs must not mutate the seeded database. Verify via a
+recursive scan (portable across stock macOS `/bin/bash` 3.2, which lacks
+`globstar`):
+
+`grep -rE "request\.(post|patch|delete|put)|fetch\(.*method:|fetch\(.*[\"']POST[\"']" frontend/e2e/`
+
+If this grep returns anything, the write must be replaced with a `page.route`
+stub or pushed down into a per-worker schema (e.g. via
+`@testcontainers/postgresql` if that becomes necessary).
+
 ## Use context7 for these libraries
 
 The following libraries change quickly enough that training-data knowledge is often wrong. **Pull fresh docs from `context7` before writing code that touches them**, not after debugging a failure:
