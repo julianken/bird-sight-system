@@ -20,3 +20,18 @@ coverage/
 # Playwright output (screenshots, traces from local runs)
 frontend/.playwright-out/
 frontend/playwright-report/
+
+# Playwright MCP runtime artifacts — may contain page snapshots of credential
+# flows (API key creation, OAuth callbacks). Never commit.
+.playwright-mcp/
+cf-*.png
+page-*.png
+gcp-*.png
+
+# Terraform state (contains DB passwords + API tokens). Use remote state
+# instead; local tfstate should never be committed.
+terraform.tfstate
+terraform.tfstate.backup
+
+# Per-user Claude Code workspace
+.claude/
