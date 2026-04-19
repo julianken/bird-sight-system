@@ -7,6 +7,8 @@ using the Playwright MCP tools. Each flow maps 1:1 to a `happy-path.spec.ts` ass
 
 > **axe-core scans:** `npm run test:e2e --workspace @bird-watch/frontend -- axe.spec.ts` runs three WCAG 2/2.1 A/AA scans (initial load, region expanded, error screen) via @axe-core/playwright. Open a tagged follow-up issue for any rule you disable.
 
+> **Page Object Model:** Shared selectors live in `frontend/e2e/pages/*.ts` — `AppPage` (goto, waitForMapLoad, expandRegion, regionById, getUrlParams) and `FiltersBar` (timeWindow/notableOnly/family/species locators + selectTimeWindow/toggleNotable/selectFamily/setSpecies). New specs should use the POM; selectors don't belong in spec files.
+
 ---
 
 ## Prerequisites
