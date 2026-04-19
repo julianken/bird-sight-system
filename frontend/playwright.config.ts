@@ -50,8 +50,17 @@ export default defineConfig({
       timeout: 30_000,
     },
     {
-      // Build and start Vite preview on port 4173 (no /api proxy — surfaces the baseUrl bug)
-      command: 'npm run build && npm run preview -- --port 4173 --strictPort',
+      // Build and start Vite preview on port 4173.
+      // VITE_API_BASE_URL points at the read-api webServer (8787) so the
+      // preview bundle — which runs without the dev proxy (see preview.proxy
+      // in vite.config.ts) — fetches the API cross-origin, mirroring the
+      // Cloudflare Pages + Cloud Run split in production. This requires CORS
+      // on the read-api; see services/read-api/src/app.ts. Without this
+      // override, `npm run build` would inline .env.production's
+      // https://api.bird-maps.com and the test would hit (or fail to reach)
+      // real production.
+      command:
+        'VITE_API_BASE_URL=http://localhost:8787 npm run build && npm run preview -- --port 4173 --strictPort',
       cwd: __dirname,
       url: 'http://localhost:4173',
       reuseExistingServer: !process.env.CI,
