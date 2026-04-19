@@ -3,6 +3,8 @@
 Step-by-step instructions for a Claude agent to execute the E2E test suite manually
 using the Playwright MCP tools. Each flow maps 1:1 to a `happy-path.spec.ts` assertion.
 
+> **preview-build project:** A second Playwright project (`preview-build`) runs `vite build && vite preview` on port 4173 (no `/api` proxy) to catch the production baseUrl bug. Its spec is `prod-smoke.preview.spec.ts` and uses `test.fail()` until the baseUrl fix lands.
+
 ---
 
 ## Prerequisites
