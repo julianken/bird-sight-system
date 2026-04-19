@@ -12,15 +12,9 @@ DATABASE_URL="$DB_URL" ./scripts/migrate-deploy.sh
 
 echo "[3/6] read-api deploy handled by .github/workflows/deploy-read-api.yml"
 
-echo "[4/6] build + push ingestor image..."
-./scripts/build-push.sh ingestor latest
+echo "[4/6] ingestor deploy handled by .github/workflows/deploy-ingestor.yml"
 
-echo "[5/6] roll Cloud Run to new revisions..."
-REGION=$(cd infra/terraform && terraform output -raw gcp_region)
-REGISTRY=$(cd infra/terraform && terraform output -raw artifact_registry_url)
-gcloud run jobs update bird-ingestor \
-  --region="$REGION" \
-  --image="$REGISTRY/ingestor:latest"
+echo "[5/6] Cloud Run revisions rolled by per-service deploy workflows"
 
 echo "[6/6] frontend deploy..."
 echo "frontend deploy handled by .github/workflows/deploy-frontend.yml"

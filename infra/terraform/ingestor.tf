@@ -70,6 +70,14 @@ resource "google_cloud_run_v2_job" "ingestor" {
     }
   }
 
+  # Once .github/workflows/deploy-ingestor.yml takes over image rollouts, Terraform
+  # must stop reconciling the image tag back to :latest on every apply. Jobs wrap
+  # the pod template in an execution template, hence the double template[0] —
+  # different from google_cloud_run_v2_service which uses single template[0].
+  lifecycle {
+    ignore_changes = [template[0].template[0].containers[0].image]
+  }
+
   depends_on = [
     google_project_service.run,
     google_secret_manager_secret_iam_member.ingestor_db,
