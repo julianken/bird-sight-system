@@ -73,23 +73,31 @@ Shared selectors live in `frontend/e2e/pages/*.ts` (Page Object Model); shared
 API route stubs live in `frontend/e2e/fixtures.ts`.
 
 **Concurrency.** `playwright.config.ts` sets `workers: 2` in CI and
-`fullyParallel: true` — 2 parallel workers matches typical GitHub Actions
-runner sizes, is strictly faster than serial, and catches ordering bugs that a
-single-worker config would mask. Do not raise to 4+ without re-auditing
-isolation; do not drop to 1 (hides real bugs).
+`workers: undefined` locally (defaults to half the available CPUs, typically
+4–8 on dev machines — this is intentional; local dev benefits from max
+throughput, and flakes surface quickly at a human-visible rate).
+`fullyParallel: true` is enabled everywhere — 2 parallel workers in CI matches
+typical GitHub Actions runner sizes, is strictly faster than serial, and
+catches ordering bugs that a single-worker config would mask. Do not raise CI
+workers to 4+ without re-auditing isolation; do not drop to 1 (hides real
+bugs).
 
 **No retries.** `retries: 0` is deliberate. If a test flakes, fix the root
 cause — don't paper over it. Retries are only appropriate for out-of-our-
 control dependencies, and this suite has none.
 
-**Navigation contract.** Every test starts from `page.goto('/')` (or the
-equivalent `app.goto()` via the Page Object Model) and waits for the 9-region
-render before making assertions. Tests never depend on state left over from a
-prior test; test order within a file is not a contract.
+**Navigation contract.** Every test begins by issuing `page.goto(...)`
+(optionally with query params or a preceding `page.route` stub) — tests never
+rely on state left over from a prior test. Tests that expect a healthy map
+wait for the 9-region render before asserting (`app.waitForMapLoad()` via the
+Page Object Model); tests that deliberately fail the API skip that wait and
+assert directly on `.error-screen`.
 
-**No DB writes.** E2E specs must not mutate the seeded database. Verify via:
+**No DB writes.** E2E specs must not mutate the seeded database. Verify via a
+recursive scan (portable across stock macOS `/bin/bash` 3.2, which lacks
+`globstar`):
 
-`grep -E "request\.(post|patch|delete|put)|fetch\(.*method:|fetch\(.*[\"']POST[\"']" frontend/e2e/**/*.ts`
+`grep -rE "request\.(post|patch|delete|put)|fetch\(.*method:|fetch\(.*[\"']POST[\"']" frontend/e2e/`
 
 If this grep returns anything, the write must be replaced with a `page.route`
 stub or pushed down into a per-worker schema (e.g. via

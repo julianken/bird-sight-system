@@ -10,6 +10,7 @@ export default defineConfig({
   timeout: 60_000,
   fullyParallel: true,
   workers: process.env.CI ? 2 : undefined,
+  retries: 0, // No retries — fix flakes at the root, don't paper over them.
   use: {
     headless: true,
     screenshot: 'only-on-failure',
