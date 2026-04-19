@@ -30,4 +30,82 @@ describe('Badge', () => {
     );
     expect(screen.queryByText('1')).not.toBeInTheDocument();
   });
+
+  it('does not render a visible species name when expanded is false (default)', () => {
+    const { container } = render(
+      <svg viewBox="0 0 100 100">
+        <Badge x={50} y={50} count={1} silhouettePath="M0 0" color="#000" comName="Vermilion Flycatcher" />
+      </svg>
+    );
+    // The aria-label on the parent <g> carries the name, but no visible label.
+    expect(container.querySelector('.badge-label')).toBeNull();
+  });
+
+  it('renders a visible species name under the circle when expanded is true', () => {
+    // Short name (<=14 chars) to avoid overlap with truncation behaviour;
+    // a separate test below asserts the truncation rule.
+    const { container } = render(
+      <svg viewBox="0 0 100 100">
+        <Badge
+          x={50}
+          y={50}
+          count={1}
+          silhouettePath="M0 0"
+          color="#000"
+          comName="Pygmy Owl"
+          expanded={true}
+        />
+      </svg>
+    );
+    const label = container.querySelector('.badge-label');
+    expect(label).not.toBeNull();
+    expect(label?.textContent).toBe('Pygmy Owl');
+  });
+
+  it('marks the visible label aria-hidden="true" to avoid screen-reader double-announcement', () => {
+    const { container } = render(
+      <svg viewBox="0 0 100 100">
+        <Badge
+          x={50}
+          y={50}
+          count={1}
+          silhouettePath="M0 0"
+          color="#000"
+          comName="Vermilion Flycatcher"
+          expanded={true}
+        />
+      </svg>
+    );
+    const label = container.querySelector('.badge-label');
+    expect(label?.getAttribute('aria-hidden')).toBe('true');
+    // Parent <g> still carries aria-label with the full common name.
+    const parentG = container.querySelector('g.badge');
+    expect(parentG?.getAttribute('aria-label')).toBe('Vermilion Flycatcher');
+  });
+
+  it('truncates long common names in the visible label but keeps the full name in aria-label', () => {
+    const longName = 'Yellow-crowned Night-Heron'; // 26 chars
+    const { container } = render(
+      <svg viewBox="0 0 100 100">
+        <Badge
+          x={50}
+          y={50}
+          count={1}
+          silhouettePath="M0 0"
+          color="#000"
+          comName={longName}
+          expanded={true}
+        />
+      </svg>
+    );
+    const label = container.querySelector('.badge-label');
+    expect(label).not.toBeNull();
+    const visible = label!.textContent ?? '';
+    // Visible text is truncated (ends with ellipsis) and shorter than the full name.
+    expect(visible.endsWith('…')).toBe(true);
+    expect(visible.length).toBeLessThan(longName.length);
+    // Parent <g> still carries the complete name for screen readers.
+    const parentG = container.querySelector('g.badge');
+    expect(parentG?.getAttribute('aria-label')).toBe(longName);
+  });
 });

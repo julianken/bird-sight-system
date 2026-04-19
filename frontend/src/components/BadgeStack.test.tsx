@@ -82,6 +82,48 @@ describe('BadgeStack', () => {
     expect(container.querySelector('[data-role="overflow-pip"]')).toBeNull();
   });
 
+  it('renders visible species-name labels when expanded', () => {
+    // Use short names (<=14 chars) so the BadgeStack test doesn't overlap
+    // with Badge.test.tsx's truncation behaviour.
+    const obs = [O(1, 'pygowl', 'strigidae'), O(2, 'annhum', 'trochilidae')];
+    obs[0]!.comName = 'Pygmy Owl';
+    obs[1]!.comName = 'Anna Hummer';
+    const { container } = render(
+      <svg viewBox="0 0 1000 1000">
+        <BadgeStack
+          observations={obs}
+          x={0} y={0} width={1000} height={1000}
+          expanded={true}
+          silhouetteFor={() => 'M0 0'}
+          colorFor={() => '#000'}
+        />
+      </svg>
+    );
+    const labels = container.querySelectorAll('.badge-label');
+    expect(labels.length).toBe(2);
+    const texts = Array.from(labels).map(l => l.textContent);
+    expect(texts).toContain('Pygmy Owl');
+    expect(texts).toContain('Anna Hummer');
+  });
+
+  it('renders NO species-name labels when collapsed', () => {
+    const obs = [O(1, 'vermfly', 'tyrannidae'), O(2, 'annhum', 'trochilidae')];
+    obs[0]!.comName = 'Vermilion Flycatcher';
+    obs[1]!.comName = "Anna's Hummingbird";
+    const { container } = render(
+      <svg viewBox="0 0 1000 1000">
+        <BadgeStack
+          observations={obs}
+          x={0} y={0} width={1000} height={1000}
+          expanded={false}
+          silhouetteFor={() => 'M0 0'}
+          colorFor={() => '#000'}
+        />
+      </svg>
+    );
+    expect(container.querySelectorAll('.badge-label').length).toBe(0);
+  });
+
   it('shows no overflow pip when collapsed with 12 or fewer species', () => {
     const twelveObs = Array.from({ length: 12 }, (_, i) =>
       O(i, `sp${i}`, 'tyrannidae'),

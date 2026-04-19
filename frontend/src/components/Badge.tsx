@@ -15,9 +15,29 @@ export interface BadgeProps {
    * circle, and scales the count chip + silhouette proportionally.
    */
   radius?: number;
+  /**
+   * When true, render a visible `<text>` label with `comName` below the
+   * circle (issue #54). The label is marked `aria-hidden="true"` because
+   * the parent `<g>` already carries `aria-label={comName}`; rendering
+   * the name twice in the accessibility tree would cause screen readers
+   * to double-announce. Defaults to false — collapsed regions have no
+   * room for labels (that's what the "+N more" overflow pip is for).
+   */
+  expanded?: boolean;
 }
 
 export const DEFAULT_RADIUS = 14;
+
+/** Hard cap on visible label length before we append an ellipsis. SVG
+ * `<text>` does not support CSS text-overflow, so we truncate JS-side.
+ * The full common name stays in the parent `<g>`'s `aria-label` so
+ * screen-reader output is unaffected by truncation. */
+const MAX_LABEL_CHARS = 14;
+
+function truncateLabel(name: string): string {
+  if (name.length <= MAX_LABEL_CHARS) return name;
+  return `${name.slice(0, MAX_LABEL_CHARS)}…`;
+}
 
 export function Badge(props: BadgeProps) {
   const cursor = props.onClick ? 'pointer' : 'default';
@@ -71,6 +91,19 @@ export function Badge(props: BadgeProps) {
             {props.count}
           </text>
         </g>
+      )}
+      {props.expanded && (
+        <text
+          className="badge-label"
+          aria-hidden="true"
+          textAnchor="middle"
+          dominantBaseline="hanging"
+          x={0}
+          y={radius + 3 * scale}
+          fontSize={Math.max(9, radius * 0.6)}
+        >
+          {truncateLabel(props.comName)}
+        </text>
       )}
     </g>
   );

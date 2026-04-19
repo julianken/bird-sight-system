@@ -17,6 +17,20 @@ body {
    transform attribute, so badges scale with it automatically. */
 .badge { transition: transform 200ms ease; }
 .badge-selected .badge-circle { stroke: #1a1a1a; stroke-width: 4; }
+/* Visible species-name label under expanded badges (issue #54).
+   `paint-order: stroke fill` with a white stroke keeps the label legible
+   over any polygon fill color. The label is rendered aria-hidden; the
+   full common name stays on the parent <g> via aria-label so screen
+   readers announce it exactly once. */
+.badge-label {
+  fill: #1a1a1a;
+  stroke: #fff;
+  stroke-width: 3;
+  paint-order: stroke fill;
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, sans-serif;
+  font-weight: 600;
+  pointer-events: none;
+}
 
 .app {
   display: flex;
