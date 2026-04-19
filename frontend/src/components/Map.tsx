@@ -40,6 +40,12 @@ function groupBy<T, K>(arr: T[], key: (t: T) => K): globalThis.Map<K, T[]> {
 
 export function Map(props: MapProps) {
   const observationsByRegion = groupBy(props.observations, o => o.regionId ?? 'unknown');
+  // Render parents (parent_id === null) before children so child polygons (e.g. sky islands)
+  // paint on top of their parent — otherwise alphabetical id order causes the parent's <path>
+  // to cover child polygons and intercept clicks. Fixes #80.
+  const orderedRegions = [...props.regions].sort((a, b) =>
+    (a.parentId === null ? 0 : 1) - (b.parentId === null ? 0 : 1)
+  );
 
   return (
     <svg
@@ -57,7 +63,7 @@ export function Map(props: MapProps) {
         if (e.target === e.currentTarget) props.onSelectRegion(null);
       }}
     >
-      {props.regions.map(r => {
+      {orderedRegions.map(r => {
         const isExpanded = props.expandedRegionId === r.id;
         const isDimmed = props.expandedRegionId !== null && !isExpanded;
         return (
