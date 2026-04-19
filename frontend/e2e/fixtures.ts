@@ -1,6 +1,9 @@
 import { test as base } from '@playwright/test';
 import type { Observation } from '@bird-watch/shared-types';
 
+/** Read API endpoints that can be stubbed. Keep in sync with services/read-api/src/app.ts. */
+export type StubbableEndpoint = 'regions' | 'hotspots' | 'observations' | 'species';
+
 /**
  * Playwright route stubs for the Read API. Each helper registers a single
  * `page.route` handler; route handlers are LIFO, so a later registration
@@ -22,13 +25,13 @@ export interface ApiStub {
    * The trailing `**` tolerates query strings and sub-paths — endpoints
    * must not share a prefix with a sibling endpoint.
    */
-  stubApiFailure(endpoint: string, status: number): Promise<void>;
+  stubApiFailure(endpoint: StubbableEndpoint, status: number): Promise<void>;
   /**
    * Aborts `**\/api/${endpoint}**` at the network layer (no response).
    * Use for fetch-rejection paths (CORS, offline, DNS failure). For an
    * HTTP-level failure, use `stubApiFailure` instead.
    */
-  stubApiAbort(endpoint: string): Promise<void>;
+  stubApiAbort(endpoint: StubbableEndpoint): Promise<void>;
 }
 
 export const test = base.extend<{ apiStub: ApiStub }>({
