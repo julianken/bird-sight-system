@@ -5,6 +5,8 @@ using the Playwright MCP tools. Each flow maps 1:1 to a `happy-path.spec.ts` ass
 
 > **preview-build project:** A second Playwright project (`preview-build`) runs `vite build && vite preview` on port 4173 with `proxy: {}` explicitly set, catching the production routing gap where `/api` is on a different subdomain. Uses `test.fail()` until the baseUrl fix lands.
 
+> **axe-core scans:** `npm run test:e2e --workspace @bird-watch/frontend -- axe.spec.ts` runs three WCAG 2/2.1 A/AA scans (initial load, region expanded, error screen) via @axe-core/playwright. Open a tagged follow-up issue for any rule you disable.
+
 ---
 
 ## Prerequisites
