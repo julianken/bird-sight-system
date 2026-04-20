@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { startTestDb, type TestDb } from './test-helpers.js';
-import { upsertObservations, getObservations, type ObservationInput } from './observations.js';
+import {
+  upsertObservations, getObservations, runReconcileStamping,
+  type ObservationInput,
+} from './observations.js';
 
 let db: TestDb;
 beforeAll(async () => {
@@ -105,5 +108,57 @@ describe('getObservations filters', () => {
   it('filters by family code', async () => {
     const rows = await getObservations(db.pool, { familyCode: 'trochilidae' });
     expect(rows.map(r => r.subId)).toEqual(['S201']);
+  });
+});
+
+describe('runReconcileStamping', () => {
+  it('fills NULL silhouette_id / region_id on existing rows after species_meta lands', async () => {
+    // Wipe species_meta so the initial upsert leaves silhouette_id NULL (the
+    // exact prod shape in #83: observations ingested before species_meta was
+    // populated).
+    await db.pool.query('TRUNCATE species_meta CASCADE');
+
+    await upsertObservations(db.pool, [
+      {
+        subId: 'S900', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 31.72, lng: -110.88, obsDt: '2026-04-15T08:00:00Z',
+        locId: 'L1', locName: 'Madera', howMany: 1, isNotable: false,
+      },
+    ]);
+    const before = await getObservations(db.pool, {});
+    expect(before[0]?.silhouetteId).toBeNull();
+    // region_id comes from the geometry JOIN which is independent of species_meta,
+    // so it is already populated. Null it out to prove reconcile fills it too.
+    await db.pool.query("UPDATE observations SET region_id = NULL WHERE sub_id = 'S900'");
+
+    // Populate species_meta (simulating a successful runTaxonomy) and reconcile.
+    await db.pool.query(
+      `INSERT INTO species_meta (species_code, com_name, sci_name, family_code, family_name)
+       VALUES ('vermfly', 'Vermilion Flycatcher', 'Pyrocephalus rubinus', 'tyrannidae', 'Tyrant Flycatchers')`
+    );
+    const touched = await runReconcileStamping(db.pool);
+    expect(touched).toBeGreaterThanOrEqual(1);
+
+    const after = await getObservations(db.pool, {});
+    expect(after[0]?.silhouetteId).toBe('tyrannidae');
+    expect(after[0]?.regionId).toBe('sky-islands-santa-ritas');
+  });
+
+  it('is idempotent — a second run touches no rows', async () => {
+    await db.pool.query(
+      `INSERT INTO species_meta (species_code, com_name, sci_name, family_code, family_name)
+       VALUES ('vermfly', 'Vermilion Flycatcher', 'Pyrocephalus rubinus', 'tyrannidae', 'Tyrant Flycatchers')
+       ON CONFLICT (species_code) DO UPDATE SET family_code = EXCLUDED.family_code`
+    );
+    await upsertObservations(db.pool, [
+      {
+        subId: 'S901', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 31.72, lng: -110.88, obsDt: '2026-04-15T08:00:00Z',
+        locId: 'L1', locName: 'Madera', howMany: 1, isNotable: false,
+      },
+    ]);
+    // Everything already stamped — reconcile should find nothing to update.
+    const touched = await runReconcileStamping(db.pool);
+    expect(touched).toBe(0);
   });
 });
