@@ -1,4 +1,4 @@
-import type { EbirdObservation, EbirdHotspot } from './types.js';
+import type { EbirdObservation, EbirdHotspot, EbirdTaxon } from './types.js';
 
 export interface EbirdClientOptions {
   apiKey: string;
@@ -63,6 +63,21 @@ export class EbirdClient {
     );
     url.searchParams.set('maxResults', '10000');
     return this.getJson<EbirdObservation[]>(url);
+  }
+
+  /**
+   * Fetches the full eBird taxonomy (~17k rows including issf/spuh/slash/form/
+   * hybrid sub-categories). The `cat=species` parameter is an eBird server-side
+   * hint but does not actually restrict the response — callers MUST still filter
+   * to `category === 'species'` before writing to species_meta.
+   */
+  async fetchTaxonomy(): Promise<EbirdTaxon[]> {
+    const url = new URL(`${this.baseUrl}/ref/taxonomy/ebird`);
+    url.searchParams.set('cat', 'species');
+    url.searchParams.set('fmt', 'json');
+    url.searchParams.set('locale', 'en');
+    url.searchParams.set('version', 'latest');
+    return this.getJson<EbirdTaxon[]>(url);
   }
 
   private async getJson<T>(url: URL): Promise<T> {

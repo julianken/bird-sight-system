@@ -65,6 +65,45 @@ describe('EbirdClient.fetchHotspots', () => {
   });
 });
 
+describe('EbirdClient.fetchTaxonomy', () => {
+  it('returns the full eBird taxonomy with species and non-species categories', async () => {
+    server.use(
+      http.get('https://api.ebird.org/v2/ref/taxonomy/ebird', ({ request }) => {
+        const url = new URL(request.url);
+        expect(url.searchParams.get('cat')).toBe('species');
+        expect(url.searchParams.get('fmt')).toBe('json');
+        expect(url.searchParams.get('locale')).toBe('en');
+        expect(url.searchParams.get('version')).toBe('latest');
+        expect(request.headers.get('x-ebirdapitoken')).toBe('test-key');
+        return HttpResponse.json([
+          {
+            sciName: 'Pyrocephalus rubinus',
+            comName: 'Vermilion Flycatcher',
+            speciesCode: 'verfly',
+            category: 'species',
+            taxonOrder: 30501,
+            bandingCodes: ['VEFL'],
+            comNameCodes: ['VEFL'],
+            sciNameCodes: ['PYRU'],
+            order: 'Passeriformes',
+            familyCode: 'tyrann1',
+            familyComName: 'Tyrant Flycatchers',
+            familySciName: 'Tyrannidae',
+          },
+        ]);
+      })
+    );
+    const client = new EbirdClient({ apiKey: 'test-key' });
+    const taxa = await client.fetchTaxonomy();
+    expect(taxa).toHaveLength(1);
+    expect(taxa[0]?.speciesCode).toBe('verfly');
+    expect(taxa[0]?.familyComName).toBe('Tyrant Flycatchers');
+    expect(taxa[0]?.familyCode).toBe('tyrann1');
+    expect(taxa[0]?.taxonOrder).toBe(30501);
+    expect(taxa[0]?.category).toBe('species');
+  });
+});
+
 describe('EbirdClient retries', () => {
   it('retries on 5xx and eventually succeeds', async () => {
     let calls = 0;
