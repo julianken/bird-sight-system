@@ -70,13 +70,18 @@ export class EbirdClient {
    * hybrid sub-categories). The `cat=species` parameter is an eBird server-side
    * hint but does not actually restrict the response — callers MUST still filter
    * to `category === 'species'` before writing to species_meta.
+   *
+   * NOTE: no `version` param. `/ref/taxonomy/ebird` wants a NUMERIC version
+   * (e.g. 2024) — sending `version=latest` triggers `400 typeMismatch`
+   * ("Field version of taxaRefCmd: This field must be a number."). Omitting
+   * the param makes eBird default to the latest taxonomy, which is what we
+   * want anyway.
    */
   async fetchTaxonomy(): Promise<EbirdTaxon[]> {
     const url = new URL(`${this.baseUrl}/ref/taxonomy/ebird`);
     url.searchParams.set('cat', 'species');
     url.searchParams.set('fmt', 'json');
     url.searchParams.set('locale', 'en');
-    url.searchParams.set('version', 'latest');
     return this.getJson<EbirdTaxon[]>(url);
   }
 
