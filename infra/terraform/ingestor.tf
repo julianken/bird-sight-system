@@ -174,3 +174,30 @@ resource "google_cloud_scheduler_job" "ingest_hotspots" {
 
   depends_on = [google_project_service.scheduler]
 }
+
+# Monthly refresh of species_meta from eBird's taxonomy endpoint. eBird ships a
+# new taxonomy version yearly, so monthly is comfortably ahead of drift. After
+# upsert, the job also reconciles region_id / silhouette_id across observations
+# that lacked a species_meta row at original ingest time (the #83 fix path).
+resource "google_cloud_scheduler_job" "ingest_taxonomy" {
+  name      = "bird-ingest-taxonomy"
+  region    = var.gcp_region
+  schedule  = "0 6 1 * *"
+  time_zone = "Etc/UTC"
+
+  http_target {
+    uri         = local.job_run_url
+    http_method = "POST"
+    headers     = { "Content-Type" = "application/json" }
+    body = base64encode(jsonencode({
+      overrides = {
+        containerOverrides = [{ args = ["taxonomy"] }]
+      }
+    }))
+    oauth_token {
+      service_account_email = google_service_account.scheduler.email
+    }
+  }
+
+  depends_on = [google_project_service.scheduler]
+}
