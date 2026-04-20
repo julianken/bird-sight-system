@@ -1,4 +1,5 @@
 #!/usr/bin/env tsx
+import { pathToFileURL } from 'node:url';
 import {
   createPool as realCreatePool,
   closePool as realClosePool,
@@ -87,14 +88,15 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
 }
 
 // Only run the IIFE when invoked as a script, not when imported by tests.
-// `import.meta.url` resolves to this file; `process.argv[1]` is the entry
-// point the user ran. When they match, this is the CLI entrypoint.
+// `import.meta.url` resolves to this file; `pathToFileURL(process.argv[1])`
+// is the entry point the user ran. When they match, this is the CLI
+// entrypoint. Using pathToFileURL is the canonical Node idiom and handles
+// Windows paths correctly (vs. naively prefixing with `file://`).
 const isEntrypoint = (() => {
   const argv1 = process.argv[1];
   if (!argv1) return false;
   try {
-    const url = new URL(`file://${argv1}`);
-    return url.href === import.meta.url;
+    return pathToFileURL(argv1).href === import.meta.url;
   } catch {
     return false;
   }
