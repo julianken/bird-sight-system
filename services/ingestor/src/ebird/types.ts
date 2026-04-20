@@ -30,3 +30,22 @@ export interface EbirdHotspot {
   latestObsDt?: string;     // ISO-ish or absent
   numSpeciesAllTime?: number;
 }
+
+// Shape returned by https://api.ebird.org/v2/ref/taxonomy/ebird
+// The taxonomy includes species AND non-species categories (issf, spuh, slash,
+// form, hybrid, domestic) — consumers must filter to category === 'species'
+// before upserting into species_meta.
+export interface EbirdTaxon {
+  sciName: string;
+  comName: string;
+  speciesCode: string;
+  category: 'species' | 'issf' | 'spuh' | 'slash' | 'form' | 'hybrid' | 'domestic';
+  taxonOrder: number;
+  bandingCodes?: string[];
+  comNameCodes?: string[];
+  sciNameCodes?: string[];
+  order?: string;
+  familyCode?: string;
+  familyComName?: string;
+  familySciName?: string;
+}

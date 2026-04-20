@@ -3,7 +3,8 @@ export type { Pool, PoolOptions } from './pool.js';
 export { getRegions } from './regions.js';
 export { getHotspots, upsertHotspots, type HotspotInput } from './hotspots.js';
 export {
-  getObservations, upsertObservations, type ObservationInput,
+  getObservations, upsertObservations, runReconcileStamping,
+  type ObservationInput,
 } from './observations.js';
 export { getSpeciesMeta, upsertSpeciesMeta } from './species.js';
 export {

@@ -3,6 +3,7 @@ import { createPool, closePool } from '@bird-watch/db-client';
 import { runIngest } from './run-ingest.js';
 import { runHotspotIngest } from './run-hotspots.js';
 import { runBackfill } from './run-backfill.js';
+import { runTaxonomy } from './run-taxonomy.js';
 
 const KIND = process.argv[2] ?? 'recent';
 
@@ -21,8 +22,10 @@ async function main() {
       summary = await runHotspotIngest({ pool, apiKey, regionCode: 'US-AZ' });
     } else if (KIND === 'backfill') {
       summary = await runBackfill({ pool, apiKey, regionCode: 'US-AZ', days: 30 });
+    } else if (KIND === 'taxonomy') {
+      summary = await runTaxonomy({ pool, apiKey });
     } else {
-      throw new Error(`Unknown kind: ${KIND}. Try recent | hotspots | backfill`);
+      throw new Error(`Unknown kind: ${KIND}. Try recent | hotspots | backfill | taxonomy`);
     }
     console.log(JSON.stringify(summary, null, 2));
   } finally {

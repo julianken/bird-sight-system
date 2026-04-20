@@ -74,6 +74,40 @@ export async function upsertObservations(
   return inputs.length;
 }
 
+/**
+ * Re-runs the region/silhouette stamping UPDATE across ALL observations whose
+ * region_id or silhouette_id is still NULL. Idempotent.
+ *
+ * upsertObservations only stamps rows it just touched (via its WHERE filter,
+ * which in practice catches the current batch). When species_meta is empty
+ * at ingest time (as on prod pre-#83), the silhouette JOIN finds no row and
+ * silhouette_id stays NULL — even after the batch is stamped. Running this
+ * after a taxonomy job is loaded backfills every orphaned row.
+ *
+ * Returns the number of rows updated.
+ */
+export async function runReconcileStamping(pool: Pool): Promise<number> {
+  const { rowCount } = await pool.query(`
+    UPDATE observations o
+    SET
+      region_id = COALESCE(o.region_id, (
+        SELECT r.id FROM regions r
+        WHERE ST_Contains(r.geom, o.geom)
+        ORDER BY ST_Area(r.geom) ASC
+        LIMIT 1
+      )),
+      silhouette_id = COALESCE(o.silhouette_id, (
+        SELECT fs.id
+        FROM species_meta sm
+        JOIN family_silhouettes fs ON fs.family_code = sm.family_code
+        WHERE sm.species_code = o.species_code
+        LIMIT 1
+      ))
+    WHERE o.region_id IS NULL OR o.silhouette_id IS NULL
+  `);
+  return rowCount ?? 0;
+}
+
 export async function getObservations(
   pool: Pool,
   f: ObservationFilters
