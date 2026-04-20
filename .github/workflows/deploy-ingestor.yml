@@ -70,7 +70,7 @@ jobs:
           # on their next tick automatically.
           DEPLOYED=$(gcloud run jobs describe "$JOB_NAME" \
             --region="$GCP_REGION" \
-            --format='value(template.template.containers[0].image)')
+            --format='value(spec.template.spec.template.spec.containers[0].image)')
           echo "Deployed image: $DEPLOYED"
           echo "Expected image: $IMAGE"
           test "$DEPLOYED" = "$IMAGE"
