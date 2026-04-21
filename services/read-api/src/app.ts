@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { compress } from 'hono/compress';
 import { cors } from 'hono/cors';
 import type { Pool } from '@bird-watch/db-client';
 import { getRegions, getHotspots, getObservations, getSpeciesMeta } from '@bird-watch/db-client';
@@ -37,6 +38,12 @@ export function createApp(deps: AppDeps): Hono {
     allowMethods: ['GET'],
     maxAge: 86400,
   }));
+
+  // Gzip JSON responses. Default threshold is 1024 bytes, so small routes
+  // (health, single-species lookups) go through uncompressed; big ones
+  // (`/api/observations?since=14d` healthy-baseline payload ~101 KB) drop
+  // below ~20 KB on the wire — load-bearing for mobile on slow-LTE. See #108.
+  app.use('*', compress());
 
   app.get('/health', c => c.json({ ok: true }));
 

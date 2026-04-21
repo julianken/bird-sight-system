@@ -142,6 +142,45 @@ describe('GET /api/species/:code', () => {
   });
 });
 
+describe('gzip compression middleware', () => {
+  beforeAll(async () => {
+    // The compress middleware's default threshold is 1024 bytes — responses
+    // below it are returned uncompressed. The /api/observations seed from
+    // the earlier describe leaves ~2 rows (~600 bytes of JSON), so we seed
+    // extra rows here to push /api/observations?since=30d comfortably past
+    // the threshold and get a deterministic compression outcome.
+    const extra = Array.from({ length: 20 }, (_, i) => ({
+      subId: `S-gzip-${i}`,
+      speciesCode: 'vermfly',
+      comName: 'Vermilion Flycatcher',
+      lat: 31.72 + i * 0.01,
+      lng: -110.88 + i * 0.01,
+      obsDt: new Date(Date.now() - i * 86400_000).toISOString(),
+      locId: `L-gzip-${i}`,
+      locName: `Gzip Seed Location ${i}`,
+      howMany: 1,
+      isNotable: false,
+    }));
+    await upsertObservations(db.pool, extra);
+  });
+
+  it('returns content-encoding: gzip when client accepts gzip', async () => {
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/observations?since=30d', {
+      headers: { 'Accept-Encoding': 'gzip' },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-encoding')).toBe('gzip');
+  });
+
+  it('omits content-encoding when client does not advertise gzip', async () => {
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/observations?since=30d');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-encoding')).toBeNull();
+  });
+});
+
 describe('CORS middleware', () => {
   // Save + restore FRONTEND_ORIGINS around tests that mutate it so other
   // describe blocks stay deterministic.

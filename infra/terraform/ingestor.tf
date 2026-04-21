@@ -91,10 +91,15 @@ resource "google_service_account" "scheduler" {
   display_name = "bird-watch Cloud Scheduler invoker"
 }
 
+# The scheduler job body sends containerOverrides (to pick the CLI subcommand —
+# "recent", "backfill", "hotspots", "taxonomy" — on a single shared image), so
+# the API call is run.jobs.runWithOverrides, not run.jobs.run. roles/run.invoker
+# grants only the latter and 403s the former; roles/run.jobsExecutorWithOverrides
+# is the predefined role that grants both. See issue #106.
 resource "google_cloud_run_v2_job_iam_member" "scheduler_invoke" {
   name     = google_cloud_run_v2_job.ingestor.name
   location = google_cloud_run_v2_job.ingestor.location
-  role     = "roles/run.invoker"
+  role     = "roles/run.jobsExecutorWithOverrides"
   member   = "serviceAccount:${google_service_account.scheduler.email}"
 }
 
