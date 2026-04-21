@@ -7,7 +7,7 @@ test.describe('filter flows', () => {
   test.beforeEach(async ({ page }) => {
     app = new AppPage(page);
     await app.goto();
-    await app.waitForMapLoad();
+    await app.waitForAppReady();
   });
 
   test('time window select updates URL and respects default-omit', async () => {
