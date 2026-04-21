@@ -106,4 +106,16 @@ describe('useUrlState', () => {
     expect(result.current.state.view).toBe('feed');
     expect(window.location.search).not.toContain('view=');
   });
+
+  it('keeps ?view=feed in URL when ?species= is also set', () => {
+    // Without this, readUrl's species-sniff silently reverts the user's
+    // explicit feed choice back to 'species' on the next popstate/reload.
+    window.history.replaceState({}, '', '/?species=vermfly&view=feed');
+    const { result } = renderHook(() => useUrlState());
+    expect(result.current.state.view).toBe('feed');
+
+    act(() => result.current.set({ since: '1d' }));
+    expect(window.location.search).toContain('view=feed');
+    expect(window.location.search).toContain('species=vermfly');
+  });
 });

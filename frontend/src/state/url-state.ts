@@ -61,7 +61,12 @@ function writeUrl(state: UrlState): void {
   if (state.familyCode) p.set('family', state.familyCode);
   if (state.since !== DEFAULTS.since) p.set('since', state.since);
   if (state.notable) p.set('notable', 'true');
-  if (state.view !== DEFAULTS.view) p.set('view', state.view);
+  // Emit ?view= when non-default, OR when ?species= is set and view is 'feed'
+  // — otherwise the species sniff in readUrl silently reverts the user's
+  // explicit 'feed' choice back to 'species' on reload/popstate.
+  if (state.view !== DEFAULTS.view || state.speciesCode) {
+    p.set('view', state.view);
+  }
   const q = p.toString();
   const newUrl = q ? `${window.location.pathname}?${q}` : window.location.pathname;
   if (newUrl !== window.location.pathname + window.location.search) {
