@@ -406,10 +406,20 @@ body {
   margin: 0;
   padding: 0;
 }
+/* Two-line hotspot row layout.
+   Line 1: locName + count chip (name flexes, chip stays put on the right).
+   Line 2: coords + relative time (both left-aligned; time ends the row).
+   Achieved with flex-wrap so we stay within a single <li>; each child
+   carries a `flex-basis` hint that forces the row break at the right
+   boundary without media queries. Works at 390px up through 1440px.
+   (locName is the primary signal — we do NOT want it truncating to one
+   letter just because the desktop fits everything on a single line.) */
 .hotspot-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-md);
+  column-gap: var(--space-md);
+  row-gap: 4px;
   min-height: 44px;
   width: 100%;
   padding: var(--space-sm) var(--space-md);
@@ -420,7 +430,7 @@ body {
   text-align: left;
 }
 .hotspot-row-name {
-  flex: 1;
+  flex: 1 1 60%;
   min-width: 0;
   font-weight: 600;
   font-size: 14px;
@@ -439,7 +449,10 @@ body {
   border-radius: 10px;
 }
 .hotspot-row-coords {
-  flex-shrink: 0;
+  /* flex-basis 100% forces coords onto line 2 on narrow viewports; at
+     desktop widths the row is wider than all children combined so line
+     wrapping is governed by the natural flex packing. */
+  flex: 1 1 100%;
   font-size: 12px;
   /* #555 on #fff = 7.46:1 — well clear of WCAG AA 4.5:1 for normal text. */
   color: #555;
@@ -448,6 +461,7 @@ body {
 }
 .hotspot-row-time {
   flex-shrink: 0;
+  margin-left: auto;
   font-size: 12px;
   /* #5c5c5c on #fff = 6.86:1 — passes AA for 12px. Matches feed-row-time. */
   color: #5c5c5c;
