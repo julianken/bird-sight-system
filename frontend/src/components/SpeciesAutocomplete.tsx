@@ -4,6 +4,14 @@ import type { SpeciesOption } from './FiltersBar.js';
 export interface SpeciesAutocompleteProps {
   speciesIndex: SpeciesOption[];
   onSelectSpecies: (speciesCode: string) => void;
+  /**
+   * Fires when the user begins typing a query (empty → non-empty). Lets
+   * the parent react to search-start without firing per keystroke — used
+   * by SpeciesSearchSurface to clear the current `?species=` so the
+   * observations refetch unfiltered and the species catalog opens back
+   * up for navigation.
+   */
+  onSearchStart?: () => void;
 }
 
 /**
@@ -71,7 +79,7 @@ function rankMatches(query: string, speciesIndex: SpeciesOption[]): RankedOption
 }
 
 export function SpeciesAutocomplete(props: SpeciesAutocompleteProps) {
-  const { speciesIndex, onSelectSpecies } = props;
+  const { speciesIndex, onSelectSpecies, onSearchStart } = props;
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [query, setQuery] = useState<string>('');
   const [highlighted, setHighlighted] = useState<number>(-1);
@@ -182,7 +190,15 @@ export function SpeciesAutocomplete(props: SpeciesAutocompleteProps) {
         aria-activedescendant={activeDescendant}
         placeholder="Start typing a species…"
         value={query}
-        onChange={e => setQuery(e.target.value)}
+        onChange={e => {
+          const next = e.target.value;
+          // Fire search-start on empty → non-empty transition so the
+          // parent can clear any filter that would collapse the catalog.
+          if (query === '' && next !== '') {
+            onSearchStart?.();
+          }
+          setQuery(next);
+        }}
         onKeyDown={handleKeyDown}
       />
 

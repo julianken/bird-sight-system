@@ -89,6 +89,7 @@ export function App() {
             speciesIndex={speciesIndex}
             now={now}
             onSelectSpecies={onSelectSpecies}
+            onClearSpecies={() => set({ speciesCode: null })}
           />
         )}
       </main>

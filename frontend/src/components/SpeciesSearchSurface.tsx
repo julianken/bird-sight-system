@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import type { Observation } from '@bird-watch/shared-types';
 import { ObservationFeedRow } from './ObservationFeedRow.js';
 import { SpeciesAutocomplete } from './SpeciesAutocomplete.js';
@@ -10,7 +11,17 @@ export interface SpeciesSearchSurfaceProps {
   speciesIndex: SpeciesOption[];
   now: Date;
   onSelectSpecies: (speciesCode: string) => void;
+  /**
+   * Clears the current `?species=` selection. Fires when the user begins
+   * typing in the autocomplete — without this, the server-filtered
+   * observations collapse `speciesIndex` to the single selected species
+   * and the autocomplete cannot navigate anywhere else.
+   */
+  onClearSpecies: () => void;
 }
+
+/** Stable module-level no-op. */
+const ROW_NOOP: (speciesCode: string) => void = () => {};
 
 /**
  * Species-first surface (`?view=species`). Dedicated navigation
@@ -34,19 +45,15 @@ export interface SpeciesSearchSurfaceProps {
  * click does nothing observable — the panel does not flash.
  */
 export function SpeciesSearchSurface(props: SpeciesSearchSurfaceProps) {
-  const { loading, speciesCode, observations, speciesIndex, now, onSelectSpecies } = props;
+  const { loading, speciesCode, observations, speciesIndex, now, onSelectSpecies, onClearSpecies } = props;
 
-  // No-op: clicking a row in the recent-sightings list should not
-  // re-trigger the species panel because the panel is already open for
-  // this species. Using a stable shared reference (module-level) would
-  // require exporting it; scoped here for clarity — the row's memo
-  // still benefits from the parent keeping the prop identity stable
-  // across renders via the useCallback in App.tsx's own wiring.
-  //
-  // Intentional: the row remains visually the same button it is on
-  // the feed surface — consistent affordance — but the action is a
-  // semantic no-op.
-  const noop = () => {};
+  // Stable row callback. ObservationFeedRow is React.memo'd and its prop
+  // identity matters; ROW_NOOP is module-scoped so a rerender never
+  // invalidates the memo. Click intentionally does nothing — the panel is
+  // already open for this species, so a row click would just flash it.
+  const handleSearchStart = useCallback(() => {
+    if (speciesCode !== null) onClearSpecies();
+  }, [speciesCode, onClearSpecies]);
 
   const filtered = speciesCode
     ? observations.filter(o => o.speciesCode === speciesCode)
@@ -57,6 +64,7 @@ export function SpeciesSearchSurface(props: SpeciesSearchSurfaceProps) {
       <SpeciesAutocomplete
         speciesIndex={speciesIndex}
         onSelectSpecies={onSelectSpecies}
+        onSearchStart={handleSearchStart}
       />
 
       {speciesCode === null && (
@@ -84,7 +92,7 @@ export function SpeciesSearchSurface(props: SpeciesSearchSurfaceProps) {
               key={o.subId}
               observation={o}
               now={now}
-              onSelectSpecies={noop}
+              onSelectSpecies={ROW_NOOP}
             />
           ))}
         </ol>
