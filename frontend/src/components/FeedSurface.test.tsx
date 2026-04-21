@@ -118,7 +118,11 @@ describe('FeedSurface', () => {
         onSelectSpecies={() => {}}
       />
     );
-    expect(screen.getByLabelText('Notable sighting')).toBeInTheDocument();
+    // Notable signal is in the row's aria-label prefix (ARIA accname computation
+    // silences child labels on labelled buttons).
+    expect(
+      screen.getByRole('button', { name: /^Notable sighting,/ }),
+    ).toBeInTheDocument();
   });
 
   it('clicking a row forwards the species code to onSelectSpecies', async () => {

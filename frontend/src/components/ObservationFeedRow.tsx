@@ -47,37 +47,53 @@ function ObservationFeedRowImpl(props: ObservationFeedRowProps) {
       ? { chip: `×${observation.howMany}`, dash: false }
       : { chip: null, dash: false };
 
+  // Build ONE comprehensive accessible name on the button. Children's
+  // aria-label/aria-labelledby are silenced when the parent carries an
+  // aria-label, so the button must carry every signal we want announced.
+  // Order matches the plan's spec (#116 + Plan 6 Task 7): notable flag →
+  // comName → count → locName → relative time.
+  const countSlot =
+    observation.howMany === null
+      ? 'count unknown'
+      : observation.howMany > 1
+      ? `${observation.howMany} birds`
+      : null;
+  const ariaLabel = [
+    observation.isNotable ? 'Notable sighting' : null,
+    observation.comName,
+    countSlot,
+    observation.locName ? `at ${observation.locName}` : null,
+    formatRelativeTime(observation.obsDt, now),
+  ]
+    .filter((s): s is string => s !== null)
+    .join(', ');
+
   return (
     <li className="feed-row-item">
       <button
         type="button"
         className={`feed-row${observation.isNotable ? ' feed-row-notable' : ''}`}
-        aria-label={`${observation.comName}, ${formatRelativeTime(observation.obsDt, now)}${observation.locName ? `, at ${observation.locName}` : ''}`}
+        aria-label={ariaLabel}
         onClick={activate}
       >
         {observation.isNotable && (
-          <span
-            className="feed-row-badge"
-            aria-label="Notable sighting"
-            title="Notable sighting"
-          >
-            {/* Visible "!" glyph — aria-label above carries the accessible name. */}
-            <span aria-hidden="true">!</span>
+          <span className="feed-row-badge" aria-hidden="true" title="Notable sighting">
+            !
           </span>
         )}
-        <span className="feed-row-name">{observation.comName}</span>
+        <span className="feed-row-name" aria-hidden="true">{observation.comName}</span>
         {countContent.chip !== null && (
-          <span className="feed-row-count" aria-label={`Count ${observation.howMany}`}>
+          <span className="feed-row-count" aria-hidden="true">
             {countContent.chip}
           </span>
         )}
         {countContent.dash && (
-          <span className="feed-row-count feed-row-count-unknown" aria-label="Count unknown">—</span>
+          <span className="feed-row-count feed-row-count-unknown" aria-hidden="true">—</span>
         )}
         {observation.locName !== null && (
-          <span className="feed-row-loc">{observation.locName}</span>
+          <span className="feed-row-loc" aria-hidden="true">{observation.locName}</span>
         )}
-        <span className="feed-row-time">
+        <span className="feed-row-time" aria-hidden="true">
           {formatRelativeTime(observation.obsDt, now)}
         </span>
       </button>

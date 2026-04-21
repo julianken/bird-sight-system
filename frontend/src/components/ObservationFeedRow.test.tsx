@@ -69,7 +69,58 @@ describe('ObservationFeedRow', () => {
         onSelectSpecies={() => {}}
       />
     );
-    expect(screen.getByLabelText('Notable sighting')).toBeInTheDocument();
+    // Notable signal lives in the row's single aria-label — child aria-labels
+    // would be silenced by the parent button's label anyway (ARIA accname).
+    expect(
+      screen.getByRole('button', { name: /^Notable sighting, Vermilion Flycatcher/ }),
+    ).toBeInTheDocument();
+    // And the visible "!" glyph is aria-hidden so screen readers don't
+    // announce it twice.
+    expect(screen.getByTitle('Notable sighting')).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('pins the comprehensive accessible name with all five slots', () => {
+    // The button carries one aria-label combining: notable flag, comName,
+    // count, locName, relative time — in that order, comma-separated. This
+    // is the contract #117 and #118 depend on when they reuse the row.
+    render(
+      <ObservationFeedRow
+        observation={{ ...BASE_OBS, isNotable: true, howMany: 7 }}
+        now={NOW}
+        onSelectSpecies={() => {}}
+      />
+    );
+    const row = screen.getByRole('button');
+    expect(row).toHaveAccessibleName(
+      'Notable sighting, Vermilion Flycatcher, 7 birds, at Sabino Canyon, 15 min ago',
+    );
+  });
+
+  it('omits the notable prefix, count, and location when absent', () => {
+    render(
+      <ObservationFeedRow
+        observation={{ ...BASE_OBS, isNotable: false, howMany: 1, locName: null }}
+        now={NOW}
+        onSelectSpecies={() => {}}
+      />
+    );
+    const row = screen.getByRole('button');
+    // No "Notable sighting" prefix, no count (howMany=1 is solo/default),
+    // no "at <loc>" (null), just comName and time.
+    expect(row).toHaveAccessibleName('Vermilion Flycatcher, 15 min ago');
+  });
+
+  it('announces "count unknown" when howMany is null', () => {
+    render(
+      <ObservationFeedRow
+        observation={{ ...BASE_OBS, isNotable: false, howMany: null, locName: null }}
+        now={NOW}
+        onSelectSpecies={() => {}}
+      />
+    );
+    expect(screen.getByRole('button')).toHaveAccessibleName(
+      'Vermilion Flycatcher, count unknown, 15 min ago',
+    );
   });
 
   it('renders null howMany as "—" (em dash) and omits locName when null', () => {
