@@ -169,6 +169,91 @@ body {
   margin-inline: auto;
 }
 
+/* Species search surface (#118). Navigation-style autocomplete at the top
+   + client-side filtered recent-sightings list below. Distinct from the
+   FiltersBar species input (which narrows the feed in place); this one
+   sets ?species= and opens the SpeciesPanel. */
+.species-search-surface {
+  max-width: 760px;
+  margin-inline: auto;
+}
+.species-autocomplete {
+  position: relative;
+  margin: 0 0 var(--space-lg) 0;
+}
+.species-autocomplete-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 14px;
+  font-size: 15px;
+  border: 1px solid #d8d3c3;
+  border-radius: 6px;
+  background: #fff;
+  color: #1a1a1a;
+  appearance: none;
+}
+.species-autocomplete-input:focus-visible {
+  outline: 2px solid #1a1a1a;
+  outline-offset: -2px;
+}
+/* Listbox is absolutely positioned relative to the wrapper. Default sits
+   below the input; data-position="above" flips the anchor so the list
+   grows upward instead — prevents viewport-bottom overflow on mobile. */
+.species-autocomplete-listbox {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: #fff;
+  border: 1px solid #d8d3c3;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, var(--opacity-subtle));
+  max-height: 280px;
+  overflow-y: auto;
+  z-index: var(--z-panel);
+}
+.species-autocomplete[data-position='below'] .species-autocomplete-listbox {
+  top: calc(100% + 4px);
+  bottom: auto;
+}
+.species-autocomplete[data-position='above'] .species-autocomplete-listbox {
+  bottom: calc(100% + 4px);
+  top: auto;
+}
+.species-autocomplete-option {
+  padding: 8px 14px;
+  font-size: 14px;
+  color: #1a1a1a;
+  cursor: pointer;
+  line-height: 1.3;
+}
+.species-autocomplete-option.is-highlighted,
+.species-autocomplete-option:hover {
+  background: #f0ebe0;
+}
+.species-autocomplete-no-matches {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  padding: 10px 14px;
+  background: #fff;
+  border: 1px solid #d8d3c3;
+  border-radius: 6px;
+  color: #555;
+  font-size: 13px;
+}
+.species-search-prompt,
+.species-search-empty {
+  padding: var(--space-xl) var(--space-lg);
+  text-align: center;
+  color: #555;
+  font-size: 14px;
+  margin: 0;
+}
+
 /* Migration banner — shown when the user lands with a legacy ?region= URL.
    Release 2: remove this block when MigrationBanner is deleted (#112 sunset). */
 .migration-banner {
