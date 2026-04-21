@@ -56,6 +56,23 @@ describe('Region', () => {
     expect(onSelect).toHaveBeenCalledWith('sky-islands-santa-ritas');
   });
 
+  it('sets vector-effect="non-scaling-stroke" on the region-shape path so strokes survive the .region-expanded scale transform', () => {
+    const { container } = render(
+      <svg viewBox="0 0 360 380">
+        <Region
+          region={region}
+          observations={obs}
+          expanded={false}
+          onSelect={() => {}}
+          silhouetteFor={() => 'M0 0'}
+          colorFor={() => '#000'}
+        />
+      </svg>
+    );
+    const path = container.querySelector('path.region-shape');
+    expect(path?.getAttribute('vector-effect')).toBe('non-scaling-stroke');
+  });
+
   it('has no transform attribute when collapsed', () => {
     const { container } = render(
       <svg viewBox="0 0 360 380">
