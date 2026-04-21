@@ -63,4 +63,42 @@ test.describe('axe-core WCAG scans', () => {
     }
     expect(results.violations).toEqual([]);
   });
+
+  // #115 acceptance criterion: axe-playwright clean at both viewports with
+  // panel open. The sidebar case is covered above (Playwright's default
+  // viewport is 1280×720 → sidebar layout). This one locks in the 390×844
+  // drawer layout — the overlay + bottom-sheet styling introduced new DOM
+  // that could potentially regress colour contrast or ARIA roles.
+  //
+  // The viewport override is applied via test.use() so Playwright mounts
+  // the page with the mobile dimensions from the start; setViewportSize()
+  // after navigation has a race with useMediaQuery's initial evaluation.
+  test.describe('at 390×844 mobile viewport', () => {
+    test.use({ viewport: { width: 390, height: 844 } });
+
+    test('species panel open has no WCAG 2/2.1 A/AA violations (drawer layout)', async ({ page, apiStub }) => {
+      await apiStub.stubSpecies('vermfly', {
+        speciesCode: 'vermfly',
+        comName: 'Vermilion Flycatcher',
+        sciName: 'Pyrocephalus rubinus',
+        familyCode: 'tyrannidae',
+        familyName: 'Tyrant Flycatchers',
+        taxonOrder: 4400,
+      });
+      const app = new AppPage(page);
+      await app.goto('species=vermfly');
+      await app.waitForAppReady();
+      const panel = page.getByRole('complementary');
+      await expect(panel).toBeVisible({ timeout: 10_000 });
+      await expect(panel).toHaveAttribute('data-layout', 'drawer');
+      const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
+      if (results.violations.length) {
+        await test.info().attach('axe-violations', {
+          body: JSON.stringify(results.violations, null, 2),
+          contentType: 'application/json',
+        });
+      }
+      expect(results.violations).toEqual([]);
+    });
+  });
 });
