@@ -370,3 +370,126 @@ body {
   white-space: nowrap;
   border: 0;
 }
+
+/* Hotspot list surface (#117). Ordered list of hotspot rows with a local
+   three-way sort toggle. Layout mirrors .feed — capped width, centered,
+   44px row min-height for iOS-HIG tap parity. Row DOM is a static <li>
+   (no nested button — clicking a hotspot row is a no-op in release 1). */
+.hotspot-list-wrap {
+  max-width: 760px;
+  margin-inline: auto;
+}
+.hotspot-list-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--space-sm) var(--space-md);
+}
+.hotspot-list-sort {
+  appearance: none;
+  background: transparent;
+  border: 1px solid #d8d3c3;
+  border-radius: 4px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: #1a1a1a;
+  cursor: pointer;
+  line-height: 1.2;
+}
+.hotspot-list-sort:hover { background: #f0ebe0; }
+.hotspot-list-sort:focus-visible {
+  outline: 2px solid #1a1a1a;
+  outline-offset: 2px;
+}
+.hotspot-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+/* Two-line hotspot row layout.
+   Line 1: locName + count chip (name flexes, chip stays put on the right).
+   Line 2: coords + relative time (both left-aligned; time ends the row).
+   Achieved with flex-wrap so we stay within a single <li>; each child
+   carries a `flex-basis` hint that forces the row break at the right
+   boundary without media queries. Works at 390px up through 1440px.
+   (locName is the primary signal — we do NOT want it truncating to one
+   letter just because the desktop fits everything on a single line.) */
+.hotspot-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--space-md);
+  row-gap: 4px;
+  min-height: 44px;
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid #e6e1d2;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.hotspot-row-name {
+  flex: 1 1 60%;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 14px;
+  color: #1a1a1a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hotspot-row-count {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: #444;
+  background: #f0ebe0;
+  padding: 2px 6px;
+  border-radius: 10px;
+}
+.hotspot-row-coords {
+  /* flex-basis 100% forces coords onto line 2 on narrow viewports; at
+     desktop widths the row is wider than all children combined so line
+     wrapping is governed by the natural flex packing. */
+  flex: 1 1 100%;
+  font-size: 12px;
+  /* #555 on #fff = 7.46:1 — well clear of WCAG AA 4.5:1 for normal text. */
+  color: #555;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+.hotspot-row-time {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: 12px;
+  /* #5c5c5c on #fff = 6.86:1 — passes AA for 12px. Matches feed-row-time. */
+  color: #5c5c5c;
+  font-variant-numeric: tabular-nums;
+}
+/* Stale de-emphasis: null latestObsDt OR age > 30d. Lower contrast is
+   deliberate — the stale signal IS the information. Background is nudged
+   toward the cream page color so stale rows retreat behind fresh ones
+   but stay legible at WCAG AA large-text (3:1). */
+.hotspot-row-stale {
+  background: #faf7ee;
+  color: #6b6b6b;
+}
+.hotspot-row-stale .hotspot-row-name {
+  /* #5c5c5c on #faf7ee ≈ 6.8:1, still AA. Avoids feeding the row back
+     into the fresh palette. */
+  color: #5c5c5c;
+  font-weight: 500;
+}
+.hotspot-row-stale .hotspot-row-count {
+  background: #efeadd;
+  color: #555;
+}
+.hotspot-list-empty {
+  padding: var(--space-xl);
+  text-align: center;
+  color: #555;
+  font-size: 14px;
+  max-width: 480px;
+  margin-inline: auto;
+}
