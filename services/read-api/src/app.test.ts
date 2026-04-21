@@ -142,6 +142,44 @@ describe('GET /api/species/:code', () => {
   });
 });
 
+describe('gzip compression middleware', () => {
+  // Seed enough observations that the JSON body exceeds the compress()
+  // default threshold of 1024 bytes, so Content-Encoding: gzip is reliably
+  // set in the response headers.
+  beforeAll(async () => {
+    await upsertSpeciesMeta(db.pool, [
+      { speciesCode: 'gztest1', comName: 'Gzip Test Bird One With A Long Common Name',
+        sciName: 'Testus gzipus primarius', familyCode: 'tyrannidae',
+        familyName: 'Tyrant Flycatchers', taxonOrder: 99001 },
+    ]);
+    const bulkObs = Array.from({ length: 30 }, (_, i) => ({
+      subId: `GZ${String(i).padStart(3, '0')}`,
+      speciesCode: 'gztest1',
+      comName: 'Gzip Test Bird One With A Long Common Name',
+      lat: 31.72 + i * 0.01,
+      lng: -110.88 - i * 0.01,
+      obsDt: new Date(Date.now() - 3 * 86400_000).toISOString(),
+      locId: `LGZ${i}`,
+      locName: `Gzip Test Location Number ${i} In Southern Arizona Near A Riparian Corridor`,
+      howMany: i + 1,
+      isNotable: false,
+    }));
+    await upsertObservations(db.pool, bulkObs);
+  });
+
+  it('returns content-encoding: gzip from createApp when response body exceeds 1 KB', async () => {
+    // This test validates that compress() is registered in createApp. The
+    // bulkObs seeded above push the ?since=14d payload well past 1 KB, so
+    // the middleware threshold fires and Content-Encoding: gzip is set.
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/observations?since=14d', {
+      headers: { 'accept-encoding': 'gzip' },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-encoding')).toBe('gzip');
+  });
+});
+
 describe('CORS middleware', () => {
   // Save + restore FRONTEND_ORIGINS around tests that mutate it so other
   // describe blocks stay deterministic.

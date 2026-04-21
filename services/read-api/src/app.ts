@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { compress } from 'hono/compress';
 import { cors } from 'hono/cors';
 import type { Pool } from '@bird-watch/db-client';
 import { getRegions, getHotspots, getObservations, getSpeciesMeta } from '@bird-watch/db-client';
@@ -10,6 +11,14 @@ export interface AppDeps {
 
 export function createApp(deps: AppDeps): Hono {
   const app = new Hono();
+
+  // Compress must come first — registering it after a route handler would
+  // allow that route to bypass compression entirely (Hono applies middleware
+  // in registration order, post-handler). Gzip drops the ?since=14d payload
+  // from ~101 KB to under 20 KB, making the feed viable on 3G/slow-LTE mobile.
+  // Health-check and other sub-1 KB responses are excluded by compress()'s
+  // default 1024-byte threshold (R8 / Plan 6 Week 0).
+  app.use('*', compress());
 
   // Parse the CORS allowlist. `trim` + `filter(Boolean)` so that a value like
   // "https://a.test, https://b.test" (comma-space) and stray empty entries
