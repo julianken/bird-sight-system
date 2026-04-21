@@ -83,6 +83,7 @@ export function SurfaceNav(props: SurfaceNavProps) {
             id={`surface-tab-${tab.value}`}
             aria-selected={selected}
             aria-controls="main-surface"
+            aria-labelledby={`surface-tab-${tab.value}`}
             tabIndex={selected ? 0 : -1}
             className={`surface-nav-tab${selected ? ' is-active' : ''}`}
             onClick={() => {
