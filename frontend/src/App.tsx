@@ -79,12 +79,14 @@ export function App() {
         activeView={state.view}
         onSelectView={view => set({ view })}
       />
-      {/* NOTE(#111): `<main id="main-surface">` + surface rendering land in
-          #113 (map delete) / #116-#118 (feed / species / hotspots). Until
-          then every view keeps rendering the existing map so SurfaceNav only
-          mutates URL state. `aria-controls="main-surface"` on each tab stays
-          unresolved in the DOM for this PR — browsers tolerate it. */}
-      <div className="map-wrap" aria-busy={loading}>
+      {/* NOTE(#111): the `<main id="main-surface">` landmark + surface
+          rendering land in #113 (map delete) / #116-#118 (feed / species /
+          hotspots). Until then every view keeps rendering the existing map,
+          and the `id="main-surface"` hook lives on the map-wrap so
+          `aria-controls` on each SurfaceNav tab resolves cleanly (axe
+          rejects unresolved aria-controls values as WCAG 4.1.2). The ID
+          moves to the new <main> element in #113. */}
+      <div id="main-surface" className="map-wrap" aria-busy={loading}>
         <Map
           regions={regions}
           observations={observations}
