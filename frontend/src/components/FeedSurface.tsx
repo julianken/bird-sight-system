@@ -148,7 +148,7 @@ export function FeedSurface(props: FeedSurfaceProps) {
       <ol className="feed" aria-label="Observations">
         {visibleObservations.map(o => (
           <ObservationFeedRow
-            key={o.subId}
+            key={`${o.subId}:${o.speciesCode}`}
             observation={o}
             now={now}
             onSelectSpecies={onSelectSpecies}

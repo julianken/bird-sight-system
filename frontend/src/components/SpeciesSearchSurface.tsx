@@ -89,7 +89,7 @@ export function SpeciesSearchSurface(props: SpeciesSearchSurfaceProps) {
         <ol className="feed" aria-label="Recent sightings">
           {filtered.map(o => (
             <ObservationFeedRow
-              key={o.subId}
+              key={`${o.subId}:${o.speciesCode}`}
               observation={o}
               now={now}
               onSelectSpecies={ROW_NOOP}
