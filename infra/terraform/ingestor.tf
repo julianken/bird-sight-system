@@ -98,6 +98,19 @@ resource "google_cloud_run_v2_job_iam_member" "scheduler_invoke" {
   member   = "serviceAccount:${google_service_account.scheduler.email}"
 }
 
+# Scheduler's http_target uses oauth_token { service_account_email = scheduler }.
+# Before the HTTP call fires, the Cloud Scheduler service agent must mint an
+# OAuth token on behalf of that SA — which requires tokenCreator on the SA
+# itself. Without this binding the request 403s before reaching Cloud Run, so
+# the invoker-side bindings above never come into play. See issue #106.
+data "google_project" "current" {}
+
+resource "google_service_account_iam_member" "scheduler_token_creator" {
+  service_account_id = google_service_account.scheduler.name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-cloudscheduler.iam.gserviceaccount.com"
+}
+
 locals {
   # Cloud Run Jobs v2 REST endpoint. v2 is the current API surface for
   # google_cloud_run_v2_job and uses a cleaner path than the v1 Knative
