@@ -173,3 +173,103 @@ describe('Map', () => {
     expect(container.querySelectorAll('.shapes-layer > g > g').length).toBe(0);
   });
 });
+
+describe('Map paint-order comparator', () => {
+  const baseRegion = (id: string, parentId: string | null): Region => ({
+    id,
+    name: id,
+    parentId,
+    displayColor: '#000',
+    svgPath: 'M 0 0 L 10 0 L 10 10 L 0 10 Z',
+  });
+
+  it('paints parents before their children', () => {
+    const paintOrderRegions: Region[] = [
+      baseRegion('sky-islands-santa-ritas', 'sonoran-tucson'),
+      baseRegion('sonoran-tucson', null),
+      baseRegion('sky-islands-chiricahuas', 'sonoran-tucson'),
+    ];
+    const { container } = render(
+      <Map
+        regions={paintOrderRegions}
+        observations={[]}
+        hotspots={[]}
+        expandedRegionId={null}
+        selectedSpeciesCode={null}
+        onSelectRegion={() => {}}
+        silhouetteFor={() => 'M0 0'}
+        colorFor={() => '#000'}
+      />,
+    );
+    const ids = Array.from(
+      container.querySelectorAll('[data-region-id]'),
+      el => el.getAttribute('data-region-id'),
+    );
+    expect(ids).toEqual([
+      'sonoran-tucson',
+      'sky-islands-chiricahuas',
+      'sky-islands-santa-ritas',
+    ]);
+  });
+
+  it('paints the selected region LAST regardless of parent/child', () => {
+    const paintOrderRegions: Region[] = [
+      baseRegion('sonoran-tucson', null),
+      baseRegion('sky-islands-chiricahuas', 'sonoran-tucson'),
+      baseRegion('sky-islands-huachucas', 'sonoran-tucson'),
+      baseRegion('sky-islands-santa-ritas', 'sonoran-tucson'),
+    ];
+    const { container } = render(
+      <Map
+        regions={paintOrderRegions}
+        observations={[]}
+        hotspots={[]}
+        expandedRegionId="sky-islands-chiricahuas"
+        selectedSpeciesCode={null}
+        onSelectRegion={() => {}}
+        silhouetteFor={() => 'M0 0'}
+        colorFor={() => '#000'}
+      />,
+    );
+    const ids = Array.from(
+      container.querySelectorAll('[data-region-id]'),
+      el => el.getAttribute('data-region-id'),
+    );
+    expect(ids[ids.length - 1]).toBe('sky-islands-chiricahuas');
+  });
+
+  it('treats a region referenced as parentId as a parent even when its own parentId is null (defensive against DB drift)', () => {
+    // sonoran-tucson has parentId=null AND is referenced as a parent of the
+    // sky-islands. Both properties matter: parent classification must come
+    // from the data, not from "is my own parentId null".
+    const paintOrderRegions: Region[] = [
+      baseRegion('lower-colorado', null), // root, has NO children in this set
+      baseRegion('sonoran-tucson', null), // root, HAS children in this set
+      baseRegion('sky-islands-santa-ritas', 'sonoran-tucson'),
+    ];
+    const { container } = render(
+      <Map
+        regions={paintOrderRegions}
+        observations={[]}
+        hotspots={[]}
+        expandedRegionId={null}
+        selectedSpeciesCode={null}
+        onSelectRegion={() => {}}
+        silhouetteFor={() => 'M0 0'}
+        colorFor={() => '#000'}
+      />,
+    );
+    const ids = Array.from(
+      container.querySelectorAll('[data-region-id]'),
+      el => el.getAttribute('data-region-id'),
+    );
+    // Both roots (lower-colorado, sonoran-tucson) come before the child.
+    // Stable alphabetical tiebreak within the same tier orders lower-colorado
+    // before sonoran-tucson.
+    expect(ids).toEqual([
+      'lower-colorado',
+      'sonoran-tucson',
+      'sky-islands-santa-ritas',
+    ]);
+  });
+});
