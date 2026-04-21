@@ -88,6 +88,11 @@ export function Region(props: RegionProps) {
         fill={props.region.displayColor}
         stroke="#fff"
         strokeWidth={3}
+        // Keep the 3-unit stroke in CSS pixels regardless of the .region-expanded
+        // scale(s) transform (s ~ 3-9 across regions). Also declared in
+        // styles.css; the JSX attribute is belt-and-braces for Safari < 16,
+        // which intermittently ignored class-selector vector-effect rules.
+        vectorEffect="non-scaling-stroke"
         role="button"
         aria-label={props.region.name}
         tabIndex={0}
