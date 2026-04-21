@@ -13,8 +13,11 @@ export interface SpeciesOption {
   // project it onto the observation payload (backward-compatible
   // optional field). familyCode mirrors the silhouetteId fallback from
   // deriveFamilies.
-  taxonOrder: number | null;
-  familyCode: string | null;
+  // Optional on the interface so older test fixtures typecheck without
+  // supplying values. Consumers treat missing as null (same handling as
+  // the explicit-null case).
+  taxonOrder?: number | null;
+  familyCode?: string | null;
 }
 
 export interface FiltersBarProps {
