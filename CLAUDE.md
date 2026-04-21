@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repo state
 
-This repository currently contains **planning artifacts only** — no application code, no `package.json`, no tests, no CI workflows. The full system is described in `docs/specs/2026-04-16-bird-watch-design.md` and broken into five executable plans under `docs/plans/`.
+The system shipped to **bird-maps.com** on 2026-04-19 and is live. Active workspaces: `frontend/`, `services/read-api/`, `services/ingestor/`, `infra/`. The full architecture is in `docs/specs/2026-04-16-bird-watch-design.md`; five executed plans live under `docs/plans/`.
 
 The directory on disk is `bird-watch/`; the GitHub repo is `julianken/bird-sight-system`. They will not match.
 
@@ -40,6 +40,21 @@ These are non-obvious commitments the plans enforce:
 - **TDD discipline per task.** Every code-producing task runs the cycle: write failing test → confirm failure → write minimal implementation → confirm pass → commit. Don't batch.
 - **Docker is the portable artifact.** Plan 5 deploys to Cloud Run, but the same image runs unchanged on AWS Fargate, Azure Container Apps, or Fly Machines. Don't add cloud-specific code outside the platform-wrapper files.
 - **The `is_notable` flag requires a separate eBird call.** The ingestor calls `/data/obs/US-AZ/recent` AND `/data/obs/US-AZ/recent/notable` and intersects them — without both, the notable filter doesn't work.
+
+## Prototype gate
+
+Before the body of any plan is written, a working prototype must validate the rendering approach at representative data volume and real viewports. This prevents a "looks fine in a demo, breaks at production dimensions" failure mode (the root cause of Plan 4's rendering dragons).
+
+**Minimum prototype requirements:**
+
+- Render **≥344 rows** of representative data from canned JSON matching the production API shape.
+- Test at **390×844** (mobile) and **1440×900** (desktop) — the two viewports the release-1 exit criteria name.
+- Exercise every interactive surface the plan introduces: filter state changes, panel open/close, scroll-restore, keyboard navigation.
+- Confirm zero console errors and zero console warnings at both viewports.
+
+The prototype does not need a real API connection, real auth, or production deployment. A local Vite dev server with canned JSON is sufficient. Scope is 2–4 hours; output is a local dev URL or screen recording plus a 5-line "things I learned" note.
+
+**Gate rule:** No plan body (tasks, acceptance criteria, issue list) may be authored until the prototype has been built and the learnings note written. The note must be committed alongside or before the plan file. Rationale: `docs/plans/2026-04-21-path-a-assessment/risk-viability.md` Part 7.
 
 ## PR workflow
 
