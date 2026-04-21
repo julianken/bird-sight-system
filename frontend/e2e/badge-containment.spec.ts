@@ -102,7 +102,12 @@ test.describe('badge containment (#59)', () => {
         }>;
       }> = [];
 
-      const regions = document.querySelectorAll('[data-region-id]');
+      // #94 restructured the map into three layers. Shapes live in
+      // `.shapes-layer [data-region-id="<id>"]` and badges live in
+      // `.badges-layer [data-region-badges-for="<id>"]` — look up the
+      // badge siblings by id rather than descending from the shape
+      // wrapper.
+      const regions = document.querySelectorAll('.shapes-layer [data-region-id]');
       for (const region of regions) {
         const regionId = region.getAttribute('data-region-id')!;
         // Skip expanded regions — their parent <g> carries a translate+scale
@@ -113,7 +118,10 @@ test.describe('badge containment (#59)', () => {
         const d = path?.getAttribute('d') ?? '';
         const polygon = parsePoints(d);
 
-        const badges = region.querySelectorAll('.badge');
+        const badgeWrapper = document.querySelector(
+          `.badges-layer [data-region-badges-for="${regionId}"]`,
+        );
+        const badges = badgeWrapper?.querySelectorAll('.badge') ?? [];
         const badgeData: Array<{ cx: number; cy: number; r: number; distToEdge: number; inside: boolean }> = [];
         for (const badge of badges) {
           const transform = badge.getAttribute('transform') ?? '';
