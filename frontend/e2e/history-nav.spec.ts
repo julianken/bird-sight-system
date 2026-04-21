@@ -2,34 +2,23 @@ import { test, expect } from '@playwright/test';
 import { AppPage } from './pages/app-page.js';
 
 test.describe('history back navigation', () => {
-  test('back button reverts region expand', async ({ page }) => {
-    // Expected to fail today: url-state.ts uses replaceState, so goBack
-    // exits the app instead of reverting the expand. When the pushState
-    // fix lands in a follow-up PR, this test will start PASSING and
-    // test.fail() will invert to CI failure — that's the cue to delete it.
-    test.fail();
-    const app = new AppPage(page);
-    await app.goto();
-    await app.waitForMapLoad();
-
-    await app.expandRegion('Sky Islands — Santa Ritas');
-    await expect.poll(() => app.getUrlParams().get('region'), { timeout: 5_000 })
-      .toBe('sky-islands-santa-ritas');
-
-    await page.goBack();
-
-    await expect.poll(() => app.getUrlParams().get('region'), { timeout: 5_000 })
-      .toBeNull();
-    await expect(app.regionById('sky-islands-santa-ritas'))
-      .not.toHaveClass(/region-expanded/);
-  });
+  // #113 deleted the map, which removed the region-expand URL write.
+  // Back-button-restores-region will come back against the surface
+  // that replaces the map (#116 feed, #117 hotspots) once those land.
+  test.skip('back button reverts region expand', () => {});
 
   test('back button reverts the most recent filter change', async ({ page }) => {
-    // Same test.fail() reasoning as above.
+    // Replace region-expand with a toggleNotable + selectTimeWindow
+    // sequence so the test still covers url-state's pushState/popstate
+    // contract end-to-end. `test.fail()` stays in place: url-state.ts
+    // still uses replaceState today, so the back button exits the app
+    // rather than reverting the filter change. When the pushState fix
+    // ships this flips to passing and `test.fail()` becomes the
+    // delete-me cue.
     test.fail();
     const app = new AppPage(page);
     await app.goto();
-    await app.waitForMapLoad();
+    await app.waitForAppReady();
 
     await app.filters.toggleNotable(true);
     await expect.poll(() => app.getUrlParams().get('notable'), { timeout: 5_000 }).toBe('true');

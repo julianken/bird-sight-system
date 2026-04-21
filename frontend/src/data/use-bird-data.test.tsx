@@ -10,9 +10,8 @@ function makeClient(overrides: Partial<ApiClient>): ApiClient {
 describe('useBirdData', () => {
   beforeEach(() => { vi.restoreAllMocks(); });
 
-  it('loads regions, hotspots, and observations on mount', async () => {
+  it('loads hotspots and observations on mount (no regions)', async () => {
     const client = makeClient({
-      getRegions: vi.fn().mockResolvedValue([{ id: 'r1' }]),
       getHotspots: vi.fn().mockResolvedValue([{ locId: 'h1' }]),
       getObservations: vi.fn().mockResolvedValue([{ subId: 's1' }]),
     } as unknown as Partial<ApiClient>);
@@ -20,7 +19,7 @@ describe('useBirdData', () => {
     const { result } = renderHook(() => useBirdData(client, { since: '14d', notable: false }));
     expect(result.current.loading).toBe(true);
     await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(result.current.regions).toHaveLength(1);
+    expect(result.current).not.toHaveProperty('regions');
     expect(result.current.hotspots).toHaveLength(1);
     expect(result.current.observations).toHaveLength(1);
     expect(result.current.error).toBeNull();
@@ -29,7 +28,6 @@ describe('useBirdData', () => {
   it('refetches observations when filters change', async () => {
     const getObservations = vi.fn().mockResolvedValue([]);
     const client = makeClient({
-      getRegions: vi.fn().mockResolvedValue([]),
       getHotspots: vi.fn().mockResolvedValue([]),
       getObservations,
     } as unknown as Partial<ApiClient>);
@@ -47,8 +45,7 @@ describe('useBirdData', () => {
 
   it('exposes error state when a fetch fails', async () => {
     const client = makeClient({
-      getRegions: vi.fn().mockRejectedValue(new Error('boom')),
-      getHotspots: vi.fn().mockResolvedValue([]),
+      getHotspots: vi.fn().mockRejectedValue(new Error('boom')),
       getObservations: vi.fn().mockResolvedValue([]),
     } as unknown as Partial<ApiClient>);
 

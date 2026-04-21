@@ -4,7 +4,6 @@ export type Since = '1d' | '7d' | '14d' | '30d';
 export type View = 'feed' | 'species' | 'hotspots';
 
 export interface UrlState {
-  regionId: string | null;
   speciesCode: string | null;
   familyCode: string | null;
   since: Since;
@@ -13,7 +12,6 @@ export interface UrlState {
 }
 
 const DEFAULTS: UrlState = {
-  regionId: null,
   speciesCode: null,
   familyCode: null,
   since: '14d',
@@ -29,6 +27,9 @@ function readUrl(): UrlState {
   const since = p.get('since');
   const rawView = p.get('view');
   const speciesCode = p.get('species');
+  // Side-channel read: detect ?region= for migration banner.
+  // The value is NOT stored in UrlState — use readMigrationFlag() instead.
+  p.get('region');
 
   // View resolution:
   //  - explicit, valid ?view= wins.
@@ -45,7 +46,6 @@ function readUrl(): UrlState {
   }
 
   return {
-    regionId: p.get('region'),
     speciesCode,
     familyCode: p.get('family'),
     since: since && VALID_SINCE.has(since) ? (since as Since) : DEFAULTS.since,
@@ -56,7 +56,7 @@ function readUrl(): UrlState {
 
 function writeUrl(state: UrlState): void {
   const p = new URLSearchParams();
-  if (state.regionId) p.set('region', state.regionId);
+  // Never write ?region= — region selection is gone in Release 2.
   if (state.speciesCode) p.set('species', state.speciesCode);
   if (state.familyCode) p.set('family', state.familyCode);
   if (state.since !== DEFAULTS.since) p.set('since', state.since);
@@ -72,6 +72,15 @@ function writeUrl(state: UrlState): void {
   if (newUrl !== window.location.pathname + window.location.search) {
     window.history.replaceState({}, '', newUrl);
   }
+}
+
+/**
+ * Returns true when the current URL contains a ?region= parameter.
+ * Used to show the MigrationBanner for users with bookmarked region URLs.
+ * Release 2: remove this function and `readMigrationFlag` after `?region=` traffic ages out.
+ */
+export function readMigrationFlag(): boolean {
+  return new URLSearchParams(window.location.search).has('region');
 }
 
 export function useUrlState(): {

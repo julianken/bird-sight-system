@@ -18,12 +18,6 @@
   --dur-slow: 350ms;
 
   --shadow-panel: -2px 0 12px rgba(0, 0, 0, var(--opacity-subtle));
-  /* Region-expand halo. Authored in SVG user units (0.5px/2px), NOT CSS
-     pixels, because the .region-expanded scale transform (s ~ 3-9)
-     propagates into the filter coordinate space. A CSS-pixel offset/blur
-     (e.g. 0 4px 16px) renders as a ~28/112 px cutoff blob — see the
-     non-scaling-strokes investigation in issue #93. */
-  --shadow-elevated: 0 0.5px 2px rgba(0, 0, 0, var(--opacity-hover));
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -34,77 +28,58 @@ body {
   color: #1a1a1a;
 }
 
-/* transform-origin MUST be 0 0 (SVG default) because computeExpandTransform in
-   Region.tsx bakes the pivot into its translate() component. `center` (a.k.a.
-   50% 50%) pre/post-translates the transform by the element's bbox center and
-   pushes the expanded region off-screen. */
-.region { transition: transform var(--dur-slow) ease; transform-origin: 0 0; }
-/* Drop-shadow is authored in SVG user units so the .region-expanded scale
-   transform (s ~ 3-9) renders a ~3.5-14 px halo rather than the ~28/112 px
-   cutoff blob produced when the offset/blur are authored in CSS pixels and
-   the filter coordinate space inherits the ancestor scale. See the
-   non-scaling-strokes investigation in issue #93. */
-.region-expanded .region-shape { filter: drop-shadow(var(--shadow-elevated)); }
-/* Decouple stroke width from ancestor transforms. .region gets a scale(s)
-   transform (s ~ 3-9) during expand; without non-scaling-stroke a 3-unit
-   stroke renders at 9-27 CSS px, engulfing the outline it's supposed to
-   trace. `paint-order: stroke fill` on .badge-label makes the same bug
-   land as a 21-27 px halo that swallows the label circle.
-   Covers: .region-shape, .badge-circle (plus the .badge-selected override
-   on the same element), .badge-label, .hotspot-dot, and the overflow-pip
-   circles in BadgeStack.tsx (no JSX attribute there — CSS carries it). */
-.region-shape,
-.badge-circle,
-.badge-label,
-.hotspot-dot,
-[data-role="overflow-pip"] circle {
-  vector-effect: non-scaling-stroke;
-}
-/* Removed: .region-expanded .badge-stack { transform: scale(1.5); ... }
-   The parent .region <g> now scales the entire group via its inline
-   transform attribute, so badges scale with it automatically. */
-.badge { transition: transform var(--dur-fast) ease; }
-.badge-selected .badge-circle { stroke: #1a1a1a; stroke-width: 4; }
-/* Visible species-name label under expanded badges (issue #54).
-   `paint-order: stroke fill` with a white stroke keeps the label legible
-   over any polygon fill color. The label is rendered aria-hidden; the
-   full common name stays on the parent <g> via aria-label so screen
-   readers announce it exactly once. */
-.badge-label {
-  fill: #1a1a1a;
-  stroke: #fff;
-  stroke-width: 3;
-  paint-order: stroke fill;
-  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, sans-serif;
-  font-weight: 600;
-  pointer-events: none;
-}
-
 .app {
   display: flex;
   flex-direction: column;
   height: 100vh;
 }
-.map-wrap {
+/* Main surface. The map chain (Map/Region/Badge/BadgeStack/HotspotDot) was
+   removed in the DISCARD wave (#113). Surface components (feed/species/
+   hotspots) land in follow-ups #116/#117/#118 and will render inside this
+   landmark; until then the element stays visibly empty but is still the
+   e2e readiness gate via data-render-complete. */
+#main-surface {
   flex: 1;
   min-height: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   padding: var(--space-lg);
-  /* overflow: visible (not hidden) so the .region-expanded drop-shadow
-     filter region is not clipped at the HTML cell edge when the expanded
-     region sits near the viewport border. SVG 1.1 §15.2: the filter
-     region extends beyond the element bbox; the CSS overflow rule on the
-     containing block decides whether that halo is painted or clipped.
-     If a future child needs a container clip, apply it to that element. */
-  overflow: visible;
+  overflow: auto;
 }
-.bird-map { max-height: 100%; max-width: 100%; width: auto; height: auto; display: block; }
 .error-screen {
   padding: 32px;
   max-width: 500px;
   margin: 0 auto;
+}
+
+/* Migration banner — shown when the user lands with a legacy ?region= URL.
+   Release 2: remove this block when MigrationBanner is deleted (#112 sunset). */
+.migration-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-lg);
+  background: #fff8e1;
+  border-bottom: 1px solid #ffe082;
+  font-size: 13px;
+  color: #5d4037;
+}
+.migration-banner-text {
+  flex: 1;
+}
+.migration-banner-dismiss {
+  flex-shrink: 0;
+  appearance: none;
+  background: transparent;
+  border: none;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  color: #5d4037;
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+.migration-banner-dismiss:hover,
+.migration-banner-dismiss:focus-visible {
+  background: #ffecb3;
 }
 
 .filters-bar {

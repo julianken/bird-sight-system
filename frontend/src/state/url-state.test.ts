@@ -11,33 +11,32 @@ describe('useUrlState', () => {
     const { result } = renderHook(() => useUrlState());
     expect(result.current.state).toEqual({
       since: '14d', notable: false,
-      regionId: null, speciesCode: null, familyCode: null,
+      speciesCode: null, familyCode: null,
       view: 'feed',
     });
   });
 
-  it('parses values from the URL', () => {
+  it('parses values from the URL (region ignored in state)', () => {
     window.history.replaceState({}, '', '/?region=sky-islands-santa-ritas&since=7d&notable=true&species=vermfly&view=feed');
     const { result } = renderHook(() => useUrlState());
-    expect(result.current.state.regionId).toBe('sky-islands-santa-ritas');
+    expect(result.current.state).not.toHaveProperty('regionId');
     expect(result.current.state.since).toBe('7d');
     expect(result.current.state.notable).toBe(true);
     expect(result.current.state.speciesCode).toBe('vermfly');
     expect(result.current.state.view).toBe('feed');
   });
 
-  it('updates URL when set is called', () => {
+  it('updates URL when set is called (no region in output)', () => {
     const { result } = renderHook(() => useUrlState());
-    act(() => result.current.set({ regionId: 'sonoran-tucson', since: '1d' }));
-    expect(window.location.search).toContain('region=sonoran-tucson');
+    act(() => result.current.set({ since: '1d' }));
+    expect(window.location.search).not.toContain('region=');
     expect(window.location.search).toContain('since=1d');
-    expect(result.current.state.regionId).toBe('sonoran-tucson');
   });
 
-  it('removes a key when set to null', () => {
+  it('region= in incoming URL does not appear after any set() call', () => {
     window.history.replaceState({}, '', '/?region=sonoran-tucson');
     const { result } = renderHook(() => useUrlState());
-    act(() => result.current.set({ regionId: null }));
+    act(() => result.current.set({ since: '7d' }));
     expect(window.location.search).not.toContain('region=');
   });
 
@@ -117,5 +116,39 @@ describe('useUrlState', () => {
     act(() => result.current.set({ since: '1d' }));
     expect(window.location.search).toContain('view=feed');
     expect(window.location.search).toContain('species=vermfly');
+  });
+
+  // --- #112: regionId removed, readMigrationFlag ---
+
+  it('default state has view: feed and no regionId property', () => {
+    const { result } = renderHook(() => useUrlState());
+    expect(result.current.state.view).toBe('feed');
+    expect(result.current.state).not.toHaveProperty('regionId');
+  });
+
+  it('parses ?view=hotspots', () => {
+    window.history.replaceState({}, '', '/?view=hotspots');
+    const { result } = renderHook(() => useUrlState());
+    expect(result.current.state.view).toBe('hotspots');
+  });
+
+  it('?species=X with no ?view= sniffs view to species and no regionId', () => {
+    window.history.replaceState({}, '', '/?species=vermfly');
+    const { result } = renderHook(() => useUrlState());
+    expect(result.current.state.view).toBe('species');
+    expect(result.current.state).not.toHaveProperty('regionId');
+  });
+
+  it('?region=X&view=feed → view=feed and no regionId in state', () => {
+    window.history.replaceState({}, '', '/?region=sky-islands&view=feed');
+    const { result } = renderHook(() => useUrlState());
+    expect(result.current.state.view).toBe('feed');
+    expect(result.current.state).not.toHaveProperty('regionId');
+  });
+
+  it('never writes ?region= to the URL', () => {
+    const { result } = renderHook(() => useUrlState());
+    act(() => result.current.set({ since: '1d' }));
+    expect(window.location.search).not.toContain('region=');
   });
 });
