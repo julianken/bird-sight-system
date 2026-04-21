@@ -69,7 +69,7 @@ export function FeedSurface(props: FeedSurfaceProps) {
   const taxonMap = useMemo(() => {
     const map = new Map<string, number | null>();
     if (speciesIndex) {
-      for (const s of speciesIndex) map.set(s.code, s.taxonOrder);
+      for (const s of speciesIndex) map.set(s.code, s.taxonOrder ?? null);
     }
     return map;
   }, [speciesIndex]);
