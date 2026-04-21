@@ -13,11 +13,20 @@ const apiClient = new ApiClient({ baseUrl: import.meta.env.VITE_API_BASE_URL ?? 
 // Generic bird silhouette SVG path used for every badge (MVP).
 // Each family is distinguished by color. A future enhancement can fetch
 // per-family silhouette paths from the /api/silhouettes endpoint.
-const GENERIC_SILHOUETTE_PATH =
-  'M5 14 C5 9 9 7 13 8 L17 6 L17 9 L15 10 L15 14 L13 16 L8 16 L5 14 Z';
+//
+// `size` is the path bbox's max(width, height) in its own path-local
+// units; `Badge.silhouetteSize` uses this to scale the path into the
+// circle. True bbox is 12×10 (x:5→17, y:6→16); pinned in Badge.test.tsx.
+// The Badge default remains 24 to preserve today's render — flipping the
+// caller to pass `GENERIC_SILHOUETTE.size` is a visible change and
+// intentionally out of scope for ticket #92.
+export const GENERIC_SILHOUETTE = {
+  path: 'M5 14 C5 9 9 7 13 8 L17 6 L17 9 L15 10 L15 14 L13 16 L8 16 L5 14 Z',
+  size: 12,
+} as const;
 
 function silhouetteFor(_silhouetteId: string | null): string {
-  return GENERIC_SILHOUETTE_PATH;
+  return GENERIC_SILHOUETTE.path;
 }
 
 // COUPLING NOTE (Plan 3 scope, not 4c):

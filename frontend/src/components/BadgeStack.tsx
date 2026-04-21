@@ -49,9 +49,19 @@ export interface BadgeStackProps {
   selectedSpeciesCode?: string | null;
 }
 
-const MAX_BADGE_DIAMETER = 30;
-/** Below this, a collapsed-region layout bails out to the single-badge
- * pole-of-inaccessibility fallback (see issue #59 AC #5). */
+export const MAX_BADGE_DIAMETER = 30;
+/**
+ * Minimum badge DIAMETER (not radius) in SVG units. Below this, a
+ * collapsed-region layout bails out to the single-badge pole-of-
+ * inaccessibility fallback (see issue #59 AC #5).
+ *
+ * Note: `Badge.DEFAULT_BADGE_RADIUS = 14` is a RADIUS. The shared
+ * literal 14 is coincidence — they describe different sizes:
+ * `MIN_BADGE_DIAMETER = 14` means badge d=14 (r=7 at the floor);
+ * `DEFAULT_BADGE_RADIUS = 14` means badge d=28 when a caller omits
+ * `radius`. Unification under a single design token is out of scope
+ * here; see the design-token retrofit (ticket #89).
+ */
 export const MIN_BADGE_DIAMETER = 14;
 const PADDING = 4;
 
@@ -202,6 +212,15 @@ export function BadgeStack(props: BadgeStackProps) {
             : {})}
         />
         {overflow > 0 && (
+          // Single pip-sizing policy, matched to the grid path at line
+          // ~286. `r={r}` reads as "one slot, reporting an overflow
+          // count" (matches badge radius); `fontSize={9}` matches
+          // Badge.tsx `chipFontSize = 9 * scale` at scale=1, so the
+          // "+N" pip reads at the same type size as a count chip "N".
+          // Ticket #92 unified this with the grid path — the old
+          // fallback-only `Math.max(5, r*0.4)` + `Math.max(6, r*0.45)`
+          // was a floor-clamp that broke the pip↔badge relationship
+          // everywhere except where the floor happened to dominate.
           <g
             key="overflow-pip"
             data-role="overflow-pip"
@@ -209,12 +228,12 @@ export function BadgeStack(props: BadgeStackProps) {
             aria-label={`${overflow} more species — expand region to view`}
             transform={`translate(${layout.pole.x + r * 0.7},${layout.pole.y - r * 0.7})`}
           >
-            <circle r={Math.max(5, r * 0.4)} fill="#888" />
+            <circle r={r} fill="#888" />
             <text
               textAnchor="middle"
               dominantBaseline="central"
               fill="#fff"
-              fontSize={Math.max(6, r * 0.45)}
+              fontSize={9}
               fontWeight="bold"
               fontFamily="-apple-system, sans-serif"
             >

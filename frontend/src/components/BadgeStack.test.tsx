@@ -283,3 +283,93 @@ describe('BadgeStack polygon containment (issue #59)', () => {
     }
   });
 });
+
+describe('BadgeStack overflow-pip uniformity (ticket #92)', () => {
+  // Santa Ritas sky-island — copied from migrations/1700000008000_seed_regions.sql.
+  const SANTA_RITAS = 'M 226.6 330.0 L 239.0 325.3 L 254.5 330.0 L 266.9 341.3 L 265.0 354.7 L 252.6 363.3 L 239.0 361.3 L 227.8 352.0 L 226.6 340.0 Z';
+
+  it('grid-path overflow-pip r matches adjacent badge r', () => {
+    // 20 species in a 1000x1000 canvas -> grid layout path. With 11 visible
+    // badges + "+9" pip, pip should be the same r as each badge.
+    const { container } = render(
+      <svg viewBox="0 0 1000 1000">
+        <BadgeStack
+          observations={manyObs}
+          x={0} y={0} width={1000} height={1000}
+          expanded={false}
+          silhouetteFor={() => 'M0 0'}
+          colorFor={() => '#000'}
+        />
+      </svg>
+    );
+    const badge = container.querySelector('circle.badge-circle');
+    const pip = container.querySelector('[data-role="overflow-pip"] circle');
+    expect(badge).not.toBeNull();
+    expect(pip).not.toBeNull();
+    expect(pip!.getAttribute('r')).toBe(badge!.getAttribute('r'));
+  });
+
+  it('fallback-path overflow-pip r matches adjacent badge r', () => {
+    // Santa Ritas cannot fit even one MIN_BADGE_DIAMETER badge in its
+    // inscribed rectangle -> pole-of-inaccessibility fallback path. After
+    // unification, the pip should match badge r (not Math.max(5, r*0.4)).
+    const tenObs = Array.from({ length: 10 }, (_, i) =>
+      O(i, `sp${i}`, 'tyrannidae'),
+    );
+    const { container } = render(
+      <svg viewBox="0 0 360 380">
+        <BadgeStack
+          observations={tenObs}
+          polygonSvgPath={SANTA_RITAS}
+          x={226.6 + 8} y={325.3 + 8}
+          width={40.3 - 16} height={38.0 - 16}
+          expanded={false}
+          silhouetteFor={() => 'M0 0'}
+          colorFor={() => '#000'}
+        />
+      </svg>
+    );
+    const badge = container.querySelector('circle.badge-circle');
+    const pip = container.querySelector('[data-role="overflow-pip"] circle');
+    expect(badge).not.toBeNull();
+    expect(pip).not.toBeNull();
+    expect(pip!.getAttribute('r')).toBe(badge!.getAttribute('r'));
+  });
+
+  it('overflow-pip fontSize is 9 in both paths', () => {
+    // Grid path
+    const { container: gridC } = render(
+      <svg viewBox="0 0 1000 1000">
+        <BadgeStack
+          observations={manyObs}
+          x={0} y={0} width={1000} height={1000}
+          expanded={false}
+          silhouetteFor={() => 'M0 0'}
+          colorFor={() => '#000'}
+        />
+      </svg>
+    );
+    const gridPipText = gridC.querySelector('[data-role="overflow-pip"] text');
+    expect(gridPipText?.getAttribute('font-size')).toBe('9');
+
+    // Fallback path
+    const tenObs = Array.from({ length: 10 }, (_, i) =>
+      O(i, `sp${i}`, 'tyrannidae'),
+    );
+    const { container: fbC } = render(
+      <svg viewBox="0 0 360 380">
+        <BadgeStack
+          observations={tenObs}
+          polygonSvgPath={SANTA_RITAS}
+          x={226.6 + 8} y={325.3 + 8}
+          width={40.3 - 16} height={38.0 - 16}
+          expanded={false}
+          silhouetteFor={() => 'M0 0'}
+          colorFor={() => '#000'}
+        />
+      </svg>
+    );
+    const fbPipText = fbC.querySelector('[data-role="overflow-pip"] text');
+    expect(fbPipText?.getAttribute('font-size')).toBe('9');
+  });
+});
