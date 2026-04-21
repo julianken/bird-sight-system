@@ -128,19 +128,29 @@ body {
   border-color: #1a1a1a;
 }
 
-/* Species detail sidebar (issue #56).
-   Position: fixed — intentionally detaches from the flex layout so opening
-   the panel does not reflow the map. `right/top: 0` + full viewport height
-   gives a consistent docked look regardless of scroll position or filters
-   bar height. Width is capped at 320px to leave the map visible at typical
-   desktop widths; on narrow viewports the panel covers the right portion
-   of the map (mobile polish is a follow-up — see issue #56 Design notes). */
+/* Species detail panel (issue #56, reworked for responsive layout in #115).
+   `position: fixed` detaches from the flex layout so opening the panel does
+   not reflow the page. `right/top: 0` + full viewport height gives a
+   consistent docked look regardless of scroll position or filters-bar
+   height.
+
+   Two layouts, selected via the data-layout attribute set by the component:
+
+     data-layout="sidebar" (desktop, ≥768px) — 320px right-docked panel.
+       This is the legacy behaviour, preserved verbatim. The sidebar is a
+       peer to page content; outside clicks do not dismiss it.
+
+     data-layout="drawer" (mobile, ≤767px) — full-width drawer that covers
+       the viewport. An overlay sibling (.species-panel-overlay) sits behind
+       it for tap-outside dismiss; the drawer itself does not handle the
+       outside-click — the overlay does. The layout rules are scoped to the
+       data-layout attribute rather than relying on a media query alone so
+       the React-driven isMobile state stays the source of truth for the
+       overlay sibling + the CSS rules in lockstep. */
 .species-panel {
   position: fixed;
   top: 0;
   right: 0;
-  width: 320px;
-  max-width: 100vw;
   height: 100vh;
   background: #fff;
   border-left: 1px solid #d8d3c3;
@@ -148,6 +158,27 @@ body {
   padding: var(--space-xl) 20px var(--space-lg) 20px;
   overflow-y: auto;
   z-index: var(--z-panel);
+}
+.species-panel[data-layout='sidebar'] {
+  width: 320px;
+  max-width: 100vw;
+}
+.species-panel[data-layout='drawer'] {
+  width: 100vw;
+  max-width: 100vw;
+  left: 0;
+}
+.species-panel-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, var(--opacity-hover));
+  /* Sit just below the panel (z-panel 40) so taps inside the panel don't
+     bubble to the overlay. The aside stacks above on z-index precedence
+     via its higher z-panel value. */
+  z-index: calc(var(--z-panel) - 1);
 }
 .species-panel-close {
   position: absolute;
