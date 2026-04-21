@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repo state
 
-The system shipped to **bird-maps.com** on 2026-04-19 and is live. Active workspaces: `frontend/`, `services/read-api/`, `services/ingestor/`, `infra/`. The full architecture is in `docs/specs/2026-04-16-bird-watch-design.md`; five executed plans live under `docs/plans/`.
+The system shipped to **bird-maps.com** on 2026-04-19 and is live. The npm workspaces are `frontend/`, `services/read-api/`, `services/ingestor/`, `packages/db-client/`, `packages/family-mapping/`, `packages/shared-types/`; `infra/` holds Terraform (not an npm workspace). The full architecture is in `docs/specs/2026-04-16-bird-watch-design.md`; five executed plans live under `docs/plans/`.
 
 The directory on disk is `bird-watch/`; the GitHub repo is `julianken/bird-sight-system`. They will not match.
 
