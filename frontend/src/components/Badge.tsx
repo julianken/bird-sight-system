@@ -8,13 +8,27 @@ export interface BadgeProps {
   selected?: boolean;
   onClick?: () => void;
   /**
-   * Outer radius in polygon-local SVG units. Defaults to `DEFAULT_RADIUS`
-   * (14) to preserve behaviour for callers that don't size the badge
-   * explicitly. Polygon-aware layout (`BadgeStack`) overrides this for
-   * small regions so a 30-unit-wide sky-island still gets a contained
-   * circle, and scales the count chip + silhouette proportionally.
+   * Outer radius in polygon-local SVG units. Defaults to
+   * `DEFAULT_BADGE_RADIUS` (14) to preserve behaviour for callers that
+   * don't size the badge explicitly. Polygon-aware layout (`BadgeStack`)
+   * overrides this for small regions so a 30-unit-wide sky-island still
+   * gets a contained circle, and scales the count chip + silhouette
+   * proportionally.
    */
   radius?: number;
+  /**
+   * Bbox size of `silhouettePath` in its own path-local units. The path
+   * is scaled to fit a `silhouetteSize × silhouetteSize` square inside
+   * the `(r*2) × (r*2)` circle bbox.
+   *
+   * Default `24` preserves legacy render. The current
+   * `GENERIC_SILHOUETTE` bbox is actually `12×10` (see App.tsx), which
+   * means the silhouette fills ~50% of the circle at the default — the
+   * legacy render happens to look intentional but is a latent 2× bug
+   * the moment a true-24 path lands. Flipping the default to `12` is a
+   * visible change and intentionally out of scope for ticket #92.
+   */
+  silhouetteSize?: number;
   /**
    * When true, render a visible `<text>` label with `comName` below the
    * circle (issue #54). The label is marked `aria-hidden="true"` because
@@ -26,7 +40,18 @@ export interface BadgeProps {
   expanded?: boolean;
 }
 
-export const DEFAULT_RADIUS = 14;
+/**
+ * Default outer circle RADIUS (SVG units) for a Badge rendered without
+ * explicit sizing.
+ *
+ * Note: `BadgeStack.MIN_BADGE_DIAMETER = 14` is a DIAMETER. The shared
+ * literal 14 is coincidence — they describe different sizes. The rename
+ * from the old `DEFAULT_RADIUS` → `DEFAULT_BADGE_RADIUS` in ticket #92
+ * exists so a reader can't silently confuse one for the other. A unified
+ * token system (radius+diameter both derived from a single literal) is
+ * out of scope here; see the design-token retrofit (ticket #89).
+ */
+export const DEFAULT_BADGE_RADIUS = 14;
 
 /** Hard cap on visible label length before we append an ellipsis. SVG
  * `<text>` does not support CSS text-overflow, so we truncate JS-side.
@@ -41,13 +66,13 @@ function truncateLabel(name: string): string {
 
 export function Badge(props: BadgeProps) {
   const cursor = props.onClick ? 'pointer' : 'default';
-  const radius = props.radius ?? DEFAULT_RADIUS;
+  const radius = props.radius ?? DEFAULT_BADGE_RADIUS;
   // Chip + stroke + text sizing all scale proportionally to the radius so
   // a small badge still reads as a badge (not a fat-stroke disc with a
   // detached chip). These constants were chosen by eye at RADIUS=14 (chip
   // ≈ half the circle, stroke ≈ 1/7 the diameter); `scale` adapts them
   // when BadgeStack sizes a small region's badge below the default.
-  const scale = radius / DEFAULT_RADIUS;
+  const scale = radius / DEFAULT_BADGE_RADIUS;
   const chipRadius = 7 * scale;
   const strokeWidth = 2 * scale;
   const chipFontSize = 9 * scale;
@@ -78,7 +103,7 @@ export function Badge(props: BadgeProps) {
         // unreliability and makes the intent local to the element.
         vectorEffect="non-scaling-stroke"
       />
-      <g transform={`translate(-${radius},-${radius}) scale(${(radius * 2) / 24})`}>
+      <g transform={`translate(-${radius},-${radius}) scale(${(radius * 2) / (props.silhouetteSize ?? 24)})`}>
         <path d={props.silhouettePath} fill="#fff" />
       </g>
       {props.count > 1 && (

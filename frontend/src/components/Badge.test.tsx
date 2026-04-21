@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { Badge } from './Badge.js';
+import { Badge, DEFAULT_BADGE_RADIUS } from './Badge.js';
+import { GENERIC_SILHOUETTE } from '../App.js';
+import { MIN_BADGE_DIAMETER } from './BadgeStack.js';
 
 describe('Badge', () => {
   it('renders the species count', () => {
@@ -117,5 +119,37 @@ describe('Badge', () => {
     // Parent <g> still carries the complete name for screen readers.
     const parentG = container.querySelector('g.badge');
     expect(parentG?.getAttribute('aria-label')).toBe(longName);
+  });
+});
+
+describe('GENERIC_SILHOUETTE (ticket #92)', () => {
+  it('GENERIC_SILHOUETTE.path has bbox 12x10 (x:5->17, y:6->16) and size=12', () => {
+    // Extract every numeric token from the path; they come in alternating
+    // x, y pairs for this subset (M + C endpoints + L endpoints + control
+    // points are all pair-shaped for this specific silhouette).
+    const nums = GENERIC_SILHOUETTE.path.match(/-?\d+(?:\.\d+)?/g)!.map(Number);
+    const xs: number[] = [];
+    const ys: number[] = [];
+    for (let i = 0; i < nums.length; i += 2) {
+      xs.push(nums[i]!);
+      ys.push(nums[i + 1]!);
+    }
+    expect(Math.min(...xs)).toBe(5);
+    expect(Math.max(...xs)).toBe(17);
+    expect(Math.min(...ys)).toBe(6);
+    expect(Math.max(...ys)).toBe(16);
+    expect(GENERIC_SILHOUETTE.size).toBe(12);
+  });
+});
+
+describe('Badge/BadgeStack size-constants pin (ticket #92)', () => {
+  it('pins constants at their documented literals (radius vs diameter semantics intentional)', () => {
+    // These share the literal 14 by coincidence. DEFAULT_BADGE_RADIUS is a
+    // RADIUS (Badge-local default), MIN_BADGE_DIAMETER is a DIAMETER (the
+    // lower bound of BadgeStack's shrink-to-fit loop). Renaming to make
+    // the radius/diameter split visible in the name is the whole point of
+    // the ticket; this pin catches accidental drift.
+    expect(DEFAULT_BADGE_RADIUS).toBe(14);
+    expect(MIN_BADGE_DIAMETER).toBe(14);
   });
 });
