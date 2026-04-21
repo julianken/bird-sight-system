@@ -1,4 +1,4 @@
-import { memo, type KeyboardEvent } from 'react';
+import { memo } from 'react';
 import type { Observation } from '@bird-watch/shared-types';
 import { formatRelativeTime } from '../utils/format-time.js';
 
@@ -12,10 +12,12 @@ export interface ObservationFeedRowProps {
  * Single feed row. DOM column order:
  *   notable badge → comName → count chip → locName → relative time
  *
- * The row is a semantic `<li>` styled as `role="button"` so both assistive
- * technology and pointer/keyboard users get a single clickable target per
- * observation. Enter and Space activate it; click opens the SpeciesPanel
- * via `?species=` (the parent FeedSurface maps speciesCode → URL state).
+ * The visual row is a `<button>` nested inside an `<li>` — WCAG requires
+ * `<ol>` children to be `listitem`s, so we cannot put `role="button"`
+ * directly on the `<li>` (axe's `aria-required-children` rule fires,
+ * tripping the WCAG 2.1 AA gate in `e2e/axe.spec.ts`). The button carries
+ * the accessible name, focus, and keyboard semantics; the `<li>` keeps the
+ * list structure intact. Enter/Space get native-button behaviour for free.
  *
  * Row-level `isNotable` is INDEPENDENT of the global `?notable=true` filter.
  * A user toggling "Notable only" narrows the FEED (parent filters the list)
@@ -34,13 +36,6 @@ function ObservationFeedRowImpl(props: ObservationFeedRowProps) {
     onSelectSpecies(observation.speciesCode);
   }
 
-  function handleKeyDown(event: KeyboardEvent<HTMLLIElement>) {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      activate();
-    }
-  }
-
   // howMany display rules (per spec):
   //   null → "—" (em dash)
   //   1    → chip omitted (solo sighting is the default; no noise)
@@ -53,39 +48,39 @@ function ObservationFeedRowImpl(props: ObservationFeedRowProps) {
       : { chip: null, dash: false };
 
   return (
-    <li
-      className={`feed-row${observation.isNotable ? ' feed-row-notable' : ''}`}
-      tabIndex={0}
-      role="button"
-      aria-label={`${observation.comName}, ${formatRelativeTime(observation.obsDt, now)}${observation.locName ? `, at ${observation.locName}` : ''}`}
-      onClick={activate}
-      onKeyDown={handleKeyDown}
-    >
-      {observation.isNotable && (
-        <span
-          className="feed-row-badge"
-          aria-label="Notable sighting"
-          title="Notable sighting"
-        >
-          {/* Visible "!" glyph — aria-label above carries the accessible name. */}
-          <span aria-hidden="true">!</span>
+    <li className="feed-row-item">
+      <button
+        type="button"
+        className={`feed-row${observation.isNotable ? ' feed-row-notable' : ''}`}
+        aria-label={`${observation.comName}, ${formatRelativeTime(observation.obsDt, now)}${observation.locName ? `, at ${observation.locName}` : ''}`}
+        onClick={activate}
+      >
+        {observation.isNotable && (
+          <span
+            className="feed-row-badge"
+            aria-label="Notable sighting"
+            title="Notable sighting"
+          >
+            {/* Visible "!" glyph — aria-label above carries the accessible name. */}
+            <span aria-hidden="true">!</span>
+          </span>
+        )}
+        <span className="feed-row-name">{observation.comName}</span>
+        {countContent.chip !== null && (
+          <span className="feed-row-count" aria-label={`Count ${observation.howMany}`}>
+            {countContent.chip}
+          </span>
+        )}
+        {countContent.dash && (
+          <span className="feed-row-count feed-row-count-unknown" aria-label="Count unknown">—</span>
+        )}
+        {observation.locName !== null && (
+          <span className="feed-row-loc">{observation.locName}</span>
+        )}
+        <span className="feed-row-time">
+          {formatRelativeTime(observation.obsDt, now)}
         </span>
-      )}
-      <span className="feed-row-name">{observation.comName}</span>
-      {countContent.chip !== null && (
-        <span className="feed-row-count" aria-label={`Count ${observation.howMany}`}>
-          {countContent.chip}
-        </span>
-      )}
-      {countContent.dash && (
-        <span className="feed-row-count feed-row-count-unknown" aria-label="Count unknown">—</span>
-      )}
-      {observation.locName !== null && (
-        <span className="feed-row-loc">{observation.locName}</span>
-      )}
-      <span className="feed-row-time">
-        {formatRelativeTime(observation.obsDt, now)}
-      </span>
+      </button>
     </li>
   );
 }
