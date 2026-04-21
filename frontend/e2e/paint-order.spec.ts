@@ -8,6 +8,15 @@ import { AppPage } from './pages/app-page.js';
 // baseline view (at each sky-island's visual centre) and for the
 // expanded state (the expanded region paints LAST so neighbour strokes
 // do not cut its edges).
+//
+// After #94's two-pass restructure, `[data-region-id]` lives only on
+// the shapes-layer wrapper; `[data-region-badges-for]` lives on the
+// badges-layer wrapper. A probe point sitting on top of a badge has to
+// walk up to either ancestor to identify its owning region. The in-
+// evaluate `regionOwnerOf` helper checks both. The shape target query
+// is scoped to `.shapes-layer [data-region-id="<id>"]` so it only
+// matches the shape wrapper (the badges-layer wrapper does not carry
+// `data-region-id`).
 
 const SKY_ISLANDS = [
   'sky-islands-santa-ritas',
@@ -22,9 +31,17 @@ test.describe('SVG paint order (#80 follow-up)', () => {
     await app.waitForMapLoad();
 
     const probes = await page.evaluate((ids) => {
+      function regionOwnerOf(el: Element | null): string | null {
+        if (!el) return null;
+        const shape = el.closest('[data-region-id]');
+        if (shape) return shape.getAttribute('data-region-id');
+        const badge = el.closest('[data-region-badges-for]');
+        if (badge) return badge.getAttribute('data-region-badges-for');
+        return null;
+      }
       const out: Array<{ id: string; topRegionId: string | null; topTag: string | null }> = [];
       for (const id of ids) {
-        const g = document.querySelector(`[data-region-id="${id}"]`);
+        const g = document.querySelector(`.shapes-layer [data-region-id="${id}"]`);
         if (!g) { out.push({ id, topRegionId: null, topTag: null }); continue; }
         const path = g.querySelector('path.region-shape') as SVGPathElement | null;
         if (!path) { out.push({ id, topRegionId: null, topTag: null }); continue; }
@@ -32,7 +49,7 @@ test.describe('SVG paint order (#80 follow-up)', () => {
         const cx = (bbox.left + bbox.right) / 2;
         const cy = (bbox.top + bbox.bottom) / 2;
         const top = document.elementFromPoint(cx, cy);
-        const topRegion = top?.closest('[data-region-id]')?.getAttribute('data-region-id') ?? null;
+        const topRegion = regionOwnerOf(top);
         out.push({ id, topRegionId: topRegion, topTag: top?.tagName ?? null });
       }
       return out;
@@ -78,7 +95,15 @@ test.describe('SVG paint order (#80 follow-up)', () => {
     ).toMatch(/translate/);
 
     const samples = await page.evaluate(() => {
-      const g = document.querySelector('[data-region-id="sky-islands-santa-ritas"]');
+      function regionOwnerOf(el: Element | null): string | null {
+        if (!el) return null;
+        const shape = el.closest('[data-region-id]');
+        if (shape) return shape.getAttribute('data-region-id');
+        const badge = el.closest('[data-region-badges-for]');
+        if (badge) return badge.getAttribute('data-region-badges-for');
+        return null;
+      }
+      const g = document.querySelector('.shapes-layer [data-region-id="sky-islands-santa-ritas"]');
       if (!g) return null;
       const path = g.querySelector('path.region-shape') as SVGPathElement | null;
       if (!path) return null;
@@ -105,7 +130,7 @@ test.describe('SVG paint order (#80 follow-up)', () => {
       ];
       for (const [where, x, y] of entries) {
         const top = document.elementFromPoint(x, y);
-        const topRegion = top?.closest('[data-region-id]')?.getAttribute('data-region-id') ?? null;
+        const topRegion = regionOwnerOf(top);
         points.push({ where, x, y, topRegion, topTag: top?.tagName ?? null });
       }
       return points;

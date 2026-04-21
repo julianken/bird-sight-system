@@ -49,7 +49,10 @@ test.describe('expand-scale cap (#88)', () => {
           .toHaveClass(/region-expanded/);
         // Sample every badge-circle inside the expanded region; failure
         // names the specific badge dimension and the region it was in.
-        const worst = await page.locator(`[data-region-id="${regionId}"] .badge-circle`)
+        // After #94 the badges live in a sibling `.badges-layer` wrapper
+        // carrying `data-region-badges-for`, not inside the shapes-layer
+        // `[data-region-id]` wrapper — scope the query there.
+        const worst = await page.locator(`[data-region-badges-for="${regionId}"] .badge-circle`)
           .evaluateAll(circles => circles
             .map(c => c.getBoundingClientRect())
             .reduce((acc, r) => ({

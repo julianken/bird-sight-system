@@ -87,6 +87,91 @@ describe('Map', () => {
     expect(svg?.style.height).toBe('100%');
     expect(svg?.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');
   });
+
+  // ---- Ticket #94 two-pass restructure assertions ----
+
+  it('renders three named paint-order layers as direct children of svg.bird-map', () => {
+    // Layer ordering in the DOM is the paint order in SVG (no z-index).
+    // Shapes first, then badges (so badges always paint over ALL shapes,
+    // never just their own region's shape), then hotspots on top.
+    const { container } = render(
+      <Map
+        regions={regions}
+        observations={observations}
+        hotspots={hotspots}
+        expandedRegionId={null}
+        selectedSpeciesCode={null}
+        onSelectRegion={() => {}}
+        silhouetteFor={() => 'M0 0'}
+        colorFor={() => '#000'}
+      />
+    );
+    const svg = container.querySelector('svg.bird-map') as SVGSVGElement | null;
+    expect(svg).not.toBeNull();
+    const layerClasses = Array.from(svg!.children).map(g => g.getAttribute('class'));
+    expect(layerClasses).toEqual(['shapes-layer', 'badges-layer', 'hotspots-layer']);
+  });
+
+  it('has no transform attribute on the shapes-layer region wrapper when collapsed', () => {
+    // Ticket AC: `.shapes-layer [data-region-id="r1"]` has no transform
+    // when `expandedRegionId={null}`. Mirrors the old Region.test.tsx
+    // transform-when-collapsed assertion (the per-region <g> that carries
+    // the expand transform now lives in Map).
+    const { container } = render(
+      <Map
+        regions={regions}
+        observations={observations}
+        hotspots={hotspots}
+        expandedRegionId={null}
+        selectedSpeciesCode={null}
+        onSelectRegion={() => {}}
+        silhouetteFor={() => 'M0 0'}
+        colorFor={() => '#000'}
+      />
+    );
+    const g = container.querySelector('.shapes-layer [data-region-id="r1"]');
+    expect(g?.getAttribute('transform')).toBeNull();
+  });
+
+  it('applies a non-empty translate+scale transform on the shapes-layer region wrapper when expanded', () => {
+    const { container } = render(
+      <Map
+        regions={regions}
+        observations={observations}
+        hotspots={hotspots}
+        expandedRegionId="r1"
+        selectedSpeciesCode={null}
+        onSelectRegion={() => {}}
+        silhouetteFor={() => 'M0 0'}
+        colorFor={() => '#000'}
+      />
+    );
+    const g = container.querySelector('.shapes-layer [data-region-id="r1"]');
+    const transform = g?.getAttribute('transform');
+    expect(transform).toBeTruthy();
+    expect(transform).toContain('translate');
+    expect(transform).toContain('scale');
+  });
+
+  it('verifies double-<g> collapse — shapes-layer region wrapper has no nested <g> child', () => {
+    // Ticket AC: `document.querySelectorAll('.shapes-layer > g > g').length === 0`.
+    // Before the refactor, every region was wrapped in two <g>s (outer owning
+    // opacity+transition in Map, inner owning transform+className in Region).
+    // After the refactor there is exactly one per-region <g> in each layer.
+    const { container } = render(
+      <Map
+        regions={regions}
+        observations={observations}
+        hotspots={hotspots}
+        expandedRegionId={null}
+        selectedSpeciesCode={null}
+        onSelectRegion={() => {}}
+        silhouetteFor={() => 'M0 0'}
+        colorFor={() => '#000'}
+      />
+    );
+    expect(container.querySelectorAll('.shapes-layer > g > g').length).toBe(0);
+  });
 });
 
 describe('Map paint-order comparator', () => {

@@ -2,17 +2,6 @@ import type { Region as RegionT, Observation } from '@bird-watch/shared-types';
 import { BadgeStack } from './BadgeStack.js';
 import { boundingBoxOfPath } from '../geo/path.js';
 
-export interface RegionProps {
-  region: RegionT;
-  observations: Observation[];
-  expanded: boolean;
-  selectedSpeciesCode?: string | null;
-  onSelect: (regionId: string) => void;
-  onSelectSpecies?: (speciesCode: string) => void;
-  silhouetteFor: (silhouetteId: string | null) => string;
-  colorFor: (silhouetteId: string | null) => string;
-}
-
 const VIEWBOX = { w: 360, h: 380 };
 const EXPAND_PAD = 0.85; // leave ~7.5% margin on each side of the expanded region
 /**
@@ -99,66 +88,89 @@ export function computeExpandTransform(
   return `translate(${tx} ${ty}) scale(${scale})`;
 }
 
-export function Region(props: RegionProps) {
+// ---------------------------------------------------------------------------
+// #94 two-pass refactor: `Region` is split into two pure leaf renderers.
+// `RegionShape` draws the <path>. `RegionBadges` positions the <BadgeStack>.
+// Map.tsx owns the per-region <g> that carries `className`, `data-region-id`,
+// `transform`, `opacity`, and `transition`. This makes cross-region badge
+// bleed impossible by construction: all shapes paint in `.shapes-layer`
+// before any badge paints in `.badges-layer`.
+// ---------------------------------------------------------------------------
+
+export interface RegionShapeProps {
+  region: RegionT;
+  onSelect: (regionId: string) => void;
+}
+
+/**
+ * Pure <path> renderer for a region polygon. Has no opinion on container
+ * structure — the callsite (Map.tsx) provides the `<g>` wrapper that owns
+ * `className`, `data-region-id`, and the expand transform.
+ */
+export function RegionShape(props: RegionShapeProps) {
+  return (
+    <path
+      className="region-shape"
+      d={props.region.svgPath}
+      fill={props.region.displayColor}
+      stroke="#fff"
+      strokeWidth={3}
+      // Keep the 3-unit stroke in CSS pixels regardless of the .region-expanded
+      // scale(s) transform (s ~ 3-9 across regions). Also declared in
+      // styles.css; the JSX attribute is belt-and-braces for Safari < 16,
+      // which intermittently ignored class-selector vector-effect rules. See #98.
+      vectorEffect="non-scaling-stroke"
+      role="button"
+      aria-label={props.region.name}
+      tabIndex={0}
+      onClick={() => props.onSelect(props.region.id)}
+      onKeyDown={e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          props.onSelect(props.region.id);
+        }
+      }}
+      style={{ cursor: 'pointer' }}
+    />
+  );
+}
+
+export interface RegionBadgesProps {
+  region: RegionT;
+  observations: Observation[];
+  expanded: boolean;
+  selectedSpeciesCode?: string | null;
+  onSelectSpecies?: (speciesCode: string) => void;
+  silhouetteFor: (silhouetteId: string | null) => string;
+  colorFor: (silhouetteId: string | null) => string;
+}
+
+/**
+ * Pure <BadgeStack> positioner. Computes the bbox-inset layout rectangle
+ * from the region polygon and delegates all rendering to BadgeStack.
+ * `observations` is assumed to be non-empty — the Map call-site skips the
+ * wrapper entirely when a region has no observations.
+ */
+export function RegionBadges(props: RegionBadgesProps) {
   const bbox = boundingBoxOfPath(props.region.svgPath);
   const padding = 8;
-  const stackX = bbox.x + padding;
-  const stackY = bbox.y + padding;
-  const stackW = bbox.width - padding * 2;
-  const stackH = bbox.height - padding * 2;
-
-  const expandTransform = props.expanded
-    ? computeExpandTransform(props.region.svgPath)
-    : undefined;
-
   return (
-    <g
-      className={`region${props.expanded ? ' region-expanded' : ''}`}
-      data-region-id={props.region.id}
-      transform={expandTransform}
-    >
-      <path
-        className="region-shape"
-        d={props.region.svgPath}
-        fill={props.region.displayColor}
-        stroke="#fff"
-        strokeWidth={3}
-        // Keep the 3-unit stroke in CSS pixels regardless of the .region-expanded
-        // scale(s) transform (s ~ 3-9 across regions). Also declared in
-        // styles.css; the JSX attribute is belt-and-braces for Safari < 16,
-        // which intermittently ignored class-selector vector-effect rules.
-        vectorEffect="non-scaling-stroke"
-        role="button"
-        aria-label={props.region.name}
-        tabIndex={0}
-        onClick={() => props.onSelect(props.region.id)}
-        onKeyDown={e => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            props.onSelect(props.region.id);
-          }
-        }}
-        style={{ cursor: 'pointer' }}
-      />
-      {props.observations.length > 0 && (
-        <BadgeStack
-          observations={props.observations}
-          polygonSvgPath={props.region.svgPath}
-          x={stackX}
-          y={stackY}
-          width={stackW}
-          height={stackH}
-          expanded={props.expanded}
-          silhouetteFor={props.silhouetteFor}
-          colorFor={props.colorFor}
-          {...(props.onSelectSpecies !== undefined
-            ? { onSelectSpecies: props.onSelectSpecies }
-            : {})}
-          {...(props.selectedSpeciesCode !== undefined
-            ? { selectedSpeciesCode: props.selectedSpeciesCode }
-            : {})}
-        />
-      )}
-    </g>
+    <BadgeStack
+      observations={props.observations}
+      polygonSvgPath={props.region.svgPath}
+      x={bbox.x + padding}
+      y={bbox.y + padding}
+      width={bbox.width - padding * 2}
+      height={bbox.height - padding * 2}
+      expanded={props.expanded}
+      silhouetteFor={props.silhouetteFor}
+      colorFor={props.colorFor}
+      {...(props.onSelectSpecies !== undefined
+        ? { onSelectSpecies: props.onSelectSpecies }
+        : {})}
+      {...(props.selectedSpeciesCode !== undefined
+        ? { selectedSpeciesCode: props.selectedSpeciesCode }
+        : {})}
+    />
   );
 }
