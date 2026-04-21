@@ -40,6 +40,7 @@ describe('SpeciesSearchSurface', () => {
         speciesIndex={SPECIES_INDEX}
         now={NOW}
         onSelectSpecies={() => {}}
+        onClearSpecies={() => {}}
       />
     );
     expect(screen.getByRole('combobox', { name: /search species/i })).toBeInTheDocument();
@@ -56,6 +57,7 @@ describe('SpeciesSearchSurface', () => {
         speciesIndex={SPECIES_INDEX}
         now={NOW}
         onSelectSpecies={() => {}}
+        onClearSpecies={() => {}}
       />
     );
     const combobox = screen.getByRole('combobox', { name: /search species/i });
@@ -73,6 +75,7 @@ describe('SpeciesSearchSurface', () => {
         speciesIndex={SPECIES_INDEX}
         now={NOW}
         onSelectSpecies={() => {}}
+        onClearSpecies={() => {}}
       />
     );
     expect(screen.getByText(/Start typing a species|Pick a species/i)).toBeInTheDocument();
@@ -94,6 +97,7 @@ describe('SpeciesSearchSurface', () => {
         speciesIndex={SPECIES_INDEX}
         now={NOW}
         onSelectSpecies={() => {}}
+        onClearSpecies={() => {}}
       />
     );
     const list = screen.getByRole('list', { name: /recent sightings/i });
@@ -116,6 +120,7 @@ describe('SpeciesSearchSurface', () => {
         speciesIndex={SPECIES_INDEX}
         now={NOW}
         onSelectSpecies={onSelectSpecies}
+        onClearSpecies={() => {}}
       />
     );
     const row = within(
@@ -137,6 +142,7 @@ describe('SpeciesSearchSurface', () => {
         speciesIndex={SPECIES_INDEX}
         now={NOW}
         onSelectSpecies={onSelectSpecies}
+        onClearSpecies={() => {}}
       />
     );
     const input = screen.getByRole('combobox', { name: /search species/i });
@@ -154,6 +160,7 @@ describe('SpeciesSearchSurface', () => {
         speciesIndex={SPECIES_INDEX}
         now={NOW}
         onSelectSpecies={() => {}}
+        onClearSpecies={() => {}}
       />
     );
     // No list — and an explicit empty hint (keeps the failure explicit for
@@ -171,6 +178,7 @@ describe('SpeciesSearchSurface', () => {
         speciesIndex={SPECIES_INDEX}
         now={NOW}
         onSelectSpecies={() => {}}
+        onClearSpecies={() => {}}
       />
     );
     expect(screen.getByText(/Loading/i)).toBeInTheDocument();
