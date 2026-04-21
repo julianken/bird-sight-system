@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { Region, computeExpandTransform } from './Region.js';
-import type { Region as RegionT, Observation } from '@bird-watch/shared-types';
+import { RegionShape, computeExpandTransform } from './Region.js';
+import type { Region as RegionT } from '@bird-watch/shared-types';
 
 const region: RegionT = {
   id: 'sky-islands-santa-ritas',
@@ -12,44 +12,29 @@ const region: RegionT = {
   svgPath: 'M 200 170 L 340 170 L 340 215 L 200 215 Z',
 };
 
-const obs: Observation[] = [{
-  subId: 'S1', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
-  lat: 31.7, lng: -110.9, obsDt: '2026-04-15T08:00:00Z', locId: 'L1',
-  locName: 'X', howMany: 1, isNotable: false,
-  regionId: 'sky-islands-santa-ritas', silhouetteId: 'tyrannidae',
-}];
+// After the #94 two-pass refactor, the per-region <g> wrapper (which owns
+// transform/className/data-region-id) lives in Map.tsx, not in the leaf
+// components. `RegionShape` is a pure <path> renderer; the transform-when-
+// expanded and transform-when-collapsed assertions have moved up to
+// Map.test.tsx.
 
-describe('Region', () => {
+describe('RegionShape', () => {
   it('renders the polygon with the display color', () => {
     const { container } = render(
       <svg viewBox="0 0 360 380">
-        <Region
-          region={region}
-          observations={obs}
-          expanded={false}
-          onSelect={() => {}}
-          silhouetteFor={() => 'M0 0'}
-          colorFor={() => '#000'}
-        />
+        <RegionShape region={region} onSelect={() => {}} />
       </svg>
     );
     const path = container.querySelector('path.region-shape');
     expect(path?.getAttribute('fill')).toBe('#FF0808');
   });
 
-  it('calls onSelect when clicked', async () => {
+  it('calls onSelect with the region id when clicked', async () => {
     const onSelect = vi.fn();
     const user = userEvent.setup();
     render(
       <svg viewBox="0 0 360 380">
-        <Region
-          region={region}
-          observations={obs}
-          expanded={false}
-          onSelect={onSelect}
-          silhouetteFor={() => 'M0 0'}
-          colorFor={() => '#000'}
-        />
+        <RegionShape region={region} onSelect={onSelect} />
       </svg>
     );
     await user.click(screen.getByRole('button', { name: /Santa Ritas/ }));
@@ -57,57 +42,43 @@ describe('Region', () => {
   });
 
   it('sets vector-effect="non-scaling-stroke" on the region-shape path so strokes survive the .region-expanded scale transform', () => {
+    // #98 regression guard — the JSX attribute is belt-and-braces for
+    // Safari < 16; the CSS rule in styles.css covers modern browsers.
     const { container } = render(
       <svg viewBox="0 0 360 380">
-        <Region
-          region={region}
-          observations={obs}
-          expanded={false}
-          onSelect={() => {}}
-          silhouetteFor={() => 'M0 0'}
-          colorFor={() => '#000'}
-        />
+        <RegionShape region={region} onSelect={() => {}} />
       </svg>
     );
     const path = container.querySelector('path.region-shape');
     expect(path?.getAttribute('vector-effect')).toBe('non-scaling-stroke');
   });
 
-  it('has no transform attribute when collapsed', () => {
-    const { container } = render(
+  it('calls onSelect on Enter keydown', async () => {
+    const onSelect = vi.fn();
+    const user = userEvent.setup();
+    render(
       <svg viewBox="0 0 360 380">
-        <Region
-          region={region}
-          observations={obs}
-          expanded={false}
-          onSelect={() => {}}
-          silhouetteFor={() => 'M0 0'}
-          colorFor={() => '#000'}
-        />
+        <RegionShape region={region} onSelect={onSelect} />
       </svg>
     );
-    const g = container.querySelector('[data-region-id="sky-islands-santa-ritas"]');
-    expect(g?.getAttribute('transform')).toBeNull();
+    const path = screen.getByRole('button', { name: /Santa Ritas/ });
+    path.focus();
+    await user.keyboard('{Enter}');
+    expect(onSelect).toHaveBeenCalledWith('sky-islands-santa-ritas');
   });
 
-  it('applies a non-empty inline transform when expanded', () => {
-    const { container } = render(
+  it('calls onSelect on Space keydown', async () => {
+    const onSelect = vi.fn();
+    const user = userEvent.setup();
+    render(
       <svg viewBox="0 0 360 380">
-        <Region
-          region={region}
-          observations={obs}
-          expanded={true}
-          onSelect={() => {}}
-          silhouetteFor={() => 'M0 0'}
-          colorFor={() => '#000'}
-        />
+        <RegionShape region={region} onSelect={onSelect} />
       </svg>
     );
-    const g = container.querySelector('[data-region-id="sky-islands-santa-ritas"]');
-    const transform = g?.getAttribute('transform');
-    expect(transform).toBeTruthy();
-    expect(transform).toContain('translate');
-    expect(transform).toContain('scale');
+    const path = screen.getByRole('button', { name: /Santa Ritas/ });
+    path.focus();
+    await user.keyboard(' ');
+    expect(onSelect).toHaveBeenCalledWith('sky-islands-santa-ritas');
   });
 });
 
