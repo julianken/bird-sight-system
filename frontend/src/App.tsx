@@ -1,11 +1,12 @@
 import { useMemo } from 'react';
 import { ApiClient } from './api/client.js';
-import { useUrlState } from './state/url-state.js';
+import { useUrlState, readMigrationFlag } from './state/url-state.js';
 import { useBirdData } from './data/use-bird-data.js';
 import { Map } from './components/Map.js';
 import { FiltersBar } from './components/FiltersBar.js';
 import { SpeciesPanel } from './components/SpeciesPanel.js';
 import { SurfaceNav } from './components/SurfaceNav.js';
+import { MigrationBanner } from './components/MigrationBanner.js';
 import { deriveFamilies, deriveSpeciesIndex } from './derived.js';
 import { colorForFamily } from '@bird-watch/family-mapping';
 
@@ -45,7 +46,7 @@ function colorFor(silhouetteId: string | null): string {
 
 export function App() {
   const { state, set } = useUrlState();
-  const { loading, error, regions, observations, hotspots } = useBirdData(apiClient, {
+  const { loading, error, observations, hotspots } = useBirdData(apiClient, {
     since: state.since,
     notable: state.notable,
     ...(state.speciesCode ? { speciesCode: state.speciesCode } : {}),
@@ -66,6 +67,7 @@ export function App() {
 
   return (
     <div className="app">
+      <MigrationBanner show={readMigrationFlag()} />
       <FiltersBar
         since={state.since}
         notable={state.notable}
@@ -88,12 +90,12 @@ export function App() {
           moves to the new <main> element in #113. */}
       <div id="main-surface" className="map-wrap" aria-busy={loading}>
         <Map
-          regions={regions}
+          regions={[]}
           observations={observations}
           hotspots={hotspots}
-          expandedRegionId={state.regionId}
+          expandedRegionId={null}
           selectedSpeciesCode={state.speciesCode}
-          onSelectRegion={id => set({ regionId: id, speciesCode: null })}
+          onSelectRegion={() => set({ speciesCode: null })}
           onSelectSpecies={code => set({ speciesCode: code })}
           silhouetteFor={silhouetteFor}
           colorFor={colorFor}

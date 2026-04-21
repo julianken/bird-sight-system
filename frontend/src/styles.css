@@ -107,6 +107,38 @@ body {
   margin: 0 auto;
 }
 
+/* Migration banner — shown when the user lands with a legacy ?region= URL.
+   Release 2: remove this block when MigrationBanner is deleted (#112 sunset). */
+.migration-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-lg);
+  background: #fff8e1;
+  border-bottom: 1px solid #ffe082;
+  font-size: 13px;
+  color: #5d4037;
+}
+.migration-banner-text {
+  flex: 1;
+}
+.migration-banner-dismiss {
+  flex-shrink: 0;
+  appearance: none;
+  background: transparent;
+  border: none;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  color: #5d4037;
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+.migration-banner-dismiss:hover,
+.migration-banner-dismiss:focus-visible {
+  background: #ffecb3;
+}
+
 .filters-bar {
   display: flex;
   gap: var(--space-lg);
