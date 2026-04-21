@@ -72,6 +72,7 @@ export function App() {
             now={now}
             filters={{ notable: state.notable, since: state.since }}
             onSelectSpecies={onSelectSpecies}
+            speciesIndex={speciesIndex}
           />
         )}
         {state.view === 'hotspots' && (
