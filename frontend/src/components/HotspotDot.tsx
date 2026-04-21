@@ -1,3 +1,5 @@
+import { iconSize, color } from '../tokens.js';
+
 export interface HotspotDotProps {
   x: number;
   y: number;
@@ -28,13 +30,13 @@ export interface HotspotDotProps {
  * the actual AZ hotspot distribution (most cluster 100-400 species).
  * Subject to retune against real /api/hotspots output.
  *
- * These constants are intentionally kept as local file-scope `const`s for
- * this PR so the follow-up design-token refactor can hoist all sizing
- * tokens in a single diff without merge conflict.
+ * Backed by `iconSize.hotspotDot*` tokens. The raw literals live in
+ * `tokens.ts` now; this file only derives local aliases so the formula
+ * reads compactly.
  */
-const MIN_R = 2;
-const MAX_R = 7;
-const REF_SPECIES = 450;
+const MIN_R = iconSize.hotspotDotMinR;
+const MAX_R = iconSize.hotspotDotMaxR;
+const REF_SPECIES = iconSize.hotspotDotRefSpecies;
 
 function clamp01(x: number): number {
   return Math.min(1, Math.max(0, x));
@@ -53,7 +55,7 @@ export function HotspotDot(props: HotspotDotProps) {
       cx={props.x}
       cy={props.y}
       r={radiusFor(props.numSpeciesAlltime)}
-      fill="#00A6F3"
+      fill={color.palette.hotspot}
       stroke="#fff"
       strokeWidth={1.5}
       // Keeps the 1.5-unit stroke at 1.5 CSS px regardless of the
