@@ -56,13 +56,13 @@ on a ready-to-merge PR. -->
 - [ ] New Playwright e2e spec added (if user-visible behavior changed)
 - [ ] `npm run build` — clean production build
 - [ ] (UI only) Playwright MCP smoke — ran `npm run dev --workspace
-      @bird-watch/frontend` (or hit a preview URL), drove the feature via
+      @bird-watch/frontend`, drove the feature via
       `mcp__plugin_playwright_playwright__browser_*` at ≥1 mobile (390×844) and
       ≥1 desktop (1440×900) viewport, `browser_console_messages` returns no
       errors/warnings, and the Screenshots section was captured from those
       runs. Human-authored PRs may substitute direct browser interaction.
-      Reviewers repeat the drive + console check against the PR head SHA
-      before approving.
+      Reviewers repeat the drive + console check via `gh pr checkout <N>` +
+      `npm run dev` against the PR head SHA before approving.
 
 ## Plan reference
 

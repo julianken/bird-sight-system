@@ -68,16 +68,21 @@ Conventional commits style with scope where useful: `feat(scope):`, `chore:`, `c
 
 ### UI verification (agents + reviewers)
 
-Any PR that touches `frontend/**` gets driven live through Playwright MCP before
-it is opened (by the implementer) and before it is approved (by the reviewer).
-Passing e2e specs and `npm run build` are necessary but not sufficient — they
-don't catch console warnings, viewport-specific layout breaks, or interactions
-that only surface when you actually use the feature.
+Any PR that adds or modifies visible UI under `frontend/**` gets driven live
+through Playwright MCP before it is opened (by the implementer) and before it
+is approved (by the reviewer). Test-only, type-only, and comment-only PRs
+under `frontend/**` are exempt — use the Screenshots section's `N/A — not UI`
+marker and skip this step. Passing e2e specs and `npm run build` are necessary
+but not sufficient for real UI change — they don't catch console warnings,
+viewport-specific layout breaks, or interactions that only surface when you
+actually use the feature.
 
 Protocol:
 
-1. `npm run dev --workspace @bird-watch/frontend` locally, or hit the latest
-   Cloudflare Pages preview URL for the PR (review pass).
+1. `npm run dev --workspace @bird-watch/frontend` locally. Reviewers run the
+   same command after `gh pr checkout <N>` against the PR head SHA — no
+   per-PR preview URLs are configured on this repo yet (Pages deploys only on
+   merge to `main`).
 2. `mcp__plugin_playwright_playwright__browser_navigate` to each touched
    surface; `browser_resize` to at least one mobile (390×844) and one desktop
    (1440×900) viewport — the two viewports the release-1 exit criteria name.
