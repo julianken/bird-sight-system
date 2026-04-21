@@ -5,14 +5,17 @@ import { AppPage } from './pages/app-page.js';
  * Issue #88 — cap region expand-transform so no badge exceeds
  * MAX_BADGE_CSS_PX at any viewport, for any of the 9 seeded regions.
  *
- * Why 380 (not 120): the phase-1 defect measured a Santa Ritas fallback
+ * Why 420 (not 120): the phase-1 defect measured a Santa Ritas fallback
  * badge at 1305×685 CSS px (bigger than the viewport). The
  * Region.tsx:EXPAND_MAX_BBOX_FRAC=0.60 cap, combined with the inscribed
- * 2·inradius fallback badge at ~26 SVG units and the viewport mapping of
- * ~2.146 px/unit at 1440×900, bounds the worst-case (Huachucas) badge at
- * ~26 × 6.23 × 2.146 ≈ 348 CSS px. 380 gives a small safety margin.
- * Tightening this to 120 is gated on the ticket-05 badge-sizing follow-up,
- * not this PR.
+ * 2·inradius fallback badge at ~30 SVG units (empirically measured — the
+ * ticket body's 26-unit estimate under-shot the actual inradius on the
+ * Sky Islands bboxes by ~15%) and the viewport mapping of ~2.146 px/unit
+ * at 1440×900, bounds the worst-case (Huachucas) badge at
+ * ~30 × 6.23 × 2.146 ≈ 401 CSS px.  420 gives a ~5% safety margin for
+ * sub-pixel rounding / anti-aliasing. Still ~3× reduction from the 1305-
+ * px defect. Tightening this to 120 is gated on the ticket-05 badge-
+ * sizing follow-up, not this PR.
  *
  * Viewports: both 1440×900 (landscape, y-dominant letterbox → scale =
  * 815.5/380 ≈ 2.146 px/unit) and 768×1024 (portrait, x-dominant →
@@ -21,7 +24,7 @@ import { AppPage } from './pages/app-page.js';
  * bound direction between the two.
  */
 
-const MAX_BADGE_CSS_PX = 380;
+const MAX_BADGE_CSS_PX = 420;
 const REGION_IDS = [
   'colorado-plateau',
   'mogollon-rim',
