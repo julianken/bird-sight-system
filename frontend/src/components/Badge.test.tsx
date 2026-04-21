@@ -14,6 +14,16 @@ describe('Badge', () => {
     expect(screen.getByText('3')).toBeInTheDocument();
   });
 
+  it('sets vector-effect="non-scaling-stroke" on the badge circle so the stroke survives the .region-expanded scale transform', () => {
+    const { container } = render(
+      <svg viewBox="0 0 100 100">
+        <Badge x={50} y={50} count={1} silhouettePath="M0 0" color="#000" comName="X" />
+      </svg>
+    );
+    const circle = container.querySelector('circle.badge-circle');
+    expect(circle?.getAttribute('vector-effect')).toBe('non-scaling-stroke');
+  });
+
   it('uses the family color', () => {
     const { container } = render(
       <svg viewBox="0 0 100 100">

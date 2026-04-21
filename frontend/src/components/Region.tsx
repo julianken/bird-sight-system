@@ -15,6 +15,18 @@ export interface RegionProps {
 
 const VIEWBOX = { w: 360, h: 380 };
 const EXPAND_PAD = 0.85; // leave ~7.5% margin on each side of the expanded region
+/**
+ * Cap the effective bbox (post-transform) to this fraction of the viewBox on
+ * its constraining axis. Policy (b) in issue #88: small regions
+ * (Sky Islands) would otherwise multiply their linear size by 7–9×, which
+ * blows the fallback badge inside them up to ~90% of the viewport (see issue
+ * body for the 1305×685 CSS-px measurement). 0.60 keeps the "focus"
+ * affordance (scaled region still clearly dominates the canvas) while
+ * preventing the catastrophic blowup. Paired with EXPAND_PAD: the final
+ * scaled bbox never exceeds 0.60 × 0.85 = 0.51 of the viewBox on the
+ * constraining axis.
+ */
+const EXPAND_MAX_BBOX_FRAC = 0.6;
 
 // Parses ONLY absolute `M x y` / `L x y` commands. The 9 seeded AZ region paths
 // (see migrations/1700000008000_seed_regions.sql) use exactly this subset, and
@@ -43,6 +55,21 @@ function parsePoints(svgPath: string): Array<{ x: number; y: number }> {
   return points;
 }
 
+/**
+ * Compose a translate+scale string that centres the given region polygon
+ * in the viewBox and scales it to ~EXPAND_PAD of the viewBox on its
+ * constraining axis — EXCEPT when the region is tiny enough that doing so
+ * would multiply its linear size past EXPAND_MAX_BBOX_FRAC of the viewBox.
+ * In that case we fall back to a scale that keeps the largest dimension
+ * inside the cap, so the selection is unambiguous ("this region is the
+ * focus") without the badge-blowup side effect.
+ *
+ * See issue #88 for the scale table: Sky Islands go from ~7-9×
+ * (catastrophic) to ~4.9-6.2× (large but bounded). Policy (b) — cap the
+ * result bbox rather than the multiplier — preserves the "fill-the-canvas"
+ * affordance on small regions where a flat MAX_EXPAND_SCALE would make
+ * them render at a barely-visible fraction of the viewBox.
+ */
 export function computeExpandTransform(
   svgPath: string,
   viewBox: { w: number; h: number } = VIEWBOX,
@@ -56,7 +83,15 @@ export function computeExpandTransform(
   const width = maxX - minX;
   const height = maxY - minY;
   if (width === 0 || height === 0) return '';
-  const scale = Math.min(viewBox.w / width, viewBox.h / height) * EXPAND_PAD;
+  // Target scale = fit the bbox to EXPAND_PAD of the constraining axis.
+  const targetScale = Math.min(viewBox.w / width, viewBox.h / height) * EXPAND_PAD;
+  // Cap scale = largest scale such that the scaled bbox fits inside
+  // EXPAND_MAX_BBOX_FRAC of the viewBox on both axes.
+  const capScale = Math.min(
+    (viewBox.w * EXPAND_MAX_BBOX_FRAC) / width,
+    (viewBox.h * EXPAND_MAX_BBOX_FRAC) / height,
+  );
+  const scale = Math.min(targetScale, capScale);
   const cx = minX + width / 2;
   const cy = minY + height / 2;
   const tx = viewBox.w / 2 - cx * scale;
@@ -88,6 +123,11 @@ export function Region(props: RegionProps) {
         fill={props.region.displayColor}
         stroke="#fff"
         strokeWidth={3}
+        // Keep the 3-unit stroke in CSS pixels regardless of the .region-expanded
+        // scale(s) transform (s ~ 3-9 across regions). Also declared in
+        // styles.css; the JSX attribute is belt-and-braces for Safari < 16,
+        // which intermittently ignored class-selector vector-effect rules.
+        vectorEffect="non-scaling-stroke"
         role="button"
         aria-label={props.region.name}
         tabIndex={0}

@@ -25,6 +25,10 @@ export function HotspotDot(props: HotspotDotProps) {
       fill="#00A6F3"
       stroke="#fff"
       strokeWidth={1.5}
+      // Keeps the 1.5-unit stroke at 1.5 CSS px regardless of the
+      // viewBox-to-viewport mapping (~2.4x at 1440x900, ~1x at 390x844).
+      // Also set in styles.css for completeness.
+      vectorEffect="non-scaling-stroke"
     >
       <title>{props.locName}</title>
     </circle>

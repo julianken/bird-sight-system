@@ -98,6 +98,10 @@ export function Badge(props: BadgeProps) {
         fill={props.color}
         stroke="#fff"
         strokeWidth={strokeWidth}
+        // See Region.tsx: `vector-effect` is also set in styles.css, but the
+        // JSX attribute guards against Safari < 16 class-selector
+        // unreliability and makes the intent local to the element.
+        vectorEffect="non-scaling-stroke"
       />
       <g transform={`translate(-${radius},-${radius}) scale(${(radius * 2) / (props.silhouetteSize ?? 24)})`}>
         <path d={props.silhouettePath} fill="#fff" />
