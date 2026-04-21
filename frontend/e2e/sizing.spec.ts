@@ -23,13 +23,20 @@ test.describe('badge sizing (#92)', () => {
       .toHaveAttribute('aria-busy', 'false', { timeout: 15_000 });
 
     const stats = await page.evaluate(() => {
+      // After #94 the badges live in a sibling `.badges-layer` wrapper,
+      // not inside the `[data-region-id]` wrapper. Look up each region's
+      // badges via `data-region-badges-for="<id>"` and read the overflow
+      // pip from the same wrapper.
       const out: Array<{ id: string; badgeRs: number[]; pipR: number | null }> = [];
-      for (const g of document.querySelectorAll('[data-region-id]')) {
-        if (g.classList.contains('region-expanded')) continue;
-        const id = g.getAttribute('data-region-id') ?? 'unknown';
-        const rs = Array.from(g.querySelectorAll('circle.badge-circle'))
+      for (const shapeG of document.querySelectorAll('.shapes-layer [data-region-id]')) {
+        if (shapeG.classList.contains('region-expanded')) continue;
+        const id = shapeG.getAttribute('data-region-id') ?? 'unknown';
+        const badgeG = document.querySelector(
+          `.badges-layer [data-region-badges-for="${id}"]`,
+        );
+        const rs = Array.from(badgeG?.querySelectorAll('circle.badge-circle') ?? [])
           .map(c => parseFloat(c.getAttribute('r') ?? '0'));
-        const pip = g.querySelector('[data-role="overflow-pip"] circle');
+        const pip = badgeG?.querySelector('[data-role="overflow-pip"] circle');
         out.push({
           id,
           badgeRs: rs,
