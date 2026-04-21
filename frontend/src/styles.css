@@ -11,7 +11,27 @@ body {
    50% 50%) pre/post-translates the transform by the element's bbox center and
    pushes the expanded region off-screen. */
 .region { transition: transform 350ms ease; transform-origin: 0 0; }
-.region-expanded .region-shape { filter: drop-shadow(0 4px 16px rgba(0,0,0,0.3)); }
+/* Drop-shadow is authored in SVG user units so the .region-expanded scale
+   transform (s ~ 3-9) renders a ~3.5-14 px halo rather than the ~28/112 px
+   cutoff blob produced when the offset/blur are authored in CSS pixels and
+   the filter coordinate space inherits the ancestor scale. See the
+   non-scaling-strokes investigation in issue #93. */
+.region-expanded .region-shape { filter: drop-shadow(0 0.5px 2px rgba(0,0,0,0.3)); }
+/* Decouple stroke width from ancestor transforms. .region gets a scale(s)
+   transform (s ~ 3-9) during expand; without non-scaling-stroke a 3-unit
+   stroke renders at 9-27 CSS px, engulfing the outline it's supposed to
+   trace. `paint-order: stroke fill` on .badge-label makes the same bug
+   land as a 21-27 px halo that swallows the label circle.
+   Covers: .region-shape, .badge-circle (plus the .badge-selected override
+   on the same element), .badge-label, .hotspot-dot, and the overflow-pip
+   circles in BadgeStack.tsx (no JSX attribute there — CSS carries it). */
+.region-shape,
+.badge-circle,
+.badge-label,
+.hotspot-dot,
+[data-role="overflow-pip"] circle {
+  vector-effect: non-scaling-stroke;
+}
 /* Removed: .region-expanded .badge-stack { transform: scale(1.5); ... }
    The parent .region <g> now scales the entire group via its inline
    transform attribute, so badges scale with it automatically. */
@@ -44,7 +64,13 @@ body {
   align-items: center;
   justify-content: center;
   padding: 16px;
-  overflow: hidden;
+  /* overflow: visible (not hidden) so the .region-expanded drop-shadow
+     filter region is not clipped at the HTML cell edge when the expanded
+     region sits near the viewport border. SVG 1.1 §15.2: the filter
+     region extends beyond the element bbox; the CSS overflow rule on the
+     containing block decides whether that halo is painted or clipped.
+     If a future child needs a container clip, apply it to that element. */
+  overflow: visible;
 }
 .bird-map { max-height: 100%; max-width: 100%; width: auto; height: auto; display: block; }
 .error-screen {
