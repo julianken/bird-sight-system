@@ -119,6 +119,40 @@ body {
 .filters-bar label { display: flex; gap: 6px; align-items: center; font-size: 13px; }
 .filters-bar select, .filters-bar input { padding: 4px 8px; }
 
+/* Surface-toggle tablist (#111). Sits between FiltersBar and the map / main
+   surface. The three tabs drive ?view= in UrlState; see SurfaceNav.tsx for
+   the WAI-ARIA tablist keyboard contract. Styling is intentionally minimal —
+   tokenised palette/typography land with the first real surface in #116. */
+.surface-nav {
+  display: flex;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-lg);
+  background: #fff;
+  border-bottom: 1px solid #d8d3c3;
+}
+.surface-nav-tab {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 6px 14px;
+  font: inherit;
+  font-size: 13px;
+  color: #1a1a1a;
+  cursor: pointer;
+  line-height: 1.2;
+}
+.surface-nav-tab:hover { background: #f0ebe0; }
+.surface-nav-tab:focus-visible {
+  outline: 2px solid #1a1a1a;
+  outline-offset: 2px;
+}
+.surface-nav-tab.is-active {
+  background: #1a1a1a;
+  color: #fff;
+  border-color: #1a1a1a;
+}
+
 /* Species detail sidebar (issue #56).
    Position: fixed — intentionally detaches from the flex layout so opening
    the panel does not reflow the map. `right/top: 0` + full viewport height

@@ -5,6 +5,7 @@ import { useBirdData } from './data/use-bird-data.js';
 import { Map } from './components/Map.js';
 import { FiltersBar } from './components/FiltersBar.js';
 import { SpeciesPanel } from './components/SpeciesPanel.js';
+import { SurfaceNav } from './components/SurfaceNav.js';
 import { deriveFamilies, deriveSpeciesIndex } from './derived.js';
 import { colorForFamily } from '@bird-watch/family-mapping';
 
@@ -74,6 +75,15 @@ export function App() {
         speciesIndex={speciesIndex}
         onChange={set}
       />
+      <SurfaceNav
+        activeView={state.view}
+        onSelectView={view => set({ view })}
+      />
+      {/* NOTE(#111): `<main id="main-surface">` + surface rendering land in
+          #113 (map delete) / #116-#118 (feed / species / hotspots). Until
+          then every view keeps rendering the existing map so SurfaceNav only
+          mutates URL state. `aria-controls="main-surface"` on each tab stays
+          unresolved in the DOM for this PR — browsers tolerate it. */}
       <div className="map-wrap" aria-busy={loading}>
         <Map
           regions={regions}
