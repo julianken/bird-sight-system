@@ -60,6 +60,29 @@ body {
   max-width: 760px;
   margin-inline: auto;
 }
+/* Feed sort toggle (Plan 6 Task 10 / issue #119). Sits above the feed
+   and controls the component-local `sortMode`. Uses native radio inputs
+   inside a role=radiogroup — arrow-key traversal, focus-visible, and
+   label-click all come from the browser for free. Color / contrast is
+   reused from the feed-row palette; no new design-token surface needed. */
+.feed-sort {
+  max-width: 760px;
+  margin: 0 auto var(--space-md) auto;
+  display: flex;
+  gap: var(--space-lg);
+  padding: var(--space-sm) var(--space-md);
+  font-size: 13px;
+  color: #1a1a1a;
+}
+.feed-sort-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.feed-sort-option input[type="radio"] {
+  accent-color: #1a1a1a;
+}
 .feed-row-item {
   /* Each feed row is a <li><button/></li> — the <li> keeps listitem
      semantics for axe/SR consumers while the nested <button> carries
