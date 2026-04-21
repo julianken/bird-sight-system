@@ -4,6 +4,7 @@ import { useUrlState, readMigrationFlag } from './state/url-state.js';
 import { useBirdData } from './data/use-bird-data.js';
 import { FiltersBar } from './components/FiltersBar.js';
 import { FeedSurface } from './components/FeedSurface.js';
+import { HotspotListSurface } from './components/HotspotListSurface.js';
 import { SpeciesPanel } from './components/SpeciesPanel.js';
 import { SurfaceNav } from './components/SurfaceNav.js';
 import { MigrationBanner } from './components/MigrationBanner.js';
@@ -13,7 +14,7 @@ const apiClient = new ApiClient({ baseUrl: import.meta.env.VITE_API_BASE_URL ?? 
 
 export function App() {
   const { state, set } = useUrlState();
-  const { loading, error, observations } = useBirdData(apiClient, {
+  const { loading, error, observations, hotspots } = useBirdData(apiClient, {
     since: state.since,
     notable: state.notable,
     ...(state.speciesCode ? { speciesCode: state.speciesCode } : {}),
@@ -24,11 +25,11 @@ export function App() {
   const speciesIndex = useMemo(() => deriveSpeciesIndex(observations), [observations]);
 
   // `now` is stable for the lifetime of the App mount. Passing a fresh
-  // `new Date()` every render would defeat ObservationFeedRow's memo (the
+  // `new Date()` every render would defeat FeedRow/HotspotRow's memo (the
   // row's relative-time string is derived from `now`, so a new reference
-  // invalidates every row). The UX cost is accepted: relative labels like
-  // "15 min ago" don't tick — they refresh on the next data fetch, which
-  // happens every time the user touches a filter.
+  // invalidates every row). Relative labels like "15 min ago" don't tick —
+  // they refresh on the next data fetch, which happens every time the user
+  // touches a filter.
   const nowRef = useRef(new Date());
   const now = nowRef.current;
 
@@ -77,8 +78,8 @@ export function App() {
         data-render-complete={renderComplete}
         aria-busy={loading}
       >
-        {/* Feed surface lands in #116. Hotspots (#117) and species (#118)
-            surfaces attach alongside this conditional as they ship. */}
+        {/* Surface components: feed (#116) and hotspots (#117) land here.
+            Species surface (#118) attaches alongside this block. */}
         {state.view === 'feed' && (
           <FeedSurface
             loading={loading}
@@ -86,6 +87,13 @@ export function App() {
             now={now}
             filters={{ notable: state.notable, since: state.since }}
             onSelectSpecies={onSelectSpecies}
+          />
+        )}
+        {state.view === 'hotspots' && (
+          <HotspotListSurface
+            loading={loading}
+            hotspots={hotspots}
+            now={now}
           />
         )}
       </main>
