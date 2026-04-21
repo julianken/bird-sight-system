@@ -1,3 +1,5 @@
+import { iconSize } from '../tokens.js';
+
 export interface BadgeProps {
   x: number;
   y: number;
@@ -21,12 +23,13 @@ export interface BadgeProps {
    * is scaled to fit a `silhouetteSize × silhouetteSize` square inside
    * the `(r*2) × (r*2)` circle bbox.
    *
-   * Default `24` preserves legacy render. The current
-   * `GENERIC_SILHOUETTE` bbox is actually `12×10` (see App.tsx), which
-   * means the silhouette fills ~50% of the circle at the default — the
-   * legacy render happens to look intentional but is a latent 2× bug
-   * the moment a true-24 path lands. Flipping the default to `12` is a
-   * visible change and intentionally out of scope for ticket #92.
+   * Default falls through to `iconSize.silhouetteBbox.w` (24), which
+   * preserves legacy render. The current `GENERIC_SILHOUETTE` bbox is
+   * actually `12×10` (see App.tsx), which means the silhouette fills
+   * ~50% of the circle at the default — the legacy render happens to
+   * look intentional but is a latent 2× bug the moment a true-24 path
+   * lands. Flipping the default to `12` is a visible change and
+   * intentionally out of scope for ticket #92.
    */
   silhouetteSize?: number;
   /**
@@ -42,16 +45,22 @@ export interface BadgeProps {
 
 /**
  * Default outer circle RADIUS (SVG units) for a Badge rendered without
- * explicit sizing.
+ * explicit sizing. Sourced directly from the explicit-radius token
+ * `iconSize.badgeRadiusDefault` (14) — NOT derived from
+ * `badgeDiameterMin / 2`, because the first cut of this migration did
+ * exactly that and silently halved the rendered radius to 7 (the token
+ * name `badgeDiameterMin` is a diameter; dividing by 2 is the right math
+ * but the wrong token to divide). Kept as an export for backward
+ * compatibility with any existing caller; will be deleted when
+ * BadgeStack + Region are migrated to tokens in the follow-up (see issue
+ * #89 "Out of scope").
  *
  * Note: `BadgeStack.MIN_BADGE_DIAMETER = 14` is a DIAMETER. The shared
  * literal 14 is coincidence — they describe different sizes. The rename
  * from the old `DEFAULT_RADIUS` → `DEFAULT_BADGE_RADIUS` in ticket #92
- * exists so a reader can't silently confuse one for the other. A unified
- * token system (radius+diameter both derived from a single literal) is
- * out of scope here; see the design-token retrofit (ticket #89).
+ * exists so a reader can't silently confuse one for the other.
  */
-export const DEFAULT_BADGE_RADIUS = 14;
+export const DEFAULT_BADGE_RADIUS = iconSize.badgeRadiusDefault;
 
 /** Hard cap on visible label length before we append an ellipsis. SVG
  * `<text>` does not support CSS text-overflow, so we truncate JS-side.
@@ -76,6 +85,7 @@ export function Badge(props: BadgeProps) {
   const chipRadius = 7 * scale;
   const strokeWidth = 2 * scale;
   const chipFontSize = 9 * scale;
+  const silhouetteSize = props.silhouetteSize ?? iconSize.silhouetteBbox.w;
   return (
     <g
       className={`badge${props.selected ? ' badge-selected' : ''}`}
@@ -103,7 +113,7 @@ export function Badge(props: BadgeProps) {
         // unreliability and makes the intent local to the element.
         vectorEffect="non-scaling-stroke"
       />
-      <g transform={`translate(-${radius},-${radius}) scale(${(radius * 2) / (props.silhouetteSize ?? 24)})`}>
+      <g transform={`translate(-${radius},-${radius}) scale(${(radius * 2) / silhouetteSize})`}>
         <path d={props.silhouettePath} fill="#fff" />
       </g>
       {props.count > 1 && (
