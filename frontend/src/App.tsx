@@ -5,6 +5,7 @@ import { useBirdData } from './data/use-bird-data.js';
 import { Map } from './components/Map.js';
 import { FiltersBar } from './components/FiltersBar.js';
 import { SpeciesPanel } from './components/SpeciesPanel.js';
+import { SurfaceNav } from './components/SurfaceNav.js';
 import { deriveFamilies, deriveSpeciesIndex } from './derived.js';
 import { colorForFamily } from '@bird-watch/family-mapping';
 
@@ -74,7 +75,18 @@ export function App() {
         speciesIndex={speciesIndex}
         onChange={set}
       />
-      <div className="map-wrap" aria-busy={loading}>
+      <SurfaceNav
+        activeView={state.view}
+        onSelectView={view => set({ view })}
+      />
+      {/* NOTE(#111): the `<main id="main-surface">` landmark + surface
+          rendering land in #113 (map delete) / #116-#118 (feed / species /
+          hotspots). Until then every view keeps rendering the existing map,
+          and the `id="main-surface"` hook lives on the map-wrap so
+          `aria-controls` on each SurfaceNav tab resolves cleanly (axe
+          rejects unresolved aria-controls values as WCAG 4.1.2). The ID
+          moves to the new <main> element in #113. */}
+      <div id="main-surface" className="map-wrap" aria-busy={loading}>
         <Map
           regions={regions}
           observations={observations}

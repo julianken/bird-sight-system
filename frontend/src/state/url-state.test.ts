@@ -12,16 +12,18 @@ describe('useUrlState', () => {
     expect(result.current.state).toEqual({
       since: '14d', notable: false,
       regionId: null, speciesCode: null, familyCode: null,
+      view: 'feed',
     });
   });
 
   it('parses values from the URL', () => {
-    window.history.replaceState({}, '', '/?region=sky-islands-santa-ritas&since=7d&notable=true&species=vermfly');
+    window.history.replaceState({}, '', '/?region=sky-islands-santa-ritas&since=7d&notable=true&species=vermfly&view=feed');
     const { result } = renderHook(() => useUrlState());
     expect(result.current.state.regionId).toBe('sky-islands-santa-ritas');
     expect(result.current.state.since).toBe('7d');
     expect(result.current.state.notable).toBe(true);
     expect(result.current.state.speciesCode).toBe('vermfly');
+    expect(result.current.state.view).toBe('feed');
   });
 
   it('updates URL when set is called', () => {
@@ -37,5 +39,83 @@ describe('useUrlState', () => {
     const { result } = renderHook(() => useUrlState());
     act(() => result.current.set({ regionId: null }));
     expect(window.location.search).not.toContain('region=');
+  });
+
+  // --- ?view= parameter ---
+
+  it('parses ?view=species from the URL', () => {
+    window.history.replaceState({}, '', '/?view=species');
+    const { result } = renderHook(() => useUrlState());
+    expect(result.current.state.view).toBe('species');
+  });
+
+  it('parses ?view=hotspots from the URL', () => {
+    window.history.replaceState({}, '', '/?view=hotspots');
+    const { result } = renderHook(() => useUrlState());
+    expect(result.current.state.view).toBe('hotspots');
+  });
+
+  it('falls back to default view when ?view= is invalid', () => {
+    window.history.replaceState({}, '', '/?view=nonsense');
+    const { result } = renderHook(() => useUrlState());
+    expect(result.current.state.view).toBe('feed');
+  });
+
+  it('sniffs view=species when ?species= is set without an explicit ?view=', () => {
+    window.history.replaceState({}, '', '/?species=vermfly');
+    const { result } = renderHook(() => useUrlState());
+    expect(result.current.state.view).toBe('species');
+  });
+
+  it('preserves explicit ?view=feed even when ?species= is set', () => {
+    window.history.replaceState({}, '', '/?species=vermfly&view=feed');
+    const { result } = renderHook(() => useUrlState());
+    expect(result.current.state.view).toBe('feed');
+  });
+
+  it('preserves explicit ?view=hotspots even when ?species= is set', () => {
+    window.history.replaceState({}, '', '/?species=vermfly&view=hotspots');
+    const { result } = renderHook(() => useUrlState());
+    expect(result.current.state.view).toBe('hotspots');
+  });
+
+  it('writes ?view= to URL when view is non-default', () => {
+    const { result } = renderHook(() => useUrlState());
+    act(() => result.current.set({ view: 'hotspots' }));
+    expect(window.location.search).toContain('view=hotspots');
+  });
+
+  it('never serialises the default view to the URL', () => {
+    window.history.replaceState({}, '', '/?view=hotspots');
+    const { result } = renderHook(() => useUrlState());
+    act(() => result.current.set({ view: 'feed' }));
+    expect(window.location.search).not.toContain('view=');
+  });
+
+  it('round-trips all three view values', () => {
+    const { result } = renderHook(() => useUrlState());
+    act(() => result.current.set({ view: 'species' }));
+    expect(result.current.state.view).toBe('species');
+    expect(window.location.search).toContain('view=species');
+
+    act(() => result.current.set({ view: 'hotspots' }));
+    expect(result.current.state.view).toBe('hotspots');
+    expect(window.location.search).toContain('view=hotspots');
+
+    act(() => result.current.set({ view: 'feed' }));
+    expect(result.current.state.view).toBe('feed');
+    expect(window.location.search).not.toContain('view=');
+  });
+
+  it('keeps ?view=feed in URL when ?species= is also set', () => {
+    // Without this, readUrl's species-sniff silently reverts the user's
+    // explicit feed choice back to 'species' on the next popstate/reload.
+    window.history.replaceState({}, '', '/?species=vermfly&view=feed');
+    const { result } = renderHook(() => useUrlState());
+    expect(result.current.state.view).toBe('feed');
+
+    act(() => result.current.set({ since: '1d' }));
+    expect(window.location.search).toContain('view=feed');
+    expect(window.location.search).toContain('species=vermfly');
   });
 });
