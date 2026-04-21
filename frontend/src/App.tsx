@@ -1,8 +1,9 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import { ApiClient } from './api/client.js';
 import { useUrlState, readMigrationFlag } from './state/url-state.js';
 import { useBirdData } from './data/use-bird-data.js';
 import { FiltersBar } from './components/FiltersBar.js';
+import { FeedSurface } from './components/FeedSurface.js';
 import { SpeciesPanel } from './components/SpeciesPanel.js';
 import { SurfaceNav } from './components/SurfaceNav.js';
 import { MigrationBanner } from './components/MigrationBanner.js';
@@ -21,6 +22,24 @@ export function App() {
 
   const families = useMemo(() => deriveFamilies(observations), [observations]);
   const speciesIndex = useMemo(() => deriveSpeciesIndex(observations), [observations]);
+
+  // `now` is stable for the lifetime of the App mount. Passing a fresh
+  // `new Date()` every render would defeat ObservationFeedRow's memo (the
+  // row's relative-time string is derived from `now`, so a new reference
+  // invalidates every row). The UX cost is accepted: relative labels like
+  // "15 min ago" don't tick — they refresh on the next data fetch, which
+  // happens every time the user touches a filter.
+  const nowRef = useRef(new Date());
+  const now = nowRef.current;
+
+  // Stable reference — memoised rows bail out of re-rendering when neither
+  // `observation` nor `now` nor `onSelectSpecies` changes identity. We set
+  // ONLY `speciesCode` (not `view`) so the feed stays behind the panel:
+  // SpeciesPanel mounts as a fixed-position overlay regardless of view.
+  const onSelectSpecies = useCallback(
+    (speciesCode: string) => set({ speciesCode }),
+    [set]
+  );
 
   if (error) {
     return (
@@ -58,10 +77,17 @@ export function App() {
         data-render-complete={renderComplete}
         aria-busy={loading}
       >
-        {/* Surface components land in #116 (feed), #117 (hotspots),
-            #118 (species). Until then the <main> is intentionally empty —
-            SpeciesPanel still mounts outside and the migration banner
-            still renders above for users on legacy ?region= URLs. */}
+        {/* Feed surface lands in #116. Hotspots (#117) and species (#118)
+            surfaces attach alongside this conditional as they ship. */}
+        {state.view === 'feed' && (
+          <FeedSurface
+            loading={loading}
+            observations={observations}
+            now={now}
+            filters={{ notable: state.notable, since: state.since }}
+            onSelectSpecies={onSelectSpecies}
+          />
+        )}
       </main>
       {/* Species detail panel — mounts unconditionally; the component
           returns null when speciesCode is null. Panel is URL-driven. */}

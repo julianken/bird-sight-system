@@ -34,10 +34,9 @@ body {
   height: 100vh;
 }
 /* Main surface. The map chain (Map/Region/Badge/BadgeStack/HotspotDot) was
-   removed in the DISCARD wave (#113). Surface components (feed/species/
-   hotspots) land in follow-ups #116/#117/#118 and will render inside this
-   landmark; until then the element stays visibly empty but is still the
-   e2e readiness gate via data-render-complete. */
+   removed in the DISCARD wave (#113). FeedSurface shipped in #116;
+   hotspots (#117) and species (#118) mount alongside it. The element is
+   also the e2e readiness gate via data-render-complete. */
 #main-surface {
   flex: 1;
   min-height: 0;
@@ -48,6 +47,126 @@ body {
   padding: 32px;
   max-width: 500px;
   margin: 0 auto;
+}
+
+/* Feed surface (#116). Reverse-chronological observation rows. Row min-
+   height is 44px — iOS HIG tap-target minimum, also referenced in
+   risk-viability.md Part 2. Interior spacing uses design-token custom
+   properties so mobile/desktop density is one place to tune. */
+.feed {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-width: 760px;
+  margin-inline: auto;
+}
+.feed-row-item {
+  /* Each feed row is a <li><button/></li> — the <li> keeps listitem
+     semantics for axe/SR consumers while the nested <button> carries
+     focus, click, and Enter/Space behaviour for free. */
+  margin: 0;
+  padding: 0;
+}
+.feed-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  min-height: 44px;
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  border: none;
+  border-bottom: 1px solid #e6e1d2;
+  cursor: pointer;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  appearance: none;
+}
+.feed-row:hover {
+  background: #fbf8f0;
+}
+.feed-row:focus-visible {
+  outline: 2px solid #1a1a1a;
+  outline-offset: -2px;
+}
+/* Row-level notable marker. Background is a soft amber that reads as
+   "warm pointer" without competing with the SpeciesPanel palette. Border-
+   left stripe is the accent so a dense notable-only feed still has a clean
+   left edge. */
+.feed-row-notable {
+  background: #fff8e1;
+  border-left: 3px solid #b8860b;
+}
+.feed-row-notable:hover {
+  background: #fff3c4;
+}
+.feed-row-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #b8860b;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+.feed-row-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 14px;
+  color: #1a1a1a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.feed-row-count {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: #444;
+  background: #f0ebe0;
+  padding: 2px 6px;
+  border-radius: 10px;
+}
+.feed-row-count-unknown {
+  background: transparent;
+  /* #666 on #fff = 5.74:1, clears WCAG 2.1 AA 4.5:1 for normal text.
+     Intentionally darker than the visual-only #888 placeholder that axe
+     flagged at 3.5:1 — color-contrast is a serious-impact blocker for
+     the whole axe.spec.ts WCAG scan. */
+  color: #666;
+}
+.feed-row-loc {
+  flex-shrink: 1;
+  min-width: 0;
+  font-size: 13px;
+  /* #555 on #fff = 7.46:1 — well clear of 4.5:1. */
+  color: #555;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.feed-row-time {
+  flex-shrink: 0;
+  font-size: 12px;
+  /* #5c5c5c on #fff = 6.86:1 — passes AA for 12px normal weight. #777
+     (the first draft) failed at 4.47:1. Do NOT lighten this back. */
+  color: #5c5c5c;
+  font-variant-numeric: tabular-nums;
+}
+.feed-empty {
+  padding: var(--space-xl);
+  text-align: center;
+  color: #555;
+  font-size: 14px;
+  max-width: 480px;
+  margin-inline: auto;
 }
 
 /* Migration banner — shown when the user lands with a legacy ?region= URL.
