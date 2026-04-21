@@ -221,12 +221,24 @@ export function BadgeStack(props: BadgeStackProps) {
           // fallback-only `Math.max(5, r*0.4)` + `Math.max(6, r*0.45)`
           // was a floor-clamp that broke the pip↔badge relationship
           // everywhere except where the floor happened to dominate.
+          //
+          // Translate offset is `r * 1.4` on each axis (diagonal length
+          // = r * 1.4 * √2 ≈ 1.98r, i.e. center-to-center ≈ 2r). With
+          // both circles having radius r, that leaves ~0 unit edge gap
+          // at the point of closest approach — the pip circle just
+          // touches the badge circle and never occludes its click
+          // target. The PR-head value of `r * 0.7` was carried over
+          // from when the pip radius was `Math.max(5, r*0.4)`; at
+          // r≈13, the old 5-unit pip + 0.7 offset gave ~9 units
+          // clearance, but after unification to r=13 the pip overlapped
+          // the badge by 13 units and intercepted its pointer events
+          // (see PR #97 bot review, species-panel.spec.ts regression).
           <g
             key="overflow-pip"
             data-role="overflow-pip"
             role="img"
             aria-label={`${overflow} more species — expand region to view`}
-            transform={`translate(${layout.pole.x + r * 0.7},${layout.pole.y - r * 0.7})`}
+            transform={`translate(${layout.pole.x + r * 1.4},${layout.pole.y - r * 1.4})`}
           >
             <circle r={r} fill="#888" />
             <text

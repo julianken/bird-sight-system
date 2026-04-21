@@ -336,6 +336,66 @@ describe('BadgeStack overflow-pip uniformity (ticket #92)', () => {
     expect(pip!.getAttribute('r')).toBe(badge!.getAttribute('r'));
   });
 
+  it('fallback-path overflow-pip does NOT occlude the adjacent badge (regression: PR #97)', () => {
+    // When the fallback-path pip was unified to `r={r}`, its translate
+    // offset (`r*0.7` at the time) stopped being sufficient to keep the
+    // pip outside the badge's click target. Playwright's
+    // species-panel.spec.ts caught it: the pip's <circle r="13"> was
+    // intercepting pointer events destined for the Santa Ritas
+    // Vermilion Flycatcher badge. Guard: center-to-center distance
+    // between badge and pip MUST be >= 2*r so the two tangent circles
+    // never overlap.
+    const tenObs = Array.from({ length: 10 }, (_, i) =>
+      O(i, `sp${i}`, 'tyrannidae'),
+    );
+    const { container } = render(
+      <svg viewBox="0 0 360 380">
+        <BadgeStack
+          observations={tenObs}
+          polygonSvgPath={SANTA_RITAS}
+          x={226.6 + 8} y={325.3 + 8}
+          width={40.3 - 16} height={38.0 - 16}
+          expanded={false}
+          silhouetteFor={() => 'M0 0'}
+          colorFor={() => '#000'}
+        />
+      </svg>
+    );
+    const badge = container.querySelector('.badge');
+    const pip = container.querySelector('[data-role="overflow-pip"]');
+    expect(badge).not.toBeNull();
+    expect(pip).not.toBeNull();
+
+    const parseTranslate = (el: Element) => {
+      const transform = el.getAttribute('transform') ?? '';
+      const m = transform.match(/translate\(([-\d.]+),([-\d.]+)\)/);
+      expect(m).not.toBeNull();
+      return { x: parseFloat(m![1]!), y: parseFloat(m![2]!) };
+    };
+    const { x: bx, y: by } = parseTranslate(badge!);
+    const { x: px, y: py } = parseTranslate(pip!);
+    const r = parseFloat(
+      badge!.querySelector('circle.badge-circle')!.getAttribute('r') ?? '0',
+    );
+    expect(r).toBeGreaterThan(0);
+
+    const dist = Math.hypot(px - bx, py - by);
+    // Invariant: pip must sit meaningfully outside the adjacent badge's
+    // click target. Two unit-r circles fully clear one another at
+    // center-to-center = 2r; the PR-head geometry gave ~0.99r (pip
+    // entirely inside the badge, intercepting its click). After the
+    // `r*1.4` fix, diagonal distance is r*1.4*√2 ≈ 1.98r — pip circles
+    // just barely kiss the badge circle (~0.02r of technical overlap,
+    // below the Playwright pointer-intercept threshold).
+    //
+    // Threshold here is `1.5 * r`: fails the PR-head `r*0.7` coefficient
+    // (~0.99r) and passes the `r*1.4` fix (~1.98r), with enough margin
+    // to survive micro-variations in future refactors (e.g., switching
+    // from uniform r*K to an axis-aligned outward offset would sit
+    // between these two values).
+    expect(dist).toBeGreaterThanOrEqual(1.5 * r);
+  });
+
   it('overflow-pip fontSize is 9 in both paths', () => {
     // Grid path
     const { container: gridC } = render(
