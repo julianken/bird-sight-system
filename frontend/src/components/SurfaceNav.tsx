@@ -9,15 +9,20 @@ export interface SurfaceNavProps {
 interface TabDef {
   value: View;
   label: string;
+  // Accessible name diverges from visible text to avoid colliding with
+  // FiltersBar's "Species" and "Family" input labels. Without the suffix
+  // both elements resolve to name="Species" and break Playwright's
+  // strict-mode getByLabel/getByRole locators.
+  accessibleName: string;
 }
 
 // Stable order drives ArrowLeft / ArrowRight focus migration. The
 // WAI-ARIA "automatic activation" tablist pattern selects on focus, so
 // activation and focus move together in Arrow handlers.
 const TABS: readonly TabDef[] = [
-  { value: 'feed', label: 'Feed' },
-  { value: 'species', label: 'Species' },
-  { value: 'hotspots', label: 'Hotspots' },
+  { value: 'feed', label: 'Feed', accessibleName: 'Feed view' },
+  { value: 'species', label: 'Species', accessibleName: 'Species view' },
+  { value: 'hotspots', label: 'Hotspots', accessibleName: 'Hotspots view' },
 ];
 
 export function SurfaceNav(props: SurfaceNavProps) {
@@ -83,7 +88,7 @@ export function SurfaceNav(props: SurfaceNavProps) {
             id={`surface-tab-${tab.value}`}
             aria-selected={selected}
             aria-controls="main-surface"
-            aria-labelledby={`surface-tab-${tab.value}`}
+            aria-label={tab.accessibleName}
             tabIndex={selected ? 0 : -1}
             className={`surface-nav-tab${selected ? ' is-active' : ''}`}
             onClick={() => {
