@@ -66,6 +66,30 @@ Conventional commits style with scope where useful: `feat(scope):`, `chore:`, `c
 
 ## Testing
 
+### UI verification (agents + reviewers)
+
+Any PR that touches `frontend/**` gets driven live through Playwright MCP before
+it is opened (by the implementer) and before it is approved (by the reviewer).
+Passing e2e specs and `npm run build` are necessary but not sufficient — they
+don't catch console warnings, viewport-specific layout breaks, or interactions
+that only surface when you actually use the feature.
+
+Protocol:
+
+1. `npm run dev --workspace @bird-watch/frontend` locally, or hit the latest
+   Cloudflare Pages preview URL for the PR (review pass).
+2. `mcp__plugin_playwright_playwright__browser_navigate` to each touched
+   surface; `browser_resize` to at least one mobile (390×844) and one desktop
+   (1440×900) viewport — the two viewports the release-1 exit criteria name.
+3. Interact with the feature the way a user would (clicks, form fills, URL
+   round-trips). `browser_console_messages` must return zero errors and zero
+   warnings. A dirty console is a Tier-1 finding at review time.
+4. `browser_take_screenshot` per viewport per touched surface; those feed the
+   PR's Screenshots section (implementer only — reviewers don't re-capture).
+
+`.playwright-mcp/` is already gitignored so per-call snapshot YAMLs never land
+in git. Do not remove it from `.gitignore`.
+
 ### Spec authoring conventions
 
 E2E specs live in `frontend/e2e/*.spec.ts` and run under `@playwright/test`.
