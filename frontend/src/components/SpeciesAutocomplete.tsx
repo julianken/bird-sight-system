@@ -18,8 +18,8 @@ export interface SpeciesAutocompleteProps {
 /**
  * Species navigation autocomplete — distinct from `FiltersBar`'s species
  * input. FiltersBar narrows the observation set in-place; this autocomplete
- * NAVIGATES by setting `?species=` on commit, which opens `SpeciesPanel` and
- * switches the page surface into its species-detail mode.
+ * NAVIGATES by setting `?detail=` + `?view=detail` on commit, which opens the
+ * SpeciesDetailSurface.
  *
  * WAI-ARIA 1.2 combobox pattern — input + listbox, with the input carrying
  * `role="combobox"`, `aria-autocomplete="list"`, `aria-expanded`,

@@ -73,10 +73,13 @@ export function SurfaceNav(props: SurfaceNavProps) {
     }
   }
 
+  const anyTabActive = TABS.some(t => t.value === props.activeView);
+
   return (
     <div className="surface-nav" role="tablist" aria-label="Surface">
       {TABS.map((tab, index) => {
         const selected = tab.value === props.activeView;
+        const tabbable = selected || (!anyTabActive && index === 0);
         return (
           <button
             key={tab.value}
@@ -89,7 +92,7 @@ export function SurfaceNav(props: SurfaceNavProps) {
             aria-selected={selected}
             aria-controls="main-surface"
             aria-label={tab.accessibleName}
-            tabIndex={selected ? 0 : -1}
+            tabIndex={tabbable ? 0 : -1}
             className={`surface-nav-tab${selected ? ' is-active' : ''}`}
             onClick={() => {
               if (tab.value !== props.activeView) {
