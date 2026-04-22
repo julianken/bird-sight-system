@@ -46,12 +46,13 @@ export function FiltersBar(props: FiltersBarProps) {
   const speciesIndexRef = useRef(props.speciesIndex);
   speciesIndexRef.current = props.speciesIndex;
 
-  // Sync draft when the URL-driven speciesCode changes externally (e.g. browser
-  // back/forward). Also clears draft when speciesCode goes null (popstate).
+  // Sync draft when speciesCode changes (back/forward, popstate) or when the
+  // speciesIndex first populates (deep-link: code is set before data arrives).
+  // Using .length avoids identity-churn reruns while still catching 0→N.
   useEffect(() => {
     const comName = speciesIndexRef.current.find(s => s.code === props.speciesCode)?.comName ?? '';
     setSpeciesDraft(comName);
-  }, [props.speciesCode]);
+  }, [props.speciesCode, props.speciesIndex.length]);
 
   function commitSpeciesDraft(value: string) {
     const match = props.speciesIndex.find(
