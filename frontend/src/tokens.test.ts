@@ -43,7 +43,7 @@ describe('tokens', () => {
         zIndex.modal,
       ];
       ranks.forEach((v, i) => {
-        if (i > 0) expect(v).toBeGreaterThan(ranks[i - 1]);
+        if (i > 0) expect(v).toBeGreaterThan(ranks[i - 1]!);
       });
     });
     it('panel is above overlay', () => {
@@ -69,7 +69,7 @@ describe('tokens', () => {
     it('scale is monotonic', () => {
       const ranks = [spacing.xs, spacing.sm, spacing.md, spacing.lg, spacing.xl];
       ranks.forEach((v, i) => {
-        if (i > 0) expect(v).toBeGreaterThan(ranks[i - 1]);
+        if (i > 0) expect(v).toBeGreaterThan(ranks[i - 1]!);
       });
     });
     it('values are multiples of 4px', () => {

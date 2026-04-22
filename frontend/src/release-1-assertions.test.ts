@@ -39,9 +39,6 @@ function collectProductionFiles(dir: string): string[] {
     }
     if (!/\.(ts|tsx)$/.test(entry)) continue;
     if (/\.test\.(ts|tsx)$/.test(entry)) continue;
-    // Exclude this file itself — the patterns appear in its own string
-    // literals, which would produce self-referential matches.
-    if (full.endsWith('release-1-assertions.test.ts')) continue;
     out.push(full);
   }
   return out;
