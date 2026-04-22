@@ -160,9 +160,9 @@ export function SpeciesAutocomplete(props: SpeciesAutocompleteProps) {
       if (highlighted >= 0 && matches[highlighted]) {
         event.preventDefault();
         commit(highlighted);
-      } else if (highlighted < 0 && matches.length > 0) {
-        // Belt-and-braces: effect hasn't flushed yet but matches exist.
-        // Commit the first match so Enter is never a no-op when results show.
+      } else if (matches.length > 0 && !matches[highlighted]) {
+        // When matches changed shape and highlighted is now invalid (negative
+        // or out-of-bounds), commit the first match so Enter is never a no-op.
         event.preventDefault();
         commit(0);
       }

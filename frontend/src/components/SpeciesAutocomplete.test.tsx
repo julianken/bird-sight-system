@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, fireEvent, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { SpeciesOption } from './FiltersBar.js';
 import { SpeciesAutocomplete } from './SpeciesAutocomplete.js';
@@ -229,6 +229,55 @@ describe('SpeciesAutocomplete', () => {
     await user.keyboard('{Enter}');
     expect(onSelectSpecies).toHaveBeenCalledTimes(1);
     expect(onSelectSpecies).toHaveBeenCalledWith('cacwre');
+  });
+
+  it('Enter commits first match when highlighted is stale/out-of-bounds after match list narrows', async () => {
+    // Reproduces the race: user ArrowDowns to index 3 while 4 matches are
+    // shown, then a narrowing keystroke shrinks matches to 2. The useEffect
+    // that clamps highlighted hasn't flushed yet when Enter fires. Without the
+    // fix, highlighted=3 is out-of-bounds for the new matches list and Enter
+    // is a no-op.
+    const onSelectSpecies = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <SpeciesAutocomplete
+        speciesIndex={SPECIES_INDEX}
+        onSelectSpecies={onSelectSpecies}
+      />
+    );
+    const input = screen.getByRole('combobox', { name: /search species/i }) as HTMLInputElement;
+
+    // Type "e" → 4 substring matches sorted by comName:
+    // [0] Cactus Wren, [1] Great Blue Heron, [2] Red-tailed Hawk, [3] Vermilion Flycatcher
+    // ("e" is a substring in all four; none start with "e" so all rank=1).
+    await user.type(input, 'e');
+    const listbox = screen.getByRole('listbox');
+    expect(within(listbox).getAllByRole('option')).toHaveLength(4);
+
+    // ArrowDown × 3: highlighted advances 0 → 1 → 2 → 3 (Vermilion Flycatcher).
+    await user.keyboard('{ArrowDown}');
+    await user.keyboard('{ArrowDown}');
+    await user.keyboard('{ArrowDown}');
+    expect(within(listbox).getAllByRole('option')[3]).toHaveAttribute('aria-selected', 'true');
+
+    // Simulate the stale-highlighted race by batching both events inside a
+    // synchronous act() call. Inside act, React re-renders synchronously after
+    // fireEvent.change (useMemo recomputes matches to length 2) but defers
+    // useEffect until act exits. fireEvent.keyDown therefore executes with
+    // highlighted=3 (stale) against matches.length=2 — exactly the state the
+    // bug was filed against.
+    act(() => {
+      fireEvent.change(input, { target: { value: 'er' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+    });
+
+    // Without the fix: Enter is a no-op (highlighted=3, matches[3]=undefined,
+    // neither branch triggers). With the fix: falls through to the
+    // !matches[highlighted] branch and commits matches[0].
+    // "er" matches Great Blue Heron (gbher3) and Vermilion Flycatcher (vermfly),
+    // sorted by comName → matches[0] = Great Blue Heron.
+    expect(onSelectSpecies).toHaveBeenCalledTimes(1);
+    expect(onSelectSpecies).toHaveBeenCalledWith('gbher3');
   });
 
   describe('dropdown positioning', () => {
