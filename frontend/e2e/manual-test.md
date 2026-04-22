@@ -3,272 +3,223 @@
 Step-by-step instructions for a Claude agent to execute the E2E test suite manually
 using the Playwright MCP tools. Each flow maps 1:1 to a `happy-path.spec.ts` assertion.
 
-> **preview-build project:** A second Playwright project (`preview-build`) runs `vite build && vite preview` on port 4173 with `proxy: {}` explicitly set, catching the production routing gap where `/api` is on a different subdomain. Uses `test.fail()` until the baseUrl fix lands.
+> **Readiness gate:** The `<main id="main-surface">` element flips
+> `data-render-complete="true"` once `useBirdData` finishes its initial load.
+> All flows that require data must wait for this attribute before asserting.
 
-> **axe-core scans:** `npm run test:e2e --workspace @bird-watch/frontend -- axe.spec.ts` runs three WCAG 2/2.1 A/AA scans (initial load, region expanded, error screen) via @axe-core/playwright. Open a tagged follow-up issue for any rule you disable.
-
-> **Page Object Model:** Shared selectors live in `frontend/e2e/pages/*.ts` — `AppPage` (goto, waitForMapLoad, expandRegion, regionById, getUrlParams) and `FiltersBar` (timeWindow/notableOnly/family/species locators + selectTimeWindow/toggleNotable/selectFamily/setSpecies). New specs should use the POM; selectors don't belong in spec files.
+> **Page Object Model:** Shared selectors live in `frontend/e2e/pages/*.ts`:
+> `AppPage` (`goto`, `waitForAppReady`, `getUrlParams`) and `FiltersBar`
+> (`toggleNotable`, `selectTimeWindow`, etc.). New specs must use the POM.
 
 ---
 
 ## Prerequisites
 
-Before starting, both servers must be running. If they are not, ask the user to start them:
+Both servers must be running before starting:
 
 ```
 # Terminal 1 — read-api on port 8787
 DATABASE_URL=postgres://birdwatch:birdwatch@localhost:5433/birdwatch npm run dev --workspace @bird-watch/read-api
 
 # Terminal 2 — Vite dev server on port 5173
-cd frontend && npm run dev
+npm run dev --workspace @bird-watch/frontend
 ```
 
-Verify the API is up by navigating to `http://localhost:8787/api/regions` and confirming
-a JSON array is returned. Verify the frontend is up by navigating to `http://localhost:5173`
-and confirming the page loads without a network error.
+Confirm the API: navigate to `http://localhost:8787/api/observations` — a JSON
+array must be returned.
+Confirm the frontend: navigate to `http://localhost:5173` — the page loads and
+`<main data-render-complete="true">` appears within a few seconds.
 
 ---
 
-## Flow 1 — Initial page load renders all 9 regions
+## Flow 1 — Feed surface loads by default
 
-**What the automated test asserts:** `expect(regions).toHaveCount(9)`
+**What the automated test asserts:** at least one `.feed-row` is visible;
+the Feed tab has `aria-selected="true"`.
 
 ### Steps
 
 1. Navigate to the app:
-   - Tool: `browser_navigate`
-   - URL: `http://localhost:5173`
+   - Tool: `browser_navigate` → `http://localhost:5173`
 
-2. Take a snapshot to see the page structure:
-   - Tool: `browser_snapshot`
-
-3. Wait up to 15 seconds for the SVG map to finish loading, then verify exactly
-   9 elements with a `data-region-id` attribute are present in the DOM:
+2. Wait for render completion:
    - Tool: `browser_evaluate`
-   - Script: `document.querySelectorAll('[data-region-id]').length`
-   - **Pass:** result is `9`
-   - **Fail:** result is `0` (API unreachable or CORS error) or any number other than 9
+   - Script: `document.querySelector('main[data-render-complete="true"]') !== null`
+   - **Pass:** `true` (retry up to ~10 s)
 
-4. Verify the map-wrap is no longer in a loading state:
+3. Verify at least one feed row is visible:
    - Tool: `browser_evaluate`
-   - Script: `document.querySelector('.map-wrap')?.getAttribute('aria-busy')`
-   - **Pass:** result is `"false"` or `null`
+   - Script: `document.querySelectorAll('.feed-row').length`
+   - **Pass:** result ≥ 1
+
+4. Verify the Feed tab is selected:
+   - Tool: `browser_evaluate`
+   - Script: `document.querySelector('[role="tab"][aria-label="Feed view"]')?.getAttribute('aria-selected')`
+   - **Pass:** `"true"`
+
+5. Take a screenshot at desktop (1440×900) and mobile (390×844).
 
 ---
 
-## Flow 2 — Keyboard expand of the Santa Ritas region
+## Flow 2 — Notable-only filter narrows feed and updates URL
 
-**What the automated test asserts:** region receives focus → Enter key triggers expansion →
-element gets `region-expanded` class → `transform` attribute is non-empty.
-
-### Steps
-
-1. Locate the Santa Ritas region shape and confirm it exists:
-   - Tool: `browser_evaluate`
-   - Script: `!!document.querySelector('.region-shape[aria-label="Sky Islands — Santa Ritas"]')`
-   - **Pass:** `true`
-
-2. Focus the element using its aria-label:
-   - Tool: `browser_evaluate`
-   - Script: `document.querySelector('.region-shape[aria-label="Sky Islands — Santa Ritas"]').focus()`
-
-3. Press Enter to trigger keyboard activation:
-   - Tool: `browser_press_key`
-   - Key: `Enter`
-
-4. Take a screenshot to visually confirm the region expanded on the canvas:
-   - Tool: `browser_take_screenshot`
-
----
-
-## Flow 3 — URL updates with region param after expansion
-
-**What the automated test asserts:** `page.url()` contains `region=sky-islands-santa-ritas`
+**What the automated test asserts:** after toggling "Notable only", the URL
+gains `notable=true` and the row count decreases (or stays equal if all seeded
+observations are notable).
 
 ### Steps
 
-1. Immediately after Flow 2 Step 3, read the current URL:
-   - Tool: `browser_evaluate`
-   - Script: `window.location.href`
-   - **Pass:** URL contains `region=sky-islands-santa-ritas`
-   - **Fail:** URL does not change (replaceState bug) or contains a different region id
+1. Navigate to `http://localhost:5173` and wait for render completion.
 
----
+2. Count baseline feed rows:
+   - Tool: `browser_evaluate` → `document.querySelectorAll('.feed-row').length`
 
-## Flow 4 — Expanded region has `region-expanded` class and non-empty transform
+3. Click the Notable only checkbox:
+   - Tool: `browser_click` → `input[aria-label="Notable only"]`
 
-**What the automated test asserts:** `toHaveClass(/region-expanded/)` and `transformAttr` is truthy
-
-### Steps
-
-1. Check the class list on the expanded region `<g>`:
-   - Tool: `browser_evaluate`
-   - Script: `document.querySelector('[data-region-id="sky-islands-santa-ritas"]')?.className`
-   - **Pass:** returned string contains `region-expanded`
-
-2. Check the transform attribute (set by `computeExpandTransform`):
-   - Tool: `browser_evaluate`
-   - Script: `document.querySelector('[data-region-id="sky-islands-santa-ritas"]')?.getAttribute('transform')`
-   - **Pass:** result is a non-empty string such as `"translate(123.4, 56.7) scale(2.1)"`
-   - **Fail:** result is `null` or `""` (region did not physically expand on the canvas)
-
----
-
-## Flow 5 — "Notable only" checkbox updates URL
-
-**What the automated test asserts:** checking the Notable only input appends `notable=true`
-to the URL.
-
-### Steps
-
-1. Locate the Notable only checkbox and confirm it is currently unchecked:
-   - Tool: `browser_evaluate`
-   - Script: `document.querySelector('input[aria-label="Notable only"]')?.checked`
-   - **Pass:** `false`
-
-2. Click the checkbox to check it:
-   - Tool: `browser_click`
-   - Use the aria-label selector: `input[aria-label="Notable only"]`
-
-3. Read the URL to confirm it updated:
-   - Tool: `browser_evaluate`
-   - Script: `window.location.href`
+4. Verify URL updated:
+   - Tool: `browser_evaluate` → `window.location.href`
    - **Pass:** URL contains `notable=true`
-   - **Fail:** URL unchanged (state is not being persisted)
 
-4. Confirm the checkbox is now visually checked:
+5. Wait for re-render:
    - Tool: `browser_evaluate`
-   - Script: `document.querySelector('input[aria-label="Notable only"]')?.checked`
-   - **Pass:** `true`
+   - Script: `document.querySelector('main[data-render-complete="true"]') !== null`
+
+6. Count rows after filter:
+   - Tool: `browser_evaluate` → `document.querySelectorAll('.feed-row').length`
+   - **Pass:** count ≤ baseline count
 
 ---
 
-## Flow 6 — Deep-link restore: reload recovers expanded region and filter state
+## Flow 3 — Species deep link cold-loads to search surface with panel open
 
-**What the automated test asserts:** after `page.reload()`, the region is still expanded
-and the Notable only checkbox is still checked — proving URL state is read on mount.
+**What the automated test asserts:** navigating to `?species=<code>` without
+an explicit `?view=` lands on the Species tab and opens the SpeciesPanel.
 
 ### Steps
 
-1. Note the URL before reloading (should contain both `region=sky-islands-santa-ritas`
-   and `notable=true` from previous flows):
-   - Tool: `browser_evaluate`
-   - Script: `window.location.search`
+1. Navigate with a species code (use any code seeded in `species_meta`; e.g. `vermfly`):
+   - Tool: `browser_navigate` → `http://localhost:5173?species=vermfly`
 
-2. Navigate to the same URL (simulates a reload / deep link):
-   - Tool: `browser_navigate`
-   - URL: `http://localhost:5173` + the query string from Step 1
-     (e.g. `http://localhost:5173?region=sky-islands-santa-ritas&notable=true`)
+2. Wait for render completion.
 
-3. Wait for the map to finish loading (9 regions present, aria-busy false):
+3. Verify the Species tab is selected:
    - Tool: `browser_evaluate`
-   - Script: `document.querySelectorAll('[data-region-id]').length`
-   - **Pass:** `9` (wait and retry if still `0`)
+   - Script: `document.querySelector('[role="tab"][aria-label="Species view"]')?.getAttribute('aria-selected')`
+   - **Pass:** `"true"`
 
-4. Confirm the Santa Ritas region is expanded without any user interaction:
+4. Verify the SpeciesPanel (`<aside role="complementary">`) is visible:
    - Tool: `browser_evaluate`
-   - Script: `document.querySelector('[data-region-id="sky-islands-santa-ritas"]')?.className`
-   - **Pass:** contains `region-expanded`
-   - **Fail:** no `region-expanded` class (URL state is not being read on mount)
-
-5. Confirm the Notable only checkbox is checked without any user interaction:
-   - Tool: `browser_evaluate`
-   - Script: `document.querySelector('input[aria-label="Notable only"]')?.checked`
+   - Script: `document.querySelector('aside[role="complementary"]') !== null`
    - **Pass:** `true`
-   - **Fail:** `false` (filter state is not restored from URL on mount)
 
-6. Take a screenshot to document the restored state:
-   - Tool: `browser_take_screenshot`
+5. Verify `?species=vermfly` is still in the URL (mount effect must not strip it):
+   - Tool: `browser_evaluate` → `new URLSearchParams(window.location.search).get('species')`
+   - **Pass:** `"vermfly"`
 
 ---
 
-## Additional flows (not covered by current automated tests)
+## Flow 4 — SpeciesPanel opens as drawer on mobile; tap overlay dismisses
 
-These cover UI surfaces present in the codebase that `happy-path.spec.ts` does not exercise.
-Run them when those areas change.
+**What the automated test asserts:** at 390×844, the panel has
+`data-layout="drawer"` and a `.species-panel-overlay` sibling; clicking the
+overlay dismisses the panel and strips `?species=` from the URL.
 
-### Flow 7 — Time window filter changes URL param
+### Steps
 
-1. Navigate to `http://localhost:5173`
-2. Wait for 9 regions.
-3. Change the Time window select to "Today":
-   - Tool: `browser_select_option`
-   - Selector: `select[aria-label="Time window"]`
-   - Value: `1d`
-4. Verify URL contains `since=1d`:
-   - Tool: `browser_evaluate` → `window.location.href`
-   - **Pass:** contains `since=1d`
-5. Change back to "14 days" (the default):
+1. Resize viewport to 390×844:
+   - Tool: `browser_resize` → `{ width: 390, height: 844 }`
+
+2. Navigate to `http://localhost:5173?species=vermfly` and wait for render completion.
+
+3. Verify the panel has `data-layout="drawer"`:
+   - Tool: `browser_evaluate`
+   - Script: `document.querySelector('aside[role="complementary"]')?.getAttribute('data-layout')`
+   - **Pass:** `"drawer"`
+
+4. Verify the overlay is present:
+   - Tool: `browser_evaluate`
+   - Script: `document.querySelector('.species-panel-overlay') !== null`
+   - **Pass:** `true`
+
+5. Click the overlay to dismiss:
+   - Tool: `browser_click` → `.species-panel-overlay`
+
+6. Verify the panel is gone:
+   - Tool: `browser_evaluate`
+   - Script: `document.querySelector('aside[role="complementary"]') === null || getComputedStyle(document.querySelector('aside[role="complementary"]')).display === 'none'`
+   - **Pass:** `true`
+
+7. Verify `?species=` was stripped from the URL:
+   - Tool: `browser_evaluate` → `new URLSearchParams(window.location.search).get('species')`
+   - **Pass:** `null`
+
+---
+
+## Flow 5 — SpeciesPanel opens as sidebar on desktop; ESC dismisses
+
+**What the automated test asserts:** at 1440×900, the panel has
+`data-layout="sidebar"` (no overlay); pressing ESC dismisses and strips
+`?species=`.
+
+### Steps
+
+1. Resize viewport to 1440×900:
+   - Tool: `browser_resize` → `{ width: 1440, height: 900 }`
+
+2. Navigate to `http://localhost:5173?species=vermfly` and wait for render completion.
+
+3. Verify `data-layout="sidebar"`:
+   - Tool: `browser_evaluate`
+   - Script: `document.querySelector('aside[role="complementary"]')?.getAttribute('data-layout')`
+   - **Pass:** `"sidebar"`
+
+4. Verify no overlay is present:
+   - Tool: `browser_evaluate`
+   - Script: `document.querySelectorAll('.species-panel-overlay').length`
+   - **Pass:** `0`
+
+5. Press ESC to dismiss:
+   - Tool: `browser_press_key` → `Escape`
+
+6. Verify the panel is gone and `?species=` stripped (same checks as Flow 4, Steps 6–7).
+
+---
+
+## Additional flows (supplementary, not covered by automated specs)
+
+### Flow 6 — Time window filter changes URL param
+
+1. Navigate to `http://localhost:5173` and wait for render completion.
+2. Change the Time window select to "Today":
+   - Tool: `browser_select_option` → `select[aria-label="Time window"]`, value `1d`
+3. Verify URL contains `since=1d`.
+4. Change back to "14 days" (the default):
    - Tool: `browser_select_option` → value `14d`
-6. Verify `since` param is removed from URL (default is omitted):
-   - Tool: `browser_evaluate` → `window.location.href`
-   - **Pass:** URL does NOT contain `since=`
+5. Verify `since` param is absent from URL (default is omitted).
 
-### Flow 8 — Family filter updates URL param
+### Flow 7 — Error screen renders when API is unreachable
 
-1. Navigate to `http://localhost:5173`
-2. Wait for 9 regions.
-3. Open the Family select and check whether any options besides "All families" are present:
-   - Tool: `browser_evaluate`
-   - Script: `document.querySelector('select[aria-label="Family"]')?.options.length`
-   - **Note:** if result is `1`, `species_meta` is empty (known issue) — log and skip to Step 6.
-4. Select the first non-"All families" option:
-   - Tool: `browser_evaluate`
-   - Script: `document.querySelector('select[aria-label="Family"] option:nth-child(2)')?.value`
-   - Then: `browser_select_option` with that value.
-5. Verify URL contains `family=<code>`:
-   - Tool: `browser_evaluate` → `window.location.href`
-   - **Pass:** URL contains `family=`
-6. Reset to "All families":
-   - Tool: `browser_select_option` → value `""`
-   - Verify `family` param removed from URL.
-
-### Flow 9 — Species text input commits on blur
-
-1. Navigate to `http://localhost:5173`
-2. Wait for 9 regions.
-3. Focus the Species input:
-   - Tool: `browser_evaluate` → `document.querySelector('input[aria-label="Species"]').focus()`
-4. Type a species common name (type something and check the datalist — or use a known value):
-   - Tool: `browser_type`
-   - Selector: `input[aria-label="Species"]`
-   - Text: partial name (e.g. `"Vermilion"`)
-5. Take a snapshot to see datalist suggestions.
-6. Press Tab to blur the input (which triggers `onBlur → commitSpeciesDraft`):
-   - Tool: `browser_press_key` → `Tab`
-7. Verify URL contains `species=<code>` if an exact match was found, or no `species=` param
-   if no match:
-   - Tool: `browser_evaluate` → `window.location.href`
-
-### Flow 10 — Error screen renders when API is unreachable
-
-1. Navigate to a URL that forces an API failure:
-   - Tool: `browser_navigate`
-   - URL: `http://localhost:5173` with no read-api running (stop the read-api server first,
-     or navigate directly to the app while the API is down).
-2. Wait a few seconds, then check for the error screen:
+1. Stop the read-api server, then navigate to `http://localhost:5173`.
+2. Wait a few seconds and check:
    - Tool: `browser_evaluate`
    - Script: `document.querySelector('.error-screen h2')?.textContent`
-   - **Pass:** `"Couldn't load map data"`
-   - **Fail:** page hangs with `aria-busy=true` indefinitely
+   - **Pass:** `"Couldn't load bird data"`
 
 ---
 
 ## Reporting results
 
-After completing all flows, summarise findings in this format:
+After completing all flows, summarise findings:
 
 ```
-Flow 1 — Initial load:        PASS / FAIL
-Flow 2 — Keyboard expand:     PASS / FAIL
-Flow 3 — URL on expand:       PASS / FAIL
-Flow 4 — Class + transform:   PASS / FAIL
-Flow 5 — Notable filter URL:  PASS / FAIL
-Flow 6 — Deep-link restore:   PASS / FAIL
-Flow 7 — Time window param:   PASS / FAIL (optional)
-Flow 8 — Family param:        PASS / FAIL / SKIP (species_meta empty)
-Flow 9 — Species input blur:  PASS / FAIL (optional)
-Flow 10 — Error screen:       PASS / FAIL (optional)
+Flow 1 — Feed surface default load:           PASS / FAIL
+Flow 2 — Notable filter narrows + URL:        PASS / FAIL
+Flow 3 — Species deep link → search surface:  PASS / FAIL
+Flow 4 — Mobile drawer + overlay dismiss:     PASS / FAIL
+Flow 5 — Desktop sidebar + ESC dismiss:       PASS / FAIL
+Flow 6 — Time window param (optional):        PASS / FAIL
+Flow 7 — Error screen (optional):             PASS / FAIL
 ```
 
 Any FAIL should include the evaluate script result and a screenshot.

@@ -53,8 +53,8 @@ describe('MigrationBanner', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss migration notice' }));
     // Last replaceState call must not include region=
     const calls = (window.history.replaceState as ReturnType<typeof vi.fn>).mock.calls;
-    const lastCall = calls[calls.length - 1];
-    const urlArg = lastCall[2] as string;
+    const lastCall = calls.at(-1);
+    const urlArg = lastCall?.[2] as string;
     expect(urlArg).not.toContain('region=');
   });
 });

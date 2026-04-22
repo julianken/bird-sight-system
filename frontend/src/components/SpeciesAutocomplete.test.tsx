@@ -103,10 +103,10 @@ describe('SpeciesAutocomplete', () => {
     // Auto-highlight already selects the first option; confirm it before
     // pressing any arrow key.
     const listbox = screen.getByRole('listbox');
-    const firstOption = within(listbox).getAllByRole('option')[0];
+    const [firstOption] = within(listbox).getAllByRole('option');
     expect(firstOption).toHaveAttribute('aria-selected', 'true');
     // aria-activedescendant on the input points at the auto-highlighted option.
-    expect(input.getAttribute('aria-activedescendant')).toBe(firstOption.id);
+    expect(input.getAttribute('aria-activedescendant')).toBe(firstOption!.id);
     // ArrowDown advances from the first option to the second.
     await user.keyboard('{ArrowDown}');
     const secondOption = within(listbox).getAllByRole('option')[1];
@@ -401,9 +401,10 @@ describe('SpeciesAutocomplete', () => {
       const options = within(listbox).getAllByRole('option');
 
       // First visible option must be Cooper's Hawk (Accipitridae has lowest taxonOrder).
-      expect(options[0].textContent).toMatch(/Cooper/i);
+      const [firstOpt] = options;
+      expect(firstOpt!.textContent).toMatch(/Cooper/i);
       // Auto-highlight must be on the first VISIBLE option.
-      expect(options[0]).toHaveAttribute('aria-selected', 'true');
+      expect(firstOpt).toHaveAttribute('aria-selected', 'true');
       // Enter must commit the visually-highlighted option (Cooper's Hawk), NOT Common Loon.
       await user.keyboard('{Enter}');
       expect(onSelectSpecies).toHaveBeenCalledTimes(1);
@@ -435,24 +436,25 @@ describe('SpeciesAutocomplete', () => {
       expect(options.length).toBeGreaterThanOrEqual(2);
 
       // Auto-highlight: first option (Cooper's Hawk, Accipitridae) is selected.
-      expect(options[0]).toHaveAttribute('aria-selected', 'true');
-      expect(options[0].textContent).toMatch(/Cooper/i);
+      const [opt0, opt1] = options;
+      expect(opt0).toHaveAttribute('aria-selected', 'true');
+      expect(opt0!.textContent).toMatch(/Cooper/i);
 
       // Verify groups: flat-sentinel pattern uses <li role="presentation" class="autocomplete-group-header">.
       // First group must be Accipitridae (lower taxonOrder), second must be Picidae.
       const groupHeaders = container.querySelectorAll('.autocomplete-group-header');
       expect(groupHeaders.length).toBeGreaterThanOrEqual(2);
-      expect(groupHeaders[0].textContent).toMatch(/Accipitridae/i);
-      expect(groupHeaders[1].textContent).toMatch(/Picidae/i);
+      expect(groupHeaders[0]!.textContent).toMatch(/Accipitridae/i);
+      expect(groupHeaders[1]!.textContent).toMatch(/Picidae/i);
 
       // ArrowDown crosses the group boundary: Accipitridae → Picidae.
       // The group header (<li role="presentation">) must NOT receive aria-selected.
       await user.keyboard('{ArrowDown}');
       // options[1] = Downy Woodpecker (first option in Picidae group) is now selected.
-      expect(options[1]).toHaveAttribute('aria-selected', 'true');
-      expect(options[1].textContent).toMatch(/Downy Woodpecker/i);
+      expect(opt1).toHaveAttribute('aria-selected', 'true');
+      expect(opt1!.textContent).toMatch(/Downy Woodpecker/i);
       // The previously-selected option is no longer selected.
-      expect(options[0]).toHaveAttribute('aria-selected', 'false');
+      expect(opt0).toHaveAttribute('aria-selected', 'false');
 
       // Group headers are <li role="presentation"> and must never carry aria-selected.
       for (const header of Array.from(groupHeaders)) {

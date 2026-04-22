@@ -42,7 +42,7 @@ export function App() {
     );
   }
 
-  const renderComplete = !loading && observations !== null ? 'true' : 'false';
+  const renderComplete = !loading ? 'true' : 'false';
 
   return (
     <div className="app">

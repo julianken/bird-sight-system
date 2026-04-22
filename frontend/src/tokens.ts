@@ -110,7 +110,7 @@ export const spacing = {
   sm: 8,
   /** Medium gap — panel internal spacing (species name → sci name). */
   md: 12,
-  /** Large gap — map-wrap padding, filters-bar gap. */
+  /** Large gap — filters-bar gap, surface padding. */
   lg: 16,
   /** X-large gap — panel top padding. */
   xl: 24,
@@ -121,7 +121,7 @@ export const duration = {
   fast: 200,
   /** Default transitions. 250ms. */
   base: 250,
-  /** Region-expand transition. 350ms. */
+  /** Slow panel/drawer transitions. 350ms. */
   slow: 350,
 } as const;
 

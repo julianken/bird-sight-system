@@ -61,7 +61,7 @@ test.describe('Path A happy path', () => {
       .poll(() => app.getUrlParams().get('notable'), { timeout: 5_000 })
       .toBe('true');
     // Wait for data refetch + re-render before measuring again.
-    await expect(page.locator('main[aria-busy="false"]')).toBeVisible({ timeout: 10_000 });
+    await app.waitForAppReady();
 
     const filteredCount = await page.locator('.feed-row').count();
 
