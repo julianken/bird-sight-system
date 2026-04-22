@@ -10,13 +10,6 @@ export interface SpeciesSearchSurfaceProps {
   speciesIndex: SpeciesOption[];
   now: Date;
   onSelectSpecies: (speciesCode: string) => void;
-  /**
-   * Clears the current `?species=` selection. Fires when the user begins
-   * typing in the autocomplete — without this, the server-filtered
-   * observations collapse `speciesIndex` to the single selected species
-   * and the autocomplete cannot navigate anywhere else.
-   */
-  onClearSpecies: () => void;
 }
 
 /** Stable module-level no-op. */
@@ -43,7 +36,7 @@ const ROW_NOOP: (speciesCode: string) => void = () => {};
  * click does nothing observable — the panel does not flash.
  */
 export function SpeciesSearchSurface(props: SpeciesSearchSurfaceProps) {
-  const { loading, speciesCode, observations, speciesIndex, now, onSelectSpecies, onClearSpecies } = props;
+  const { loading, speciesCode, observations, speciesIndex, now, onSelectSpecies } = props;
 
   const filtered = speciesCode
     ? observations.filter(o => o.speciesCode === speciesCode)
