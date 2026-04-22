@@ -151,20 +151,31 @@ export function SpeciesAutocomplete(props: SpeciesAutocompleteProps) {
   const matches = useMemo(() => rankMatches(query, speciesIndex), [query, speciesIndex]);
   const groups = useMemo(() => groupMatches(matches), [matches]);
 
+  // Flatten groups into a single array that mirrors the render order (group-
+  // sorted by taxonOrder, then intra-group order as preserved by groupMatches).
+  // This ensures matches[i] always corresponds to the i-th visible option so
+  // `highlighted`, `commit(i)`, and the render's flatIndex all index the same
+  // sequence — preventing the divergence where the visually-highlighted option
+  // and the Enter-commit target point at different rows.
+  const orderedMatches = useMemo(
+    () => groups.flatMap(g => g.items),
+    [groups],
+  );
+
   // Auto-highlight the first option whenever the match list goes from empty →
   // non-empty so Enter always commits something (WAI-ARIA APG "list
   // autocomplete with automatic selection" variant). When the list is empty
   // (no matches, or the query was cleared) reset to -1 as before.
   useEffect(() => {
-    setHighlighted(matches.length > 0 ? 0 : -1);
-  }, [query, matches.length]);
+    setHighlighted(orderedMatches.length > 0 ? 0 : -1);
+  }, [query, orderedMatches.length]);
 
   // Recalculate dropdown position on every query change that keeps the
   // listbox open. `useLayoutEffect` runs before paint so the flip happens
   // synchronously with the listbox appearing — no visible "opens below,
   // then jumps above" flash.
   useLayoutEffect(() => {
-    if (matches.length === 0) return;
+    if (orderedMatches.length === 0) return;
     const input = inputRef.current;
     if (!input) return;
     const rect = input.getBoundingClientRect();
@@ -175,12 +186,12 @@ export function SpeciesAutocomplete(props: SpeciesAutocompleteProps) {
     } else {
       setPosition('below');
     }
-  }, [matches]);
+  }, [orderedMatches]);
 
-  const listboxOpen = query.trim() !== '' && matches.length > 0;
+  const listboxOpen = query.trim() !== '' && orderedMatches.length > 0;
 
   function commit(index: number) {
-    const pick = matches[index];
+    const pick = orderedMatches[index];
     if (!pick) return;
     onSelectSpecies(pick.code);
     // Clear the query so the listbox closes and the input is ready for the
@@ -202,27 +213,27 @@ export function SpeciesAutocomplete(props: SpeciesAutocompleteProps) {
     }
     if (event.key === 'ArrowDown') {
       event.preventDefault();
-      if (matches.length === 0) return;
+      if (orderedMatches.length === 0) return;
       setHighlighted(prev => {
-        if (prev < 0 || prev >= matches.length - 1) return 0;
+        if (prev < 0 || prev >= orderedMatches.length - 1) return 0;
         return prev + 1;
       });
       return;
     }
     if (event.key === 'ArrowUp') {
       event.preventDefault();
-      if (matches.length === 0) return;
+      if (orderedMatches.length === 0) return;
       setHighlighted(prev => {
-        if (prev <= 0) return matches.length - 1;
+        if (prev <= 0) return orderedMatches.length - 1;
         return prev - 1;
       });
       return;
     }
     if (event.key === 'Enter') {
-      if (highlighted >= 0 && matches[highlighted]) {
+      if (highlighted >= 0 && orderedMatches[highlighted]) {
         event.preventDefault();
         commit(highlighted);
-      } else if (matches.length > 0 && !matches[highlighted]) {
+      } else if (orderedMatches.length > 0 && !orderedMatches[highlighted]) {
         // When matches changed shape and highlighted is now invalid (negative
         // or out-of-bounds), commit the first match so Enter is never a no-op.
         event.preventDefault();
@@ -233,19 +244,22 @@ export function SpeciesAutocomplete(props: SpeciesAutocompleteProps) {
   }
 
   const activeDescendant =
-    highlighted >= 0 && matches[highlighted]
+    highlighted >= 0 && orderedMatches[highlighted]
       ? `${optionIdPrefix}-opt-${highlighted}`
       : undefined;
 
   // Pre-derive whether to show the "No matches" hint so we can gate the CSS
   // class alongside it. The hint is announced as a status region so screen-
   // reader users hear it surface as they type.
-  const showNoMatches = query.trim() !== '' && matches.length === 0;
+  const showNoMatches = query.trim() !== '' && orderedMatches.length === 0;
 
-  // Build a flat index of each option within the groups so we can compute
-  // the global flat index for aria-activedescendant and commit(index) from
-  // the grouped render path.
-  let flatIndex = 0;
+  // Build a lookup map from species code → position in orderedMatches so the
+  // render can derive each option's flat index without a mutable counter.
+  const optionIndexMap = useMemo(() => {
+    const m = new Map<string, number>();
+    orderedMatches.forEach((opt, i) => m.set(opt.code, i));
+    return m;
+  }, [orderedMatches]);
 
   return (
     <div
@@ -298,7 +312,7 @@ export function SpeciesAutocomplete(props: SpeciesAutocompleteProps) {
                   {group.displayName}
                 </li>
                 {group.items.map(m => {
-                  const i = flatIndex++;
+                  const i = optionIndexMap.get(m.code)!;
                   const id = `${optionIdPrefix}-opt-${i}`;
                   const selected = i === highlighted;
                   return (

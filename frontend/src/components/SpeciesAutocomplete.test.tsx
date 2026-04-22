@@ -373,6 +373,43 @@ describe('SpeciesAutocomplete', () => {
       expect(options.some(o => /Unknown Species/i.test(o.textContent ?? ''))).toBe(true);
     });
 
+    it('Enter commits the visually-highlighted option (not matches[0]) when rank order and group order diverge', async () => {
+      // Repro for the BLOCKER on PR #148:
+      // Query "oo" against GROUPED_INDEX produces:
+      //   rank-sorted matches[]: [Common Loon (rank1,comName C), Cooper's Hawk (rank1,comName C),
+      //                           Downy Woodpecker (rank1,comName D), Hairy Woodpecker (rank1,comName H)]
+      //   Actually by comName sort: Common Loon < Cooper's Hawk < Downy < Hairy
+      //   So matches[0] = Common Loon (null family → Other bucket).
+      //
+      //   group-sorted render order: Accipitridae (Cooper's Hawk) → Picidae (Downy, Hairy) → Other (Common Loon)
+      //   First visible option = Cooper's Hawk at flatIndex=0.
+      //
+      // Pre-fix: highlighted=0 auto-selects Cooper's Hawk visually, but Enter commits
+      //   matches[0] = Common Loon. Bug confirmed.
+      // Post-fix: matches[] is re-sorted to render order so matches[0] = Cooper's Hawk.
+      const onSelectSpecies = vi.fn();
+      const user = userEvent.setup();
+      render(
+        <SpeciesAutocomplete
+          speciesIndex={GROUPED_INDEX}
+          onSelectSpecies={onSelectSpecies}
+        />
+      );
+      const input = screen.getByRole('combobox', { name: /search species/i });
+      await user.type(input, 'oo');
+      const listbox = screen.getByRole('listbox');
+      const options = within(listbox).getAllByRole('option');
+
+      // First visible option must be Cooper's Hawk (Accipitridae has lowest taxonOrder).
+      expect(options[0].textContent).toMatch(/Cooper/i);
+      // Auto-highlight must be on the first VISIBLE option.
+      expect(options[0]).toHaveAttribute('aria-selected', 'true');
+      // Enter must commit the visually-highlighted option (Cooper's Hawk), NOT Common Loon.
+      await user.keyboard('{Enter}');
+      expect(onSelectSpecies).toHaveBeenCalledTimes(1);
+      expect(onSelectSpecies).toHaveBeenCalledWith('coohaw');
+    });
+
     it('keyboard nav skips headers — ArrowDown traverses options across group boundaries', async () => {
       const user = userEvent.setup();
       const onSelectSpecies = vi.fn();
@@ -383,10 +420,9 @@ describe('SpeciesAutocomplete', () => {
         />
       );
       const input = screen.getByRole('combobox', { name: /search species/i });
-      // "er" matches options in TWO different family groups, and the
-      // alphabetical sort order of comNames aligns with the taxonOrder-based
-      // group render order — so flatIndex (visual position) == matches-array
-      // index, making commit() deterministic:
+      // "er" matches options in TWO different family groups. With the fix,
+      // matches[] is pre-sorted into render order (taxonOrder-based group sort),
+      // so flatIndex (visual position) == matches-array index for all queries:
       //   Group 0 (Accipitridae, taxonOrder 5): Cooper's Hawk     → matches[0]
       //   Group 1 (Picidae, taxonOrder 10):     Downy Woodpecker  → matches[1]
       //                                          Hairy Woodpecker  → matches[2]
