@@ -288,6 +288,9 @@ describe('SpeciesAutocomplete', () => {
       { code: 'rethaw', comName: 'Red-tailed Hawk',     familyCode: 'Accipitridae', taxonOrder: 5 },
       { code: 'coohaw', comName: "Cooper's Hawk",        familyCode: 'Accipitridae', taxonOrder: 6 },
       { code: 'unknsp', comName: 'Unknown Species',      familyCode: null,         taxonOrder: 999 },
+      // Added for stable-sort test: null-familyCode species whose name contains
+      // "oo" so the "Other" bucket is populated when query is "oo".
+      { code: 'comloo', comName: 'Common Loon',          familyCode: null,         taxonOrder: 998 },
     ];
 
     it('grouping contract: options render under family group headers', async () => {
@@ -322,24 +325,32 @@ describe('SpeciesAutocomplete', () => {
         />
       );
       const input = screen.getByRole('combobox', { name: /search species/i });
-      // Type "a" — matches Red-tailed Hawk, Cooper's Hawk (Accipitridae taxonOrder 5&6),
-      // Downy Woodpecker (no "a"), Hairy Woodpecker (Hairy has "a"), Unknown Species ("a" in "Unknown").
-      // Actually, use broad query to get all groups.
-      // "oo" matches: Downy Woodpecker (oo), Hairy Woodpecker (oo), Cooper's Hawk (oo), Unknown Species (oo in "Unknown")
+      // "oo" matches:
+      //   Accipitridae: Cooper's Hawk (taxonOrder 6)
+      //   Picidae:      Downy Woodpecker (taxonOrder 10), Hairy Woodpecker (taxonOrder 11)
+      //   Other:        Common Loon (null familyCode, taxonOrder 998)
+      // Groups must sort: Accipitridae (first taxonOrder 6) → Picidae (first taxonOrder 10)
+      // → Other (always last).
       await user.type(input, 'oo');
       const listbox = screen.getByRole('listbox');
       const groups = within(listbox).getAllByRole('group');
-      // Group order should be Accipitridae (taxonOrder 5) first, then Picidae (taxonOrder 10),
-      // and any "Other" bucket last.
-      const groupLabels = groups.map(g => {
-        // The header is a role="presentation" or aria-labelledby; grab its text content.
-        return g.textContent ?? '';
-      });
-      // "Other" must appear last if present.
+      // Derive the header text for each group. Each group <li role="group"> contains
+      // a <div role="presentation"> as its header; grabbing the group's accessible
+      // name via aria-labelledby points at that div, so textContent covers the label.
+      const groupLabels = groups.map(g => g.textContent ?? '');
+
+      // Must have exactly 3 groups (Accipitridae, Picidae, Other).
+      expect(groupLabels).toHaveLength(3);
+
+      // Group order: Accipitridae first (lowest taxonOrder among real families),
+      // Picidae second, Other always last — no conditional guard.
+      expect(groupLabels[0]).toMatch(/Accipitridae/i);
+      expect(groupLabels[1]).toMatch(/Picidae/i);
+      expect(groupLabels[2]).toMatch(/Other/i);
+
+      // "Other" must be last — assert the index unconditionally.
       const otherIdx = groupLabels.findIndex(l => /other/i.test(l));
-      if (otherIdx !== -1) {
-        expect(otherIdx).toBe(groupLabels.length - 1);
-      }
+      expect(otherIdx).toBe(groupLabels.length - 1);
     });
 
     it('fallback "Other" bucket: options with null familyCode appear in Other group', async () => {
@@ -373,18 +384,51 @@ describe('SpeciesAutocomplete', () => {
         />
       );
       const input = screen.getByRole('combobox', { name: /search species/i });
-      // "hawk" matches Red-tailed Hawk and Cooper's Hawk (both Accipitridae).
-      await user.type(input, 'hawk');
+      // "er" matches options in TWO different family groups, and the
+      // alphabetical sort order of comNames aligns with the taxonOrder-based
+      // group render order — so flatIndex (visual position) == matches-array
+      // index, making commit() deterministic:
+      //   Group 0 (Accipitridae, taxonOrder 5): Cooper's Hawk     → matches[0]
+      //   Group 1 (Picidae, taxonOrder 10):     Downy Woodpecker  → matches[1]
+      //                                          Hairy Woodpecker  → matches[2]
+      // "er" appears in "cooper", "woodpEcker" (×2); no Other-bucket match.
+      await user.type(input, 'er');
       const listbox = screen.getByRole('listbox');
       const options = within(listbox).getAllByRole('option');
-      // Auto-highlight should be on first option.
+
+      // Must have matches spanning ≥2 groups.
+      expect(options.length).toBeGreaterThanOrEqual(2);
+
+      // Auto-highlight: first option (Cooper's Hawk, Accipitridae) is selected.
       expect(options[0]).toHaveAttribute('aria-selected', 'true');
-      // ArrowDown should advance to next option (skipping any header).
+      expect(options[0].textContent).toMatch(/Cooper/i);
+
+      // Verify groups: first group must be Accipitridae (lower taxonOrder),
+      // second must be Picidae — confirming multi-group layout.
+      const groups = within(listbox).getAllByRole('group');
+      expect(groups.length).toBeGreaterThanOrEqual(2);
+      expect(groups[0].textContent).toMatch(/Accipitridae/i);
+      expect(groups[1].textContent).toMatch(/Picidae/i);
+
+      // ArrowDown crosses the group boundary: Accipitridae → Picidae.
+      // The group header (<div role="presentation">) must NOT receive aria-selected.
       await user.keyboard('{ArrowDown}');
+      // options[1] = Downy Woodpecker (first option in Picidae group) is now selected.
       expect(options[1]).toHaveAttribute('aria-selected', 'true');
-      // Enter commits the highlighted option.
+      expect(options[1].textContent).toMatch(/Downy Woodpecker/i);
+      // The previously-selected option is no longer selected.
+      expect(options[0]).toHaveAttribute('aria-selected', 'false');
+
+      // Group headers are role="presentation" and must never carry aria-selected.
+      const groupHeaders = within(listbox).getAllByRole('presentation');
+      for (const header of groupHeaders) {
+        expect(header).not.toHaveAttribute('aria-selected');
+      }
+
+      // Enter commits the currently-highlighted option (Downy Woodpecker = 'dowwoo').
       await user.keyboard('{Enter}');
       expect(onSelectSpecies).toHaveBeenCalledTimes(1);
+      expect(onSelectSpecies).toHaveBeenCalledWith('dowwoo');
     });
   });
 
