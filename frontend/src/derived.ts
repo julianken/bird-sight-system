@@ -60,6 +60,10 @@ export function deriveSpeciesIndex(observations: Observation[]): SpeciesOption[]
   return Array.from(byCode.values()).sort((a, b) => a.comName.localeCompare(b.comName));
 }
 
-function prettyFamily(code: string): string {
+// Exported for reuse in SpeciesAutocomplete family group headers.
+// Note: we only capitalize the family code — we have no vernacular dictionary
+// to map codes like "Tyrannidae" → "Tyrant Flycatchers". A future enhancement
+// could add a static map if the display name matters more than simplicity.
+export function prettyFamily(code: string): string {
   return code.charAt(0).toUpperCase() + code.slice(1);
 }

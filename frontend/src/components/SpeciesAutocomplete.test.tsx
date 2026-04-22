@@ -280,6 +280,192 @@ describe('SpeciesAutocomplete', () => {
     expect(onSelectSpecies).toHaveBeenCalledWith('gbher3');
   });
 
+  describe('family group headers', () => {
+    // Extended species index with familyCode populated so grouping can run.
+    const GROUPED_INDEX: SpeciesOption[] = [
+      { code: 'dowwoo', comName: 'Downy Woodpecker',    familyCode: 'Picidae',    taxonOrder: 10 },
+      { code: 'haiwoo', comName: 'Hairy Woodpecker',    familyCode: 'Picidae',    taxonOrder: 11 },
+      { code: 'rethaw', comName: 'Red-tailed Hawk',     familyCode: 'Accipitridae', taxonOrder: 5 },
+      { code: 'coohaw', comName: "Cooper's Hawk",        familyCode: 'Accipitridae', taxonOrder: 6 },
+      { code: 'unknsp', comName: 'Unknown Species',      familyCode: null,         taxonOrder: 999 },
+      // Added for stable-sort test: null-familyCode species whose name contains
+      // "oo" so the "Other" bucket is populated when query is "oo".
+      { code: 'comloo', comName: 'Common Loon',          familyCode: null,         taxonOrder: 998 },
+    ];
+
+    it('grouping contract: options render under family group headers', async () => {
+      const user = userEvent.setup();
+      const { container } = render(
+        <SpeciesAutocomplete
+          speciesIndex={GROUPED_INDEX}
+          onSelectSpecies={() => {}}
+        />
+      );
+      const input = screen.getByRole('combobox', { name: /search species/i });
+      // "o" matches Downy Woodpecker, Hairy Woodpecker (via substring),
+      // Cooper's Hawk (prefix "coo" but "o" substring), Red-tailed Hawk ("o" in "Red"),
+      // and Unknown Species ("o" in "Unknown").
+      await user.type(input, 'oo');
+      // Group headers should be present: Picidae (has "oo" matches), Accipitridae (Cooper's Hawk).
+      const listbox = screen.getByRole('listbox');
+      // Options are still role="option" and accessible.
+      const options = within(listbox).getAllByRole('option');
+      expect(options.length).toBeGreaterThan(0);
+      // Group header elements present (flat-sentinel pattern: <li role="presentation">
+      // siblings of options, not wrapper containers).
+      const groupHeaders = container.querySelectorAll('.autocomplete-group-header');
+      expect(groupHeaders.length).toBeGreaterThan(0);
+    });
+
+    it('stable sort: groups sort by the first member taxonOrder; "Other" bucket sorts last', async () => {
+      const user = userEvent.setup();
+      const { container } = render(
+        <SpeciesAutocomplete
+          speciesIndex={GROUPED_INDEX}
+          onSelectSpecies={() => {}}
+        />
+      );
+      const input = screen.getByRole('combobox', { name: /search species/i });
+      // "oo" matches:
+      //   Accipitridae: Cooper's Hawk (taxonOrder 6)
+      //   Picidae:      Downy Woodpecker (taxonOrder 10), Hairy Woodpecker (taxonOrder 11)
+      //   Other:        Common Loon (null familyCode, taxonOrder 998)
+      // Groups must sort: Accipitridae (first taxonOrder 6) → Picidae (first taxonOrder 10)
+      // → Other (always last).
+      await user.type(input, 'oo');
+      // Flat-sentinel pattern: group headers are <li role="presentation" class="autocomplete-group-header">
+      // siblings of options inside the listbox. Query by class to get ordered header nodes.
+      const groupHeaders = container.querySelectorAll('.autocomplete-group-header');
+      const groupLabels = Array.from(groupHeaders).map(h => h.textContent ?? '');
+
+      // Must have exactly 3 groups (Accipitridae, Picidae, Other).
+      expect(groupLabels).toHaveLength(3);
+
+      // Group order: Accipitridae first (lowest taxonOrder among real families),
+      // Picidae second, Other always last — no conditional guard.
+      expect(groupLabels[0]).toMatch(/Accipitridae/i);
+      expect(groupLabels[1]).toMatch(/Picidae/i);
+      expect(groupLabels[2]).toMatch(/Other/i);
+
+      // "Other" must be last — assert the index unconditionally.
+      const otherIdx = groupLabels.findIndex(l => /other/i.test(l));
+      expect(otherIdx).toBe(groupLabels.length - 1);
+    });
+
+    it('fallback "Other" bucket: options with null familyCode appear in Other group', async () => {
+      const user = userEvent.setup();
+      const { container } = render(
+        <SpeciesAutocomplete
+          speciesIndex={GROUPED_INDEX}
+          onSelectSpecies={() => {}}
+        />
+      );
+      const input = screen.getByRole('combobox', { name: /search species/i });
+      // "unknown" matches only "Unknown Species" which has familyCode=null.
+      await user.type(input, 'unknown');
+      const listbox = screen.getByRole('listbox');
+      // Flat-sentinel: group headers are <li role="presentation" class="autocomplete-group-header">.
+      const groupHeaders = container.querySelectorAll('.autocomplete-group-header');
+      const hasOtherHeader = Array.from(groupHeaders).some(h => /other/i.test(h.textContent ?? ''));
+      expect(hasOtherHeader).toBe(true);
+      // The option itself is still present.
+      const options = within(listbox).getAllByRole('option');
+      expect(options.some(o => /Unknown Species/i.test(o.textContent ?? ''))).toBe(true);
+    });
+
+    it('Enter commits the visually-highlighted option (not matches[0]) when rank order and group order diverge', async () => {
+      // Repro for the BLOCKER on PR #148:
+      // Query "oo" against GROUPED_INDEX produces:
+      //   rank-sorted matches[]: [Common Loon (rank1,comName C), Cooper's Hawk (rank1,comName C),
+      //                           Downy Woodpecker (rank1,comName D), Hairy Woodpecker (rank1,comName H)]
+      //   Actually by comName sort: Common Loon < Cooper's Hawk < Downy < Hairy
+      //   So matches[0] = Common Loon (null family → Other bucket).
+      //
+      //   group-sorted render order: Accipitridae (Cooper's Hawk) → Picidae (Downy, Hairy) → Other (Common Loon)
+      //   First visible option = Cooper's Hawk at flatIndex=0.
+      //
+      // Pre-fix: highlighted=0 auto-selects Cooper's Hawk visually, but Enter commits
+      //   matches[0] = Common Loon. Bug confirmed.
+      // Post-fix: matches[] is re-sorted to render order so matches[0] = Cooper's Hawk.
+      const onSelectSpecies = vi.fn();
+      const user = userEvent.setup();
+      render(
+        <SpeciesAutocomplete
+          speciesIndex={GROUPED_INDEX}
+          onSelectSpecies={onSelectSpecies}
+        />
+      );
+      const input = screen.getByRole('combobox', { name: /search species/i });
+      await user.type(input, 'oo');
+      const listbox = screen.getByRole('listbox');
+      const options = within(listbox).getAllByRole('option');
+
+      // First visible option must be Cooper's Hawk (Accipitridae has lowest taxonOrder).
+      expect(options[0].textContent).toMatch(/Cooper/i);
+      // Auto-highlight must be on the first VISIBLE option.
+      expect(options[0]).toHaveAttribute('aria-selected', 'true');
+      // Enter must commit the visually-highlighted option (Cooper's Hawk), NOT Common Loon.
+      await user.keyboard('{Enter}');
+      expect(onSelectSpecies).toHaveBeenCalledTimes(1);
+      expect(onSelectSpecies).toHaveBeenCalledWith('coohaw');
+    });
+
+    it('keyboard nav skips headers — ArrowDown traverses options across group boundaries', async () => {
+      const user = userEvent.setup();
+      const onSelectSpecies = vi.fn();
+      const { container } = render(
+        <SpeciesAutocomplete
+          speciesIndex={GROUPED_INDEX}
+          onSelectSpecies={onSelectSpecies}
+        />
+      );
+      const input = screen.getByRole('combobox', { name: /search species/i });
+      // "er" matches options in TWO different family groups. With the fix,
+      // matches[] is pre-sorted into render order (taxonOrder-based group sort),
+      // so flatIndex (visual position) == matches-array index for all queries:
+      //   Group 0 (Accipitridae, taxonOrder 5): Cooper's Hawk     → matches[0]
+      //   Group 1 (Picidae, taxonOrder 10):     Downy Woodpecker  → matches[1]
+      //                                          Hairy Woodpecker  → matches[2]
+      // "er" appears in "cooper", "woodpEcker" (×2); no Other-bucket match.
+      await user.type(input, 'er');
+      const listbox = screen.getByRole('listbox');
+      const options = within(listbox).getAllByRole('option');
+
+      // Must have matches spanning ≥2 groups.
+      expect(options.length).toBeGreaterThanOrEqual(2);
+
+      // Auto-highlight: first option (Cooper's Hawk, Accipitridae) is selected.
+      expect(options[0]).toHaveAttribute('aria-selected', 'true');
+      expect(options[0].textContent).toMatch(/Cooper/i);
+
+      // Verify groups: flat-sentinel pattern uses <li role="presentation" class="autocomplete-group-header">.
+      // First group must be Accipitridae (lower taxonOrder), second must be Picidae.
+      const groupHeaders = container.querySelectorAll('.autocomplete-group-header');
+      expect(groupHeaders.length).toBeGreaterThanOrEqual(2);
+      expect(groupHeaders[0].textContent).toMatch(/Accipitridae/i);
+      expect(groupHeaders[1].textContent).toMatch(/Picidae/i);
+
+      // ArrowDown crosses the group boundary: Accipitridae → Picidae.
+      // The group header (<li role="presentation">) must NOT receive aria-selected.
+      await user.keyboard('{ArrowDown}');
+      // options[1] = Downy Woodpecker (first option in Picidae group) is now selected.
+      expect(options[1]).toHaveAttribute('aria-selected', 'true');
+      expect(options[1].textContent).toMatch(/Downy Woodpecker/i);
+      // The previously-selected option is no longer selected.
+      expect(options[0]).toHaveAttribute('aria-selected', 'false');
+
+      // Group headers are <li role="presentation"> and must never carry aria-selected.
+      for (const header of Array.from(groupHeaders)) {
+        expect(header).not.toHaveAttribute('aria-selected');
+      }
+
+      // Enter commits the currently-highlighted option (Downy Woodpecker = 'dowwoo').
+      await user.keyboard('{Enter}');
+      expect(onSelectSpecies).toHaveBeenCalledTimes(1);
+      expect(onSelectSpecies).toHaveBeenCalledWith('dowwoo');
+    });
+  });
+
   describe('dropdown positioning', () => {
     // Pin viewport height to 800 and test getBoundingClientRect with stubs.
     // The component reads input.getBoundingClientRect().bottom + a fixed
