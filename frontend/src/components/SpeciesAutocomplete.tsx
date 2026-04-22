@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { SpeciesOption } from './FiltersBar.js';
 import { prettyFamily } from '../derived.js';
 
@@ -41,9 +41,11 @@ export interface SpeciesAutocompleteProps {
  * Family grouping: matches are clustered by `familyCode`. Groups sort by the
  * first member's `taxonOrder` (ascending); when absent, alphabetically by
  * family display name. Options with no resolvable family fall into an "Other"
- * bucket rendered last. Group headers (`role="presentation"`) are visual only —
- * keyboard nav (ArrowDown/ArrowUp) traverses the flat option order without
- * skipping, and `aria-activedescendant` stays anchored to option ids.
+ * bucket rendered last. Group headers are `<li role="presentation">` siblings
+ * of the option elements (flat-sentinel pattern) so the ARIA ownership chain
+ * listbox → option is unbroken per WAI-ARIA 1.2. Keyboard nav (ArrowDown/
+ * ArrowUp) traverses the flat option order without skipping, and
+ * `aria-activedescendant` stays anchored to option ids.
  */
 
 // Estimated max dropdown height in px — if the element would not fit below
@@ -281,48 +283,44 @@ export function SpeciesAutocomplete(props: SpeciesAutocompleteProps) {
           className="species-autocomplete-listbox"
           aria-label="Species suggestions"
         >
+          {/* Flat-sentinel pattern: group headers are <li role="presentation"> siblings
+              of the option elements, not wrapper containers. This preserves the ARIA
+              ownership chain required by WAI-ARIA 1.2 — listbox owns option directly. */}
           {groups.map(group => {
             const headerId = `${groupIdPrefix}-grp-${group.code}`;
             return (
-              <li
-                key={group.code}
-                role="group"
-                aria-labelledby={headerId}
-                className="autocomplete-family-group"
-              >
-                <div
+              <Fragment key={group.code}>
+                <li
                   role="presentation"
                   id={headerId}
                   className="autocomplete-group-header"
                 >
                   {group.displayName}
-                </div>
-                <ul>
-                  {group.items.map(m => {
-                    const i = flatIndex++;
-                    const id = `${optionIdPrefix}-opt-${i}`;
-                    const selected = i === highlighted;
-                    return (
-                      <li
-                        key={m.code}
-                        id={id}
-                        role="option"
-                        aria-selected={selected}
-                        className={`species-autocomplete-option${selected ? ' is-highlighted' : ''}`}
-                        // onMouseDown (not onClick) so commit fires before the input
-                        // loses focus — prevents a visible close-then-reopen flash.
-                        onMouseDown={e => {
-                          e.preventDefault();
-                          commit(i);
-                        }}
-                        onMouseEnter={() => setHighlighted(i)}
-                      >
-                        {m.comName}
-                      </li>
-                    );
-                  })}
-                </ul>
-              </li>
+                </li>
+                {group.items.map(m => {
+                  const i = flatIndex++;
+                  const id = `${optionIdPrefix}-opt-${i}`;
+                  const selected = i === highlighted;
+                  return (
+                    <li
+                      key={m.code}
+                      id={id}
+                      role="option"
+                      aria-selected={selected}
+                      className={`species-autocomplete-option${selected ? ' is-highlighted' : ''}`}
+                      // onMouseDown (not onClick) so commit fires before the input
+                      // loses focus — prevents a visible close-then-reopen flash.
+                      onMouseDown={e => {
+                        e.preventDefault();
+                        commit(i);
+                      }}
+                      onMouseEnter={() => setHighlighted(i)}
+                    >
+                      {m.comName}
+                    </li>
+                  );
+                })}
+              </Fragment>
             );
           })}
         </ul>

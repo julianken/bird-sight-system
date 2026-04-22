@@ -295,7 +295,7 @@ describe('SpeciesAutocomplete', () => {
 
     it('grouping contract: options render under family group headers', async () => {
       const user = userEvent.setup();
-      render(
+      const { container } = render(
         <SpeciesAutocomplete
           speciesIndex={GROUPED_INDEX}
           onSelectSpecies={() => {}}
@@ -311,14 +311,15 @@ describe('SpeciesAutocomplete', () => {
       // Options are still role="option" and accessible.
       const options = within(listbox).getAllByRole('option');
       expect(options.length).toBeGreaterThan(0);
-      // Group elements present (role="group").
-      const groups = within(listbox).getAllByRole('group');
-      expect(groups.length).toBeGreaterThan(0);
+      // Group header elements present (flat-sentinel pattern: <li role="presentation">
+      // siblings of options, not wrapper containers).
+      const groupHeaders = container.querySelectorAll('.autocomplete-group-header');
+      expect(groupHeaders.length).toBeGreaterThan(0);
     });
 
     it('stable sort: groups sort by the first member taxonOrder; "Other" bucket sorts last', async () => {
       const user = userEvent.setup();
-      render(
+      const { container } = render(
         <SpeciesAutocomplete
           speciesIndex={GROUPED_INDEX}
           onSelectSpecies={() => {}}
@@ -332,12 +333,10 @@ describe('SpeciesAutocomplete', () => {
       // Groups must sort: Accipitridae (first taxonOrder 6) → Picidae (first taxonOrder 10)
       // → Other (always last).
       await user.type(input, 'oo');
-      const listbox = screen.getByRole('listbox');
-      const groups = within(listbox).getAllByRole('group');
-      // Derive the header text for each group. Each group <li role="group"> contains
-      // a <div role="presentation"> as its header; grabbing the group's accessible
-      // name via aria-labelledby points at that div, so textContent covers the label.
-      const groupLabels = groups.map(g => g.textContent ?? '');
+      // Flat-sentinel pattern: group headers are <li role="presentation" class="autocomplete-group-header">
+      // siblings of options inside the listbox. Query by class to get ordered header nodes.
+      const groupHeaders = container.querySelectorAll('.autocomplete-group-header');
+      const groupLabels = Array.from(groupHeaders).map(h => h.textContent ?? '');
 
       // Must have exactly 3 groups (Accipitridae, Picidae, Other).
       expect(groupLabels).toHaveLength(3);
@@ -355,7 +354,7 @@ describe('SpeciesAutocomplete', () => {
 
     it('fallback "Other" bucket: options with null familyCode appear in Other group', async () => {
       const user = userEvent.setup();
-      render(
+      const { container } = render(
         <SpeciesAutocomplete
           speciesIndex={GROUPED_INDEX}
           onSelectSpecies={() => {}}
@@ -365,9 +364,9 @@ describe('SpeciesAutocomplete', () => {
       // "unknown" matches only "Unknown Species" which has familyCode=null.
       await user.type(input, 'unknown');
       const listbox = screen.getByRole('listbox');
-      // Should render in an "Other" group.
-      const groups = within(listbox).getAllByRole('group');
-      const hasOtherHeader = groups.some(g => /other/i.test(g.textContent ?? ''));
+      // Flat-sentinel: group headers are <li role="presentation" class="autocomplete-group-header">.
+      const groupHeaders = container.querySelectorAll('.autocomplete-group-header');
+      const hasOtherHeader = Array.from(groupHeaders).some(h => /other/i.test(h.textContent ?? ''));
       expect(hasOtherHeader).toBe(true);
       // The option itself is still present.
       const options = within(listbox).getAllByRole('option');
@@ -377,7 +376,7 @@ describe('SpeciesAutocomplete', () => {
     it('keyboard nav skips headers — ArrowDown traverses options across group boundaries', async () => {
       const user = userEvent.setup();
       const onSelectSpecies = vi.fn();
-      render(
+      const { container } = render(
         <SpeciesAutocomplete
           speciesIndex={GROUPED_INDEX}
           onSelectSpecies={onSelectSpecies}
@@ -403,15 +402,15 @@ describe('SpeciesAutocomplete', () => {
       expect(options[0]).toHaveAttribute('aria-selected', 'true');
       expect(options[0].textContent).toMatch(/Cooper/i);
 
-      // Verify groups: first group must be Accipitridae (lower taxonOrder),
-      // second must be Picidae — confirming multi-group layout.
-      const groups = within(listbox).getAllByRole('group');
-      expect(groups.length).toBeGreaterThanOrEqual(2);
-      expect(groups[0].textContent).toMatch(/Accipitridae/i);
-      expect(groups[1].textContent).toMatch(/Picidae/i);
+      // Verify groups: flat-sentinel pattern uses <li role="presentation" class="autocomplete-group-header">.
+      // First group must be Accipitridae (lower taxonOrder), second must be Picidae.
+      const groupHeaders = container.querySelectorAll('.autocomplete-group-header');
+      expect(groupHeaders.length).toBeGreaterThanOrEqual(2);
+      expect(groupHeaders[0].textContent).toMatch(/Accipitridae/i);
+      expect(groupHeaders[1].textContent).toMatch(/Picidae/i);
 
       // ArrowDown crosses the group boundary: Accipitridae → Picidae.
-      // The group header (<div role="presentation">) must NOT receive aria-selected.
+      // The group header (<li role="presentation">) must NOT receive aria-selected.
       await user.keyboard('{ArrowDown}');
       // options[1] = Downy Woodpecker (first option in Picidae group) is now selected.
       expect(options[1]).toHaveAttribute('aria-selected', 'true');
@@ -419,9 +418,8 @@ describe('SpeciesAutocomplete', () => {
       // The previously-selected option is no longer selected.
       expect(options[0]).toHaveAttribute('aria-selected', 'false');
 
-      // Group headers are role="presentation" and must never carry aria-selected.
-      const groupHeaders = within(listbox).getAllByRole('presentation');
-      for (const header of groupHeaders) {
+      // Group headers are <li role="presentation"> and must never carry aria-selected.
+      for (const header of Array.from(groupHeaders)) {
         expect(header).not.toHaveAttribute('aria-selected');
       }
 
