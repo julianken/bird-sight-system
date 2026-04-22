@@ -28,7 +28,8 @@ export function useBirdData(
         if (cancelled) return;
         setHotspots(h);
       })
-      .catch(err => { if (!cancelled) setError(err as Error); });
+      .catch(err => { if (!cancelled) setError(err as Error); })
+      .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [client]);
 

@@ -53,4 +53,18 @@ describe('useBirdData', () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.error).toBeTruthy();
   });
+
+  it('hotspots rejection flips loading to false even when observations never resolve', async () => {
+    // Observations hang forever — only the hotspots effect can clear loading.
+    const client = makeClient({
+      getHotspots: vi.fn().mockRejectedValue(new Error('network error')),
+      getObservations: vi.fn().mockReturnValue(new Promise(() => {})),
+    } as unknown as Partial<ApiClient>);
+
+    const { result } = renderHook(() => useBirdData(client, { since: '14d', notable: false }));
+    expect(result.current.loading).toBe(true);
+    // Loading should still become false because the hotspots effect cleans up
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.error?.message).toBe('network error');
+  });
 });
