@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, fireEvent, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { SpeciesOption } from './FiltersBar.js';
 import { SpeciesAutocomplete } from './SpeciesAutocomplete.js';
@@ -100,14 +100,21 @@ describe('SpeciesAutocomplete', () => {
     );
     const input = screen.getByRole('combobox', { name: /search species/i });
     await user.type(input, 're');
-    // ArrowDown highlights the first option.
-    await user.keyboard('{ArrowDown}');
+    // Auto-highlight already selects the first option; confirm it before
+    // pressing any arrow key.
     const listbox = screen.getByRole('listbox');
     const firstOption = within(listbox).getAllByRole('option')[0];
     expect(firstOption).toHaveAttribute('aria-selected', 'true');
-    // aria-activedescendant on the input points at the highlighted option.
+    // aria-activedescendant on the input points at the auto-highlighted option.
     expect(input.getAttribute('aria-activedescendant')).toBe(firstOption.id);
-    // Enter commits the highlighted option.
+    // ArrowDown advances from the first option to the second.
+    await user.keyboard('{ArrowDown}');
+    const secondOption = within(listbox).getAllByRole('option')[1];
+    expect(secondOption).toHaveAttribute('aria-selected', 'true');
+    // ArrowUp returns to the first option.
+    await user.keyboard('{ArrowUp}');
+    expect(firstOption).toHaveAttribute('aria-selected', 'true');
+    // Enter commits the highlighted option (back on first = Red-tailed Hawk).
     await user.keyboard('{Enter}');
     expect(onSelectSpecies).toHaveBeenCalledTimes(1);
     // The first option after typing "re" is the prefix-matched Red-tailed Hawk.
@@ -126,8 +133,9 @@ describe('SpeciesAutocomplete', () => {
     await user.type(input, 'e'); // broad match
     const options = within(screen.getByRole('listbox')).getAllByRole('option');
     expect(options.length).toBeGreaterThan(1);
-    // Walk past the end — wraps.
-    for (let i = 0; i < options.length + 1; i++) {
+    // Auto-highlight starts at 0; walk from 0 past the end — wraps back to 0.
+    // That takes options.length presses (0→1→…→last→0).
+    for (let i = 0; i < options.length; i++) {
       await user.keyboard('{ArrowDown}');
     }
     expect(options[0]).toHaveAttribute('aria-selected', 'true');
@@ -188,6 +196,88 @@ describe('SpeciesAutocomplete', () => {
     // No listbox when zero matches — but a visible "No matches" status.
     expect(screen.queryByRole('listbox')).toBeNull();
     expect(screen.getByText(/No matches/i)).toBeInTheDocument();
+  });
+
+  it('auto-highlights the first option (aria-selected="true") when matches first appear', async () => {
+    const user = userEvent.setup();
+    render(
+      <SpeciesAutocomplete
+        speciesIndex={SPECIES_INDEX}
+        onSelectSpecies={() => {}}
+      />
+    );
+    const input = screen.getByRole('combobox', { name: /search species/i });
+    await user.type(input, 'wren');
+    const listbox = screen.getByRole('listbox');
+    const options = within(listbox).getAllByRole('option');
+    // First option must be auto-highlighted without any arrow-key navigation.
+    expect(options[0]).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('Enter with no prior arrow-key nav commits the first option', async () => {
+    const onSelectSpecies = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <SpeciesAutocomplete
+        speciesIndex={SPECIES_INDEX}
+        onSelectSpecies={onSelectSpecies}
+      />
+    );
+    const input = screen.getByRole('combobox', { name: /search species/i });
+    await user.type(input, 'wren');
+    // Press Enter immediately — no ArrowDown/ArrowUp.
+    await user.keyboard('{Enter}');
+    expect(onSelectSpecies).toHaveBeenCalledTimes(1);
+    expect(onSelectSpecies).toHaveBeenCalledWith('cacwre');
+  });
+
+  it('Enter commits first match when highlighted is stale/out-of-bounds after match list narrows', async () => {
+    // Reproduces the race: user ArrowDowns to index 3 while 4 matches are
+    // shown, then a narrowing keystroke shrinks matches to 2. The useEffect
+    // that clamps highlighted hasn't flushed yet when Enter fires. Without the
+    // fix, highlighted=3 is out-of-bounds for the new matches list and Enter
+    // is a no-op.
+    const onSelectSpecies = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <SpeciesAutocomplete
+        speciesIndex={SPECIES_INDEX}
+        onSelectSpecies={onSelectSpecies}
+      />
+    );
+    const input = screen.getByRole('combobox', { name: /search species/i }) as HTMLInputElement;
+
+    // Type "e" → 4 substring matches sorted by comName:
+    // [0] Cactus Wren, [1] Great Blue Heron, [2] Red-tailed Hawk, [3] Vermilion Flycatcher
+    // ("e" is a substring in all four; none start with "e" so all rank=1).
+    await user.type(input, 'e');
+    const listbox = screen.getByRole('listbox');
+    expect(within(listbox).getAllByRole('option')).toHaveLength(4);
+
+    // ArrowDown × 3: highlighted advances 0 → 1 → 2 → 3 (Vermilion Flycatcher).
+    await user.keyboard('{ArrowDown}');
+    await user.keyboard('{ArrowDown}');
+    await user.keyboard('{ArrowDown}');
+    expect(within(listbox).getAllByRole('option')[3]).toHaveAttribute('aria-selected', 'true');
+
+    // Simulate the stale-highlighted race by batching both events inside a
+    // synchronous act() call. Inside act, React re-renders synchronously after
+    // fireEvent.change (useMemo recomputes matches to length 2) but defers
+    // useEffect until act exits. fireEvent.keyDown therefore executes with
+    // highlighted=3 (stale) against matches.length=2 — exactly the state the
+    // bug was filed against.
+    act(() => {
+      fireEvent.change(input, { target: { value: 'er' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+    });
+
+    // Without the fix: Enter is a no-op (highlighted=3, matches[3]=undefined,
+    // neither branch triggers). With the fix: falls through to the
+    // !matches[highlighted] branch and commits matches[0].
+    // "er" matches Great Blue Heron (gbher3) and Vermilion Flycatcher (vermfly),
+    // sorted by comName → matches[0] = Great Blue Heron.
+    expect(onSelectSpecies).toHaveBeenCalledTimes(1);
+    expect(onSelectSpecies).toHaveBeenCalledWith('gbher3');
   });
 
   describe('dropdown positioning', () => {
