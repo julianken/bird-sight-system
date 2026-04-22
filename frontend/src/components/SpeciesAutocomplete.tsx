@@ -89,11 +89,13 @@ export function SpeciesAutocomplete(props: SpeciesAutocompleteProps) {
 
   const matches = useMemo(() => rankMatches(query, speciesIndex), [query, speciesIndex]);
 
-  // Reset the highlight whenever the match list shape changes so ArrowDown
-  // always starts at the first result again after a keystroke.
+  // Auto-highlight the first option whenever the match list goes from empty →
+  // non-empty so Enter always commits something (WAI-ARIA APG "list
+  // autocomplete with automatic selection" variant). When the list is empty
+  // (no matches, or the query was cleared) reset to -1 as before.
   useEffect(() => {
-    setHighlighted(-1);
-  }, [query]);
+    setHighlighted(matches.length > 0 ? 0 : -1);
+  }, [query, matches.length]);
 
   // Recalculate dropdown position on every query change that keeps the
   // listbox open. `useLayoutEffect` runs before paint so the flip happens
@@ -158,6 +160,11 @@ export function SpeciesAutocomplete(props: SpeciesAutocompleteProps) {
       if (highlighted >= 0 && matches[highlighted]) {
         event.preventDefault();
         commit(highlighted);
+      } else if (highlighted < 0 && matches.length > 0) {
+        // Belt-and-braces: effect hasn't flushed yet but matches exist.
+        // Commit the first match so Enter is never a no-op when results show.
+        event.preventDefault();
+        commit(0);
       }
       return;
     }

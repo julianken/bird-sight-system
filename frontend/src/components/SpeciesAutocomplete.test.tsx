@@ -100,14 +100,21 @@ describe('SpeciesAutocomplete', () => {
     );
     const input = screen.getByRole('combobox', { name: /search species/i });
     await user.type(input, 're');
-    // ArrowDown highlights the first option.
-    await user.keyboard('{ArrowDown}');
+    // Auto-highlight already selects the first option; confirm it before
+    // pressing any arrow key.
     const listbox = screen.getByRole('listbox');
     const firstOption = within(listbox).getAllByRole('option')[0];
     expect(firstOption).toHaveAttribute('aria-selected', 'true');
-    // aria-activedescendant on the input points at the highlighted option.
+    // aria-activedescendant on the input points at the auto-highlighted option.
     expect(input.getAttribute('aria-activedescendant')).toBe(firstOption.id);
-    // Enter commits the highlighted option.
+    // ArrowDown advances from the first option to the second.
+    await user.keyboard('{ArrowDown}');
+    const secondOption = within(listbox).getAllByRole('option')[1];
+    expect(secondOption).toHaveAttribute('aria-selected', 'true');
+    // ArrowUp returns to the first option.
+    await user.keyboard('{ArrowUp}');
+    expect(firstOption).toHaveAttribute('aria-selected', 'true');
+    // Enter commits the highlighted option (back on first = Red-tailed Hawk).
     await user.keyboard('{Enter}');
     expect(onSelectSpecies).toHaveBeenCalledTimes(1);
     // The first option after typing "re" is the prefix-matched Red-tailed Hawk.
@@ -126,8 +133,9 @@ describe('SpeciesAutocomplete', () => {
     await user.type(input, 'e'); // broad match
     const options = within(screen.getByRole('listbox')).getAllByRole('option');
     expect(options.length).toBeGreaterThan(1);
-    // Walk past the end — wraps.
-    for (let i = 0; i < options.length + 1; i++) {
+    // Auto-highlight starts at 0; walk from 0 past the end — wraps back to 0.
+    // That takes options.length presses (0→1→…→last→0).
+    for (let i = 0; i < options.length; i++) {
       await user.keyboard('{ArrowDown}');
     }
     expect(options[0]).toHaveAttribute('aria-selected', 'true');
@@ -188,6 +196,39 @@ describe('SpeciesAutocomplete', () => {
     // No listbox when zero matches — but a visible "No matches" status.
     expect(screen.queryByRole('listbox')).toBeNull();
     expect(screen.getByText(/No matches/i)).toBeInTheDocument();
+  });
+
+  it('auto-highlights the first option (aria-selected="true") when matches first appear', async () => {
+    const user = userEvent.setup();
+    render(
+      <SpeciesAutocomplete
+        speciesIndex={SPECIES_INDEX}
+        onSelectSpecies={() => {}}
+      />
+    );
+    const input = screen.getByRole('combobox', { name: /search species/i });
+    await user.type(input, 'wren');
+    const listbox = screen.getByRole('listbox');
+    const options = within(listbox).getAllByRole('option');
+    // First option must be auto-highlighted without any arrow-key navigation.
+    expect(options[0]).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('Enter with no prior arrow-key nav commits the first option', async () => {
+    const onSelectSpecies = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <SpeciesAutocomplete
+        speciesIndex={SPECIES_INDEX}
+        onSelectSpecies={onSelectSpecies}
+      />
+    );
+    const input = screen.getByRole('combobox', { name: /search species/i });
+    await user.type(input, 'wren');
+    // Press Enter immediately — no ArrowDown/ArrowUp.
+    await user.keyboard('{Enter}');
+    expect(onSelectSpecies).toHaveBeenCalledTimes(1);
+    expect(onSelectSpecies).toHaveBeenCalledWith('cacwre');
   });
 
   describe('dropdown positioning', () => {
