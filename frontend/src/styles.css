@@ -18,14 +18,60 @@
   --dur-slow: 350ms;
 
   --shadow-panel: -2px 0 12px rgba(0, 0, 0, var(--opacity-subtle));
+
+  /* ── Colour tokens ──────────────────────────────────────────────────────
+     Semantic names; replace hex literals throughout the file so palette
+     changes flow from one place. Values are identical to the literals
+     they replace — this is indirection only, not a redesign.           */
+
+  /* Backgrounds */
+  --color-bg-page:      #f4f1ea; /* warm cream page background            */
+  --color-bg-surface:   #fff;    /* white card / panel / input surface     */
+  --color-bg-hover:     #fbf8f0; /* subtle hover on white surfaces         */
+  --color-bg-tint:      #f0ebe0; /* stronger warm tint — highlight, chips  */
+  --color-bg-stale:     #faf7ee; /* stale-row background (retreats to page)*/
+  --color-bg-stale-chip:#efeadd; /* stale count-chip background            */
+
+  /* Notable / amber accent */
+  --color-accent-notable-bg:       #fff8e1; /* soft amber notable row bg   */
+  --color-accent-notable-bg-hover: #fff3c4; /* hover on notable row        */
+  --color-accent-notable-fg:       #b8860b; /* dark amber stripe / badge   */
+
+  /* Migration banner (warm brown) */
+  --color-banner-bg:     #fff8e1; /* reuses notable amber bg               */
+  --color-banner-border: #ffe082; /* amber border                          */
+  --color-banner-text:   #5d4037; /* warm brown text                       */
+  --color-banner-hover:  #ffecb3; /* dismiss button hover                  */
+
+  /* Borders */
+  --color-border-subtle:   #e6e1d2; /* row dividers                        */
+  --color-border-ui:       #d8d3c3; /* panel edges, inputs, selects        */
+
+  /* Text — grey scale (semantic roles) */
+  --color-text-strong:  #1a1a1a; /* headings, labels, active tab, focus    */
+  --color-text-body:    #444;    /* secondary / supporting text            */
+  --color-text-muted:   #555;    /* tertiary text, empty-state, coords     */
+  --color-text-subtle:  #5c5c5c; /* timestamps (AA at 12px)                */
+  --color-text-faint:   #666;    /* unknown-count text (AA 5.74:1)         */
+  --color-text-stale:   #6b6b6b; /* stale-row body text                    */
+  /* Same hex as --color-text-subtle by design; kept separate because the
+     background differs (cream vs white) — palette edits must tune each
+     against its own AA contrast target, so don't collapse the two. */
+  --color-text-stale-name: #5c5c5c; /* stale row name (AA on stale bg)     */
+  --color-text-white:   #fff;    /* text on dark / coloured backgrounds    */
+
+  /* Error / destructive */
+  --color-error-bg:     #fdecec; /* error message background               */
+  --color-error-border: #d48e8e; /* error message border                   */
+  --color-error-text:   #8a1f1f; /* error message text                     */
 }
 
 *, *::before, *::after { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, sans-serif;
-  background: #f4f1ea;
-  color: #1a1a1a;
+  background: var(--color-bg-page);
+  color: var(--color-text-strong);
 }
 
 .app {
@@ -72,7 +118,7 @@ body {
   gap: var(--space-lg);
   padding: var(--space-sm) var(--space-md);
   font-size: 13px;
-  color: #1a1a1a;
+  color: var(--color-text-strong);
 }
 .feed-sort-option {
   display: inline-flex;
@@ -81,7 +127,7 @@ body {
   cursor: pointer;
 }
 .feed-sort-option input[type="radio"] {
-  accent-color: #1a1a1a;
+  accent-color: var(--color-text-strong);
 }
 .feed-row-item {
   /* Each feed row is a <li><button/></li> — the <li> keeps listitem
@@ -98,19 +144,19 @@ body {
   width: 100%;
   padding: var(--space-sm) var(--space-md);
   border: none;
-  border-bottom: 1px solid #e6e1d2;
+  border-bottom: 1px solid var(--color-border-subtle);
   cursor: pointer;
-  background: #fff;
+  background: var(--color-bg-surface);
   color: inherit;
   font: inherit;
   text-align: left;
   appearance: none;
 }
 .feed-row:hover {
-  background: #fbf8f0;
+  background: var(--color-bg-hover);
 }
 .feed-row:focus-visible {
-  outline: 2px solid #1a1a1a;
+  outline: 2px solid var(--color-text-strong);
   outline-offset: -2px;
 }
 /* Row-level notable marker. Background is a soft amber that reads as
@@ -118,11 +164,11 @@ body {
    left stripe is the accent so a dense notable-only feed still has a clean
    left edge. */
 .feed-row-notable {
-  background: #fff8e1;
-  border-left: 3px solid #b8860b;
+  background: var(--color-accent-notable-bg);
+  border-left: 3px solid var(--color-accent-notable-fg);
 }
 .feed-row-notable:hover {
-  background: #fff3c4;
+  background: var(--color-accent-notable-bg-hover);
 }
 .feed-row-badge {
   flex-shrink: 0;
@@ -132,8 +178,8 @@ body {
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: #b8860b;
-  color: #fff;
+  background: var(--color-accent-notable-fg);
+  color: var(--color-text-white);
   font-size: 12px;
   font-weight: 700;
   line-height: 1;
@@ -143,7 +189,7 @@ body {
   min-width: 0;
   font-weight: 600;
   font-size: 14px;
-  color: #1a1a1a;
+  color: var(--color-text-strong);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -152,8 +198,8 @@ body {
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
   font-size: 13px;
-  color: #444;
-  background: #f0ebe0;
+  color: var(--color-text-body);
+  background: var(--color-bg-tint);
   padding: 2px 6px;
   border-radius: 10px;
 }
@@ -163,14 +209,14 @@ body {
      Intentionally darker than the visual-only #888 placeholder that axe
      flagged at 3.5:1 — color-contrast is a serious-impact blocker for
      the whole axe.spec.ts WCAG scan. */
-  color: #666;
+  color: var(--color-text-faint);
 }
 .feed-row-loc {
   flex-shrink: 1;
   min-width: 0;
   font-size: 13px;
   /* #555 on #fff = 7.46:1 — well clear of 4.5:1. */
-  color: #555;
+  color: var(--color-text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -180,13 +226,13 @@ body {
   font-size: 12px;
   /* #5c5c5c on #fff = 6.86:1 — passes AA for 12px normal weight. #777
      (the first draft) failed at 4.47:1. Do NOT lighten this back. */
-  color: #5c5c5c;
+  color: var(--color-text-subtle);
   font-variant-numeric: tabular-nums;
 }
 .feed-empty {
   padding: var(--space-xl);
   text-align: center;
-  color: #555;
+  color: var(--color-text-muted);
   font-size: 14px;
   max-width: 480px;
   margin-inline: auto;
@@ -209,14 +255,14 @@ body {
   box-sizing: border-box;
   padding: 10px 14px;
   font-size: 15px;
-  border: 1px solid #d8d3c3;
+  border: 1px solid var(--color-border-ui);
   border-radius: 6px;
-  background: #fff;
-  color: #1a1a1a;
+  background: var(--color-bg-surface);
+  color: var(--color-text-strong);
   appearance: none;
 }
 .species-autocomplete-input:focus-visible {
-  outline: 2px solid #1a1a1a;
+  outline: 2px solid var(--color-text-strong);
   outline-offset: -2px;
 }
 /* Listbox is absolutely positioned relative to the wrapper. Default sits
@@ -229,8 +275,8 @@ body {
   position: absolute;
   left: 0;
   right: 0;
-  background: #fff;
-  border: 1px solid #d8d3c3;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-ui);
   border-radius: 6px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, var(--opacity-subtle));
   max-height: 280px;
@@ -248,13 +294,13 @@ body {
 .species-autocomplete-option {
   padding: 8px 14px;
   font-size: 14px;
-  color: #1a1a1a;
+  color: var(--color-text-strong);
   cursor: pointer;
   line-height: 1.3;
 }
 .species-autocomplete-option.is-highlighted,
 .species-autocomplete-option:hover {
-  background: #f0ebe0;
+  background: var(--color-bg-tint);
 }
 .species-autocomplete-no-matches {
   position: absolute;
@@ -262,17 +308,17 @@ body {
   right: 0;
   top: calc(100% + 4px);
   padding: 10px 14px;
-  background: #fff;
-  border: 1px solid #d8d3c3;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-ui);
   border-radius: 6px;
-  color: #555;
+  color: var(--color-text-muted);
   font-size: 13px;
 }
 .species-search-prompt,
 .species-search-empty {
   padding: var(--space-xl) var(--space-lg);
   text-align: center;
-  color: #555;
+  color: var(--color-text-muted);
   font-size: 14px;
   margin: 0;
 }
@@ -284,10 +330,10 @@ body {
   align-items: center;
   gap: var(--space-md);
   padding: var(--space-sm) var(--space-lg);
-  background: #fff8e1;
-  border-bottom: 1px solid #ffe082;
+  background: var(--color-banner-bg);
+  border-bottom: 1px solid var(--color-banner-border);
   font-size: 13px;
-  color: #5d4037;
+  color: var(--color-banner-text);
 }
 .migration-banner-text {
   flex: 1;
@@ -300,21 +346,21 @@ body {
   font-size: 20px;
   line-height: 1;
   cursor: pointer;
-  color: #5d4037;
+  color: var(--color-banner-text);
   border-radius: 4px;
   padding: 2px 6px;
 }
 .migration-banner-dismiss:hover,
 .migration-banner-dismiss:focus-visible {
-  background: #ffecb3;
+  background: var(--color-banner-hover);
 }
 
 .filters-bar {
   display: flex;
   gap: var(--space-lg);
   padding: var(--space-md) var(--space-lg);
-  background: #fff;
-  border-bottom: 1px solid #d8d3c3;
+  background: var(--color-bg-surface);
+  border-bottom: 1px solid var(--color-border-ui);
   align-items: center;
   flex-wrap: wrap;
 }
@@ -329,8 +375,8 @@ body {
   display: flex;
   gap: var(--space-xs);
   padding: var(--space-sm) var(--space-lg);
-  background: #fff;
-  border-bottom: 1px solid #d8d3c3;
+  background: var(--color-bg-surface);
+  border-bottom: 1px solid var(--color-border-ui);
 }
 .surface-nav-tab {
   appearance: none;
@@ -340,19 +386,19 @@ body {
   padding: 6px 14px;
   font: inherit;
   font-size: 13px;
-  color: #1a1a1a;
+  color: var(--color-text-strong);
   cursor: pointer;
   line-height: 1.2;
 }
-.surface-nav-tab:hover { background: #f0ebe0; }
+.surface-nav-tab:hover { background: var(--color-bg-tint); }
 .surface-nav-tab:focus-visible {
-  outline: 2px solid #1a1a1a;
+  outline: 2px solid var(--color-text-strong);
   outline-offset: 2px;
 }
 .surface-nav-tab.is-active {
-  background: #1a1a1a;
-  color: #fff;
-  border-color: #1a1a1a;
+  background: var(--color-text-strong);
+  color: var(--color-text-white);
+  border-color: var(--color-text-strong);
 }
 
 /* Species detail panel (issue #56, reworked for responsive layout in #115).
@@ -379,8 +425,8 @@ body {
   top: 0;
   right: 0;
   height: 100vh;
-  background: #fff;
-  border-left: 1px solid #d8d3c3;
+  background: var(--color-bg-surface);
+  border-left: 1px solid var(--color-border-ui);
   box-shadow: var(--shadow-panel);
   padding: var(--space-xl) 20px var(--space-lg) 20px;
   overflow-y: auto;
@@ -405,7 +451,7 @@ body {
   height: auto;
   max-height: 85vh;
   border-left: none;
-  border-top: 1px solid #d8d3c3;
+  border-top: 1px solid var(--color-border-ui);
   box-shadow: 0 -2px 12px rgba(0, 0, 0, var(--opacity-subtle));
   border-top-left-radius: 12px;
   border-top-right-radius: 12px;
@@ -433,12 +479,12 @@ body {
   font-size: 24px;
   line-height: 1;
   cursor: pointer;
-  color: #1a1a1a;
+  color: var(--color-text-strong);
   border-radius: 4px;
 }
 .species-panel-close:hover,
 .species-panel-close:focus-visible {
-  background: #f0ebe0;
+  background: var(--color-bg-tint);
 }
 .species-panel-body { margin-top: var(--space-sm); }
 .species-panel-common-name {
@@ -449,21 +495,21 @@ body {
 .species-panel-sci-name {
   margin: 0 0 12px 0;
   font-size: 14px;
-  color: #555;
+  color: var(--color-text-muted);
 }
 .species-panel-family {
   margin: 0;
   font-size: 13px;
-  color: #444;
+  color: var(--color-text-body);
 }
-.species-panel-loading { color: #555; font-size: 13px; margin: 8px 0 0 0; }
+.species-panel-loading { color: var(--color-text-muted); font-size: 13px; margin: 8px 0 0 0; }
 .species-panel-error {
   margin-top: 8px;
   padding: 8px 12px;
-  background: #fdecec;
-  border: 1px solid #d48e8e;
+  background: var(--color-error-bg);
+  border: 1px solid var(--color-error-border);
   border-radius: 4px;
-  color: #8a1f1f;
+  color: var(--color-error-text);
   font-size: 13px;
 }
 /* sr-only heading used as aria-labelledby target while data is loading. */
@@ -495,18 +541,18 @@ body {
 .hotspot-list-sort {
   appearance: none;
   background: transparent;
-  border: 1px solid #d8d3c3;
+  border: 1px solid var(--color-border-ui);
   border-radius: 4px;
   padding: 6px 12px;
   font: inherit;
   font-size: 13px;
-  color: #1a1a1a;
+  color: var(--color-text-strong);
   cursor: pointer;
   line-height: 1.2;
 }
-.hotspot-list-sort:hover { background: #f0ebe0; }
+.hotspot-list-sort:hover { background: var(--color-bg-tint); }
 .hotspot-list-sort:focus-visible {
-  outline: 2px solid #1a1a1a;
+  outline: 2px solid var(--color-text-strong);
   outline-offset: 2px;
 }
 .hotspot-list {
@@ -531,8 +577,8 @@ body {
   min-height: 44px;
   width: 100%;
   padding: var(--space-sm) var(--space-md);
-  border-bottom: 1px solid #e6e1d2;
-  background: #fff;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-surface);
   color: inherit;
   font: inherit;
   text-align: left;
@@ -542,7 +588,7 @@ body {
   min-width: 0;
   font-weight: 600;
   font-size: 14px;
-  color: #1a1a1a;
+  color: var(--color-text-strong);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -551,8 +597,8 @@ body {
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
   font-size: 13px;
-  color: #444;
-  background: #f0ebe0;
+  color: var(--color-text-body);
+  background: var(--color-bg-tint);
   padding: 2px 6px;
   border-radius: 10px;
 }
@@ -563,7 +609,7 @@ body {
   flex: 1 1 100%;
   font-size: 12px;
   /* #555 on #fff = 7.46:1 — well clear of WCAG AA 4.5:1 for normal text. */
-  color: #555;
+  color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.01em;
 }
@@ -572,7 +618,7 @@ body {
   margin-left: auto;
   font-size: 12px;
   /* #5c5c5c on #fff = 6.86:1 — passes AA for 12px. Matches feed-row-time. */
-  color: #5c5c5c;
+  color: var(--color-text-subtle);
   font-variant-numeric: tabular-nums;
 }
 /* Stale de-emphasis: null latestObsDt OR age > 30d. Lower contrast is
@@ -580,23 +626,23 @@ body {
    toward the cream page color so stale rows retreat behind fresh ones
    but stay legible at WCAG AA large-text (3:1). */
 .hotspot-row-stale {
-  background: #faf7ee;
-  color: #6b6b6b;
+  background: var(--color-bg-stale);
+  color: var(--color-text-stale);
 }
 .hotspot-row-stale .hotspot-row-name {
   /* #5c5c5c on #faf7ee ≈ 6.8:1, still AA. Avoids feeding the row back
      into the fresh palette. */
-  color: #5c5c5c;
+  color: var(--color-text-stale-name);
   font-weight: 500;
 }
 .hotspot-row-stale .hotspot-row-count {
-  background: #efeadd;
-  color: #555;
+  background: var(--color-bg-stale-chip);
+  color: var(--color-text-muted);
 }
 .hotspot-list-empty {
   padding: var(--space-xl);
   text-align: center;
-  color: #555;
+  color: var(--color-text-muted);
   font-size: 14px;
   max-width: 480px;
   margin-inline: auto;
