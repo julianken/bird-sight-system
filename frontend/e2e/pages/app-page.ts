@@ -19,9 +19,8 @@ export class AppPage {
   /**
    * Wait for the app to finish its initial data load. The `<main>`
    * landmark flips `data-render-complete="true"` once `useBirdData`'s
-   * `loading` settles to `false` and `observations` is no longer
-   * null. Replaces the legacy `[data-region-id]` count=9 gate that
-   * disappeared when the map chain was deleted in #113.
+   * `loading` settles to `false`. Replaces the legacy `[data-region-id]`
+   * count=9 gate that disappeared when the map chain was deleted in #113.
    */
   async waitForAppReady(timeout = 10_000) {
     await this.page
