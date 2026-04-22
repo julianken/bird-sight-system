@@ -54,6 +54,9 @@
   --color-text-subtle:  #5c5c5c; /* timestamps (AA at 12px)                */
   --color-text-faint:   #666;    /* unknown-count text (AA 5.74:1)         */
   --color-text-stale:   #6b6b6b; /* stale-row body text                    */
+  /* Same hex as --color-text-subtle by design; kept separate because the
+     background differs (cream vs white) — palette edits must tune each
+     against its own AA contrast target, so don't collapse the two. */
   --color-text-stale-name: #5c5c5c; /* stale row name (AA on stale bg)     */
   --color-text-white:   #fff;    /* text on dark / coloured backgrounds    */
 
