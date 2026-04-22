@@ -34,6 +34,24 @@ describe('ApiClient', () => {
   it('throws on non-2xx response', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValue(new Response('boom', { status: 500 }));
     const client = new ApiClient({ baseUrl: '' });
-    await expect(client.getRegions()).rejects.toThrow(/500/);
+    await expect(client.getRegions()).rejects.toThrow('Something went wrong');
+  });
+
+  it('ApiError exposes status and body but uses a friendly user-facing message', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue(
+      new Response('internal database pool exhausted', { status: 503 })
+    );
+    const client = new ApiClient({ baseUrl: '' });
+    try {
+      await client.getRegions();
+      expect.fail('should have thrown');
+    } catch (err) {
+      const apiErr = err as import('./client.js').ApiError;
+      // Friendly message for UI consumption — no raw body
+      expect(apiErr.message).toBe('Something went wrong — please try again');
+      // Structured fields preserved for logging / debugging
+      expect(apiErr.status).toBe(503);
+      expect(apiErr.body).toBe('internal database pool exhausted');
+    }
   });
 });

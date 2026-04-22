@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useRef } from 'react';
-import { ApiClient } from './api/client.js';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { ApiClient, ApiError } from './api/client.js';
 import { useUrlState, readMigrationFlag } from './state/url-state.js';
 import { useBirdData } from './data/use-bird-data.js';
 import { FiltersBar } from './components/FiltersBar.js';
@@ -32,6 +32,16 @@ export function App() {
     (speciesCode: string) => set({ speciesCode }),
     [set]
   );
+
+  // Log raw error details for debugging; show only a friendly message in UI.
+  useEffect(() => {
+    if (!error) return;
+    if (error instanceof ApiError) {
+      console.error(`API error ${error.status}: ${error.body}`);
+    } else {
+      console.error(error);
+    }
+  }, [error]);
 
   if (error) {
     return (
