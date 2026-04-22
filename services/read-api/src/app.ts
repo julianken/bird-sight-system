@@ -45,6 +45,20 @@ export function createApp(deps: AppDeps): Hono {
   // below ~20 KB on the wire — load-bearing for mobile on slow-LTE. See #108.
   app.use('*', compress());
 
+  // Tell downstream caches (CloudFlare CDN, browser caches) that the response
+  // body may differ depending on the client's Accept-Encoding value.  Without
+  // this header, a cache keyed only by URL could serve a gzip-encoded body to
+  // a client that never negotiated gzip.  Unconditional is correct per HTTP
+  // semantics: even a response that happened to fall below the compression
+  // threshold (and thus wasn't gzipped) could have been, so the cache must
+  // treat Accept-Encoding as a cache dimension.  Uses append:true so any
+  // existing Vary value (e.g. "Origin" from CORS) is comma-merged, not
+  // replaced.  Closes #143.
+  app.use('*', async (c, next) => {
+    await next();
+    c.header('Vary', 'Accept-Encoding', { append: true });
+  });
+
   app.get('/health', c => c.json({ ok: true }));
 
   app.get('/api/regions', async c => {

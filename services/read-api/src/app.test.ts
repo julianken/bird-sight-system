@@ -179,6 +179,21 @@ describe('gzip compression middleware', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('content-encoding')).toBeNull();
   });
+
+  it('sets Vary: Accept-Encoding on a gzipped response', async () => {
+    // Caches (CloudFlare CDN, browser caches) must vary their stored entry
+    // by Accept-Encoding so they never serve a gzip body to a client that
+    // didn't negotiate it.  See #143.
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/observations?since=30d', {
+      headers: { 'Accept-Encoding': 'gzip' },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-encoding')).toBe('gzip');
+    expect(
+      res.headers.get('vary')?.toLowerCase().includes('accept-encoding'),
+    ).toBe(true);
+  });
 });
 
 describe('CORS middleware', () => {
