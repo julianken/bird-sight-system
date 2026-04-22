@@ -1,4 +1,3 @@
-import { useCallback } from 'react';
 import type { Observation } from '@bird-watch/shared-types';
 import { ObservationFeedRow } from './ObservationFeedRow.js';
 import { SpeciesAutocomplete } from './SpeciesAutocomplete.js';
@@ -35,8 +34,7 @@ const ROW_NOOP: (speciesCode: string) => void = () => {};
  *     The feed reacts, the URL sets `?species=`, but the user stays on
  *     the feed surface.
  *   - `SpeciesAutocomplete` here is NAVIGATION. Committing a species sets
- *     `?species=` which opens `SpeciesPanel`; the recent-sightings list
- *     below becomes the context for that species's panel.
+ *     `?detail=` + `?view=detail` which opens the SpeciesDetailSurface.
  *
  * Clicking a row in the recent-sightings list intentionally does NOT
  * re-open the panel (panel is already open for the same species). The
@@ -47,14 +45,6 @@ const ROW_NOOP: (speciesCode: string) => void = () => {};
 export function SpeciesSearchSurface(props: SpeciesSearchSurfaceProps) {
   const { loading, speciesCode, observations, speciesIndex, now, onSelectSpecies, onClearSpecies } = props;
 
-  // Stable row callback. ObservationFeedRow is React.memo'd and its prop
-  // identity matters; ROW_NOOP is module-scoped so a rerender never
-  // invalidates the memo. Click intentionally does nothing — the panel is
-  // already open for this species, so a row click would just flash it.
-  const handleSearchStart = useCallback(() => {
-    if (speciesCode !== null) onClearSpecies();
-  }, [speciesCode, onClearSpecies]);
-
   const filtered = speciesCode
     ? observations.filter(o => o.speciesCode === speciesCode)
     : [];
@@ -64,7 +54,6 @@ export function SpeciesSearchSurface(props: SpeciesSearchSurfaceProps) {
       <SpeciesAutocomplete
         speciesIndex={speciesIndex}
         onSelectSpecies={onSelectSpecies}
-        onSearchStart={handleSearchStart}
       />
 
       {speciesCode === null && (

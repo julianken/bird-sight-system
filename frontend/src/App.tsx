@@ -6,7 +6,7 @@ import { FiltersBar } from './components/FiltersBar.js';
 import { FeedSurface } from './components/FeedSurface.js';
 import { HotspotListSurface } from './components/HotspotListSurface.js';
 import { SpeciesSearchSurface } from './components/SpeciesSearchSurface.js';
-import { SpeciesPanel } from './components/SpeciesPanel.js';
+import { SpeciesDetailSurface } from './components/SpeciesDetailSurface.js';
 import { SurfaceNav } from './components/SurfaceNav.js';
 import { MigrationBanner } from './components/MigrationBanner.js';
 import { deriveFamilies, deriveSpeciesIndex } from './derived.js';
@@ -29,7 +29,7 @@ export function App() {
   const now = nowRef.current;
 
   const onSelectSpecies = useCallback(
-    (speciesCode: string) => set({ speciesCode }),
+    (speciesCode: string) => set({ detail: speciesCode, view: 'detail' }),
     [set]
   );
 
@@ -103,12 +103,13 @@ export function App() {
             onClearSpecies={() => set({ speciesCode: null })}
           />
         )}
+        {state.view === 'detail' && state.detail && (
+          <SpeciesDetailSurface
+            speciesCode={state.detail}
+            apiClient={apiClient}
+          />
+        )}
       </main>
-      <SpeciesPanel
-        speciesCode={state.speciesCode}
-        onDismiss={() => set({ speciesCode: null })}
-        apiClient={apiClient}
-      />
     </div>
   );
 }

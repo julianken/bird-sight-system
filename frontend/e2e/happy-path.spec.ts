@@ -81,23 +81,19 @@ test.describe('Path A happy path', () => {
     }
   });
 
-  test('species deep link cold-loads to search surface with panel open', async ({ page, apiStub }) => {
-    // Stub species detail so the panel has deterministic content even if
-    // the seeded `species_meta` table is missing `vermfly`.
-    await apiStub.stubSpecies('vermfly', VERMFLY);
+  test('species deep link cold-loads to search surface with filter active', async ({ page }) => {
     const app = new AppPage(page);
     await app.goto('species=vermfly');
     await app.waitForAppReady();
 
     // readUrl() sniffs `?species=` (no explicit `?view=`) to `view=species`
-    // — see state/url-state.ts. The Species SurfaceNav tab must be
-    // selected on cold load.
+    // — see state/url-state.ts. Bookmark compat: lands on species surface
+    // with the filter active, NOT the detail surface.
     const speciesTab = page.getByRole('tab', { name: 'Species view' });
     await expect(speciesTab).toHaveAttribute('aria-selected', 'true');
 
-    // SpeciesPanel mounts when `speciesCode !== null`.
-    const panel = page.getByRole('complementary');
-    await expect(panel).toBeVisible({ timeout: 10_000 });
+    // No complementary landmark (SpeciesPanel is deleted).
+    await expect(page.getByRole('complementary')).toHaveCount(0);
 
     // URL still carries ?species=vermfly (mount effect must not strip it).
     await expect
@@ -105,55 +101,37 @@ test.describe('Path A happy path', () => {
       .toBe('vermfly');
   });
 
-  test('panel opens at mobile as drawer with overlay; tap overlay dismisses', async ({ page, apiStub }) => {
+  test('detail deep link cold-loads to detail surface', async ({ page, apiStub }) => {
     await apiStub.stubSpecies('vermfly', VERMFLY);
-    await page.setViewportSize({ width: 390, height: 844 });
     const app = new AppPage(page);
-    await app.goto('species=vermfly');
+    await app.goto('detail=vermfly&view=detail');
     await app.waitForAppReady();
 
-    // `data-layout="drawer"` is driven by useMediaQuery('(max-width: 767px)').
-    const panel = page.getByRole('complementary');
-    await expect(panel).toBeVisible({ timeout: 10_000 });
-    await expect(panel).toHaveAttribute('data-layout', 'drawer');
+    // Detail surface renders species info inside main.
+    await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeVisible({ timeout: 10_000 });
 
-    // Overlay is rendered as a sibling of the aside ONLY in drawer mode.
-    const overlay = page.locator('.species-panel-overlay');
-    await expect(overlay).toBeVisible();
-
-    await overlay.click();
-
-    // Panel dismisses AND ?species= is stripped from the URL. Both
-    // assertions are load-bearing — dropping either would let a regression
-    // (e.g. setting speciesCode=null without rewriting the URL, or vice
-    // versa) slip through.
-    await expect(panel).not.toBeVisible();
-    await expect
-      .poll(() => app.getUrlParams().get('species'), { timeout: 5_000 })
-      .toBeNull();
+    // No SurfaceNav tab is selected (detail is nav-hidden).
+    const feedTab = page.getByRole('tab', { name: 'Feed view' });
+    const speciesTab = page.getByRole('tab', { name: 'Species view' });
+    const hotspotsTab = page.getByRole('tab', { name: 'Hotspots view' });
+    await expect(feedTab).toHaveAttribute('aria-selected', 'false');
+    await expect(speciesTab).toHaveAttribute('aria-selected', 'false');
+    await expect(hotspotsTab).toHaveAttribute('aria-selected', 'false');
   });
 
-  test('panel opens at desktop as sidebar without overlay; ESC dismisses', async ({ page, apiStub }) => {
+  test('feed row click opens detail surface at mobile and desktop', async ({ page, apiStub }) => {
     await apiStub.stubSpecies('vermfly', VERMFLY);
-    await page.setViewportSize({ width: 1440, height: 900 });
     const app = new AppPage(page);
-    await app.goto('species=vermfly');
+    await app.goto();
     await app.waitForAppReady();
 
-    const panel = page.getByRole('complementary');
-    await expect(panel).toBeVisible({ timeout: 10_000 });
-    await expect(panel).toHaveAttribute('data-layout', 'sidebar');
+    await expect(page.locator('.feed-row').first()).toBeVisible({ timeout: 10_000 });
+    await page.locator('.feed-row').first().click();
 
-    // No overlay on desktop — casual mouse movement must not dismiss the
-    // sidebar. Intentional asymmetry with drawer mode per #115.
-    await expect(page.locator('.species-panel-overlay')).toHaveCount(0);
-
-    // ESC is the desktop dismiss gesture. Tap-outside is deliberately
-    // unsupported on desktop and is NOT asserted here.
-    await page.keyboard.press('Escape');
-    await expect(panel).not.toBeVisible();
-    await expect
-      .poll(() => app.getUrlParams().get('species'), { timeout: 5_000 })
-      .toBeNull();
+    // Should land on the detail surface.
+    await expect.poll(() => app.getUrlParams().get('view'), { timeout: 5_000 })
+      .toBe('detail');
+    await expect.poll(() => app.getUrlParams().get('detail'), { timeout: 5_000 })
+      .toBeTruthy();
   });
 });
