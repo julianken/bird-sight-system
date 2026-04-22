@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { SpeciesOption } from './FiltersBar.js';
+import { prettyFamily } from '../derived.js';
 
 export interface SpeciesAutocompleteProps {
   speciesIndex: SpeciesOption[];
@@ -35,9 +36,14 @@ export interface SpeciesAutocompleteProps {
  *
  * Match semantics (this release): case-insensitive match against
  * `comName`. Prefix hits sort before substring hits so the most specific
- * typing intention lands first in the list. Task 10 in the plan extends
- * this with family optgroups once `deriveSpeciesIndex` carries
- * `taxonOrder`/`familyCode`.
+ * typing intention lands first in the list.
+ *
+ * Family grouping: matches are clustered by `familyCode`. Groups sort by the
+ * first member's `taxonOrder` (ascending); when absent, alphabetically by
+ * family display name. Options with no resolvable family fall into an "Other"
+ * bucket rendered last. Group headers (`role="presentation"`) are visual only —
+ * keyboard nav (ArrowDown/ArrowUp) traverses the flat option order without
+ * skipping, and `aria-activedescendant` stays anchored to option ids.
  */
 
 // Estimated max dropdown height in px — if the element would not fit below
@@ -52,11 +58,23 @@ const DROPDOWN_HEIGHT_PX = 280;
 // truncated silently — the user narrows further by typing more.
 const MAX_VISIBLE_OPTIONS = 8;
 
+const OTHER_FAMILY_CODE = '__other__';
+
 interface RankedOption extends SpeciesOption {
   /**
    * 0 = prefix match, 1 = substring match. Lower ranks render first.
    */
   rank: 0 | 1;
+}
+
+interface FamilyGroup {
+  /** Family code, or `OTHER_FAMILY_CODE` for the catch-all bucket. */
+  code: string;
+  /** Display name shown in the group header. */
+  displayName: string;
+  /** First member's taxonOrder, used for group sort (null for Other). */
+  firstTaxonOrder: number | null;
+  items: RankedOption[];
 }
 
 function rankMatches(query: string, speciesIndex: SpeciesOption[]): RankedOption[] {
@@ -78,6 +96,46 @@ function rankMatches(query: string, speciesIndex: SpeciesOption[]): RankedOption
   return out.slice(0, MAX_VISIBLE_OPTIONS);
 }
 
+/**
+ * Group ranked matches by familyCode. Groups sort by the first member's
+ * taxonOrder (ascending, nulls last). When taxonOrder is absent for both
+ * groups, fall back to alphabetical display name. The "Other" bucket always
+ * sorts last regardless.
+ *
+ * Intra-group order preserves the existing flat rank order so keyboard nav
+ * is unchanged — groups are purely visual.
+ */
+function groupMatches(matches: RankedOption[]): FamilyGroup[] {
+  const groupMap = new Map<string, FamilyGroup>();
+
+  for (const m of matches) {
+    const code = m.familyCode ?? OTHER_FAMILY_CODE;
+    if (!groupMap.has(code)) {
+      groupMap.set(code, {
+        code,
+        displayName: code === OTHER_FAMILY_CODE ? 'Other' : prettyFamily(code),
+        firstTaxonOrder: m.taxonOrder ?? null,
+        items: [],
+      });
+    }
+    groupMap.get(code)!.items.push(m);
+  }
+
+  return Array.from(groupMap.values()).sort((a, b) => {
+    // "Other" always last.
+    if (a.code === OTHER_FAMILY_CODE) return 1;
+    if (b.code === OTHER_FAMILY_CODE) return -1;
+    // Sort by first member taxonOrder (ascending, nulls last).
+    if (a.firstTaxonOrder !== null && b.firstTaxonOrder !== null) {
+      return a.firstTaxonOrder - b.firstTaxonOrder;
+    }
+    if (a.firstTaxonOrder !== null) return -1;
+    if (b.firstTaxonOrder !== null) return 1;
+    // Both null — alphabetical by display name.
+    return a.displayName.localeCompare(b.displayName);
+  });
+}
+
 export function SpeciesAutocomplete(props: SpeciesAutocompleteProps) {
   const { speciesIndex, onSelectSpecies, onSearchStart } = props;
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -86,8 +144,10 @@ export function SpeciesAutocomplete(props: SpeciesAutocompleteProps) {
   const [position, setPosition] = useState<'above' | 'below'>('below');
   const listboxId = useId();
   const optionIdPrefix = useId();
+  const groupIdPrefix = useId();
 
   const matches = useMemo(() => rankMatches(query, speciesIndex), [query, speciesIndex]);
+  const groups = useMemo(() => groupMatches(matches), [matches]);
 
   // Auto-highlight the first option whenever the match list goes from empty →
   // non-empty so Enter always commits something (WAI-ARIA APG "list
@@ -180,6 +240,11 @@ export function SpeciesAutocomplete(props: SpeciesAutocompleteProps) {
   // reader users hear it surface as they type.
   const showNoMatches = query.trim() !== '' && matches.length === 0;
 
+  // Build a flat index of each option within the groups so we can compute
+  // the global flat index for aria-activedescendant and commit(index) from
+  // the grouped render path.
+  let flatIndex = 0;
+
   return (
     <div
       className="species-autocomplete"
@@ -216,25 +281,47 @@ export function SpeciesAutocomplete(props: SpeciesAutocompleteProps) {
           className="species-autocomplete-listbox"
           aria-label="Species suggestions"
         >
-          {matches.map((m, i) => {
-            const id = `${optionIdPrefix}-opt-${i}`;
-            const selected = i === highlighted;
+          {groups.map(group => {
+            const headerId = `${groupIdPrefix}-grp-${group.code}`;
             return (
               <li
-                key={m.code}
-                id={id}
-                role="option"
-                aria-selected={selected}
-                className={`species-autocomplete-option${selected ? ' is-highlighted' : ''}`}
-                // onMouseDown (not onClick) so commit fires before the input
-                // loses focus — prevents a visible close-then-reopen flash.
-                onMouseDown={e => {
-                  e.preventDefault();
-                  commit(i);
-                }}
-                onMouseEnter={() => setHighlighted(i)}
+                key={group.code}
+                role="group"
+                aria-labelledby={headerId}
+                className="autocomplete-family-group"
               >
-                {m.comName}
+                <div
+                  role="presentation"
+                  id={headerId}
+                  className="autocomplete-group-header"
+                >
+                  {group.displayName}
+                </div>
+                <ul>
+                  {group.items.map(m => {
+                    const i = flatIndex++;
+                    const id = `${optionIdPrefix}-opt-${i}`;
+                    const selected = i === highlighted;
+                    return (
+                      <li
+                        key={m.code}
+                        id={id}
+                        role="option"
+                        aria-selected={selected}
+                        className={`species-autocomplete-option${selected ? ' is-highlighted' : ''}`}
+                        // onMouseDown (not onClick) so commit fires before the input
+                        // loses focus — prevents a visible close-then-reopen flash.
+                        onMouseDown={e => {
+                          e.preventDefault();
+                          commit(i);
+                        }}
+                        onMouseEnter={() => setHighlighted(i)}
+                      >
+                        {m.comName}
+                      </li>
+                    );
+                  })}
+                </ul>
               </li>
             );
           })}

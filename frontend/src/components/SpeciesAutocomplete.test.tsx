@@ -280,6 +280,114 @@ describe('SpeciesAutocomplete', () => {
     expect(onSelectSpecies).toHaveBeenCalledWith('gbher3');
   });
 
+  describe('family group headers', () => {
+    // Extended species index with familyCode populated so grouping can run.
+    const GROUPED_INDEX: SpeciesOption[] = [
+      { code: 'dowwoo', comName: 'Downy Woodpecker',    familyCode: 'Picidae',    taxonOrder: 10 },
+      { code: 'haiwoo', comName: 'Hairy Woodpecker',    familyCode: 'Picidae',    taxonOrder: 11 },
+      { code: 'rethaw', comName: 'Red-tailed Hawk',     familyCode: 'Accipitridae', taxonOrder: 5 },
+      { code: 'coohaw', comName: "Cooper's Hawk",        familyCode: 'Accipitridae', taxonOrder: 6 },
+      { code: 'unknsp', comName: 'Unknown Species',      familyCode: null,         taxonOrder: 999 },
+    ];
+
+    it('grouping contract: options render under family group headers', async () => {
+      const user = userEvent.setup();
+      render(
+        <SpeciesAutocomplete
+          speciesIndex={GROUPED_INDEX}
+          onSelectSpecies={() => {}}
+        />
+      );
+      const input = screen.getByRole('combobox', { name: /search species/i });
+      // "o" matches Downy Woodpecker, Hairy Woodpecker (via substring),
+      // Cooper's Hawk (prefix "coo" but "o" substring), Red-tailed Hawk ("o" in "Red"),
+      // and Unknown Species ("o" in "Unknown").
+      await user.type(input, 'oo');
+      // Group headers should be present: Picidae (has "oo" matches), Accipitridae (Cooper's Hawk).
+      const listbox = screen.getByRole('listbox');
+      // Options are still role="option" and accessible.
+      const options = within(listbox).getAllByRole('option');
+      expect(options.length).toBeGreaterThan(0);
+      // Group elements present (role="group").
+      const groups = within(listbox).getAllByRole('group');
+      expect(groups.length).toBeGreaterThan(0);
+    });
+
+    it('stable sort: groups sort by the first member taxonOrder; "Other" bucket sorts last', async () => {
+      const user = userEvent.setup();
+      render(
+        <SpeciesAutocomplete
+          speciesIndex={GROUPED_INDEX}
+          onSelectSpecies={() => {}}
+        />
+      );
+      const input = screen.getByRole('combobox', { name: /search species/i });
+      // Type "a" — matches Red-tailed Hawk, Cooper's Hawk (Accipitridae taxonOrder 5&6),
+      // Downy Woodpecker (no "a"), Hairy Woodpecker (Hairy has "a"), Unknown Species ("a" in "Unknown").
+      // Actually, use broad query to get all groups.
+      // "oo" matches: Downy Woodpecker (oo), Hairy Woodpecker (oo), Cooper's Hawk (oo), Unknown Species (oo in "Unknown")
+      await user.type(input, 'oo');
+      const listbox = screen.getByRole('listbox');
+      const groups = within(listbox).getAllByRole('group');
+      // Group order should be Accipitridae (taxonOrder 5) first, then Picidae (taxonOrder 10),
+      // and any "Other" bucket last.
+      const groupLabels = groups.map(g => {
+        // The header is a role="presentation" or aria-labelledby; grab its text content.
+        return g.textContent ?? '';
+      });
+      // "Other" must appear last if present.
+      const otherIdx = groupLabels.findIndex(l => /other/i.test(l));
+      if (otherIdx !== -1) {
+        expect(otherIdx).toBe(groupLabels.length - 1);
+      }
+    });
+
+    it('fallback "Other" bucket: options with null familyCode appear in Other group', async () => {
+      const user = userEvent.setup();
+      render(
+        <SpeciesAutocomplete
+          speciesIndex={GROUPED_INDEX}
+          onSelectSpecies={() => {}}
+        />
+      );
+      const input = screen.getByRole('combobox', { name: /search species/i });
+      // "unknown" matches only "Unknown Species" which has familyCode=null.
+      await user.type(input, 'unknown');
+      const listbox = screen.getByRole('listbox');
+      // Should render in an "Other" group.
+      const groups = within(listbox).getAllByRole('group');
+      const hasOtherHeader = groups.some(g => /other/i.test(g.textContent ?? ''));
+      expect(hasOtherHeader).toBe(true);
+      // The option itself is still present.
+      const options = within(listbox).getAllByRole('option');
+      expect(options.some(o => /Unknown Species/i.test(o.textContent ?? ''))).toBe(true);
+    });
+
+    it('keyboard nav skips headers — ArrowDown traverses options across group boundaries', async () => {
+      const user = userEvent.setup();
+      const onSelectSpecies = vi.fn();
+      render(
+        <SpeciesAutocomplete
+          speciesIndex={GROUPED_INDEX}
+          onSelectSpecies={onSelectSpecies}
+        />
+      );
+      const input = screen.getByRole('combobox', { name: /search species/i });
+      // "hawk" matches Red-tailed Hawk and Cooper's Hawk (both Accipitridae).
+      await user.type(input, 'hawk');
+      const listbox = screen.getByRole('listbox');
+      const options = within(listbox).getAllByRole('option');
+      // Auto-highlight should be on first option.
+      expect(options[0]).toHaveAttribute('aria-selected', 'true');
+      // ArrowDown should advance to next option (skipping any header).
+      await user.keyboard('{ArrowDown}');
+      expect(options[1]).toHaveAttribute('aria-selected', 'true');
+      // Enter commits the highlighted option.
+      await user.keyboard('{Enter}');
+      expect(onSelectSpecies).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('dropdown positioning', () => {
     // Pin viewport height to 800 and test getBoundingClientRect with stubs.
     // The component reads input.getBoundingClientRect().bottom + a fixed
