@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { Since } from '../state/url-state.js';
 
 export interface FamilyOption { code: string; name: string; }
@@ -40,11 +40,19 @@ export function FiltersBar(props: FiltersBarProps) {
     () => props.speciesIndex.find(s => s.code === props.speciesCode)?.comName ?? ''
   );
 
-  // Sync draft when the URL-driven speciesCode changes externally (e.g. browser back/forward).
+  // Store speciesIndex in a ref so the sync effect below doesn't re-run on
+  // identity churn (new array reference with identical content after every
+  // observation refetch). Only speciesCode changes should trigger a sync.
+  const speciesIndexRef = useRef(props.speciesIndex);
+  speciesIndexRef.current = props.speciesIndex;
+
+  // Sync draft when speciesCode changes (back/forward, popstate) or when the
+  // speciesIndex first populates (deep-link: code is set before data arrives).
+  // Using .length avoids identity-churn reruns while still catching 0→N.
   useEffect(() => {
-    const comName = props.speciesIndex.find(s => s.code === props.speciesCode)?.comName ?? '';
+    const comName = speciesIndexRef.current.find(s => s.code === props.speciesCode)?.comName ?? '';
     setSpeciesDraft(comName);
-  }, [props.speciesCode, props.speciesIndex]);
+  }, [props.speciesCode, props.speciesIndex.length]);
 
   function commitSpeciesDraft(value: string) {
     const match = props.speciesIndex.find(

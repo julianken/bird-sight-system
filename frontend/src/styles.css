@@ -18,6 +18,8 @@
   --dur-slow: 350ms;
 
   --shadow-panel: -2px 0 12px rgba(0, 0, 0, var(--opacity-subtle));
+  --shadow-listbox: 0 4px 12px rgba(0, 0, 0, var(--opacity-subtle));
+  --shadow-drawer: 0 -2px 12px rgba(0, 0, 0, var(--opacity-subtle));
 
   /* ── Colour tokens ──────────────────────────────────────────────────────
      Semantic names; replace hex literals throughout the file so palette
@@ -278,7 +280,7 @@ body {
   background: var(--color-bg-surface);
   border: 1px solid var(--color-border-ui);
   border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, var(--opacity-subtle));
+  box-shadow: var(--shadow-listbox);
   max-height: 280px;
   overflow-y: auto;
   z-index: var(--z-panel);
@@ -452,7 +454,7 @@ body {
   max-height: 85vh;
   border-left: none;
   border-top: 1px solid var(--color-border-ui);
-  box-shadow: 0 -2px 12px rgba(0, 0, 0, var(--opacity-subtle));
+  box-shadow: var(--shadow-drawer);
   border-top-left-radius: 12px;
   border-top-right-radius: 12px;
 }

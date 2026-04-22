@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useRef } from 'react';
-import { ApiClient } from './api/client.js';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { ApiClient, ApiError } from './api/client.js';
 import { useUrlState, readMigrationFlag } from './state/url-state.js';
 import { useBirdData } from './data/use-bird-data.js';
 import { FiltersBar } from './components/FiltersBar.js';
@@ -33,6 +33,16 @@ export function App() {
     [set]
   );
 
+  // Log raw error details for debugging; show only a friendly message in UI.
+  useEffect(() => {
+    if (!error) return;
+    if (error instanceof ApiError) {
+      console.error(`API error ${error.status}: ${error.body}`);
+    } else {
+      console.error(error);
+    }
+  }, [error]);
+
   if (error) {
     return (
       <div className="error-screen">
@@ -63,7 +73,7 @@ export function App() {
       <main
         id="main-surface"
         data-render-complete={renderComplete}
-        aria-busy={loading}
+        aria-busy={loading && (state.view === 'feed' || state.view === 'species')}
       >
         {state.view === 'feed' && (
           <FeedSurface

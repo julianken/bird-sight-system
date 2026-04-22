@@ -34,6 +34,7 @@ export function MigrationBanner({ show }: MigrationBannerProps) {
         The region view has been replaced. Use the Filters bar to filter by family or species.
       </span>
       <button
+        type="button"
         className="migration-banner-dismiss"
         aria-label="Dismiss migration notice"
         onClick={handleDismiss}

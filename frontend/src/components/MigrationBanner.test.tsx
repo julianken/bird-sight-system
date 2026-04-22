@@ -57,4 +57,10 @@ describe('MigrationBanner', () => {
     const urlArg = lastCall?.[2] as string;
     expect(urlArg).not.toContain('region=');
   });
+
+  it('dismiss button has type="button" to prevent form submission', () => {
+    render(<MigrationBanner show />);
+    const btn = screen.getByRole('button', { name: 'Dismiss migration notice' });
+    expect(btn).toHaveAttribute('type', 'button');
+  });
 });

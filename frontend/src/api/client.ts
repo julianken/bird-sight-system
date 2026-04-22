@@ -8,7 +8,7 @@ export interface ApiClientOptions {
 
 export class ApiError extends Error {
   constructor(public status: number, public body: string) {
-    super(`API error ${status}: ${body}`);
+    super('Something went wrong — please try again');
   }
 }
 
