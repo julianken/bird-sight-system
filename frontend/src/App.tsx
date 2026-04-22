@@ -73,7 +73,7 @@ export function App() {
       <main
         id="main-surface"
         data-render-complete={renderComplete}
-        aria-busy={loading}
+        aria-busy={loading && (state.view === 'feed' || state.view === 'species')}
       >
         {state.view === 'feed' && (
           <FeedSurface
