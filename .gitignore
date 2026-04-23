@@ -33,5 +33,11 @@ gcp-*.png
 terraform.tfstate
 terraform.tfstate.backup
 
-# Per-user Claude Code workspace
-.claude/
+# Per-user Claude Code workspace — ignore everything under .claude/ EXCEPT
+# repo-local skills, which are checked in and loaded by subagents (especially
+# subagents dispatched with isolation: "worktree" that don't load CLAUDE.md).
+# Git cannot re-include files inside a fully-ignored directory, so we ignore
+# specific children instead of the whole directory.
+.claude/*
+.claude/worktrees/
+!.claude/skills/
