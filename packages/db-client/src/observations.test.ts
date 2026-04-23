@@ -46,10 +46,30 @@ describe('upsertObservations', () => {
     const verm = all.find(o => o.subId === 'S100')!;
     expect(verm.regionId).toBe('sky-islands-santa-ritas');
     expect(verm.silhouetteId).toBe('tyrannidae');
+    expect(verm.familyCode).toBe('tyrannidae');
     const anna = all.find(o => o.subId === 'S101')!;
     expect(anna.regionId).toBe('sonoran-tucson');
     expect(anna.silhouetteId).toBe('trochilidae');
+    expect(anna.familyCode).toBe('trochilidae');
     expect(anna.isNotable).toBe(true);
+  });
+
+  it('returns familyCode = null when the species is absent from species_meta (#57)', async () => {
+    // LEFT JOIN on species_meta means an observation for a species not
+    // present in species_meta yields NULL family_code. The DB-client
+    // parser must preserve the NULL — no `?? ''` coercion — because the
+    // frontend treats NULL as a "skip in derive / silhouette-fallback"
+    // signal.
+    await upsertObservations(db.pool, [
+      {
+        subId: 'S-orphan', speciesCode: 'unknownspec', comName: 'Unknown Bird',
+        lat: 31.72, lng: -110.88, obsDt: '2026-04-15T08:00:00Z',
+        locId: 'L-orphan', locName: 'Nowhere', howMany: 1, isNotable: false,
+      },
+    ]);
+    const all = await getObservations(db.pool, {});
+    const orphan = all.find(o => o.subId === 'S-orphan')!;
+    expect(orphan.familyCode).toBeNull();
   });
 
   it('is idempotent — re-running with the same input does not duplicate', async () => {

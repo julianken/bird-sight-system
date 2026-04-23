@@ -1,37 +1,31 @@
 import type { Observation } from '@bird-watch/shared-types';
 import type { FamilyOption, SpeciesOption } from './components/FiltersBar.js';
 
-// Coupling history (Plan 6 Task 10 minimally decouples — full resolution
-// tracked in #57):
+// Issue #57 — first-class familyCode.
 //
-// The seed migration (1700000009000_seed_family_silhouettes.sql) sets
-// family_silhouettes.id == family_code, and the ingestor stamps
-// observations.silhouette_id via the family_silhouettes JOIN
-// (packages/db-client/src/observations.ts:62–67). Before Plan 6 Task 10
-// we leaned on that equality and used silhouetteId directly as a family
-// bucket. Plan 6 Task 10 flips the precedence: read
-// observation.familyCode first and fall back to silhouetteId only when
-// familyCode is null/absent. The Observation wire type now carries an
-// optional familyCode (packages/shared-types/src/index.ts) that the
-// read-api can populate without a frontend rev; today it's absent and
-// the silhouetteId path still delivers the family bucket.
+// Previously this module fell back to `silhouetteId` when `familyCode`
+// was absent, leaning on the seed-time equality
+// `family_silhouettes.id == family_code`. That equality is not a contract
+// — it breaks silently the moment a silhouette id diverges from a family
+// code (e.g. per-subfamily silhouettes). The Read API now projects
+// `familyCode` directly from `species_meta` via a LEFT JOIN, so this
+// module reads `familyCode` as the single source of truth for the family
+// bucket.
 //
-// When the ingestor/Read-API begins populating observation.familyCode
-// directly, the silhouette fallback becomes dead-but-harmless — #57
-// resolves when silhouetteId is detached from the family surface entirely.
-
-/** Resolve the family bucket for a single observation. */
-function familyFor(o: Observation): string | null {
-  if (o.familyCode) return o.familyCode;
-  if (o.silhouetteId) return o.silhouetteId;
-  return null;
-}
+// Nullability is load-bearing:
+//   - LEFT JOIN yields NULL when species_meta is missing a species row
+//     — the data-gap signal is preserved end-to-end.
+//   - Stale CDN responses predating this field deserialize with
+//     `familyCode === undefined`; the falsy guards below treat `null`
+//     and `undefined` identically, so no cache bump is required.
 
 export function deriveFamilies(observations: Observation[]): FamilyOption[] {
   const set = new Map<string, string>();
   for (const o of observations) {
-    const code = familyFor(o);
-    if (code) set.set(code, code);
+    // Skip observations with no resolvable family — do NOT bucket them
+    // under a synthetic `""`/`undefined` family.
+    if (!o.familyCode) continue;
+    set.set(o.familyCode, o.familyCode);
   }
   return Array.from(set.entries())
     .map(([code]) => ({ code, name: prettyFamily(code) }))
@@ -54,7 +48,7 @@ export function deriveSpeciesIndex(observations: Observation[]): SpeciesOption[]
       code: o.speciesCode,
       comName: o.comName,
       taxonOrder: o.taxonOrder ?? null,
-      familyCode: familyFor(o),
+      familyCode: o.familyCode ?? null,
     });
   }
   return Array.from(byCode.values()).sort((a, b) => a.comName.localeCompare(b.comName));

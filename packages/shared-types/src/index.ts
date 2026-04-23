@@ -29,13 +29,20 @@ export interface Observation {
   isNotable: boolean;
   regionId: string | null;
   silhouetteId: string | null;
-  // Optional forward-looking fields. Plan 6 Task 10 (issue #119) lands
-  // frontend consumers (taxonomic sort, family-first derived grouping)
-  // that prefer these when present but fall back to silhouetteId +
-  // SpeciesMeta lookups. The API doesn't populate them yet; adding them
-  // to the wire type as optional keeps payloads backward-compatible and
-  // lets the read-api grow them without a frontend rev.
-  familyCode?: string | null;
+  // familyCode is nullable, NOT optional. The Read API populates it from
+  // species_meta via a LEFT JOIN, so a species absent from species_meta
+  // yields NULL — meaningful signal that callers must handle (skip-in-
+  // derive, fallback-silhouette-color). Issue #57 severs the old
+  // silhouetteId-as-familyCode coupling: colors now come from familyCode
+  // directly, and the two identifiers are distinct at the type level.
+  //
+  // Cache caveat: stale CDN responses predating this field deserialize
+  // with familyCode === undefined. Consumers treat undefined the same as
+  // null (skip / fallback), so no Cache-Control bump is required.
+  familyCode: string | null;
+  // taxonOrder remains optional: it's sourced from SpeciesMeta and only
+  // lands on the wire when the read-api projects it. Consumers default
+  // to null when absent.
   taxonOrder?: number | null;
 }
 

@@ -138,7 +138,7 @@ export async function getObservations(
 
   const sql = `
     SELECT
-      o.sub_id, o.species_code, sm.com_name,
+      o.sub_id, o.species_code, sm.com_name, sm.family_code,
       o.lat, o.lng, o.obs_dt, o.loc_id, o.loc_name, o.how_many,
       o.is_notable, o.region_id, o.silhouette_id
     FROM observations o
@@ -151,6 +151,7 @@ export async function getObservations(
     sub_id: string;
     species_code: string;
     com_name: string | null;
+    family_code: string | null;
     lat: number;
     lng: number;
     obs_dt: Date;
@@ -162,6 +163,10 @@ export async function getObservations(
     silhouette_id: string | null;
   }>(sql, params);
 
+  // NOTE: family_code is passed through as-is, WITHOUT a `?? ''` fallback.
+  // The NULL is meaningful signal to the frontend (skip in deriveFamilies,
+  // fall back to silhouette-only rendering). The upstream fix is the
+  // ingestor seeding species_meta, not the DB parser papering over the gap.
   return rows.map(r => ({
     subId: r.sub_id,
     speciesCode: r.species_code,
@@ -175,5 +180,6 @@ export async function getObservations(
     isNotable: r.is_notable,
     regionId: r.region_id,
     silhouetteId: r.silhouette_id,
+    familyCode: r.family_code,
   }));
 }
