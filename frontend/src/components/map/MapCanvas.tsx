@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { Map, Source, Layer } from 'react-map-gl/maplibre';
+import { Map, Source, Layer, AttributionControl } from 'react-map-gl/maplibre';
 import type { MapRef } from 'react-map-gl/maplibre';
 import type { MapGeoJSONFeature } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -136,7 +136,23 @@ export function MapCanvas({ observations }: MapCanvasProps) {
         style={{ width: '100%', height: '100%' }}
         mapStyle={basemapStyle}
         onLoad={handleLoad}
+        attributionControl={false}
       >
+        {/*
+          ODbL compliance: OpenStreetMap data (via OpenFreeMap's positron tiles)
+          is contractually required to be attributed. React-map-gl v7's <Map>
+          prop narrows maplibre's `attributionControl` to `boolean`, so the
+          standalone <AttributionControl> component is the only way to pass
+          `compact: false` alongside custom text. `customAttribution` augments
+          the style's built-in attribution rather than replacing it.
+        */}
+        <AttributionControl
+          compact={false}
+          customAttribution={[
+            '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
+            '<a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a>',
+          ]}
+        />
         <Source
           id="observations"
           type="geojson"

@@ -9,6 +9,7 @@ import type { Observation } from '@bird-watch/shared-types';
    Map is wrapped in forwardRef because MapCanvas passes a ref to it. */
 
 let capturedSourceProps: Record<string, unknown> = {};
+let capturedAttributionProps: Record<string, unknown> = {};
 
 vi.mock('react-map-gl/maplibre', () => ({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -30,6 +31,15 @@ vi.mock('react-map-gl/maplibre', () => ({
   Layer: (props: Record<string, unknown>) => (
     <div data-testid="mock-layer" data-layer-id={props.id} />
   ),
+  AttributionControl: (props: Record<string, unknown>) => {
+    capturedAttributionProps = props;
+    return (
+      <div
+        data-testid="mock-attribution-control"
+        data-props={JSON.stringify(props)}
+      />
+    );
+  },
 }));
 
 vi.mock('maplibre-gl/dist/maplibre-gl.css', () => ({}));
@@ -60,6 +70,7 @@ function makeObs(partial: Partial<Observation> = {}): Observation {
 describe('MapCanvas', () => {
   beforeEach(() => {
     capturedSourceProps = {};
+    capturedAttributionProps = {};
   });
 
   it('renders the map-canvas wrapper with data-testid', () => {
@@ -101,5 +112,25 @@ describe('MapCanvas', () => {
     render(<MapCanvas observations={[makeObs()]} />);
     // Popover renders nothing when observation is null.
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('renders an AttributionControl crediting OpenStreetMap and OpenFreeMap', () => {
+    // ODbL compliance: OSM-derived data must be attributed. The built-in
+    // MapLibre attribution control is disabled on <Map> so that the standalone
+    // <AttributionControl> can be configured with compact=false and custom
+    // credit strings.
+    render(<MapCanvas observations={[makeObs()]} />);
+
+    expect(screen.getByTestId('mock-attribution-control')).toBeInTheDocument();
+    expect(capturedAttributionProps.compact).toBe(false);
+
+    const custom = capturedAttributionProps.customAttribution as string[];
+    expect(Array.isArray(custom)).toBe(true);
+    expect(custom.join(' ')).toMatch(/OpenStreetMap/);
+    expect(custom.join(' ')).toMatch(/OpenFreeMap/);
+    expect(custom.join(' ')).toMatch(
+      /openstreetmap\.org\/copyright/,
+    );
+    expect(custom.join(' ')).toMatch(/openfreemap\.org/);
   });
 });
