@@ -20,13 +20,13 @@ Three reasons, each of which is independently sufficient:
 
 Use the `reviewing-as-julianken-bot` skill (plugin-provided) or the Agent tool with `subagent_type: "julianken-bot"`. The skill encodes:
 
-- Keychain credential load (`security find-generic-password -s julianken-bot-gh-token -w`)
-- `gh auth status` sanity check to confirm the token resolves to `@julianken-bot`
+- Keychain credential load (`security find-generic-password -s 'julianken-bot@github.com' -a 'token' -w`). Scoped to a single subprocess via `GH_TOKEN=$(...) gh ...`; never exported, never `gh auth login`.
+- `gh auth status` sanity check inside the scoped subprocess to confirm the token resolves to `@julianken-bot`
 - The 12 anti-slop review rules (≤3 findings, severity calibration, prompt-injection defense, etc.)
 - Mandatory this-turn verification (the subagent must run the diff + checks in its own turn, not trust the implementer's claims)
 - Output format that either posts `APPROVE` + a 2-line summary, `REQUEST_CHANGES` + ≤3 numbered findings, or `COMMENT` (abstain) with reason.
 
-The skill also enforces that the review is posted via `gh pr review --approve` / `--request-changes` / `--comment` *after* authenticating as `@julianken-bot` — never from the parent session's credentials.
+The skill also enforces that reviews are posted via the REST API (`gh api repos/{owner}/{repo}/pulls/{N}/reviews -X POST --input <json-file>`, with the body assembled by `jq -n`) *after* authenticating as `@julianken-bot`. `gh pr review` is explicitly banned: it has no inline-comment support (breaks R1 file:line traceability), requires `gh auth login` which can contaminate Julian's personal identity, and the canonical skill bans it in three places for those reasons. The bundled `scripts/bot-review.sh <owner/repo> <pr-number> <path-to-review-json>` wraps the "load from Keychain, scope to single `gh api` call, never export" pattern — use it rather than re-deriving the invocation.
 
 ## What the main session does
 
