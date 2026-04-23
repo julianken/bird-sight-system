@@ -95,9 +95,16 @@ export function MapCanvas({ observations }: MapCanvasProps) {
       const clusterId = feature.properties?.cluster_id as number | undefined;
       const source = map.getSource('observations');
       if (clusterId != null && source && 'getClusterExpansionZoom' in source) {
-        (source as { getClusterExpansionZoom: (id: number, cb: (err: unknown, zoom: number) => void) => void })
-          .getClusterExpansionZoom(clusterId, (err, zoom) => {
-            if (err) return;
+        // MapLibre 4.x: `getClusterExpansionZoom` (and `getClusterChildren`,
+        // `getClusterLeaves`) returns a Promise and no longer invokes the
+        // legacy callback argument. Passing a callback silently no-ops —
+        // which is how this regression shipped (see PR #165 / issue #166).
+        const src = source as {
+          getClusterExpansionZoom: (id: number) => Promise<number>;
+        };
+        src
+          .getClusterExpansionZoom(clusterId)
+          .then((zoom) => {
             const geom = feature.geometry;
             if (geom.type === 'Point') {
               map.easeTo({
@@ -105,6 +112,9 @@ export function MapCanvas({ observations }: MapCanvasProps) {
                 zoom,
               });
             }
+          })
+          .catch(() => {
+            /* silently ignore — matches previous err-swallow behavior */
           });
       }
     });

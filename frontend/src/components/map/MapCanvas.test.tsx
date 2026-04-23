@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
-import { forwardRef } from 'react';
+import { act, render, screen, waitFor } from '@testing-library/react';
+import { forwardRef, useEffect, useImperativeHandle } from 'react';
 import type { Observation } from '@bird-watch/shared-types';
 
-/* ── Mock react-map-gl/maplibre ─────────────────���──────────────────────────
+/* ── Mock react-map-gl/maplibre ─────────────────────────────────────────────
    jsdom has no WebGL context so we stub Map, Source, and Layer as thin
    pass-through components that expose their props for assertion.
    Map is wrapped in forwardRef because MapCanvas passes a ref to it. */
@@ -11,9 +11,41 @@ import type { Observation } from '@bird-watch/shared-types';
 let capturedSourceProps: Record<string, unknown> = {};
 let capturedAttributionProps: Record<string, unknown> = {};
 
+/* Handlers registered via map.on(event, layerId, cb). Keyed as `event:layer`. */
+let registeredHandlers: Record<string, (e: { point: [number, number] }) => void> =
+  {};
+/* The fake MapLibre map instance exposed via mapRef.current.getMap(). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let fakeMap: any = null;
+
+function makeFakeMap() {
+  const canvas = { style: { cursor: '' } };
+  return {
+    on: vi.fn(
+      (
+        event: string,
+        layerOrCb: string | (() => void),
+        maybeCb?: (e: { point: [number, number] }) => void,
+      ) => {
+        if (typeof layerOrCb === 'string' && maybeCb) {
+          registeredHandlers[`${event}:${layerOrCb}`] = maybeCb;
+        }
+      },
+    ),
+    queryRenderedFeatures: vi.fn(),
+    getSource: vi.fn(),
+    getCanvas: vi.fn(() => canvas),
+    easeTo: vi.fn(),
+  };
+}
+
 vi.mock('react-map-gl/maplibre', () => ({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  Map: forwardRef(function MockMap({ children, ...rest }: any, _ref: any) {
+  Map: forwardRef(function MockMap({ children, onLoad, ...rest }: any, ref: any) {
+    useImperativeHandle(ref, () => ({ getMap: () => fakeMap }), []);
+    useEffect(() => {
+      if (onLoad) onLoad();
+    }, [onLoad]);
     return (
       <div data-testid="mock-map" data-props={JSON.stringify(rest)}>
         {children}
@@ -71,6 +103,8 @@ describe('MapCanvas', () => {
   beforeEach(() => {
     capturedSourceProps = {};
     capturedAttributionProps = {};
+    registeredHandlers = {};
+    fakeMap = makeFakeMap();
   });
 
   it('renders the map-canvas wrapper with data-testid', () => {
@@ -132,5 +166,79 @@ describe('MapCanvas', () => {
       /openstreetmap\.org\/copyright/,
     );
     expect(custom.join(' ')).toMatch(/openfreemap\.org/);
+  });
+
+  /**
+   * Regression test for the MapLibre 3.x→4.x cluster-click bug (PR #165,
+   * issue #166): `GeoJSONSource.getClusterExpansionZoom` became Promise-based
+   * in 4.x and silently ignores the legacy `(err, zoom)` callback, so cluster
+   * clicks never zoomed the map. The fix awaits the returned Promise.
+   *
+   * This test mocks the source with the *new* Promise signature; if the
+   * handler regresses back to callback-style, `easeTo` won't be called and
+   * the assertion fails. That's the guardrail the prior unit tests lacked.
+   */
+  it('zooms to cluster when cluster click fires (Promise API)', async () => {
+    render(<MapCanvas observations={[makeObs()]} />);
+    await waitFor(() =>
+      expect(registeredHandlers['click:clusters']).toBeTypeOf('function'),
+    );
+
+    // Mock source returns a Promise — matches maplibre-gl 4.x signature.
+    const getClusterExpansionZoom = vi.fn().mockResolvedValue(12);
+    fakeMap.getSource.mockReturnValue({ getClusterExpansionZoom });
+
+    // Mock the feature the cluster handler will look up.
+    const clusterFeature = {
+      properties: { cluster_id: 42 },
+      geometry: { type: 'Point', coordinates: [-111.1, 34.0] },
+    };
+    fakeMap.queryRenderedFeatures.mockReturnValue([clusterFeature]);
+
+    const handler = registeredHandlers['click:clusters'];
+    await act(async () => {
+      handler({ point: [100, 100] });
+    });
+
+    expect(getClusterExpansionZoom).toHaveBeenCalledWith(42);
+    // Critically: arity must be 1 (clusterId only). In the buggy pre-fix
+    // code the call was `getClusterExpansionZoom(id, cb)` — arity 2. Pinning
+    // the argument count here is the guardrail that would have caught the
+    // regression.
+    expect(getClusterExpansionZoom.mock.calls[0]).toHaveLength(1);
+
+    await waitFor(() =>
+      expect(fakeMap.easeTo).toHaveBeenCalledWith({
+        center: [-111.1, 34.0],
+        zoom: 12,
+      }),
+    );
+  });
+
+  it('swallows cluster-expansion Promise rejections (no throw)', async () => {
+    render(<MapCanvas observations={[makeObs()]} />);
+    await waitFor(() =>
+      expect(registeredHandlers['click:clusters']).toBeTypeOf('function'),
+    );
+
+    const getClusterExpansionZoom = vi
+      .fn()
+      .mockRejectedValue(new Error('boom'));
+    fakeMap.getSource.mockReturnValue({ getClusterExpansionZoom });
+
+    fakeMap.queryRenderedFeatures.mockReturnValue([
+      {
+        properties: { cluster_id: 7 },
+        geometry: { type: 'Point', coordinates: [0, 0] },
+      },
+    ]);
+
+    const handler = registeredHandlers['click:clusters'];
+    await act(async () => {
+      // Must not throw even though the Promise rejects.
+      expect(() => handler({ point: [0, 0] })).not.toThrow();
+    });
+
+    expect(fakeMap.easeTo).not.toHaveBeenCalled();
   });
 });
