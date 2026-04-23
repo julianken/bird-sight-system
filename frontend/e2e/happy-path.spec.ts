@@ -5,7 +5,7 @@ import { AppPage } from './pages/app-page.js';
  * Plan 6 — Path A happy path.
  *
  * Five end-to-end scenarios that exercise the core user journey across
- * the three surfaces (Feed / Species / Hotspots) introduced after #113
+ * the three surfaces (Feed / Species / Map) introduced after #113
  * deleted the map chain. Replaces the `DISCARD`'d map-expansion
  * `happy-path.spec.ts` of the same name.
  *
@@ -113,10 +113,10 @@ test.describe('Path A happy path', () => {
     // No SurfaceNav tab is selected (detail is nav-hidden).
     const feedTab = page.getByRole('tab', { name: 'Feed view' });
     const speciesTab = page.getByRole('tab', { name: 'Species view' });
-    const hotspotsTab = page.getByRole('tab', { name: 'Hotspots view' });
+    const mapTab = page.getByRole('tab', { name: 'Map view' });
     await expect(feedTab).toHaveAttribute('aria-selected', 'false');
     await expect(speciesTab).toHaveAttribute('aria-selected', 'false');
-    await expect(hotspotsTab).toHaveAttribute('aria-selected', 'false');
+    await expect(mapTab).toHaveAttribute('aria-selected', 'false');
   });
 
   test('feed row click opens detail surface at mobile and desktop', async ({ page, apiStub }) => {

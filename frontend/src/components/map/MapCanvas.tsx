@@ -55,6 +55,13 @@ export function MapCanvas({ observations }: MapCanvasProps) {
     return lookup;
   }, [observations]);
 
+  // Ref keeps the click handler's closure fresh when observations change.
+  // `onLoad` only fires once, so a plain closure over `obsLookup` would go
+  // stale after the first data refresh. The ref indirection ensures clicks
+  // always read the latest lookup.
+  const obsLookupRef = useRef(obsLookup);
+  obsLookupRef.current = obsLookup;
+
   /**
    * Wire click handling through the raw MapLibre instance. This avoids the
    * react-map-gl `e.features` bug (see prototype learnings #1).
@@ -72,7 +79,7 @@ export function MapCanvas({ observations }: MapCanvasProps) {
 
       const subId = feature.properties?.subId as string | undefined;
       if (subId) {
-        const obs = obsLookup[subId];
+        const obs = obsLookupRef.current[subId];
         if (obs) setSelectedObs(obs);
       }
     });
@@ -115,7 +122,9 @@ export function MapCanvas({ observations }: MapCanvasProps) {
     map.on('mouseleave', 'unclustered-point', () => {
       map.getCanvas().style.cursor = '';
     });
-  }, [obsLookup]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- obsLookupRef is a
+  // stable ref; the click handler reads .current at call time, not capture time.
+  }, []);
 
   const handleClosePopover = useCallback(() => setSelectedObs(null), []);
 

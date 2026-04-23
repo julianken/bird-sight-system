@@ -4,7 +4,7 @@ import { useUrlState, readMigrationFlag } from './state/url-state.js';
 import { useBirdData } from './data/use-bird-data.js';
 import { FiltersBar } from './components/FiltersBar.js';
 import { FeedSurface } from './components/FeedSurface.js';
-import { HotspotListSurface } from './components/HotspotListSurface.js';
+import { MapSurface } from './components/MapSurface.js';
 import { SpeciesSearchSurface } from './components/SpeciesSearchSurface.js';
 import { SpeciesDetailSurface } from './components/SpeciesDetailSurface.js';
 import { SurfaceNav } from './components/SurfaceNav.js';
@@ -15,7 +15,9 @@ const apiClient = new ApiClient({ baseUrl: import.meta.env.VITE_API_BASE_URL ?? 
 
 export function App() {
   const { state, set } = useUrlState();
-  const { loading, error, observations, hotspots } = useBirdData(apiClient, {
+  // hotspots intentionally fetched but unused — cheap insurance for v2
+  // hotspot-marker layer (Plan 7 §7).
+  const { loading, error, observations } = useBirdData(apiClient, {
     since: state.since,
     notable: state.notable,
     ...(state.speciesCode ? { speciesCode: state.speciesCode } : {}),
@@ -85,12 +87,8 @@ export function App() {
             speciesIndex={speciesIndex}
           />
         )}
-        {state.view === 'hotspots' && (
-          <HotspotListSurface
-            loading={loading}
-            hotspots={hotspots}
-            now={now}
-          />
+        {state.view === 'map' && (
+          <MapSurface observations={observations} />
         )}
         {state.view === 'species' && (
           <SpeciesSearchSurface

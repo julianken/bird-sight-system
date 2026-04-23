@@ -49,10 +49,10 @@ describe('useUrlState', () => {
     expect(result.current.state.view).toBe('species');
   });
 
-  it('parses ?view=hotspots from the URL', () => {
-    window.history.replaceState({}, '', '/?view=hotspots');
+  it('parses ?view=map from the URL', () => {
+    window.history.replaceState({}, '', '/?view=map');
     const { result } = renderHook(() => useUrlState());
-    expect(result.current.state.view).toBe('hotspots');
+    expect(result.current.state.view).toBe('map');
   });
 
   it('falls back to default view when ?view= is invalid', () => {
@@ -73,20 +73,20 @@ describe('useUrlState', () => {
     expect(result.current.state.view).toBe('feed');
   });
 
-  it('preserves explicit ?view=hotspots even when ?species= is set', () => {
-    window.history.replaceState({}, '', '/?species=vermfly&view=hotspots');
+  it('preserves explicit ?view=map even when ?species= is set', () => {
+    window.history.replaceState({}, '', '/?species=vermfly&view=map');
     const { result } = renderHook(() => useUrlState());
-    expect(result.current.state.view).toBe('hotspots');
+    expect(result.current.state.view).toBe('map');
   });
 
   it('writes ?view= to URL when view is non-default', () => {
     const { result } = renderHook(() => useUrlState());
-    act(() => result.current.set({ view: 'hotspots' }));
-    expect(window.location.search).toContain('view=hotspots');
+    act(() => result.current.set({ view: 'map' }));
+    expect(window.location.search).toContain('view=map');
   });
 
   it('never serialises the default view to the URL', () => {
-    window.history.replaceState({}, '', '/?view=hotspots');
+    window.history.replaceState({}, '', '/?view=map');
     const { result } = renderHook(() => useUrlState());
     act(() => result.current.set({ view: 'feed' }));
     expect(window.location.search).not.toContain('view=');
@@ -98,9 +98,9 @@ describe('useUrlState', () => {
     expect(result.current.state.view).toBe('species');
     expect(window.location.search).toContain('view=species');
 
-    act(() => result.current.set({ view: 'hotspots' }));
-    expect(result.current.state.view).toBe('hotspots');
-    expect(window.location.search).toContain('view=hotspots');
+    act(() => result.current.set({ view: 'map' }));
+    expect(result.current.state.view).toBe('map');
+    expect(window.location.search).toContain('view=map');
 
     act(() => result.current.set({ view: 'feed' }));
     expect(result.current.state.view).toBe('feed');
@@ -119,6 +119,25 @@ describe('useUrlState', () => {
     expect(window.location.search).toContain('species=vermfly');
   });
 
+  // --- ?view=hotspots → ?view=map redirect (Plan 7 S4 bookmark compat) ---
+
+  it('redirects ?view=hotspots to ?view=map (bookmark compat)', () => {
+    window.history.replaceState({}, '', '/?view=hotspots');
+    const { result } = renderHook(() => useUrlState());
+    expect(result.current.state.view).toBe('map');
+    expect(window.location.search).toContain('view=map');
+    expect(window.location.search).not.toContain('view=hotspots');
+  });
+
+  it('redirects ?view=hotspots and preserves other params', () => {
+    window.history.replaceState({}, '', '/?view=hotspots&notable=true&since=7d');
+    const { result } = renderHook(() => useUrlState());
+    expect(result.current.state.view).toBe('map');
+    expect(window.location.search).toContain('view=map');
+    expect(window.location.search).toContain('notable=true');
+    expect(window.location.search).toContain('since=7d');
+  });
+
   // --- #112: regionId removed, readMigrationFlag ---
 
   it('default state has view: feed and no regionId property', () => {
@@ -127,10 +146,10 @@ describe('useUrlState', () => {
     expect(result.current.state).not.toHaveProperty('regionId');
   });
 
-  it('parses ?view=hotspots', () => {
-    window.history.replaceState({}, '', '/?view=hotspots');
+  it('parses ?view=map', () => {
+    window.history.replaceState({}, '', '/?view=map');
     const { result } = renderHook(() => useUrlState());
-    expect(result.current.state.view).toBe('hotspots');
+    expect(result.current.state.view).toBe('map');
   });
 
   it('?species=X with no ?view= sniffs view to species and no regionId', () => {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 export type Since = '1d' | '7d' | '14d' | '30d';
-export type View = 'feed' | 'species' | 'hotspots' | 'detail';
+export type View = 'feed' | 'species' | 'map' | 'detail';
 
 export interface UrlState {
   speciesCode: string | null;
@@ -22,7 +22,7 @@ const DEFAULTS: UrlState = {
 };
 
 const VALID_SINCE: ReadonlySet<string> = new Set(['1d', '7d', '14d', '30d']);
-const VALID_VIEW: ReadonlySet<string> = new Set(['feed', 'species', 'hotspots', 'detail']);
+const VALID_VIEW: ReadonlySet<string> = new Set(['feed', 'species', 'map', 'detail']);
 
 function readUrl(): UrlState {
   const p = new URLSearchParams(window.location.search);
@@ -42,7 +42,16 @@ function readUrl(): UrlState {
   //  - absent ?view= AND ?detail= set → sniff to 'detail'.
   //  - otherwise default ('feed').
   let view: View;
-  if (rawView && VALID_VIEW.has(rawView)) {
+  if (rawView === 'hotspots') {
+    // Compatibility shim: old bookmarks with ?view=hotspots silently redirect
+    // to ?view=map. The URL bar updates so future shares carry the new value.
+    view = 'map';
+    const redirect = new URLSearchParams(window.location.search);
+    redirect.set('view', 'map');
+    const q = redirect.toString();
+    const newUrl = q ? `${window.location.pathname}?${q}` : window.location.pathname;
+    window.history.replaceState({}, '', newUrl);
+  } else if (rawView && VALID_VIEW.has(rawView)) {
     view = rawView as View;
   } else if (!rawView && detail) {
     view = 'detail';
