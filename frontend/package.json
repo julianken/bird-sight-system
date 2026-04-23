@@ -14,8 +14,10 @@
   "dependencies": {
     "@bird-watch/family-mapping": "*",
     "@bird-watch/shared-types": "*",
+    "maplibre-gl": "^4.7.1",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "react-map-gl": "^7.1.9"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.11.2",
