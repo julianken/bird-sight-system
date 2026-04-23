@@ -13,6 +13,7 @@ describe('useUrlState', () => {
       since: '14d', notable: false,
       speciesCode: null, familyCode: null,
       view: 'feed',
+      detail: null,
     });
   });
 
@@ -150,5 +151,48 @@ describe('useUrlState', () => {
     const { result } = renderHook(() => useUrlState());
     act(() => result.current.set({ since: '1d' }));
     expect(window.location.search).not.toContain('region=');
+  });
+
+  // --- ?detail= parameter (#151) ---
+
+  it('parses ?detail=vermfly from the URL', () => {
+    window.history.replaceState({}, '', '/?detail=vermfly&view=detail');
+    const { result } = renderHook(() => useUrlState());
+    expect(result.current.state.detail).toBe('vermfly');
+    expect(result.current.state.view).toBe('detail');
+  });
+
+  it('sniffs view=detail when ?detail= is set without explicit ?view=', () => {
+    window.history.replaceState({}, '', '/?detail=vermfly');
+    const { result } = renderHook(() => useUrlState());
+    expect(result.current.state.view).toBe('detail');
+    expect(result.current.state.detail).toBe('vermfly');
+  });
+
+  it('detail defaults to null when not in URL', () => {
+    const { result } = renderHook(() => useUrlState());
+    expect(result.current.state.detail).toBeNull();
+  });
+
+  it('writes ?detail= to URL when set', () => {
+    const { result } = renderHook(() => useUrlState());
+    act(() => result.current.set({ detail: 'vermfly', view: 'detail' }));
+    expect(window.location.search).toContain('detail=vermfly');
+    expect(window.location.search).toContain('view=detail');
+  });
+
+  it('detail does not affect species filter param', () => {
+    window.history.replaceState({}, '', '/?species=grhowl&detail=vermfly&view=detail');
+    const { result } = renderHook(() => useUrlState());
+    expect(result.current.state.speciesCode).toBe('grhowl');
+    expect(result.current.state.detail).toBe('vermfly');
+    expect(result.current.state.view).toBe('detail');
+  });
+
+  it('?species=X without ?detail= still sniffs to species view (bookmark compat)', () => {
+    window.history.replaceState({}, '', '/?species=vermfly');
+    const { result } = renderHook(() => useUrlState());
+    expect(result.current.state.view).toBe('species');
+    expect(result.current.state.detail).toBeNull();
   });
 });

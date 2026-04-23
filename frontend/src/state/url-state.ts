@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 export type Since = '1d' | '7d' | '14d' | '30d';
-export type View = 'feed' | 'species' | 'hotspots';
+export type View = 'feed' | 'species' | 'hotspots' | 'detail';
 
 export interface UrlState {
   speciesCode: string | null;
@@ -9,6 +9,7 @@ export interface UrlState {
   since: Since;
   notable: boolean;
   view: View;
+  detail: string | null;
 }
 
 const DEFAULTS: UrlState = {
@@ -17,28 +18,34 @@ const DEFAULTS: UrlState = {
   since: '14d',
   notable: false,
   view: 'feed',
+  detail: null,
 };
 
 const VALID_SINCE: ReadonlySet<string> = new Set(['1d', '7d', '14d', '30d']);
-const VALID_VIEW: ReadonlySet<string> = new Set(['feed', 'species', 'hotspots']);
+const VALID_VIEW: ReadonlySet<string> = new Set(['feed', 'species', 'hotspots', 'detail']);
 
 function readUrl(): UrlState {
   const p = new URLSearchParams(window.location.search);
   const since = p.get('since');
   const rawView = p.get('view');
   const speciesCode = p.get('species');
+  const detail = p.get('detail');
   // Side-channel read: detect ?region= for migration banner.
   // The value is NOT stored in UrlState — use readMigrationFlag() instead.
   p.get('region');
 
   // View resolution:
   //  - explicit, valid ?view= wins.
-  //  - absent ?view= AND ?species= set → sniff to 'species' so bookmarked
-  //    species URLs land on the search surface with the panel open.
+  //  - absent ?view= AND ?species= set (without ?detail=) → sniff to
+  //    'species' so bookmarked species-filter URLs land on the search
+  //    surface with the filter active, NOT the detail surface.
+  //  - absent ?view= AND ?detail= set → sniff to 'detail'.
   //  - otherwise default ('feed').
   let view: View;
   if (rawView && VALID_VIEW.has(rawView)) {
     view = rawView as View;
+  } else if (!rawView && detail) {
+    view = 'detail';
   } else if (!rawView && speciesCode) {
     view = 'species';
   } else {
@@ -51,6 +58,7 @@ function readUrl(): UrlState {
     since: since && VALID_SINCE.has(since) ? (since as Since) : DEFAULTS.since,
     notable: p.get('notable') === 'true',
     view,
+    detail,
   };
 }
 
@@ -61,10 +69,11 @@ function writeUrl(state: UrlState): void {
   if (state.familyCode) p.set('family', state.familyCode);
   if (state.since !== DEFAULTS.since) p.set('since', state.since);
   if (state.notable) p.set('notable', 'true');
-  // Emit ?view= when non-default, OR when ?species= is set and view is 'feed'
-  // — otherwise the species sniff in readUrl silently reverts the user's
-  // explicit 'feed' choice back to 'species' on reload/popstate.
-  if (state.view !== DEFAULTS.view || state.speciesCode) {
+  if (state.detail) p.set('detail', state.detail);
+  // Emit ?view= when non-default, OR when ?species= or ?detail= is set and
+  // view is 'feed' — otherwise the sniff in readUrl silently reverts the
+  // user's explicit 'feed' choice back to 'species'/'detail' on reload/popstate.
+  if (state.view !== DEFAULTS.view || state.speciesCode || state.detail) {
     p.set('view', state.view);
   }
   const q = p.toString();

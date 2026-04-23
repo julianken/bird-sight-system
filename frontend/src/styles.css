@@ -162,7 +162,7 @@ body {
   outline-offset: -2px;
 }
 /* Row-level notable marker. Background is a soft amber that reads as
-   "warm pointer" without competing with the SpeciesPanel palette. Border-
+   "warm pointer" without competing with the detail-surface palette. Border-
    left stripe is the accent so a dense notable-only feed still has a clean
    left edge. */
 .feed-row-notable {
@@ -243,7 +243,7 @@ body {
 /* Species search surface (#118). Navigation-style autocomplete at the top
    + client-side filtered recent-sightings list below. Distinct from the
    FiltersBar species input (which narrows the feed in place); this one
-   sets ?species= and opens the SpeciesPanel. */
+   sets ?detail= + ?view=detail and opens the SpeciesDetailSurface. */
 .species-search-surface {
   max-width: 760px;
   margin-inline: auto;
@@ -403,109 +403,31 @@ body {
   border-color: var(--color-text-strong);
 }
 
-/* Species detail panel (issue #56, reworked for responsive layout in #115).
-   `position: fixed` detaches from the flex layout so opening the panel does
-   not reflow the page. `right/top: 0` + full viewport height gives a
-   consistent docked look regardless of scroll position or filters-bar
-   height.
-
-   Two layouts, selected via the data-layout attribute set by the component:
-
-     data-layout="sidebar" (desktop, ≥768px) — 320px right-docked panel.
-       This is the legacy behaviour, preserved verbatim. The sidebar is a
-       peer to page content; outside clicks do not dismiss it.
-
-     data-layout="drawer" (mobile, ≤767px) — full-width drawer that covers
-       the viewport. An overlay sibling (.species-panel-overlay) sits behind
-       it for tap-outside dismiss; the drawer itself does not handle the
-       outside-click — the overlay does. The layout rules are scoped to the
-       data-layout attribute rather than relying on a media query alone so
-       the React-driven isMobile state stays the source of truth for the
-       overlay sibling + the CSS rules in lockstep. */
-.species-panel {
-  position: fixed;
-  top: 0;
-  right: 0;
-  height: 100vh;
-  background: var(--color-bg-surface);
-  border-left: 1px solid var(--color-border-ui);
-  box-shadow: var(--shadow-panel);
-  padding: var(--space-xl) 20px var(--space-lg) 20px;
-  overflow-y: auto;
-  z-index: var(--z-panel);
+/* Species detail surface (#151). In-flow surface inside <main>, replaces the
+   old position:fixed SpeciesPanel sidebar/drawer. Styled consistently with
+   other surfaces — capped width, centered, standard spacing. */
+.species-detail-surface {
+  max-width: 760px;
+  margin-inline: auto;
 }
-.species-panel[data-layout='sidebar'] {
-  width: 320px;
-  max-width: 100vw;
-}
-/* Drawer = bottom-sheet pattern. Full viewport width, anchored to the
-   bottom, capped at 85vh so the top ~15vh of the screen is tap-outside
-   overlay territory. Border-left is nullified (the drawer touches both
-   edges horizontally); a top border replaces it so the sheet visually
-   separates from the overlay above. */
-.species-panel[data-layout='drawer'] {
-  width: 100vw;
-  max-width: 100vw;
-  left: 0;
-  right: 0;
-  top: auto;
-  bottom: 0;
-  height: auto;
-  max-height: 85vh;
-  border-left: none;
-  border-top: 1px solid var(--color-border-ui);
-  box-shadow: var(--shadow-drawer);
-  border-top-left-radius: 12px;
-  border-top-right-radius: 12px;
-}
-.species-panel-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, var(--opacity-hover));
-  /* Sit just below the panel (z-panel 40) so taps inside the panel don't
-     bubble to the overlay. The aside stacks above on z-index precedence
-     via its higher z-panel value. */
-  z-index: calc(var(--z-panel) - 1);
-}
-.species-panel-close {
-  position: absolute;
-  top: var(--space-sm);
-  right: var(--space-sm);
-  width: 32px;
-  height: 32px;
-  border: none;
-  background: transparent;
-  font-size: 24px;
-  line-height: 1;
-  cursor: pointer;
-  color: var(--color-text-strong);
-  border-radius: 4px;
-}
-.species-panel-close:hover,
-.species-panel-close:focus-visible {
-  background: var(--color-bg-tint);
-}
-.species-panel-body { margin-top: var(--space-sm); }
-.species-panel-common-name {
+.species-detail-body { margin-top: var(--space-sm); }
+.species-detail-common-name {
   margin: 0 0 4px 0;
   font-size: 20px;
   font-weight: 700;
 }
-.species-panel-sci-name {
+.species-detail-sci-name {
   margin: 0 0 12px 0;
   font-size: 14px;
   color: var(--color-text-muted);
 }
-.species-panel-family {
+.species-detail-family {
   margin: 0;
   font-size: 13px;
   color: var(--color-text-body);
 }
-.species-panel-loading { color: var(--color-text-muted); font-size: 13px; margin: 8px 0 0 0; }
-.species-panel-error {
+.species-detail-loading { color: var(--color-text-muted); font-size: 13px; margin: 8px 0 0 0; }
+.species-detail-error {
   margin-top: 8px;
   padding: 8px 12px;
   background: var(--color-error-bg);
@@ -513,18 +435,6 @@ body {
   border-radius: 4px;
   color: var(--color-error-text);
   font-size: 13px;
-}
-/* sr-only heading used as aria-labelledby target while data is loading. */
-.species-panel-sr-heading {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
 }
 
 /* Hotspot list surface (#117). Ordered list of hotspot rows with a local

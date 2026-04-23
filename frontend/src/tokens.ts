@@ -76,7 +76,7 @@ export const zIndex = {
   hotspots: 25,
   /** Scrims / full-screen backdrops (reserved). */
   overlay: 30,
-  /** SpeciesPanel docked sidebar. Was `10` before tokens landed. */
+  /** Panel z-index (reserved for future overlays). Was `10` before tokens landed. */
   panel: 40,
   /** Future modal dialogs (reserved). */
   modal: 50,
