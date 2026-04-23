@@ -1,5 +1,6 @@
 import type {
   Region, Hotspot, Observation, SpeciesMeta, ObservationFilters,
+  FamilySilhouette,
 } from '@bird-watch/shared-types';
 
 export interface ApiClientOptions {
@@ -38,6 +39,10 @@ export class ApiClient {
 
   getSpecies(code: string): Promise<SpeciesMeta> {
     return this.get<SpeciesMeta>(`/api/species/${encodeURIComponent(code)}`);
+  }
+
+  getSilhouettes(): Promise<FamilySilhouette[]> {
+    return this.get<FamilySilhouette[]>('/api/silhouettes');
   }
 
   private async get<T>(path: string): Promise<T> {

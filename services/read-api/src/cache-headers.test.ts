@@ -18,4 +18,11 @@ describe('cacheControlFor', () => {
     expect(cacheControlFor('species'))
       .toBe('public, max-age=604800, immutable');
   });
+  it('returns 7d immutable for /silhouettes', () => {
+    // Family-color mapping is static per deploy (changes only via seed
+    // migrations), so it rides the same immutable-1-week profile as the
+    // region and species-meta endpoints.
+    expect(cacheControlFor('silhouettes'))
+      .toBe('public, max-age=604800, immutable');
+  });
 });

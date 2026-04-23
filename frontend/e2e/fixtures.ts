@@ -2,7 +2,7 @@ import { test as base } from '@playwright/test';
 import type { Observation, SpeciesMeta } from '@bird-watch/shared-types';
 
 /** Read API endpoints that can be stubbed. Keep in sync with services/read-api/src/app.ts. */
-export type StubbableEndpoint = 'regions' | 'hotspots' | 'observations' | 'species';
+export type StubbableEndpoint = 'regions' | 'hotspots' | 'observations' | 'species' | 'silhouettes';
 
 /**
  * Playwright route stubs for the Read API. Each helper registers a single
@@ -11,10 +11,10 @@ export type StubbableEndpoint = 'regions' | 'hotspots' | 'observations' | 'speci
  */
 export interface ApiStub {
   /**
-   * Stubs the three list endpoints (`/api/regions`, `/api/hotspots`,
-   * `/api/observations`) to return `200 []`. Does NOT stub
-   * `/api/species/{code}` — add that route manually if your test
-   * exercises species detail lookup.
+   * Stubs the four list endpoints (`/api/regions`, `/api/hotspots`,
+   * `/api/observations`, `/api/silhouettes`) to return `200 []`. Does
+   * NOT stub `/api/species/{code}` — add that route manually if your
+   * test exercises species detail lookup.
    */
   stubEmpty(): Promise<void>;
   /** Stubs `/api/observations` to return `200` with the provided list. */
@@ -52,6 +52,9 @@ export const test = base.extend<{ apiStub: ApiStub }>({
           await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
         });
         await page.route('**/api/observations**', async route => {
+          await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+        });
+        await page.route('**/api/silhouettes', async route => {
           await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
         });
       },

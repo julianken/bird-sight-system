@@ -133,6 +133,40 @@ describe('error handling', () => {
   });
 });
 
+describe('GET /api/silhouettes', () => {
+  it('returns all 15 seeded family silhouettes with the silhouettes cache header', async () => {
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/silhouettes');
+    expect(res.status).toBe(200);
+    // Must come from cacheControlFor('silhouettes') — NOT a hardcoded string.
+    // Both sides of the equality reference the same TTL table entry; if that
+    // entry ever changes this test will flag both the route and the table.
+    expect(res.headers.get('cache-control'))
+      .toBe('public, max-age=604800, immutable');
+    const body = await res.json() as Array<{
+      familyCode: string; color: string; svgData: string | null;
+      source: string | null; license: string | null;
+    }>;
+    expect(body).toHaveLength(15);
+    const tyrannidae = body.find(r => r.familyCode === 'tyrannidae');
+    expect(tyrannidae?.color).toBe('#C77A2E');
+  });
+
+  it('provides color for every family_code present in species_meta (parity with deleted FAMILY_TO_COLOR)', async () => {
+    // Issue #55 option (a): DB is now the single SOT for family colors.
+    // For every family that species_meta references, the silhouettes
+    // endpoint must return a color — otherwise the frontend's fallback
+    // path would fire in production. Seeded species_meta at the top of
+    // this suite covers tyrannidae + trochilidae; assert both resolve.
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/silhouettes');
+    const body = await res.json() as Array<{ familyCode: string; color: string }>;
+    const byFamily = Object.fromEntries(body.map(r => [r.familyCode, r.color]));
+    expect(byFamily['tyrannidae']).toBe('#C77A2E');
+    expect(byFamily['trochilidae']).toBe('#7B2D8E');
+  });
+});
+
 describe('GET /api/species/:code', () => {
   it('returns species meta for a known code', async () => {
     const app = createApp({ pool: db.pool });

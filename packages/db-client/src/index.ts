@@ -7,6 +7,7 @@ export {
   type ObservationInput,
 } from './observations.js';
 export { getSpeciesMeta, upsertSpeciesMeta } from './species.js';
+export { getSilhouettes } from './silhouettes.js';
 export {
   startIngestRun, finishIngestRun, getRecentIngestRuns,
   type IngestKind, type IngestStatus, type FinishOptions,

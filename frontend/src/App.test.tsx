@@ -2,9 +2,10 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 
 // Hoist mock fns so they exist before any module-level code runs.
-const { mockGetHotspots, mockGetObservations, mockUrlState } = vi.hoisted(() => ({
+const { mockGetHotspots, mockGetObservations, mockGetSilhouettes, mockUrlState } = vi.hoisted(() => ({
   mockGetHotspots: vi.fn(),
   mockGetObservations: vi.fn(),
+  mockGetSilhouettes: vi.fn(),
   mockUrlState: {
     state: {
       since: '14d' as const,
@@ -23,6 +24,16 @@ vi.mock('./state/url-state.js', () => ({
   readMigrationFlag: () => false,
 }));
 
+// Stub MapSurface to avoid loading maplibre-gl in jsdom. Since issue #55's
+// color-SOT wiring added a silhouettes fetch that runs concurrently with
+// App's initial render, the 'map' view aria-busy test is now reliably hot
+// enough to trigger MapSurface's maplibre import — which fails in jsdom
+// because `window.URL.createObjectURL` isn't polyfilled. The test only
+// cares about the `<main aria-busy>` attribute, not the map itself.
+vi.mock('./components/MapSurface.js', () => ({
+  MapSurface: () => null,
+}));
+
 // Stub the ApiClient constructor so useBirdData receives a controllable mock.
 vi.mock('./api/client.js', async () => {
   const actual = await vi.importActual<typeof import('./api/client.js')>('./api/client.js');
@@ -31,20 +42,24 @@ vi.mock('./api/client.js', async () => {
     ApiClient: class {
       getHotspots = mockGetHotspots;
       getObservations = mockGetObservations;
+      getSilhouettes = mockGetSilhouettes;
     },
   };
 });
 
 import { App } from './App.js';
 import { ApiError } from './api/client.js';
+import { __resetSilhouettesCache } from './data/use-silhouettes.js';
 
 describe('App error screen', () => {
   beforeEach(() => {
+    __resetSilhouettesCache();
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
     };
     mockGetHotspots.mockRejectedValue(new ApiError(503, 'pool exhausted'));
     mockGetObservations.mockResolvedValue([]);
+    mockGetSilhouettes.mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -72,9 +87,11 @@ describe('App error screen', () => {
 
 describe('App aria-busy', () => {
   beforeEach(() => {
+    __resetSilhouettesCache();
     // Successful loads so we get the normal UI (not error screen)
     mockGetHotspots.mockResolvedValue([]);
     mockGetObservations.mockResolvedValue([]);
+    mockGetSilhouettes.mockResolvedValue([]);
   });
 
   afterEach(() => {
