@@ -23,6 +23,7 @@ function makeObs(partial: Partial<Observation> = {}): Observation {
     isNotable: partial.isNotable ?? false,
     regionId: null,
     silhouetteId: null,
+    familyCode: null,
   };
 }
 

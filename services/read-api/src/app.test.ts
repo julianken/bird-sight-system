@@ -72,6 +72,16 @@ describe('GET /api/observations', () => {
     expect(body).toHaveLength(2);
   });
 
+  it('projects familyCode from species_meta onto each observation (#57)', async () => {
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/observations?since=30d');
+    expect(res.status).toBe(200);
+    const body = await res.json() as Array<{ subId: string; familyCode: string | null }>;
+    const byId = Object.fromEntries(body.map(o => [o.subId, o.familyCode]));
+    expect(byId['S1']).toBe('tyrannidae');
+    expect(byId['S2']).toBe('trochilidae');
+  });
+
   it('filters by since=14d', async () => {
     const app = createApp({ pool: db.pool });
     const res = await app.request('/api/observations?since=14d');

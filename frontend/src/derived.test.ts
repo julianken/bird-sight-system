@@ -16,7 +16,7 @@ function obs(partial: Partial<Observation>): Observation {
     isNotable: partial.isNotable ?? false,
     regionId: null,
     silhouetteId: partial.silhouetteId ?? null,
-    ...(partial.familyCode !== undefined ? { familyCode: partial.familyCode } : {}),
+    familyCode: partial.familyCode ?? null,
     ...(partial.taxonOrder !== undefined ? { taxonOrder: partial.taxonOrder } : {}),
   };
 }
@@ -48,28 +48,19 @@ describe('deriveSpeciesIndex', () => {
     });
   });
 
-  it('falls back to silhouetteId for familyCode when familyCode is absent', () => {
+  it('emits null familyCode when the observation carries no familyCode', () => {
+    // #57: silhouetteId is NO LONGER a fallback for familyCode. A species
+    // missing from species_meta yields null, and callers (deriveFamilies)
+    // skip those rows rather than bucketing under a synthetic family.
     const index = deriveSpeciesIndex([
       obs({
         speciesCode: 'annhum',
         comName: "Anna's Hummingbird",
         silhouetteId: 'trochilidae',
-        // familyCode intentionally omitted — schema back-compat path.
+        familyCode: null,
       }),
     ]);
-    expect(index[0]?.familyCode).toBe('trochilidae');
-  });
-
-  it('prefers familyCode over silhouetteId when both are present', () => {
-    const index = deriveSpeciesIndex([
-      obs({
-        speciesCode: 'vermfly',
-        comName: 'Vermilion Flycatcher',
-        familyCode: 'tyrannidae',
-        silhouetteId: 'legacy-silhouette',
-      }),
-    ]);
-    expect(index[0]?.familyCode).toBe('tyrannidae');
+    expect(index[0]?.familyCode).toBeNull();
   });
 
   it('emits null taxonOrder when the observation carries no taxonOrder', () => {
@@ -77,13 +68,6 @@ describe('deriveSpeciesIndex', () => {
       obs({ speciesCode: 'abc', comName: 'A Bird' }),
     ]);
     expect(index[0]?.taxonOrder).toBeNull();
-  });
-
-  it('emits null familyCode when neither familyCode nor silhouetteId is present', () => {
-    const index = deriveSpeciesIndex([
-      obs({ speciesCode: 'mystery', comName: 'Mystery Bird' }),
-    ]);
-    expect(index[0]?.familyCode).toBeNull();
   });
 
   it('sorts entries alphabetically by comName (existing contract)', () => {
@@ -96,18 +80,23 @@ describe('deriveSpeciesIndex', () => {
 });
 
 describe('deriveFamilies', () => {
-  it('reads familyCode first when present', () => {
+  it('groups by familyCode', () => {
     const families = deriveFamilies([
-      obs({ speciesCode: 'vermfly', familyCode: 'tyrannidae', silhouetteId: 'legacy' }),
+      obs({ speciesCode: 'vermfly', familyCode: 'tyrannidae' }),
     ]);
     expect(families.map(f => f.code)).toEqual(['tyrannidae']);
   });
 
-  it('falls back to silhouetteId when familyCode is absent', () => {
+  it('ignores silhouetteId entirely — two families sharing a silhouette id still bucket by familyCode', () => {
+    // Regression guard for #57: the old code fell back to silhouetteId,
+    // which meant two distinct families rendered under one bucket if
+    // they happened to share a silhouette id. Now familyCode drives the
+    // bucket, so a shared silhouette id has no effect on grouping.
     const families = deriveFamilies([
-      obs({ speciesCode: 'annhum', silhouetteId: 'trochilidae' }),
+      obs({ speciesCode: 'a', familyCode: 'tyrannidae', silhouetteId: 'shared' }),
+      obs({ speciesCode: 'b', familyCode: 'trochilidae', silhouetteId: 'shared' }),
     ]);
-    expect(families.map(f => f.code)).toEqual(['trochilidae']);
+    expect(families.map(f => f.code).sort()).toEqual(['trochilidae', 'tyrannidae']);
   });
 
   it('de-dupes across observations that share the same family', () => {
@@ -118,9 +107,17 @@ describe('deriveFamilies', () => {
     expect(families).toHaveLength(1);
   });
 
-  it('ignores observations whose family cannot be resolved', () => {
+  it('skips observations whose familyCode is null rather than bucketing them under a synthetic family', () => {
     const families = deriveFamilies([
-      obs({ speciesCode: 'mystery', silhouetteId: null }),
+      obs({ speciesCode: 'mystery', familyCode: null, silhouetteId: 'orphan' }),
+      obs({ speciesCode: 'vermfly', familyCode: 'tyrannidae' }),
+    ]);
+    expect(families.map(f => f.code)).toEqual(['tyrannidae']);
+  });
+
+  it('skips observations with no family at all', () => {
+    const families = deriveFamilies([
+      obs({ speciesCode: 'mystery', familyCode: null, silhouetteId: null }),
     ]);
     expect(families).toEqual([]);
   });

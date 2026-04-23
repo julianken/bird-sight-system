@@ -21,6 +21,7 @@ const BASE_OBS: Observation = {
   isNotable: false,
   regionId: null,
   silhouetteId: null,
+  familyCode: null,
 };
 
 describe('ObservationFeedRow', () => {
