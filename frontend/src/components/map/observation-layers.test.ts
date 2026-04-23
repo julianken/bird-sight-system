@@ -113,6 +113,10 @@ describe('layer specs', () => {
     expect(spec.type).toBe('symbol');
     const layout = spec.layout as Record<string, unknown>;
     expect(layout['text-field']).toEqual(['get', 'point_count_abbreviated']);
+    // Must declare a font present in the basemap glyph stack (Noto Sans on
+    // OpenFreeMap positron). Omitting this falls back to Open Sans Regular,
+    // which 404s against tiles.openfreemap.org.
+    expect(layout['text-font']).toEqual(['Noto Sans Regular']);
   });
 });
 

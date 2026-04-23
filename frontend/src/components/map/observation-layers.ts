@@ -129,6 +129,11 @@ export function buildClusterCountLayerSpec(): LayerProps {
     layout: {
       'text-field': ['get', 'point_count_abbreviated'],
       'text-size': 12,
+      // Must be a font that exists in the basemap style's glyph stack.
+      // OpenFreeMap positron ships Noto Sans {Regular,Bold,Italic} only —
+      // MapLibre's default ["Open Sans Regular","Arial Unicode MS Regular"]
+      // 404s against tiles.openfreemap.org/fonts/...
+      'text-font': ['Noto Sans Regular'],
     },
     paint: {
       'text-color': readToken('--color-text-strong', '#1a1a1a'),

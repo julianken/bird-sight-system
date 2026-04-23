@@ -1,31 +1,15 @@
-import type { StyleSpecification } from 'maplibre-gl';
-
 /**
- * Minimal basemap style pointing at the S2 tile endpoint.
+ * Basemap for the map surface.
  *
- * Until S2 (tile infrastructure) merges, the URL will 404 — that's expected
- * for unwired S3. MapLibre renders an empty canvas with the background colour
- * and logs a fetch error; cluster/point layers still render correctly against
- * the transparent background, which is all the unit tests need.
+ * Points at OpenFreeMap's hosted `positron` style — free, MapLibre-compatible,
+ * includes glyphs + sources + rendering layers. Prototype finding 2
+ * (docs/plans/2026-04-22-map-v1-prototype/learnings.md) notes the style emits
+ * MapLibre warnings at zoom >7, but those are cosmetic upstream issues, not
+ * crashes. Acceptable for v1 ship.
+ *
+ * Future: self-hosted PMTiles at tiles.bird-maps.com (R2 bucket + CF Worker
+ * already provisioned by Plan 7 S2, but the one-time build-basemap.sh upload
+ * hasn't run yet, and a full style spec with land/water/road layers + glyphs
+ * still needs authoring).
  */
-export const basemapStyle: StyleSpecification = {
-  version: 8,
-  name: 'bird-maps-basemap',
-  sources: {
-    'bird-maps-tiles': {
-      type: 'vector',
-      tiles: ['https://tiles.bird-maps.com/{z}/{x}/{y}.pbf'],
-      minzoom: 0,
-      maxzoom: 14,
-    },
-  },
-  layers: [
-    {
-      id: 'background',
-      type: 'background',
-      paint: {
-        'background-color': '#f4f1ea', // matches --color-bg-page
-      },
-    },
-  ],
-};
+export const basemapStyle = 'https://tiles.openfreemap.org/styles/positron';
