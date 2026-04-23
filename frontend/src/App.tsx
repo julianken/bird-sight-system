@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { ApiClient, ApiError } from './api/client.js';
 import { useUrlState, readMigrationFlag } from './state/url-state.js';
 import { useBirdData } from './data/use-bird-data.js';
+import { useSilhouettes } from './data/use-silhouettes.js';
 import { FiltersBar } from './components/FiltersBar.js';
 import { FeedSurface } from './components/FeedSurface.js';
 import { MapSurface } from './components/MapSurface.js';
@@ -26,6 +27,19 @@ export function App() {
 
   const families = useMemo(() => deriveFamilies(observations), [observations]);
   const speciesIndex = useMemo(() => deriveSpeciesIndex(observations), [observations]);
+
+  // Family color SOT (issue #55 option (a)): read from the DB-backed
+  // `/api/silhouettes` endpoint rather than a hardcoded map. The hook
+  // caches aggressively (response is static per deploy + 1-week immutable
+  // Cache-Control) so mounting it here is effectively free even though no
+  // current descendant renders a family-color surface — this wiring is the
+  // seam for the Phylopic silhouette track (also issue #55), which unblocks
+  // once the curation step lands. Descendants that need a resolver should
+  // compose `useSilhouettes` with `buildFamilyColorResolver` from
+  // `./data/family-color.js`; NO file should import from
+  // `@bird-watch/family-mapping` for color anymore — that hardcoded map was
+  // deleted when the DB became SOT.
+  useSilhouettes(apiClient);
 
   const nowRef = useRef(new Date());
   const now = nowRef.current;

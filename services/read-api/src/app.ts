@@ -2,7 +2,9 @@ import { Hono } from 'hono';
 import { compress } from 'hono/compress';
 import { cors } from 'hono/cors';
 import type { Pool } from '@bird-watch/db-client';
-import { getRegions, getHotspots, getObservations, getSpeciesMeta } from '@bird-watch/db-client';
+import {
+  getRegions, getHotspots, getObservations, getSpeciesMeta, getSilhouettes,
+} from '@bird-watch/db-client';
 import { cacheControlFor } from './cache-headers.js';
 
 export interface AppDeps {
@@ -92,6 +94,12 @@ export function createApp(deps: AppDeps): Hono {
 
     const rows = await getObservations(deps.pool, filters);
     c.header('Cache-Control', cacheControlFor('observations'));
+    return c.json(rows);
+  });
+
+  app.get('/api/silhouettes', async c => {
+    const rows = await getSilhouettes(deps.pool);
+    c.header('Cache-Control', cacheControlFor('silhouettes'));
     return c.json(rows);
   });
 

@@ -1,3 +1,11 @@
+// Family → color mapping was removed by issue #55 option (a): the DB-backed
+// `family_silhouettes` table is now the single source of truth, fetched via
+// the Read API's `/api/silhouettes` route. Frontend callers resolve color via
+// `frontend/src/data/family-color.ts`'s `buildFamilyColorResolver`. This
+// package retains the silhouette-ID mapping (static per deploy, keyed to
+// bundled SVG assets) until the Phylopic silhouette curation track also
+// moves under the DB. Do NOT re-add FAMILY_TO_COLOR here.
+
 export const FALLBACK_FAMILY = 'passerellidae';
 
 const FAMILY_TO_SILHOUETTE: Record<string, string> = {
@@ -18,32 +26,8 @@ const FAMILY_TO_SILHOUETTE: Record<string, string> = {
   trogonidae: 'trogonidae',
 };
 
-const FAMILY_TO_COLOR: Record<string, string> = {
-  passerellidae: '#D4923A',
-  trochilidae: '#7B2D8E',
-  accipitridae: '#222222',
-  strigidae: '#5A4A2A',
-  ardeidae: '#5A6B2A',
-  anatidae: '#3A6B8E',
-  scolopacidae: '#9B7B3A',
-  picidae: '#FF0808',
-  corvidae: '#222244',
-  odontophoridae: '#7A5028',
-  cathartidae: '#444444',
-  tyrannidae: '#C77A2E',
-  troglodytidae: '#7A5028',
-  cuculidae: '#5E4A20',
-  trogonidae: '#FF0808',
-};
-
-const FALLBACK_COLOR = '#888888';
-
 export function silhouetteForFamily(familyCode: string): string {
   return FAMILY_TO_SILHOUETTE[familyCode.toLowerCase()] ?? FALLBACK_FAMILY;
-}
-
-export function colorForFamily(familyCode: string): string {
-  return FAMILY_TO_COLOR[familyCode.toLowerCase()] ?? FALLBACK_COLOR;
 }
 
 export function listMappedFamilies(): readonly string[] {
