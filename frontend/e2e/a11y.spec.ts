@@ -46,9 +46,9 @@ test.describe('accessibility', () => {
     expect(speciesIdx, 'Species filter must be tabbable').toBeGreaterThanOrEqual(0);
 
     // Every filter must come before the first SurfaceNav tab. Tabs are
-    // buttons with aria-label="Feed view" / "Species view" / "Hotspots view".
+    // buttons with aria-label="Feed view" / "Species view" / "Map view".
     const firstSurfaceTabIdx = visited.findIndex(s =>
-      s.includes('Feed view') || s.includes('Species view') || s.includes('Hotspots view'),
+      s.includes('Feed view') || s.includes('Species view') || s.includes('Map view'),
     );
     if (firstSurfaceTabIdx >= 0) {
       expect(

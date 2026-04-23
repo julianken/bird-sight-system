@@ -12,11 +12,11 @@ describe('SurfaceNav', () => {
 
     const feedTab = screen.getByRole('tab', { name: 'Feed view' });
     const speciesTab = screen.getByRole('tab', { name: 'Species view' });
-    const hotspotsTab = screen.getByRole('tab', { name: 'Hotspots view' });
+    const mapTab = screen.getByRole('tab', { name: 'Map view' });
 
     expect(feedTab).toHaveAttribute('aria-selected', 'true');
     expect(speciesTab).toHaveAttribute('aria-selected', 'false');
-    expect(hotspotsTab).toHaveAttribute('aria-selected', 'false');
+    expect(mapTab).toHaveAttribute('aria-selected', 'false');
   });
 
   it('tracks aria-selected as activeView changes', () => {
@@ -37,7 +37,7 @@ describe('SurfaceNav', () => {
       'aria-selected',
       'true'
     );
-    expect(screen.getByRole('tab', { name: 'Hotspots view' })).toHaveAttribute(
+    expect(screen.getByRole('tab', { name: 'Map view' })).toHaveAttribute(
       'aria-selected',
       'false'
     );
@@ -45,7 +45,7 @@ describe('SurfaceNav', () => {
 
   it('associates each tab with the main surface via aria-controls', () => {
     render(<SurfaceNav activeView="feed" onSelectView={() => {}} />);
-    for (const name of ['Feed view', 'Species view', 'Hotspots view']) {
+    for (const name of ['Feed view', 'Species view', 'Map view']) {
       const tab = screen.getByRole('tab', { name });
       expect(tab).toHaveAttribute('aria-controls', 'main-surface');
     }
@@ -71,7 +71,7 @@ describe('SurfaceNav', () => {
     render(<SurfaceNav activeView="species" onSelectView={() => {}} />);
     expect(screen.getByRole('tab', { name: 'Feed view' })).toHaveAttribute('tabindex', '-1');
     expect(screen.getByRole('tab', { name: 'Species view' })).toHaveAttribute('tabindex', '0');
-    expect(screen.getByRole('tab', { name: 'Hotspots view' })).toHaveAttribute('tabindex', '-1');
+    expect(screen.getByRole('tab', { name: 'Map view' })).toHaveAttribute('tabindex', '-1');
   });
 
   it('ArrowRight on the active tab moves focus AND fires onSelectView with the next value', async () => {
@@ -104,10 +104,10 @@ describe('SurfaceNav', () => {
   it('ArrowRight wraps from the last tab to the first', async () => {
     const onSelectView = vi.fn();
     const user = userEvent.setup();
-    render(<SurfaceNav activeView="hotspots" onSelectView={onSelectView} />);
+    render(<SurfaceNav activeView="map" onSelectView={onSelectView} />);
 
-    const hotspotsTab = screen.getByRole('tab', { name: 'Hotspots view' });
-    hotspotsTab.focus();
+    const mapTab = screen.getByRole('tab', { name: 'Map view' });
+    mapTab.focus();
 
     await user.keyboard('{ArrowRight}');
     expect(onSelectView).toHaveBeenCalledWith('feed');
@@ -123,8 +123,8 @@ describe('SurfaceNav', () => {
     feedTab.focus();
 
     await user.keyboard('{ArrowLeft}');
-    expect(onSelectView).toHaveBeenCalledWith('hotspots');
-    expect(screen.getByRole('tab', { name: 'Hotspots view' })).toHaveFocus();
+    expect(onSelectView).toHaveBeenCalledWith('map');
+    expect(screen.getByRole('tab', { name: 'Map view' })).toHaveFocus();
   });
 
   it('Enter on a focused tab activates it', async () => {
@@ -132,10 +132,10 @@ describe('SurfaceNav', () => {
     const user = userEvent.setup();
     render(<SurfaceNav activeView="feed" onSelectView={onSelectView} />);
 
-    const hotspotsTab = screen.getByRole('tab', { name: 'Hotspots view' });
-    hotspotsTab.focus();
+    const mapTab = screen.getByRole('tab', { name: 'Map view' });
+    mapTab.focus();
     await user.keyboard('{Enter}');
-    expect(onSelectView).toHaveBeenCalledWith('hotspots');
+    expect(onSelectView).toHaveBeenCalledWith('map');
   });
 
   it('Space on a focused tab activates it', async () => {

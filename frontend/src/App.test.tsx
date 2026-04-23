@@ -11,7 +11,7 @@ const { mockGetHotspots, mockGetObservations, mockUrlState } = vi.hoisted(() => 
       notable: false,
       speciesCode: null as string | null,
       familyCode: null as string | null,
-      view: 'feed' as 'feed' | 'species' | 'hotspots',
+      view: 'feed' as 'feed' | 'species' | 'map',
     },
     set: vi.fn(),
   },
@@ -92,9 +92,9 @@ describe('App aria-busy', () => {
     expect(main.getAttribute('aria-busy')).toBe('true');
   });
 
-  it('does NOT set aria-busy=true on hotspots view even while loading', () => {
+  it('does NOT set aria-busy=true on map view even while loading', () => {
     mockUrlState.state = {
-      since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'hotspots',
+      since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'map',
     };
     mockGetObservations.mockReturnValue(new Promise(() => {}));
     render(<App />);

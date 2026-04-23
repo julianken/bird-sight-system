@@ -22,7 +22,7 @@ interface TabDef {
 const TABS: readonly TabDef[] = [
   { value: 'feed', label: 'Feed', accessibleName: 'Feed view' },
   { value: 'species', label: 'Species', accessibleName: 'Species view' },
-  { value: 'hotspots', label: 'Hotspots', accessibleName: 'Hotspots view' },
+  { value: 'map', label: 'Map', accessibleName: 'Map view' },
 ];
 
 export function SurfaceNav(props: SurfaceNavProps) {
