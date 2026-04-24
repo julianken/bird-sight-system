@@ -45,8 +45,9 @@
 --   y = ((37.00 - lat)  / 5.7) * 380
 -- Rounded to 3 decimals to match 11000's precision exactly; using 8000's
 -- 1-decimal form (239.0) would reintroduce a ~0.034-unit hairline seam.
--- Parsers accept only absolute M/L/Z verbs (frontend/src/geo/path.ts and
--- frontend/src/components/Region.tsx).
+-- `svg_path` stores only absolute M/L/Z verbs (no curves) — matches the
+-- minimal subset the (removed, #133) SVG parser accepted; preserved for
+-- forward compatibility with any future SVG consumer of `/api/regions`.
 --
 -- Ingest contract
 -- ---------------
