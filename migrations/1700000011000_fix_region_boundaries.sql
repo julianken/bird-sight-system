@@ -35,9 +35,11 @@
 --   y = ((37.00 - lat)  / 5.7) * 380
 -- `geom` and `svg_path` describe the same shape; the SVG values below are
 -- deterministically derived from the MULTIPOLYGON coordinates using that
--- formula.  The SVG path uses only absolute M/L/Z verbs — no curves — because
--- the parser in frontend/src/components/Region.tsx and frontend/src/geo/path.ts
--- only understands that subset.
+-- formula.  The `svg_path` column stores only absolute M/L/Z verbs — no
+-- curves — matching the minimal SVG-verb subset that the (now-removed, #133)
+-- frontend parser accepted.  The column is still served by `/api/regions`;
+-- keep the M/L/Z restriction for forward compatibility with any future SVG
+-- consumer.
 --
 -- Ingest contract (smallest-area-wins point-in-polygon) — TWO call sites:
 --   packages/db-client/src/observations.ts:58-59
