@@ -39,7 +39,7 @@ Three external dependencies + four internal services.
 
 ### Frontend (`frontend/`)
 
-The Plan-4 SVG-ecoregion renderer was deleted in PR #166 and replaced with a MapLibre real-geographic map delivered by Plan 7. Components below reflect the shipped architecture; see `docs/plans/2026-04-21-plan-7-map-v1.md` for detail.
+The Plan-4 SVG-ecoregion renderer was deleted in PR #166 and replaced with a MapLibre real-geographic map delivered by Plan 7. Components below reflect the shipped architecture; see `docs/plans/2026-04-22-plan-7-map-v1.md` for detail.
 
 | Component | Purpose |
 |---|---|
