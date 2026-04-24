@@ -1,0 +1,29 @@
+name: lockfile-consistency
+on:
+  pull_request:
+    paths:
+      - '**/package.json'
+      - 'package-lock.json'
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  lockfile-consistency:
+    name: lockfile-consistency
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Verify package-lock.json is in sync with all workspace package.json files
+        run: |
+          if ! npm ci --dry-run --ignore-scripts; then
+            echo ""
+            echo "::error::package-lock.json is out of sync with one or more package.json files."
+            echo "::error::This typically happens when a PR edits a workspace package.json without regenerating the root lockfile."
+            echo "::error::Fix: run 'npm install' at the repo root and commit the updated package-lock.json."
+            exit 1
+          fi
