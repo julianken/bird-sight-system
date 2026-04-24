@@ -178,7 +178,7 @@ CREATE TABLE species_meta (
 CREATE TABLE family_silhouettes (
   id           TEXT PRIMARY KEY,             -- e.g. "trochilidae" (hummingbirds)
   family_code  TEXT NOT NULL UNIQUE,
-  svg_data     TEXT NOT NULL,                -- inline SVG path
+  svg_data     TEXT,                         -- inline SVG path; NULL = pending Phylopic curation (see #55)
   color        TEXT NOT NULL,                -- hex
   source       TEXT,                         -- attribution
   license      TEXT

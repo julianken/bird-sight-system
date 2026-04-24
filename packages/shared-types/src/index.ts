@@ -58,10 +58,11 @@ export interface SpeciesMeta {
 export interface FamilySilhouette {
   familyCode: string;
   color: string;
-  // Nullable for families pre-curation: the `family_silhouettes` row exists
-  // (so color is seeded and authoritative) but no Phylopic SVG has been
-  // selected yet. Consumers render the generic fallback silhouette when
-  // svgData is null. Tracked by issue #55's Phylopic curation sub-problem.
+  // NULL = pending Phylopic curation (issue #55). The `family_silhouettes`
+  // row exists with an authoritative seeded color, but no Phylopic SVG has
+  // been selected yet. Consumers render the generic fallback silhouette
+  // when svgData is null. The DB column is nullable per migration
+  // 1700000014000_relax_family_silhouettes_svg_data_nullable.sql.
   svgData: string | null;
   source: string | null;
   license: string | null;
