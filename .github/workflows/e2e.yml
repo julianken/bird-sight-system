@@ -94,7 +94,7 @@ jobs:
         env:
           DATABASE_URL: postgres://birdwatch:birdwatch@localhost:5432/birdwatch
           CI: "true"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-report
