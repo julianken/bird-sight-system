@@ -1,11 +1,17 @@
 version: 2
 updates:
-  # Root npm (workspace root — devDependencies, tooling)
+  # Single npm entry for the whole monorepo.
+  #
+  # npm workspaces keeps one package-lock.json at the root. A per-workspace
+  # Dependabot entry would edit a workspace's package.json without touching
+  # the root lockfile, breaking `npm ci`. Pointing the single entry at "/"
+  # lets Dependabot walk every workspace and emit a PR that updates every
+  # affected package.json *and* the root lockfile in one atomic change.
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 10
     groups:
       minor-and-patch:
         update-types: ["minor", "patch"]
@@ -13,86 +19,9 @@ updates:
       # node-pg-migrate major bump tracked separately by #187
       - dependency-name: "node-pg-migrate"
         update-types: ["version-update:semver-major"]
-    labels:
-      - "area:infra"
-
-  # Frontend workspace
-  - package-ecosystem: "npm"
-    directory: "/frontend"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      minor-and-patch:
-        update-types: ["minor", "patch"]
-    ignore:
       # maplibre-gl major bump tracked separately by #188
       - dependency-name: "maplibre-gl"
         update-types: ["version-update:semver-major"]
-      # vitest major bump tracked separately by #186
-      - dependency-name: "vitest"
-        update-types: ["version-update:semver-major"]
-    labels:
-      - "area:frontend"
-
-  # Read API workspace
-  - package-ecosystem: "npm"
-    directory: "/services/read-api"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      minor-and-patch:
-        update-types: ["minor", "patch"]
-    ignore:
-      # vitest major bump tracked separately by #186
-      - dependency-name: "vitest"
-        update-types: ["version-update:semver-major"]
-    labels:
-      - "area:read-api"
-
-  # Ingestor workspace
-  - package-ecosystem: "npm"
-    directory: "/services/ingestor"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      minor-and-patch:
-        update-types: ["minor", "patch"]
-    ignore:
-      # vitest major bump tracked separately by #186
-      - dependency-name: "vitest"
-        update-types: ["version-update:semver-major"]
-    labels:
-      - "area:ingestor"
-
-  # DB client workspace
-  - package-ecosystem: "npm"
-    directory: "/packages/db-client"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      minor-and-patch:
-        update-types: ["minor", "patch"]
-    ignore:
-      # vitest major bump tracked separately by #186
-      - dependency-name: "vitest"
-        update-types: ["version-update:semver-major"]
-    labels:
-      - "area:infra"
-
-  # Shared types workspace
-  - package-ecosystem: "npm"
-    directory: "/packages/shared-types"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      minor-and-patch:
-        update-types: ["minor", "patch"]
-    ignore:
       # vitest major bump tracked separately by #186
       - dependency-name: "vitest"
         update-types: ["version-update:semver-major"]
