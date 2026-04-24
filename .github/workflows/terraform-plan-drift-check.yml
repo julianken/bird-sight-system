@@ -1,0 +1,181 @@
+name: terraform-plan-drift-check
+
+# Nightly read-only drift watcher. Runs `terraform plan` against the GCS-backed
+# state (`gs://bird-maps-tfstate`) and pipes the JSON plan through
+# `.github/scripts/filter-tf-drift.py` with `.github/drift-allowlist.yml`.
+#
+# This is Phase 2 of #183 -- Phase 1 was Julian's local baseline-plan run on
+# 2026-04-24. Allowlist entries suppress the 6 known-drifted items (4 Cloudflare
+# map-v1 resources + 2 Cloud Run cosmetic metadata) for 2 weeks while
+# reconciliation lands in #235.
+#
+# Outcomes:
+#   plan exit 0 -> no drift at all; workflow success, no issue.
+#   plan exit 1 -> real terraform error; workflow failure (not drift-related).
+#   plan exit 2 -> drift detected; filter script decides:
+#                    - all covered by unexpired allowlist -> success, no issue
+#                    - novel drift -> open a drift:automated issue
+#                    - expired allowlist entries -> open a drift:automated issue
+#                      flagged "grace window lapsed"
+#
+# Security invariants:
+#   1. Never upload the raw `terraform show -json` output as an artifact or
+#      echo it to logs -- the JSON contains live DB passwords, Neon/CF/eBird
+#      API tokens under `variables[].value` and resource `values[]`.
+#   2. Issue bodies emit only (address, action) tuples, never `before`/`after`
+#      values. Enforced in `filter-tf-drift.py`.
+#   3. `pull_request` is deliberately NOT a trigger; this workflow uses
+#      repo-scoped secrets that must not be reachable from fork PRs.
+#      (If drift-check ever needs PR-time validation, use `pull_request` with
+#      the no-secrets subset, not `pull_request_target` -- see the drift
+#      analysis R-H6 finding.)
+#   4. No `github.event.*` fields are substituted into `run:` blocks; only
+#      controlled step outputs (filter_exitcode) and literal values from env.
+
+on:
+  schedule:
+    # 11:00 UTC = 03:00 America/Phoenix (MST, no DST). Matches GCP billing /
+    # observability windows Julian already watches in the morning.
+    - cron: '0 11 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: terraform-plan-drift-check
+  cancel-in-progress: true
+
+permissions:
+  contents: read        # checkout
+  id-token: write       # WIF -> GCP (for GCS backend + google provider reads)
+  issues: write         # gh issue create on novel/expired drift
+
+env:
+  # Hardcodeable (not secrets -- see #183 acceptance criteria).
+  TF_VAR_domain: bird-maps.com
+  TF_VAR_gcp_project_id: bird-maps-prod
+  TF_VAR_gcp_region: us-west1
+  # Suppress provider output colourisation for cleaner log parsing.
+  TF_CLI_ARGS: "-no-color"
+  # Telemetry opt-out -- nothing about this CI run should phone HashiCorp.
+  CHECKPOINT_DISABLE: "1"
+
+jobs:
+  plan:
+    name: terraform plan (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: infra/terraform
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SA_EMAIL }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          # Matches infra/terraform/versions.tf required_version (>= 1.6.0)
+          # and Julian's local 1.14.8 used for Phase 1. Pinning here keeps
+          # nightly plans deterministic if HashiCorp ships a minor that
+          # changes plan output shape.
+          terraform_version: "1.14.8"
+          terraform_wrapper: false  # we shell out to `terraform show -json`
+
+      - name: terraform init
+        run: terraform init -input=false -lock-timeout=60s
+
+      - name: terraform plan
+        id: plan
+        env:
+          # Secrets that must reach provider blocks. The 4 Phase-2 new secrets
+          # (NEON_API_KEY, NEON_ORG_ID, CLOUDFLARE_ZONE_ID, EBIRD_API_KEY) plus
+          # the 2 already-deployed-by-other-workflows (CLOUDFLARE_API_TOKEN,
+          # CLOUDFLARE_ACCOUNT_ID). If any are unset, terraform plan errors
+          # loudly -- desired. The workflow exits non-zero; no drift issue opens.
+          TF_VAR_neon_api_key: ${{ secrets.NEON_API_KEY }}
+          TF_VAR_neon_org_id: ${{ secrets.NEON_ORG_ID }}
+          TF_VAR_cloudflare_account_id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          TF_VAR_cloudflare_zone_id: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+          TF_VAR_ebird_api_key: ${{ secrets.EBIRD_API_KEY }}
+        run: |
+          set +e
+          terraform plan -detailed-exitcode -input=false -lock-timeout=60s \
+            -out=/tmp/tf-plan.bin
+          ec=$?
+          set -e
+          echo "plan_exitcode=${ec}" >> "$GITHUB_OUTPUT"
+          # detailed-exitcode semantics:
+          #   0 = no changes
+          #   1 = terraform errored
+          #   2 = changes detected
+          case "${ec}" in
+            0) echo "No drift." ;;
+            1) echo "::error::terraform plan errored"; exit 1 ;;
+            2) echo "Drift detected; filter step will classify." ;;
+            *) echo "::error::unexpected exit ${ec}"; exit 1 ;;
+          esac
+
+      - name: Classify drift against allowlist
+        id: classify
+        if: steps.plan.outputs.plan_exitcode == '2'
+        run: |
+          set +e
+          terraform show -json /tmp/tf-plan.bin \
+            | python3 ../../.github/scripts/filter-tf-drift.py \
+              > /tmp/drift-issue-body.md
+          ec=$?
+          set -e
+          echo "filter_exitcode=${ec}" >> "$GITHUB_OUTPUT"
+          # filter-tf-drift.py exit codes:
+          #   0 = all drift covered by unexpired allowlist -> no issue
+          #   1 = novel drift -> open issue
+          #   2 = expired allowlist entries with active drift -> open issue
+          #   3 = parse error -> workflow failure
+          case "${ec}" in
+            0) echo "All drift suppressed by allowlist." ;;
+            1|2) echo "Novel or expired drift -- opening issue." ;;
+            3) echo "::error::filter script parse error"; exit 1 ;;
+            *) echo "::error::unexpected filter exit ${ec}"; exit 1 ;;
+          esac
+          # Surface the issue body in the job summary for quick eyeballing
+          # (safe -- filter script never emits secrets).
+          if [ -s /tmp/drift-issue-body.md ]; then
+            {
+              echo "## Drift issue body preview"
+              echo
+              cat /tmp/drift-issue-body.md
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+        # Python3 + PyYAML are pre-installed on ubuntu-latest. No pip install.
+
+      - name: Open drift issue
+        if: steps.classify.outputs.filter_exitcode == '1' || steps.classify.outputs.filter_exitcode == '2'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FILTER_EC: ${{ steps.classify.outputs.filter_exitcode }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [ "${FILTER_EC}" = "2" ]; then
+            title="drift:automated -- allowlist grace lapsed ($(date -u +%Y-%m-%d))"
+          else
+            title="drift:automated -- novel terraform drift ($(date -u +%Y-%m-%d))"
+          fi
+          # `gh issue create` is idempotent-hostile (opens a new issue every
+          # run). That's deliberate -- nightly cadence means at-most-one new
+          # issue per day, and stale duplicates are cheaper than a missed
+          # alert. If this becomes noisy we can switch to `gh issue list`
+          # + comment-on-existing in a follow-up.
+          gh issue create \
+            --repo "${GH_REPO}" \
+            --title "${title}" \
+            --label "drift:automated" \
+            --label "area:infra" \
+            --body-file /tmp/drift-issue-body.md

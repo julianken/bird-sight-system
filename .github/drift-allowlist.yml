@@ -1,0 +1,46 @@
+# Known-drifted Terraform resources suppressed from nightly drift-check alerts.
+#
+# Each entry expires on `expires`. After expiry, the nightly workflow
+# (.github/workflows/terraform-plan-drift-check.yml) treats drift on these
+# resources as real and opens a drift:automated issue. An entry firing a
+# warning within 7 days of expiry emits a GitHub Actions annotation so the
+# grace window does not silently lapse.
+#
+# Format:
+#   - address: "<terraform_resource_type.name>"
+#     action: "create" | "update" | "delete" | "read"
+#     expires: "YYYY-MM-DD"      # ISO-8601 date; UTC-midnight boundary
+#     reason:  "<one line, reference the reconciliation issue #>"
+#
+# See filter-tf-drift.py for parsing semantics. When editing by hand, keep
+# the list alphabetised by `address` for easier diffs.
+allowlist:
+  - address: "cloudflare_r2_bucket.pmtiles"
+    action: "create"
+    expires: "2026-05-08"
+    reason: "Live in Cloudflare since PR #164; tf import pending in #235"
+
+  - address: "cloudflare_record.tiles"
+    action: "create"
+    expires: "2026-05-08"
+    reason: "Live in Cloudflare since PR #164; tf import pending in #235"
+
+  - address: "cloudflare_workers_route.map_tiles"
+    action: "create"
+    expires: "2026-05-08"
+    reason: "Live in Cloudflare since PR #164; tf import pending in #235"
+
+  - address: "cloudflare_workers_script.map_server"
+    action: "create"
+    expires: "2026-05-08"
+    reason: "Live in Cloudflare since PR #164; tf import pending in #235"
+
+  - address: "google_cloud_run_v2_job.ingestor"
+    action: "update"
+    expires: "2026-05-08"
+    reason: "Cosmetic client/client_version metadata null-out from gcloud CLI deploys; harmonized in #235"
+
+  - address: "google_cloud_run_v2_service.read_api"
+    action: "update"
+    expires: "2026-05-08"
+    reason: "Cosmetic client/client_version metadata null-out from gcloud CLI deploys; harmonized in #235"
