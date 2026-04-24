@@ -39,16 +39,17 @@ Three external dependencies + four internal services.
 
 ### Frontend (`frontend/`)
 
+The Plan-4 SVG-ecoregion renderer was deleted in PR #166 and replaced with a MapLibre real-geographic map delivered by Plan 7. Components below reflect the shipped architecture; see `docs/plans/2026-04-21-plan-7-map-v1.md` for detail.
+
 | Component | Purpose |
 |---|---|
-| `Map` | Renders the stylized SVG of Arizona — 9 ecoregion polygons + hotspot dot overlay |
-| `Region` | One ecoregion polygon. Renders its species-stacked badges in-place; click handler triggers inline expansion |
-| `Badge` | One species: silhouette (by family) + color (by family) + count chip |
-| `HotspotDot` | One hotspot, sized by recent activity |
-| `InlineExpansion` | Animation + layout that grows the selected region to fill the canvas while dimming others |
+| `MapSurface` | Renders a MapLibre GL JS basemap (OpenFreeMap Positron tiles) scoped to Arizona; hosts the clustered observation layer and OSM + OpenFreeMap attribution per ODbL |
+| `ObservationClusterLayer` | GeoJSON source with `cluster: true`; renders circle clusters at low zoom and individual observation points at high zoom, color-keyed by family |
+| `ClusterInteraction` | Click/keyboard handlers that zoom into clusters via the Promise-based `getClusterExpansionZoom` API (MapLibre 4.x) and open per-point detail |
+| `SpeciesDetailSurface` | Dedicated detail panel (replaced the legacy sidebar in PR #162) for a single species — silhouette, common/sci name, recent-sightings list |
 | `FiltersBar` | Time window · notable-only toggle · species search · family filter |
 | `ApiClient` | Typed fetch wrapper for the Read API |
-| `UrlState` | Bidirectional sync between component state and URL params (`?region=&species=`) |
+| `UrlState` | Bidirectional sync between component state and URL params (`?species=`) |
 
 ### Ingestor (`services/ingestor/`)
 
@@ -73,9 +74,10 @@ Three external dependencies + four internal services.
 
 | Package | Purpose |
 |---|---|
-| `shared-types` | TypeScript shapes for Observation, Region, Species, Hotspot — used by all three internal services |
+| `shared-types` | TypeScript shapes for Observation, Region, Species, Hotspot, FamilySilhouette — used by all internal services |
 | `db-client` | Typed query layer over Postgres; used by Ingestor and Read API |
-| `family-mapping` | `familyCode → silhouetteId` and `familyCode → color` lookup tables |
+
+`familyCode → color` and `familyCode → svgData` are no longer a compile-time lookup table: they live in the `family_silhouettes` DB table (see Data model) and are served to the frontend via `GET /api/silhouettes` (PR #172). The previous `@bird-watch/family-mapping` package was deleted in PR #192.
 
 ## Data flow
 
@@ -190,11 +192,12 @@ CREATE TABLE family_silhouettes (
 ```sql
 CREATE TABLE ingest_runs (
   id              SERIAL PRIMARY KEY,
+  kind            TEXT NOT NULL,             -- 'recent' | 'notable' | 'backfill' | 'hotspots' | 'taxonomy'
   started_at      TIMESTAMPTZ NOT NULL,
   finished_at     TIMESTAMPTZ,
   obs_fetched     INTEGER,
   obs_upserted    INTEGER,
-  status          TEXT NOT NULL,             -- 'success' | 'partial' | 'failure'
+  status          TEXT NOT NULL,             -- 'running' | 'success' | 'partial' | 'failure'
   error_message   TEXT
 );
 ```
@@ -214,6 +217,10 @@ GET /api/hotspots
 
 GET /api/regions
   → Region[]
+  Cache-Control: public, max-age=604800, immutable
+
+GET /api/silhouettes
+  → FamilySilhouette[]
   Cache-Control: public, max-age=604800, immutable
 
 GET /api/species/:code
@@ -344,9 +351,10 @@ bird-watch/
 
 ## Success criteria for MVP
 
-- A user can load the app, see Arizona divided into 9 ecoregions with sightings rendered as species-stacked badges with bird silhouettes.
-- Click any region → smoothly expands inline to show full badges with species names and counts.
+- A user can load the app and see a real-geographic MapLibre map of Arizona with recent eBird observations rendered as clustered points, color-keyed by bird family (Plan 7 exit criteria).
+- Clusters expand smoothly on click/keyboard activation (Promise-based `getClusterExpansionZoom`, MapLibre 4.x); individual points open the species detail surface.
 - Apply any of the four filters; URL updates; refreshing preserves state.
 - Data freshness: never more than 30 minutes stale during normal operation.
 - Cold-load to interactive map: under 2 seconds on broadband.
+- Attribution on the map surface credits OpenStreetMap + OpenFreeMap per ODbL (PR #168).
 - Zero clicking required to deploy: `terraform apply` provisions everything.
