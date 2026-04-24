@@ -1,4 +1,4 @@
-FROM node:20-alpine AS build
+FROM node:25-alpine AS build
 WORKDIR /repo
 
 COPY package.json package-lock.json ./
@@ -12,7 +12,7 @@ RUN npm run build --workspace @bird-watch/db-client
 RUN npm run build --workspace @bird-watch/family-mapping
 RUN npm run build --workspace @bird-watch/ingestor
 
-FROM node:20-alpine
+FROM node:25-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 
