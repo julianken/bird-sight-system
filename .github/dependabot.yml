@@ -1,0 +1,97 @@
+version: 2
+updates:
+  # Root npm (workspace root — devDependencies, tooling)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    labels:
+      - "area:infra"
+
+  # Frontend workspace
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    labels:
+      - "area:frontend"
+
+  # Read API workspace
+  - package-ecosystem: "npm"
+    directory: "/services/read-api"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    labels:
+      - "area:read-api"
+
+  # Ingestor workspace
+  - package-ecosystem: "npm"
+    directory: "/services/ingestor"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    labels:
+      - "area:ingestor"
+
+  # DB client workspace
+  - package-ecosystem: "npm"
+    directory: "/packages/db-client"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    labels:
+      - "area:infra"
+
+  # Shared types workspace
+  - package-ecosystem: "npm"
+    directory: "/packages/shared-types"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    labels:
+      - "area:infra"
+
+  # Terraform providers (hashicorp/google, cloudflare/cloudflare, kislerdm/neon)
+  - package-ecosystem: "terraform"
+    directory: "/infra/terraform"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    labels:
+      - "area:infra"
+
+  # GitHub Actions workflow versions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    labels:
+      - "ci"
