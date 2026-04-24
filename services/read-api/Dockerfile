@@ -1,5 +1,5 @@
 # Build stage — uses the monorepo root context.
-FROM node:20-alpine AS build
+FROM node:25-alpine AS build
 WORKDIR /repo
 
 # Copy package manifests first for cached install.
@@ -15,7 +15,7 @@ RUN npm run build --workspace @bird-watch/family-mapping
 RUN npm run build --workspace @bird-watch/read-api
 
 # Runtime stage — copy only what we need.
-FROM node:20-alpine
+FROM node:25-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=8080
