@@ -62,17 +62,17 @@ function readToken(name: string, fallback: string): string {
 }
 
 /** Resolve --color-accent-notable-fg (dark amber) for notable dots. */
-export function notableColor(): string {
+function notableColor(): string {
   return readToken('--color-accent-notable-fg', '#b8860b');
 }
 
 /** Resolve --color-text-body for common (non-notable) dots. */
-export function commonColor(): string {
+function commonColor(): string {
   return readToken('--color-text-body', '#444');
 }
 
 /** Resolve --color-text-white for text on cluster circles. */
-export function clusterTextColor(): string {
+function clusterTextColor(): string {
   return readToken('--color-text-white', '#fff');
 }
 
