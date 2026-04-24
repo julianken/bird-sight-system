@@ -11,19 +11,6 @@ let db: TestDb;
 beforeAll(async () => { db = await startTestDb(); }, 90_000);
 afterAll(async () => { await db?.stop(); });
 
-describe('GET /api/regions', () => {
-  it('returns the 9 seeded regions with the correct cache header', async () => {
-    const app = createApp({ pool: db.pool });
-    const res = await app.request('/api/regions');
-    expect(res.status).toBe(200);
-    expect(res.headers.get('cache-control'))
-      .toBe('public, max-age=604800, immutable');
-    const body = await res.json() as Array<{ id: string }>;
-    expect(body).toHaveLength(9);
-    expect(body.find(r => r.id === 'sky-islands-santa-ritas')).toBeTruthy();
-  });
-});
-
 describe('GET /api/hotspots', () => {
   it('returns hotspots with the correct cache header', async () => {
     await upsertHotspots(db.pool, [
@@ -126,7 +113,7 @@ describe('error handling', () => {
       connectionTimeoutMillis: 200,
     });
     const app = createApp({ pool: badPool as unknown as Parameters<typeof createApp>[0]['pool'] });
-    const res = await app.request('/api/regions');
+    const res = await app.request('/api/hotspots');
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({ error: 'database unavailable' });
     await badPool.end();
@@ -255,7 +242,7 @@ describe('CORS middleware', () => {
   it('returns Access-Control-Allow-Origin for an allow-listed origin', async () => {
     delete process.env.FRONTEND_ORIGINS; // use default allowlist
     const app = createApp({ pool: db.pool });
-    const res = await app.request('/api/regions', {
+    const res = await app.request('/api/hotspots', {
       headers: { Origin: 'https://bird-maps.com' },
     });
     expect(res.status).toBe(200);
@@ -266,7 +253,7 @@ describe('CORS middleware', () => {
   it('omits Access-Control-Allow-Origin for a disallowed origin', async () => {
     delete process.env.FRONTEND_ORIGINS;
     const app = createApp({ pool: db.pool });
-    const res = await app.request('/api/regions', {
+    const res = await app.request('/api/hotspots', {
       headers: { Origin: 'https://evil.example' },
     });
     // Hono's cors omits the ACAO header entirely (rather than echoing) for
@@ -298,10 +285,10 @@ describe('CORS middleware', () => {
     // silently rejects the browser's exact Origin header.
     process.env.FRONTEND_ORIGINS = ' https://a.test , https://b.test ';
     const app = createApp({ pool: db.pool });
-    const resA = await app.request('/api/regions', {
+    const resA = await app.request('/api/hotspots', {
       headers: { Origin: 'https://a.test' },
     });
-    const resB = await app.request('/api/regions', {
+    const resB = await app.request('/api/hotspots', {
       headers: { Origin: 'https://b.test' },
     });
     expect(resA.headers.get('access-control-allow-origin')).toBe('https://a.test');
@@ -309,14 +296,14 @@ describe('CORS middleware', () => {
   });
 
   it('sets Vary: Origin on a cached route so CDN keys per-origin', async () => {
-    // `/api/regions` is served with `Cache-Control: public, immutable`. With
-    // `Vary: Origin`, a spec-compliant CDN caches a separate entry per
+    // `/api/species/:code` is served with `Cache-Control: public, immutable`.
+    // With `Vary: Origin`, a spec-compliant CDN caches a separate entry per
     // Origin. That multiplies the cache namespace N× for N allowed origins
     // (trivial at 3, callable-out if that grows) but keeps the ACAO header
     // correct for each cached response. The body itself is Origin-agnostic.
     delete process.env.FRONTEND_ORIGINS;
     const app = createApp({ pool: db.pool });
-    const res = await app.request('/api/regions', {
+    const res = await app.request('/api/species/vermfly', {
       headers: { Origin: 'https://bird-maps.com' },
     });
     expect(res.status).toBe(200);

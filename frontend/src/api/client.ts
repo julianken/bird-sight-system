@@ -1,5 +1,5 @@
 import type {
-  Region, Hotspot, Observation, SpeciesMeta, ObservationFilters,
+  Hotspot, Observation, SpeciesMeta, ObservationFilters,
   FamilySilhouette,
 } from '@bird-watch/shared-types';
 
@@ -18,10 +18,6 @@ export class ApiClient {
 
   constructor(opts: ApiClientOptions = {}) {
     this.baseUrl = opts.baseUrl ?? '';
-  }
-
-  getRegions(): Promise<Region[]> {
-    return this.get<Region[]>('/api/regions');
   }
 
   getHotspots(): Promise<Hotspot[]> {
