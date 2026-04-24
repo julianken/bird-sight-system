@@ -43,6 +43,12 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "@types/react-dom"
         update-types: ["version-update:semver-major"]
+      # @types/node major must track the Node runtime — which is pinned to
+      # LTS via the `node` ignore on the Docker entries below. Without this
+      # rule, Dependabot proposes @types/node majors ahead of the runtime
+      # (e.g., #231 bumped it to 25 while Docker stays on 20).
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     labels:
       - "area:infra"
 
