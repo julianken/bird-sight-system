@@ -3,7 +3,7 @@ import { compress } from 'hono/compress';
 import { cors } from 'hono/cors';
 import type { Pool } from '@bird-watch/db-client';
 import {
-  getRegions, getHotspots, getObservations, getSpeciesMeta, getSilhouettes,
+  getHotspots, getObservations, getSpeciesMeta, getSilhouettes,
 } from '@bird-watch/db-client';
 import { cacheControlFor } from './cache-headers.js';
 
@@ -27,7 +27,7 @@ export function createApp(deps: AppDeps): Hono {
   // requests (OPTIONS without a matching route handler) 404.
   //
   // Interaction with route-level `Cache-Control: public, immutable` on
-  // /api/regions and /api/species/:code: Hono sets `Vary: Origin`, so a
+  // /api/species/:code: Hono sets `Vary: Origin`, so a
   // spec-compliant CDN keys the cache per-Origin. That means the identical
   // JSON body is stored N× for N allowed origins (currently 3 — trivial).
   // Uptime probes and plain `curl` hit these routes without an Origin
@@ -62,12 +62,6 @@ export function createApp(deps: AppDeps): Hono {
   });
 
   app.get('/health', c => c.json({ ok: true }));
-
-  app.get('/api/regions', async c => {
-    const rows = await getRegions(deps.pool);
-    c.header('Cache-Control', cacheControlFor('regions'));
-    return c.json(rows);
-  });
 
   app.get('/api/hotspots', async c => {
     const rows = await getHotspots(deps.pool);

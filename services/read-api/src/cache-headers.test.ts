@@ -10,10 +10,6 @@ describe('cacheControlFor', () => {
     expect(cacheControlFor('hotspots'))
       .toBe('public, max-age=86400, stale-while-revalidate=3600');
   });
-  it('returns 7d immutable for /regions', () => {
-    expect(cacheControlFor('regions'))
-      .toBe('public, max-age=604800, immutable');
-  });
   it('returns 7d immutable for /species', () => {
     expect(cacheControlFor('species'))
       .toBe('public, max-age=604800, immutable');
