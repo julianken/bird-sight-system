@@ -149,5 +149,6 @@ The following libraries change quickly enough that training-data knowledge is of
 | `vitest` | all | Config + workspace API evolves |
 | `@playwright/test` | 4 | Config shape and `webServer` option detail change |
 | `node-pg-migrate` | 1 | CLI flags and `-- Up/Down Migration` marker semantics |
+| `maplibre-gl` | 4 | Major version bumps change clustering API + `GeoJSONSource` Promise behavior (see PR #171 for the 4.x precedent) |
 
 For everything else (TypeScript, React 18, Vite, `pg`, PostGIS SQL, React Testing Library, Docker, npm workspaces) training data is reliable enough — skip context7 and only fetch if a real failure surfaces.

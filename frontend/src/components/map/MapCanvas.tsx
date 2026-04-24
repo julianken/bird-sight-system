@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { Map, Source, Layer, AttributionControl } from 'react-map-gl/maplibre';
 import type { MapRef } from 'react-map-gl/maplibre';
-import type { MapGeoJSONFeature } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { Observation } from '@bird-watch/shared-types';
 import { basemapStyle } from './basemap-style.js';
@@ -71,7 +70,14 @@ export function MapCanvas({ observations }: MapCanvasProps) {
     if (!map) return;
 
     map.on('click', 'unclustered-point', (e) => {
-      const features: MapGeoJSONFeature[] = map.queryRenderedFeatures(e.point, {
+      // Intentionally untyped: `MapGeoJSONFeature` (re-exported from
+      // maplibre-gl 5.x) is now a class with internal fields `_x/_y/_z/
+      // projectPoint/projectLine`. `react-map-gl/maplibre`'s re-exported
+      // `MapInstance.queryRenderedFeatures` returns that class-shaped type,
+      // so letting inference handle it avoids a structural mismatch under
+      // `exactOptionalPropertyTypes: true`. We only touch `.properties?.subId`
+      // and `.geometry` below, both of which survive the inference.
+      const features = map.queryRenderedFeatures(e.point, {
         layers: ['unclustered-point'],
       });
       const feature = features[0];
