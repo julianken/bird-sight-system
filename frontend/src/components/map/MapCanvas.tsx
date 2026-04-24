@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { Map, Source, Layer, AttributionControl } from 'react-map-gl/maplibre';
-import type { MapRef } from 'react-map-gl/maplibre';
+import type { MapLayerMouseEvent, MapRef } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { Observation } from '@bird-watch/shared-types';
 import { basemapStyle } from './basemap-style.js';
@@ -69,7 +69,7 @@ export function MapCanvas({ observations }: MapCanvasProps) {
     const map = mapRef.current?.getMap();
     if (!map) return;
 
-    map.on('click', 'unclustered-point', (e) => {
+    map.on('click', 'unclustered-point', (e: MapLayerMouseEvent) => {
       // Intentionally untyped: `MapGeoJSONFeature` (re-exported from
       // maplibre-gl 5.x) is now a class with internal fields `_x/_y/_z/
       // projectPoint/projectLine`. `react-map-gl/maplibre`'s re-exported
@@ -91,7 +91,7 @@ export function MapCanvas({ observations }: MapCanvasProps) {
     });
 
     // Zoom into cluster on click.
-    map.on('click', 'clusters', (e) => {
+    map.on('click', 'clusters', (e: MapLayerMouseEvent) => {
       const features = map.queryRenderedFeatures(e.point, {
         layers: ['clusters'],
       });
