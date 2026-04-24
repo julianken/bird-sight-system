@@ -9,17 +9,6 @@ describe('ApiClient', () => {
     vi.restoreAllMocks();
   });
 
-  it('GETs /api/regions and returns the parsed JSON', async () => {
-    const data = [{ id: 'colorado-plateau', name: 'Colorado Plateau' }];
-    vi.spyOn(global, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify(data), { status: 200, headers: { 'content-type': 'application/json' } })
-    );
-    const client = new ApiClient({ baseUrl: '' });
-    const out = await client.getRegions();
-    expect(out).toEqual(data);
-    expect(fetch).toHaveBeenCalledWith('/api/regions', expect.objectContaining({ method: 'GET' }));
-  });
-
   it('encodes filter query params for /api/observations', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValue(new Response('[]', { status: 200 }));
     const client = new ApiClient({ baseUrl: '' });
@@ -34,7 +23,7 @@ describe('ApiClient', () => {
   it('throws on non-2xx response', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValue(new Response('boom', { status: 500 }));
     const client = new ApiClient({ baseUrl: '' });
-    await expect(client.getRegions()).rejects.toThrow('Something went wrong');
+    await expect(client.getHotspots()).rejects.toThrow('Something went wrong');
   });
 
   it('ApiError exposes status and body but uses a friendly user-facing message', async () => {
@@ -43,7 +32,7 @@ describe('ApiClient', () => {
     );
     const client = new ApiClient({ baseUrl: '' });
     try {
-      await client.getRegions();
+      await client.getHotspots();
       expect.fail('should have thrown');
     } catch (err) {
       const apiErr = err as import('./client.js').ApiError;

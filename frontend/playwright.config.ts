@@ -37,7 +37,7 @@ export default defineConfig({
       // Start read-api on port 8787 (shared by both projects)
       command: `DATABASE_URL=${process.env.DATABASE_URL ?? 'postgres://birdwatch:birdwatch@localhost:5433/birdwatch'} npm run dev --workspace @bird-watch/read-api`,
       cwd: ROOT,
-      url: 'http://localhost:8787/api/regions',
+      url: 'http://localhost:8787/health',
       reuseExistingServer: !process.env.CI,
       timeout: 30_000,
     },

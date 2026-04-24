@@ -1,8 +1,7 @@
 import { test, expect } from './fixtures.js';
 
-// The /api/regions endpoint is no longer fetched from the app after
-// the map chain was deleted in #113. Error-state coverage now runs
-// through the hotspots + observations fetches that useBirdData drives.
+// Error-state coverage runs through the hotspots + observations fetches
+// that useBirdData drives.
 
 test.describe('error screen', () => {
   test('renders when /api/hotspots aborts', async ({ page, apiStub }) => {
