@@ -9,6 +9,10 @@ updates:
     groups:
       minor-and-patch:
         update-types: ["minor", "patch"]
+    ignore:
+      # node-pg-migrate major bump tracked separately by #187
+      - dependency-name: "node-pg-migrate"
+        update-types: ["version-update:semver-major"]
     labels:
       - "area:infra"
 
@@ -21,6 +25,13 @@ updates:
     groups:
       minor-and-patch:
         update-types: ["minor", "patch"]
+    ignore:
+      # maplibre-gl major bump tracked separately by #188
+      - dependency-name: "maplibre-gl"
+        update-types: ["version-update:semver-major"]
+      # vitest major bump tracked separately by #186
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
     labels:
       - "area:frontend"
 
@@ -33,6 +44,10 @@ updates:
     groups:
       minor-and-patch:
         update-types: ["minor", "patch"]
+    ignore:
+      # vitest major bump tracked separately by #186
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
     labels:
       - "area:read-api"
 
@@ -45,6 +60,10 @@ updates:
     groups:
       minor-and-patch:
         update-types: ["minor", "patch"]
+    ignore:
+      # vitest major bump tracked separately by #186
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
     labels:
       - "area:ingestor"
 
@@ -57,6 +76,10 @@ updates:
     groups:
       minor-and-patch:
         update-types: ["minor", "patch"]
+    ignore:
+      # vitest major bump tracked separately by #186
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
     labels:
       - "area:infra"
 
@@ -69,6 +92,10 @@ updates:
     groups:
       minor-and-patch:
         update-types: ["minor", "patch"]
+    ignore:
+      # vitest major bump tracked separately by #186
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
     labels:
       - "area:infra"
 
@@ -94,4 +121,24 @@ updates:
       minor-and-patch:
         update-types: ["minor", "patch"]
     labels:
-      - "ci"
+      - "area:infra"
+
+  # Docker base image for Read API
+  - package-ecosystem: "docker"
+    directory: "/services/read-api"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    labels:
+      - "area:read-api"
+      - "area:infra"
+
+  # Docker base image for Ingestor
+  - package-ecosystem: "docker"
+    directory: "/services/ingestor"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    labels:
+      - "area:ingestor"
+      - "area:infra"
