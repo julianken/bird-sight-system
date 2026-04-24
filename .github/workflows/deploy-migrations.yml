@@ -36,7 +36,7 @@ jobs:
       # No id-token: write needed — Neon auth is via DATABASE_URL password,
       # not GCP WIF like the read-api / ingestor workflows.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-node@v4
         with:
