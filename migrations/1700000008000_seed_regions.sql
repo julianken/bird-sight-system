@@ -8,7 +8,9 @@
 --   geom  — WGS84 MULTIPOLYGON (SRID 4326), lng range −114.85…−109.05,
 --            lat range 31.30…37.00 (AZ bounding box).
 --   svg_path — SVG path string for viewBox "0 0 360 380".  Derived from geom
---              using the same linear projection as frontend/src/components/Map.tsx:
+--              using the linear projection below (historically matched a
+--              frontend SVG renderer, removed in #133; the projection is now
+--              a DB-only invariant preserved for any future SVG consumer):
 --                x = ((lng − −114.85) / (−109.05 − −114.85)) × 360
 --                y = ((37.00 − lat)   / (37.00 − 31.30))     × 380
 --              geom and svg_path describe the same shape; they must stay in sync.

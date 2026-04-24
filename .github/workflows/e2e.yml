@@ -35,7 +35,6 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - run: npm run build -w @bird-watch/shared-types
-      - run: npm run build -w @bird-watch/family-mapping
       - run: npm run build -w @bird-watch/db-client
       - run: npm run db:migrate
       - name: Seed a handful of observations for E2E

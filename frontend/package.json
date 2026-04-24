@@ -12,7 +12,6 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@bird-watch/family-mapping": "*",
     "@bird-watch/shared-types": "*",
     "maplibre-gl": "^4.7.1",
     "react": "^18.2.0",
