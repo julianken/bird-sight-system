@@ -1,0 +1,144 @@
+version: 2
+updates:
+  # Root npm (workspace root — devDependencies, tooling)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      # node-pg-migrate major bump tracked separately by #187
+      - dependency-name: "node-pg-migrate"
+        update-types: ["version-update:semver-major"]
+    labels:
+      - "area:infra"
+
+  # Frontend workspace
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      # maplibre-gl major bump tracked separately by #188
+      - dependency-name: "maplibre-gl"
+        update-types: ["version-update:semver-major"]
+      # vitest major bump tracked separately by #186
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
+    labels:
+      - "area:frontend"
+
+  # Read API workspace
+  - package-ecosystem: "npm"
+    directory: "/services/read-api"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      # vitest major bump tracked separately by #186
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
+    labels:
+      - "area:read-api"
+
+  # Ingestor workspace
+  - package-ecosystem: "npm"
+    directory: "/services/ingestor"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      # vitest major bump tracked separately by #186
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
+    labels:
+      - "area:ingestor"
+
+  # DB client workspace
+  - package-ecosystem: "npm"
+    directory: "/packages/db-client"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      # vitest major bump tracked separately by #186
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
+    labels:
+      - "area:infra"
+
+  # Shared types workspace
+  - package-ecosystem: "npm"
+    directory: "/packages/shared-types"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      # vitest major bump tracked separately by #186
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
+    labels:
+      - "area:infra"
+
+  # Terraform providers (hashicorp/google, cloudflare/cloudflare, kislerdm/neon)
+  - package-ecosystem: "terraform"
+    directory: "/infra/terraform"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    labels:
+      - "area:infra"
+
+  # GitHub Actions workflow versions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    labels:
+      - "area:infra"
+
+  # Docker base image for Read API
+  - package-ecosystem: "docker"
+    directory: "/services/read-api"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    labels:
+      - "area:read-api"
+      - "area:infra"
+
+  # Docker base image for Ingestor
+  - package-ecosystem: "docker"
+    directory: "/services/ingestor"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    labels:
+      - "area:ingestor"
+      - "area:infra"
