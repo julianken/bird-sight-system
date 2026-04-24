@@ -18,6 +18,6 @@
     "@testcontainers/postgresql": "^10.7.0",
     "testcontainers": "^10.7.0",
     "tsx": "^4.7.0",
-    "vitest": "^1.2.0"
+    "vitest": "^4.1.5"
   }
 }
