@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "test": "npm run test --workspaces --if-present",
-    "build": "npm run build -w @bird-watch/shared-types && npm run build -w @bird-watch/family-mapping && npm run build -w @bird-watch/db-client && npm run build -w @bird-watch/ingestor && npm run build -w @bird-watch/read-api && npm run build -w @bird-watch/frontend",
+    "build": "npm run build -w @bird-watch/shared-types && npm run build -w @bird-watch/db-client && npm run build -w @bird-watch/ingestor && npm run build -w @bird-watch/read-api && npm run build -w @bird-watch/frontend",
     "lint": "npm run lint --workspaces --if-present",
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down",

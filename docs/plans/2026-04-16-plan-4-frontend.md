@@ -1,5 +1,7 @@
 # Frontend Implementation Plan
 
+> **Status:** Obsolete — superseded by Plan 6 (`docs/plans/2026-04-21-plan-6-path-a-reimagine.md`) and Plan 7 (`docs/plans/2026-04-22-plan-7-map-v1.md`). Do not execute.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the React + Vite frontend that renders Arizona as a stylized SVG of 9 ecoregions, places species-stacked badges with bird-silhouette icons inside each region, expands the selected region inline, supports four filters, and syncs everything to the URL for deep-linking.

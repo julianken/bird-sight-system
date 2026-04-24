@@ -4,9 +4,10 @@ import type { FamilySilhouette } from '@bird-watch/shared-types';
 /**
  * Fetch every row from `family_silhouettes`. This table is the single source
  * of truth for family → color mapping in the system (issue #55 option (a)).
- * The legacy hardcoded `FAMILY_TO_COLOR` map in `@bird-watch/family-mapping`
- * was deleted when this endpoint landed — callers now read color from the
- * DB via the Read API's `/api/silhouettes` route.
+ * The legacy hardcoded `FAMILY_TO_COLOR` map that previously colocated
+ * family-code → color in a separate helper workspace was deleted when
+ * this endpoint landed — callers now read color from the DB via the
+ * Read API's `/api/silhouettes` route.
  *
  * Rows are returned ordered by family_code so consumers (e.g. parity tests,
  * deterministic snapshots) don't depend on Postgres heap order.
