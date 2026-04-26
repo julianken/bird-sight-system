@@ -14,7 +14,7 @@
     "@bird-watch/shared-types": "*"
   },
   "devDependencies": {
-    "@testcontainers/postgresql": "^10.7.0",
+    "@testcontainers/postgresql": "^11.14.0",
     "msw": "^2.1.0",
     "testcontainers": "^11.14.0",
     "tsx": "^4.7.0",
