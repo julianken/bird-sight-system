@@ -43,6 +43,41 @@ import {
   MapMarkerHitLayer,
   type HitTargetMarker,
 } from './MapMarkerHitLayer.js';
+import {
+  groupOverlapping,
+  fanPositions,
+  type StackInput,
+} from './stack-fanout.js';
+import { StackedSilhouetteMarker } from './StackedSilhouetteMarker.js';
+
+/** Source / layer ids for the auto-spider leader lines. */
+const AUTO_SPIDER_SOURCE_ID = 'auto-spider-leader-lines';
+const AUTO_SPIDER_LAYER_ID = 'auto-spider-leader-lines-layer';
+
+/**
+ * One leaf in the auto-spider state — carries the data needed to render a
+ * StackedSilhouetteMarker at the fanned position.
+ */
+interface AutoSpiderLeaf {
+  subId: string;
+  lngLat: [number, number];
+  silhouette: { svgData: string | null; color: string };
+  comName: string;
+  familyCode: string | null;
+  locName: string | null;
+  obsDt: string;
+  isNotable: boolean;
+}
+
+/**
+ * One auto-spider stack — a group of co-located observations with their
+ * fanned leaf positions.
+ */
+interface AutoSpiderStack {
+  stackId: string;
+  centerLngLat: [number, number];
+  leaves: AutoSpiderLeaf[];
+}
 
 export interface MapCanvasProps {
   observations: Observation[];
@@ -235,6 +270,16 @@ export function MapCanvas({
   // prop change re-registers in-place via map.addImage (which silently
   // replaces the prior image), so the layer can stay mounted continuously.
   const [spritesReady, setSpritesReady] = useState(false);
+
+  /**
+   * Auto-spider stacks (issue #277, Spider v2 Task 3). Reconciled on every
+   * map `idle` by the auto-spider reconciler effect below. Each entry holds
+   * one fanned stack: the center lngLat, and the fanned leaves with their
+   * projected marker positions. Cleared to [] when no stacks are visible.
+   */
+  const [autoSpiderStacks, setAutoSpiderStacks] = useState<AutoSpiderStack[]>(
+    [],
+  );
 
   // Tracks the map's current zoom for hit-target gating. The hit-layer
   // (#247) renders DOM `<button>` overlays for accessible marker clicks;
@@ -640,6 +685,228 @@ export function MapCanvas({
   }, [silhouettes.length, mapReady]);
 
   /**
+   * Auto-spider reconciler — issue #277, Spider v2 Task 3.
+   *
+   * On every map `idle` (and once immediately on mount when the map is
+   * ready), query the rendered unclustered-point features, project them to
+   * screen coords, detect co-located stacks via `groupOverlapping`, and fan
+   * each stack's members to distinct positions via `fanPositions`. Fanned
+   * positions are unprojected back to lngLat so `<Marker>` placements stay
+   * anchored to map coordinates across pan/zoom. The resulting
+   * AutoSpiderStack array drives the `<Marker>+<StackedSilhouetteMarker>`
+   * render below and the `auto-spider-leader-lines` GeoJSON source update.
+   *
+   * Short-circuit: when `silhouettes` is empty the effect returns early —
+   * same guard as the mosaic reconciler. Pan/zoom does NOT close
+   * auto-spider (it re-computes on the next idle). Escape only applies to
+   * the click-driven spiderfy path; auto-spider has no concept of "closing".
+   *
+   * Source/layer lifecycle:
+   *   - Source + layer are added once on the first reconcile that finds a
+   *     non-empty stacks result (idempotent `getLayer` check before
+   *     `addLayer`).
+   *   - On subsequent reconciles the source is updated via `setData` rather
+   *     than removed + re-added (avoids a flicker frame).
+   *   - When no stacks are detected the source data is set to an empty
+   *     FeatureCollection so leader lines disappear without removing the
+   *     source.
+   */
+  useEffect(() => {
+    // AC #2: short-circuit when silhouettes aren't loaded yet.
+    if (silhouettesRef.current.length === 0) return undefined;
+    if (!mapReady) return undefined;
+    const map = mapRef.current?.getMap();
+    if (!map) return undefined;
+
+    let cancelled = false;
+
+    const reconcile = () => {
+      if (cancelled) return;
+      const currentSilhouettes = silhouettesRef.current;
+      if (currentSilhouettes.length === 0) return;
+
+      // Build a lookup by familyCode for svgData + color resolution.
+      const silByFamily = new Map<string, { svgData: string | null; color: string }>();
+      for (const s of currentSilhouettes) {
+        silByFamily.set(s.familyCode.toLowerCase(), {
+          svgData: s.svgData,
+          color: s.color,
+        });
+      }
+
+      // Query all currently-rendered unclustered observations.
+      const rawFeatures = (map.queryRenderedFeatures(undefined, {
+        layers: ['unclustered-point'],
+      }) ?? []) as Array<{
+        properties?: Record<string, unknown>;
+        geometry?: { type: string; coordinates: unknown };
+      }>;
+
+      // Build StackInput array — one per feature with screen projection.
+      const inputs: StackInput[] = [];
+      for (const f of rawFeatures) {
+        const props = f.properties;
+        if (!props) continue;
+        const geom = f.geometry;
+        if (!geom || geom.type !== 'Point') continue;
+        const coords = geom.coordinates as [number, number];
+        if (!Array.isArray(coords) || coords.length < 2) continue;
+
+        const subId = props.subId as string | undefined;
+        if (!subId) continue;
+
+        const comName = (props.comName as string | undefined) ?? '';
+        const familyCode = (props.familyCode as string | null | undefined) ?? null;
+        const locName = (props.locName as string | null | undefined) ?? null;
+        const obsDt = (props.obsDt as string | undefined) ?? '';
+        const isNotable = Boolean(props.isNotable);
+        const silhouetteId = (props.silhouetteId as string | undefined) ?? '';
+        const color = (props.color as string | undefined) ?? '#888888';
+
+        // Project lngLat → screen coords.
+        const screen = map.project([coords[0], coords[1]]);
+
+        inputs.push({
+          subId,
+          comName,
+          familyCode,
+          silhouetteId,
+          color,
+          isNotable,
+          obsDt,
+          locName,
+          screen: { x: screen.x, y: screen.y },
+          lngLat: [coords[0], coords[1]],
+        });
+      }
+
+      // Detect co-located stacks.
+      const stacks = groupOverlapping(inputs);
+
+      if (cancelled) return;
+
+      // Build AutoSpiderStack array from detected stacks.
+      const nextStacks: AutoSpiderStack[] = [];
+      const leaderFeatures: Array<{
+        type: 'Feature';
+        geometry: { type: 'LineString'; coordinates: [[number, number], [number, number]] };
+        properties: Record<string, string>;
+      }> = [];
+
+      for (let si = 0; si < stacks.length; si += 1) {
+        const stack = stacks[si]!;
+        const stackId = `stack-${si}`;
+        const fanned = fanPositions(stack);
+        const leaves: AutoSpiderLeaf[] = [];
+
+        for (const fan of fanned) {
+          // Find the matching input member.
+          const member = stack.members.find((m) => m.subId === fan.subId);
+          if (!member) continue;
+
+          // Unproject screen → lngLat for the Marker placement.
+          const unprojected = map.unproject({ x: fan.screen.x, y: fan.screen.y });
+          const leafLng = 'lng' in unprojected ? (unprojected as { lng: number }).lng : (unprojected as [number, number])[0];
+          const leafLat = 'lat' in unprojected ? (unprojected as { lat: number }).lat : (unprojected as [number, number])[1];
+          const leafLngLat: [number, number] = [leafLng, leafLat];
+
+          // Resolve silhouette svgData from silhouettesRef (NOT from feature
+          // properties — silhouetteId is a sprite name, not svgData).
+          const familyKey = member.familyCode?.toLowerCase() ?? null;
+          const sil = familyKey ? silByFamily.get(familyKey) : undefined;
+          const silhouette = {
+            svgData: sil?.svgData ?? null,
+            color: sil?.color ?? member.color,
+          };
+
+          leaves.push({
+            subId: member.subId,
+            lngLat: leafLngLat,
+            silhouette,
+            comName: member.comName,
+            familyCode: member.familyCode,
+            locName: member.locName,
+            obsDt: member.obsDt,
+            isNotable: member.isNotable,
+          });
+
+          // One LineString per leaf: origin = stack center lngLat → leaf lngLat.
+          leaderFeatures.push({
+            type: 'Feature',
+            geometry: {
+              type: 'LineString',
+              coordinates: [stack.centerLngLat, leafLngLat],
+            },
+            properties: { subId: member.subId, stackId },
+          });
+        }
+
+        if (leaves.length > 0) {
+          nextStacks.push({ stackId, centerLngLat: stack.centerLngLat, leaves });
+        }
+      }
+
+      if (cancelled) return;
+
+      // Update leader-line source. The source persists across reconcile
+      // passes; add it once (idempotent getLayer check) then use setData.
+      const leaderGeoJson = {
+        type: 'FeatureCollection' as const,
+        features: leaderFeatures,
+      };
+
+      const rawSource = map.getSource(AUTO_SPIDER_SOURCE_ID);
+      const existingSource =
+        rawSource != null &&
+        typeof (rawSource as { setData?: unknown }).setData === 'function'
+          ? (rawSource as { setData: (data: unknown) => void })
+          : null;
+
+      if (!existingSource) {
+        // First reconcile that touches the source (or mock returned a non-
+        // GeoJSON source without setData — treat as absent). Add source + layer.
+        // Guard against double-add on re-render by checking getLayer first.
+        if (!rawSource) {
+          map.addSource(AUTO_SPIDER_SOURCE_ID, {
+            type: 'geojson',
+            data: leaderGeoJson,
+          });
+        }
+        if (!map.getLayer(AUTO_SPIDER_LAYER_ID)) {
+          map.addLayer({
+            id: AUTO_SPIDER_LAYER_ID,
+            type: 'line',
+            source: AUTO_SPIDER_SOURCE_ID,
+            paint: {
+              'line-color': '#444',
+              'line-width': 2,
+            },
+          });
+        }
+      } else {
+        existingSource.setData(leaderGeoJson);
+      }
+
+      setAutoSpiderStacks(nextStacks);
+    };
+
+    const onLoad = () => { reconcile(); };
+    const onIdle = () => { reconcile(); };
+    map.on('load', onLoad);
+    map.on('idle', onIdle);
+    // Run once immediately for maps already at rest.
+    reconcile();
+
+    return () => {
+      cancelled = true;
+      map.off('load', onLoad);
+      map.off('idle', onIdle);
+    };
+    // Re-register when silhouettes flip empty↔populated or map first becomes
+    // ready. The closure reads live silhouettes via silhouettesRef.
+  }, [silhouettes.length, mapReady]);
+
+  /**
    * Mosaic-marker click handler — branches on (target zoom vs current zoom)
    * the same way the layer-bound `clusters` handler branches on
    * (point_count, zoom):
@@ -891,6 +1158,36 @@ export function MapCanvas({
               />
             </Marker>
           ))}
+        {/*
+          Issue #277 (Spider v2 Task 3): one <Marker>+<StackedSilhouetteMarker>
+          per auto-spider leaf. Keyed by subId so React reconciles leaf
+          additions/removals cleanly across idle passes. Rendered inside
+          <MapView> so react-map-gl handles lngLat → pixel projection.
+        */}
+        {autoSpiderStacks.flatMap((stack) =>
+          stack.leaves.map((leaf) => (
+            <Marker
+              key={leaf.subId}
+              longitude={leaf.lngLat[0]}
+              latitude={leaf.lngLat[1]}
+              anchor="bottom"
+            >
+              <StackedSilhouetteMarker
+                silhouette={leaf.silhouette}
+                comName={leaf.comName}
+                familyCode={leaf.familyCode}
+                locName={leaf.locName}
+                obsDt={leaf.obsDt}
+                isNotable={leaf.isNotable}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const obs = obsLookupRef.current[leaf.subId];
+                  if (obs) setSelectedObs(obs);
+                }}
+              />
+            </Marker>
+          )),
+        )}
       </MapView>
       {/* Issue #247: HTML hit-layer overlay for spiderfied + unclustered
           markers, mounted as a sibling of the maplibre canvas inside the
