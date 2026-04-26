@@ -28,11 +28,25 @@ test.describe('axe-core WCAG scans', () => {
     expect(results.violations).toEqual([]);
   });
 
-  // #113 deleted the map; region-expand as a map-only behaviour no
-  // longer has anywhere to happen. A surface-specific axe scan at the
-  // expanded-state analogue (selected hotspot / open species card)
-  // comes back with #117/#118.
-  test.skip('region expanded has no WCAG 2/2.1 A/AA violations', () => {});
+  // Map view scans the FamilyLegend overlay (#249) at desktop and mobile
+  // viewports. Replaces the historical `region expanded` skip (the
+  // pre-#113 map's region-expand axe scan no longer has a target).
+  test('map view has no WCAG 2/2.1 A/AA violations (desktop)', async ({ page }) => {
+    const app = new AppPage(page);
+    await app.goto('view=map');
+    await app.waitForAppReady();
+    // Allow the lazy MapCanvas chunk to mount before scanning so the legend
+    // is in the DOM.
+    await expect(page.locator('[data-testid=map-canvas]')).toBeVisible({ timeout: 15_000 });
+    const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
+    if (results.violations.length) {
+      await test.info().attach('axe-violations', {
+        body: JSON.stringify(results.violations, null, 2),
+        contentType: 'application/json',
+      });
+    }
+    expect(results.violations).toEqual([]);
+  });
 
   // #118 species surface — the autocomplete carries a WAI-ARIA 1.2 combobox
   // contract (role + aria-autocomplete + aria-expanded + aria-controls),
@@ -116,6 +130,24 @@ test.describe('axe-core WCAG scans', () => {
       await app.waitForAppReady();
       await page.getByRole('combobox', { name: 'Search species' }).fill('e');
       await page.keyboard.press('ArrowDown');
+      const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
+      if (results.violations.length) {
+        await test.info().attach('axe-violations', {
+          body: JSON.stringify(results.violations, null, 2),
+          contentType: 'application/json',
+        });
+      }
+      expect(results.violations).toEqual([]);
+    });
+
+    // #249 — map view at the release-1 mobile viewport scans the
+    // FamilyLegend collapsed-by-default state (the chevron tab + its
+    // surrounding aside landmark).
+    test('map view has no WCAG 2/2.1 A/AA violations (mobile)', async ({ page }) => {
+      const app = new AppPage(page);
+      await app.goto('view=map');
+      await app.waitForAppReady();
+      await expect(page.locator('[data-testid=map-canvas]')).toBeVisible({ timeout: 15_000 });
       const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
       if (results.violations.length) {
         await test.info().attach('axe-violations', {

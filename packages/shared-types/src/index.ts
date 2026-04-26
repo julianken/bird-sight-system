@@ -66,6 +66,12 @@ export interface FamilySilhouette {
   svgData: string | null;
   source: string | null;
   license: string | null;
+  // English common name for the family — added by migrations
+  // 1700000019000 (schema) + 1700000019500 (seed) for issue #249. NULL is
+  // the defensive fallback for unseeded families landing in production
+  // post-seed; FamilyLegend (and any other display surface) falls back to
+  // `prettyFamily(familyCode)` when commonName is null.
+  commonName: string | null;
 }
 
 export interface IngestRun {
