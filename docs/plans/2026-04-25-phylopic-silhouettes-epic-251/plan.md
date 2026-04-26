@@ -80,7 +80,8 @@ Single PR to `main`:
    deleted, that issue's PR reverts `.mergify.yml` to a single `base = main`
    line.
 
-Pause for user check-in after Task 0 merges.
+After Task 0 merges, dispatch Task 1 (issue #243) immediately — no user
+check-in.
 
 ## Per-issue execution template (Task 1+)
 
