@@ -288,6 +288,7 @@ describe('MapCanvas', () => {
     fakeMap.queryRenderedFeatures.mockReturnValue([clusterFeature]);
 
     const handler = registeredHandlers['click:clusters'];
+    if (!handler) throw new Error('click:clusters handler missing');
     await act(async () => {
       handler({ point: [100, 100] });
     });
@@ -326,6 +327,7 @@ describe('MapCanvas', () => {
     ]);
 
     const handler = registeredHandlers['click:clusters'];
+    if (!handler) throw new Error('click:clusters handler missing');
     await act(async () => {
       // Must not throw even though the Promise rejects.
       expect(() => handler({ point: [0, 0] })).not.toThrow();
