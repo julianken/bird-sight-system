@@ -135,6 +135,7 @@ export function MapMarkerHitLayer(props: MapMarkerHitLayerProps) {
           <button
             key={m.subId}
             type="button"
+            tabIndex={-1}
             data-sub-id={m.subId}
             aria-label={formatAriaLabel(m)}
             onClick={() => onSelect(m.subId)}

@@ -108,6 +108,20 @@ describe('MapMarkerHitLayer', () => {
     expect(label).toContain('notable');
   });
 
+  it('renders hit-target buttons with tabIndex=-1 (skip-link is the keyboard entry, not Tab cycling)', () => {
+    const markers = [makeMarker({ comName: 'A' }), makeMarker({ comName: 'B', subId: 'b' })];
+    render(
+      <MapMarkerHitLayer
+        map={makeFakeMap()}
+        markers={markers}
+        onSelect={vi.fn()}
+      />,
+    );
+    for (const btn of screen.getAllByRole('button')) {
+      expect(btn.getAttribute('tabindex')).toBe('-1');
+    }
+  });
+
   it('falls back to "unknown location" when locName is null', () => {
     const markers = [makeMarker({ locName: null })];
     render(
