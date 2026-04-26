@@ -674,6 +674,58 @@ describe('MapCanvas', () => {
     expect(fakeMap.addImage).not.toHaveBeenCalled();
   });
 
+  /* Issue #271: charset validation at the SVG-blob construction site.
+     `silhouettePathToSvg` interpolates `svgData` raw into a `<svg>`
+     document via a template literal. A `"` or `<` in svgData would
+     close the surrounding `d="..."` attribute and silently break the
+     SVG (image.decode rejects, the family ends up on _FALLBACK with
+     no diagnostic) — or, worse, open an XSS surface if the SVG ever
+     rendered through an innerHTML path.
+
+     The fix: validate the charset before interpolation. On mismatch,
+     log a warn naming the family code AND skip the addImage call
+     (the family's observations join to the _FALLBACK sprite via
+     GeoJSON, same as the existing `svgData === null` skip path).
+
+     This test pins both branches of the diagnostic: bad svgData →
+     warn fires, no addImage call for that family. */
+  it('skips addImage + warns when svgData fails the path-data charset check (issue #271)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const sils = [
+        // Curated, valid path → should register normally.
+        makeSilhouette({ familyCode: 'tyrannidae', svgData: 'M0 0L1 1Z' }),
+        // Malformed: contains `"` and `<script>` — must be rejected.
+        makeSilhouette({
+          familyCode: 'corvidae',
+          svgData: 'M12 4 L20 20 "<script>alert(1)</script>',
+        }),
+        // Always-registered fallback sprite.
+        makeSilhouette({ familyCode: '_FALLBACK' }),
+      ];
+      render(<MapCanvas observations={[makeObs()]} silhouettes={sils} />);
+
+      await waitFor(() => {
+        const ids = fakeMap.addImage.mock.calls.map(
+          (c: unknown[]) => c[0] as string,
+        );
+        // tyrannidae + _FALLBACK register; corvidae is skipped.
+        expect(ids).toContain('tyrannidae');
+        expect(ids).toContain('_FALLBACK');
+        expect(ids).not.toContain('corvidae');
+      });
+
+      // Diagnostic must name the rejected family code so a curator
+      // looking at the console can find the bad row in family_silhouettes.
+      const warnCalls = warnSpy.mock.calls.map((c) => c.join(' '));
+      const diag = warnCalls.find((s) => /invalid svgData/.test(s));
+      expect(diag).toBeDefined();
+      expect(diag).toMatch(/corvidae/);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it('GeoJSON features carry familyCode + silhouetteId + color from the silhouettes prop', async () => {
     const sils = [
       makeSilhouette({ familyCode: 'tyrannidae', color: '#C77A2E' }),
