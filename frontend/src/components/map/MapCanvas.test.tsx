@@ -968,6 +968,123 @@ describe('MapCanvas', () => {
     expect(sourceData.data.features).toHaveLength(5);
   });
 
+  /* ── Tile-boundary duplicate dedupe regression ──────────────────────
+     Maplibre's clustered GeoJSON source returns the SAME source feature
+     once per tile a feature crosses, so at zooms where vector tiles
+     overlap (zoom 13 over Tucson, caught by browser-drive)
+     querySourceFeatures emits duplicates with the same `properties.subId`.
+     Without dedupe, both copies feed groupOverlapping; the running-mean
+     center can place them in different candidate stacks, and each
+     duplicate then renders a <Marker key={subId}>, producing React
+     "Encountered two children with the same key" warnings (~40 per idle
+     pass at zoom 13). The reconciler now dedupes by subId before passing
+     features into groupOverlapping, mirroring the mosaic reconciler's
+     existing dedupe on cluster_id. */
+  it('auto-spider: duplicate subIds from tile-boundary feature returns are deduped → ONE marker per subId, no React duplicate-key warning', async () => {
+    fakeMap.project.mockReturnValue({ x: 700, y: 400 }); // identical screen coords, in-viewport
+    fakeMap.unproject.mockReturnValue({ lng: -111.0, lat: 34.0 });
+
+    const makeFeature = (subId: string, familyCode: string) => ({
+      properties: {
+        subId,
+        comName: `Bird ${subId}`,
+        familyCode,
+        locName: 'Tile Edge Hotspot',
+        obsDt: '2026-04-15T10:00:00Z',
+        isNotable: false,
+        color: '#C77A2E',
+        silhouetteId: familyCode,
+      },
+      geometry: { type: 'Point', coordinates: [-111.0, 34.0] },
+    });
+
+    // 5 unique subIds, but `SD3` appears TWICE — simulating a feature
+    // that sits on a tile boundary and is returned by querySourceFeatures
+    // once per tile it crosses (the bug shape from browser-drive at
+    // zoom 13). After dedupe, 5 unique inputs reach groupOverlapping →
+    // one stack with 5 members → 5 stacked-silhouette-marker elements.
+    // Without dedupe, 6 inputs with one repeated subId reach
+    // groupOverlapping, the same subId ends up in the stack twice, and
+    // React emits a duplicate-key warning while rendering 6 markers.
+    const featuresWithDup = [
+      makeFeature('SD1', 'tyrannidae'),
+      makeFeature('SD2', 'tyrannidae'),
+      makeFeature('SD3', 'trochilidae'),
+      makeFeature('SD3', 'trochilidae'), // duplicate from second tile
+      makeFeature('SD4', 'picidae'),
+      makeFeature('SD5', 'tyrannidae'),
+    ];
+
+    fakeMap.querySourceFeatures.mockImplementation(
+      (sourceId: string) =>
+        sourceId === 'observations' ? featuresWithDup : [],
+    );
+
+    const mockSetData = vi.fn();
+    let sourceCallCount = 0;
+    fakeMap.getSource.mockImplementation((id: string) => {
+      if (id === 'auto-spider-leader-lines') {
+        sourceCallCount += 1;
+        return sourceCallCount <= 1 ? null : { setData: mockSetData };
+      }
+      return null;
+    });
+    fakeMap.getLayer.mockImplementation((id: string) =>
+      id === 'unclustered-point' ? ({ id } as unknown) : null,
+    );
+
+    // Spy on console.error — React routes the duplicate-key warning
+    // through console.error in dev. If dedupe regresses, this spy
+    // captures the "Encountered two children with the same key" warning
+    // and the assertion below fails. Match the production symptom.
+    const consoleErrorSpy = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+
+    try {
+      render(<MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />);
+      await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+
+      await act(async () => {
+        await bareHandlers['idle']?.();
+      });
+
+      // Exactly 5 markers — one per unique subId. Six would mean the
+      // duplicate subId leaked into rendering.
+      await waitFor(() => {
+        const markers = document.querySelectorAll(
+          '[data-testid="stacked-silhouette-marker"]',
+        );
+        expect(markers).toHaveLength(5);
+      });
+
+      // Leader-line FeatureCollection: one LineString per leaf — 5,
+      // not 6. Pins the deduped count flowing through the leader-line
+      // source path as well.
+      const addSourceCalls = fakeMap.addSource.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'auto-spider-leader-lines',
+      );
+      expect(addSourceCalls).toHaveLength(1);
+      const sourceData = addSourceCalls[0]?.[1] as {
+        data: { features: unknown[] };
+      };
+      expect(sourceData.data.features).toHaveLength(5);
+
+      // Production symptom: React's "duplicate key" warning. Filter
+      // strictly so unrelated console.error noise doesn't false-positive.
+      const dupKeyWarnings = consoleErrorSpy.mock.calls.filter((args) => {
+        const first = args[0];
+        return (
+          typeof first === 'string' &&
+          first.includes('two children with the same key')
+        );
+      });
+      expect(dupKeyWarnings).toHaveLength(0);
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+  });
+
   /* ── Feedback-loop regression (issue #277) ──────────────────────────
      Before the querySourceFeatures fix, the reconciler oscillated:
        1st idle: queryRenderedFeatures → 5 features → stack detected →

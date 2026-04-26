@@ -724,6 +724,20 @@ export function MapCanvas({
         geometry?: { type: string; coordinates: unknown };
       }>;
 
+      // querySourceFeatures returns one feature per tile boundary a feature
+      // crosses; dedupe by subId so the same obs doesn't end up in multiple
+      // stacks (which would produce React duplicate-key warnings on the
+      // stacked-silhouette-marker JSX). Same shape as the mosaic
+      // reconciler's dedupe on cluster_id above.
+      const seenSubIds = new Set<string>();
+      const features = rawFeatures.filter((f) => {
+        const subId = f.properties?.['subId'];
+        if (typeof subId !== 'string') return false;
+        if (seenSubIds.has(subId)) return false;
+        seenSubIds.add(subId);
+        return true;
+      });
+
       // Compute viewport bounds for the manual filter below. getContainer()
       // returns the map's wrapper div; getBoundingClientRect gives device-
       // pixel dimensions that match map.project's screen-coord output.
@@ -733,7 +747,7 @@ export function MapCanvas({
 
       // Build StackInput array — one per feature with screen projection.
       const inputs: StackInput[] = [];
-      for (const f of rawFeatures) {
+      for (const f of features) {
         const props = f.properties;
         if (!props) continue;
         const geom = f.geometry;
