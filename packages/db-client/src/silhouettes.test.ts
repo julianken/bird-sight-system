@@ -75,12 +75,13 @@ describe('getSilhouettes', () => {
     expect(nullCommon).toEqual([]);
   });
 
-  it('common-name snapshot for the 15 baseline families', async () => {
+  it('common-name snapshot for all 25 seeded families', async () => {
     // Curated English common names per migration 1700000019500. Update both
     // sides together if the seed text changes.
     const rows = await getSilhouettes(db.pool);
     const byFamily = Object.fromEntries(rows.map(r => [r.familyCode, r.commonName]));
     expect(byFamily).toEqual({
+      // baseline (migration 9000)
       accipitridae: 'Hawks, Eagles & Kites',
       anatidae: 'Ducks, Geese & Swans',
       ardeidae: 'Herons & Egrets',
@@ -96,6 +97,17 @@ describe('getSilhouettes', () => {
       troglodytidae: 'Wrens',
       trogonidae: 'Trogons',
       tyrannidae: 'Tyrant Flycatchers',
+      // AZ expansion (migration 15000, issue #244)
+      cardinalidae: 'Cardinals & Allies',
+      mimidae: 'Mockingbirds & Thrashers',
+      columbidae: 'Pigeons & Doves',
+      parulidae: 'New World Warblers',
+      ptilogonatidae: 'Silky-Flycatchers',
+      paridae: 'Tits, Chickadees & Titmice',
+      fringillidae: 'Finches',
+      caprimulgidae: 'Nightjars',
+      remizidae: 'Verdins',
+      threskiornithidae: 'Ibises & Spoonbills',
     });
   });
 });
