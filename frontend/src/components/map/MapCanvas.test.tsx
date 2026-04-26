@@ -27,6 +27,23 @@ let bareHandlers: Record<string, () => void | Promise<void>> = {};
 
 function makeFakeMap() {
   const canvas = { style: { cursor: '' }, clientWidth: 1440, clientHeight: 900 };
+  // The auto-spider reconciler reads viewport bounds via
+  // map.getContainer().getBoundingClientRect() to filter
+  // querySourceFeatures' tile-extent results down to the visible
+  // viewport. Default 1440×900 covers the desktop release-1 viewport;
+  // tests that need a smaller viewport can override after construction.
+  const container = {
+    getBoundingClientRect: vi.fn(() => ({
+      x: 0,
+      y: 0,
+      width: 1440,
+      height: 900,
+      top: 0,
+      left: 0,
+      right: 1440,
+      bottom: 900,
+    })),
+  };
   // Sprite registry — addImage records here; hasImage looks up.
   const sprites = new Set<string>();
   return {
@@ -55,9 +72,15 @@ function makeFakeMap() {
     ),
     off: vi.fn(),
     queryRenderedFeatures: vi.fn(),
+    // Auto-spider reconciler queries the source directly (issue #277,
+    // feedback-loop fix) so layer filters don't suppress already-stacked
+    // features on subsequent idles. Default returns []; tests that
+    // exercise stack detection override.
+    querySourceFeatures: vi.fn(() => []),
     getSource: vi.fn(),
     getLayer: vi.fn(),
     getCanvas: vi.fn(() => canvas),
+    getContainer: vi.fn(() => container),
     easeTo: vi.fn(),
     getZoom: vi.fn(() => 6),
     project: vi.fn(() => ({ x: 700, y: 400 })),
@@ -860,7 +883,15 @@ describe('MapCanvas', () => {
     // AC #4: 5 obs at same screen position → one stack → fanPositions gives
     // 5 leaf positions → 5 Marker+StackedSilhouetteMarker elements; leader-
     // line source setData called with 5 LineString features.
-    fakeMap.project.mockReturnValue({ x: 700, y: 400 }); // all identical
+    //
+    // Issue #277 feedback-loop fix: the reconciler now reads features via
+    // querySourceFeatures (NOT queryRenderedFeatures), so layer-filter
+    // suppression of inStack=true features on the second idle can't make
+    // the reconciler oscillate between "stack detected" and "no stack".
+    // The mock returns viewport-projected screen coords inside the
+    // 1440×900 default viewport so the reconciler's manual viewport
+    // filter doesn't drop them.
+    fakeMap.project.mockReturnValue({ x: 700, y: 400 }); // all identical, in-viewport
     fakeMap.unproject.mockReturnValue({ lng: -111.0, lat: 34.0 });
 
     const makeFeature = (subId: string, familyCode: string) => ({
@@ -885,11 +916,11 @@ describe('MapCanvas', () => {
       makeFeature('SB5', 'tyrannidae'),
     ];
 
-    fakeMap.queryRenderedFeatures.mockImplementation(
-      (_: unknown, opts?: { layers?: string[] }) => {
-        if (opts?.layers?.includes('unclustered-point')) return features;
-        return [];
-      },
+    // mockReturnValue (NOT mockReturnValueOnce): the reconciler can fire
+    // multiple idles, and every pass must see the same 5 features so the
+    // feedback-loop fix is exercised correctly.
+    fakeMap.querySourceFeatures.mockImplementation(
+      (sourceId: string) => (sourceId === 'observations' ? features : []),
     );
 
     // First getSource call (check if source exists) returns null → reconciler
@@ -905,10 +936,12 @@ describe('MapCanvas', () => {
       }
       return null;
     });
-    // The auto-spider reconciler now defensively checks
-    // `map.getLayer('unclustered-point')` before queryRenderedFeatures —
-    // the symbol layer must report as present. The auto-spider leader-lines
-    // layer is still absent (reconciler will addLayer it).
+    // The auto-spider reconciler still defensively checks
+    // `map.getLayer('unclustered-point')` as a proxy for "rendering
+    // pipeline alive" (querySourceFeatures itself does not throw on a
+    // missing layer). The symbol layer must report as present; the
+    // auto-spider leader-lines layer is still absent (reconciler will
+    // addLayer it).
     fakeMap.getLayer.mockImplementation((id: string) =>
       id === 'unclustered-point' ? ({ id } as unknown) : null,
     );
@@ -933,6 +966,109 @@ describe('MapCanvas', () => {
     expect(addSourceCalls).toHaveLength(1);
     const sourceData = addSourceCalls[0]?.[1] as { data: { features: unknown[] } };
     expect(sourceData.data.features).toHaveLength(5);
+  });
+
+  /* ── Feedback-loop regression (issue #277) ──────────────────────────
+     Before the querySourceFeatures fix, the reconciler oscillated:
+       1st idle: queryRenderedFeatures → 5 features → stack detected →
+                 stackedSubIds set, inStack=true on the 5 features.
+       2nd idle: queryRenderedFeatures returns 0 because the layer's
+                 `['!=', ['get', 'inStack'], true]` filter now hides them
+                 → groupOverlapping([]) = [] → setAutoSpiderStacks([]) →
+                 the StackedSilhouetteMarker leaves vanish.
+       3rd idle: features re-appear (inStack flipped back to false), and
+                 the cycle repeats — visible as rapid flicker.
+     The fix switches to querySourceFeatures, which bypasses layer
+     filters. This test triggers two idles back-to-back and asserts the
+     5 markers still render after the second pass — the regression
+     guardrail. */
+  it('auto-spider: second idle does NOT unstack already-stacked features (issue #277 feedback loop)', async () => {
+    // 5 features at the same screen position, all in-viewport.
+    fakeMap.project.mockReturnValue({ x: 700, y: 400 });
+    fakeMap.unproject.mockReturnValue({ lng: -111.0, lat: 34.0 });
+
+    const makeFeature = (subId: string, familyCode: string) => ({
+      properties: {
+        subId,
+        comName: `Bird ${subId}`,
+        familyCode,
+        locName: 'Same Hotspot',
+        obsDt: '2026-04-15T10:00:00Z',
+        isNotable: false,
+        color: '#C77A2E',
+        silhouetteId: familyCode,
+      },
+      geometry: { type: 'Point', coordinates: [-111.0, 34.0] },
+    });
+
+    const features = [
+      makeFeature('SC1', 'tyrannidae'),
+      makeFeature('SC2', 'tyrannidae'),
+      makeFeature('SC3', 'trochilidae'),
+      makeFeature('SC4', 'picidae'),
+      makeFeature('SC5', 'tyrannidae'),
+    ];
+
+    // querySourceFeatures (the new query path) returns the 5 features
+    // EVERY call — bypassing the layer filter. This simulates the
+    // production behavior where the underlying source still holds the
+    // features even after the reconciler stamps inStack=true on them.
+    fakeMap.querySourceFeatures.mockImplementation(
+      (sourceId: string) => (sourceId === 'observations' ? features : []),
+    );
+
+    // queryRenderedFeatures returns NOTHING for unclustered-point on
+    // every call. If the implementation regresses to use this API, the
+    // 2nd-idle assertion below will fail (markers will vanish).
+    fakeMap.queryRenderedFeatures.mockImplementation(
+      (_: unknown, opts?: { layers?: string[] }) => {
+        if (opts?.layers?.includes('unclustered-point')) return [];
+        return [];
+      },
+    );
+
+    // Provide a stable leader-line source mock that survives multiple
+    // idle passes — addSource on the first idle, setData on subsequent.
+    const mockSetData = vi.fn();
+    let sourceAdded = false;
+    fakeMap.getSource.mockImplementation((id: string) => {
+      if (id === 'auto-spider-leader-lines') {
+        return sourceAdded ? { setData: mockSetData } : null;
+      }
+      return null;
+    });
+    fakeMap.addSource.mockImplementation(
+      (id: string) => {
+        if (id === 'auto-spider-leader-lines') sourceAdded = true;
+      },
+    );
+    fakeMap.getLayer.mockImplementation((id: string) =>
+      id === 'unclustered-point' ? ({ id } as unknown) : null,
+    );
+
+    render(<MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />);
+    await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+
+    // First idle — stack detected, 5 markers render.
+    await act(async () => {
+      await bareHandlers['idle']?.();
+    });
+    await waitFor(() => {
+      const markers = document.querySelectorAll('[data-testid="stacked-silhouette-marker"]');
+      expect(markers).toHaveLength(5);
+    });
+
+    // Second idle — without the querySourceFeatures fix the reconciler
+    // would call setAutoSpiderStacks([]) here (because
+    // queryRenderedFeatures returns 0 for inStack=true features) and the
+    // 5 markers would unmount. Assert they survive.
+    await act(async () => {
+      await bareHandlers['idle']?.();
+    });
+    const markersAfterSecondIdle = document.querySelectorAll(
+      '[data-testid="stacked-silhouette-marker"]',
+    );
+    expect(markersAfterSecondIdle).toHaveLength(5);
   });
 
   /* ── spritesReady / getLayer guard regression tests ──────────────────

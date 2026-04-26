@@ -695,19 +695,41 @@ export function MapCanvas({
       if (currentSilhouettes.length === 0) return;
 
       // Defensive belt-and-suspenders: catch the case where the layer is
-      // removed between effect runs (style reload, hot-module replacement)
-      // and prevent the "layer does not exist" error class from re-emerging.
-      // The spritesReady gate above is the optimization; this is the durable
-      // runtime check.
+      // removed between effect runs (style reload, hot-module replacement).
+      // querySourceFeatures itself doesn't throw on a missing layer (it
+      // queries the source, not the layer), but the source-readiness
+      // lifecycle still depends on the symbol layer having mounted, so we
+      // keep this check as a proxy for "rendering pipeline is alive".
       if (!map.getLayer('unclustered-point')) return;
 
-      // Query all currently-rendered unclustered observations.
-      const rawFeatures = (map.queryRenderedFeatures(undefined, {
-        layers: ['unclustered-point'],
+      // Query the underlying GeoJSON source directly — NOT the rendered
+      // layer. The unclustered-point layer carries an
+      // `['!=', ['get', 'inStack'], true]` filter (Task 4) so once the
+      // reconciler stamps `inStack=true` on a feature, queryRenderedFeatures
+      // would stop returning it on subsequent idles, causing the reconciler
+      // to "forget" the stack and unstack it on the next idle, which then
+      // re-stacks it, and so on — a feedback loop that flickered the
+      // viewport (issue #277). querySourceFeatures bypasses layer filters
+      // and reads the raw source data, so the reconciler always sees the
+      // originally-stacked features.
+      const rawFeatures = (map.querySourceFeatures('observations', {
+        // Match the unclustered-point layer's first clause — return only
+        // unclustered features. We then apply the viewport filter manually
+        // below to preserve queryRenderedFeatures' viewport-only semantic
+        // (querySourceFeatures returns features in all rendered TILES, which
+        // can extend beyond the visible viewport).
+        filter: ['!', ['has', 'point_count']],
       }) ?? []) as Array<{
         properties?: Record<string, unknown>;
         geometry?: { type: string; coordinates: unknown };
       }>;
+
+      // Compute viewport bounds for the manual filter below. getContainer()
+      // returns the map's wrapper div; getBoundingClientRect gives device-
+      // pixel dimensions that match map.project's screen-coord output.
+      const container = map.getContainer();
+      const { width: viewportWidth, height: viewportHeight } =
+        container.getBoundingClientRect();
 
       // Build StackInput array — one per feature with screen projection.
       const inputs: StackInput[] = [];
@@ -732,6 +754,19 @@ export function MapCanvas({
 
         // Project lngLat → screen coords.
         const screen = map.project([coords[0], coords[1]]);
+
+        // Viewport filter — querySourceFeatures returns features in all
+        // rendered tiles (which extend beyond the visible viewport on
+        // tile boundaries). queryRenderedFeatures(undefined, ...) only
+        // returned viewport-visible features, so we replicate that here.
+        if (
+          screen.x < 0 ||
+          screen.x > viewportWidth ||
+          screen.y < 0 ||
+          screen.y > viewportHeight
+        ) {
+          continue;
+        }
 
         inputs.push({
           subId,
