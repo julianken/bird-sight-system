@@ -664,12 +664,18 @@ export function MapCanvas({
     // AC #2: short-circuit when silhouettes aren't loaded yet.
     if (silhouettes.length === 0) return undefined;
     if (!mapReady) return undefined;
+    // The auto-spider reconciler queries the 'unclustered-point' layer, which
+    // is JSX-conditioned on spritesReady. Calling queryRenderedFeatures with a
+    // layers filter that names a not-yet-mounted layer raises
+    // "layer does not exist in the map's style". Wait until spritesReady flips.
+    if (!spritesReady) return undefined;
     const map = mapRef.current?.getMap();
     if (!map) return undefined;
 
-    // Build once per effect pass (dep array: [silhouettes.length, mapReady]).
-    // Silhouettes change at most once per session (empty → populated), so
-    // rebuilding on every idle would be wasteful at production obs counts.
+    // Build once per effect pass (dep array: [silhouettes.length, mapReady,
+    // spritesReady]). Silhouettes change at most once per session (empty →
+    // populated), so rebuilding on every idle would be wasteful at
+    // production obs counts.
     const silByFamily = new Map<string, { svgData: string | null; color: string }>();
     for (const s of silhouettesRef.current) {
       silByFamily.set(s.familyCode.toLowerCase(), {
@@ -687,6 +693,13 @@ export function MapCanvas({
       if (cancelled) return;
       const currentSilhouettes = silhouettesRef.current;
       if (currentSilhouettes.length === 0) return;
+
+      // Defensive belt-and-suspenders: catch the case where the layer is
+      // removed between effect runs (style reload, hot-module replacement)
+      // and prevent the "layer does not exist" error class from re-emerging.
+      // The spritesReady gate above is the optimization; this is the durable
+      // runtime check.
+      if (!map.getLayer('unclustered-point')) return;
 
       // Query all currently-rendered unclustered observations.
       const rawFeatures = (map.queryRenderedFeatures(undefined, {
@@ -857,9 +870,12 @@ export function MapCanvas({
       map.off('load', onLoad);
       map.off('idle', onIdle);
     };
-    // Re-register when silhouettes flip empty↔populated or map first becomes
-    // ready. The closure reads live silhouettes via silhouettesRef.
-  }, [silhouettes.length, mapReady]);
+    // Re-register when silhouettes flip empty↔populated, when the map first
+    // becomes ready, OR when sprites finish registering (spritesReady is the
+    // gate that lets the unclustered-point layer mount; we must wait for it
+    // before querying that layer). The closure reads live silhouettes via
+    // silhouettesRef.
+  }, [silhouettes.length, mapReady, spritesReady]);
 
   /**
    * Mosaic-marker click handler:

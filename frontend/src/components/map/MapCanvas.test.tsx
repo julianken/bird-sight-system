@@ -905,7 +905,13 @@ describe('MapCanvas', () => {
       }
       return null;
     });
-    fakeMap.getLayer.mockReturnValue(null); // layer not yet added
+    // The auto-spider reconciler now defensively checks
+    // `map.getLayer('unclustered-point')` before queryRenderedFeatures —
+    // the symbol layer must report as present. The auto-spider leader-lines
+    // layer is still absent (reconciler will addLayer it).
+    fakeMap.getLayer.mockImplementation((id: string) =>
+      id === 'unclustered-point' ? ({ id } as unknown) : null,
+    );
 
     render(<MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />);
     await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
@@ -927,6 +933,110 @@ describe('MapCanvas', () => {
     expect(addSourceCalls).toHaveLength(1);
     const sourceData = addSourceCalls[0]?.[1] as { data: { features: unknown[] } };
     expect(sourceData.data.features).toHaveLength(5);
+  });
+
+  /* ── spritesReady / getLayer guard regression tests ──────────────────
+     When the maplibre map is queried for features on a layer that hasn't
+     been added (e.g., the symbol layer is JSX-conditioned on spritesReady),
+     queryRenderedFeatures throws "layer does not exist in the map's style".
+     Two complementary guards in the auto-spider reconciler protect against
+     this:
+       1. The effect dep array includes spritesReady + an early-return
+          guard (`if (!spritesReady) return undefined;`) so the effect
+          re-runs once sprites finish registering.
+       2. Inside reconcile(), a defensive `if (!map.getLayer('unclustered-
+          point')) return;` catches edge cases where the layer is removed
+          between effect runs (style reload / hot-module replacement).
+     The tests below pin both guards. */
+
+  it('auto-spider: reconcile returns early when getLayer("unclustered-point") is null (style-reload guard)', async () => {
+    // Simulates the post-style-reload / HMR case: the sprite-registration
+    // effect completed (so spritesReady is true and the effect ran), but
+    // the layer is no longer in the style. queryRenderedFeatures must
+    // NOT be called with the missing-layer filter.
+    fakeMap.getLayer.mockReturnValue(null);
+    fakeMap.getSource.mockReturnValue(null);
+    const queryRenderedFeatures = vi.fn().mockReturnValue([]);
+    fakeMap.queryRenderedFeatures = queryRenderedFeatures;
+
+    render(<MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />);
+    await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+
+    // Invoking idle must not throw — the layer-missing guard short-circuits
+    // the reconcile body before queryRenderedFeatures.
+    await act(async () => {
+      expect(() => bareHandlers['idle']?.()).not.toThrow();
+    });
+
+    // No queryRenderedFeatures call ever names 'unclustered-point' — the
+    // guard fired BEFORE the query. (The mosaic reconciler may query
+    // 'clusters-hit'; that's allowed.)
+    const unclusteredQueries = queryRenderedFeatures.mock.calls.filter(
+      (call) => {
+        const opts = call[1] as { layers?: string[] } | undefined;
+        return opts?.layers?.includes('unclustered-point');
+      },
+    );
+    expect(unclusteredQueries).toHaveLength(0);
+  });
+
+  it('auto-spider: reconcile does NOT query unclustered-point when sprites never finish registering (spritesReady gate)', async () => {
+    // Simulates the cold-load case: silhouettes have arrived but the
+    // sprite-registration Promise hasn't resolved yet. With my fix, the
+    // effect dep array gate (`if (!spritesReady) return undefined;`)
+    // means the auto-spider's bare 'idle' handler is never registered
+    // and reconcile cannot run against a not-yet-mounted layer.
+    //
+    // We force this by stubbing Image.decode to return a never-resolving
+    // Promise so spritesReady stays false. After firing the bare 'idle'
+    // handler that the mosaic reconciler registers, no queryRenderedFeatures
+    // call must name 'unclustered-point'.
+    const OriginalImage = (globalThis as { Image?: unknown }).Image;
+    class HangingImage {
+      src = '';
+      onload: (() => void) | null = null;
+      width = 32;
+      height = 32;
+      decode(): Promise<void> { return new Promise(() => {}); }
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).Image = HangingImage;
+
+    try {
+      fakeMap.getLayer.mockImplementation((id: string) =>
+        id === 'unclustered-point' ? ({ id } as unknown) : null,
+      );
+      fakeMap.getSource.mockReturnValue({
+        getClusterLeaves: vi.fn().mockResolvedValue([]),
+      });
+      const queryRenderedFeatures = vi.fn().mockReturnValue([]);
+      fakeMap.queryRenderedFeatures = queryRenderedFeatures;
+
+      render(<MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />);
+
+      // Wait for the mosaic reconciler to register its idle handler. The
+      // auto-spider reconciler is gated on spritesReady — which never
+      // flips because Image.decode never resolves — so it never registers.
+      await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+
+      // Trigger idle. The mosaic reconciler will query 'clusters-hit'; the
+      // auto-spider reconciler must NOT have registered, and therefore no
+      // queryRenderedFeatures call ever names 'unclustered-point'.
+      await act(async () => {
+        await bareHandlers['idle']?.();
+      });
+
+      const unclusteredQueries = queryRenderedFeatures.mock.calls.filter(
+        (call) => {
+          const opts = call[1] as { layers?: string[] } | undefined;
+          return opts?.layers?.includes('unclustered-point');
+        },
+      );
+      expect(unclusteredQueries).toHaveLength(0);
+    } finally {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (globalThis as any).Image = OriginalImage;
+    }
   });
 
   it('auto-spider: cleanup unbinds load and idle listeners', async () => {
