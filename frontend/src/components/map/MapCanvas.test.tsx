@@ -511,6 +511,110 @@ describe('MapCanvas', () => {
     expect(fakeMap.easeTo).not.toHaveBeenCalled();
   });
 
+  /* ── Issue #269: handleMosaicClick branch coverage (post-Spider-v2) ───
+     The mosaic-marker `<button>` (rendered by <MosaicMarker> for clusters
+     with point_count <= 8) wires its onClick to handleMosaicClick(entry).
+     Issue #269 was filed when handleMosaicClick had three branches; PR
+     #280 (Spider v2) collapsed it to two:
+       - currentZoom <  CLUSTER_MAX_ZOOM → easeTo (zoom in).
+       - currentZoom >= CLUSTER_MAX_ZOOM → NO-OP (auto-spider already fanned).
+     The layer-bound `click:clusters` handler is covered above; these two
+     tests pin the React-onClick path exposed via the MosaicMarker button. */
+
+  it('mosaic click at zoom < CLUSTER_MAX_ZOOM calls easeTo with the resolved target zoom', async () => {
+    const cluster = {
+      id: 42,
+      properties: { cluster_id: 42, point_count: 4 },
+      geometry: { type: 'Point', coordinates: [-110.9, 32.2] },
+    };
+    fakeMap.queryRenderedFeatures.mockImplementation(
+      (_: unknown, opts?: { layers?: string[] }) => {
+        if (opts?.layers?.includes('clusters-hit')) return [cluster];
+        return [];
+      },
+    );
+
+    const getClusterLeaves = vi
+      .fn()
+      .mockResolvedValue([
+        { type: 'Feature', properties: { familyCode: 'tyrannidae' } },
+      ]);
+    const getClusterExpansionZoom = vi.fn().mockResolvedValue(13);
+    fakeMap.getSource.mockReturnValue({
+      getClusterLeaves,
+      getClusterExpansionZoom,
+    });
+
+    // Zoom 12 < CLUSTER_MAX_ZOOM (14): the easeTo branch fires.
+    fakeMap.getZoom.mockReturnValue(12);
+
+    render(<MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />);
+    await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+
+    // Materialize the mosaic marker by firing idle.
+    await act(async () => {
+      await bareHandlers['idle']?.();
+    });
+
+    const button = await screen.findByTestId('cluster-mosaic-marker');
+    await act(async () => {
+      button.click();
+    });
+
+    // easeTo runs after getClusterExpansionZoom resolves — wait for it.
+    await waitFor(() => {
+      expect(getClusterExpansionZoom).toHaveBeenCalledWith(42);
+      expect(fakeMap.easeTo).toHaveBeenCalledWith({
+        center: [-110.9, 32.2],
+        zoom: 13,
+      });
+    });
+  });
+
+  it('mosaic click at zoom >= CLUSTER_MAX_ZOOM is a NO-OP (auto-spider already fanned)', async () => {
+    const cluster = {
+      id: 99,
+      properties: { cluster_id: 99, point_count: 4 },
+      geometry: { type: 'Point', coordinates: [-111.5, 33.0] },
+    };
+    fakeMap.queryRenderedFeatures.mockImplementation(
+      (_: unknown, opts?: { layers?: string[] }) => {
+        if (opts?.layers?.includes('clusters-hit')) return [cluster];
+        return [];
+      },
+    );
+
+    const getClusterLeaves = vi
+      .fn()
+      .mockResolvedValue([
+        { type: 'Feature', properties: { familyCode: 'tyrannidae' } },
+      ]);
+    const getClusterExpansionZoom = vi.fn();
+    fakeMap.getSource.mockReturnValue({
+      getClusterLeaves,
+      getClusterExpansionZoom,
+    });
+
+    // Zoom 14 == CLUSTER_MAX_ZOOM: the early-return branch fires.
+    fakeMap.getZoom.mockReturnValue(14);
+
+    render(<MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />);
+    await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+
+    await act(async () => {
+      await bareHandlers['idle']?.();
+    });
+
+    const button = await screen.findByTestId('cluster-mosaic-marker');
+    await act(async () => {
+      // Must not throw, must not call getClusterExpansionZoom, must not easeTo.
+      expect(() => button.click()).not.toThrow();
+    });
+
+    expect(getClusterExpansionZoom).not.toHaveBeenCalled();
+    expect(fakeMap.easeTo).not.toHaveBeenCalled();
+  });
+
   /* ── Issue #246: SDF silhouette pipeline ──────────────────────────────
      The MapCanvas.handleLoad flow registers one sprite per silhouette
      row (with non-null svgData) PLUS a `_FALLBACK` sprite. The symbol
