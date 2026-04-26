@@ -323,6 +323,108 @@ describe('AttributionModal', () => {
     }
   });
 
+  /*
+   * Loading / error / NULL-source polish (issue #274).
+   *
+   * Bot review on PR #272 surfaced two follow-ups:
+   *  - The modal didn't surface `useSilhouettes`'s loading/error state,
+   *    so SR users opening Credits during a slow `/api/silhouettes`
+   *    response heard "Family Silhouettes" + nothing.
+   *  - Phylopic rows with creator !== null AND source === null rendered
+   *    `<a href="#">` for the labelName — looked like a working link
+   *    but scrolled to top of page on click.
+   *
+   * The three tests below pin both fixes.
+   */
+
+  it('renders a user-facing loading message in the Phylopic section when loading=true', async () => {
+    const user = userEvent.setup();
+    render(<AttributionModal silhouettes={[]} loading={true} />);
+    await user.click(screen.getByRole('button', { name: /credits/i }));
+    // Status (aria-live) text replaces the empty list.
+    expect(
+      screen.getByText(/loading silhouette attributions/i),
+    ).toBeInTheDocument();
+    // Bird sightings + Map tiles sections still render unconditionally.
+    expect(
+      screen.getByRole('heading', { level: 3, name: /bird sightings data/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 3, name: /map tiles/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('renders a user-facing error message in the Phylopic section when error is set (raw message hidden)', async () => {
+    const user = userEvent.setup();
+    const err = new Error('pool exhausted');
+    render(<AttributionModal silhouettes={[]} error={err} />);
+    await user.click(screen.getByRole('button', { name: /credits/i }));
+    // User-facing copy is generic; raw error string MUST NOT leak.
+    expect(
+      screen.getByText(/couldn't load silhouette attributions/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/pool exhausted/)).toBeNull();
+    // Bird sightings + Map tiles sections still render.
+    expect(
+      screen.getByRole('heading', { level: 3, name: /bird sightings data/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 3, name: /map tiles/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('error state takes precedence over loading state', async () => {
+    const user = userEvent.setup();
+    render(
+      <AttributionModal
+        silhouettes={[]}
+        loading={true}
+        error={new Error('x')}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: /credits/i }));
+    expect(
+      screen.getByText(/couldn't load silhouette attributions/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/loading silhouette attributions/i),
+    ).toBeNull();
+  });
+
+  it('renders a creator-only row (source=null, creator!=null) as plain text — no broken anchor', async () => {
+    const user = userEvent.setup();
+    const creatorOnly: FamilySilhouette[] = [
+      {
+        familyCode: 'foobar',
+        color: '#444',
+        svgData: null,
+        source: null, // ← the bug: previously rendered <a href="#">
+        license: 'CC-BY-3.0',
+        commonName: 'Foo Birds',
+        creator: 'Jane Doe',
+      },
+    ];
+    render(<AttributionModal silhouettes={creatorOnly} />);
+    await user.click(screen.getByRole('button', { name: /credits/i }));
+    const rows = screen.getAllByTestId('attribution-phylopic-row');
+    expect(rows).toHaveLength(1);
+    const row = rows[0]!;
+    // The labelName ("Foo Birds") is rendered as plain text — must NOT be a link.
+    expect(within(row).getByText('Foo Birds')).toBeInTheDocument();
+    // No <a> in this row should carry an empty / "#" href.
+    const anchors = within(row).queryAllByRole('link');
+    for (const a of anchors) {
+      const href = a.getAttribute('href') ?? '';
+      expect(href).not.toBe('#');
+      expect(href).not.toBe('');
+    }
+    // The labelName itself should NOT have been wrapped in an anchor.
+    const fooLink = within(row).queryByRole('link', { name: /foo birds/i });
+    expect(fooLink).toBeNull();
+    // Creator credit still appears.
+    expect(within(row).getByText(/Jane Doe/)).toBeInTheDocument();
+  });
+
   // Smoke test: the trigger calls a controlled onOpenChange callback if
   // provided (lets App.tsx wire telemetry / focus instrumentation if it
   // ever wants to without a refactor).

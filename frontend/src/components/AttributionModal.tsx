@@ -56,11 +56,28 @@ export interface AttributionModalProps {
    * App.tsx. The modal renders one row per silhouette with a non-null
    * `source` (Phylopic image-page URL); rows with `source === null` are
    * skipped (no Phylopic data → nothing to attribute). When the array is
-   * empty (initial fetch in flight), the Phylopic section degrades to a
-   * "Loading silhouettes…" hint while the eBird and OSM sections render
-   * unconditionally.
+   * empty AND `loading` / `error` are both falsy, the Phylopic section
+   * degrades to a "Loading silhouettes…" hint while the eBird and OSM
+   * sections render unconditionally.
    */
   silhouettes: FamilySilhouette[];
+  /**
+   * Loading flag from `useSilhouettes()`. When `true`, the Phylopic
+   * section renders an aria-live status message in lieu of an empty list,
+   * so SR users opening Credits during a slow `/api/silhouettes` response
+   * hear "Loading silhouette attributions…" instead of just the section
+   * heading. Defaults to `false` for callers (e.g. tests) that don't
+   * thread the hook state.
+   */
+  loading?: boolean;
+  /**
+   * Error from `useSilhouettes()`. When set, the Phylopic section renders
+   * a user-facing fallback ("Couldn't load silhouette attributions…")
+   * instead of the empty list. The raw error message is intentionally NOT
+   * surfaced — credits are not the place to expose `pool exhausted`-style
+   * backend strings. Defaults to `null`.
+   */
+  error?: Error | null;
   /**
    * Optional open-state callback. App.tsx can wire telemetry / focus
    * instrumentation through this without forcing a refactor. The callback
@@ -69,7 +86,12 @@ export interface AttributionModalProps {
   onOpenChange?: (open: boolean) => void;
 }
 
-export function AttributionModal({ silhouettes, onOpenChange }: AttributionModalProps) {
+export function AttributionModal({
+  silhouettes,
+  loading = false,
+  error = null,
+  onOpenChange,
+}: AttributionModalProps) {
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   // Stash the previously-focused element when the modal opens so we can
@@ -143,11 +165,14 @@ export function AttributionModal({ silhouettes, onOpenChange }: AttributionModal
     };
   }, [onOpenChange]);
 
-  // Filter Phylopic rows to those with a non-null source — silhouettes
-  // missing source/license/creator are the Phylopic-less fallback rows
-  // (see migration 1700000018000) which carry seeded color only and
-  // intentionally have nothing to attribute.
-  const phylopicRows = silhouettes.filter(s => s.source !== null);
+  // Filter Phylopic rows to those with attributable content — either a
+  // non-null source (Phylopic image-page URL → linkable row) OR a
+  // non-null creator (CC-BY/CC-BY-SA still requires creator credit even
+  // when the source URL was lost during curation; see migration
+  // 1700000017000 NULL UPDATEs). Rows with BOTH null are the
+  // Phylopic-less fallback rows from migration 1700000018000 — seeded
+  // color only, nothing to attribute, drop.
+  const phylopicRows = silhouettes.filter(s => s.source !== null || s.creator !== null);
 
   return (
     <>
@@ -195,7 +220,25 @@ export function AttributionModal({ silhouettes, onOpenChange }: AttributionModal
           </section>
           <section className="attribution-modal-section">
             <h3>Family Silhouettes</h3>
-            {phylopicRows.length === 0 ? (
+            {/*
+              Render order matters: error wins over loading wins over the
+              empty-payload "loading" hint. The `useSilhouettes` hook can
+              be (loading=true, silhouettes=[]) or (error=Error,
+              silhouettes=[]); checking error first keeps the failure path
+              from getting stuck on "Loading…" forever after the fetch
+              rejects. The empty-array branch (no error, not loading) is
+              the rare "API returned []" edge — kept as a courtesy hint
+              rather than rendering a bare heading.
+            */}
+            {error ? (
+              <p className="attribution-modal-error" role="status" aria-live="polite">
+                Couldn't load silhouette attributions — try again later.
+              </p>
+            ) : loading ? (
+              <p className="attribution-modal-loading" role="status" aria-live="polite">
+                Loading silhouette attributions…
+              </p>
+            ) : phylopicRows.length === 0 ? (
               <p className="attribution-modal-loading" role="status" aria-live="polite">
                 Loading silhouettes…
               </p>
@@ -222,16 +265,31 @@ export function AttributionModal({ silhouettes, onOpenChange }: AttributionModal
                         className="attribution-modal-phylopic-row"
                         data-testid="attribution-phylopic-row"
                       >
-                        <a
-                          href={row.source ?? '#'}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          {labelName}
-                        </a>
+                        {/*
+                          Source-present branch: the labelName links to
+                          the Phylopic image-page URL. Source-absent
+                          branch (issue #274): render the labelName as
+                          plain text — the previous `<a href="#">`
+                          fallback looked like a working link but
+                          navigated to the top of the page on click,
+                          which is worse than no link at all. The row
+                          still carries a creator credit below.
+                        */}
+                        {row.source !== null ? (
+                          <a
+                            href={row.source}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            {labelName}
+                          </a>
+                        ) : (
+                          <span className="attribution-modal-label">{labelName}</span>
+                        )}
                         {row.creator && (
                           <>
-                            {' '}by <span className="attribution-modal-creator">{row.creator}</span>
+                            {' '}by{' '}
+                            <span className="attribution-modal-creator">{row.creator}</span>
                           </>
                         )}
                         {row.license && (

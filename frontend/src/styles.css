@@ -644,7 +644,8 @@ body {
   outline-offset: 2px;
   border-radius: 2px;
 }
-.attribution-modal-loading {
+.attribution-modal-loading,
+.attribution-modal-error {
   font-style: italic;
   color: var(--color-text-muted);
 }
