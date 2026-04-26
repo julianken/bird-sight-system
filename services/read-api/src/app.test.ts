@@ -121,22 +121,41 @@ describe('error handling', () => {
 });
 
 describe('GET /api/silhouettes', () => {
-  it('returns all 15 seeded family silhouettes with the silhouettes cache header', async () => {
+  it('returns all 25 seeded family silhouettes with the silhouettes cache header', async () => {
     const app = createApp({ pool: db.pool });
     const res = await app.request('/api/silhouettes');
     expect(res.status).toBe(200);
     // Must come from cacheControlFor('silhouettes') — NOT a hardcoded string.
     // Both sides of the equality reference the same TTL table entry; if that
     // entry ever changes this test will flag both the route and the table.
+    // No `immutable` directive: silhouette payload drifts between deploys
+    // (curation, Phylopic seed expansion); see cache-headers.ts comment.
     expect(res.headers.get('cache-control'))
-      .toBe('public, max-age=604800, immutable');
+      .toBe('public, max-age=604800');
     const body = await res.json() as Array<{
       familyCode: string; color: string; svgData: string | null;
       source: string | null; license: string | null;
+      commonName: string | null; creator: string | null;
     }>;
-    expect(body).toHaveLength(15);
+    // 15 rows from migration 9000 + 10 AZ-family expansion rows from
+    // migration 15000 (issue #244) + the `_FALLBACK` row from migration
+    // 18000 (issue #246) → 26 total.
+    expect(body).toHaveLength(26);
+    // Spot-check the _FALLBACK row round-trips through the Hono response
+    // so the frontend's symbol-layer fallback path can rely on it.
+    const fallback = body.find(r => r.familyCode === '_FALLBACK');
+    expect(fallback).toBeDefined();
+    expect(fallback!.color).toBe('#555555');
     const tyrannidae = body.find(r => r.familyCode === 'tyrannidae');
     expect(tyrannidae?.color).toBe('#C77A2E');
+    // commonName round-trips through Hono response (issue #249). Field
+    // populated by migration 1700000019500.
+    expect(tyrannidae?.commonName).toBe('Tyrant Flycatchers');
+    // creator round-trips through Hono response (issue #245). Field
+    // added by migration 1700000016000 + populated by 1700000017000.
+    // Value is a string for families with a Phylopic creator attribution
+    // and NULL for families flagged "no usable Phylopic SVG".
+    expect(tyrannidae).toHaveProperty('creator');
   });
 
   it('provides color for every family_code present in species_meta (parity with deleted FAMILY_TO_COLOR)', async () => {

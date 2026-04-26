@@ -26,6 +26,12 @@ function obs(partial: Partial<Observation>): Observation {
 }
 
 describe('FeedSurface', () => {
+  // eBird API ToU §3 attribution moved to the app-level AttributionModal
+  // (#250) and is reachable from every view via the persistent footer in
+  // App.tsx. FeedSurface no longer carries a per-surface footer — the
+  // assertion that lived here is now covered by the AttributionModal
+  // unit tests + the e2e attribution-modal spec.
+
   it('renders a loading state while loading is true', () => {
     render(
       <FeedSurface

@@ -32,6 +32,12 @@ function obs(partial: Partial<Observation>): Observation {
 }
 
 describe('SpeciesSearchSurface', () => {
+  // eBird API ToU §3 attribution moved to the app-level AttributionModal
+  // (#250) and is reachable from every view via the persistent footer in
+  // App.tsx. SpeciesSearchSurface no longer carries a per-surface footer
+  // — the assertion that lived here is now covered by AttributionModal
+  // unit tests + the e2e attribution-modal spec.
+
   it('renders the autocomplete at the top', () => {
     render(
       <SpeciesSearchSurface
