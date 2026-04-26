@@ -68,6 +68,11 @@ export interface SpiderfyLeaf {
 }
 
 export interface SpiderfyState {
+  /** The cluster_id whose leaves are currently fanned. Consumers can use
+      this to suppress duplicate visuals (e.g. hide the cluster's own
+      mosaic marker while it's spidered) so the user gets a clean
+      "stack opened" feedback. */
+  clusterId: number;
   leaves: SpiderfyLeaf[];
   /** Removes the transient leader-line layer + source. Idempotent. */
   teardown: () => void;
@@ -301,8 +306,15 @@ export async function spiderfyCluster(
     type: 'line',
     source: SPIDERFY_LEADER_SOURCE_ID,
     paint: {
-      'line-color': '#888',
-      'line-width': 1,
+      // Darker + thicker than the original 1px #888: against the light
+      // OpenFreeMap positron basemap, 1px gray reads as background noise.
+      // 2px #444 gives the user a clear "yes, the cluster fanned" signal
+      // even before they notice the (currently invisible) hit-targets at
+      // the leaf positions. Spider v2 (#277) will add visible silhouettes
+      // at leaf positions; until then, leader-line visibility is the
+      // primary cue.
+      'line-color': '#444',
+      'line-width': 2,
     },
   });
 
@@ -328,6 +340,7 @@ export async function spiderfyCluster(
   }
 
   return {
+    clusterId,
     leaves,
     teardown: () => removeSpiderfyLayer(map),
   };
