@@ -3,6 +3,7 @@ import type { Observation } from '@bird-watch/shared-types';
 import type { Since } from '../state/url-state.js';
 import type { SpeciesOption } from './FiltersBar.js';
 import { ObservationFeedRow } from './ObservationFeedRow.js';
+import { SurfaceFooter } from './SurfaceFooter.js';
 
 export interface FeedSurfaceFilters {
   notable: boolean;
@@ -92,9 +93,12 @@ export function FeedSurface(props: FeedSurfaceProps) {
 
   if (loading) {
     return (
-      <div className="feed-empty" role="status" aria-live="polite">
-        Loading observations…
-      </div>
+      <>
+        <div className="feed-empty" role="status" aria-live="polite">
+          Loading observations…
+        </div>
+        <SurfaceFooter />
+      </>
     );
   }
 
@@ -108,9 +112,12 @@ export function FeedSurface(props: FeedSurfaceProps) {
       hint = 'No observations to show.';
     }
     return (
-      <div className="feed-empty" role="status">
-        {hint}
-      </div>
+      <>
+        <div className="feed-empty" role="status">
+          {hint}
+        </div>
+        <SurfaceFooter />
+      </>
     );
   }
 
@@ -155,6 +162,7 @@ export function FeedSurface(props: FeedSurfaceProps) {
           />
         ))}
       </ol>
+      <SurfaceFooter />
     </>
   );
 }

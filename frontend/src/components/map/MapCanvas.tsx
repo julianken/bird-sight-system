@@ -161,12 +161,21 @@ export function MapCanvas({ observations }: MapCanvasProps) {
           standalone <AttributionControl> component is the only way to pass
           `compact: false` alongside custom text. `customAttribution` augments
           the style's built-in attribution rather than replacing it.
+
+          eBird API ToU §3 (issue #243): observation data displayed on this
+          map originates from the eBird API and must be attributed with a link
+          back to eBird.org. The credit lives here (alongside OSM /
+          OpenFreeMap) on the map view, NOT in a SurfaceFooter, so the map is
+          not double-credited. All three entries use `rel="noopener"` — do
+          NOT introduce a `noopener noreferrer` divergence inside this array;
+          the AttributionModal in #250 inherits this exact convention.
         */}
         <AttributionControl
           compact={false}
           customAttribution={[
             '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
             '<a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a>',
+            'Bird data: <a href="https://ebird.org" target="_blank" rel="noopener">eBird</a> (Cornell Lab of Ornithology)',
           ]}
         />
         <Source

@@ -442,3 +442,27 @@ body {
    the map container sizes itself from the flex layout of .app > #main-surface.
    When the map surface gains overlays (v2 hotspot markers, legend) their
    styles go here or in a dedicated map.css. */
+
+/* Surface footer (#243, eBird API ToU §3). Per-surface attribution footer
+   that lives at the bottom of FeedSurface, SpeciesSearchSurface, and
+   SpeciesDetailSurface. Capped at 760px and centered to match the inner
+   surfaces above it (.feed, .species-search-surface, .species-detail-surface).
+   Top border-and-padding gives it a visual seam from the data above without
+   needing a separate divider element. The 12px size + --color-text-muted on
+   the cream page background reads as 7.46:1 contrast (well past WCAG 2.1 AA
+   4.5:1) so axe stays happy. The link inherits the muted colour but stays
+   underlined for affordance.
+   #250 retires this when the AttributionModal lands; the import/element
+   removal touches one line per consumer. */
+.surface-footer {
+  max-width: 760px;
+  margin: var(--space-xl) auto 0 auto;
+  padding: var(--space-md) var(--space-lg);
+  border-top: 1px solid var(--color-border-subtle);
+  font-size: 12px;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+.surface-footer a { color: inherit; }
+.surface-footer a:hover,
+.surface-footer a:focus-visible { color: var(--color-text-strong); }
