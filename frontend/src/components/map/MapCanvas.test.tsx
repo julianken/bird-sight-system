@@ -159,6 +159,7 @@ const SILHOUETTES: FamilySilhouette[] = [
     source: 'placeholder',
     license: 'CC0',
     commonName: 'Tyrant Flycatchers',
+    creator: null,
   },
   {
     familyCode: 'trochilidae',
@@ -167,6 +168,7 @@ const SILHOUETTES: FamilySilhouette[] = [
     source: 'placeholder',
     license: 'CC0',
     commonName: 'Hummingbirds',
+    creator: null,
   },
   {
     familyCode: 'picidae',
@@ -175,6 +177,7 @@ const SILHOUETTES: FamilySilhouette[] = [
     source: 'placeholder',
     license: 'CC0',
     commonName: 'Woodpeckers',
+    creator: null,
   },
   {
     familyCode: 'uncurated',
@@ -183,6 +186,7 @@ const SILHOUETTES: FamilySilhouette[] = [
     source: null,
     license: null,
     commonName: null,
+    creator: null,
   },
 ];
 
@@ -367,6 +371,7 @@ describe('MapCanvas', () => {
     ]);
 
     const handler = registeredHandlers['click:clusters'];
+    if (!handler) throw new Error('click:clusters handler missing');
     await act(async () => {
       handler({ point: [100, 100] });
     });
@@ -403,6 +408,7 @@ describe('MapCanvas', () => {
     ]);
 
     const handler = registeredHandlers['click:clusters'];
+    if (!handler) throw new Error('click:clusters handler missing');
     await act(async () => {
       handler({ point: [0, 0] });
     });
@@ -433,6 +439,7 @@ describe('MapCanvas', () => {
     ]);
 
     const handler = registeredHandlers['click:clusters'];
+    if (!handler) throw new Error('click:clusters handler missing');
     await act(async () => {
       handler({ point: [0, 0] });
     });

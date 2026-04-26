@@ -15,6 +15,7 @@ const SILHOUETTES: FamilySilhouette[] = [
     source: 'placeholder',
     license: 'CC0',
     commonName: 'Tyrant Flycatchers',
+    creator: null,
   },
   {
     familyCode: 'trochilidae',
@@ -23,6 +24,7 @@ const SILHOUETTES: FamilySilhouette[] = [
     source: 'placeholder',
     license: 'CC0',
     commonName: 'Hummingbirds',
+    creator: null,
   },
   {
     familyCode: 'picidae',
@@ -31,6 +33,7 @@ const SILHOUETTES: FamilySilhouette[] = [
     source: 'placeholder',
     license: 'CC0',
     commonName: 'Woodpeckers',
+    creator: null,
   },
   {
     familyCode: 'corvidae',
@@ -39,6 +42,7 @@ const SILHOUETTES: FamilySilhouette[] = [
     source: 'placeholder',
     license: 'CC0',
     commonName: 'Crows & Jays',
+    creator: null,
   },
   {
     familyCode: 'anatidae',
@@ -47,6 +51,7 @@ const SILHOUETTES: FamilySilhouette[] = [
     source: 'placeholder',
     license: 'CC0',
     commonName: 'Ducks',
+    creator: null,
   },
   // Uncurated row — svgData null. Mosaic falls back to a generic
   // placeholder shape at 50% opacity per the issue spec.
@@ -57,6 +62,7 @@ const SILHOUETTES: FamilySilhouette[] = [
     source: null,
     license: null,
     commonName: null,
+    creator: null,
   },
 ];
 

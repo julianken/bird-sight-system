@@ -466,30 +466,67 @@ export function MapCanvas({ observations, silhouettes }: MapCanvasProps) {
   }, [silhouettes.length, mapReady]);
 
   /**
-   * Mosaic-marker click handler — delegates to the same zoom-into-cluster
-   * logic the layer-bound `clusters` click handler uses. Defensively call
-   * stopPropagation so the click doesn't bubble to the underlying basemap
-   * (the cluster circle layer is filtered out at this size, so no double-
-   * fire risk against the layer-bound handler — but defense in depth).
+   * Mosaic-marker click handler — branches on (target zoom vs current zoom)
+   * the same way the layer-bound `clusters` handler branches on
+   * (point_count, zoom):
+   *
+   *   target > current → easeTo (zoom in to break up the cluster).
+   *   target ≤ current → spiderfy (#247) — we're already at supercluster's
+   *     `clusterMaxZoom`, so further zoom is a no-op. Without this branch,
+   *     clicking a small-cluster mosaic at zoom ≥ CLUSTER_MAX_ZOOM is
+   *     a dead end.
+   *
+   * Defensively `stopPropagation` so the click doesn't bubble to the
+   * basemap (the visible cluster circle layer filters to `>8`, so no
+   * double-fire risk against the layer-bound handler — but defense in
+   * depth).
    */
   const handleMosaicClick = useCallback(
     (entry: ClusterMosaicEntry) => (e: React.MouseEvent<HTMLButtonElement>) => {
       e.stopPropagation();
       const map = mapRef.current?.getMap();
       if (!map) return;
-      const source = map.getSource('observations') as
-        | { getClusterExpansionZoom: (id: number) => Promise<number> }
-        | undefined;
-      if (!source || typeof source.getClusterExpansionZoom !== 'function') {
-        return;
-      }
-      source
+      const source = map.getSource('observations');
+      if (!source || !('getClusterExpansionZoom' in source)) return;
+
+      const src = source as {
+        getClusterExpansionZoom: (id: number) => Promise<number>;
+        getClusterLeaves?: (id: number, limit: number, offset: number) => Promise<unknown[]>;
+      };
+
+      src
         .getClusterExpansionZoom(entry.clusterId)
-        .then((zoom) => {
-          map.easeTo({
-            center: [entry.longitude, entry.latitude],
-            zoom,
-          });
+        .then((targetZoom) => {
+          const currentZoom = map.getZoom();
+          const center: [number, number] = [entry.longitude, entry.latitude];
+
+          if (targetZoom > currentZoom) {
+            map.easeTo({ center, zoom: targetZoom });
+            return;
+          }
+
+          // Already at supercluster's clusterMaxZoom — spiderfy instead.
+          if (typeof src.getClusterLeaves !== 'function') return;
+          if (spiderfyRef.current) {
+            try {
+              spiderfyRef.current.teardown();
+            } catch {
+              /* no-op */
+            }
+          }
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          spiderfyCluster({
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            map: map as any,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            source: src as any,
+            clusterId: entry.clusterId,
+            clusterLngLat: center,
+          })
+            .then((state) => setSpiderfy(state))
+            .catch(() => {
+              /* matches existing err-swallow convention */
+            });
         })
         .catch(() => {
           /* matches existing layer-bound err-swallow behavior */
