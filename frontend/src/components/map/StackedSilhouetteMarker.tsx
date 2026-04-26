@@ -1,4 +1,6 @@
 import type { MouseEvent } from 'react';
+import { FALLBACK_SILHOUETTE_PATH } from './silhouette-fallback.js';
+import { readToken, notableColor } from './observation-layers.js';
 
 /**
  * Single-purpose visible-silhouette marker for Spider v2 auto-fan leaves
@@ -16,30 +18,6 @@ import type { MouseEvent } from 'react';
 
 /** Marker diameter in px. Larger than mosaic tiles since it's one bird. */
 const MARKER_SIZE_PX = 32;
-
-/**
- * Generic placeholder shape for observations whose family has no Phylopic
- * silhouette. Matches FALLBACK_PATH in MosaicMarker.tsx and the spec AC2.
- */
-const FALLBACK_PATH = 'M12 4 a8 8 0 1 0 0.0001 0 z';
-
-/**
- * Read a CSS custom property from the document root at call time.
- * Returns `fallback` when running outside a browser (SSR / tests with no
- * CSS). Replicates the same pattern used in observation-layers.ts.
- */
-function readToken(name: string, fallback: string): string {
-  if (typeof document === 'undefined') return fallback;
-  const val = getComputedStyle(document.documentElement)
-    .getPropertyValue(name)
-    .trim();
-  return val || fallback;
-}
-
-/** Resolve --color-accent-notable-fg (dark amber) for the notable ring. */
-function notableColor(): string {
-  return readToken('--color-accent-notable-fg', '#b8860b');
-}
 
 export interface StackedSilhouetteMarkerProps {
   silhouette: { svgData: string | null; color: string };
@@ -63,7 +41,7 @@ function buildAriaLabel(
   obsDt: string,
 ): string {
   return [comName, familyCode, locName, obsDt]
-    .filter((v): v is string => v !== null && v !== undefined)
+    .filter((v): v is string => v !== null)
     .join(' — ');
 }
 
@@ -76,7 +54,7 @@ export function StackedSilhouetteMarker({
   isNotable,
   onClick,
 }: StackedSilhouetteMarkerProps) {
-  const path = silhouette.svgData ?? FALLBACK_PATH;
+  const path = silhouette.svgData ?? FALLBACK_SILHOUETTE_PATH;
   const color = silhouette.color;
   const ariaLabel = buildAriaLabel(comName, familyCode, locName, obsDt);
 
@@ -109,7 +87,7 @@ export function StackedSilhouetteMarker({
         width={MARKER_SIZE_PX}
         height={MARKER_SIZE_PX}
         aria-hidden="true"
-        focusable={false}
+        focusable="false"
         preserveAspectRatio="xMidYMid meet"
       >
         {/*
@@ -122,7 +100,7 @@ export function StackedSilhouetteMarker({
           <circle
             cx="12"
             cy="12"
-            r="12"
+            r="11"
             fill="none"
             stroke={notableColor()}
             strokeWidth="2"

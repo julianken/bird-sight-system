@@ -120,7 +120,7 @@ export function observationsToGeoJson(
    Read the design tokens at call time so the spec objects stay in sync with
    the theme without hex literals in this module. */
 
-function readToken(name: string, fallback: string): string {
+export function readToken(name: string, fallback: string): string {
   if (typeof document === 'undefined') return fallback;
   const val = getComputedStyle(document.documentElement)
     .getPropertyValue(name)
@@ -129,7 +129,7 @@ function readToken(name: string, fallback: string): string {
 }
 
 /** Resolve --color-accent-notable-fg (dark amber) for notable rings. */
-function notableColor(): string {
+export function notableColor(): string {
   return readToken('--color-accent-notable-fg', '#b8860b');
 }
 
