@@ -17,6 +17,12 @@ export interface ObservationFeatureCollection {
       obsDt: string;
       howMany: number | null;
       isNotable: boolean;
+      // familyCode is the join key the cluster-mosaic reconciler aggregates
+      // by (issue #248). Threaded through here — NOT looked up at render
+      // time — because GeoJSONSource.getClusterLeaves only returns properties
+      // that were on the input feature. Kept null-not-undefined to match the
+      // Observation type contract; consumers treat null as "skip this leaf".
+      familyCode: string | null;
     };
   }>;
 }
@@ -43,6 +49,7 @@ export function observationsToGeoJson(
         obsDt: o.obsDt,
         howMany: o.howMany,
         isNotable: o.isNotable,
+        familyCode: o.familyCode ?? null,
       },
     })),
   };

@@ -23,7 +23,7 @@ function makeObs(partial: Partial<Observation> = {}): Observation {
     isNotable: partial.isNotable ?? false,
     regionId: null,
     silhouetteId: null,
-    familyCode: null,
+    familyCode: 'familyCode' in partial ? (partial.familyCode as string | null) : null,
   };
 }
 
@@ -74,6 +74,29 @@ describe('observationsToGeoJson', () => {
 
     expect(props.locName).toBeNull();
     expect(props.howMany).toBeNull();
+  });
+
+  it('threads familyCode through to GeoJSON properties (mosaic source — issue #248)', () => {
+    // The cluster-mosaic reconciler aggregates leaves by familyCode via
+    // GeoJSONSource.getClusterLeaves. Each leaf is a GeoJSON Feature, so the
+    // familyCode must round-trip through observationsToGeoJson into the
+    // feature properties — otherwise the aggregation is silently empty and
+    // every mosaic renders the FALLBACK silhouette.
+    const obs = makeObs({ familyCode: 'tyrannidae' });
+    const result = observationsToGeoJson([obs]);
+    const props = result.features[0]!.properties;
+    expect(props.familyCode).toBe('tyrannidae');
+  });
+
+  it('preserves null familyCode (uncurated species per issue #246)', () => {
+    // The Read API LEFT-JOINs species_meta and yields NULL when a species is
+    // absent from the seed. The mosaic must treat null as "skip this leaf"
+    // rather than throw, so the property must serialize as null (not
+    // undefined or omitted) — matches the Observation type contract.
+    const obs = makeObs({ familyCode: null });
+    const result = observationsToGeoJson([obs]);
+    const props = result.features[0]!.properties;
+    expect(props.familyCode).toBeNull();
   });
 });
 
