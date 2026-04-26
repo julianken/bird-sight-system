@@ -20,9 +20,11 @@ import {
   buildClusterCountLayerSpec,
   buildClustersHitLayerSpec,
   buildUnclusteredPointLayerSpec,
+  buildNotableRingLayerSpec,
   CLUSTER_MAX_ZOOM,
   CLUSTER_MOSAIC_MAX_POINTS,
   CLUSTER_RADIUS,
+  FALLBACK_SILHOUETTE_ID,
 } from './observation-layers.js';
 import { ObservationPopover } from './ObservationPopover.js';
 import { MosaicMarker } from './MosaicMarker.js';
@@ -45,13 +47,31 @@ import {
 export interface MapCanvasProps {
   observations: Observation[];
   /**
-   * Family→silhouette catalogue, threaded from App.tsx via MapSurface
-   * (#246's prop chain). Drives the cluster-mosaic tiles for clusters with
+   * Family silhouettes from `/api/silhouettes`. Threaded down from App.tsx
+   * via MapSurface (see App.tsx — single mount of `useSilhouettes`, then
+   * prop-drilled per #246's strict-mount discipline). Each non-null
+   * `svgData` row gets registered as an SDF sprite via `map.addImage`
+   * during `handleLoad`. The `_FALLBACK` row backs every observation
+   * whose family has no usable silhouette.
+   *
+   * Also drives the cluster-mosaic tiles for clusters with
    * `point_count <= CLUSTER_MOSAIC_MAX_POINTS` (issue #248). When the
    * array is empty (cache miss), the reconciler short-circuits and the
    * existing colored cluster circle takes over.
+   *
+   * Optional + defaults to `[]` so legacy tests / demo harnesses still
+   * type-check; with no silhouettes the symbol layer's `icon-image`
+   * lookup misses and MapLibre logs a missing-image warning. Production
+   * App.tsx always passes the resolved array.
    */
-  silhouettes: FamilySilhouette[];
+  silhouettes?: FamilySilhouette[];
+  /**
+   * Issue #246: invoked when the user clicks "See species details" in
+   * the ObservationPopover. App.tsx wires this to
+   * `set({ view: 'detail', detail: code })` via `useUrlState`. Optional
+   * — when absent, the popover hides the link.
+   */
+  onSelectSpecies?: (speciesCode: string) => void;
 }
 
 /**
@@ -76,6 +96,58 @@ const INITIAL_VIEW = {
 } as const;
 
 /**
+ * Convert a `family_silhouettes` row into a complete SVG document string
+ * suitable for `<img src="data:image/svg+xml,...">`. The svgData column
+ * stores a single path-`d` string (24-viewBox); we wrap it in a minimal
+ * `<svg>` shell with `fill="black"` so the rendered raster is a single-
+ * channel alpha mask that maplibre's SDF tinter can color-shift via the
+ * symbol layer's `icon-color` paint property.
+ */
+function silhouettePathToSvg(svgData: string): string {
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="64" height="64">` +
+    `<path d="${svgData}" fill="black"/>` +
+    `</svg>`
+  );
+}
+
+/**
+ * Promise-wrap the SVG → HTMLImageElement → addImage pipeline for one
+ * silhouette. Resolves once the sprite is registered; rejects on image-
+ * load failure (which surfaces upstream as a Promise.all rejection).
+ */
+async function registerSilhouetteSprite(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  map: any,
+  id: string,
+  svgData: string,
+): Promise<void> {
+  const svgString = silhouettePathToSvg(svgData);
+  const blob = new Blob([svgString], { type: 'image/svg+xml' });
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = new Image();
+    img.src = url;
+    // image.decode() returns a Promise that resolves when the image is
+    // ready to render (no `onload` race). Fall back to a manual onload
+    // listener for environments (jsdom) where decode is a stub.
+    if (typeof img.decode === 'function') {
+      await img.decode().catch(() => {
+        // jsdom Image polyfill rejects decode immediately; the FakeImage
+        // shim in tests resolves. Either way we proceed — the addImage
+        // call below tolerates a half-decoded image in tests, and in
+        // production the data: URI loads synchronously.
+      });
+    }
+    if (!map.hasImage(id)) {
+      map.addImage(id, img, { sdf: true });
+    }
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/**
  * MapLibre GL JS map instance wrapped via react-map-gl/maplibre.
  *
  * Click handling uses the raw MapLibre `map.on('click', layerId, ...)` API
@@ -88,8 +160,19 @@ const INITIAL_VIEW = {
  * radially with leader lines instead of zooming further. The leaves
  * become individually clickable via `MapMarkerHitLayer` (HTML overlay
  * with per-marker `aria-label`). Outside-click or Escape clears spiderfy.
+ *
+ * Symbol layer (issue #246): the unclustered-point layer is now an SDF
+ * symbol layer that paints per-family silhouettes tinted with each
+ * family's seeded color. Sprites are registered via `map.addImage` in
+ * `handleLoad` from the `silhouettes` prop. The notable-ring layer adds
+ * an amber halo behind notable observations without tinting the body —
+ * preserves the family-color signal in the silhouette.
  */
-export function MapCanvas({ observations, silhouettes }: MapCanvasProps) {
+export function MapCanvas({
+  observations,
+  silhouettes = [],
+  onSelectSpecies,
+}: MapCanvasProps) {
   const mapRef = useRef<MapRef>(null);
   const [selectedObs, setSelectedObs] = useState<Observation | null>(null);
   /**
@@ -133,8 +216,8 @@ export function MapCanvas({ observations, silhouettes }: MapCanvasProps) {
   }, []);
 
   const geojson = useMemo(
-    () => observationsToGeoJson(observations),
-    [observations],
+    () => observationsToGeoJson(observations, silhouettes),
+    [observations, silhouettes],
   );
 
   // The reconciler reads `silhouettes` on every cluster pass. A ref keeps
@@ -143,10 +226,21 @@ export function MapCanvas({ observations, silhouettes }: MapCanvasProps) {
   const silhouettesRef = useRef(silhouettes);
   silhouettesRef.current = silhouettes;
 
+  // Sprite-registration completion gate. Flips true after `Promise.all`
+  // in the sprite-registration effect resolves. The symbol layer JSX is
+  // conditioned on this so MapLibre never tries to paint icons before
+  // their sprites are registered (which would emit `missing-image`
+  // console warnings on cold load — a Tier-1 finding per CLAUDE.md).
+  // Once true, never flips back: re-running the effect on a silhouettes
+  // prop change re-registers in-place via map.addImage (which silently
+  // replaces the prior image), so the layer can stay mounted continuously.
+  const [spritesReady, setSpritesReady] = useState(false);
+
   // Build layer specs once — they read CSS tokens at construction time.
   const clusterLayer = useMemo(() => buildClusterLayerSpec(), []);
   const clusterCountLayer = useMemo(() => buildClusterCountLayerSpec(), []);
   const clustersHitLayer = useMemo(() => buildClustersHitLayerSpec(), []);
+  const notableRingLayer = useMemo(() => buildNotableRingLayerSpec(), []);
   const unclusteredLayer = useMemo(() => buildUnclusteredPointLayerSpec(), []);
 
   // Observation lookup by subId for click handler.
@@ -314,11 +408,72 @@ export function MapCanvas({ observations, silhouettes }: MapCanvasProps) {
     map.on('mouseleave', 'unclustered-point', () => {
       map.getCanvas().style.cursor = '';
     });
-
-    setMapReady(true);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- obsLookupRef is a
   // stable ref; the click handler reads .current at call time, not capture time.
   }, []);
+
+  /* Sprite registration (issue #246).
+     Run after the map fires `load` (mapReady) and whenever `silhouettes`
+     changes. The conversion pipeline:
+       1. For each silhouette with non-null svgData → wrap path-d in a
+          minimal SVG document, blob → object URL → HTMLImageElement →
+          decode() → addImage(id, img, { sdf: true }).
+       2. The `_FALLBACK` row is always registered (its consumer feature
+          properties point at the same id).
+     The symbol layer renders against these sprites; missing-image
+     warnings only fire if the layer is added before the addImage calls
+     resolve. We mount the React `<Layer>` synchronously, but the actual
+     paint happens after the next render frame — by which point the
+     Promise.all has resolved on a fast cold load. If a sprite fails,
+     features fall back to the `_FALLBACK` sentinel via the GeoJSON join. */
+  useEffect(() => {
+    if (!mapReady) return;
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+    if (silhouettes.length === 0) return;
+
+    let cancelled = false;
+    const work: Promise<void>[] = [];
+    const seen = new Set<string>();
+    let fallbackPresent = false;
+    for (const sil of silhouettes) {
+      if (sil.familyCode === FALLBACK_SILHOUETTE_ID) {
+        fallbackPresent = true;
+      }
+      if (sil.svgData === null) continue;
+      if (seen.has(sil.familyCode)) continue;
+      seen.add(sil.familyCode);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      work.push(registerSilhouetteSprite(map as any, sil.familyCode, sil.svgData));
+    }
+    // Defensive: if the `_FALLBACK` row didn't ship in this silhouettes
+    // payload (older cached response, test fixture, etc.), don't try to
+    // forge one — the map will surface a one-time missing-image warning
+    // for un-joinable observations and we'll catch it in the dirty-
+    // console gate. The acceptance criteria assume the seed migration
+    // 1700000018000 is present, so production payloads always have it.
+    void fallbackPresent;
+    Promise.all(work)
+      .then(() => {
+        if (cancelled) return;
+        // Flip the JSX-side barrier so the symbol layer mounts. After
+        // this point, the layer renders and MapLibre can resolve every
+        // icon-image lookup against a registered sprite — no
+        // missing-image warnings.
+        setSpritesReady(true);
+      })
+      .catch(() => {
+        // Individual sprite failures are non-fatal — a missing sprite
+        // means the map shows the basemap-styled missing-image triangle
+        // for that family. The rest of the silhouettes still render.
+        // Even on failure we flip the gate so the layer mounts (showing
+        // the families whose sprites DID register); the dirty-console
+        // gate would surface per-sprite warnings for the failures.
+        if (cancelled) return;
+        setSpritesReady(true);
+      });
+    return () => { cancelled = true; };
+  }, [mapReady, silhouettes]);
 
   /**
    * Mosaic reconciler — issue #248. Queries rendered cluster features on
@@ -537,6 +692,17 @@ export function MapCanvas({ observations, silhouettes }: MapCanvasProps) {
 
   const handleClosePopover = useCallback(() => setSelectedObs(null), []);
 
+  const handlePopoverSelectSpecies = useCallback(
+    (speciesCode: string) => {
+      onSelectSpecies?.(speciesCode);
+      // Close the popover after the navigation — the user has expressed
+      // intent to leave the map view; the dialog hanging open during the
+      // surface switch is a stale state.
+      setSelectedObs(null);
+    },
+    [onSelectSpecies],
+  );
+
   // Escape closes spiderfy (and also the popover, but the popover renders
   // inside its own dialog so Escape inside the dialog stays scoped there).
   useEffect(() => {
@@ -647,7 +813,18 @@ export function MapCanvas({ observations, silhouettes }: MapCanvasProps) {
             returns an empty set for them.
           */}
           <Layer {...clustersHitLayer} />
-          <Layer {...unclusteredLayer} />
+          {/* Notable-ring renders BEFORE the unclustered-point symbol
+              layer so the amber halo paints UNDER the silhouette
+              (maplibre source-order = bottom-up). The silhouette body
+              keeps its family-color tint; the ring marks notability
+              without overwriting the colour signal. The ring is a
+              circle layer (no sprite needed), so it can mount
+              unconditionally; the symbol layer waits for spritesReady
+              so MapLibre never tries to paint an icon-image whose
+              sprite hasn't been addImage'd yet (cold-load
+              missing-image warning class). */}
+          <Layer {...notableRingLayer} />
+          {spritesReady && <Layer {...unclusteredLayer} />}
         </Source>
         {/*
           Issue #248: HTML <Marker> per small cluster, rendered alongside
@@ -684,6 +861,7 @@ export function MapCanvas({ observations, silhouettes }: MapCanvasProps) {
       <ObservationPopover
         observation={selectedObs}
         onClose={handleClosePopover}
+        {...(onSelectSpecies ? { onSelectSpecies: handlePopoverSelectSpecies } : {})}
       />
     </div>
   );

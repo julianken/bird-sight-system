@@ -138,8 +138,14 @@ describe('GET /api/silhouettes', () => {
       commonName: string | null; creator: string | null;
     }>;
     // 15 rows from migration 9000 + 10 AZ-family expansion rows from
-    // migration 15000 (issue #244). `_FALLBACK` lands later under #246.
-    expect(body).toHaveLength(25);
+    // migration 15000 (issue #244) + the `_FALLBACK` row from migration
+    // 18000 (issue #246) → 26 total.
+    expect(body).toHaveLength(26);
+    // Spot-check the _FALLBACK row round-trips through the Hono response
+    // so the frontend's symbol-layer fallback path can rely on it.
+    const fallback = body.find(r => r.familyCode === '_FALLBACK');
+    expect(fallback).toBeDefined();
+    expect(fallback!.color).toBe('#555555');
     const tyrannidae = body.find(r => r.familyCode === 'tyrannidae');
     expect(tyrannidae?.color).toBe('#C77A2E');
     // commonName round-trips through Hono response (issue #249). Field

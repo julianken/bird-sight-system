@@ -144,6 +144,7 @@ export function App() {
             familyCode={state.familyCode}
             onFamilyToggle={onFamilyToggle}
             onSkipToFeed={onSkipToFeed}
+            onSelectSpecies={onSelectSpecies}
           />
         )}
         {state.view === 'species' && (

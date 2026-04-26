@@ -7,9 +7,22 @@ beforeAll(async () => { db = await startTestDb(); }, 90_000);
 afterAll(async () => { await db?.stop(); });
 
 describe('getSilhouettes', () => {
-  it('returns all 25 seeded families', async () => {
+  it('returns all 26 seeded families (25 real + _FALLBACK)', async () => {
+    // 15 from migration 9000 + 10 AZ-family expansion from migration 15000
+    // (#244) + the `_FALLBACK` row from migration 18000 (#246). The
+    // _FALLBACK row backs the SDF symbol layer's fallback rendering for
+    // observations whose family has no usable Phylopic silhouette.
     const rows = await getSilhouettes(db.pool);
-    expect(rows).toHaveLength(25);
+    expect(rows).toHaveLength(26);
+    // _FALLBACK row exists with sentinel family_code.
+    const fallback = rows.find(r => r.familyCode === '_FALLBACK');
+    expect(fallback).toBeDefined();
+    expect(fallback!.color).toBe('#555555');
+    expect(typeof fallback!.svgData).toBe('string');
+    expect(fallback!.source).toBeNull();
+    expect(fallback!.license).toBeNull();
+    expect(fallback!.creator).toBeNull();
+    expect(fallback!.commonName).toBe('Unknown family');
   });
 
   it('projects each row with familyCode, color, svgData, source, license, commonName, creator', async () => {
@@ -37,23 +50,53 @@ describe('getSilhouettes', () => {
     expect(accipitridae).toHaveProperty('creator');
   });
 
-  it('returns rows in stable familyCode order', async () => {
+  it('returns rows in stable familyCode order (PostgreSQL locale collation)', async () => {
+    // The query is `ORDER BY family_code` with no explicit COLLATE, so the
+    // ordering reflects PostgreSQL's locale-aware default collation
+    // (typically en_US.UTF-8 in the postgis/postgis:16-3.4 testcontainer
+    // image). Under that collation, the leading underscore in `_FALLBACK`
+    // is skipped at primary weight (treated as punctuation), so the row
+    // sorts as if it were `FALLBACK` — landing between `cuculidae` and
+    // `fringillidae`, NOT first as a JS String.prototype.sort() would
+    // place it. The choice (option 2 in the issue body) is to assert the
+    // *actual* DB order rather than normalize the SELECT to COLLATE "C".
+    // Deliberate trade-off: the consumer doesn't depend on _FALLBACK
+    // being first, and `COLLATE "C"` would reshuffle every row
+    // alphabetically and force a parity-snapshot rewrite.
     const rows = await getSilhouettes(db.pool);
     const codes = rows.map(r => r.familyCode);
-    const sorted = [...codes].sort();
-    expect(codes).toEqual(sorted);
+    // The relative order must be stable across runs — any two adjacent
+    // codes must agree with PostgreSQL's locale comparator. Use an
+    // Intl.Collator with the same UCA-based primary weight to mirror
+    // libc's en_US.UTF-8 closely enough that the underscore drops out.
+    const collator = new Intl.Collator('en-US', { usage: 'sort', sensitivity: 'variant' });
+    const sortedExpected = [...codes].sort((a, b) => {
+      // Strip leading underscore (primary-weight skip) before comparing.
+      const ka = a.replace(/^_+/, '').toLowerCase();
+      const kb = b.replace(/^_+/, '').toLowerCase();
+      return collator.compare(ka, kb);
+    });
+    expect(codes).toEqual(sortedExpected);
+    // Spot-check: `_FALLBACK` sorts in the locale position, not first.
+    const fallbackIdx = codes.indexOf('_FALLBACK');
+    expect(fallbackIdx).toBeGreaterThan(0);
+    // Adjacent neighbour above must compare ≤ FALLBACK at primary weight.
+    const above = codes[fallbackIdx - 1]!;
+    expect(collator.compare(above.toLowerCase(), 'fallback')).toBeLessThanOrEqual(0);
   });
 
   it('colors match the legacy FAMILY_TO_COLOR snapshot (parity with deleted hardcoded map)', async () => {
-    // This snapshot covers two cohorts of seeded family colors:
+    // This snapshot covers three cohorts of seeded family colors:
     //   (i) the 15 #55 option-(a) rows from migration 9000 (the original
     //       FAMILY_TO_COLOR parity snapshot — required so that the DB
     //       continues to report the same 15 colors that shipped on
-    //       2026-04-19 after the hardcoded map was deleted), and
+    //       2026-04-19 after the hardcoded map was deleted),
     //   (ii) the 10 expansion rows added by migration 15000 (issue #244)
     //        so ingest stamping no longer NULLs silhouette_id for the most
-    //        common AZ families. The `_FALLBACK` row lands under #246's
-    //        scope (migration 1700000018000) — not asserted here.
+    //        common AZ families, and
+    //   (iii) the `_FALLBACK` row added by migration 18000 (issue #246) —
+    //        the sentinel sprite the SDF symbol layer falls back to for
+    //        observations whose family has no usable Phylopic silhouette.
     // If a future seed migration edits a color, update BOTH this snapshot
     // and the migration in the same PR.
     const rows = await getSilhouettes(db.pool);
@@ -86,6 +129,8 @@ describe('getSilhouettes', () => {
       ptilogonatidae: '#1F1F35',
       remizidae: '#9AAE8C',
       threskiornithidae: '#C56B9D',
+      // --- migration 18000 (issue #246 fallback) ---
+      _FALLBACK: '#555555',
     });
   });
 
@@ -101,7 +146,7 @@ describe('getSilhouettes', () => {
     expect(nullCommon).toEqual([]);
   });
 
-  it('common-name snapshot for all 25 seeded families', async () => {
+  it('common-name snapshot for all 26 seeded families (incl. _FALLBACK)', async () => {
     // Curated English common names per migration 1700000019500. Update both
     // sides together if the seed text changes.
     const rows = await getSilhouettes(db.pool);
@@ -134,6 +179,9 @@ describe('getSilhouettes', () => {
       caprimulgidae: 'Nightjars',
       remizidae: 'Verdins',
       threskiornithidae: 'Ibises & Spoonbills',
+      // _FALLBACK row from migration 18000 (issue #246) — back-stops the
+      // map's symbol layer when a family has no usable Phylopic SVG.
+      _FALLBACK: 'Unknown family',
     });
   });
 });
