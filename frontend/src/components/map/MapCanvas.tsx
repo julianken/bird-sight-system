@@ -35,11 +35,8 @@ import {
   type MosaicTile,
 } from './cluster-mosaic.js';
 import {
-  spiderfyCluster,
-  SPIDERFY_MAX_LEAVES,
   SPIDER_LEADER_COLOR,
   SPIDER_LEADER_WIDTH,
-  type SpiderfyState,
 } from './spiderfy.js';
 import {
   MapMarkerHitLayer,
@@ -222,12 +219,6 @@ export function MapCanvas({
   const [mosaics, setMosaics] = useState<Map<number, ClusterMosaicEntry>>(
     () => new Map(),
   );
-  /* Active spiderfy state (#247) — null when no cluster is currently
-     spiderfied. Holds the projected leaves + a teardown closure that removes
-     the transient leader-line layer/source. */
-  const [spiderfy, setSpiderfy] = useState<SpiderfyState | null>(null);
-  const spiderfyRef = useRef<SpiderfyState | null>(null);
-  spiderfyRef.current = spiderfy;
   /**
    * Flips `true` after the maplibre map fires its initial `load` event.
    * Drives the mosaic reconciler effect (#248) and the hit-layer ref
@@ -327,20 +318,6 @@ export function MapCanvas({
   const obsLookupRef = useRef(obsLookup);
   obsLookupRef.current = obsLookup;
 
-  /* Tear down any active spiderfy and clear state. Stable identity so
-     effects depending on it don't churn. */
-  const closeSpiderfy = useCallback(() => {
-    const current = spiderfyRef.current;
-    if (current) {
-      try {
-        current.teardown();
-      } catch {
-        /* idempotent — silent failure on already-removed layer */
-      }
-      setSpiderfy(null);
-    }
-  }, []);
-
   /**
    * Wire click handling through the raw MapLibre instance. This avoids the
    * react-map-gl `e.features` bug (see prototype learnings #1).
@@ -372,10 +349,9 @@ export function MapCanvas({
       }
     });
 
-    // Cluster click. Branch on (point_count, zoom):
-    //   point_count > 8 OR zoom < CLUSTER_MAX_ZOOM → existing zoom-into-
-    //     cluster behavior.
-    //   point_count ≤ 8 AND zoom ≥ CLUSTER_MAX_ZOOM → spiderfy.
+    // Cluster click — always zoom in. At zoom >= CLUSTER_MAX_ZOOM the auto-
+    // spider reconciler has already fanned overlapping obs on idle, so the
+    // click is a NO-OP (return early without doing anything).
     map.on('click', 'clusters', (e: MapLayerMouseEvent) => {
       const features = map.queryRenderedFeatures(e.point, {
         layers: ['clusters'],
@@ -384,45 +360,16 @@ export function MapCanvas({
       if (!feature) return;
 
       const clusterId = feature.properties?.cluster_id as number | undefined;
-      const pointCount = feature.properties?.point_count as number | undefined;
       const source = map.getSource('observations');
       if (clusterId == null || !source) return;
 
       const currentZoom = map.getZoom();
-      const shouldSpiderfy =
-        pointCount != null &&
-        pointCount <= SPIDERFY_MAX_LEAVES &&
-        currentZoom >= CLUSTER_MAX_ZOOM;
+      // At max zoom the auto-spider has already fanned — nothing to do.
+      if (currentZoom >= CLUSTER_MAX_ZOOM) return;
 
       const geom = feature.geometry;
       const center: [number, number] | null =
         geom.type === 'Point' ? (geom.coordinates as [number, number]) : null;
-
-      if (shouldSpiderfy && center && 'getClusterLeaves' in source) {
-        // Tear down any prior spiderfy before opening a new one.
-        if (spiderfyRef.current) {
-          try {
-            spiderfyRef.current.teardown();
-          } catch {
-            /* no-op */
-          }
-        }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        spiderfyCluster({
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          map: map as any,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          source: source as any,
-          clusterId,
-          clusterLngLat: center,
-        })
-          .then((state) => setSpiderfy(state))
-          .catch(() => {
-            /* silently ignore — match the err-swallow convention used by
-               the zoom-into-cluster branch below */
-          });
-        return;
-      }
 
       if ('getClusterExpansionZoom' in source) {
         // MapLibre 5.x: `getClusterExpansionZoom` (and `getClusterChildren`,
@@ -443,26 +390,6 @@ export function MapCanvas({
             /* silently ignore — matches previous err-swallow behavior */
           });
       }
-    });
-
-    // Background click closes any open spiderfy. Registered on the bare
-    // `click` event, then we filter out clicks on the cluster/unclustered
-    // layers (those have their own handlers above).
-    map.on('click', (e: MapLayerMouseEvent) => {
-      if (!spiderfyRef.current) return;
-      const hits = map.queryRenderedFeatures(e.point, {
-        layers: ['clusters', 'unclustered-point'],
-      });
-      if (hits.length > 0) return;
-      // Click landed on the basemap → close spiderfy.
-      closeSpiderfy();
-    });
-
-    // Pan/zoom closes the spiderfy — the leader-line geometry is anchored
-    // to the original lng/lats so the spider visually breaks if the map
-    // moves under it.
-    map.on('zoomstart', () => {
-      if (spiderfyRef.current) closeSpiderfy();
     });
 
     // Track final zoom for the hit-target gate. Subscribed to `zoomend`
@@ -928,78 +855,42 @@ export function MapCanvas({
   }, [silhouettes.length, mapReady]);
 
   /**
-   * Mosaic-marker click handler — branches on (target zoom vs current zoom)
-   * the same way the layer-bound `clusters` handler branches on
-   * (point_count, zoom):
-   *
-   *   target > current → easeTo (zoom in to break up the cluster).
-   *   target ≤ current → spiderfy (#247) — we're already at supercluster's
-   *     `clusterMaxZoom`, so further zoom is a no-op. Without this branch,
-   *     clicking a small-cluster mosaic at zoom ≥ CLUSTER_MAX_ZOOM is
-   *     a dead end.
+   * Mosaic-marker click handler:
+   *   currentZoom < CLUSTER_MAX_ZOOM → easeTo (zoom in to break up the cluster).
+   *   currentZoom >= CLUSTER_MAX_ZOOM → NO-OP. The auto-spider reconciler
+   *     (Task 3) has already fanned the leaves on idle; the user sees fanned
+   *     silhouettes and can click each individually.
    *
    * Defensively `stopPropagation` so the click doesn't bubble to the
-   * basemap (the visible cluster circle layer filters to `>8`, so no
-   * double-fire risk against the layer-bound handler — but defense in
-   * depth).
+   * basemap.
    */
   const handleMosaicClick = useCallback(
     (entry: ClusterMosaicEntry) => (e: React.MouseEvent<HTMLButtonElement>) => {
       e.stopPropagation();
       const map = mapRef.current?.getMap();
       if (!map) return;
+
+      const currentZoom = map.getZoom();
+      // Auto-spider already fanned at max zoom — nothing to do.
+      if (currentZoom >= CLUSTER_MAX_ZOOM) return;
+
       const source = map.getSource('observations');
       if (!source || !('getClusterExpansionZoom' in source)) return;
 
       const src = source as {
         getClusterExpansionZoom: (id: number) => Promise<number>;
-        getClusterLeaves?: (id: number, limit: number, offset: number) => Promise<unknown[]>;
       };
+      const center: [number, number] = [entry.longitude, entry.latitude];
 
       src
         .getClusterExpansionZoom(entry.clusterId)
         .then((targetZoom) => {
-          const currentZoom = map.getZoom();
-          const center: [number, number] = [entry.longitude, entry.latitude];
-
-          // Spiderfy when current zoom is already at or above clusterMaxZoom.
-          // supercluster returns `clusterMaxZoom + 1` as the expansion zoom
-          // for clusters at the cap, which would otherwise loop us into a
-          // "zoom one level past max → click again → spiderfy" two-click UX.
-          // Match the layer-bound `clusters` click handler's predicate so the
-          // mosaic-click and circle-click code paths agree on the spiderfy
-          // boundary.
-          const atMaxZoom = currentZoom >= CLUSTER_MAX_ZOOM;
-          if (!atMaxZoom && targetZoom > currentZoom) {
+          if (targetZoom > currentZoom) {
             map.easeTo({
               center,
               zoom: Math.min(targetZoom, CLUSTER_MAX_ZOOM),
             });
-            return;
           }
-
-          // At supercluster's clusterMaxZoom — spiderfy instead.
-          if (typeof src.getClusterLeaves !== 'function') return;
-          if (spiderfyRef.current) {
-            try {
-              spiderfyRef.current.teardown();
-            } catch {
-              /* no-op */
-            }
-          }
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          spiderfyCluster({
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            map: map as any,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            source: src as any,
-            clusterId: entry.clusterId,
-            clusterLngLat: center,
-          })
-            .then((state) => setSpiderfy(state))
-            .catch(() => {
-              /* matches existing err-swallow convention */
-            });
         })
         .catch(() => {
           /* matches existing layer-bound err-swallow behavior */
@@ -1021,61 +912,28 @@ export function MapCanvas({
     [onSelectSpecies],
   );
 
-  // Escape closes spiderfy (and also the popover, but the popover renders
-  // inside its own dialog so Escape inside the dialog stays scoped there).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && spiderfyRef.current) {
-        closeSpiderfy();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [closeSpiderfy]);
-
-  /* The hit-layer covers two cases:
-     (a) when no spiderfy is active AND zoom >= CLUSTER_MAX_ZOOM, render
-         hit targets over every observation (which by the source's
-         clusterMaxZoom contract means each obs renders as its own
-         unclustered symbol). At zoom < CLUSTER_MAX_ZOOM, observations
-         are aggregated into cluster circles — and the hit-target buttons
-         (real DOM elements with `pointer-events: auto`) would absorb
-         clicks intended for cluster circles, breaking the layer-bound
-         `clusters` click handler that drives zoom-into-cluster + spiderfy.
-         Suppress the hit layer at low zoom; the cluster circles are
-         themselves clickable through maplibre's event system.
-     (b) when a spiderfy is active, render hit targets over the spiderfied
-         leaves only — independent of zoom. The base unclustered points
-         are still on the map underneath but the hit-layer takes precedence
-         visually. */
+  /* Hit-target layer: render hit targets at zoom >= CLUSTER_MAX_ZOOM for
+     non-stack observations. In-stack obs (stackedSubIds) have their own
+     clickable StackedSilhouetteMarker from the auto-spider reconciler —
+     skip them here to avoid duplicate overlapping hit targets.
+     Below CLUSTER_MAX_ZOOM, observations are in cluster circles; suppress
+     the overlay so cluster-circle clicks reach maplibre's event system. */
   const hitMarkers: HitTargetMarker[] = useMemo(() => {
-    if (spiderfy) {
-      return spiderfy.leaves.map((l) => ({
-        subId: l.subId,
-        comName: l.comName,
-        familyCode: l.familyCode,
-        locName: l.locName,
-        obsDt: l.obsDt,
-        isNotable: l.isNotable,
-        lngLat: l.leafLngLat,
-      }));
-    }
-    // No spiderfy — only render hit targets when observations are actually
-    // unclustered (zoom >= CLUSTER_MAX_ZOOM). Below that, suppress the
-    // overlay so cluster-circle clicks reach maplibre's event handlers.
     if (mapZoom < CLUSTER_MAX_ZOOM) {
       return [];
     }
-    return observations.map((o) => ({
-      subId: o.subId,
-      comName: o.comName,
-      familyCode: o.familyCode,
-      locName: o.locName,
-      obsDt: o.obsDt,
-      isNotable: o.isNotable,
-      lngLat: [o.lng, o.lat] as [number, number],
-    }));
-  }, [observations, spiderfy, mapZoom]);
+    return observations
+      .filter((o) => !stackedSubIds.has(o.subId))
+      .map((o) => ({
+        subId: o.subId,
+        comName: o.comName,
+        familyCode: o.familyCode,
+        locName: o.locName,
+        obsDt: o.obsDt,
+        isNotable: o.isNotable,
+        lngLat: [o.lng, o.lat] as [number, number],
+      }));
+  }, [observations, stackedSubIds, mapZoom]);
 
   const handleHitSelect = useCallback(
     (subId: string) => {
@@ -1159,13 +1017,6 @@ export function MapCanvas({
           reconciler pass — no orphans, no leaks.
         */}
         {Array.from(mosaics.values())
-          // Suppress the mosaic for the cluster currently being spidered
-          // — otherwise the user sees the mosaic marker layered over the
-          // fanned leader lines and reads "click did nothing." Hiding the
-          // mosaic gives a clean visual swap: mosaic disappears, leader
-          // lines fan out from the same center. (Spider v2, #277, will
-          // also place visible silhouettes at leaf positions.)
-          .filter((entry) => spiderfy?.clusterId !== entry.clusterId)
           .map((entry) => (
             <Marker
               key={entry.clusterId}
