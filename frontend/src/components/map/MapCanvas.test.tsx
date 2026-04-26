@@ -406,10 +406,8 @@ describe('MapCanvas', () => {
     );
 
     fakeMap.getZoom.mockReturnValue(15); // ≥ CLUSTER_MAX_ZOOM (14)
-    const getClusterLeaves = vi.fn();
     const getClusterExpansionZoom = vi.fn();
     fakeMap.getSource.mockReturnValue({
-      getClusterLeaves,
       getClusterExpansionZoom,
     });
 
@@ -426,8 +424,7 @@ describe('MapCanvas', () => {
       handler({ point: [100, 100] });
     });
 
-    // At max zoom: no getClusterLeaves (removed), no getClusterExpansionZoom.
-    expect(getClusterLeaves).not.toHaveBeenCalled();
+    // At max zoom: early return fires before getClusterExpansionZoom is reached.
     expect(getClusterExpansionZoom).not.toHaveBeenCalled();
     expect(fakeMap.easeTo).not.toHaveBeenCalled();
   });

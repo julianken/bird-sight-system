@@ -189,11 +189,10 @@ async function registerSilhouetteSprite(
  * abstraction doesn't populate `e.features` when layers are added via
  * `<Source>`/`<Layer>` children (prototype learnings #1, #5).
  *
- * Spiderfy (issue #247): when a cluster contains ≤8 points and the map is
- * at zoom ≥ CLUSTER_MAX_ZOOM, clicking the cluster fans the leaves out
- * radially with leader lines instead of zooming further. The leaves
- * become individually clickable via `MapMarkerHitLayer` (HTML overlay
- * with per-marker `aria-label`). Outside-click or Escape clears spiderfy.
+ * Auto-spider (issue #277, Spider v2): on every map idle the auto-spider
+ * reconciler detects co-located observations and fans them as
+ * `<StackedSilhouetteMarker>` markers — no click required to trigger, no
+ * Escape to close. Leader lines are drawn via a transient GeoJSON source.
  *
  * Symbol layer (issue #246): the unclustered-point layer is now an SDF
  * symbol layer that paints per-family silhouettes tinted with each
@@ -221,15 +220,17 @@ export function MapCanvas({
   );
   /**
    * Flips `true` after the maplibre map fires its initial `load` event.
-   * Drives the mosaic reconciler effect (#248) and the hit-layer ref
-   * binding (#247) — without this gate, both fire against a null
+   * Drives the mosaic reconciler effect (#248), the auto-spider reconciler
+   * effect (#277), and the hit-layer ref binding (#247) — without this gate,
+   * all three fire against a null
    * mapRef.current (commit ordering: mapRef is only populated AFTER the
    * Map child mounts, so an effect dependent on a silhouettes prop change
    * can fire before the ref is live).
    */
   const [mapReady, setMapReady] = useState(false);
-  /* Coarse-pointer detection (#247, mobile). matchMedia is the canonical
-     way; we read it on mount and listen for changes. */
+  /* Coarse-pointer detection (#247, mobile; also used by auto-spider hit
+     targets in #277). matchMedia is the canonical way; we read it on mount
+     and listen for changes. */
   const [isCoarsePointer, setIsCoarsePointer] = useState<boolean>(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
     return window.matchMedia('(pointer: coarse)').matches;
@@ -287,14 +288,14 @@ export function MapCanvas({
   );
 
   // Tracks the map's current zoom for hit-target gating. The hit-layer
-  // (#247) renders DOM `<button>` overlays for accessible marker clicks;
-  // those buttons absorb clicks before they reach the underlying maplibre
-  // canvas. At zoom < CLUSTER_MAX_ZOOM, observations are aggregated into
-  // cluster circles and the cluster-circle click handler should win — so
-  // hit-targets must be SUPPRESSED at low zoom to avoid intercepting
-  // cluster clicks (visually, those buttons would otherwise sit on top of
-  // the cluster circles and steal the click). Updated via `zoomend` so
-  // mid-pan-zoom doesn't churn React.
+  // (#247, #277) renders DOM `<button>` overlays for auto-spider stacks +
+  // unclustered marker clicks; those buttons absorb clicks before they reach
+  // the underlying maplibre canvas. At zoom < CLUSTER_MAX_ZOOM, observations
+  // are aggregated into cluster circles and the cluster-circle click handler
+  // should win — so hit-targets must be SUPPRESSED at low zoom to avoid
+  // intercepting cluster clicks (visually, those buttons would otherwise sit
+  // on top of the cluster circles and steal the click). Updated via `zoomend`
+  // so mid-pan-zoom doesn't churn React.
   const [mapZoom, setMapZoom] = useState<number>(INITIAL_VIEW.zoom);
 
   // Build layer specs once — they read CSS tokens at construction time.
@@ -652,7 +653,7 @@ export function MapCanvas({
    *     FeatureCollection so leader lines disappear without removing the
    *     source.
    */
-  // TODO(spider-v2): consider extracting to useAutoSpider hook if MapCanvas continues growing post-Task-5.
+  // Architectural note: this useEffect is a candidate for extraction into a useAutoSpider hook if MapCanvas grows further. Not blocking — current size is manageable.
   useEffect(() => {
     // AC #2: short-circuit when silhouettes aren't loaded yet.
     if (silhouettes.length === 0) return undefined;
@@ -1065,9 +1066,9 @@ export function MapCanvas({
           )),
         )}
       </MapView>
-      {/* Issue #247: HTML hit-layer overlay for spiderfied + unclustered
-          markers, mounted as a sibling of the maplibre canvas inside the
-          relatively-positioned wrapper. */}
+      {/* Issue #247 (original hit-layer) / #277 (Spider v2 narrowed to auto-spider stacks +
+          unclustered): HTML overlay for stacked and unclustered markers, mounted as a sibling
+          of the maplibre canvas inside the relatively-positioned wrapper. */}
       {map && (
         <MapMarkerHitLayer
           // eslint-disable-next-line @typescript-eslint/no-explicit-any

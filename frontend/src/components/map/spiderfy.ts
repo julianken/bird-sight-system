@@ -3,19 +3,20 @@
  * Spider v2 auto-fan reconciler (`stack-fanout.ts` + `MapCanvas.tsx`).
  *
  * The click-driven `spiderfyCluster` orchestrator was removed in Spider v2
- * (issue #277, Task 5). `computeSpiderfyLayout`, `buildSpiderfyLeaderLineFeatures`,
- * `computePrePanOffset`, and the associated pure helper types remain because
- * `stack-fanout.ts`'s `fanPositions` reuses the geometry primitives.
+ * (issue #277, Task 5). What remains:
  *
- * Leader-line style constants (`SPIDER_LEADER_COLOR`, `SPIDER_LEADER_WIDTH`)
- * are kept here and consumed by `MapCanvas.tsx`'s auto-spider layer.
+ *   - Geometry primitives: `computeSpiderfyLayout`, `buildSpiderfyLeaderLineFeatures`,
+ *     `computePrePanOffset`, and the associated pure helper types —
+ *     `stack-fanout.ts`'s `fanPositions` reuses these.
+ *   - Geometry constants: `SPIDERFY_RADIUS_PX`, `SPIDERFY_MAX_LEAVES`,
+ *     `CIRCLE_THRESHOLD`, `SPIRAL_BASE_RADIUS`, `SPIRAL_GROWTH`.
+ *   - Leader-line paint constants: `SPIDER_LEADER_COLOR`, `SPIDER_LEADER_WIDTH` —
+ *     consumed by `MapCanvas.tsx`'s auto-spider layer paint properties.
  */
 
 export const SPIDERFY_RADIUS_PX = 70;
 export const SPIDERFY_MAX_LEAVES = 8;
 export const SPIDERFY_DURATION_MS = 200;
-export const SPIDERFY_LEADER_SOURCE_ID = 'spiderfy-leaves';
-export const SPIDERFY_LEADER_LAYER_ID = 'spiderfy-leaves-line';
 /** Shared with auto-spider reconciler in MapCanvas.tsx — keep in sync. */
 export const SPIDER_LEADER_COLOR = '#444';
 export const SPIDER_LEADER_WIDTH = 2;
