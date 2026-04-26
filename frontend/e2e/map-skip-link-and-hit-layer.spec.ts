@@ -3,16 +3,22 @@ import { AppPage } from './pages/app-page.js';
 import type { Observation } from '@bird-watch/shared-types';
 
 /**
- * Issue #247 — MapCanvas click-spiderfy + a11y skip-link.
+ * Issues #247 (skip-link + hit-target overlay) narrowed by #277 (Spider v2).
  *
- * Drives the map at the two viewports the release-1 exit criteria name
- * (390x844 + 1440x900). Spiderfy itself depends on WebGL clustering
- * behaviour (project / unproject / getClusterLeaves), which is hard to
- * exercise reliably end-to-end without a real map render. The portions
- * we can observe deterministically without WebGL are the skip-link and
- * the URL/view round-trip; both are asserted here. The spiderfy click
- * itself is exercised live via Playwright MCP in the implementer's
- * pre-PR pass (per CLAUDE.md UI verification protocol).
+ * Originally map-spiderfy.spec.ts. Spider v2 (issue #277) removed the
+ * click-driven Escape handler from MapCanvas.tsx (Task 5) and replaced
+ * click-spiderfy with the auto-spider always-on fan. The Escape test
+ * (formerly test 4) was deleted; its contract is now dead code.
+ *
+ * Tests preserved here:
+ *   1. Skip-link reachable via Tab (desktop 1440x900)
+ *   2. Skip-link preserves filter state on view switch
+ *   3. Skip-link reachable on mobile (390x844)
+ *   4. (was test 5) Hit-target overlay layer mounts when map renders
+ *
+ * The click-driven spiderfy assertions from the original spec are now
+ * covered by Tasks 3–5's unit tests (MapCanvas.test.tsx, stack-fanout.test.ts)
+ * and the new map-stack-fanout.spec.ts e2e spec.
  */
 
 /** Build a deterministic observation set near a single hotspot so any
@@ -37,7 +43,7 @@ function clusterableObs(): Observation[] {
   }));
 }
 
-test.describe('Map spiderfy + a11y skip-link', () => {
+test.describe('Map skip-link + hit-target overlay (#247, #277)', () => {
   test('skip-link is visually hidden but reachable via Tab and routes to feed (1440x900)', async ({
     page,
     apiStub,
@@ -156,31 +162,6 @@ test.describe('Map spiderfy + a11y skip-link', () => {
     await expect(
       page.getByRole('tab', { name: 'Feed view' }),
     ).toHaveAttribute('aria-selected', 'true', { timeout: 5_000 });
-  });
-
-  test('Escape key closes spiderfy when one is open (live MCP verifies actual fan-out)', async ({
-    page,
-    apiStub,
-  }) => {
-    // This test verifies the keydown wiring path in MapCanvas.tsx — we
-    // dispatch an Escape and confirm the page does not crash and the
-    // map remains visible. The full spiderfy+escape interaction is
-    // exercised live via Playwright MCP per CLAUDE.md UI verification.
-    await apiStub.stubEmpty();
-    await apiStub.stubObservations(clusterableObs());
-    await page.setViewportSize({ width: 1440, height: 900 });
-    const app = new AppPage(page);
-    await app.goto('view=map');
-    await app.waitForAppReady();
-    await expect(page.locator('[data-testid=map-canvas]')).toBeVisible({
-      timeout: 15_000,
-    });
-
-    // Escape on the map view must not throw / not navigate / not re-render
-    // an error screen, even when there is no active spiderfy.
-    await page.keyboard.press('Escape');
-    await expect(page.locator('[data-testid=map-canvas]')).toBeVisible();
-    await expect(page.locator('.error-screen')).toHaveCount(0);
   });
 
   test('hit-target overlay layer mounts when map renders (1440x900)', async ({
