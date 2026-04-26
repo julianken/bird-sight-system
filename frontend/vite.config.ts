@@ -1,8 +1,26 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: {
+      // Issue #258: `@vis.gl/react-maplibre` does a dynamic
+      // `import('maplibre-gl')` at runtime. npm workspaces hoists
+      // `@vis.gl/react-maplibre` to the root `node_modules/`, but
+      // `maplibre-gl` is declared only as a frontend dep so it stays in
+      // `frontend/node_modules/`. Vite's bundler can't resolve from one
+      // to the other, and ships a chunk whose body is `throw Error(...)`.
+      // The alias pins the resolution to the frontend's local copy and
+      // is robust against future hoist drift (e.g. when a peer-dep'd
+      // sibling package gets installed at root).
+      'maplibre-gl': path.resolve(__dirname, 'node_modules/maplibre-gl'),
+    },
+  },
   server: {
     port: 5173,
     proxy: {
