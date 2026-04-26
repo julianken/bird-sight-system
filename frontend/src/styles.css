@@ -437,11 +437,26 @@ body {
   font-size: 13px;
 }
 
-/* Map surface (#165, #158). The MapLibre canvas fills #main-surface via
-   100% width/height on [data-testid=map-canvas]. No additional CSS needed —
-   the map container sizes itself from the flex layout of .app > #main-surface.
-   When the map surface gains overlays (v2 hotspot markers, legend) their
-   styles go here or in a dedicated map.css. */
+/* Map surface (#165, #158, #249). The MapLibre canvas fills #main-surface
+   via 100% width/height on [data-testid=map-canvas]. The .map-surface
+   wrapper hosts the canvas + the FamilyLegend overlay (#249) so the
+   absolutely-positioned legend anchors against a known parent rather
+   than #main-surface (which has padding the legend should not honor).
+   When more overlays land (v2 hotspot markers, layer toggles) their
+   styles go here or in a dedicated map.css.
+
+   Responsive convention. The @media (max-width: 760px) rule below is
+   the project's first responsive breakpoint. Default state for everything
+   else is desktop-first (the codebase's content caps — .feed, .feed-sort,
+   .species-search-surface, .species-detail-surface — all use
+   max-width: 760px). The 760px legend breakpoint is chosen to align
+   numerically with those caps for visual coherence; downstream responsive
+   styles should reuse this token when their behavior aligns. */
+.map-surface {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
 
 /* Surface footer (#243, eBird API ToU §3). Per-surface attribution footer
    that lives at the bottom of FeedSurface, SpeciesSearchSurface, and
@@ -466,3 +481,130 @@ body {
 .surface-footer a { color: inherit; }
 .surface-footer a:hover,
 .surface-footer a:focus-visible { color: var(--color-text-strong); }
+
+/* FamilyLegend floating overlay (#249). Anchored to the bottom-left of
+   .map-surface, above MapLibre's AttributionControl (which lives at
+   bottom-right by default — but we still want clearance for keyboard-tabs
+   that open it). The legend is a semantic <aside> — keyboard-reachable,
+   labelled by its toggle button, and self-collapsing on mobile. */
+.family-legend {
+  position: absolute;
+  bottom: var(--space-md);
+  left: var(--space-md);
+  z-index: var(--z-panel);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-ui);
+  border-radius: 6px;
+  box-shadow: var(--shadow-listbox);
+  font-size: 13px;
+  color: var(--color-text-strong);
+  max-width: 320px;
+}
+.family-legend-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: var(--space-sm) var(--space-md);
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 6px;
+}
+.family-legend-toggle:hover {
+  background: var(--color-bg-hover);
+}
+.family-legend-toggle:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+}
+.family-legend-title {
+  flex: 1;
+  font-weight: 600;
+}
+.family-legend-chevron {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.family-legend-entries {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-xs) var(--space-xs) var(--space-sm) var(--space-xs);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+  border-top: 1px solid var(--color-border-subtle);
+}
+.family-legend-entry-item {
+  margin: 0;
+  padding: 0;
+}
+.family-legend-entry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 4px 6px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--color-text-strong);
+  cursor: pointer;
+  text-align: left;
+  min-height: 32px;
+}
+.family-legend-entry:hover {
+  background: var(--color-bg-tint);
+}
+.family-legend-entry:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: -2px;
+}
+.family-legend-entry.is-active {
+  background: var(--color-bg-tint);
+  border-color: var(--color-text-strong);
+}
+.family-legend-entry-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.family-legend-entry-count {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--color-text-body);
+  background: var(--color-bg-tint);
+  padding: 1px 5px;
+  border-radius: 8px;
+}
+.family-legend-entry.is-active .family-legend-entry-count {
+  background: var(--color-bg-surface);
+}
+
+/* Mobile collapse-by-default. The component reads this breakpoint via
+   matchMedia at mount time (see MapSurface.readLegendDefaultExpanded);
+   the CSS below additionally tightens the collapsed footprint so the
+   chevron tab doesn't obscure the map. localStorage 'family-legend-
+   expanded' overrides this — the responsive default is a first-visit
+   hint, not a sticky rule. */
+@media (max-width: 760px) {
+  .family-legend {
+    max-width: calc(100vw - 2 * var(--space-md));
+  }
+  .family-legend-entries {
+    grid-template-columns: 1fr;
+    max-height: 240px;
+  }
+}

@@ -32,12 +32,23 @@ export function App() {
   // silhouette payloads resolve via the DB-backed `/api/silhouettes`
   // endpoint. The hook caches aggressively (response is static per deploy
   // + 1-week immutable Cache-Control) so mounting it here is effectively
-  // free even though no current descendant renders a family-color
-  // surface — this wiring is the seam for the Phylopic silhouette track
-  // (also issue #55), which unblocks once the curation step lands.
-  // Descendants that need a resolver should compose `useSilhouettes`
-  // with `buildFamilyColorResolver` from `./data/family-color.js`.
-  useSilhouettes(apiClient);
+  // free. Issue #249 threads the resulting `silhouettes` value to
+  // MapSurface → FamilyLegend; descendants that need a color resolver
+  // can still compose `buildFamilyColorResolver` from
+  // `./data/family-color.js`. Single mount, prop-thread to consumers
+  // (per #246's strict-mount discipline).
+  const { silhouettes } = useSilhouettes(apiClient);
+
+  // FamilyLegend toggle: clear when the active family is clicked again,
+  // otherwise set. Single source of truth for URL-state writes lives here;
+  // FamilyLegend never calls useUrlState directly. Mirrors the
+  // FiltersBar `onChange` pattern.
+  const onFamilyToggle = useCallback(
+    (code: string) => {
+      set({ familyCode: state.familyCode === code ? null : code });
+    },
+    [set, state.familyCode],
+  );
 
   const nowRef = useRef(new Date());
   const now = nowRef.current;
@@ -100,7 +111,12 @@ export function App() {
           />
         )}
         {state.view === 'map' && (
-          <MapSurface observations={observations} />
+          <MapSurface
+            observations={observations}
+            silhouettes={silhouettes}
+            familyCode={state.familyCode}
+            onFamilyToggle={onFamilyToggle}
+          />
         )}
         {state.view === 'species' && (
           <SpeciesSearchSurface
