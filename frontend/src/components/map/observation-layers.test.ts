@@ -4,9 +4,11 @@ import {
   observationsToGeoJson,
   buildClusterLayerSpec,
   buildClusterCountLayerSpec,
+  buildClustersHitLayerSpec,
   buildUnclusteredPointLayerSpec,
   CLUSTER_MAX_ZOOM,
   CLUSTER_RADIUS,
+  CLUSTER_MOSAIC_MAX_POINTS,
 } from './observation-layers.js';
 
 function makeObs(partial: Partial<Observation> = {}): Observation {
@@ -23,7 +25,7 @@ function makeObs(partial: Partial<Observation> = {}): Observation {
     isNotable: partial.isNotable ?? false,
     regionId: null,
     silhouetteId: null,
-    familyCode: null,
+    familyCode: 'familyCode' in partial ? (partial.familyCode as string | null) : null,
   };
 }
 
@@ -75,6 +77,29 @@ describe('observationsToGeoJson', () => {
     expect(props.locName).toBeNull();
     expect(props.howMany).toBeNull();
   });
+
+  it('threads familyCode through to GeoJSON properties (mosaic source — issue #248)', () => {
+    // The cluster-mosaic reconciler aggregates leaves by familyCode via
+    // GeoJSONSource.getClusterLeaves. Each leaf is a GeoJSON Feature, so the
+    // familyCode must round-trip through observationsToGeoJson into the
+    // feature properties — otherwise the aggregation is silently empty and
+    // every mosaic renders the FALLBACK silhouette.
+    const obs = makeObs({ familyCode: 'tyrannidae' });
+    const result = observationsToGeoJson([obs]);
+    const props = result.features[0]!.properties;
+    expect(props.familyCode).toBe('tyrannidae');
+  });
+
+  it('preserves null familyCode (uncurated species per issue #246)', () => {
+    // The Read API LEFT-JOINs species_meta and yields NULL when a species is
+    // absent from the seed. The mosaic must treat null as "skip this leaf"
+    // rather than throw, so the property must serialize as null (not
+    // undefined or omitted) — matches the Observation type contract.
+    const obs = makeObs({ familyCode: null });
+    const result = observationsToGeoJson([obs]);
+    const props = result.features[0]!.properties;
+    expect(props.familyCode).toBeNull();
+  });
 });
 
 describe('layer specs', () => {
@@ -101,23 +126,70 @@ describe('layer specs', () => {
     expect(radius).toBeLessThanOrEqual(12);
   });
 
-  it('cluster layer filters to features with point_count', () => {
+  it('cluster layer filters to clusters with more than 8 points (mosaic threshold)', () => {
+    // Issue #248: clusters with point_count <= 8 render an HTML <Marker>
+    // mosaic instead of the colored circle. The two surfaces must NOT
+    // overlap — pin the boundary in the spec so a future filter loosen
+    // (e.g. ['has', 'point_count']) gets caught here, not in production
+    // where a circle would render under the mosaic.
     const spec = buildClusterLayerSpec();
     expect(spec.id).toBe('clusters');
     expect(spec.type).toBe('circle');
-    expect(spec.filter).toEqual(['has', 'point_count']);
+    expect(spec.filter).toEqual([
+      'all',
+      ['has', 'point_count'],
+      ['>', ['get', 'point_count'], 8],
+    ]);
   });
 
-  it('cluster-count layer renders point_count_abbreviated', () => {
+  it('cluster-count layer renders point_count_abbreviated for large clusters only', () => {
     const spec = buildClusterCountLayerSpec();
     expect(spec.id).toBe('cluster-count');
     expect(spec.type).toBe('symbol');
+    // Same threshold as the cluster circle layer — count text only renders
+    // INSIDE the circle (point_count > 8). Mosaic markers carry their own
+    // count badge in HTML, so duplicating it here would double-render.
+    expect(spec.filter).toEqual([
+      'all',
+      ['has', 'point_count'],
+      ['>', ['get', 'point_count'], 8],
+    ]);
     const layout = spec.layout as Record<string, unknown>;
     expect(layout['text-field']).toEqual(['get', 'point_count_abbreviated']);
     // Must declare a font present in the basemap glyph stack (Noto Sans on
     // OpenFreeMap positron). Omitting this falls back to Open Sans Regular,
     // which 404s against tiles.openfreemap.org.
     expect(layout['text-font']).toEqual(['Noto Sans Regular']);
+  });
+
+  it('clusters-hit layer renders ALL clusters invisibly so queryRenderedFeatures can find them', () => {
+    // Issue #248: the visible cluster circle layer is filtered to point_count
+    // > 8, which means small clusters (≤8) aren't rendered to the canvas
+    // and queryRenderedFeatures can't see them. The reconciler needs an
+    // invisible hit-test layer that covers ALL clusters so it can pull
+    // small ones for HTML marker materialization. Without this layer the
+    // mosaic feature simply doesn't activate.
+    const spec = buildClustersHitLayerSpec();
+    expect(spec.id).toBe('clusters-hit');
+    expect(spec.type).toBe('circle');
+    expect(spec.filter).toEqual(['has', 'point_count']);
+    const paint = spec.paint as Record<string, unknown>;
+    // Transparent circles — visually invisible but still hit-testable.
+    expect(paint['circle-opacity']).toBe(0);
+    // Stroke also transparent. (A nonzero stroke would create a visible
+    // ring even with circle-opacity:0.)
+    expect(paint['circle-stroke-opacity']).toBe(0);
+    // Radius matches the small-cluster footprint so taps on a tile-edge
+    // tile still register against the cluster.
+    expect(typeof paint['circle-radius']).toBe('number');
+  });
+
+  it('exports CLUSTER_MOSAIC_MAX_POINTS=8 as the mosaic-vs-circle threshold', () => {
+    // Issue #248 boundary token. The reconciler in MapCanvas reads this
+    // same constant when filtering rendered cluster features for HTML
+    // marker generation; pinning it as a named export keeps the layer
+    // filter and the React reconciler in sync.
+    expect(CLUSTER_MOSAIC_MAX_POINTS).toBe(8);
   });
 });
 
