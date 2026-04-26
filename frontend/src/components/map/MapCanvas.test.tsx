@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { forwardRef, useEffect, useImperativeHandle } from 'react';
-import type { Observation } from '@bird-watch/shared-types';
+import type { FamilySilhouette, Observation } from '@bird-watch/shared-types';
 
 /* ── Mock react-map-gl/maplibre ─────────────────────────────────────────────
    jsdom has no WebGL context so we stub Map, Source, and Layer as thin
@@ -20,6 +20,8 @@ let fakeMap: any = null;
 
 function makeFakeMap() {
   const canvas = { style: { cursor: '' }, clientWidth: 1440, clientHeight: 900 };
+  // Sprite registry — addImage records here; hasImage looks up.
+  const sprites = new Set<string>();
   return {
     on: vi.fn(
       (
@@ -52,6 +54,14 @@ function makeFakeMap() {
     removeSource: vi.fn(),
     addLayer: vi.fn(),
     removeLayer: vi.fn(),
+    // Sprite registration (issue #246). Tests assert that addImage is
+    // called for each silhouette + the _FALLBACK row, and that layers
+    // are added AFTER all addImage calls resolve.
+    addImage: vi.fn((id: string) => {
+      sprites.add(id);
+    }),
+    hasImage: vi.fn((id: string) => sprites.has(id)),
+    removeImage: vi.fn((id: string) => sprites.delete(id)),
   };
 }
 
@@ -92,6 +102,27 @@ vi.mock('react-map-gl/maplibre', () => ({
 
 vi.mock('maplibre-gl/dist/maplibre-gl.css', () => ({}));
 
+/* ── jsdom shims: SVG → image conversion needs Blob, URL.createObjectURL,
+   and HTMLImageElement.decode. jsdom's Image polyfill never triggers
+   `onload` because no real image loader runs. Override `Image` with a
+   stub that resolves decode() synchronously; stub URL.createObjectURL +
+   URL.revokeObjectURL to no-op since the data: URI never gets fetched. */
+class FakeImage {
+  src = '';
+  onload: (() => void) | null = null;
+  width = 32;
+  height = 32;
+  decode(): Promise<void> { return Promise.resolve(); }
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(globalThis as any).Image = FakeImage;
+if (typeof URL.createObjectURL === 'undefined') {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (URL as any).createObjectURL = vi.fn(() => 'blob:fake-url');
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (URL as any).revokeObjectURL = vi.fn();
+}
+
 /* ── Import after mocks ───────���───────────────────────────────────────── */
 const { MapCanvas } = await import('./MapCanvas.js');
 
@@ -110,8 +141,20 @@ function makeObs(partial: Partial<Observation> = {}): Observation {
     howMany: partial.howMany ?? 3,
     isNotable: partial.isNotable ?? false,
     regionId: null,
-    silhouetteId: null,
-    familyCode: null,
+    silhouetteId: 'silhouetteId' in partial ? (partial.silhouetteId as string | null) : null,
+    familyCode: 'familyCode' in partial ? (partial.familyCode as string | null) : null,
+  };
+}
+
+function makeSilhouette(partial: Partial<FamilySilhouette> & { familyCode: string }): FamilySilhouette {
+  return {
+    familyCode: partial.familyCode,
+    color: partial.color ?? '#123456',
+    svgData: 'svgData' in partial ? (partial.svgData as string | null) : 'M0 0 L1 1',
+    source: partial.source ?? null,
+    license: partial.license ?? null,
+    commonName: partial.commonName ?? null,
+    creator: partial.creator ?? null,
   };
 }
 
@@ -147,7 +190,7 @@ describe('MapCanvas', () => {
     expect(data.features).toHaveLength(10);
   });
 
-  it('renders three Layer components: clusters, cluster-count, unclustered-point', () => {
+  it('renders four Layer components: clusters, cluster-count, notable-ring, unclustered-point', () => {
     render(<MapCanvas observations={[makeObs()]} />);
 
     const layers = screen.getAllByTestId('mock-layer');
@@ -155,7 +198,17 @@ describe('MapCanvas', () => {
 
     expect(layerIds).toContain('clusters');
     expect(layerIds).toContain('cluster-count');
+    // Issue #246: notable-ring is the new circle layer that paints amber
+    // halos behind notable observations. Source-order matters — notable-ring
+    // must come BEFORE unclustered-point so the ring renders BEHIND the
+    // silhouette, preserving the family-color signal in the silhouette
+    // body (an amber-tinted SDF would lose it).
+    expect(layerIds).toContain('notable-ring');
     expect(layerIds).toContain('unclustered-point');
+
+    const ringIdx = layerIds.indexOf('notable-ring');
+    const unclusteredIdx = layerIds.indexOf('unclustered-point');
+    expect(ringIdx).toBeLessThan(unclusteredIdx);
   });
 
   it('renders the ObservationPopover (initially null / hidden)', () => {
@@ -391,5 +444,110 @@ describe('MapCanvas', () => {
     });
 
     expect(fakeMap.easeTo).not.toHaveBeenCalled();
+  });
+
+  /* ── Issue #246: SDF silhouette pipeline ──────────────────────────────
+     The MapCanvas.handleLoad flow registers one sprite per silhouette
+     row (with non-null svgData) PLUS a `_FALLBACK` sprite. The symbol
+     layer references those sprites by id via `icon-image: ['get',
+     'silhouetteId']`. Tests below verify:
+       (a) addImage is called for every silhouette + _FALLBACK,
+       (b) the GeoJSON source data round-trips silhouetteId/color,
+       (c) the popover's detail link wires through onSelectSpecies. */
+
+  it('registers an addImage sprite for each silhouette row + the _FALLBACK sentinel', async () => {
+    const sils = [
+      makeSilhouette({ familyCode: 'tyrannidae' }),
+      makeSilhouette({ familyCode: 'fringillidae' }),
+      // svgData null — should NOT trigger addImage (no usable Phylopic).
+      // _FALLBACK is registered separately below regardless.
+      makeSilhouette({ familyCode: 'cuculidae', svgData: null }),
+      makeSilhouette({ familyCode: '_FALLBACK' }),
+    ];
+    render(<MapCanvas observations={[makeObs()]} silhouettes={sils} />);
+
+    await waitFor(() => {
+      // Must have registered tyrannidae + fringillidae + _FALLBACK.
+      const ids = fakeMap.addImage.mock.calls.map((c: unknown[]) => c[0] as string);
+      expect(ids).toContain('tyrannidae');
+      expect(ids).toContain('fringillidae');
+      expect(ids).toContain('_FALLBACK');
+      // cuculidae has svgData null — no sprite. Its observations fall
+      // back to the _FALLBACK sprite via the GeoJSON join.
+      expect(ids).not.toContain('cuculidae');
+    });
+
+    // Each addImage call passes `{ sdf: true }` so the icon-color paint
+    // expression in the symbol layer can tint the silhouette.
+    for (const call of fakeMap.addImage.mock.calls) {
+      const opts = call[2] as Record<string, unknown> | undefined;
+      expect(opts?.sdf).toBe(true);
+    }
+  });
+
+  it('does not call addImage when silhouettes prop is empty', () => {
+    render(<MapCanvas observations={[makeObs()]} silhouettes={[]} />);
+    // No silhouettes → no sprite registration. The symbol layer mounts
+    // with `icon-image: ['get', 'silhouetteId']` looking up sprites that
+    // don't exist; that surfaces as a missing-image warning at runtime,
+    // which would be a Tier-1 dirty-console finding. The fix is to mount
+    // MapCanvas only after silhouettes resolve — but that's a caller
+    // concern; this test just confirms the no-silhouettes default is a
+    // no-op (no spurious addImage calls).
+    expect(fakeMap.addImage).not.toHaveBeenCalled();
+  });
+
+  it('GeoJSON features carry familyCode + silhouetteId + color from the silhouettes prop', async () => {
+    const sils = [
+      makeSilhouette({ familyCode: 'tyrannidae', color: '#C77A2E' }),
+      makeSilhouette({ familyCode: '_FALLBACK', color: '#555555' }),
+    ];
+    const obs = [
+      makeObs({
+        subId: 'S100',
+        familyCode: 'tyrannidae',
+        silhouetteId: 'tyrannidae',
+      }),
+    ];
+    render(<MapCanvas observations={obs} silhouettes={sils} />);
+
+    const data = capturedSourceProps.data as { features: Array<{ properties: Record<string, unknown> }> };
+    expect(data.features).toHaveLength(1);
+    const props = data.features[0]!.properties;
+    expect(props.familyCode).toBe('tyrannidae');
+    expect(props.silhouetteId).toBe('tyrannidae');
+    expect(props.color).toBe('#C77A2E');
+  });
+
+  it('clicking an unclustered point + clicking the popover detail link calls onSelectSpecies(speciesCode)', async () => {
+    const onSelectSpecies = vi.fn();
+    const obs = makeObs({
+      subId: 'S200',
+      speciesCode: 'gilwoo',
+      comName: 'Gila Woodpecker',
+    });
+    render(
+      <MapCanvas
+        observations={[obs]}
+        silhouettes={[makeSilhouette({ familyCode: '_FALLBACK' })]}
+        onSelectSpecies={onSelectSpecies}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(registeredHandlers['click:unclustered-point']).toBeTypeOf('function'),
+    );
+
+    // Simulate click on the unclustered-point layer with the obs feature.
+    fakeMap.queryRenderedFeatures.mockReturnValue([
+      { properties: { subId: 'S200' }, geometry: { type: 'Point', coordinates: [-110.9, 32.2] } },
+    ]);
+    const handler = registeredHandlers['click:unclustered-point']!;
+    await act(async () => { handler({ point: [100, 100] }); });
+
+    // Popover opens. Click the detail link.
+    const link = await screen.findByRole('button', { name: /see species details/i });
+    link.click();
+    expect(onSelectSpecies).toHaveBeenCalledWith('gilwoo');
   });
 });

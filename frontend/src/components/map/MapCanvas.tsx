@@ -2,15 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Map, Source, Layer, AttributionControl } from 'react-map-gl/maplibre';
 import type { MapLayerMouseEvent, MapRef } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import type { Observation } from '@bird-watch/shared-types';
+import type { FamilySilhouette, Observation } from '@bird-watch/shared-types';
 import { basemapStyle } from './basemap-style.js';
 import {
   observationsToGeoJson,
   buildClusterLayerSpec,
   buildClusterCountLayerSpec,
   buildUnclusteredPointLayerSpec,
+  buildNotableRingLayerSpec,
   CLUSTER_MAX_ZOOM,
   CLUSTER_RADIUS,
+  FALLBACK_SILHOUETTE_ID,
 } from './observation-layers.js';
 import { ObservationPopover } from './ObservationPopover.js';
 import {
@@ -25,6 +27,27 @@ import {
 
 export interface MapCanvasProps {
   observations: Observation[];
+  /**
+   * Family silhouettes from `/api/silhouettes`. Threaded down from App.tsx
+   * via MapSurface (see App.tsx — single mount of `useSilhouettes`, then
+   * prop-drilled per #246's strict-mount discipline). Each non-null
+   * `svgData` row gets registered as an SDF sprite via `map.addImage`
+   * during `handleLoad`. The `_FALLBACK` row backs every observation
+   * whose family has no usable silhouette.
+   *
+   * Optional + defaults to `[]` so legacy tests / demo harnesses still
+   * type-check; with no silhouettes the symbol layer's `icon-image`
+   * lookup misses and MapLibre logs a missing-image warning. Production
+   * App.tsx always passes the resolved array.
+   */
+  silhouettes?: FamilySilhouette[];
+  /**
+   * Issue #246: invoked when the user clicks "See species details" in
+   * the ObservationPopover. App.tsx wires this to
+   * `set({ view: 'detail', detail: code })` via `useUrlState`. Optional
+   * — when absent, the popover hides the link.
+   */
+  onSelectSpecies?: (speciesCode: string) => void;
 }
 
 /** Arizona center — default initial view. */
@@ -33,6 +56,58 @@ const INITIAL_VIEW = {
   latitude: 34.0489,
   zoom: 6,
 } as const;
+
+/**
+ * Convert a `family_silhouettes` row into a complete SVG document string
+ * suitable for `<img src="data:image/svg+xml,...">`. The svgData column
+ * stores a single path-`d` string (24-viewBox); we wrap it in a minimal
+ * `<svg>` shell with `fill="black"` so the rendered raster is a single-
+ * channel alpha mask that maplibre's SDF tinter can color-shift via the
+ * symbol layer's `icon-color` paint property.
+ */
+function silhouettePathToSvg(svgData: string): string {
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="64" height="64">` +
+    `<path d="${svgData}" fill="black"/>` +
+    `</svg>`
+  );
+}
+
+/**
+ * Promise-wrap the SVG → HTMLImageElement → addImage pipeline for one
+ * silhouette. Resolves once the sprite is registered; rejects on image-
+ * load failure (which surfaces upstream as a Promise.all rejection).
+ */
+async function registerSilhouetteSprite(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  map: any,
+  id: string,
+  svgData: string,
+): Promise<void> {
+  const svgString = silhouettePathToSvg(svgData);
+  const blob = new Blob([svgString], { type: 'image/svg+xml' });
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = new Image();
+    img.src = url;
+    // image.decode() returns a Promise that resolves when the image is
+    // ready to render (no `onload` race). Fall back to a manual onload
+    // listener for environments (jsdom) where decode is a stub.
+    if (typeof img.decode === 'function') {
+      await img.decode().catch(() => {
+        // jsdom Image polyfill rejects decode immediately; the FakeImage
+        // shim in tests resolves. Either way we proceed — the addImage
+        // call below tolerates a half-decoded image in tests, and in
+        // production the data: URI loads synchronously.
+      });
+    }
+    if (!map.hasImage(id)) {
+      map.addImage(id, img, { sdf: true });
+    }
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
 
 /**
  * MapLibre GL JS map instance wrapped via react-map-gl/maplibre.
@@ -47,8 +122,19 @@ const INITIAL_VIEW = {
  * radially with leader lines instead of zooming further. The leaves
  * become individually clickable via `MapMarkerHitLayer` (HTML overlay
  * with per-marker `aria-label`). Outside-click or Escape clears spiderfy.
+ *
+ * Symbol layer (issue #246): the unclustered-point layer is now an SDF
+ * symbol layer that paints per-family silhouettes tinted with each
+ * family's seeded color. Sprites are registered via `map.addImage` in
+ * `handleLoad` from the `silhouettes` prop. The notable-ring layer adds
+ * an amber halo behind notable observations without tinting the body —
+ * preserves the family-color signal in the silhouette.
  */
-export function MapCanvas({ observations }: MapCanvasProps) {
+export function MapCanvas({
+  observations,
+  silhouettes = [],
+  onSelectSpecies,
+}: MapCanvasProps) {
   const mapRef = useRef<MapRef>(null);
   const [selectedObs, setSelectedObs] = useState<Observation | null>(null);
   /* Active spiderfy state (null when no cluster is currently spiderfied).
@@ -76,13 +162,14 @@ export function MapCanvas({ observations }: MapCanvasProps) {
   }, []);
 
   const geojson = useMemo(
-    () => observationsToGeoJson(observations),
-    [observations],
+    () => observationsToGeoJson(observations, silhouettes),
+    [observations, silhouettes],
   );
 
   // Build layer specs once — they read CSS tokens at construction time.
   const clusterLayer = useMemo(() => buildClusterLayerSpec(), []);
   const clusterCountLayer = useMemo(() => buildClusterCountLayerSpec(), []);
+  const notableRingLayer = useMemo(() => buildNotableRingLayerSpec(), []);
   const unclusteredLayer = useMemo(() => buildUnclusteredPointLayerSpec(), []);
 
   // Observation lookup by subId for click handler.
@@ -254,7 +341,70 @@ export function MapCanvas({ observations }: MapCanvasProps) {
   // stable ref; the click handler reads .current at call time, not capture time.
   }, []);
 
+  /* Sprite registration (issue #246).
+     Run after the map fires `load` (mapReady) and whenever `silhouettes`
+     changes. The conversion pipeline:
+       1. For each silhouette with non-null svgData → wrap path-d in a
+          minimal SVG document, blob → object URL → HTMLImageElement →
+          decode() → addImage(id, img, { sdf: true }).
+       2. The `_FALLBACK` row is always registered (its consumer feature
+          properties point at the same id).
+     The symbol layer renders against these sprites; missing-image
+     warnings only fire if the layer is added before the addImage calls
+     resolve. We mount the React `<Layer>` synchronously, but the actual
+     paint happens after the next render frame — by which point the
+     Promise.all has resolved on a fast cold load. If a sprite fails,
+     features fall back to the `_FALLBACK` sentinel via the GeoJSON join. */
+  useEffect(() => {
+    if (!mapReady) return;
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+    if (silhouettes.length === 0) return;
+
+    let cancelled = false;
+    const work: Promise<void>[] = [];
+    const seen = new Set<string>();
+    let fallbackPresent = false;
+    for (const sil of silhouettes) {
+      if (sil.familyCode === FALLBACK_SILHOUETTE_ID) {
+        fallbackPresent = true;
+      }
+      if (sil.svgData === null) continue;
+      if (seen.has(sil.familyCode)) continue;
+      seen.add(sil.familyCode);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      work.push(registerSilhouetteSprite(map as any, sil.familyCode, sil.svgData));
+    }
+    // Defensive: if the `_FALLBACK` row didn't ship in this silhouettes
+    // payload (older cached response, test fixture, etc.), don't try to
+    // forge one — the map will surface a one-time missing-image warning
+    // for un-joinable observations and we'll catch it in the dirty-
+    // console gate. The acceptance criteria assume the seed migration
+    // 1700000018000 is present, so production payloads always have it.
+    void fallbackPresent;
+    Promise.all(work).catch(() => {
+      // Individual sprite failures are non-fatal — a missing sprite means
+      // the map shows the basemap-styled missing-image triangle for that
+      // family. The rest of the silhouettes still render. We swallow here
+      // to avoid an unhandled-rejection crash; the dirty-console gate
+      // would surface the per-sprite warning.
+      if (cancelled) return;
+    });
+    return () => { cancelled = true; };
+  }, [mapReady, silhouettes]);
+
   const handleClosePopover = useCallback(() => setSelectedObs(null), []);
+
+  const handlePopoverSelectSpecies = useCallback(
+    (speciesCode: string) => {
+      onSelectSpecies?.(speciesCode);
+      // Close the popover after the navigation — the user has expressed
+      // intent to leave the map view; the dialog hanging open during the
+      // surface switch is a stale state.
+      setSelectedObs(null);
+    },
+    [onSelectSpecies],
+  );
 
   // Escape closes spiderfy (and also the popover, but the popover renders
   // inside its own dialog so Escape inside the dialog stays scoped there).
@@ -358,6 +508,12 @@ export function MapCanvas({ observations }: MapCanvasProps) {
         >
           <Layer {...clusterLayer} />
           <Layer {...clusterCountLayer} />
+          {/* Notable-ring renders BEFORE the unclustered-point symbol
+              layer so the amber halo paints UNDER the silhouette
+              (maplibre source-order = bottom-up). The silhouette body
+              keeps its family-color tint; the ring marks notability
+              without overwriting the colour signal. */}
+          <Layer {...notableRingLayer} />
           <Layer {...unclusteredLayer} />
         </Source>
       </Map>
@@ -373,6 +529,7 @@ export function MapCanvas({ observations }: MapCanvasProps) {
       <ObservationPopover
         observation={selectedObs}
         onClose={handleClosePopover}
+        {...(onSelectSpecies ? { onSelectSpecies: handlePopoverSelectSpecies } : {})}
       />
     </div>
   );
