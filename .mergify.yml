@@ -8,7 +8,9 @@ queue_rules:
     batch_size: 1
     queue_conditions:
       - "#approved-reviews-by >= 1"
-      - base = main
+      - or:
+          - base = main
+          - base = version-one
       - -draft
       - -conflict
       - "check-success = test"
