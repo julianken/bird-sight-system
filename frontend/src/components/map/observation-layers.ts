@@ -33,10 +33,14 @@ export interface ObservationFeatureCollection {
       obsDt: string;
       howMany: number | null;
       isNotable: boolean;
-      /** Family code from the observation; null when species_meta lacks it. */
+      // familyCode is the join key the cluster-mosaic reconciler aggregates
+      // by (issue #248). Threaded through here — NOT looked up at render
+      // time — because GeoJSONSource.getClusterLeaves only returns properties
+      // that were on the input feature. Kept null-not-undefined to match the
+      // Observation type contract; consumers treat null as "skip this leaf".
       familyCode: string | null;
       /**
-       * Sprite identifier for the icon-image lookup. Resolves to:
+       * Sprite identifier for the icon-image lookup (issue #246). Resolves to:
        *   - the observation's `silhouetteId` when the matching family row
        *     has a non-null svgData (the sprite was registered via addImage).
        *   - `FALLBACK_SILHOUETTE_ID` ('_FALLBACK') when the row is missing,
@@ -79,11 +83,11 @@ export function observationsToGeoJson(
     features: observations.map((o) => {
       const familyKey = o.familyCode?.toLowerCase() ?? null;
       const sil = familyKey ? byFamily.get(familyKey) : undefined;
-      // The icon-image points at a registered sprite. We only register a
-      // sprite for silhouettes whose svgData is non-null, so the fallback
-      // path covers (a) no row, (b) row with svgData null, (c) null
-      // familyCode. The color comes from the row when present so we still
-      // tint the fallback shape with the family's seeded color.
+      // The icon-image (#246) points at a registered sprite. We only
+      // register a sprite for silhouettes whose svgData is non-null, so
+      // the fallback path covers (a) no row, (b) row with svgData null,
+      // (c) null familyCode. The color comes from the row when present
+      // so we still tint the fallback shape with the family's seeded color.
       const silhouetteId =
         sil && sil.svgData !== null && o.silhouetteId
           ? sil.familyCode
@@ -102,7 +106,7 @@ export function observationsToGeoJson(
           obsDt: o.obsDt,
           howMany: o.howMany,
           isNotable: o.isNotable,
-          familyCode: o.familyCode,
+          familyCode: o.familyCode ?? null,
           silhouetteId,
           color,
         },
@@ -133,6 +137,16 @@ function notableColor(): string {
 
 export const CLUSTER_MAX_ZOOM = 14;
 export const CLUSTER_RADIUS = 50;
+/**
+ * Mosaic-vs-circle threshold (issue #248). Clusters with `point_count` AT OR
+ * BELOW this value render an HTML `<Marker>` 2×2 family-silhouette mosaic in
+ * MapCanvas. Larger clusters keep the colored count circle. The two surfaces
+ * are mutually exclusive — the cluster-circle and cluster-count layers both
+ * filter to `point_count > CLUSTER_MOSAIC_MAX_POINTS` to prevent visual
+ * double-rendering. Bumping this threshold also bumps the React reconciler's
+ * DOM-marker count; HTML markers don't scale beyond ~5k visible (DOM perf).
+ */
+export const CLUSTER_MOSAIC_MAX_POINTS = 8;
 
 /* ── Layer specs ───────────────────────────────────────────────────────── */
 
@@ -145,7 +159,15 @@ export function buildClusterLayerSpec(): LayerProps {
     id: 'clusters',
     type: 'circle',
     source: 'observations',
-    filter: ['has', 'point_count'],
+    // Issue #248: mosaic markers handle clusters with point_count <= 8.
+    // Cap this layer at the complement so the circle doesn't render under
+    // the HTML mosaic. CLUSTER_MOSAIC_MAX_POINTS is the single boundary
+    // token shared with the React reconciler in MapCanvas.
+    filter: [
+      'all',
+      ['has', 'point_count'],
+      ['>', ['get', 'point_count'], CLUSTER_MOSAIC_MAX_POINTS],
+    ],
     paint: {
       'circle-color': [
         'step',
@@ -178,7 +200,14 @@ export function buildClusterCountLayerSpec(): LayerProps {
     id: 'cluster-count',
     type: 'symbol',
     source: 'observations',
-    filter: ['has', 'point_count'],
+    // Same threshold as the cluster circle layer (issue #248). The mosaic
+    // marker carries its own count badge; rendering this symbol on top of
+    // the mosaic would double-render the number.
+    filter: [
+      'all',
+      ['has', 'point_count'],
+      ['>', ['get', 'point_count'], CLUSTER_MOSAIC_MAX_POINTS],
+    ],
     layout: {
       'text-field': ['get', 'point_count_abbreviated'],
       'text-size': 12,
@@ -195,14 +224,48 @@ export function buildClusterCountLayerSpec(): LayerProps {
 }
 
 /**
- * Build the unclustered-point SDF symbol layer spec.
+ * Build the invisible cluster hit-test layer spec (issue #248). The visible
+ * cluster circle layer is filtered to `point_count > CLUSTER_MOSAIC_MAX_POINTS`,
+ * so small clusters aren't rendered to the canvas — and `queryRenderedFeatures`
+ * only returns features that ARE rendered. This layer covers all clusters with
+ * fully transparent paint so the React reconciler can pull small clusters out
+ * for HTML mosaic-marker materialization. Mirrors maplibre's official
+ * "Display HTML clusters with custom properties" example pattern.
+ */
+export function buildClustersHitLayerSpec(): LayerProps {
+  return {
+    id: 'clusters-hit',
+    type: 'circle',
+    source: 'observations',
+    filter: ['has', 'point_count'],
+    paint: {
+      // Visually invisible but still hit-testable. Without these explicit
+      // zeros, MapLibre defaults the colors to opaque black + 0-width
+      // stroke; we want zero-bleed.
+      'circle-opacity': 0,
+      'circle-stroke-opacity': 0,
+      'circle-color': '#000',
+      'circle-stroke-color': '#000',
+      'circle-stroke-width': 0,
+      // Radius is wide enough to cover a worst-case 22+22+gap mosaic
+      // composite — taps near a tile edge still register against the
+      // cluster center. The mosaic-vs-circle threshold is point_count <= 8;
+      // at 22px tiles + 2px gap + 4px badge overhang the marker is roughly
+      // 50px wide, so a 25-radius hit circle gives a reasonable tap target.
+      'circle-radius': 25,
+    },
+  };
+}
+
+/**
+ * Build the unclustered-point SDF symbol layer spec (issue #246).
  *
- * Issue #246: each unclustered observation renders as its family
- * silhouette, tinted with the family's seeded color. The icon-image and
- * color values come from per-feature properties resolved by
- * observationsToGeoJson at build time (so the layer spec itself is static
- * and re-creating the GeoJSON is the only thing the React component does
- * when the silhouettes prop arrives).
+ * Each unclustered observation renders as its family silhouette, tinted
+ * with the family's seeded color. The icon-image and color values come
+ * from per-feature properties resolved by observationsToGeoJson at build
+ * time (so the layer spec itself is static and re-creating the GeoJSON
+ * is the only thing the React component does when the silhouettes prop
+ * arrives).
  *
  * Sprites must be registered via map.addImage(...) BEFORE this layer is
  * added to the map. MapCanvas orchestrates the addImage Promise.all and

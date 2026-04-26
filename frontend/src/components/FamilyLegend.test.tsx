@@ -12,6 +12,7 @@ const baseSilhouettes: FamilySilhouette[] = [
     source: 'placeholder',
     license: 'CC0',
     commonName: 'Tyrant Flycatchers',
+    creator: null,
   },
   {
     familyCode: 'trochilidae',
@@ -20,6 +21,7 @@ const baseSilhouettes: FamilySilhouette[] = [
     source: 'placeholder',
     license: 'CC0',
     commonName: 'Hummingbirds',
+    creator: null,
   },
   {
     familyCode: 'unknownidae',
@@ -29,6 +31,7 @@ const baseSilhouettes: FamilySilhouette[] = [
     license: null,
     // Null commonName drives the prettyFamily fallback path.
     commonName: null,
+    creator: null,
   },
 ];
 
