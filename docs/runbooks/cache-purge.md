@@ -10,12 +10,42 @@ the `family_silhouettes` table reaches production. Common triggers:
 - An ad-hoc curation pass updates an SVG, color, or attribution row.
 - A Phylopic seed-expansion script adds new `family_code` rows.
 
+## What the purge does (and does not) invalidate
+
+There are two caches between the database and the user's screen. The
+script only touches one of them.
+
+| Tier              | What it is                                            | TTL                        | Touched by `purge-silhouettes-cache.sh`? |
+| ----------------- | ----------------------------------------------------- | -------------------------- | ---------------------------------------- |
+| **Cloudflare CDN** | Edge copy at the colo nearest the requesting user     | Honors `Cache-Control`     | **Yes** — purged within ~30s             |
+| **User browser**   | Per-user copy in each visitor's HTTP cache            | `max-age=604800` (7 days)  | **No** — held until that user's clock ticks |
+
 `/api/silhouettes` is served with `Cache-Control: public, max-age=604800`
-(see `services/read-api/src/cache-headers.ts`). Without `immutable`,
-browsers re-validate at expiry — but they still serve cached bytes for
-up to a week before that. A Cloudflare edge purge invalidates both
-the CDN copy *and* (via the next conditional revalidation) the browser
-copy, so updated silhouettes reach users on their next request.
+(see `services/read-api/src/cache-headers.ts`). Notably, that header
+**no longer carries `immutable`** — issue #252 removed it precisely so
+browsers will revalidate when their per-user `max-age` clock expires
+instead of holding the response untouchably for the full week.
+
+The cause-effect chain for a curation update is therefore:
+
+1. The migration lands; the API now returns the new SVG/color/attribution.
+2. The operator runs `purge-silhouettes-cache.sh`. Within ~30s the
+   Cloudflare edge copy is gone.
+3. The next time a user's browser actually goes to the network for
+   `/api/silhouettes` (either a cold fetch or a conditional revalidation
+   after `max-age` expiry), the request reaches the API and gets the
+   fresh bytes. Without the purge, the edge would still hand back the
+   stale copy until its own TTL ticked.
+4. **Browser caches turn over per response `max-age` regardless of the
+   purge.** Most users see fresh data within hours (whenever their
+   browser's TTL next ticks); a worst-case user who fetched right before
+   the migration holds stale bytes for up to 7 days from their last
+   request, then revalidates and picks up the new copy.
+
+If you need a hard guarantee that every user sees the new data
+immediately, neither the CDN purge nor the existing `max-age` window can
+provide it — that would require a versioned URL (e.g. `/api/silhouettes?v=2`)
+which we deliberately do not use.
 
 ## How to run
 
@@ -64,7 +94,10 @@ The constraint is on the *outbound* side: when `version-one` is merged
 into `main` for a release that includes any of those migrations, the
 `cache-headers.ts` change **must be in the same merge**. Otherwise the
 new silhouette rows land in production but get masked by the still-
-`immutable` Cache-Control directive for up to seven days.
+`immutable` Cache-Control directive for up to seven days — and at that
+point the CDN purge wouldn't help, because `immutable` instructs
+browsers to skip even the conditional revalidation that the purge
+relies on.
 
 In practice this means: do not split the epic across two
 `version-one → main` merges. Either ship the whole epic together, or
