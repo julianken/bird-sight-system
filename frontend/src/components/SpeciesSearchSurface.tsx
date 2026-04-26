@@ -1,7 +1,6 @@
 import type { Observation } from '@bird-watch/shared-types';
 import { ObservationFeedRow } from './ObservationFeedRow.js';
 import { SpeciesAutocomplete } from './SpeciesAutocomplete.js';
-import { SurfaceFooter } from './SurfaceFooter.js';
 import type { SpeciesOption } from './FiltersBar.js';
 
 export interface SpeciesSearchSurfaceProps {
@@ -80,8 +79,6 @@ export function SpeciesSearchSurface(props: SpeciesSearchSurfaceProps) {
           ))}
         </ol>
       )}
-
-      <SurfaceFooter />
     </div>
   );
 }

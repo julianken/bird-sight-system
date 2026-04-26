@@ -159,82 +159,67 @@ test.describe('axe-core WCAG scans', () => {
     });
   });
 
-  // Issue #243 — eBird API ToU §3 attribution must be visible (and reachable
-  // by SR / keyboard) on every view that displays eBird-derived data. The
-  // assertion here is intentionally view-aware: feed / species / detail
-  // surfaces render the credit via SurfaceFooter (a `<footer>` semantic
-  // element); the map view renders the credit inside maplibre's
-  // AttributionControl alongside OSM and OpenFreeMap.
-  test.describe('eBird ToU §3 credit reachability', () => {
-    test('feed view exposes a focusable eBird link in a <footer>', async ({ page }) => {
+  // Issue #243 / #250 — eBird API ToU §3 attribution lives in the app-level
+  // AttributionModal trigger (rendered inside the persistent
+  // `<footer role="contentinfo" class="app-footer">`) which is reachable
+  // from every view. The per-surface SurfaceFooter retired in #250.
+  // The map view continues to render the eBird credit inside maplibre's
+  // AttributionControl alongside OSM and OpenFreeMap (the in-map control
+  // is a low-friction credit and ODbL-compliant for the map data
+  // specifically — the modal subsumes the surface-level redundancy only).
+  test.describe('attribution reachability (issue #250)', () => {
+    test('feed view exposes a Credits trigger in the app-level footer', async ({ page }) => {
       const app = new AppPage(page);
       await app.goto('view=feed');
       await app.waitForAppReady();
-      // Locate via the footer landmark + accessible name so the assertion
-      // exercises the same DOM path that assistive tech would.
-      const footer = page.locator('footer.surface-footer');
+      const footer = page.locator('footer.app-footer');
       await expect(footer).toBeVisible();
-      const link = footer.getByRole('link', { name: /eBird/i });
-      await expect(link).toHaveAttribute('href', 'https://ebird.org');
-      await expect(link).toHaveAttribute('rel', 'noopener');
-      // The link must be reachable via keyboard, not just visible — focus
-      // it and confirm the activeElement matches.
-      await link.focus();
-      const focusedHref = await page.evaluate(
-        () => (document.activeElement as HTMLAnchorElement | null)?.href,
-      );
-      expect(focusedHref).toBe('https://ebird.org/');
+      const trigger = footer.getByRole('button', { name: /credits/i });
+      await expect(trigger).toBeVisible();
     });
 
-    test('species view exposes a focusable eBird link in a <footer>', async ({ page }) => {
+    test('species view exposes a Credits trigger in the app-level footer', async ({ page }) => {
       const app = new AppPage(page);
       await app.goto('view=species');
       await app.waitForAppReady();
-      const footer = page.locator('footer.surface-footer');
+      const footer = page.locator('footer.app-footer');
       await expect(footer).toBeVisible();
-      const link = footer.getByRole('link', { name: /eBird/i });
-      await expect(link).toHaveAttribute('href', 'https://ebird.org');
-      await expect(link).toHaveAttribute('rel', 'noopener');
+      const trigger = footer.getByRole('button', { name: /credits/i });
+      await expect(trigger).toBeVisible();
     });
 
-    test('detail view exposes a focusable eBird link in a <footer>', async ({ page, apiStub }) => {
+    test('detail view exposes a Credits trigger in the app-level footer', async ({ page, apiStub }) => {
       await apiStub.stubSpecies('vermfly', VERMFLY);
       const app = new AppPage(page);
       await app.goto('detail=vermfly&view=detail');
       await app.waitForAppReady();
       await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' }))
         .toBeVisible({ timeout: 10_000 });
-      const footer = page.locator('footer.surface-footer');
+      const footer = page.locator('footer.app-footer');
       await expect(footer).toBeVisible();
-      const link = footer.getByRole('link', { name: /eBird/i });
-      await expect(link).toHaveAttribute('href', 'https://ebird.org');
-      await expect(link).toHaveAttribute('rel', 'noopener');
+      const trigger = footer.getByRole('button', { name: /credits/i });
+      await expect(trigger).toBeVisible();
     });
 
-    // Map view's eBird credit lives inside maplibre's AttributionControl,
-    // which only renders once a WebGL context initialises. Headless Chromium
-    // in CI (and locally) ships without WebGL by default, so the control
-    // never paints — `[data-testid=map-canvas]` is present but its inner
-    // `.maplibregl-ctrl-attrib-inner` is not. The unit test in
-    // `frontend/src/components/map/MapCanvas.test.tsx` already asserts the
-    // `customAttribution` array shape (eBird link, https://ebird.org href,
-    // `rel="noopener"`); that's the load-bearing contract. The map view
-    // e2e here would only re-test maplibre's own rendering machinery, which
-    // is out of scope for issue #243.
-    //
-    // Surface invariant we CAN cover: SurfaceFooter must NOT render on the
-    // map view (otherwise the map would be double-credited).
-    test('map view does not render a SurfaceFooter (avoid double-credit)', async ({ page }) => {
+    test('map view exposes a Credits trigger in the app-level footer', async ({ page }) => {
       const app = new AppPage(page);
       await app.goto('view=map');
       await app.waitForAppReady();
-      // Map canvas wrapper is present even without WebGL; SurfaceFooter
-      // would have been rendered alongside it by App.tsx if MapSurface
-      // pulled it in by mistake.
-      await expect(page.locator('[data-testid=map-canvas]')).toBeVisible({
-        timeout: 15_000,
-      });
-      await expect(page.locator('footer.surface-footer')).toHaveCount(0);
+      const footer = page.locator('footer.app-footer');
+      await expect(footer).toBeVisible();
+      const trigger = footer.getByRole('button', { name: /credits/i });
+      await expect(trigger).toBeVisible();
+    });
+
+    // SurfaceFooter retired in #250 — assert no leftover surface-level
+    // footers shadow the new app-level footer.
+    test('no per-surface footer.surface-footer renders anywhere', async ({ page }) => {
+      const app = new AppPage(page);
+      for (const view of ['feed', 'species', 'map'] as const) {
+        await app.goto(`view=${view}`);
+        await app.waitForAppReady();
+        await expect(page.locator('footer.surface-footer')).toHaveCount(0);
+      }
     });
   });
 

@@ -1,6 +1,5 @@
 import type { ApiClient } from '../api/client.js';
 import { useSpeciesDetail } from '../data/use-species-detail.js';
-import { SurfaceFooter } from './SurfaceFooter.js';
 
 export interface SpeciesDetailSurfaceProps {
   speciesCode: string;
@@ -41,8 +40,6 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
           <p className="species-detail-family">{data.familyName}</p>
         </div>
       )}
-
-      <SurfaceFooter />
     </div>
   );
 }

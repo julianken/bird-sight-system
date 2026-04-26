@@ -498,29 +498,194 @@ body {
   height: 100%;
 }
 
-/* Surface footer (#243, eBird API ToU §3). Per-surface attribution footer
-   that lives at the bottom of FeedSurface, SpeciesSearchSurface, and
-   SpeciesDetailSurface. Capped at 760px and centered to match the inner
-   surfaces above it (.feed, .species-search-surface, .species-detail-surface).
-   Top border-and-padding gives it a visual seam from the data above without
-   needing a separate divider element. The 12px size + --color-text-muted on
-   the cream page background reads as 7.46:1 contrast (well past WCAG 2.1 AA
-   4.5:1) so axe stays happy. The link inherits the muted colour but stays
-   underlined for affordance.
-   #250 retires this when the AttributionModal lands; the import/element
-   removal touches one line per consumer. */
-.surface-footer {
-  max-width: 760px;
-  margin: var(--space-xl) auto 0 auto;
-  padding: var(--space-md) var(--space-lg);
-  border-top: 1px solid var(--color-border-subtle);
+/* App-level persistent footer (#250). Hosts the AttributionModal Credits
+   trigger reachable from every view (`view=feed|species|map|detail`).
+   Replaces the per-surface SurfaceFooter from #243; the modal subsumes
+   eBird, Phylopic per-silhouette, and OSM/OpenFreeMap credits in one
+   surface so each compliance citation (eBird ToU §3, CC BY 3.0/SA 3.0
+   §4(b/c), OSM ODbL §4.3) lives in one prominent place.
+
+   Position contract: this footer is rendered as the LAST child of
+   `<div className="app">` (after `</main>`). The .app container is a
+   flex column with #main-surface flex: 1, which pushes this footer to
+   the bottom of the viewport without explicit positioning. Don't add
+   `margin-top: auto` — the flex layout already handles it and adding
+   margin on top of flex spacing fights the responsive cap on small
+   viewports. */
+.app-footer {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+  padding: var(--space-sm) var(--space-lg);
+  background: var(--color-bg-surface);
+  border-top: 1px solid var(--color-border-ui);
   font-size: 12px;
   color: var(--color-text-muted);
-  text-align: center;
 }
-.surface-footer a { color: inherit; }
-.surface-footer a:hover,
-.surface-footer a:focus-visible { color: var(--color-text-strong); }
+
+/* AttributionModal trigger button. Visually a link rather than a CTA so
+   the footer stays unobtrusive — the credits surface is reference, not
+   action. Underlined + muted color matches the SurfaceFooter idiom the
+   modal subsumes. The 32px min-height satisfies the iOS HIG tap target
+   on mobile (the trigger is the only thing in the footer). */
+.attribution-trigger {
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: var(--space-xs) var(--space-sm);
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+  border-radius: 4px;
+  min-height: 32px;
+}
+.attribution-trigger:hover,
+.attribution-trigger:focus-visible {
+  color: var(--color-text-strong);
+}
+.attribution-trigger:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+}
+
+/* AttributionModal native <dialog>. Browser-managed top-layer + backdrop
+   means we don't need a separate overlay element; ::backdrop styles the
+   browser's auto-rendered backdrop pseudo-element. The dialog's own
+   bounding box hosts the content; backdrop clicks are dispatched with
+   `event.target === dialog` so the click handler in AttributionModal.tsx
+   can distinguish backdrop from inner-content clicks.
+
+   max-width / max-height are sized for both 390×844 mobile and 1440×900
+   desktop — the Phylopic per-silhouette list scrolls inside the modal
+   on tall content sets so the modal itself doesn't grow past the
+   viewport.
+
+   `inset: 0; margin: auto;` is the cross-browser way to centre a native
+   `<dialog>` opened with showModal(); explicit top/left would fight the
+   browser's centering on Safari. */
+.attribution-modal {
+  border: 1px solid var(--color-border-ui);
+  border-radius: 8px;
+  background: var(--color-bg-surface);
+  color: var(--color-text-strong);
+  padding: 0;
+  max-width: 560px;
+  max-height: 80vh;
+  width: calc(100vw - 2 * var(--space-lg));
+  inset: 0;
+  margin: auto;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, var(--opacity-hover));
+}
+.attribution-modal::backdrop {
+  background: rgba(0, 0, 0, 0.45);
+}
+.attribution-modal-content {
+  padding: var(--space-lg);
+  overflow-y: auto;
+  max-height: 80vh;
+}
+.attribution-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.attribution-modal-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--color-text-strong);
+}
+.attribution-modal-close {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--color-border-ui);
+  border-radius: 4px;
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-text-strong);
+  cursor: pointer;
+  min-height: 32px;
+}
+.attribution-modal-close:hover {
+  background: var(--color-bg-tint);
+}
+.attribution-modal-close:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+}
+.attribution-modal-section {
+  margin-top: var(--space-md);
+}
+.attribution-modal-section h3 {
+  margin: 0 0 var(--space-xs) 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-text-strong);
+}
+.attribution-modal-section p {
+  margin: 0 0 var(--space-xs) 0;
+  font-size: 13px;
+  color: var(--color-text-body);
+  line-height: 1.4;
+}
+.attribution-modal-section a {
+  color: var(--color-text-strong);
+  text-decoration: underline;
+}
+.attribution-modal-section a:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+.attribution-modal-loading {
+  font-style: italic;
+  color: var(--color-text-muted);
+}
+.attribution-modal-section-intro {
+  margin-bottom: var(--space-sm);
+}
+.attribution-modal-phylopic-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.attribution-modal-phylopic-row {
+  font-size: 12px;
+  color: var(--color-text-body);
+  line-height: 1.4;
+  padding: 2px 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.attribution-modal-phylopic-row:last-child {
+  border-bottom: none;
+}
+.attribution-modal-creator {
+  color: var(--color-text-strong);
+}
+
+/* Mobile tightens the modal padding so the per-silhouette list fits in
+   one screen without needing a long inner scroll. The 760px breakpoint
+   matches the codebase responsive convention (see comment block above
+   `.map-surface`). */
+@media (max-width: 760px) {
+  .attribution-modal {
+    max-width: 100vw;
+    width: calc(100vw - 2 * var(--space-md));
+  }
+  .attribution-modal-content {
+    padding: var(--space-md);
+  }
+}
 
 /* FamilyLegend floating overlay (#249). Anchored to the bottom-left of
    .map-surface, above MapLibre's AttributionControl (which lives at
