@@ -226,6 +226,16 @@ export function MapCanvas({
   const silhouettesRef = useRef(silhouettes);
   silhouettesRef.current = silhouettes;
 
+  // Sprite-registration completion gate. Flips true after `Promise.all`
+  // in the sprite-registration effect resolves. The symbol layer JSX is
+  // conditioned on this so MapLibre never tries to paint icons before
+  // their sprites are registered (which would emit `missing-image`
+  // console warnings on cold load — a Tier-1 finding per CLAUDE.md).
+  // Once true, never flips back: re-running the effect on a silhouettes
+  // prop change re-registers in-place via map.addImage (which silently
+  // replaces the prior image), so the layer can stay mounted continuously.
+  const [spritesReady, setSpritesReady] = useState(false);
+
   // Build layer specs once — they read CSS tokens at construction time.
   const clusterLayer = useMemo(() => buildClusterLayerSpec(), []);
   const clusterCountLayer = useMemo(() => buildClusterCountLayerSpec(), []);
@@ -443,14 +453,25 @@ export function MapCanvas({
     // console gate. The acceptance criteria assume the seed migration
     // 1700000018000 is present, so production payloads always have it.
     void fallbackPresent;
-    Promise.all(work).catch(() => {
-      // Individual sprite failures are non-fatal — a missing sprite means
-      // the map shows the basemap-styled missing-image triangle for that
-      // family. The rest of the silhouettes still render. We swallow here
-      // to avoid an unhandled-rejection crash; the dirty-console gate
-      // would surface the per-sprite warning.
-      if (cancelled) return;
-    });
+    Promise.all(work)
+      .then(() => {
+        if (cancelled) return;
+        // Flip the JSX-side barrier so the symbol layer mounts. After
+        // this point, the layer renders and MapLibre can resolve every
+        // icon-image lookup against a registered sprite — no
+        // missing-image warnings.
+        setSpritesReady(true);
+      })
+      .catch(() => {
+        // Individual sprite failures are non-fatal — a missing sprite
+        // means the map shows the basemap-styled missing-image triangle
+        // for that family. The rest of the silhouettes still render.
+        // Even on failure we flip the gate so the layer mounts (showing
+        // the families whose sprites DID register); the dirty-console
+        // gate would surface per-sprite warnings for the failures.
+        if (cancelled) return;
+        setSpritesReady(true);
+      });
     return () => { cancelled = true; };
   }, [mapReady, silhouettes]);
 
@@ -796,9 +817,14 @@ export function MapCanvas({
               layer so the amber halo paints UNDER the silhouette
               (maplibre source-order = bottom-up). The silhouette body
               keeps its family-color tint; the ring marks notability
-              without overwriting the colour signal. */}
+              without overwriting the colour signal. The ring is a
+              circle layer (no sprite needed), so it can mount
+              unconditionally; the symbol layer waits for spritesReady
+              so MapLibre never tries to paint an icon-image whose
+              sprite hasn't been addImage'd yet (cold-load
+              missing-image warning class). */}
           <Layer {...notableRingLayer} />
-          <Layer {...unclusteredLayer} />
+          {spritesReady && <Layer {...unclusteredLayer} />}
         </Source>
         {/*
           Issue #248: HTML <Marker> per small cluster, rendered alongside

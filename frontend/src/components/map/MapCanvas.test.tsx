@@ -266,8 +266,22 @@ describe('MapCanvas', () => {
     expect(data.features).toHaveLength(10);
   });
 
-  it('renders five Layer components: clusters, cluster-count, clusters-hit, notable-ring, unclustered-point', () => {
+  it('renders five Layer components: clusters, cluster-count, clusters-hit, notable-ring, unclustered-point', async () => {
     render(<MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />);
+
+    // The unclustered-point symbol layer is gated on `spritesReady` —
+    // mounted only after the addImage Promise.all resolves. Without
+    // this gate, MapLibre would paint the symbol layer before any
+    // sprite is registered and emit `missing-image` warnings on cold
+    // load. Wait for the layer to appear before asserting the layer
+    // count + ordering.
+    await waitFor(() =>
+      expect(
+        screen
+          .getAllByTestId('mock-layer')
+          .map((el) => el.getAttribute('data-layer-id')),
+      ).toContain('unclustered-point'),
+    );
 
     const layers = screen.getAllByTestId('mock-layer');
     const layerIds = layers.map((el) => el.getAttribute('data-layer-id'));
@@ -282,7 +296,6 @@ describe('MapCanvas', () => {
     // silhouette, preserving the family-color signal in the silhouette
     // body (an amber-tinted SDF would lose it).
     expect(layerIds).toContain('notable-ring');
-    expect(layerIds).toContain('unclustered-point');
 
     const ringIdx = layerIds.indexOf('notable-ring');
     const unclusteredIdx = layerIds.indexOf('unclustered-point');
