@@ -1,11 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   computeSpiderfyLayout,
-  buildSpiderfyLeaderLineFeatures,
   SPIDERFY_RADIUS_PX,
   SPIDERFY_MAX_LEAVES,
   SPIDERFY_DURATION_MS,
-  type SpiderfyLeaf,
 } from './fan-layout.js';
 
 /* ── Pure layout helpers ──────────────────────────────────────────────────
@@ -52,56 +50,6 @@ describe('computeSpiderfyLayout', () => {
     // when point_count <= 8, but defensive layout caps the array at 8.
     const layout = computeSpiderfyLayout(15);
     expect(layout).toHaveLength(SPIDERFY_MAX_LEAVES);
-  });
-});
-
-describe('buildSpiderfyLeaderLineFeatures', () => {
-  it('emits one LineString feature per leaf (origin → leaf coord)', () => {
-    const leaves: SpiderfyLeaf[] = [
-      {
-        subId: 'S1',
-        comName: 'House Finch',
-        familyCode: 'fringillidae',
-        locName: 'Sabino Canyon',
-        obsDt: '2026-04-15T10:00:00Z',
-        isNotable: false,
-        originLngLat: [-111, 34],
-        leafLngLat: [-110.99, 34.01],
-      },
-      {
-        subId: 'S2',
-        comName: 'Verdin',
-        familyCode: 'remizidae',
-        locName: null,
-        obsDt: '2026-04-15T11:00:00Z',
-        isNotable: true,
-        originLngLat: [-111, 34],
-        leafLngLat: [-111.01, 33.99],
-      },
-    ];
-    const fc = buildSpiderfyLeaderLineFeatures(leaves);
-    expect(fc.type).toBe('FeatureCollection');
-    expect(fc.features).toHaveLength(2);
-    expect(fc.features[0]?.geometry.type).toBe('LineString');
-    expect(fc.features[0]?.geometry.coordinates).toEqual([[-111, 34], [-110.99, 34.01]]);
-    expect(fc.features[1]?.geometry.coordinates).toEqual([[-111, 34], [-111.01, 33.99]]);
-  });
-
-  it('includes the leaf subId in each line feature properties for trace/hover', () => {
-    const leaves: SpiderfyLeaf[] = [
-      {
-        subId: 'S99',
-        comName: 'X',
-        familyCode: null,
-        locName: null,
-        obsDt: '2026-04-15T11:00:00Z',
-        isNotable: false,
-        originLngLat: [0, 0],
-        leafLngLat: [1, 1],
-      },
-    ];
-    const fc = buildSpiderfyLeaderLineFeatures(leaves);
-    expect(fc.features[0]?.properties.subId).toBe('S99');
   });
 });
 

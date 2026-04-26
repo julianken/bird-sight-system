@@ -10,9 +10,8 @@
  *
  * Surface kept:
  *
- *   - Geometry primitives: `computeSpiderfyLayout`, `buildSpiderfyLeaderLineFeatures`,
- *     and the associated pure helper types — `stack-fanout.ts`'s `fanPositions`
- *     reuses `computeSpiderfyLayout`.
+ *   - Geometry primitive: `computeSpiderfyLayout` — `stack-fanout.ts`'s
+ *     `fanPositions` reuses it.
  *   - Geometry constants: `SPIDERFY_RADIUS_PX`, `SPIDERFY_MAX_LEAVES`,
  *     `CIRCLE_THRESHOLD`, `SPIRAL_BASE_RADIUS`, `SPIRAL_GROWTH`.
  *   - Leader-line paint constants: `SPIDER_LEADER_COLOR`, `SPIDER_LEADER_WIDTH` —
@@ -22,6 +21,12 @@
  * `PrePanOffset` types. Pre-pan was a click-spiderfy concern — the
  * reconciler-driven auto-spider doesn't need to nudge the viewport because
  * it only fans markers that are already inside the viewport.
+ *
+ * Removed in #295 review fixup: `buildSpiderfyLeaderLineFeatures` and its
+ * `SpiderfyLeaf` / `SpiderfyLeaderLineFeatureCollection` types. Same
+ * disposition as `computePrePanOffset` — zero production callers, only the
+ * colocated test imported it. `MapCanvas.tsx`'s auto-spider reconciler builds
+ * leader features inline.
  */
 
 export const SPIDERFY_RADIUS_PX = 70;
@@ -49,22 +54,6 @@ export interface SpiderfyOffset {
   dx: number;
   /** Y offset in pixels from cluster center (down is positive). */
   dy: number;
-}
-
-/**
- * Geographic coordinates the spiderfy layer needs. `originLngLat` is the
- * cluster center; `leafLngLat` is where the leaf appears after spiderfy
- * (origin + projected pixel offset).
- */
-export interface SpiderfyLeaf {
-  subId: string;
-  comName: string;
-  familyCode: string | null;
-  locName: string | null;
-  obsDt: string;
-  isNotable: boolean;
-  originLngLat: [number, number];
-  leafLngLat: [number, number];
 }
 
 /**
@@ -114,34 +103,3 @@ export function computeSpiderfyLayout(count: number): SpiderfyOffset[] {
   return offsets;
 }
 
-/* GeoJSON-shaped output of `buildSpiderfyLeaderLineFeatures`. Intentionally
-   kept local — `@types/geojson` is not on the import path. */
-export interface SpiderfyLeaderLineFeatureCollection {
-  type: 'FeatureCollection';
-  features: Array<{
-    type: 'Feature';
-    geometry: { type: 'LineString'; coordinates: [number, number][] };
-    properties: { subId: string };
-  }>;
-}
-
-/**
- * Build a GeoJSON FeatureCollection of LineString features (one per leaf),
- * each running from cluster origin → leaf coord. Used as the data for the
- * transient leader-line source.
- */
-export function buildSpiderfyLeaderLineFeatures(
-  leaves: SpiderfyLeaf[],
-): SpiderfyLeaderLineFeatureCollection {
-  return {
-    type: 'FeatureCollection',
-    features: leaves.map((l) => ({
-      type: 'Feature' as const,
-      geometry: {
-        type: 'LineString' as const,
-        coordinates: [l.originLngLat, l.leafLngLat],
-      },
-      properties: { subId: l.subId },
-    })),
-  };
-}
