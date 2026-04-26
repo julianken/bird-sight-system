@@ -351,6 +351,7 @@ export function buildNotableRingLayerSpec(): LayerProps {
       'all',
       ['!', ['has', 'point_count']],
       ['==', ['get', 'isNotable'], true],
+      ['!=', ['get', 'inStack'], true],
     ],
     paint: {
       // Hollow ring — fill is transparent so the silhouette body shows

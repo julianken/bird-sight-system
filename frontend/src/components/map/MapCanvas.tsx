@@ -906,7 +906,9 @@ export function MapCanvas({
         existingSource.setData(leaderGeoJson);
       }
 
-      setAutoSpiderStacks(nextStacks);
+      setAutoSpiderStacks((prev) =>
+        prev.length === 0 && nextStacks.length === 0 ? prev : nextStacks,
+      );
     };
 
     const onLoad = () => { reconcile(); };

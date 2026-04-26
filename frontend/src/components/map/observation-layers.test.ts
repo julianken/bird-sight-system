@@ -281,11 +281,12 @@ describe('layer specs', () => {
     const spec = buildNotableRingLayerSpec();
     expect(spec.id).toBe('notable-ring');
     expect(spec.type).toBe('circle');
-    // Filter: not-clustered AND notable.
+    // Filter: not-clustered AND notable AND not in a spider stack.
     expect(spec.filter).toEqual([
       'all',
       ['!', ['has', 'point_count']],
       ['==', ['get', 'isNotable'], true],
+      ['!=', ['get', 'inStack'], true],
     ]);
 
     const paint = spec.paint as Record<string, unknown>;
@@ -293,6 +294,20 @@ describe('layer specs', () => {
     expect(paint['circle-color']).toBe('rgba(0,0,0,0)');
     expect(paint['circle-stroke-width']).toBeGreaterThanOrEqual(2);
     expect(typeof paint['circle-stroke-color']).toBe('string');
+  });
+
+  it('notable-ring filter suppresses in-stack notable observations (issue #277)', () => {
+    // A notable obs that is also in a spider stack must NOT render the amber
+    // ring at the original lat/lng — the StackedSilhouetteMarker handles
+    // notable treatment at the fanned position. Ensure the filter shape
+    // contains the ['!=', ['get', 'inStack'], true] guard.
+    const spec = buildNotableRingLayerSpec();
+    expect(spec.filter).toEqual([
+      'all',
+      ['!', ['has', 'point_count']],
+      ['==', ['get', 'isNotable'], true],
+      ['!=', ['get', 'inStack'], true],
+    ]);
   });
 
   it('cluster layer filters to clusters with more than 8 points (mosaic threshold)', () => {
