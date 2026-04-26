@@ -7,9 +7,9 @@ beforeAll(async () => { db = await startTestDb(); }, 90_000);
 afterAll(async () => { await db?.stop(); });
 
 describe('getSilhouettes', () => {
-  it('returns all 26 seeded families', async () => {
+  it('returns all 25 seeded families', async () => {
     const rows = await getSilhouettes(db.pool);
-    expect(rows).toHaveLength(26);
+    expect(rows).toHaveLength(25);
   });
 
   it('projects each row with familyCode, color, svgData, source, license', async () => {
@@ -39,10 +39,10 @@ describe('getSilhouettes', () => {
     //       FAMILY_TO_COLOR parity snapshot — required so that the DB
     //       continues to report the same 15 colors that shipped on
     //       2026-04-19 after the hardcoded map was deleted), and
-    //   (ii) the 10 expansion rows + `_FALLBACK` row added by migration
-    //        15000 (issue #244) so empty-family rendering falls back to
-    //        a neutral silhouette and ingest stamping no longer NULLs
-    //        silhouette_id for the most common AZ families.
+    //   (ii) the 10 expansion rows added by migration 15000 (issue #244)
+    //        so ingest stamping no longer NULLs silhouette_id for the most
+    //        common AZ families. The `_FALLBACK` row lands under #246's
+    //        scope (migration 1700000018000) — not asserted here.
     // If a future seed migration edits a color, update BOTH this snapshot
     // and the migration in the same PR.
     const rows = await getSilhouettes(db.pool);
@@ -65,7 +65,6 @@ describe('getSilhouettes', () => {
       trogonidae: '#FF0808',
       tyrannidae: '#C77A2E',
       // --- migration 15000 (issue #244 expansion) ---
-      _FALLBACK: '#888888',
       caprimulgidae: '#3D2E5C',
       cardinalidae: '#B0231A',
       columbidae: '#A89880',

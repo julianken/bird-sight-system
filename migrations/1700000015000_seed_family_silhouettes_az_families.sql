@@ -2,8 +2,8 @@
 --
 -- Issue #244 (epic #251). Expands the family_silhouettes seed to cover the
 -- ~10 highly-common AZ bird families that the original 15-row seed in
--- migration 9000 missed (per the #55 audit), plus a `_FALLBACK` row used by
--- the SDF symbol layer's empty-family fallback path (#246's consumer).
+-- migration 9000 missed (per the #55 audit). The `_FALLBACK` row stays
+-- under #246's scope and lands via migration 1700000018000.
 --
 -- Without these rows, observations of the listed species fail the JOIN
 -- against family_silhouettes during ingest stamping (`silhouette_id` ends up
@@ -35,12 +35,10 @@ INSERT INTO family_silhouettes (id, family_code, svg_data, color, source, licens
 ('fringillidae',      'fringillidae',      'M5 14 C5 10 8 9 12 10 L16 9 L17 11 L15 12 L15 14 L13 16 L9 16 L5 14 Z',              '#E0A82E', 'placeholder', 'CC0'),
 ('caprimulgidae',     'caprimulgidae',     'M3 13 L7 11 Q12 8 17 11 L21 13 L17 14 L13 15 L9 15 L3 14 Z',                          '#3D2E5C', 'placeholder', 'CC0'),
 ('remizidae',         'remizidae',         'M6 14 C6 11 9 10 12 11 L15 10 L16 11 L15 13 L13 14 L11 14 L9 15 L6 14 Z',             '#9AAE8C', 'placeholder', 'CC0'),
-('threskiornithidae', 'threskiornithidae', 'M3 13 C3 10 7 9 12 10 L17 9 L20 7 L21 9 L19 11 L18 13 L16 15 L8 16 L3 13 Z',         '#C56B9D', 'placeholder', 'CC0'),
-('_FALLBACK',         '_FALLBACK',         'M5 14 C5 10 9 8 13 9 L17 8 L17 10 L15 11 L15 14 L13 16 L9 16 L5 14 Z',               '#888888', 'placeholder', 'CC0');
+('threskiornithidae', 'threskiornithidae', 'M3 13 C3 10 7 9 12 10 L17 9 L20 7 L21 9 L19 11 L18 13 L16 15 L8 16 L3 13 Z',         '#C56B9D', 'placeholder', 'CC0');
 
 -- Down Migration
 DELETE FROM family_silhouettes WHERE id IN (
   'cardinalidae','mimidae','columbidae','parulidae','ptilogonatidae',
-  'paridae','fringillidae','caprimulgidae','remizidae','threskiornithidae',
-  '_FALLBACK'
+  'paridae','fringillidae','caprimulgidae','remizidae','threskiornithidae'
 );
