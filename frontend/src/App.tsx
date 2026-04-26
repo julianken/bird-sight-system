@@ -58,6 +58,33 @@ export function App() {
     [set]
   );
 
+  /**
+   * Skip-link handler (issue #247): switch to the feed view AND move
+   * keyboard focus to the FeedSurface `<ol class="feed">` landmark so
+   * (a) sighted-keyboard users see a clear focus jump, and (b) screen-
+   * reader users get a landmark announcement. The setTimeout(_, 0)
+   * defers the focus call past the next React commit, when the FeedSurface
+   * `<ol>` has actually mounted. Using `requestAnimationFrame` would also
+   * work; a 0ms timeout is the more portable signal across React 18 +
+   * jsdom test environments.
+   */
+  const onSkipToFeed = useCallback(() => {
+    set({ view: 'feed' });
+    setTimeout(() => {
+      const feedList = document.querySelector(
+        'ol.feed[aria-label="Observations"]',
+      );
+      if (feedList instanceof HTMLElement) {
+        // Lists are not focusable by default — set tabIndex first so the
+        // browser actually moves focus and emits a focus event.
+        if (!feedList.hasAttribute('tabindex')) {
+          feedList.setAttribute('tabindex', '-1');
+        }
+        feedList.focus({ preventScroll: false });
+      }
+    }, 0);
+  }, [set]);
+
   // Log raw error details for debugging; show only a friendly message in UI.
   useEffect(() => {
     if (!error) return;
@@ -116,6 +143,7 @@ export function App() {
             silhouettes={silhouettes}
             familyCode={state.familyCode}
             onFamilyToggle={onFamilyToggle}
+            onSkipToFeed={onSkipToFeed}
           />
         )}
         {state.view === 'species' && (
