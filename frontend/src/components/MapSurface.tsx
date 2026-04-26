@@ -53,6 +53,13 @@ export interface MapSurfaceProps {
    * hidden (no a11y bypass without a destination).
    */
   onSkipToFeed?: () => void;
+  /**
+   * Issue #246: ObservationPopover detail link. App.tsx wires this to
+   * `set({ view: 'detail', detail: speciesCode })` via `useUrlState`
+   * (already exposed for the FeedSurface row clicks). Optional — when
+   * absent, the popover hides the "See species details" link.
+   */
+  onSelectSpecies?: (speciesCode: string) => void;
 }
 
 /**
@@ -84,6 +91,7 @@ export function MapSurface({
   familyCode,
   onFamilyToggle,
   onSkipToFeed,
+  onSelectSpecies,
 }: MapSurfaceProps) {
   // Compute the expand-by-default once at mount. The component itself
   // (FamilyLegend) handles localStorage precedence + manual toggle.
@@ -130,7 +138,11 @@ export function MapSurface({
             </div>
           }
         >
-          <MapCanvas observations={observations} silhouettes={silhouettes} />
+          <MapCanvas
+            observations={observations}
+            silhouettes={silhouettes}
+            {...(onSelectSpecies ? { onSelectSpecies } : {})}
+          />
         </React.Suspense>
         <FamilyLegend
           silhouettes={silhouettes}
