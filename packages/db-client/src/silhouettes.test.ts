@@ -12,7 +12,7 @@ describe('getSilhouettes', () => {
     expect(rows).toHaveLength(15);
   });
 
-  it('projects each row with familyCode, color, svgData, source, license', async () => {
+  it('projects each row with familyCode, color, svgData, source, license, commonName', async () => {
     const rows = await getSilhouettes(db.pool);
     const accipitridae = rows.find(r => r.familyCode === 'accipitridae');
     expect(accipitridae).toBeDefined();
@@ -24,6 +24,10 @@ describe('getSilhouettes', () => {
     // non-null values; the test just asserts the SELECT includes them.
     expect(accipitridae).toHaveProperty('source');
     expect(accipitridae).toHaveProperty('license');
+    // commonName added in migration 1700000019000 + seeded in
+    // 1700000019500 (issue #249). The seeded row is non-null.
+    expect(accipitridae).toHaveProperty('commonName');
+    expect(typeof accipitridae!.commonName).toBe('string');
   });
 
   it('returns rows in stable familyCode order', async () => {
@@ -56,6 +60,42 @@ describe('getSilhouettes', () => {
       troglodytidae: '#7A5028',
       trogonidae: '#FF0808',
       tyrannidae: '#C77A2E',
+    });
+  });
+
+  it('every seeded family has a non-null commonName (issue #249 seed migration)', async () => {
+    // The 1700000019500 data migration populates English common names for
+    // every family code that exists in the seed. Production callers
+    // (FamilyLegend) fall back to `prettyFamily(familyCode)` when this
+    // field is NULL — that fallback is purely defensive for unseeded
+    // families landing post-deploy. For the seeded baseline, the
+    // expectation is zero NULL rows.
+    const rows = await getSilhouettes(db.pool);
+    const nullCommon = rows.filter(r => r.commonName === null);
+    expect(nullCommon).toEqual([]);
+  });
+
+  it('common-name snapshot for the 15 baseline families', async () => {
+    // Curated English common names per migration 1700000019500. Update both
+    // sides together if the seed text changes.
+    const rows = await getSilhouettes(db.pool);
+    const byFamily = Object.fromEntries(rows.map(r => [r.familyCode, r.commonName]));
+    expect(byFamily).toEqual({
+      accipitridae: 'Hawks, Eagles & Kites',
+      anatidae: 'Ducks, Geese & Swans',
+      ardeidae: 'Herons & Egrets',
+      cathartidae: 'New World Vultures',
+      corvidae: 'Crows, Jays & Magpies',
+      cuculidae: 'Cuckoos & Roadrunners',
+      odontophoridae: 'New World Quail',
+      passerellidae: 'New World Sparrows',
+      picidae: 'Woodpeckers',
+      scolopacidae: 'Sandpipers',
+      strigidae: 'Owls',
+      trochilidae: 'Hummingbirds',
+      troglodytidae: 'Wrens',
+      trogonidae: 'Trogons',
+      tyrannidae: 'Tyrant Flycatchers',
     });
   });
 });

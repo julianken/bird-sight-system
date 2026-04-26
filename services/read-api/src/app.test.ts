@@ -135,10 +135,14 @@ describe('GET /api/silhouettes', () => {
     const body = await res.json() as Array<{
       familyCode: string; color: string; svgData: string | null;
       source: string | null; license: string | null;
+      commonName: string | null;
     }>;
     expect(body).toHaveLength(15);
     const tyrannidae = body.find(r => r.familyCode === 'tyrannidae');
     expect(tyrannidae?.color).toBe('#C77A2E');
+    // commonName round-trips through Hono response (issue #249). Field
+    // populated by migration 1700000019500.
+    expect(tyrannidae?.commonName).toBe('Tyrant Flycatchers');
   });
 
   it('provides color for every family_code present in species_meta (parity with deleted FAMILY_TO_COLOR)', async () => {
