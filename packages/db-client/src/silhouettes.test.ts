@@ -7,9 +7,9 @@ beforeAll(async () => { db = await startTestDb(); }, 90_000);
 afterAll(async () => { await db?.stop(); });
 
 describe('getSilhouettes', () => {
-  it('returns all 15 seeded families', async () => {
+  it('returns all 25 seeded families', async () => {
     const rows = await getSilhouettes(db.pool);
-    expect(rows).toHaveLength(15);
+    expect(rows).toHaveLength(25);
   });
 
   it('projects each row with familyCode, color, svgData, source, license', async () => {
@@ -34,13 +34,21 @@ describe('getSilhouettes', () => {
   });
 
   it('colors match the legacy FAMILY_TO_COLOR snapshot (parity with deleted hardcoded map)', async () => {
-    // This snapshot IS the parity test required by issue #55 option (a):
-    // after deleting FAMILY_TO_COLOR the DB must still report the same 15
-    // colors that shipped on 2026-04-19. If a future seed migration edits a
-    // color, update BOTH this snapshot and the migration in the same PR.
+    // This snapshot covers two cohorts of seeded family colors:
+    //   (i) the 15 #55 option-(a) rows from migration 9000 (the original
+    //       FAMILY_TO_COLOR parity snapshot — required so that the DB
+    //       continues to report the same 15 colors that shipped on
+    //       2026-04-19 after the hardcoded map was deleted), and
+    //   (ii) the 10 expansion rows added by migration 15000 (issue #244)
+    //        so ingest stamping no longer NULLs silhouette_id for the most
+    //        common AZ families. The `_FALLBACK` row lands under #246's
+    //        scope (migration 1700000018000) — not asserted here.
+    // If a future seed migration edits a color, update BOTH this snapshot
+    // and the migration in the same PR.
     const rows = await getSilhouettes(db.pool);
     const byFamily = Object.fromEntries(rows.map(r => [r.familyCode, r.color]));
     expect(byFamily).toEqual({
+      // --- migration 9000 (#55 option-(a)) ---
       accipitridae: '#222222',
       anatidae: '#3A6B8E',
       ardeidae: '#5A6B2A',
@@ -56,6 +64,17 @@ describe('getSilhouettes', () => {
       troglodytidae: '#7A5028',
       trogonidae: '#FF0808',
       tyrannidae: '#C77A2E',
+      // --- migration 15000 (issue #244 expansion) ---
+      caprimulgidae: '#3D2E5C',
+      cardinalidae: '#B0231A',
+      columbidae: '#A89880',
+      fringillidae: '#E0A82E',
+      mimidae: '#8E7B5A',
+      paridae: '#4A6FA5',
+      parulidae: '#D4C84A',
+      ptilogonatidae: '#1F1F35',
+      remizidae: '#9AAE8C',
+      threskiornithidae: '#C56B9D',
     });
   });
 });
