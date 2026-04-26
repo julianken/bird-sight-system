@@ -552,13 +552,21 @@ describe('MapCanvas', () => {
 
   it('does not call addImage when silhouettes prop is empty', () => {
     render(<MapCanvas observations={[makeObs()]} silhouettes={[]} />);
-    // No silhouettes → no sprite registration. The symbol layer mounts
-    // with `icon-image: ['get', 'silhouetteId']` looking up sprites that
-    // don't exist; that surfaces as a missing-image warning at runtime,
-    // which would be a Tier-1 dirty-console finding. The fix is to mount
-    // MapCanvas only after silhouettes resolve — but that's a caller
-    // concern; this test just confirms the no-silhouettes default is a
-    // no-op (no spurious addImage calls).
+    // No silhouettes → no sprite registration. MapCanvas owns the fix
+    // via the `spritesReady` flag, which gates two sites in
+    // `MapCanvas.tsx`:
+    //   1. JSX: `{spritesReady && <Layer {...unclusteredLayer} />}` —
+    //      the symbol layer is never mounted until sprites are
+    //      registered, so MapLibre never tries to look up a missing
+    //      `icon-image` (would emit a Tier-1 missing-image console
+    //      warning on cold load).
+    //   2. The auto-spider reconciler effect early-returns on
+    //      `if (!spritesReady) return undefined;` (added in #280) so
+    //      `queryRenderedFeatures` never names the not-yet-mounted
+    //      `unclustered-point` layer (would throw
+    //      "layer does not exist in the map's style").
+    // This test just pins the most upstream invariant for the empty
+    // case: no silhouettes → no `map.addImage` calls at all.
     expect(fakeMap.addImage).not.toHaveBeenCalled();
   });
 
