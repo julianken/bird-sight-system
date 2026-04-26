@@ -292,6 +292,16 @@ export function buildUnclusteredPointLayerSpec(): LayerProps {
       // SDF tint: each feature's color property paints its own silhouette.
       // This is what gives the map the same family-color signal as the legend.
       'icon-color': ['get', 'color'],
+      // White halo around each silhouette for contrast against the
+      // light OpenFreeMap positron basemap. Without it, families whose
+      // seed color is naturally low-saturation (accipitridae #222222,
+      // cathartidae #444444, corvidae #222244, strigidae #5A4A2A,
+      // troglodytidae #7A5028, plus _FALLBACK #555 at half opacity)
+      // read as faint smudges. The halo is the same trick maplibre
+      // text-symbol labels use to stand out against varied backgrounds —
+      // see basemap-style.ts text layers for the precedent.
+      'icon-halo-color': '#ffffff',
+      'icon-halo-width': 1.5,
       // Fade _FALLBACK markers so missing-Phylopic families read as
       // distinct from the rest. The condition uses the literal sentinel
       // value — must stay in sync with FALLBACK_SILHOUETTE_ID above.
