@@ -181,9 +181,62 @@ describe('observationsToGeoJson', () => {
     const props = result.features[0]!.properties;
     expect(props.familyCode).toBeNull();
   });
+
+  it('stackedSubIds default arg → every feature gets inStack: false (issue #277)', () => {
+    // When no third argument is passed, all features must have inStack: false
+    // so the unclustered-point filter passes them all through unchanged.
+    const obs = [
+      makeObs({ subId: 'SUB1' }),
+      makeObs({ subId: 'SUB2' }),
+      makeObs({ subId: 'SUB3' }),
+    ];
+    const result = observationsToGeoJson(obs);
+    for (const feature of result.features) {
+      expect(feature.properties.inStack).toBe(false);
+    }
+  });
+
+  it('single stackedSubId → only matching feature gets inStack: true (issue #277)', () => {
+    // SUB1 is in the stacked set; SUB2 is not. SUB1's feature should carry
+    // inStack: true so the symbol layer filter can suppress it.
+    const obs = [
+      makeObs({ subId: 'SUB1' }),
+      makeObs({ subId: 'SUB2' }),
+    ];
+    const result = observationsToGeoJson(obs, [], new Set(['SUB1']));
+    const [f1, f2] = result.features;
+    expect(f1!.properties.inStack).toBe(true);
+    expect(f2!.properties.inStack).toBe(false);
+  });
+
+  it('multi-stack stackedSubIds → each listed subId gets inStack: true, unlisted stays false (issue #277)', () => {
+    // SUB1 and SUB3 are in the stacked set; SUB2 is not.
+    const obs = [
+      makeObs({ subId: 'SUB1' }),
+      makeObs({ subId: 'SUB2' }),
+      makeObs({ subId: 'SUB3' }),
+    ];
+    const result = observationsToGeoJson(obs, [], new Set(['SUB1', 'SUB3']));
+    const [f1, f2, f3] = result.features;
+    expect(f1!.properties.inStack).toBe(true);
+    expect(f2!.properties.inStack).toBe(false);
+    expect(f3!.properties.inStack).toBe(true);
+  });
 });
 
 describe('layer specs', () => {
+  it('unclustered-point filter suppresses in-stack features (issue #277)', () => {
+    // The filter must exclude clustered features AND features whose inStack
+    // property is true. The ['!='] form is correct because inStack is always
+    // present on every feature (set by observationsToGeoJson).
+    const spec = buildUnclusteredPointLayerSpec();
+    expect(spec.filter).toEqual([
+      'all',
+      ['!', ['has', 'point_count']],
+      ['!=', ['get', 'inStack'], true],
+    ]);
+  });
+
   it('unclustered-point is a symbol layer rendering per-feature silhouettes', () => {
     // Issue #246: replaced the legacy circle layer with an SDF symbol layer.
     // Each feature renders its family's silhouette via icon-image, tinted by
@@ -192,7 +245,11 @@ describe('layer specs', () => {
     const spec = buildUnclusteredPointLayerSpec();
     expect(spec.id).toBe('unclustered-point');
     expect(spec.type).toBe('symbol');
-    expect(spec.filter).toEqual(['!', ['has', 'point_count']]);
+    expect(spec.filter).toEqual([
+      'all',
+      ['!', ['has', 'point_count']],
+      ['!=', ['get', 'inStack'], true],
+    ]);
 
     const layout = spec.layout as Record<string, unknown>;
     // icon-image reads the per-feature silhouette id (resolved to a sprite

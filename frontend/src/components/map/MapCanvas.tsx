@@ -252,11 +252,6 @@ export function MapCanvas({
     return () => mql.removeEventListener('change', handler);
   }, []);
 
-  const geojson = useMemo(
-    () => observationsToGeoJson(observations, silhouettes),
-    [observations, silhouettes],
-  );
-
   // The reconciler reads `silhouettes` on every cluster pass. A ref keeps
   // the closure fresh without re-registering the map listeners (registration
   // is keyed only on the map instance, NOT on the silhouettes array).
@@ -281,6 +276,23 @@ export function MapCanvas({
    */
   const [autoSpiderStacks, setAutoSpiderStacks] = useState<AutoSpiderStack[]>(
     [],
+  );
+
+  // Issue #277 (Spider v2 Task 4): derive the set of subIds that belong to
+  // any active auto-spider stack. These features get inStack: true in the
+  // GeoJSON so the unclustered-point SDF layer filters them out, preventing
+  // double-rendering alongside the StackedSilhouetteMarker fan positions.
+  const stackedSubIds = useMemo<ReadonlySet<string>>(
+    () =>
+      new Set(
+        autoSpiderStacks.flatMap((s) => s.leaves.map((l) => l.subId)),
+      ),
+    [autoSpiderStacks],
+  );
+
+  const geojson = useMemo(
+    () => observationsToGeoJson(observations, silhouettes, stackedSubIds),
+    [observations, silhouettes, stackedSubIds],
   );
 
   // Tracks the map's current zoom for hit-target gating. The hit-layer
