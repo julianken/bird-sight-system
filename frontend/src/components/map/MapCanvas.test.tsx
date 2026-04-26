@@ -27,6 +27,23 @@ let bareHandlers: Record<string, () => void | Promise<void>> = {};
 
 function makeFakeMap() {
   const canvas = { style: { cursor: '' }, clientWidth: 1440, clientHeight: 900 };
+  // The auto-spider reconciler reads viewport bounds via
+  // map.getContainer().getBoundingClientRect() to filter
+  // querySourceFeatures' tile-extent results down to the visible
+  // viewport. Default 1440×900 covers the desktop release-1 viewport;
+  // tests that need a smaller viewport can override after construction.
+  const container = {
+    getBoundingClientRect: vi.fn(() => ({
+      x: 0,
+      y: 0,
+      width: 1440,
+      height: 900,
+      top: 0,
+      left: 0,
+      right: 1440,
+      bottom: 900,
+    })),
+  };
   // Sprite registry — addImage records here; hasImage looks up.
   const sprites = new Set<string>();
   return {
@@ -55,9 +72,15 @@ function makeFakeMap() {
     ),
     off: vi.fn(),
     queryRenderedFeatures: vi.fn(),
+    // Auto-spider reconciler queries the source directly (issue #277,
+    // feedback-loop fix) so layer filters don't suppress already-stacked
+    // features on subsequent idles. Default returns []; tests that
+    // exercise stack detection override.
+    querySourceFeatures: vi.fn(() => []),
     getSource: vi.fn(),
     getLayer: vi.fn(),
     getCanvas: vi.fn(() => canvas),
+    getContainer: vi.fn(() => container),
     easeTo: vi.fn(),
     getZoom: vi.fn(() => 6),
     project: vi.fn(() => ({ x: 700, y: 400 })),
@@ -393,39 +416,21 @@ describe('MapCanvas', () => {
     );
   });
 
-  /* ── Spiderfy (issue #247) ────────────────────────────────────────────
-     The cluster-click handler branches on (point_count, zoom):
-       - point_count > 8 OR zoom < CLUSTER_MAX_ZOOM → existing zoom-into-
-         cluster behavior (above tests cover this).
-       - point_count ≤ 8 AND zoom ≥ CLUSTER_MAX_ZOOM → spiderfy.
+  /* ── Cluster-click behavior (Spider v2) ──────────────────────────────
+     Spider v2 auto-spider reconciler handles fanning at zoom >=
+     CLUSTER_MAX_ZOOM. The cluster-click handler is now simplified:
+       - zoom < CLUSTER_MAX_ZOOM → easeTo (zoom in).
+       - zoom >= CLUSTER_MAX_ZOOM → NO-OP (auto-spider already fanned). */
 
-     Spiderfy itself uses `source.getClusterLeaves(id, 8, 0)` — must NOT
-     pass a callback (silently no-ops in maplibre 5.x — same regression
-     class as PR #165 / issue #166). */
-
-  it('spiderfies (not zoom-in) when point_count ≤ 8 AND zoom ≥ CLUSTER_MAX_ZOOM', async () => {
+  it('cluster click is a no-op at zoom >= CLUSTER_MAX_ZOOM (auto-spider already fanned)', async () => {
     render(<MapCanvas observations={[makeObs()]} silhouettes={[]} />);
     await waitFor(() =>
       expect(registeredHandlers['click:clusters']).toBeTypeOf('function'),
     );
 
     fakeMap.getZoom.mockReturnValue(15); // ≥ CLUSTER_MAX_ZOOM (14)
-    const leaves = Array.from({ length: 5 }, (_, i) => ({
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [-111, 34] },
-      properties: {
-        subId: `S${i}`,
-        comName: `Bird ${i}`,
-        familyCode: 'fringillidae',
-        locName: 'Loc',
-        obsDt: '2026-04-15T10:00:00Z',
-        isNotable: false,
-      },
-    }));
-    const getClusterLeaves = vi.fn().mockResolvedValue(leaves);
     const getClusterExpansionZoom = vi.fn();
     fakeMap.getSource.mockReturnValue({
-      getClusterLeaves,
       getClusterExpansionZoom,
     });
 
@@ -442,48 +447,12 @@ describe('MapCanvas', () => {
       handler({ point: [100, 100] });
     });
 
-    // Spiderfy was invoked (Promise API, arity 3).
-    await waitFor(() => expect(getClusterLeaves).toHaveBeenCalled());
-    expect(getClusterLeaves.mock.calls[0]).toHaveLength(3);
-    expect(getClusterLeaves).toHaveBeenCalledWith(7, 8, 0);
-
-    // Zoom-into-cluster did NOT run.
+    // At max zoom: early return fires before getClusterExpansionZoom is reached.
     expect(getClusterExpansionZoom).not.toHaveBeenCalled();
+    expect(fakeMap.easeTo).not.toHaveBeenCalled();
   });
 
-  it('zooms (not spiderfy) when point_count > 8 even at zoom ≥ CLUSTER_MAX_ZOOM', async () => {
-    render(<MapCanvas observations={[makeObs()]} silhouettes={[]} />);
-    await waitFor(() =>
-      expect(registeredHandlers['click:clusters']).toBeTypeOf('function'),
-    );
-
-    fakeMap.getZoom.mockReturnValue(15);
-    const getClusterLeaves = vi.fn();
-    const getClusterExpansionZoom = vi.fn().mockResolvedValue(16);
-    fakeMap.getSource.mockReturnValue({
-      getClusterLeaves,
-      getClusterExpansionZoom,
-    });
-
-    // point_count = 12 > 8 → zoom branch.
-    fakeMap.queryRenderedFeatures.mockReturnValue([
-      {
-        properties: { cluster_id: 9, point_count: 12 },
-        geometry: { type: 'Point', coordinates: [-111, 34] },
-      },
-    ]);
-
-    const handler = registeredHandlers['click:clusters'];
-    if (!handler) throw new Error('click:clusters handler missing');
-    await act(async () => {
-      handler({ point: [0, 0] });
-    });
-
-    expect(getClusterExpansionZoom).toHaveBeenCalled();
-    expect(getClusterLeaves).not.toHaveBeenCalled();
-  });
-
-  it('zooms (not spiderfy) when zoom < CLUSTER_MAX_ZOOM regardless of point_count', async () => {
+  it('zooms in when zoom < CLUSTER_MAX_ZOOM regardless of point_count', async () => {
     render(<MapCanvas observations={[makeObs()]} silhouettes={[]} />);
     await waitFor(() =>
       expect(registeredHandlers['click:clusters']).toBeTypeOf('function'),
@@ -819,5 +788,538 @@ describe('MapCanvas', () => {
     await act(async () => {
       expect(() => bareHandlers['idle']?.()).not.toThrow();
     });
+  });
+
+  /* ── Auto-spider reconciler (issue #277, Spider v2 Task 3) ─────────────
+     The auto-spider effect queries 'unclustered-point' features on every
+     idle, groups co-located obs via groupOverlapping, and renders
+     StackedSilhouetteMarker leaves at fanned positions with a leader-line
+     source. All four sub-cases in the Task 3 AC are covered here. */
+
+  it('auto-spider: silhouettes empty → no stacked-silhouette-marker rendered', async () => {
+    // AC #2: when silhouettes.length === 0, the reconciler short-circuits
+    // before doing any projection work. No markers, no leader source.
+    fakeMap.queryRenderedFeatures.mockReturnValue([]);
+    fakeMap.getSource.mockReturnValue(null);
+
+    render(<MapCanvas observations={[makeObs()]} silhouettes={[]} />);
+    await act(async () => {
+      await bareHandlers['idle']?.();
+    });
+
+    expect(
+      document.querySelectorAll('[data-testid="stacked-silhouette-marker"]'),
+    ).toHaveLength(0);
+    // addSource should NOT have been called for the auto-spider leader source
+    expect(
+      fakeMap.addSource.mock.calls.some(
+        (c: unknown[]) => c[0] === 'auto-spider-leader-lines',
+      ),
+    ).toBe(false);
+  });
+
+  it('auto-spider: 2 obs > threshold apart → no stacks, no markers, no leader data', async () => {
+    // AC #3: when no stacks detected, state is []; no markers rendered; no
+    // leader-line source update.
+    // project returns distinct screen coords far apart so groupOverlapping
+    // treats them as singletons.
+    let callCount = 0;
+    fakeMap.project.mockImplementation(() => {
+      callCount += 1;
+      return callCount % 2 === 0 ? { x: 0, y: 0 } : { x: 500, y: 500 };
+    });
+
+    const features = [
+      {
+        properties: {
+          subId: 'SA1',
+          comName: 'Bird A',
+          familyCode: 'tyrannidae',
+          locName: 'Loc A',
+          obsDt: '2026-04-15T10:00:00Z',
+          isNotable: false,
+          color: '#C77A2E',
+          silhouetteId: 'tyrannidae',
+        },
+        geometry: { type: 'Point', coordinates: [-111.0, 34.0] },
+      },
+      {
+        properties: {
+          subId: 'SA2',
+          comName: 'Bird B',
+          familyCode: 'picidae',
+          locName: 'Loc B',
+          obsDt: '2026-04-15T11:00:00Z',
+          isNotable: false,
+          color: '#FF0808',
+          silhouetteId: 'picidae',
+        },
+        geometry: { type: 'Point', coordinates: [-112.0, 35.0] },
+      },
+    ];
+
+    fakeMap.queryRenderedFeatures.mockImplementation(
+      (_: unknown, opts?: { layers?: string[] }) => {
+        if (opts?.layers?.includes('unclustered-point')) return features;
+        return [];
+      },
+    );
+    fakeMap.getSource.mockReturnValue(null);
+    fakeMap.getLayer.mockReturnValue(null);
+
+    render(<MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />);
+    await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+
+    await act(async () => {
+      await bareHandlers['idle']?.();
+    });
+
+    expect(
+      document.querySelectorAll('[data-testid="stacked-silhouette-marker"]'),
+    ).toHaveLength(0);
+  });
+
+  it('auto-spider: 5 obs at identical coords → 5 stacked-silhouette-marker elements + leader-line source with 5 LineStrings', async () => {
+    // AC #4: 5 obs at same screen position → one stack → fanPositions gives
+    // 5 leaf positions → 5 Marker+StackedSilhouetteMarker elements; leader-
+    // line source setData called with 5 LineString features.
+    //
+    // Issue #277 feedback-loop fix: the reconciler now reads features via
+    // querySourceFeatures (NOT queryRenderedFeatures), so layer-filter
+    // suppression of inStack=true features on the second idle can't make
+    // the reconciler oscillate between "stack detected" and "no stack".
+    // The mock returns viewport-projected screen coords inside the
+    // 1440×900 default viewport so the reconciler's manual viewport
+    // filter doesn't drop them.
+    fakeMap.project.mockReturnValue({ x: 700, y: 400 }); // all identical, in-viewport
+    fakeMap.unproject.mockReturnValue({ lng: -111.0, lat: 34.0 });
+
+    const makeFeature = (subId: string, familyCode: string) => ({
+      properties: {
+        subId,
+        comName: `Bird ${subId}`,
+        familyCode,
+        locName: 'Same Hotspot',
+        obsDt: '2026-04-15T10:00:00Z',
+        isNotable: false,
+        color: '#C77A2E',
+        silhouetteId: familyCode,
+      },
+      geometry: { type: 'Point', coordinates: [-111.0, 34.0] },
+    });
+
+    const features = [
+      makeFeature('SB1', 'tyrannidae'),
+      makeFeature('SB2', 'tyrannidae'),
+      makeFeature('SB3', 'trochilidae'),
+      makeFeature('SB4', 'picidae'),
+      makeFeature('SB5', 'tyrannidae'),
+    ];
+
+    // mockReturnValue (NOT mockReturnValueOnce): the reconciler can fire
+    // multiple idles, and every pass must see the same 5 features so the
+    // feedback-loop fix is exercised correctly.
+    fakeMap.querySourceFeatures.mockImplementation(
+      (sourceId: string) => (sourceId === 'observations' ? features : []),
+    );
+
+    // First getSource call (check if source exists) returns null → reconciler
+    // calls addSource. Subsequent getSource calls return a mock with setData.
+    const mockSetData = vi.fn();
+    let sourceCallCount = 0;
+    fakeMap.getSource.mockImplementation((id: string) => {
+      if (id === 'auto-spider-leader-lines') {
+        sourceCallCount += 1;
+        // First call (existence check) → null. After addSource called, return
+        // mock. Use a simple counter: first check is null, later ones return mock.
+        return sourceCallCount <= 1 ? null : { setData: mockSetData };
+      }
+      return null;
+    });
+    // The auto-spider reconciler still defensively checks
+    // `map.getLayer('unclustered-point')` as a proxy for "rendering
+    // pipeline alive" (querySourceFeatures itself does not throw on a
+    // missing layer). The symbol layer must report as present; the
+    // auto-spider leader-lines layer is still absent (reconciler will
+    // addLayer it).
+    fakeMap.getLayer.mockImplementation((id: string) =>
+      id === 'unclustered-point' ? ({ id } as unknown) : null,
+    );
+
+    render(<MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />);
+    await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+
+    await act(async () => {
+      await bareHandlers['idle']?.();
+    });
+
+    await waitFor(() => {
+      const markers = document.querySelectorAll('[data-testid="stacked-silhouette-marker"]');
+      expect(markers).toHaveLength(5);
+    });
+
+    // Leader-line source should have been added or setData called with
+    // 5 LineString features.
+    const addSourceCalls = fakeMap.addSource.mock.calls.filter(
+      (c: unknown[]) => c[0] === 'auto-spider-leader-lines',
+    );
+    expect(addSourceCalls).toHaveLength(1);
+    const sourceData = addSourceCalls[0]?.[1] as { data: { features: unknown[] } };
+    expect(sourceData.data.features).toHaveLength(5);
+  });
+
+  /* ── Tile-boundary duplicate dedupe regression ──────────────────────
+     Maplibre's clustered GeoJSON source returns the SAME source feature
+     once per tile a feature crosses, so at zooms where vector tiles
+     overlap (zoom 13 over Tucson, caught by browser-drive)
+     querySourceFeatures emits duplicates with the same `properties.subId`.
+     Without dedupe, both copies feed groupOverlapping; the running-mean
+     center can place them in different candidate stacks, and each
+     duplicate then renders a <Marker key={subId}>, producing React
+     "Encountered two children with the same key" warnings (~40 per idle
+     pass at zoom 13). The reconciler now dedupes by subId before passing
+     features into groupOverlapping, mirroring the mosaic reconciler's
+     existing dedupe on cluster_id. */
+  it('auto-spider: duplicate subIds from tile-boundary feature returns are deduped → ONE marker per subId, no React duplicate-key warning', async () => {
+    fakeMap.project.mockReturnValue({ x: 700, y: 400 }); // identical screen coords, in-viewport
+    fakeMap.unproject.mockReturnValue({ lng: -111.0, lat: 34.0 });
+
+    const makeFeature = (subId: string, familyCode: string) => ({
+      properties: {
+        subId,
+        comName: `Bird ${subId}`,
+        familyCode,
+        locName: 'Tile Edge Hotspot',
+        obsDt: '2026-04-15T10:00:00Z',
+        isNotable: false,
+        color: '#C77A2E',
+        silhouetteId: familyCode,
+      },
+      geometry: { type: 'Point', coordinates: [-111.0, 34.0] },
+    });
+
+    // 5 unique subIds, but `SD3` appears TWICE — simulating a feature
+    // that sits on a tile boundary and is returned by querySourceFeatures
+    // once per tile it crosses (the bug shape from browser-drive at
+    // zoom 13). After dedupe, 5 unique inputs reach groupOverlapping →
+    // one stack with 5 members → 5 stacked-silhouette-marker elements.
+    // Without dedupe, 6 inputs with one repeated subId reach
+    // groupOverlapping, the same subId ends up in the stack twice, and
+    // React emits a duplicate-key warning while rendering 6 markers.
+    const featuresWithDup = [
+      makeFeature('SD1', 'tyrannidae'),
+      makeFeature('SD2', 'tyrannidae'),
+      makeFeature('SD3', 'trochilidae'),
+      makeFeature('SD3', 'trochilidae'), // duplicate from second tile
+      makeFeature('SD4', 'picidae'),
+      makeFeature('SD5', 'tyrannidae'),
+    ];
+
+    fakeMap.querySourceFeatures.mockImplementation(
+      (sourceId: string) =>
+        sourceId === 'observations' ? featuresWithDup : [],
+    );
+
+    const mockSetData = vi.fn();
+    let sourceCallCount = 0;
+    fakeMap.getSource.mockImplementation((id: string) => {
+      if (id === 'auto-spider-leader-lines') {
+        sourceCallCount += 1;
+        return sourceCallCount <= 1 ? null : { setData: mockSetData };
+      }
+      return null;
+    });
+    fakeMap.getLayer.mockImplementation((id: string) =>
+      id === 'unclustered-point' ? ({ id } as unknown) : null,
+    );
+
+    // Spy on console.error — React routes the duplicate-key warning
+    // through console.error in dev. If dedupe regresses, this spy
+    // captures the "Encountered two children with the same key" warning
+    // and the assertion below fails. Match the production symptom.
+    const consoleErrorSpy = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+
+    try {
+      render(<MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />);
+      await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+
+      await act(async () => {
+        await bareHandlers['idle']?.();
+      });
+
+      // Exactly 5 markers — one per unique subId. Six would mean the
+      // duplicate subId leaked into rendering.
+      await waitFor(() => {
+        const markers = document.querySelectorAll(
+          '[data-testid="stacked-silhouette-marker"]',
+        );
+        expect(markers).toHaveLength(5);
+      });
+
+      // Leader-line FeatureCollection: one LineString per leaf — 5,
+      // not 6. Pins the deduped count flowing through the leader-line
+      // source path as well.
+      const addSourceCalls = fakeMap.addSource.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'auto-spider-leader-lines',
+      );
+      expect(addSourceCalls).toHaveLength(1);
+      const sourceData = addSourceCalls[0]?.[1] as {
+        data: { features: unknown[] };
+      };
+      expect(sourceData.data.features).toHaveLength(5);
+
+      // Production symptom: React's "duplicate key" warning. Filter
+      // strictly so unrelated console.error noise doesn't false-positive.
+      const dupKeyWarnings = consoleErrorSpy.mock.calls.filter((args) => {
+        const first = args[0];
+        return (
+          typeof first === 'string' &&
+          first.includes('two children with the same key')
+        );
+      });
+      expect(dupKeyWarnings).toHaveLength(0);
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+  });
+
+  /* ── Feedback-loop regression (issue #277) ──────────────────────────
+     Before the querySourceFeatures fix, the reconciler oscillated:
+       1st idle: queryRenderedFeatures → 5 features → stack detected →
+                 stackedSubIds set, inStack=true on the 5 features.
+       2nd idle: queryRenderedFeatures returns 0 because the layer's
+                 `['!=', ['get', 'inStack'], true]` filter now hides them
+                 → groupOverlapping([]) = [] → setAutoSpiderStacks([]) →
+                 the StackedSilhouetteMarker leaves vanish.
+       3rd idle: features re-appear (inStack flipped back to false), and
+                 the cycle repeats — visible as rapid flicker.
+     The fix switches to querySourceFeatures, which bypasses layer
+     filters. This test triggers two idles back-to-back and asserts the
+     5 markers still render after the second pass — the regression
+     guardrail. */
+  it('auto-spider: second idle does NOT unstack already-stacked features (issue #277 feedback loop)', async () => {
+    // 5 features at the same screen position, all in-viewport.
+    fakeMap.project.mockReturnValue({ x: 700, y: 400 });
+    fakeMap.unproject.mockReturnValue({ lng: -111.0, lat: 34.0 });
+
+    const makeFeature = (subId: string, familyCode: string) => ({
+      properties: {
+        subId,
+        comName: `Bird ${subId}`,
+        familyCode,
+        locName: 'Same Hotspot',
+        obsDt: '2026-04-15T10:00:00Z',
+        isNotable: false,
+        color: '#C77A2E',
+        silhouetteId: familyCode,
+      },
+      geometry: { type: 'Point', coordinates: [-111.0, 34.0] },
+    });
+
+    const features = [
+      makeFeature('SC1', 'tyrannidae'),
+      makeFeature('SC2', 'tyrannidae'),
+      makeFeature('SC3', 'trochilidae'),
+      makeFeature('SC4', 'picidae'),
+      makeFeature('SC5', 'tyrannidae'),
+    ];
+
+    // querySourceFeatures (the new query path) returns the 5 features
+    // EVERY call — bypassing the layer filter. This simulates the
+    // production behavior where the underlying source still holds the
+    // features even after the reconciler stamps inStack=true on them.
+    fakeMap.querySourceFeatures.mockImplementation(
+      (sourceId: string) => (sourceId === 'observations' ? features : []),
+    );
+
+    // queryRenderedFeatures returns NOTHING for unclustered-point on
+    // every call. If the implementation regresses to use this API, the
+    // 2nd-idle assertion below will fail (markers will vanish).
+    fakeMap.queryRenderedFeatures.mockImplementation(
+      (_: unknown, opts?: { layers?: string[] }) => {
+        if (opts?.layers?.includes('unclustered-point')) return [];
+        return [];
+      },
+    );
+
+    // Provide a stable leader-line source mock that survives multiple
+    // idle passes — addSource on the first idle, setData on subsequent.
+    const mockSetData = vi.fn();
+    let sourceAdded = false;
+    fakeMap.getSource.mockImplementation((id: string) => {
+      if (id === 'auto-spider-leader-lines') {
+        return sourceAdded ? { setData: mockSetData } : null;
+      }
+      return null;
+    });
+    fakeMap.addSource.mockImplementation(
+      (id: string) => {
+        if (id === 'auto-spider-leader-lines') sourceAdded = true;
+      },
+    );
+    fakeMap.getLayer.mockImplementation((id: string) =>
+      id === 'unclustered-point' ? ({ id } as unknown) : null,
+    );
+
+    render(<MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />);
+    await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+
+    // First idle — stack detected, 5 markers render.
+    await act(async () => {
+      await bareHandlers['idle']?.();
+    });
+    await waitFor(() => {
+      const markers = document.querySelectorAll('[data-testid="stacked-silhouette-marker"]');
+      expect(markers).toHaveLength(5);
+    });
+
+    // Second idle — without the querySourceFeatures fix the reconciler
+    // would call setAutoSpiderStacks([]) here (because
+    // queryRenderedFeatures returns 0 for inStack=true features) and the
+    // 5 markers would unmount. Assert they survive.
+    await act(async () => {
+      await bareHandlers['idle']?.();
+    });
+    const markersAfterSecondIdle = document.querySelectorAll(
+      '[data-testid="stacked-silhouette-marker"]',
+    );
+    expect(markersAfterSecondIdle).toHaveLength(5);
+  });
+
+  /* ── spritesReady / getLayer guard regression tests ──────────────────
+     When the maplibre map is queried for features on a layer that hasn't
+     been added (e.g., the symbol layer is JSX-conditioned on spritesReady),
+     queryRenderedFeatures throws "layer does not exist in the map's style".
+     Two complementary guards in the auto-spider reconciler protect against
+     this:
+       1. The effect dep array includes spritesReady + an early-return
+          guard (`if (!spritesReady) return undefined;`) so the effect
+          re-runs once sprites finish registering.
+       2. Inside reconcile(), a defensive `if (!map.getLayer('unclustered-
+          point')) return;` catches edge cases where the layer is removed
+          between effect runs (style reload / hot-module replacement).
+     The tests below pin both guards. */
+
+  it('auto-spider: reconcile returns early when getLayer("unclustered-point") is null (style-reload guard)', async () => {
+    // Simulates the post-style-reload / HMR case: the sprite-registration
+    // effect completed (so spritesReady is true and the effect ran), but
+    // the layer is no longer in the style. queryRenderedFeatures must
+    // NOT be called with the missing-layer filter.
+    fakeMap.getLayer.mockReturnValue(null);
+    fakeMap.getSource.mockReturnValue(null);
+    const queryRenderedFeatures = vi.fn().mockReturnValue([]);
+    fakeMap.queryRenderedFeatures = queryRenderedFeatures;
+
+    render(<MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />);
+    await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+
+    // Invoking idle must not throw — the layer-missing guard short-circuits
+    // the reconcile body before queryRenderedFeatures.
+    await act(async () => {
+      expect(() => bareHandlers['idle']?.()).not.toThrow();
+    });
+
+    // No queryRenderedFeatures call ever names 'unclustered-point' — the
+    // guard fired BEFORE the query. (The mosaic reconciler may query
+    // 'clusters-hit'; that's allowed.)
+    const unclusteredQueries = queryRenderedFeatures.mock.calls.filter(
+      (call) => {
+        const opts = call[1] as { layers?: string[] } | undefined;
+        return opts?.layers?.includes('unclustered-point');
+      },
+    );
+    expect(unclusteredQueries).toHaveLength(0);
+  });
+
+  it('auto-spider: reconcile does NOT query unclustered-point when sprites never finish registering (spritesReady gate)', async () => {
+    // Simulates the cold-load case: silhouettes have arrived but the
+    // sprite-registration Promise hasn't resolved yet. With my fix, the
+    // effect dep array gate (`if (!spritesReady) return undefined;`)
+    // means the auto-spider's bare 'idle' handler is never registered
+    // and reconcile cannot run against a not-yet-mounted layer.
+    //
+    // We force this by stubbing Image.decode to return a never-resolving
+    // Promise so spritesReady stays false. After firing the bare 'idle'
+    // handler that the mosaic reconciler registers, no queryRenderedFeatures
+    // call must name 'unclustered-point'.
+    const OriginalImage = (globalThis as { Image?: unknown }).Image;
+    class HangingImage {
+      src = '';
+      onload: (() => void) | null = null;
+      width = 32;
+      height = 32;
+      decode(): Promise<void> { return new Promise(() => {}); }
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).Image = HangingImage;
+
+    try {
+      fakeMap.getLayer.mockImplementation((id: string) =>
+        id === 'unclustered-point' ? ({ id } as unknown) : null,
+      );
+      fakeMap.getSource.mockReturnValue({
+        getClusterLeaves: vi.fn().mockResolvedValue([]),
+      });
+      const queryRenderedFeatures = vi.fn().mockReturnValue([]);
+      fakeMap.queryRenderedFeatures = queryRenderedFeatures;
+
+      render(<MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />);
+
+      // Wait for the mosaic reconciler to register its idle handler. The
+      // auto-spider reconciler is gated on spritesReady — which never
+      // flips because Image.decode never resolves — so it never registers.
+      await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+
+      // Trigger idle. The mosaic reconciler will query 'clusters-hit'; the
+      // auto-spider reconciler must NOT have registered, and therefore no
+      // queryRenderedFeatures call ever names 'unclustered-point'.
+      await act(async () => {
+        await bareHandlers['idle']?.();
+      });
+
+      const unclusteredQueries = queryRenderedFeatures.mock.calls.filter(
+        (call) => {
+          const opts = call[1] as { layers?: string[] } | undefined;
+          return opts?.layers?.includes('unclustered-point');
+        },
+      );
+      expect(unclusteredQueries).toHaveLength(0);
+    } finally {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (globalThis as any).Image = OriginalImage;
+    }
+  });
+
+  it('auto-spider: cleanup unbinds load and idle listeners', async () => {
+    // Verifies the effect cleanup function fires map.off for both 'load' and
+    // 'idle' so reconcile stops running after the component is removed.
+    // (The `cancelled` flag in the impl is defensive for future async yields —
+    // reconcile is currently synchronous so the flag itself never fires;
+    // listener removal is the real guard.)
+    fakeMap.queryRenderedFeatures.mockReturnValue([]);
+    fakeMap.getSource.mockReturnValue(null);
+
+    const { unmount } = render(
+      <MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />,
+    );
+
+    // Wait for the effect to register its listeners.
+    await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+
+    // Trigger idle once so the listeners are confirmed attached.
+    await act(async () => {
+      await bareHandlers['idle']?.();
+    });
+
+    // Unmount — should fire the cleanup function.
+    unmount();
+
+    // Both 'load' and 'idle' must have been unregistered.
+    const offCalls: [string, unknown][] = fakeMap.off.mock.calls as [string, unknown][];
+    const removedEvents = offCalls.map((c) => c[0]);
+    expect(removedEvents).toContain('load');
+    expect(removedEvents).toContain('idle');
   });
 });
