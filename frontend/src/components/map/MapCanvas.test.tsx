@@ -10,6 +10,16 @@ import type { FamilySilhouette, Observation } from '@bird-watch/shared-types';
 
 let capturedSourceProps: Record<string, unknown> = {};
 let capturedAttributionProps: Record<string, unknown> = {};
+/**
+ * Captures each `<Layer>` mock's `filter` prop, keyed by the layer's id.
+ * Spider v2 (issue #292) needs to assert the cross-module chain:
+ * `unclustered-point` AND `notable-ring` filters BOTH carry the
+ * `['!=', ['get', 'inStack'], true]` clause that suppresses in-stack
+ * features. Last-writer-wins per id matches the layer-spec stability
+ * (`useMemo`'d at construction time — the filter doesn't change after
+ * mount, so the latest write reflects the live spec).
+ */
+let capturedLayerFilters: Record<string, unknown> = {};
 
 /* Handlers registered via map.on(event, layerId, cb). Keyed as `event:layer`. */
 let registeredHandlers: Record<string, (e: { point: [number, number] }) => void> =
@@ -131,9 +141,15 @@ vi.mock('react-map-gl/maplibre', () => ({
       </div>
     );
   },
-  Layer: (props: Record<string, unknown>) => (
-    <div data-testid="mock-layer" data-layer-id={props.id} />
-  ),
+  Layer: (props: Record<string, unknown>) => {
+    // Capture filter by layer id so the Spider v2 chain test (#292) can
+    // assert the inStack-exclusion clause on both unclustered-point and
+    // notable-ring without rewriting the rest of the mock.
+    if (typeof props.id === 'string') {
+      capturedLayerFilters[props.id] = props.filter;
+    }
+    return <div data-testid="mock-layer" data-layer-id={props.id} />;
+  },
   AttributionControl: (props: Record<string, unknown>) => {
     capturedAttributionProps = props;
     return (
@@ -260,6 +276,7 @@ describe('MapCanvas', () => {
   beforeEach(() => {
     capturedSourceProps = {};
     capturedAttributionProps = {};
+    capturedLayerFilters = {};
     registeredHandlers = {};
     bareHandlers = {};
     fakeMap = makeFakeMap();
@@ -1350,6 +1367,184 @@ describe('MapCanvas', () => {
       '[data-testid="stacked-silhouette-marker"]',
     );
     expect(markersAfterSecondIdle).toHaveLength(5);
+  });
+
+  /* ── Auto-spider chain integration (issue #292) ──────────────────────
+     Spider v2 wires four moving parts:
+       reconciler → stackedSubIds memo → observationsToGeoJson tags
+       features with properties.inStack=true → unclustered-point AND
+       notable-ring layer filters exclude inStack=true → only
+       StackedSilhouetteMarker renders for those subIds.
+     Each end of the chain has its own unit test (observation-layers.test.ts
+     for the GeoJSON+filter shape; this file's "5 obs at identical coords"
+     test for marker rendering). Nothing exercised the cross-module
+     sequence — a regression that widened a layer filter shape OR broke
+     the useMemo identity chain (e.g. `stackedSubIds` recomputed with
+     stable Set identity preventing the geojson rebuild) wouldn't be
+     caught. This test exercises the full chain end-to-end after a single
+     idle:
+       - Source-side: capturedSourceProps.data.features (the React-managed
+         observations source — same path that feeds the live
+         m.getSource('observations')) carries inStack=true on the 5
+         stacked subIds and inStack=false on the rest.
+       - Layer-side: the captured filter expressions for both
+         unclustered-point and notable-ring contain the
+         ['!=', ['get', 'inStack'], true] clause that suppresses in-stack
+         features (so the SDF + amber ring don't double-render alongside
+         the StackedSilhouetteMarker).
+       - DOM-side: 5 StackedSilhouetteMarker elements present (one per
+         stacked subId from fanPositions).
+     Mocks/spies in this test:
+       - capturedLayerFilters: extended Layer mock above writes the
+         filter prop here, keyed by layer id, on every render.
+       - capturedSourceProps: the existing Source mock captures the
+         `data` prop (which IS the geojson built from
+         observationsToGeoJson(observations, silhouettes, stackedSubIds)).
+         Inspecting it after idle confirms the inStack=true tags on the
+         5 stacked features.
+       - querySourceFeatures: returns the same 5 feature subIds present
+         in the observations prop so the reconciler-detected stack and
+         the React-fed source agree.
+       - getSource('auto-spider-leader-lines'): returns null on the first
+         call so the reconciler calls addSource (matches the existing
+         5-obs test fixture). */
+  it('auto-spider integration: stack detection propagates inStack=true through GeoJSON → both filter layers exclude → only StackedSilhouetteMarker renders (issue #292)', async () => {
+    // Project all 5 observations to the same in-viewport screen position
+    // so groupOverlapping coalesces them into a single stack of 5.
+    fakeMap.project.mockReturnValue({ x: 700, y: 400 });
+    fakeMap.unproject.mockReturnValue({ lng: -111.0, lat: 34.0 });
+
+    // The 5 stacked subIds — both the React `observations` prop AND the
+    // mocked querySourceFeatures return shape must agree on these so the
+    // reconciler-derived stackedSubIds round-trip into the geojson via
+    // the useMemo([observations, silhouettes, stackedSubIds]) dependency.
+    const STACKED_SUB_IDS = ['SE1', 'SE2', 'SE3', 'SE4', 'SE5'];
+    const STACK_LAT = 34.0;
+    const STACK_LNG = -111.0;
+    const STACK_FAMILIES = ['tyrannidae', 'tyrannidae', 'trochilidae', 'picidae', 'tyrannidae'];
+
+    // 5 observations at near-identical coords + 1 OUTSIDE the stack so
+    // the negative case (inStack=false on the unstacked feature) is also
+    // exercised in the same assertion path.
+    const stackedObs = STACKED_SUB_IDS.map((subId, i) =>
+      makeObs({
+        subId,
+        lat: STACK_LAT,
+        lng: STACK_LNG,
+        familyCode: STACK_FAMILIES[i] ?? null,
+        comName: `Bird ${subId}`,
+      }),
+    );
+    const unstackedObs = makeObs({
+      subId: 'SE_OTHER',
+      // Far enough away (and projected to a distinct screen coord below)
+      // that groupOverlapping won't pull it into the stack.
+      lat: 33.0,
+      lng: -110.0,
+      familyCode: 'picidae',
+      comName: 'Solo Bird',
+    });
+    const allObs = [...stackedObs, unstackedObs];
+
+    // querySourceFeatures returns ONLY the 5 stacked features so the
+    // reconciler builds exactly one stack of 5. The unstacked observation
+    // is omitted to keep groupOverlapping deterministic; the geojson
+    // assertion below still covers the unstacked case via the `observations`
+    // prop. Returning the 6th feature here would not change the stack
+    // count (groupOverlapping would skip it on the screen-distance test)
+    // but would add an unnecessary moving part to the test.
+    const features = STACKED_SUB_IDS.map((subId, i) => ({
+      properties: {
+        subId,
+        comName: `Bird ${subId}`,
+        familyCode: STACK_FAMILIES[i],
+        locName: 'Same Hotspot',
+        obsDt: '2026-04-15T10:00:00Z',
+        isNotable: false,
+        color: '#C77A2E',
+        silhouetteId: STACK_FAMILIES[i],
+      },
+      geometry: { type: 'Point', coordinates: [STACK_LNG, STACK_LAT] },
+    }));
+    fakeMap.querySourceFeatures.mockImplementation(
+      (sourceId: string) => (sourceId === 'observations' ? features : []),
+    );
+
+    // Leader-line source: null on the existence check, then a setData
+    // mock on subsequent calls — same pattern as the existing 5-obs test.
+    const mockSetData = vi.fn();
+    let sourceCallCount = 0;
+    fakeMap.getSource.mockImplementation((id: string) => {
+      if (id === 'auto-spider-leader-lines') {
+        sourceCallCount += 1;
+        return sourceCallCount <= 1 ? null : { setData: mockSetData };
+      }
+      return null;
+    });
+    // The reconciler defensively checks `getLayer('unclustered-point')`
+    // as a "rendering pipeline alive" proxy before querying the source.
+    fakeMap.getLayer.mockImplementation((id: string) =>
+      id === 'unclustered-point' ? ({ id } as unknown) : null,
+    );
+
+    render(<MapCanvas observations={allObs} silhouettes={SILHOUETTES} />);
+    await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+
+    await act(async () => {
+      await bareHandlers['idle']?.();
+    });
+
+    // ── DOM-side: 5 stacked-silhouette-marker elements render ──────────
+    // The reconciler set autoSpiderStacks to a stack of 5 leaves; each
+    // leaf renders a <Marker><StackedSilhouetteMarker/></Marker> in
+    // MapCanvas's JSX. waitFor handles the React commit after
+    // setAutoSpiderStacks fires inside the idle handler.
+    await waitFor(() => {
+      const markers = document.querySelectorAll(
+        '[data-testid="stacked-silhouette-marker"]',
+      );
+      expect(markers).toHaveLength(5);
+    });
+
+    // ── Source-side: GeoJSON features carry inStack=true for the 5 ─────
+    // After the reconciler called setAutoSpiderStacks, the stackedSubIds
+    // useMemo recomputed with new identity, the geojson useMemo
+    // re-ran, and the Source re-rendered — capturedSourceProps.data is now
+    // the post-idle geojson. Same data path that feeds
+    // m.getSource('observations') in production.
+    const sourceData = capturedSourceProps.data as {
+      features: Array<{
+        properties: { subId: string; inStack: boolean };
+      }>;
+    };
+    expect(sourceData.features).toHaveLength(6);
+    const inStackBySubId = new Map(
+      sourceData.features.map((f) => [f.properties.subId, f.properties.inStack]),
+    );
+    for (const subId of STACKED_SUB_IDS) {
+      expect(inStackBySubId.get(subId)).toBe(true);
+    }
+    // Negative case: the unstacked observation is NOT marked.
+    expect(inStackBySubId.get('SE_OTHER')).toBe(false);
+
+    // ── Layer-side: BOTH filter layers carry the inStack-exclusion ─────
+    // The unclustered-point filter is `['all', ['!', ['has',
+    // 'point_count']], ['!=', ['get', 'inStack'], true]]`. The
+    // notable-ring filter is `['all', ['!', ['has', 'point_count']],
+    // ['==', ['get', 'isNotable'], true], ['!=', ['get', 'inStack'],
+    // true]]`. Without the trailing inStack clause on EITHER, the SDF
+    // silhouette + amber ring would double-render at the original lat/lng
+    // alongside the StackedSilhouetteMarker fan positions — the visual
+    // bug the chain is wired to prevent. We assert the literal clause
+    // subarray on each filter so a regression that drops or rewrites
+    // the clause shape is caught here, not in production.
+    const exclusionClause = ['!=', ['get', 'inStack'], true];
+    const unclusteredFilter = capturedLayerFilters['unclustered-point'] as unknown[];
+    expect(unclusteredFilter).toBeDefined();
+    expect(unclusteredFilter).toContainEqual(exclusionClause);
+    const notableRingFilter = capturedLayerFilters['notable-ring'] as unknown[];
+    expect(notableRingFilter).toBeDefined();
+    expect(notableRingFilter).toContainEqual(exclusionClause);
   });
 
   /* ── spritesReady / getLayer guard regression tests ──────────────────
