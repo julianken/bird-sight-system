@@ -87,6 +87,16 @@ function clusterTextColor(): string {
 
 export const CLUSTER_MAX_ZOOM = 14;
 export const CLUSTER_RADIUS = 50;
+/**
+ * Mosaic-vs-circle threshold (issue #248). Clusters with `point_count` AT OR
+ * BELOW this value render an HTML `<Marker>` 2×2 family-silhouette mosaic in
+ * MapCanvas. Larger clusters keep the colored count circle. The two surfaces
+ * are mutually exclusive — the cluster-circle and cluster-count layers both
+ * filter to `point_count > CLUSTER_MOSAIC_MAX_POINTS` to prevent visual
+ * double-rendering. Bumping this threshold also bumps the React reconciler's
+ * DOM-marker count; HTML markers don't scale beyond ~5k visible (DOM perf).
+ */
+export const CLUSTER_MOSAIC_MAX_POINTS = 8;
 
 /* ── Layer specs ───────────────────────────────────────────────────────── */
 
@@ -99,7 +109,15 @@ export function buildClusterLayerSpec(): LayerProps {
     id: 'clusters',
     type: 'circle',
     source: 'observations',
-    filter: ['has', 'point_count'],
+    // Issue #248: mosaic markers handle clusters with point_count <= 8.
+    // Cap this layer at the complement so the circle doesn't render under
+    // the HTML mosaic. CLUSTER_MOSAIC_MAX_POINTS is the single boundary
+    // token shared with the React reconciler in MapCanvas.
+    filter: [
+      'all',
+      ['has', 'point_count'],
+      ['>', ['get', 'point_count'], CLUSTER_MOSAIC_MAX_POINTS],
+    ],
     paint: {
       'circle-color': [
         'step',
@@ -132,7 +150,14 @@ export function buildClusterCountLayerSpec(): LayerProps {
     id: 'cluster-count',
     type: 'symbol',
     source: 'observations',
-    filter: ['has', 'point_count'],
+    // Same threshold as the cluster circle layer (issue #248). The mosaic
+    // marker carries its own count badge; rendering this symbol on top of
+    // the mosaic would double-render the number.
+    filter: [
+      'all',
+      ['has', 'point_count'],
+      ['>', ['get', 'point_count'], CLUSTER_MOSAIC_MAX_POINTS],
+    ],
     layout: {
       'text-field': ['get', 'point_count_abbreviated'],
       'text-size': 12,
