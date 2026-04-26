@@ -86,15 +86,17 @@ describe('getSilhouettes', () => {
   });
 
   it('colors match the legacy FAMILY_TO_COLOR snapshot (parity with deleted hardcoded map)', async () => {
-    // This snapshot covers two cohorts of seeded family colors:
+    // This snapshot covers three cohorts of seeded family colors:
     //   (i) the 15 #55 option-(a) rows from migration 9000 (the original
     //       FAMILY_TO_COLOR parity snapshot — required so that the DB
     //       continues to report the same 15 colors that shipped on
-    //       2026-04-19 after the hardcoded map was deleted), and
+    //       2026-04-19 after the hardcoded map was deleted),
     //   (ii) the 10 expansion rows added by migration 15000 (issue #244)
     //        so ingest stamping no longer NULLs silhouette_id for the most
-    //        common AZ families. The `_FALLBACK` row lands under #246's
-    //        scope (migration 1700000018000) — not asserted here.
+    //        common AZ families, and
+    //   (iii) the `_FALLBACK` row added by migration 18000 (issue #246) —
+    //        the sentinel sprite the SDF symbol layer falls back to for
+    //        observations whose family has no usable Phylopic silhouette.
     // If a future seed migration edits a color, update BOTH this snapshot
     // and the migration in the same PR.
     const rows = await getSilhouettes(db.pool);
