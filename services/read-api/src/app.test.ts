@@ -135,7 +135,7 @@ describe('GET /api/silhouettes', () => {
     const body = await res.json() as Array<{
       familyCode: string; color: string; svgData: string | null;
       source: string | null; license: string | null;
-      commonName: string | null;
+      commonName: string | null; creator: string | null;
     }>;
     // 15 rows from migration 9000 + 10 AZ-family expansion rows from
     // migration 15000 (issue #244). `_FALLBACK` lands later under #246.
@@ -145,6 +145,11 @@ describe('GET /api/silhouettes', () => {
     // commonName round-trips through Hono response (issue #249). Field
     // populated by migration 1700000019500.
     expect(tyrannidae?.commonName).toBe('Tyrant Flycatchers');
+    // creator round-trips through Hono response (issue #245). Field
+    // added by migration 1700000016000 + populated by 1700000017000.
+    // Value is a string for families with a Phylopic creator attribution
+    // and NULL for families flagged "no usable Phylopic SVG".
+    expect(tyrannidae).toHaveProperty('creator');
   });
 
   it('provides color for every family_code present in species_meta (parity with deleted FAMILY_TO_COLOR)', async () => {
