@@ -18,6 +18,7 @@ import {
   observationsToGeoJson,
   buildClusterLayerSpec,
   buildClusterCountLayerSpec,
+  buildClustersHitLayerSpec,
   buildUnclusteredPointLayerSpec,
   CLUSTER_MAX_ZOOM,
   CLUSTER_MOSAIC_MAX_POINTS,
@@ -86,6 +87,14 @@ export function MapCanvas({ observations, silhouettes }: MapCanvasProps) {
   const [mosaics, setMosaics] = useState<Map<number, ClusterMosaicEntry>>(
     () => new Map(),
   );
+  /**
+   * Flips `true` after the maplibre map fires its initial `load` event.
+   * Drives the mosaic reconciler effect — without this gate, the effect
+   * runs against a null mapRef.current (commit ordering: mapRef is only
+   * populated AFTER the Map child mounts, so an effect dependent on a
+   * silhouettes prop change can fire before the ref is live).
+   */
+  const [mapReady, setMapReady] = useState(false);
 
   const geojson = useMemo(
     () => observationsToGeoJson(observations),
@@ -101,6 +110,7 @@ export function MapCanvas({ observations, silhouettes }: MapCanvasProps) {
   // Build layer specs once — they read CSS tokens at construction time.
   const clusterLayer = useMemo(() => buildClusterLayerSpec(), []);
   const clusterCountLayer = useMemo(() => buildClusterCountLayerSpec(), []);
+  const clustersHitLayer = useMemo(() => buildClustersHitLayerSpec(), []);
   const unclusteredLayer = useMemo(() => buildUnclusteredPointLayerSpec(), []);
 
   // Observation lookup by subId for click handler.
@@ -124,6 +134,8 @@ export function MapCanvas({ observations, silhouettes }: MapCanvasProps) {
   const handleLoad = useCallback(() => {
     const map = mapRef.current?.getMap();
     if (!map) return;
+    // Signal the reconciler effect that the map is mounted + ref-live.
+    setMapReady(true);
 
     map.on('click', 'unclustered-point', (e: MapLayerMouseEvent) => {
       // Intentionally untyped: `MapGeoJSONFeature` (re-exported from
@@ -223,6 +235,10 @@ export function MapCanvas({ observations, silhouettes }: MapCanvasProps) {
     // Skip the whole reconciler when there are no silhouettes to draw —
     // the existing circle layer carries the visual already.
     if (silhouettes.length === 0) return undefined;
+    // Wait for the map to fire its initial `load` event before grabbing
+    // the ref. mapRef.current is null until the maplibre Map child
+    // commits, and effect commit order can race against that.
+    if (!mapReady) return undefined;
     const map = mapRef.current?.getMap();
     if (!map) return undefined;
 
@@ -230,42 +246,23 @@ export function MapCanvas({ observations, silhouettes }: MapCanvasProps) {
 
     const reconcile = async () => {
       // queryRenderedFeatures with `undefined` first arg = whole viewport.
-      // Layer filter narrows to cluster features only. Default to []
-      // defensively — the maplibre instance can return undefined when the
-      // map isn't ready yet (race between initial idle event and the
-      // style having a renderable source).
+      // Query the invisible `clusters-hit` layer (NOT the visible `clusters`
+      // layer — that one filters out point_count <= 8, so small clusters
+      // are absent). Default to [] defensively — the maplibre instance can
+      // return undefined when the map isn't ready yet (race between initial
+      // idle event and the style having a renderable source).
       const features = (map.queryRenderedFeatures(undefined, {
-        layers: ['clusters'],
-      }) ?? []) as Array<{ properties?: Record<string, unknown>; geometry?: unknown; id?: number }>;
-      // The cluster layer filter excludes point_count <= 8 (see
-      // observation-layers.ts), so any cluster the *circle* renders won't
-      // show up here. We need the unfiltered cluster set, which lives on
-      // the source itself — query without the layer filter, but inside the
-      // `clusters` source. Unfortunately, queryRenderedFeatures only
-      // returns rendered features. To pull the small clusters back, we
-      // re-query without the layer filter and pick those tagged with a
-      // `cluster_id`. This is the same approach maplibre's official
-      // "Display HTML clusters with custom properties" example uses.
-      const allFeatures = (map.queryRenderedFeatures(undefined) ?? []) as Array<{
+        layers: ['clusters-hit'],
+      }) ?? []) as Array<{
         properties?: Record<string, unknown>;
         geometry?: unknown;
         id?: number;
       }>;
-      const smallClusters = allFeatures.filter((f) => {
-        const props = f.properties ?? {};
-        return (
-          'cluster_id' in props &&
-          typeof props['point_count'] === 'number' &&
-          props['point_count'] <= CLUSTER_MOSAIC_MAX_POINTS
-        );
-      });
-      // The above queryRenderedFeatures(undefined) ALSO returns the
-      // already-rendered circle clusters from the layer query above. Dedupe
-      // by cluster_id so the layer-filtered + unfiltered queries don't
-      // double-up. Since the layer filter excludes ≤8, the dedupe is a
-      // belt-and-suspenders against future filter changes.
+      // Filter to small clusters + dedupe by cluster_id (queryRenderedFeatures
+      // can return one feature per tile boundary the cluster crosses; the
+      // dedupe keeps each cluster materialized exactly once).
       const seen = new Set<number>();
-      const candidates = [...features, ...smallClusters].filter((f) => {
+      const candidates = features.filter((f) => {
         const id = f.properties?.['cluster_id'];
         if (typeof id !== 'number') return false;
         const pointCount = f.properties?.['point_count'];
@@ -352,11 +349,11 @@ export function MapCanvas({ observations, silhouettes }: MapCanvasProps) {
       map.off('load', onLoad);
       map.off('idle', onIdle);
     };
-    // silhouettes.length is the trigger — we re-register when the
-    // catalogue transitions empty<→populated. The closure reads the
-    // live array via silhouettesRef so per-row updates don't need a
-    // re-registration.
-  }, [silhouettes.length]);
+    // Re-register when the silhouettes catalogue transitions empty
+    // ↔ populated, OR when the map first becomes ready. The closure
+    // reads the live silhouettes array via silhouettesRef so per-row
+    // updates don't need a re-registration.
+  }, [silhouettes.length, mapReady]);
 
   /**
    * Mosaic-marker click handler — delegates to the same zoom-into-cluster
@@ -437,6 +434,14 @@ export function MapCanvas({ observations, silhouettes }: MapCanvasProps) {
         >
           <Layer {...clusterLayer} />
           <Layer {...clusterCountLayer} />
+          {/*
+            Issue #248 hit-test layer — invisible circle covering ALL
+            clusters so the reconciler can pull small ones (point_count <= 8)
+            via queryRenderedFeatures. Without it, small clusters are
+            filtered out of every rendered layer and queryRenderedFeatures
+            returns an empty set for them.
+          */}
+          <Layer {...clustersHitLayer} />
           <Layer {...unclusteredLayer} />
         </Source>
         {/*

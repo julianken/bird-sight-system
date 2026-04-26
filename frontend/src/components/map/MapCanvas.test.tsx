@@ -204,7 +204,7 @@ describe('MapCanvas', () => {
     expect(data.features).toHaveLength(10);
   });
 
-  it('renders three Layer components: clusters, cluster-count, unclustered-point', () => {
+  it('renders four Layer components: clusters, cluster-count, clusters-hit, unclustered-point', () => {
     render(<MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />);
 
     const layers = screen.getAllByTestId('mock-layer');
@@ -212,6 +212,8 @@ describe('MapCanvas', () => {
 
     expect(layerIds).toContain('clusters');
     expect(layerIds).toContain('cluster-count');
+    // Issue #248: invisible hit-test layer for small-cluster reconciliation.
+    expect(layerIds).toContain('clusters-hit');
     expect(layerIds).toContain('unclustered-point');
   });
 
@@ -369,7 +371,10 @@ describe('MapCanvas', () => {
 
     fakeMap.queryRenderedFeatures.mockImplementation(
       (_: unknown, opts?: { layers?: string[] }) => {
-        if (opts?.layers?.includes('clusters')) {
+        // Reconciler queries the invisible 'clusters-hit' layer to pick up
+        // small clusters that are filtered out of the visible 'clusters'
+        // circle layer.
+        if (opts?.layers?.includes('clusters-hit')) {
           return [smallClusterA, smallClusterB, largeCluster];
         }
         return [];

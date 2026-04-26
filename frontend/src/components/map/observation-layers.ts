@@ -174,6 +174,40 @@ export function buildClusterCountLayerSpec(): LayerProps {
 }
 
 /**
+ * Build the invisible cluster hit-test layer spec (issue #248). The visible
+ * cluster circle layer is filtered to `point_count > CLUSTER_MOSAIC_MAX_POINTS`,
+ * so small clusters aren't rendered to the canvas — and `queryRenderedFeatures`
+ * only returns features that ARE rendered. This layer covers all clusters with
+ * fully transparent paint so the React reconciler can pull small clusters out
+ * for HTML mosaic-marker materialization. Mirrors maplibre's official
+ * "Display HTML clusters with custom properties" example pattern.
+ */
+export function buildClustersHitLayerSpec(): LayerProps {
+  return {
+    id: 'clusters-hit',
+    type: 'circle',
+    source: 'observations',
+    filter: ['has', 'point_count'],
+    paint: {
+      // Visually invisible but still hit-testable. Without these explicit
+      // zeros, MapLibre defaults the colors to opaque black + 0-width
+      // stroke; we want zero-bleed.
+      'circle-opacity': 0,
+      'circle-stroke-opacity': 0,
+      'circle-color': '#000',
+      'circle-stroke-color': '#000',
+      'circle-stroke-width': 0,
+      // Radius is wide enough to cover a worst-case 22+22+gap mosaic
+      // composite — taps near a tile edge still register against the
+      // cluster center. The mosaic-vs-circle threshold is point_count <= 8;
+      // at 22px tiles + 2px gap + 4px badge overhang the marker is roughly
+      // 50px wide, so a 25-radius hit circle gives a reasonable tap target.
+      'circle-radius': 25,
+    },
+  };
+}
+
+/**
  * Build the unclustered-point layer spec. Notable observations get the accent
  * colour; common ones get the body-text colour. Circle radius is 11px — large
  * enough for reliable 390x844 mobile touch targets (prototype learnings #4).

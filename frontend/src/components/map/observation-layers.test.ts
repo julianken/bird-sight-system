@@ -4,6 +4,7 @@ import {
   observationsToGeoJson,
   buildClusterLayerSpec,
   buildClusterCountLayerSpec,
+  buildClustersHitLayerSpec,
   buildUnclusteredPointLayerSpec,
   CLUSTER_MAX_ZOOM,
   CLUSTER_RADIUS,
@@ -159,6 +160,28 @@ describe('layer specs', () => {
     // OpenFreeMap positron). Omitting this falls back to Open Sans Regular,
     // which 404s against tiles.openfreemap.org.
     expect(layout['text-font']).toEqual(['Noto Sans Regular']);
+  });
+
+  it('clusters-hit layer renders ALL clusters invisibly so queryRenderedFeatures can find them', () => {
+    // Issue #248: the visible cluster circle layer is filtered to point_count
+    // > 8, which means small clusters (≤8) aren't rendered to the canvas
+    // and queryRenderedFeatures can't see them. The reconciler needs an
+    // invisible hit-test layer that covers ALL clusters so it can pull
+    // small ones for HTML marker materialization. Without this layer the
+    // mosaic feature simply doesn't activate.
+    const spec = buildClustersHitLayerSpec();
+    expect(spec.id).toBe('clusters-hit');
+    expect(spec.type).toBe('circle');
+    expect(spec.filter).toEqual(['has', 'point_count']);
+    const paint = spec.paint as Record<string, unknown>;
+    // Transparent circles — visually invisible but still hit-testable.
+    expect(paint['circle-opacity']).toBe(0);
+    // Stroke also transparent. (A nonzero stroke would create a visible
+    // ring even with circle-opacity:0.)
+    expect(paint['circle-stroke-opacity']).toBe(0);
+    // Radius matches the small-cluster footprint so taps on a tile-edge
+    // tile still register against the cluster.
+    expect(typeof paint['circle-radius']).toBe('number');
   });
 
   it('exports CLUSTER_MOSAIC_MAX_POINTS=8 as the mosaic-vs-circle threshold', () => {
