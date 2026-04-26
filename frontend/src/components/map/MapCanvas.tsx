@@ -28,6 +28,7 @@ import {
 } from './observation-layers.js';
 import { ObservationPopover } from './ObservationPopover.js';
 import { MosaicMarker } from './MosaicMarker.js';
+import { isValidSvgPathData } from './silhouette-fallback.js';
 import {
   aggregateClusterFamilies,
   buildMosaicTiles,
@@ -136,8 +137,24 @@ const INITIAL_VIEW = {
  * `<svg>` shell with `fill="black"` so the rendered raster is a single-
  * channel alpha mask that maplibre's SDF tinter can color-shift via the
  * symbol layer's `icon-color` paint property.
+ *
+ * Returns `null` when `svgData` fails the SVG path-data charset check
+ * (issue #271). A literal `"`, `<`, `>`, `&`, or any other XML-breaking
+ * character would either silently corrupt the surrounding `<svg>` document
+ * — making `image.decode()` reject and the family fall back to `_FALLBACK`
+ * with no diagnostic — or, in a worse regression, open an XSS surface if
+ * the SVG ever rendered through an `innerHTML` path. The caller treats
+ * `null` the same way it treats a `null` `svgData` upstream: skip the
+ * sprite registration, log a warn naming the family code, fall back to
+ * the `_FALLBACK` sprite via the GeoJSON join.
  */
-function silhouettePathToSvg(svgData: string): string {
+function silhouettePathToSvg(svgData: string, familyCode: string): string | null {
+  if (!isValidSvgPathData(svgData)) {
+    console.warn(
+      `[silhouette] invalid svgData for family ${familyCode}; falling back to _FALLBACK sprite`,
+    );
+    return null;
+  }
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="64" height="64">` +
     `<path d="${svgData}" fill="black"/>` +
@@ -149,6 +166,10 @@ function silhouettePathToSvg(svgData: string): string {
  * Promise-wrap the SVG → HTMLImageElement → addImage pipeline for one
  * silhouette. Resolves once the sprite is registered; rejects on image-
  * load failure (which surfaces upstream as a Promise.all rejection).
+ *
+ * No-op (resolves immediately) when `svgData` fails the charset check —
+ * `silhouettePathToSvg` returns `null` and we skip registration so the
+ * family's observations join to the `_FALLBACK` sprite instead.
  */
 async function registerSilhouetteSprite(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -156,7 +177,8 @@ async function registerSilhouetteSprite(
   id: string,
   svgData: string,
 ): Promise<void> {
-  const svgString = silhouettePathToSvg(svgData);
+  const svgString = silhouettePathToSvg(svgData, id);
+  if (svgString === null) return;
   const blob = new Blob([svgString], { type: 'image/svg+xml' });
   const url = URL.createObjectURL(blob);
   try {
