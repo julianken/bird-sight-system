@@ -97,6 +97,46 @@ body {
   margin: 0 auto;
 }
 
+/* Skip-link (issue #247). WCAG 2.4.1 (Bypass Blocks) — keyboard users
+   skip past the map canvas (which is intentionally NOT in the global tab
+   order — a 344-marker tab sequence is hostile per UX/a11y review) to
+   the FeedSurface list landmark. The link is visually hidden until it
+   receives keyboard focus, then it slides into the top of the surface
+   and renders as a visible button. Pattern follows the WebAIM
+   "Skip Navigation" recommendation. */
+.skip-link {
+  position: absolute;
+  left: 0;
+  top: 0;
+  /* Hidden but reachable: clipped 1×1 box rather than display:none so
+     the element stays in the accessibility tree + tab order. */
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  border: 0;
+  background: var(--color-bg-surface);
+  color: var(--color-text-strong);
+  font: inherit;
+  cursor: pointer;
+  z-index: calc(var(--z-panel) + 10);
+}
+.skip-link:focus,
+.skip-link:focus-visible {
+  /* Reveal: clip is removed and the link gets a visible button shape. */
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: var(--space-sm) var(--space-md);
+  overflow: visible;
+  clip: auto;
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 /* Feed surface (#116). Reverse-chronological observation rows. Row min-
    height is 44px — iOS HIG tap-target minimum, also referenced in
    risk-viability.md Part 2. Interior spacing uses design-token custom
