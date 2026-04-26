@@ -121,7 +121,7 @@ describe('error handling', () => {
 });
 
 describe('GET /api/silhouettes', () => {
-  it('returns all 15 seeded family silhouettes with the silhouettes cache header', async () => {
+  it('returns all 25 seeded family silhouettes with the silhouettes cache header', async () => {
     const app = createApp({ pool: db.pool });
     const res = await app.request('/api/silhouettes');
     expect(res.status).toBe(200);
@@ -137,7 +137,9 @@ describe('GET /api/silhouettes', () => {
       source: string | null; license: string | null;
       commonName: string | null;
     }>;
-    expect(body).toHaveLength(15);
+    // 15 rows from migration 9000 + 10 AZ-family expansion rows from
+    // migration 15000 (issue #244). `_FALLBACK` lands later under #246.
+    expect(body).toHaveLength(25);
     const tyrannidae = body.find(r => r.familyCode === 'tyrannidae');
     expect(tyrannidae?.color).toBe('#C77A2E');
     // commonName round-trips through Hono response (issue #249). Field
