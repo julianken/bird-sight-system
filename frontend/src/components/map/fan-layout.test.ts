@@ -2,12 +2,11 @@ import { describe, it, expect } from 'vitest';
 import {
   computeSpiderfyLayout,
   buildSpiderfyLeaderLineFeatures,
-  computePrePanOffset,
   SPIDERFY_RADIUS_PX,
   SPIDERFY_MAX_LEAVES,
   SPIDERFY_DURATION_MS,
   type SpiderfyLeaf,
-} from './spiderfy.js';
+} from './fan-layout.js';
 
 /* ── Pure layout helpers ──────────────────────────────────────────────────
    These functions take pixel coordinates (or screen-projected leaves) and
@@ -106,59 +105,6 @@ describe('buildSpiderfyLeaderLineFeatures', () => {
   });
 });
 
-describe('computePrePanOffset', () => {
-  // The cluster point is in screen-pixel coordinates relative to the map's
-  // canvas origin (top-left). The function returns a `{dx, dy}` pan in
-  // pixels needed to bring the spider into view, or `null` if the spider
-  // already fits.
-  it('returns null when the spider fits comfortably inside the viewport', () => {
-    const offset = computePrePanOffset({
-      clusterScreen: { x: 700, y: 400 },
-      viewport: { width: 1440, height: 900 },
-    });
-    expect(offset).toBeNull();
-  });
-
-  it('returns positive dx when the cluster sits within radius of the right edge', () => {
-    const offset = computePrePanOffset({
-      clusterScreen: { x: 1430, y: 400 },
-      viewport: { width: 1440, height: 900 },
-    });
-    // Spider would overflow right edge; pan map content rightward (positive dx
-    // moves the map content right which exposes the right side).
-    expect(offset).not.toBeNull();
-    expect(offset!.dx).toBeGreaterThan(0);
-    expect(offset!.dy).toBe(0);
-  });
-
-  it('returns negative dx when the cluster sits within radius of the left edge', () => {
-    const offset = computePrePanOffset({
-      clusterScreen: { x: 5, y: 400 },
-      viewport: { width: 1440, height: 900 },
-    });
-    expect(offset).not.toBeNull();
-    expect(offset!.dx).toBeLessThan(0);
-  });
-
-  it('returns positive dy when the cluster is near the bottom edge', () => {
-    const offset = computePrePanOffset({
-      clusterScreen: { x: 200, y: 870 },
-      viewport: { width: 390, height: 900 },
-    });
-    expect(offset).not.toBeNull();
-    expect(offset!.dy).toBeGreaterThan(0);
-  });
-
-  it('returns negative dy when the cluster is near the top edge', () => {
-    const offset = computePrePanOffset({
-      clusterScreen: { x: 200, y: 5 },
-      viewport: { width: 390, height: 900 },
-    });
-    expect(offset).not.toBeNull();
-    expect(offset!.dy).toBeLessThan(0);
-  });
-});
-
 describe('exported constants', () => {
   it('SPIDERFY_RADIUS_PX matches issue spec (70px)', () => {
     expect(SPIDERFY_RADIUS_PX).toBe(70);
@@ -172,4 +118,3 @@ describe('exported constants', () => {
     expect(SPIDERFY_DURATION_MS).toBe(200);
   });
 });
-

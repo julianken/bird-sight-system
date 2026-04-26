@@ -1,10 +1,12 @@
 /**
  * Stack detection + fan-out — pure helpers behind Spider v2 (issue #277).
  *
- * Why split from `spiderfy.ts`:
- *   - The legacy spiderfy module wires layout + maplibre runtime + GeoJSON
- *     leader-line builders together. v2 needs only the layout primitives
- *     plus a new "detect co-located screen positions" pass.
+ * Why split from `fan-layout.ts` (formerly `spiderfy.ts`):
+ *   - `fan-layout.ts` holds raw per-leaf offset math (circle / spiral) plus
+ *     the leader-line GeoJSON builder. v2 needs those primitives plus a new
+ *     "detect co-located screen positions" pass — that detection pass lives
+ *     here so `fan-layout.ts` stays a pure-geometry module with no notion of
+ *     "what counts as a stack".
  *   - These functions take plain JS values (already-projected screen coords)
  *     and return plain JS values, so they're trivially unit-testable in
  *     jsdom without any maplibre or React dependency.
@@ -14,7 +16,7 @@
  *     union-style grouping. Returns only stacks of 2+ members; singletons
  *     are dropped (caller renders them via the SDF symbol layer).
  *   - `fanPositions(stack, radiusPx?)` — wraps `computeSpiderfyLayout` from
- *     `spiderfy.ts` to translate per-leaf offsets into absolute screen
+ *     `fan-layout.ts` to translate per-leaf offsets into absolute screen
  *     positions anchored at the stack center. Caps at SPIDERFY_MAX_LEAVES;
  *     the caller surfaces a "+N more" badge for overflow (Task 3 concern).
  */
@@ -23,7 +25,7 @@ import {
   computeSpiderfyLayout,
   SPIDERFY_MAX_LEAVES,
   SPIDERFY_RADIUS_PX,
-} from './spiderfy.js';
+} from './fan-layout.js';
 
 /* Default threshold below which two screen positions belong to the same
    stack. 30px is the empirical sweet spot at zoom 14+ — silhouettes are
@@ -135,7 +137,7 @@ export function groupOverlapping(
 /**
  * Compute fanned screen positions for a stack's members.
  *
- * Reuses `computeSpiderfyLayout` from `spiderfy.ts` (circle for ≤6, spiral
+ * Reuses `computeSpiderfyLayout` from `fan-layout.ts` (circle for ≤6, spiral
  * for 7-8, capped at SPIDERFY_MAX_LEAVES = 8). For stacks with > 8 members
  * the first 8 are positioned and the rest are dropped here — the caller is
  * expected to surface a "+N more" badge for the overflow (Task 3).

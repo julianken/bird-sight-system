@@ -1,17 +1,27 @@
 /**
- * Spiderfy layout math — circle and Archimedean spiral geometry used by the
+ * Fan-layout geometry — pure circle and Archimedean spiral math used by the
  * Spider v2 auto-fan reconciler (`stack-fanout.ts` + `MapCanvas.tsx`).
  *
- * The click-driven `spiderfyCluster` orchestrator was removed in Spider v2
- * (issue #277, Task 5). What remains:
+ * Renamed from `spiderfy.ts` after Spider v2 (#280) deleted the click-driven
+ * spider. The old name was a misnomer — what remains is just per-leaf offset
+ * geometry plus the leader-line paint constants the auto-spider layer reads
+ * (the auto-spider is no longer a "click to spider out" interaction; it's a
+ * reconciler-driven fan-out of co-located markers, hence "fan-layout").
+ *
+ * Surface kept:
  *
  *   - Geometry primitives: `computeSpiderfyLayout`, `buildSpiderfyLeaderLineFeatures`,
- *     `computePrePanOffset`, and the associated pure helper types —
- *     `stack-fanout.ts`'s `fanPositions` reuses these.
+ *     and the associated pure helper types — `stack-fanout.ts`'s `fanPositions`
+ *     reuses `computeSpiderfyLayout`.
  *   - Geometry constants: `SPIDERFY_RADIUS_PX`, `SPIDERFY_MAX_LEAVES`,
  *     `CIRCLE_THRESHOLD`, `SPIRAL_BASE_RADIUS`, `SPIRAL_GROWTH`.
  *   - Leader-line paint constants: `SPIDER_LEADER_COLOR`, `SPIDER_LEADER_WIDTH` —
  *     consumed by `MapCanvas.tsx`'s auto-spider layer paint properties.
+ *
+ * Removed in the rename: `computePrePanOffset` and its `PrePanInput` /
+ * `PrePanOffset` types. Pre-pan was a click-spiderfy concern — the
+ * reconciler-driven auto-spider doesn't need to nudge the viewport because
+ * it only fans markers that are already inside the viewport.
  */
 
 export const SPIDERFY_RADIUS_PX = 70;
@@ -30,11 +40,6 @@ const CIRCLE_THRESHOLD = 6;
    overlapping. */
 const SPIRAL_BASE_RADIUS = SPIDERFY_RADIUS_PX * 0.65;
 const SPIRAL_GROWTH = 8; // px per radian — keeps the 7th/8th points readable
-
-/* Pre-pan trigger: if the cluster sits within (radius + edgeBuffer) of any
-   viewport edge, pan to bring the spider into view. The buffer keeps a small
-   gutter between the outermost leaf and the viewport boundary. */
-const EDGE_BUFFER_PX = 16;
 
 export type SpiderfyKind = 'circle' | 'spiral';
 
@@ -140,48 +145,3 @@ export function buildSpiderfyLeaderLineFeatures(
     })),
   };
 }
-
-export interface PrePanInput {
-  clusterScreen: { x: number; y: number };
-  viewport: { width: number; height: number };
-}
-
-export interface PrePanOffset {
-  /** Positive dx pans the map content right (exposes more of the right side). */
-  dx: number;
-  dy: number;
-}
-
-/**
- * Decide whether the spider would overflow a viewport edge, and if so, the
- * pixel offset to nudge the map back into safe territory. Null when no pan
- * is needed.
- *
- * Returned dx/dy are in the same convention as `map.panBy` / the inverse of
- * `easeTo({ center: ... })` deltas — positive dx pans the content right
- * (cluster moves left in the viewport, exposing the right side).
- */
-export function computePrePanOffset(input: PrePanInput): PrePanOffset | null {
-  const { clusterScreen, viewport } = input;
-  const safeRadius = SPIDERFY_RADIUS_PX + EDGE_BUFFER_PX;
-
-  let dx = 0;
-  let dy = 0;
-
-  // Right edge: cluster too close to the right side.
-  if (clusterScreen.x + safeRadius > viewport.width) {
-    dx = clusterScreen.x + safeRadius - viewport.width;
-  } else if (clusterScreen.x - safeRadius < 0) {
-    dx = clusterScreen.x - safeRadius;
-  }
-
-  if (clusterScreen.y + safeRadius > viewport.height) {
-    dy = clusterScreen.y + safeRadius - viewport.height;
-  } else if (clusterScreen.y - safeRadius < 0) {
-    dy = clusterScreen.y - safeRadius;
-  }
-
-  if (dx === 0 && dy === 0) return null;
-  return { dx, dy };
-}
-
