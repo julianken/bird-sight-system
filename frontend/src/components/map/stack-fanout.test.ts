@@ -175,7 +175,11 @@ describe('fanPositions', () => {
     const radii = positions.map((p) =>
       Math.hypot(p.screen.x - stack.center.x, p.screen.y - stack.center.y),
     );
-    // Spiral monotonically increases radius — last leaf is farther than first.
+    // Spiral property: every adjacent pair must be strictly increasing.
+    for (let i = 1; i < radii.length; i += 1) {
+      expect(radii[i]).toBeGreaterThan(radii[i - 1]!);
+    }
+    // Also confirm the range is non-trivial (not all equal).
     expect(radii[radii.length - 1]).toBeGreaterThan(radii[0]!);
   });
 
@@ -230,5 +234,29 @@ describe('fanPositions', () => {
     const snapshot = JSON.parse(JSON.stringify(stack));
     fanPositions(stack);
     expect(stack).toEqual(snapshot);
+  });
+
+  it('scales spiral radii proportionally when radiusPx is halved (8-member stack)', () => {
+    // With radiusPx=35 (half of SPIDERFY_RADIUS_PX=70) the scale factor is 0.5,
+    // so each leaf's radius should be half the default-radius counterpart.
+    // This locks in the documented behavior: the same scale factor applied
+    // uniformly to both circle and spiral branches.
+    const stack = makeStack(8);
+    const defaultPositions = fanPositions(stack); // default radiusPx = 70
+    const halfPositions = fanPositions(stack, 35); // scale = 0.5
+
+    expect(halfPositions).toHaveLength(8);
+
+    for (let i = 0; i < 8; i += 1) {
+      const defaultR = Math.hypot(
+        defaultPositions[i]!.screen.x - stack.center.x,
+        defaultPositions[i]!.screen.y - stack.center.y,
+      );
+      const halfR = Math.hypot(
+        halfPositions[i]!.screen.x - stack.center.x,
+        halfPositions[i]!.screen.y - stack.center.y,
+      );
+      expect(halfR).toBeCloseTo(defaultR * 0.5, 5);
+    }
   });
 });

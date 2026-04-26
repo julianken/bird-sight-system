@@ -140,6 +140,27 @@ export function groupOverlapping(
  * the first 8 are positioned and the rest are dropped here — the caller is
  * expected to surface a "+N more" badge for the overflow (Task 3).
  *
+ * ## `radiusPx` scaling contract
+ *
+ * A scale factor `s = radiusPx / SPIDERFY_RADIUS_PX` is applied uniformly to
+ * every leaf offset produced by `computeSpiderfyLayout`.
+ *
+ * - **Circle stacks (≤6 members):** all leaves sit exactly at radius
+ *   `SPIDERFY_RADIUS_PX` in the default layout, so scaling by `s` gives each
+ *   leaf a radius of exactly `radiusPx`. The geometry scales linearly and
+ *   cleanly.
+ *
+ * - **Spiral stacks (7-8 members):** `computeSpiderfyLayout` uses hardcoded
+ *   baseline and growth constants tuned to the default 70px
+ *   (`SPIRAL_BASE_RADIUS = SPIDERFY_RADIUS_PX * 0.65`, `SPIRAL_GROWTH = 8`).
+ *   The same scale factor `s` is applied to every dx/dy offset, so all radii
+ *   are multiplied by `s` — the spiral is proportionally shrunk or grown.
+ *   The spiral remains strictly monotone and visually well-separated at
+ *   reasonable values (e.g. 35–140px). At very small or very large `radiusPx`
+ *   values the per-leaf growth increments are also scaled, which changes the
+ *   visual "tightness" of the coil; the spiral shape is preserved but not
+ *   re-tuned to the new radius.
+ *
  * @param stack the stack whose members need fanned-out positions
  * @param radiusPx fan radius (default 70 — matches SPIDERFY_RADIUS_PX, the
  *                 legacy spider's ring radius, so visuals remain consistent
