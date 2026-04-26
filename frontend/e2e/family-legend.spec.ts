@@ -68,9 +68,11 @@ test.describe('FamilyLegend (desktop)', () => {
 
   test('toggle collapse persists across reload', async ({ page }) => {
     const app = new AppPage(page);
-    await page.addInitScript(() => {
-      try { window.localStorage.removeItem('family-legend-expanded'); } catch { /* noop */ }
-    });
+    // Each Playwright test runs in a fresh context with empty localStorage,
+    // so we don't pre-clear here. (A prior version used `page.addInitScript`
+    // to clear localStorage on load, but that runs on every navigation —
+    // including the reload below — which wiped the persisted value the
+    // test exists to verify.)
     await app.goto('view=map');
     await app.waitForAppReady();
     await expect(page.locator('[data-testid=map-canvas]')).toBeVisible({ timeout: 15_000 });
