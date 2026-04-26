@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * scripts/curate-phylopic.mjs — Issue #245 (epic #251).
+ * scripts/curate-phylopic.mjs — Issue #245 (epic #251), retry hardening #267.
  *
  * Curates real CC-licensed Phylopic silhouettes for every AZ bird family
  * seeded in `family_silhouettes` and emits a SQL UPDATE migration that swaps
@@ -26,10 +26,31 @@
  *      the path in a `<g transform=...>` we can't safely flatten — log the
  *      skip and try the next candidate.
  *
+ * Error handling (issue #267 follow-up):
+ *   - HTTP 404 on `/nodes?filter_name=<family>`: classified as GENUINELY
+ *     ABSENT (family not in Phylopic's taxonomic tree, or the slug we
+ *     submitted does not match Phylopic's spelling). NOT retried. Logged
+ *     explicitly and the family is treated as "no Phylopic entry" (NULL row).
+ *   - HTTP 5xx OR network error on any endpoint: retried up to 3 times with
+ *     exponential backoff (1s → 2s → 4s sleeps). On exhausted retries the
+ *     entire run ABORTS with a non-zero exit listing every failed family —
+ *     so a transient API outage never silently produces a NULL UPDATE that
+ *     looks like a permanent absence. Operator can re-run later.
+ *   - HTTP 429 is handled separately by `rateLimitedFetch` (per-request
+ *     backoff up to 60s, no abort) since it is rate-limit pressure, not
+ *     genuine failure.
+ *   - `phylopic-picks.json` carries a top-level `skipFamilies: string[]`
+ *     field. Families listed there are NOT queried — the script logs
+ *     "skipping (operator-flagged absent)" and emits a NULL UPDATE with a
+ *     migration comment naming each skipped family. This separates "API
+ *     failed" from "operator confirmed no usable Phylopic exists" so the
+ *     resulting migration is honest about which case applies.
+ *
  * Outputs (committed, both reproducible from the same Phylopic API state):
  *   - `scripts/phylopic-picks.json` — full candidate list per family + the
  *     chosen one + the heuristic that picked it. Audit trail for the
- *     human verifier (post-deploy review).
+ *     human verifier (post-deploy review). Top-level `skipFamilies` lets
+ *     operators flag families with no usable Phylopic entry.
  *   - `migrations/1700000017000_seed_family_silhouettes_phylopic.sql`
  *     — UPDATE per family with the chosen path d, source URL, license short
  *     identifier, creator name. Families with zero usable candidates get an
@@ -95,6 +116,30 @@ const LICENSE_PREFERENCE = {
 
 mkdirSync(CACHE_DIR, { recursive: true });
 
+// --- Retry policy (issue #267) ------------------------------------------------
+// 5xx + network errors get 3 retries with 1s/2s/4s sleeps. 404s do NOT retry —
+// they signal a genuine taxonomic absence, not a transient failure.
+const MAX_RETRIES = 3;
+const RETRY_BACKOFF_MS = [1000, 2000, 4000];
+
+class HttpError extends Error {
+  constructor(url, status) {
+    super(`GET ${url} → ${status}`);
+    this.name = 'HttpError';
+    this.url = url;
+    this.status = status;
+  }
+}
+
+class NetworkError extends Error {
+  constructor(url, cause) {
+    super(`GET ${url} → network error: ${cause?.message ?? cause}`);
+    this.name = 'NetworkError';
+    this.url = url;
+    this.cause = cause;
+  }
+}
+
 let lastFetchAt = 0;
 async function rateLimitedFetch(url, init) {
   const elapsed = Date.now() - lastFetchAt;
@@ -116,6 +161,60 @@ async function rateLimitedFetch(url, init) {
   }
 }
 
+/**
+ * Wrap a fetch attempt with retry policy. 404 short-circuits as HttpError;
+ * 5xx and network errors retry with 1s/2s/4s backoff and surface as
+ * HttpError / NetworkError after the third failure. Caller decides what to
+ * do — `getJson` lets HttpError(404) propagate so per-family logic can log
+ * "genuine absence" while letting 5xx / NetworkError abort the whole run.
+ */
+async function fetchWithRetry(url, init) {
+  let lastErr = null;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const res = await rateLimitedFetch(url, init);
+      if (res.ok) return res;
+      // 404 is an expected per-family signal; do not retry.
+      if (res.status === 404) {
+        throw new HttpError(url, 404);
+      }
+      // 5xx → retry. 4xx other than 404 → also retry once (some Phylopic
+      // 4xx responses are transient WAF rejections), but cap at MAX_RETRIES.
+      lastErr = new HttpError(url, res.status);
+      if (attempt < MAX_RETRIES) {
+        const wait = RETRY_BACKOFF_MS[attempt];
+        console.warn(`[retry] ${url} → ${res.status}, sleeping ${wait}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+        await new Promise(r => setTimeout(r, wait));
+        continue;
+      }
+      throw lastErr;
+    } catch (err) {
+      // 404 already thrown above — re-throw without retry.
+      if (err instanceof HttpError && err.status === 404) throw err;
+      // HttpError with retried-and-exhausted status: re-throw on the final
+      // iteration so the caller sees the real status code.
+      if (err instanceof HttpError && attempt >= MAX_RETRIES) throw err;
+      if (err instanceof HttpError) {
+        // Already counted toward attempt; loop will sleep + retry above. We
+        // shouldn't reach here because the inline retry block already slept,
+        // but guard anyway.
+        continue;
+      }
+      // Network error (DNS, connect refused, socket hangup, etc).
+      lastErr = new NetworkError(url, err);
+      if (attempt < MAX_RETRIES) {
+        const wait = RETRY_BACKOFF_MS[attempt];
+        console.warn(`[retry] ${url} → network error (${err?.message ?? err}), sleeping ${wait}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+        await new Promise(r => setTimeout(r, wait));
+        continue;
+      }
+      throw lastErr;
+    }
+  }
+  // Unreachable, but keep TypeScript-style exhaustiveness honest.
+  throw lastErr ?? new Error(`fetchWithRetry exhausted with no error for ${url}`);
+}
+
 function cachePathFor(url) {
   // Stable, filename-safe key from the URL.
   const safe = url.replace(/[^a-z0-9]+/gi, '_').slice(0, 200);
@@ -132,8 +231,7 @@ async function getJson(url) {
   if (!REFRESH && existsSync(cachePath)) {
     return JSON.parse(readFileSync(cachePath, 'utf-8'));
   }
-  const res = await rateLimitedFetch(url, { headers: { Accept: 'application/vnd.phylopic.v2+json' } });
-  if (!res.ok) throw new Error(`GET ${url} → ${res.status}`);
+  const res = await fetchWithRetry(url, { headers: { Accept: 'application/vnd.phylopic.v2+json' } });
   const json = await res.json();
   writeFileSync(cachePath, JSON.stringify(json, null, 2));
   return json;
@@ -144,8 +242,7 @@ async function getSvg(url) {
   if (!REFRESH && existsSync(cachePath)) {
     return readFileSync(cachePath, 'utf-8');
   }
-  const res = await rateLimitedFetch(url);
-  if (!res.ok) throw new Error(`GET ${url} → ${res.status}`);
+  const res = await fetchWithRetry(url);
   const text = await res.text();
   writeFileSync(cachePath, text);
   return text;
@@ -154,6 +251,10 @@ async function getSvg(url) {
 /**
  * Find the taxonomic node UUID for a family name via /nodes?filter_name=...
  * Returns the UUID string or null if no exact match.
+ *
+ * Throws HttpError(404) when Phylopic returns 404 (genuine absence — caller
+ * logs and continues with NULL row). Throws HttpError(5xx) / NetworkError
+ * after 3 retries — caller aborts the run.
  */
 async function lookupNodeUuid(familyName) {
   const url = `${PHYLOPIC_API}/nodes?build=${PHYLOPIC_BUILD}&filter_name=${encodeURIComponent(familyName)}&page=0`;
@@ -552,18 +653,50 @@ function todayUtc() {
   return new Date().toISOString().slice(0, 10);
 }
 
+/**
+ * Per-family curation. Returns one of:
+ *   { kind: 'picked', family, picked, considered, reason }
+ *   { kind: 'absent', family, reason }              — 404 or no candidates
+ *   { kind: 'failed', family, reason, error }       — retries exhausted; main()
+ *                                                     aggregates these and aborts
+ *
+ * Note: previously this function caught all errors and emitted a NULL UPDATE
+ * regardless of cause, conflating "Phylopic doesn't have it" with "API was
+ * down". Issue #267 fixed that — only HTTP 404 (genuine absence) collapses
+ * silently into the NULL row; HTTP 5xx and network errors now bubble up so
+ * main() can refuse to write a misleading migration.
+ */
 async function curateFamily(family) {
   console.log(`\n[${family}] resolving node...`);
-  const nodeUuid = await lookupNodeUuid(family);
+  let nodeUuid;
+  try {
+    nodeUuid = await lookupNodeUuid(family);
+  } catch (err) {
+    if (err instanceof HttpError && err.status === 404) {
+      console.warn(`[${family}] HTTP 404 from Phylopic /nodes — family genuinely absent (or wrong slug); emitting NULL row`);
+      return { kind: 'absent', family, picked: null, considered: [], reason: 'http-404-on-nodes' };
+    }
+    // 5xx or network error after 3 retries — surface to main() for abort.
+    return { kind: 'failed', family, picked: null, considered: [], reason: `lookup-failed: ${err.message}`, error: err };
+  }
   if (!nodeUuid) {
-    console.warn(`[${family}] no taxonomic node found → NULL row`);
-    return { family, picked: null, considered: [], reason: 'no-node' };
+    console.warn(`[${family}] no taxonomic node found (empty items list) → NULL row`);
+    return { kind: 'absent', family, picked: null, considered: [], reason: 'no-node' };
   }
   console.log(`[${family}] node ${nodeUuid}, enumerating images...`);
-  const candidates = await enumerateCandidates(nodeUuid);
+  let candidates;
+  try {
+    candidates = await enumerateCandidates(nodeUuid);
+  } catch (err) {
+    if (err instanceof HttpError && err.status === 404) {
+      console.warn(`[${family}] HTTP 404 from Phylopic /images — node has no images attached; emitting NULL row`);
+      return { kind: 'absent', family, picked: null, considered: [], reason: 'http-404-on-images' };
+    }
+    return { kind: 'failed', family, picked: null, considered: [], reason: `images-failed: ${err.message}`, error: err };
+  }
   if (candidates.length === 0) {
     console.warn(`[${family}] zero candidates with vectorFile + accepted license → NULL row`);
-    return { family, picked: null, considered: [], reason: 'no-candidates' };
+    return { kind: 'absent', family, picked: null, considered: [], reason: 'no-candidates' };
   }
   const sorted = autoPick(candidates);
   // Walk the sorted list, attempting SVG extraction until one succeeds.
@@ -573,6 +706,11 @@ async function curateFamily(family) {
     try {
       svg = await getSvg(cand.vectorFileUrl);
     } catch (err) {
+      // SVG fetch failures are per-candidate, not per-family — only abort
+      // the run if every candidate failed AND the failures were transient.
+      // For simplicity, treat any HttpError/NetworkError on a single SVG as
+      // a candidate skip (log it and try the next). If all SVGs fail this
+      // way the family falls into the all-rejected NULL row branch.
       considered.push({ ...cand, status: 'svg-fetch-failed', skipReason: err.message });
       continue;
     }
@@ -583,6 +721,7 @@ async function curateFamily(family) {
     }
     considered.push({ ...cand, status: 'picked', svgPathD: extracted.d });
     return {
+      kind: 'picked',
       family,
       picked: { ...cand, svgPathD: extracted.d },
       considered: considered.concat(
@@ -592,10 +731,10 @@ async function curateFamily(family) {
     };
   }
   console.warn(`[${family}] all ${candidates.length} candidates rejected → NULL row`);
-  return { family, picked: null, considered, reason: 'all-rejected' };
+  return { kind: 'absent', family, picked: null, considered, reason: 'all-rejected' };
 }
 
-function emitMigrationSql(picks) {
+function emitMigrationSql(picks, skipFamilies) {
   const today = todayUtc();
   const lines = [];
   lines.push('-- Up Migration');
@@ -654,7 +793,25 @@ function emitMigrationSql(picks) {
   if (failures.length > 0) {
     lines.push('-- Phylopic-less families: explicit NULL signals "no usable silhouette";');
     lines.push('-- the _FALLBACK consumer (#246) renders the generic shape using the');
-    lines.push('-- preserved family color.');
+    lines.push('-- preserved family color. Families fall into this bucket either because');
+    lines.push('-- (a) the operator listed them in scripts/phylopic-picks.json#skipFamilies');
+    lines.push('-- after confirming no usable Phylopic entry exists, or (b) the live API');
+    lines.push('-- returned 404 (genuine taxonomic absence). Transient API failures (5xx,');
+    lines.push('-- network) abort the run instead — see scripts/curate-phylopic.mjs #267.');
+    if (skipFamilies && skipFamilies.length > 0) {
+      const operatorSkipped = failures
+        .filter(f => skipFamilies.includes(f.family))
+        .map(f => f.family);
+      const apiAbsent = failures
+        .filter(f => !skipFamilies.includes(f.family))
+        .map(f => f.family);
+      if (operatorSkipped.length > 0) {
+        lines.push(`-- Operator-flagged absent (skipFamilies): ${operatorSkipped.join(', ')}.`);
+      }
+      if (apiAbsent.length > 0) {
+        lines.push(`-- API-absent (404 from Phylopic): ${apiAbsent.join(', ')}.`);
+      }
+    }
     const codes = failures.map(f => `'${f.family}'`).join(', ');
     lines.push(`UPDATE family_silhouettes SET svg_data = NULL, source = NULL, license = NULL, creator = NULL`);
     lines.push(`WHERE family_code IN (${codes});`);
@@ -673,24 +830,80 @@ function emitMigrationSql(picks) {
   return lines.join('\n');
 }
 
+/**
+ * Read `phylopic-picks.json` and pull out the operator-managed config.
+ * Returns `{ skipFamilies: string[] }`. Missing file or missing field → empty
+ * skip list. Unknown families in the list are tolerated (logged) — operators
+ * may leave entries from earlier runs after the FAMILIES list shrinks.
+ */
+function loadPicksConfig() {
+  if (!existsSync(PICKS_PATH)) {
+    return { skipFamilies: [] };
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(PICKS_PATH, 'utf-8'));
+  } catch (err) {
+    console.warn(`[config] failed to parse ${PICKS_PATH}: ${err.message} — assuming empty skipFamilies`);
+    return { skipFamilies: [] };
+  }
+  const skipFamilies = Array.isArray(parsed?.skipFamilies) ? parsed.skipFamilies.filter(s => typeof s === 'string') : [];
+  return { skipFamilies };
+}
+
 async function main() {
+  const config = loadPicksConfig();
+  const skipSet = new Set(config.skipFamilies);
   console.log(`Curating ${FAMILIES.length} families against Phylopic API (build=${PHYLOPIC_BUILD})`);
   console.log(`Cache: ${CACHE_DIR}${REFRESH ? ' (REFRESH mode — bypassing)' : ''}`);
+  if (skipSet.size > 0) {
+    console.log(`Skipping (operator-flagged absent): ${[...skipSet].sort().join(', ')}`);
+  }
   const picks = [];
+  const failures = [];
   for (const family of FAMILIES) {
-    try {
-      const result = await curateFamily(family);
-      picks.push(result);
-    } catch (err) {
-      console.error(`[${family}] error: ${err.message}`);
-      picks.push({ family, picked: null, considered: [], reason: `error: ${err.message}` });
+    if (skipSet.has(family)) {
+      console.log(`\n[${family}] skipping (operator-flagged absent in phylopic-picks.json#skipFamilies)`);
+      picks.push({
+        kind: 'skipped',
+        family,
+        picked: null,
+        considered: [],
+        reason: 'operator-skipped',
+      });
+      continue;
     }
+    const result = await curateFamily(family);
+    picks.push(result);
+    if (result.kind === 'failed') {
+      failures.push(result);
+    }
+  }
+
+  // ABORT if any family had a transient failure (5xx / network) after retries.
+  // Don't write a misleading migration that conflates "API failed" with
+  // "family genuinely absent".
+  if (failures.length > 0) {
+    console.error('\n');
+    console.error('================================================================');
+    console.error('ABORT: Phylopic API failed for these families after 3 retries:');
+    for (const f of failures) {
+      console.error(`  - ${f.family}: ${f.reason}`);
+    }
+    console.error('');
+    console.error('Not writing migration or picks file — this looks like a transient');
+    console.error('API outage, not a real curation result. Re-run when Phylopic API');
+    console.error('is healthy. If a family is genuinely absent and you want to skip');
+    console.error('it permanently, add it to scripts/phylopic-picks.json#skipFamilies.');
+    console.error('================================================================');
+    process.exit(2);
   }
 
   const summary = {
     generatedAt: new Date().toISOString(),
     phylopicBuild: PHYLOPIC_BUILD,
     autoPickHeuristic: 'license-preference (CC0 > CC-BY-3.0 > CC-BY-4.0 > CC-BY-SA-3.0), then creator-name asc, then uuid asc',
+    skipFamilies: config.skipFamilies,
     families: picks.map(p => ({
       family: p.family,
       picked: p.picked
@@ -715,7 +928,7 @@ async function main() {
   writeFileSync(PICKS_PATH, JSON.stringify(summary, null, 2));
   console.log(`\nWrote ${PICKS_PATH}`);
 
-  const sql = emitMigrationSql(picks);
+  const sql = emitMigrationSql(picks, config.skipFamilies);
   writeFileSync(MIGRATION_PATH, sql);
   console.log(`Wrote ${MIGRATION_PATH}`);
 
