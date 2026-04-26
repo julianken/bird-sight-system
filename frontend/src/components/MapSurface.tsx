@@ -91,7 +91,7 @@ export function MapSurface({
             </div>
           }
         >
-          <MapCanvas observations={observations} />
+          <MapCanvas observations={observations} silhouettes={silhouettes} />
         </React.Suspense>
         <FamilyLegend
           silhouettes={silhouettes}
