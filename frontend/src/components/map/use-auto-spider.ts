@@ -4,7 +4,7 @@ import type { FamilySilhouette } from '@bird-watch/shared-types';
 import {
   SPIDER_LEADER_COLOR,
   SPIDER_LEADER_WIDTH,
-} from './spiderfy.js';
+} from './fan-layout.js';
 import {
   groupOverlapping,
   fanPositions,

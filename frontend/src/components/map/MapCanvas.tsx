@@ -229,6 +229,24 @@ export function MapCanvas({
     return () => mql.removeEventListener('change', handler);
   }, []);
 
+  // Unmount cleanup for the `window.__birdMap` test hook (#291). The hook is
+  // assigned in `handleLoad` (which fires once per mount); without an unmount
+  // cleanup, a remount (e.g. switching from feed view to map view and back)
+  // would leave a stale handle to the prior MapCanvas's maplibre instance on
+  // window between unmount and the next handleLoad firing. Empty dep array —
+  // we only want this to run on component unmount. Same env gate as the
+  // assignment so prod builds skip the cleanup branch entirely.
+  useEffect(() => {
+    return () => {
+      if (
+        typeof window !== 'undefined' &&
+        import.meta.env.MODE !== 'production'
+      ) {
+        delete (window as { __birdMap?: unknown }).__birdMap;
+      }
+    };
+  }, []);
+
   // The reconciler reads `silhouettes` on every cluster pass. A ref keeps
   // the closure fresh without re-registering the map listeners (registration
   // is keyed only on the map instance, NOT on the silhouettes array).
@@ -322,7 +340,12 @@ export function MapCanvas({
 
     // Test hook (Spider v2 e2e): exposes the maplibre instance for Playwright
     // to drive easeTo and inspect sources. Not relied on by production code.
-    if (typeof window !== 'undefined') {
+    // Env-gated to non-prod so the production bundle never leaks the
+    // maplibre instance to anyone who reads the property in devtools (#291).
+    if (
+      typeof window !== 'undefined' &&
+      import.meta.env.MODE !== 'production'
+    ) {
       (window as { __birdMap?: typeof map }).__birdMap = map;
     }
 

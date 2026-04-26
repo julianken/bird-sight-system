@@ -5,7 +5,7 @@ import {
   type StackInput,
   type Stack,
 } from './stack-fanout.js';
-import { SPIDERFY_MAX_LEAVES, SPIDERFY_RADIUS_PX } from './spiderfy.js';
+import { SPIDERFY_MAX_LEAVES, SPIDERFY_RADIUS_PX } from './fan-layout.js';
 
 /* ── Helpers ───────────────────────────────────────────────────────────────
    Build StackInput records cheaply. Each generated input has unique subId,
