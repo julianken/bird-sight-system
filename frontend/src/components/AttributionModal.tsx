@@ -87,6 +87,18 @@ export function AttributionModal({ silhouettes, onOpenChange }: AttributionModal
     if (!dialog.open) {
       dialog.showModal();
     }
+    // Explicit focus on the close button. The `autofocus` attribute
+    // (rendered via React's `autoFocus`) is honored by Chrome's
+    // `showModal()` focus-delegation, but headless Chromium under
+    // Playwright doesn't always run the delegation step before the
+    // test's assertion races in. Setting focus here makes the contract
+    // observable: after onOpen returns, the close button IS the active
+    // element. Wrap in queueMicrotask so React's render commit completes
+    // before we touch the DOM ref.
+    queueMicrotask(() => {
+      const close = dialog.querySelector<HTMLButtonElement>('.attribution-modal-close');
+      close?.focus();
+    });
     setOpen(true);
     onOpenChange?.(true);
   }, [onOpenChange]);
