@@ -20,8 +20,9 @@ export async function getSilhouettes(pool: Pool): Promise<FamilySilhouette[]> {
     source: string | null;
     license: string | null;
     common_name: string | null;
+    creator: string | null;
   }>(
-    `SELECT family_code, color, svg_data, source, license, common_name
+    `SELECT family_code, color, svg_data, source, license, common_name, creator
      FROM family_silhouettes
      ORDER BY family_code`
   );
@@ -32,5 +33,6 @@ export async function getSilhouettes(pool: Pool): Promise<FamilySilhouette[]> {
     source: r.source,
     license: r.license,
     commonName: r.common_name,
+    creator: r.creator,
   }));
 }

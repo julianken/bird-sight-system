@@ -12,22 +12,29 @@ describe('getSilhouettes', () => {
     expect(rows).toHaveLength(25);
   });
 
-  it('projects each row with familyCode, color, svgData, source, license, commonName', async () => {
+  it('projects each row with familyCode, color, svgData, source, license, commonName, creator', async () => {
     const rows = await getSilhouettes(db.pool);
     const accipitridae = rows.find(r => r.familyCode === 'accipitridae');
     expect(accipitridae).toBeDefined();
     expect(accipitridae!.color).toMatch(/^#[0-9A-F]{6}$/i);
-    // svgData is nullable on the type but the pre-curation seed uses real
-    // strings for every row, so it's a string here.
+    // svgData is nullable on the type. After migration 17000 seeds Phylopic
+    // SVGs for families with usable candidates, this row holds a real
+    // path-d string; for families flagged "no usable Phylopic SVG" the
+    // value is NULL. Accipitridae has many CC0 candidates so it's a string.
     expect(typeof accipitridae!.svgData).toBe('string');
-    // source and license are TEXT NULL in the schema. The current seed writes
-    // non-null values; the test just asserts the SELECT includes them.
+    // source and license are TEXT NULL in the schema. The post-curation
+    // seed (migration 17000, issue #245) writes the Phylopic image-page
+    // URL into source and a short license identifier into license.
     expect(accipitridae).toHaveProperty('source');
     expect(accipitridae).toHaveProperty('license');
     // commonName added in migration 1700000019000 + seeded in
     // 1700000019500 (issue #249). The seeded row is non-null.
     expect(accipitridae).toHaveProperty('commonName');
     expect(typeof accipitridae!.commonName).toBe('string');
+    // creator added in migration 1700000016000 + populated by 1700000017000
+    // (issue #245). The Phylopic seed writes a creator name where one is
+    // available; rows for families without a usable Phylopic SVG land NULL.
+    expect(accipitridae).toHaveProperty('creator');
   });
 
   it('returns rows in stable familyCode order', async () => {
