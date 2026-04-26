@@ -19,7 +19,7 @@ let registeredHandlers: Record<string, (e: { point: [number, number] }) => void>
 let fakeMap: any = null;
 
 function makeFakeMap() {
-  const canvas = { style: { cursor: '' } };
+  const canvas = { style: { cursor: '' }, clientWidth: 1440, clientHeight: 900 };
   return {
     on: vi.fn(
       (
@@ -30,12 +30,28 @@ function makeFakeMap() {
         if (typeof layerOrCb === 'string' && maybeCb) {
           registeredHandlers[`${event}:${layerOrCb}`] = maybeCb;
         }
+        // Support 2-arg form (event, listener) — used by MapMarkerHitLayer
+        // for `move` / `idle` re-projection, and by the spiderfy outside-
+        // click teardown for the bare `click` event.
+        if (typeof layerOrCb === 'function') {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          registeredHandlers[event] = layerOrCb as any;
+        }
       },
     ),
+    off: vi.fn(),
     queryRenderedFeatures: vi.fn(),
     getSource: vi.fn(),
+    getLayer: vi.fn(),
     getCanvas: vi.fn(() => canvas),
     easeTo: vi.fn(),
+    getZoom: vi.fn(() => 6),
+    project: vi.fn(() => ({ x: 700, y: 400 })),
+    unproject: vi.fn(() => [-111, 34]),
+    addSource: vi.fn(),
+    removeSource: vi.fn(),
+    addLayer: vi.fn(),
+    removeLayer: vi.fn(),
   };
 }
 
@@ -230,6 +246,124 @@ describe('MapCanvas', () => {
         zoom: 12,
       }),
     );
+  });
+
+  /* ── Spiderfy (issue #247) ────────────────────────────────────────────
+     The cluster-click handler branches on (point_count, zoom):
+       - point_count > 8 OR zoom < CLUSTER_MAX_ZOOM → existing zoom-into-
+         cluster behavior (above tests cover this).
+       - point_count ≤ 8 AND zoom ≥ CLUSTER_MAX_ZOOM → spiderfy.
+
+     Spiderfy itself uses `source.getClusterLeaves(id, 8, 0)` — must NOT
+     pass a callback (silently no-ops in maplibre 5.x — same regression
+     class as PR #165 / issue #166). */
+
+  it('spiderfies (not zoom-in) when point_count ≤ 8 AND zoom ≥ CLUSTER_MAX_ZOOM', async () => {
+    render(<MapCanvas observations={[makeObs()]} />);
+    await waitFor(() =>
+      expect(registeredHandlers['click:clusters']).toBeTypeOf('function'),
+    );
+
+    fakeMap.getZoom.mockReturnValue(15); // ≥ CLUSTER_MAX_ZOOM (14)
+    const leaves = Array.from({ length: 5 }, (_, i) => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [-111, 34] },
+      properties: {
+        subId: `S${i}`,
+        comName: `Bird ${i}`,
+        familyCode: 'fringillidae',
+        locName: 'Loc',
+        obsDt: '2026-04-15T10:00:00Z',
+        isNotable: false,
+      },
+    }));
+    const getClusterLeaves = vi.fn().mockResolvedValue(leaves);
+    const getClusterExpansionZoom = vi.fn();
+    fakeMap.getSource.mockReturnValue({
+      getClusterLeaves,
+      getClusterExpansionZoom,
+    });
+
+    fakeMap.queryRenderedFeatures.mockReturnValue([
+      {
+        properties: { cluster_id: 7, point_count: 5 },
+        geometry: { type: 'Point', coordinates: [-111, 34] },
+      },
+    ]);
+
+    const handler = registeredHandlers['click:clusters'];
+    await act(async () => {
+      handler({ point: [100, 100] });
+    });
+
+    // Spiderfy was invoked (Promise API, arity 3).
+    await waitFor(() => expect(getClusterLeaves).toHaveBeenCalled());
+    expect(getClusterLeaves.mock.calls[0]).toHaveLength(3);
+    expect(getClusterLeaves).toHaveBeenCalledWith(7, 8, 0);
+
+    // Zoom-into-cluster did NOT run.
+    expect(getClusterExpansionZoom).not.toHaveBeenCalled();
+  });
+
+  it('zooms (not spiderfy) when point_count > 8 even at zoom ≥ CLUSTER_MAX_ZOOM', async () => {
+    render(<MapCanvas observations={[makeObs()]} />);
+    await waitFor(() =>
+      expect(registeredHandlers['click:clusters']).toBeTypeOf('function'),
+    );
+
+    fakeMap.getZoom.mockReturnValue(15);
+    const getClusterLeaves = vi.fn();
+    const getClusterExpansionZoom = vi.fn().mockResolvedValue(16);
+    fakeMap.getSource.mockReturnValue({
+      getClusterLeaves,
+      getClusterExpansionZoom,
+    });
+
+    // point_count = 12 > 8 → zoom branch.
+    fakeMap.queryRenderedFeatures.mockReturnValue([
+      {
+        properties: { cluster_id: 9, point_count: 12 },
+        geometry: { type: 'Point', coordinates: [-111, 34] },
+      },
+    ]);
+
+    const handler = registeredHandlers['click:clusters'];
+    await act(async () => {
+      handler({ point: [0, 0] });
+    });
+
+    expect(getClusterExpansionZoom).toHaveBeenCalled();
+    expect(getClusterLeaves).not.toHaveBeenCalled();
+  });
+
+  it('zooms (not spiderfy) when zoom < CLUSTER_MAX_ZOOM regardless of point_count', async () => {
+    render(<MapCanvas observations={[makeObs()]} />);
+    await waitFor(() =>
+      expect(registeredHandlers['click:clusters']).toBeTypeOf('function'),
+    );
+
+    fakeMap.getZoom.mockReturnValue(10); // < 14
+    const getClusterLeaves = vi.fn();
+    const getClusterExpansionZoom = vi.fn().mockResolvedValue(11);
+    fakeMap.getSource.mockReturnValue({
+      getClusterLeaves,
+      getClusterExpansionZoom,
+    });
+
+    fakeMap.queryRenderedFeatures.mockReturnValue([
+      {
+        properties: { cluster_id: 3, point_count: 3 },
+        geometry: { type: 'Point', coordinates: [-111, 34] },
+      },
+    ]);
+
+    const handler = registeredHandlers['click:clusters'];
+    await act(async () => {
+      handler({ point: [0, 0] });
+    });
+
+    expect(getClusterExpansionZoom).toHaveBeenCalled();
+    expect(getClusterLeaves).not.toHaveBeenCalled();
   });
 
   it('swallows cluster-expansion Promise rejections (no throw)', async () => {
