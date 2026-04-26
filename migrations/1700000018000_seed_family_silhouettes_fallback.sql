@@ -37,7 +37,12 @@
 -- source / license / creator: NULL — this is a hand-drawn generic shape, not
 -- a Phylopic asset, so there's nothing to attribute. AttributionModal (#250)
 -- already handles NULL creator/license by skipping the row.
-INSERT INTO family_silhouettes (id, family_code, svg_data, color, source, license, common_name, creator) VALUES
+--
+-- common_name is intentionally NOT in this INSERT — the column doesn't exist
+-- yet (it's added by migration 1700000019000 from #249). Migration
+-- 1700000019700 UPDATEs the _FALLBACK row's common_name to 'Unknown family'
+-- once the column exists.
+INSERT INTO family_silhouettes (id, family_code, svg_data, color, source, license, creator) VALUES
   (
     '_FALLBACK',
     '_FALLBACK',
@@ -49,7 +54,6 @@ INSERT INTO family_silhouettes (id, family_code, svg_data, color, source, licens
     '#555555',
     NULL,
     NULL,
-    'Unknown family',
     NULL
   );
 
