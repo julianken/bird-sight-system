@@ -10,6 +10,7 @@ import { SpeciesSearchSurface } from './components/SpeciesSearchSurface.js';
 import { SpeciesDetailSurface } from './components/SpeciesDetailSurface.js';
 import { SurfaceNav } from './components/SurfaceNav.js';
 import { MigrationBanner } from './components/MigrationBanner.js';
+import { AttributionModal } from './components/AttributionModal.js';
 import { deriveFamilies, deriveSpeciesIndex } from './derived.js';
 
 const apiClient = new ApiClient({ baseUrl: import.meta.env.VITE_API_BASE_URL ?? '' });
@@ -164,6 +165,23 @@ export function App() {
           />
         )}
       </main>
+      {/*
+        Persistent app-level footer (issue #250). Subsumes the per-surface
+        SurfaceFooter from #243; the AttributionModal Credits trigger is
+        reachable from every view (`view=map|feed|species|detail`) so the
+        CC BY 3.0 / CC BY-SA 3.0 §4(c) prominence requirement is satisfied
+        without abusing SurfaceNav's `role="tablist"` semantics.
+
+        Position is load-bearing: must be the LAST child of `<div className=
+        "app">` (after `</main>`). This gives both the right visual order
+        (footer at viewport bottom via `.app` flex column + `#main-surface
+        flex: 1`) and the axe-clean landmark order
+        (banner → main → contentinfo). Do NOT move it before MigrationBanner
+        / FiltersBar / SurfaceNav.
+      */}
+      <footer role="contentinfo" className="app-footer">
+        <AttributionModal silhouettes={silhouettes} />
+      </footer>
     </div>
   );
 }

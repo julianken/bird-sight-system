@@ -32,48 +32,11 @@ function obs(partial: Partial<Observation>): Observation {
 }
 
 describe('SpeciesSearchSurface', () => {
-  // eBird API ToU §3 attribution must accompany the data wherever it is
-  // displayed. The SurfaceFooter is the per-surface implementation until
-  // #250's AttributionModal supersedes it. Cover all three render branches
-  // (no species selected, species selected with rows, species selected
-  // empty) so a future refactor that rearranges branches doesn't regress
-  // the credit silently.
-  it.each([
-    [
-      'the no-species prompt',
-      { speciesCode: null, observations: [] as Observation[], loading: false },
-    ],
-    [
-      'the populated recent-sightings list',
-      {
-        speciesCode: 'vermfly',
-        observations: [obs({ subId: 'S1', speciesCode: 'vermfly' })],
-        loading: false,
-      },
-    ],
-    [
-      'the species-selected empty state',
-      { speciesCode: 'vermfly', observations: [] as Observation[], loading: false },
-    ],
-    [
-      'the loading state',
-      { speciesCode: 'vermfly', observations: [] as Observation[], loading: true },
-    ],
-  ])('renders the eBird credit footer in %s', (_label, state) => {
-    render(
-      <SpeciesSearchSurface
-        loading={state.loading}
-        speciesCode={state.speciesCode}
-        observations={state.observations}
-        speciesIndex={SPECIES_INDEX}
-        now={NOW}
-        onSelectSpecies={() => {}}
-        onClearSpecies={() => {}}
-      />
-    );
-    const link = screen.getByRole('link', { name: /eBird/i });
-    expect(link).toHaveAttribute('href', 'https://ebird.org');
-  });
+  // eBird API ToU §3 attribution moved to the app-level AttributionModal
+  // (#250) and is reachable from every view via the persistent footer in
+  // App.tsx. SpeciesSearchSurface no longer carries a per-surface footer
+  // — the assertion that lived here is now covered by AttributionModal
+  // unit tests + the e2e attribution-modal spec.
 
   it('renders the autocomplete at the top', () => {
     render(
