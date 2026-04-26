@@ -25,6 +25,9 @@ export const SPIDERFY_MAX_LEAVES = 8;
 export const SPIDERFY_DURATION_MS = 200;
 export const SPIDERFY_LEADER_SOURCE_ID = 'spiderfy-leaves';
 export const SPIDERFY_LEADER_LAYER_ID = 'spiderfy-leaves-line';
+/** Shared with auto-spider reconciler in MapCanvas.tsx — keep in sync. */
+export const SPIDER_LEADER_COLOR = '#444';
+export const SPIDER_LEADER_WIDTH = 2;
 
 /* Threshold below which a circle layout is used; above which a spiral is. */
 const CIRCLE_THRESHOLD = 6;
@@ -313,8 +316,8 @@ export async function spiderfyCluster(
       // the leaf positions. Spider v2 (#277) will add visible silhouettes
       // at leaf positions; until then, leader-line visibility is the
       // primary cue.
-      'line-color': '#444',
-      'line-width': 2,
+      'line-color': SPIDER_LEADER_COLOR,
+      'line-width': SPIDER_LEADER_WIDTH,
     },
   });
 

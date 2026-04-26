@@ -37,6 +37,8 @@ import {
 import {
   spiderfyCluster,
   SPIDERFY_MAX_LEAVES,
+  SPIDER_LEADER_COLOR,
+  SPIDER_LEADER_WIDTH,
   type SpiderfyState,
 } from './spiderfy.js';
 import {
@@ -711,28 +713,34 @@ export function MapCanvas({
    *     FeatureCollection so leader lines disappear without removing the
    *     source.
    */
+  // TODO(spider-v2): consider extracting to useAutoSpider hook if MapCanvas continues growing post-Task-5.
   useEffect(() => {
     // AC #2: short-circuit when silhouettes aren't loaded yet.
-    if (silhouettesRef.current.length === 0) return undefined;
+    if (silhouettes.length === 0) return undefined;
     if (!mapReady) return undefined;
     const map = mapRef.current?.getMap();
     if (!map) return undefined;
 
+    // Build once per effect pass (dep array: [silhouettes.length, mapReady]).
+    // Silhouettes change at most once per session (empty → populated), so
+    // rebuilding on every idle would be wasteful at production obs counts.
+    const silByFamily = new Map<string, { svgData: string | null; color: string }>();
+    for (const s of silhouettesRef.current) {
+      silByFamily.set(s.familyCode.toLowerCase(), {
+        svgData: s.svgData,
+        color: s.color,
+      });
+    }
+
+    // Defensive — protects against future async yields in `reconcile`.
+    // Today reconcile is synchronous so this flag never fires; kept for
+    // forward-compatibility.
     let cancelled = false;
 
     const reconcile = () => {
       if (cancelled) return;
       const currentSilhouettes = silhouettesRef.current;
       if (currentSilhouettes.length === 0) return;
-
-      // Build a lookup by familyCode for svgData + color resolution.
-      const silByFamily = new Map<string, { svgData: string | null; color: string }>();
-      for (const s of currentSilhouettes) {
-        silByFamily.set(s.familyCode.toLowerCase(), {
-          svgData: s.svgData,
-          color: s.color,
-        });
-      }
 
       // Query all currently-rendered unclustered observations.
       const rawFeatures = (map.queryRenderedFeatures(undefined, {
@@ -793,8 +801,7 @@ export function MapCanvas({
         properties: Record<string, string>;
       }> = [];
 
-      for (let si = 0; si < stacks.length; si += 1) {
-        const stack = stacks[si]!;
+      for (const [si, stack] of stacks.entries()) {
         const stackId = `stack-${si}`;
         const fanned = fanPositions(stack);
         const leaves: AutoSpiderLeaf[] = [];
@@ -878,8 +885,8 @@ export function MapCanvas({
             type: 'line',
             source: AUTO_SPIDER_SOURCE_ID,
             paint: {
-              'line-color': '#444',
-              'line-width': 2,
+              'line-color': SPIDER_LEADER_COLOR,
+              'line-width': SPIDER_LEADER_WIDTH,
             },
           });
         }
@@ -1172,6 +1179,10 @@ export function MapCanvas({
               latitude={leaf.lngLat[1]}
               anchor="bottom"
             >
+              {/* onClick is an inline arrow — stable pre-built callbacks
+                  would require storing them in AutoSpiderLeaf. Acceptable
+                  trade-off: reconcile fires on idle (every few seconds at
+                  most), not on every MapCanvas render. */}
               <StackedSilhouetteMarker
                 silhouette={leaf.silhouette}
                 comName={leaf.comName}

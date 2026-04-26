@@ -983,84 +983,34 @@ describe('MapCanvas', () => {
     expect(sourceData.data.features).toHaveLength(5);
   });
 
-  it('auto-spider: mid-flight cancellation → no setState after unmount', async () => {
-    // AC #6d: unmount during an async reconcile should not call setState.
-    // Uses a deferred Promise to hold the reconcile in-flight, then unmounts
-    // before resolving. No "Warning: Can't perform a React state update on an
-    // unmounted component" should appear.
-    fakeMap.project.mockReturnValue({ x: 700, y: 400 });
-    fakeMap.unproject.mockReturnValue({ lng: -111.0, lat: 34.0 });
-
-    let resolveProject!: () => void;
-    const blockingPromise = new Promise<void>((resolve) => {
-      resolveProject = resolve;
-    });
-
-    // Override project to block until we choose to unblock it.
-    fakeMap.project.mockImplementation(() => {
-      void blockingPromise;
-      return { x: 700, y: 400 };
-    });
-
-    // queryRenderedFeatures returns 5 identical obs so stacks would form —
-    // if the cancelled flag weren't checked, setStacks would fire post-unmount.
-    const makeFeature = (subId: string) => ({
-      properties: {
-        subId,
-        comName: `Bird ${subId}`,
-        familyCode: 'tyrannidae',
-        locName: 'Loc',
-        obsDt: '2026-04-15T10:00:00Z',
-        isNotable: false,
-        color: '#C77A2E',
-        silhouetteId: 'tyrannidae',
-      },
-      geometry: { type: 'Point', coordinates: [-111.0, 34.0] },
-    });
-
-    fakeMap.queryRenderedFeatures.mockImplementation(
-      (_: unknown, opts?: { layers?: string[] }) => {
-        if (opts?.layers?.includes('unclustered-point'))
-          return [
-            makeFeature('SC1'),
-            makeFeature('SC2'),
-            makeFeature('SC3'),
-            makeFeature('SC4'),
-            makeFeature('SC5'),
-          ];
-        return [];
-      },
-    );
+  it('auto-spider: cleanup unbinds load and idle listeners', async () => {
+    // Verifies the effect cleanup function fires map.off for both 'load' and
+    // 'idle' so reconcile stops running after the component is removed.
+    // (The `cancelled` flag in the impl is defensive for future async yields —
+    // reconcile is currently synchronous so the flag itself never fires;
+    // listener removal is the real guard.)
+    fakeMap.queryRenderedFeatures.mockReturnValue([]);
     fakeMap.getSource.mockReturnValue(null);
-    fakeMap.getLayer.mockReturnValue(null);
 
-    const consoleSpy = vi.spyOn(console, 'error');
     const { unmount } = render(
       <MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />,
     );
+
+    // Wait for the effect to register its listeners.
     await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
 
-    // Trigger reconcile — it will synchronously call project (which blocks
-    // on blockingPromise in the background, but the real work is synchronous
-    // since project is not truly async here).
-    void bareHandlers['idle']?.();
-
-    // Unmount before any pending microtasks settle.
-    unmount();
-
-    // Unblock (in case the promise was awaited internally).
-    resolveProject();
-    // Allow all microtasks to drain.
+    // Trigger idle once so the listeners are confirmed attached.
     await act(async () => {
-      await Promise.resolve();
+      await bareHandlers['idle']?.();
     });
 
-    // The cancelled flag must prevent any post-unmount setState call.
-    // React 18 doesn't emit the "unmounted component" warning anymore, so
-    // we assert the positive invariant: no console.error was called.
-    expect(consoleSpy).not.toHaveBeenCalledWith(
-      expect.stringContaining('unmounted component'),
-    );
-    consoleSpy.mockRestore();
+    // Unmount — should fire the cleanup function.
+    unmount();
+
+    // Both 'load' and 'idle' must have been unregistered.
+    const offCalls: [string, unknown][] = fakeMap.off.mock.calls as [string, unknown][];
+    const removedEvents = offCalls.map((c) => c[0]);
+    expect(removedEvents).toContain('load');
+    expect(removedEvents).toContain('idle');
   });
 });
