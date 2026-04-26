@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-04-26T06:32:35.161Z",
+  "generatedAt": "2026-04-26T22:18:00.976Z",
   "phylopicBuild": "537",
   "autoPickHeuristic": "license-preference (CC0 > CC-BY-3.0 > CC-BY-4.0 > CC-BY-SA-3.0), then creator-name asc, then uuid asc",
+  "skipFamilies": [
+    "cuculidae",
+    "ptilogonatidae",
+    "remizidae"
+  ],
   "families": [
     {
       "family": "accipitridae",
@@ -484,7 +489,7 @@
     {
       "family": "cuculidae",
       "picked": null,
-      "reason": "no-candidates",
+      "reason": "operator-skipped",
       "candidateCount": 0,
       "considered": []
     },
@@ -1017,7 +1022,7 @@
     {
       "family": "ptilogonatidae",
       "picked": null,
-      "reason": "error: GET https://api.phylopic.org/nodes?build=537&filter_name=ptilogonatidae&page=0 → 404",
+      "reason": "operator-skipped",
       "candidateCount": 0,
       "considered": []
     },
@@ -1161,7 +1166,7 @@
     {
       "family": "remizidae",
       "picked": null,
-      "reason": "error: GET https://api.phylopic.org/nodes?build=537&filter_name=remizidae&page=0 → 404",
+      "reason": "operator-skipped",
       "candidateCount": 0,
       "considered": []
     },

@@ -207,7 +207,12 @@ WHERE family_code = 'tyrannidae';
 
 -- Phylopic-less families: explicit NULL signals "no usable silhouette";
 -- the _FALLBACK consumer (#246) renders the generic shape using the
--- preserved family color.
+-- preserved family color. Families fall into this bucket either because
+-- (a) the operator listed them in scripts/phylopic-picks.json#skipFamilies
+-- after confirming no usable Phylopic entry exists, or (b) the live API
+-- returned 404 (genuine taxonomic absence). Transient API failures (5xx,
+-- network) abort the run instead — see scripts/curate-phylopic.mjs #267.
+-- Operator-flagged absent (skipFamilies): cuculidae, ptilogonatidae, remizidae.
 UPDATE family_silhouettes SET svg_data = NULL, source = NULL, license = NULL, creator = NULL
 WHERE family_code IN ('cuculidae', 'ptilogonatidae', 'remizidae');
 
