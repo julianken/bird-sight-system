@@ -4,6 +4,15 @@ import { AppPage } from './pages/app-page.js';
 
 const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 
+const VERMFLY = {
+  speciesCode: 'vermfly',
+  comName: 'Vermilion Flycatcher',
+  sciName: 'Pyrocephalus rubinus',
+  familyCode: 'tyrannidae',
+  familyName: 'Tyrant Flycatchers',
+  taxonOrder: 4400,
+} as const;
+
 test.describe('axe-core WCAG scans', () => {
   test('initial load has no WCAG 2/2.1 A/AA violations', async ({ page }) => {
     const app = new AppPage(page);
@@ -63,14 +72,7 @@ test.describe('axe-core WCAG scans', () => {
   });
 
   test('species detail surface has no WCAG 2/2.1 A/AA violations', async ({ page, apiStub }) => {
-    await apiStub.stubSpecies('vermfly', {
-      speciesCode: 'vermfly',
-      comName: 'Vermilion Flycatcher',
-      sciName: 'Pyrocephalus rubinus',
-      familyCode: 'tyrannidae',
-      familyName: 'Tyrant Flycatchers',
-      taxonOrder: 4400,
-    });
+    await apiStub.stubSpecies('vermfly', VERMFLY);
     const app = new AppPage(page);
     await app.goto('detail=vermfly&view=detail');
     await app.waitForAppReady();
@@ -90,14 +92,7 @@ test.describe('axe-core WCAG scans', () => {
     test.use({ viewport: { width: 390, height: 844 } });
 
     test('species detail surface has no WCAG 2/2.1 A/AA violations (mobile)', async ({ page, apiStub }) => {
-      await apiStub.stubSpecies('vermfly', {
-        speciesCode: 'vermfly',
-        comName: 'Vermilion Flycatcher',
-        sciName: 'Pyrocephalus rubinus',
-        familyCode: 'tyrannidae',
-        familyName: 'Tyrant Flycatchers',
-        taxonOrder: 4400,
-      });
+      await apiStub.stubSpecies('vermfly', VERMFLY);
       const app = new AppPage(page);
       await app.goto('detail=vermfly&view=detail');
       await app.waitForAppReady();
@@ -130,5 +125,126 @@ test.describe('axe-core WCAG scans', () => {
       }
       expect(results.violations).toEqual([]);
     });
+  });
+
+  // Issue #243 — eBird API ToU §3 attribution must be visible (and reachable
+  // by SR / keyboard) on every view that displays eBird-derived data. The
+  // assertion here is intentionally view-aware: feed / species / detail
+  // surfaces render the credit via SurfaceFooter (a `<footer>` semantic
+  // element); the map view renders the credit inside maplibre's
+  // AttributionControl alongside OSM and OpenFreeMap.
+  test.describe('eBird ToU §3 credit reachability', () => {
+    test('feed view exposes a focusable eBird link in a <footer>', async ({ page }) => {
+      const app = new AppPage(page);
+      await app.goto('view=feed');
+      await app.waitForAppReady();
+      // Locate via the footer landmark + accessible name so the assertion
+      // exercises the same DOM path that assistive tech would.
+      const footer = page.locator('footer.surface-footer');
+      await expect(footer).toBeVisible();
+      const link = footer.getByRole('link', { name: /eBird/i });
+      await expect(link).toHaveAttribute('href', 'https://ebird.org');
+      await expect(link).toHaveAttribute('rel', 'noopener');
+      // The link must be reachable via keyboard, not just visible — focus
+      // it and confirm the activeElement matches.
+      await link.focus();
+      const focusedHref = await page.evaluate(
+        () => (document.activeElement as HTMLAnchorElement | null)?.href,
+      );
+      expect(focusedHref).toBe('https://ebird.org/');
+    });
+
+    test('species view exposes a focusable eBird link in a <footer>', async ({ page }) => {
+      const app = new AppPage(page);
+      await app.goto('view=species');
+      await app.waitForAppReady();
+      const footer = page.locator('footer.surface-footer');
+      await expect(footer).toBeVisible();
+      const link = footer.getByRole('link', { name: /eBird/i });
+      await expect(link).toHaveAttribute('href', 'https://ebird.org');
+      await expect(link).toHaveAttribute('rel', 'noopener');
+    });
+
+    test('detail view exposes a focusable eBird link in a <footer>', async ({ page, apiStub }) => {
+      await apiStub.stubSpecies('vermfly', VERMFLY);
+      const app = new AppPage(page);
+      await app.goto('detail=vermfly&view=detail');
+      await app.waitForAppReady();
+      await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' }))
+        .toBeVisible({ timeout: 10_000 });
+      const footer = page.locator('footer.surface-footer');
+      await expect(footer).toBeVisible();
+      const link = footer.getByRole('link', { name: /eBird/i });
+      await expect(link).toHaveAttribute('href', 'https://ebird.org');
+      await expect(link).toHaveAttribute('rel', 'noopener');
+    });
+
+    // Map view's eBird credit lives inside maplibre's AttributionControl,
+    // which only renders once a WebGL context initialises. Headless Chromium
+    // in CI (and locally) ships without WebGL by default, so the control
+    // never paints — `[data-testid=map-canvas]` is present but its inner
+    // `.maplibregl-ctrl-attrib-inner` is not. The unit test in
+    // `frontend/src/components/map/MapCanvas.test.tsx` already asserts the
+    // `customAttribution` array shape (eBird link, https://ebird.org href,
+    // `rel="noopener"`); that's the load-bearing contract. The map view
+    // e2e here would only re-test maplibre's own rendering machinery, which
+    // is out of scope for issue #243.
+    //
+    // Surface invariant we CAN cover: SurfaceFooter must NOT render on the
+    // map view (otherwise the map would be double-credited).
+    test('map view does not render a SurfaceFooter (avoid double-credit)', async ({ page }) => {
+      const app = new AppPage(page);
+      await app.goto('view=map');
+      await app.waitForAppReady();
+      // Map canvas wrapper is present even without WebGL; SurfaceFooter
+      // would have been rendered alongside it by App.tsx if MapSurface
+      // pulled it in by mistake.
+      await expect(page.locator('[data-testid=map-canvas]')).toBeVisible({
+        timeout: 15_000,
+      });
+      await expect(page.locator('footer.surface-footer')).toHaveCount(0);
+    });
+  });
+
+  // Extend the axe coverage to include feed (initial-load already covers
+  // this path, but assert explicitly for ?view=feed) and map. Existing
+  // species/detail/error scans above continue to cover the other surfaces.
+  test('feed view has no WCAG 2/2.1 A/AA violations', async ({ page }) => {
+    const app = new AppPage(page);
+    await app.goto('view=feed');
+    await app.waitForAppReady();
+    const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
+    if (results.violations.length) {
+      await test.info().attach('axe-violations', {
+        body: JSON.stringify(results.violations, null, 2),
+        contentType: 'application/json',
+      });
+    }
+    expect(results.violations).toEqual([]);
+  });
+
+  test('map view has no WCAG 2/2.1 A/AA violations', async ({ page }) => {
+    const app = new AppPage(page);
+    await app.goto('view=map');
+    await app.waitForAppReady();
+    // The maplibre AttributionControl needs WebGL to render and headless
+    // Chromium (CI + local) ships without it. We scan the chrome around
+    // the map (filters bar, surface nav, the map-canvas wrapper) — that's
+    // the part axe actually has DOM for. The attribution markup is unit-
+    // tested at the customAttribution-array level, so dropping the canvas
+    // contents from the axe scan does not mask a WCAG regression in the
+    // map's own controls (those are MapLibre-owned and out of our axe
+    // jurisdiction anyway).
+    await expect(page.locator('[data-testid=map-canvas]')).toBeVisible({
+      timeout: 15_000,
+    });
+    const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
+    if (results.violations.length) {
+      await test.info().attach('axe-violations', {
+        body: JSON.stringify(results.violations, null, 2),
+        contentType: 'application/json',
+      });
+    }
+    expect(results.violations).toEqual([]);
   });
 });

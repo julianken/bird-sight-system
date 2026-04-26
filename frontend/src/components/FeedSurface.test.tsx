@@ -26,6 +26,36 @@ function obs(partial: Partial<Observation>): Observation {
 }
 
 describe('FeedSurface', () => {
+  // eBird API ToU §3 attribution must accompany the data wherever it is
+  // displayed. The SurfaceFooter is the per-surface implementation until
+  // #250's AttributionModal supersedes it.
+  it.each([
+    ['the loading state', { loading: true, observations: [] as Observation[] }],
+    [
+      'the empty state',
+      { loading: false, observations: [] as Observation[] },
+    ],
+    [
+      'the populated state',
+      {
+        loading: false,
+        observations: [obs({ subId: 'S1', speciesCode: 'vermfly' })],
+      },
+    ],
+  ])('renders the eBird credit footer in %s', (_label, state) => {
+    render(
+      <FeedSurface
+        loading={state.loading}
+        observations={state.observations}
+        now={NOW}
+        filters={{ notable: false, since: '14d' }}
+        onSelectSpecies={() => {}}
+      />
+    );
+    const link = screen.getByRole('link', { name: /eBird/i });
+    expect(link).toHaveAttribute('href', 'https://ebird.org');
+  });
+
   it('renders a loading state while loading is true', () => {
     render(
       <FeedSurface

@@ -168,6 +168,23 @@ describe('MapCanvas', () => {
     expect(custom.join(' ')).toMatch(/openfreemap\.org/);
   });
 
+  it('credits eBird (Cornell Lab of Ornithology) in the AttributionControl (eBird ToU §3)', () => {
+    // The map view is the only surface where the eBird credit is rendered
+    // *inside* maplibre's AttributionControl rather than via SurfaceFooter,
+    // because adding both would be redundant and visually noisy. The credit
+    // must link to https://ebird.org and use rel="noopener" — matching the
+    // OSM and OpenFreeMap entries in the same array. Do NOT introduce a
+    // rel="noopener noreferrer" divergence inside this array.
+    render(<MapCanvas observations={[makeObs()]} />);
+    const custom = capturedAttributionProps.customAttribution as string[];
+    const ebirdEntry = custom.find((s) => /ebird/i.test(s));
+    expect(ebirdEntry).toBeDefined();
+    expect(ebirdEntry).toMatch(/https:\/\/ebird\.org/);
+    expect(ebirdEntry).toMatch(/rel="noopener"/);
+    expect(ebirdEntry).not.toMatch(/noreferrer/);
+    expect(ebirdEntry).toMatch(/Cornell Lab/i);
+  });
+
   /**
    * Regression test for the MapLibre 3.x→4.x cluster-click bug (PR #165,
    * issue #166): `GeoJSONSource.getClusterExpansionZoom` became Promise-based
