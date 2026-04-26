@@ -136,15 +136,12 @@ function stackedObs(): Observation[] {
 }
 
 /**
- * Drive the maplibre map to a given center + zoom using the React fiber tree.
+ * Drive the maplibre map to a given center + zoom via the `window.__birdMap`
+ * test hook exposed by MapCanvas.tsx on `load`.
  *
- * react-map-gl/maplibre stores the `MapRef` as a ref on the `<MapView>`
- * component. Walking the fiber from the maplibre canvas element is fragile
- * across React versions — if it breaks, the subsequent WebGL skip guard
- * will catch the missing markers and skip cleanly rather than fail.
- *
- * Returns `true` if `easeTo` was dispatched, `false` if the map instance
- * could not be found (non-WebGL headless run).
+ * Returns `true` if `easeTo` was dispatched, `false` if the hook is not yet
+ * set (map load has not fired — non-WebGL headless run). The caller's WebGL
+ * skip guard will catch the missing markers and skip cleanly in that case.
  */
 async function driveMapTo(
   page: import('@playwright/test').Page,
@@ -154,45 +151,12 @@ async function driveMapTo(
 ): Promise<boolean> {
   return page.evaluate(
     ([lng, lat, zoom]: [number, number, number]) => {
-      // Strategy 1: look for the maplibre container element and walk its
-      // React fiber to find the map instance via react-map-gl's `_map`
-      // internal or the `MapRef` wrapper. This is best-effort; it depends
-      // on react-map-gl internals that could change between versions.
-      // If it succeeds, easeTo fires; if not, we return false so the
-      // caller's WebGL skip guard can catch the missing markers.
       try {
-        const container = document.querySelector('.maplibregl-map') as
-          | (Element & Record<string, unknown>)
-          | null;
-        if (!container) return false;
-
-        // react-map-gl/maplibre stores its map instance on the container
-        // element's React fiber under a "__reactFiber" key (React 18).
-        // Walk up until we find a stateNode with a `getMap` method.
-        const fiberKey = Object.keys(container).find(
-          (k) => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance'),
-        );
-        if (!fiberKey) return false;
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let fiber: any = (container as any)[fiberKey];
-        let mapInstance: null | { easeTo: (opts: object) => void } = null;
-
-        for (let i = 0; i < 80 && fiber; i += 1) {
-          const sn = fiber.stateNode;
-          if (sn && typeof sn.getMap === 'function') {
-            const raw = sn.getMap();
-            if (raw && typeof raw.easeTo === 'function') {
-              mapInstance = raw;
-              break;
-            }
-          }
-          // Traverse: try return/child/sibling
-          fiber = fiber.return ?? fiber.child ?? fiber.sibling ?? null;
-        }
-
-        if (!mapInstance) return false;
-        mapInstance.easeTo({ center: [lng, lat], zoom, duration: 0 });
+        // window.__birdMap is set by MapCanvas.tsx's handleLoad callback
+        // (Spider v2 e2e test hook — not relied on by production code).
+        const map = (window as { __birdMap?: { easeTo: (opts: object) => void } }).__birdMap;
+        if (!map || typeof map.easeTo !== 'function') return false;
+        map.easeTo({ center: [lng, lat], zoom, duration: 0 });
         return true;
       } catch {
         return false;
@@ -248,6 +212,12 @@ test.describe('Map auto-spider stack-fanout (#277)', () => {
     }) => {
       test.setTimeout(60_000);
 
+      // Stub the hotspots route first (LIFO — later stubs win, so the more
+      // specific observations + silhouettes stubs below take priority).
+      // Without this, use-bird-data.ts fires getHotspots() unconditionally on
+      // mount; in CI (no dev server) the request hangs and races waitForAppReady.
+      await apiStub.stubEmpty();
+
       // Stub observations (5 at identical coords) and silhouettes.
       // silhouettes MUST be non-empty or MapCanvas short-circuits the
       // auto-spider reconciler before it even queries rendered features.
@@ -300,16 +270,17 @@ test.describe('Map auto-spider stack-fanout (#277)', () => {
 
       // ---------------------------------------------------------------
       // AC 3: Click one known marker → ObservationPopover opens.
-      // We target the House Finch marker by aria-label prefix.
+      // We target the House Finch marker using a regex on the full label
+      // structure: "<comName> — <familyCode> — <locName> — <date>".
       // ---------------------------------------------------------------
-      const finchMarker = page.locator(
-        '[data-testid=stacked-silhouette-marker][aria-label^="House Finch"]',
-      );
+      const finchMarker = page.getByRole('button', { name: /^House Finch — fringillidae —/ });
       await expect(finchMarker).toHaveCount(1, { timeout: 5_000 });
       await finchMarker.click();
 
-      // The ObservationPopover renders a dialog with aria-label "Details for <comName>".
-      const dialog = page.getByRole('dialog');
+      // The ObservationPopover renders a dialog with aria-label "Details for <comName>"
+      // (ObservationPopover.tsx:45). Anchored by name to avoid ambiguity if
+      // a second dialog is open concurrently.
+      const dialog = page.getByRole('dialog', { name: 'Details for House Finch' });
       await expect(dialog).toBeVisible({ timeout: 5_000 });
 
       // The popover header shows the observation's common name.
@@ -330,37 +301,16 @@ test.describe('Map auto-spider stack-fanout (#277)', () => {
       // ---------------------------------------------------------------
       const leaderFeatureCount = await page.evaluate(() => {
         try {
-          const container = document.querySelector('.maplibregl-map') as
-            | (Element & Record<string, unknown>)
-            | null;
-          if (!container) return null;
-
-          const fiberKey = Object.keys(container).find(
-            (k) =>
-              k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance'),
-          );
-          if (!fiberKey) return null;
-
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          let fiber: any = (container as any)[fiberKey];
-          let mapInstance: null | {
-            getSource: (id: string) => { _data?: { features?: unknown[] } } | null | undefined;
-          } = null;
-
-          for (let i = 0; i < 80 && fiber; i += 1) {
-            const sn = fiber.stateNode;
-            if (sn && typeof sn.getMap === 'function') {
-              const raw = sn.getMap();
-              if (raw && typeof raw.getSource === 'function') {
-                mapInstance = raw;
-                break;
-              }
-            }
-            fiber = fiber.return ?? fiber.child ?? fiber.sibling ?? null;
-          }
-
-          if (!mapInstance) return null;
-          const src = mapInstance.getSource('auto-spider-leader-lines');
+          // Use the window.__birdMap test hook (set by MapCanvas.tsx on load)
+          // to inspect the leader-line GeoJSON source directly — no fragile
+          // React fiber walk needed.
+          const map = (window as {
+            __birdMap?: {
+              getSource: (id: string) => { _data?: { features?: unknown[] } } | null | undefined;
+            };
+          }).__birdMap;
+          if (!map || typeof map.getSource !== 'function') return null;
+          const src = map.getSource('auto-spider-leader-lines');
           if (!src) return null;
           // GeoJSON source exposes ._data after setData in maplibre 5.x.
           // Fall back to null if the internal shape has changed.

@@ -21,26 +21,45 @@ import type { Observation } from '@bird-watch/shared-types';
  * and the new map-stack-fanout.spec.ts e2e spec.
  */
 
-/** Build a deterministic observation set near a single hotspot so any
- *  cluster MapLibre forms at high zoom contains the points we know about. */
+/**
+ * Two observations near Sweetwater Wetlands — enough to satisfy the non-empty
+ * stub requirement and verify the hit-layer wraps multiple buttons. The
+ * 6-observation cluster fixture was load-bearing only for the deleted Escape
+ * test (former test 4, removed in Spider v2 Task 5).
+ */
 function clusterableObs(): Observation[] {
-  // Six points within ~50m of (-110.85, 32.27) — Sweetwater Wetlands.
-  const center: [number, number] = [-110.85, 32.27];
-  return Array.from({ length: 6 }, (_, i) => ({
-    subId: `S${String(i).padStart(3, '0')}`,
-    speciesCode: ['houfin', 'verdin', 'gambqu', 'gilwoo', 'ruskla', 'verfly'][i] ?? 'houfin',
-    comName: ['House Finch', 'Verdin', 'Gambels Quail', 'Gila Woodpecker', 'Ruddy Duck', 'Vermilion Flycatcher'][i] ?? 'House Finch',
-    lat: center[1] + (i - 3) * 0.0001,
-    lng: center[0] + (i % 2 === 0 ? 0.0001 : -0.0001),
-    obsDt: '2026-04-15T10:00:00Z',
-    locId: 'L99',
-    locName: 'Sweetwater Wetlands',
-    howMany: 1,
-    isNotable: i === 5,
-    regionId: null,
-    silhouetteId: null,
-    familyCode: null,
-  }));
+  return [
+    {
+      subId: 'S001',
+      speciesCode: 'houfin',
+      comName: 'House Finch',
+      lat: 32.27,
+      lng: -110.85,
+      obsDt: '2026-04-15T10:00:00Z',
+      locId: 'L99',
+      locName: 'Sweetwater Wetlands',
+      howMany: 1,
+      isNotable: false,
+      regionId: null,
+      silhouetteId: null,
+      familyCode: null,
+    },
+    {
+      subId: 'S002',
+      speciesCode: 'verdin',
+      comName: 'Verdin',
+      lat: 32.2701,
+      lng: -110.8501,
+      obsDt: '2026-04-15T10:00:00Z',
+      locId: 'L99',
+      locName: 'Sweetwater Wetlands',
+      howMany: 1,
+      isNotable: false,
+      regionId: null,
+      silhouetteId: null,
+      familyCode: null,
+    },
+  ];
 }
 
 test.describe('Map skip-link + hit-target overlay (#247, #277)', () => {

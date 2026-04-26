@@ -329,6 +329,12 @@ export function MapCanvas({
     // Signal the reconciler effect that the map is mounted + ref-live.
     setMapReady(true);
 
+    // Test hook (Spider v2 e2e): exposes the maplibre instance for Playwright
+    // to drive easeTo and inspect sources. Not relied on by production code.
+    if (typeof window !== 'undefined') {
+      (window as { __birdMap?: typeof map }).__birdMap = map;
+    }
+
     map.on('click', 'unclustered-point', (e: MapLayerMouseEvent) => {
       // Intentionally untyped: `MapGeoJSONFeature` (re-exported from
       // maplibre-gl 5.x) is now a class with internal fields `_x/_y/_z/
