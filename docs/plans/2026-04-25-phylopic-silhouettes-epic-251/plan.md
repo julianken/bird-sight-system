@@ -15,8 +15,9 @@ hotfix to `main`, per user direction.
 - All sub-issue PRs target the `version-one` feature branch, not `main`.
 - `.mergify.yml` is updated as Task 0 to accept both `main` and `version-one` as
   queue bases.
-- First three PRs (Task 0, #243, #252) ship sequentially in the main worktree.
-  Re-evaluate parallel-via-worktrees after the loop is calibrated.
+- Tasks 0, #243, #252 ship sequentially in the main worktree (Phase A).
+  Phase B and onward dispatch in parallel via worktrees automatically — no
+  user check-in between phases.
 - The 5-round bot scoping review substitutes for the CLAUDE.md prototype gate —
   these issues are extensions to a shipped, working renderer, not greenfield
   rendering decisions.
@@ -246,13 +247,11 @@ Move to next issue's Step 1.
   #244/#245/#246/#249 deploy — but since version-one ships as one merge, this
   just needs to land on version-one before those four.
 
-**🛑 PAUSE for user check-in after Task 2 merges to version-one.**
+After Task 2 merges to version-one, dispatch Phase B automatically — no user
+check-in. The version-one + Mergify + bot-review loop is validated by Tasks 0-2;
+Phase B runs in parallel worktrees.
 
-Confirm with the user: bot-review loop is calibrated, version-one queue is
-working, screenshot pattern is rendering correctly on PR body. Decide: continue
-sequential or switch to parallel-via-worktrees for Phase B.
-
-### Phase B — Independent dependency-roots (parallel-eligible)
+### Phase B — Independent dependency-roots (dispatched in parallel via worktrees)
 
 - **Task 3 — Issue #244** (`chore(db)`: seed expansion 15 → 25 + `_FALLBACK`).
   Gates #246. Backend only.
@@ -263,8 +262,9 @@ sequential or switch to parallel-via-worktrees for Phase B.
   the schema migrations (`1700000019000`, `1700000019500`) are independent of
   #244's seed migration. Frontend + DB.
 
-These three can dispatch in parallel via `isolation: "worktree"` once Task 2 is
-green and the user has approved Phase B execution.
+Dispatch all three concurrently in a single message with three Agent tool uses,
+each with `isolation: "worktree"`. PR creation runs sequentially after subagents
+return, to avoid push race conditions.
 
 ### Phase C — Phylopic + dependent renderers (Task 3 must merge first)
 
