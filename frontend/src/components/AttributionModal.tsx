@@ -53,12 +53,13 @@ const LICENSE_URLS: Record<string, string> = {
 export interface AttributionModalProps {
   /**
    * Phylopic per-silhouette credits sourced from `useSilhouettes()` in
-   * App.tsx. The modal renders one row per silhouette with a non-null
-   * `source` (Phylopic image-page URL); rows with `source === null` are
-   * skipped (no Phylopic data → nothing to attribute). When the array is
-   * empty AND `loading` / `error` are both falsy, the Phylopic section
-   * degrades to a "Loading silhouettes…" hint while the eBird and OSM
-   * sections render unconditionally.
+   * App.tsx. The modal renders one row per silhouette with attributable
+   * content (non-null `source` OR non-null `creator`); rows with both
+   * null are the migration-1700000018000 fallback rows (seeded color
+   * only) and are filtered out. When all rows filter out AND `loading`
+   * / `error` are both falsy, the Phylopic section renders a
+   * "No silhouette attributions available" message while the eBird and
+   * OSM sections render unconditionally.
    */
   silhouettes: FamilySilhouette[];
   /**
@@ -221,14 +222,18 @@ export function AttributionModal({
           <section className="attribution-modal-section">
             <h3>Family Silhouettes</h3>
             {/*
-              Render order matters: error wins over loading wins over the
-              empty-payload "loading" hint. The `useSilhouettes` hook can
-              be (loading=true, silhouettes=[]) or (error=Error,
-              silhouettes=[]); checking error first keeps the failure path
-              from getting stuck on "Loading…" forever after the fetch
-              rejects. The empty-array branch (no error, not loading) is
-              the rare "API returned []" edge — kept as a courtesy hint
-              rather than rendering a bare heading.
+              Render order matters: error wins over loading wins over
+              "fetch succeeded but nothing attributable". The
+              `useSilhouettes` hook can be (loading=true, silhouettes=[])
+              or (error=Error, silhouettes=[]); checking error first keeps
+              the failure path from getting stuck on "Loading…" forever
+              after the fetch rejects. The fourth branch (no error, not
+              loading, but `phylopicRows` is empty) covers the case where
+              the API returned 200 but every row was filtered out — either
+              an empty silhouettes table or a deploy where only
+              migration-1700000018000 fallback rows (source=null,
+              creator=null) survived curation. Render an explicit
+              "no attributions" message rather than a bare heading.
             */}
             {error ? (
               <p className="attribution-modal-error" role="status" aria-live="polite">
@@ -239,8 +244,8 @@ export function AttributionModal({
                 Loading silhouette attributions…
               </p>
             ) : phylopicRows.length === 0 ? (
-              <p className="attribution-modal-loading" role="status" aria-live="polite">
-                Loading silhouettes…
+              <p className="attribution-modal-empty" role="status" aria-live="polite">
+                No silhouette attributions available.
               </p>
             ) : (
               <>

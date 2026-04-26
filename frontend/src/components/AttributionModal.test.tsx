@@ -215,15 +215,53 @@ describe('AttributionModal', () => {
     expect(items).toHaveLength(3);
   });
 
-  it('shows a loading hint in the Phylopic section when silhouettes is empty', async () => {
+  it('shows a no-attributions message in the Phylopic section when silhouettes is empty', async () => {
     const user = userEvent.setup();
     render(<AttributionModal silhouettes={[]} />);
     await user.click(screen.getByRole('button', { name: /credits/i }));
     // eBird + OSM sections render unconditionally; only the Phylopic
-    // section degrades to a loading hint.
-    expect(screen.getByText(/loading silhouettes/i)).toBeInTheDocument();
+    // section degrades to the "no attributions" message. Default props
+    // give loading=false, error=null — this is the fetch-succeeded-but-
+    // empty branch, not a loading state.
+    expect(screen.getByText(/no silhouette attributions available/i)).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 3, name: /bird sightings data/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 3, name: /map tiles/i })).toBeInTheDocument();
+  });
+
+  it('renders the no-attributions message when loading=false, error=null, and phylopicRows=[] (only fallback rows in payload)', async () => {
+    const user = userEvent.setup();
+    // The migration-1700000018000 fallback rows have source=null AND
+    // creator=null. After phylopicRows filtering they are dropped, so
+    // the section renders the empty-attribution message even though the
+    // input array is non-empty.
+    const fallbackOnly: FamilySilhouette[] = [
+      {
+        familyCode: 'fallback-a',
+        color: '#777',
+        svgData: null,
+        source: null,
+        license: null,
+        commonName: null,
+        creator: null,
+      },
+      {
+        familyCode: 'fallback-b',
+        color: '#888',
+        svgData: null,
+        source: null,
+        license: null,
+        commonName: null,
+        creator: null,
+      },
+    ];
+    render(<AttributionModal silhouettes={fallbackOnly} loading={false} error={null} />);
+    await user.click(screen.getByRole('button', { name: /credits/i }));
+    expect(screen.getByText(/no silhouette attributions available/i)).toBeInTheDocument();
+    // Defensive: the loading and error copies must NOT appear in this branch.
+    expect(screen.queryByText(/loading silhouette attributions/i)).toBeNull();
+    expect(screen.queryByText(/couldn't load silhouette attributions/i)).toBeNull();
+    // No phylopic rows render in this branch.
+    expect(screen.queryAllByTestId('attribution-phylopic-row')).toHaveLength(0);
   });
 
   it('returns focus to the trigger when the modal closes', async () => {
