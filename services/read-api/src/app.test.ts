@@ -128,8 +128,10 @@ describe('GET /api/silhouettes', () => {
     // Must come from cacheControlFor('silhouettes') — NOT a hardcoded string.
     // Both sides of the equality reference the same TTL table entry; if that
     // entry ever changes this test will flag both the route and the table.
+    // No `immutable` directive: silhouette payload drifts between deploys
+    // (curation, Phylopic seed expansion); see cache-headers.ts comment.
     expect(res.headers.get('cache-control'))
-      .toBe('public, max-age=604800, immutable');
+      .toBe('public, max-age=604800');
     const body = await res.json() as Array<{
       familyCode: string; color: string; svgData: string | null;
       source: string | null; license: string | null;
