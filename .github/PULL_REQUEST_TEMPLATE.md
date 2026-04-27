@@ -30,21 +30,13 @@ diagram shows the *what*. -->
 ## Screenshots
 
 <!-- REQUIRED when this PR adds or modifies visible UI (any file under
-services/frontend/**). Otherwise write "N/A — not UI".
+frontend/**). Otherwise write "N/A — not UI".
 
-Headless workflow for subagent-generated PRs: capture via Playwright in the
-task's e2e spec, save under docs/screenshots/plan<N>/task<M>-<slug>/<description>.png,
-commit with the PR, then reference the file using an ABSOLUTE raw.githubusercontent
-URL with the commit SHA captured at PR-creation time. Relative paths do NOT work
-in PR bodies — GitHub resolves them against /pull/N/, not the repo root.
-
-Pattern (inside a subagent bash HEREDOC):
-
-    SHA=$(git rev-parse HEAD)
-    gh pr create --body "... ![map view](https://raw.githubusercontent.com/julianken/bird-sight-system/${SHA}/docs/screenshots/plan4/task3-map-view/default-state.png) ..."
-
-Human-authored PRs can drag-and-drop the image directly into the comment box —
-GitHub uploads it and inserts a working link. -->
+Upload screenshots via the user-attachments paste flow (skill:
+`~/.claude/skills/pr-screenshots-via-user-attachments/`). This produces
+`user-attachments/assets/<uuid>` URLs that are CDN-hosted, repo-independent,
+and survive branch deletion. Do NOT commit PNGs to the repo and do NOT use
+`raw.githubusercontent.com` URLs. -->
 
 ## Test plan
 
