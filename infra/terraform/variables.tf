@@ -46,3 +46,9 @@ variable "domain" {
   type        = string
   description = "Domain you control on Cloudflare, e.g. birdwatch.example.com"
 }
+
+variable "frontend_origins" {
+  type        = string
+  default     = "https://bird-maps.com,https://www.bird-maps.com"
+  description = "Comma-separated CORS origin allowlist injected into the read-api Cloud Run service as FRONTEND_ORIGINS. Non-sensitive (a public CORS list, not a secret)."
+}
