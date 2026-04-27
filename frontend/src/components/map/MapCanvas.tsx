@@ -28,6 +28,7 @@ import {
 } from './observation-layers.js';
 import { ObservationPopover } from './ObservationPopover.js';
 import { MosaicMarker } from './MosaicMarker.js';
+import { isValidSvgPathData } from './silhouette-fallback.js';
 import {
   aggregateClusterFamilies,
   buildMosaicTiles,
@@ -35,14 +36,11 @@ import {
   type MosaicTile,
 } from './cluster-mosaic.js';
 import {
-  spiderfyCluster,
-  SPIDERFY_MAX_LEAVES,
-  type SpiderfyState,
-} from './spiderfy.js';
-import {
   MapMarkerHitLayer,
   type HitTargetMarker,
 } from './MapMarkerHitLayer.js';
+import { StackedSilhouetteMarker } from './StackedSilhouetteMarker.js';
+import { useAutoSpider } from './use-auto-spider.js';
 
 export interface MapCanvasProps {
   observations: Observation[];
@@ -102,8 +100,24 @@ const INITIAL_VIEW = {
  * `<svg>` shell with `fill="black"` so the rendered raster is a single-
  * channel alpha mask that maplibre's SDF tinter can color-shift via the
  * symbol layer's `icon-color` paint property.
+ *
+ * Returns `null` when `svgData` fails the SVG path-data charset check
+ * (issue #271). A literal `"`, `<`, `>`, `&`, or any other XML-breaking
+ * character would either silently corrupt the surrounding `<svg>` document
+ * — making `image.decode()` reject and the family fall back to `_FALLBACK`
+ * with no diagnostic — or, in a worse regression, open an XSS surface if
+ * the SVG ever rendered through an `innerHTML` path. The caller treats
+ * `null` the same way it treats a `null` `svgData` upstream: skip the
+ * sprite registration, log a warn naming the family code, fall back to
+ * the `_FALLBACK` sprite via the GeoJSON join.
  */
-function silhouettePathToSvg(svgData: string): string {
+function silhouettePathToSvg(svgData: string, familyCode: string): string | null {
+  if (!isValidSvgPathData(svgData)) {
+    console.warn(
+      `[silhouette] invalid svgData for family ${familyCode}; falling back to _FALLBACK sprite`,
+    );
+    return null;
+  }
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="64" height="64">` +
     `<path d="${svgData}" fill="black"/>` +
@@ -115,6 +129,10 @@ function silhouettePathToSvg(svgData: string): string {
  * Promise-wrap the SVG → HTMLImageElement → addImage pipeline for one
  * silhouette. Resolves once the sprite is registered; rejects on image-
  * load failure (which surfaces upstream as a Promise.all rejection).
+ *
+ * No-op (resolves immediately) when `svgData` fails the charset check —
+ * `silhouettePathToSvg` returns `null` and we skip registration so the
+ * family's observations join to the `_FALLBACK` sprite instead.
  */
 async function registerSilhouetteSprite(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -122,7 +140,8 @@ async function registerSilhouetteSprite(
   id: string,
   svgData: string,
 ): Promise<void> {
-  const svgString = silhouettePathToSvg(svgData);
+  const svgString = silhouettePathToSvg(svgData, id);
+  if (svgString === null) return;
   const blob = new Blob([svgString], { type: 'image/svg+xml' });
   const url = URL.createObjectURL(blob);
   try {
@@ -155,11 +174,10 @@ async function registerSilhouetteSprite(
  * abstraction doesn't populate `e.features` when layers are added via
  * `<Source>`/`<Layer>` children (prototype learnings #1, #5).
  *
- * Spiderfy (issue #247): when a cluster contains ≤8 points and the map is
- * at zoom ≥ CLUSTER_MAX_ZOOM, clicking the cluster fans the leaves out
- * radially with leader lines instead of zooming further. The leaves
- * become individually clickable via `MapMarkerHitLayer` (HTML overlay
- * with per-marker `aria-label`). Outside-click or Escape clears spiderfy.
+ * Auto-spider (issue #277, Spider v2): on every map idle the auto-spider
+ * reconciler detects co-located observations and fans them as
+ * `<StackedSilhouetteMarker>` markers — no click required to trigger, no
+ * Escape to close. Leader lines are drawn via a transient GeoJSON source.
  *
  * Symbol layer (issue #246): the unclustered-point layer is now an SDF
  * symbol layer that paints per-family silhouettes tinted with each
@@ -185,23 +203,19 @@ export function MapCanvas({
   const [mosaics, setMosaics] = useState<Map<number, ClusterMosaicEntry>>(
     () => new Map(),
   );
-  /* Active spiderfy state (#247) — null when no cluster is currently
-     spiderfied. Holds the projected leaves + a teardown closure that removes
-     the transient leader-line layer/source. */
-  const [spiderfy, setSpiderfy] = useState<SpiderfyState | null>(null);
-  const spiderfyRef = useRef<SpiderfyState | null>(null);
-  spiderfyRef.current = spiderfy;
   /**
    * Flips `true` after the maplibre map fires its initial `load` event.
-   * Drives the mosaic reconciler effect (#248) and the hit-layer ref
-   * binding (#247) — without this gate, both fire against a null
+   * Drives the mosaic reconciler effect (#248), the auto-spider reconciler
+   * effect (#277), and the hit-layer ref binding (#247) — without this gate,
+   * all three fire against a null
    * mapRef.current (commit ordering: mapRef is only populated AFTER the
    * Map child mounts, so an effect dependent on a silhouettes prop change
    * can fire before the ref is live).
    */
   const [mapReady, setMapReady] = useState(false);
-  /* Coarse-pointer detection (#247, mobile). matchMedia is the canonical
-     way; we read it on mount and listen for changes. */
+  /* Coarse-pointer detection (#247, mobile; also used by auto-spider hit
+     targets in #277). matchMedia is the canonical way; we read it on mount
+     and listen for changes. */
   const [isCoarsePointer, setIsCoarsePointer] = useState<boolean>(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
     return window.matchMedia('(pointer: coarse)').matches;
@@ -215,10 +229,23 @@ export function MapCanvas({
     return () => mql.removeEventListener('change', handler);
   }, []);
 
-  const geojson = useMemo(
-    () => observationsToGeoJson(observations, silhouettes),
-    [observations, silhouettes],
-  );
+  // Unmount cleanup for the `window.__birdMap` test hook (#291). The hook is
+  // assigned in `handleLoad` (which fires once per mount); without an unmount
+  // cleanup, a remount (e.g. switching from feed view to map view and back)
+  // would leave a stale handle to the prior MapCanvas's maplibre instance on
+  // window between unmount and the next handleLoad firing. Empty dep array —
+  // we only want this to run on component unmount. Same env gate as the
+  // assignment so prod builds skip the cleanup branch entirely.
+  useEffect(() => {
+    return () => {
+      if (
+        typeof window !== 'undefined' &&
+        import.meta.env.MODE !== 'production'
+      ) {
+        delete (window as { __birdMap?: unknown }).__birdMap;
+      }
+    };
+  }, []);
 
   // The reconciler reads `silhouettes` on every cluster pass. A ref keeps
   // the closure fresh without re-registering the map listeners (registration
@@ -236,15 +263,48 @@ export function MapCanvas({
   // replaces the prior image), so the layer can stay mounted continuously.
   const [spritesReady, setSpritesReady] = useState(false);
 
+  /**
+   * Auto-spider stacks (issue #277, Spider v2 Task 3). Reconciled on every
+   * map `idle` by the `useAutoSpider` hook (extracted from MapCanvas in
+   * #293). Each entry holds one fanned stack: the center lngLat, and the
+   * fanned leaves with their projected marker positions. The hook owns the
+   * effect, internal state, and the leader-line source/layer lifecycle;
+   * MapCanvas just consumes the returned stacks and renders one
+   * `<Marker>+<StackedSilhouetteMarker>` per leaf.
+   */
+  const autoSpiderStacks = useAutoSpider({
+    map: mapReady ? mapRef.current?.getMap() ?? null : null,
+    mapReady,
+    spritesReady,
+    silhouettes,
+  });
+
+  // Issue #277 (Spider v2 Task 4): derive the set of subIds that belong to
+  // any active auto-spider stack. These features get inStack: true in the
+  // GeoJSON so the unclustered-point SDF layer filters them out, preventing
+  // double-rendering alongside the StackedSilhouetteMarker fan positions.
+  const stackedSubIds = useMemo<ReadonlySet<string>>(
+    () =>
+      new Set(
+        autoSpiderStacks.flatMap((s) => s.leaves.map((l) => l.subId)),
+      ),
+    [autoSpiderStacks],
+  );
+
+  const geojson = useMemo(
+    () => observationsToGeoJson(observations, silhouettes, stackedSubIds),
+    [observations, silhouettes, stackedSubIds],
+  );
+
   // Tracks the map's current zoom for hit-target gating. The hit-layer
-  // (#247) renders DOM `<button>` overlays for accessible marker clicks;
-  // those buttons absorb clicks before they reach the underlying maplibre
-  // canvas. At zoom < CLUSTER_MAX_ZOOM, observations are aggregated into
-  // cluster circles and the cluster-circle click handler should win — so
-  // hit-targets must be SUPPRESSED at low zoom to avoid intercepting
-  // cluster clicks (visually, those buttons would otherwise sit on top of
-  // the cluster circles and steal the click). Updated via `zoomend` so
-  // mid-pan-zoom doesn't churn React.
+  // (#247, #277) renders DOM `<button>` overlays for auto-spider stacks +
+  // unclustered marker clicks; those buttons absorb clicks before they reach
+  // the underlying maplibre canvas. At zoom < CLUSTER_MAX_ZOOM, observations
+  // are aggregated into cluster circles and the cluster-circle click handler
+  // should win — so hit-targets must be SUPPRESSED at low zoom to avoid
+  // intercepting cluster clicks (visually, those buttons would otherwise sit
+  // on top of the cluster circles and steal the click). Updated via `zoomend`
+  // so mid-pan-zoom doesn't churn React.
   const [mapZoom, setMapZoom] = useState<number>(INITIAL_VIEW.zoom);
 
   // Build layer specs once — they read CSS tokens at construction time.
@@ -268,20 +328,6 @@ export function MapCanvas({
   const obsLookupRef = useRef(obsLookup);
   obsLookupRef.current = obsLookup;
 
-  /* Tear down any active spiderfy and clear state. Stable identity so
-     effects depending on it don't churn. */
-  const closeSpiderfy = useCallback(() => {
-    const current = spiderfyRef.current;
-    if (current) {
-      try {
-        current.teardown();
-      } catch {
-        /* idempotent — silent failure on already-removed layer */
-      }
-      setSpiderfy(null);
-    }
-  }, []);
-
   /**
    * Wire click handling through the raw MapLibre instance. This avoids the
    * react-map-gl `e.features` bug (see prototype learnings #1).
@@ -291,6 +337,17 @@ export function MapCanvas({
     if (!map) return;
     // Signal the reconciler effect that the map is mounted + ref-live.
     setMapReady(true);
+
+    // Test hook (Spider v2 e2e): exposes the maplibre instance for Playwright
+    // to drive easeTo and inspect sources. Not relied on by production code.
+    // Env-gated to non-prod so the production bundle never leaks the
+    // maplibre instance to anyone who reads the property in devtools (#291).
+    if (
+      typeof window !== 'undefined' &&
+      import.meta.env.MODE !== 'production'
+    ) {
+      (window as { __birdMap?: typeof map }).__birdMap = map;
+    }
 
     map.on('click', 'unclustered-point', (e: MapLayerMouseEvent) => {
       // Intentionally untyped: `MapGeoJSONFeature` (re-exported from
@@ -313,10 +370,9 @@ export function MapCanvas({
       }
     });
 
-    // Cluster click. Branch on (point_count, zoom):
-    //   point_count > 8 OR zoom < CLUSTER_MAX_ZOOM → existing zoom-into-
-    //     cluster behavior.
-    //   point_count ≤ 8 AND zoom ≥ CLUSTER_MAX_ZOOM → spiderfy.
+    // Cluster click — always zoom in. At zoom >= CLUSTER_MAX_ZOOM the auto-
+    // spider reconciler has already fanned overlapping obs on idle, so the
+    // click is a NO-OP (return early without doing anything).
     map.on('click', 'clusters', (e: MapLayerMouseEvent) => {
       const features = map.queryRenderedFeatures(e.point, {
         layers: ['clusters'],
@@ -325,45 +381,16 @@ export function MapCanvas({
       if (!feature) return;
 
       const clusterId = feature.properties?.cluster_id as number | undefined;
-      const pointCount = feature.properties?.point_count as number | undefined;
       const source = map.getSource('observations');
       if (clusterId == null || !source) return;
 
       const currentZoom = map.getZoom();
-      const shouldSpiderfy =
-        pointCount != null &&
-        pointCount <= SPIDERFY_MAX_LEAVES &&
-        currentZoom >= CLUSTER_MAX_ZOOM;
+      // At max zoom the auto-spider has already fanned — nothing to do.
+      if (currentZoom >= CLUSTER_MAX_ZOOM) return;
 
       const geom = feature.geometry;
       const center: [number, number] | null =
         geom.type === 'Point' ? (geom.coordinates as [number, number]) : null;
-
-      if (shouldSpiderfy && center && 'getClusterLeaves' in source) {
-        // Tear down any prior spiderfy before opening a new one.
-        if (spiderfyRef.current) {
-          try {
-            spiderfyRef.current.teardown();
-          } catch {
-            /* no-op */
-          }
-        }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        spiderfyCluster({
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          map: map as any,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          source: source as any,
-          clusterId,
-          clusterLngLat: center,
-        })
-          .then((state) => setSpiderfy(state))
-          .catch(() => {
-            /* silently ignore — match the err-swallow convention used by
-               the zoom-into-cluster branch below */
-          });
-        return;
-      }
 
       if ('getClusterExpansionZoom' in source) {
         // MapLibre 5.x: `getClusterExpansionZoom` (and `getClusterChildren`,
@@ -384,26 +411,6 @@ export function MapCanvas({
             /* silently ignore — matches previous err-swallow behavior */
           });
       }
-    });
-
-    // Background click closes any open spiderfy. Registered on the bare
-    // `click` event, then we filter out clicks on the cluster/unclustered
-    // layers (those have their own handlers above).
-    map.on('click', (e: MapLayerMouseEvent) => {
-      if (!spiderfyRef.current) return;
-      const hits = map.queryRenderedFeatures(e.point, {
-        layers: ['clusters', 'unclustered-point'],
-      });
-      if (hits.length > 0) return;
-      // Click landed on the basemap → close spiderfy.
-      closeSpiderfy();
-    });
-
-    // Pan/zoom closes the spiderfy — the leader-line geometry is anchored
-    // to the original lng/lats so the spider visually breaks if the map
-    // moves under it.
-    map.on('zoomstart', () => {
-      if (spiderfyRef.current) closeSpiderfy();
     });
 
     // Track final zoom for the hit-target gate. Subscribed to `zoomend`
@@ -640,78 +647,42 @@ export function MapCanvas({
   }, [silhouettes.length, mapReady]);
 
   /**
-   * Mosaic-marker click handler — branches on (target zoom vs current zoom)
-   * the same way the layer-bound `clusters` handler branches on
-   * (point_count, zoom):
-   *
-   *   target > current → easeTo (zoom in to break up the cluster).
-   *   target ≤ current → spiderfy (#247) — we're already at supercluster's
-   *     `clusterMaxZoom`, so further zoom is a no-op. Without this branch,
-   *     clicking a small-cluster mosaic at zoom ≥ CLUSTER_MAX_ZOOM is
-   *     a dead end.
+   * Mosaic-marker click handler:
+   *   currentZoom < CLUSTER_MAX_ZOOM → easeTo (zoom in to break up the cluster).
+   *   currentZoom >= CLUSTER_MAX_ZOOM → NO-OP. The auto-spider reconciler
+   *     (Task 3) has already fanned the leaves on idle; the user sees fanned
+   *     silhouettes and can click each individually.
    *
    * Defensively `stopPropagation` so the click doesn't bubble to the
-   * basemap (the visible cluster circle layer filters to `>8`, so no
-   * double-fire risk against the layer-bound handler — but defense in
-   * depth).
+   * basemap.
    */
   const handleMosaicClick = useCallback(
     (entry: ClusterMosaicEntry) => (e: React.MouseEvent<HTMLButtonElement>) => {
       e.stopPropagation();
       const map = mapRef.current?.getMap();
       if (!map) return;
+
+      const currentZoom = map.getZoom();
+      // Auto-spider already fanned at max zoom — nothing to do.
+      if (currentZoom >= CLUSTER_MAX_ZOOM) return;
+
       const source = map.getSource('observations');
       if (!source || !('getClusterExpansionZoom' in source)) return;
 
       const src = source as {
         getClusterExpansionZoom: (id: number) => Promise<number>;
-        getClusterLeaves?: (id: number, limit: number, offset: number) => Promise<unknown[]>;
       };
+      const center: [number, number] = [entry.longitude, entry.latitude];
 
       src
         .getClusterExpansionZoom(entry.clusterId)
         .then((targetZoom) => {
-          const currentZoom = map.getZoom();
-          const center: [number, number] = [entry.longitude, entry.latitude];
-
-          // Spiderfy when current zoom is already at or above clusterMaxZoom.
-          // supercluster returns `clusterMaxZoom + 1` as the expansion zoom
-          // for clusters at the cap, which would otherwise loop us into a
-          // "zoom one level past max → click again → spiderfy" two-click UX.
-          // Match the layer-bound `clusters` click handler's predicate so the
-          // mosaic-click and circle-click code paths agree on the spiderfy
-          // boundary.
-          const atMaxZoom = currentZoom >= CLUSTER_MAX_ZOOM;
-          if (!atMaxZoom && targetZoom > currentZoom) {
+          if (targetZoom > currentZoom) {
             map.easeTo({
               center,
               zoom: Math.min(targetZoom, CLUSTER_MAX_ZOOM),
             });
-            return;
           }
-
-          // At supercluster's clusterMaxZoom — spiderfy instead.
-          if (typeof src.getClusterLeaves !== 'function') return;
-          if (spiderfyRef.current) {
-            try {
-              spiderfyRef.current.teardown();
-            } catch {
-              /* no-op */
-            }
-          }
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          spiderfyCluster({
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            map: map as any,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            source: src as any,
-            clusterId: entry.clusterId,
-            clusterLngLat: center,
-          })
-            .then((state) => setSpiderfy(state))
-            .catch(() => {
-              /* matches existing err-swallow convention */
-            });
         })
         .catch(() => {
           /* matches existing layer-bound err-swallow behavior */
@@ -733,61 +704,28 @@ export function MapCanvas({
     [onSelectSpecies],
   );
 
-  // Escape closes spiderfy (and also the popover, but the popover renders
-  // inside its own dialog so Escape inside the dialog stays scoped there).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && spiderfyRef.current) {
-        closeSpiderfy();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [closeSpiderfy]);
-
-  /* The hit-layer covers two cases:
-     (a) when no spiderfy is active AND zoom >= CLUSTER_MAX_ZOOM, render
-         hit targets over every observation (which by the source's
-         clusterMaxZoom contract means each obs renders as its own
-         unclustered symbol). At zoom < CLUSTER_MAX_ZOOM, observations
-         are aggregated into cluster circles — and the hit-target buttons
-         (real DOM elements with `pointer-events: auto`) would absorb
-         clicks intended for cluster circles, breaking the layer-bound
-         `clusters` click handler that drives zoom-into-cluster + spiderfy.
-         Suppress the hit layer at low zoom; the cluster circles are
-         themselves clickable through maplibre's event system.
-     (b) when a spiderfy is active, render hit targets over the spiderfied
-         leaves only — independent of zoom. The base unclustered points
-         are still on the map underneath but the hit-layer takes precedence
-         visually. */
+  /* Hit-target layer: render hit targets at zoom >= CLUSTER_MAX_ZOOM for
+     non-stack observations. In-stack obs (stackedSubIds) have their own
+     clickable StackedSilhouetteMarker from the auto-spider reconciler —
+     skip them here to avoid duplicate overlapping hit targets.
+     Below CLUSTER_MAX_ZOOM, observations are in cluster circles; suppress
+     the overlay so cluster-circle clicks reach maplibre's event system. */
   const hitMarkers: HitTargetMarker[] = useMemo(() => {
-    if (spiderfy) {
-      return spiderfy.leaves.map((l) => ({
-        subId: l.subId,
-        comName: l.comName,
-        familyCode: l.familyCode,
-        locName: l.locName,
-        obsDt: l.obsDt,
-        isNotable: l.isNotable,
-        lngLat: l.leafLngLat,
-      }));
-    }
-    // No spiderfy — only render hit targets when observations are actually
-    // unclustered (zoom >= CLUSTER_MAX_ZOOM). Below that, suppress the
-    // overlay so cluster-circle clicks reach maplibre's event handlers.
     if (mapZoom < CLUSTER_MAX_ZOOM) {
       return [];
     }
-    return observations.map((o) => ({
-      subId: o.subId,
-      comName: o.comName,
-      familyCode: o.familyCode,
-      locName: o.locName,
-      obsDt: o.obsDt,
-      isNotable: o.isNotable,
-      lngLat: [o.lng, o.lat] as [number, number],
-    }));
-  }, [observations, spiderfy, mapZoom]);
+    return observations
+      .filter((o) => !stackedSubIds.has(o.subId))
+      .map((o) => ({
+        subId: o.subId,
+        comName: o.comName,
+        familyCode: o.familyCode,
+        locName: o.locName,
+        obsDt: o.obsDt,
+        isNotable: o.isNotable,
+        lngLat: [o.lng, o.lat] as [number, number],
+      }));
+  }, [observations, stackedSubIds, mapZoom]);
 
   const handleHitSelect = useCallback(
     (subId: string) => {
@@ -871,13 +809,6 @@ export function MapCanvas({
           reconciler pass — no orphans, no leaks.
         */}
         {Array.from(mosaics.values())
-          // Suppress the mosaic for the cluster currently being spidered
-          // — otherwise the user sees the mosaic marker layered over the
-          // fanned leader lines and reads "click did nothing." Hiding the
-          // mosaic gives a clean visual swap: mosaic disappears, leader
-          // lines fan out from the same center. (Spider v2, #277, will
-          // also place visible silhouettes at leaf positions.)
-          .filter((entry) => spiderfy?.clusterId !== entry.clusterId)
           .map((entry) => (
             <Marker
               key={entry.clusterId}
@@ -891,10 +822,44 @@ export function MapCanvas({
               />
             </Marker>
           ))}
+        {/*
+          Issue #277 (Spider v2 Task 3): one <Marker>+<StackedSilhouetteMarker>
+          per auto-spider leaf. Keyed by subId so React reconciles leaf
+          additions/removals cleanly across idle passes. Rendered inside
+          <MapView> so react-map-gl handles lngLat → pixel projection.
+        */}
+        {autoSpiderStacks.flatMap((stack) =>
+          stack.leaves.map((leaf) => (
+            <Marker
+              key={leaf.subId}
+              longitude={leaf.lngLat[0]}
+              latitude={leaf.lngLat[1]}
+              anchor="bottom"
+            >
+              {/* onClick is an inline arrow — stable pre-built callbacks
+                  would require storing them in AutoSpiderLeaf. Acceptable
+                  trade-off: reconcile fires on idle (every few seconds at
+                  most), not on every MapCanvas render. */}
+              <StackedSilhouetteMarker
+                silhouette={leaf.silhouette}
+                comName={leaf.comName}
+                familyCode={leaf.familyCode}
+                locName={leaf.locName}
+                obsDt={leaf.obsDt}
+                isNotable={leaf.isNotable}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const obs = obsLookupRef.current[leaf.subId];
+                  if (obs) setSelectedObs(obs);
+                }}
+              />
+            </Marker>
+          )),
+        )}
       </MapView>
-      {/* Issue #247: HTML hit-layer overlay for spiderfied + unclustered
-          markers, mounted as a sibling of the maplibre canvas inside the
-          relatively-positioned wrapper. */}
+      {/* Issue #247 (original hit-layer) / #277 (Spider v2 narrowed to auto-spider stacks +
+          unclustered): HTML overlay for stacked and unclustered markers, mounted as a sibling
+          of the maplibre canvas inside the relatively-positioned wrapper. */}
       {map && (
         <MapMarkerHitLayer
           // eslint-disable-next-line @typescript-eslint/no-explicit-any

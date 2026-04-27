@@ -1,5 +1,6 @@
 import type { MouseEvent } from 'react';
 import type { MosaicTile } from './cluster-mosaic.js';
+import { FALLBACK_SILHOUETTE_PATH } from './silhouette-fallback.js';
 
 /**
  * Inline-SVG 2×2 mosaic marker for clusters with `point_count <= 8` (issue
@@ -61,7 +62,7 @@ const MARKER_SIZE_PX = TILE_PX * 2 + GRID_GAP_PX;
  * seeded color (so the cell still color-codes) but at 50% opacity so it
  * doesn't read as authoritative.
  */
-const FALLBACK_PATH = 'M12 4 a8 8 0 1 0 0.0001 0 z';
+const FALLBACK_PATH = FALLBACK_SILHOUETTE_PATH;
 
 interface TileCellProps {
   tile: MosaicTile;

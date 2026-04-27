@@ -93,6 +93,9 @@ Protocol:
    warnings. A dirty console is a Tier-1 finding at review time.
 4. `browser_take_screenshot` per viewport per touched surface; those feed the
    PR's Screenshots section (implementer only — reviewers don't re-capture).
+   Screenshots: use the `pr-screenshots-via-user-attachments` skill
+   (paste-flow → `user-attachments/assets/<uuid>` URLs); never commit PNGs to
+   the repo.
 
 `.playwright-mcp/` is already gitignored so per-call snapshot YAMLs never land
 in git. Do not remove it from `.gitignore`.

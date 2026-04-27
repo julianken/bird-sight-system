@@ -50,6 +50,13 @@ export interface ObservationFeatureCollection {
       silhouetteId: string;
       /** Family color from the silhouettes join; FAMILY_COLOR_FALLBACK on miss. */
       color: string;
+      /**
+       * True when this observation belongs to an auto-spider stack (issue #277).
+       * The unclustered-point symbol layer filters out in-stack features so the
+       * SDF silhouette doesn't double-render alongside the StackedSilhouetteMarker
+       * which has already claimed visual ownership of those positions.
+       */
+      inStack: boolean;
     };
   }>;
 }
@@ -71,6 +78,7 @@ export interface ObservationFeatureCollection {
 export function observationsToGeoJson(
   observations: Observation[],
   silhouettes: readonly FamilySilhouette[] = [],
+  stackedSubIds: ReadonlySet<string> = new Set(),
 ): ObservationFeatureCollection {
   // Build a lookup keyed by lowercased familyCode so the join is
   // case-tolerant. Silhouettes are seeded lowercase but defensive for
@@ -109,6 +117,11 @@ export function observationsToGeoJson(
           familyCode: o.familyCode ?? null,
           silhouetteId,
           color,
+          // Issue #277: true when this observation is claimed by an auto-spider
+          // stack. The unclustered-point layer filters these out so the SDF
+          // symbol doesn't double-render at the original lat/lng while
+          // StackedSilhouetteMarker renders at the fanned position.
+          inStack: stackedSubIds.has(o.subId),
         },
       };
     }),
@@ -120,7 +133,7 @@ export function observationsToGeoJson(
    Read the design tokens at call time so the spec objects stay in sync with
    the theme without hex literals in this module. */
 
-function readToken(name: string, fallback: string): string {
+export function readToken(name: string, fallback: string): string {
   if (typeof document === 'undefined') return fallback;
   const val = getComputedStyle(document.documentElement)
     .getPropertyValue(name)
@@ -129,7 +142,7 @@ function readToken(name: string, fallback: string): string {
 }
 
 /** Resolve --color-accent-notable-fg (dark amber) for notable rings. */
-function notableColor(): string {
+export function notableColor(): string {
   return readToken('--color-accent-notable-fg', '#b8860b');
 }
 
@@ -276,7 +289,11 @@ export function buildUnclusteredPointLayerSpec(): LayerProps {
     id: 'unclustered-point',
     type: 'symbol',
     source: 'observations',
-    filter: ['!', ['has', 'point_count']],
+    // Issue #277: extend to also exclude in-stack features. The ['!='] form
+    // is correct here because inStack is always present on every feature
+    // (observationsToGeoJson sets it on every output feature). The
+    // ['!', ['has', ...]] form is for absent-property checks only.
+    filter: ['all', ['!', ['has', 'point_count']], ['!=', ['get', 'inStack'], true]],
     layout: {
       'icon-image': ['get', 'silhouetteId'],
       // 0.85 keeps a 32-viewBox SDF roughly in the 24-28px range on the
@@ -334,6 +351,7 @@ export function buildNotableRingLayerSpec(): LayerProps {
       'all',
       ['!', ['has', 'point_count']],
       ['==', ['get', 'isNotable'], true],
+      ['!=', ['get', 'inStack'], true],
     ],
     paint: {
       // Hollow ring — fill is transparent so the silhouette body shows

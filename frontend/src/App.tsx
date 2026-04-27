@@ -38,7 +38,11 @@ export function App() {
   // can still compose `buildFamilyColorResolver` from
   // `./data/family-color.js`. Single mount, prop-thread to consumers
   // (per #246's strict-mount discipline).
-  const { silhouettes } = useSilhouettes(apiClient);
+  const {
+    silhouettes,
+    loading: silhouettesLoading,
+    error: silhouettesError,
+  } = useSilhouettes(apiClient);
 
   // FamilyLegend toggle: clear when the active family is clicked again,
   // otherwise set. Single source of truth for URL-state writes lives here;
@@ -180,7 +184,18 @@ export function App() {
         / FiltersBar / SurfaceNav.
       */}
       <footer role="contentinfo" className="app-footer">
-        <AttributionModal silhouettes={silhouettes} />
+        {/*
+          Thread the silhouettes loading/error state into the modal so
+          the Phylopic section surfaces an aria-live status during cache
+          misses or API failures (issue #274). Without these props the
+          modal would render an empty list while the fetch is in flight
+          — looks like silhouettes don't exist.
+        */}
+        <AttributionModal
+          silhouettes={silhouettes}
+          loading={silhouettesLoading}
+          error={silhouettesError}
+        />
       </footer>
     </div>
   );
