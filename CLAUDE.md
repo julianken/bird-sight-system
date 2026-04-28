@@ -93,6 +93,9 @@ Protocol:
    warnings. A dirty console is a Tier-1 finding at review time.
 4. `browser_take_screenshot` per viewport per touched surface; those feed the
    PR's Screenshots section (implementer only — reviewers don't re-capture).
+   Screenshots: use the `pr-screenshots-via-user-attachments` skill
+   (paste-flow → `user-attachments/assets/<uuid>` URLs); never commit PNGs to
+   the repo.
 
 `.playwright-mcp/` is already gitignored so per-call snapshot YAMLs never land
 in git. Do not remove it from `.gitignore`.
@@ -152,3 +155,26 @@ The following libraries change quickly enough that training-data knowledge is of
 | `maplibre-gl` | 7 | Library is at 5.x (bumped from 4.x in PR #199); clustering API + `GeoJSONSource` Promise behavior differ from 4.x — see PR #199 for the 5.x migration |
 
 For everything else (TypeScript, React 18, Vite, `pg`, PostGIS SQL, React Testing Library, Docker, npm workspaces) training data is reliable enough — skip context7 and only fetch if a real failure surfaces.
+
+## Drift detection
+
+We track drift between artifacts and reality with the `drift:*` label taxonomy below. The mechanism is intentionally lightweight: deterministic checks (knip, syncpack, terraform-plan-drift-check) catch structural drift; the PR-review bot (`julianken-bot`) catches narrative drift on PRs touching drift-prone surfaces; a nightly workflow (planned, see #307) catches time-emergent drift.
+
+**Label taxonomy** (8 labels):
+
+| Label | Meaning | Who applies |
+|---|---|---|
+| `drift:automated` | Opened by nightly workflow | Workflow |
+| `drift:shadow` | Detected but suppressed during rollout | Workflow |
+| `drift:acknowledged` | Maintainer saw it; suppress re-fires until metric changes | Maintainer |
+| `drift:wont-fix` | Known drift, will not be addressed; nightly skips | Maintainer |
+| `drift:aging` | Open >14 days | Workflow |
+| `drift:escalated` | Open >30 days; surfaces at higher priority in SessionStart hook | Workflow |
+| `drift:spec-update` | Implementer used escape hatch to defer spec-update | Bot |
+| `drift:decision-required` | Needs product/architectural decision | Bot or maintainer |
+
+**Where findings live**: GitHub Issues filed under the repo's tracker, labeled `drift:automated` when opened by the nightly workflow. Aging through `drift:aging` (>14 days open) → `drift:escalated` (>30 days open) is automated; the SessionStart hook surfaces `drift:escalated` at higher priority for next-session triage.
+
+**Kill-threshold metric**: evaluate at the 60-day mark after first ship of any drift mechanism (knip, R13 PR-bot rubric, or nightly workflow). Compute `closed-as-fixed / closed-total` over the calendar month. If it drops below 40% — i.e., 6 of 10 drift issues close as FP / won't-fix / stale-signal — alert fatigue is realized. Response: comment out the nightly's `on:` block, downgrade LLM-driven rules to silent-log mode, keep deterministic checks (knip, syncpack, terraform-plan-drift-check) intact, and file a retrospective at `docs/analyses/<date>-drift-system-retrospective.md`. The audit at `docs/analyses/2026-04-27-codebase-drift-audit/report.md` records the system's current falsifiability claim.
+
+The 2026-04-27 codebase drift audit at `docs/analyses/2026-04-27-codebase-drift-audit/report.md` lists current findings.

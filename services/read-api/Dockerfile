@@ -11,7 +11,6 @@ COPY services/read-api ./services/read-api
 RUN npm ci --workspaces --include-workspace-root --include=dev
 RUN npm run build --workspace @bird-watch/shared-types
 RUN npm run build --workspace @bird-watch/db-client
-RUN npm run build --workspace @bird-watch/family-mapping
 RUN npm run build --workspace @bird-watch/read-api
 
 # Runtime stage — copy only what we need.
