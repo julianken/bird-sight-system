@@ -15,6 +15,12 @@ updates:
     groups:
       minor-and-patch:
         update-types: ["minor", "patch"]
+      # testcontainers core + postgresql adapter are peer-versioned; group
+      # so a v-bump emits one PR instead of two-that-must-coordinate.
+      testcontainers:
+        patterns:
+          - "testcontainers"
+          - "@testcontainers/*"
     ignore:
       # node-pg-migrate major bump tracked separately by #187
       - dependency-name: "node-pg-migrate"
@@ -24,6 +30,24 @@ updates:
         update-types: ["version-update:semver-major"]
       # vitest major bump tracked separately by #186
       - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
+      # React 19 needs a coordinated bundle (react + react-dom +
+      # @types/react + @types/react-dom in one PR — split bumps break peer
+      # deps). Closed #223, #226 for this reason. Re-enable after the
+      # hand-crafted React 19 upgrade PR lands.
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react-dom"
+        update-types: ["version-update:semver-major"]
+      # @types/node major must track the Node runtime — which is pinned to
+      # LTS via the `node` ignore on the Docker entries below. Without this
+      # rule, Dependabot proposes @types/node majors ahead of the runtime
+      # (e.g., #231 bumped it to 25 while Docker stays on 20).
+      - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
     labels:
       - "area:infra"
@@ -37,6 +61,13 @@ updates:
     groups:
       minor-and-patch:
         update-types: ["minor", "patch"]
+    ignore:
+      # Cloudflare provider v5 requires HCL rewrites via tf-migrate
+      # (cloudflare_record → cloudflare_dns_record, r2_bucket_binding shape,
+      # workers_script attribute renames). Closed #201. Re-enable after a
+      # coordinated v5 migration PR lands.
+      - dependency-name: "cloudflare/cloudflare"
+        update-types: ["version-update:semver-major"]
     labels:
       - "area:infra"
 
@@ -58,6 +89,13 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 3
+    ignore:
+      # Dependabot picks the latest tag regardless of LTS status, and Node
+      # "Current" (odd-numbered) releases have 6-month support windows.
+      # Closed #202 — it bumped to Node 25, already EOL at review time.
+      # Human judgement required: bump only to the next LTS (24, then 26).
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
     labels:
       - "area:read-api"
       - "area:infra"
@@ -68,6 +106,10 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 3
+    ignore:
+      # Same reasoning as read-api above. Closed #200.
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
     labels:
       - "area:ingestor"
       - "area:infra"

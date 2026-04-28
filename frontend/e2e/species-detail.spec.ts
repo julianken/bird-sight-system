@@ -27,10 +27,16 @@ test.describe('species detail surface (#151)', () => {
     await app.goto('detail=vermfly&view=detail');
     await app.waitForAppReady();
 
-    // Detail surface renders species info inside main.
-    await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText('Pyrocephalus rubinus')).toBeVisible();
-    await expect(page.getByText('Tyrant Flycatchers')).toBeVisible();
+    // Detail surface renders species info inside main. Scope text matches
+    // to <main> — the AttributionModal (#250) renders family names inside
+    // its dialog, which is in the DOM even when closed (React mounts the
+    // children regardless of dialog.open). Without the scope, getByText
+    // hits both the surface's `.species-detail-family` and the modal's
+    // Phylopic section.
+    const main = page.locator('main');
+    await expect(main.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeVisible({ timeout: 10_000 });
+    await expect(main.getByText('Pyrocephalus rubinus')).toBeVisible();
+    await expect(main.getByText('Tyrant Flycatchers')).toBeVisible();
 
     // URL carries detail and view params.
     await expect.poll(() => new URL(page.url()).searchParams.get('detail'), { timeout: 5_000 })

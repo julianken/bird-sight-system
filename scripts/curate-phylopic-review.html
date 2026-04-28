@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Phylopic auto-pick visual review (issue #245)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg: #f5f3ef;
+    --fg: #1f1f24;
+    --muted: #61646d;
+    --card: #fff;
+    --accent: #4a6fa5;
+    --warn: #b8390e;
+    --good: #2f6b3a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font: 14px/1.5 system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    padding: 24px;
+  }
+  header {
+    max-width: 1100px;
+    margin: 0 auto 24px;
+  }
+  header h1 { margin: 0 0 8px; font-size: 22px; }
+  header p { margin: 4px 0; color: var(--muted); }
+  .grid {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .family-card {
+    background: var(--card);
+    border-radius: 8px;
+    padding: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06);
+  }
+  .family-header {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .family-header h2 { margin: 0; font-size: 16px; font-family: ui-monospace, monospace; }
+  .family-header .reason { color: var(--muted); font-size: 12px; }
+  .family-header .reason.good { color: var(--good); }
+  .family-header .reason.warn { color: var(--warn); }
+  .candidates {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 12px;
+  }
+  .candidate {
+    border: 2px solid transparent;
+    border-radius: 6px;
+    padding: 8px;
+    background: #fafaf7;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .candidate.picked {
+    border-color: var(--accent);
+    background: #eff3fa;
+  }
+  .candidate.rejected {
+    opacity: .55;
+  }
+  .swatches {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 0;
+    background: #fff;
+    border-radius: 4px;
+  }
+  /* The 24px and 28px target sizes match FamilyLegend (#249) and the
+     MapCanvas symbol layer (#246) consumer scales. */
+  .swatch-24 svg, .swatch-28 svg, .swatch-48 svg {
+    display: block;
+  }
+  .swatch-24 svg { width: 24px; height: 24px; }
+  .swatch-28 svg { width: 28px; height: 28px; }
+  .swatch-48 svg { width: 48px; height: 48px; }
+  .meta {
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--muted);
+  }
+  .meta .lic { color: var(--fg); font-weight: 600; }
+  .meta a { color: var(--accent); text-decoration: none; }
+  .meta a:hover { text-decoration: underline; }
+  .badge {
+    display: inline-block;
+    padding: 1px 6px;
+    font-size: 10px;
+    border-radius: 3px;
+    background: var(--accent);
+    color: #fff;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+  .badge.warn { background: var(--warn); }
+  .empty {
+    color: var(--muted);
+    font-style: italic;
+    padding: 16px;
+    background: #fafaf7;
+    border-radius: 4px;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Phylopic auto-pick visual review</h1>
+  <p>Issue <a href="https://github.com/julianken/bird-sight-system/issues/245">#245</a> — auto-curated silhouettes for the 25 AZ bird families. Each card shows the candidates the auto-pick heuristic considered for one family. The picked candidate is outlined in blue. Verify each one renders crisply at 24px (FamilyLegend) and 28px (MapCanvas symbol) before the version-one → main release.</p>
+  <p><strong>Heuristic:</strong> license preference (CC0 &gt; CC-BY-3.0 &gt; CC-BY-4.0 &gt; CC-BY-SA-3.0) → creator name asc → UUID asc.</p>
+  <p><strong>Source data:</strong> <code>scripts/phylopic-picks.json</code> (committed alongside this HTML).</p>
+</header>
+<main class="grid" id="grid"></main>
+<script type="module">
+  const PICKS_URL = './phylopic-picks.json';
+
+  async function load() {
+    const res = await fetch(PICKS_URL);
+    if (!res.ok) {
+      document.getElementById('grid').innerHTML =
+        `<div class="empty">Could not load <code>${PICKS_URL}</code> (${res.status}). Run <code>node scripts/curate-phylopic.mjs</code> first to generate it.</div>`;
+      return;
+    }
+    const data = await res.json();
+    render(data);
+  }
+
+  function render(data) {
+    const grid = document.getElementById('grid');
+    grid.innerHTML = '';
+    for (const fam of data.families) {
+      const card = document.createElement('section');
+      card.className = 'family-card';
+      const reasonClass = fam.picked ? 'good' : 'warn';
+      card.innerHTML = `
+        <div class="family-header">
+          <h2>${escapeHtml(fam.family)}</h2>
+          <span class="reason ${reasonClass}">${escapeHtml(fam.reason)}</span>
+        </div>
+        <div class="candidates" data-family="${escapeHtml(fam.family)}"></div>
+      `;
+      grid.appendChild(card);
+      const list = card.querySelector('.candidates');
+      if (fam.considered.length === 0) {
+        list.innerHTML = `<div class="empty">No candidates returned by Phylopic for this family.</div>`;
+        continue;
+      }
+      for (const cand of fam.considered) {
+        const div = document.createElement('div');
+        const isPicked = cand.status === 'picked';
+        div.className = `candidate ${isPicked ? 'picked' : ''} ${cand.status === 'rejected' || cand.status === 'svg-fetch-failed' ? 'rejected' : ''}`;
+        const svgD = cand.svgPathD ?? '';
+        // For non-picked candidates we don't have the path data — show
+        // a placeholder rectangle so the card still has visual presence.
+        const swatches = svgD
+          ? `<div class="swatches">
+               <span class="swatch-24"><svg viewBox="0 0 256 256" preserveAspectRatio="xMidYMid meet"><path d="${escapeAttr(svgD)}" fill="#1f1f24"/></svg></span>
+               <span class="swatch-28"><svg viewBox="0 0 256 256" preserveAspectRatio="xMidYMid meet"><path d="${escapeAttr(svgD)}" fill="#1f1f24"/></svg></span>
+               <span class="swatch-48"><svg viewBox="0 0 256 256" preserveAspectRatio="xMidYMid meet"><path d="${escapeAttr(svgD)}" fill="#1f1f24"/></svg></span>
+             </div>`
+          : `<div class="swatches"><span class="meta">no path data (${escapeHtml(cand.skipReason ?? cand.status)})</span></div>`;
+        const lic = cand.licenseId ?? '?';
+        const cre = cand.creatorName ?? '(unknown)';
+        const link = cand.uuid ? `https://www.phylopic.org/images/${cand.uuid}` : '#';
+        const badge = isPicked ? `<span class="badge">picked</span>` :
+          (cand.status === 'rejected' || cand.status === 'svg-fetch-failed' ? `<span class="badge warn">${escapeHtml(cand.status)}</span>` : '');
+        div.innerHTML = `
+          ${swatches}
+          <div class="meta">
+            ${badge}
+            <div><span class="lic">${escapeHtml(lic)}</span></div>
+            <div>${escapeHtml(cre)}</div>
+            <div><a href="${escapeAttr(link)}" target="_blank" rel="noopener">phylopic ↗</a></div>
+            ${cand.skipReason && !isPicked ? `<div title="${escapeAttr(cand.skipReason)}">skip: ${escapeHtml(cand.skipReason)}</div>` : ''}
+          </div>
+        `;
+        list.appendChild(div);
+      }
+    }
+  }
+
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  }
+  function escapeAttr(s) { return escapeHtml(s); }
+
+  load().catch(err => {
+    document.getElementById('grid').innerHTML = `<div class="empty">Error loading picks: ${err.message}</div>`;
+  });
+</script>
+</body>
+</html>

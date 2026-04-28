@@ -49,6 +49,12 @@ describe('SpeciesDetailSurface', () => {
     );
   });
 
+  // eBird API ToU §3 attribution moved to the app-level AttributionModal
+  // (#250) and is reachable from every view via the persistent footer in
+  // App.tsx. SpeciesDetailSurface no longer carries a per-surface footer
+  // — the loaded/loading/error footer assertions that lived here are now
+  // covered by AttributionModal unit tests + the e2e attribution-modal spec.
+
   it('renders in-flow (no role=complementary, no close button)', async () => {
     const client = makeClient({
       getSpecies: vi.fn().mockResolvedValue(VERMFLY),

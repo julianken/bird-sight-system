@@ -119,3 +119,53 @@ describe('App aria-busy', () => {
     expect(main.getAttribute('aria-busy')).toBe('false');
   });
 });
+
+describe('App persistent footer (issue #250)', () => {
+  beforeEach(() => {
+    __resetSilhouettesCache();
+    mockGetHotspots.mockResolvedValue([]);
+    mockGetObservations.mockResolvedValue([]);
+    mockGetSilhouettes.mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // The persistent app-level footer must (a) carry role="contentinfo",
+  // (b) sit AFTER <main> in the DOM (axe landmark order banner→main→
+  // contentinfo), and (c) host the AttributionModal Credits trigger
+  // reachable from every view.
+  it.each(['feed', 'species', 'map', 'detail'] as const)(
+    'renders a contentinfo footer with a Credits button on view=%s',
+    async view => {
+      mockUrlState.state = {
+        since: '14d', notable: false, speciesCode: null, familyCode: null, view,
+      };
+      const { container } = render(<App />);
+      const footer = container.querySelector('footer.app-footer');
+      expect(footer).not.toBeNull();
+      expect(footer?.getAttribute('role')).toBe('contentinfo');
+      // Credits button is inside the footer.
+      const credits = screen.getByRole('button', { name: /credits/i });
+      expect(footer?.contains(credits)).toBe(true);
+    },
+  );
+
+  it('renders the footer as the LAST child of .app, after <main>', () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
+    };
+    const { container } = render(<App />);
+    const app = container.querySelector('.app');
+    expect(app).not.toBeNull();
+    const last = app?.lastElementChild;
+    expect(last?.tagName).toBe('FOOTER');
+    expect(last?.classList.contains('app-footer')).toBe(true);
+    // <main> must precede the footer (banner→main→contentinfo order).
+    const main = container.querySelector('main#main-surface');
+    expect(main).not.toBeNull();
+    const position = main!.compareDocumentPosition(last!);
+    expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});

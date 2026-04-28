@@ -97,6 +97,46 @@ body {
   margin: 0 auto;
 }
 
+/* Skip-link (issue #247). WCAG 2.4.1 (Bypass Blocks) — keyboard users
+   skip past the map canvas (which is intentionally NOT in the global tab
+   order — a 344-marker tab sequence is hostile per UX/a11y review) to
+   the FeedSurface list landmark. The link is visually hidden until it
+   receives keyboard focus, then it slides into the top of the surface
+   and renders as a visible button. Pattern follows the WebAIM
+   "Skip Navigation" recommendation. */
+.skip-link {
+  position: absolute;
+  left: 0;
+  top: 0;
+  /* Hidden but reachable: clipped 1×1 box rather than display:none so
+     the element stays in the accessibility tree + tab order. */
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  border: 0;
+  background: var(--color-bg-surface);
+  color: var(--color-text-strong);
+  font: inherit;
+  cursor: pointer;
+  z-index: calc(var(--z-panel) + 10);
+}
+.skip-link:focus,
+.skip-link:focus-visible {
+  /* Reveal: clip is removed and the link gets a visible button shape. */
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: var(--space-sm) var(--space-md);
+  overflow: visible;
+  clip: auto;
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 /* Feed surface (#116). Reverse-chronological observation rows. Row min-
    height is 44px — iOS HIG tap-target minimum, also referenced in
    risk-viability.md Part 2. Interior spacing uses design-token custom
@@ -437,8 +477,421 @@ body {
   font-size: 13px;
 }
 
-/* Map surface (#165, #158). The MapLibre canvas fills #main-surface via
-   100% width/height on [data-testid=map-canvas]. No additional CSS needed —
-   the map container sizes itself from the flex layout of .app > #main-surface.
-   When the map surface gains overlays (v2 hotspot markers, legend) their
-   styles go here or in a dedicated map.css. */
+/* Map surface (#165, #158, #249). The MapLibre canvas fills #main-surface
+   via 100% width/height on [data-testid=map-canvas]. The .map-surface
+   wrapper hosts the canvas + the FamilyLegend overlay (#249) so the
+   absolutely-positioned legend anchors against a known parent rather
+   than #main-surface (which has padding the legend should not honor).
+   When more overlays land (v2 hotspot markers, layer toggles) their
+   styles go here or in a dedicated map.css.
+
+   Responsive convention. The @media (max-width: 760px) rule below is
+   the project's first responsive breakpoint. Default state for everything
+   else is desktop-first (the codebase's content caps — .feed, .feed-sort,
+   .species-search-surface, .species-detail-surface — all use
+   max-width: 760px). The 760px legend breakpoint is chosen to align
+   numerically with those caps for visual coherence; downstream responsive
+   styles should reuse this token when their behavior aligns. */
+.map-surface {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* App-level persistent footer (#250). Hosts the AttributionModal Credits
+   trigger reachable from every view (`view=feed|species|map|detail`).
+   Replaces the per-surface SurfaceFooter from #243; the modal subsumes
+   eBird, Phylopic per-silhouette, and OSM/OpenFreeMap credits in one
+   surface so each compliance citation (eBird ToU §3, CC BY 3.0/SA 3.0
+   §4(b/c), OSM ODbL §4.3) lives in one prominent place.
+
+   Position contract: this footer is rendered as the LAST child of
+   `<div className="app">` (after `</main>`). The .app container is a
+   flex column with #main-surface flex: 1, which pushes this footer to
+   the bottom of the viewport without explicit positioning. Don't add
+   `margin-top: auto` — the flex layout already handles it and adding
+   margin on top of flex spacing fights the responsive cap on small
+   viewports. */
+.app-footer {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+  padding: var(--space-sm) var(--space-lg);
+  background: var(--color-bg-surface);
+  border-top: 1px solid var(--color-border-ui);
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+/* AttributionModal trigger button. Visually a link rather than a CTA so
+   the footer stays unobtrusive — the credits surface is reference, not
+   action. Underlined + muted color matches the SurfaceFooter idiom the
+   modal subsumes. The 32px min-height satisfies the iOS HIG tap target
+   on mobile (the trigger is the only thing in the footer). */
+.attribution-trigger {
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: var(--space-xs) var(--space-sm);
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+  border-radius: 4px;
+  min-height: 32px;
+}
+.attribution-trigger:hover,
+.attribution-trigger:focus-visible {
+  color: var(--color-text-strong);
+}
+.attribution-trigger:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+}
+
+/* AttributionModal native <dialog>. Browser-managed top-layer + backdrop
+   means we don't need a separate overlay element; ::backdrop styles the
+   browser's auto-rendered backdrop pseudo-element. The dialog's own
+   bounding box hosts the content; backdrop clicks are dispatched with
+   `event.target === dialog` so the click handler in AttributionModal.tsx
+   can distinguish backdrop from inner-content clicks.
+
+   max-width / max-height are sized for both 390×844 mobile and 1440×900
+   desktop — the Phylopic per-silhouette list scrolls inside the modal
+   on tall content sets so the modal itself doesn't grow past the
+   viewport.
+
+   `inset: 0; margin: auto;` is the cross-browser way to centre a native
+   `<dialog>` opened with showModal(); explicit top/left would fight the
+   browser's centering on Safari. */
+.attribution-modal {
+  border: 1px solid var(--color-border-ui);
+  border-radius: 8px;
+  background: var(--color-bg-surface);
+  color: var(--color-text-strong);
+  padding: 0;
+  max-width: 560px;
+  max-height: 80vh;
+  width: calc(100vw - 2 * var(--space-lg));
+  inset: 0;
+  margin: auto;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, var(--opacity-hover));
+}
+.attribution-modal::backdrop {
+  background: rgba(0, 0, 0, 0.45);
+}
+.attribution-modal-content {
+  padding: var(--space-lg);
+  overflow-y: auto;
+  max-height: 80vh;
+}
+.attribution-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.attribution-modal-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--color-text-strong);
+}
+.attribution-modal-close {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--color-border-ui);
+  border-radius: 4px;
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-text-strong);
+  cursor: pointer;
+  min-height: 32px;
+}
+.attribution-modal-close:hover {
+  background: var(--color-bg-tint);
+}
+.attribution-modal-close:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+}
+.attribution-modal-section {
+  margin-top: var(--space-md);
+}
+.attribution-modal-section h3 {
+  margin: 0 0 var(--space-xs) 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-text-strong);
+}
+.attribution-modal-section p {
+  margin: 0 0 var(--space-xs) 0;
+  font-size: 13px;
+  color: var(--color-text-body);
+  line-height: 1.4;
+}
+.attribution-modal-section a {
+  color: var(--color-text-strong);
+  text-decoration: underline;
+}
+.attribution-modal-section a:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+.attribution-modal-loading,
+.attribution-modal-error,
+.attribution-modal-empty {
+  font-style: italic;
+  color: var(--color-text-muted);
+}
+.attribution-modal-section-intro {
+  margin-bottom: var(--space-sm);
+}
+.attribution-modal-phylopic-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.attribution-modal-phylopic-row {
+  font-size: 12px;
+  color: var(--color-text-body);
+  line-height: 1.4;
+  padding: 2px 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.attribution-modal-phylopic-row:last-child {
+  border-bottom: none;
+}
+.attribution-modal-creator {
+  color: var(--color-text-strong);
+}
+
+/* Mobile tightens the modal padding so the per-silhouette list fits in
+   one screen without needing a long inner scroll. The 760px breakpoint
+   matches the codebase responsive convention (see comment block above
+   `.map-surface`). */
+@media (max-width: 760px) {
+  .attribution-modal {
+    max-width: 100vw;
+    width: calc(100vw - 2 * var(--space-md));
+  }
+  .attribution-modal-content {
+    padding: var(--space-md);
+  }
+}
+
+/* FamilyLegend floating overlay (#249). Anchored to the bottom-left of
+   .map-surface, above MapLibre's AttributionControl (which lives at
+   bottom-right by default — but we still want clearance for keyboard-tabs
+   that open it). The legend is a semantic <aside> — keyboard-reachable,
+   labelled by its toggle button, and self-collapsing on mobile. */
+.family-legend {
+  position: absolute;
+  bottom: var(--space-md);
+  left: var(--space-md);
+  z-index: var(--z-panel);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-ui);
+  border-radius: 6px;
+  box-shadow: var(--shadow-listbox);
+  font-size: 13px;
+  color: var(--color-text-strong);
+  max-width: 320px;
+}
+.family-legend-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: var(--space-sm) var(--space-md);
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 6px;
+}
+.family-legend-toggle:hover {
+  background: var(--color-bg-hover);
+}
+.family-legend-toggle:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+}
+.family-legend-title {
+  flex: 1;
+  font-weight: 600;
+}
+.family-legend-chevron {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.family-legend-entries {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-xs) var(--space-xs) var(--space-sm) var(--space-xs);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+  border-top: 1px solid var(--color-border-subtle);
+}
+.family-legend-entry-item {
+  margin: 0;
+  padding: 0;
+}
+.family-legend-entry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 4px 6px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--color-text-strong);
+  cursor: pointer;
+  text-align: left;
+  min-height: 32px;
+}
+.family-legend-entry:hover {
+  background: var(--color-bg-tint);
+}
+.family-legend-entry:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: -2px;
+}
+.family-legend-entry.is-active {
+  background: var(--color-bg-tint);
+  border-color: var(--color-text-strong);
+}
+.family-legend-entry-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.family-legend-entry-count {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--color-text-body);
+  background: var(--color-bg-tint);
+  padding: 1px 5px;
+  border-radius: 8px;
+}
+.family-legend-entry.is-active .family-legend-entry-count {
+  background: var(--color-bg-surface);
+}
+
+/* Mobile collapse-by-default. The component reads this breakpoint via
+   matchMedia at mount time (see MapSurface.readLegendDefaultExpanded);
+   the CSS below additionally tightens the collapsed footprint so the
+   chevron tab doesn't obscure the map. localStorage 'family-legend-
+   expanded' overrides this — the responsive default is a first-visit
+   hint, not a sticky rule. */
+@media (max-width: 760px) {
+  .family-legend {
+    max-width: calc(100vw - 2 * var(--space-md));
+  }
+  .family-legend-entries {
+    grid-template-columns: 1fr;
+    max-height: 240px;
+  }
+}
+
+/* Observation popover (#246). Anchored top-left of .map-surface, above
+   the FamilyLegend's z-index so a click on a marker covers the legend
+   while open. The popover is keyboard-reachable via the MapMarkerHitLayer
+   (which gives every observation marker a real tabindex). */
+.observation-popover {
+  position: absolute;
+  top: var(--space-md);
+  left: var(--space-md);
+  z-index: calc(var(--z-panel) + 1);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-ui);
+  border-radius: 6px;
+  box-shadow: var(--shadow-listbox);
+  padding: var(--space-sm) var(--space-md);
+  font-size: 13px;
+  color: var(--color-text-strong);
+  max-width: 280px;
+}
+.observation-popover-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xs);
+}
+.observation-popover-name {
+  flex: 1;
+  font-weight: 600;
+}
+.observation-popover-badge {
+  background: var(--color-accent-notable-fg);
+  color: var(--color-text-white);
+  border-radius: 999px;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+}
+.observation-popover-close {
+  appearance: none;
+  background: transparent;
+  border: none;
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 0 4px;
+}
+.observation-popover-close:hover {
+  color: var(--color-text-strong);
+}
+.observation-popover-location,
+.observation-popover-time,
+.observation-popover-count {
+  font-size: 12px;
+  color: var(--color-text-body);
+  margin-top: 2px;
+}
+.observation-popover-detail-link {
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: var(--space-xs) 0 0 0;
+  margin-top: var(--space-xs);
+  font: inherit;
+  font-size: 12px;
+  color: var(--color-text-strong);
+  cursor: pointer;
+  text-decoration: underline;
+  text-align: left;
+}
+.observation-popover-detail-link:hover,
+.observation-popover-detail-link:focus-visible {
+  color: var(--color-accent-notable-fg);
+  outline: none;
+}

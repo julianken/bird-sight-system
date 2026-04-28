@@ -17,6 +17,13 @@ coverage/
 .superpowers/
 .remember/
 
+# Phylopic curation cache (issue #245). The script `scripts/curate-phylopic.mjs`
+# writes API responses + downloaded SVGs here so re-runs are deterministic and
+# don't re-hit the Phylopic API on every invocation. The cache is local-only —
+# `scripts/phylopic-picks.json` is the committed audit artifact and the
+# migration file is the committed output.
+scripts/.phylopic-cache/
+
 # Playwright output (screenshots, traces from local runs)
 frontend/.playwright-out/
 frontend/playwright-report/

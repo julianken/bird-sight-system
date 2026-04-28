@@ -87,6 +87,23 @@ test.describe('accessibility', () => {
           const id = el.id;
           if (id && document.querySelector(`label[for="${id}"]`)) return false;
           if (el.closest('label')) return false;
+          // Anchors and buttons can derive their accessible name from inner
+          // text content per the HTML AccName algorithm. Adding the
+          // SurfaceFooter eBird credit (#243) introduced the first such
+          // text-only link in the app, exposing this gap. Allow non-empty
+          // text content as a valid accname source — but ONLY for the
+          // interactive roles where AccName treats textContent as valid.
+          // For <select>, <input>, <textarea>, textContent is NOT a valid
+          // accname source (#260): <select>.textContent returns concatenated
+          // option text, <textarea>.textContent returns initial content —
+          // both are truthy even for unlabelled controls.
+          const isAccnameTextRole =
+            el.tagName === 'A' ||
+            el.tagName === 'BUTTON' ||
+            el.getAttribute('role') === 'button';
+          if (!isAccnameTextRole) return true;
+          const text = (el.textContent ?? '').trim();
+          if (text) return false;
           return true;
         })
         .map(el => el.outerHTML.slice(0, 200));

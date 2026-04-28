@@ -9,7 +9,6 @@ COPY services/ingestor ./services/ingestor
 RUN npm ci --workspaces --include-workspace-root --include=dev
 RUN npm run build --workspace @bird-watch/shared-types
 RUN npm run build --workspace @bird-watch/db-client
-RUN npm run build --workspace @bird-watch/family-mapping
 RUN npm run build --workspace @bird-watch/ingestor
 
 FROM node:20-alpine
