@@ -3,7 +3,11 @@ import { useEffect, useRef } from 'react';
 /**
  * Scroll position capture-and-restore tied to an `active` boolean.
  *
- * Contract (per issue #115):
+ * Originally introduced for SpeciesPanel (#115, since deleted). Retained for
+ * any future panel or drawer component that needs the same scroll-restore
+ * contract.
+ *
+ * Contract:
  *   - false → true: capture `window.scrollY` as the "pre-open" position.
  *   - true  → false: if the user has NOT scrolled materially since capture
  *     (|current - captured| ≤ 2px), restore to the captured position.

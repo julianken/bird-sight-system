@@ -12,8 +12,8 @@ import {
 } from './stack-fanout.js';
 
 /** Source / layer ids for the auto-spider leader lines. */
-export const AUTO_SPIDER_SOURCE_ID = 'auto-spider-leader-lines';
-export const AUTO_SPIDER_LAYER_ID = 'auto-spider-leader-lines-layer';
+const AUTO_SPIDER_SOURCE_ID = 'auto-spider-leader-lines';
+const AUTO_SPIDER_LAYER_ID = 'auto-spider-leader-lines-layer';
 
 /**
  * One leaf in the auto-spider state — carries the data needed to render a

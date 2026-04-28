@@ -40,9 +40,10 @@ export interface Observation {
   // with familyCode === undefined. Consumers treat undefined the same as
   // null (skip / fallback), so no Cache-Control bump is required.
   familyCode: string | null;
-  // taxonOrder remains optional: it's sourced from SpeciesMeta and only
-  // lands on the wire when the read-api projects it. Consumers default
-  // to null when absent.
+  // taxonOrder is present only on /api/species/:code responses (projected
+  // from SpeciesMeta). It is never included in /api/observations payloads
+  // (getObservations SELECT omits taxon_order). Consumers default to null
+  // when absent.
   taxonOrder?: number | null;
 }
 
@@ -86,7 +87,7 @@ export interface FamilySilhouette {
 
 export interface IngestRun {
   id: number;
-  kind: 'recent' | 'notable' | 'backfill' | 'hotspots' | 'taxonomy';
+  kind: 'recent' | 'backfill' | 'hotspots' | 'taxonomy';
   startedAt: string;
   finishedAt: string | null;
   obsFetched: number | null;

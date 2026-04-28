@@ -396,7 +396,7 @@ export function MapCanvas({
         // MapLibre 5.x: `getClusterExpansionZoom` (and `getClusterChildren`,
         // `getClusterLeaves`) returns a Promise and no longer invokes the
         // legacy callback argument. Passing a callback silently no-ops —
-        // which is how this regression shipped (see PR #165 / issue #166).
+        // so we always call .then() on the returned Promise instead.
         const src = source as {
           getClusterExpansionZoom: (id: number) => Promise<number>;
         };

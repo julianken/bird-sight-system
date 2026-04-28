@@ -14,9 +14,10 @@ import { useEffect, useState } from 'react';
  *   hook returns `false` and registers no listeners. It does NOT crash.
  * - The effect cleans up its listener on unmount and on query change.
  *
- * Originally used by SpeciesPanel (#115) to drive its drawer-vs-sidebar
- * layout. Retained for future responsive-layout hooks that need React-state-
- * driven conditional DOM (e.g. `data-layout` attributes, conditional siblings).
+ * Originally introduced for SpeciesPanel (#115, since deleted). Currently
+ * referenced in MapMarkerHitLayer for pointer-coarse detection. Retained
+ * for any future responsive-layout work that needs React-state-driven
+ * conditional DOM (e.g. `data-layout` attributes, conditional siblings).
  */
 export function useMediaQuery(query: string): boolean {
   const [matches, setMatches] = useState<boolean>(() => {

@@ -1,3 +1,6 @@
+// Geometry-contract tests: these verify PostGIS state in the live DB after
+// migrations run. They do not test exported db-client functions — they assert
+// spatial invariants that would otherwise be invisible to the unit test suite.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { startTestDb, type TestDb } from '../test-helpers.js';
 
