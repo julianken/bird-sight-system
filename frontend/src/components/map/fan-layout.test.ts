@@ -46,8 +46,8 @@ describe('computeSpiderfyLayout', () => {
   });
 
   it('caps at SPIDERFY_MAX_LEAVES (>8 returns 8 placements)', () => {
-    // The cluster-click handler is only supposed to invoke spiderfy
-    // when point_count <= 8, but defensive layout caps the array at 8.
+    // Defensive cap in the layout helper — keeps placement arrays bounded
+    // regardless of how many leaves the caller passes in.
     const layout = computeSpiderfyLayout(15);
     expect(layout).toHaveLength(SPIDERFY_MAX_LEAVES);
   });

@@ -39,12 +39,6 @@
   --color-accent-notable-bg-hover: #fff3c4; /* hover on notable row        */
   --color-accent-notable-fg:       #b8860b; /* dark amber stripe / badge   */
 
-  /* Migration banner (warm brown) */
-  --color-banner-bg:     #fff8e1; /* reuses notable amber bg               */
-  --color-banner-border: #ffe082; /* amber border                          */
-  --color-banner-text:   #5d4037; /* warm brown text                       */
-  --color-banner-hover:  #ffecb3; /* dismiss button hover                  */
-
   /* Borders */
   --color-border-subtle:   #e6e1d2; /* row dividers                        */
   --color-border-ui:       #d8d3c3; /* panel edges, inputs, selects        */
@@ -363,38 +357,6 @@ body {
   color: var(--color-text-muted);
   font-size: 14px;
   margin: 0;
-}
-
-/* Migration banner — shown when the user lands with a legacy ?region= URL.
-   Release 2: remove this block when MigrationBanner is deleted (#112 sunset). */
-.migration-banner {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-sm) var(--space-lg);
-  background: var(--color-banner-bg);
-  border-bottom: 1px solid var(--color-banner-border);
-  font-size: 13px;
-  color: var(--color-banner-text);
-}
-.migration-banner-text {
-  flex: 1;
-}
-.migration-banner-dismiss {
-  flex-shrink: 0;
-  appearance: none;
-  background: transparent;
-  border: none;
-  font-size: 20px;
-  line-height: 1;
-  cursor: pointer;
-  color: var(--color-banner-text);
-  border-radius: 4px;
-  padding: 2px 6px;
-}
-.migration-banner-dismiss:hover,
-.migration-banner-dismiss:focus-visible {
-  background: var(--color-banner-hover);
 }
 
 .filters-bar {

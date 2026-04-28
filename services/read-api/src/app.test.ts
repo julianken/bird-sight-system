@@ -22,9 +22,9 @@ describe('GET /api/hotspots', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control'))
       .toBe('public, max-age=86400, stale-while-revalidate=3600');
-    const body = await res.json() as Array<{ locId: string; regionId: string | null }>;
+    const body = await res.json() as Array<{ locId: string; locName: string }>;
     expect(body[0]?.locId).toBe('L207118');
-    expect(body[0]?.regionId).toBe('sonoran-tucson');
+    expect(body[0]?.locName).toBe('Sweetwater Wetlands');
   });
 });
 

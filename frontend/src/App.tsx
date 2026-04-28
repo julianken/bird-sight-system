@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { ApiClient, ApiError } from './api/client.js';
-import { useUrlState, readMigrationFlag } from './state/url-state.js';
+import { useUrlState } from './state/url-state.js';
 import { useBirdData } from './data/use-bird-data.js';
 import { useSilhouettes } from './data/use-silhouettes.js';
 import { FiltersBar } from './components/FiltersBar.js';
@@ -9,7 +9,6 @@ import { MapSurface } from './components/MapSurface.js';
 import { SpeciesSearchSurface } from './components/SpeciesSearchSurface.js';
 import { SpeciesDetailSurface } from './components/SpeciesDetailSurface.js';
 import { SurfaceNav } from './components/SurfaceNav.js';
-import { MigrationBanner } from './components/MigrationBanner.js';
 import { AttributionModal } from './components/AttributionModal.js';
 import { deriveFamilies, deriveSpeciesIndex } from './derived.js';
 
@@ -18,7 +17,7 @@ const apiClient = new ApiClient({ baseUrl: import.meta.env.VITE_API_BASE_URL ?? 
 export function App() {
   const { state, set } = useUrlState();
   // hotspots intentionally fetched but unused — cheap insurance for v2
-  // hotspot-marker layer (Plan 7 §7).
+  // hotspot-marker layer (Plan 7 decision 5, docs/plans/2026-04-22-plan-7-map-v1.md).
   const { loading, error, observations } = useBirdData(apiClient, {
     since: state.since,
     notable: state.notable,
@@ -113,7 +112,6 @@ export function App() {
 
   return (
     <div className="app">
-      <MigrationBanner show={readMigrationFlag()} />
       <FiltersBar
         since={state.since}
         notable={state.notable}
@@ -180,8 +178,7 @@ export function App() {
         "app">` (after `</main>`). This gives both the right visual order
         (footer at viewport bottom via `.app` flex column + `#main-surface
         flex: 1`) and the axe-clean landmark order
-        (banner → main → contentinfo). Do NOT move it before MigrationBanner
-        / FiltersBar / SurfaceNav.
+        (main → contentinfo). Do NOT move it before FiltersBar / SurfaceNav.
       */}
       <footer role="contentinfo" className="app-footer">
         {/*
