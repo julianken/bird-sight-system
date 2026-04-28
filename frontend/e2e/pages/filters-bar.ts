@@ -8,11 +8,12 @@ export class FiltersBar {
   readonly species: Locator;
 
   constructor(page: Page) {
-    // `exact: true` is mandatory on this page object. The SurfaceNav tab
-    // labels ("Species view", "Family view") share substrings with the
-    // filter input labels ("Species", "Family"). Without exact match,
-    // getByLabel('Species') would match both the filter <input> and the
-    // SurfaceNav tab button, causing an ambiguous-locator error.
+    // `exact: true` is mandatory on this page object. SurfaceNav renders
+    // three tabs — "Feed view", "Species view", "Map view" — whose accessible
+    // names share substrings with filter labels ("Species", "Family").
+    // Without exact match, getByLabel('Species') would match both the filter
+    // <input> and the "Species view" tab button, causing an ambiguous-locator
+    // error.
     this.timeWindow = page.getByLabel('Time window', { exact: true });
     this.notableOnly = page.getByLabel('Notable only', { exact: true });
     this.family = page.getByLabel('Family', { exact: true });
