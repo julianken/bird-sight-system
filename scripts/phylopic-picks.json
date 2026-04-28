@@ -1,0 +1,1278 @@
+{
+  "generatedAt": "2026-04-26T22:18:00.976Z",
+  "phylopicBuild": "537",
+  "autoPickHeuristic": "license-preference (CC0 > CC-BY-3.0 > CC-BY-4.0 > CC-BY-SA-3.0), then creator-name asc, then uuid asc",
+  "skipFamilies": [
+    "cuculidae",
+    "ptilogonatidae",
+    "remizidae"
+  ],
+  "families": [
+    {
+      "family": "accipitridae",
+      "picked": {
+        "licenseId": "CC0-1.0",
+        "creatorName": "Andy Wilson",
+        "imagePageUrl": "https://www.phylopic.org/images/2cc4c508-2a2e-459d-bcc7-5a40c0ed8ffb",
+        "uuid": "2cc4c508-2a2e-459d-bcc7-5a40c0ed8ffb"
+      },
+      "reason": "picked-by-license-CC0-1.0",
+      "candidateCount": 38,
+      "considered": [
+        {
+          "uuid": "2cc4c508-2a2e-459d-bcc7-5a40c0ed8ffb",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "picked",
+          "skipReason": null
+        },
+        {
+          "uuid": "2ed36bac-299a-4c53-b6c5-3077ebee048a",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "4a0b2742-083a-4ba5-8f2f-f75dc08601db",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "4c93d52f-ce61-49e3-b00d-3b857597a41b",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "5c90ad4f-f3fc-4210-ad27-e8ea01f5c2f6",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "63457cae-d0e8-48f9-82e2-869c45034f90",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "6a86d308-33b6-4043-a9c9-d196c4f666d1",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "6b883056-ad05-46a0-8e9c-1422160b7e95",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "90f8327c-3cfd-4497-8c27-197542421b19",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "92cf311d-e7d3-488a-84e7-afe701c161a6",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "9a2fe66c-2a3f-49d2-aef4-c15e5559f139",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "9cf25c45-c312-4a68-95b0-0f0ec37534c6",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "a92be6af-cb30-4d55-a3b0-cc3016be6c6c",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "ac9baf48-5594-46e0-9bd5-53fddb592c0e",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "ed2e30f7-f1a4-4bce-8a16-f20218718bc4",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "f133b189-620f-4478-aec6-6f7a2c801bcc",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "f830c83d-e32f-41be-8cbe-f29d00326727",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "fb93958a-474d-4623-819c-c8a7eb9dea9c",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "92589388-08e3-422f-b452-aa7454411a9c",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Beth Reinke",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "30d1e776-caeb-4a8d-9539-e9dc7170eb0e",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Catherine Yasuda",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "ffc0b03a-9606-4d5a-9b2e-4eda2d63c85b",
+          "licenseId": "CC0-1.0",
+          "creatorName": "ChrBar",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "69136d79-7c8a-47c2-83e8-596c71e6391d",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Edwin Price",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "766cb6b1-885c-4ced-ae60-aa49ded9fbe6",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Edwin Price",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "d0e6f2fd-b279-4b13-9dec-87bbeb2cb9d2",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Ferran Sayol",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "52998d87-c336-4318-ba5c-aa9a36cd84ea",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Kamil S. Jaron",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "e00734a7-e8a8-4fe5-b5a9-58d927ca451a",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Lauren Anderson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "cb5e66df-56bd-444e-be36-a7a1b1de81c1",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Richard Rich",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "a6ef5684-5683-4a46-aa2d-d39c0d134ba7",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Robert Cooke",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "ca85a325-a3e4-4d65-ba6f-77be07f3fd4b",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Rohit N",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "e038a748-825f-4cdc-8909-afe6c29c26fc",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Rohit N",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "4f6adc2f-be6f-4f75-8d44-9a5ec982c5cf",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Sharon Wegner-Larsen",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "1bab47d8-d907-48aa-9750-01f8a7e7a077",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Vijay Karthick",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "94bfeafd-8155-4ab9-9300-625a4697a215",
+          "licenseId": "CC0-1.0",
+          "creatorName": null,
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "b84d52e5-0d87-4966-81a1-5ba7fefdd813",
+          "licenseId": "CC0-1.0",
+          "creatorName": null,
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "609de82e-3869-4760-8f71-e107d8e25e86",
+          "licenseId": "CC-BY-3.0",
+          "creatorName": "Shyamal",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "f52d11cf-1d3c-41ae-b37e-e46c822a71b3",
+          "licenseId": "CC-BY-3.0",
+          "creatorName": "Shyamal",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "58005551-049f-497c-912c-db2b5aaec47d",
+          "licenseId": "CC-BY-4.0",
+          "creatorName": "Lucy Coleman",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "2463f662-a194-4435-bc8f-59c85f2c8496",
+          "licenseId": "CC-BY-4.0",
+          "creatorName": "Mathieu Pélissié",
+          "status": "not-tried",
+          "skipReason": null
+        }
+      ]
+    },
+    {
+      "family": "anatidae",
+      "picked": {
+        "licenseId": "CC0-1.0",
+        "creatorName": "Kai Caspar",
+        "imagePageUrl": "https://www.phylopic.org/images/76e7ec55-7205-49ef-85f7-fd842350306c",
+        "uuid": "76e7ec55-7205-49ef-85f7-fd842350306c"
+      },
+      "reason": "picked-by-license-CC0-1.0",
+      "candidateCount": 1,
+      "considered": [
+        {
+          "uuid": "76e7ec55-7205-49ef-85f7-fd842350306c",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Kai Caspar",
+          "status": "picked",
+          "skipReason": null
+        }
+      ]
+    },
+    {
+      "family": "ardeidae",
+      "picked": {
+        "licenseId": "CC-BY-SA-3.0",
+        "creatorName": "Mannheim Reinhard Jahn (photograph)",
+        "imagePageUrl": "https://www.phylopic.org/images/ccf37548-b43b-40d8-8d9f-20633b965a5c",
+        "uuid": "ccf37548-b43b-40d8-8d9f-20633b965a5c"
+      },
+      "reason": "picked-by-license-CC-BY-SA-3.0",
+      "candidateCount": 1,
+      "considered": [
+        {
+          "uuid": "ccf37548-b43b-40d8-8d9f-20633b965a5c",
+          "licenseId": "CC-BY-SA-3.0",
+          "creatorName": "Mannheim Reinhard Jahn (photograph)",
+          "status": "picked",
+          "skipReason": null
+        }
+      ]
+    },
+    {
+      "family": "cathartidae",
+      "picked": {
+        "licenseId": "CC0-1.0",
+        "creatorName": "Andy Wilson",
+        "imagePageUrl": "https://www.phylopic.org/images/10c5b55f-9fa1-415f-838d-4b5ed6746e51",
+        "uuid": "10c5b55f-9fa1-415f-838d-4b5ed6746e51"
+      },
+      "reason": "picked-by-license-CC0-1.0",
+      "candidateCount": 12,
+      "considered": [
+        {
+          "uuid": "10c5b55f-9fa1-415f-838d-4b5ed6746e51",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "picked",
+          "skipReason": null
+        },
+        {
+          "uuid": "1a449055-2cc5-4a19-ae64-650abc1bcadf",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "4d8c62f3-f57e-45e7-85e2-8cb9265e62d8",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "688f6667-961e-4903-bde2-220b3b2b898e",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "699a2290-57a4-4659-935d-f41f5844de16",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "6bea3d43-f525-48c1-89b9-f5bafda1293c",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "83f9d7e1-1657-410f-9788-7cb6f78a4290",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "c97400f5-fab6-4452-ab32-1ee071848f31",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Ferran Sayol",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "901bfc1f-5f97-499c-961f-6cf4d8ab6239",
+          "licenseId": "CC-BY-3.0",
+          "creatorName": "Mark P. Witton & Darren Naish",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "9c4c0d1e-d984-493b-addc-b8bb52e365cd",
+          "licenseId": "CC-BY-4.0",
+          "creatorName": "Gabriela Palomo-Munoz",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "e5218b0c-97d9-4739-9ccb-7606b92a8035",
+          "licenseId": "CC-BY-4.0",
+          "creatorName": "Gabriela Palomo-Munoz",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "72a6434a-3ed4-43f0-b6ef-b3146c2f07ae",
+          "licenseId": "CC-BY-SA-3.0",
+          "creatorName": "Jan Sevcik (photo), John E. McCormack, Michael G. Harvey, Brant C. Faircloth, Nicholas G. Crawford, Travis C. Glenn, Robb T. Brumfield & T. Michael Keesey",
+          "status": "not-tried",
+          "skipReason": null
+        }
+      ]
+    },
+    {
+      "family": "corvidae",
+      "picked": {
+        "licenseId": "CC0-1.0",
+        "creatorName": "Andy Wilson",
+        "imagePageUrl": "https://www.phylopic.org/images/3f76e209-8ac4-4e4b-aec2-b8a62d1a7ce0",
+        "uuid": "3f76e209-8ac4-4e4b-aec2-b8a62d1a7ce0"
+      },
+      "reason": "picked-by-license-CC0-1.0",
+      "candidateCount": 7,
+      "considered": [
+        {
+          "uuid": "3f76e209-8ac4-4e4b-aec2-b8a62d1a7ce0",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "picked",
+          "skipReason": null
+        },
+        {
+          "uuid": "a2fd3f37-c57d-4216-a669-bd5a17c04bbf",
+          "licenseId": "CC-BY-3.0",
+          "creatorName": "Greg Schechter (original photo), Renato Santos (vector silhouette)",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "715f6434-de54-475b-9653-4b4db6864bdc",
+          "licenseId": "CC-BY-3.0",
+          "creatorName": "Martien Brand (original photo), Renato Santos (vector silhouette)",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "b407e47a-e676-42b3-b28e-569e68c934db",
+          "licenseId": "CC-BY-3.0",
+          "creatorName": "T. Michael Keesey (from a mount by Allis Markham)",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "0f5aae41-01a7-4219-be63-24f91ac6f6b8",
+          "licenseId": "CC-BY-SA-3.0",
+          "creatorName": "Jean-Raphaël Guillaumin (photography) and T. Michael Keesey (vectorization)",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "28951ec2-1ef3-437c-b1dc-4d54010732f7",
+          "licenseId": "CC-BY-SA-3.0",
+          "creatorName": "L. Shyamal",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "91b76088-f819-41b9-89ec-0007844b63a9",
+          "licenseId": "CC-BY-SA-3.0",
+          "creatorName": "L. Shyamal",
+          "status": "not-tried",
+          "skipReason": null
+        }
+      ]
+    },
+    {
+      "family": "cuculidae",
+      "picked": null,
+      "reason": "operator-skipped",
+      "candidateCount": 0,
+      "considered": []
+    },
+    {
+      "family": "odontophoridae",
+      "picked": {
+        "licenseId": "CC-BY-4.0",
+        "creatorName": "Edwin Price",
+        "imagePageUrl": "https://www.phylopic.org/images/39ed6de3-8b5d-469f-b360-e55f537ebda1",
+        "uuid": "39ed6de3-8b5d-469f-b360-e55f537ebda1"
+      },
+      "reason": "picked-by-license-CC-BY-4.0",
+      "candidateCount": 2,
+      "considered": [
+        {
+          "uuid": "39ed6de3-8b5d-469f-b360-e55f537ebda1",
+          "licenseId": "CC-BY-4.0",
+          "creatorName": "Edwin Price",
+          "status": "picked",
+          "skipReason": null
+        },
+        {
+          "uuid": "8f0cc912-8290-4ffa-811d-a547b36bdf0c",
+          "licenseId": "CC-BY-4.0",
+          "creatorName": "Edwin Price",
+          "status": "not-tried",
+          "skipReason": null
+        }
+      ]
+    },
+    {
+      "family": "passerellidae",
+      "picked": {
+        "licenseId": "CC0-1.0",
+        "creatorName": "Andy Wilson",
+        "imagePageUrl": "https://www.phylopic.org/images/8df8a8ea-35e4-45a6-b250-b4048f1f2147",
+        "uuid": "8df8a8ea-35e4-45a6-b250-b4048f1f2147"
+      },
+      "reason": "picked-by-license-CC0-1.0",
+      "candidateCount": 6,
+      "considered": [
+        {
+          "uuid": "8df8a8ea-35e4-45a6-b250-b4048f1f2147",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "picked",
+          "skipReason": null
+        },
+        {
+          "uuid": "9107b34a-3587-43dc-88c0-50fd651bfa7d",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "c67e67ab-cd83-4b15-b7ca-203591d05d96",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "dd23dc22-77a2-46bb-a64c-d60a0558efb8",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Ferran Sayol",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "db541de1-beeb-4d25-b207-81c29f4572dd",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Jason Dilworth",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "367d97ea-933d-4860-8401-836123928dec",
+          "licenseId": "CC-BY-4.0",
+          "creatorName": "Juan Camilo Cepeda-Duque",
+          "status": "not-tried",
+          "skipReason": null
+        }
+      ]
+    },
+    {
+      "family": "picidae",
+      "picked": {
+        "licenseId": "CC0-1.0",
+        "creatorName": "Andy Wilson",
+        "imagePageUrl": "https://www.phylopic.org/images/a19f8142-ec00-44a2-9123-9eb895292491",
+        "uuid": "a19f8142-ec00-44a2-9123-9eb895292491"
+      },
+      "reason": "picked-by-license-CC0-1.0",
+      "candidateCount": 3,
+      "considered": [
+        {
+          "uuid": "a19f8142-ec00-44a2-9123-9eb895292491",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "picked",
+          "skipReason": null
+        },
+        {
+          "uuid": "df317a43-0d4b-4619-b4a8-d2e59faa97cc",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "113eb033-aa74-475c-b0ba-5bf9caf8d794",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Jason Dilworth",
+          "status": "not-tried",
+          "skipReason": null
+        }
+      ]
+    },
+    {
+      "family": "scolopacidae",
+      "picked": {
+        "licenseId": "CC0-1.0",
+        "creatorName": "Andy Wilson",
+        "imagePageUrl": "https://www.phylopic.org/images/16c51a06-21bd-4e34-9f71-d7eea73124d8",
+        "uuid": "16c51a06-21bd-4e34-9f71-d7eea73124d8"
+      },
+      "reason": "picked-by-license-CC0-1.0",
+      "candidateCount": 7,
+      "considered": [
+        {
+          "uuid": "16c51a06-21bd-4e34-9f71-d7eea73124d8",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "picked",
+          "skipReason": null
+        },
+        {
+          "uuid": "6fdb3ece-9147-4300-b477-5596bc2fd677",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "fcc02884-41c9-4fb8-a766-1c42874ad0e6",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Caleb M. Gordon",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "3813ebf5-b823-4f08-b05c-076fa09426e5",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Edwin Price",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "ef6d1b7a-15fe-46cc-aa1e-2598d767895c",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Edwin Price",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "6b77616d-7e99-488a-97e0-c6e919c62ec9",
+          "licenseId": "CC-BY-3.0",
+          "creatorName": "Rebecca Groom",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "e9d7ebcd-df47-46b4-b3a5-831801816c0c",
+          "licenseId": "CC-BY-SA-3.0",
+          "creatorName": "Elaine R. Wilson (modified)",
+          "status": "not-tried",
+          "skipReason": null
+        }
+      ]
+    },
+    {
+      "family": "strigidae",
+      "picked": {
+        "licenseId": "CC0-1.0",
+        "creatorName": "Andy Wilson",
+        "imagePageUrl": "https://www.phylopic.org/images/f73736a2-f7c2-43ca-93a6-dba2c08fcb1d",
+        "uuid": "f73736a2-f7c2-43ca-93a6-dba2c08fcb1d"
+      },
+      "reason": "picked-by-license-CC0-1.0",
+      "candidateCount": 6,
+      "considered": [
+        {
+          "uuid": "f73736a2-f7c2-43ca-93a6-dba2c08fcb1d",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "picked",
+          "skipReason": null
+        },
+        {
+          "uuid": "006de050-910b-4dca-8bcc-9a16f901ac70",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Margot Michaud",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "22f0b01e-0605-44b0-905f-b1c8d6817817",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Rachel T Mason",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "919a6f91-cb0b-4646-9ec2-b6a8b5e4b024",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Steven Traver",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "7778b3a8-3c03-4335-8327-5d5c1088c112",
+          "licenseId": "CC-BY-3.0",
+          "creatorName": "Alexandre Vong",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "920f6a07-a4c6-4040-9c2e-9857481bbd6a",
+          "licenseId": "CC-BY-3.0",
+          "creatorName": "Alexandre Vong",
+          "status": "not-tried",
+          "skipReason": null
+        }
+      ]
+    },
+    {
+      "family": "trochilidae",
+      "picked": {
+        "licenseId": "CC0-1.0",
+        "creatorName": "Ferran Sayol",
+        "imagePageUrl": "https://www.phylopic.org/images/2bf1e800-5384-45cd-a533-ac940b8eadd6",
+        "uuid": "2bf1e800-5384-45cd-a533-ac940b8eadd6"
+      },
+      "reason": "picked-by-license-CC0-1.0",
+      "candidateCount": 1,
+      "considered": [
+        {
+          "uuid": "2bf1e800-5384-45cd-a533-ac940b8eadd6",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Ferran Sayol",
+          "status": "picked",
+          "skipReason": null
+        }
+      ]
+    },
+    {
+      "family": "troglodytidae",
+      "picked": {
+        "licenseId": "CC0-1.0",
+        "creatorName": "Andy Wilson",
+        "imagePageUrl": "https://www.phylopic.org/images/186b47df-75de-44a6-8a0f-f8bdb3372b55",
+        "uuid": "186b47df-75de-44a6-8a0f-f8bdb3372b55"
+      },
+      "reason": "picked-by-license-CC0-1.0",
+      "candidateCount": 6,
+      "considered": [
+        {
+          "uuid": "186b47df-75de-44a6-8a0f-f8bdb3372b55",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "picked",
+          "skipReason": null
+        },
+        {
+          "uuid": "1e43b8d5-7cd1-492f-830e-3bbf13001510",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "2e7a70e4-1424-4a77-9594-37dae78132e6",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "e38c264a-8989-4e69-a6c1-7778b919980d",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Anthony Caravaggi",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "adf1549b-e142-4a7a-bc9a-20d38ce7e1c8",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Matt Wilkins",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "e7c79fdd-9881-4fdf-9806-781107400b18",
+          "licenseId": "CC-BY-4.0",
+          "creatorName": "Edwin Price",
+          "status": "not-tried",
+          "skipReason": null
+        }
+      ]
+    },
+    {
+      "family": "trogonidae",
+      "picked": {
+        "licenseId": "CC0-1.0",
+        "creatorName": "Ferran Sayol",
+        "imagePageUrl": "https://www.phylopic.org/images/5eca6929-759a-482c-b29c-b78340c35143",
+        "uuid": "5eca6929-759a-482c-b29c-b78340c35143"
+      },
+      "reason": "picked-by-license-CC0-1.0",
+      "candidateCount": 2,
+      "considered": [
+        {
+          "uuid": "5eca6929-759a-482c-b29c-b78340c35143",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Ferran Sayol",
+          "status": "picked",
+          "skipReason": null
+        },
+        {
+          "uuid": "25400287-1b39-4f8d-aa99-7e08478da5b7",
+          "licenseId": "CC-BY-3.0",
+          "creatorName": "Keith Murdock (photo), John E. McCormack, Michael G. Harvey, Brant C. Faircloth, Nicholas G. Crawford, Travis C. Glenn, Robb T. Brumfield & T. Michael Keesey",
+          "status": "not-tried",
+          "skipReason": null
+        }
+      ]
+    },
+    {
+      "family": "tyrannidae",
+      "picked": {
+        "licenseId": "CC0-1.0",
+        "creatorName": "Andy Wilson",
+        "imagePageUrl": "https://www.phylopic.org/images/1844043e-f24a-4a9c-a45d-dafeb787316f",
+        "uuid": "1844043e-f24a-4a9c-a45d-dafeb787316f"
+      },
+      "reason": "picked-by-license-CC0-1.0",
+      "candidateCount": 8,
+      "considered": [
+        {
+          "uuid": "1844043e-f24a-4a9c-a45d-dafeb787316f",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "picked",
+          "skipReason": null
+        },
+        {
+          "uuid": "1a7e182f-b3a0-448b-8121-29d6bb70bc35",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "70a769d7-ae01-495e-a56d-7889cafdeb88",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "500f14e2-55ed-4ae3-804a-ac20bac7f57f",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Edwin Price",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "f2d3f28d-252f-4296-b3e2-4763402af30f",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Ferran Sayol",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "d2ab018f-58b9-485c-add1-ceedda3ea042",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Jason Dilworth",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "5dab7403-52fa-4009-81e1-0b95c98028e7",
+          "licenseId": "CC-BY-4.0",
+          "creatorName": "Kai Caspar",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "ee6da2e5-95c1-431c-876f-9c6d7650ee97",
+          "licenseId": "CC-BY-SA-3.0",
+          "creatorName": "Emily Willoughby",
+          "status": "not-tried",
+          "skipReason": null
+        }
+      ]
+    },
+    {
+      "family": "cardinalidae",
+      "picked": {
+        "licenseId": "CC0-1.0",
+        "creatorName": "Jonah Duckles",
+        "imagePageUrl": "https://www.phylopic.org/images/0c05a5ab-9cb0-4d06-97cb-0f487a8bbc82",
+        "uuid": "0c05a5ab-9cb0-4d06-97cb-0f487a8bbc82"
+      },
+      "reason": "picked-by-license-CC0-1.0",
+      "candidateCount": 1,
+      "considered": [
+        {
+          "uuid": "0c05a5ab-9cb0-4d06-97cb-0f487a8bbc82",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Jonah Duckles",
+          "status": "picked",
+          "skipReason": null
+        }
+      ]
+    },
+    {
+      "family": "mimidae",
+      "picked": {
+        "licenseId": "CC0-1.0",
+        "creatorName": "Andy Wilson",
+        "imagePageUrl": "https://www.phylopic.org/images/e99c4f17-bb6b-4eda-8b3e-ca6c461b18c4",
+        "uuid": "e99c4f17-bb6b-4eda-8b3e-ca6c461b18c4"
+      },
+      "reason": "picked-by-license-CC0-1.0",
+      "candidateCount": 3,
+      "considered": [
+        {
+          "uuid": "e99c4f17-bb6b-4eda-8b3e-ca6c461b18c4",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "picked",
+          "skipReason": null
+        },
+        {
+          "uuid": "c3382aca-efba-45c5-ab78-85e887405d88",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Edwin Price",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "63cf8a28-4fec-43ce-986a-646f893f8f19",
+          "licenseId": "CC-BY-4.0",
+          "creatorName": "Anna Delesmillieres, Titouan Montessuit",
+          "status": "not-tried",
+          "skipReason": null
+        }
+      ]
+    },
+    {
+      "family": "columbidae",
+      "picked": {
+        "licenseId": "CC0-1.0",
+        "creatorName": "Andy Wilson",
+        "imagePageUrl": "https://www.phylopic.org/images/d28238c8-033f-44e9-a95b-d65c4ee244de",
+        "uuid": "d28238c8-033f-44e9-a95b-d65c4ee244de"
+      },
+      "reason": "picked-by-license-CC0-1.0",
+      "candidateCount": 5,
+      "considered": [
+        {
+          "uuid": "d28238c8-033f-44e9-a95b-d65c4ee244de",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "picked",
+          "skipReason": null
+        },
+        {
+          "uuid": "fc5ff059-bb2d-4e91-8422-9039ef106979",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "ab808bea-697e-4cb3-92e6-28661078f682",
+          "licenseId": "CC0-1.0",
+          "creatorName": "RS",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "d3cc7d56-bce6-4228-b000-40a91a0e177f",
+          "licenseId": "CC-BY-4.0",
+          "creatorName": "Natalia Ladino",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "fbdce36b-f525-40a2-90e9-c64a77626073",
+          "licenseId": "CC-BY-SA-3.0",
+          "creatorName": "Danielle Alba",
+          "status": "not-tried",
+          "skipReason": null
+        }
+      ]
+    },
+    {
+      "family": "parulidae",
+      "picked": {
+        "licenseId": "CC0-1.0",
+        "creatorName": "Andy Wilson",
+        "imagePageUrl": "https://www.phylopic.org/images/e6792a0c-6baf-41e8-8b51-eaf00cc7d6f5",
+        "uuid": "e6792a0c-6baf-41e8-8b51-eaf00cc7d6f5"
+      },
+      "reason": "picked-by-license-CC0-1.0",
+      "candidateCount": 1,
+      "considered": [
+        {
+          "uuid": "e6792a0c-6baf-41e8-8b51-eaf00cc7d6f5",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "picked",
+          "skipReason": null
+        }
+      ]
+    },
+    {
+      "family": "ptilogonatidae",
+      "picked": null,
+      "reason": "operator-skipped",
+      "candidateCount": 0,
+      "considered": []
+    },
+    {
+      "family": "paridae",
+      "picked": {
+        "licenseId": "CC0-1.0",
+        "creatorName": "Andy Wilson",
+        "imagePageUrl": "https://www.phylopic.org/images/44ca7679-ad00-4c9e-91d5-6414f08f81f2",
+        "uuid": "44ca7679-ad00-4c9e-91d5-6414f08f81f2"
+      },
+      "reason": "picked-by-license-CC0-1.0",
+      "candidateCount": 3,
+      "considered": [
+        {
+          "uuid": "44ca7679-ad00-4c9e-91d5-6414f08f81f2",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "picked",
+          "skipReason": null
+        },
+        {
+          "uuid": "dfdfb59e-8126-44e1-a7a9-1bf698113e1c",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Ferran Sayol",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "069c4833-e1ac-48e7-90d5-f7bd11000588",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Wouter Koch",
+          "status": "not-tried",
+          "skipReason": null
+        }
+      ]
+    },
+    {
+      "family": "fringillidae",
+      "picked": {
+        "licenseId": "CC0-1.0",
+        "creatorName": "Andy Wilson",
+        "imagePageUrl": "https://www.phylopic.org/images/0fb8f5c4-3191-4bb8-a5aa-c1cb3fe17eb2",
+        "uuid": "0fb8f5c4-3191-4bb8-a5aa-c1cb3fe17eb2"
+      },
+      "reason": "picked-by-license-CC0-1.0",
+      "candidateCount": 8,
+      "considered": [
+        {
+          "uuid": "0fb8f5c4-3191-4bb8-a5aa-c1cb3fe17eb2",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "picked",
+          "skipReason": null
+        },
+        {
+          "uuid": "4a4885cb-2ab5-432d-bed7-db7dc0445018",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "69d312c7-bbc8-4fd2-b557-6967dece2b9e",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "45438f27-d4d3-4fb4-bc7c-a4a9375a8547",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Ferran Sayol",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "0580ee17-1897-4e87-ad2e-0644a36cdce8",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Mathieu Pélissié",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "71b72445-c462-45af-864c-dac7fb69aff9",
+          "licenseId": "CC0-1.0",
+          "creatorName": null,
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "8a166a31-7aa7-44d8-8db2-38da91b08b92",
+          "licenseId": "CC0-1.0",
+          "creatorName": null,
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "0b72dd38-2dc1-4675-990e-a46259855ce1",
+          "licenseId": "CC-BY-3.0",
+          "creatorName": "Maxime Dahirel",
+          "status": "not-tried",
+          "skipReason": null
+        }
+      ]
+    },
+    {
+      "family": "caprimulgidae",
+      "picked": {
+        "licenseId": "CC0-1.0",
+        "creatorName": "Andy Wilson",
+        "imagePageUrl": "https://www.phylopic.org/images/0b787dde-fb79-4e1a-ab58-da3fa04d96dc",
+        "uuid": "0b787dde-fb79-4e1a-ab58-da3fa04d96dc"
+      },
+      "reason": "picked-by-license-CC0-1.0",
+      "candidateCount": 3,
+      "considered": [
+        {
+          "uuid": "0b787dde-fb79-4e1a-ab58-da3fa04d96dc",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Andy Wilson",
+          "status": "picked",
+          "skipReason": null
+        },
+        {
+          "uuid": "fdada163-fa6d-4d80-9518-a41f1e2a8d56",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Caleb Gordon",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "19899811-afff-4ba8-8084-cc7fe762da7e",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Ferran Sayol",
+          "status": "not-tried",
+          "skipReason": null
+        }
+      ]
+    },
+    {
+      "family": "remizidae",
+      "picked": null,
+      "reason": "operator-skipped",
+      "candidateCount": 0,
+      "considered": []
+    },
+    {
+      "family": "threskiornithidae",
+      "picked": {
+        "licenseId": "CC0-1.0",
+        "creatorName": "An Ignorant Atheist",
+        "imagePageUrl": "https://www.phylopic.org/images/5a49c7e0-17ff-454f-8e88-33dc3080b80e",
+        "uuid": "5a49c7e0-17ff-454f-8e88-33dc3080b80e"
+      },
+      "reason": "picked-by-license-CC0-1.0",
+      "candidateCount": 13,
+      "considered": [
+        {
+          "uuid": "5a49c7e0-17ff-454f-8e88-33dc3080b80e",
+          "licenseId": "CC0-1.0",
+          "creatorName": "An Ignorant Atheist",
+          "status": "picked",
+          "skipReason": null
+        },
+        {
+          "uuid": "95c9d545-734c-4c17-9b38-5b0a4746d2bc",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Edwin Price",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "ad11bfb7-4ab8-47d2-8e25-0e11ab947e20",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Ferran Sayol",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "418699b3-c942-42e8-a252-b606a194fe75",
+          "licenseId": "CC0-1.0",
+          "creatorName": "James Klarevas",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "ac54b199-8107-4e64-9ce6-ff4aea7c7328",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Kai Caspar",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "2ff89ea0-aadb-4fb7-bdc0-c60f94f89b48",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Robert Cooke",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "ebd433a5-1cca-4559-a20b-7df17b247c65",
+          "licenseId": "CC0-1.0",
+          "creatorName": "Steven Traver",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "0814fc4b-fdd4-472d-b1bb-a602f1303708",
+          "licenseId": "CC0-1.0",
+          "creatorName": null,
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "22dec87a-4b5c-4320-8848-f9e45462de10",
+          "licenseId": "CC0-1.0",
+          "creatorName": null,
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "6d61ef4f-f090-482c-8450-c273498f23dd",
+          "licenseId": "CC0-1.0",
+          "creatorName": null,
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "094b703c-e1b6-40ef-a410-1e57de142f57",
+          "licenseId": "CC-BY-4.0",
+          "creatorName": "Mathieu Pélissié",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "665521e1-1a70-465e-9bdb-b67d13ae3661",
+          "licenseId": "CC-BY-4.0",
+          "creatorName": "Mathieu Pélissié",
+          "status": "not-tried",
+          "skipReason": null
+        },
+        {
+          "uuid": "6e8b1b34-5e81-475a-93d9-0613255964cd",
+          "licenseId": "CC-BY-4.0",
+          "creatorName": "Mathieu Pélissié",
+          "status": "not-tried",
+          "skipReason": null
+        }
+      ]
+    }
+  ]
+}

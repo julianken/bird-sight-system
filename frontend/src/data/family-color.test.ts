@@ -3,9 +3,9 @@ import { buildFamilyColorResolver, FAMILY_COLOR_FALLBACK } from './family-color.
 import type { FamilySilhouette } from '@bird-watch/shared-types';
 
 const sampleSilhouettes: FamilySilhouette[] = [
-  { familyCode: 'tyrannidae',   color: '#C77A2E', svgData: null, source: null, license: null },
-  { familyCode: 'trochilidae',  color: '#7B2D8E', svgData: null, source: null, license: null },
-  { familyCode: 'picidae',      color: '#FF0808', svgData: null, source: null, license: null },
+  { familyCode: 'tyrannidae',   color: '#C77A2E', svgData: null, source: null, license: null, commonName: null, creator: null },
+  { familyCode: 'trochilidae',  color: '#7B2D8E', svgData: null, source: null, license: null, commonName: null, creator: null },
+  { familyCode: 'picidae',      color: '#FF0808', svgData: null, source: null, license: null, commonName: null, creator: null },
 ];
 
 describe('buildFamilyColorResolver', () => {

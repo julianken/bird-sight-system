@@ -14,11 +14,14 @@ describe('cacheControlFor', () => {
     expect(cacheControlFor('species'))
       .toBe('public, max-age=604800, immutable');
   });
-  it('returns 7d immutable for /silhouettes', () => {
-    // Family-color mapping is static per deploy (changes only via seed
-    // migrations), so it rides the same immutable-1-week profile as the
-    // region and species-meta endpoints.
+  it('returns 7d max-age (revalidatable) for /silhouettes', () => {
+    // Family silhouettes legitimately drift between deploys (curation,
+    // Phylopic seed expansion). The 1-week max-age is still aggressive
+    // enough not to hammer the API, but dropping `immutable` lets browsers
+    // re-validate with the CDN at expiry — and a Cloudflare cache-purge
+    // (see scripts/purge-silhouettes-cache.sh) reaches users on the next
+    // request rather than waiting up to 7 days.
     expect(cacheControlFor('silhouettes'))
-      .toBe('public, max-age=604800, immutable');
+      .toBe('public, max-age=604800');
   });
 });
