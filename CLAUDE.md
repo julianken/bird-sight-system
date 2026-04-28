@@ -178,3 +178,7 @@ We track drift between artifacts and reality with the `drift:*` label taxonomy b
 **Kill-threshold metric**: evaluate at the 60-day mark after first ship of any drift mechanism (knip, R13 PR-bot rubric, or nightly workflow). Compute `closed-as-fixed / closed-total` over the calendar month. If it drops below 40% — i.e., 6 of 10 drift issues close as FP / won't-fix / stale-signal — alert fatigue is realized. Response: comment out the nightly's `on:` block, downgrade LLM-driven rules to silent-log mode, keep deterministic checks (knip, syncpack, terraform-plan-drift-check) intact, and file a retrospective at `docs/analyses/<date>-drift-system-retrospective.md`. The audit at `docs/analyses/2026-04-27-codebase-drift-audit/report.md` records the system's current falsifiability claim.
 
 The 2026-04-27 codebase drift audit at `docs/analyses/2026-04-27-codebase-drift-audit/report.md` lists current findings.
+
+**Quarterly knip re-audit: next at 2026-07-27.** Inspect `knip.ts` ignore rules; remove any whose dated comment is older than 90 days unless re-justified. Each rule names what it silences and what class of finding it risks missing — that's the basis for the re-audit decision.
+
+**R13 shadow telemetry**: see `~/.claude/skills/reviewing-as-julianken-bot/references/r13-rubric.md`. R13 rolls into verdict (SUGGESTION tier) after 30 shadow firings with ≤15% FP rate. Track firings in `docs/analyses/2026-04-24-drift-detection-ai-workflows/r13-shadow-log.md`.
