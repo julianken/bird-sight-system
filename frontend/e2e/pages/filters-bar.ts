@@ -8,12 +8,11 @@ export class FiltersBar {
   readonly species: Locator;
 
   constructor(page: Page) {
-    // `exact: true` is mandatory on this page object. BadgeStack renders an
-    // overflow-pip <g role="img" aria-label="N more species — expand region
-    // to view"> whenever a polygon is too small to host every species badge
-    // at MIN_BADGE_DIAMETER (see issue #59) — the substring "Species" /
-    // "species" in that label collides with the filter input's aria-label.
-    // Exact match keeps this locator pinned to the form control.
+    // `exact: true` is mandatory on this page object. The SurfaceNav tab
+    // labels ("Species view", "Family view") share substrings with the
+    // filter input labels ("Species", "Family"). Without exact match,
+    // getByLabel('Species') would match both the filter <input> and the
+    // SurfaceNav tab button, causing an ambiguous-locator error.
     this.timeWindow = page.getByLabel('Time window', { exact: true });
     this.notableOnly = page.getByLabel('Notable only', { exact: true });
     this.family = page.getByLabel('Family', { exact: true });
