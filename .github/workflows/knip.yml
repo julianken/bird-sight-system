@@ -1,0 +1,22 @@
+name: knip
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  knip:
+    name: knip (informational)
+    runs-on: ubuntu-latest
+    # Informational check — does NOT block merge.  Not in .mergify.yml conditions.
+    # Findings are visible as workflow annotations for triage; they do not gate PRs.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+          cache: npm
+      - run: npm ci
+      - run: npx knip --no-progress
