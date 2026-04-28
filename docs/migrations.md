@@ -62,7 +62,7 @@ the full migration sequence, not just the create-table migration.
 ## Down migrations
 
 Every migration must include a reversible `-- Down Migration` block. Reversibility is
-enforced by `migrations-down-chain.test.ts`, which applies all migrations
+enforced by `packages/db-client/src/migrations-down-chain.test.ts`, which applies all migrations
 up and then reverses them one-by-one, verifying each step succeeds.
 
 Per issue #301: down migrations that were previously no-ops were corrected
