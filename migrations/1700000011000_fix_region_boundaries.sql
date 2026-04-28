@@ -37,9 +37,9 @@
 -- deterministically derived from the MULTIPOLYGON coordinates using that
 -- formula.  The `svg_path` column stores only absolute M/L/Z verbs — no
 -- curves — matching the minimal SVG-verb subset that the (now-removed, #133)
--- frontend parser accepted.  The column is still served by `/api/regions`;
--- keep the M/L/Z restriction for forward compatibility with any future SVG
--- consumer.
+-- frontend parser accepted.  The `/api/regions` route was deleted in #194;
+-- this is a DB-stored invariant. Keep the M/L/Z restriction for forward
+-- compatibility with any future SVG consumer.
 --
 -- Ingest contract (smallest-area-wins point-in-polygon) — TWO call sites:
 --   packages/db-client/src/observations.ts:58-59

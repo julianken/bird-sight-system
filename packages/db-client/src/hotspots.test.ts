@@ -13,12 +13,13 @@ beforeAll(async () => {
 afterAll(async () => { await db?.stop(); });
 
 describe('getHotspots', () => {
-  it('returns all hotspots with region_id stamped', async () => {
+  it('returns all hotspots', async () => {
     const rows = await getHotspots(db.pool);
     expect(rows).toHaveLength(2);
     const sweetwater = rows.find(h => h.locId === 'L207118');
-    expect(sweetwater?.regionId).toBe('sonoran-tucson');
+    expect(sweetwater?.locName).toBe('Sweetwater Wetlands');
+    expect(sweetwater?.lat).toBeCloseTo(32.30);
     const madera = rows.find(h => h.locId === 'L101234');
-    expect(madera?.regionId).toBe('sky-islands-santa-ritas');
+    expect(madera?.locName).toBe('Madera Canyon');
   });
 });

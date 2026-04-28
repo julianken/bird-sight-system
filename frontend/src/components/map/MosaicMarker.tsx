@@ -13,8 +13,8 @@ import { FALLBACK_SILHOUETTE_PATH } from './silhouette-fallback.js';
  * The marker is a `<button>` so screen-reader users get the same click
  * affordance the layer-bound cluster handler exposes for sighted users.
  * `onClick` is called with the React MouseEvent so the parent can decide
- * whether to delegate to the cluster zoom-into handler or hand off to
- * spiderfy (issue #247).
+ * whether to delegate to the cluster zoom-into handler. At zoom >=
+ * CLUSTER_MAX_ZOOM the click is a NO-OP (auto-spider has already fanned).
  *
  * Tile fallback (svgData null OR family unseeded) is rendered as a
  * generic placeholder shape at 50% opacity. Same visual grammar as
@@ -36,11 +36,11 @@ export interface MosaicMarkerProps {
    */
   totalCount: number;
   /**
-   * Click handler — wired by MapCanvas to either the existing zoom-into
-   * cluster path (low zoom) or, eventually, the spiderfy handler (#247
-   * at zoom >= CLUSTER_MAX_ZOOM). Receives the raw React event so the
-   * parent can call `e.stopPropagation()` if needed to defang the
-   * underlying layer-bound click.
+   * Click handler — wired by MapCanvas to the cluster zoom-into handler
+   * at low zoom. At zoom >= CLUSTER_MAX_ZOOM the marker is a NO-OP
+   * (auto-spider has already fanned the leaves). Receives the raw React
+   * event so the parent can call `e.stopPropagation()` if needed to
+   * defang the underlying layer-bound click.
    */
   onClick: (e: MouseEvent<HTMLButtonElement>) => void;
 }

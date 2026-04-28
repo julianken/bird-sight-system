@@ -16,7 +16,8 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 COPY --from=build /repo/package.json /repo/package-lock.json ./
-COPY --from=build /repo/packages ./packages
+COPY --from=build /repo/packages/db-client ./packages/db-client
+COPY --from=build /repo/packages/shared-types ./packages/shared-types
 COPY --from=build /repo/services/ingestor/package.json ./services/ingestor/
 COPY --from=build /repo/services/ingestor/dist ./services/ingestor/dist
 

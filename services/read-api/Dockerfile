@@ -20,7 +20,8 @@ ENV NODE_ENV=production
 ENV PORT=8080
 
 COPY --from=build /repo/package.json /repo/package-lock.json ./
-COPY --from=build /repo/packages ./packages
+COPY --from=build /repo/packages/db-client ./packages/db-client
+COPY --from=build /repo/packages/shared-types ./packages/shared-types
 COPY --from=build /repo/services/read-api/package.json ./services/read-api/
 COPY --from=build /repo/services/read-api/dist ./services/read-api/dist
 

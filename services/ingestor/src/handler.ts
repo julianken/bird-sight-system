@@ -13,8 +13,8 @@ export type ScheduledKind = 'recent' | 'hotspots' | 'backfill' | 'taxonomy';
 
 /**
  * Platform-agnostic handler: invoked by the Cloud Run Job entry point
- * (Plan 5 — services/ingestor/cmd/cloud-run-job.ts). Returns a JSON-
- * serializable summary the platform-specific wrapper logs.
+ * at `services/ingestor/src/cli.ts`. Returns a JSON-serializable summary
+ * the platform-specific wrapper logs.
  */
 export async function handleScheduled(
   kind: ScheduledKind,

@@ -46,8 +46,9 @@
 -- Rounded to 3 decimals to match 11000's precision exactly; using 8000's
 -- 1-decimal form (239.0) would reintroduce a ~0.034-unit hairline seam.
 -- `svg_path` stores only absolute M/L/Z verbs (no curves) — matches the
--- minimal subset the (removed, #133) SVG parser accepted; preserved for
--- forward compatibility with any future SVG consumer of `/api/regions`.
+-- minimal subset the (removed, #133) SVG parser accepted. The `/api/regions`
+-- route was deleted in #194; this is a DB-stored invariant preserved for
+-- forward compatibility with any future SVG consumer.
 --
 -- Ingest contract
 -- ---------------

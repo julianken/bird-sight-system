@@ -15,7 +15,9 @@
 --                y = ((37.00 − lat)   / (37.00 − 31.30))     × 380
 --              geom and svg_path describe the same shape; they must stay in sync.
 --
--- INGEST CONTRACT (services/ingestor/src/upsert.ts):
+-- INGEST CONTRACT — two call sites:
+--   packages/db-client/src/observations.ts:57
+--   packages/db-client/src/hotspots.ts:63
 --   SELECT id FROM regions
 --   WHERE ST_Contains(geom, ST_SetSRID(ST_MakePoint($1,$2),4326))
 --   ORDER BY ST_Area(geom) ASC, id ASC
