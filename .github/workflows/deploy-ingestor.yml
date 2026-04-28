@@ -32,7 +32,7 @@ jobs:
       contents: read
       id-token: write   # required for WIF
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - id: auth
         uses: google-github-actions/auth@v3
