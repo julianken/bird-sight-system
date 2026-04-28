@@ -39,12 +39,11 @@ const config: KnipConfig = {
     //             same dynamic-require reason; same risk profile.
     'testcontainers',
 
-    // 2026-04-27: tsx — used by knip itself as the TypeScript loader to execute
-    //             knip.ts (this config file) at analysis time.  Knip loads tsx
-    //             via dynamic require from its own internals, so no static import
-    //             appears in project source.
-    //             Risk: masks a genuine unused-dep if tsx is removed from
-    //             devDependencies without also migrating this config to knip.json.
+    // 2026-04-28: tsx is used by services/{read-api,ingestor}/package.json scripts
+    //             ("dev"/"ingest:local") that invoke `tsx src/...`. Knip can't trace
+    //             npm-script bin invocations. NOT a knip dependency — keep this
+    //             ignore until those scripts migrate to a different runner
+    //             (e.g., bun, ts-node, native node --import).
     'tsx',
   ],
 
@@ -52,7 +51,17 @@ const config: KnipConfig = {
     // Root workspace (monorepo plumbing scripts, not an npm package)
     '.': {},
 
-    frontend: {},
+    frontend: {
+      // 2026-04-28: Design-token type aliases (IconSizeToken, ZIndexToken,
+      //             OpacityToken, SpacingToken, DurationToken) in tokens.ts are
+      //             consumed via `as …Token` casts — TypeScript inference paths
+      //             knip cannot trace statically. Ignoring the whole file is
+      //             acceptable because tokens.ts is a leaf module with no
+      //             call-site logic; only the 5 type aliases are flagged.
+      //             Re-audit 2026-07-28: remove if those types gain direct
+      //             import sites that knip can see.
+      ignore: ['src/tokens.ts'],
+    },
 
     'services/read-api': {},
     'services/ingestor': {},
