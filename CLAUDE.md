@@ -173,4 +173,8 @@ We track drift between artifacts and reality with the `drift:*` label taxonomy b
 | `drift:spec-update` | Implementer used escape hatch to defer spec-update | Bot |
 | `drift:decision-required` | Needs product/architectural decision | Bot or maintainer |
 
+**Where findings live**: GitHub Issues filed under the repo's tracker, labeled `drift:automated` when opened by the nightly workflow. Aging through `drift:aging` (>14 days open) → `drift:escalated` (>30 days open) is automated; the SessionStart hook surfaces `drift:escalated` at higher priority for next-session triage.
+
+**Kill-threshold metric**: evaluate at the 60-day mark after first ship of any drift mechanism (knip, R13 PR-bot rubric, or nightly workflow). Compute `closed-as-fixed / closed-total` over the calendar month. If it drops below 40% — i.e., 6 of 10 drift issues close as FP / won't-fix / stale-signal — alert fatigue is realized. Response: comment out the nightly's `on:` block, downgrade LLM-driven rules to silent-log mode, keep deterministic checks (knip, syncpack, terraform-plan-drift-check) intact, and file a retrospective at `docs/analyses/<date>-drift-system-retrospective.md`. The audit at `docs/analyses/2026-04-27-codebase-drift-audit/report.md` records the system's current falsifiability claim.
+
 The 2026-04-27 codebase drift audit at `docs/analyses/2026-04-27-codebase-drift-audit/report.md` lists current findings.
