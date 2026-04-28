@@ -28,14 +28,14 @@ each task. The acceptance criteria there are the executable contract.
 
 | Path | Role |
 | --- | --- |
-| `frontend/src/components/map/spiderfy.ts` | layout helpers (circle/spiral) — re-used by v2's auto-spider |
+| `frontend/src/components/map/fan-layout.ts` | layout helpers (circle/spiral) — re-used by v2's auto-spider |
 | `frontend/src/components/map/MapCanvas.tsx` | reconciler effect, state, JSX — the integration surface |
 | `frontend/src/components/map/MosaicMarker.tsx` | reference pattern for inline-SVG markers — Spider v2 leaves use the same shape |
 | `frontend/src/components/map/observation-layers.ts` | symbol-layer paint expression — needs a filter to suppress in-stack obs |
 | `frontend/src/components/map/MapMarkerHitLayer.tsx` | (existing, may not need changes) hit-targets follow Marker positions |
 | `frontend/e2e/map-spiderfy.spec.ts` | retire/replace with a test that proves visible-silhouette contract |
 
-Reuse `circleLayout` / `spiralLayout` from `spiderfy.ts:78+` — those are the
+Reuse `circleLayout` / `spiralLayout` from `fan-layout.ts:78+` — those are the
 same geometry primitives v2 needs. Reuse `MosaicMarker.tsx`'s inline-SVG
 pattern (`<svg viewBox="0 0 24 24"><path d=... fill=color/></svg>`) for
 each Spider v2 leaf.
@@ -96,7 +96,7 @@ export function groupOverlapping(
 
 /**
  * Compute fanned screen positions for a stack's members.
- * Reuses the geometry primitives from spiderfy.ts (circle for ≤6, spiral for
+ * Reuses the geometry primitives from fan-layout.ts (circle for ≤6, spiral for
  * 7-8, capped at SPIDERFY_MAX_LEAVES = 8). For stacks > 8 members, returns
  * positions for the first 8 ONLY; the caller surfaces a "+N more" badge in
  * a secondary marker.
@@ -239,7 +239,7 @@ at zoom ≥ CLUSTER_MAX_ZOOM, so the mosaic-click should:
 
 Remove the `spiderfyCluster` import + state + the spider-related JSX from
 MapCanvas if no other consumer remains. Keep `circleLayout`/`spiralLayout`
-in spiderfy.ts (Task 1's `fanPositions` re-uses them).
+in fan-layout.ts (Task 1's `fanPositions` re-uses them).
 
 **Acceptance criteria**:
 
@@ -247,7 +247,7 @@ in spiderfy.ts (Task 1's `fanPositions` re-uses them).
 - [ ] `spiderfy` state in MapCanvas is REMOVED (auto-spider has no equivalent).
 - [ ] `spiderfyRef`, `closeSpiderfy`, the keydown-Escape handler, the
       zoomstart-clear all REMOVED.
-- [ ] `spiderfy.ts`'s top-level `spiderfyCluster` function may be removed
+- [ ] `fan-layout.ts`'s top-level `fanCluster` function may be removed
       (verify nothing else imports it). Keep `circleLayout` / `spiralLayout`
       as exported helpers for `stack-fanout.ts` to import.
 - [ ] `npm run test --workspace @bird-watch/frontend` still 319+/N pass.
