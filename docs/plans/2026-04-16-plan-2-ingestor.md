@@ -1,5 +1,7 @@
 # Ingestor Service Implementation Plan
 
+> **Status: superseded by current ingestor implementation** — executed 2026-04-19; Epic-251 added `run-taxonomy` and `run-hotspots` ingest layers post-plan (family silhouettes pipeline). Do not re-execute verbatim.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a platform-agnostic Ingestor that fetches Arizona observations + hotspots from the eBird API, dedups via upsert, and stamps each row with `region_id` + `silhouette_id`. Runnable locally as a CLI; in Plan 5 it gets wrapped as a Cloudflare Worker scheduled handler.

@@ -1,5 +1,7 @@
 # Infrastructure & Deployment Implementation Plan
 
+> **Status: superseded by live GCP/Neon/Cloudflare deployment** — executed 2026-04-19; `@bird-watch/family-mapping` Dockerfile lines were removed in PR #297 (PR #192 deleted the package). Do not re-execute verbatim.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Provision and deploy the full system on **GCP Cloud Run + Neon Postgres**, with all infrastructure managed by Terraform. Both compute and DB scale to zero. After `terraform apply` and the deploy scripts, the live URL serves the frontend that talks to the Read API on Cloud Run that reads from Neon, with the Ingestor running as a Cloud Run Job triggered by Cloud Scheduler.
