@@ -1,8 +1,10 @@
 # Read API Service Implementation Plan
 
+> **Status: superseded by current read-api implementation** — executed 2026-04-19; `/api/regions` was deleted across all layers in PR #194 (route, tests, types). References to `/api/regions` in this plan are stale — the route does not exist in the shipped service. Do not re-execute verbatim.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a small, fast HTTP service that serves JSON for the four frontend-facing endpoints (`/api/observations`, `/api/hotspots`, `/api/regions`, `/api/species/:code`), with per-endpoint `Cache-Control` headers tuned to the spec's TTLs. The same code runs locally on Node and as a Cloudflare Worker (Plan 5 wraps it).
+**Goal:** Build a small, fast HTTP service that serves JSON for the four frontend-facing endpoints (`/api/observations`, `/api/hotspots`, `/api/silhouettes`, `/api/species/:code`), with per-endpoint `Cache-Control` headers tuned to the spec's TTLs. The same code runs locally on Node and as a Cloudflare Worker (Plan 5 wraps it).
 
 **Architecture:** Hono framework — works on Node, Bun, Deno, AWS Lambda, Cloudflare Workers, and Vercel Edge from the same code. Routes are pure functions of `(env, request) → Response`. Each route reads from Postgres via `@bird-watch/db-client`. A `cache-headers` helper applies the spec-defined TTLs. Tests start an in-process Hono app + Testcontainers Postgres and assert response shapes + cache headers.
 

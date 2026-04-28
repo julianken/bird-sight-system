@@ -1,5 +1,7 @@
 # Database Foundation Implementation Plan
 
+> **Status: superseded by current monorepo state** — executed 2026-04-19; schema has evolved through migration 19700 (added `creator` and `common_name` to `family_silhouettes`); `packages/family-mapping` (Task 14) was deleted in PR #192. Do not re-execute verbatim.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the monorepo skeleton, the Postgres + PostGIS schema with migrations, seed data for regions and family silhouettes, and the typed `db-client` + `shared-types` + `family-mapping` packages — fully tested against a real Postgres in containers.
