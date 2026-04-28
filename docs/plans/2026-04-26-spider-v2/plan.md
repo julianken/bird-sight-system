@@ -33,7 +33,7 @@ each task. The acceptance criteria there are the executable contract.
 | `frontend/src/components/map/MosaicMarker.tsx` | reference pattern for inline-SVG markers — Spider v2 leaves use the same shape |
 | `frontend/src/components/map/observation-layers.ts` | symbol-layer paint expression — needs a filter to suppress in-stack obs |
 | `frontend/src/components/map/MapMarkerHitLayer.tsx` | (existing, may not need changes) hit-targets follow Marker positions |
-| `frontend/e2e/map-spiderfy.spec.ts` | retire/replace with a test that proves visible-silhouette contract |
+| `frontend/e2e/map-stack-fanout.spec.ts` | new spec that proves visible-silhouette contract |
 
 Reuse `circleLayout` / `spiralLayout` from `fan-layout.ts:78+` — those are the
 same geometry primitives v2 needs. Reuse `MosaicMarker.tsx`'s inline-SVG
@@ -255,7 +255,7 @@ in fan-layout.ts (Task 1's `fanPositions` re-uses them).
 ### Task 6 — E2E spec + remove obsolete spider e2e
 
 **File**: `frontend/e2e/map-stack-fanout.spec.ts` (new)
-**File**: `frontend/e2e/map-spiderfy.spec.ts` (delete or rewrite)
+**File**: `frontend/e2e/map-skip-link-and-hit-layer.spec.ts` (review for overlap; extract any still-valid assertions before deleting obsolete spider v1 coverage)
 
 E2E proves the **visible-silhouette contract**:
 
@@ -272,9 +272,9 @@ E2E proves the **visible-silhouette contract**:
 
 Repeat at 390x844 to confirm responsive.
 
-If the existing `map-spiderfy.spec.ts` is now redundant (covered by the new
-auto-flow spec), delete it. If it still asserts something useful (skip-link?),
-extract that into a separate spec.
+If the existing `map-skip-link-and-hit-layer.spec.ts` still asserts something
+useful beyond the new auto-flow spec (skip-link? hit-layer presence?), extract
+those assertions into a separate spec before removing obsolete v1 spider coverage.
 
 **Acceptance criteria**:
 
@@ -287,8 +287,7 @@ extract that into a separate spec.
       contract (NOT just hit-target presence — that was v1).
 - [ ] `npm run test:e2e --workspace @bird-watch/frontend -- --list` shows the
       new spec parses cleanly.
-- [ ] If `map-spiderfy.spec.ts` is removed: it's removed in the same commit
-      as the v2 spec is added (don't leave dangling).
+- [ ] If obsolete v1 spider coverage in `map-skip-link-and-hit-layer.spec.ts` is removed: it's removed in the same commit as the v2 spec is added (don't leave dangling).
 
 ## Cross-cutting concerns
 
