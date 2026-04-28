@@ -116,15 +116,8 @@ test.describe('Map symbol layer + popover detail link', () => {
 
     // Filter out errors that pre-date this PR:
     //   - tiles/fonts.openfreemap.org 404s (network-specific, we don't own).
-    //   - The maplibre-gl resolution failure tracked in #258 (npm
-    //     workspaces hoist drift causes `@vis.gl/react-maplibre` to fail
-    //     to find `maplibre-gl` in the leaf workspace's node_modules under
-    //     `vite dev`. Out of scope for this PR; CI hits it because dev-
-    //     server e2e runs without the temporary symlink workaround the
-    //     local screenshot pass used).
     const ourErrors = errors.filter((e) =>
-      !/tiles\.openfreemap\.org|fonts\.openfreemap/i.test(e) &&
-      !/Could not resolve "maplibre-gl"/i.test(e),
+      !/tiles\.openfreemap\.org|fonts\.openfreemap/i.test(e),
     );
     expect(ourErrors, `unexpected console errors: ${ourErrors.join('\n')}`).toEqual([]);
     void warnings;
