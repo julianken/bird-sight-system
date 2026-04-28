@@ -8,8 +8,8 @@ test.describe('production build smoke', () => {
     // headers so this runs end-to-end against a live read-api.
     //
     // The 9-region count check was pulled with the map chain in #113;
-    // chrome-ready + no error screen is the equivalent smoke until the
-    // feed/hotspot surfaces land.
+    // chrome-ready + no error screen is the equivalent smoke covering
+    // the feed, hotspot, and map surfaces that shipped in release 1.
     const app = new AppPage(page);
     await app.goto();
     await app.waitForAppReady(15_000);

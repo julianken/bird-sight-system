@@ -116,15 +116,8 @@ test.describe('Map symbol layer + popover detail link', () => {
 
     // Filter out errors that pre-date this PR:
     //   - tiles/fonts.openfreemap.org 404s (network-specific, we don't own).
-    //   - The maplibre-gl resolution failure tracked in #258 (npm
-    //     workspaces hoist drift causes `@vis.gl/react-maplibre` to fail
-    //     to find `maplibre-gl` in the leaf workspace's node_modules under
-    //     `vite dev`. Out of scope for this PR; CI hits it because dev-
-    //     server e2e runs without the temporary symlink workaround the
-    //     local screenshot pass used).
     const ourErrors = errors.filter((e) =>
-      !/tiles\.openfreemap\.org|fonts\.openfreemap/i.test(e) &&
-      !/Could not resolve "maplibre-gl"/i.test(e),
+      !/tiles\.openfreemap\.org|fonts\.openfreemap/i.test(e),
     );
     expect(ourErrors, `unexpected console errors: ${ourErrors.join('\n')}`).toEqual([]);
     void warnings;
@@ -148,9 +141,15 @@ test.describe('Map symbol layer + popover detail link', () => {
 
     // The hit-layer overlay is mounted only after maplibre fires its
     // `load` event. In WebGL-less headless runs it never fires; tolerate
-    // that the way the spiderfy spec does.
+    // that the way the cluster-mosaic spec does — probe with a short
+    // waitFor, then skip rather than fail when absent.
     const hitLayer = page.locator('.map-marker-hit-layer');
-    await page.waitForTimeout(2000); // give onLoad a chance
+    try {
+      await hitLayer.waitFor({ state: 'attached', timeout: 5_000 });
+    } catch {
+      test.skip(true, 'map onLoad did not fire — likely WebGL unavailable in headless run');
+      return;
+    }
     if ((await hitLayer.count()) === 0) {
       test.skip(true, 'map onLoad did not fire — likely WebGL unavailable in headless run');
       return;

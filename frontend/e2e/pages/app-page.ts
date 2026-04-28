@@ -28,16 +28,6 @@ export class AppPage {
       .waitFor({ state: 'attached', timeout });
   }
 
-  /**
-   * Temporary alias — the waitForMapLoad name was used by every spec
-   * that relied on the 9-region render gate. Keeping the alias lets
-   * the migration happen one spec at a time without a flag-day rename.
-   * Remove once every spec uses waitForAppReady directly.
-   */
-  async waitForMapLoad(timeout = 10_000) {
-    await this.waitForAppReady(timeout);
-  }
-
   getUrlParams(): URLSearchParams {
     return new URL(this.page.url()).searchParams;
   }
