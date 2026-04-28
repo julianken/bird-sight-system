@@ -64,11 +64,7 @@ export const iconSize = {
 export const zIndex = {
   /** Default stacking (reserved — no rule uses this today). */
   base: 0,
-  /**
-   * Region polygon layer. Reserved for future CSS-stacked layers; note that
-   * SVG interiors paint in document order, NOT CSS z-index. The region
-   * polygons today are SVG children, so this value never applies to them.
-   */
+  /** Reserved for future map layers (CSS-stacked overlays). */
   shapes: 10,
   /** Badge layer (reserved). */
   badges: 20,
@@ -89,9 +85,7 @@ export const opacity = {
    */
   subtle: 0.08,
   /**
-   * Dim non-selected regions on expand. Was `0.2` inline in Map.tsx.
-   * Stays on the `<g>` wrapper so badges/labels dim together with the
-   * region fill.
+   * Low opacity for de-emphasised elements. Was `0.2` inline in Map.tsx.
    */
   dimmed: 0.2,
   /**

@@ -2,7 +2,8 @@
  * Fan-layout geometry — pure circle and Archimedean spiral math used by the
  * Spider v2 auto-fan reconciler (`stack-fanout.ts` + `MapCanvas.tsx`).
  *
- * Renamed from `spiderfy.ts` after Spider v2 (#280) deleted the click-driven
+ * Renamed from `spiderfy.ts` in PR #295 (`refactor(frontend): rename
+ * spiderfy.ts → fan-layout.ts`), which also deleted the click-driven
  * spider. The old name was a misnomer — what remains is just per-leaf offset
  * geometry plus the leader-line paint constants the auto-spider layer reads
  * (the auto-spider is no longer a "click to spider out" interaction; it's a
@@ -31,7 +32,6 @@
 
 export const SPIDERFY_RADIUS_PX = 70;
 export const SPIDERFY_MAX_LEAVES = 8;
-export const SPIDERFY_DURATION_MS = 200;
 /** Shared with auto-spider reconciler in MapCanvas.tsx — keep in sync. */
 export const SPIDER_LEADER_COLOR = '#444';
 export const SPIDER_LEADER_WIDTH = 2;

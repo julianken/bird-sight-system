@@ -140,6 +140,8 @@ describe('GET /api/silhouettes', () => {
     // 15 rows from migration 9000 + 10 AZ-family expansion rows from
     // migration 15000 (issue #244) + the `_FALLBACK` row from migration
     // 18000 (issue #246) → 26 total.
+    // Fields exercised below also cover: creator (migrations 1700000016000 +
+    // 1700000017000), commonName (migration 1700000019500, issue #249).
     expect(body).toHaveLength(26);
     // Spot-check the _FALLBACK row round-trips through the Hono response
     // so the frontend's symbol-layer fallback path can rely on it.

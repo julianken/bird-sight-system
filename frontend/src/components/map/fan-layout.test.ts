@@ -3,7 +3,6 @@ import {
   computeSpiderfyLayout,
   SPIDERFY_RADIUS_PX,
   SPIDERFY_MAX_LEAVES,
-  SPIDERFY_DURATION_MS,
 } from './fan-layout.js';
 
 /* ── Pure layout helpers ──────────────────────────────────────────────────
@@ -62,7 +61,4 @@ describe('exported constants', () => {
     expect(SPIDERFY_MAX_LEAVES).toBe(8);
   });
 
-  it('SPIDERFY_DURATION_MS matches issue spec (200ms)', () => {
-    expect(SPIDERFY_DURATION_MS).toBe(200);
-  });
 });

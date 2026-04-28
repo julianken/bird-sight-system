@@ -9,9 +9,9 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      // Issue #258: `@vis.gl/react-maplibre` does a dynamic
+      // Issue #258: `react-map-gl/maplibre` (^8.1.1) does a dynamic
       // `import('maplibre-gl')` at runtime. npm workspaces hoists
-      // `@vis.gl/react-maplibre` to the root `node_modules/`, but
+      // `react-map-gl` to the root `node_modules/`, but
       // `maplibre-gl` is declared only as a frontend dep so it stays in
       // `frontend/node_modules/`. Vite's bundler can't resolve from one
       // to the other, and ships a chunk whose body is `throw Error(...)`.

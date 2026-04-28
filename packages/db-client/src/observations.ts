@@ -4,6 +4,12 @@ import type { Observation, ObservationFilters } from '@bird-watch/shared-types';
 export interface ObservationInput {
   subId: string;
   speciesCode: string;
+  // comName is populated by toObservationInput() but intentionally NOT
+  // inserted into the observations table. The read path derives com_name
+  // from a species_meta JOIN (SELECT sm.com_name FROM species_meta sm …),
+  // so storing it in observations would be redundant and could diverge if
+  // taxonomy is updated. The field is kept here so the transform function
+  // can produce a complete record from the eBird response without surgery.
   comName: string;
   lat: number;
   lng: number;
@@ -75,14 +81,16 @@ export async function upsertObservations(
 }
 
 /**
- * Re-runs the region/silhouette stamping UPDATE across ALL observations whose
- * region_id or silhouette_id is still NULL. Idempotent.
+ * Backfills region_id / silhouette_id on observations that are still NULL
+ * because species_meta was empty at ingest time (e.g. prod pre-#83).
+ * Idempotent — safe to call repeatedly; only touches rows whose stamps are
+ * still NULL. Intended to run once after a taxonomy load, not as a
+ * continuous stamping path.
  *
- * upsertObservations only stamps rows it just touched (via its WHERE filter,
- * which in practice catches the current batch). When species_meta is empty
- * at ingest time (as on prod pre-#83), the silhouette JOIN finds no row and
- * silhouette_id stays NULL — even after the batch is stamped. Running this
- * after a taxonomy job is loaded backfills every orphaned row.
+ * Ongoing per-run stamping (normal case) happens inside `upsertObservations`
+ * via an inline UPDATE that covers only the batch just inserted. This
+ * function handles the historical backfill for rows that pre-date the first
+ * successful taxonomy run.
  *
  * Returns the number of rows updated.
  */

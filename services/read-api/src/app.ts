@@ -29,7 +29,7 @@ export function createApp(deps: AppDeps): Hono {
   // Interaction with route-level `Cache-Control: public, immutable` on
   // /api/species/:code: Hono sets `Vary: Origin`, so a
   // spec-compliant CDN keys the cache per-Origin. That means the identical
-  // JSON body is stored N× for N allowed origins (currently 3 — trivial).
+  // JSON body is stored N× for N allowed origins (currently 4 — trivial).
   // Uptime probes and plain `curl` hit these routes without an Origin
   // header, so the CDN also caches a no-ACAO entry; browsers never see that
   // entry because Cloud CDN honors Vary. The cached bodies contain no

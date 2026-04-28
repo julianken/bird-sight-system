@@ -2,3 +2,4 @@ export { handleScheduled, type HandlerEnv, type ScheduledKind } from './handler.
 export { runIngest, type RunSummary } from './run-ingest.js';
 export { runHotspotIngest, type RunHotspotSummary } from './run-hotspots.js';
 export { runBackfill, type RunBackfillSummary } from './run-backfill.js';
+export { runTaxonomy, type RunTaxonomySummary } from './run-taxonomy.js';
