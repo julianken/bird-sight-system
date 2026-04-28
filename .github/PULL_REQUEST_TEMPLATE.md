@@ -30,7 +30,7 @@ diagram shows the *what*. -->
 ## Screenshots
 
 <!-- REQUIRED when this PR adds or modifies visible UI (any file under
-services/frontend/**). Otherwise write "N/A — not UI".
+frontend/**). Otherwise write "N/A — not UI".
 
 Headless workflow for subagent-generated PRs: capture via Playwright in the
 task's e2e spec, save under docs/screenshots/plan<N>/task<M>-<slug>/<description>.png,

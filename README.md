@@ -1,12 +1,12 @@
 # bird-sight-system
 
-Visualize Arizona bird sightings on a stylized ecoregion map.
+Visualize Arizona bird sightings on a real-geographic map.
 
-Status: **design + plans only** — no application code yet. Execution begins from `docs/plans/2026-04-16-plan-1-db-foundation.md`.
+Status: **live at [bird-maps.com](https://bird-maps.com)** — shipped 2026-04-19.
 
 ## What it is
 
-A web app that divides Arizona into 9 birding-meaningful ecoregions (Sonoran Desert, Sky Islands sub-ranges, Colorado Plateau, etc.) rendered as flat geometric SVG. Each region surfaces recent eBird sightings as bird-silhouette badges, grouped by species with a count chip. Clicking a region expands it inline; URL state makes any view shareable.
+A web app that renders recent eBird observations across Arizona on a MapLibre GL JS map (OpenFreeMap Positron tiles). Observations are displayed as clustered points color-keyed by bird family; clusters expand on click to reveal individual sightings with bird-silhouette markers sourced from Phylopic. A FamilyLegend panel and FiltersBar let users narrow by time window, notable-only, species, or family. URL state makes any filtered view shareable.
 
 ## Architecture
 
@@ -17,7 +17,7 @@ Three external dependencies + four internal services. Monorepo. Everything provi
 - **Ingestor** (GCP Cloud Run Job, Cloud Scheduler-triggered) → upserts to Postgres, stamps `region_id` via PostGIS
 - **Read API** (GCP Cloud Run Service, scale-to-zero) → serves typed JSON with per-endpoint cache TTLs
 - **Postgres + PostGIS** (Neon, serverless, scale-to-zero) → persistent rolling store, analytics-ready
-- **Frontend** (React + Vite, Cloudflare Pages) → stylized SVG map, inline-expansion, filters
+- **Frontend** (React + Vite, Cloudflare Pages) → MapLibre GL JS real-geographic map, StackedSilhouetteMarker clustering, FamilyLegend, FiltersBar
 
 Compute and DB are both true serverless — scale to zero, $0/month at hobbyist usage. Everything ships as Docker containers, so the same images move to AWS Fargate / Azure Container Apps / Fly Machines / Kubernetes with config-only changes.
 
@@ -53,7 +53,7 @@ DATABASE_URL=postgres://birdwatch:birdwatch@localhost:5432/birdwatch
 bird-sight-system/
   docs/
     specs/   ← design docs
-    plans/   ← implementation plans (5 sub-projects)
+    plans/   ← implementation plans (9 sub-projects)
   packages/  ← shared libs (created during Plan 1)
   services/  ← ingestor, read-api (created during Plans 2, 3)
   frontend/  ← React app (created during Plan 4)
@@ -68,14 +68,18 @@ bird-sight-system/
 | 1 | DB foundation — monorepo + Postgres + PostGIS + db-client | 22 |
 | 2 | Ingestor service — eBird client + scheduled handler | 11 |
 | 3 | Read API — Hono routes + cache headers | 9 |
-| 4 | Frontend — React + Vite + Playwright E2E | 13 |
+| 4 | Frontend — React + Vite + Playwright E2E (SVG renderer, replaced by Plan 7) | 13 |
 | 5 | Infra — Terraform + GCP Cloud Run + Neon + Cloudflare Pages | 12 |
+| 6 | Path-A reimagine — post-SVG architecture assessment + redesign | — |
+| 7 | Map v1 — MapLibre GL JS real-geographic map (replaces Plan 4 renderer) | — |
+| epic-251 | Phylopic silhouettes — StackedSilhouetteMarker, FamilyLegend, AttributionModal | — |
+| spider-v2 | Spider layout v2 — fan-layout auto-spider for dense clusters | — |
 
-Each plan is fully independent and produces working software on its own.
+Plans 1–5 are the original build sequence; Plans 6–7 and the epics shipped post-launch.
 
 ## Stack at a glance
 
-TypeScript · React 18 · Vite · Hono · `pg` · PostGIS · Vitest · Playwright · Docker · GCP Cloud Run · Cloud Scheduler · Cloudflare Pages · Neon · Terraform.
+TypeScript · React 18 · Vite · Hono · `pg` · PostGIS · MapLibre GL JS · Vitest · Playwright · Docker · GCP Cloud Run · Cloud Scheduler · Cloudflare Pages · Neon · Terraform. Live at [bird-maps.com](https://bird-maps.com) since 2026-04-19.
 
 ## Deployment
 

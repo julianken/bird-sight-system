@@ -5,7 +5,7 @@
 
 ## Goal
 
-A web application that lets a user wander Arizona visually and discover what birds have been seen where, recently. The map of Arizona is the centerpiece — divided into 9 birding-meaningful ecoregions rendered in a flat, geometric, poligap-style aesthetic. Each region surfaces species sightings as bird-silhouette badges; clicking a region zooms it inline to reveal more detail. Data comes from the eBird API; visual silhouettes from Phylopic; ecoregion polygons from EPA / BCR.
+A web application that lets a user wander Arizona visually and discover what birds have been seen where, recently. The map of Arizona is the centerpiece — a real-geographic MapLibre GL JS map (OpenFreeMap Positron tiles) with clustered eBird observation markers, color-keyed by bird family and augmented with Phylopic silhouettes. Clusters expand on click; a FamilyLegend and FiltersBar let users narrow by family, time window, notable-only, or species. URL state makes any filtered view shareable. Data comes from the eBird API; visual silhouettes from Phylopic.
 
 The system is treated as a microservice architecture, not a single app. The user-facing app is the frontend; the data layer is owned by independent backend services.
 
@@ -66,7 +66,6 @@ The Plan-4 SVG-ecoregion renderer was deleted in PR #166 and replaced with a Map
 | `handler` | HTTP entry point with route dispatch |
 | `routes/observations` | `GET /api/observations?since=Nd&notable=bool&species=&family=` |
 | `routes/hotspots` | `GET /api/hotspots` |
-| `routes/regions` | `GET /api/regions` |
 | `routes/species` | `GET /api/species/:code` |
 | `cache-headers` | Sets per-endpoint `Cache-Control` headers |
 
@@ -98,9 +97,9 @@ Same flow as above but iterates over the last 30 calendar days using `/data/obs/
 
 ### Query path
 
-1. User loads frontend → `ApiClient` issues parallel calls: `/api/observations?since=14d`, `/api/hotspots`, `/api/regions`.
+1. User loads frontend → `ApiClient` issues parallel calls: `/api/observations?since=14d`, `/api/hotspots`, `/api/silhouettes`.
 2. CDN serves cached responses (95%+ hit rate). Cache miss → Read API queries Postgres → response cached with appropriate TTL.
-3. Frontend renders Map. Inline expansion is local state; URL stays in sync.
+3. Frontend renders MapLibre map with clustered observation markers. URL stays in sync with filter and detail state.
 4. Filter changes hit `/api/observations` with new query params (each filter combination is a separate cache key).
 
 ## Data model
@@ -183,7 +182,9 @@ CREATE TABLE family_silhouettes (
   svg_data     TEXT,                         -- inline SVG path; NULL = pending Phylopic curation (see #55)
   color        TEXT NOT NULL,                -- hex
   source       TEXT,                         -- attribution
-  license      TEXT
+  license      TEXT,
+  creator      TEXT NULL,                    -- Phylopic contributor credit (added migration 1700000016000)
+  common_name  TEXT NULL                     -- human-readable family name (added migration 1700000019000)
 );
 ```
 
@@ -214,10 +215,6 @@ GET /api/observations?since=14d&notable=false&species=&family=
 GET /api/hotspots
   → Hotspot[]
   Cache-Control: public, max-age=86400, stale-while-revalidate=3600
-
-GET /api/regions
-  → Region[]
-  Cache-Control: public, max-age=604800, immutable
 
 GET /api/silhouettes
   → FamilySilhouette[]
@@ -260,7 +257,7 @@ URL state mirrors the filter state in addition to `region` and `species`, so a f
 
 **DB connection exhaustion.** Mitigated by the connection pooler. Function returns 503 on pool exhaustion; CDN serves stale.
 
-**Frontend errors.** Each component has a fallback: if `/observations` fails, map renders empty regions; if `/regions` fails, app shows a single error screen ("can't load map data"). No silent fallbacks that hide failures.
+**Frontend errors.** Each component has a fallback: if `/observations` fails, map renders with no markers; if the API is fully unavailable, the app shows a single error screen ("can't load map data"). No silent fallbacks that hide failures.
 
 ## Testing strategy
 
@@ -304,10 +301,10 @@ bird-watch/
     db-client/
     family-mapping/
   migrations/
-    001_postgis.sql
-    002_schema.sql
-    003_seed_regions.sql
-    004_seed_silhouettes.sql
+    1700000001000_enable_postgis.sql
+    1700000002000_regions.sql
+    1700000003000_family_silhouettes.sql
+    … (20 files total, timestamp-prefixed)
   infra/
     terraform/
       main.tf
