@@ -155,3 +155,22 @@ The following libraries change quickly enough that training-data knowledge is of
 | `maplibre-gl` | 4 | Major version bumps change clustering API + `GeoJSONSource` Promise behavior (see PR #171 for the 4.x precedent) |
 
 For everything else (TypeScript, React 18, Vite, `pg`, PostGIS SQL, React Testing Library, Docker, npm workspaces) training data is reliable enough — skip context7 and only fetch if a real failure surfaces.
+
+## Drift detection
+
+We track drift between artifacts and reality with the `drift:*` label taxonomy below. The mechanism is intentionally lightweight: deterministic checks (knip, syncpack, terraform-plan-drift-check) catch structural drift; the PR-review bot (`julianken-bot`) catches narrative drift on PRs touching drift-prone surfaces; a nightly workflow (planned, see #307) catches time-emergent drift.
+
+**Label taxonomy** (8 labels):
+
+| Label | Meaning | Who applies |
+|---|---|---|
+| `drift:automated` | Opened by nightly workflow | Workflow |
+| `drift:shadow` | Detected but suppressed during rollout | Workflow |
+| `drift:acknowledged` | Maintainer saw it; suppress re-fires until metric changes | Maintainer |
+| `drift:wont-fix` | Known drift, will not be addressed; nightly skips | Maintainer |
+| `drift:aging` | Open >14 days | Workflow |
+| `drift:escalated` | Open >30 days; surfaces at higher priority in SessionStart hook | Workflow |
+| `drift:spec-update` | Implementer used escape hatch to defer spec-update | Bot |
+| `drift:decision-required` | Needs product/architectural decision | Bot or maintainer |
+
+The 2026-04-27 codebase drift audit at `docs/analyses/2026-04-27-codebase-drift-audit/report.md` lists current findings.
