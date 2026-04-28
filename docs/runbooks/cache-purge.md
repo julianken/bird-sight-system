@@ -72,16 +72,9 @@ CLOUDFLARE_ZONE_ID=... CLOUDFLARE_API_TOKEN=... \
 
 ## Where the secrets live
 
-`CLOUDFLARE_ZONE_ID` and `CLOUDFLARE_API_TOKEN` are not yet wired into a
-shared secret store for ops use. **TODO:** add them to GitHub Actions
-repository secrets (under Settings → Secrets and variables → Actions)
-once the credential plumbing for #251 follow-ups lands. Until then,
-operators pull the values from the Cloudflare dashboard:
-
-- Zone ID: dashboard → `bird-maps.com` → Overview → right sidebar.
-- API token: dashboard → My Profile → API Tokens → create a token with
-  scope `Zone | Cache Purge | bird-maps.com`. Rotate after any
-  individual operator rotation.
+`CLOUDFLARE_ZONE_ID`, `CLOUDFLARE_API_TOKEN`, and `CLOUDFLARE_ACCOUNT_ID`
+are wired as GitHub Actions repository secrets (verified 2026-04-27). For
+ad-hoc local runs, pull the values from the Cloudflare dashboard.
 
 ## Branch-merge ordering (epic #251 → version-one → main)
 
