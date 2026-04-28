@@ -1,17 +1,8 @@
-export interface Region {
-  id: string;
-  name: string;
-  parentId: string | null;
-  displayColor: string;
-  svgPath: string;
-}
-
 export interface Hotspot {
   locId: string;
   locName: string;
   lat: number;
   lng: number;
-  regionId: string | null;
   numSpeciesAlltime: number | null;
   latestObsDt: string | null;
 }

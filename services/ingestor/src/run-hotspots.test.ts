@@ -36,7 +36,7 @@ describe('runHotspotIngest', () => {
 
     const stored = await getHotspots(db.pool);
     expect(stored).toHaveLength(2);
-    expect(stored.find(h => h.locId === 'L1')?.regionId).toBe('sky-islands-santa-ritas');
-    expect(stored.find(h => h.locId === 'L2')?.regionId).toBe('sonoran-tucson');
+    expect(stored.find(h => h.locId === 'L1')?.locName).toBe('Madera Canyon');
+    expect(stored.find(h => h.locId === 'L2')?.locName).toBe('Sweetwater Wetlands');
   });
 });

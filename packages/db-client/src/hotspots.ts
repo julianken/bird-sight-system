@@ -16,11 +16,10 @@ export async function getHotspots(pool: Pool): Promise<Hotspot[]> {
     loc_name: string;
     lat: number;
     lng: number;
-    region_id: string | null;
     num_species_alltime: number | null;
     latest_obs_dt: Date | null;
   }>(
-    `SELECT loc_id, loc_name, lat, lng, region_id, num_species_alltime, latest_obs_dt
+    `SELECT loc_id, loc_name, lat, lng, num_species_alltime, latest_obs_dt
      FROM hotspots`
   );
   return rows.map(r => ({
@@ -28,7 +27,6 @@ export async function getHotspots(pool: Pool): Promise<Hotspot[]> {
     locName: r.loc_name,
     lat: r.lat,
     lng: r.lng,
-    regionId: r.region_id,
     numSpeciesAlltime: r.num_species_alltime,
     latestObsDt: r.latest_obs_dt ? r.latest_obs_dt.toISOString() : null,
   }));
