@@ -49,6 +49,14 @@ updates:
       # (e.g., #231 bumped it to 25 while Docker stays on 20).
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+      # @hono/node-server major bumps change adapter APIs — CLAUDE.md flags
+      # hono as drift-prone; PR #233 showed a v1→v2 jump arriving unbidden.
+      - dependency-name: "@hono/node-server"
+        update-types: ["version-update:semver-major"]
+      # vitest ignore rule only covered the bare `vitest` package; any future
+      # @vitest/* scoped packages (e.g. @vitest/coverage-v8) would slip through.
+      - dependency-name: "@vitest/*"
+        update-types: ["version-update:semver-major"]
     labels:
       - "area:infra"
 
