@@ -7,9 +7,10 @@
  * MapLibre warnings at zoom >7, but those are cosmetic upstream issues, not
  * crashes. Acceptable for v1 ship.
  *
- * Future work (tracked in #312): self-hosted PMTiles at tiles.bird-maps.com.
- * R2 bucket + CF Worker provisioned by Plan 7 Decision 5, but the one-time
- * build-basemap.sh upload hasn't run yet, and a full style spec with
- * land/water/road layers + glyphs still needs authoring.
+ * Future: self-hosted PMTiles at tiles.bird-maps.com (tracked in #156 — Plan 7
+ * Decision 3 / S2 infra issue, now closed). R2 bucket + CF Worker already
+ * provisioned by Plan 7 S2, but the one-time build-basemap.sh upload hasn't
+ * run yet, and a full style spec with land/water/road layers + glyphs still
+ * needs authoring.
  */
 export const basemapStyle = 'https://tiles.openfreemap.org/styles/positron';

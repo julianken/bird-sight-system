@@ -1,6 +1,6 @@
 // eBird API response shapes used by the ingestor:
 //   EbirdObservation — https://api.ebird.org/v2/data/obs/{regionCode}/recent
-//   EbirdHotspot    — https://api.ebird.org/v2/ref/hotspot/geo
+//   EbirdHotspot    — https://api.ebird.org/v2/ref/hotspot/{regionCode}
 //   EbirdTaxon      — https://api.ebird.org/v2/ref/taxonomy/ebird
 // Reference: https://documenter.getpostman.com/view/664302/S1ENwy59
 
