@@ -148,9 +148,15 @@ test.describe('Map symbol layer + popover detail link', () => {
 
     // The hit-layer overlay is mounted only after maplibre fires its
     // `load` event. In WebGL-less headless runs it never fires; tolerate
-    // that the way the spiderfy spec does.
+    // that the way the cluster-mosaic spec does — probe with a short
+    // waitFor, then skip rather than fail when absent.
     const hitLayer = page.locator('.map-marker-hit-layer');
-    await page.waitForTimeout(2000); // give onLoad a chance
+    try {
+      await hitLayer.waitFor({ state: 'attached', timeout: 5_000 });
+    } catch {
+      test.skip(true, 'map onLoad did not fire — likely WebGL unavailable in headless run');
+      return;
+    }
     if ((await hitLayer.count()) === 0) {
       test.skip(true, 'map onLoad did not fire — likely WebGL unavailable in headless run');
       return;
