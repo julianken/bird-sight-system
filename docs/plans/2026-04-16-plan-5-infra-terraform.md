@@ -1,6 +1,6 @@
 # Infrastructure & Deployment Implementation Plan
 
-> **Status: superseded by live GCP/Neon/Cloudflare deployment** — executed 2026-04-19; `@bird-watch/family-mapping` Dockerfile lines were removed in PR #297 (PR #192 deleted the package). Do not re-execute verbatim.
+> **Status: superseded by live GCP/Neon/Cloudflare deployment** — executed 2026-04-19; `@bird-watch/family-mapping` Dockerfile lines were removed in PR #314 (PR #192 deleted the package). Do not re-execute verbatim.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -425,7 +425,7 @@ RUN npm ci --workspaces --include-workspace-root --include=dev
 RUN npm run build --workspace @bird-watch/shared-types
 RUN npm run build --workspace @bird-watch/db-client
 RUN npm run build --workspace @bird-watch/read-api
-# (family-mapping was deleted in PR #192; this line was removed in PR #297)
+# (family-mapping was deleted in PR #192; this line was removed in PR #314)
 
 # Runtime stage — copy only what we need.
 FROM node:20-alpine
@@ -658,7 +658,7 @@ RUN npm ci --workspaces --include-workspace-root --include=dev
 RUN npm run build --workspace @bird-watch/shared-types
 RUN npm run build --workspace @bird-watch/db-client
 RUN npm run build --workspace @bird-watch/ingestor
-# (family-mapping was deleted in PR #192; this line was removed in PR #297)
+# (family-mapping was deleted in PR #192; this line was removed in PR #314)
 
 FROM node:20-alpine
 WORKDIR /app
