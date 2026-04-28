@@ -13,8 +13,8 @@
     "lint": "npm run lint --workspaces --if-present",
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down",
-    "db:migrate": "node-pg-migrate up -m migrations",
-    "db:rollback": "node-pg-migrate down -m migrations",
+    "db:migrate": "node-pg-migrate up -m migrations --ignore-pattern '(^\\..*)|(.*\\.md$)'",
+    "db:rollback": "node-pg-migrate down -m migrations --ignore-pattern '(^\\..*)|(.*\\.md$)'",
     "curate:phylopic": "node scripts/curate-phylopic.mjs"
   },
   "devDependencies": {

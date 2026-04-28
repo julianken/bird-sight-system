@@ -64,7 +64,7 @@ function fixtureObservations(): Observation[] {
  * context. CI's headless Chromium (no GPU) often can't dispatch `onLoad`,
  * which leaves the reconciler dormant and the mosaic markers absent. When
  * that happens, skip the test rather than fail (mirrors the
- * `frontend/e2e/map-spiderfy.spec.ts` pattern from #247). The local MCP /
+ * `frontend/e2e/map-skip-link-and-hit-layer.spec.ts` pattern from #247). The local MCP /
  * Node-script screenshot pass committed in the PR body covers visual
  * confirmation; CI's job is correctness, not GPU-rendered pixels.
  */

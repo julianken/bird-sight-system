@@ -56,6 +56,11 @@ resource "google_cloud_run_v2_service" "read_api" {
           }
         }
       }
+
+      env {
+        name  = "FRONTEND_ORIGINS"
+        value = var.frontend_origins
+      }
     }
   }
 

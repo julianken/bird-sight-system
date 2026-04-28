@@ -2,16 +2,6 @@ import { test, expect } from '@playwright/test';
 import { AppPage } from './pages/app-page.js';
 
 test.describe('accessibility', () => {
-  // Region expand via Space/Enter (map-only behaviour) moved out with
-  // the map chain in #113; keyboard-activated region regressions will
-  // be re-asserted against the feed/hotspot surfaces as those land in
-  // #116/#117. The tab-order and aria-busy checks below still exercise
-  // the ever-green chrome (FiltersBar + SurfaceNav + <main>).
-  test.skip('Space key also expands a region (not only Enter)', () => {
-    // #113 deleted the map; surface-specific tests land in #117 (hotspots)
-    // and #118 (species search).
-  });
-
   test('Tab reaches every filter before any surface-interactive element', async ({ page }) => {
     const app = new AppPage(page);
     await app.goto();

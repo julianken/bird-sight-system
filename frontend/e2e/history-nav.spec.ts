@@ -2,11 +2,6 @@ import { test, expect } from '@playwright/test';
 import { AppPage } from './pages/app-page.js';
 
 test.describe('history back navigation', () => {
-  // #113 deleted the map, which removed the region-expand URL write.
-  // Back-button-restores-region will come back against the surface
-  // that replaces the map (#116 feed, #117 hotspots) once those land.
-  test.skip('back button reverts region expand', () => {});
-
   test('back button reverts the most recent filter change', async ({ page }) => {
     // Replace region-expand with a toggleNotable + selectTimeWindow
     // sequence so the test still covers url-state's pushState/popstate

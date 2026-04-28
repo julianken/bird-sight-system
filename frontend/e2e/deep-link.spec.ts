@@ -6,12 +6,6 @@ import { AppPage } from './pages/app-page.js';
 // tabs share substrings with "Species" and "Family" labels).
 
 test.describe('deep-link restore', () => {
-  // #113 deleted the map; the region-expand restore coverage was
-  // map-specific and will be re-asserted against the per-surface
-  // deep-link behaviour in #116/#117 (selected feed item / hotspot).
-  // Filter + species deep-link coverage below still protects url-state.
-  test.skip('multi-param URL restores every filter and region expand', () => {});
-
   test('notable + since deep-link restores filter values', async ({ page }) => {
     const app = new AppPage(page);
     await app.goto('notable=true&since=7d');

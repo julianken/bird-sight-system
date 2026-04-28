@@ -19,6 +19,6 @@ psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS postg
 echo "Running migrations..."
 # -d (a.k.a. --database-url-var) takes the NAME of the env var, not the URL value.
 # (salsita.github.io/node-pg-migrate/cli)
-npx node-pg-migrate up -m migrations -d DATABASE_URL
+npx node-pg-migrate up -m migrations -d DATABASE_URL --ignore-pattern '(^\..*)|(.*\.md$)'
 
 echo "Done."

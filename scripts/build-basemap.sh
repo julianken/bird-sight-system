@@ -19,7 +19,10 @@ set -euo pipefail
 # ── Configuration ───────────────────────────────────────────────────────
 BUCKET="birdwatch-pmtiles"
 AZ_BBOX="-114.82,31.33,-109.05,37.00"
-EXTRACT_URL="https://build.protomaps.com/20250101.pmtiles"  # Protomaps weekly planet
+# NOTE: One-time, manually-run script. The 2025-01-01 snapshot date is intentional —
+# refresh this line when rebuilding the basemap. Not run in CI.
+# To find a newer planet snapshot, browse https://build.protomaps.com/ and update the date below.
+EXTRACT_URL="https://build.protomaps.com/20250101.pmtiles"  # pinned planet snapshot (not the rolling "weekly" build)
 OUTPUT_FILE="arizona.pmtiles"
 R2_KEY="arizona.pmtiles"
 
