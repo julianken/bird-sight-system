@@ -22,5 +22,9 @@ COPY --from=build /repo/services/ingestor/dist ./services/ingestor/dist
 
 RUN npm ci --omit=dev --workspaces --include-workspace-root
 
+# Drop root — alpine images ship a built-in 'node' user (uid 1000).
+# No HEALTHCHECK: ingestor is a Cloud Run Job (run-to-completion), not a service.
+USER node
+
 # The Cloud Run Job invokes this entrypoint with the kind as $1.
 ENTRYPOINT ["node", "services/ingestor/dist/cli.js"]

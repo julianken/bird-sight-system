@@ -26,6 +26,9 @@ COPY --from=build /repo/services/read-api/dist ./services/read-api/dist
 
 RUN npm ci --omit=dev --workspaces --include-workspace-root
 
+# Drop root — alpine images ship a built-in 'node' user (uid 1000).
+USER node
+
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -q --spider http://localhost:8080/health || exit 1
