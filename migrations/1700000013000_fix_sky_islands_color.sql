@@ -7,16 +7,12 @@
 -- ticket body of issue #89 for the palette rationale ("reads as distinct
 -- without leaving the earth-tone palette").
 --
--- `display_color` is a column on the `regions` table — the fix lives in
--- the DB seed because the column is part of the `/api/regions` data
--- contract (`packages/db-client/src/regions.ts:12`, exposed as
--- `Region.displayColor` on `packages/shared-types/src/index.ts`).  The
--- original SVG region-fill renderer that consumed it was removed in #133;
--- the current MapLibre map does not draw region polygons, so no live
--- frontend reader exists today.  A static token at
--- `frontend/src/tokens.ts` (`color.palette.skyIslands`) mirrors this hex
--- as a forward-compat reference — keep the DB value and the token in sync
--- if either changes.
+-- `display_color` is a column on the `regions` table.  No live service
+-- reads it today: the original SVG region-fill renderer was removed in
+-- #133, and the `/api/regions` route was deleted in #194.  A static token
+-- at `frontend/src/tokens.ts` (`color.palette.skyIslands`) mirrors this
+-- hex as a forward-compat reference — keep the DB value and the token in
+-- sync if either changes.
 --
 -- Timestamp `1700000013000` is the next slot after the most recent
 -- sky-islands migration (`1700000012000_fix_sky_islands_boundaries.sql`,

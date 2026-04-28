@@ -81,9 +81,6 @@ export interface MapSurfaceProps {
  *      target while `view === 'map'`. Anchor-based navigation also
  *      doesn't switch view state. A button with onClick={() =>
  *      set({ view: 'feed' })} is the only correct form.
- *
- * S4 wires this into App.tsx behind the `?view=map` tab. Until then it
- * is unreachable in production (tree-shaken since nothing imports it).
  */
 export function MapSurface({
   observations,

@@ -17,39 +17,35 @@
 
 export const iconSize = {
   /**
-   * HotspotDot min radius in SVG units (was `HotspotDot.MIN_R`). PR #101
-   * retuned this from 3 → 2 so the sqrt proportional-symbol scale doesn't
-   * compress the low-species tail.
+   * Min radius for the hotspot-dot proportional-symbol scale (reserved for
+   * future hotspot-marker layer). PR #101 tuned from 3 → 2 so the sqrt
+   * scale doesn't compress the low-species tail.
    */
   hotspotDotMinR: 2,
   /**
-   * HotspotDot max radius in SVG units (was `HotspotDot.MAX_R`). Tuned to
-   * be exactly half the default Badge radius of 14 so hotspot dots read as
-   * secondary markers and don't compete with Badge primaries on the same
-   * map. See #101 for the sqrt-based area-proportional rationale.
+   * Max radius for the hotspot-dot scale (reserved). Tuned to be exactly
+   * half the default badge radius so hotspot dots read as secondary markers.
+   * See #101 for the sqrt-based area-proportional rationale.
    */
   hotspotDotMaxR: 7,
   /**
-   * Anchor species count for the sqrt hotspot-radius scale. `t =
+   * Anchor species count for the sqrt hotspot-radius scale (reserved). `t =
    * clamp01(species / hotspotDotRefSpecies)` drives `r = MIN + sqrt(t) *
    * (MAX - MIN)`, so REF sets where the scale saturates at MAX. 450 is
    * near the upper tail of the actual AZ hotspot distribution (most
-   * cluster 100-400 species). Subject to retune against real
-   * `/api/hotspots` output.
+   * cluster 100-400 species).
    */
   hotspotDotRefSpecies: 450,
-  /** Badge min diameter in SVG units (was `BadgeStack.MIN_BADGE_DIAMETER`). */
+  /** Badge min diameter in SVG units. */
   badgeDiameterMin: 14,
-  /** Badge max diameter in SVG units (was `BadgeStack.MAX_BADGE_DIAMETER`). */
+  /** Badge max diameter in SVG units. */
   badgeDiameterMax: 30,
   /**
-   * Default badge OUTER RADIUS in SVG units. Was `Badge.DEFAULT_RADIUS = 14`
-   * inline pre-PR. Stored as a radius (not diameter/2) so callers cannot
-   * silently halve it by confusing the unit — see regression test in
-   * `Badge.test.tsx` ("default circle radius is 14"). Numerically equal to
-   * `badgeDiameterMin` today; kept as a named token so the two can diverge
-   * later (e.g. if min-diameter shrinks for dense regions without changing
-   * the solo-region default).
+   * Default badge OUTER RADIUS in SVG units (14). Stored as a radius so
+   * callers cannot silently halve it by confusing the unit — see regression
+   * test in `Badge.test.tsx` ("default circle radius is 14"). Numerically
+   * equal to `badgeDiameterMin` today; kept as a named token so the two can
+   * diverge independently.
    */
   badgeRadiusDefault: 14,
   /**
@@ -106,7 +102,7 @@ export const opacity = {
 export const spacing = {
   /** Tight gap — badge cell padding, badge-chip offset. */
   xs: 4,
-  /** Small gap — region BadgeStack inset, panel-close button offset. */
+  /** Small gap — panel-close button offset. */
   sm: 8,
   /** Medium gap — panel internal spacing (species name → sci name). */
   md: 12,
@@ -127,7 +123,13 @@ export const duration = {
 
 export const color = {
   palette: {
-    /** Rust-orange. Mirrors `regions.display_color` for colorado-plateau. */
+    /**
+     * Ecoregion palette — DB-sync-only. These hex values mirror the
+     * `regions.display_color` column in the DB (no rendering layer reads
+     * them today; the MapLibre map does not draw region polygons).
+     * Keep in sync with migration seeds if display_color ever changes.
+     */
+    /** Rust-orange. colorado-plateau. */
     coloradoPlateau: '#C77A2E',
     /** Dark umber. grand-canyon. */
     grandCanyon: '#9B5E20',
@@ -140,21 +142,17 @@ export const color = {
     /** Warm-gold. sonoran-tucson. */
     sonoranTucson: '#E0A040',
     /**
-     * Desaturated brick red. Applies to all three sky-islands rows. This
-     * REPLACES the seeded `#FF0808` — see migration
-     * `1700000013000_fix_sky_islands_color.sql` (landed in this PR).
+     * Desaturated brick red. All three sky-islands rows. REPLACES the seeded
+     * `#FF0808` — see migration `1700000013000_fix_sky_islands_color.sql`.
      * Chosen to read as "distinct" without leaving the earth-tone palette.
      */
     skyIslands: '#B84C3A',
-    /** HotspotDot fill. Was `#00A6F3` inline in HotspotDot.tsx. */
+    /** Hotspot-dot fill (reserved for future hotspot-marker layer). */
     hotspot: '#00A6F3',
     /**
-     * Overflow-pip fill. `#888888` is the 7-char form of the `#888`
-     * shorthand used inline at `BadgeStack.tsx:212,286` — identical RGB
-     * (136,136,136). Tokens canonicalise on the 6-hex form so the
-     * `/^#[0-9A-Fa-f]{6}$/` invariant in `tokens.test.ts` holds. BadgeStack
-     * itself is NOT migrated in this PR (scope); when it is, the inline
-     * `#888` becomes `color.palette.overflow` with no pixel change.
+     * Overflow-pip fill. `#888888` is the 7-char canonical form of `#888`.
+     * Tokens canonicalise on the 6-hex form so the `/^#[0-9A-Fa-f]{6}$/`
+     * invariant in `tokens.test.ts` holds.
      */
     overflow: '#888888',
   },

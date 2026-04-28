@@ -13,8 +13,9 @@
  *
  * Caller responsibility: pass finite numbers. Hotspot data from the Read
  * API always has `lat`/`lng` present (they're `NOT NULL` in the DB schema,
- * see `migrations/1_hotspots.sql`); this helper does NOT defend against
- * NaN / Infinity — that would be an upstream data bug worth surfacing.
+ * see `migrations/1700000005000_hotspots.sql`); this helper does NOT defend
+ * against NaN / Infinity — that would be an upstream data bug worth
+ * surfacing.
  */
 export function formatCoords(lat: number, lng: number): string {
   const latHemi = lat >= 0 ? 'N' : 'S';
