@@ -207,13 +207,60 @@ WHERE family_code = 'tyrannidae';
 
 -- Phylopic-less families: explicit NULL signals "no usable silhouette";
 -- the _FALLBACK consumer (#246) renders the generic shape using the
--- preserved family color.
+-- preserved family color. Families fall into this bucket either because
+-- (a) the operator listed them in scripts/phylopic-picks.json#skipFamilies
+-- after confirming no usable Phylopic entry exists, or (b) the live API
+-- returned 404 (genuine taxonomic absence). Transient API failures (5xx,
+-- network) abort the run instead — see scripts/curate-phylopic.mjs #267.
+-- Operator-flagged absent (skipFamilies): cuculidae, ptilogonatidae, remizidae.
 UPDATE family_silhouettes SET svg_data = NULL, source = NULL, license = NULL, creator = NULL
 WHERE family_code IN ('cuculidae', 'ptilogonatidae', 'remizidae');
 
 -- Down Migration
--- Restore placeholders is impractical (we would need to know which seed
--- migration owned each row). Roll back instead by reverting this migration
--- file alongside the schema migration 16000.
-UPDATE family_silhouettes SET svg_data = NULL, source = NULL, license = NULL, creator = NULL
-WHERE family_code IN ('accipitridae', 'anatidae', 'ardeidae', 'caprimulgidae', 'cardinalidae', 'cathartidae', 'columbidae', 'corvidae', 'cuculidae', 'fringillidae', 'mimidae', 'odontophoridae', 'paridae', 'parulidae', 'passerellidae', 'picidae', 'ptilogonatidae', 'remizidae', 'scolopacidae', 'strigidae', 'threskiornithidae', 'trochilidae', 'troglodytidae', 'trogonidae', 'tyrannidae');
+-- Restores the geometric placeholder SVG values that existed before this
+-- migration applied. Using the exact path-d strings and metadata from
+-- migrations 9000 and 15000 ensures that Down(14000) can subsequently
+-- run `ALTER COLUMN svg_data SET NOT NULL` without a constraint violation.
+-- (The original comment was wrong: the owning migration is knowable — it is
+-- migrations 9000 and 15000, and the values are exactly reproduced below.)
+UPDATE family_silhouettes SET
+  svg_data  = CASE family_code
+    -- migration 9000 originals
+    WHEN 'passerellidae'   THEN 'M5 14 C5 9 9 7 13 8 L17 6 L17 9 L15 10 L15 14 L13 16 L8 16 L5 14 Z'
+    WHEN 'trochilidae'     THEN 'M3 13 L8 11 L13 12 L18 9 L22 11 L18 13 L13 14 L8 14 L3 15 Z'
+    WHEN 'accipitridae'    THEN 'M2 12 L8 9 Q12 5 16 9 L22 12 L16 12 L14 15 L10 15 L8 12 Z'
+    WHEN 'strigidae'       THEN 'M6 14 C6 9 10 8 14 9 C18 8 18 14 14 16 L10 16 L6 14 Z'
+    WHEN 'ardeidae'        THEN 'M4 14 C4 11 8 9 13 10 L18 9 L19 7 L20 9 L19 11 L18 12 L18 15 L15 17 L7 17 L4 14 Z'
+    WHEN 'anatidae'        THEN 'M3 14 C3 11 8 11 12 12 L18 11 L20 14 L18 16 L8 16 L3 14 Z'
+    WHEN 'scolopacidae'    THEN 'M5 14 L8 12 L13 13 L17 12 L19 14 L17 15 L13 15 L8 15 L5 16 Z'
+    WHEN 'picidae'         THEN 'M6 13 C6 9 10 8 13 9 L16 7 L17 9 L15 11 L15 14 L13 16 L8 16 L6 13 Z'
+    WHEN 'corvidae'        THEN 'M4 13 L8 10 Q12 7 16 10 L20 13 L16 14 L14 16 L10 16 L8 13 Z'
+    WHEN 'odontophoridae'  THEN 'M5 15 C5 12 9 11 13 12 C17 11 18 14 17 16 L8 17 L5 15 Z'
+    WHEN 'cathartidae'     THEN 'M2 12 L8 10 Q12 8 16 10 L22 12 L16 12 L14 14 L10 14 L8 12 Z'
+    WHEN 'tyrannidae'      THEN 'M5 13 C5 9 9 8 13 9 L17 7 L17 10 L15 11 L15 14 L13 15 L8 15 L5 13 Z'
+    WHEN 'troglodytidae'   THEN 'M6 14 C6 11 9 10 12 11 L15 10 L15 13 L12 15 L8 15 L6 14 Z'
+    WHEN 'cuculidae'       THEN 'M3 13 L7 11 L12 12 L18 10 L20 12 L18 14 L14 14 L9 15 L3 14 Z'
+    WHEN 'trogonidae'      THEN 'M5 13 C5 10 9 9 13 10 L17 9 L17 11 L15 12 L15 15 L13 17 L9 17 L5 13 Z'
+    -- migration 15000 originals
+    WHEN 'cardinalidae'    THEN 'M5 14 C5 9 9 7 13 8 L17 5 L18 7 L17 9 L15 10 L15 14 L13 16 L8 16 L5 14 Z'
+    WHEN 'mimidae'         THEN 'M4 14 C4 10 8 9 12 10 L16 8 L18 10 L16 12 L15 14 L13 16 L8 16 L4 14 Z'
+    WHEN 'columbidae'      THEN 'M5 13 C5 10 9 9 13 10 L17 9 L18 11 L17 13 L15 14 L13 16 L9 16 L5 13 Z'
+    WHEN 'parulidae'       THEN 'M6 14 C6 10 9 9 12 10 L15 9 L16 11 L15 12 L14 14 L12 15 L9 15 L6 14 Z'
+    WHEN 'ptilogonatidae'  THEN 'M5 13 C5 9 9 7 13 8 L17 6 L17 9 L15 10 L15 13 L14 16 L12 17 L8 16 L5 13 Z'
+    WHEN 'paridae'         THEN 'M6 14 C6 11 9 10 12 11 L15 10 L16 12 L15 13 L13 14 L11 15 L9 15 L6 14 Z'
+    WHEN 'fringillidae'    THEN 'M5 14 C5 10 8 9 12 10 L16 9 L17 11 L15 12 L15 14 L13 16 L9 16 L5 14 Z'
+    WHEN 'caprimulgidae'   THEN 'M3 13 L7 11 Q12 8 17 11 L21 13 L17 14 L13 15 L9 15 L3 14 Z'
+    WHEN 'remizidae'       THEN 'M6 14 C6 11 9 10 12 11 L15 10 L16 11 L15 13 L13 14 L11 14 L9 15 L6 14 Z'
+    WHEN 'threskiornithidae' THEN 'M3 13 C3 10 7 9 12 10 L17 9 L20 7 L21 9 L19 11 L18 13 L16 15 L8 16 L3 13 Z'
+    ELSE svg_data
+  END,
+  source  = 'placeholder',
+  license = 'CC0',
+  creator = NULL
+WHERE family_code IN (
+  'accipitridae', 'anatidae', 'ardeidae', 'caprimulgidae', 'cardinalidae',
+  'cathartidae', 'columbidae', 'corvidae', 'cuculidae', 'fringillidae',
+  'mimidae', 'odontophoridae', 'paridae', 'parulidae', 'passerellidae',
+  'picidae', 'ptilogonatidae', 'remizidae', 'scolopacidae', 'strigidae',
+  'threskiornithidae', 'trochilidae', 'troglodytidae', 'trogonidae', 'tyrannidae'
+);
