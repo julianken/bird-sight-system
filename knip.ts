@@ -53,13 +53,16 @@ const config: KnipConfig = {
 
     frontend: {
       // 2026-04-28: Design-token type aliases (IconSizeToken, ZIndexToken,
-      //             OpacityToken, SpacingToken, DurationToken) in tokens.ts are
-      //             consumed via `as …Token` casts — TypeScript inference paths
-      //             knip cannot trace statically. Ignoring the whole file is
-      //             acceptable because tokens.ts is a leaf module with no
-      //             call-site logic; only the 5 type aliases are flagged.
-      //             Re-audit 2026-07-28: remove if those types gain direct
-      //             import sites that knip can see.
+      //             OpacityToken, SpacingToken, DurationToken) in tokens.ts
+      //             are declared as `export type X = keyof typeof <obj>` for
+      //             future use as typed function-parameter constraints, but no
+      //             consumer file imports them yet. Knip correctly flags them
+      //             as unused exports; they are intentionally forward-declared.
+      //             Ignoring the whole file is acceptable because tokens.ts is
+      //             a leaf module with no call-site logic; only the 5 type
+      //             aliases are flagged.
+      //             Re-audit 2026-07-27: remove if those types gain import
+      //             sites knip can trace, or drop the types if still unused.
       ignore: ['src/tokens.ts'],
     },
 
