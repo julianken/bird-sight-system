@@ -9,7 +9,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@bird-watch/shared-types": "*",
+    "@bird-watch/shared-types": "^0.0.1",
     "pg": "^8.11.3"
   },
   "devDependencies": {
