@@ -134,6 +134,11 @@ describe('species photos', () => {
         'https://photos.bird-maps.com/v-old.jpg',
       ]);
     } finally {
+      // Drop the off-list rows BEFORE restoring the CHECK — ALTER TABLE
+      // ADD CONSTRAINT validates existing rows and would error otherwise.
+      await db.pool.query(
+        `DELETE FROM species_photos WHERE purpose IN ('gallery-old', 'gallery-new')`
+      );
       // Restore the CHECK so subsequent tests see the production schema.
       await db.pool.query(
         `ALTER TABLE species_photos
