@@ -50,6 +50,75 @@ const LICENSE_URLS: Record<string, string> = {
   'CC-BY-SA-3.0': 'https://creativecommons.org/licenses/by-sa/3.0/',
 };
 
+/**
+ * Mapping for iNaturalist photo license codes (issue #327 task-11).
+ *
+ * Two shapes co-exist in the data path:
+ *   - iNat-native lowercase codes from the photos ingest: `cc-by`,
+ *     `cc-by-sa`, `cc0`, etc. (services/ingestor/src/inat/types.ts).
+ *   - Legacy CC formal labels (`CC-BY-4.0`, `CC-BY-NC`) some test
+ *     fixtures + handcurated rows carry. Normalize via lowercase lookup
+ *     so the same modal serves both.
+ *
+ * `name` is the human-readable label the modal renders inline ("CC BY 4.0");
+ * `url` is the deed page on creativecommons.org. The lookup is
+ * case-insensitive — see `lookupPhotoLicense` below.
+ */
+const PHOTO_LICENSE_INFO: Record<string, { name: string; url: string }> = {
+  'cc0': {
+    name: 'CC0 1.0',
+    url: 'https://creativecommons.org/publicdomain/zero/1.0/',
+  },
+  'cc-by': {
+    name: 'CC BY 4.0',
+    url: 'https://creativecommons.org/licenses/by/4.0/',
+  },
+  'cc-by-sa': {
+    name: 'CC BY-SA 4.0',
+    url: 'https://creativecommons.org/licenses/by-sa/4.0/',
+  },
+  'cc-by-nc': {
+    name: 'CC BY-NC 4.0',
+    url: 'https://creativecommons.org/licenses/by-nc/4.0/',
+  },
+  'cc-by-nd': {
+    name: 'CC BY-ND 4.0',
+    url: 'https://creativecommons.org/licenses/by-nd/4.0/',
+  },
+  'cc-by-nc-sa': {
+    name: 'CC BY-NC-SA 4.0',
+    url: 'https://creativecommons.org/licenses/by-nc-sa/4.0/',
+  },
+  'cc-by-nc-nd': {
+    name: 'CC BY-NC-ND 4.0',
+    url: 'https://creativecommons.org/licenses/by-nc-nd/4.0/',
+  },
+  // Legacy CC formal codes (some seeded test rows + ingestor variants
+  // store these). Mapped to the same deed pages.
+  'cc-by-4.0': {
+    name: 'CC BY 4.0',
+    url: 'https://creativecommons.org/licenses/by/4.0/',
+  },
+  'cc-by-sa-4.0': {
+    name: 'CC BY-SA 4.0',
+    url: 'https://creativecommons.org/licenses/by-sa/4.0/',
+  },
+  'cc-by-nc-4.0': {
+    name: 'CC BY-NC 4.0',
+    url: 'https://creativecommons.org/licenses/by-nc/4.0/',
+  },
+};
+
+/**
+ * Resolves an iNaturalist license code to a `{ name, url }` pair, or
+ * returns `null` when the code isn't in the map. The component falls
+ * back to rendering the raw code as plain text on `null` (mirrors the
+ * Phylopic `LICENSE_URLS` fail-soft behavior).
+ */
+function lookupPhotoLicense(code: string): { name: string; url: string } | null {
+  return PHOTO_LICENSE_INFO[code.toLowerCase()] ?? null;
+}
+
 export interface AttributionModalProps {
   /**
    * Phylopic per-silhouette credits sourced from `useSilhouettes()` in
@@ -85,6 +154,29 @@ export interface AttributionModalProps {
    * fires once per state change with the new `open` boolean.
    */
   onOpenChange?: (open: boolean) => void;
+  /**
+   * iNaturalist photographer attribution string for the currently-active
+   * SpeciesDetailSurface photo (issue #327 task-11). Sourced from
+   * `SpeciesMeta.photoAttribution`. Threaded by App.tsx from the active
+   * detail-view species and `undefined` when `view !== 'detail'` or no
+   * species is selected. The Photos credit section renders only when
+   * BOTH `photoAttribution` AND `photoLicense` are present; either-
+   * absent / both-absent collapses the section entirely.
+   *
+   * The explicit `| undefined` is required under
+   * `exactOptionalPropertyTypes: true` so call sites can pass
+   * `activeSpeciesMeta?.photoAttribution` (which may be `undefined`)
+   * directly without TypeScript complaining. Mirrors `SpeciesDetailVisual`'s
+   * `photoUrl` convention.
+   */
+  photoAttribution?: string | undefined;
+  /**
+   * iNaturalist license code for the active species photo (issue #327
+   * task-11). iNat-native lowercase codes (`cc-by`, `cc-by-sa`, `cc0`)
+   * and legacy CC formal codes (`CC-BY-4.0`) are both accepted via
+   * case-insensitive lookup. Unknown codes render as plain text.
+   */
+  photoLicense?: string | undefined;
 }
 
 export function AttributionModal({
@@ -92,6 +184,8 @@ export function AttributionModal({
   loading = false,
   error = null,
   onOpenChange,
+  photoAttribution,
+  photoLicense,
 }: AttributionModalProps) {
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -320,6 +414,54 @@ export function AttributionModal({
               </>
             )}
           </section>
+          {/*
+            iNat photo credit (issue #327 task-11). Renders only when
+            BOTH `photoAttribution` and `photoLicense` are present —
+            no "Photos" heading appears for species with a Phylopic-only
+            visual. Section sits between Family Silhouettes and Map Tiles
+            so the credit ordering follows the visual hierarchy on the
+            detail surface (photo → silhouette fallback → map context).
+          */}
+          {photoAttribution && photoLicense && (() => {
+            const licenseInfo = lookupPhotoLicense(photoLicense);
+            return (
+              <section
+                className="attribution-modal-section"
+                data-testid="attribution-photos-section"
+              >
+                <h3>Photos</h3>
+                <p>
+                  Species photos by{' '}
+                  <span className="attribution-modal-photographer">
+                    {photoAttribution}
+                  </span>
+                  {' — '}
+                  {licenseInfo ? (
+                    <a
+                      href={licenseInfo.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {licenseInfo.name}
+                    </a>
+                  ) : (
+                    <span className="attribution-modal-license-text">
+                      {photoLicense}
+                    </span>
+                  )}
+                  {'. Photos sourced from '}
+                  <a
+                    href="https://www.inaturalist.org"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    iNaturalist
+                  </a>
+                  .
+                </p>
+              </section>
+            );
+          })()}
           <section className="attribution-modal-section">
             <h3>Map Tiles</h3>
             <p>

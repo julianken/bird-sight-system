@@ -475,4 +475,129 @@ describe('AttributionModal', () => {
     await user.click(screen.getByRole('button', { name: /close/i }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
+
+  /*
+   * iNaturalist photo credit (issue #327 task-11).
+   *
+   * SpeciesDetailSurface (#327 task-10) renders an iNat-mirrored photo
+   * when SpeciesMeta carries a non-null `photoUrl`. Per CC license terms
+   * (specifically iNat's CC-BY / CC-BY-SA / CC-BY-NC variants on
+   * uploaded observations), the photographer must be credited and the
+   * license URL surfaced on the same page as the photo. We surface that
+   * credit in the AttributionModal — already the canonical credits
+   * surface — so the prominence requirement is met without crowding
+   * the SpeciesDetailSurface itself.
+   *
+   * Render contract:
+   *   - Both `photoAttribution` AND `photoLicense` present → render the
+   *     "Photos" section. The section sits below Family Silhouettes, above
+   *     Map Tiles, mirroring the existing CC-credit pattern (label by
+   *     creator — license link).
+   *   - Either prop absent (or both) → omit the section entirely. No
+   *     empty heading; no "no photo credit" placeholder. Silently
+   *     dropping is correct because not every species has a photo.
+   *   - Unknown license code → render the code as plain text rather than
+   *     a broken link (mirrors the unknown-Phylopic-license behavior
+   *     above).
+   */
+
+  it('renders a Photos section when photoAttribution + photoLicense are both present', async () => {
+    const user = userEvent.setup();
+    render(
+      <AttributionModal
+        silhouettes={SILHOUETTES}
+        photoAttribution="Jane Photographer"
+        photoLicense="cc-by"
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: /credits/i }));
+    // Section heading appears as <h3> (consistent with the other sections).
+    expect(
+      screen.getByRole('heading', { level: 3, name: /^photos$/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('renders the photographer name + license link in the Photos section', async () => {
+    const user = userEvent.setup();
+    render(
+      <AttributionModal
+        silhouettes={SILHOUETTES}
+        photoAttribution="Jane Photographer"
+        photoLicense="cc-by"
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: /credits/i }));
+    const photosHeading = screen.getByRole('heading', { level: 3, name: /^photos$/i });
+    const section = photosHeading.closest('section');
+    expect(section).not.toBeNull();
+    // Photographer attribution surfaces.
+    expect(within(section!).getByText(/Jane Photographer/)).toBeInTheDocument();
+    // License is rendered as a link to the matching CC URL.
+    const licenseLink = within(section!).getByRole('link', { name: /CC BY 4\.0/i });
+    expect(licenseLink).toHaveAttribute('href', 'https://creativecommons.org/licenses/by/4.0/');
+    // Same noopener-noreferrer + _blank contract as every other modal link.
+    expect(licenseLink).toHaveAttribute('target', '_blank');
+    expect(licenseLink).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  it('omits the Photos section when both photoAttribution and photoLicense are absent', async () => {
+    const user = userEvent.setup();
+    render(<AttributionModal silhouettes={SILHOUETTES} />);
+    await user.click(screen.getByRole('button', { name: /credits/i }));
+    // No <h3>Photos</h3> in the modal.
+    expect(
+      screen.queryByRole('heading', { level: 3, name: /^photos$/i }),
+    ).toBeNull();
+  });
+
+  it('omits the Photos section when only photoAttribution is present (no license)', async () => {
+    const user = userEvent.setup();
+    render(
+      <AttributionModal
+        silhouettes={SILHOUETTES}
+        photoAttribution="Jane Photographer"
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: /credits/i }));
+    expect(
+      screen.queryByRole('heading', { level: 3, name: /^photos$/i }),
+    ).toBeNull();
+  });
+
+  it('omits the Photos section when only photoLicense is present (no attribution)', async () => {
+    const user = userEvent.setup();
+    render(
+      <AttributionModal
+        silhouettes={SILHOUETTES}
+        photoLicense="cc-by"
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: /credits/i }));
+    expect(
+      screen.queryByRole('heading', { level: 3, name: /^photos$/i }),
+    ).toBeNull();
+  });
+
+  it('renders an unknown photo license code as plain text (no link)', async () => {
+    const user = userEvent.setup();
+    render(
+      <AttributionModal
+        silhouettes={SILHOUETTES}
+        photoAttribution="Jane Photographer"
+        photoLicense="cc-mystery-9.9"
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: /credits/i }));
+    const photosHeading = screen.getByRole('heading', { level: 3, name: /^photos$/i });
+    const section = photosHeading.closest('section');
+    expect(section).not.toBeNull();
+    // Unknown identifier surfaces as plain text — verify by walking the
+    // text content; getByText alone on a string fragment may partial-match.
+    expect(section!.textContent).toMatch(/cc-mystery-9\.9/i);
+    // ...and there's no anchor in the section pointing at creativecommons.
+    const ccLinks = within(section!).queryAllByRole('link');
+    for (const link of ccLinks) {
+      expect(link.getAttribute('href') ?? '').not.toMatch(/creativecommons\.org/);
+    }
+  });
 });
