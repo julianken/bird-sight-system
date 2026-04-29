@@ -413,6 +413,23 @@ body {
   margin-inline: auto;
 }
 .species-detail-body { margin-top: var(--space-sm); }
+/* Photo / silhouette visual (#327 task-10). The photo renders at full
+   container width capped at 480px so it stays usable on 1440×900 desktop
+   without ballooning past the surface's 760px content cap. The silhouette
+   fallback sits at a fixed 96px square — it's a glyph, not a hero image,
+   and scaling it to the photo's footprint would invent visual weight the
+   silhouette path doesn't carry. */
+.species-detail-photo {
+  display: block;
+  max-width: min(100%, 480px);
+  height: auto;
+  margin: 0 0 12px 0;
+  border-radius: 4px;
+}
+.species-detail-silhouette {
+  display: block;
+  margin: 0 0 12px 0;
+}
 .species-detail-common-name {
   margin: 0 0 4px 0;
   font-size: 20px;
