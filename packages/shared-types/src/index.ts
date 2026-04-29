@@ -88,7 +88,7 @@ export interface FamilySilhouette {
 
 export interface IngestRun {
   id: number;
-  kind: 'recent' | 'notable' | 'backfill' | 'hotspots' | 'taxonomy';
+  kind: 'recent' | 'notable' | 'backfill' | 'hotspots' | 'taxonomy' | 'photos';
   startedAt: string;
   finishedAt: string | null;
   obsFetched: number | null;

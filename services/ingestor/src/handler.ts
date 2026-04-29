@@ -3,13 +3,14 @@ import { runIngest, type RunSummary } from './run-ingest.js';
 import { runHotspotIngest, type RunHotspotSummary } from './run-hotspots.js';
 import { runBackfill, type RunBackfillSummary } from './run-backfill.js';
 import { runTaxonomy, type RunTaxonomySummary } from './run-taxonomy.js';
+import { runPhotos, type RunPhotosSummary } from './run-photos.js';
 
 export interface HandlerEnv {
   DATABASE_URL: string;
   EBIRD_API_KEY: string;
 }
 
-export type ScheduledKind = 'recent' | 'hotspots' | 'backfill' | 'taxonomy';
+export type ScheduledKind = 'recent' | 'hotspots' | 'backfill' | 'taxonomy' | 'photos';
 
 /**
  * Platform-agnostic handler: invoked by the Cloud Run Job entry point
@@ -19,7 +20,13 @@ export type ScheduledKind = 'recent' | 'hotspots' | 'backfill' | 'taxonomy';
 export async function handleScheduled(
   kind: ScheduledKind,
   env: HandlerEnv
-): Promise<RunSummary | RunHotspotSummary | RunBackfillSummary | RunTaxonomySummary> {
+): Promise<
+  | RunSummary
+  | RunHotspotSummary
+  | RunBackfillSummary
+  | RunTaxonomySummary
+  | RunPhotosSummary
+> {
   const pool = createPool({ databaseUrl: env.DATABASE_URL });
   try {
     switch (kind) {
@@ -33,6 +40,10 @@ export async function handleScheduled(
         });
       case 'taxonomy':
         return await runTaxonomy({ pool, apiKey: env.EBIRD_API_KEY });
+      case 'photos':
+        // runPhotos's upstream is iNat (no eBird key needed). Wired via the
+        // Cloud Run job + monthly Scheduler cron in task-8b (#327).
+        return await runPhotos({ pool });
     }
   } finally {
     await closePool(pool);
