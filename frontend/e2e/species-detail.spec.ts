@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures.js';
+import { test, expect, VERMFLY, VERMFLY_WITH_PHOTO } from './fixtures.js';
 import { AppPage } from './pages/app-page.js';
 
 /**
@@ -10,15 +10,6 @@ import { AppPage } from './pages/app-page.js';
  *
  * Navigation contract: every test begins with page.goto (no shared state).
  */
-
-const VERMFLY = {
-  speciesCode: 'vermfly',
-  comName: 'Vermilion Flycatcher',
-  sciName: 'Pyrocephalus rubinus',
-  familyCode: 'tyrannidae',
-  familyName: 'Tyrant Flycatchers',
-  taxonOrder: 4400,
-} as const;
 
 test.describe('species detail surface (#151)', () => {
   test('detail URL mounts the surface with species info', async ({ page, apiStub }) => {
@@ -127,4 +118,125 @@ test.describe('species detail surface (#151)', () => {
     // No close button.
     await expect(page.getByRole('button', { name: 'Close species details' })).toHaveCount(0);
   });
+});
+
+/**
+ * Issue #327 task-12 — e2e coverage for the photo render + silhouette
+ * fallback paths on SpeciesDetailSurface at both release-1 viewports.
+ *
+ * The component-level unit tests (SpeciesDetailSurface.test.tsx) cover the
+ * branching logic; this spec asserts the rendered DOM survives the actual
+ * Vite + React + URL-state pipeline at the two viewports the release-1
+ * exit criteria name (390×844 mobile, 1440×900 desktop) AND that no
+ * console errors/warnings surface during either render path.
+ *
+ * The photo `<img>` request is stubbed via `apiStub.stubPhotoImage()` to
+ * a 1×1 PNG so the photo branch stays mounted (without the stub, the
+ * browser would 404 the real photos.bird-maps.com URL and the `<img>`'s
+ * `onError` would silently fall back to the silhouette, masking the
+ * branch this spec is asserting on).
+ */
+test.describe('species detail surface — photo rendering (#327 task-12)', () => {
+  for (const viewport of [
+    { width: 1440, height: 900, label: 'desktop' },
+    { width: 390, height: 844, label: 'mobile' },
+  ] as const) {
+    test.describe(`${viewport.label} (${viewport.width}x${viewport.height})`, () => {
+      test.use({ viewport: { width: viewport.width, height: viewport.height } });
+
+      test('renders <img> when SpeciesMeta carries photoUrl', async ({ page, apiStub }) => {
+        await apiStub.stubSpecies('vermfly', VERMFLY_WITH_PHOTO);
+        await apiStub.stubPhotoImage();
+        const app = new AppPage(page);
+        await app.goto('detail=vermfly&view=detail');
+        await app.waitForAppReady();
+
+        const main = page.locator('main');
+        await expect(main.getByRole('heading', { name: 'Vermilion Flycatcher' }))
+          .toBeVisible({ timeout: 10_000 });
+
+        // The photo render branch produces an <img> with alt="<comName> photo".
+        // Ends-with match (`alt$=` style) via getByAltText regex avoids
+        // collisions with any future alt text containing the species name.
+        const photo = main.getByAltText('Vermilion Flycatcher photo');
+        await expect(photo).toBeVisible();
+        await expect(photo).toHaveAttribute('src', 'https://photos.bird-maps.com/vermfly.jpg');
+        // The IMG must have actually loaded (naturalWidth>0). The stubbed
+        // PNG is 1×1, so the assertion is naturalWidth >= 1. If this fails,
+        // the `<img>`'s onError fired and the silhouette fallback took over
+        // — which would mean the photo render branch is silently broken.
+        await expect.poll(() => photo.evaluate((img: HTMLImageElement) => img.naturalWidth))
+          .toBeGreaterThan(0);
+        // Silhouette is NOT rendered on the photo branch.
+        await expect(page.getByTestId('species-detail-silhouette')).toHaveCount(0);
+      });
+
+      test('renders silhouette fallback when SpeciesMeta has no photoUrl', async ({ page, apiStub }) => {
+        // VERMFLY (the no-photo fixture) — exercises the silhouette path.
+        await apiStub.stubSpecies('vermfly', VERMFLY);
+        const app = new AppPage(page);
+        await app.goto('detail=vermfly&view=detail');
+        await app.waitForAppReady();
+
+        const main = page.locator('main');
+        await expect(main.getByRole('heading', { name: 'Vermilion Flycatcher' }))
+          .toBeVisible({ timeout: 10_000 });
+
+        // No photo img.
+        await expect(main.getByAltText('Vermilion Flycatcher photo')).toHaveCount(0);
+        // Silhouette IS visible.
+        const silhouette = page.getByTestId('species-detail-silhouette');
+        await expect(silhouette).toBeVisible();
+      });
+    });
+  }
+
+  // Cross-viewport, cross-fixture console-cleanliness sweep. Captures any
+  // console errors or warnings emitted during the photo/silhouette render
+  // pipeline at both release-1 viewports — the kind of regression unit
+  // tests miss because they run under jsdom (no real <img> load, no real
+  // viewport-driven layout). One test per viewport+fixture combination
+  // keeps failures readable: a broken photo branch on mobile shows up as
+  // a single failing test name, not a tangle of nested matrices.
+  for (const viewport of [
+    { width: 1440, height: 900, label: 'desktop' },
+    { width: 390, height: 844, label: 'mobile' },
+  ] as const) {
+    for (const fixture of [
+      { meta: VERMFLY_WITH_PHOTO, label: 'with-photo', stubImage: true },
+      { meta: VERMFLY, label: 'no-photo', stubImage: false },
+    ] as const) {
+      test(`zero console errors+warnings: ${fixture.label} fixture at ${viewport.label} ${viewport.width}x${viewport.height}`, async ({ page, apiStub }) => {
+        const errors: string[] = [];
+        const warnings: string[] = [];
+        page.on('console', (msg) => {
+          if (msg.type() === 'error') errors.push(msg.text());
+          if (msg.type() === 'warning') warnings.push(msg.text());
+        });
+
+        await page.setViewportSize({ width: viewport.width, height: viewport.height });
+        await apiStub.stubSpecies('vermfly', fixture.meta);
+        if (fixture.stubImage) await apiStub.stubPhotoImage();
+
+        const app = new AppPage(page);
+        await app.goto('detail=vermfly&view=detail');
+        await app.waitForAppReady();
+        await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' }))
+          .toBeVisible({ timeout: 10_000 });
+
+        // Filter known third-party noise — tile/font 404s from the persistent
+        // map chunk that the App preloads even on view=detail. These are
+        // network-specific to the preview/dev environment and not owned by
+        // this codebase. Same filter rule as map-symbol-layer.spec.ts.
+        const ourErrors = errors.filter((e) =>
+          !/tiles\.openfreemap\.org|fonts\.openfreemap/i.test(e),
+        );
+        const ourWarnings = warnings.filter((w) =>
+          !/tiles\.openfreemap\.org|fonts\.openfreemap/i.test(w),
+        );
+        expect(ourErrors, `unexpected console errors: ${ourErrors.join('\n')}`).toEqual([]);
+        expect(ourWarnings, `unexpected console warnings: ${ourWarnings.join('\n')}`).toEqual([]);
+      });
+    }
+  }
 });
