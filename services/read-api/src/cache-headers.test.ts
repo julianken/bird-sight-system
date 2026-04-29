@@ -10,9 +10,14 @@ describe('cacheControlFor', () => {
     expect(cacheControlFor('hotspots'))
       .toBe('public, max-age=86400, stale-while-revalidate=3600');
   });
-  it('returns 7d immutable for /species', () => {
+  it('returns 7d max-age (revalidatable) for /species', () => {
+    // No `immutable`: photo_url on species_meta is a monthly-refreshed field
+    // (issue #327). The value at this URL CAN change, so `immutable` is
+    // semantically wrong. Browsers re-validate at expiry; CDN may serve
+    // stale species data for up to 7 days after a photo write — acceptable
+    // given monthly refresh cadence. See cache-headers.ts comment.
     expect(cacheControlFor('species'))
-      .toBe('public, max-age=604800, immutable');
+      .toBe('public, max-age=604800');
   });
   it('returns 7d max-age (revalidatable) for /silhouettes', () => {
     // Family silhouettes legitimately drift between deploys (curation,
