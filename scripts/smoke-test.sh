@@ -42,8 +42,8 @@ echo "Checking $API/api/species/grhowl returns species object with comName..."
 curl -fsS "$API/api/species/grhowl" | jq -e '.comName' > /dev/null
 
 echo
-echo "Checking Cache-Control header on /api/species/grhowl (immutable)..."
-curl -fsSI "$API/api/species/grhowl" | grep -i 'cache-control: public, max-age=604800, immutable'
+echo "Checking Cache-Control header on /api/species/grhowl..."
+curl -fsSI "$API/api/species/grhowl" | grep -i 'cache-control: public, max-age=604800'
 
 echo
 echo "Checking frontend HTML..."

@@ -16,7 +16,7 @@ The Read API is a 5-route Hono app (`services/read-api/src/app.ts:11-105`) with 
 | `/api/regions` | — | `Region[]` (9 rows; seeded, immutable) | `public, max-age=604800, immutable` |
 | `/api/hotspots` | — | `Hotspot[]` | `public, max-age=86400, stale-while-revalidate=3600` |
 | `/api/observations` | `since`, `notable`, `species`, `family` (all optional) | `Observation[]` (unpaginated, `ORDER BY obs_dt DESC`) | `public, max-age=1800, stale-while-revalidate=600` |
-| `/api/species/:code` | path `:code` | `SpeciesMeta` or `404 {error:'not found'}` | `public, max-age=604800, immutable` |
+| `/api/species/:code` | path `:code` | `SpeciesMeta` or `404 {error:'not found'}` | `public, max-age=604800` |
 | `/health` | — | `{ok:true}` | — |
 
 Response shapes (from `packages/shared-types/src/index.ts:1-50`):
