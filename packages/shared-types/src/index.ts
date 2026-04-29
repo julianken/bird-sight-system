@@ -44,6 +44,17 @@ export interface SpeciesMeta {
   familyCode: string;
   familyName: string;
   taxonOrder: number | null;
+  // Optional photo projection fields. These are derived at read time
+  // (issue #327) from a LEFT JOIN to species_photos and are NEVER stored
+  // on the species_meta table itself. The Read API populates them on
+  // /api/species/:code when a row exists in species_photos with
+  // purpose='detail-panel' for the species; absent otherwise. Cache caveat:
+  // stale CDN responses predating these fields deserialize with all three
+  // === undefined, which the frontend treats as "no photo" (Phylopic
+  // silhouette fallback) — no Cache-Control bump is required.
+  photoUrl?: string;
+  photoAttribution?: string;
+  photoLicense?: string;
 }
 
 export interface FamilySilhouette {
