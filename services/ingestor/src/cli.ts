@@ -18,6 +18,10 @@ import {
   runTaxonomy as realRunTaxonomy,
   type RunTaxonomySummary,
 } from './run-taxonomy.js';
+import {
+  runPhotos as realRunPhotos,
+  type RunPhotosSummary,
+} from './run-photos.js';
 
 /**
  * Every run summary discriminates on `status`. `RunBackfillSummary` can also be
@@ -28,7 +32,8 @@ type AnyRunSummary =
   | RunSummary
   | RunHotspotSummary
   | RunBackfillSummary
-  | RunTaxonomySummary;
+  | RunTaxonomySummary
+  | RunPhotosSummary;
 
 /**
  * Injectable dependencies for `runCli`. In production `cli.ts`'s IIFE passes
@@ -42,6 +47,7 @@ export interface CliDeps {
   runHotspotIngest: typeof realRunHotspotIngest;
   runBackfill: typeof realRunBackfill;
   runTaxonomy: typeof realRunTaxonomy;
+  runPhotos: typeof realRunPhotos;
 }
 
 /**
@@ -74,8 +80,10 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
       summary = await deps.runBackfill({ pool, apiKey, regionCode: 'US-AZ', days: 30 });
     } else if (kind === 'taxonomy') {
       summary = await deps.runTaxonomy({ pool, apiKey });
+    } else if (kind === 'photos') {
+      summary = await deps.runPhotos({ pool });
     } else {
-      throw new Error(`Unknown kind: ${kind}. Try recent | hotspots | backfill | taxonomy`);
+      throw new Error(`Unknown kind: ${kind}. Try recent | hotspots | backfill | taxonomy | photos`);
     }
     console.log(JSON.stringify(summary, null, 2));
     if (summary.status === 'failure') {
@@ -111,6 +119,7 @@ if (isEntrypoint) {
     runHotspotIngest: realRunHotspotIngest,
     runBackfill: realRunBackfill,
     runTaxonomy: realRunTaxonomy,
+    runPhotos: realRunPhotos,
   }).catch(err => {
     console.error(err);
     process.exit(1);
