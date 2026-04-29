@@ -1,6 +1,101 @@
 import type { Pool } from './pool.js';
 import type { SpeciesMeta } from '@bird-watch/shared-types';
 
+/**
+ * One row of `species_photos`. Mirrors the column shape verbatim — used by
+ * `getSpeciesPhotos` to return a typed array of photo rows. The photo
+ * projection on `SpeciesMeta` (issue #327, set by the LEFT JOIN in
+ * `getSpeciesMeta`) is the wire-facing shape; this type is the row-facing
+ * one and stays inside db-client.
+ */
+export interface SpeciesPhoto {
+  id: number;
+  speciesCode: string;
+  purpose: string;
+  url: string;
+  attribution: string;
+  license: string;
+  createdAt: Date;
+}
+
+export interface SpeciesPhotoInput {
+  speciesCode: string;
+  purpose: string;
+  url: string;
+  attribution: string;
+  license: string;
+}
+
+/**
+ * Insert a row into `species_photos`. Idempotent on `(species_code, purpose)`:
+ * a second call with the same pair upserts (replaces) the existing row's
+ * url/attribution/license and bumps `created_at`. Returns the row id.
+ *
+ * The taxonomy on `species_meta` is NOT touched here — issue #327's plan
+ * critic flagged that a careless impl could clobber `com_name`/`sci_name`/
+ * `family_code`/`family_name`/`taxon_order` if it tried to upsert into
+ * `species_meta` instead. The locking test in species.test.ts
+ * ('insertSpeciesPhoto does not clobber taxonomy columns on conflict') is
+ * the contractual guarantee against that regression.
+ */
+export async function insertSpeciesPhoto(
+  pool: Pool,
+  input: SpeciesPhotoInput
+): Promise<number> {
+  const { rows } = await pool.query<{ id: string }>(
+    `INSERT INTO species_photos (species_code, purpose, url, attribution, license)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (species_code, purpose) DO UPDATE SET
+       url = EXCLUDED.url,
+       attribution = EXCLUDED.attribution,
+       license = EXCLUDED.license,
+       created_at = NOW()
+     RETURNING id`,
+    [input.speciesCode, input.purpose, input.url, input.attribution, input.license]
+  );
+  // BIGSERIAL comes back as string from pg by default; cast to number for the
+  // public return type. The id range here is well under Number.MAX_SAFE_INTEGER.
+  return Number(rows[0]!.id);
+}
+
+/**
+ * Return all `species_photos` rows for the given species, newest first.
+ * Today the (species_code, purpose) UNIQUE means a species has at most one
+ * row per purpose and only `'detail-panel'` is permitted, so this returns
+ * 0 or 1 row in practice. The contract is forward-looking: when additional
+ * purpose values land (`marker`, `gallery`, etc.), the ORDER BY clause keeps
+ * consumers correct.
+ */
+export async function getSpeciesPhotos(
+  pool: Pool,
+  speciesCode: string
+): Promise<SpeciesPhoto[]> {
+  const { rows } = await pool.query<{
+    id: string;
+    species_code: string;
+    purpose: string;
+    url: string;
+    attribution: string;
+    license: string;
+    created_at: Date;
+  }>(
+    `SELECT id, species_code, purpose, url, attribution, license, created_at
+       FROM species_photos
+      WHERE species_code = $1
+      ORDER BY created_at DESC`,
+    [speciesCode]
+  );
+  return rows.map(r => ({
+    id: Number(r.id),
+    speciesCode: r.species_code,
+    purpose: r.purpose,
+    url: r.url,
+    attribution: r.attribution,
+    license: r.license,
+    createdAt: r.created_at,
+  }));
+}
+
 export async function getSpeciesMeta(
   pool: Pool,
   speciesCode: string
@@ -12,14 +107,35 @@ export async function getSpeciesMeta(
     family_code: string;
     family_name: string;
     taxon_order: number | null;
+    photo_url: string | null;
+    photo_attribution: string | null;
+    photo_license: string | null;
   }>(
-    `SELECT species_code, com_name, sci_name, family_code, family_name, taxon_order
-     FROM species_meta WHERE species_code = $1`,
+    // LEFT JOIN species_photos so the species row is returned regardless of
+    // whether a detail-panel photo exists. The (species_code, purpose) UNIQUE
+    // guarantees at most one matching row, so no LIMIT/aggregation needed.
+    `SELECT sm.species_code, sm.com_name, sm.sci_name, sm.family_code,
+            sm.family_name, sm.taxon_order,
+            sp.url         AS photo_url,
+            sp.attribution AS photo_attribution,
+            sp.license     AS photo_license
+       FROM species_meta sm
+       LEFT JOIN species_photos sp
+         ON sp.species_code = sm.species_code
+        AND sp.purpose = 'detail-panel'
+      WHERE sm.species_code = $1`,
     [speciesCode]
   );
   const r = rows[0];
   if (!r) return null;
-  return {
+  // Build the result with the taxonomy fields always populated and the
+  // optional photo fields ONLY set when present. Under
+  // exactOptionalPropertyTypes, assigning `undefined` to an optional
+  // string-typed property is a type error — so omit the keys outright when
+  // the JOIN produced NULLs. Consumers see `meta.photoUrl === undefined`
+  // because the property is missing, which is the contract spec'd in
+  // species.test.ts ("not present, not null, not empty").
+  const meta: SpeciesMeta = {
     speciesCode: r.species_code,
     comName: r.com_name,
     sciName: r.sci_name,
@@ -27,6 +143,10 @@ export async function getSpeciesMeta(
     familyName: r.family_name,
     taxonOrder: r.taxon_order,
   };
+  if (r.photo_url !== null) meta.photoUrl = r.photo_url;
+  if (r.photo_attribution !== null) meta.photoAttribution = r.photo_attribution;
+  if (r.photo_license !== null) meta.photoLicense = r.photo_license;
+  return meta;
 }
 
 export async function upsertSpeciesMeta(
