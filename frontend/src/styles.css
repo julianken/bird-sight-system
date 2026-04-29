@@ -420,9 +420,18 @@ body {
    and scaling it to the photo's footprint would invent visual weight the
    silhouette path doesn't carry. */
 .species-detail-photo {
+  /* Width caps at 480px on desktop, fills container on mobile.
+     aspect-ratio + object-fit reserve a stable 4:3 box BEFORE the photo
+     loads — eliminates the CLS (Cumulative Layout Shift) that would
+     otherwise happen as comName/sciName/familyName text below the photo
+     reflows downward when the image swaps in. iNaturalist's medium
+     variant returns photos at varied native ratios; cover-cropping to
+     4/3 trades a small framing compromise for layout stability. */
   display: block;
-  max-width: min(100%, 480px);
-  height: auto;
+  width: 100%;
+  max-width: 480px;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
   margin: 0 0 12px 0;
   border-radius: 4px;
 }
