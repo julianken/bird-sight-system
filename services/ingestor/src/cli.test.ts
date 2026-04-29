@@ -15,6 +15,7 @@ function makeDeps(overrides: Partial<CliDeps> = {}): CliDeps {
     runHotspotIngest: vi.fn(),
     runBackfill: vi.fn(),
     runTaxonomy: vi.fn(),
+    runPhotos: vi.fn(),
     ...overrides,
   };
 }
