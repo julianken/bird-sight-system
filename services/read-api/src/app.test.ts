@@ -4,6 +4,7 @@ import {
   upsertHotspots,
   upsertSpeciesMeta,
   upsertObservations,
+  insertSpeciesPhoto,
 } from '@bird-watch/db-client';
 import { createApp } from './app.js';
 
@@ -178,8 +179,12 @@ describe('GET /api/species/:code', () => {
     const app = createApp({ pool: db.pool });
     const res = await app.request('/api/species/vermfly');
     expect(res.status).toBe(200);
+    // No `immutable`: photo_url on species_meta is a monthly-refreshed field
+    // (issue #327), so the value at this URL CAN change. CDN may serve stale
+    // species data for up to 7 days after a photo write — acceptable given
+    // monthly refresh cadence. See cache-headers.ts comment.
     expect(res.headers.get('cache-control'))
-      .toBe('public, max-age=604800, immutable');
+      .toBe('public, max-age=604800');
     const body = await res.json() as { speciesCode: string; comName: string };
     expect(body.speciesCode).toBe('vermfly');
     expect(body.comName).toBe('Vermilion Flycatcher');
@@ -189,6 +194,34 @@ describe('GET /api/species/:code', () => {
     const app = createApp({ pool: db.pool });
     const res = await app.request('/api/species/notreal');
     expect(res.status).toBe(404);
+  });
+
+  it('populates photoUrl/photoAttribution/photoLicense when species_photos has a detail-panel row', async () => {
+    // Seed a detail-panel photo row for vermfly via insertSpeciesPhoto.
+    // The route handler delegates to getSpeciesMeta which LEFT JOINs
+    // species_photos (purpose='detail-panel'); the three optional fields
+    // round-trip through the Hono JSON response when the JOIN matches.
+    await insertSpeciesPhoto(db.pool, {
+      speciesCode: 'vermfly',
+      purpose: 'detail-panel',
+      url: 'https://photos.example/vermfly.jpg',
+      attribution: 'Photographer Name / iNaturalist',
+      license: 'CC-BY-NC',
+    });
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/species/vermfly');
+    expect(res.status).toBe(200);
+    const body = await res.json() as {
+      speciesCode: string;
+      comName: string;
+      photoUrl?: string;
+      photoAttribution?: string;
+      photoLicense?: string;
+    };
+    expect(body.speciesCode).toBe('vermfly');
+    expect(body.photoUrl).toBe('https://photos.example/vermfly.jpg');
+    expect(body.photoAttribution).toBe('Photographer Name / iNaturalist');
+    expect(body.photoLicense).toBe('CC-BY-NC');
   });
 });
 
@@ -315,7 +348,8 @@ describe('CORS middleware', () => {
   });
 
   it('sets Vary: Origin on a cached route so CDN keys per-origin', async () => {
-    // `/api/species/:code` is served with `Cache-Control: public, immutable`.
+    // `/api/species/:code` is served with `Cache-Control: public, max-age=604800`
+    // (no `immutable` — photo_url drifts on a monthly cadence, see #327).
     // With `Vary: Origin`, a spec-compliant CDN caches a separate entry per
     // Origin. That multiplies the cache namespace N× for N allowed origins
     // (trivial at 3, callable-out if that grows) but keeps the ACAO header
@@ -330,6 +364,6 @@ describe('CORS middleware', () => {
     expect(vary.toLowerCase()).toContain('origin');
     // Coexists with route-level Cache-Control.
     expect(res.headers.get('cache-control'))
-      .toBe('public, max-age=604800, immutable');
+      .toBe('public, max-age=604800');
   });
 });

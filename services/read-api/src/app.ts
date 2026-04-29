@@ -26,15 +26,16 @@ export function createApp(deps: AppDeps): Hono {
   // CORS must be registered BEFORE route handlers — otherwise preflight
   // requests (OPTIONS without a matching route handler) 404.
   //
-  // Interaction with route-level `Cache-Control: public, immutable` on
-  // /api/species/:code: Hono sets `Vary: Origin`, so a
-  // spec-compliant CDN keys the cache per-Origin. That means the identical
-  // JSON body is stored N× for N allowed origins (currently 3 — trivial).
-  // Uptime probes and plain `curl` hit these routes without an Origin
-  // header, so the CDN also caches a no-ACAO entry; browsers never see that
-  // entry because Cloud CDN honors Vary. The cached bodies contain no
-  // Origin-derived data, so serving any cached entry across origins would
-  // still be correct — `Vary: Origin` is purely for header correctness.
+  // Interaction with route-level `Cache-Control: public, max-age=604800` on
+  // /api/species/:code (no `immutable` — see cache-headers.ts comment): Hono
+  // sets `Vary: Origin`, so a spec-compliant CDN keys the cache per-Origin.
+  // That means the identical JSON body is stored N× for N allowed origins
+  // (currently 3 — trivial). Uptime probes and plain `curl` hit these routes
+  // without an Origin header, so the CDN also caches a no-ACAO entry;
+  // browsers never see that entry because Cloud CDN honors Vary. The cached
+  // bodies contain no Origin-derived data, so serving any cached entry across
+  // origins would still be correct — `Vary: Origin` is purely for header
+  // correctness.
   app.use('*', cors({
     origin: origins,
     allowMethods: ['GET'],
