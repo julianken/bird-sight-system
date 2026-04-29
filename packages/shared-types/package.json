@@ -12,6 +12,6 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "echo 'no tests'"
+    "test": "tsc -p tsconfig.test.json"
   }
 }
