@@ -52,25 +52,44 @@ jobs:
           docker push "$IMAGE"
           echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
 
-      - name: Deploy to Cloud Run Job
+      - name: Deploy to Cloud Run Jobs
         run: |
-          gcloud run jobs update "$JOB_NAME" \
-            --region="$GCP_REGION" \
-            --image="$IMAGE" \
-            --quiet
+          # Two jobs share this image: bird-ingestor (the original — recent /
+          # hotspots / backfill / taxonomy kinds, 300s timeout) and
+          # bird-ingestor-photos (added in #327 task-8b — photos kind,
+          # 600s timeout). Both dispatch through cli.ts on the kind arg.
+          # If the photos job doesn't exist yet (Terraform apply hasn't been
+          # run since #327 task-8b merged), skip rather than fail the deploy
+          # — the next deploy after apply picks up this image automatically.
+          for JOB in bird-ingestor bird-ingestor-photos; do
+            if gcloud run jobs describe "$JOB" --region="$GCP_REGION" >/dev/null 2>&1; then
+              echo "Updating $JOB to $IMAGE"
+              gcloud run jobs update "$JOB" \
+                --region="$GCP_REGION" \
+                --image="$IMAGE" \
+                --quiet
+            else
+              echo "Job $JOB does not exist yet — skipping (terraform apply pending for #327 task-8b?)"
+            fi
+          done
 
       - name: Verify image pinned
         run: |
           # Cloud Run Jobs aren't HTTP endpoints, so we can't curl a /health URL the way
-          # deploy-read-api does. The closest equivalent is verifying the job resource now
+          # deploy-read-api does. The closest equivalent is verifying each job resource now
           # points at the commit-SHA image tag we just pushed. This confirms the update
           # succeeded end-to-end (auth → AR push → Cloud Run control plane) without burning
-          # a live ingest run on every deploy. The three schedulers (every 30 min, daily
-          # 4am, weekly Sun 5am) bind to the job by name, so they pick up the new image
-          # on their next tick automatically.
-          DEPLOYED=$(gcloud run jobs describe "$JOB_NAME" \
-            --region="$GCP_REGION" \
-            --format='value(spec.template.spec.template.spec.containers[0].image)')
-          echo "Deployed image: $DEPLOYED"
-          echo "Expected image: $IMAGE"
-          test "$DEPLOYED" = "$IMAGE"
+          # a live ingest run on every deploy. Schedulers bind to jobs by name, so they
+          # pick up the new image on their next tick automatically.
+          for JOB in bird-ingestor bird-ingestor-photos; do
+            if gcloud run jobs describe "$JOB" --region="$GCP_REGION" >/dev/null 2>&1; then
+              DEPLOYED=$(gcloud run jobs describe "$JOB" \
+                --region="$GCP_REGION" \
+                --format='value(spec.template.spec.template.spec.containers[0].image)')
+              echo "Deployed image for $JOB: $DEPLOYED"
+              echo "Expected image:        $IMAGE"
+              test "$DEPLOYED" = "$IMAGE"
+            else
+              echo "Job $JOB not provisioned — verification skipped"
+            fi
+          done
