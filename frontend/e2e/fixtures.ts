@@ -5,6 +5,45 @@ import type { Observation, SpeciesMeta } from '@bird-watch/shared-types';
 export type StubbableEndpoint = 'hotspots' | 'observations' | 'species' | 'silhouettes';
 
 /**
+ * Canonical Vermilion Flycatcher SpeciesMeta fixture (NO photoUrl) — exercises
+ * the silhouette fallback path on the species detail surface. Used in
+ * species-detail.spec.ts, axe.spec.ts, attribution-modal.spec.ts.
+ */
+export const VERMFLY: SpeciesMeta = {
+  speciesCode: 'vermfly',
+  comName: 'Vermilion Flycatcher',
+  sciName: 'Pyrocephalus rubinus',
+  familyCode: 'tyrannidae',
+  familyName: 'Tyrant Flycatchers',
+  taxonOrder: 4400,
+};
+
+/**
+ * Vermilion Flycatcher SpeciesMeta WITH photoUrl + attribution + license —
+ * exercises the iNat photo render path on the species detail surface
+ * (issue #327 task-10). The photoUrl is intentionally a *.bird-maps.com host
+ * so e2e specs can `page.route` it to a 1×1 stub image without external
+ * dependencies. The cc-by license code resolves to "CC BY 4.0" /
+ * https://creativecommons.org/licenses/by/4.0/ in the AttributionModal.
+ */
+export const VERMFLY_WITH_PHOTO: SpeciesMeta = {
+  ...VERMFLY,
+  photoUrl: 'https://photos.bird-maps.com/vermfly.jpg',
+  photoAttribution: 'Jane Photographer',
+  photoLicense: 'cc-by',
+};
+
+/**
+ * 1×1 transparent PNG (67 bytes, base64) used by `stubPhotoImage` to satisfy
+ * the browser's `<img>` request for `photoUrl`. Returning a real binary keeps
+ * the network stack happy: we never load a real photo across the wire from the
+ * browser, but the `<img>`'s `load` fires successfully so `onError` is NOT
+ * triggered and the photo render branch stays mounted.
+ */
+const TINY_PNG_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+
+/**
  * Playwright route stubs for the Read API. Each helper registers a single
  * `page.route` handler; route handlers are LIFO, so a later registration
  * wins over an earlier one for the same glob.
@@ -39,6 +78,16 @@ export interface ApiStub {
    * HTTP-level failure, use `stubApiFailure` instead.
    */
   stubApiAbort(endpoint: StubbableEndpoint): Promise<void>;
+  /**
+   * Stubs `**\/photos.bird-maps.com/**` with a tiny 1×1 PNG so a
+   * `<img src="https://photos.bird-maps.com/...">` request resolves
+   * successfully in the browser. Use when a test renders
+   * `VERMFLY_WITH_PHOTO` and asserts on the photo branch — without this,
+   * the request would either go to the real CDN (real network dependency)
+   * or 404 (which would fire the `<img>`'s `onError` and silently switch
+   * to the silhouette fallback, masking the photo behavior under test).
+   */
+  stubPhotoImage(): Promise<void>;
 }
 
 export const test = base.extend<{ apiStub: ApiStub }>({
@@ -85,6 +134,15 @@ export const test = base.extend<{ apiStub: ApiStub }>({
       async stubApiAbort(endpoint) {
         await page.route(`**/api/${endpoint}**`, async route => {
           await route.abort();
+        });
+      },
+      async stubPhotoImage() {
+        await page.route('**/photos.bird-maps.com/**', async route => {
+          await route.fulfill({
+            status: 200,
+            contentType: 'image/png',
+            body: Buffer.from(TINY_PNG_BASE64, 'base64'),
+          });
         });
       },
     };

@@ -1,17 +1,8 @@
-import { test, expect } from './fixtures.js';
+import { test, expect, VERMFLY, VERMFLY_WITH_PHOTO } from './fixtures.js';
 import AxeBuilder from '@axe-core/playwright';
 import { AppPage } from './pages/app-page.js';
 
 const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
-
-const VERMFLY = {
-  speciesCode: 'vermfly',
-  comName: 'Vermilion Flycatcher',
-  sciName: 'Pyrocephalus rubinus',
-  familyCode: 'tyrannidae',
-  familyName: 'Tyrant Flycatchers',
-  taxonOrder: 4400,
-} as const;
 
 test.describe('axe-core WCAG scans', () => {
   test('initial load has no WCAG 2/2.1 A/AA violations', async ({ page }) => {
@@ -110,6 +101,39 @@ test.describe('axe-core WCAG scans', () => {
     expect(results.violations).toEqual([]);
   });
 
+  // Issue #327 task-12 — extend axe coverage to the photo render branch.
+  // The existing detail-surface scan above uses VERMFLY (no photoUrl), so
+  // it only exercises the silhouette fallback path. The photo path
+  // produces an `<img alt="...photo">` whose alt-text + image-alt WCAG
+  // rules are scanned only when the photo is in the rendered DOM.
+  // `apiStub.stubPhotoImage()` ensures the `<img>`'s `load` fires (no
+  // 404→onError fallback to silhouette, which would silently mask the
+  // photo branch). Both desktop (1440×900) and mobile (390×844) viewports
+  // are covered because the photo's CSS layout differs at each (object-fit
+  // crop bounds, container sizing) — axe validates the rendered DOM at
+  // each viewport, not just the markup.
+  test('species detail surface with photoUrl has no WCAG 2/2.1 A/AA violations (desktop)', async ({ page, apiStub }) => {
+    await apiStub.stubSpecies('vermfly', VERMFLY_WITH_PHOTO);
+    await apiStub.stubPhotoImage();
+    const app = new AppPage(page);
+    await app.goto('detail=vermfly&view=detail');
+    await app.waitForAppReady();
+    await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' }))
+      .toBeVisible({ timeout: 10_000 });
+    // Confirm the <img> is in the DOM before scanning — without it, the
+    // scan would silently degrade to the silhouette branch and the test
+    // name would lie about what was covered.
+    await expect(page.getByAltText('Vermilion Flycatcher photo')).toBeVisible();
+    const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
+    if (results.violations.length) {
+      await test.info().attach('axe-violations', {
+        body: JSON.stringify(results.violations, null, 2),
+        contentType: 'application/json',
+      });
+    }
+    expect(results.violations).toEqual([]);
+  });
+
   test.describe('at 390×844 mobile viewport', () => {
     test.use({ viewport: { width: 390, height: 844 } });
 
@@ -120,6 +144,29 @@ test.describe('axe-core WCAG scans', () => {
       await app.waitForAppReady();
       await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' }))
         .toBeVisible({ timeout: 10_000 });
+      const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
+      if (results.violations.length) {
+        await test.info().attach('axe-violations', {
+          body: JSON.stringify(results.violations, null, 2),
+          contentType: 'application/json',
+        });
+      }
+      expect(results.violations).toEqual([]);
+    });
+
+    // Issue #327 task-12 — mobile counterpart of the with-photo axe scan
+    // above. The mobile viewport drives a different photo container width
+    // (column-stacked layout vs side-by-side on desktop), so the
+    // image-alt + landmark + reflow rules need to be scanned here too.
+    test('species detail surface with photoUrl has no WCAG 2/2.1 A/AA violations (mobile)', async ({ page, apiStub }) => {
+      await apiStub.stubSpecies('vermfly', VERMFLY_WITH_PHOTO);
+      await apiStub.stubPhotoImage();
+      const app = new AppPage(page);
+      await app.goto('detail=vermfly&view=detail');
+      await app.waitForAppReady();
+      await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' }))
+        .toBeVisible({ timeout: 10_000 });
+      await expect(page.getByAltText('Vermilion Flycatcher photo')).toBeVisible();
       const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
       if (results.violations.length) {
         await test.info().attach('axe-violations', {
