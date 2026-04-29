@@ -28,6 +28,59 @@ resource "google_secret_manager_secret_iam_member" "ingestor_ebird" {
   member    = "serviceAccount:${google_service_account.ingestor.email}"
 }
 
+# ── R2 (Cloudflare) credentials for the photos ingest job ────────────────
+#
+# The photos kind (run-photos.ts) downloads iNaturalist images and PUTs them
+# into the `birdwatch-photos` R2 bucket via the S3-compatible endpoint. R2
+# credentials are minted in the Cloudflare R2 dashboard (account-scoped
+# access keys) and live outside Terraform's reach — we declare the secret
+# resources here, but values are populated out-of-band post-`terraform apply`
+# via `gcloud secrets versions add`. This keeps R2 keys off `terraform.tfvars`
+# and out of any plan/state JSON exfiltrated to CI logs. Same shape as
+# `ebird_key` minus the `_version` resource (which would require the value
+# at apply time via a `var.*`).
+resource "google_secret_manager_secret" "r2_endpoint" {
+  secret_id = "bird-watch-r2-endpoint"
+  replication {
+    auto {}
+  }
+  depends_on = [google_project_service.secretmanager]
+}
+
+resource "google_secret_manager_secret" "r2_access_key_id" {
+  secret_id = "bird-watch-r2-access-key-id"
+  replication {
+    auto {}
+  }
+  depends_on = [google_project_service.secretmanager]
+}
+
+resource "google_secret_manager_secret" "r2_secret_access_key" {
+  secret_id = "bird-watch-r2-secret-access-key"
+  replication {
+    auto {}
+  }
+  depends_on = [google_project_service.secretmanager]
+}
+
+resource "google_secret_manager_secret_iam_member" "ingestor_r2_endpoint" {
+  secret_id = google_secret_manager_secret.r2_endpoint.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.ingestor.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "ingestor_r2_access_key_id" {
+  secret_id = google_secret_manager_secret.r2_access_key_id.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.ingestor.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "ingestor_r2_secret_access_key" {
+  secret_id = google_secret_manager_secret.r2_secret_access_key.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.ingestor.email}"
+}
+
 resource "google_cloud_run_v2_job" "ingestor" {
   name     = "bird-ingestor"
   location = var.gcp_region
@@ -210,6 +263,146 @@ resource "google_cloud_scheduler_job" "ingest_taxonomy" {
     body = base64encode(jsonencode({
       overrides = {
         containerOverrides = [{ args = ["taxonomy"] }]
+      }
+    }))
+    oauth_token {
+      service_account_email = google_service_account.scheduler.email
+    }
+  }
+
+  depends_on = [google_project_service.scheduler]
+}
+
+# ── Photos ingest job (issue #327) ───────────────────────────────────────
+#
+# Separate Cloud Run Job because the photos kind needs a 600s timeout to
+# walk ~344 species × (iNat fetch + R2 PUT). The other kinds (recent,
+# backfill, hotspots, taxonomy) finish well within 300s and are tuned for
+# that ceiling — bumping the shared job's timeout would mask runtime
+# regressions in the eBird-driven kinds. Mirrors the .ingestor job's shape
+# (image, env, lifecycle.ignore_changes) so deploy-ingestor.yml's image-tag
+# rollout reaches both jobs from a single Artifact Registry push.
+resource "google_cloud_run_v2_job" "ingestor_photos" {
+  name     = "bird-ingestor-photos"
+  location = var.gcp_region
+
+  template {
+    template {
+      service_account = google_service_account.ingestor.email
+      timeout         = "600s"
+      max_retries     = 1
+
+      containers {
+        image = "${google_artifact_registry_repository.birdwatch.location}-docker.pkg.dev/${var.gcp_project_id}/${google_artifact_registry_repository.birdwatch.repository_id}/ingestor:latest"
+
+        # CLI takes the kind as positional arg; Scheduler override below sets it
+        # to "photos", but the baked-in default keeps a manual `gcloud run jobs
+        # execute bird-ingestor-photos` working without overrides.
+        args = ["photos"]
+
+        resources {
+          limits = { cpu = "1", memory = "512Mi" }
+        }
+
+        env {
+          name = "DATABASE_URL"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.db_url.secret_id
+              version = "latest"
+            }
+          }
+        }
+        env {
+          name = "EBIRD_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.ebird_key.secret_id
+              version = "latest"
+            }
+          }
+        }
+        env {
+          name = "R2_ENDPOINT"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.r2_endpoint.secret_id
+              version = "latest"
+            }
+          }
+        }
+        env {
+          name = "R2_ACCESS_KEY_ID"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.r2_access_key_id.secret_id
+              version = "latest"
+            }
+          }
+        }
+        env {
+          name = "R2_SECRET_ACCESS_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.r2_secret_access_key.secret_id
+              version = "latest"
+            }
+          }
+        }
+      }
+    }
+  }
+
+  # Same rationale as .ingestor: deploy-ingestor.yml rolls the image tag,
+  # Terraform must not reconcile it back to :latest on every apply.
+  lifecycle {
+    ignore_changes = [template[0].template[0].containers[0].image]
+  }
+
+  depends_on = [
+    google_project_service.run,
+    google_secret_manager_secret_iam_member.ingestor_db,
+    google_secret_manager_secret_iam_member.ingestor_ebird,
+    google_secret_manager_secret_iam_member.ingestor_r2_endpoint,
+    google_secret_manager_secret_iam_member.ingestor_r2_access_key_id,
+    google_secret_manager_secret_iam_member.ingestor_r2_secret_access_key,
+  ]
+}
+
+# Same role + same scheduler SA as `.scheduler_invoke` — Scheduler still uses
+# containerOverrides to pin args=["photos"] (matches the bake-in default but
+# is explicit at the cron-call site), which routes through runWithOverrides.
+resource "google_cloud_run_v2_job_iam_member" "scheduler_invoke_photos" {
+  name     = google_cloud_run_v2_job.ingestor_photos.name
+  location = google_cloud_run_v2_job.ingestor_photos.location
+  role     = "roles/run.jobsExecutorWithOverrides"
+  member   = "serviceAccount:${google_service_account.scheduler.email}"
+}
+
+locals {
+  # v2 endpoint for the photos-only job — separate URL because the path
+  # includes the job name, not the project + location alone.
+  job_run_url_photos = "https://run.googleapis.com/v2/projects/${var.gcp_project_id}/locations/${var.gcp_region}/jobs/${google_cloud_run_v2_job.ingestor_photos.name}:run"
+}
+
+# Monthly photos refresh. iNat photos rotate slowly (license drift, better
+# observations getting voted up) so monthly is the right cadence — matches the
+# taxonomy cron (also monthly) but offset by one hour to avoid concurrent
+# load on Neon's connection pool. ingest_taxonomy fires at 06:00 UTC on the
+# 1st; photos fires at 07:00 UTC on the 1st.
+resource "google_cloud_scheduler_job" "ingest_photos" {
+  name      = "bird-ingest-photos"
+  region    = var.gcp_region
+  schedule  = "0 7 1 * *"
+  time_zone = "Etc/UTC"
+
+  http_target {
+    uri         = local.job_run_url_photos
+    http_method = "POST"
+    headers     = { "Content-Type" = "application/json" }
+    body = base64encode(jsonencode({
+      overrides = {
+        containerOverrides = [{ args = ["photos"] }]
       }
     }))
     oauth_token {
