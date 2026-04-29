@@ -208,3 +208,91 @@ test.describe('AttributionModal — mobile viewport', () => {
     expect(await rows.count()).toBeGreaterThan(0);
   });
 });
+
+/**
+ * Issue #327 task-11 — iNaturalist photo credit in the AttributionModal.
+ *
+ * Two viewports (390×844 mobile, 1440×900 desktop) confirm the credit
+ * surfaces in the modal Photos section after navigating to a species
+ * detail surface and opening Credits. Stubbing /api/species/:code via
+ * `apiStub.stubSpecies` is required because the live read-api may not
+ * yet have R2 photo data populated for arbitrary species; the test
+ * deliberately picks deterministic photoAttribution + photoLicense
+ * fixtures so the credit is observable.
+ */
+
+const VERMFLY_WITH_PHOTO = {
+  ...VERMFLY,
+  photoUrl: 'https://photos.bird-maps.com/vermfly.jpg',
+  photoAttribution: 'Jane Photographer',
+  photoLicense: 'cc-by',
+} as const;
+
+test.describe('AttributionModal — iNat photo credit (#327 task-11)', () => {
+  for (const viewport of [
+    { width: 1440, height: 900, label: 'desktop' },
+    { width: 390, height: 844, label: 'mobile' },
+  ] as const) {
+    test.describe(`${viewport.label} (${viewport.width}x${viewport.height})`, () => {
+      test.use({ viewport: { width: viewport.width, height: viewport.height } });
+
+      test('shows iNat photo credit when SpeciesDetailSurface has a photo', async ({ page, apiStub }) => {
+        // Stub the species lookup with the photo fixture. The detail
+        // surface mounts on view=detail+detail=vermfly and the App
+        // threads photoAttribution + photoLicense through to the modal.
+        await apiStub.stubSpecies('vermfly', VERMFLY_WITH_PHOTO);
+        const app = new AppPage(page);
+        await app.goto('detail=vermfly&view=detail');
+        await app.waitForAppReady();
+        // Wait for the species detail surface to render (heading is the
+        // canonical post-fetch indicator).
+        await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' }))
+          .toBeVisible({ timeout: 10_000 });
+
+        // Open the Credits modal.
+        const trigger = page.locator('footer.app-footer').getByRole('button', { name: /credits/i });
+        await trigger.click();
+        const dialog = page.locator('dialog.attribution-modal');
+        await expect(dialog).toHaveAttribute('open', '');
+
+        // Photos section is present with an <h3>Photos</h3>.
+        const photosSection = dialog.locator('[data-testid=attribution-photos-section]');
+        await expect(photosSection).toBeVisible();
+        await expect(photosSection.getByRole('heading', { level: 3, name: /^photos$/i }))
+          .toBeVisible();
+
+        // Photographer attribution is rendered.
+        await expect(photosSection.getByText(/Jane Photographer/)).toBeVisible();
+
+        // CC license link surfaces with the canonical creativecommons.org
+        // deed URL. The cc-by code resolves to "CC BY 4.0" + /licenses/by/4.0/.
+        const licenseLink = photosSection.getByRole('link', { name: /CC BY 4\.0/i });
+        await expect(licenseLink).toBeVisible();
+        await expect(licenseLink).toHaveAttribute('href', 'https://creativecommons.org/licenses/by/4.0/');
+        await expect(licenseLink).toHaveAttribute('target', '_blank');
+        await expect(licenseLink).toHaveAttribute('rel', 'noopener noreferrer');
+      });
+
+      test('omits the Photos section when species has no photo metadata', async ({ page, apiStub }) => {
+        // VERMFLY (no photoAttribution / photoLicense) — the section
+        // must NOT render. Verifies the omit path that protects the
+        // user's experience on every other view + every species without
+        // a curated detail-panel photo.
+        await apiStub.stubSpecies('vermfly', VERMFLY);
+        const app = new AppPage(page);
+        await app.goto('detail=vermfly&view=detail');
+        await app.waitForAppReady();
+        await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' }))
+          .toBeVisible({ timeout: 10_000 });
+
+        const trigger = page.locator('footer.app-footer').getByRole('button', { name: /credits/i });
+        await trigger.click();
+        const dialog = page.locator('dialog.attribution-modal');
+        await expect(dialog).toHaveAttribute('open', '');
+        // No Photos heading; no photos section testid.
+        await expect(dialog.locator('[data-testid=attribution-photos-section]'))
+          .toHaveCount(0);
+      });
+    });
+  }
+});

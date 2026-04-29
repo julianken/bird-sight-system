@@ -3,6 +3,7 @@ import { ApiClient, ApiError } from './api/client.js';
 import { useUrlState } from './state/url-state.js';
 import { useBirdData } from './data/use-bird-data.js';
 import { useSilhouettes } from './data/use-silhouettes.js';
+import { useSpeciesDetail } from './data/use-species-detail.js';
 import { FiltersBar } from './components/FiltersBar.js';
 import { FeedSurface } from './components/FeedSurface.js';
 import { MapSurface } from './components/MapSurface.js';
@@ -42,6 +43,19 @@ export function App() {
     loading: silhouettesLoading,
     error: silhouettesError,
   } = useSilhouettes(apiClient);
+
+  // Active species meta for the detail view (issue #327 task-11). The
+  // hook fires only when state.view === 'detail' AND state.detail is set
+  // — passing `null` is a clean no-op. The Read API serves /api/species/:code
+  // with `Cache-Control: max-age=31536000, immutable`, so the parallel
+  // mount in SpeciesDetailSurface (which has its own per-instance cache)
+  // hits the browser HTTP cache on the second fetch — no duplicate
+  // network round-trip in practice. The threading exists to feed the
+  // photo credit into AttributionModal's Photos section without forcing
+  // a refactor of either the hook or SpeciesDetailSurface.
+  const activeDetailCode =
+    state.view === 'detail' && state.detail ? state.detail : null;
+  const { data: activeSpeciesMeta } = useSpeciesDetail(apiClient, activeDetailCode);
 
   // FamilyLegend toggle: clear when the active family is clicked again,
   // otherwise set. Single source of truth for URL-state writes lives here;
@@ -187,11 +201,21 @@ export function App() {
           misses or API failures (issue #274). Without these props the
           modal would render an empty list while the fetch is in flight
           — looks like silhouettes don't exist.
+
+          iNat photo credit (issue #327 task-11): the active SpeciesMeta
+          carries optional `photoAttribution` + `photoLicense` fields
+          when the detail-panel photo exists. Both must be present for
+          the Photos section to render; either-absent collapses it.
+          When `view !== 'detail'` or no species is selected,
+          `activeSpeciesMeta` is null — both props pass `undefined`, so
+          the section omits cleanly on every other view.
         */}
         <AttributionModal
           silhouettes={silhouettes}
           loading={silhouettesLoading}
           error={silhouettesError}
+          photoAttribution={activeSpeciesMeta?.photoAttribution}
+          photoLicense={activeSpeciesMeta?.photoLicense}
         />
       </footer>
     </div>
