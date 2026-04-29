@@ -19,6 +19,14 @@ export interface RunPhotosArgs {
 }
 
 export interface RunPhotosSummary {
+  /**
+   * Discriminator for the AnyRunSummary union in cli.ts. 'failure' iff every
+   * species hit an error (zero forward progress) — anything else (full success,
+   * mixed success/failure, all-skipped, empty species list) is 'success'. cli.ts
+   * uses this to set process.exitCode; Cloud Run Jobs see exitCode=1 only on
+   * total-failure runs, not on partial-progress ones.
+   */
+  status: 'success' | 'failure';
   /** Total rows iterated from species_meta. */
   speciesCount: number;
   /** Successful end-to-end (iNat hit + R2 uploaded + species_photos row written). */
@@ -67,6 +75,7 @@ export async function runPhotos(args: RunPhotosArgs): Promise<RunPhotosSummary> 
   );
 
   const summary: RunPhotosSummary = {
+    status: 'success',
     speciesCount: rows.length,
     photosFetched: 0,
     photosSkipped: 0,
@@ -134,6 +143,9 @@ export async function runPhotos(args: RunPhotosArgs): Promise<RunPhotosSummary> 
     }
   }
 
+  if (summary.photosFailed > 0 && summary.photosFetched === 0) {
+    summary.status = 'failure';
+  }
   return summary;
 }
 
