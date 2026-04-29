@@ -222,7 +222,7 @@ GET /api/silhouettes
 
 GET /api/species/:code
   → SpeciesMeta
-  Cache-Control: public, max-age=604800, immutable
+  Cache-Control: public, max-age=604800
 ```
 
 Shapes defined in `packages/shared-types/`.
