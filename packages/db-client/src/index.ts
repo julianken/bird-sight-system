@@ -5,7 +5,14 @@ export {
   getObservations, upsertObservations, runReconcileStamping,
   type ObservationInput,
 } from './observations.js';
-export { getSpeciesMeta, upsertSpeciesMeta } from './species.js';
+export {
+  getSpeciesMeta,
+  upsertSpeciesMeta,
+  insertSpeciesPhoto,
+  getSpeciesPhotos,
+  type SpeciesPhoto,
+  type SpeciesPhotoInput,
+} from './species.js';
 export { getSilhouettes } from './silhouettes.js';
 export {
   startIngestRun, finishIngestRun, getRecentIngestRuns,
