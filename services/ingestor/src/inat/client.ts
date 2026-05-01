@@ -16,6 +16,25 @@ const USER_AGENT = 'bird-maps.com/1.0 (https://bird-maps.com)';
 // different IDs and would silently narrow or skew the photo pool.
 const ARIZONA_PLACE_ID = '40';
 
+// place_id=1 is iNaturalist's canonical "United States" Place. Confirmed via
+// `GET https://api.inaturalist.org/v1/places/1` returning `name='United States'`,
+// `place_type=12` (country), `admin_level=0`. Used as Tier 2 in the photo
+// fallback cascade for AZ-rare/vagrant species (e.g. Cave Swallow, Glossy
+// Ibis) that have plenty of US research-grade observations elsewhere but no
+// AZ hits.
+const UNITED_STATES_PLACE_ID = '1';
+
+// Tier cascade for the photo lookup. Tier 1 is the historical AZ-only filter;
+// Tier 2 widens to the US; Tier 3 drops the place filter entirely. Each tier
+// keeps the same quality_grade/license/order_by constraints — only the
+// geographic filter relaxes.
+type Tier = { label: 'az' | 'us' | 'global'; placeId: string | null };
+const TIERS: readonly Tier[] = [
+  { label: 'az', placeId: ARIZONA_PLACE_ID },
+  { label: 'us', placeId: UNITED_STATES_PLACE_ID },
+  { label: 'global', placeId: null },
+];
+
 // CC license codes accepted by `photo_license`. CC-BY-NC* variants are
 // excluded because they forbid commercial use; while bird-maps.com is
 // non-commercial today, a future donations/grants tier could change that
@@ -51,47 +70,64 @@ export async function fetchInatPhoto(
   const retryBaseMs = opts.retryBaseMs ?? 250;
   const requestTimeoutMs = opts.requestTimeoutMs ?? 30_000;
 
-  const url = new URL(`${baseUrl}/observations`);
-  url.searchParams.set('taxon_name', taxonName);
-  url.searchParams.set('place_id', ARIZONA_PLACE_ID);
-  url.searchParams.set('quality_grade', 'research');
-  url.searchParams.set('photo_license', CC_LICENSES);
-  url.searchParams.set('order_by', 'votes'); // best-rated first
-  url.searchParams.set('per_page', '1');
-  url.searchParams.set('photos', 'true'); // only observations that include photos
+  for (const tier of TIERS) {
+    const url = new URL(`${baseUrl}/observations`);
+    url.searchParams.set('taxon_name', taxonName);
+    if (tier.placeId !== null) {
+      url.searchParams.set('place_id', tier.placeId);
+    }
+    url.searchParams.set('quality_grade', 'research');
+    url.searchParams.set('photo_license', CC_LICENSES);
+    url.searchParams.set('order_by', 'votes'); // best-rated first
+    url.searchParams.set('per_page', '1');
+    url.searchParams.set('photos', 'true'); // only observations that include photos
 
-  const body = await getJsonWithRetry<InatObservationsResponse>(
-    url,
-    maxRetries,
-    retryBaseMs,
-    requestTimeoutMs
-  );
+    const body = await getJsonWithRetry<InatObservationsResponse>(
+      url,
+      maxRetries,
+      retryBaseMs,
+      requestTimeoutMs
+    );
 
-  const firstResult = body.results[0];
-  if (!firstResult) return null;
+    const firstResult = body.results[0];
+    if (!firstResult) continue;
 
-  const firstPhoto = firstResult.photos[0];
-  if (!firstPhoto) return null;
+    const firstPhoto = firstResult.photos[0];
+    if (!firstPhoto) continue;
 
-  // iNat's `photo.url` returns a 75px square thumbnail by convention. The URL
-  // contains the literal segment 'square' (e.g. .../photos/12345/square.jpg);
-  // substituting 'medium' yields the ~500-800px variant suitable for a detail
-  // panel. iNat publishes the size token convention at
-  // https://www.inaturalist.org/pages/help#photos — supported values are
-  // square, small, medium, large, original.
-  const mediumUrl = firstPhoto.url.replace('square', 'medium');
+    // iNat's `photo.url` returns a 75px square thumbnail by convention. The
+    // URL contains the literal segment 'square' (e.g.
+    // .../photos/12345/square.jpg); substituting 'medium' yields the
+    // ~500-800px variant suitable for a detail panel. iNat publishes the size
+    // token convention at https://www.inaturalist.org/pages/help#photos —
+    // supported values are square, small, medium, large, original.
+    const mediumUrl = firstPhoto.url.replace('square', 'medium');
 
-  // photo_license filtering at the API level guarantees a non-null code, but
-  // defend against a malformed payload by falling back to an empty string —
-  // upstream consumers store the license in a NOT NULL column, so an empty
-  // string surfaces "schema violation" loudly rather than crashing here.
-  const license = firstPhoto.license_code ?? '';
+    // photo_license filtering at the API level guarantees a non-null code,
+    // but defend against a malformed payload by falling back to an empty
+    // string — upstream consumers store the license in a NOT NULL column, so
+    // an empty string surfaces "schema violation" loudly rather than crashing
+    // here.
+    const license = firstPhoto.license_code ?? '';
 
-  return {
-    url: mediumUrl,
-    attribution: firstPhoto.attribution,
-    license,
-  };
+    // Surface the tier on Tier 2/3 hits so a future "why is this photo
+    // showing a Maine bird?" investigation can grep the logs. Silent on
+    // Tier 1 (the common case — most species are AZ-photographed).
+    if (tier.label !== 'az') {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[fetchInatPhoto] ${taxonName}: matched at tier=${tier.label}`
+      );
+    }
+
+    return {
+      url: mediumUrl,
+      attribution: firstPhoto.attribution,
+      license,
+    };
+  }
+
+  return null;
 }
 
 async function getJsonWithRetry<T>(
