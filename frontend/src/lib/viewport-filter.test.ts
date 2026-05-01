@@ -30,7 +30,13 @@ describe('filterObservationsByBounds', () => {
   it('returns the input unchanged when bounds is null', () => {
     const observations = [obs('A', 32.2, -110.9), obs('B', 35.2, -111.6)];
     const result = filterObservationsByBounds(observations, null);
-    expect(result).toEqual(observations);
+    // Pin the referential-equality contract: the helper documents
+    // "returns the input array unchanged" so the App.tsx memo can
+    // reuse the same identity downstream when no filtering applies.
+    // `.toBe` (Object.is) catches a regression that would still pass
+    // `.toEqual` (deep equality) — e.g. a refactor returning
+    // `[...observations]` for "consistency".
+    expect(result).toBe(observations);
   });
 
   it('returns an empty array when input is empty', () => {
