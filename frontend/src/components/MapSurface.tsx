@@ -1,4 +1,5 @@
 import React from 'react';
+import type { LngLatBounds } from 'maplibre-gl';
 import type { FamilySilhouette, Observation } from '@bird-watch/shared-types';
 import { ErrorBoundary } from './ErrorBoundary.js';
 import { FamilyLegend } from './FamilyLegend.js';
@@ -31,6 +32,18 @@ function readLegendDefaultExpanded(): boolean {
 
 export interface MapSurfaceProps {
   observations: Observation[];
+  /**
+   * Issue #351: optional viewport-filtered observations array routed to
+   * FamilyLegend ONLY. When absent, FamilyLegend uses `observations`
+   * (preserves prior behavior for callers that don't pass distinct sets,
+   * keeps existing tests' `baseProps` working without churn). When
+   * present, MapCanvas still receives the full `observations` array —
+   * clustering math + auto-spider depend on a stable observations
+   * identity, so filtering MapCanvas's feed would break both. The split
+   * exists so the legend can narrate viewport state while the map
+   * continues to render the full set.
+   */
+  legendObservations?: Observation[];
   /** Provided by App.tsx via useSilhouettes — single mount per #246. */
   silhouettes: FamilySilhouette[];
   /** Currently active family filter (mirrors UrlState.familyCode). */
@@ -60,6 +73,14 @@ export interface MapSurfaceProps {
    * absent, the popover hides the "See species details" link.
    */
   onSelectSpecies?: (speciesCode: string) => void;
+  /**
+   * Issue #351: passthrough for MapCanvas's onViewportChange callback.
+   * App.tsx threads this so it can update its `viewportBounds` state on
+   * each map `idle` (camera-change settle). Optional — when absent,
+   * MapCanvas registers no viewport-change listener and the FamilyLegend
+   * keeps showing full-set counts.
+   */
+  onViewportChange?: (bounds: LngLatBounds) => void;
 }
 
 /**
@@ -84,15 +105,22 @@ export interface MapSurfaceProps {
  */
 export function MapSurface({
   observations,
+  legendObservations,
   silhouettes,
   familyCode,
   onFamilyToggle,
   onSkipToFeed,
   onSelectSpecies,
+  onViewportChange,
 }: MapSurfaceProps) {
   // Compute the expand-by-default once at mount. The component itself
   // (FamilyLegend) handles localStorage precedence + manual toggle.
   const defaultExpanded = React.useMemo(readLegendDefaultExpanded, []);
+  // Issue #351: FamilyLegend's observations source. When the parent
+  // hands us a distinct legendObservations array (App.tsx in view=map),
+  // narrate viewport state. When absent, fall back to the same array
+  // MapCanvas sees so baseline callers and tests stay unchanged.
+  const legendObs = legendObservations ?? observations;
   return (
     <ErrorBoundary
       fallback={
@@ -139,11 +167,12 @@ export function MapSurface({
             observations={observations}
             silhouettes={silhouettes}
             {...(onSelectSpecies ? { onSelectSpecies } : {})}
+            {...(onViewportChange ? { onViewportChange } : {})}
           />
         </React.Suspense>
         <FamilyLegend
           silhouettes={silhouettes}
-          observations={observations}
+          observations={legendObs}
           familyCode={familyCode}
           onFamilyToggle={onFamilyToggle}
           defaultExpanded={defaultExpanded}
