@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
 import { startTestDb, type TestDb } from '@bird-watch/db-client/dist/test-helpers.js';
-import { upsertSpeciesMeta, getSpeciesPhotos, insertSpeciesPhoto } from '@bird-watch/db-client';
+import {
+  upsertSpeciesMeta,
+  getSpeciesPhotos,
+  insertSpeciesPhoto,
+  upsertObservations,
+} from '@bird-watch/db-client';
 
 // Mock the iNat client and R2 uploader at the module boundary BEFORE importing
 // run-photos. The orchestrator's job is to compose those two side-effects with
@@ -63,10 +68,52 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await db.pool.query('TRUNCATE species_photos RESTART IDENTITY CASCADE');
+  await db.pool.query('TRUNCATE observations CASCADE');
   await db.pool.query('TRUNCATE species_meta CASCADE');
   fetchInatPhotoMock.mockReset();
   uploadToR2Mock.mockReset();
   await upsertSpeciesMeta(db.pool, SPECIES_FIXTURE);
+  // Seed one AZ observation per species so all three are visible to the
+  // photos job. The dedicated "skips species_meta rows with no observations"
+  // test below seeds observations for only one species.
+  await upsertObservations(db.pool, [
+    {
+      subId: 'S100000001',
+      speciesCode: 'verfly',
+      comName: 'Vermilion Flycatcher',
+      lat: 32.2226,
+      lng: -110.9747,
+      obsDt: '2026-04-30T12:00:00Z',
+      locId: 'L100',
+      locName: 'Tucson',
+      howMany: 1,
+      isNotable: false,
+    },
+    {
+      subId: 'S100000002',
+      speciesCode: 'annhum',
+      comName: "Anna's Hummingbird",
+      lat: 33.4484,
+      lng: -112.0740,
+      obsDt: '2026-04-30T12:00:00Z',
+      locId: 'L101',
+      locName: 'Phoenix',
+      howMany: 1,
+      isNotable: false,
+    },
+    {
+      subId: 'S100000003',
+      speciesCode: 'norcar',
+      comName: 'Northern Cardinal',
+      lat: 32.7,
+      lng: -111.0,
+      obsDt: '2026-04-30T12:00:00Z',
+      locId: 'L102',
+      locName: 'Casa Grande',
+      howMany: 1,
+      isNotable: false,
+    },
+  ]);
 });
 
 afterAll(async () => {
@@ -247,5 +294,59 @@ describe('runPhotos', () => {
     expect(await getSpeciesPhotos(db.pool, 'norcar')).toHaveLength(1);
     expect(await getSpeciesPhotos(db.pool, 'verfly')).toEqual([]);
     expect(await getSpeciesPhotos(db.pool, 'annhum')).toEqual([]);
+  });
+
+  it('runPhotos skips species_meta rows that have no observations in AZ (the iNat client filters by place_id=40, so species never observed in AZ are guaranteed no-op iNat round-trips)', async () => {
+    // Override the beforeEach seed: clear all observations and re-insert
+    // only one for verfly. annhum and norcar are left with species_meta
+    // rows but no observations — they represent the ~24k non-AZ species
+    // the taxonomy ingest writes to species_meta.
+    await db.pool.query('TRUNCATE observations CASCADE');
+    await upsertObservations(db.pool, [
+      {
+        subId: 'S100000001',
+        speciesCode: 'verfly',
+        comName: 'Vermilion Flycatcher',
+        lat: 32.2226,
+        lng: -110.9747,
+        obsDt: '2026-04-30T12:00:00Z',
+        locId: 'L100',
+        locName: 'Tucson',
+        howMany: 1,
+        isNotable: false,
+      },
+    ]);
+
+    fetchInatPhotoMock.mockImplementation(async (sciName: string) => ({
+      url: `https://inat.example.test/${encodeURIComponent(sciName)}/medium.jpg`,
+      attribution: `(c) somebody for ${sciName}, CC BY`,
+      license: 'cc-by',
+    }));
+    uploadToR2Mock.mockImplementation(async (_imageUrl: string, destKey: string) => {
+      return `https://photos.bird-maps.com/${destKey}`;
+    });
+
+    const summary = await runPhotos({ pool: db.pool, paceMs: 0 });
+
+    // Only the species with an observation is iterated.
+    expect(summary.speciesCount).toBe(1);
+    expect(summary.photosFetched).toBe(1);
+    expect(summary.photosSkipped).toBe(0);
+    expect(summary.photosFailed).toBe(0);
+
+    // iNat called exactly once, only for the AZ-observed species.
+    expect(fetchInatPhotoMock).toHaveBeenCalledTimes(1);
+    const sciNamesQueried = fetchInatPhotoMock.mock.calls.map(c => c[0]);
+    expect(sciNamesQueried).toEqual(['Pyrocephalus rubinus']);
+    expect(sciNamesQueried).not.toContain('Calypte anna');
+    expect(sciNamesQueried).not.toContain('Cardinalis cardinalis');
+
+    // R2 called exactly once.
+    expect(uploadToR2Mock).toHaveBeenCalledTimes(1);
+
+    // DB: photo row only for the AZ-observed species.
+    expect(await getSpeciesPhotos(db.pool, 'verfly')).toHaveLength(1);
+    expect(await getSpeciesPhotos(db.pool, 'annhum')).toEqual([]);
+    expect(await getSpeciesPhotos(db.pool, 'norcar')).toEqual([]);
   });
 });
