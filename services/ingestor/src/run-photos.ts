@@ -56,10 +56,18 @@ export async function runPhotos(args: RunPhotosArgs): Promise<RunPhotosSummary> 
   const paceMs = args.paceMs ?? DEFAULT_PACE_MS;
   const forceRefresh = args.forceRefresh ?? false;
 
-  // Fetch all species rows alongside any existing detail-panel photo URL via
-  // a LEFT JOIN. One round-trip beats N queries for the per-row "do you
-  // already have a photo?" check; the species_meta count is in the low
-  // hundreds today, so the join cost is negligible.
+  // Fetch species rows alongside any existing detail-panel photo URL via a
+  // LEFT JOIN. One round-trip beats N queries for the per-row "do you
+  // already have a photo?" check.
+  //
+  // The EXISTS filter narrows the iteration to species we have actually
+  // observed in Arizona. The taxonomy ingest writes the *full* eBird
+  // taxonomy (~24k species) to species_meta, but the iNat client filters
+  // photo lookups by place_id=40 (Arizona) — so for species never observed
+  // in AZ, every iteration would be a no-op iNat round-trip that returns
+  // null. With the filter, the photos job iterates only the ~344 species
+  // actually present in `observations`, fitting comfortably inside the
+  // 600s Cloud Run job timeout.
   const { rows } = await args.pool.query<{
     species_code: string;
     sci_name: string;
@@ -70,6 +78,10 @@ export async function runPhotos(args: RunPhotosArgs): Promise<RunPhotosSummary> 
        LEFT JOIN species_photos sp
          ON sp.species_code = sm.species_code
         AND sp.purpose = $1
+      WHERE EXISTS (
+        SELECT 1 FROM observations o
+         WHERE o.species_code = sm.species_code
+      )
       ORDER BY sm.species_code`,
     [PURPOSE]
   );
