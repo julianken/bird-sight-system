@@ -70,6 +70,28 @@ export interface MapCanvasProps {
    * — when absent, the popover hides the link.
    */
   onSelectSpecies?: (speciesCode: string) => void;
+  /**
+   * Issue #351: invoked on every map `idle` (camera-change settle) with
+   * the current `map.getBounds()`. App.tsx threads this so the
+   * FamilyLegend's per-family counts can reflect what the user is looking
+   * at right now, not the full loaded API window.
+   *
+   * Wired inside `handleLoad` via `map.on('idle', ...)`. The choice of
+   * `idle` (over `moveend` + `zoomend`) matches the existing mosaic
+   * reconciler (`MapCanvas.tsx`'s mosaic effect) and the auto-spider
+   * hook (`use-auto-spider.ts`), which both do post-camera-change work
+   * on `idle`. `idle` is naturally throttled — fires once after the
+   * pan/zoom animation AND tile loads settle — so no debounce is
+   * necessary, and the legend updates in lockstep with the
+   * mosaic/spider reconcilers (no visible timing skew between the
+   * legend updating and the markers settling).
+   *
+   * Optional. When absent, MapCanvas registers no `idle` listener for
+   * this purpose (existing reconcilers register their own). Existing
+   * callers that don't pass it — `MapSurface` callers without the
+   * viewport-aware path, unit tests with skeletal props — keep working.
+   */
+  onViewportChange?: (bounds: import('maplibre-gl').LngLatBounds) => void;
 }
 
 /**
@@ -190,6 +212,7 @@ export function MapCanvas({
   observations,
   silhouettes = [],
   onSelectSpecies,
+  onViewportChange,
 }: MapCanvasProps) {
   const mapRef = useRef<MapRef>(null);
   const [selectedObs, setSelectedObs] = useState<Observation | null>(null);
@@ -252,6 +275,15 @@ export function MapCanvas({
   // is keyed only on the map instance, NOT on the silhouettes array).
   const silhouettesRef = useRef(silhouettes);
   silhouettesRef.current = silhouettes;
+
+  // Issue #351: ref to the current onViewportChange prop. handleLoad has
+  // [] deps (registers listeners exactly once per maplibre instance), so
+  // we read the live callback through the ref instead of capturing the
+  // prop at registration time. App.tsx may pass a fresh inline closure
+  // on every render; without the ref, only the very first one would ever
+  // fire.
+  const onViewportChangeRef = useRef(onViewportChange);
+  onViewportChangeRef.current = onViewportChange;
 
   // Sprite-registration completion gate. Flips true after `Promise.all`
   // in the sprite-registration effect resolves. The symbol layer JSX is
@@ -419,6 +451,22 @@ export function MapCanvas({
     // syncs after every user interaction.
     map.on('zoomend', () => {
       setMapZoom(map.getZoom());
+    });
+
+    // Issue #351: viewport-aware FamilyLegend counts. Fire the
+    // onViewportChange callback (when supplied) on each `idle` —
+    // matching the mosaic reconciler at MapCanvas.tsx (mosaic effect)
+    // and the auto-spider hook at use-auto-spider.ts. `idle` fires
+    // after every camera-change settle (pan, zoom, programmatic
+    // easeTo/flyTo) once tile loads + style settles complete; it
+    // strictly follows `zoomend`. Registering once here (handleLoad's
+    // [] deps) is the right cardinality — the prop is read through
+    // a ref above so a fresh App.tsx callback identity per render
+    // still wins.
+    map.on('idle', () => {
+      const cb = onViewportChangeRef.current;
+      if (!cb) return;
+      cb(map.getBounds());
     });
 
     // Change cursor on hover.

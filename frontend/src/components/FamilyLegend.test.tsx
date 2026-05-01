@@ -73,7 +73,10 @@ beforeEach(() => clearLegendStorage());
 afterEach(() => clearLegendStorage());
 
 describe('FamilyLegend', () => {
-  it('renders a header reading "Bird families" and a toggle button', () => {
+  it('renders a header reading "Bird families in view" and a toggle button', () => {
+    // Issue #351: the legend title narrates viewport state, not a global
+    // catalogue. The "in view" suffix is what tells a sighted user that
+    // counts will change as they pan.
     render(
       <FamilyLegend
         silhouettes={baseSilhouettes}
@@ -83,8 +86,10 @@ describe('FamilyLegend', () => {
         defaultExpanded={true}
       />
     );
-    expect(screen.getByText(/bird families/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /bird families/i })).toBeInTheDocument();
+    expect(screen.getByText(/bird families in view/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /bird families in view/i }),
+    ).toBeInTheDocument();
   });
 
   it('renders an entry for each provided silhouette when expanded', () => {
@@ -136,6 +141,30 @@ describe('FamilyLegend', () => {
     expect(within(trochEntry).getByText('1')).toBeInTheDocument();
   });
 
+  it('per-entry aria-label reads "{count} observations in view" (issue #351)', () => {
+    // Screen-reader text mirrors the title's "in view" framing so the
+    // count is unambiguously a viewport snapshot, not a global total.
+    render(
+      <FamilyLegend
+        silhouettes={baseSilhouettes}
+        observations={baseObservations}
+        familyCode={null}
+        onFamilyToggle={() => {}}
+        defaultExpanded={true}
+      />
+    );
+    // Tyrannidae: 2 observations.
+    const tyrEntry = screen.getByRole('button', { name: /Tyrant Flycatchers/ });
+    expect(
+      within(tyrEntry).getByLabelText('2 observations in view'),
+    ).toBeInTheDocument();
+    // Trochilidae: 1 observation.
+    const trochEntry = screen.getByRole('button', { name: /Hummingbirds/ });
+    expect(
+      within(trochEntry).getByLabelText('1 observations in view'),
+    ).toBeInTheDocument();
+  });
+
   it('invokes onFamilyToggle with the family code when an entry is clicked', async () => {
     const onFamilyToggle = vi.fn();
     const user = userEvent.setup();
@@ -180,11 +209,11 @@ describe('FamilyLegend', () => {
       />
     );
     expect(screen.getAllByTestId('family-legend-entry')).toHaveLength(3);
-    await user.click(screen.getByRole('button', { name: /bird families/i }));
+    await user.click(screen.getByRole('button', { name: /bird families in view/i }));
     // Once collapsed, no entries are rendered (or at least none visible).
     expect(screen.queryAllByTestId('family-legend-entry')).toHaveLength(0);
     // And the toggle button reports collapsed state via aria-expanded=false.
-    expect(screen.getByRole('button', { name: /bird families/i })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: /bird families in view/i })).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('respects defaultExpanded=false when localStorage is empty', () => {
@@ -198,7 +227,7 @@ describe('FamilyLegend', () => {
       />
     );
     expect(screen.queryAllByTestId('family-legend-entry')).toHaveLength(0);
-    expect(screen.getByRole('button', { name: /bird families/i })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: /bird families in view/i })).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('persists collapse state to localStorage', async () => {
@@ -213,9 +242,9 @@ describe('FamilyLegend', () => {
       />
     );
     expect(screen.getAllByTestId('family-legend-entry')).toHaveLength(3);
-    await user.click(screen.getByRole('button', { name: /bird families/i }));
+    await user.click(screen.getByRole('button', { name: /bird families in view/i }));
     expect(window.localStorage.getItem(STORAGE_KEY)).toBe('false');
-    await user.click(screen.getByRole('button', { name: /bird families/i }));
+    await user.click(screen.getByRole('button', { name: /bird families in view/i }));
     expect(window.localStorage.getItem(STORAGE_KEY)).toBe('true');
   });
 

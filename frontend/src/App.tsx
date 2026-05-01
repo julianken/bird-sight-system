@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { LngLatBounds } from 'maplibre-gl';
 import { ApiClient, ApiError } from './api/client.js';
 import { useUrlState } from './state/url-state.js';
 import { useBirdData } from './data/use-bird-data.js';
@@ -12,6 +13,7 @@ import { SpeciesDetailSurface } from './components/SpeciesDetailSurface.js';
 import { SurfaceNav } from './components/SurfaceNav.js';
 import { AttributionModal } from './components/AttributionModal.js';
 import { deriveFamilies, deriveSpeciesIndex } from './derived.js';
+import { filterObservationsByBounds } from './lib/viewport-filter.js';
 
 const apiClient = new ApiClient({ baseUrl: import.meta.env.VITE_API_BASE_URL ?? '' });
 
@@ -28,6 +30,31 @@ export function App() {
 
   const families = useMemo(() => deriveFamilies(observations), [observations]);
   const speciesIndex = useMemo(() => deriveSpeciesIndex(observations), [observations]);
+
+  // Issue #351: viewport-aware FamilyLegend counts. MapCanvas reports
+  // the current bounds on each `idle` (camera-change settle) via
+  // onViewportChange; we hold that here so the FamilyLegend can render
+  // counts narrating what's in view, while MapCanvas itself continues
+  // to render the full observation set (clustering math depends on a
+  // stable observations identity).
+  //
+  // No reset effect on view transitions: the `viewportBounds` value is
+  // never read directly — only through the `viewportObservations` memo
+  // below, which is gated on `state.view === 'map'`. Stale bounds left
+  // in state when the user switches to feed/species/detail views are
+  // therefore harmless; an explicit reset effect would race the memo on
+  // re-entry and is unnecessary.
+  const [viewportBounds, setViewportBounds] = useState<LngLatBounds | null>(null);
+  const viewportObservations = useMemo(
+    () =>
+      state.view === 'map' && viewportBounds
+        ? filterObservationsByBounds(observations, viewportBounds)
+        : observations,
+    [observations, viewportBounds, state.view],
+  );
+  const onViewportChange = useCallback((bounds: LngLatBounds) => {
+    setViewportBounds(bounds);
+  }, []);
 
   // Family color + silhouette SOT (issue #55 option (a)): colors and
   // silhouette payloads resolve via the DB-backed `/api/silhouettes`
@@ -157,11 +184,13 @@ export function App() {
         {state.view === 'map' && (
           <MapSurface
             observations={observations}
+            legendObservations={viewportObservations}
             silhouettes={silhouettes}
             familyCode={state.familyCode}
             onFamilyToggle={onFamilyToggle}
             onSkipToFeed={onSkipToFeed}
             onSelectSpecies={onSelectSpecies}
+            onViewportChange={onViewportChange}
           />
         )}
         {state.view === 'species' && (

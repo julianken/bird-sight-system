@@ -172,7 +172,7 @@ export function FamilyLegend({
         aria-controls="family-legend-entries"
         onClick={() => setExpanded(prev => !prev)}
       >
-        <span className="family-legend-title">Bird families</span>
+        <span className="family-legend-title">Bird families in view</span>
         <span className="family-legend-chevron" aria-hidden="true">
           {expanded ? '▾' : '▸'}
         </span>
@@ -196,7 +196,10 @@ export function FamilyLegend({
                 >
                   <SilhouetteGlyph silhouette={entry.silhouette} />
                   <span className="family-legend-entry-label">{entry.label}</span>
-                  <span className="family-legend-entry-count" aria-label={`${entry.count} observations`}>
+                  <span
+                    className="family-legend-entry-count"
+                    aria-label={`${entry.count} observations in view`}
+                  >
                     {entry.count}
                   </span>
                 </button>
