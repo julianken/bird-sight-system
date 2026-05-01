@@ -32,8 +32,23 @@ let fakeMap: any = null;
  * Bare-event handlers (no layerId), keyed by event name. The reconciler
  * registers `map.on('load', cb)` and `map.on('idle', cb)` — both bare —
  * which the layer-keyed handler map can't capture.
+ *
+ * Last-writer-wins semantics: multiple subsystems (mosaic reconciler,
+ * MapMarkerHitLayer re-projection, viewport-change callback under #351)
+ * all register their own bare `idle` listeners. The single-slot map is
+ * adequate for tests that exercise one subsystem at a time; tests that
+ * need all-handler invocation can use `bareHandlersAll` below.
  */
 let bareHandlers: Record<string, () => void | Promise<void>> = {};
+
+/**
+ * Multi-handler form of `bareHandlers`. Captures every bare-event listener
+ * registered for an event so a test can fire all of them in one shot.
+ * Used by the issue #351 onViewportChange tests, where the prop's listener
+ * registers in `handleLoad` BEFORE the mosaic reconciler effect, so the
+ * single-slot `bareHandlers['idle']` would only retain the mosaic one.
+ */
+let bareHandlersAll: Record<string, Array<() => void | Promise<void>>> = {};
 
 function makeFakeMap() {
   const canvas = { style: { cursor: '' }, clientWidth: 1440, clientHeight: 900 };
@@ -66,10 +81,12 @@ function makeFakeMap() {
         if (typeof layerOrCb === 'string' && maybeCb) {
           registeredHandlers[`${event}:${layerOrCb}`] = maybeCb;
         } else if (typeof layerOrCb === 'function') {
-          // Bare-event handler (load, idle, etc.). Last writer wins —
-          // there's only one reconciler effect, but the test occasionally
-          // re-renders, which will re-register.
+          // Bare-event handler (load, idle, etc.). Last writer wins for
+          // the legacy single-slot map; the multi-handler form appends.
           bareHandlers[event] = layerOrCb as () => void | Promise<void>;
+          (bareHandlersAll[event] ??= []).push(
+            layerOrCb as () => void | Promise<void>,
+          );
         }
         // Support 2-arg form (event, listener) — used by MapMarkerHitLayer
         // for `move` / `idle` re-projection, and by the spiderfy outside-
@@ -93,6 +110,16 @@ function makeFakeMap() {
     getContainer: vi.fn(() => container),
     easeTo: vi.fn(),
     getZoom: vi.fn(() => 6),
+    // Issue #351: onViewportChange callback is fed map.getBounds() on
+    // each `idle`. Mock returns a stable LngLatBounds-shaped object;
+    // tests can override per-case via fakeMap.getBounds.mockReturnValue.
+    getBounds: vi.fn(() => ({
+      getWest: () => -112,
+      getSouth: () => 32,
+      getEast: () => -110,
+      getNorth: () => 35,
+      contains: (_p: [number, number]) => true,
+    })),
     project: vi.fn(() => ({ x: 700, y: 400 })),
     unproject: vi.fn(() => [-111, 34]),
     addSource: vi.fn(),
@@ -279,6 +306,7 @@ describe('MapCanvas', () => {
     capturedLayerFilters = {};
     registeredHandlers = {};
     bareHandlers = {};
+    bareHandlersAll = {};
     fakeMap = makeFakeMap();
   });
 
@@ -1680,5 +1708,111 @@ describe('MapCanvas', () => {
     const removedEvents = offCalls.map((c) => c[0]);
     expect(removedEvents).toContain('load');
     expect(removedEvents).toContain('idle');
+  });
+
+  /* ── Issue #351: onViewportChange callback ─────────────────────────────
+     MapCanvas exposes the current viewport bounds to its parent via an
+     optional onViewportChange(bounds) callback, fired on each `idle`
+     event. The legend reads viewportObservations downstream — App.tsx
+     filters the observation array against the bounds for the FamilyLegend
+     only. `idle` (not moveend/zoomend) matches the existing mosaic +
+     auto-spider reconciler convention and is naturally throttled by
+     MapLibre's animation+tile-load pipeline, so no debounce is needed. */
+
+  /**
+   * Helper: fire every registered bare `idle` handler in registration order.
+   * Multiple subsystems (mosaic reconciler, MapMarkerHitLayer, viewport-
+   * change under #351) each register their own listener — `bareHandlers`
+   * is last-writer-wins, so we use `bareHandlersAll` here to capture them
+   * all and invoke each in sequence (matches what maplibre would do).
+   */
+  async function fireAllIdleHandlers() {
+    const handlers = bareHandlersAll['idle'] ?? [];
+    for (const h of handlers) {
+      await h();
+    }
+  }
+
+  it('does NOT throw when onViewportChange is omitted (optional prop)', async () => {
+    // Backwards-compat: existing callers (tests, MapSurface without the
+    // viewport-aware path) don't pass onViewportChange. The handler must
+    // tolerate `undefined` and never call a non-function.
+    render(<MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />);
+    await waitFor(() =>
+      expect(bareHandlersAll['idle']?.length ?? 0).toBeGreaterThan(0),
+    );
+    await act(async () => {
+      await expect(fireAllIdleHandlers()).resolves.not.toThrow();
+    });
+  });
+
+  it('invokes onViewportChange with map.getBounds() on each idle event', async () => {
+    const onViewportChange = vi.fn();
+    const stubBounds = {
+      getWest: () => -111.2,
+      getSouth: () => 32.0,
+      getEast: () => -110.6,
+      getNorth: () => 32.5,
+      contains: () => true,
+    };
+    fakeMap.getBounds.mockReturnValue(stubBounds);
+
+    render(
+      <MapCanvas
+        observations={[makeObs()]}
+        silhouettes={SILHOUETTES}
+        onViewportChange={onViewportChange}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(bareHandlersAll['idle']?.length ?? 0).toBeGreaterThan(0),
+    );
+
+    await act(async () => { await fireAllIdleHandlers(); });
+
+    // The callback must receive the live LngLatBounds-shaped object from
+    // map.getBounds(). Same reference as fakeMap.getBounds() so the
+    // identity check pins behavior — anyone wrapping or cloning bounds
+    // (defensive copy, etc.) breaks the React memo upstream.
+    expect(onViewportChange).toHaveBeenCalledWith(stubBounds);
+  });
+
+  it('fires onViewportChange on every subsequent idle (pan/zoom settle)', async () => {
+    const onViewportChange = vi.fn();
+    const firstBounds = {
+      getWest: () => -111.2, getSouth: () => 32.0,
+      getEast: () => -110.6, getNorth: () => 32.5,
+      contains: () => true,
+    };
+    const secondBounds = {
+      getWest: () => -111.7, getSouth: () => 35.15,
+      getEast: () => -111.55, getNorth: () => 35.25,
+      contains: () => true,
+    };
+
+    render(
+      <MapCanvas
+        observations={[makeObs()]}
+        silhouettes={SILHOUETTES}
+        onViewportChange={onViewportChange}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(bareHandlersAll['idle']?.length ?? 0).toBeGreaterThan(0),
+    );
+
+    fakeMap.getBounds.mockReturnValue(firstBounds);
+    await act(async () => { await fireAllIdleHandlers(); });
+
+    fakeMap.getBounds.mockReturnValue(secondBounds);
+    await act(async () => { await fireAllIdleHandlers(); });
+
+    // Both pan settles produce a callback. No debounce, no dedupe — the
+    // memo upstream handles identity comparisons.
+    expect(onViewportChange).toHaveBeenCalledTimes(2);
+    expect(onViewportChange).toHaveBeenNthCalledWith(1, firstBounds);
+    expect(onViewportChange).toHaveBeenNthCalledWith(2, secondBounds);
   });
 });
