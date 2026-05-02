@@ -693,7 +693,7 @@ body {
   box-shadow: var(--shadow-listbox);
   font-size: 13px;
   color: var(--color-text-strong);
-  max-width: 320px;
+  max-width: 240px;
 }
 .family-legend-toggle {
   display: flex;
@@ -730,9 +730,9 @@ body {
   margin: 0;
   padding: var(--space-xs) var(--space-xs) var(--space-sm) var(--space-xs);
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 2px;
-  max-height: 320px;
+  max-height: 400px;
   overflow-y: auto;
   border-top: 1px solid var(--color-border-subtle);
 }
@@ -799,7 +799,6 @@ body {
     max-width: calc(100vw - 2 * var(--space-md));
   }
   .family-legend-entries {
-    grid-template-columns: 1fr;
     max-height: 240px;
   }
 }
