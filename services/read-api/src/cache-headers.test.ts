@@ -29,4 +29,14 @@ describe('cacheControlFor', () => {
     expect(cacheControlFor('silhouettes'))
       .toBe('public, max-age=604800');
   });
+  it('returns 6h TTL with 1h SWR for /phenology', () => {
+    // Phenology aggregates observations from the last 365 days. The data
+    // shifts daily as the recent-ingest cycle rolls forward, but the per-
+    // species monthly counts only meaningfully change when a fresh
+    // observation lands in a previously-empty month — extremely rare on
+    // any 6h window. 21600s (6h) max-age + 3600s SWR balances a long-lived
+    // CDN entry with same-day refresh after a notable observation.
+    expect(cacheControlFor('phenology'))
+      .toBe('public, max-age=21600, stale-while-revalidate=3600');
+  });
 });
