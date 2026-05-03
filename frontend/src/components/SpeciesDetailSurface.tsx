@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ApiClient } from '../api/client.js';
 import { useSpeciesDetail } from '../data/use-species-detail.js';
 import { useSilhouettes } from '../data/use-silhouettes.js';
 import type { FamilySilhouette } from '@bird-watch/shared-types';
+import { analytics } from '../analytics.js';
 
 export interface SpeciesDetailSurfaceProps {
   speciesCode: string;
@@ -126,6 +127,62 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
   const { loading, error, data } = useSpeciesDetail(apiClient, speciesCode);
   const { silhouettes } = useSilhouettes(apiClient);
 
+  // Analytics instrumentation (issue #357 task 3): fire `panel_opened`
+  // when a species resolves and `panel_dwell_ms` on unmount or species
+  // change.  Hooks must live at the top level of the component body —
+  // they CANNOT be inside the `data && (...)` JSX branch below per
+  // React's rules of hooks.  Guard inside the effect so the events only
+  // fire once `data?.speciesCode` is non-null (i.e. after the loading
+  // state resolves), which keeps the dwell-ms timer from including the
+  // initial fetch latency.
+  useEffect(() => {
+    if (!data?.speciesCode) return;
+    const t0 = Date.now();
+    const code = data.speciesCode;
+    analytics.capture('panel_opened', { species_code: code });
+    return () => {
+      analytics.capture('panel_dwell_ms', {
+        species_code: code,
+        dwell_ms: Date.now() - t0,
+      });
+    };
+  }, [data?.speciesCode]);
+
+  // Bottom-sentinel ref + IntersectionObserver effect (task 4).  Binary-
+  // only signal: fire `panel_scrolled_to_bottom` once on first intersection
+  // and disconnect.  At 390x844 the panel body stacks to ~320px inside a
+  // ~750px usable viewport; sub-thresholds (25/50/75) would be noise.  The
+  // sentinel is `aria-hidden` because there is no semantic content for SR
+  // users at the end of the panel.
+  //
+  // The `firedRef` guards against any spurious re-invocation of the
+  // observer callback between intersection-fired and disconnect-resolved,
+  // and also resets per species (the effect dependency on
+  // `speciesCodeForObserver` means a new observer + new `firedRef.current
+  // = false` happens when the user navigates between species).
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const firedRef = useRef<boolean>(false);
+  const speciesCodeForObserver = data?.speciesCode;
+  useEffect(() => {
+    if (!speciesCodeForObserver) return;
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    if (typeof IntersectionObserver === 'undefined') return;
+    firedRef.current = false;
+    const observer = new IntersectionObserver(entries => {
+      const intersected = entries.some(entry => entry.isIntersecting);
+      if (intersected && !firedRef.current) {
+        firedRef.current = true;
+        analytics.capture('panel_scrolled_to_bottom', {
+          species_code: speciesCodeForObserver,
+        });
+        observer.disconnect();
+      }
+    });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [speciesCodeForObserver]);
+
   return (
     <div className="species-detail-surface">
       {loading && (
@@ -151,6 +208,17 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
           <h2 className="species-detail-common-name">{data.comName}</h2>
           <p className="species-detail-sci-name"><em>{data.sciName}</em></p>
           <p className="species-detail-family">{data.familyName}</p>
+          {/*
+            Bottom sentinel for the IntersectionObserver-driven
+            `panel_scrolled_to_bottom` event (issue #357 task 4).
+            `aria-hidden` because there is no semantic content here —
+            it exists only to anchor the observer.
+          */}
+          <div
+            ref={sentinelRef}
+            data-testid="phenology-bottom-sentinel"
+            aria-hidden="true"
+          />
         </div>
       )}
     </div>
