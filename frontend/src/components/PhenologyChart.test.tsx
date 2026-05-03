@@ -34,6 +34,11 @@ describe('PhenologyChart', () => {
     const svg = container.querySelector('svg.phenology-chart');
     expect(svg).not.toBeNull();
     expect(svg).toHaveAttribute('viewBox', '0 0 216 108');
+    // SVG attribute `overflow="visible"` is the actual fix for the Jan
+    // label clipping at the left edge (#365). The CSS rule on
+    // .phenology-chart provides defense-in-depth, but SVG's intrinsic
+    // viewBox clipping is only overridden by the SVG attribute itself.
+    expect(svg).toHaveAttribute('overflow', 'visible');
 
     // Tallest bar should match the value with the highest count (24 in this
     // dataset). Smallest non-zero bar is for count=2 → 1/12 of full height.
@@ -51,6 +56,13 @@ describe('PhenologyChart', () => {
     const labels = container.querySelectorAll('text.phenology-label');
     expect(labels.length).toBe(12);
     expect(labels[0]?.textContent).toBe('Jan');
+
+    // Visible count labels — one <text class="phenology-count"> per non-zero
+    // bar (issue #365). All 12 fixture entries are non-zero so all 12 count
+    // labels render. aria-hidden so assistive tech doesn't double-announce
+    // against the SVG's aria-label and per-bar <title> tooltips.
+    const counts = container.querySelectorAll('text.phenology-count');
+    expect(counts.length).toBe(12);
   });
 
   it('zero-fills sparse responses to exactly 12 bars', async () => {
@@ -78,6 +90,11 @@ describe('PhenologyChart', () => {
     // Exactly three bars should be non-zero.
     const nonZero = heights.filter(h => h > 0);
     expect(nonZero.length).toBe(3);
+
+    // One <text class="phenology-count"> per non-zero bar — sparse fixture
+    // has 3 non-zero months, so 3 count labels should render (issue #365).
+    const counts = container.querySelectorAll('text.phenology-count');
+    expect(counts.length).toBe(3);
   });
 
   it('renders muted placeholder bars (10% height) for an empty response', async () => {
@@ -93,8 +110,15 @@ describe('PhenologyChart', () => {
     // All 12 bars rendered, all the same height (placeholder), all muted.
     const rects = Array.from(container.querySelectorAll('rect'));
     const heights = rects.map(r => Number(r.getAttribute('height')));
-    // Placeholder height is 10% of 108 viewport height = 10.8 → rounded to 11.
-    expect(heights.every(h => h === 11)).toBe(true);
+    // Placeholder height is 10% of BAR_AREA_HEIGHT (70 after #365 spacing
+    // fix) = 7. Bar area shrank from 80 → 70 to widen the gutter so the
+    // rotated month labels no longer overlap the bar floor.
+    expect(heights.every(h => h === 7)).toBe(true);
+
+    // Empty fixture: zero bars are non-zero, so zero count labels render
+    // (issue #365 — count labels are skipped when count === 0).
+    const counts = container.querySelectorAll('text.phenology-count');
+    expect(counts.length).toBe(0);
   });
 
   it('returns null on getPhenology error so the surrounding surface is unaffected', async () => {
