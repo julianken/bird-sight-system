@@ -14,6 +14,7 @@ const runHotspotIngestMock = vi.fn();
 const runBackfillMock = vi.fn();
 const runTaxonomyMock = vi.fn();
 const runPhotosMock = vi.fn();
+const runDescriptionsMock = vi.fn();
 
 vi.mock('@bird-watch/db-client', () => ({
   createPool: (...args: unknown[]) => createPoolMock(...args),
@@ -40,6 +41,10 @@ vi.mock('./run-photos.js', () => ({
   runPhotos: (...args: unknown[]) => runPhotosMock(...args),
 }));
 
+vi.mock('./run-descriptions.js', () => ({
+  runDescriptions: (...args: unknown[]) => runDescriptionsMock(...args),
+}));
+
 import { handleScheduled, type HandlerEnv } from './handler.js';
 
 const ENV: HandlerEnv = {
@@ -56,6 +61,7 @@ describe('handleScheduled', () => {
     runBackfillMock.mockReset();
     runTaxonomyMock.mockReset();
     runPhotosMock.mockReset();
+    runDescriptionsMock.mockReset();
   });
 
   it("dispatches to runIngest when kind is 'recent'", async () => {
@@ -144,6 +150,29 @@ describe('handleScheduled', () => {
     runTaxonomyMock.mockRejectedValue(new Error('boom'));
 
     await expect(handleScheduled('taxonomy', ENV)).rejects.toThrow('boom');
+    expect(closePoolMock).toHaveBeenCalledWith(POOL_SENTINEL);
+  });
+
+  it("dispatches to runDescriptions when kind is 'descriptions'", async () => {
+    const summary = {
+      status: 'success',
+      speciesCount: 0,
+      descriptionsWritten: 0,
+      descriptionsSkipped: 0,
+      descriptionsFailed: 0,
+      errors: [],
+    };
+    runDescriptionsMock.mockResolvedValue(summary);
+
+    const result = await handleScheduled('descriptions', ENV);
+
+    // runDescriptions's only required arg is `pool`; it must NOT be called
+    // with EBIRD_API_KEY (iNat + Wikipedia are its upstreams).
+    expect(runDescriptionsMock).toHaveBeenCalledTimes(1);
+    const call = runDescriptionsMock.mock.calls[0]?.[0];
+    expect(call).toMatchObject({ pool: POOL_SENTINEL });
+    expect(call).not.toHaveProperty('apiKey');
+    expect(result).toBe(summary);
     expect(closePoolMock).toHaveBeenCalledWith(POOL_SENTINEL);
   });
 });

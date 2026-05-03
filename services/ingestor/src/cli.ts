@@ -22,6 +22,10 @@ import {
   runPhotos as realRunPhotos,
   type RunPhotosSummary,
 } from './run-photos.js';
+import {
+  runDescriptions as realRunDescriptions,
+  type RunDescriptionsSummary,
+} from './run-descriptions.js';
 import { fetchWikipediaSummary as realFetchWikipediaSummary } from './wikipedia/client.js';
 import { fetchInatTaxon as realFetchInatTaxon } from './inat/taxon-client.js';
 
@@ -35,7 +39,8 @@ type AnyRunSummary =
   | RunHotspotSummary
   | RunBackfillSummary
   | RunTaxonomySummary
-  | RunPhotosSummary;
+  | RunPhotosSummary
+  | RunDescriptionsSummary;
 
 /**
  * Injectable dependencies for `runCli`. In production `cli.ts`'s IIFE passes
@@ -50,6 +55,7 @@ export interface CliDeps {
   runBackfill: typeof realRunBackfill;
   runTaxonomy: typeof realRunTaxonomy;
   runPhotos: typeof realRunPhotos;
+  runDescriptions: typeof realRunDescriptions;
   fetchWikipediaSummary: typeof realFetchWikipediaSummary;
   fetchInatTaxon: typeof realFetchInatTaxon;
 }
@@ -134,8 +140,10 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
       summary = await deps.runTaxonomy({ pool, apiKey });
     } else if (kind === 'photos') {
       summary = await deps.runPhotos({ pool });
+    } else if (kind === 'descriptions') {
+      summary = await deps.runDescriptions({ pool });
     } else {
-      throw new Error(`Unknown kind: ${kind}. Try recent | hotspots | backfill | backfill-extended | taxonomy | photos | probe-taxon | probe-wiki`);
+      throw new Error(`Unknown kind: ${kind}. Try recent | hotspots | backfill | backfill-extended | taxonomy | photos | descriptions | probe-taxon | probe-wiki`);
     }
     console.log(JSON.stringify(summary, null, 2));
     if (summary.status === 'failure') {
@@ -172,6 +180,7 @@ if (isEntrypoint) {
     runBackfill: realRunBackfill,
     runTaxonomy: realRunTaxonomy,
     runPhotos: realRunPhotos,
+    runDescriptions: realRunDescriptions,
     fetchWikipediaSummary: realFetchWikipediaSummary,
     fetchInatTaxon: realFetchInatTaxon,
   }).catch(err => {
