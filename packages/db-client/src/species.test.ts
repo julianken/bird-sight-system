@@ -6,6 +6,7 @@ import {
   insertSpeciesPhoto,
   getSpeciesPhotos,
   getSpeciesPhenology,
+  insertSpeciesDescription,
 } from './species.js';
 import { upsertObservations } from './observations.js';
 
@@ -364,5 +365,143 @@ describe('species phenology', () => {
     expect(typeof rows[0]!.count).toBe('number');
     expect(rows[0]!.month).toBe(6);
     expect(rows[0]!.count).toBe(1);
+  });
+});
+
+describe('species descriptions', () => {
+  beforeEach(async () => {
+    // Descriptions FK to species_meta; seed a parent so inserts succeed.
+    await upsertSpeciesMeta(db.pool, [
+      { speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        sciName: 'Pyrocephalus rubinus', familyCode: 'tyrannidae',
+        familyName: 'Tyrant Flycatchers', taxonOrder: 30501 },
+    ]);
+  });
+
+  it('insertSpeciesDescription inserts; second call with same species_code upserts', async () => {
+    const longBody = 'The vermilion flycatcher is a small passerine bird. '.repeat(2);
+    await insertSpeciesDescription(db.pool, {
+      speciesCode: 'vermfly',
+      source: 'wikipedia',
+      body: longBody,
+      license: 'CC-BY-SA-4.0',
+      revisionId: 1234567890,
+      etag: '"abc123"',
+      attributionUrl: 'https://en.wikipedia.org/wiki/Vermilion_flycatcher',
+    });
+
+    // Second call with the same species_code replaces the existing row.
+    const newBody = longBody + ' Updated description with new revision data here.';
+    await insertSpeciesDescription(db.pool, {
+      speciesCode: 'vermfly',
+      source: 'wikipedia',
+      body: newBody,
+      license: 'CC-BY-SA-4.0',
+      revisionId: 9999999999,
+      etag: '"def456"',
+      attributionUrl: 'https://en.wikipedia.org/wiki/Vermilion_flycatcher',
+    });
+
+    const { rows } = await db.pool.query<{
+      species_code: string;
+      source: string;
+      body: string;
+      license: string;
+      revision_id: string | null;
+      etag: string | null;
+      attribution_url: string;
+    }>(
+      `SELECT species_code, source, body, license, revision_id, etag, attribution_url
+         FROM species_descriptions WHERE species_code = 'vermfly'`
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.body).toBe(newBody);
+    expect(rows[0]?.etag).toBe('"def456"');
+    // Note: pg returns BIGINT as a string by default — that's fine for cache
+    // semantics, the ETag drives conditional GETs, not revision_id.
+    expect(rows[0]?.revision_id).toBe('9999999999');
+  });
+
+  it('insertSpeciesDescription does not clobber taxonomy columns on conflict', async () => {
+    // (a) Seed a complete species_meta row including inat_taxon_id (the new
+    //     column the same migration adds — same fixture pattern as the
+    //     species_photos clobber test.)
+    await db.pool.query(
+      `UPDATE species_meta SET inat_taxon_id = 9999 WHERE species_code = 'vermfly'`
+    );
+
+    // (b) Insert a description for the same species. A careless impl that
+    //     UPSERTed into species_meta with EXCLUDED defaults would silently
+    //     overwrite the taxonomy or inat_taxon_id columns.
+    const body = 'A long enough description body to satisfy the CHECK constraint here. '.repeat(2);
+    await insertSpeciesDescription(db.pool, {
+      speciesCode: 'vermfly',
+      source: 'wikipedia',
+      body,
+      license: 'CC-BY-SA-4.0',
+      revisionId: 1234567890,
+      etag: '"abc"',
+      attributionUrl: 'https://en.wikipedia.org/wiki/Vermilion_flycatcher',
+    });
+
+    // (c) SINGLE SELECT joining species_meta + species_descriptions. Verify
+    //     BOTH description columns AND taxonomy + inat_taxon_id columns are
+    //     intact.
+    const { rows } = await db.pool.query<{
+      species_code: string;
+      com_name: string;
+      sci_name: string;
+      family_code: string;
+      family_name: string;
+      taxon_order: number | null;
+      inat_taxon_id: string | null;
+      desc_body: string;
+      desc_etag: string | null;
+    }>(
+      `SELECT sm.species_code, sm.com_name, sm.sci_name, sm.family_code,
+              sm.family_name, sm.taxon_order, sm.inat_taxon_id,
+              sd.body AS desc_body,
+              sd.etag AS desc_etag
+         FROM species_meta sm
+         LEFT JOIN species_descriptions sd
+           ON sd.species_code = sm.species_code
+        WHERE sm.species_code = 'vermfly'`
+    );
+    expect(rows).toHaveLength(1);
+    const row = rows[0]!;
+    expect(row.desc_body).toBe(body);
+    expect(row.desc_etag).toBe('"abc"');
+    // Taxonomy columns are UNCHANGED.
+    expect(row.com_name).toBe('Vermilion Flycatcher');
+    expect(row.sci_name).toBe('Pyrocephalus rubinus');
+    expect(row.family_code).toBe('tyrannidae');
+    expect(row.family_name).toBe('Tyrant Flycatchers');
+    expect(row.taxon_order).toBe(30501);
+    expect(row.inat_taxon_id).toBe('9999');
+  });
+
+  it('insertSpeciesDescription accepts null revisionId and null etag (304-path columns)', async () => {
+    // The 304 conditional-GET path may produce a refresh where Wikipedia
+    // omits both fields; the helper must persist them as NULL not '' or 'null'.
+    const body = 'The vermilion flycatcher is a small bright red passerine here. '.repeat(2);
+    await insertSpeciesDescription(db.pool, {
+      speciesCode: 'vermfly',
+      source: 'wikipedia',
+      body,
+      license: 'CC-BY-SA-4.0',
+      revisionId: null,
+      etag: null,
+      attributionUrl: 'https://en.wikipedia.org/wiki/Vermilion_flycatcher',
+    });
+
+    const { rows } = await db.pool.query<{
+      revision_id: string | null;
+      etag: string | null;
+    }>(
+      `SELECT revision_id, etag FROM species_descriptions WHERE species_code = 'vermfly'`
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.revision_id).toBeNull();
+    expect(rows[0]?.etag).toBeNull();
   });
 });
