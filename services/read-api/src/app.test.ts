@@ -5,6 +5,7 @@ import {
   upsertSpeciesMeta,
   upsertObservations,
   insertSpeciesPhoto,
+  insertSpeciesDescription,
 } from '@bird-watch/db-client';
 import { createApp } from './app.js';
 
@@ -222,6 +223,62 @@ describe('GET /api/species/:code', () => {
     expect(body.photoUrl).toBe('https://photos.example/vermfly.jpg');
     expect(body.photoAttribution).toBe('Photographer Name / iNaturalist');
     expect(body.photoLicense).toBe('CC-BY-NC');
+  });
+
+  it('populates descriptionBody/descriptionLicense/descriptionAttributionUrl when species_descriptions has a row', async () => {
+    // Seed a description row for vermfly. The route handler at app.ts:102
+    // delegates to getSpeciesMeta which LEFT JOINs species_descriptions
+    // (issue #372); the three optional fields round-trip through the Hono
+    // JSON response when the JOIN matches.
+    const descBody = 'The vermilion flycatcher is a small, brilliantly colored passerine bird. '.repeat(2);
+    await insertSpeciesDescription(db.pool, {
+      speciesCode: 'vermfly',
+      source: 'wikipedia',
+      body: descBody,
+      license: 'CC-BY-SA-4.0',
+      revisionId: 1234567890,
+      etag: '"abc123"',
+      attributionUrl: 'https://en.wikipedia.org/wiki/Vermilion_flycatcher',
+    });
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/species/vermfly');
+    expect(res.status).toBe(200);
+    const body = await res.json() as {
+      speciesCode: string;
+      descriptionBody?: string;
+      descriptionLicense?: string;
+      descriptionAttributionUrl?: string;
+    };
+    expect(body.speciesCode).toBe('vermfly');
+    expect(body.descriptionBody).toBe(descBody);
+    expect(body.descriptionLicense).toBe('CC-BY-SA-4.0');
+    expect(body.descriptionAttributionUrl)
+      .toBe('https://en.wikipedia.org/wiki/Vermilion_flycatcher');
+  });
+
+  it('omits the three description fields when species_descriptions has no row', async () => {
+    // Seed a fresh species with neither a photo nor a description, so we can
+    // assert that both projection blocks return *absent* fields (the
+    // exactOptionalPropertyTypes contract from species.ts:200-205 carries
+    // through to the wire — JSON serialization of an object missing the
+    // key produces a body where the key is absent, deserializing as
+    // `=== undefined` for consumers).
+    await upsertSpeciesMeta(db.pool, [
+      { speciesCode: 'nodescspc', comName: 'No-Description Species',
+        sciName: 'Empty descriptionicus', familyCode: 'tyrannidae',
+        familyName: 'Tyrant Flycatchers', taxonOrder: 99003 },
+    ]);
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/species/nodescspc');
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body['speciesCode']).toBe('nodescspc');
+    // The three description fields are absent from the JSON body — `in`
+    // catches even an explicit `undefined` value, which would be a type
+    // contract violation under exactOptionalPropertyTypes.
+    expect('descriptionBody' in body).toBe(false);
+    expect('descriptionLicense' in body).toBe(false);
+    expect('descriptionAttributionUrl' in body).toBe(false);
   });
 });
 
