@@ -16,6 +16,28 @@ const config: KnipConfig = {
     //             Risk: masks genuinely orphaned files added to that directory later
     //             — re-audit if new files appear under docs/plans/.
     'docs/plans/2026-04-22-map-v1-prototype/prototype/**',
+
+    // 2026-05-02: photo-server worker is loaded by Terraform (infra/terraform/
+    //             photos.tf:38 `file("${path.module}/../workers/photo-server.js")`)
+    //             which knip's static analysis cannot trace. The worker is live in
+    //             production fronting the birdwatch-photos R2 bucket.
+    //             Risk: masks a genuine orphan if the Terraform reference is ever
+    //             removed without also deleting the .js file — re-audit at the
+    //             next quarterly review (2026-07-27) by spot-checking that
+    //             `grep -rn photo-server.js infra/terraform/` still returns hits.
+    'infra/workers/photo-server.js',
+    'infra/workers/photo-server.test.js',
+
+    // 2026-05-02: shared-types index.test.ts is a compile-time-only "type
+    //             laboratory" run via `tsc -p tsconfig.test.json` (see the file's
+    //             own header comment). It has no runtime test runner, so knip
+    //             classifies it as orphaned. The package's test gate explicitly
+    //             compiles it; removing the file would silently weaken the gate.
+    //             Risk: masks a genuine orphan if the package's test config ever
+    //             stops compiling this path. Re-audit by confirming
+    //             `packages/shared-types/package.json` "test" script still
+    //             references the test tsconfig.
+    'packages/shared-types/src/index.test.ts',
   ],
 
   // 2026-04-27: React component Props interfaces and other exports used only
