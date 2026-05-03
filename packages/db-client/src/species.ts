@@ -60,17 +60,27 @@ export async function insertSpeciesPhoto(
 
 export interface SpeciesDescriptionInput {
   speciesCode: string;
-  /** Currently always `'wikipedia'` (CHECK-restricted at the DB tier; future iNat-summary fallback expands the union). */
-  source: 'wikipedia';
-  /** Sanitized HTML — DOMPurify must run BEFORE this helper. The CHECK enforces 50..8192 chars. */
+  /**
+   * `'wikipedia'` for Wikipedia REST `/page/summary/{title}` 200 responses
+   * (the happy path); `'inat'` for the Wikipedia-404 fallback path that
+   * persists iNat's per-id `wikipedia_summary` plaintext. Both are
+   * CHECK-restricted at the DB tier (see migration 1700000031000) — adding
+   * a third value requires widening BOTH the CHECK and this union.
+   */
+  source: 'wikipedia' | 'inat';
+  /** Sanitized text — DOMPurify (HTML path) or sanitizeText (plaintext path) must run BEFORE this helper. The CHECK enforces 50..8192 chars. */
   body: string;
-  /** Wikipedia summary license — DB CHECK restricts to the two CC-BY-SA variants. */
+  /**
+   * License — DB CHECK restricts to the two CC-BY-SA variants. iNat-fallback
+   * rows still use CC-BY-SA-4.0 because the underlying source is the same
+   * Wikipedia article (iNat extracts plaintext from it; no relicense).
+   */
   license: 'CC-BY-SA-3.0' | 'CC-BY-SA-4.0';
-  /** Wikipedia revision id; null when the upstream omits it (Wikipedia 304 / sparse 200). */
+  /** Wikipedia revision id; null when the upstream omits it (Wikipedia 304 / sparse 200, iNat-fallback path). */
   revisionId: number | null;
-  /** ETag from the upstream conditional-GET; null when first fetch + upstream omits the header. */
+  /** ETag from the upstream conditional-GET; null when first fetch / iNat-fallback path. */
   etag: string | null;
-  /** Page URL (for "Read more on Wikipedia" link surface in the frontend). */
+  /** Page URL (Wikipedia for source='wikipedia'; iNat taxon page or Wikipedia URL for source='inat'). */
   attributionUrl: string;
 }
 
@@ -166,31 +176,47 @@ export async function getSpeciesMeta(
     photo_url: string | null;
     photo_attribution: string | null;
     photo_license: string | null;
+    description_body: string | null;
+    description_license: string | null;
+    description_attribution_url: string | null;
   }>(
     // LEFT JOIN species_photos so the species row is returned regardless of
     // whether a detail-panel photo exists. The (species_code, purpose) UNIQUE
     // guarantees at most one matching row, so no LIMIT/aggregation needed.
+    //
+    // Second LEFT JOIN to species_descriptions (issue #372) projects the
+    // description body/license/attribution_url onto the same payload the
+    // photo fields ride. The (species_code) UNIQUE on species_descriptions
+    // guarantees at most one matching row per species. revision_id and etag
+    // are deliberately NOT projected — they are cache-invalidation knobs
+    // the writer uses, not wire-facing fields.
     `SELECT sm.species_code, sm.com_name, sm.sci_name, sm.family_code,
             sm.family_name, sm.taxon_order,
             sp.url         AS photo_url,
             sp.attribution AS photo_attribution,
-            sp.license     AS photo_license
+            sp.license     AS photo_license,
+            sd.body            AS description_body,
+            sd.license         AS description_license,
+            sd.attribution_url AS description_attribution_url
        FROM species_meta sm
        LEFT JOIN species_photos sp
          ON sp.species_code = sm.species_code
         AND sp.purpose = 'detail-panel'
+       LEFT JOIN species_descriptions sd
+         ON sd.species_code = sm.species_code
       WHERE sm.species_code = $1`,
     [speciesCode]
   );
   const r = rows[0];
   if (!r) return null;
   // Build the result with the taxonomy fields always populated and the
-  // optional photo fields ONLY set when present. Under
+  // optional photo + description fields ONLY set when present. Under
   // exactOptionalPropertyTypes, assigning `undefined` to an optional
   // string-typed property is a type error — so omit the keys outright when
   // the JOIN produced NULLs. Consumers see `meta.photoUrl === undefined`
-  // because the property is missing, which is the contract spec'd in
-  // species.test.ts ("not present, not null, not empty").
+  // (and `meta.descriptionBody === undefined`) because the property is
+  // missing, which is the contract spec'd in species.test.ts ("not
+  // present, not null, not empty").
   const meta: SpeciesMeta = {
     speciesCode: r.species_code,
     comName: r.com_name,
@@ -202,6 +228,11 @@ export async function getSpeciesMeta(
   if (r.photo_url !== null) meta.photoUrl = r.photo_url;
   if (r.photo_attribution !== null) meta.photoAttribution = r.photo_attribution;
   if (r.photo_license !== null) meta.photoLicense = r.photo_license;
+  if (r.description_body !== null) meta.descriptionBody = r.description_body;
+  if (r.description_license !== null) meta.descriptionLicense = r.description_license;
+  if (r.description_attribution_url !== null) {
+    meta.descriptionAttributionUrl = r.description_attribution_url;
+  }
   return meta;
 }
 

@@ -4,9 +4,9 @@ import {
   insertSpeciesDescription,
   type Pool,
 } from '@bird-watch/db-client';
-import { fetchInatTaxon } from './inat/taxon-client.js';
+import { fetchInatTaxon, fetchInatTaxonSummary } from './inat/taxon-client.js';
 import { fetchWikipediaSummary } from './wikipedia/client.js';
-import { sanitizeWikipediaExtract } from './wikipedia/sanitize.js';
+import { sanitizeText, sanitizeWikipediaExtract } from './wikipedia/sanitize.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -33,20 +33,36 @@ export interface RunDescriptionsSummary {
   status: 'success' | 'failure';
   /** Total rows iterated from species_meta (after the EXISTS filter). */
   speciesCount: number;
-  /** Successful end-to-end (iNat resolved + Wikipedia 200 + DOMPurify + DB insert). */
+  /**
+   * Successful end-to-end. Total of Wikipedia (source='wikipedia') AND
+   * iNat-fallback (source='inat') writes. The iNat slice is broken out
+   * separately as `descriptionsFromInat` for coverage telemetry.
+   */
   descriptionsWritten: number;
   /**
-   * No description written because (a) iNat returned null, (b) Wikipedia 404,
-   * or (c) Wikipedia 304 (matching ETag — the row already existed and is fresh).
+   * No description written because (a) iNat search returned null, (b)
+   * Wikipedia 404 AND iNat per-id summary also null, (c) Wikipedia 304
+   * (matching ETag — the row already existed and is fresh), or (d) iNat
+   * search returned a taxon with no Wikipedia URL.
    */
   descriptionsSkipped: number;
   /** Threw at any step (iNat error, Wikipedia error, sanitization, DB CHECK). */
   descriptionsFailed: number;
+  /**
+   * Subset of `descriptionsWritten` taken via the iNat-summary fallback path
+   * (Wikipedia returned 404, iNat per-id returned a non-null `wikipedia_summary`,
+   * sanitizeText accepted the body, row was written with `source='inat'`).
+   * Coverage telemetry: `descriptionsFromInat / descriptionsWritten` is the
+   * fraction of species that needed the fallback.
+   */
+  descriptionsFromInat: number;
   errors: Array<{ speciesCode: string; reason: string }>;
 }
 
 const DEFAULT_PACE_MS = 1_000;
-const SOURCE = 'wikipedia' as const;
+const WIKIPEDIA_SOURCE = 'wikipedia' as const;
+const INAT_SOURCE = 'inat' as const;
+const WIKIPEDIA_LICENSE = 'CC-BY-SA-4.0' as const;
 
 /**
  * Orchestrates the daily descriptions backfill: for each AZ-observed species,
@@ -110,6 +126,7 @@ export async function runDescriptions(
     descriptionsWritten: 0,
     descriptionsSkipped: 0,
     descriptionsFailed: 0,
+    descriptionsFromInat: 0,
     errors: [],
   };
 
@@ -134,7 +151,14 @@ export async function runDescriptions(
       //    The cached path is what makes the daily cron cheap on steady-state
       //    runs (most Wikipedia pages don't change day-to-day, so the
       //    follow-up conditional GET is also a fast 304).
+      //
+      // Track the resolved iNat taxon id alongside the Wikipedia URL so the
+      // Wikipedia-404 fallback branch below can hit /v1/taxa/{id} without
+      // re-resolving the binomial.
       let wikipediaUrl: string;
+      let inatTaxonId: number | null = row.inat_taxon_id !== null
+        ? Number(row.inat_taxon_id)
+        : null;
       if (row.inat_taxon_id !== null && row.prior_attribution_url !== null) {
         wikipediaUrl = row.prior_attribution_url;
       } else {
@@ -149,7 +173,9 @@ export async function runDescriptions(
           continue;
         }
 
-        // Write back the iNat id so subsequent runs / #374 can use it.
+        inatTaxonId = taxon.inatTaxonId;
+
+        // Write back the iNat id so subsequent runs use it.
         if (row.inat_taxon_id === null) {
           await args.pool.query(
             `UPDATE species_meta SET inat_taxon_id = $1 WHERE species_code = $2`,
@@ -159,7 +185,9 @@ export async function runDescriptions(
 
         if (taxon.wikipediaUrl === null) {
           // iNat has the taxon but no Wikipedia cross-reference. Skip — the
-          // future #374 fallback will take this species via iNat-summary.
+          // iNat-fallback path requires a Wikipedia URL to attribute against
+          // anyway (the per-id `wikipedia_summary` only exists when there's
+          // a Wikipedia article; null cross-ref correlates with null summary).
           // eslint-disable-next-line no-console
           console.log(
             `[run-descriptions] ${speciesCode} (${sciName}): iNat taxon has no wikipedia_url, skipping`
@@ -193,13 +221,67 @@ export async function runDescriptions(
       const wiki = await fetchWikipediaSummary(wikipediaTitle, summaryFetchOpts);
 
       if (wiki === null) {
-        // Wikipedia 404 — page deleted or renamed. Skip; #374 fallback will
-        // re-attempt via iNat-summary on the next run.
-        // eslint-disable-next-line no-console
-        console.log(
-          `[run-descriptions] ${speciesCode} (${sciName}): Wikipedia returned 404 for ${wikipediaTitle}, skipping`
-        );
-        summary.descriptionsSkipped++;
+        // Wikipedia 404 — page deleted or renamed. Try the iNat-summary
+        // fallback (added in #374): hit /v1/taxa/{id} for the cached id and
+        // persist iNat's `wikipedia_summary` plaintext as a row with
+        // source='inat'. This is the whole reason the per-id endpoint exists
+        // in our pipeline — coverage on AZ-rare/vagrant species (Cave
+        // Swallow, Glossy Ibis) where Wikipedia REST returns 404 but iNat
+        // mirrors the article body.
+        //
+        // The fallback ONLY fires here (Wikipedia 404 branch) — never on the
+        // 200 happy path (would be wasted bandwidth) and never on the 304
+        // warm-cache path (already has a row).
+        if (inatTaxonId === null) {
+          // No cached id and the iNat search returned non-null taxon above
+          // (otherwise we'd have continued earlier) — this branch is
+          // unreachable in practice, but defend against a future refactor
+          // that decouples the paths.
+          // eslint-disable-next-line no-console
+          console.log(
+            `[run-descriptions] ${speciesCode} (${sciName}): Wikipedia 404 with no cached iNat id, skipping`
+          );
+          summary.descriptionsSkipped++;
+          continue;
+        }
+
+        const inatSummary = await fetchInatTaxonSummary(inatTaxonId, fetchOpts);
+        if (inatSummary === null || inatSummary.wikipediaSummary === null) {
+          // Both upstreams empty — log and skip.
+          // eslint-disable-next-line no-console
+          console.log(
+            `[run-descriptions] ${speciesCode} (${sciName}): Wikipedia 404 + iNat summary null, skipping`
+          );
+          summary.descriptionsSkipped++;
+          continue;
+        }
+
+        // Sanitize the iNat plaintext (strip any tags as defense-in-depth,
+        // trim, enforce 50..8192 length). SanitizationError surfaces in the
+        // outer catch as a per-species failure.
+        const sanitizedFallbackBody = sanitizeText(inatSummary.wikipediaSummary);
+
+        await insertSpeciesDescription(args.pool, {
+          speciesCode,
+          source: INAT_SOURCE,
+          body: sanitizedFallbackBody,
+          // iNat's wikipedia_summary is extracted from the same Wikipedia
+          // article, so the license is unchanged. The DB CHECK is unchanged
+          // by #374 and still requires a CC-BY-SA variant.
+          license: WIKIPEDIA_LICENSE,
+          // No upstream Wikipedia revision/etag on the fallback path — those
+          // belong to Wikipedia REST's conditional-GET semantics, not iNat's.
+          revisionId: null,
+          etag: null,
+          // Prefer the cached Wikipedia URL when present so the frontend's
+          // "Read more on Wikipedia" link still goes to the same article;
+          // fall back to the iNat taxon page if the URL parser couldn't
+          // produce one (defensive — wikipediaUrl is always set here by
+          // construction).
+          attributionUrl: wikipediaUrl,
+        });
+        summary.descriptionsWritten++;
+        summary.descriptionsFromInat++;
         continue;
       }
 
@@ -224,7 +306,7 @@ export async function runDescriptions(
           : null;
       await insertSpeciesDescription(args.pool, {
         speciesCode,
-        source: SOURCE,
+        source: WIKIPEDIA_SOURCE,
         body: sanitizedBody,
         license: wiki.license,
         revisionId,
