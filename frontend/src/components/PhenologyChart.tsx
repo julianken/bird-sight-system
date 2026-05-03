@@ -17,16 +17,17 @@ const MONTH_ABBRS = [
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
 ];
 const VIEWBOX_WIDTH = 216; // 12 months × 18px slot width
-// 80px bar area + 28px label gutter (24px to fit a rotated 3-letter string at
-// font-size="9" plus a 4px gap between bar floor and label baseline).
+// 70px bar area + 38px label gutter (24px to fit a rotated 3-letter string
+// at font-size="9" plus a 14px gap between bar floor and label baseline so
+// the rotated label's top-right corner doesn't intrude into the bar zone —
+// issue #365 task 2).
 const VIEWBOX_HEIGHT = 108;
-const BAR_AREA_HEIGHT = 80; // bars scale within this; gutter sits below
+const BAR_AREA_HEIGHT = 70; // bars scale within this; gutter sits below
 const SLOT_WIDTH = 18;
 const BAR_PADDING = 2; // each side; bar width = SLOT_WIDTH - 2*BAR_PADDING
-// 10% of viewBox height — the formula keeps the historical "muted bars are
-// ~one tenth of the chart" relationship intact even though the absolute
-// pixel value moves from 8 → 11 with the gutter addition.
-const PLACEHOLDER_HEIGHT = Math.round(VIEWBOX_HEIGHT * 0.1);
+// 10% of bar area height — keeps muted placeholder bars at ~one tenth of
+// their drawable region. With BAR_AREA_HEIGHT=70 this rounds to 7px.
+const PLACEHOLDER_HEIGHT = Math.round(BAR_AREA_HEIGHT * 0.1);
 
 /**
  * Zero-fills a server's sparse phenology response (only months with non-zero
@@ -62,8 +63,9 @@ function zeroFill(
  *
  * Bar heights scale to `max(count)` per dataset (not a global cap), so the
  * shape of the seasonality curve is what the eye reads — not the absolute
- * volume across species. Bars occupy the top 80 viewBox units; the bottom
- * 28 are reserved for the month-label gutter.
+ * volume across species. Bars occupy the top 70 viewBox units; the bottom
+ * 38 are reserved for the month-label gutter (#365 widened the gutter
+ * from 28 → 38 so rotated labels no longer overlap the bar floor).
  */
 export function PhenologyChart(props: PhenologyChartProps): JSX.Element | null {
   const { speciesCode, apiClient } = props;
@@ -118,6 +120,12 @@ export function PhenologyChart(props: PhenologyChartProps): JSX.Element | null {
       role="img"
       aria-label="Monthly phenology — observations per month"
       focusable="false"
+      // The Jan label rotates -45° around slot-center x=9 and extends ~1px
+      // past the viewBox's x=0. The CSS `overflow: visible` rule on
+      // .phenology-chart alone is not sufficient — SVG has intrinsic
+      // viewBox clipping that CSS doesn't override. The SVG attribute is
+      // the actual fix; the CSS rule remains as defense-in-depth (#365).
+      overflow="visible"
     >
       {filled.map((d, i) => {
         const x = i * SLOT_WIDTH + BAR_PADDING;
@@ -129,9 +137,9 @@ export function PhenologyChart(props: PhenologyChartProps): JSX.Element | null {
           className = 'phenology-bar phenology-bar-empty';
         } else {
           // Scale bar height to dataset max within the bar area (the top
-          // 80px). count=0 months render at height=0 (no bar drawn), which
+          // 70px). count=0 months render at height=0 (no bar drawn), which
           // is the desired "this month had zero observations" affordance
-          // against the active months. The bottom 28px is reserved for the
+          // against the active months. The bottom 38px is reserved for the
           // month-label gutter and is not available to bars.
           height = max === 0 ? 0 : Math.round((d.count / max) * BAR_AREA_HEIGHT);
           className = 'phenology-bar';
@@ -152,13 +160,56 @@ export function PhenologyChart(props: PhenologyChartProps): JSX.Element | null {
           </rect>
         );
       })}
+      {/* Visible count labels — one per non-zero bar. Sighted-only
+          enhancement (aria-hidden); the chart's aria-label and per-bar
+          <title> already cover assistive tech. 0-count bars get no label
+          (12 zeros would be visual noise; the empty-state placeholder
+          bars also stay number-free). For the tallest bar (count=max,
+          barTop=0), a y of barTop-2 = -2 would render above the viewBox
+          — the Math.max(..., 8) clamp prevents that off-screen
+          rendering (#365 task 1). */}
+      {filled.map((d, i) => {
+        if (d.count === 0) return null;
+        const x = i * SLOT_WIDTH + SLOT_WIDTH / 2;
+        const barTop =
+          max === 0
+            ? BAR_AREA_HEIGHT
+            : BAR_AREA_HEIGHT - Math.round((d.count / max) * BAR_AREA_HEIGHT);
+        const y = Math.max(barTop - 2, 8);
+        // When the label is clamped inside the bar (y >= barTop) — the
+        // tallest bar reaches barTop=0 so y=8 sits inside the dark fill —
+        // the default --color-text-body (#444) on --color-text-strong
+        // (#1a1a1a) drops to ~1.7:1 contrast (WCAG AA fails 4.5:1). Flip
+        // to a white fill via .phenology-count-on-bar so the count label
+        // remains readable. Shorter bars keep the dark fill above the bar.
+        const labelInsideBar = y >= barTop;
+        return (
+          <text
+            key={`count-${d.month}`}
+            className={
+              labelInsideBar
+                ? 'phenology-count phenology-count-on-bar'
+                : 'phenology-count'
+            }
+            x={x}
+            y={y}
+            textAnchor="middle"
+            fontSize="7"
+            aria-hidden="true"
+          >
+            {d.count}
+          </text>
+        );
+      })}
       {/* Visible month labels — 3-letter abbreviations rotated -45° so they
           fit at 18px slot width without horizontal overlap. aria-hidden so
           axe and screen readers don't double-announce against the SVG's
-          aria-label and the per-bar <title> tooltips. */}
+          aria-label and the per-bar <title> tooltips. y=BAR_AREA_HEIGHT+12
+          places the rotated label baseline 12px below the bar floor — the
+          rotated label's top-right corner clears the bar zone (#365). */}
       {filled.map((d, i) => {
         const x = i * SLOT_WIDTH + SLOT_WIDTH / 2;
-        const y = BAR_AREA_HEIGHT + 2; // 2px gap below bar floor
+        const y = BAR_AREA_HEIGHT + 12;
         return (
           <text
             key={`label-${d.month}`}

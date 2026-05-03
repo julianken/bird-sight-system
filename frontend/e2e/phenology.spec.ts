@@ -53,6 +53,15 @@ test.describe('phenology chart on species detail (#356)', () => {
         await expect(chart.locator('text.phenology-label')).toHaveCount(12);
         await expect(chart.locator('text.phenology-label').first()).toHaveText('Jan');
 
+        // Visible count labels above each non-zero bar (#365). The full
+        // fixture has 12 non-zero months → 12 count labels render.
+        await expect(chart.locator('text.phenology-count')).toHaveCount(12);
+
+        // SVG `overflow="visible"` attribute is the actual fix for Jan
+        // label clipping — CSS overflow alone does not override SVG's
+        // intrinsic viewBox clipping (#365).
+        await expect(chart).toHaveAttribute('overflow', 'visible');
+
         // Accessible label is present (role="img" + aria-label).
         await expect(chart).toHaveAttribute('role', 'img');
         await expect(chart).toHaveAttribute('aria-label', /phenology/i);
@@ -76,6 +85,9 @@ test.describe('phenology chart on species detail (#356)', () => {
         await expect(chart.locator('rect')).toHaveCount(12);
         // Placeholder bars carry the muted class.
         await expect(chart.locator('rect.phenology-bar-empty')).toHaveCount(12);
+        // Empty fixture has no non-zero counts — zero count labels render
+        // (#365 — count labels are skipped when count === 0).
+        await expect(chart.locator('text.phenology-count')).toHaveCount(0);
       });
 
       test('error path — no chart element but surface text still present', async ({ page, apiStub }) => {

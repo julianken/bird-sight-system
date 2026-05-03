@@ -455,14 +455,15 @@ body {
   color: var(--color-text-body);
 }
 .species-detail-loading { color: var(--color-text-muted); font-size: 13px; margin: 8px 0 0 0; }
-/* Phenology chart (#356, #363). 12 monthly observation-count bars rendered
-   as inline SVG inside the species detail body. Sits below
+/* Phenology chart (#356, #363, #365). 12 monthly observation-count bars
+   rendered as inline SVG inside the species detail body. Sits below
    .species-detail-family. The SVG uses width:100% with a max-width cap so
    the chart scales cleanly on both the 390×844 mobile and 1440×900 desktop
    release-1 viewports without ballooning past the surface's 760px content
    cap. The viewBox keeps the internal 216×108 coordinate space stable
-   across viewports — bars occupy the top 80 units, the bottom 28 are the
-   month-label gutter, and 18px slots stay 18px slots in their own
+   across viewports — bars occupy the top 70 units, the bottom 38 are the
+   month-label gutter (widened from 28 → 38 in #365 so rotated labels
+   clear the bar floor), and 18px slots stay 18px slots in their own
    coordinate system regardless of rendered width. */
 .phenology-chart {
   display: block;
@@ -490,6 +491,25 @@ body {
 .phenology-label {
   fill: var(--color-text-muted);
   font-family: inherit;
+}
+/* Visible count labels above each non-zero bar (#365). Uses the body-text
+   color (rather than text-muted on .phenology-label) for higher contrast —
+   these numbers are the chart's primary data signal. font-family: inherit
+   matches the .phenology-label rule so both axis surfaces use the same
+   font stack. */
+.phenology-count {
+  fill: var(--color-text-body);
+  font-family: inherit;
+}
+/* Variant for the tallest bar's count label, whose y is clamped to 8 inside
+   the bar zone (y=0..70) so the label overlaps the dark bar fill. The
+   default --color-text-body (#444) on --color-text-strong (#1a1a1a) is only
+   ~1.7:1 — WCAG AA needs 4.5:1. Pure white pushes contrast to ~16:1, well
+   into AAA territory. Hard-coded #ffffff (rather than --color-text-white,
+   which carries a "text on dark backgrounds" semantic anyway) keeps the
+   intent self-evident at the rule. */
+.phenology-count-on-bar {
+  fill: #ffffff;
 }
 .phenology-chart-loading {
   color: var(--color-text-muted);
