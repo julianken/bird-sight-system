@@ -1,9 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { SpeciesDetailSurface } from './SpeciesDetailSurface.js';
 import { ApiClient } from '../api/client.js';
 import type { SpeciesMeta, FamilySilhouette } from '@bird-watch/shared-types';
 import { __resetSilhouettesCache } from '../data/use-silhouettes.js';
+import { analytics } from '../analytics.js';
+
+// Mock posthog-js so no network call escapes the test environment, even
+// if a future contributor sets `VITE_POSTHOG_KEY` in their local .env.
+// Tests run with the env unset by default — `analytics` is the no-op stub
+// from analytics.ts — so the assertions below spy directly on the stub's
+// `capture` method.  Keeping `vi.mock('posthog-js')` matches the explicit
+// guidance in issue #357 task 6.
+vi.mock('posthog-js', () => ({
+  default: {
+    init: vi.fn(),
+    capture: vi.fn(),
+  },
+}));
 
 const VERMFLY: SpeciesMeta = {
   speciesCode: 'vermfly',
@@ -159,5 +173,173 @@ describe('SpeciesDetailSurface', () => {
     render(<SpeciesDetailSurface speciesCode="annhum" apiClient={client} />);
     const photo = await screen.findByAltText('Anna’s Hummingbird photo');
     expect(photo.tagName).toBe('IMG');
+  });
+
+  // ─── Analytics instrumentation (issue #357 tasks 3, 4) ─────────────────
+  //
+  // The detail surface fires three PostHog events once per active species:
+  //
+  //   - `panel_opened` on mount (after the species detail resolves).
+  //   - `panel_dwell_ms` on unmount with `dwell_ms = Date.now() - t0`.
+  //   - `panel_scrolled_to_bottom` on first IntersectionObserver hit on
+  //     the bottom sentinel.
+  //
+  // Tests run with `VITE_POSTHOG_KEY` unset, so `analytics` is the no-op
+  // stub from `analytics.ts` (posthog.init is never called — that's the
+  // load-bearing CI-cleanliness guarantee).  We spy on `analytics.capture`
+  // directly to verify the events fire with the right payload.
+
+  describe('analytics instrumentation', () => {
+    it('fires panel_opened on mount with species_code', async () => {
+      const captureSpy = vi.spyOn(analytics, 'capture');
+      const client = makeClient({
+        getSpecies: vi.fn().mockResolvedValue(VERMFLY),
+        getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
+      } as unknown as Partial<ApiClient>);
+      render(<SpeciesDetailSurface speciesCode="vermfly" apiClient={client} />);
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeInTheDocument()
+      );
+      expect(captureSpy).toHaveBeenCalledWith('panel_opened', { species_code: 'vermfly' });
+      captureSpy.mockRestore();
+    });
+
+    it('fires panel_dwell_ms on unmount with species_code and a numeric dwell_ms', async () => {
+      const captureSpy = vi.spyOn(analytics, 'capture');
+      const client = makeClient({
+        getSpecies: vi.fn().mockResolvedValue(VERMFLY),
+        getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
+      } as unknown as Partial<ApiClient>);
+      const { unmount } = render(
+        <SpeciesDetailSurface speciesCode="vermfly" apiClient={client} />,
+      );
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeInTheDocument()
+      );
+      // panel_opened fired on mount; clear so we isolate the unmount call.
+      captureSpy.mockClear();
+      unmount();
+      expect(captureSpy).toHaveBeenCalledWith(
+        'panel_dwell_ms',
+        expect.objectContaining({
+          species_code: 'vermfly',
+          dwell_ms: expect.any(Number),
+        }),
+      );
+      captureSpy.mockRestore();
+    });
+
+    it('does NOT fire panel_opened before species data resolves', async () => {
+      const captureSpy = vi.spyOn(analytics, 'capture');
+      // getSpecies never resolves — the effect's `if (!data?.speciesCode) return`
+      // guard means `panel_opened` should not fire while the surface is still
+      // in its loading state.
+      const client = makeClient({
+        getSpecies: vi.fn().mockReturnValue(new Promise(() => {})),
+        getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
+      } as unknown as Partial<ApiClient>);
+      render(<SpeciesDetailSurface speciesCode="vermfly" apiClient={client} />);
+      expect(screen.getByText('Loading species details…')).toBeInTheDocument();
+      // Check synchronously after mount — no event should have fired.
+      const calls = captureSpy.mock.calls.filter(([name]) => name === 'panel_opened');
+      expect(calls).toHaveLength(0);
+      captureSpy.mockRestore();
+    });
+
+    it('renders the bottom sentinel inside .species-detail-body', async () => {
+      const client = makeClient({
+        getSpecies: vi.fn().mockResolvedValue(VERMFLY),
+        getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
+      } as unknown as Partial<ApiClient>);
+      render(<SpeciesDetailSurface speciesCode="vermfly" apiClient={client} />);
+      const sentinel = await screen.findByTestId('phenology-bottom-sentinel');
+      expect(sentinel).toBeInTheDocument();
+      // aria-hidden so SR users don't perceive an empty element at the end.
+      expect(sentinel).toHaveAttribute('aria-hidden', 'true');
+      // Must live inside the body so it scrolls with the panel content.
+      const body = sentinel.closest('.species-detail-body');
+      expect(body).not.toBeNull();
+    });
+
+    it('fires panel_scrolled_to_bottom on first sentinel intersection then disconnects', async () => {
+      // Capture the IntersectionObserver instances and the callbacks the
+      // component registers.  jsdom does not implement IntersectionObserver,
+      // so we install a controllable mock that records each callback for
+      // manual triggering — same pattern any IO-driven test in the codebase
+      // would use.
+      type IOInstance = {
+        callback: IntersectionObserverCallback;
+        observe: ReturnType<typeof vi.fn>;
+        disconnect: ReturnType<typeof vi.fn>;
+        unobserve: ReturnType<typeof vi.fn>;
+        takeRecords: ReturnType<typeof vi.fn>;
+      };
+      const observers: IOInstance[] = [];
+      // Class form is required because the component uses `new IntersectionObserver(...)`
+      // — vi.fn().mockImplementation(...) returns a function that's not callable
+      // with `new`.  A real class wins.
+      class IOMock {
+        callback: IntersectionObserverCallback;
+        observe = vi.fn();
+        disconnect = vi.fn();
+        unobserve = vi.fn();
+        takeRecords = vi.fn(() => []);
+        constructor(callback: IntersectionObserverCallback) {
+          this.callback = callback;
+          observers.push(this as unknown as IOInstance);
+        }
+      }
+      const originalIO = (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver;
+      (globalThis as { IntersectionObserver: unknown }).IntersectionObserver = IOMock;
+
+      try {
+        const captureSpy = vi.spyOn(analytics, 'capture');
+        const client = makeClient({
+          getSpecies: vi.fn().mockResolvedValue(VERMFLY),
+          getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
+        } as unknown as Partial<ApiClient>);
+        render(<SpeciesDetailSurface speciesCode="vermfly" apiClient={client} />);
+        const sentinel = await screen.findByTestId('phenology-bottom-sentinel');
+        expect(observers.length).toBeGreaterThan(0);
+        // Find the observer that was wired to the sentinel — the component
+        // calls observer.observe(sentinelRef.current) once.
+        const wired = observers.find(o => o.observe.mock.calls.some(call => call[0] === sentinel));
+        expect(wired).toBeDefined();
+        // Trigger the first intersection.  The component should fire
+        // `panel_scrolled_to_bottom` once and then disconnect to prevent
+        // future re-fires.
+        captureSpy.mockClear();
+        act(() => {
+          wired!.callback(
+            [{ isIntersecting: true } as IntersectionObserverEntry],
+            wired as unknown as IntersectionObserver,
+          );
+        });
+        expect(captureSpy).toHaveBeenCalledWith('panel_scrolled_to_bottom', {
+          species_code: 'vermfly',
+        });
+        expect(wired!.disconnect).toHaveBeenCalled();
+
+        // Second intersection must NOT re-fire — the observer is already
+        // disconnected, but defensively assert the binary-only contract
+        // (issue #357 task 4: no 25/50/75 thresholds).
+        captureSpy.mockClear();
+        act(() => {
+          wired!.callback(
+            [{ isIntersecting: true } as IntersectionObserverEntry],
+            wired as unknown as IntersectionObserver,
+          );
+        });
+        const reFires = captureSpy.mock.calls.filter(([name]) => name === 'panel_scrolled_to_bottom');
+        expect(reFires).toHaveLength(0);
+        captureSpy.mockRestore();
+      } finally {
+        if (originalIO === undefined) {
+          delete (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver;
+        } else {
+          (globalThis as { IntersectionObserver: unknown }).IntersectionObserver = originalIO;
+        }
+      }
+    });
   });
 });

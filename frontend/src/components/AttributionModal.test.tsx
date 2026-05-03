@@ -102,14 +102,38 @@ describe('AttributionModal', () => {
     expect(screen.getByRole('heading', { level: 2, name: /credits/i })).toBeInTheDocument();
   });
 
-  it('renders three sections, each with an <h3> heading', async () => {
+  it('renders four sections, each with an <h3> heading', async () => {
     const user = userEvent.setup();
     render(<AttributionModal silhouettes={SILHOUETTES} />);
     await user.click(screen.getByRole('button', { name: /credits/i }));
-    // eBird, Family Silhouettes (Phylopic), Map Tiles (OSM/OpenFreeMap)
+    // eBird, Family Silhouettes (Phylopic), Map Tiles (OSM/OpenFreeMap),
+    // Privacy (PostHog disclosure — issue #357 task 7).
     expect(screen.getByRole('heading', { level: 3, name: /bird sightings data/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 3, name: /family silhouettes/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 3, name: /map tiles/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: /privacy/i })).toBeInTheDocument();
+  });
+
+  it('renders a Privacy section disclosing PostHog analytics + DNT respect', async () => {
+    const user = userEvent.setup();
+    render(<AttributionModal silhouettes={SILHOUETTES} />);
+    await user.click(screen.getByRole('button', { name: /credits/i }));
+    // The section follows the existing <h3> idiom (Bird Sightings Data,
+    // Family Silhouettes, Photos conditional, Map Tiles).  Privacy is the
+    // new final section.
+    const heading = screen.getByRole('heading', { level: 3, name: /privacy/i });
+    expect(heading).toBeInTheDocument();
+    // Verbatim copy from the issue: discloses PostHog as the analytics
+    // vendor + DNT compliance + no session recordings / personal data.
+    expect(
+      screen.getByText(/usage analytics via posthog/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/respects do not track/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/no session recordings or personal data collected/i),
+    ).toBeInTheDocument();
   });
 
   it('renders an eBird credit + link in the Bird Sightings section', async () => {
