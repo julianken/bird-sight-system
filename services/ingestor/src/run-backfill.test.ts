@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach, vi } from 'vitest';
 import { setupServer } from 'msw/node';
 import { http, HttpResponse } from 'msw';
 import { startTestDb, type TestDb } from '@bird-watch/db-client/dist/test-helpers.js';
@@ -142,6 +142,57 @@ describe('runBackfill', () => {
     const subIds = obs.map(o => o.subId).sort();
     expect(subIds).toContain('SDay15');
     expect(subIds).toContain('SDay13');
+  });
+
+  it('paces successive day fetches when paceMs > 0, skipping the wait before the first call', async () => {
+    // Mirrors the run-photos.ts:113-116 pattern: a run with N days should sit
+    // idle for paceMs * (N - 1), not paceMs * N. Skip the wait before the
+    // first call so a 365-day backfill at 1 rps completes in ~364s, not 365s.
+    let calls = 0;
+    server.use(
+      http.get('https://api.ebird.org/v2/data/obs/US-AZ/recent/notable', () => HttpResponse.json([])),
+      http.get('https://api.ebird.org/v2/data/obs/US-AZ/historic/:y/:m/:d', () => {
+        calls++;
+        return HttpResponse.json([
+          { speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+            sciName: 'Pyrocephalus rubinus', locId: `LP${calls}`, locName: 'X',
+            obsDt: '2026-04-10 08:00', howMany: 1, lat: 31.72, lng: -110.88,
+            obsValid: true, obsReviewed: false, locationPrivate: false,
+            subId: `SP${calls}` },
+        ]);
+      }),
+    );
+
+    // Spy on setTimeout to capture pacing calls exactly, instead of asserting
+    // wall-clock elapsed bounds (flake-prone on slow CI runners under
+    // CLAUDE.md's `retries: 0` policy). We can't use vi.useFakeTimers() here
+    // because msw + node-postgres rely on real timers for network I/O.
+    //
+    // The exact property: when days=3 and paceMs=50, run-backfill.ts must
+    // call setTimeout(<resolve>, 50) exactly 2 times — once between calls 1-2
+    // and once between calls 2-3 — and never before the first call. Filtering
+    // on `delay === 50` excludes setTimeout calls from msw, pg, etc.
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+    const today = new Date('2026-04-16T00:00:00Z');
+    const summary = await runBackfill({
+      pool: db.pool, apiKey: 'k', regionCode: 'US-AZ',
+      days: 3, today, paceMs: 50,
+    });
+
+    expect(summary.status).toBe('success');
+    expect(calls).toBe(3);
+
+    // Count only the pacing setTimeouts (delay === 50ms). Anything else is
+    // unrelated infrastructure timer activity.
+    const pacingCalls = setTimeoutSpy.mock.calls.filter(
+      ([, delay]) => delay === 50
+    );
+    // Exact: 2 pacing sleeps for 3 days. If the implementation regressed to
+    // pacing before the first call, this would be 3.
+    expect(pacingCalls).toHaveLength(2);
+
+    setTimeoutSpy.mockRestore();
   });
 
   it('records failure when pre-loop fetchNotable throws exhausted retries', async () => {
