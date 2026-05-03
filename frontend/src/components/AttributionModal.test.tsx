@@ -102,16 +102,85 @@ describe('AttributionModal', () => {
     expect(screen.getByRole('heading', { level: 2, name: /credits/i })).toBeInTheDocument();
   });
 
-  it('renders four sections, each with an <h3> heading', async () => {
+  it('renders five sections (without optional Photos), each with an <h3> heading', async () => {
     const user = userEvent.setup();
     render(<AttributionModal silhouettes={SILHOUETTES} />);
     await user.click(screen.getByRole('button', { name: /credits/i }));
-    // eBird, Family Silhouettes (Phylopic), Map Tiles (OSM/OpenFreeMap),
-    // Privacy (PostHog disclosure — issue #357 task 7).
+    // eBird, Family Silhouettes (Phylopic), Species descriptions
+    // (Wikipedia — #373), Map Tiles (OSM/OpenFreeMap), Privacy
+    // (PostHog disclosure — issue #357 task 7). Photos is optional and
+    // not rendered without photoAttribution + photoLicense.
     expect(screen.getByRole('heading', { level: 3, name: /bird sightings data/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 3, name: /family silhouettes/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: /species descriptions/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 3, name: /map tiles/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 3, name: /privacy/i })).toBeInTheDocument();
+  });
+
+  // Issue #373 task 4: catch-all "Species descriptions" section sits
+  // between Photos (optional) and Map Tiles. Renders unconditionally —
+  // descriptions exist for >85% of species and the inline per-article
+  // credit on SpeciesDetailSurface satisfies the per-work attribution
+  // requirement, so the modal-level credit is the catch-all.
+  it('renders a Species descriptions section disclosing Wikipedia + CC BY-SA', async () => {
+    const user = userEvent.setup();
+    render(<AttributionModal silhouettes={SILHOUETTES} />);
+    await user.click(screen.getByRole('button', { name: /credits/i }));
+    const heading = screen.getByRole('heading', { level: 3, name: /species descriptions/i });
+    expect(heading).toBeInTheDocument();
+    const section = heading.closest('section');
+    expect(section).not.toBeNull();
+    // Disclosure copy must surface (a) Wikipedia as the source and
+    // (b) CC BY-SA as the license + (c) the per-species panel link
+    // pointer (the inline "From Wikipedia, CC BY-SA" credit on
+    // SpeciesDescription is the per-article attribution).
+    expect(section!.textContent).toMatch(/Wikipedia/i);
+    expect(section!.textContent).toMatch(/CC BY-SA/i);
+    expect(section!.textContent).toMatch(/per-article|species panel/i);
+  });
+
+  it('renders the Species descriptions section between Photos and Map Tiles in DOM order', async () => {
+    const user = userEvent.setup();
+    render(
+      <AttributionModal
+        silhouettes={SILHOUETTES}
+        photoAttribution="Jane Photographer"
+        photoLicense="cc-by"
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: /credits/i }));
+    const headings = screen
+      .getAllByRole('heading', { level: 3 })
+      .map(h => h.textContent?.toLowerCase() ?? '');
+    const photosIdx = headings.findIndex(h => h.includes('photos'));
+    const descriptionsIdx = headings.findIndex(h => h.includes('species descriptions'));
+    const mapIdx = headings.findIndex(h => h.includes('map tiles'));
+    expect(photosIdx).toBeGreaterThan(-1);
+    expect(descriptionsIdx).toBeGreaterThan(-1);
+    expect(mapIdx).toBeGreaterThan(-1);
+    // Photos < Species descriptions < Map Tiles in DOM order.
+    expect(photosIdx).toBeLessThan(descriptionsIdx);
+    expect(descriptionsIdx).toBeLessThan(mapIdx);
+  });
+
+  it('renders the Species descriptions section even with Photos absent (sits between Family Silhouettes and Map Tiles)', async () => {
+    const user = userEvent.setup();
+    render(<AttributionModal silhouettes={SILHOUETTES} />);
+    await user.click(screen.getByRole('button', { name: /credits/i }));
+    const headings = screen
+      .getAllByRole('heading', { level: 3 })
+      .map(h => h.textContent?.toLowerCase() ?? '');
+    const familyIdx = headings.findIndex(h => h.includes('family silhouettes'));
+    const descriptionsIdx = headings.findIndex(h => h.includes('species descriptions'));
+    const mapIdx = headings.findIndex(h => h.includes('map tiles'));
+    expect(familyIdx).toBeGreaterThan(-1);
+    expect(descriptionsIdx).toBeGreaterThan(-1);
+    expect(mapIdx).toBeGreaterThan(-1);
+    // No Photos heading in this branch.
+    expect(headings.findIndex(h => h.includes('photos'))).toBe(-1);
+    // Family Silhouettes < Species descriptions < Map Tiles.
+    expect(familyIdx).toBeLessThan(descriptionsIdx);
+    expect(descriptionsIdx).toBeLessThan(mapIdx);
   });
 
   it('renders a Privacy section disclosing PostHog analytics + DNT respect', async () => {
