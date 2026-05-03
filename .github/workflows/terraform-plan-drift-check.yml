@@ -79,7 +79,7 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v3
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           # Matches infra/terraform/versions.tf required_version (>= 1.6.0)
           # and Julian's local 1.14.8 used for Phase 1. Pinning here keeps
