@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { setupServer } from 'msw/node';
 import { http, HttpResponse } from 'msw';
-import { fetchInatTaxon } from './taxon-client.js';
+import { fetchInatTaxon, fetchInatTaxonSummary } from './taxon-client.js';
 import { InatClientError } from './client.js';
 
 const server = setupServer();
@@ -216,6 +216,143 @@ describe('fetchInatTaxon', () => {
     );
     // 400 is a programming error — retrying would obscure the bug. Confirm we
     // didn't retry.
+    expect(calls).toBe(1);
+  });
+});
+
+describe('fetchInatTaxonSummary', () => {
+  // Hits iNat's per-id `/v1/taxa/{id}` endpoint, which is the only iNat
+  // endpoint that surfaces `wikipedia_summary` (the search endpoint at
+  // `/v1/taxa?q=...` does NOT — confirmed at #369). Used by run-descriptions'
+  // Wikipedia-404 fallback branch: when Wikipedia REST returns null for a
+  // species page, the orchestrator calls this helper with the cached
+  // species_meta.inat_taxon_id and writes the returned summary as a row with
+  // source='inat'.
+  //
+  // Same retry/UA/timeout shape as fetchInatTaxon — both share `getJsonWithRetry`
+  // out of `inat/client.ts`.
+
+  it('returns { wikipediaSummary } on a 200 with a non-null wikipedia_summary', async () => {
+    server.use(
+      http.get(`${INAT_TAXA_URL}/9083`, ({ request }) => {
+        // The per-id endpoint is `/v1/taxa/{id}` — no query params required.
+        // iNat recommended-practices doc requires a meaningful UA.
+        expect(request.headers.get('User-Agent')).toMatch(/bird-maps\.com/);
+        return HttpResponse.json({
+          total_results: 1,
+          page: 1,
+          per_page: 1,
+          results: [
+            {
+              id: 9083,
+              name: 'Setophaga coronata',
+              rank: 'species',
+              wikipedia_summary:
+                'The yellow-rumped warbler (Setophaga coronata) is a regular North American bird species that can be commonly observed all across the continent.',
+              wikipedia_url:
+                'https://en.wikipedia.org/wiki/Yellow-rumped_warbler',
+            },
+          ],
+        });
+      })
+    );
+
+    const result = await fetchInatTaxonSummary(9083);
+
+    expect(result).not.toBeNull();
+    expect(result?.wikipediaSummary).toMatch(/yellow-rumped warbler/i);
+  });
+
+  it('returns { wikipediaSummary: null } when the taxon record omits or nulls wikipedia_summary', async () => {
+    // Some taxa have an iNat record but no Wikipedia article cross-reference
+    // (rare splits, regional lumps). The helper must not coerce null to "" or
+    // a string "null"; the orchestrator detects null to bail out of the
+    // fallback branch entirely (no row written, descriptionsSkipped++).
+    server.use(
+      http.get(`${INAT_TAXA_URL}/12345`, () =>
+        HttpResponse.json({
+          total_results: 1,
+          page: 1,
+          per_page: 1,
+          results: [
+            {
+              id: 12345,
+              name: 'Some Species',
+              rank: 'species',
+              wikipedia_summary: null,
+              wikipedia_url: null,
+            },
+          ],
+        })
+      )
+    );
+
+    const result = await fetchInatTaxonSummary(12345);
+
+    expect(result).toEqual({ wikipediaSummary: null });
+  });
+
+  it('returns null when iNat reports zero results for the id', async () => {
+    // iNat's per-id endpoint can return a body shaped like
+    // `{ total_results: 0, results: [] }` for soft-deleted / merged taxa.
+    // Match fetchInatTaxon's null-on-empty contract.
+    server.use(
+      http.get(`${INAT_TAXA_URL}/99999`, () =>
+        HttpResponse.json({
+          total_results: 0,
+          page: 1,
+          per_page: 1,
+          results: [],
+        })
+      )
+    );
+
+    const result = await fetchInatTaxonSummary(99999);
+    expect(result).toBeNull();
+  });
+
+  it('retries once on 429 and succeeds on the second attempt', async () => {
+    let calls = 0;
+    server.use(
+      http.get(`${INAT_TAXA_URL}/9083`, () => {
+        calls++;
+        if (calls === 1) {
+          return new HttpResponse('rate limited', { status: 429 });
+        }
+        return HttpResponse.json({
+          total_results: 1,
+          page: 1,
+          per_page: 1,
+          results: [
+            {
+              id: 9083,
+              name: 'Setophaga coronata',
+              rank: 'species',
+              wikipedia_summary: 'A summary that survives the retry path.',
+            },
+          ],
+        });
+      })
+    );
+
+    const result = await fetchInatTaxonSummary(9083, { retryBaseMs: 1 });
+
+    expect(calls).toBe(2);
+    expect(result?.wikipediaSummary).toBe('A summary that survives the retry path.');
+  });
+
+  it('throws InatClientError on 4xx (non-429) without retry', async () => {
+    let calls = 0;
+    server.use(
+      http.get(`${INAT_TAXA_URL}/0`, () => {
+        calls++;
+        return new HttpResponse('bad request', { status: 400 });
+      })
+    );
+
+    await expect(fetchInatTaxonSummary(0)).rejects.toBeInstanceOf(
+      InatClientError
+    );
     expect(calls).toBe(1);
   });
 });

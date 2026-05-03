@@ -55,6 +55,19 @@ export interface SpeciesMeta {
   photoUrl?: string;
   photoAttribution?: string;
   photoLicense?: string;
+  // Optional description projection fields. Mirrors the photo-projection
+  // shape (issue #372): derived at read time from a LEFT JOIN to
+  // species_descriptions and NEVER stored on species_meta itself. The Read
+  // API populates them on /api/species/:code when a row exists in
+  // species_descriptions for the species; absent otherwise.
+  // exactOptionalPropertyTypes contract: properties are absent (not
+  // `undefined`) when the JOIN produces NULLs — same as the photo fields
+  // above. Cache caveat: stale CDN responses predating these fields
+  // deserialize with all three === undefined, which the frontend treats as
+  // "no description" (silent no-op) — no Cache-Control bump is required.
+  descriptionBody?: string;
+  descriptionLicense?: string;
+  descriptionAttributionUrl?: string;
 }
 
 export interface FamilySilhouette {
