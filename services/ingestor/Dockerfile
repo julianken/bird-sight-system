@@ -27,8 +27,9 @@ COPY --from=build /repo/services/ingestor/dist ./services/ingestor/dist
 
 # run-descriptions.ts shells out to ./scripts/purge-species-cache.sh on the
 # daily Cloud Run Job; without this COPY the daily cron logs ENOENT (#379).
+# The script is mode 100755 in the git index, so COPY preserves the +x bit
+# without an explicit chmod.
 COPY scripts/purge-species-cache.sh ./scripts/
-RUN chmod +x ./scripts/purge-species-cache.sh
 
 RUN npm ci --omit=dev --workspaces --include-workspace-root
 
