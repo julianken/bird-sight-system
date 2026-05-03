@@ -15,11 +15,20 @@ FROM node:24-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 
+# scripts/purge-species-cache.sh shells out to curl + jq; alpine ships neither.
+# Pinned via --no-cache to keep the layer small (no /var/cache/apk).
+RUN apk add --no-cache bash curl jq
+
 COPY --from=build /repo/package.json /repo/package-lock.json ./
 COPY --from=build /repo/packages/db-client ./packages/db-client
 COPY --from=build /repo/packages/shared-types ./packages/shared-types
 COPY --from=build /repo/services/ingestor/package.json ./services/ingestor/
 COPY --from=build /repo/services/ingestor/dist ./services/ingestor/dist
+
+# run-descriptions.ts shells out to ./scripts/purge-species-cache.sh on the
+# daily Cloud Run Job; without this COPY the daily cron logs ENOENT (#379).
+COPY scripts/purge-species-cache.sh ./scripts/
+RUN chmod +x ./scripts/purge-species-cache.sh
 
 RUN npm ci --omit=dev --workspaces --include-workspace-root
 
