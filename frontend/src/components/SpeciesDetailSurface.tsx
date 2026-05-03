@@ -5,6 +5,7 @@ import { useSilhouettes } from '../data/use-silhouettes.js';
 import type { FamilySilhouette } from '@bird-watch/shared-types';
 import { analytics } from '../analytics.js';
 import { PhenologyChart } from './PhenologyChart.js';
+import { SpeciesDescription } from './SpeciesDescription.js';
 
 export interface SpeciesDetailSurfaceProps {
   speciesCode: string;
@@ -125,7 +126,8 @@ function SpeciesDetailVisual({
  */
 export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
   const { speciesCode, apiClient } = props;
-  const { loading, error, data } = useSpeciesDetail(apiClient, speciesCode);
+  const detail = useSpeciesDetail(apiClient, speciesCode);
+  const { loading, error, data } = detail;
   const { silhouettes } = useSilhouettes(apiClient);
 
   // Analytics instrumentation (issue #357 task 3): fire `panel_opened`
@@ -140,7 +142,15 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
     if (!data?.speciesCode) return;
     const t0 = Date.now();
     const code = data.speciesCode;
-    analytics.capture('panel_opened', { species_code: code });
+    // Issue #373 task 6: tag `panel_opened` with `has_description` so the
+    // panel-thinness dwell analysis can stratify post-hoc by whether a
+    // species had a Wikipedia summary at the time of view. The dwell event
+    // shape is intentionally unchanged — the analyst groups on the
+    // `has_description` property of the open event at PostHog query time.
+    analytics.capture('panel_opened', {
+      species_code: code,
+      has_description: !!data.descriptionBody,
+    });
     return () => {
       analytics.capture('panel_dwell_ms', {
         species_code: code,
@@ -211,13 +221,26 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
           <p className="species-detail-family">{data.familyName}</p>
           <PhenologyChart speciesCode={speciesCode} apiClient={apiClient} />
           {/*
+            SpeciesDescription mount (issue #373 / epic #368). Renders
+            sanitized Wikipedia summary HTML when SpeciesMeta carries a
+            non-null `descriptionBody`; returns `null` (silent no-op)
+            when absent so CDN-stale responses degrade gracefully.
+            Sits between PhenologyChart and the bottom sentinel — the
+            sentinel must remain the LAST child of `.species-detail-body`
+            (see comment below).
+          */}
+          <SpeciesDescription
+            descriptionBody={data.descriptionBody}
+            descriptionAttributionUrl={data.descriptionAttributionUrl}
+          />
+          {/*
             Bottom sentinel for the IntersectionObserver-driven
             `panel_scrolled_to_bottom` event (issue #357 task 4).
             `aria-hidden` because there is no semantic content here —
             it exists only to anchor the observer.  Must remain the LAST
             child of `.species-detail-body` so it only intersects after
-            the user has scrolled past PhenologyChart and the rest of
-            the panel content.
+            the user has scrolled past PhenologyChart, SpeciesDescription
+            (when present), and the rest of the panel content.
           */}
           <div
             ref={sentinelRef}

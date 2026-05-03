@@ -200,6 +200,84 @@ describe('SpeciesDetailSurface', () => {
     });
   });
 
+  // ─── Species description mount (issue #373 / epic #368) ──────────────
+  //
+  // SpeciesDescription renders the per-species Wikipedia summary HTML when
+  // SpeciesMeta carries a non-null `descriptionBody`. The component
+  // returns `null` when the field is absent so the surface gracefully
+  // degrades on CDN-stale responses predating the field.
+  //
+  // The mount sits BETWEEN PhenologyChart and the bottom-sentinel — the
+  // sentinel must remain the LAST child of `.species-detail-body` for the
+  // IntersectionObserver to fire only after the user scrolls past every
+  // descendant content node.
+
+  it('mounts SpeciesDescription when descriptionBody is present and the credit links to the article', async () => {
+    const client = makeClient({
+      getSpecies: vi.fn().mockResolvedValue({
+        ...VERMFLY,
+        descriptionBody: '<p>The <em>Vermilion Flycatcher</em> is small and red.</p>',
+        descriptionLicense: 'CC-BY-SA-3.0',
+        descriptionAttributionUrl: 'https://en.wikipedia.org/wiki/Vermilion_flycatcher',
+      }),
+      getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
+    } as unknown as Partial<ApiClient>);
+    const { container } = render(
+      <SpeciesDetailSurface speciesCode="vermfly" apiClient={client} />,
+    );
+    const section = await waitFor(() => {
+      const node = container.querySelector('section.species-detail-description');
+      if (!node) throw new Error('species-detail-description not yet rendered');
+      return node;
+    });
+    expect(section).toBeInTheDocument();
+    // The injected HTML rendered as DOM (not encoded as text).
+    const em = section.querySelector('em');
+    expect(em?.textContent).toBe('Vermilion Flycatcher');
+    // Inline credit anchor: href + target + rel.
+    const link = section.querySelector('a');
+    expect(link).not.toBeNull();
+    expect(link!.getAttribute('href')).toBe(
+      'https://en.wikipedia.org/wiki/Vermilion_flycatcher',
+    );
+    expect(link!.getAttribute('target')).toBe('_blank');
+    expect(link!.getAttribute('rel')).toBe('noopener noreferrer');
+  });
+
+  it('does not mount SpeciesDescription when descriptionBody is absent', async () => {
+    const client = makeClient({
+      getSpecies: vi.fn().mockResolvedValue(VERMFLY),
+      getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
+    } as unknown as Partial<ApiClient>);
+    const { container } = render(
+      <SpeciesDetailSurface speciesCode="vermfly" apiClient={client} />,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeInTheDocument(),
+    );
+    expect(container.querySelector('section.species-detail-description')).toBeNull();
+  });
+
+  it('keeps the bottom sentinel as the LAST child of .species-detail-body when description renders', async () => {
+    const client = makeClient({
+      getSpecies: vi.fn().mockResolvedValue({
+        ...VERMFLY,
+        descriptionBody: '<p>Body.</p>',
+        descriptionAttributionUrl: 'https://en.wikipedia.org/wiki/X',
+      }),
+      getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
+    } as unknown as Partial<ApiClient>);
+    render(<SpeciesDetailSurface speciesCode="vermfly" apiClient={client} />);
+    const sentinel = await screen.findByTestId('phenology-bottom-sentinel');
+    const body = sentinel.closest('.species-detail-body');
+    expect(body).not.toBeNull();
+    // The IntersectionObserver fires on FIRST intersection then disconnects.
+    // For that to mean "scrolled past everything" the sentinel must remain
+    // the final child of the body container regardless of which optional
+    // sub-components mount above it.
+    expect(body!.lastElementChild).toBe(sentinel);
+  });
+
   it('does not mount PhenologyChart while species is still loading', () => {
     const getPhenology = vi.fn();
     const client = makeClient({
@@ -230,7 +308,7 @@ describe('SpeciesDetailSurface', () => {
   // directly to verify the events fire with the right payload.
 
   describe('analytics instrumentation', () => {
-    it('fires panel_opened on mount with species_code', async () => {
+    it('fires panel_opened on mount with species_code and has_description=false when no description', async () => {
       const captureSpy = vi.spyOn(analytics, 'capture');
       const client = makeClient({
         getSpecies: vi.fn().mockResolvedValue(VERMFLY),
@@ -240,7 +318,42 @@ describe('SpeciesDetailSurface', () => {
       await waitFor(() =>
         expect(screen.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeInTheDocument()
       );
-      expect(captureSpy).toHaveBeenCalledWith('panel_opened', { species_code: 'vermfly' });
+      expect(captureSpy).toHaveBeenCalledWith('panel_opened', {
+        species_code: 'vermfly',
+        has_description: false,
+      });
+      captureSpy.mockRestore();
+    });
+
+    // Issue #373 task 6: stratify the panel-thinness analysis post-hoc by
+    // tagging `panel_opened` with `has_description: !!data.descriptionBody`.
+    // The dwell event shape stays unchanged (PostHog's UI lets the analyst
+    // group on the open-event property at query time).
+    it('fires panel_opened with has_description=true when descriptionBody is present', async () => {
+      const captureSpy = vi.spyOn(analytics, 'capture');
+      const client = makeClient({
+        getSpecies: vi.fn().mockResolvedValue({
+          ...VERMFLY,
+          descriptionBody: '<p>Body.</p>',
+          descriptionAttributionUrl: 'https://en.wikipedia.org/wiki/Vermilion_flycatcher',
+        }),
+        getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
+      } as unknown as Partial<ApiClient>);
+      render(<SpeciesDetailSurface speciesCode="vermfly" apiClient={client} />);
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeInTheDocument()
+      );
+      expect(captureSpy).toHaveBeenCalledWith('panel_opened', {
+        species_code: 'vermfly',
+        has_description: true,
+      });
+      // Defensive: dwell event shape is unchanged — no `has_description` on
+      // the dwell payload (the analyst groups on the open-event property at
+      // query time).
+      const dwellCalls = captureSpy.mock.calls.filter(([name]) => name === 'panel_dwell_ms');
+      for (const [, payload] of dwellCalls) {
+        expect(payload as Record<string, unknown>).not.toHaveProperty('has_description');
+      }
       captureSpy.mockRestore();
     });
 

@@ -462,6 +462,43 @@ export function AttributionModal({
               </section>
             );
           })()}
+          {/*
+            Species descriptions credit (issue #373 / epic #368). The
+            section renders unconditionally — descriptions exist for >85%
+            of species per the ingestor's Wikipedia coverage probe, and
+            the catch-all credit covers the small minority that don't.
+            Per-article attribution lives inline on SpeciesDetailSurface
+            (the SpeciesDescription component renders "From Wikipedia,
+            CC BY-SA" with a link to the source article); this modal
+            section satisfies the prominence-of-attribution requirement
+            without forcing a per-species credit row in the modal itself
+            (which would scale to 344+ rows).
+          */}
+          <section
+            className="attribution-modal-section"
+            data-testid="attribution-descriptions-section"
+          >
+            <h3>Species descriptions</h3>
+            <p>
+              Species descriptions adapted from{' '}
+              <a
+                href="https://www.wikipedia.org"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Wikipedia
+              </a>
+              {' '}under{' '}
+              <a
+                href="https://creativecommons.org/licenses/by-sa/3.0/"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                CC BY-SA
+              </a>
+              . See each species panel for a per-article link.
+            </p>
+          </section>
           <section className="attribution-modal-section">
             <h3>Map Tiles</h3>
             <p>

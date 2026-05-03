@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sanitizeWikipediaExtract, SanitizationError } from './sanitize.js';
+import { sanitizeWikipediaExtract, sanitizeText, SanitizationError } from './sanitize.js';
 
 const PADDING = '. The vermilion flycatcher is a small bird native to the Americas.';
 
@@ -97,5 +97,76 @@ describe('sanitizeWikipediaExtract', () => {
     expect(() => sanitizeWikipediaExtract(input50)).not.toThrow();
     const input8192 = `<p>${'b'.repeat(8185)}</p>`; // 8185 + 7 wrapper = 8192
     expect(() => sanitizeWikipediaExtract(input8192)).not.toThrow();
+  });
+});
+
+describe('sanitizeText', () => {
+  // sanitizeText is the iNat-fallback counterpart to sanitizeWikipediaExtract.
+  // iNat's `wikipedia_summary` field is plaintext extracted from the Wikipedia
+  // article — no HTML to allow-list. But we still strip any tags as
+  // defense-in-depth (never trust input) and trim whitespace, then enforce the
+  // same `[50, 8192]` length contract that matches the DB body CHECK.
+
+  it('returns the input unchanged when it is already plain text within bounds', () => {
+    const input = `Vermilion flycatcher (Pyrocephalus rubinus) is a small passerine native to the Americas. ${PADDING}`;
+    const out = sanitizeText(input);
+    expect(out).toBe(input.trim());
+  });
+
+  it('strips HTML tags (defense-in-depth — iNat returns plaintext but never trust input)', () => {
+    const input = `<script>alert("XSS")</script>The vermilion flycatcher is a small passerine bird native to the Americas. ${PADDING}`;
+    const out = sanitizeText(input);
+    expect(out).not.toContain('<script');
+    expect(out).not.toContain('alert');
+    expect(out).not.toContain('</script>');
+    expect(out).toContain('vermilion flycatcher');
+  });
+
+  it('strips even benign-looking tags like <p> and <em> (no allowlist — plaintext only)', () => {
+    const input = `<p>The vermilion flycatcher (<em>Pyrocephalus rubinus</em>) is a small passerine bird native to the Americas.${PADDING}</p>`;
+    const out = sanitizeText(input);
+    expect(out).not.toContain('<p>');
+    expect(out).not.toContain('<em>');
+    expect(out).not.toContain('</p>');
+    expect(out).toContain('vermilion flycatcher');
+    expect(out).toContain('Pyrocephalus rubinus');
+  });
+
+  it('trims leading and trailing whitespace', () => {
+    const input = `   \n\tThe Vermilion flycatcher is a small passerine bird native to the Americas. ${PADDING}\n   `;
+    const out = sanitizeText(input);
+    expect(out.startsWith(' ')).toBe(false);
+    expect(out.startsWith('\n')).toBe(false);
+    expect(out.endsWith(' ')).toBe(false);
+    expect(out.endsWith('\n')).toBe(false);
+    expect(out).toContain('Vermilion flycatcher');
+  });
+
+  it('throws SanitizationError when post-strip length is below 50 chars', () => {
+    const input = '<p>too short</p>';
+    expect(() => sanitizeText(input)).toThrow(SanitizationError);
+    expect(() => sanitizeText(input)).toThrow(/length/i);
+  });
+
+  it('throws SanitizationError when post-strip length exceeds 8192 chars', () => {
+    const input = `${'a'.repeat(8193)}`;
+    expect(() => sanitizeText(input)).toThrow(SanitizationError);
+    expect(() => sanitizeText(input)).toThrow(/length/i);
+  });
+
+  it('accepts exactly 50 chars and exactly 8192 chars (boundary inclusive — matches DB body CHECK)', () => {
+    const input50 = 'a'.repeat(50);
+    expect(() => sanitizeText(input50)).not.toThrow();
+    const input8192 = 'b'.repeat(8192);
+    expect(() => sanitizeText(input8192)).not.toThrow();
+  });
+
+  it('an empty-after-strip input throws SanitizationError (whitespace + tags only)', () => {
+    // A pathological iNat response that strips to nothing must not silently
+    // produce a 0-char body that fails the DB CHECK opaquely; surface a
+    // SanitizationError with a clear "below MIN_LENGTH" message.
+    const input = '   <span></span>   <p></p>   ';
+    expect(() => sanitizeText(input)).toThrow(SanitizationError);
+    expect(() => sanitizeText(input)).toThrow(/length/i);
   });
 });

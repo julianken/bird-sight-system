@@ -37,3 +37,16 @@ export interface InatTaxon {
   inatTaxonId: number;
   wikipediaUrl: string | null; // null when iNat has no Wikipedia article cross-reference
 }
+
+// Public type contract for the iNaturalist per-id taxon endpoint
+// (`/v1/taxa/{id}`). Returned by `fetchInatTaxonSummary` and consumed only by
+// the Wikipedia-404 fallback branch in `run-descriptions.ts`. The search
+// endpoint's result shape (`InatTaxon`) does NOT include the summary — only
+// the per-id endpoint surfaces `wikipedia_summary`.
+//
+// `wikipediaSummary` is null when the taxon record exists but has no
+// Wikipedia cross-reference (rare splits, regional lumps); the orchestrator
+// treats null as "no usable fallback body, increment descriptionsSkipped".
+export interface InatTaxonSummary {
+  wikipediaSummary: string | null;
+}
