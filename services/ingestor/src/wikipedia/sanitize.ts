@@ -72,3 +72,54 @@ export function sanitizeWikipediaExtract(html: string): string {
   }
   return out;
 }
+
+/**
+ * Sanitize a plain-text body for safe persistence as a `species_descriptions`
+ * row with `source = 'inat'`. The iNat `/v1/taxa/{id}` `wikipedia_summary`
+ * field is documented as plaintext (extracted from the same Wikipedia article
+ * the REST summary endpoint serves), so there's no allow-list of HTML tags
+ * to apply — but we still strip any tags as defense-in-depth (never trust
+ * input) and trim whitespace.
+ *
+ * The same `[50, 8192]` length contract applies — matches the
+ * `species_descriptions.body` CHECK and the bounds enforced by
+ * `sanitizeWikipediaExtract`. Throws `SanitizationError` on out-of-bounds.
+ *
+ * Why a plain string-replace and not DOMPurify: this path is plaintext-only.
+ * DOMPurify's allow-list is calibrated for HTML; running it would require an
+ * empty allow-list (returning the textContent of the parsed tree), which is
+ * heavier and depends on the same isomorphic-dompurify install. A regex
+ * tag-strip is sufficient for the defense-in-depth claim and is the same
+ * shape as the rest of the code base's plaintext-handling surfaces.
+ */
+export function sanitizeText(input: string): string {
+  // First strip <script>…</script> and <style>…</style> blocks INCLUDING
+  // their contents. The generic tag-strip below would otherwise leave the
+  // executable body intact (`alert("XSS")` from `<script>alert("XSS")</script>`).
+  // Case-insensitive `i` and dot-all `s` cover the multi-line and uppercase
+  // forms a malicious payload could use.
+  const noBlocks = input
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, '')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, '');
+
+  // Strip any remaining HTML/XML tag — `<tag>`, `</tag>`, `<tag attr="...">`,
+  // `<self-closing/>`. The regex is non-greedy on the `<...>` content so
+  // `<a>foo<b>` doesn't strip the inner `foo` as part of one mega-match.
+  const stripped = noBlocks.replace(/<[^>]*>/g, '');
+
+  // Trim leading/trailing whitespace AFTER tag-stripping so wrappers like
+  // `   <p>...</p>   ` don't smuggle whitespace past the trim.
+  const out = stripped.trim();
+
+  if (out.length < MIN_LENGTH) {
+    throw new SanitizationError(
+      `Sanitized text length ${out.length} is below MIN_LENGTH=${MIN_LENGTH}`
+    );
+  }
+  if (out.length > MAX_LENGTH) {
+    throw new SanitizationError(
+      `Sanitized text length ${out.length} exceeds MAX_LENGTH=${MAX_LENGTH}`
+    );
+  }
+  return out;
+}
