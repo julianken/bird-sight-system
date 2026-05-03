@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach, vi } from 'vitest';
 import { setupServer } from 'msw/node';
 import { http, HttpResponse } from 'msw';
 import { startTestDb, type TestDb } from '@bird-watch/db-client/dist/test-helpers.js';
@@ -163,26 +163,36 @@ describe('runBackfill', () => {
       }),
     );
 
-    // Use a small paceMs (50ms) so the test runs quickly. Asserting elapsed
-    // time bounds (lower-bound = (N-1)*paceMs ± slack, never N*paceMs)
-    // distinguishes correct first-call-skip behavior from a naive
-    // pace-everything implementation.
+    // Spy on setTimeout to capture pacing calls exactly, instead of asserting
+    // wall-clock elapsed bounds (flake-prone on slow CI runners under
+    // CLAUDE.md's `retries: 0` policy). We can't use vi.useFakeTimers() here
+    // because msw + node-postgres rely on real timers for network I/O.
+    //
+    // The exact property: when days=3 and paceMs=50, run-backfill.ts must
+    // call setTimeout(<resolve>, 50) exactly 2 times — once between calls 1-2
+    // and once between calls 2-3 — and never before the first call. Filtering
+    // on `delay === 50` excludes setTimeout calls from msw, pg, etc.
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
     const today = new Date('2026-04-16T00:00:00Z');
-    const start = Date.now();
     const summary = await runBackfill({
       pool: db.pool, apiKey: 'k', regionCode: 'US-AZ',
       days: 3, today, paceMs: 50,
     });
-    const elapsed = Date.now() - start;
+
     expect(summary.status).toBe('success');
     expect(calls).toBe(3);
-    // Lower bound: at least 2 sleeps (between calls 1-2 and 2-3) = ~100ms.
-    // Loose tolerance accounts for setTimeout slop and CI noise.
-    expect(elapsed).toBeGreaterThanOrEqual(95);
-    // Upper bound: must NOT have slept before the first call. If it had,
-    // elapsed would be at least 3 * 50 = 150ms. Allow generous overhead
-    // (DB writes, MSW dispatch) but ensure we didn't pace 3 times.
-    expect(elapsed).toBeLessThan(300);
+
+    // Count only the pacing setTimeouts (delay === 50ms). Anything else is
+    // unrelated infrastructure timer activity.
+    const pacingCalls = setTimeoutSpy.mock.calls.filter(
+      ([, delay]) => delay === 50
+    );
+    // Exact: 2 pacing sleeps for 3 days. If the implementation regressed to
+    // pacing before the first call, this would be 3.
+    expect(pacingCalls).toHaveLength(2);
+
+    setTimeoutSpy.mockRestore();
   });
 
   it('records failure when pre-loop fetchNotable throws exhausted retries', async () => {
