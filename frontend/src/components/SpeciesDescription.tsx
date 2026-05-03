@@ -36,15 +36,21 @@ export interface SpeciesDescriptionProps {
    * the field, in which case the component renders nothing. Empty string
    * is treated identically to undefined so a writer race can never produce
    * an empty `<section>` shell on the surface.
+   *
+   * The explicit `| undefined` is required under
+   * `exactOptionalPropertyTypes: true` so call sites can pass
+   * `data.descriptionBody` (which TypeScript widens to `string | undefined`
+   * because the source field is optional on `SpeciesMeta`) directly.
+   * Mirrors the photoUrl convention on `SpeciesDetailVisual`.
    */
-  descriptionBody?: string;
+  descriptionBody?: string | undefined;
   /**
    * Absolute URL to the source Wikipedia article. When the body is
    * present this URL backs the inline credit anchor's `href`. Defensive:
    * a CDN-stale response carrying body without URL renders the credit
    * text without an href rather than crashing.
    */
-  descriptionAttributionUrl?: string;
+  descriptionAttributionUrl?: string | undefined;
 }
 
 export function SpeciesDescription({
