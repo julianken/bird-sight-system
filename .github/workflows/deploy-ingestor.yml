@@ -9,6 +9,7 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'tsconfig.base.json'
+      - 'scripts/purge-species-cache.sh'
       - '.github/workflows/deploy-ingestor.yml'
   workflow_dispatch:
 
