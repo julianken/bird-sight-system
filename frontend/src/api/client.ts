@@ -41,6 +41,20 @@ export class ApiClient {
     return this.get<FamilySilhouette[]>('/api/silhouettes');
   }
 
+  /**
+   * Per-species monthly observation counts for the phenology chart on
+   * SpeciesDetailSurface. The endpoint returns a sparse array — months
+   * with zero observations are omitted — so the consuming component is
+   * responsible for zero-filling to all 12 months before rendering.
+   * Throws `ApiError` on non-2xx (PhenologyChart catches and renders
+   * `null` on error so the surrounding surface stays usable).
+   */
+  getPhenology(code: string): Promise<Array<{ month: number; count: number }>> {
+    return this.get<Array<{ month: number; count: number }>>(
+      `/api/species/${encodeURIComponent(code)}/phenology`
+    );
+  }
+
   private async get<T>(path: string): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const res = await fetch(url, { method: 'GET' });
