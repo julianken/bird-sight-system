@@ -22,6 +22,7 @@ import {
   runPhotos as realRunPhotos,
   type RunPhotosSummary,
 } from './run-photos.js';
+import { fetchInatTaxon as realFetchInatTaxon } from './inat/taxon-client.js';
 
 /**
  * Every run summary discriminates on `status`. `RunBackfillSummary` can also be
@@ -48,6 +49,7 @@ export interface CliDeps {
   runBackfill: typeof realRunBackfill;
   runTaxonomy: typeof realRunTaxonomy;
   runPhotos: typeof realRunPhotos;
+  fetchInatTaxon: typeof realFetchInatTaxon;
 }
 
 /**
@@ -64,6 +66,18 @@ export interface CliDeps {
  * outer IIFE catches them to print a stack trace and exit 1.
  */
 export async function runCli(kind: string, deps: CliDeps): Promise<void> {
+  // probe-taxon is an operator triage tool that hits iNat's /v1/taxa endpoint
+  // directly — no DB, no eBird auth. Early-return ahead of the env guards so
+  // an operator can `npx tsx services/ingestor/src/cli.ts probe-taxon "..."`
+  // locally without setting EBIRD_API_KEY or DATABASE_URL in their shell.
+  if (kind === 'probe-taxon') {
+    const sciName = process.argv[3];
+    if (!sciName) throw new Error('probe-taxon requires a binomial argument');
+    const taxon = await deps.fetchInatTaxon(sciName);
+    console.log(JSON.stringify(taxon, null, 2));
+    return;
+  }
+
   const apiKey = process.env.EBIRD_API_KEY;
   const dbUrl = process.env.DATABASE_URL;
   if (!apiKey) throw new Error('EBIRD_API_KEY not set');
@@ -107,7 +121,7 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
     } else if (kind === 'photos') {
       summary = await deps.runPhotos({ pool });
     } else {
-      throw new Error(`Unknown kind: ${kind}. Try recent | hotspots | backfill | backfill-extended | taxonomy | photos`);
+      throw new Error(`Unknown kind: ${kind}. Try recent | hotspots | backfill | backfill-extended | taxonomy | photos | probe-taxon`);
     }
     console.log(JSON.stringify(summary, null, 2));
     if (summary.status === 'failure') {
@@ -144,6 +158,7 @@ if (isEntrypoint) {
     runBackfill: realRunBackfill,
     runTaxonomy: realRunTaxonomy,
     runPhotos: realRunPhotos,
+    fetchInatTaxon: realFetchInatTaxon,
   }).catch(err => {
     console.error(err);
     process.exit(1);

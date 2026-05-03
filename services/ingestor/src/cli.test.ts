@@ -16,6 +16,7 @@ function makeDeps(overrides: Partial<CliDeps> = {}): CliDeps {
     runBackfill: vi.fn(),
     runTaxonomy: vi.fn(),
     runPhotos: vi.fn(),
+    fetchInatTaxon: vi.fn(),
     ...overrides,
   };
 }
@@ -23,6 +24,7 @@ function makeDeps(overrides: Partial<CliDeps> = {}): CliDeps {
 describe('runCli', () => {
   const ORIGINAL_ENV = process.env;
   const ORIGINAL_EXIT_CODE = process.exitCode;
+  const ORIGINAL_ARGV = process.argv;
   let logSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -33,6 +35,7 @@ describe('runCli', () => {
   afterEach(() => {
     process.env = ORIGINAL_ENV;
     process.exitCode = ORIGINAL_EXIT_CODE;
+    process.argv = ORIGINAL_ARGV;
     logSpy.mockRestore();
   });
 
@@ -115,5 +118,39 @@ describe('runCli', () => {
     delete process.env.DATABASE_URL;
     const deps = makeDeps();
     await expect(runCli('recent', deps)).rejects.toThrow(/DATABASE_URL/);
+  });
+
+  it('"probe-taxon" runs without EBIRD_API_KEY/DATABASE_URL set (debug kind, no DB)', async () => {
+    // probe-taxon is an operator triage tool — it does not touch the DB and
+    // does not need eBird credentials. The kind must early-return ahead of
+    // the env guards so an operator can run it locally without secrets in
+    // their shell. Regression check: pre-fix, the EBIRD_API_KEY guard fired
+    // first and forced operators to set a junk key just to run a debug.
+    delete process.env.EBIRD_API_KEY;
+    delete process.env.DATABASE_URL;
+    process.argv = ['node', 'cli.ts', 'probe-taxon', 'Setophaga coronata'];
+    const fetchInatTaxonSpy = vi.fn().mockResolvedValue({
+      inatTaxonId: 9083,
+      wikipediaUrl: 'https://en.wikipedia.org/wiki/Yellow-rumped_warbler',
+    });
+    const deps = makeDeps({ fetchInatTaxon: fetchInatTaxonSpy });
+
+    await runCli('probe-taxon', deps);
+
+    expect(fetchInatTaxonSpy).toHaveBeenCalledWith('Setophaga coronata');
+    // No DB pool was created — the env guards were correctly bypassed and the
+    // probe path never reached the createPool branch.
+    expect(deps.createPool).not.toHaveBeenCalled();
+    expect(deps.closePool).not.toHaveBeenCalled();
+    // Result is logged as JSON for the operator to grep.
+    expect(logSpy).toHaveBeenCalled();
+  });
+
+  it('"probe-taxon" without a binomial argument throws', async () => {
+    process.argv = ['node', 'cli.ts', 'probe-taxon'];
+    const deps = makeDeps();
+    await expect(runCli('probe-taxon', deps)).rejects.toThrow(
+      /probe-taxon requires a binomial/
+    );
   });
 });

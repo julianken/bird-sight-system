@@ -7,7 +7,9 @@ import type {
 // API recommended-practices doc (https://www.inaturalist.org/pages/api+recommended+practices)
 // asks for meaningful UA strings so they can contact the app maintainer if a
 // problem is observed. Anonymous UAs may be throttled or blocked outright.
-const USER_AGENT = 'bird-maps.com/1.0 (https://bird-maps.com)';
+// Exported so sibling iNat clients (taxon-client.ts) can present the same
+// identity — iNat's per-UA throttle bucketing depends on it.
+export const INAT_USER_AGENT = 'bird-maps.com/1.0 (https://bird-maps.com)';
 
 // place_id=40 is iNaturalist's canonical "Arizona" Place. Confirmed via
 // `GET https://api.inaturalist.org/v1/places/40` returning `name='Arizona'`,
@@ -130,7 +132,14 @@ export async function fetchInatPhoto(
   return null;
 }
 
-async function getJsonWithRetry<T>(
+/**
+ * Shared fetch + retry helper for any iNat /v1/* JSON endpoint. Exported so
+ * sibling clients (taxon-client.ts) can use the same retry/UA/timeout
+ * semantics without duplicating the loop. 429 and 5xx are transient and
+ * trigger the configured retry; other 4xx are programmer errors and surface
+ * immediately.
+ */
+export async function getJsonWithRetry<T>(
   url: URL,
   maxRetries: number,
   retryBaseMs: number,
@@ -141,7 +150,7 @@ async function getJsonWithRetry<T>(
     try {
       const res = await fetch(url, {
         headers: {
-          'User-Agent': USER_AGENT,
+          'User-Agent': INAT_USER_AGENT,
           accept: 'application/json',
         },
         signal: AbortSignal.timeout(requestTimeoutMs),
