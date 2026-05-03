@@ -16,6 +16,7 @@ function makeDeps(overrides: Partial<CliDeps> = {}): CliDeps {
     runBackfill: vi.fn(),
     runTaxonomy: vi.fn(),
     runPhotos: vi.fn(),
+    fetchWikipediaSummary: vi.fn(),
     fetchInatTaxon: vi.fn(),
     ...overrides,
   };
@@ -118,6 +119,54 @@ describe('runCli', () => {
     delete process.env.DATABASE_URL;
     const deps = makeDeps();
     await expect(runCli('recent', deps)).rejects.toThrow(/DATABASE_URL/);
+  });
+
+  it('"probe-wiki" early-returns before the env guards (no DB, no eBird)', async () => {
+    // probe-wiki is an operator debug kind that hits Wikipedia's public REST
+    // endpoint — it has no DB writes and does not need EBIRD_API_KEY.
+    // The kind dispatch must short-circuit ahead of the env guards so the
+    // operator can run it without standing up the eBird/DB credentials.
+    delete process.env.EBIRD_API_KEY;
+    delete process.env.DATABASE_URL;
+    const ORIGINAL_ARGV = process.argv;
+    process.argv = ['node', 'cli.ts', 'probe-wiki', 'Vermilion_flycatcher'];
+    try {
+      const fakeSummary = {
+        notModified: false as const,
+        extractHtml: '<p>The vermilion flycatcher is...</p>',
+        revisionId: '42',
+        license: 'CC-BY-SA-4.0' as const,
+        etag: '"abc"',
+      };
+      const fetchSpy = vi.fn().mockResolvedValue(fakeSummary);
+      const deps = makeDeps({ fetchWikipediaSummary: fetchSpy });
+
+      await runCli('probe-wiki', deps);
+
+      // The wiki client received the title from argv[3] verbatim.
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(fetchSpy).toHaveBeenCalledWith('Vermilion_flycatcher');
+      // The DB path is bypassed entirely.
+      expect(deps.createPool).not.toHaveBeenCalled();
+      expect(deps.closePool).not.toHaveBeenCalled();
+      // Summary printed for operator triage.
+      expect(logSpy).toHaveBeenCalledWith(JSON.stringify(fakeSummary, null, 2));
+    } finally {
+      process.argv = ORIGINAL_ARGV;
+    }
+  });
+
+  it('"probe-wiki" without a title argument throws', async () => {
+    const ORIGINAL_ARGV = process.argv;
+    process.argv = ['node', 'cli.ts', 'probe-wiki'];
+    try {
+      const deps = makeDeps();
+      await expect(runCli('probe-wiki', deps)).rejects.toThrow(
+        /probe-wiki requires a title argument/
+      );
+    } finally {
+      process.argv = ORIGINAL_ARGV;
+    }
   });
 
   it('"probe-taxon" runs without EBIRD_API_KEY/DATABASE_URL set (debug kind, no DB)', async () => {

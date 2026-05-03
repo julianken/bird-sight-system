@@ -22,6 +22,7 @@ import {
   runPhotos as realRunPhotos,
   type RunPhotosSummary,
 } from './run-photos.js';
+import { fetchWikipediaSummary as realFetchWikipediaSummary } from './wikipedia/client.js';
 import { fetchInatTaxon as realFetchInatTaxon } from './inat/taxon-client.js';
 
 /**
@@ -49,6 +50,7 @@ export interface CliDeps {
   runBackfill: typeof realRunBackfill;
   runTaxonomy: typeof realRunTaxonomy;
   runPhotos: typeof realRunPhotos;
+  fetchWikipediaSummary: typeof realFetchWikipediaSummary;
   fetchInatTaxon: typeof realFetchInatTaxon;
 }
 
@@ -66,6 +68,18 @@ export interface CliDeps {
  * outer IIFE catches them to print a stack trace and exit 1.
  */
 export async function runCli(kind: string, deps: CliDeps): Promise<void> {
+  // Operator debug kinds that don't touch the DB or eBird short-circuit
+  // ahead of the env guards below — that lets `probe-wiki` run from a
+  // laptop without standing up `EBIRD_API_KEY`/`DATABASE_URL`. Same shape
+  // as `probe-taxon` (sibling PR #369).
+  if (kind === 'probe-wiki') {
+    const title = process.argv[3];
+    if (!title) throw new Error('probe-wiki requires a title argument');
+    const summary = await deps.fetchWikipediaSummary(title);
+    console.log(JSON.stringify(summary, null, 2));
+    return;
+  }
+
   // probe-taxon is an operator triage tool that hits iNat's /v1/taxa endpoint
   // directly — no DB, no eBird auth. Early-return ahead of the env guards so
   // an operator can `npx tsx services/ingestor/src/cli.ts probe-taxon "..."`
@@ -121,7 +135,7 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
     } else if (kind === 'photos') {
       summary = await deps.runPhotos({ pool });
     } else {
-      throw new Error(`Unknown kind: ${kind}. Try recent | hotspots | backfill | backfill-extended | taxonomy | photos | probe-taxon`);
+      throw new Error(`Unknown kind: ${kind}. Try recent | hotspots | backfill | backfill-extended | taxonomy | photos | probe-taxon | probe-wiki`);
     }
     console.log(JSON.stringify(summary, null, 2));
     if (summary.status === 'failure') {
@@ -158,6 +172,7 @@ if (isEntrypoint) {
     runBackfill: realRunBackfill,
     runTaxonomy: realRunTaxonomy,
     runPhotos: realRunPhotos,
+    fetchWikipediaSummary: realFetchWikipediaSummary,
     fetchInatTaxon: realFetchInatTaxon,
   }).catch(err => {
     console.error(err);
