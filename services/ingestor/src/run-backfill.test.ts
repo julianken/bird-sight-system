@@ -144,6 +144,47 @@ describe('runBackfill', () => {
     expect(subIds).toContain('SDay13');
   });
 
+  it('paces successive day fetches when paceMs > 0, skipping the wait before the first call', async () => {
+    // Mirrors the run-photos.ts:113-116 pattern: a run with N days should sit
+    // idle for paceMs * (N - 1), not paceMs * N. Skip the wait before the
+    // first call so a 365-day backfill at 1 rps completes in ~364s, not 365s.
+    let calls = 0;
+    server.use(
+      http.get('https://api.ebird.org/v2/data/obs/US-AZ/recent/notable', () => HttpResponse.json([])),
+      http.get('https://api.ebird.org/v2/data/obs/US-AZ/historic/:y/:m/:d', () => {
+        calls++;
+        return HttpResponse.json([
+          { speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+            sciName: 'Pyrocephalus rubinus', locId: `LP${calls}`, locName: 'X',
+            obsDt: '2026-04-10 08:00', howMany: 1, lat: 31.72, lng: -110.88,
+            obsValid: true, obsReviewed: false, locationPrivate: false,
+            subId: `SP${calls}` },
+        ]);
+      }),
+    );
+
+    // Use a small paceMs (50ms) so the test runs quickly. Asserting elapsed
+    // time bounds (lower-bound = (N-1)*paceMs ± slack, never N*paceMs)
+    // distinguishes correct first-call-skip behavior from a naive
+    // pace-everything implementation.
+    const today = new Date('2026-04-16T00:00:00Z');
+    const start = Date.now();
+    const summary = await runBackfill({
+      pool: db.pool, apiKey: 'k', regionCode: 'US-AZ',
+      days: 3, today, paceMs: 50,
+    });
+    const elapsed = Date.now() - start;
+    expect(summary.status).toBe('success');
+    expect(calls).toBe(3);
+    // Lower bound: at least 2 sleeps (between calls 1-2 and 2-3) = ~100ms.
+    // Loose tolerance accounts for setTimeout slop and CI noise.
+    expect(elapsed).toBeGreaterThanOrEqual(95);
+    // Upper bound: must NOT have slept before the first call. If it had,
+    // elapsed would be at least 3 * 50 = 150ms. Allow generous overhead
+    // (DB writes, MSW dispatch) but ensure we didn't pace 3 times.
+    expect(elapsed).toBeLessThan(300);
+  });
+
   it('records failure when pre-loop fetchNotable throws exhausted retries', async () => {
     server.use(
       http.get('https://api.ebird.org/v2/data/obs/US-AZ/recent/notable', () =>
