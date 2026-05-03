@@ -27,3 +27,13 @@ export interface InatObservationsResponse {
   per_page: number;
   results: InatObservation[];
 }
+
+// Public type contract for the iNaturalist /v1/taxa client. Consumers depend
+// only on this shape — the raw iNat taxon payload (much larger, with
+// matched_term, ancestors, default_photo, conservation_status, etc.) is
+// projected down to just the two fields child #371/#374 will consume from
+// `species_meta` (`inat_taxon_id`) and the descriptions cache (`wikipediaUrl`).
+export interface InatTaxon {
+  inatTaxonId: number;
+  wikipediaUrl: string | null; // null when iNat has no Wikipedia article cross-reference
+}
