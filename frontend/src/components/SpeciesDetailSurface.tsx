@@ -4,6 +4,7 @@ import { useSpeciesDetail } from '../data/use-species-detail.js';
 import { useSilhouettes } from '../data/use-silhouettes.js';
 import type { FamilySilhouette } from '@bird-watch/shared-types';
 import { analytics } from '../analytics.js';
+import { PhenologyChart } from './PhenologyChart.js';
 
 export interface SpeciesDetailSurfaceProps {
   speciesCode: string;
@@ -208,11 +209,15 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
           <h2 className="species-detail-common-name">{data.comName}</h2>
           <p className="species-detail-sci-name"><em>{data.sciName}</em></p>
           <p className="species-detail-family">{data.familyName}</p>
+          <PhenologyChart speciesCode={speciesCode} apiClient={apiClient} />
           {/*
             Bottom sentinel for the IntersectionObserver-driven
             `panel_scrolled_to_bottom` event (issue #357 task 4).
             `aria-hidden` because there is no semantic content here —
-            it exists only to anchor the observer.
+            it exists only to anchor the observer.  Must remain the LAST
+            child of `.species-detail-body` so it only intersects after
+            the user has scrolled past PhenologyChart and the rest of
+            the panel content.
           */}
           <div
             ref={sentinelRef}

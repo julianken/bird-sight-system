@@ -170,6 +170,13 @@ export function App() {
         id="main-surface"
         data-render-complete={renderComplete}
         aria-busy={loading && (state.view === 'feed' || state.view === 'species')}
+        // axe `scrollable-region-focusable` (WCAG 2.1.1): #main-surface
+        // has `overflow: auto` so it can scroll when its content (e.g.
+        // species detail with photo + phenology chart) exceeds the
+        // viewport. Keyboard users need to be able to focus the
+        // scrollable region itself to scroll it. tabIndex={0} adds it to
+        // the tab order; the container has no other interactive role.
+        tabIndex={0}
       >
         {state.view === 'feed' && (
           <FeedSurface

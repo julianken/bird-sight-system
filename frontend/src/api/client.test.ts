@@ -43,4 +43,33 @@ describe('ApiClient', () => {
       expect(apiErr.body).toBe('internal database pool exhausted');
     }
   });
+
+  it('getPhenology fetches /api/species/:code/phenology and parses the JSON array', async () => {
+    const phenology = [
+      { month: 1, count: 5 },
+      { month: 6, count: 12 },
+    ];
+    vi.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify(phenology), { status: 200 })
+    );
+    const client = new ApiClient({ baseUrl: '' });
+    const result = await client.getPhenology('vermfly');
+    const call = (fetch as unknown as { mock: { calls: [string, unknown][] } }).mock.calls[0]!;
+    expect(call[0]).toBe('/api/species/vermfly/phenology');
+    expect(result).toEqual(phenology);
+  });
+
+  it('getPhenology URL-encodes the species code', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue(new Response('[]', { status: 200 }));
+    const client = new ApiClient({ baseUrl: '' });
+    await client.getPhenology('weird/code');
+    const call = (fetch as unknown as { mock: { calls: [string, unknown][] } }).mock.calls[0]!;
+    expect(call[0]).toBe('/api/species/weird%2Fcode/phenology');
+  });
+
+  it('getPhenology throws ApiError on non-2xx response', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue(new Response('not found', { status: 404 }));
+    const client = new ApiClient({ baseUrl: '' });
+    await expect(client.getPhenology('vermfly')).rejects.toThrow('Something went wrong');
+  });
 });

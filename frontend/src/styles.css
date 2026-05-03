@@ -455,6 +455,31 @@ body {
   color: var(--color-text-body);
 }
 .species-detail-loading { color: var(--color-text-muted); font-size: 13px; margin: 8px 0 0 0; }
+/* Phenology chart (#356). 12 monthly observation-count bars rendered as
+   inline SVG inside the species detail body. Sits below .species-detail-family.
+   The SVG uses width:100% with a max-width cap so the chart scales cleanly on
+   both the 390×844 mobile and 1440×900 desktop release-1 viewports without
+   ballooning past the surface's 760px content cap. The viewBox keeps the
+   internal 216×80 coordinate space stable across viewports — bars stay 18px
+   slots in their own coordinate system regardless of rendered width. */
+.phenology-chart {
+  display: block;
+  width: 100%;
+  max-width: 432px;            /* 2× the 216 viewBox width — keeps bars crisp */
+  height: auto;
+  margin: 12px 0 0 0;
+}
+.phenology-bar {
+  fill: var(--color-text-strong);
+}
+.phenology-bar-empty {
+  fill: var(--color-border-subtle);
+}
+.phenology-chart-loading {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  margin: 12px 0 0 0;
+}
 .species-detail-error {
   margin-top: 8px;
   padding: 8px 12px;
