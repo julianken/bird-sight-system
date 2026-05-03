@@ -60,17 +60,27 @@ export async function insertSpeciesPhoto(
 
 export interface SpeciesDescriptionInput {
   speciesCode: string;
-  /** Currently always `'wikipedia'` (CHECK-restricted at the DB tier; future iNat-summary fallback expands the union). */
-  source: 'wikipedia';
-  /** Sanitized HTML — DOMPurify must run BEFORE this helper. The CHECK enforces 50..8192 chars. */
+  /**
+   * `'wikipedia'` for Wikipedia REST `/page/summary/{title}` 200 responses
+   * (the happy path); `'inat'` for the Wikipedia-404 fallback path that
+   * persists iNat's per-id `wikipedia_summary` plaintext. Both are
+   * CHECK-restricted at the DB tier (see migration 1700000031000) — adding
+   * a third value requires widening BOTH the CHECK and this union.
+   */
+  source: 'wikipedia' | 'inat';
+  /** Sanitized text — DOMPurify (HTML path) or sanitizeText (plaintext path) must run BEFORE this helper. The CHECK enforces 50..8192 chars. */
   body: string;
-  /** Wikipedia summary license — DB CHECK restricts to the two CC-BY-SA variants. */
+  /**
+   * License — DB CHECK restricts to the two CC-BY-SA variants. iNat-fallback
+   * rows still use CC-BY-SA-4.0 because the underlying source is the same
+   * Wikipedia article (iNat extracts plaintext from it; no relicense).
+   */
   license: 'CC-BY-SA-3.0' | 'CC-BY-SA-4.0';
-  /** Wikipedia revision id; null when the upstream omits it (Wikipedia 304 / sparse 200). */
+  /** Wikipedia revision id; null when the upstream omits it (Wikipedia 304 / sparse 200, iNat-fallback path). */
   revisionId: number | null;
-  /** ETag from the upstream conditional-GET; null when first fetch + upstream omits the header. */
+  /** ETag from the upstream conditional-GET; null when first fetch / iNat-fallback path. */
   etag: string | null;
-  /** Page URL (for "Read more on Wikipedia" link surface in the frontend). */
+  /** Page URL (Wikipedia for source='wikipedia'; iNat taxon page or Wikipedia URL for source='inat'). */
   attributionUrl: string;
 }
 

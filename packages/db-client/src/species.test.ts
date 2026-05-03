@@ -504,4 +504,31 @@ describe('species descriptions', () => {
     expect(rows[0]?.revision_id).toBeNull();
     expect(rows[0]?.etag).toBeNull();
   });
+
+  it("insertSpeciesDescription accepts source='inat' (Wikipedia-404 fallback path)", async () => {
+    // The widening migration (1700000031000) added 'inat' to the source
+    // CHECK. The TS-side input type was widened in the same change so
+    // run-descriptions can pass `source: 'inat'` on the iNat-summary fallback
+    // branch. The DB upsert path is unchanged — same row shape, same
+    // license/body/attribution_url contract.
+    const body = 'A plaintext summary extracted from the Wikipedia article via iNat\'s wikipedia_summary field.';
+    await insertSpeciesDescription(db.pool, {
+      speciesCode: 'vermfly',
+      source: 'inat',
+      body,
+      license: 'CC-BY-SA-4.0',
+      revisionId: null, // iNat-fallback path doesn't expose a Wikipedia revision id
+      etag: null,       // iNat-fallback path doesn't expose a Wikipedia etag
+      attributionUrl: 'https://www.inaturalist.org/taxa/9083',
+    });
+
+    const { rows } = await db.pool.query<{ source: string; body: string; attribution_url: string }>(
+      `SELECT source, body, attribution_url
+         FROM species_descriptions WHERE species_code = 'vermfly'`
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.source).toBe('inat');
+    expect(rows[0]?.body).toBe(body);
+    expect(rows[0]?.attribution_url).toBe('https://www.inaturalist.org/taxa/9083');
+  });
 });
