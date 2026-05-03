@@ -149,6 +149,40 @@ export async function getSpeciesMeta(
   return meta;
 }
 
+/**
+ * Return monthly observation counts for a species. Sparse: months with zero
+ * observations are absent from the result. The frontend zero-fills to 12
+ * entries before rendering.
+ *
+ * Existence semantics: this helper does NOT distinguish "unknown species
+ * code" from "known species with no observations" — both return `[]`. The
+ * route layer (app.ts) calls `getSpeciesMeta` for the existence check and
+ * returns 404 for unknown codes; this matches the species-meta route's
+ * 404 precedent and keeps the SQL focused on aggregation.
+ *
+ * Timezone note: `EXTRACT(MONTH FROM obs_dt)` uses the database server's
+ * timezone for the month boundary. Arizona observations are reported in
+ * MST (UTC-7) which is non-DST, so a Dec 31 23:59 MST observation extracts
+ * to month 12 regardless of server timezone (the obs_dt value carries its
+ * own offset). When/if we expand beyond AZ-only data, revisit with
+ * `obs_dt AT TIME ZONE 'America/Phoenix'`.
+ */
+export async function getSpeciesPhenology(
+  pool: Pool,
+  speciesCode: string
+): Promise<Array<{ month: number; count: number }>> {
+  const { rows } = await pool.query<{ month: number; count: number }>(
+    `SELECT EXTRACT(MONTH FROM obs_dt)::int AS month,
+            COUNT(*)::int AS count
+       FROM observations
+      WHERE species_code = $1
+      GROUP BY month
+      ORDER BY month`,
+    [speciesCode]
+  );
+  return rows.map(r => ({ month: r.month, count: r.count }));
+}
+
 export async function upsertSpeciesMeta(
   pool: Pool,
   inputs: SpeciesMeta[]
