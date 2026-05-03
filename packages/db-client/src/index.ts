@@ -10,6 +10,7 @@ export {
   upsertSpeciesMeta,
   insertSpeciesPhoto,
   getSpeciesPhotos,
+  getSpeciesPhenology,
   type SpeciesPhoto,
   type SpeciesPhotoInput,
 } from './species.js';

@@ -5,7 +5,9 @@ import {
   upsertSpeciesMeta,
   insertSpeciesPhoto,
   getSpeciesPhotos,
+  getSpeciesPhenology,
 } from './species.js';
+import { upsertObservations } from './observations.js';
 
 let db: TestDb;
 beforeAll(async () => { db = await startTestDb(); }, 90_000);
@@ -248,5 +250,119 @@ describe('species photos', () => {
     expect(Object.prototype.hasOwnProperty.call(meta, 'photoUrl')).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(meta, 'photoAttribution')).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(meta, 'photoLicense')).toBe(false);
+  });
+});
+
+describe('species phenology', () => {
+  beforeEach(async () => {
+    // Phenology rows pivot off observations, but the species_meta row exists
+    // so the read-API existence check (404 vs []) can pass for known codes.
+    await upsertSpeciesMeta(db.pool, [
+      { speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        sciName: 'Pyrocephalus rubinus', familyCode: 'tyrannidae',
+        familyName: 'Tyrant Flycatchers', taxonOrder: 30501 },
+      { speciesCode: 'annhum', comName: "Anna's Hummingbird",
+        sciName: 'Calypte anna', familyCode: 'trochilidae',
+        familyName: 'Hummingbirds', taxonOrder: 6000 },
+    ]);
+    await db.pool.query('TRUNCATE observations');
+  });
+
+  it('returns sparse rows: months with no observations are absent', async () => {
+    // Two observations in March (3) and one in March, plus two in November.
+    // No other months have observations. Expect exactly 2 rows: month 3 and
+    // month 11. Months 1, 2, 4-10, 12 are absent (sparse — frontend zero-fills).
+    await upsertObservations(db.pool, [
+      { subId: 'SA1', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 31.72, lng: -110.88, obsDt: '2026-03-05T08:00:00Z',
+        locId: 'L1', locName: 'X', howMany: 1, isNotable: false },
+      { subId: 'SA2', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 31.72, lng: -110.88, obsDt: '2026-03-15T08:00:00Z',
+        locId: 'L2', locName: 'Y', howMany: 1, isNotable: false },
+      { subId: 'SA3', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 31.72, lng: -110.88, obsDt: '2026-03-22T08:00:00Z',
+        locId: 'L3', locName: 'Z', howMany: 1, isNotable: false },
+      { subId: 'SA4', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 31.72, lng: -110.88, obsDt: '2026-11-12T08:00:00Z',
+        locId: 'L4', locName: 'W', howMany: 1, isNotable: false },
+      { subId: 'SA5', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 31.72, lng: -110.88, obsDt: '2026-11-13T08:00:00Z',
+        locId: 'L5', locName: 'V', howMany: 1, isNotable: false },
+    ]);
+    const rows = await getSpeciesPhenology(db.pool, 'vermfly');
+    expect(rows).toEqual([
+      { month: 3, count: 3 },
+      { month: 11, count: 2 },
+    ]);
+  });
+
+  it('returns ordered ascending by month', async () => {
+    // Insert out of order; query must ORDER BY month ASC for deterministic
+    // sparse output the frontend can iterate without re-sorting.
+    await upsertObservations(db.pool, [
+      { subId: 'SB-Dec', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 31.72, lng: -110.88, obsDt: '2026-12-01T08:00:00Z',
+        locId: 'L1', locName: 'X', howMany: 1, isNotable: false },
+      { subId: 'SB-Jan', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 31.72, lng: -110.88, obsDt: '2026-01-01T08:00:00Z',
+        locId: 'L2', locName: 'Y', howMany: 1, isNotable: false },
+      { subId: 'SB-Jul', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 31.72, lng: -110.88, obsDt: '2026-07-01T08:00:00Z',
+        locId: 'L3', locName: 'Z', howMany: 1, isNotable: false },
+    ]);
+    const rows = await getSpeciesPhenology(db.pool, 'vermfly');
+    expect(rows.map(r => r.month)).toEqual([1, 7, 12]);
+  });
+
+  it('returns [] for known species with no observations', async () => {
+    // 'annhum' is in species_meta but observations is truncated. The route
+    // layer (separate test in app.test.ts) returns 200 [] for this case;
+    // here we just confirm the helper returns the empty array.
+    const rows = await getSpeciesPhenology(db.pool, 'annhum');
+    expect(rows).toEqual([]);
+  });
+
+  it('returns [] for unknown species code (route layer adds 404)', async () => {
+    // Helper does NOT distinguish 404 vs []: the route layer in app.ts uses
+    // getSpeciesMeta for the existence check (matches the species-meta
+    // route). This contract keeps the SQL focused on aggregation.
+    const rows = await getSpeciesPhenology(db.pool, 'doesnotexist');
+    expect(rows).toEqual([]);
+  });
+
+  it('filters by species_code (does not aggregate across species)', async () => {
+    // Two species with observations in the same month; helper must scope
+    // counts to the requested species. Catches a missing WHERE clause.
+    await upsertObservations(db.pool, [
+      { subId: 'SC1', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 31.72, lng: -110.88, obsDt: '2026-04-01T08:00:00Z',
+        locId: 'L1', locName: 'X', howMany: 1, isNotable: false },
+      { subId: 'SC2', speciesCode: 'annhum', comName: "Anna's Hummingbird",
+        lat: 31.72, lng: -110.88, obsDt: '2026-04-01T08:00:00Z',
+        locId: 'L2', locName: 'Y', howMany: 1, isNotable: false },
+      { subId: 'SC3', speciesCode: 'annhum', comName: "Anna's Hummingbird",
+        lat: 31.72, lng: -110.88, obsDt: '2026-04-15T08:00:00Z',
+        locId: 'L3', locName: 'Z', howMany: 1, isNotable: false },
+    ]);
+    const verm = await getSpeciesPhenology(db.pool, 'vermfly');
+    const ann = await getSpeciesPhenology(db.pool, 'annhum');
+    expect(verm).toEqual([{ month: 4, count: 1 }]);
+    expect(ann).toEqual([{ month: 4, count: 2 }]);
+  });
+
+  it('returns month and count as numbers (not strings from pg)', async () => {
+    // pg returns INTEGER as number, but COUNT(*) returns BIGINT (string)
+    // by default. The query casts both to ::int; verify the JS types.
+    await upsertObservations(db.pool, [
+      { subId: 'SD1', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 31.72, lng: -110.88, obsDt: '2026-06-01T08:00:00Z',
+        locId: 'L1', locName: 'X', howMany: 1, isNotable: false },
+    ]);
+    const rows = await getSpeciesPhenology(db.pool, 'vermfly');
+    expect(rows).toHaveLength(1);
+    expect(typeof rows[0]!.month).toBe('number');
+    expect(typeof rows[0]!.count).toBe('number');
+    expect(rows[0]!.month).toBe(6);
+    expect(rows[0]!.count).toBe(1);
   });
 });

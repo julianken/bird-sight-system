@@ -1,8 +1,13 @@
-export type Endpoint = 'observations' | 'hotspots' | 'species' | 'silhouettes';
+export type Endpoint = 'observations' | 'hotspots' | 'species' | 'silhouettes' | 'phenology';
 
 const TABLE: Record<Endpoint, string> = {
   observations: 'public, max-age=1800, stale-while-revalidate=600',
   hotspots:     'public, max-age=86400, stale-while-revalidate=3600',
+  // Phenology aggregates the last-365d observations into 12 monthly counts.
+  // Per-species rows shift only when a fresh obs lands in a previously-empty
+  // month — exceedingly rare on a 6h window. 21600s (6h) max-age + 3600s SWR
+  // is a long-lived CDN entry with same-day refresh.
+  phenology:    'public, max-age=21600, stale-while-revalidate=3600',
   // `immutable` was correct when species_meta was append-only taxonomy data;
   // once photo_url becomes a monthly-refreshed field (issue #327), `immutable`
   // is semantically wrong because the value at this URL CAN change. Keeping
