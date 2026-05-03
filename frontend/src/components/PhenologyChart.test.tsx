@@ -33,7 +33,7 @@ describe('PhenologyChart', () => {
 
     const svg = container.querySelector('svg.phenology-chart');
     expect(svg).not.toBeNull();
-    expect(svg).toHaveAttribute('viewBox', '0 0 216 80');
+    expect(svg).toHaveAttribute('viewBox', '0 0 216 108');
 
     // Tallest bar should match the value with the highest count (24 in this
     // dataset). Smallest non-zero bar is for count=2 → 1/12 of full height.
@@ -43,6 +43,14 @@ describe('PhenologyChart', () => {
     // Bar 12 (count=24) is the max — height should be largest
     const maxIdx = heights.indexOf(Math.max(...heights));
     expect(maxIdx).toBe(11);
+
+    // Visible month labels — one <text class="phenology-label"> per slot,
+    // 3-letter abbreviations starting at 'Jan'. Marked aria-hidden so the
+    // SVG's aria-label and per-bar <title> tooltips remain the only
+    // semantic surface for assistive tech.
+    const labels = container.querySelectorAll('text.phenology-label');
+    expect(labels.length).toBe(12);
+    expect(labels[0]?.textContent).toBe('Jan');
   });
 
   it('zero-fills sparse responses to exactly 12 bars', async () => {
@@ -85,8 +93,8 @@ describe('PhenologyChart', () => {
     // All 12 bars rendered, all the same height (placeholder), all muted.
     const rects = Array.from(container.querySelectorAll('rect'));
     const heights = rects.map(r => Number(r.getAttribute('height')));
-    // Placeholder height is 10% of 80 viewport height = 8.
-    expect(heights.every(h => h === 8)).toBe(true);
+    // Placeholder height is 10% of 108 viewport height = 10.8 → rounded to 11.
+    expect(heights.every(h => h === 11)).toBe(true);
   });
 
   it('returns null on getPhenology error so the surrounding surface is unaffected', async () => {

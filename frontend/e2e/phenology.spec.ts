@@ -48,6 +48,11 @@ test.describe('phenology chart on species detail (#356)', () => {
         await expect(chart).toBeVisible();
         await expect(chart.locator('rect')).toHaveCount(12);
 
+        // Visible month labels — 12 rotated <text> elements below the bars.
+        // First one reads 'Jan' (calendar order).
+        await expect(chart.locator('text.phenology-label')).toHaveCount(12);
+        await expect(chart.locator('text.phenology-label').first()).toHaveText('Jan');
+
         // Accessible label is present (role="img" + aria-label).
         await expect(chart).toHaveAttribute('role', 'img');
         await expect(chart).toHaveAttribute('aria-label', /phenology/i);
