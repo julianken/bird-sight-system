@@ -296,4 +296,57 @@ test.describe('axe-core WCAG scans', () => {
     }
     expect(results.violations).toEqual([]);
   });
+
+  // Issue #373 task 5 — axe scan with the AttributionModal OPEN. The
+  // existing detail-surface scans cover the modal-CLOSED state, but the
+  // modal contributes a non-trivial focus-trap, dialog landmark, and a
+  // long list of external-link anchors that only exist in the DOM once
+  // showModal() has run. WCAG 2.1.3 (Info & Relationships), 2.1.1
+  // (Keyboard) and 4.1.2 (Name/Role/Value) are all sensitive to the
+  // dialog's open state. Mirrors the existing paired-viewport pattern
+  // (desktop + mobile via the inner describe at line ~137 below).
+  //
+  // Implementation note: assert the `[open]` attribute on the dialog,
+  // NOT bare visibility. The codebase already documents this lesson at
+  // AttributionModal.tsx:206-214 — headless-Chromium can race between
+  // visibility and the dialog's open-attribute commit. Mirror that
+  // pattern here.
+  test('attribution modal open has no WCAG 2/2.1 A/AA violations (desktop)', async ({ page }) => {
+    const app = new AppPage(page);
+    await app.goto('view=feed');
+    await app.waitForAppReady();
+    await page.getByRole('button', { name: /credits/i }).click();
+    // Wait on the [open] attribute commit — observable contract that
+    // showModal() has run, focus-delegation is settled, and the dialog
+    // is in the top layer.
+    await expect(page.locator('dialog.attribution-modal[open]')).toBeVisible();
+    const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
+    if (results.violations.length) {
+      await test.info().attach('axe-violations', {
+        body: JSON.stringify(results.violations, null, 2),
+        contentType: 'application/json',
+      });
+    }
+    expect(results.violations).toEqual([]);
+  });
+
+  test.describe('attribution modal open at 390×844 mobile viewport', () => {
+    test.use({ viewport: { width: 390, height: 844 } });
+
+    test('attribution modal open has no WCAG 2/2.1 A/AA violations (mobile)', async ({ page }) => {
+      const app = new AppPage(page);
+      await app.goto('view=feed');
+      await app.waitForAppReady();
+      await page.getByRole('button', { name: /credits/i }).click();
+      await expect(page.locator('dialog.attribution-modal[open]')).toBeVisible();
+      const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
+      if (results.violations.length) {
+        await test.info().attach('axe-violations', {
+          body: JSON.stringify(results.violations, null, 2),
+          contentType: 'application/json',
+        });
+      }
+      expect(results.violations).toEqual([]);
+    });
+  });
 });
