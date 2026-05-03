@@ -254,6 +254,80 @@ describe('species photos', () => {
   });
 });
 
+describe('species meta — description projection', () => {
+  beforeEach(async () => {
+    // Descriptions FK to species_meta; seed a parent so inserts succeed.
+    await upsertSpeciesMeta(db.pool, [
+      { speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        sciName: 'Pyrocephalus rubinus', familyCode: 'tyrannidae',
+        familyName: 'Tyrant Flycatchers', taxonOrder: 30501 },
+    ]);
+  });
+
+  it('getSpeciesMeta surfaces descriptionBody/descriptionLicense/descriptionAttributionUrl when a description row exists', async () => {
+    const body = 'The vermilion flycatcher is a small, brilliantly colored passerine bird. '.repeat(2);
+    await insertSpeciesDescription(db.pool, {
+      speciesCode: 'vermfly',
+      source: 'wikipedia',
+      body,
+      license: 'CC-BY-SA-4.0',
+      revisionId: 1234567890,
+      etag: '"abc123"',
+      attributionUrl: 'https://en.wikipedia.org/wiki/Vermilion_flycatcher',
+    });
+
+    const meta = await getSpeciesMeta(db.pool, 'vermfly');
+    expect(meta).not.toBeNull();
+    expect(meta!.descriptionBody).toBe(body);
+    expect(meta!.descriptionLicense).toBe('CC-BY-SA-4.0');
+    expect(meta!.descriptionAttributionUrl).toBe('https://en.wikipedia.org/wiki/Vermilion_flycatcher');
+    // Taxonomy fields still populated.
+    expect(meta!.comName).toBe('Vermilion Flycatcher');
+    expect(meta!.familyCode).toBe('tyrannidae');
+  });
+
+  it('getSpeciesMeta returns undefined for the three description fields when no description row exists', async () => {
+    const meta = await getSpeciesMeta(db.pool, 'vermfly');
+    expect(meta).not.toBeNull();
+    // Three description fields are undefined (not present, not null, not empty)
+    // — same contract as photoUrl when species_photos has no row. The
+    // exactOptionalPropertyTypes contract requires absent properties when the
+    // JOIN produces NULLs, not properties with `undefined` values.
+    expect(meta!.descriptionBody).toBeUndefined();
+    expect(meta!.descriptionLicense).toBeUndefined();
+    expect(meta!.descriptionAttributionUrl).toBeUndefined();
+    expect(Object.prototype.hasOwnProperty.call(meta, 'descriptionBody')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(meta, 'descriptionLicense')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(meta, 'descriptionAttributionUrl')).toBe(false);
+  });
+
+  it('getSpeciesMeta surfaces description fields even when revision_id is NULL (304-path / sparse-200 case)', async () => {
+    // The 304 conditional-GET path may produce a row where Wikipedia omits
+    // revision_id. The description body/license/attribution_url MUST still
+    // surface — the description-fields projection is independent of
+    // revision_id, which is a cache-invalidation knob the writer uses, not a
+    // wire-facing field. A regression where the projection accidentally
+    // gates on revision_id IS NOT NULL would silently hide descriptions for
+    // species refreshed via 304 paths.
+    const body = 'The vermilion flycatcher is a small bright red passerine bird. '.repeat(2);
+    await insertSpeciesDescription(db.pool, {
+      speciesCode: 'vermfly',
+      source: 'wikipedia',
+      body,
+      license: 'CC-BY-SA-3.0',
+      revisionId: null,
+      etag: null,
+      attributionUrl: 'https://en.wikipedia.org/wiki/Vermilion_flycatcher',
+    });
+
+    const meta = await getSpeciesMeta(db.pool, 'vermfly');
+    expect(meta).not.toBeNull();
+    expect(meta!.descriptionBody).toBe(body);
+    expect(meta!.descriptionLicense).toBe('CC-BY-SA-3.0');
+    expect(meta!.descriptionAttributionUrl).toBe('https://en.wikipedia.org/wiki/Vermilion_flycatcher');
+  });
+});
+
 describe('species phenology', () => {
   beforeEach(async () => {
     // Phenology rows pivot off observations, but the species_meta row exists
