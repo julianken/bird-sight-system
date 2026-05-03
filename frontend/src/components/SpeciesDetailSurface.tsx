@@ -183,7 +183,7 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
         dwell_ms: Date.now() - t0,
       });
     };
-  }, [data?.speciesCode, data?.descriptionBody]);
+  }, [data?.speciesCode]);
 
   // Bottom-sentinel ref + IntersectionObserver effect (task 4).  Binary-
   // only signal: fire `panel_scrolled_to_bottom` once on first intersection
