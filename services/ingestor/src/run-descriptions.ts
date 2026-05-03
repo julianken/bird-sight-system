@@ -56,6 +56,17 @@ export interface RunDescriptionsSummary {
    * fraction of species that needed the fallback.
    */
   descriptionsFromInat: number;
+  /**
+   * Warm-cache rows whose cached `attribution_url` resolved to a Wikipedia 404
+   * — typically the article was renamed since the prior run. The orchestrator
+   * deletes the stale row so the next cron tick takes the cold-cache path:
+   * re-resolves via iNat /v1/taxa, picks up the renamed `wikipedia_url`, and
+   * either writes a fresh description or falls through to #374's iNat-summary
+   * fallback. Without this counter the daily cron log silently masks the
+   * stream of 404s a renamed article would otherwise produce indefinitely.
+   * Tracks issue #378 fast-follow on the warm-cache short-circuit added in #377.
+   */
+  staleUrls: number;
   errors: Array<{ speciesCode: string; reason: string }>;
 }
 
@@ -127,6 +138,7 @@ export async function runDescriptions(
     descriptionsSkipped: 0,
     descriptionsFailed: 0,
     descriptionsFromInat: 0,
+    staleUrls: 0,
     errors: [],
   };
 
@@ -159,8 +171,15 @@ export async function runDescriptions(
       let inatTaxonId: number | null = row.inat_taxon_id !== null
         ? Number(row.inat_taxon_id)
         : null;
-      if (row.inat_taxon_id !== null && row.prior_attribution_url !== null) {
-        wikipediaUrl = row.prior_attribution_url;
+      // Track warm-cache vs cold-cache so the Wikipedia-404 branch below can
+      // choose the right recovery: warm-cache 404 means the cached title is
+      // stale (article renamed) — delete the row so the next run re-resolves
+      // via iNat. Cold-cache 404 falls through to the #374 iNat-summary
+      // fallback (the row doesn't exist yet, so deletion isn't applicable).
+      const usedWarmCache =
+        row.inat_taxon_id !== null && row.prior_attribution_url !== null;
+      if (usedWarmCache) {
+        wikipediaUrl = row.prior_attribution_url!;
       } else {
         const taxon = await fetchInatTaxon(sciName, fetchOpts);
         if (taxon === null) {
@@ -221,17 +240,45 @@ export async function runDescriptions(
       const wiki = await fetchWikipediaSummary(wikipediaTitle, summaryFetchOpts);
 
       if (wiki === null) {
-        // Wikipedia 404 — page deleted or renamed. Try the iNat-summary
-        // fallback (added in #374): hit /v1/taxa/{id} for the cached id and
-        // persist iNat's `wikipedia_summary` plaintext as a row with
-        // source='inat'. This is the whole reason the per-id endpoint exists
-        // in our pipeline — coverage on AZ-rare/vagrant species (Cave
-        // Swallow, Glossy Ibis) where Wikipedia REST returns 404 but iNat
-        // mirrors the article body.
+        // Wikipedia 404 — page deleted or renamed. Two recovery paths,
+        // depending on whether we got here via the warm-cache short-circuit
+        // or the cold-cache iNat resolution:
         //
-        // The fallback ONLY fires here (Wikipedia 404 branch) — never on the
-        // 200 happy path (would be wasted bandwidth) and never on the 304
-        // warm-cache path (already has a row).
+        //   warm-cache → cached title is stale (article was renamed since
+        //   the previous run). DELETE the species_descriptions row so the
+        //   next cron tick takes the cold path: re-resolves via iNat
+        //   /v1/taxa, picks up the renamed wikipedia_url, and either writes
+        //   a fresh description or falls through to the iNat-summary
+        //   fallback below. Without this fork the cached URL produces an
+        //   indefinite stream of 404s and the species silently loses
+        //   coverage. (#378 fast-follow on the warm-cache short-circuit
+        //   added in #377.)
+        //
+        //   cold-cache → iNat just told us the wikipedia_url, and Wikipedia
+        //   denies it. Fall through to #374's iNat-summary fallback: hit
+        //   /v1/taxa/{id} for the cached id and persist iNat's
+        //   `wikipedia_summary` plaintext as a row with source='inat'.
+        //   Coverage path for AZ-rare/vagrant species (Cave Swallow, Glossy
+        //   Ibis) where Wikipedia REST 404s but iNat mirrors the body.
+        //
+        // The fallback ONLY fires on the cold-cache 404 branch — never on
+        // the 200 happy path (would be wasted bandwidth), never on the 304
+        // warm-cache path (already has a row), and never on the warm-cache
+        // 404 path (defer to next run's cold path so iNat resolves the
+        // renamed URL first; firing the fallback now would persist a row
+        // against a stale attribution URL).
+        if (usedWarmCache) {
+          await args.pool.query(
+            `DELETE FROM species_descriptions WHERE species_code = $1`,
+            [speciesCode]
+          );
+          summary.staleUrls++;
+          // eslint-disable-next-line no-console
+          console.log(
+            `[run-descriptions] ${speciesCode} (${sciName}): cached Wikipedia URL 404, cleared row for cold re-resolution next run`
+          );
+          continue;
+        }
         if (inatTaxonId === null) {
           // No cached id and the iNat search returned non-null taxon above
           // (otherwise we'd have continued earlier) — this branch is
