@@ -13,11 +13,12 @@ After verification the migration's surface is dramatically smaller than #343 imp
 - **Post-#390 surface = 8 resources only**: `cloudflare_pages_project.frontend`, `cloudflare_pages_domain.root`, `cloudflare_record.{root, api, photos}`, `cloudflare_r2_bucket.photos`, `cloudflare_workers_script.photo_server`, `cloudflare_workers_route.photos`. **No inline heredocs, no map_server, no extraction work.**
 - **Tooling exists**: Cloudflare ships **`tf-migrate` v1.0.1** (May 1; pin this, not v1.0.0 which lacks the preflight-listing fix #293). It auto-rewrites HCL + generates `moved` blocks.
 - **Transitional pin = v4.52.5** (mandatory per upstream upgrade guide; v4.52.7 is terminal but state migrators run at .5).
-- **Critical attribute corrections** (round-2 critic caught a hallucination):
-  - `cloudflare_workers_script`: `name` → `script_name`; `r2_bucket_binding {}` → `r2_bucket_binding = [{...}]`
+- **Critical attribute corrections** (verified against context7 v5 schema):
+  - `cloudflare_workers_script`: `name` → `script_name`; **typed binding blocks unify into a single `bindings = [{ type = "r2_bucket", ... }]` list** (not `r2_bucket_binding = [...]`; the legacy attribute name disappears entirely)
   - `cloudflare_workers_route`: `script_name` → **`script`** (not `.id`); rhs becomes `cloudflare_workers_script.photo_server.script_name`
   - `cloudflare_record` → `cloudflare_dns_record` (3 records)
-  - `cloudflare_pages_project` / `cloudflare_pages_domain` schema unchanged-name **but unchanged-schema unverified** → operator must dry-run first
+  - `cloudflare_pages_project`: name unchanged; **`subdomain` read-only attribute survives** (verified — apex CNAME ref at `frontend.tf:24` is fine)
+  - `cloudflare_pages_domain`: name unchanged but **attribute renamed: `domain` → `name`** (confirmed via context7 v5 schema; G2 must verify tf-migrate rewrote it)
 - **`prevent_destroy` on `r2_bucket.photos` MUST survive the rewrite.** tf-migrate's lifecycle-block handling is undocumented; verify with grep before commit.
 
 ## §2 Preconditions
@@ -53,6 +54,8 @@ To minimize the wall-clock skew between C1's local apply and the merge of C4, **
   - `tf-migrate migrate --dry-run` → idempotent (zero remaining migrations).
   - `terraform validate` passes.
   - Manual spot-check: `cloudflare_workers_route.photos` rhs reads `cloudflare_workers_script.photo_server.script_name` (not `.id`, not `.name`).
+  - **Bindings shape**: `grep -E '^\s*bindings\s*=\s*\[' infra/terraform/photos.tf` → hit; `grep -E 'r2_bucket_binding\s*[={]' infra/terraform/photos.tf` → empty (legacy attribute name fully removed).
+  - **Pages domain rename**: `grep -E '^\s*name\s*=\s*var\.domain' infra/terraform/frontend.tf` → hit on the `cloudflare_pages_domain.root` block; `grep -E '^\s*domain\s*=\s*var\.domain' infra/terraform/frontend.tf` → empty.
   - `frontend.tf` `api` record retains `proxied = false` (Cloud Run TLS depends on this).
   - Determine the v5 provider version tf-migrate pinned in `versions.tf`; record it for C3.
 
@@ -99,10 +102,14 @@ Once C4's `apply` runs, state is v5-shaped — there is no real rollback. Per-re
 | `workers_script.photo_server` | Idempotent (atomic CF edge cutover, single-digit-second). | `import <account_id>/<script_name>` |
 | `workers_route.photos` | Idempotent | `import <zone_id>/<route_id>` |
 
-**Catastrophic path** (C4 apply errors past the first resource):
+**Catastrophic path** (C4 apply errors past the first resource), strict order:
 1. `terraform state pull` current state → compare serial to P5 backup serial.
-2. If serials match (no intervening writes): `terraform state push -force /tmp/tfstate-pre-cf-v5-*.backup`, revert C4 → C2 commits, re-init at v4.52.5.
-3. If serials diverge (someone wrote to state during the window): **escalate, do not force-push** — manual reconciliation in `terraform state` required.
+2. If serials diverge (someone wrote to state during the window): **escalate, do not force-push** — manual reconciliation in `terraform state` required. STOP.
+3. If serials match (no intervening writes): `git revert` C4 → C2 commits locally (HCL back to v4 shape).
+4. **Wipe `.terraform/`** (`rm -rf infra/terraform/.terraform infra/terraform/.terraform.lock.hcl`) — without this, the v5 plugin still resident in the working tree will re-trigger state upgraders on the next `init`, defeating the rollback.
+5. `terraform init` (re-pins v4.52.5 from the reverted `versions.tf`).
+6. `terraform state push -force /tmp/tfstate-pre-cf-v5-*.backup`.
+7. `terraform plan` — must be empty against v4.52.5. If any diff appears, rollback failed; escalate.
 
 ## §6 Sequencing
 
@@ -118,7 +125,6 @@ Once C4's `apply` runs, state is v5-shaped — there is no real rollback. Per-re
 
 ## §7 Honest open items
 
-- **`cloudflare_pages_domain` v5 schema unverified.** Operator must run C2's dry-run with eyes open for any `pages_domain` reshape; if `account_id` / `project_name` / `domain` attribute names changed, address inline before commit.
 - **tf-migrate's lifecycle-block preservation is undocumented** — G2 grep is the only safety net. If tf-migrate strips it, manually re-add and document.
 - **Apply-freeze depends on team discipline** — there's no automated lock. If the team grows or someone misses the banner, racing applies are a real risk. Long-term fix: GCS object-versioning on the state bucket + Terraform state locking via DynamoDB-equivalent (Cloud Storage's built-in lock).
 - **No automated `terraform validate` gate post-merge** — the original sin that let #343 reach review still exists. File as immediate follow-up.
