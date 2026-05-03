@@ -5,11 +5,10 @@
  * includes glyphs + sources + rendering layers. Prototype finding 2
  * (docs/plans/2026-04-22-map-v1-prototype/learnings.md) notes the style emits
  * MapLibre warnings at zoom >7, but those are cosmetic upstream issues, not
- * crashes. Acceptable for v1 ship.
+ * crashes. Acceptable for production.
  *
- * Future: self-hosted PMTiles at tiles.bird-maps.com (R2 bucket + CF Worker
- * already provisioned by Plan 7 S2, but the one-time build-basemap.sh upload
- * hasn't run yet, and a full style spec with land/water/road layers + glyphs
- * still needs authoring).
+ * No self-hosted tile pipeline is planned; the unapplied map-v1 PMTiles
+ * Terraform was removed in #385 once it was confirmed the live map at
+ * https://bird-maps.com fetches all tiles from `tiles.openfreemap.org`.
  */
 export const basemapStyle = 'https://tiles.openfreemap.org/styles/positron';
