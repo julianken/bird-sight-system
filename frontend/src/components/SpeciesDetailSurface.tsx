@@ -3,6 +3,7 @@ import type { ApiClient } from '../api/client.js';
 import { useSpeciesDetail } from '../data/use-species-detail.js';
 import { useSilhouettes } from '../data/use-silhouettes.js';
 import type { FamilySilhouette } from '@bird-watch/shared-types';
+import { PhenologyChart } from './PhenologyChart.js';
 
 export interface SpeciesDetailSurfaceProps {
   speciesCode: string;
@@ -151,6 +152,7 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
           <h2 className="species-detail-common-name">{data.comName}</h2>
           <p className="species-detail-sci-name"><em>{data.sciName}</em></p>
           <p className="species-detail-family">{data.familyName}</p>
+          <PhenologyChart speciesCode={speciesCode} apiClient={apiClient} />
         </div>
       )}
     </div>

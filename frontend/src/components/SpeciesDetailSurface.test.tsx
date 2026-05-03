@@ -160,4 +160,44 @@ describe('SpeciesDetailSurface', () => {
     const photo = await screen.findByAltText('Anna’s Hummingbird photo');
     expect(photo.tagName).toBe('IMG');
   });
+
+  // ─── Phenology chart (issue #356) ──────────────────────────────────────
+  //
+  // PhenologyChart mounts inside the `data &&` block so it only attempts a
+  // /phenology fetch once the species itself has resolved. The chart
+  // component handles its own loading/error/empty states; the surface just
+  // mounts it.
+
+  it('mounts PhenologyChart inside the data block when species resolves', async () => {
+    const phenology = Array.from({ length: 12 }, (_, i) => ({ month: i + 1, count: i + 1 }));
+    const client = makeClient({
+      getSpecies: vi.fn().mockResolvedValue(VERMFLY),
+      getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
+      getPhenology: vi.fn().mockResolvedValue(phenology),
+    } as unknown as Partial<ApiClient>);
+    const { container } = render(
+      <SpeciesDetailSurface speciesCode="vermfly" apiClient={client} />
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeInTheDocument()
+    );
+    await waitFor(() => {
+      expect(container.querySelector('svg.phenology-chart')).not.toBeNull();
+    });
+  });
+
+  it('does not mount PhenologyChart while species is still loading', () => {
+    const getPhenology = vi.fn();
+    const client = makeClient({
+      // Pending species fetch — PhenologyChart should NOT have mounted yet.
+      getSpecies: vi.fn().mockReturnValue(new Promise(() => {})),
+      getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
+      getPhenology,
+    } as unknown as Partial<ApiClient>);
+    render(<SpeciesDetailSurface speciesCode="vermfly" apiClient={client} />);
+    // Loading state is visible.
+    expect(screen.getByText('Loading species details…')).toBeInTheDocument();
+    // PhenologyChart never made the call because it never mounted.
+    expect(getPhenology).not.toHaveBeenCalled();
+  });
 });
