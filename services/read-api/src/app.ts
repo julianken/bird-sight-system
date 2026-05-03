@@ -4,6 +4,7 @@ import { cors } from 'hono/cors';
 import type { Pool } from '@bird-watch/db-client';
 import {
   getHotspots, getObservations, getSpeciesMeta, getSilhouettes,
+  getSpeciesPhenology,
 } from '@bird-watch/db-client';
 import { cacheControlFor } from './cache-headers.js';
 
@@ -104,6 +105,19 @@ export function createApp(deps: AppDeps): Hono {
     if (!meta) return c.json({ error: 'not found' }, 404);
     c.header('Cache-Control', cacheControlFor('species'));
     return c.json(meta);
+  });
+
+  // 404 for unknown species mirrors the species-meta route at line 101 above.
+  // The existence check uses getSpeciesMeta to avoid divergence from the
+  // sibling endpoint. Known-but-unobserved species return 200 [] (sparse —
+  // frontend zero-fills to 12 months before rendering).
+  app.get('/api/species/:code/phenology', async c => {
+    const code = c.req.param('code');
+    const meta = await getSpeciesMeta(deps.pool, code);
+    if (!meta) return c.json({ error: 'not found' }, 404);
+    const rows = await getSpeciesPhenology(deps.pool, code);
+    c.header('Cache-Control', cacheControlFor('phenology'));
+    return c.json(rows);
   });
 
   app.onError((err, c) => {

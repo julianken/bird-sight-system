@@ -225,6 +225,72 @@ describe('GET /api/species/:code', () => {
   });
 });
 
+describe('GET /api/species/:code/phenology', () => {
+  beforeAll(async () => {
+    // Two species seeded so unknown-species 404 contrasts with known-but-
+    // unobserved 200 [].
+    await upsertSpeciesMeta(db.pool, [
+      { speciesCode: 'phenfly', comName: 'Pheno Flycatcher',
+        sciName: 'Pheno test', familyCode: 'tyrannidae',
+        familyName: 'Tyrant Flycatchers', taxonOrder: 99001 },
+      { speciesCode: 'noobsspc', comName: 'No-Obs Species',
+        sciName: 'Empty species', familyCode: 'tyrannidae',
+        familyName: 'Tyrant Flycatchers', taxonOrder: 99002 },
+    ]);
+    await upsertObservations(db.pool, [
+      { subId: 'PH1', speciesCode: 'phenfly', comName: 'Pheno Flycatcher',
+        lat: 31.72, lng: -110.88, obsDt: '2026-03-05T08:00:00Z',
+        locId: 'L-PH1', locName: 'X', howMany: 1, isNotable: false },
+      { subId: 'PH2', speciesCode: 'phenfly', comName: 'Pheno Flycatcher',
+        lat: 31.72, lng: -110.88, obsDt: '2026-03-15T08:00:00Z',
+        locId: 'L-PH2', locName: 'Y', howMany: 1, isNotable: false },
+      { subId: 'PH3', speciesCode: 'phenfly', comName: 'Pheno Flycatcher',
+        lat: 31.72, lng: -110.88, obsDt: '2026-08-12T08:00:00Z',
+        locId: 'L-PH3', locName: 'Z', howMany: 1, isNotable: false },
+    ]);
+  });
+
+  it('returns sparse {month, count}[] for known species with observations', async () => {
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/species/phenfly/phenology');
+    expect(res.status).toBe(200);
+    const body = await res.json() as Array<{ month: number; count: number }>;
+    // March (2 obs) and August (1 obs); other months absent.
+    expect(body).toEqual([
+      { month: 3, count: 2 },
+      { month: 8, count: 1 },
+    ]);
+  });
+
+  it('sets the phenology Cache-Control header on a 200 response', async () => {
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/species/phenfly/phenology');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control'))
+      .toBe('public, max-age=21600, stale-while-revalidate=3600');
+  });
+
+  it('returns 200 [] for a known species with no observations', async () => {
+    // 'noobsspc' is in species_meta but no observations exist for it.
+    // Helper returns []; route returns 200 (not 404) because the species
+    // exists. Frontend zero-fills to 12 months.
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/species/noobsspc/phenology');
+    expect(res.status).toBe(200);
+    const body = await res.json() as unknown[];
+    expect(body).toEqual([]);
+  });
+
+  it('returns 404 {error:"not found"} for an unknown species_code', async () => {
+    // Matches the species-meta route's 404 precedent; the existence check
+    // uses getSpeciesMeta to avoid divergence from the sibling endpoint.
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/species/notrealspc/phenology');
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'not found' });
+  });
+});
+
 describe('gzip compression middleware', () => {
   beforeAll(async () => {
     // The compress middleware's default threshold is 1024 bytes — responses
