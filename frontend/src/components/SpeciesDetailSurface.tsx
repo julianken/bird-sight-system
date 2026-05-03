@@ -2,32 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ApiClient } from '../api/client.js';
 import { useSpeciesDetail } from '../data/use-species-detail.js';
 import { useSilhouettes } from '../data/use-silhouettes.js';
-import type { FamilySilhouette, SpeciesMeta } from '@bird-watch/shared-types';
+import type { FamilySilhouette } from '@bird-watch/shared-types';
 import { analytics } from '../analytics.js';
 import { PhenologyChart } from './PhenologyChart.js';
 import { SpeciesDescription } from './SpeciesDescription.js';
-
-/**
- * Local widening of `SpeciesMeta` to surface the optional description
- * projection fields that ship with #372 (the db-client + shared-types PR
- * landing in parallel with this one). Once #372 lands and the fields
- * become first-class on `SpeciesMeta`, this alias becomes redundant — the
- * narrowing-via-truthy-check pattern is identical either way. Keeping the
- * alias here avoids a hard ordering coupling between the two PRs in the
- * Mergify queue: this PR builds clean against either type shape.
- *
- * Ordering: the wire payload from `/api/species/:code` carries these
- * fields when the read-api projection is updated (also in #372). When
- * the projection is absent, the fields deserialize as `undefined` and
- * the SpeciesDescription mount silently no-ops. A CDN-stale response
- * predating the projection has the same shape — the same render path
- * handles both.
- */
-type SpeciesMetaWithDescription = SpeciesMeta & {
-  descriptionBody?: string;
-  descriptionLicense?: string;
-  descriptionAttributionUrl?: string;
-};
 
 export interface SpeciesDetailSurfaceProps {
   speciesCode: string;
@@ -149,11 +127,7 @@ function SpeciesDetailVisual({
 export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
   const { speciesCode, apiClient } = props;
   const detail = useSpeciesDetail(apiClient, speciesCode);
-  const { loading, error } = detail;
-  // Widen the resolved meta to the description-aware variant (see file-level
-  // type alias). Read access is via the local `data` binding everywhere
-  // below, so the cast is contained to one site.
-  const data = detail.data as SpeciesMetaWithDescription | null;
+  const { loading, error, data } = detail;
   const { silhouettes } = useSilhouettes(apiClient);
 
   // Analytics instrumentation (issue #357 task 3): fire `panel_opened`
