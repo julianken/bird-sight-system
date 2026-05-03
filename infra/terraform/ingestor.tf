@@ -412,3 +412,181 @@ resource "google_cloud_scheduler_job" "ingest_photos" {
 
   depends_on = [google_project_service.scheduler]
 }
+
+# ── Descriptions ingest job (issue #371) ────────────────────────────────────
+#
+# Separate Cloud Run Job because the descriptions kind needs a 1800s timeout
+# to walk ~344 species × (iNat /v1/taxa fetch + Wikipedia REST summary fetch
+# + DOMPurify sanitize + DB write) at the documented 1 rps pace. The Wikipedia
+# REST API recommends pacing requests; iNat's recommended-practices doc asks
+# for ~100 rpm. At 1 rps the wall-clock budget is ~344s for the round-trips
+# plus per-request fetch + sanitize work; 1800s leaves comfortable headroom
+# for retry-after-429 backoffs and steady-state 304 cache hits that would
+# pull the budget down further on subsequent runs.
+#
+# Mirrors the photos job's secret-env wiring shape verbatim. Cloudflare zone
+# id and API token are NEW secrets — they're consumed by the cache-purge
+# fork inside run-descriptions.ts when DESCRIPTIONS_PURGE_CACHE=1, which is
+# off by default in tests but on in the Cloud Run env. The /api/species/*
+# prefix is the cache surface the descriptions write affects (species-meta
+# route at services/read-api/src/app.ts).
+resource "google_secret_manager_secret" "cloudflare_zone_id" {
+  secret_id = "bird-watch-cloudflare-zone-id"
+  replication {
+    auto {}
+  }
+  depends_on = [google_project_service.secretmanager]
+}
+
+resource "google_secret_manager_secret" "cloudflare_api_token" {
+  secret_id = "bird-watch-cloudflare-api-token"
+  replication {
+    auto {}
+  }
+  depends_on = [google_project_service.secretmanager]
+}
+
+resource "google_secret_manager_secret_iam_member" "ingestor_cloudflare_zone_id" {
+  secret_id = google_secret_manager_secret.cloudflare_zone_id.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.ingestor.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "ingestor_cloudflare_api_token" {
+  secret_id = google_secret_manager_secret.cloudflare_api_token.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.ingestor.email}"
+}
+
+resource "google_cloud_run_v2_job" "ingestor_descriptions" {
+  name     = "bird-ingestor-descriptions"
+  location = var.gcp_region
+
+  template {
+    template {
+      service_account = google_service_account.ingestor.email
+      timeout         = "1800s"
+      max_retries     = 1
+
+      containers {
+        image = "${google_artifact_registry_repository.birdwatch.location}-docker.pkg.dev/${var.gcp_project_id}/${google_artifact_registry_repository.birdwatch.repository_id}/ingestor:latest"
+
+        # CLI takes the kind as positional arg; Scheduler override below sets
+        # it to "descriptions", but the baked-in default keeps a manual
+        # `gcloud run jobs execute bird-ingestor-descriptions` working without
+        # overrides.
+        args = ["descriptions"]
+
+        resources {
+          limits = { cpu = "1", memory = "512Mi" }
+        }
+
+        env {
+          name = "DATABASE_URL"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.db_url.secret_id
+              version = "latest"
+            }
+          }
+        }
+        env {
+          name = "EBIRD_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.ebird_key.secret_id
+              version = "latest"
+            }
+          }
+        }
+        # The cache-purge fork in run-descriptions.ts consumes these two when
+        # DESCRIPTIONS_PURGE_CACHE=1. When the script is shipped --dry-run
+        # only (the conservative initial state), the secrets are still
+        # present but the script exits 0 without calling Cloudflare's API.
+        env {
+          name = "CLOUDFLARE_ZONE_ID"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.cloudflare_zone_id.secret_id
+              version = "latest"
+            }
+          }
+        }
+        env {
+          name = "CLOUDFLARE_API_TOKEN"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.cloudflare_api_token.secret_id
+              version = "latest"
+            }
+          }
+        }
+        env {
+          name  = "DESCRIPTIONS_PURGE_CACHE"
+          value = "1"
+        }
+      }
+    }
+  }
+
+  # Same rationale as .ingestor: deploy-ingestor.yml rolls the image tag,
+  # Terraform must not reconcile it back to :latest on every apply.
+  lifecycle {
+    ignore_changes = [template[0].template[0].containers[0].image]
+  }
+
+  depends_on = [
+    google_project_service.run,
+    google_secret_manager_secret_iam_member.ingestor_db,
+    google_secret_manager_secret_iam_member.ingestor_ebird,
+    google_secret_manager_secret_iam_member.ingestor_cloudflare_zone_id,
+    google_secret_manager_secret_iam_member.ingestor_cloudflare_api_token,
+  ]
+}
+
+# Same role + same scheduler SA as the other invoke bindings — Scheduler uses
+# containerOverrides to pin args=["descriptions"], routing through
+# runWithOverrides.
+resource "google_cloud_run_v2_job_iam_member" "scheduler_invoke_descriptions" {
+  name     = google_cloud_run_v2_job.ingestor_descriptions.name
+  location = google_cloud_run_v2_job.ingestor_descriptions.location
+  role     = "roles/run.jobsExecutorWithOverrides"
+  member   = "serviceAccount:${google_service_account.scheduler.email}"
+}
+
+locals {
+  # v2 endpoint for the descriptions-only job — separate URL because the path
+  # includes the job name, not the project + location alone.
+  job_run_url_descriptions = "https://run.googleapis.com/v2/projects/${var.gcp_project_id}/locations/${var.gcp_region}/jobs/${google_cloud_run_v2_job.ingestor_descriptions.name}:run"
+}
+
+# Daily descriptions refresh at 08:00 UTC. Wikipedia pages drift slowly but
+# are edited daily across a population of 344 species; a daily cadence keeps
+# the cached body fresh without bombarding Wikipedia's REST API. Offset from
+# the photos cron (which fires monthly at 07:00 UTC on the 1st) so the two
+# never overlap on Neon's connection pool. The conditional-GET ETag in
+# species_descriptions makes most days a sequence of fast 304s — the cron
+# spends real wall-clock budget only on the species that changed since the
+# last run.
+resource "google_cloud_scheduler_job" "ingest_descriptions" {
+  name      = "bird-ingest-descriptions"
+  region    = var.gcp_region
+  schedule  = "0 8 * * *"
+  time_zone = "Etc/UTC"
+
+  http_target {
+    uri         = local.job_run_url_descriptions
+    http_method = "POST"
+    headers     = { "Content-Type" = "application/json" }
+    body = base64encode(jsonencode({
+      overrides = {
+        containerOverrides = [{ args = ["descriptions"] }]
+      }
+    }))
+    oauth_token {
+      service_account_email = google_service_account.scheduler.email
+    }
+  }
+
+  depends_on = [google_project_service.scheduler]
+}
