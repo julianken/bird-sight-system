@@ -501,6 +501,16 @@ body {
   fill: var(--color-text-body);
   font-family: inherit;
 }
+/* Variant for the tallest bar's count label, whose y is clamped to 8 inside
+   the bar zone (y=0..70) so the label overlaps the dark bar fill. The
+   default --color-text-body (#444) on --color-text-strong (#1a1a1a) is only
+   ~1.7:1 — WCAG AA needs 4.5:1. Pure white pushes contrast to ~16:1, well
+   into AAA territory. Hard-coded #ffffff (rather than --color-text-white,
+   which carries a "text on dark backgrounds" semantic anyway) keeps the
+   intent self-evident at the rule. */
+.phenology-count-on-bar {
+  fill: #ffffff;
+}
 .phenology-chart-loading {
   color: var(--color-text-muted);
   font-size: 13px;

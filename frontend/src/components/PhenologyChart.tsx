@@ -176,10 +176,21 @@ export function PhenologyChart(props: PhenologyChartProps): JSX.Element | null {
             ? BAR_AREA_HEIGHT
             : BAR_AREA_HEIGHT - Math.round((d.count / max) * BAR_AREA_HEIGHT);
         const y = Math.max(barTop - 2, 8);
+        // When the label is clamped inside the bar (y >= barTop) — the
+        // tallest bar reaches barTop=0 so y=8 sits inside the dark fill —
+        // the default --color-text-body (#444) on --color-text-strong
+        // (#1a1a1a) drops to ~1.7:1 contrast (WCAG AA fails 4.5:1). Flip
+        // to a white fill via .phenology-count-on-bar so the count label
+        // remains readable. Shorter bars keep the dark fill above the bar.
+        const labelInsideBar = y >= barTop;
         return (
           <text
             key={`count-${d.month}`}
-            className="phenology-count"
+            className={
+              labelInsideBar
+                ? 'phenology-count phenology-count-on-bar'
+                : 'phenology-count'
+            }
             x={x}
             y={y}
             textAnchor="middle"

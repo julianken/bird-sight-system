@@ -63,6 +63,27 @@ describe('PhenologyChart', () => {
     // against the SVG's aria-label and per-bar <title> tooltips.
     const counts = container.querySelectorAll('text.phenology-count');
     expect(counts.length).toBe(12);
+
+    // Tallest bar's count label (count=24, barTop=0) is clamped to y=8 by
+    // Math.max(barTop-2, 8), placing it INSIDE the dark bar fill. The
+    // .phenology-count-on-bar variant flips the fill to white so the number
+    // remains readable (>= 7:1 against --color-text-strong=#1a1a1a). All
+    // shorter bars keep the default --color-text-body fill above the bar.
+    const countTexts = Array.from(
+      container.querySelectorAll<SVGTextElement>('text.phenology-count'),
+    );
+    // Find the count label that renders the max value (24).
+    const tallestCount = countTexts.find(t => t.textContent === '24');
+    expect(tallestCount).toBeDefined();
+    expect(tallestCount!.getAttribute('class')).toContain(
+      'phenology-count-on-bar',
+    );
+    // Non-tallest bars (e.g. count=2) render above the bar — no on-bar class.
+    const shorterCount = countTexts.find(t => t.textContent === '2');
+    expect(shorterCount).toBeDefined();
+    expect(shorterCount!.getAttribute('class')).not.toContain(
+      'phenology-count-on-bar',
+    );
   });
 
   it('zero-fills sparse responses to exactly 12 bars', async () => {
