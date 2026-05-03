@@ -11,8 +11,10 @@ export {
   insertSpeciesPhoto,
   getSpeciesPhotos,
   getSpeciesPhenology,
+  insertSpeciesDescription,
   type SpeciesPhoto,
   type SpeciesPhotoInput,
+  type SpeciesDescriptionInput,
 } from './species.js';
 export { getSilhouettes } from './silhouettes.js';
 export {

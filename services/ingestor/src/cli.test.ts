@@ -16,6 +16,7 @@ function makeDeps(overrides: Partial<CliDeps> = {}): CliDeps {
     runBackfill: vi.fn(),
     runTaxonomy: vi.fn(),
     runPhotos: vi.fn(),
+    runDescriptions: vi.fn(),
     fetchWikipediaSummary: vi.fn(),
     fetchInatTaxon: vi.fn(),
     ...overrides,
@@ -201,5 +202,32 @@ describe('runCli', () => {
     await expect(runCli('probe-taxon', deps)).rejects.toThrow(
       /probe-taxon requires a binomial/
     );
+  });
+
+  it("'descriptions' kind dispatches to runDescriptions with the pool", async () => {
+    const successSummary = {
+      status: 'success' as const,
+      speciesCount: 0,
+      descriptionsWritten: 0,
+      descriptionsSkipped: 0,
+      descriptionsFailed: 0,
+      errors: [] as Array<{ speciesCode: string; reason: string }>,
+    };
+    const runDescriptionsSpy = vi.fn().mockResolvedValue(successSummary);
+    const deps = makeDeps({ runDescriptions: runDescriptionsSpy });
+
+    await runCli('descriptions', deps);
+
+    expect(runDescriptionsSpy).toHaveBeenCalledTimes(1);
+    expect(runDescriptionsSpy).toHaveBeenCalledWith({ pool: POOL_SENTINEL });
+    // No EBIRD_API_KEY forwarded — runDescriptions's upstream is iNat + Wikipedia.
+    const call = runDescriptionsSpy.mock.calls[0]?.[0];
+    expect(call).not.toHaveProperty('apiKey');
+    expect(deps.closePool).toHaveBeenCalledWith(POOL_SENTINEL);
+  });
+
+  it("Unknown-kind error string includes 'descriptions' so operators see the new kind", async () => {
+    const deps = makeDeps();
+    await expect(runCli('bogus', deps)).rejects.toThrow(/descriptions/);
   });
 });

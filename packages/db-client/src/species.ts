@@ -58,6 +58,62 @@ export async function insertSpeciesPhoto(
   return Number(rows[0]!.id);
 }
 
+export interface SpeciesDescriptionInput {
+  speciesCode: string;
+  /** Currently always `'wikipedia'` (CHECK-restricted at the DB tier; future iNat-summary fallback expands the union). */
+  source: 'wikipedia';
+  /** Sanitized HTML — DOMPurify must run BEFORE this helper. The CHECK enforces 50..8192 chars. */
+  body: string;
+  /** Wikipedia summary license — DB CHECK restricts to the two CC-BY-SA variants. */
+  license: 'CC-BY-SA-3.0' | 'CC-BY-SA-4.0';
+  /** Wikipedia revision id; null when the upstream omits it (Wikipedia 304 / sparse 200). */
+  revisionId: number | null;
+  /** ETag from the upstream conditional-GET; null when first fetch + upstream omits the header. */
+  etag: string | null;
+  /** Page URL (for "Read more on Wikipedia" link surface in the frontend). */
+  attributionUrl: string;
+}
+
+/**
+ * Insert a row into `species_descriptions`. Idempotent on `species_code`: a
+ * second call with the same code upserts (replaces) the existing row's
+ * body/license/revision_id/etag/attribution_url and bumps `fetched_at`. Mirrors
+ * `insertSpeciesPhoto` shape; the conflict locking comment applies for the same
+ * reason — the shared `species_meta` parent must NOT be touched here. The
+ * "does not clobber taxonomy columns on conflict" contract test guards against
+ * a regression where a careless impl would UPSERT into species_meta with
+ * EXCLUDED defaults and silently overwrite com_name/sci_name/inat_taxon_id.
+ */
+export async function insertSpeciesDescription(
+  pool: Pool,
+  input: SpeciesDescriptionInput
+): Promise<number> {
+  const { rows } = await pool.query<{ id: string }>(
+    `INSERT INTO species_descriptions
+       (species_code, source, body, license, revision_id, etag, attribution_url)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (species_code) DO UPDATE SET
+       source = EXCLUDED.source,
+       body = EXCLUDED.body,
+       license = EXCLUDED.license,
+       revision_id = EXCLUDED.revision_id,
+       etag = EXCLUDED.etag,
+       attribution_url = EXCLUDED.attribution_url,
+       fetched_at = NOW()
+     RETURNING id`,
+    [
+      input.speciesCode,
+      input.source,
+      input.body,
+      input.license,
+      input.revisionId,
+      input.etag,
+      input.attributionUrl,
+    ]
+  );
+  return Number(rows[0]!.id);
+}
+
 /**
  * Return all `species_photos` rows for the given species, newest first.
  * Today the (species_code, purpose) UNIQUE means a species has at most one
