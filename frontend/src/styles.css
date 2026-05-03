@@ -455,13 +455,15 @@ body {
   color: var(--color-text-body);
 }
 .species-detail-loading { color: var(--color-text-muted); font-size: 13px; margin: 8px 0 0 0; }
-/* Phenology chart (#356). 12 monthly observation-count bars rendered as
-   inline SVG inside the species detail body. Sits below .species-detail-family.
-   The SVG uses width:100% with a max-width cap so the chart scales cleanly on
-   both the 390×844 mobile and 1440×900 desktop release-1 viewports without
-   ballooning past the surface's 760px content cap. The viewBox keeps the
-   internal 216×80 coordinate space stable across viewports — bars stay 18px
-   slots in their own coordinate system regardless of rendered width. */
+/* Phenology chart (#356, #363). 12 monthly observation-count bars rendered
+   as inline SVG inside the species detail body. Sits below
+   .species-detail-family. The SVG uses width:100% with a max-width cap so
+   the chart scales cleanly on both the 390×844 mobile and 1440×900 desktop
+   release-1 viewports without ballooning past the surface's 760px content
+   cap. The viewBox keeps the internal 216×108 coordinate space stable
+   across viewports — bars occupy the top 80 units, the bottom 28 are the
+   month-label gutter, and 18px slots stay 18px slots in their own
+   coordinate system regardless of rendered width. */
 .phenology-chart {
   display: block;
   width: 100%;
@@ -474,6 +476,15 @@ body {
 }
 .phenology-bar-empty {
   fill: var(--color-border-subtle);
+}
+/* Visible month-axis labels under each bar. #555 on #f4f1ea (page background)
+   = 7.46:1 contrast — well above WCAG 4.5:1 for small text. font-family:
+   inherit so the SVG <text> picks up the body stack rather than the SVG
+   default sans-serif. aria-hidden on the elements means contrast is for
+   sighted readers only — the SVG's aria-label still names the chart. */
+.phenology-label {
+  fill: var(--color-text-muted);
+  font-family: inherit;
 }
 .phenology-chart-loading {
   color: var(--color-text-muted);
