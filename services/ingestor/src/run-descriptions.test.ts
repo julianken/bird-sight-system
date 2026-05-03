@@ -635,4 +635,146 @@ describe('runDescriptions', () => {
     expect(summary.errors[0]?.speciesCode).toBe('verfly');
     expect(summary.errors[0]?.reason).toMatch(/length/i);
   });
+
+  it('warm cache + Wikipedia 404 (renamed article) → deletes stale row and increments staleUrls', async () => {
+    // Hazard: the cached short-circuit at the top of the loop trusts both
+    // species_meta.inat_taxon_id and species_descriptions.attribution_url.
+    // When Wikipedia silently renames the underlying article, the cached URL
+    // produces an indefinite stream of 404s — and #374's iNat-summary fallback
+    // sits in the cold-cache `else` branch, so it never fires for a row whose
+    // attribution_url is already populated. Without this fix the species
+    // permanently loses coverage.
+    //
+    // Fix: on the warm-cache path, when fetchWikipediaSummary returns null
+    // (404), DELETE the row so the next cron run takes the cold path —
+    // re-resolving via /v1/taxa, picking up the renamed wikipedia_url, and
+    // either writing a fresh description or falling through to the
+    // iNat-summary fallback per #374.
+    await db.pool.query(
+      `INSERT INTO species_descriptions
+         (species_code, source, body, license, revision_id, etag, attribution_url)
+       VALUES
+         ('verfly', 'wikipedia', '${'p'.repeat(60)}', 'CC-BY-SA-4.0', 1234567890, '"old-etag"', 'https://en.wikipedia.org/wiki/Stale_old_title')`
+    );
+    await db.pool.query(
+      `UPDATE species_meta SET inat_taxon_id = 1001 WHERE species_code = 'verfly'`
+    );
+    await db.pool.query(`DELETE FROM observations WHERE species_code != 'verfly'`);
+
+    let inatHits = 0;
+    let inatByIdHits = 0;
+    server.use(
+      // The warm-cache path skips iNat /v1/taxa — confirm it stays unhit.
+      http.get(INAT_TAXA, () => {
+        inatHits++;
+        return HttpResponse.json({ total_results: 0, results: [] });
+      }),
+      // Cached Wikipedia title resolves to 404 — the article was renamed.
+      http.get(WIKI_SUMMARY, () => new HttpResponse('not found', { status: 404 })),
+      // The fallback /v1/taxa/{id} must NOT be called on the warm-cache path:
+      // the orchestrator's job here is to clear the stale cache so the NEXT
+      // run takes the cold path; firing the fallback now would persist a row
+      // against a stale URL.
+      http.get(INAT_TAXA_BY_ID, () => {
+        inatByIdHits++;
+        return HttpResponse.json({ total_results: 0, results: [] });
+      })
+    );
+
+    const summary = await runDescriptions({ pool: db.pool, paceMs: 0 });
+
+    expect(summary.descriptionsWritten).toBe(0);
+    expect(summary.descriptionsFromInat).toBe(0);
+    expect(summary.descriptionsFailed).toBe(0);
+    expect(summary.staleUrls).toBe(1);
+    expect(inatHits).toBe(0);
+    expect(inatByIdHits).toBe(0);
+
+    // Row was deleted — the next cron run will take the cold-cache path.
+    const { rows } = await db.pool.query<{ count: string }>(
+      `SELECT COUNT(*) AS count FROM species_descriptions WHERE species_code = 'verfly'`
+    );
+    expect(Number(rows[0]?.count)).toBe(0);
+    // species_meta.inat_taxon_id is preserved — only the description-side
+    // cache is invalidated, not the iNat taxon mapping.
+    const { rows: metaRows } = await db.pool.query<{ inat_taxon_id: string | null }>(
+      `SELECT inat_taxon_id FROM species_meta WHERE species_code = 'verfly'`
+    );
+    expect(metaRows[0]?.inat_taxon_id).toBe('1001');
+  });
+
+  it('after stale-URL clear, next run takes cold path and repopulates with renamed Wikipedia URL', async () => {
+    // Two-run integration: first run clears the stale row (Wikipedia 404 on
+    // cached URL); second run re-resolves via iNat (returning the renamed
+    // wikipedia_url) and persists a fresh description with the new URL.
+    await db.pool.query(
+      `INSERT INTO species_descriptions
+         (species_code, source, body, license, revision_id, etag, attribution_url)
+       VALUES
+         ('verfly', 'wikipedia', '${'p'.repeat(60)}', 'CC-BY-SA-4.0', 1234567890, '"old-etag"', 'https://en.wikipedia.org/wiki/Stale_old_title')`
+    );
+    await db.pool.query(
+      `UPDATE species_meta SET inat_taxon_id = 1001 WHERE species_code = 'verfly'`
+    );
+    await db.pool.query(`DELETE FROM observations WHERE species_code != 'verfly'`);
+
+    // Run 1: cached URL 404s on Wikipedia, stale row deleted.
+    server.use(
+      http.get(WIKI_SUMMARY, () => new HttpResponse('not found', { status: 404 }))
+    );
+    const summary1 = await runDescriptions({ pool: db.pool, paceMs: 0 });
+    expect(summary1.staleUrls).toBe(1);
+    expect(summary1.descriptionsWritten).toBe(0);
+
+    // Confirm the row is gone (cold-cache state).
+    const { rows: between } = await db.pool.query<{ count: string }>(
+      `SELECT COUNT(*) AS count FROM species_descriptions WHERE species_code = 'verfly'`
+    );
+    expect(Number(between[0]?.count)).toBe(0);
+
+    // Run 2: cold cache → iNat returns the RENAMED wikipedia_url, Wikipedia
+    // returns 200 for the new title, row repopulates.
+    server.resetHandlers();
+    server.use(
+      http.get(INAT_TAXA, ({ request }) => {
+        const sciName = new URL(request.url).searchParams.get('q');
+        if (sciName !== 'Pyrocephalus rubinus') {
+          return HttpResponse.json({ total_results: 0, results: [] });
+        }
+        return HttpResponse.json({
+          total_results: 1, page: 1, per_page: 1,
+          results: [{
+            id: 1001, name: sciName, rank: 'species', matched_term: sciName,
+            // The new (renamed) Wikipedia URL.
+            wikipedia_url: 'https://en.wikipedia.org/wiki/Vermilion_flycatcher_(renamed)',
+          }],
+        });
+      }),
+      http.get(WIKI_SUMMARY, () => HttpResponse.json(
+        { extract_html: SAMPLE_BODY, revision: '9999' },
+        { status: 200, headers: { etag: '"new-etag"' } }
+      ))
+    );
+
+    const summary2 = await runDescriptions({ pool: db.pool, paceMs: 0 });
+    expect(summary2.descriptionsWritten).toBe(1);
+    expect(summary2.staleUrls).toBe(0);
+    expect(summary2.descriptionsFailed).toBe(0);
+
+    const { rows: after } = await db.pool.query<{
+      species_code: string;
+      source: string;
+      attribution_url: string;
+      etag: string | null;
+    }>(
+      `SELECT species_code, source, attribution_url, etag
+         FROM species_descriptions WHERE species_code = 'verfly'`
+    );
+    expect(after).toHaveLength(1);
+    expect(after[0]?.attribution_url).toBe(
+      'https://en.wikipedia.org/wiki/Vermilion_flycatcher_(renamed)'
+    );
+    expect(after[0]?.source).toBe('wikipedia');
+    expect(after[0]?.etag).toBe('"new-etag"');
+  });
 });

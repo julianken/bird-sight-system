@@ -438,12 +438,22 @@ resource "google_secret_manager_secret" "cloudflare_zone_id" {
   depends_on = [google_project_service.secretmanager]
 }
 
+resource "google_secret_manager_secret_version" "cloudflare_zone_id" {
+  secret      = google_secret_manager_secret.cloudflare_zone_id.id
+  secret_data = var.cloudflare_zone_id
+}
+
 resource "google_secret_manager_secret" "cloudflare_api_token" {
   secret_id = "bird-watch-cloudflare-api-token"
   replication {
     auto {}
   }
   depends_on = [google_project_service.secretmanager]
+}
+
+resource "google_secret_manager_secret_version" "cloudflare_api_token" {
+  secret      = google_secret_manager_secret.cloudflare_api_token.id
+  secret_data = var.cloudflare_api_token
 }
 
 resource "google_secret_manager_secret_iam_member" "ingestor_cloudflare_zone_id" {

@@ -53,6 +53,27 @@ jobs:
           docker push "$IMAGE"
           echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
 
+      - name: Promote SHA-tagged image to :latest
+        # Cloud Run Jobs (bird-ingestor, bird-ingestor-photos,
+        # bird-ingestor-descriptions) and the read-api Service all reference
+        # `<image>:latest` in infra/terraform/. Without this step, :latest
+        # stays pinned to whatever SHA last had it manually re-tagged — which
+        # caused the 2026-05-03 production miss documented in #383 (the
+        # descriptions Cloud Run Job pulled a 2026-04-19 image that pre-dated
+        # the `descriptions` kind). Re-tagging on every successful push to
+        # main keeps :latest honest. Auth context is reused from the
+        # google-github-actions/auth step above. The `if:` guard is defense in
+        # depth — `on.push.branches` already restricts triggers to main, but
+        # workflow_dispatch can fire from any branch, and we only want to
+        # promote when the SHA we just pushed is on main.
+        if: github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          gcloud artifacts docker tags add \
+            "${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT}/${AR_REPO}/${IMAGE_NAME}:${GITHUB_SHA}" \
+            "${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT}/${AR_REPO}/${IMAGE_NAME}:latest" \
+            --project="${GCP_PROJECT}"
+
       - name: Deploy to Cloud Run Jobs
         run: |
           # Two jobs share this image: bird-ingestor (the original — recent /
