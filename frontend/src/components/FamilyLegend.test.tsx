@@ -289,4 +289,21 @@ describe('FamilyLegend', () => {
     );
     expect(screen.queryAllByTestId('family-legend-entry')).toHaveLength(0);
   });
+
+  it('entries list does not have inline grid-template-columns: 1fr 1fr override', () => {
+    const { container } = render(
+      <FamilyLegend
+        silhouettes={baseSilhouettes}
+        observations={baseObservations}
+        familyCode={null}
+        onFamilyToggle={() => {}}
+        defaultExpanded={true}
+      />
+    );
+    const list = container.querySelector('.family-legend-entries') as HTMLElement;
+    expect(list).not.toBeNull();
+    // Guard against accidental inline-style re-introduction of a 2-column
+    // layout — visual contract is enforced by Playwright at PR review time.
+    expect(list.style.gridTemplateColumns).not.toBe('1fr 1fr');
+  });
 });
