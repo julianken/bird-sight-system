@@ -78,12 +78,21 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
       summary = await deps.runHotspotIngest({ pool, apiKey, regionCode: 'US-AZ' });
     } else if (kind === 'backfill') {
       summary = await deps.runBackfill({ pool, apiKey, regionCode: 'US-AZ', days: 30 });
+    } else if (kind === 'backfill-extended') {
+      // 'backfill-extended': one-shot 365-day backfill at 1 rps; invoke via
+      // `gcloud run jobs execute bird-ingestor --args=backfill-extended` after
+      // merge. Wall time ~365s (safe within Cloud Run job 600s timeout); this
+      // is NOT scheduled — it's an operator-triggered one-shot to populate
+      // historical phenology data. See run-backfill.ts paceMs comment.
+      summary = await deps.runBackfill({
+        pool, apiKey, regionCode: 'US-AZ', days: 365, paceMs: 1_000,
+      });
     } else if (kind === 'taxonomy') {
       summary = await deps.runTaxonomy({ pool, apiKey });
     } else if (kind === 'photos') {
       summary = await deps.runPhotos({ pool });
     } else {
-      throw new Error(`Unknown kind: ${kind}. Try recent | hotspots | backfill | taxonomy | photos`);
+      throw new Error(`Unknown kind: ${kind}. Try recent | hotspots | backfill | backfill-extended | taxonomy | photos`);
     }
     console.log(JSON.stringify(summary, null, 2));
     if (summary.status === 'failure') {

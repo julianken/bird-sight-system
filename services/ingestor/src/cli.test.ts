@@ -82,6 +82,29 @@ describe('runCli', () => {
     expect(deps.closePool).toHaveBeenCalledWith(POOL_SENTINEL);
   });
 
+  it('"backfill-extended" kind invokes runBackfill with days=365 and paceMs=1000', async () => {
+    // The one-shot 365-day backfill must run at ~1 rps to stay under eBird's
+    // rate limit AND finish inside the 600s Cloud Run job timeout
+    // (365 days × 1s/call ≈ 365s, well below 600s). Operator step:
+    // `gcloud run jobs execute bird-ingestor --args=backfill-extended`.
+    const successSummary = {
+      status: 'success' as const,
+      fetched: 0, upserted: 0, daysProcessed: 365,
+    };
+    const runBackfillSpy = vi.fn().mockResolvedValue(successSummary);
+    const deps = makeDeps({ runBackfill: runBackfillSpy });
+    await runCli('backfill-extended', deps);
+    expect(runBackfillSpy).toHaveBeenCalledTimes(1);
+    expect(runBackfillSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        regionCode: 'US-AZ',
+        days: 365,
+        paceMs: 1_000,
+      })
+    );
+    expect(deps.closePool).toHaveBeenCalledWith(POOL_SENTINEL);
+  });
+
   it('throws if EBIRD_API_KEY is not set', async () => {
     delete process.env.EBIRD_API_KEY;
     const deps = makeDeps();
