@@ -5,9 +5,10 @@ name: terraform-plan-drift-check
 # `.github/scripts/filter-tf-drift.py` with `.github/drift-allowlist.yml`.
 #
 # This is Phase 2 of #183 -- Phase 1 was Julian's local baseline-plan run on
-# 2026-04-24. Allowlist entries suppress the 6 known-drifted items (4 Cloudflare
-# map-v1 resources + 2 Cloud Run cosmetic metadata) for 2 weeks while
-# reconciliation lands in #235.
+# 2026-04-24. The 4 Cloudflare map-v1 allowlist entries were removed in #385
+# alongside the never-applied `map-v1.tf` resources; remaining allowlist
+# entries cover 2 Cloud Run cosmetic-metadata drifts pending reconciliation
+# in #235.
 #
 # Outcomes:
 #   plan exit 0 -> no drift at all; workflow success, no issue.
