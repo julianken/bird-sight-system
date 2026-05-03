@@ -216,6 +216,11 @@ test.describe('species detail surface — photo rendering (#327 task-12)', () =>
 
         await page.setViewportSize({ width: viewport.width, height: viewport.height });
         await apiStub.stubSpecies('vermfly', fixture.meta);
+        // Stub /phenology to an empty array — without this, the detail
+        // surface's PhenologyChart would 404 against the dev server's
+        // read-api (the endpoint isn't deployed yet) and emit a console
+        // error that would fail this console-cleanliness assertion.
+        await apiStub.stubPhenology('vermfly', []);
         if (fixture.stubImage) await apiStub.stubPhotoImage();
 
         const app = new AppPage(page);

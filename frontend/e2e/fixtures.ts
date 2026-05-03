@@ -5,6 +5,45 @@ import type { Observation, SpeciesMeta } from '@bird-watch/shared-types';
 export type StubbableEndpoint = 'hotspots' | 'observations' | 'species' | 'silhouettes';
 
 /**
+ * Phenology fixture — 12 non-zero monthly counts for Vermilion Flycatcher.
+ * Exercises the happy-path render branch (12 bars, heights scaled to max).
+ * The shape is the un-zero-filled wire payload — the component zero-fills
+ * to all 12 months internally, but here we emit all 12 to keep the e2e
+ * assertion direct (12 bars rendered → 12 rows on the wire).
+ */
+export const VERMFLY_PHENOLOGY_FULL: Array<{ month: number; count: number }> = [
+  { month: 1, count: 8 },
+  { month: 2, count: 6 },
+  { month: 3, count: 14 },
+  { month: 4, count: 22 },
+  { month: 5, count: 30 },
+  { month: 6, count: 28 },
+  { month: 7, count: 26 },
+  { month: 8, count: 24 },
+  { month: 9, count: 18 },
+  { month: 10, count: 12 },
+  { month: 11, count: 9 },
+  { month: 12, count: 7 },
+];
+
+/**
+ * Phenology fixture — sparse response (3 months only). Exercises the
+ * zero-fill branch: the component must produce 12 bars from a 3-row
+ * payload by zero-filling the missing months.
+ */
+export const VERMFLY_PHENOLOGY_SPARSE: Array<{ month: number; count: number }> = [
+  { month: 3, count: 4 },
+  { month: 6, count: 8 },
+  { month: 9, count: 12 },
+];
+
+/**
+ * Phenology fixture — empty response. Exercises the placeholder-bars
+ * branch: 12 muted bars at 10% height, no crash, no console noise.
+ */
+export const VERMFLY_PHENOLOGY_EMPTY: Array<{ month: number; count: number }> = [];
+
+/**
  * Canonical Vermilion Flycatcher SpeciesMeta fixture (NO photoUrl) — exercises
  * the silhouette fallback path on the species detail surface. Used in
  * species-detail.spec.ts, axe.spec.ts, attribution-modal.spec.ts.
@@ -88,6 +127,18 @@ export interface ApiStub {
    * to the silhouette fallback, masking the photo behavior under test).
    */
   stubPhotoImage(): Promise<void>;
+  /**
+   * Stubs `**\/api/species/{code}/phenology` to return `200` with the
+   * provided rows. The code is matched as an exact path segment so other
+   * codes fall through to the real dev-server handler. Pair with
+   * `stubSpecies` when a test renders the SpeciesDetailSurface — the
+   * chart component fires its fetch from inside the `data && (...)` block
+   * once the species itself resolves.
+   */
+  stubPhenology(
+    code: string,
+    rows: Array<{ month: number; count: number }>,
+  ): Promise<void>;
 }
 
 export const test = base.extend<{ apiStub: ApiStub }>({
@@ -142,6 +193,15 @@ export const test = base.extend<{ apiStub: ApiStub }>({
             status: 200,
             contentType: 'image/png',
             body: Buffer.from(TINY_PNG_BASE64, 'base64'),
+          });
+        });
+      },
+      async stubPhenology(code, rows) {
+        await page.route(`**/api/species/${code}/phenology`, async route => {
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(rows),
           });
         });
       },
