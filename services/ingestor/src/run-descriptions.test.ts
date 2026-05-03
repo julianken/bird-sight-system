@@ -95,6 +95,9 @@ afterAll(async () => {
 });
 
 const INAT_TAXA = 'https://api.inaturalist.org/v1/taxa';
+// Per-id endpoint used by the iNat-summary fallback path. The MSW route uses
+// a path parameter so any taxon id maps to a single handler.
+const INAT_TAXA_BY_ID = 'https://api.inaturalist.org/v1/taxa/:id';
 const WIKI_SUMMARY = 'https://en.wikipedia.org/api/rest_v1/page/summary/:title';
 
 const SAMPLE_BODY = '<p>The vermilion flycatcher is a small passerine bird, native to the Americas. It is brilliantly red in colour.</p>';
@@ -136,6 +139,10 @@ describe('runDescriptions', () => {
     expect(summary.descriptionsWritten).toBe(3);
     expect(summary.descriptionsSkipped).toBe(0);
     expect(summary.descriptionsFailed).toBe(0);
+    // descriptionsFromInat is the iNat-fallback counter; on the cold-cache
+    // happy path with all 200s, it must be zero. descriptionsWritten is the
+    // total — Wikipedia + iNat sources combined.
+    expect(summary.descriptionsFromInat).toBe(0);
     expect(summary.errors).toEqual([]);
 
     // DB state: each species has a row with the sanitized body, etag, license,
@@ -414,7 +421,81 @@ describe('runDescriptions', () => {
     expect(Number(rows[0]?.count)).toBe(0);
   });
 
-  it('Wikipedia 404 (deleted/renamed page) → species is skipped without writing a description', async () => {
+  it('Wikipedia 404 + iNat summary present → falls back to iNat, writes row with source=inat', async () => {
+    // The fallback path is the whole point of #374. When Wikipedia REST 404s
+    // (deleted page / never existed) AND iNat's per-id endpoint returns a
+    // non-null `wikipedia_summary`, the orchestrator must:
+    //   (a) sanitize the iNat plaintext via sanitizeText (not DOMPurify),
+    //   (b) persist the row with source='inat' and license='CC-BY-SA-4.0'
+    //       (the underlying source is the same Wikipedia article),
+    //   (c) increment BOTH descriptionsWritten AND the new descriptionsFromInat
+    //       counter (descriptionsWritten total covers Wikipedia + iNat sources).
+    await db.pool.query(`DELETE FROM observations WHERE species_code != 'verfly'`);
+    const INAT_FALLBACK_BODY = 'The vermilion flycatcher (Pyrocephalus rubinus) is a small passerine bird native to the Americas. The male is brilliantly red.';
+    let inatByIdHits = 0;
+    server.use(
+      http.get(INAT_TAXA, () => HttpResponse.json({
+        total_results: 1, page: 1, per_page: 1,
+        results: [{
+          id: 1001, name: 'Pyrocephalus rubinus', rank: 'species',
+          matched_term: 'Pyrocephalus rubinus',
+          wikipedia_url: 'https://en.wikipedia.org/wiki/Vermilion_flycatcher',
+        }],
+      })),
+      http.get(WIKI_SUMMARY, () => new HttpResponse('not found', { status: 404 })),
+      http.get(INAT_TAXA_BY_ID, ({ params }) => {
+        inatByIdHits++;
+        // The per-id endpoint must be called with the cached taxon id (1001
+        // from the search-endpoint pass) — the orchestrator should NEVER
+        // re-hit the search endpoint here.
+        expect(params.id).toBe('1001');
+        return HttpResponse.json({
+          total_results: 1, page: 1, per_page: 1,
+          results: [{
+            id: 1001, name: 'Pyrocephalus rubinus', rank: 'species',
+            wikipedia_summary: INAT_FALLBACK_BODY,
+            wikipedia_url: 'https://en.wikipedia.org/wiki/Vermilion_flycatcher',
+          }],
+        });
+      })
+    );
+
+    const summary = await runDescriptions({ pool: db.pool, paceMs: 0 });
+
+    expect(summary.descriptionsWritten).toBe(1);
+    expect(summary.descriptionsFromInat).toBe(1);
+    expect(summary.descriptionsSkipped).toBe(0);
+    expect(summary.descriptionsFailed).toBe(0);
+    expect(inatByIdHits).toBe(1);
+
+    const { rows } = await db.pool.query<{
+      species_code: string;
+      source: string;
+      body: string;
+      license: string;
+      attribution_url: string;
+      etag: string | null;
+      revision_id: string | null;
+    }>(
+      `SELECT species_code, source, body, license, attribution_url, etag, revision_id
+         FROM species_descriptions WHERE species_code = 'verfly'`
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.source).toBe('inat');
+    expect(rows[0]?.body).toBe(INAT_FALLBACK_BODY);
+    expect(rows[0]?.license).toBe('CC-BY-SA-4.0');
+    // Fallback path uses the cached Wikipedia URL when present (so the
+    // frontend's "Read more on Wikipedia" link still goes to the same article).
+    expect(rows[0]?.attribution_url).toBe('https://en.wikipedia.org/wiki/Vermilion_flycatcher');
+    // No upstream Wikipedia revision/etag on the iNat fallback path.
+    expect(rows[0]?.etag).toBeNull();
+    expect(rows[0]?.revision_id).toBeNull();
+  });
+
+  it('Wikipedia 404 + iNat returns null summary → species is skipped (descriptionsSkipped++)', async () => {
+    // Both upstreams come up empty: iNat has the taxon record but no
+    // Wikipedia cross-reference. The fallback bails out, no row is written,
+    // descriptionsSkipped increments.
     await db.pool.query(`DELETE FROM observations WHERE species_code != 'verfly'`);
     server.use(
       http.get(INAT_TAXA, () => HttpResponse.json({
@@ -425,13 +506,95 @@ describe('runDescriptions', () => {
           wikipedia_url: 'https://en.wikipedia.org/wiki/Vermilion_flycatcher',
         }],
       })),
-      http.get(WIKI_SUMMARY, () => new HttpResponse('not found', { status: 404 }))
+      http.get(WIKI_SUMMARY, () => new HttpResponse('not found', { status: 404 })),
+      http.get(INAT_TAXA_BY_ID, () => HttpResponse.json({
+        total_results: 1, page: 1, per_page: 1,
+        results: [{
+          id: 1001, name: 'Pyrocephalus rubinus', rank: 'species',
+          wikipedia_summary: null,
+          wikipedia_url: null,
+        }],
+      }))
+    );
+
+    const summary = await runDescriptions({ pool: db.pool, paceMs: 0 });
+
+    expect(summary.descriptionsWritten).toBe(0);
+    expect(summary.descriptionsFromInat).toBe(0);
+    expect(summary.descriptionsSkipped).toBe(1);
+    expect(summary.descriptionsFailed).toBe(0);
+
+    const { rows } = await db.pool.query<{ count: string }>(
+      `SELECT COUNT(*) AS count FROM species_descriptions`
+    );
+    expect(Number(rows[0]?.count)).toBe(0);
+  });
+
+  it('Wikipedia 200 happy path does NOT call iNat /v1/taxa/{id} (avoid wasted bandwidth)', async () => {
+    // Critical perf invariant: the per-id call only fires on the Wikipedia-404
+    // fallback branch. On the cold-cache happy path, it stays unused — calling
+    // it on every species would double the iNat round-trips.
+    await db.pool.query(`DELETE FROM observations WHERE species_code != 'verfly'`);
+    let inatByIdHits = 0;
+    server.use(
+      http.get(INAT_TAXA, () => HttpResponse.json({
+        total_results: 1, page: 1, per_page: 1,
+        results: [{
+          id: 1001, name: 'Pyrocephalus rubinus', rank: 'species',
+          matched_term: 'Pyrocephalus rubinus',
+          wikipedia_url: 'https://en.wikipedia.org/wiki/Vermilion_flycatcher',
+        }],
+      })),
+      http.get(WIKI_SUMMARY, () => HttpResponse.json(
+        { extract_html: SAMPLE_BODY, revision: '1' },
+        { status: 200, headers: { etag: '"e"' } }
+      )),
+      http.get(INAT_TAXA_BY_ID, () => {
+        inatByIdHits++;
+        return HttpResponse.json({ total_results: 0, results: [] });
+      })
+    );
+
+    const summary = await runDescriptions({ pool: db.pool, paceMs: 0 });
+
+    expect(summary.descriptionsWritten).toBe(1);
+    expect(summary.descriptionsFromInat).toBe(0);
+    // The per-id endpoint must NOT be hit on the Wikipedia-200 happy path.
+    expect(inatByIdHits).toBe(0);
+  });
+
+  it('Wikipedia 304 (warm cache) does NOT call iNat /v1/taxa/{id} (already has a row)', async () => {
+    // The 304 path means the existing row is fresh; calling the iNat per-id
+    // endpoint would be wasted bandwidth. Same invariant as the 200 path —
+    // the fallback only fires on Wikipedia 404.
+    await db.pool.query(
+      `INSERT INTO species_descriptions
+         (species_code, source, body, license, revision_id, etag, attribution_url)
+       VALUES
+         ('verfly', 'wikipedia', '${'p'.repeat(60)}', 'CC-BY-SA-4.0', 1234567890, '"old-etag"', 'https://en.wikipedia.org/wiki/Vermilion_flycatcher')`
+    );
+    await db.pool.query(
+      `UPDATE species_meta SET inat_taxon_id = 1001 WHERE species_code = 'verfly'`
+    );
+    await db.pool.query(`DELETE FROM observations WHERE species_code != 'verfly'`);
+
+    let inatByIdHits = 0;
+    server.use(
+      http.get(WIKI_SUMMARY, () => new HttpResponse(null, {
+        status: 304, headers: { etag: '"old-etag"' }
+      })),
+      http.get(INAT_TAXA_BY_ID, () => {
+        inatByIdHits++;
+        return HttpResponse.json({ total_results: 0, results: [] });
+      })
     );
 
     const summary = await runDescriptions({ pool: db.pool, paceMs: 0 });
 
     expect(summary.descriptionsSkipped).toBe(1);
     expect(summary.descriptionsWritten).toBe(0);
+    expect(summary.descriptionsFromInat).toBe(0);
+    expect(inatByIdHits).toBe(0);
   });
 
   it('rejects garbage license values via DB CHECK (defense-in-depth on top of upstream license guarantee)', async () => {
