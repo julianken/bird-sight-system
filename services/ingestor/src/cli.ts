@@ -79,11 +79,26 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
     } else if (kind === 'backfill') {
       summary = await deps.runBackfill({ pool, apiKey, regionCode: 'US-AZ', days: 30 });
     } else if (kind === 'backfill-extended') {
-      // 'backfill-extended': one-shot 365-day backfill at 1 rps; invoke via
-      // `gcloud run jobs execute bird-ingestor --args=backfill-extended` after
-      // merge. Wall time ~365s (safe within Cloud Run job 600s timeout); this
-      // is NOT scheduled — it's an operator-triggered one-shot to populate
-      // historical phenology data. See run-backfill.ts paceMs comment.
+      // 'backfill-extended': one-shot 365-day backfill at 1 rps; this is NOT
+      // scheduled — it's an operator-triggered one-shot to populate historical
+      // phenology data. See run-backfill.ts paceMs comment.
+      //
+      // Wall time is ~364s (paceMs=1000 between calls 2..365, plus per-call
+      // fetch + upsert work). The shared `bird-ingestor` Cloud Run job has
+      // `timeout = "300s"` — see infra/terraform/ingestor.tf:91 — so the
+      // default execution will be killed by Cloud Run after ~300 days,
+      // silently producing a partial backfill. Override the per-execution
+      // timeout to 600s when invoking this kind:
+      //
+      //   gcloud run jobs execute bird-ingestor \
+      //     --args=backfill-extended \
+      //     --task-timeout=600s \
+      //     --region=us-west1 --project=bird-maps-prod --wait
+      //
+      // The `--task-timeout` flag overrides the Terraform default for one
+      // execution only and does not require a Terraform apply. Splitting into
+      // two runs (days 1-180 then 181-365) is also acceptable, but the
+      // override is cleaner.
       summary = await deps.runBackfill({
         pool, apiKey, regionCode: 'US-AZ', days: 365, paceMs: 1_000,
       });
