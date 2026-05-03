@@ -470,6 +470,11 @@ body {
   max-width: 432px;            /* 2× the 216 viewBox width — keeps bars crisp */
   height: auto;
   margin: 12px 0 0 0;
+  /* The Jan label rotates -45° around slot-center x=9 with text-anchor=end,
+     so its top-left corner extends ~1px past the viewBox's x=0. Allow the
+     overflow rather than padding the viewBox — keeps the bar geometry
+     identical and avoids a layout shift inside the parent container. */
+  overflow: visible;
 }
 .phenology-bar {
   fill: var(--color-text-strong);
