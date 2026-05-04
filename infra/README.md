@@ -11,8 +11,8 @@
 > in-flight migration. Coordinate any urgent infra changes through the
 > migration branch instead.
 >
-> Tracker: PR (TBD — to be filled when `feat/cloudflare-v5-migration`
-> opens). Plan: `docs/plans/2026-05-03-cloudflare-provider-v5-migration.md`.
+> Tracker: PR #393. Plan:
+> `docs/plans/2026-05-03-cloudflare-provider-v5-migration.md`.
 
 Terraform configuration for the bird-watch system, managing GCP (Cloud Run,
 Artifact Registry, Secret Manager, Cloud Scheduler), Neon (Postgres), and
