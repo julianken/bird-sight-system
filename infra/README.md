@@ -1,5 +1,19 @@
 # Infrastructure
 
+> **APPLY FREEZE — 2026-05-03 → merge of `feat/cloudflare-v5-migration`**
+>
+> Do not `terraform apply` from `main` between 2026-05-03 and the merge of
+> the `feat/cloudflare-v5-migration` PR. Reason: provider-version skew
+> window during the Cloudflare provider v4 → v5 migration. While the
+> migration branch pins the transitional `~> 4.52, >= 4.52.5` constraint,
+> any parallel `apply` from `main` (still on the prior `~> 4.20` constraint
+> if not yet rebased) can rewrite state schema backward and break the
+> in-flight migration. Coordinate any urgent infra changes through the
+> migration branch instead.
+>
+> Tracker: PR (TBD — to be filled when `feat/cloudflare-v5-migration`
+> opens). Plan: `docs/plans/2026-05-03-cloudflare-provider-v5-migration.md`.
+
 Terraform configuration for the bird-watch system, managing GCP (Cloud Run,
 Artifact Registry, Secret Manager, Cloud Scheduler), Neon (Postgres), and
 Cloudflare (Pages, DNS).
