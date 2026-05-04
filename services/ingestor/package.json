@@ -10,14 +10,14 @@
     "ingest:local": "tsx src/cli.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.700.0",
+    "@aws-sdk/client-s3": "^3.1041.0",
     "@bird-watch/db-client": "*",
     "@bird-watch/shared-types": "*",
     "isomorphic-dompurify": "^2.30.0"
   },
   "devDependencies": {
     "@testcontainers/postgresql": "^10.7.0",
-    "msw": "^2.13.6",
+    "msw": "^2.14.2",
     "testcontainers": "^11.14.0",
     "tsx": "^4.7.0",
     "vitest": "^4.1.5"
