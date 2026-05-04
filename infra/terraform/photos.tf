@@ -3,7 +3,6 @@
 # Cloudflare R2 bucket holding the iNaturalist-sourced JPEG/PNG/WebP photos
 # rendered by SpeciesDetailSurface. Public access is provided by a separate
 # Worker (task-1b) at photos.${var.domain}; the bucket itself stays private.
-# Mirrors the cloudflare_r2_bucket.pmtiles pattern from map-v1.tf.
 # See issue #327 §Approach.
 
 resource "cloudflare_r2_bucket" "photos" {
@@ -23,10 +22,6 @@ resource "cloudflare_r2_bucket" "photos" {
 # ── Public read-only Worker in front of the R2 bucket ────────────────────
 #
 # The bucket has no public ACL; this Worker is the only public ingress.
-# Mirrors the `cloudflare_workers_script.map_server` + `cloudflare_workers_route`
-# + `cloudflare_record` triplet from map-v1.tf — same shape, different
-# binding name (PHOTOS vs TILES) and different hostname.
-#
 # Worker source lives in infra/workers/photo-server.js (kept as a real .js
 # file, not an inline heredoc, so it can be unit-tested with `node --test`).
 

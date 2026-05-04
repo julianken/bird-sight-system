@@ -15,26 +15,6 @@
 # See filter-tf-drift.py for parsing semantics. When editing by hand, keep
 # the list alphabetised by `address` for easier diffs.
 allowlist:
-  - address: "cloudflare_r2_bucket.pmtiles"
-    action: "create"
-    expires: "2026-05-08"
-    reason: "Live in Cloudflare since PR #164; tf import pending in #235"
-
-  - address: "cloudflare_record.tiles"
-    action: "create"
-    expires: "2026-05-08"
-    reason: "Live in Cloudflare since PR #164; tf import pending in #235"
-
-  - address: "cloudflare_workers_route.map_tiles"
-    action: "create"
-    expires: "2026-05-08"
-    reason: "Live in Cloudflare since PR #164; tf import pending in #235"
-
-  - address: "cloudflare_workers_script.map_server"
-    action: "create"
-    expires: "2026-05-08"
-    reason: "Live in Cloudflare since PR #164; tf import pending in #235"
-
   - address: "google_cloud_run_v2_job.ingestor"
     action: "update"
     expires: "2026-05-08"
