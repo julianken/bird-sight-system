@@ -15,7 +15,7 @@
     "hono": "^4.12.16"
   },
   "devDependencies": {
-    "@testcontainers/postgresql": "^10.7.0",
+    "@testcontainers/postgresql": "^11.14.0",
     "testcontainers": "^11.14.0",
     "tsx": "^4.7.0",
     "vitest": "^4.1.5"
