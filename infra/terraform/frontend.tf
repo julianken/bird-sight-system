@@ -4,10 +4,21 @@ resource "cloudflare_pages_project" "frontend" {
   production_branch = "main"
 }
 
+# v5 attribute rename: cloudflare_pages_domain.domain → name (same resource
+# type, no `moved` block needed). Verified against context7 v5 schema.
 resource "cloudflare_pages_domain" "root" {
   account_id   = var.cloudflare_account_id
   project_name = cloudflare_pages_project.frontend.name
-  domain       = var.domain
+  name         = var.domain
+}
+
+# v5 resource rename: cloudflare_record → cloudflare_dns_record. The
+# attribute set (zone_id, name, type, content, proxied, ttl) is preserved
+# unchanged. The `moved` block re-keys existing state without forcing a
+# `-/+ replace`.
+moved {
+  from = cloudflare_record.root
+  to   = cloudflare_dns_record.root
 }
 
 # Apex "@" → CNAME to the Pages project's auto-assigned pages.dev subdomain.
@@ -17,7 +28,7 @@ resource "cloudflare_pages_domain" "root" {
 # hardcoding "birdwatch-1xe.pages.dev" — if the project is ever recreated,
 # Cloudflare may assign a different pages.dev suffix. proxied=true lets CF
 # auto-flatten the apex CNAME.
-resource "cloudflare_record" "root" {
+resource "cloudflare_dns_record" "root" {
   zone_id = var.cloudflare_zone_id
   name    = "@"
   type    = "CNAME"
@@ -26,13 +37,18 @@ resource "cloudflare_record" "root" {
   ttl     = 1
 }
 
+moved {
+  from = cloudflare_record.api
+  to   = cloudflare_dns_record.api
+}
+
 # Subdomain "api" → CNAME to Cloud Run's documented CNAME target.
 # Cloud Run rejects requests whose Host header is not a registered domain
 # mapping, so pointing straight at the run.app URL returns 404. The canonical
 # path is a CNAME to ghs.googlehosted.com plus a google_cloud_run_domain_mapping
 # below; proxied MUST be false so Cloud Run's own Let's Encrypt cert serves
 # (proxying through Cloudflare breaks the SSL handshake).
-resource "cloudflare_record" "api" {
+resource "cloudflare_dns_record" "api" {
   zone_id = var.cloudflare_zone_id
   name    = "api"
   type    = "CNAME"
