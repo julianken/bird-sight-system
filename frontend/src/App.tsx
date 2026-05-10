@@ -10,6 +10,7 @@ import { FeedSurface } from './components/FeedSurface.js';
 import { MapSurface } from './components/MapSurface.js';
 import { SpeciesSearchSurface } from './components/SpeciesSearchSurface.js';
 import { SpeciesDetailModal } from './components/SpeciesDetailModal.js';
+import { SpeciesDetailSheet } from './components/SpeciesDetailSheet.js';
 import { AppHeader } from './components/AppHeader.js';
 // SurfaceNav import retained — component still exists; App no longer mounts
 // it directly (moved to AppHeader). Defer deletion to a follow-up sweep once
@@ -122,6 +123,7 @@ export function App() {
   }, []);
 
   const nowRef = useRef(new Date());
+  const mainRef = useRef<HTMLElement | null>(null);
   const now = nowRef.current;
 
   const onSelectSpecies = useCallback(
@@ -214,6 +216,7 @@ export function App() {
         </div>
       )}
       <main
+        ref={mainRef}
         id="main-surface"
         data-render-complete={renderComplete}
         aria-busy={loading && (state.view === 'feed' || state.view === 'species')}
@@ -281,7 +284,15 @@ export function App() {
           onClose={onCloseDetail}
         />
       )}
-      {/* Mobile sheet wired in task 5. */}
+      {state.view === 'detail' && state.detail && isMobile && (
+        <SpeciesDetailSheet
+          key={state.detail}
+          speciesCode={state.detail}
+          apiClient={apiClient}
+          onClose={onCloseDetail}
+          mainRef={mainRef}
+        />
+      )}
       {/*
         Persistent app-level footer (issue #250). Subsumes the per-surface
         SurfaceFooter from #243; the AttributionModal Credits trigger is

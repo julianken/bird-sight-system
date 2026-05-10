@@ -982,3 +982,72 @@ dialog.species-detail-modal .species-detail-modal-close {
   color: var(--color-text-strong);
   z-index: 1;
 }
+
+/* ==========================================================================
+   Sky Atlas Phase 4 — mobile bottom-sheet.
+   Snap heights are set inline by the component (per-viewport). The
+   transition is short and respects motion.css's reduced-motion rule
+   (the global rule collapses transition-duration to 0ms under
+   prefers-reduced-motion: reduce — see Phase 0).
+   Bottom padding consumes env(safe-area-inset-bottom) so the drag
+   handle stays above the iOS home indicator on notched devices.
+   Requires viewport-fit=cover in index.html (set in task 4 step 1).
+   ========================================================================== */
+.species-detail-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--color-bg-surface);
+  color: var(--color-text);
+  border-top-left-radius: var(--radius-lg, 12px);
+  border-top-right-radius: var(--radius-lg, 12px);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.18);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  transition: height 200ms ease, transform 200ms ease;
+  will-change: height, transform;
+}
+
+.species-detail-sheet--full {
+  /* At full snap, the sheet covers the viewport sans 8px inset. Visual
+     parity with the modal — same z-stack expectation. */
+  z-index: 20;
+}
+
+.sheet-handle {
+  /* Drag-region: own the gesture entirely; do not pan-scroll the page. */
+  touch-action: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  background: transparent;
+  border: none;
+  cursor: grab;
+  /* The handle is a focusable button — accessibility.md mandates
+     "the drag handle is the first focusable inside the sheet". */
+}
+
+.sheet-handle:active {
+  cursor: grabbing;
+}
+
+.sheet-handle-grip {
+  display: block;
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-text-muted);
+}
+
+.sheet-scroll {
+  /* Body: native vertical scroll; handle owns horizontal/vertical
+     gesture decisions at the top. */
+  touch-action: pan-y;
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
