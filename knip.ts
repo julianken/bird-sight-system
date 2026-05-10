@@ -85,7 +85,23 @@ const config: KnipConfig = {
       //             aliases are flagged.
       //             Re-audit 2026-07-27: remove if those types gain import
       //             sites knip can trace, or drop the types if still unused.
-      ignore: ['src/tokens.ts'],
+      //
+      // 2026-05-10: basemap-style.ts — basemapStyleLight and basemapStyleDark
+      //             both alias the same OpenFreeMap positron URL string. Knip
+      //             correctly detects the duplicate value and reports it as a
+      //             "Duplicate exports" finding. The aliasing is INTENTIONAL
+      //             and gated on G7/G8 (family-palette × dark-tile contrast):
+      //             dark resolves to the light URL until the gate closes, at
+      //             which point basemapStyleDark switches to the real dark URL
+      //             and the duplicate goes away. Until then, both names are
+      //             part of the public mechanism contract — the MapCanvas
+      //             MutationObserver imports both names by their semantic role,
+      //             so collapsing them would force a rename when G8 closes.
+      //             Risk: masks a genuine duplicate export added later under
+      //             this file. Re-audit 2026-07-27 by confirming both names
+      //             are still consumed by MapCanvas.tsx OR the dark URL has
+      //             diverged from the light one.
+      ignore: ['src/tokens.ts', 'src/components/map/basemap-style.ts'],
     },
 
     'services/read-api': {},

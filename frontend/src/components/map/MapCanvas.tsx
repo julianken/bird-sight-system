@@ -13,7 +13,7 @@ import {
 import type { MapLayerMouseEvent, MapRef } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { FamilySilhouette, Observation } from '@bird-watch/shared-types';
-import { basemapStyle } from './basemap-style.js';
+import { basemapStyleLight, basemapStyleDark } from './basemap-style.js';
 import {
   observationsToGeoJson,
   buildClusterLayerSpec,
@@ -710,6 +710,58 @@ export function MapCanvas({
     // updates don't need a re-registration.
   }, [silhouettes.length, mapReady]);
 
+  // Phase 1: [data-theme] observer — swap basemap when user toggles theme.
+  // Registered after mapReady so the map instance is guaranteed to exist.
+  // Cleaned up on unmount to prevent leaks. The observer is the single
+  // source of truth for basemap-vs-theme coupling — no prop drilling.
+  // Dark URL aliasing (G8): basemapStyleDark may resolve to the same
+  // visual tiles as light during the rollout window; the swap mechanism
+  // is correct regardless. See docs/design/01-spec/open-questions.md.
+  //
+  // Same-value guard: MutationRecord fires on every attribute write,
+  // including writes that set the SAME value the attribute already had
+  // (e.g. setAttribute('data-theme', 'light') when it's already 'light').
+  // Without the prevTheme ref, a no-op write would trigger setStyle and
+  // a redundant tile re-fetch.
+  const prevThemeRef = useRef<'light' | 'dark' | null>(null);
+  useEffect(() => {
+    if (!mapReady) return;
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+
+    // Seed the prev ref with the current attribute value so the first
+    // observed mutation only fires setStyle when the value genuinely flips.
+    prevThemeRef.current =
+      document.documentElement.getAttribute('data-theme') === 'dark'
+        ? 'dark'
+        : 'light';
+
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (
+          mutation.type === 'attributes' &&
+          mutation.attributeName === 'data-theme'
+        ) {
+          const next: 'light' | 'dark' =
+            document.documentElement.getAttribute('data-theme') === 'dark'
+              ? 'dark'
+              : 'light';
+          if (next === prevThemeRef.current) return;
+          prevThemeRef.current = next;
+          const style = next === 'dark' ? basemapStyleDark : basemapStyleLight;
+          map.setStyle(style);
+        }
+      }
+    });
+
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
+
+    return () => observer.disconnect();
+  }, [mapReady]);
+
   /**
    * Mosaic-marker click handler:
    *   currentZoom < CLUSTER_MAX_ZOOM → easeTo (zoom in to break up the cluster).
@@ -808,7 +860,12 @@ export function MapCanvas({
         ref={mapRef}
         initialViewState={INITIAL_VIEW}
         style={{ width: '100%', height: '100%' }}
-        mapStyle={basemapStyle}
+        mapStyle={
+          typeof document !== 'undefined' &&
+          document.documentElement.getAttribute('data-theme') === 'dark'
+            ? basemapStyleDark
+            : basemapStyleLight
+        }
         onLoad={handleLoad}
         attributionControl={false}
       >

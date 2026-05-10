@@ -1,0 +1,166 @@
+/*
+ * Three-tier token contract for the Sky Atlas redesign.
+ *
+ * Layer 1 — Primitives: raw scale values, no semantic meaning.
+ *   Declared on :root. Never consumed in component CSS directly.
+ *
+ * Layer 2 — Semantic: role-named, mode-paired via [data-theme].
+ *   Declared on :root[data-theme="light"] and :root[data-theme="dark"].
+ *   All component CSS uses these.
+ *
+ * Layer 3 — Component: scoped aliases that make light/dark a 1-line
+ *   override. Declared as CSS custom properties on the component selector.
+ *
+ * Type ramp and font-stack are also declared here (Layer 1 scale).
+ *
+ * Spec: docs/design/01-spec/tokens.md
+ * Phase: docs/design/02-phases/phase-1-token-foundation.md
+ */
+
+/* ── Layer 1: Primitives ────────────────────────────────────────────── */
+:root {
+  /* Warm cream scale (light surfaces) */
+  --c-warm-50:  #fafaf6;
+  --c-warm-100: #f0ece4;
+  --c-warm-200: #e6e0d4;
+
+  /* Sky / Sand / Ember — cluster density triad (measured contrast) */
+  --c-sky-500:   #6ec5d9;   /* 8.2:1 against #1a1a1a */
+  --c-sand-500:  #e8c060;   /* 10.4:1 against #1a1a1a */
+  --c-ember-500: #e87a4a;   /* 5.1:1 against #1a1a1a */
+
+  /* Accent hues (mode-paired) */
+  --c-orange-500: #f5853b;  /* sunrise — light accent */
+  --c-cyan-500:   #6db8d4;  /* moon — dark accent */
+  --c-deep-ember: #c43a1a;  /* notable — distinct from accent */
+
+  /* Navy / dark scale */
+  --c-navy-50:  #f5f7fb;
+  --c-navy-900: #0d1424;
+
+  /* ── Type ramp (Apple HIG-derived, no webfont) ────────────────────── */
+  --type-xs:   11px;  /* meta labels, captions */
+  --type-sm:   13px;  /* body small, secondary */
+  --type-base: 15px;  /* body */
+  --type-md:   17px;  /* species name in row, modal headings */
+  --type-lg:   22px;  /* surface section titles */
+  --type-hero: 34px;  /* lede, detail-surface species name */
+
+  --font-stack:
+    -apple-system, BlinkMacSystemFont, "Segoe UI Variable",
+    "Helvetica Neue", "Inter", sans-serif;
+
+  --font-weight-regular:  400;
+  --font-weight-medium:   500;
+  --font-weight-semibold: 600;
+  --font-weight-bold:     700;
+  --font-weight-heavy:    800;
+}
+
+/* ── Layer 2: Semantic — light mode ─────────────────────────────────── */
+/*
+ * Phase 1 contract: the [data-theme="light"] block preserves the existing
+ * production color values from styles.css :root for tokens that already
+ * exist (text grays, borders, accents, errors). The redesign palette
+ * (spec docs/design/01-spec/tokens.md §Light/dark mechanic — lighter
+ * grays, warm cream surfaces) is a Phase 3+ concern coupled to surface
+ * redesign; landing the lighter palette here would regress AA contrast
+ * (e.g. .feed-row-time @ 12px on #fff with #8a8a8a fails 4.5:1).
+ *
+ * NEW additions in this block (no existing equivalent in styles.css):
+ *   --color-bg-skeleton, --color-decision-point, --color-density-{low,mid,high},
+ *   --color-density-text. These can use the spec values directly.
+ */
+:root[data-theme="light"] {
+  --color-bg-page:    #f4f1ea;  /* preserve existing — warm cream page bg */
+  --color-bg-surface: #ffffff;  /* preserve existing */
+  --color-bg-tint:    #f0ebe0;  /* preserve existing */
+  --color-bg-skeleton: #f0ebe0; /* alias of bg-tint initially (NEW) */
+
+  --color-text-strong: #1a1a1a; /* preserve existing */
+  --color-text-body:   #444;    /* preserve existing — AA-tuned */
+  --color-text-muted:  #555;    /* preserve existing — AA-tuned */
+  --color-text-subtle: #5c5c5c; /* preserve existing — AA at 12px */
+
+  --color-border-ui: #d8d3c3;   /* preserve existing */
+
+  /* RENAMED from mock --accent; DO NOT collide with --color-accent-notable-fg.
+     Decision-point is a NEW token; spec value lands. */
+  --color-decision-point: var(--c-orange-500);
+
+  /* NEW cluster-density triad (no existing equivalent) */
+  --color-density-low:  var(--c-sky-500);
+  --color-density-mid:  var(--c-sand-500);
+  --color-density-high: var(--c-ember-500);
+  --color-density-text: #1a1a1a;
+
+  /* PRESERVED from existing codebase — do not rename, do not change values */
+  --color-accent-notable-fg: #b8860b; /* dark amber stripe / badge */
+  --color-error-bg:     #fdecec;
+  --color-error-border: #d48e8e;
+  --color-error-text:   #8a1f1f;
+}
+
+/* ── Layer 2: Semantic — dark mode ──────────────────────────────────── */
+/*
+ * Phase 1 dark-mode contract:
+ *
+ * The dark-mode block intentionally LIMITS overrides to NEW tokens that
+ * have no existing equivalent in styles.css :root. Existing tokens
+ * (--color-text-{strong,body,muted,subtle}, --color-bg-{page,surface,tint},
+ * --color-border-ui, --color-accent-notable-*, --color-error-*) keep
+ * their light-mode values in dark mode for now. Overriding them in
+ * dark mode breaks existing CSS patterns like
+ * `.surface-nav-tab.is-active { background: var(--color-text-strong) }`
+ * (a near-black bg in light mode becomes near-white in dark mode,
+ * trashing contrast against `var(--color-text-white) = #fff` text).
+ *
+ * Surface-redesign palette (lighter grays, proper dark-mode pairings)
+ * lands together with the surface redesigns in Phase 3-5, where each
+ * component is rewritten to consume Phase 2 primitives that are
+ * dark-mode-aware by design.
+ *
+ * The mechanism (MutationObserver basemap swap, [data-theme] attribute
+ * flow, token override site) is fully wired; only the visual palette
+ * is held back. Dark basemap is also gated on G7/G8 — see
+ * docs/design/01-spec/open-questions.md.
+ *
+ * Tokens overridden in this block are limited to:
+ *   - NEW Phase-1 cluster-density triad (--color-density-*) so the
+ *     three tiers retain their relative-weight semantic in either mode.
+ *   - --color-decision-point because it is a NEW token; the cyan-500
+ *     value is the dark-mode pairing the spec specifies.
+ *   - --color-bg-skeleton because it is NEW.
+ */
+:root[data-theme="dark"] {
+  --color-bg-skeleton: #1c2640;
+
+  --color-decision-point: var(--c-cyan-500);
+
+  --color-density-low:  #4a8aa8;
+  --color-density-mid:  #c49850;
+  --color-density-high: #c46038;
+  --color-density-text: #f5f7fb;
+}
+
+/* ── Layer 3: Component aliases ─────────────────────────────────────── */
+/*
+ * Component tokens scope to their selector so light/dark is a 1-line
+ * override on the component scope rather than per-property.
+ * Expand this block as Phase 2 primitives land.
+ */
+.feed-row {
+  --feed-row-bg:       var(--color-bg-surface);
+  --feed-row-bg-hover: var(--color-bg-tint);
+}
+
+/*
+ * Lede — a one-off display size that sits between --type-lg (22px) and
+ * --type-hero (34px). Scoped here (Layer 3) rather than inside the type
+ * ramp because a type ramp's value is in being a discrete ladder; an
+ * exception inside the ladder weakens the contract. Moved out of Layer 1
+ * intentionally — see commit "refactor(styles): relocate --lede-size".
+ */
+.lede {
+  --lede-size: 26px;
+}

@@ -134,6 +134,9 @@ function makeFakeMap() {
     }),
     hasImage: vi.fn((id: string) => sprites.has(id)),
     removeImage: vi.fn((id: string) => sprites.delete(id)),
+    // Phase 1: MutationObserver in MapCanvas calls setStyle when
+    // [data-theme] flips. Default no-op spy; tests assert call args.
+    setStyle: vi.fn(),
   };
 }
 
@@ -1881,5 +1884,105 @@ describe('MapCanvas', () => {
     expect(onViewportChange).toHaveBeenCalledTimes(2);
     expect(onViewportChange).toHaveBeenNthCalledWith(1, firstBounds);
     expect(onViewportChange).toHaveBeenNthCalledWith(2, secondBounds);
+  });
+
+  // --- Phase 1: [data-theme] MutationObserver for basemap swap ---
+  //
+  // The observer is registered on document.documentElement after
+  // mapReady. When [data-theme] flips, observer reads the new value and
+  // calls map.setStyle() with the resolved URL for that theme. Cleanup
+  // on unmount is verified by the observer.disconnect() call (no leak).
+  //
+  // G8 gate: basemapStyleDark currently aliases basemapStyleLight (see
+  // basemap-style.ts module comment), so both URL inputs resolve to the
+  // same positron URL. The mechanism is what's under test — that
+  // setStyle fires with the right URL for the current theme — not the
+  // URL distinctness. When G8 closes, basemapStyleDark stops aliasing
+  // and these assertions naturally diverge.
+
+  describe('[data-theme] MutationObserver swaps basemap', () => {
+    it('calls map.setStyle when data-theme changes to dark', async () => {
+      document.documentElement.setAttribute('data-theme', 'light');
+
+      render(<MapCanvas observations={[]} silhouettes={SILHOUETTES} />);
+
+      await waitFor(() => {
+        expect(fakeMap).not.toBeNull();
+      });
+
+      // Reset prior calls so the assertion isolates the flip.
+      (fakeMap.setStyle as ReturnType<typeof vi.fn>).mockClear();
+
+      act(() => {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      });
+
+      await waitFor(() => {
+        expect(fakeMap.setStyle).toHaveBeenCalledTimes(1);
+      });
+
+      // The URL passed must be a string (the dark-resolved basemap URL).
+      const arg = (fakeMap.setStyle as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(typeof arg).toBe('string');
+      expect(arg).toMatch(/openfreemap\.org\/styles\//);
+
+      document.documentElement.setAttribute('data-theme', 'light');
+    });
+
+    it('calls map.setStyle when data-theme changes to light', async () => {
+      document.documentElement.setAttribute('data-theme', 'dark');
+
+      render(<MapCanvas observations={[]} silhouettes={SILHOUETTES} />);
+
+      await waitFor(() => {
+        expect(fakeMap).not.toBeNull();
+      });
+
+      (fakeMap.setStyle as ReturnType<typeof vi.fn>).mockClear();
+
+      act(() => {
+        document.documentElement.setAttribute('data-theme', 'light');
+      });
+
+      await waitFor(() => {
+        expect(fakeMap.setStyle).toHaveBeenCalledTimes(1);
+      });
+
+      const arg = (fakeMap.setStyle as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(typeof arg).toBe('string');
+      // Light theme always resolves to the positron URL (no aliasing).
+      expect(arg).toBe('https://tiles.openfreemap.org/styles/positron');
+
+      document.documentElement.removeAttribute('data-theme');
+    });
+
+    // Same-value guard: setAttribute('data-theme', x) when the attribute
+    // already equals x still fires a MutationRecord. Without the
+    // prevThemeRef short-circuit, this would trigger a redundant setStyle
+    // and tile re-fetch on every no-op write.
+    it('does NOT call map.setStyle when data-theme is set to its current value', async () => {
+      document.documentElement.setAttribute('data-theme', 'light');
+
+      render(<MapCanvas observations={[]} silhouettes={SILHOUETTES} />);
+
+      await waitFor(() => {
+        expect(fakeMap).not.toBeNull();
+      });
+
+      (fakeMap.setStyle as ReturnType<typeof vi.fn>).mockClear();
+
+      // Write the SAME value the attribute already has. The MutationRecord
+      // fires; the observer must short-circuit before invoking setStyle.
+      act(() => {
+        document.documentElement.setAttribute('data-theme', 'light');
+      });
+
+      // Wait one microtask so any setStyle queued by the observer would
+      // have flushed by now. Then assert it never fired.
+      await Promise.resolve();
+      expect(fakeMap.setStyle).not.toHaveBeenCalled();
+
+      document.documentElement.removeAttribute('data-theme');
+    });
   });
 });

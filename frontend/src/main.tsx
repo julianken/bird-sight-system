@@ -6,6 +6,7 @@ import { App } from './App.js';
 // key is empty, the import is a strict no-op — posthog.init is never
 // called and no console warnings are emitted (issue #357 task 2).
 import './analytics.js';
+import './styles/tokens.css';
 import './styles.css';
 import './styles/motion.css';
 

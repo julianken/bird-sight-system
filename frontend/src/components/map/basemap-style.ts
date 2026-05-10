@@ -1,14 +1,27 @@
 /**
- * Basemap for the map surface.
+ * Basemap URLs for the map surface.
  *
- * Points at OpenFreeMap's hosted `positron` style — free, MapLibre-compatible,
- * includes glyphs + sources + rendering layers. Prototype finding 2
- * (docs/plans/2026-04-22-map-v1-prototype/learnings.md) notes the style emits
- * MapLibre warnings at zoom >7, but those are cosmetic upstream issues, not
- * crashes. Acceptable for production.
+ * Light: OpenFreeMap positron — free, MapLibre-compatible.
+ * Dark:  G7/G8 gate (family-palette × dark-tile contrast) is open. Until
+ *        the gate closes, the dark URL deliberately aliases the light
+ *        positron URL: the MutationObserver in MapCanvas still fires
+ *        map.setStyle on theme flip, but setStyle to the same URL is a
+ *        cheap no-op (and avoids OpenFreeMap dark-style sprite-load
+ *        warnings — circle-11 etc. — that fire when sprites referenced
+ *        by the dark style are not present in the positron sprite sheet
+ *        the map originally loaded).
  *
- * No self-hosted tile pipeline is planned; the unapplied map-v1 PMTiles
- * Terraform was removed in #385 once it was confirmed the live map at
- * https://bird-maps.com fetches all tiles from `tiles.openfreemap.org`.
+ *        When G8 closes, switch basemapStyleDark to point at
+ *        'https://tiles.openfreemap.org/styles/dark' (or a self-hosted
+ *        equivalent) and the swap mechanism light up automatically.
+ *
+ * Prototype finding 2 (docs/plans/2026-04-22-map-v1-prototype/learnings.md):
+ * positron emits MapLibre warnings at zoom >7 — cosmetic, not crashes.
+ *
+ * Spec: docs/design/01-spec/tokens.md §Light/dark mechanic
+ * Spec: docs/design/01-spec/open-questions.md (G7/G8)
  */
-export const basemapStyle = 'https://tiles.openfreemap.org/styles/positron';
+export const basemapStyleLight = 'https://tiles.openfreemap.org/styles/positron';
+
+/** Aliased to the light URL until G8 closes — see the module comment. */
+export const basemapStyleDark  = basemapStyleLight;
