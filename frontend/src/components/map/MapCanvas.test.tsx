@@ -1985,4 +1985,79 @@ describe('MapCanvas', () => {
       document.documentElement.removeAttribute('data-theme');
     });
   });
+
+  /* ── Phase 3: ClusterPillOverlay ─────────────────────────────────────────
+     <ClusterPillOverlay> reads cluster features from
+     queryRenderedFeatures({ layers: ['clusters-hit'] }) on each map idle
+     and renders a React <Marker> per cluster carrying <ClusterPill>. */
+  describe('Phase 3: <ClusterPillOverlay>', () => {
+    it('after map idle, renders one <ClusterPill> per cluster feature', async () => {
+      fakeMap.queryRenderedFeatures.mockReturnValue([
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [-110, 32] },
+          properties: { cluster: true, cluster_id: 1, point_count: 140 },
+        },
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [-111, 33] },
+          properties: { cluster: true, cluster_id: 2, point_count: 12 },
+        },
+      ]);
+
+      render(<MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />);
+
+      // Wait for idle handler to register
+      await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+
+      // Trigger the idle event listener registered by <ClusterPillOverlay>
+      await act(async () => {
+        await bareHandlers['idle']?.();
+      });
+
+      // ClusterPill renders as a button with aria-label="{count} sightings"
+      const pills = screen.getAllByRole('button', { name: /sightings$/ });
+      // Filter to only the cluster pills (not other buttons like mosaic markers)
+      const clusterPills = pills.filter(p => p.classList.contains('cluster-pill'));
+      expect(clusterPills).toHaveLength(2);
+      expect(clusterPills[0]).toHaveAttribute('aria-label', '140 sightings');
+      expect(clusterPills[1]).toHaveAttribute('aria-label', '12 sightings');
+    });
+
+    it('clicking a pill calls map.easeTo with the cluster center and expansion zoom', async () => {
+      fakeMap.queryRenderedFeatures.mockReturnValue([
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [-110, 32] },
+          properties: { cluster: true, cluster_id: 1, point_count: 140 },
+        },
+      ]);
+      // Stub the cluster-source's getClusterExpansionZoom so the click handler
+      // resolves to a known target zoom.
+      fakeMap.getSource.mockReturnValue({
+        getClusterExpansionZoom: vi.fn().mockResolvedValue(11),
+      });
+
+      render(<MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />);
+      await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+      await act(async () => {
+        await bareHandlers['idle']?.();
+      });
+
+      const pill = screen.getAllByRole('button', { name: '140 sightings' }).find(
+        p => p.classList.contains('cluster-pill'),
+      );
+      expect(pill).toBeDefined();
+
+      await act(async () => {
+        pill!.click();
+      });
+
+      await waitFor(() => {
+        expect(fakeMap.easeTo).toHaveBeenCalledWith(
+          expect.objectContaining({ center: [-110, 32], zoom: 11 }),
+        );
+      });
+    });
+  });
 });

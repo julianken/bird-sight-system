@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 // Aliasing the react-map-gl/maplibre Map component to MapView so the
 // global ES Map constructor remains available inside this module — otherwise
 // `new Map()` for the mosaic-state Map<number, ClusterMosaicEntry> (#248)
@@ -28,6 +28,7 @@ import {
 } from './observation-layers.js';
 import { ObservationPopover } from './ObservationPopover.js';
 import { MosaicMarker } from './MosaicMarker.js';
+import { ClusterPill } from '../ds/ClusterPill.js';
 import { isValidSvgPathData } from './silhouette-fallback.js';
 import {
   aggregateClusterFamilies,
@@ -854,6 +855,76 @@ export function MapCanvas({
 
   const map = mapReady ? mapRef.current?.getMap() ?? null : null;
 
+  // Phase 3: ClusterPillOverlay — reads cluster features on each map idle
+  // and tracks them in state so React can render <ClusterPill> markers.
+  interface ClusterFeature {
+    cluster_id: number;
+    point_count: number;
+    lng: number;
+    lat: number;
+  }
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [clusterFeatures, setClusterFeatures] = React.useState<ClusterFeature[]>([]);
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    if (!map) return;
+    const refreshClusters = () => {
+      const rawFeats = map.queryRenderedFeatures(undefined, {
+        layers: ['clusters-hit'],
+      });
+      const feats = (rawFeats ?? []) as Array<{
+        geometry: { type: 'Point'; coordinates: [number, number] };
+        properties: { cluster?: boolean; cluster_id?: number; point_count?: number };
+      }>;
+      const next: ClusterFeature[] = [];
+      for (const f of feats) {
+        if (
+          f.properties.cluster === true &&
+          typeof f.properties.cluster_id === 'number' &&
+          typeof f.properties.point_count === 'number' &&
+          f.geometry.type === 'Point'
+        ) {
+          next.push({
+            cluster_id: f.properties.cluster_id,
+            point_count: f.properties.point_count,
+            lng: f.geometry.coordinates[0],
+            lat: f.geometry.coordinates[1],
+          });
+        }
+      }
+      setClusterFeatures(next);
+    };
+    map.on('idle', refreshClusters);
+    // Initial refresh in case map is already idle (e.g. in tests)
+    refreshClusters();
+    return () => {
+      map.off('idle', refreshClusters);
+    };
+  }, [map]);
+
+  const handleClusterPillClick = useCallback(
+    async (cluster: ClusterFeature) => {
+      if (!map) return;
+      const src = map.getSource('observations') as
+        | { getClusterExpansionZoom: (id: number) => Promise<number> }
+        | undefined;
+      if (!src) return;
+      try {
+        const targetZoom = await src.getClusterExpansionZoom(cluster.cluster_id);
+        map.easeTo({
+          center: [cluster.lng, cluster.lat],
+          zoom: Math.min(targetZoom, CLUSTER_MAX_ZOOM),
+          ...(prefersReducedMotion ? { duration: 0 } : {}),
+        });
+      } catch {
+        // getClusterExpansionZoom rejects when the cluster_id has been
+        // recycled (camera moved fast enough that the source rebuilt).
+        // Silently drop — next idle will repopulate the overlay.
+      }
+    },
+    [map, prefersReducedMotion],
+  );
+
   return (
     <div data-testid="map-canvas" style={{ width: '100%', height: '100%', position: 'relative' }}>
       <MapView
@@ -978,6 +1049,14 @@ export function MapCanvas({
             </Marker>
           )),
         )}
+        {/* Phase 3: <ClusterPill> overlays — one per large cluster (point_count > 8).
+            The mosaics reconciler handles point_count <= 8; pills cover the rest.
+            Keyed by cluster_id so panning/zooming reconciles cleanly. */}
+        {clusterFeatures.map((c) => (
+          <Marker key={c.cluster_id} longitude={c.lng} latitude={c.lat} anchor="center">
+            <ClusterPill count={c.point_count} onClick={() => handleClusterPillClick(c)} />
+          </Marker>
+        ))}
       </MapView>
       {/* Issue #247 (original hit-layer) / #277 (Spider v2 narrowed to auto-spider stacks +
           unclustered): HTML overlay for stacked and unclustered markers, mounted as a sibling
