@@ -260,8 +260,8 @@ body {
 .feed-row-time {
   flex-shrink: 0;
   font-size: var(--type-xs);
-  /* #5c5c5c on #fff = 6.86:1 — passes AA for 12px normal weight. #777
-     (the first draft) failed at 4.47:1. Do NOT lighten this back. */
+  /* #5c5c5c on #fff = 6.86:1 — passes AA at 11px. tokens.css preserves
+     this color in light mode (see tokens.css [data-theme="light"]). */
   color: var(--color-text-subtle);
   font-variant-numeric: tabular-nums;
 }

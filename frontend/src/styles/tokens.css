@@ -59,32 +59,47 @@
 }
 
 /* ── Layer 2: Semantic — light mode ─────────────────────────────────── */
+/*
+ * Phase 1 contract: the [data-theme="light"] block preserves the existing
+ * production color values from styles.css :root for tokens that already
+ * exist (text grays, borders, accents, errors). The redesign palette
+ * (spec docs/design/01-spec/tokens.md §Light/dark mechanic — lighter
+ * grays, warm cream surfaces) is a Phase 3+ concern coupled to surface
+ * redesign; landing the lighter palette here would regress AA contrast
+ * (e.g. .feed-row-time @ 12px on #fff with #8a8a8a fails 4.5:1).
+ *
+ * NEW additions in this block (no existing equivalent in styles.css):
+ *   --color-bg-skeleton, --color-decision-point, --color-density-{low,mid,high},
+ *   --color-density-text. These can use the spec values directly.
+ */
 :root[data-theme="light"] {
-  --color-bg-page:    var(--c-warm-50);
-  --color-bg-surface: #ffffff;
-  --color-bg-tint:    var(--c-warm-100);
-  --color-bg-skeleton: var(--c-warm-100); /* alias of bg-tint initially */
+  --color-bg-page:    #f4f1ea;  /* preserve existing — warm cream page bg */
+  --color-bg-surface: #ffffff;  /* preserve existing */
+  --color-bg-tint:    #f0ebe0;  /* preserve existing */
+  --color-bg-skeleton: #f0ebe0; /* alias of bg-tint initially (NEW) */
 
-  --color-text-strong: #1a1a1a;
-  --color-text-body:   #2a2a2a;
-  --color-text-muted:  #5a5a5a;
-  --color-text-subtle: #8a8a8a;
+  --color-text-strong: #1a1a1a; /* preserve existing */
+  --color-text-body:   #444;    /* preserve existing — AA-tuned */
+  --color-text-muted:  #555;    /* preserve existing — AA-tuned */
+  --color-text-subtle: #5c5c5c; /* preserve existing — AA at 12px */
 
-  --color-border-ui: var(--c-warm-200);
+  --color-border-ui: #d8d3c3;   /* preserve existing */
 
-  /* RENAMED from mock --accent; DO NOT collide with --color-accent-notable-fg */
+  /* RENAMED from mock --accent; DO NOT collide with --color-accent-notable-fg.
+     Decision-point is a NEW token; spec value lands. */
   --color-decision-point: var(--c-orange-500);
 
+  /* NEW cluster-density triad (no existing equivalent) */
   --color-density-low:  var(--c-sky-500);
   --color-density-mid:  var(--c-sand-500);
   --color-density-high: var(--c-ember-500);
   --color-density-text: #1a1a1a;
 
-  /* PRESERVED from existing codebase — do not rename */
-  --color-accent-notable-fg: var(--c-deep-ember);
-  --color-error-bg:     #fcebe4;
-  --color-error-border: #e8a890;
-  --color-error-text:   #8a3a1a;
+  /* PRESERVED from existing codebase — do not rename, do not change values */
+  --color-accent-notable-fg: #b8860b; /* dark amber stripe / badge */
+  --color-error-bg:     #fdecec;
+  --color-error-border: #d48e8e;
+  --color-error-text:   #8a1f1f;
 }
 
 /* ── Layer 2: Semantic — dark mode ──────────────────────────────────── */
