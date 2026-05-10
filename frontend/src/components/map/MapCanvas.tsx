@@ -717,10 +717,24 @@ export function MapCanvas({
   // Dark URL aliasing (G8): basemapStyleDark may resolve to the same
   // visual tiles as light during the rollout window; the swap mechanism
   // is correct regardless. See docs/design/01-spec/open-questions.md.
+  //
+  // Same-value guard: MutationRecord fires on every attribute write,
+  // including writes that set the SAME value the attribute already had
+  // (e.g. setAttribute('data-theme', 'light') when it's already 'light').
+  // Without the prevTheme ref, a no-op write would trigger setStyle and
+  // a redundant tile re-fetch.
+  const prevThemeRef = useRef<'light' | 'dark' | null>(null);
   useEffect(() => {
     if (!mapReady) return;
     const map = mapRef.current?.getMap();
     if (!map) return;
+
+    // Seed the prev ref with the current attribute value so the first
+    // observed mutation only fires setStyle when the value genuinely flips.
+    prevThemeRef.current =
+      document.documentElement.getAttribute('data-theme') === 'dark'
+        ? 'dark'
+        : 'light';
 
     const observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
@@ -728,8 +742,13 @@ export function MapCanvas({
           mutation.type === 'attributes' &&
           mutation.attributeName === 'data-theme'
         ) {
-          const theme = document.documentElement.getAttribute('data-theme');
-          const style = theme === 'dark' ? basemapStyleDark : basemapStyleLight;
+          const next: 'light' | 'dark' =
+            document.documentElement.getAttribute('data-theme') === 'dark'
+              ? 'dark'
+              : 'light';
+          if (next === prevThemeRef.current) return;
+          prevThemeRef.current = next;
+          const style = next === 'dark' ? basemapStyleDark : basemapStyleLight;
           map.setStyle(style);
         }
       }

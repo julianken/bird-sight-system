@@ -1955,5 +1955,34 @@ describe('MapCanvas', () => {
 
       document.documentElement.removeAttribute('data-theme');
     });
+
+    // Same-value guard: setAttribute('data-theme', x) when the attribute
+    // already equals x still fires a MutationRecord. Without the
+    // prevThemeRef short-circuit, this would trigger a redundant setStyle
+    // and tile re-fetch on every no-op write.
+    it('does NOT call map.setStyle when data-theme is set to its current value', async () => {
+      document.documentElement.setAttribute('data-theme', 'light');
+
+      render(<MapCanvas observations={[]} silhouettes={SILHOUETTES} />);
+
+      await waitFor(() => {
+        expect(fakeMap).not.toBeNull();
+      });
+
+      (fakeMap.setStyle as ReturnType<typeof vi.fn>).mockClear();
+
+      // Write the SAME value the attribute already has. The MutationRecord
+      // fires; the observer must short-circuit before invoking setStyle.
+      act(() => {
+        document.documentElement.setAttribute('data-theme', 'light');
+      });
+
+      // Wait one microtask so any setStyle queued by the observer would
+      // have flushed by now. Then assert it never fired.
+      await Promise.resolve();
+      expect(fakeMap.setStyle).not.toHaveBeenCalled();
+
+      document.documentElement.removeAttribute('data-theme');
+    });
   });
 });
