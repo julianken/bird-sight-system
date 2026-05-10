@@ -88,9 +88,9 @@
   border-radius: 8px;
   background: linear-gradient(
     90deg,
-    var(--color-bg-skeleton) 0%,
-    var(--color-bg-tint)     40%,
-    var(--color-bg-skeleton) 100%
+    var(--color-bg-skeleton)           0%,
+    var(--color-bg-skeleton-highlight) 40%,
+    var(--color-bg-skeleton)           100%
   );
   background-size: 200% 100%;
   animation: ds-shimmer 1.6s ease-in-out infinite;
@@ -172,18 +172,7 @@
   padding: var(--space-lg);
 }
 
-/* Dark mode — no structural change; shimmer base colour is already token-driven */
-[data-theme="dark"] .status-block__skeleton {
-  /* --color-bg-skeleton and --color-bg-tint are both overridden in dark tokens.css */
-  background: linear-gradient(
-    90deg,
-    var(--color-bg-skeleton) 0%,
-    #253050                  40%,
-    var(--color-bg-skeleton) 100%
-  );
-  background-size: 200% 100%;
-  animation: ds-shimmer 1.6s ease-in-out infinite;
-}
+/* Dark mode — no structural change; --color-bg-skeleton-highlight token handles mid-stop */
 
 /* ─────────────────────────────────────────────────────────────────────────────
    <FamilySilhouette>
@@ -230,9 +219,8 @@
 /*
  * Dark-mode: --family-fill is a hex from FAMILY_PALETTE in JS. The tokens
  * don't cover per-family colour overrides in dark mode yet (G7/G8 gated).
- * We lighten the fill slightly with mix-blend-mode and opacity for now so
- * the silhouettes remain readable on the dark skeleton bg without needing
- * 7 new token pairs that aren't spec'd yet.
+ * We reduce opacity slightly so the silhouettes don't overpower the dark
+ * skeleton bg without needing 7 new token pairs that aren't spec'd yet.
  */
 [data-theme="dark"] .family-silhouette svg {
   opacity: 0.9;
@@ -275,9 +263,9 @@
   inset: 0;
   background: linear-gradient(
     90deg,
-    var(--color-bg-skeleton) 0%,
-    var(--color-bg-tint)     40%,
-    var(--color-bg-skeleton) 100%
+    var(--color-bg-skeleton)           0%,
+    var(--color-bg-skeleton-highlight) 40%,
+    var(--color-bg-skeleton)           100%
   );
   background-size: 200% 100%;
   animation: ds-shimmer 1.6s ease-in-out infinite;
@@ -351,17 +339,7 @@
   border-radius: 2px;
 }
 
-/* Dark mode skeleton */
-[data-theme="dark"] .photo__skeleton {
-  background: linear-gradient(
-    90deg,
-    var(--color-bg-skeleton) 0%,
-    #253050                  40%,
-    var(--color-bg-skeleton) 100%
-  );
-  background-size: 200% 100%;
-  animation: ds-shimmer 1.6s ease-in-out infinite;
-}
+/* Dark mode skeleton — --color-bg-skeleton-highlight token handles mid-stop in both modes */
 
 /* ─────────────────────────────────────────────────────────────────────────────
    <ClusterPill>

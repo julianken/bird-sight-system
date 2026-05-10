@@ -76,6 +76,7 @@
   --color-bg-surface: #ffffff;  /* preserve existing */
   --color-bg-tint:    #f0ebe0;  /* preserve existing */
   --color-bg-skeleton: #f0ebe0; /* alias of bg-tint initially (NEW) */
+  --color-bg-skeleton-highlight: #f0ebe0; /* shimmer mid-stop — matches bg-tint in light */
 
   --color-text-strong: #1a1a1a; /* preserve existing */
   --color-text-body:   #444;    /* preserve existing — AA-tuned */
@@ -134,6 +135,7 @@
  */
 :root[data-theme="dark"] {
   --color-bg-skeleton: #1c2640;
+  --color-bg-skeleton-highlight: #253050;
 
   --color-decision-point: var(--c-cyan-500);
 
