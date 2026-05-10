@@ -1,0 +1,367 @@
+<h2>Sky Atlas — visual system</h2>
+<p class="subtitle">Section 1 of 3. Palette, type, components, photo treatment, motion. Light + dark side by side. Click anywhere on a side to mark it as approved, or tell me what to change.</p>
+
+<style>
+  :root {
+    /* Sky Atlas Light */
+    --la-bg-page: #fafaf6;
+    --la-bg-surface: #ffffff;
+    --la-bg-tint: #f0ece4;
+    --la-text-strong: #1a1a1a;
+    --la-text-body: #2a2a2a;
+    --la-text-muted: #5a5a5a;
+    --la-text-subtle: #8a8a8a;
+    --la-border: #e6e0d4;
+    --la-divider: #efe9dc;
+    --la-accent-primary: #f5853b;   /* sunrise orange */
+    --la-accent-secondary: #1d3b5b; /* deep sky */
+    --la-accent-cool: #4a7ba8;      /* daylight blue */
+    --la-error-bg: #fcebe4;
+    --la-error-text: #8a3a1a;
+
+    /* Sky Atlas Dark */
+    --da-bg-page: #0d1424;
+    --da-bg-surface: #131c30;
+    --da-bg-tint: #1c2640;
+    --da-text-strong: #f5f7fb;
+    --da-text-body: #d8dee8;
+    --da-text-muted: #8a98ad;
+    --da-text-subtle: #5a6478;
+    --da-border: #283354;
+    --da-divider: #1c2640;
+    --da-accent-primary: #6db8d4;   /* moon cyan */
+    --da-accent-secondary: #f5853b; /* warm orange (kept for parity) */
+    --da-accent-cool: #a8c8e0;
+    --da-error-bg: #3a1818;
+    --da-error-text: #f5a08a;
+  }
+
+  .system-poster {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-top: 16px;
+  }
+  .mode-pane {
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid rgba(0,0,0,0.08);
+  }
+  .mode-header {
+    padding: 10px 16px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    font-weight: 700;
+    border-bottom: 1px solid currentColor;
+    border-bottom-color: rgba(0,0,0,0.08);
+  }
+  .mode-body { padding: 20px; }
+
+  .light .mode-pane {
+    background: var(--la-bg-page);
+    color: var(--la-text-body);
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Inter", sans-serif;
+  }
+  .light .mode-header {
+    background: var(--la-bg-surface);
+    color: var(--la-text-muted);
+    border-color: var(--la-border);
+  }
+
+  .dark .mode-pane {
+    background: var(--da-bg-page);
+    color: var(--da-text-body);
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Inter", sans-serif;
+  }
+  .dark .mode-header {
+    background: var(--da-bg-surface);
+    color: var(--da-text-muted);
+    border-color: var(--da-border);
+  }
+
+  .section-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    font-weight: 700;
+    margin: 18px 0 8px 0;
+  }
+  .light .section-label { color: var(--la-text-muted); }
+  .dark .section-label { color: var(--da-text-muted); }
+  .section-label:first-child { margin-top: 0; }
+
+  .palette-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+  }
+  .swatch-block {
+    border-radius: 6px;
+    height: 56px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 6px;
+    font-size: 9px;
+    line-height: 1.2;
+    border: 1px solid rgba(0,0,0,0.06);
+  }
+  .swatch-block .name { font-weight: 700; }
+  .swatch-block .hex { opacity: 0.8; font-family: ui-monospace, monospace; font-size: 8.5px; }
+
+  .type-scale > div { margin-bottom: 6px; }
+  .ts-hero { font-size: 32px; font-weight: 800; letter-spacing: -0.8px; line-height: 1.1; }
+  .ts-display { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; line-height: 1.2; }
+  .ts-large { font-size: 16px; font-weight: 600; }
+  .ts-body { font-size: 14px; font-weight: 400; line-height: 1.5; }
+  .ts-caption { font-size: 12px; font-weight: 400; }
+  .ts-meta { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
+  .light .ts-hero { color: var(--la-text-strong); }
+  .light .ts-display { color: var(--la-text-strong); }
+  .light .ts-meta { color: var(--la-accent-primary); }
+  .dark .ts-hero { color: var(--da-text-strong); }
+  .dark .ts-display { color: var(--da-text-strong); }
+  .dark .ts-meta { color: var(--da-accent-primary); }
+
+  .light .ts-caption { color: var(--la-text-muted); }
+  .dark .ts-caption { color: var(--da-text-muted); }
+
+  .components-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .btn-primary {
+    border: none;
+    border-radius: 8px;
+    padding: 9px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .btn-secondary {
+    border-radius: 8px;
+    padding: 9px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    background: transparent;
+    font-family: inherit;
+  }
+  .light .btn-primary {
+    background: var(--la-accent-primary);
+    color: white;
+  }
+  .light .btn-secondary {
+    border: 1px solid var(--la-border);
+    color: var(--la-text-strong);
+  }
+  .dark .btn-primary {
+    background: var(--da-accent-primary);
+    color: var(--da-bg-page);
+  }
+  .dark .btn-secondary {
+    border: 1px solid var(--da-border);
+    color: var(--da-text-strong);
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .light .chip { background: var(--la-bg-tint); color: var(--la-text-body); }
+  .light .chip.active { background: var(--la-accent-primary); color: white; }
+  .dark .chip { background: var(--da-bg-tint); color: var(--da-text-body); }
+  .dark .chip.active { background: var(--da-accent-primary); color: var(--da-bg-page); }
+
+  .card-row {
+    border-radius: 10px;
+    padding: 14px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+  .light .card-row { background: var(--la-bg-surface); border: 1px solid var(--la-border); }
+  .dark .card-row { background: var(--da-bg-surface); border: 1px solid var(--da-border); }
+  .card-row .thumb {
+    width: 44px; height: 44px;
+    border-radius: 8px;
+    flex-shrink: 0;
+    background: linear-gradient(135deg, #f5853b, #e25a2b);
+  }
+  .dark .card-row .thumb {
+    background: linear-gradient(135deg, #6db8d4, #2c8aa8);
+  }
+  .card-row .row-body { flex: 1; min-width: 0; }
+  .card-row .row-name { font-weight: 700; font-size: 14px; }
+  .card-row .row-meta { font-size: 12px; opacity: 0.7; margin-top: 2px; }
+
+  .photo-frame {
+    aspect-ratio: 4/3;
+    border-radius: 10px;
+    background: linear-gradient(180deg, #6db8e0 0%, #d4a86a 80%, #4a3a2a 100%);
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+  }
+  .dark .photo-frame {
+    background: linear-gradient(180deg, #1a2c45 0%, #4a3a5a 80%, #1a1730 100%);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  }
+  .photo-caption {
+    margin-top: 8px;
+    font-size: 12px;
+    opacity: 0.7;
+  }
+
+  .motion-row {
+    display: flex;
+    gap: 16px;
+    font-size: 12px;
+    align-items: center;
+  }
+  .motion-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 6px;
+  }
+  .light .motion-dot { background: var(--la-accent-primary); }
+  .dark .motion-dot { background: var(--da-accent-primary); }
+</style>
+
+<div class="system-poster cards" data-multiselect>
+
+  <!-- LIGHT MODE -->
+  <div class="card mode-pane light" data-choice="light-approved" onclick="toggleSelect(this)">
+    <div class="mode-header">Light · "Day"</div>
+    <div class="mode-body">
+
+      <div class="section-label">Palette</div>
+      <div class="palette-grid">
+        <div class="swatch-block" style="background:#fafaf6;color:#1a1a1a"><div class="name">bg-page</div><div class="hex">#fafaf6</div></div>
+        <div class="swatch-block" style="background:#ffffff;color:#1a1a1a;border-color:#e6e0d4"><div class="name">bg-surface</div><div class="hex">#ffffff</div></div>
+        <div class="swatch-block" style="background:#f0ece4;color:#1a1a1a"><div class="name">bg-tint</div><div class="hex">#f0ece4</div></div>
+        <div class="swatch-block" style="background:#1a1a1a;color:white"><div class="name">text-strong</div><div class="hex">#1a1a1a</div></div>
+        <div class="swatch-block" style="background:#5a5a5a;color:white"><div class="name">text-muted</div><div class="hex">#5a5a5a</div></div>
+        <div class="swatch-block" style="background:#f5853b;color:white"><div class="name">accent-primary</div><div class="hex">#f5853b</div></div>
+        <div class="swatch-block" style="background:#1d3b5b;color:white"><div class="name">accent-2</div><div class="hex">#1d3b5b</div></div>
+        <div class="swatch-block" style="background:#e6e0d4;color:#1a1a1a"><div class="name">border</div><div class="hex">#e6e0d4</div></div>
+      </div>
+
+      <div class="section-label">Type</div>
+      <div class="type-scale">
+        <div class="ts-meta">RECENTLY SEEN</div>
+        <div class="ts-hero">Gila Woodpecker</div>
+        <div class="ts-display">Cave Creek Canyon</div>
+        <div class="ts-body">A medium-sized woodpecker of the desert Southwest. Often seen on saguaros from late spring through fall.</div>
+        <div class="ts-caption">11 hours ago · Apr 24, 2026</div>
+      </div>
+
+      <div class="section-label">Components</div>
+      <div class="components-row">
+        <button class="btn-primary">Show on map</button>
+        <button class="btn-secondary">Open</button>
+        <span class="chip">14 days</span>
+        <span class="chip active">Notable</span>
+        <span class="chip">Hawks</span>
+      </div>
+
+      <div class="section-label" style="margin-top:14px">Card / Row</div>
+      <div class="card-row">
+        <div class="thumb"></div>
+        <div class="row-body">
+          <div class="row-name">Gila Woodpecker</div>
+          <div class="row-meta">Cave Creek · 11h · ×4</div>
+        </div>
+      </div>
+
+      <div class="section-label">Photo Treatment</div>
+      <div class="photo-frame"></div>
+      <div class="photo-caption">4:3 aspect ratio · soft shadow · rounded 10px</div>
+
+      <div class="section-label">Motion</div>
+      <div class="motion-row">
+        <span><span class="motion-dot"></span>200ms fast</span>
+        <span><span class="motion-dot"></span>250ms base</span>
+        <span><span class="motion-dot"></span>350ms slow</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- DARK MODE -->
+  <div class="card mode-pane dark" data-choice="dark-approved" onclick="toggleSelect(this)">
+    <div class="mode-header">Dark · "Night"</div>
+    <div class="mode-body">
+
+      <div class="section-label">Palette</div>
+      <div class="palette-grid">
+        <div class="swatch-block" style="background:#0d1424;color:white"><div class="name">bg-page</div><div class="hex">#0d1424</div></div>
+        <div class="swatch-block" style="background:#131c30;color:white"><div class="name">bg-surface</div><div class="hex">#131c30</div></div>
+        <div class="swatch-block" style="background:#1c2640;color:white"><div class="name">bg-tint</div><div class="hex">#1c2640</div></div>
+        <div class="swatch-block" style="background:#f5f7fb;color:#0d1424"><div class="name">text-strong</div><div class="hex">#f5f7fb</div></div>
+        <div class="swatch-block" style="background:#8a98ad;color:#0d1424"><div class="name">text-muted</div><div class="hex">#8a98ad</div></div>
+        <div class="swatch-block" style="background:#6db8d4;color:#0d1424"><div class="name">accent-primary</div><div class="hex">#6db8d4</div></div>
+        <div class="swatch-block" style="background:#f5853b;color:#0d1424"><div class="name">accent-2</div><div class="hex">#f5853b</div></div>
+        <div class="swatch-block" style="background:#283354;color:white"><div class="name">border</div><div class="hex">#283354</div></div>
+      </div>
+
+      <div class="section-label">Type</div>
+      <div class="type-scale">
+        <div class="ts-meta">RECENTLY SEEN</div>
+        <div class="ts-hero">Gila Woodpecker</div>
+        <div class="ts-display">Cave Creek Canyon</div>
+        <div class="ts-body">A medium-sized woodpecker of the desert Southwest. Often seen on saguaros from late spring through fall.</div>
+        <div class="ts-caption">11 hours ago · Apr 24, 2026</div>
+      </div>
+
+      <div class="section-label">Components</div>
+      <div class="components-row">
+        <button class="btn-primary">Show on map</button>
+        <button class="btn-secondary">Open</button>
+        <span class="chip">14 days</span>
+        <span class="chip active">Notable</span>
+        <span class="chip">Hawks</span>
+      </div>
+
+      <div class="section-label" style="margin-top:14px">Card / Row</div>
+      <div class="card-row">
+        <div class="thumb"></div>
+        <div class="row-body">
+          <div class="row-name">Gila Woodpecker</div>
+          <div class="row-meta">Cave Creek · 11h · ×4</div>
+        </div>
+      </div>
+
+      <div class="section-label">Photo Treatment</div>
+      <div class="photo-frame"></div>
+      <div class="photo-caption">Same 4:3 frame · deeper shadow on dark · same rounding</div>
+
+      <div class="section-label">Motion</div>
+      <div class="motion-row">
+        <span><span class="motion-dot"></span>200ms fast</span>
+        <span><span class="motion-dot"></span>250ms base</span>
+        <span><span class="motion-dot"></span>350ms slow</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div style="margin-top:24px;padding:16px;border-radius:8px;background:rgba(245,133,59,0.08);border-left:3px solid #f5853b;font-size:13px;line-height:1.6">
+  <strong>Notes & open questions for this section:</strong>
+  <ul style="margin:8px 0 0 18px;padding:0">
+    <li><strong>Type stack:</strong> currently shows the system-UI stack (kept). Sky Atlas's polish would benefit from a webfont (Inter, Söhne, GT America). Phase 1 noted zero web fonts as a perf baseline — adding one is a deliberate trade. Do you want a webfont?</li>
+    <li><strong>Cluster bubble palette:</strong> the existing map clusters (#51bbd6 / #f1f075 / #f28cb1) are pink/yellow/cyan. Sky Atlas would want them warm-orange / warm-gold / cyan to match accents. They'd need re-contrast-checked against #1a1a1a count text in light, against #f5f7fb in dark.</li>
+    <li><strong>Family-color palette:</strong> the 7 earth-tone family colors (DB-sourced from <code>tokens.ts:124–158</code>) need to coexist with this palette in both modes. Two compatible options: keep the earth tones (most parsimonious, but may feel under-saturated next to the orange accent in light), or commission a Sky-Atlas-tuned family palette (more cohesive, but requires DB migration). Either way the silhouettes need to read well on white AND deep navy basemaps.</li>
+    <li><strong>Photo placeholder:</strong> the gradient is a stand-in. In real implementation, the iNat photo loads with <code>aspect-ratio: 4/3</code> CSS already in place — no CLS regression.</li>
+  </ul>
+</div>

@@ -1,0 +1,1477 @@
+<h2>Sky Atlas v3 — agent ideas incorporated</h2>
+<p class="subtitle">Convergent agent ideas baked in. 9 mockups: map (desktop+mobile, light+dark), detail (desktop modal + mobile bottom-sheet, light+dark), loading state, feed lede.</p>
+
+<div style="margin:16px 0 32px;padding:14px 18px;border-radius:8px;background:rgba(245,133,59,0.06);border-left:3px solid #f5853b;font-size:13px;line-height:1.7">
+  <strong>Changes from v2 → v3 (in these mocks):</strong>
+  <ol style="margin:8px 0 0 22px;padding:0">
+    <li><strong>Cluster pills</strong> — replace solid filled circles. White/dark fill + 2px density-coded stroke (Sky / Sand / Ember). Text contrast becomes arithmetic.</li>
+    <li><strong>Newspaper lede</strong> replaces "3,842 sightings" — "274 species seen across Arizona in the last 14 days."</li>
+    <li><strong>Filter-as-sentence</strong> — "Showing notable sightings from the last 14 days" — pairs with badge.</li>
+    <li><strong>Subtractive accent discipline</strong> — orange/cyan ONLY at decision points. Meta-label loses accent (now muted).</li>
+    <li><strong>Photo-as-anchor on detail</strong> — full-bleed photo with overlay title; species name at 36px on the photo.</li>
+    <li><strong>Bottom-sheet detail on mobile</strong> — 3 snap points (peek/half/full). Map remains live + pannable underneath.</li>
+    <li><strong>System skeletons</strong> — flat grey rectangles at content dimensions + 2px sunrise progress bar at top. No shimmer.</li>
+    <li><strong>System-font ramp (no webfont)</strong> — 6 sizes: 11/13/15/17/22/34. SF Pro / Segoe UI Variable / Roboto.</li>
+    <li><strong>Focus halo</strong> — visible on the active filter chip. 2px ring + 2px gap. Brand flourish, not OS default.</li>
+    <li><strong>Card-row top notable</strong> — first row of feed gets card treatment; rest stay flat.</li>
+  </ol>
+</div>
+
+<style>
+  /* ============================================================ */
+  /* SKY ATLAS v3 — TOKENS                                         */
+  /* ============================================================ */
+
+  .sa3-light {
+    /* Surfaces */
+    --bg-page: #fafaf6;
+    --bg-surface: #ffffff;
+    --bg-tint: #f0ece4;
+    --bg-skeleton: #e8e2d4;
+    /* Text */
+    --text-strong: #1a1a1a;
+    --text-body: #2a2a2a;
+    --text-muted: #5a5a5a;
+    --text-subtle: #8a8a8a;
+    /* Borders */
+    --border: #e6e0d4;
+    --divider: #efe9dc;
+    /* Accent (subtractive) */
+    --accent: #f5853b;
+    --accent-deep: #c46420;
+    --accent-on: #ffffff;
+    /* Density triad — measured contrast against text-strong */
+    --density-sky: #6ec5d9;     /* low — 8.2:1 against #1a1a1a */
+    --density-sand: #e8c060;    /* mid — 10.4:1 */
+    --density-ember: #e87a4a;   /* high — 5.1:1 */
+    --density-text: #1a1a1a;
+    /* State */
+    --error-bg: #fcebe4;
+    --error-border: #e8a890;
+    --error-text: #8a3a1a;
+    --notable: #c43a1a;
+    /* Type — 6-step Apple HIG ramp */
+    --type-xs: 11px;
+    --type-sm: 13px;
+    --type-base: 15px;
+    --type-md: 17px;
+    --type-lg: 22px;
+    --type-hero: 34px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Helvetica Neue", "Inter", sans-serif;
+    /* Shadow */
+    --shadow-sm: 0 1px 2px rgba(13,20,36,0.06);
+    --shadow-md: 0 4px 12px rgba(13,20,36,0.08);
+    --shadow-lg: 0 12px 32px rgba(13,20,36,0.14);
+  }
+
+  .sa3-dark {
+    --bg-page: #0d1424;
+    --bg-surface: #131c30;
+    --bg-tint: #1c2640;
+    --bg-skeleton: #1c2640;
+    --text-strong: #f5f7fb;
+    --text-body: #d8dee8;
+    --text-muted: #8a98ad;
+    --text-subtle: #5a6478;
+    --border: #283354;
+    --divider: #1c2640;
+    --accent: #6db8d4;
+    --accent-deep: #4a9cb8;
+    --accent-on: #0d1424;
+    --density-sky: #4a8aa8;     /* against #f5f7fb */
+    --density-sand: #c49850;
+    --density-ember: #c46038;
+    --density-text: #f5f7fb;
+    --error-bg: #3a1818;
+    --error-border: #6a3a30;
+    --error-text: #f5a08a;
+    --notable: #f5853b;
+    --type-xs: 11px; --type-sm: 13px; --type-base: 15px;
+    --type-md: 17px; --type-lg: 22px; --type-hero: 34px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Helvetica Neue", "Inter", sans-serif;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.5);
+    --shadow-lg: 0 12px 32px rgba(0,0,0,0.6);
+  }
+
+  /* ============================================================ */
+  /* MOCKUP CHROME                                                  */
+  /* ============================================================ */
+
+  .v3-section {
+    margin: 36px 0 16px;
+  }
+  .v3-label {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    opacity: 0.6;
+    margin-bottom: 8px;
+  }
+  .v3-note {
+    font-size: 12px;
+    color: rgba(0,0,0,0.55);
+    margin: -4px 0 12px;
+    line-height: 1.5;
+  }
+  .v3-pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .v3-pair.single { grid-template-columns: 1fr; }
+  .v3-pair.mobile-pair { grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+  .v3-frame {
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .v3-frame:hover { transform: translateY(-1px); }
+  .v3-frame.mobile {
+    max-width: 320px;
+    margin: 0 auto;
+    border-radius: 22px;
+    border: 7px solid #2a2a2a;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.18);
+  }
+  .v3-frame.mobile.light-bezel { border-color: #d4d4d4; }
+
+  .v3-browser-bar {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-page);
+    font-family: var(--font);
+  }
+  .v3-browser-bar .dot {
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    background: var(--bg-tint);
+  }
+  .v3-browser-bar .url {
+    flex: 1;
+    background: var(--bg-tint);
+    padding: 3px 9px;
+    border-radius: 4px;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-left: 8px;
+    font-family: ui-monospace, monospace;
+  }
+
+  .v3-body {
+    background: var(--bg-page);
+    color: var(--text-body);
+    font-family: var(--font);
+    font-size: var(--type-base);
+    height: 540px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* ============================================================ */
+  /* HEADER                                                         */
+  /* ============================================================ */
+
+  .v3-header {
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+    padding: 11px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+    height: 50px;
+  }
+  .v3-brand {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+  }
+  .v3-brand-name {
+    font-weight: 700;
+    font-size: var(--type-md);
+    letter-spacing: -0.3px;
+    color: var(--text-strong);
+    font-feature-settings: "ss01";
+  }
+  .v3-brand-region {
+    font-size: var(--type-sm);
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+  .v3-nav {
+    display: flex;
+    gap: 2px;
+  }
+  .v3-nav-link {
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: var(--type-sm);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-weight: 500;
+    position: relative;
+  }
+  .v3-nav-link.active {
+    color: var(--text-strong);
+    font-weight: 600;
+  }
+  .v3-nav-link.active::after {
+    content: '';
+    position: absolute;
+    bottom: -12px;
+    left: 14px;
+    right: 14px;
+    height: 2px;
+    background: var(--accent);
+    border-radius: 2px 2px 0 0;
+  }
+  .v3-action-row { display: flex; align-items: center; gap: 8px; }
+  .v3-icon-btn {
+    width: 30px; height: 30px;
+    border-radius: 8px;
+    background: transparent;
+    border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+  .v3-filter-trigger {
+    padding: 6px 12px;
+    background: var(--bg-tint);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: var(--type-sm);
+    font-weight: 500;
+    color: var(--text-strong);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .v3-filter-trigger.focus-demo {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .v3-filter-badge {
+    background: var(--accent);
+    color: var(--accent-on);
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 999px;
+    min-width: 16px;
+    text-align: center;
+    font-feature-settings: "tnum";
+  }
+
+  /* ============================================================ */
+  /* CONTEXT — lede + filter sentence                               */
+  /* ============================================================ */
+
+  .v3-context {
+    padding: 18px 24px 16px;
+    background: var(--bg-page);
+    border-bottom: 1px solid var(--divider);
+    flex-shrink: 0;
+  }
+  .v3-lede {
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -0.6px;
+    line-height: 1.15;
+    color: var(--text-strong);
+    max-width: 640px;
+  }
+  .v3-filter-sentence {
+    font-size: var(--type-sm);
+    color: var(--text-muted);
+    margin-top: 6px;
+    font-weight: 400;
+  }
+  .v3-filter-sentence .filter-bullet {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .v3-context-meta {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: right;
+    line-height: 1.5;
+    font-feature-settings: "tnum";
+    float: right;
+    margin-top: -36px;
+  }
+
+  /* ============================================================ */
+  /* MAP                                                            */
+  /* ============================================================ */
+
+  .v3-map-area {
+    flex: 1;
+    position: relative;
+    background: var(--bg-tint);
+    overflow: hidden;
+  }
+  .sa3-light .v3-map-bg {
+    background:
+      radial-gradient(ellipse at 25% 30%, rgba(245,133,59,0.04), transparent 60%),
+      radial-gradient(ellipse at 75% 70%, rgba(74,123,168,0.05), transparent 60%),
+      #efe9dc;
+    height: 100%;
+    position: relative;
+  }
+  .sa3-dark .v3-map-bg {
+    background:
+      radial-gradient(ellipse at 25% 30%, rgba(109,184,212,0.05), transparent 60%),
+      radial-gradient(ellipse at 75% 70%, rgba(245,133,59,0.04), transparent 60%),
+      #182238;
+    height: 100%;
+    position: relative;
+  }
+  .v3-map-bg::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      radial-gradient(ellipse 200px 80px at 32% 42%, transparent 30%, currentColor 31%, transparent 32%),
+      radial-gradient(ellipse 280px 100px at 68% 65%, transparent 35%, currentColor 36%, transparent 37%);
+    color: rgba(0,0,0,0.04);
+    pointer-events: none;
+  }
+  .sa3-dark .v3-map-bg::before { color: rgba(255,255,255,0.04); }
+
+  /* Cluster PILLS — Apple Maps idiom — measured contrast triad */
+  .v3-cluster {
+    position: absolute;
+    background: var(--bg-surface);
+    color: var(--density-text);
+    border-radius: 999px;
+    padding: 5px 10px;
+    font-size: var(--type-sm);
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: var(--shadow-sm);
+    font-feature-settings: "tnum";
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    line-height: 1;
+  }
+  .v3-cluster.sky    { border: 2px solid var(--density-sky); }
+  .v3-cluster.sand   { border: 2px solid var(--density-sand); padding: 6px 12px; font-size: var(--type-base); }
+  .v3-cluster.ember  { border: 2px solid var(--density-ember); padding: 7px 14px; font-size: var(--type-md); font-weight: 800; }
+  .v3-cluster::before {
+    content: '';
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .v3-cluster.sky::before { background: var(--density-sky); }
+  .v3-cluster.sand::before { background: var(--density-sand); }
+  .v3-cluster.ember::before { background: var(--density-ember); }
+
+  /* Map legend (compact) */
+  .v3-legend {
+    position: absolute;
+    bottom: 16px;
+    left: 16px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    width: 200px;
+    box-shadow: var(--shadow-md);
+  }
+  .v3-legend-title {
+    font-size: var(--type-xs);
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--text-muted);
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .v3-legend-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 4px 0;
+    font-size: var(--type-sm);
+    color: var(--text-strong);
+  }
+  .v3-legend-shape {
+    width: 16px; height: 16px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .v3-legend-shape svg { width: 100%; height: 100%; }
+  .v3-legend-count {
+    margin-left: auto;
+    font-size: var(--type-xs);
+    color: var(--text-muted);
+    font-feature-settings: "tnum";
+  }
+
+  /* Map popover */
+  .v3-popover {
+    position: absolute;
+    top: 24px;
+    right: 24px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    width: 240px;
+    box-shadow: var(--shadow-lg);
+  }
+  .v3-popover-row {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  .v3-popover-silhouette {
+    width: 32px; height: 32px;
+    flex-shrink: 0;
+    color: var(--accent);
+  }
+  .v3-popover-silhouette svg { width: 100%; height: 100%; fill: currentColor; }
+  .v3-popover-meta {
+    font-size: var(--type-xs);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    font-weight: 700;
+  }
+  .v3-popover-name {
+    font-size: var(--type-md);
+    font-weight: 700;
+    color: var(--text-strong);
+    line-height: 1.15;
+    letter-spacing: -0.2px;
+    margin-top: 1px;
+  }
+  .v3-popover-sci {
+    font-size: var(--type-sm);
+    font-style: italic;
+    color: var(--text-muted);
+    margin-top: 1px;
+  }
+  .v3-popover-stat {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--divider);
+    font-size: var(--type-sm);
+    color: var(--text-strong);
+    font-feature-settings: "tnum";
+  }
+  .v3-popover-stat span { color: var(--text-muted); }
+  .v3-popover-cta {
+    margin-top: 10px;
+    color: var(--accent);
+    font-size: var(--type-sm);
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  /* ============================================================ */
+  /* DETAIL — photo as anchor                                       */
+  /* ============================================================ */
+
+  .v3-detail {
+    flex: 1;
+    overflow: auto;
+    position: relative;
+  }
+  .v3-detail-photo {
+    width: 100%;
+    height: 320px;
+    background:
+      linear-gradient(180deg, transparent 0%, transparent 50%, rgba(0,0,0,0.7) 100%),
+      linear-gradient(135deg, #6db8e0 0%, #c47a3a 70%, #4a3a2a 100%);
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    padding: 24px;
+    color: white;
+  }
+  .v3-detail-photo.dark-photo {
+    background:
+      linear-gradient(180deg, transparent 0%, transparent 40%, rgba(0,0,0,0.85) 100%),
+      linear-gradient(135deg, #1a2c45 0%, #4a3a5a 60%, #2a1830 100%);
+  }
+  .v3-detail-meta-overlay {
+    font-size: var(--type-xs);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: rgba(255,255,255,0.85);
+    font-weight: 700;
+    margin-bottom: 6px;
+    font-feature-settings: "tnum";
+  }
+  .v3-detail-name {
+    font-size: 36px;
+    font-weight: 800;
+    letter-spacing: -0.8px;
+    line-height: 1;
+    color: white;
+  }
+  .v3-detail-sci {
+    font-size: var(--type-base);
+    font-style: italic;
+    color: rgba(255,255,255,0.85);
+    margin-top: 4px;
+  }
+  .v3-detail-close {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: rgba(13,20,36,0.55);
+    color: white;
+    border: none;
+    font-size: 18px;
+    cursor: pointer;
+    backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .v3-detail-photo-credit {
+    position: absolute;
+    bottom: 14px;
+    right: 14px;
+    font-size: 10px;
+    color: rgba(255,255,255,0.7);
+    font-feature-settings: "tnum";
+  }
+  .v3-detail-body {
+    padding: 24px;
+  }
+  .v3-detail-family {
+    font-size: var(--type-xs);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-muted);  /* SUBTRACTIVE — was accent in v2 */
+    font-weight: 700;
+    margin-bottom: 14px;
+  }
+  .v3-detail-section-title {
+    font-size: var(--type-xs);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-muted);
+    font-weight: 700;
+    margin: 22px 0 10px;
+  }
+  .v3-phenology {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 4px;
+    align-items: end;
+    height: 60px;
+    margin-bottom: 6px;
+  }
+  .v3-phen-bar {
+    background: var(--bg-tint);
+    border-radius: 3px;
+    min-height: 4px;
+  }
+  .v3-phen-bar.active { background: var(--accent); }
+  .v3-phen-labels {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 4px;
+    font-size: 9px;
+    color: var(--text-subtle);
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .v3-detail-prose {
+    font-size: var(--type-base);
+    line-height: 1.65;
+    color: var(--text-body);
+    max-width: 60ch;
+    margin-top: 6px;
+  }
+  .v3-detail-credit {
+    font-size: var(--type-xs);
+    color: var(--text-subtle);
+    margin-top: 12px;
+  }
+
+  /* ============================================================ */
+  /* MOBILE                                                         */
+  /* ============================================================ */
+
+  .v3-mobile-body {
+    height: 580px;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-page);
+    color: var(--text-body);
+    font-family: var(--font);
+    overflow: hidden;
+    position: relative;
+  }
+  .v3-mobile-header {
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+    position: relative;
+  }
+  .v3-mobile-progress {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 2px;
+    background: var(--accent);
+    width: 70%;
+    border-radius: 0 2px 2px 0;
+  }
+  .v3-mobile-content {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+  }
+  .v3-mobile-bottom {
+    background: var(--bg-surface);
+    border-top: 1px solid var(--border);
+    padding: 7px 0 12px;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    flex-shrink: 0;
+  }
+  .v3-mobile-tab {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 4px 0;
+  }
+  .v3-mobile-tab.active { color: var(--accent); }
+  .v3-mobile-tab-icon {
+    width: 22px; height: 22px;
+    border-radius: 5px;
+    background: currentColor;
+    opacity: 0.85;
+  }
+  .v3-mobile-filter-strip {
+    background: var(--bg-surface);
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--divider);
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-shrink: 0;
+    overflow-x: auto;
+  }
+  .v3-mobile-filter-chip {
+    background: var(--bg-tint);
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: var(--type-xs);
+    font-weight: 600;
+    color: var(--text-strong);
+    white-space: nowrap;
+  }
+  .v3-mobile-filter-chip.active {
+    background: var(--accent);
+    color: var(--accent-on);
+  }
+  .v3-mobile-filter-chip.focus-demo {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* Bottom sheet */
+  .v3-bottom-sheet {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--bg-surface);
+    border-top-left-radius: 16px;
+    border-top-right-radius: 16px;
+    padding: 8px 0 0;
+    box-shadow: 0 -8px 32px rgba(0,0,0,0.15);
+    height: 60%;
+    display: flex;
+    flex-direction: column;
+    z-index: 10;
+  }
+  .v3-sheet-handle {
+    width: 36px; height: 4px;
+    background: var(--text-subtle);
+    border-radius: 2px;
+    margin: 0 auto 12px;
+    opacity: 0.4;
+  }
+  .v3-sheet-photo {
+    height: 160px;
+    margin: 0 14px;
+    border-radius: 12px;
+    background:
+      linear-gradient(180deg, transparent 0%, transparent 50%, rgba(0,0,0,0.7) 100%),
+      linear-gradient(135deg, #6db8e0 0%, #c47a3a 70%, #4a3a2a 100%);
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    padding: 14px;
+    color: white;
+  }
+  .v3-sheet-name {
+    font-size: var(--type-lg);
+    font-weight: 800;
+    letter-spacing: -0.4px;
+    line-height: 1.05;
+    color: white;
+  }
+  .v3-sheet-sci {
+    font-size: var(--type-sm);
+    font-style: italic;
+    color: rgba(255,255,255,0.85);
+    margin-top: 2px;
+  }
+  .v3-sheet-body {
+    padding: 14px;
+    flex: 1;
+    overflow: auto;
+  }
+  .v3-sheet-stat {
+    font-size: var(--type-sm);
+    color: var(--text-strong);
+    font-feature-settings: "tnum";
+  }
+  .v3-sheet-stat span { color: var(--text-muted); }
+
+  /* ============================================================ */
+  /* FEED                                                           */
+  /* ============================================================ */
+
+  .v3-feed-content {
+    flex: 1;
+    overflow: auto;
+    padding: 16px 24px 0;
+  }
+  .v3-feed-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 12px;
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    box-shadow: var(--shadow-sm);
+  }
+  .v3-feed-card .silh {
+    width: 56px; height: 56px;
+    border-radius: 8px;
+    background: var(--bg-tint);
+    flex-shrink: 0;
+    color: var(--notable);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .v3-feed-card .silh svg { width: 70%; height: 70%; fill: currentColor; }
+  .v3-feed-card-body { flex: 1; min-width: 0; }
+  .v3-feed-card-meta {
+    font-size: var(--type-xs);
+    text-transform: uppercase;
+    letter-spacing: 1.3px;
+    color: var(--notable);
+    font-weight: 700;
+    margin-bottom: 3px;
+  }
+  .v3-feed-card-name {
+    font-size: var(--type-md);
+    font-weight: 700;
+    color: var(--text-strong);
+    letter-spacing: -0.2px;
+    line-height: 1.2;
+  }
+  .v3-feed-card-loc {
+    font-size: var(--type-sm);
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+  .v3-feed-card-time {
+    font-size: var(--type-sm);
+    color: var(--text-muted);
+    text-align: right;
+    font-feature-settings: "tnum";
+    flex-shrink: 0;
+  }
+
+  .v3-feed-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--divider);
+    cursor: pointer;
+  }
+  .v3-feed-row:last-child { border-bottom: none; }
+  .v3-feed-row .silh-sm {
+    width: 36px; height: 36px;
+    border-radius: 6px;
+    background: var(--bg-tint);
+    flex-shrink: 0;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .v3-feed-row .silh-sm svg { width: 70%; height: 70%; fill: currentColor; }
+  .v3-feed-row-body { flex: 1; min-width: 0; }
+  .v3-feed-row-name {
+    font-size: var(--type-base);
+    font-weight: 600;
+    color: var(--text-strong);
+    line-height: 1.2;
+  }
+  .v3-feed-row-loc {
+    font-size: var(--type-sm);
+    color: var(--text-muted);
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .v3-feed-row-meta {
+    text-align: right;
+    flex-shrink: 0;
+  }
+  .v3-feed-row-time {
+    font-size: var(--type-sm);
+    color: var(--text-muted);
+    font-feature-settings: "tnum";
+  }
+  .v3-feed-row-count {
+    display: inline-block;
+    background: var(--bg-tint);
+    color: var(--text-strong);
+    font-size: var(--type-xs);
+    font-weight: 700;
+    padding: 1px 7px;
+    border-radius: 10px;
+    margin-top: 3px;
+    font-feature-settings: "tnum";
+  }
+
+  /* ============================================================ */
+  /* SKELETONS                                                      */
+  /* ============================================================ */
+
+  .v3-skeleton-rect {
+    background: var(--bg-skeleton);
+    border-radius: 6px;
+  }
+  .v3-skeleton-line {
+    background: var(--bg-skeleton);
+    border-radius: 4px;
+    height: 14px;
+  }
+  .v3-skeleton-list {
+    padding: 16px 24px;
+  }
+  .v3-skeleton-list > * {
+    margin-bottom: 12px;
+  }
+  .v3-skeleton-row {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--divider);
+  }
+  .v3-skeleton-thumb {
+    width: 36px; height: 36px;
+    border-radius: 6px;
+    background: var(--bg-skeleton);
+    flex-shrink: 0;
+  }
+  .v3-skeleton-row-body {
+    flex: 1;
+  }
+
+  .commentary {
+    margin-top: 28px;
+    padding: 14px 16px;
+    background: rgba(0,0,0,0.04);
+    border-left: 3px solid #f5853b;
+    border-radius: 4px;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+</style>
+
+<!-- ============================================================ -->
+<!-- 1. MAP DESKTOP — LIGHT + DARK -->
+<!-- ============================================================ -->
+<div class="v3-section">
+  <div class="v3-label">Map · Desktop · Light + Dark</div>
+  <p class="v3-note">Pill clusters with measured-contrast strokes (Sky/Sand/Ember). Newspaper lede replaces "3,842 sightings" subhead. Filter sentence below lede in muted color. Subtractive accent: orange only on active tab indicator + filter badge. Family legend now uses silhouette icons (shape + color), not just color dots.</p>
+  <div class="v3-pair cards" data-multiselect>
+
+    <div class="card v3-frame" data-choice="map-d-light" onclick="toggleSelect(this)">
+      <div class="sa3-light">
+        <div class="v3-browser-bar">
+          <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+          <div class="url">bird-maps.com/?view=map</div>
+        </div>
+        <div class="v3-body">
+          <div class="v3-header">
+            <div class="v3-brand">
+              <span class="v3-brand-name">Bird Maps</span>
+              <span class="v3-brand-region">· Arizona</span>
+            </div>
+            <div class="v3-nav">
+              <span class="v3-nav-link">Feed</span>
+              <span class="v3-nav-link">Species</span>
+              <span class="v3-nav-link active">Map</span>
+            </div>
+            <div class="v3-action-row">
+              <button class="v3-filter-trigger">
+                Filters <span class="v3-filter-badge">2</span>
+              </button>
+              <button class="v3-icon-btn" title="Switch to dark mode">☀</button>
+            </div>
+          </div>
+          <div class="v3-context">
+            <div class="v3-context-meta">Updated 11 min ago<br>Source: eBird</div>
+            <div class="v3-lede">274 species seen across Arizona in the last 14 days.</div>
+            <div class="v3-filter-sentence">Showing <span class="filter-bullet">notable sightings</span> from the last 14 days.</div>
+          </div>
+          <div class="v3-map-area">
+            <div class="v3-map-bg"></div>
+            <div class="v3-cluster sky" style="top: 22%; left: 28%">38</div>
+            <div class="v3-cluster sand" style="top: 35%; left: 42%">140</div>
+            <div class="v3-cluster sand" style="top: 50%; left: 38%">304</div>
+            <div class="v3-cluster ember" style="top: 56%; left: 50%">755</div>
+            <div class="v3-cluster sky" style="top: 60%; left: 70%">17</div>
+            <div class="v3-cluster sand" style="top: 38%; left: 68%">171</div>
+            <div class="v3-cluster sky" style="top: 70%; left: 60%">30</div>
+            <div class="v3-legend">
+              <div class="v3-legend-title">FAMILIES IN VIEW</div>
+              <div class="v3-legend-row">
+                <div class="v3-legend-shape" style="color:#c47a3a">
+                  <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="currentColor"/></svg>
+                </div>
+                <span>Cardinals</span>
+                <span class="v3-legend-count">383</span>
+              </div>
+              <div class="v3-legend-row">
+                <div class="v3-legend-shape" style="color:#3a4a2a">
+                  <svg viewBox="0 0 16 16"><rect x="1" y="1" width="14" height="14" fill="currentColor"/></svg>
+                </div>
+                <span>Crows & Jays</span>
+                <span class="v3-legend-count">267</span>
+              </div>
+              <div class="v3-legend-row">
+                <div class="v3-legend-shape" style="color:#9b3a3a">
+                  <svg viewBox="0 0 16 16"><polygon points="8,1 15,6 13,15 3,15 1,6" fill="currentColor"/></svg>
+                </div>
+                <span>Finches</span>
+                <span class="v3-legend-count">197</span>
+              </div>
+              <div class="v3-legend-row">
+                <div class="v3-legend-shape" style="color:#5a4a8a">
+                  <svg viewBox="0 0 16 16"><polygon points="8,0 16,8 8,16 0,8" fill="currentColor"/></svg>
+                </div>
+                <span>Hawks</span>
+                <span class="v3-legend-count">390</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card v3-frame" data-choice="map-d-dark" onclick="toggleSelect(this)">
+      <div class="sa3-dark">
+        <div class="v3-browser-bar">
+          <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+          <div class="url">bird-maps.com/?view=map</div>
+        </div>
+        <div class="v3-body">
+          <div class="v3-header">
+            <div class="v3-brand">
+              <span class="v3-brand-name">Bird Maps</span>
+              <span class="v3-brand-region">· Arizona</span>
+            </div>
+            <div class="v3-nav">
+              <span class="v3-nav-link">Feed</span>
+              <span class="v3-nav-link">Species</span>
+              <span class="v3-nav-link active">Map</span>
+            </div>
+            <div class="v3-action-row">
+              <button class="v3-filter-trigger">
+                Filters <span class="v3-filter-badge">2</span>
+              </button>
+              <button class="v3-icon-btn">☾</button>
+            </div>
+          </div>
+          <div class="v3-context">
+            <div class="v3-context-meta">Updated 11 min ago<br>Source: eBird</div>
+            <div class="v3-lede">274 species seen across Arizona in the last 14 days.</div>
+            <div class="v3-filter-sentence">Showing <span class="filter-bullet">notable sightings</span> from the last 14 days.</div>
+          </div>
+          <div class="v3-map-area">
+            <div class="v3-map-bg"></div>
+            <div class="v3-cluster sky" style="top: 22%; left: 28%">38</div>
+            <div class="v3-cluster sand" style="top: 35%; left: 42%">140</div>
+            <div class="v3-cluster sand" style="top: 50%; left: 38%">304</div>
+            <div class="v3-cluster ember" style="top: 56%; left: 50%">755</div>
+            <div class="v3-cluster sky" style="top: 60%; left: 70%">17</div>
+            <div class="v3-cluster sand" style="top: 38%; left: 68%">171</div>
+            <div class="v3-cluster sky" style="top: 70%; left: 60%">30</div>
+            <div class="v3-popover">
+              <div class="v3-popover-row">
+                <div class="v3-popover-silhouette">
+                  <svg viewBox="0 0 32 32"><path d="M5 18 Q8 6 16 8 Q22 10 27 14 L24 18 L26 22 L20 22 L16 26 L12 22 L8 22 Z"/></svg>
+                </div>
+                <div>
+                  <div class="v3-popover-meta">JUST SEEN · 2H AGO</div>
+                  <div class="v3-popover-name">Vermilion Flycatcher</div>
+                  <div class="v3-popover-sci">Pyrocephalus rubinus</div>
+                </div>
+              </div>
+              <div class="v3-popover-stat"><span>×3 today ·</span> Cave Creek Canyon</div>
+              <div class="v3-popover-cta">Open species detail →</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- 2. DETAIL DESKTOP — LIGHT + DARK -->
+<!-- ============================================================ -->
+<div class="v3-section">
+  <div class="v3-label">Species detail · Desktop modal · Light + Dark</div>
+  <p class="v3-note">Photo-as-anchor: full-bleed photo with overlaid title + scientific name + meta-stat. Subtractive accent — family label moves from accent (v2) to muted. Phenology bars in active months are the only place accent shows in the body content.</p>
+  <div class="v3-pair cards" data-multiselect>
+
+    <div class="card v3-frame" data-choice="detail-d-light" onclick="toggleSelect(this)">
+      <div class="sa3-light">
+        <div class="v3-browser-bar">
+          <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+          <div class="url">bird-maps.com/?detail=gilwoo</div>
+        </div>
+        <div class="v3-body">
+          <div class="v3-detail">
+            <div class="v3-detail-photo">
+              <button class="v3-detail-close">×</button>
+              <div>
+                <div class="v3-detail-meta-overlay">RECENTLY SEEN · 26 SIGHTINGS THIS MONTH</div>
+                <div class="v3-detail-name">Gila Woodpecker</div>
+                <div class="v3-detail-sci">Melanerpes uropygialis</div>
+              </div>
+              <div class="v3-detail-photo-credit">Photo: Mat Hyde · CC BY-NC</div>
+            </div>
+            <div class="v3-detail-body">
+              <div class="v3-detail-family">WOODPECKERS · 320 SIGHTINGS THIS YEAR</div>
+
+              <div class="v3-detail-section-title">When you'll see them</div>
+              <div class="v3-phenology">
+                <div class="v3-phen-bar" style="height:20%"></div>
+                <div class="v3-phen-bar" style="height:25%"></div>
+                <div class="v3-phen-bar" style="height:35%"></div>
+                <div class="v3-phen-bar active" style="height:78%"></div>
+                <div class="v3-phen-bar active" style="height:100%"></div>
+                <div class="v3-phen-bar" style="height:60%"></div>
+                <div class="v3-phen-bar" style="height:50%"></div>
+                <div class="v3-phen-bar" style="height:42%"></div>
+                <div class="v3-phen-bar" style="height:35%"></div>
+                <div class="v3-phen-bar" style="height:30%"></div>
+                <div class="v3-phen-bar" style="height:25%"></div>
+                <div class="v3-phen-bar" style="height:22%"></div>
+              </div>
+              <div class="v3-phen-labels">
+                <span>JAN</span><span>FEB</span><span>MAR</span><span>APR</span>
+                <span>MAY</span><span>JUN</span><span>JUL</span><span>AUG</span>
+                <span>SEP</span><span>OCT</span><span>NOV</span><span>DEC</span>
+              </div>
+
+              <div class="v3-detail-section-title">About</div>
+              <div class="v3-detail-prose">
+                The Gila woodpecker is a medium-sized woodpecker of the desert regions of the southwestern United States and western Mexico. They range through southeastern California, southern Nevada, Arizona, New Mexico…
+              </div>
+              <div class="v3-detail-credit">From Wikipedia, CC BY-SA</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card v3-frame" data-choice="detail-d-dark" onclick="toggleSelect(this)">
+      <div class="sa3-dark">
+        <div class="v3-browser-bar">
+          <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+          <div class="url">bird-maps.com/?detail=gilwoo</div>
+        </div>
+        <div class="v3-body">
+          <div class="v3-detail">
+            <div class="v3-detail-photo dark-photo">
+              <button class="v3-detail-close">×</button>
+              <div>
+                <div class="v3-detail-meta-overlay">RECENTLY SEEN · 26 SIGHTINGS THIS MONTH</div>
+                <div class="v3-detail-name">Gila Woodpecker</div>
+                <div class="v3-detail-sci">Melanerpes uropygialis</div>
+              </div>
+              <div class="v3-detail-photo-credit">Photo: Mat Hyde · CC BY-NC</div>
+            </div>
+            <div class="v3-detail-body">
+              <div class="v3-detail-family">WOODPECKERS · 320 SIGHTINGS THIS YEAR</div>
+
+              <div class="v3-detail-section-title">When you'll see them</div>
+              <div class="v3-phenology">
+                <div class="v3-phen-bar" style="height:20%"></div>
+                <div class="v3-phen-bar" style="height:25%"></div>
+                <div class="v3-phen-bar" style="height:35%"></div>
+                <div class="v3-phen-bar active" style="height:78%"></div>
+                <div class="v3-phen-bar active" style="height:100%"></div>
+                <div class="v3-phen-bar" style="height:60%"></div>
+                <div class="v3-phen-bar" style="height:50%"></div>
+                <div class="v3-phen-bar" style="height:42%"></div>
+                <div class="v3-phen-bar" style="height:35%"></div>
+                <div class="v3-phen-bar" style="height:30%"></div>
+                <div class="v3-phen-bar" style="height:25%"></div>
+                <div class="v3-phen-bar" style="height:22%"></div>
+              </div>
+              <div class="v3-phen-labels">
+                <span>JAN</span><span>FEB</span><span>MAR</span><span>APR</span>
+                <span>MAY</span><span>JUN</span><span>JUL</span><span>AUG</span>
+                <span>SEP</span><span>OCT</span><span>NOV</span><span>DEC</span>
+              </div>
+
+              <div class="v3-detail-section-title">About</div>
+              <div class="v3-detail-prose">
+                The Gila woodpecker is a medium-sized woodpecker of the desert regions of the southwestern United States and western Mexico. They range through southeastern California, southern Nevada, Arizona, New Mexico…
+              </div>
+              <div class="v3-detail-credit">From Wikipedia, CC BY-SA</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- 3. FEED DESKTOP — LIGHT -->
+<!-- ============================================================ -->
+<div class="v3-section">
+  <div class="v3-label">Feed · Desktop · Light</div>
+  <p class="v3-note">Newspaper lede + filter sentence. First notable sighting renders as a card-row (focal point), rest as flat list rows. Silhouettes (shape + family color) replace emoji thumbs. The accent appears on the "NOTABLE" meta-label of the card-row only — subtractive: this is the most important row right now.</p>
+  <div class="v3-pair single cards" data-multiselect>
+
+    <div class="card v3-frame" data-choice="feed-d-light" onclick="toggleSelect(this)">
+      <div class="sa3-light">
+        <div class="v3-browser-bar">
+          <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+          <div class="url">bird-maps.com/?view=feed&notable=true</div>
+        </div>
+        <div class="v3-body">
+          <div class="v3-header">
+            <div class="v3-brand">
+              <span class="v3-brand-name">Bird Maps</span>
+              <span class="v3-brand-region">· Arizona</span>
+            </div>
+            <div class="v3-nav">
+              <span class="v3-nav-link active">Feed</span>
+              <span class="v3-nav-link">Species</span>
+              <span class="v3-nav-link">Map</span>
+            </div>
+            <div class="v3-action-row">
+              <button class="v3-filter-trigger">
+                Filters <span class="v3-filter-badge">1</span>
+              </button>
+              <button class="v3-icon-btn">☀</button>
+            </div>
+          </div>
+          <div class="v3-context">
+            <div class="v3-context-meta">Updated 11 min ago<br>Source: eBird</div>
+            <div class="v3-lede">126 notable sightings across Arizona in the last 14 days.</div>
+            <div class="v3-filter-sentence">Sorted by recency · <span class="filter-bullet">Notable only</span> filter active</div>
+          </div>
+          <div class="v3-feed-content">
+            <div class="v3-feed-card">
+              <div class="silh">
+                <svg viewBox="0 0 32 32"><path d="M3 18 Q5 10 10 9 Q16 7 22 12 L26 14 L29 17 L26 19 L23 19 L23 22 L18 22 L13 24 L8 22 Z"/></svg>
+              </div>
+              <div class="v3-feed-card-body">
+                <div class="v3-feed-card-meta">NOTABLE · MOST RECENT</div>
+                <div class="v3-feed-card-name">Belted Kingfisher</div>
+                <div class="v3-feed-card-loc">Lees Ferry Rd, Marble Canyon · 36.86, -111.60</div>
+              </div>
+              <div class="v3-feed-card-time">11h ago</div>
+            </div>
+
+            <div class="v3-feed-row">
+              <div class="silh-sm">
+                <svg viewBox="0 0 32 32"><path d="M5 18 Q8 6 16 8 Q22 10 27 14 L24 18 L26 22 L20 22 L16 26 L12 22 L8 22 Z"/></svg>
+              </div>
+              <div class="v3-feed-row-body">
+                <div class="v3-feed-row-name">House Finch</div>
+                <div class="v3-feed-row-loc">10721 N Highlands Dr, Oro Valley</div>
+              </div>
+              <div class="v3-feed-row-meta">
+                <div class="v3-feed-row-time">11h ago</div>
+                <div class="v3-feed-row-count">×4</div>
+              </div>
+            </div>
+
+            <div class="v3-feed-row">
+              <div class="silh-sm">
+                <svg viewBox="0 0 32 32"><path d="M3 14 Q6 10 12 11 Q18 12 24 16 L28 19 L25 21 L20 21 L18 25 L14 22 L10 22 L6 19 Z"/></svg>
+              </div>
+              <div class="v3-feed-row-body">
+                <div class="v3-feed-row-name">Curve-billed Thrasher</div>
+                <div class="v3-feed-row-loc">10721 N Highlands Dr, Oro Valley</div>
+              </div>
+              <div class="v3-feed-row-meta">
+                <div class="v3-feed-row-time">11h ago</div>
+                <div class="v3-feed-row-count">×4</div>
+              </div>
+            </div>
+
+            <div class="v3-feed-row">
+              <div class="silh-sm">
+                <svg viewBox="0 0 32 32"><path d="M5 16 Q8 10 14 9 Q22 8 27 14 L24 18 L20 18 L16 23 L11 22 L7 20 Z"/></svg>
+              </div>
+              <div class="v3-feed-row-body">
+                <div class="v3-feed-row-name">Gila Woodpecker</div>
+                <div class="v3-feed-row-loc">Cave Creek Canyon — Southwestern Research Station</div>
+              </div>
+              <div class="v3-feed-row-meta">
+                <div class="v3-feed-row-time">11h ago</div>
+                <div class="v3-feed-row-count">×2</div>
+              </div>
+            </div>
+
+            <div class="v3-feed-row">
+              <div class="silh-sm">
+                <svg viewBox="0 0 32 32"><path d="M4 16 Q6 12 11 11 Q17 10 23 14 L26 17 L24 20 L19 20 L15 23 L11 21 L7 20 Z"/></svg>
+              </div>
+              <div class="v3-feed-row-body">
+                <div class="v3-feed-row-name">Black-chinned Hummingbird</div>
+                <div class="v3-feed-row-loc">Cave Creek Canyon — Southwestern Research Station</div>
+              </div>
+              <div class="v3-feed-row-meta">
+                <div class="v3-feed-row-time">11h ago</div>
+                <div class="v3-feed-row-count">×4</div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- 4. MOBILE — MAP, BOTTOM-SHEET DETAIL, LOADING                  -->
+<!-- ============================================================ -->
+<div class="v3-section">
+  <div class="v3-label">Mobile · Map · Bottom-sheet detail · Loading state · Light</div>
+  <p class="v3-note">Map: Pattern A bottom-tab + filter chip strip + active focus halo demo on chip. Detail: bottom-sheet at half snap (peek/half/full snap points) — map remains live underneath. Loading: system skeletons (no shimmer) + 2px sunrise progress bar at top.</p>
+  <div class="mobile-pair cards" data-multiselect>
+
+    <!-- Mobile Map -->
+    <div class="card v3-frame mobile light-bezel" data-choice="map-m-light" onclick="toggleSelect(this)">
+      <div class="sa3-light">
+        <div class="v3-mobile-body">
+          <div class="v3-mobile-header">
+            <div class="v3-brand">
+              <span class="v3-brand-name" style="font-size:13px">Bird Maps</span>
+              <span class="v3-brand-region" style="font-size:11px">· AZ</span>
+            </div>
+            <button class="v3-filter-trigger" style="padding:4px 9px;font-size:11px">
+              Filters <span class="v3-filter-badge">2</span>
+            </button>
+          </div>
+          <div class="v3-mobile-filter-strip">
+            <span class="v3-mobile-filter-chip active focus-demo">Notable</span>
+            <span class="v3-mobile-filter-chip active">14 days</span>
+            <span class="v3-mobile-filter-chip">+ Filter</span>
+          </div>
+          <div class="v3-mobile-content">
+            <div class="v3-map-area" style="height:100%">
+              <div class="v3-map-bg"></div>
+              <div class="v3-cluster sky" style="top: 18%; left: 22%">38</div>
+              <div class="v3-cluster sand" style="top: 28%; left: 50%">140</div>
+              <div class="v3-cluster sand" style="top: 42%; left: 32%">304</div>
+              <div class="v3-cluster ember" style="top: 50%; left: 56%">755</div>
+              <div class="v3-cluster sky" style="top: 65%; left: 70%">17</div>
+              <div class="v3-cluster sand" style="top: 70%; left: 38%">171</div>
+            </div>
+          </div>
+          <div class="v3-mobile-bottom">
+            <div class="v3-mobile-tab">
+              <div class="v3-mobile-tab-icon"></div>Feed
+            </div>
+            <div class="v3-mobile-tab">
+              <div class="v3-mobile-tab-icon"></div>Species
+            </div>
+            <div class="v3-mobile-tab active">
+              <div class="v3-mobile-tab-icon"></div>Map
+            </div>
+            <div class="v3-mobile-tab">
+              <div class="v3-mobile-tab-icon"></div>Credits
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mobile Bottom Sheet Detail -->
+    <div class="card v3-frame mobile light-bezel" data-choice="detail-m-sheet" onclick="toggleSelect(this)">
+      <div class="sa3-light">
+        <div class="v3-mobile-body">
+          <div class="v3-mobile-header">
+            <div class="v3-brand">
+              <span class="v3-brand-name" style="font-size:13px">Bird Maps</span>
+              <span class="v3-brand-region" style="font-size:11px">· AZ</span>
+            </div>
+            <button class="v3-filter-trigger" style="padding:4px 9px;font-size:11px">
+              Filters <span class="v3-filter-badge">2</span>
+            </button>
+          </div>
+          <div class="v3-mobile-content">
+            <div class="v3-map-area" style="height:100%">
+              <div class="v3-map-bg"></div>
+              <div class="v3-cluster sky" style="top: 18%; left: 22%">38</div>
+              <div class="v3-cluster ember" style="top: 28%; left: 60%">755</div>
+              <div class="v3-cluster sand" style="top: 8%; left: 40%">140</div>
+            </div>
+            <div class="v3-bottom-sheet">
+              <div class="v3-sheet-handle"></div>
+              <div class="v3-sheet-photo">
+                <div>
+                  <div class="v3-sheet-name">Vermilion Flycatcher</div>
+                  <div class="v3-sheet-sci">Pyrocephalus rubinus</div>
+                </div>
+              </div>
+              <div class="v3-sheet-body">
+                <div class="v3-sheet-stat">×3 today · <span>Cave Creek Canyon</span></div>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:8px">Drag down to dismiss · Drag up for details</div>
+              </div>
+            </div>
+          </div>
+          <div class="v3-mobile-bottom">
+            <div class="v3-mobile-tab"><div class="v3-mobile-tab-icon"></div>Feed</div>
+            <div class="v3-mobile-tab"><div class="v3-mobile-tab-icon"></div>Species</div>
+            <div class="v3-mobile-tab active"><div class="v3-mobile-tab-icon"></div>Map</div>
+            <div class="v3-mobile-tab"><div class="v3-mobile-tab-icon"></div>Credits</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mobile Loading State -->
+    <div class="card v3-frame mobile light-bezel" data-choice="loading-m-light" onclick="toggleSelect(this)">
+      <div class="sa3-light">
+        <div class="v3-mobile-body">
+          <div class="v3-mobile-header">
+            <div class="v3-mobile-progress"></div>
+            <div class="v3-brand">
+              <span class="v3-brand-name" style="font-size:13px">Bird Maps</span>
+              <span class="v3-brand-region" style="font-size:11px">· AZ</span>
+            </div>
+            <button class="v3-filter-trigger" style="padding:4px 9px;font-size:11px">
+              Filters
+            </button>
+          </div>
+          <div class="v3-skeleton-list">
+            <div class="v3-skeleton-line" style="width:75%;height:18px"></div>
+            <div class="v3-skeleton-line" style="width:45%;height:12px;margin-top:6px"></div>
+
+            <div class="v3-skeleton-row" style="margin-top:14px">
+              <div class="v3-skeleton-thumb"></div>
+              <div class="v3-skeleton-row-body">
+                <div class="v3-skeleton-line" style="width:70%"></div>
+                <div class="v3-skeleton-line" style="width:50%;height:10px;margin-top:6px"></div>
+              </div>
+            </div>
+            <div class="v3-skeleton-row">
+              <div class="v3-skeleton-thumb"></div>
+              <div class="v3-skeleton-row-body">
+                <div class="v3-skeleton-line" style="width:60%"></div>
+                <div class="v3-skeleton-line" style="width:55%;height:10px;margin-top:6px"></div>
+              </div>
+            </div>
+            <div class="v3-skeleton-row">
+              <div class="v3-skeleton-thumb"></div>
+              <div class="v3-skeleton-row-body">
+                <div class="v3-skeleton-line" style="width:80%"></div>
+                <div class="v3-skeleton-line" style="width:40%;height:10px;margin-top:6px"></div>
+              </div>
+            </div>
+            <div class="v3-skeleton-row">
+              <div class="v3-skeleton-thumb"></div>
+              <div class="v3-skeleton-row-body">
+                <div class="v3-skeleton-line" style="width:65%"></div>
+                <div class="v3-skeleton-line" style="width:50%;height:10px;margin-top:6px"></div>
+              </div>
+            </div>
+            <div class="v3-skeleton-row">
+              <div class="v3-skeleton-thumb"></div>
+              <div class="v3-skeleton-row-body">
+                <div class="v3-skeleton-line" style="width:75%"></div>
+                <div class="v3-skeleton-line" style="width:55%;height:10px;margin-top:6px"></div>
+              </div>
+            </div>
+          </div>
+          <div class="v3-mobile-bottom">
+            <div class="v3-mobile-tab active"><div class="v3-mobile-tab-icon"></div>Feed</div>
+            <div class="v3-mobile-tab"><div class="v3-mobile-tab-icon"></div>Species</div>
+            <div class="v3-mobile-tab"><div class="v3-mobile-tab-icon"></div>Map</div>
+            <div class="v3-mobile-tab"><div class="v3-mobile-tab-icon"></div>Credits</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="commentary">
+  <strong>What still needs your call (post-mock):</strong>
+  <ul style="margin:8px 0 0 22px;padding:0;line-height:1.7">
+    <li><strong>Front door:</strong> these mocks land on Map by default. Agent 5 argued for keeping <code>DEFAULTS.view='feed'</code> — a feed lede ("126 notable sightings...") may be a more honest opening claim than a map of clusters.</li>
+    <li><strong>Photo coverage:</strong> the photo masthead and feed silhouettes assume reliable photo coverage on the long tail. Agent 5's photo-optional architecture (silhouette default + photo enhancement) is a safer fallback if coverage is &lt;90%. We can mock the no-photo state if you want to see it.</li>
+    <li><strong>Audience:</strong> the 15-min PostHog read on G1 is still outstanding and is the cheapest possible re-target signal.</li>
+    <li><strong>Brand mark:</strong> dropped from these mocks (Agent 5's counter). The wordmark "Bird Maps · Arizona" carries the identity. If you want a brand mark back, point to which species/glyph/symbol earns its placement.</li>
+    <li><strong>Stillness mode:</strong> not visualized — would be a third toggle option (☀ / ☾ / ⏳) when we get to system-level theme controls.</li>
+  </ul>
+</div>
