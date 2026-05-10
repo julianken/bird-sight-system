@@ -23,7 +23,11 @@ const VERMFLY: SpeciesMeta = {
   speciesCode: 'vermfly',
   comName: 'Vermilion Flycatcher',
   sciName: 'Pyrocephalus rubinus',
-  familyCode: 'tyrannidae',
+  // 'songbird' is a valid FamilyCode — required because Phase 4 routes
+  // familyCode through <Photo> → <FamilySilhouette> → getFamilyChannel()
+  // which only accepts the 7 predefined FamilyCode literals. 'tyrannidae'
+  // was valid only for the pre-Phase-4 lookup path.
+  familyCode: 'songbird',
   familyName: 'Tyrant Flycatchers',
   taxonOrder: 4400,
 };
@@ -36,7 +40,7 @@ const VERMFLY_WITH_PHOTO: SpeciesMeta = {
 };
 
 const TYRANNIDAE_SILHOUETTE: FamilySilhouette = {
-  familyCode: 'tyrannidae',
+  familyCode: 'songbird',
   color: '#C77A2E',
   svgData: 'M0 0L1 1Z',
   source: 'https://www.phylopic.org/i/x',
@@ -133,15 +137,16 @@ describe('SpeciesDetailSurface', () => {
       getSpecies: vi.fn().mockResolvedValue(VERMFLY),
       getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
     } as unknown as Partial<ApiClient>);
-    render(<SpeciesDetailSurface speciesCode="vermfly" apiClient={client} />);
+    const { container } = render(<SpeciesDetailSurface speciesCode="vermfly" apiClient={client} />);
     await waitFor(() =>
       expect(screen.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeInTheDocument()
     );
     // No photo img — the silhouette is the only visual.
     expect(screen.queryByAltText('Vermilion Flycatcher photo')).toBeNull();
-    // Silhouette fallback IS rendered (SVG with the family color).
-    const silhouette = screen.getByTestId('species-detail-silhouette');
-    expect(silhouette).toBeInTheDocument();
+    // Phase 4: <Photo src={null}> renders <FamilySilhouette> as a
+    // .family-silhouette span (no longer the old data-testid pattern
+    // from SpeciesDetailVisual — FamilySilhouette carries no testid).
+    expect(container.querySelector('.family-silhouette')).not.toBeNull();
   });
 
   it('onError on the photo img triggers fallback to silhouette', async () => {
@@ -149,15 +154,17 @@ describe('SpeciesDetailSurface', () => {
       getSpecies: vi.fn().mockResolvedValue(VERMFLY_WITH_PHOTO),
       getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
     } as unknown as Partial<ApiClient>);
-    render(<SpeciesDetailSurface speciesCode="vermfly" apiClient={client} />);
+    const { container } = render(<SpeciesDetailSurface speciesCode="vermfly" apiClient={client} />);
     const photo = await screen.findByAltText('Vermilion Flycatcher photo');
-    // Silhouette is NOT rendered while the photo img is in the tree.
-    expect(screen.queryByTestId('species-detail-silhouette')).toBeNull();
+    // Phase 4: silhouette is NOT rendered while the photo img is shown.
+    // <Photo> uses photo--silhouette class only in the silhouette state.
+    expect(container.querySelector('.photo--silhouette')).toBeNull();
     // Simulate an image-load failure (404, ECONNRESET, etc.).
     fireEvent.error(photo);
     // Photo img is gone; silhouette fallback is now visible.
+    // <Photo> unmounts <img> and shows <FamilySilhouette> (via .family-silhouette).
     expect(screen.queryByAltText('Vermilion Flycatcher photo')).toBeNull();
-    expect(screen.getByTestId('species-detail-silhouette')).toBeInTheDocument();
+    expect(container.querySelector('.family-silhouette')).not.toBeNull();
   });
 
   it('alt text uses {comName} photo format for accessibility', async () => {
@@ -291,6 +298,51 @@ describe('SpeciesDetailSurface', () => {
     expect(screen.getByText('Loading species details…')).toBeInTheDocument();
     // PhenologyChart never made the call because it never mounted.
     expect(getPhenology).not.toHaveBeenCalled();
+  });
+
+  // ─── Phase 4 heading + Photo contracts ──────────────────────────────────
+  //
+  // Sky Atlas Phase 4 promotes SpeciesDetailSurface to a presentational body
+  // component consumed by SpeciesDetailModal (desktop) and SpeciesDetailSheet
+  // (mobile). The heading becomes <h1 id="detail-title" tabIndex={-1}> so
+  // the modal/sheet wrappers can set aria-labelledby="detail-title" and
+  // call #detail-title.focus() on open. The photo masthead uses <Photo
+  // priority={true}> so LCP is served by loading="eager" fetchpriority="high".
+
+  it('renders species name as <h1 id="detail-title" tabIndex={-1}>', async () => {
+    const client = makeClient({
+      getSpecies: vi.fn().mockResolvedValue(VERMFLY_WITH_PHOTO),
+      getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
+    } as unknown as Partial<ApiClient>);
+    render(<SpeciesDetailSurface speciesCode="vermfly" apiClient={client} />);
+    const heading = await screen.findByRole('heading', { level: 1, name: /vermilion flycatcher/i });
+    expect(heading).toHaveAttribute('id', 'detail-title');
+    expect(heading).toHaveAttribute('tabindex', '-1');
+  });
+
+  it('renders <Photo priority> masthead when photoUrl is present', async () => {
+    const client = makeClient({
+      getSpecies: vi.fn().mockResolvedValue(VERMFLY_WITH_PHOTO),
+      getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
+    } as unknown as Partial<ApiClient>);
+    render(<SpeciesDetailSurface speciesCode="vermfly" apiClient={client} />);
+    const img = await screen.findByAltText(/vermilion flycatcher photo/i);
+    // <Photo priority={true}> must produce loading="eager" and fetchpriority="high"
+    expect(img).toHaveAttribute('loading', 'eager');
+    expect(img).toHaveAttribute('fetchpriority', 'high');
+  });
+
+  it('falls back to <FamilySilhouette> via <Photo> when photoUrl is null', async () => {
+    const client = makeClient({
+      getSpecies: vi.fn().mockResolvedValue(VERMFLY),
+      getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
+    } as unknown as Partial<ApiClient>);
+    const { container } = render(<SpeciesDetailSurface speciesCode="vermfly" apiClient={client} />);
+    // <Photo src={null}> renders <FamilySilhouette> internally, which
+    // emits a .family-silhouette span (no data-testid — Phase 2 component).
+    await waitFor(() =>
+      expect(container.querySelector('.family-silhouette')).not.toBeNull()
+    );
   });
 
   // ─── Analytics instrumentation (issue #357 tasks 3, 4) ─────────────────
