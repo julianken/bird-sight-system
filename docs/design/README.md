@@ -29,7 +29,7 @@ docs/design/
 
 ### 00 Overview — what is this?
 - [`00-overview/why.md`](./00-overview/why.md) — what bird-maps.com is today, what changed, why the redesign exists, who it's for
-- [`00-overview/decisions.md`](./00-overview/decisions.md) — the 16-row canonical decisions table (every commitment, every source)
+- [`00-overview/decisions.md`](./00-overview/decisions.md) — the canonical decisions table (16 locked + 12 open / deferred)
 - [`00-overview/visual-direction.md`](./00-overview/visual-direction.md) — Sky Atlas visual identity in one page (palette, type, accent, mood)
 
 ### 01 Spec — what's it look like under the hood?

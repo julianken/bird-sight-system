@@ -12,11 +12,11 @@ Ship the five new component primitives in `frontend/src/components/ds/`, each wi
 
 | Primitive | File | Contract location |
 |---|---|---|
-| `<StatusBlock>` | `frontend/src/components/ds/StatusBlock.tsx` | [`../01-spec/components.md#statusblock`](../01-spec/components.md) |
-| `<Photo>` | `frontend/src/components/ds/Photo.tsx` | [`../01-spec/components.md#photo`](../01-spec/components.md) |
-| `<FamilySilhouette>` | `frontend/src/components/ds/FamilySilhouette.tsx` | [`../01-spec/components.md#familysilhouette`](../01-spec/components.md) |
-| `<ClusterPill>` | `frontend/src/components/ds/ClusterPill.tsx` | [`../01-spec/components.md#clusterpill`](../01-spec/components.md) |
-| `<FilterSentence>` | `frontend/src/components/ds/FilterSentence.tsx` | [`../01-spec/components.md#filtersentence`](../01-spec/components.md) |
+| `<StatusBlock>` | `frontend/src/components/ds/StatusBlock.tsx` | [`../01-spec/components.md#statusblock`](../01-spec/components.md#statusblock) |
+| `<Photo>` | `frontend/src/components/ds/Photo.tsx` | [`../01-spec/components.md#photo`](../01-spec/components.md#photo) |
+| `<FamilySilhouette>` | `frontend/src/components/ds/FamilySilhouette.tsx` | [`../01-spec/components.md#familysilhouette`](../01-spec/components.md#familysilhouette) |
+| `<ClusterPill>` | `frontend/src/components/ds/ClusterPill.tsx` | [`../01-spec/components.md#clusterpill`](../01-spec/components.md#clusterpill) |
+| `<FilterSentence>` | `frontend/src/components/ds/FilterSentence.tsx` | [`../01-spec/components.md#filtersentence`](../01-spec/components.md#filtersentence) |
 | `<SortLabel>` (sibling of `<FilterSentence>`) | `frontend/src/components/ds/SortLabel.tsx` | (small; prop is single string) |
 
 Plus the `frontend/src/config/` files that drive primitive behavior:

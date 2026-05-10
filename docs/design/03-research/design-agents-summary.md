@@ -22,7 +22,7 @@ These are the strongest signal — multiple specialists arrived at the same conc
 
 One component (`state="loading|empty|error"`) collapses 9 CSS classes / 14 copy-pairs into a single API. Becomes the canvas for the 730px map skeleton; fixes the inverted error severity in `App.tsx:147` for free; becomes where motion lives so `prefers-reduced-motion` is enforceable in one place.
 
-Spec: [`../01-spec/components.md#statusblock`](../01-spec/components.md). Phase: [`Phase 2`](../02-phases/phase-2-primitives.md).
+Spec: [`../01-spec/components.md#statusblock`](../01-spec/components.md#statusblock). Phase: [`Phase 2`](../02-phases/phase-2-primitives.md).
 
 ### Cluster-bubble palette as measured-contrast triad — Agents 2 + 3 + 4
 
