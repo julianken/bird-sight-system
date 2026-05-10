@@ -19,3 +19,14 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - run: npm run lint
+      - name: Forbidden raw token names (Sky Atlas Phase 1 lint guard)
+        run: |
+          # Fail if any source file uses the v3/v4 mock token names directly.
+          # These names collide silently with production --color-* tokens.
+          # Use production names instead: see docs/design/01-spec/tokens.md §Namespace migration.
+          if grep -rE \
+            'var\(--(accent|notable|bg-page|bg-surface|bg-tint|text-strong|text-body|text-muted|text-subtle|border)([^-]|$)' \
+            frontend/src/ ; then
+            echo "ERROR: Forbidden raw token name found. Use --color-* production names."
+            exit 1
+          fi
