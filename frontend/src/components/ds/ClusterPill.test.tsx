@@ -4,24 +4,33 @@ import userEvent from '@testing-library/user-event';
 import { ClusterPill } from './ClusterPill.js';
 
 describe('<ClusterPill>', () => {
-  // --- ARIA ---
+  // --- Element shape and ARIA ---
 
-  it('renders with role="img"', () => {
+  it('renders as <button type="button"> (matches MosaicMarker activation pattern)', () => {
     render(<ClusterPill count={42} onClick={vi.fn()} />);
-    const pill = screen.getByRole('img');
+    const pill = screen.getByRole('button', { name: '42 sightings' });
     expect(pill).toBeInTheDocument();
+    expect(pill.tagName).toBe('BUTTON');
+    expect(pill).toHaveAttribute('type', 'button');
   });
 
   it('aria-label is "{count} sightings"', () => {
     render(<ClusterPill count={42} onClick={vi.fn()} />);
-    expect(screen.getByRole('img')).toHaveAttribute('aria-label', '42 sightings');
+    expect(screen.getByRole('button')).toHaveAttribute('aria-label', '42 sightings');
   });
 
   it('aria-label updates when count changes', () => {
     const { rerender } = render(<ClusterPill count={10} onClick={vi.fn()} />);
-    expect(screen.getByRole('img')).toHaveAttribute('aria-label', '10 sightings');
+    expect(screen.getByRole('button')).toHaveAttribute('aria-label', '10 sightings');
     rerender(<ClusterPill count={200} onClick={vi.fn()} />);
-    expect(screen.getByRole('img')).toHaveAttribute('aria-label', '200 sightings');
+    expect(screen.getByRole('button')).toHaveAttribute('aria-label', '200 sightings');
+  });
+
+  it('does not carry a redundant tabIndex attribute (UA button gets focus natively)', () => {
+    render(<ClusterPill count={42} onClick={vi.fn()} />);
+    const pill = screen.getByRole('button');
+    // tabIndex should not be explicitly set — UA manages focus order for <button>
+    expect(pill).not.toHaveAttribute('tabindex');
   });
 
   // --- Tier class assignment ---
@@ -64,16 +73,25 @@ describe('<ClusterPill>', () => {
   it('calls onClick when the pill is clicked', async () => {
     const onClick = vi.fn();
     render(<ClusterPill count={5} onClick={onClick} />);
-    await userEvent.click(screen.getByRole('img'));
+    await userEvent.click(screen.getByRole('button', { name: '5 sightings' }));
     expect(onClick).toHaveBeenCalledOnce();
   });
 
-  it('pill is keyboard-activatable (Enter key)', async () => {
+  it('pill is keyboard-activatable (Enter key) via native button semantics', async () => {
     const onClick = vi.fn();
     render(<ClusterPill count={5} onClick={onClick} />);
-    const pill = screen.getByRole('img');
+    const pill = screen.getByRole('button', { name: '5 sightings' });
     pill.focus();
     await userEvent.keyboard('{Enter}');
+    expect(onClick).toHaveBeenCalledOnce();
+  });
+
+  it('pill is keyboard-activatable (Space key) via native button semantics', async () => {
+    const onClick = vi.fn();
+    render(<ClusterPill count={5} onClick={onClick} />);
+    const pill = screen.getByRole('button', { name: '5 sightings' });
+    pill.focus();
+    await userEvent.keyboard(' ');
     expect(onClick).toHaveBeenCalledOnce();
   });
 });

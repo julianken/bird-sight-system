@@ -135,6 +135,66 @@ describe('<Photo>', () => {
     });
   });
 
+  // --- State machine resets on src prop change ---
+
+  it('resets to loading state when src changes from one string to another', async () => {
+    const { rerender } = render(
+      <Photo src="https://example.com/a.jpg" alt="Bird A" family="songbird" />
+    );
+    const imgA = screen.getByRole('img', { name: 'Bird A', hidden: true });
+    // Simulate the first image loading successfully
+    fireEvent.load(imgA);
+    await waitFor(() => {
+      expect(document.querySelector('.photo--loaded')).toBeInTheDocument();
+    });
+
+    // Rerender with a different src — state machine must reset to 'loading'
+    rerender(<Photo src="https://example.com/b.jpg" alt="Bird A" family="songbird" />);
+    await waitFor(() => {
+      expect(document.querySelector('.photo--loading')).toBeInTheDocument();
+    });
+    expect(document.querySelector('.photo--loaded')).not.toBeInTheDocument();
+    // Skeleton should be back during the new image's in-flight state
+    expect(document.querySelector('.photo__skeleton')).toBeInTheDocument();
+  });
+
+  it('resets from errored state to loading when src changes to a new string', async () => {
+    const { rerender } = render(
+      <Photo src="https://example.com/broken.jpg" alt="Bird B" family="raptor" />
+    );
+    const imgB = screen.getByRole('img', { name: 'Bird B', hidden: true });
+    // Trigger error so state goes to 'errored' (silhouette shown, img unmounted)
+    fireEvent.error(imgB);
+    await waitFor(() => {
+      expect(document.querySelector('svg')).toBeInTheDocument();
+      expect(document.querySelector('img')).not.toBeInTheDocument();
+    });
+
+    // Changing src must clear the errored state and re-mount the img
+    rerender(<Photo src="https://example.com/fixed.jpg" alt="Bird B" family="raptor" />);
+    await waitFor(() => {
+      // img is back in DOM (no longer stuck in silhouette)
+      expect(screen.getByRole('img', { name: 'Bird B', hidden: true })).toBeInTheDocument();
+    });
+    expect(document.querySelector('.photo--loading')).toBeInTheDocument();
+    expect(document.querySelector('.photo__skeleton')).toBeInTheDocument();
+  });
+
+  it('transitions to null state when src changes from string to null', async () => {
+    const { rerender } = render(
+      <Photo src="https://example.com/bird.jpg" alt="Bird C" family="corvid" />
+    );
+    // img is mounted (loading state)
+    expect(screen.getByRole('img', { name: 'Bird C', hidden: true })).toBeInTheDocument();
+
+    // Setting src=null must immediately show silhouette
+    rerender(<Photo src={null} alt="Bird C" family="corvid" />);
+    await waitFor(() => {
+      expect(document.querySelector('svg')).toBeInTheDocument();
+      expect(document.querySelector('img')).not.toBeInTheDocument();
+    });
+  });
+
   // --- Priority prop ---
 
   it('sets loading="eager" and fetchpriority="high" when priority=true', () => {

@@ -25,7 +25,7 @@
  *
  * Spec: docs/design/01-spec/components.md#photo
  */
-import { useState, type ReactNode } from 'react';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { FamilySilhouette } from './FamilySilhouette.js';
 import type { FamilyCode } from '../../config/family-palette.js';
 
@@ -56,6 +56,22 @@ export function Photo({
   const [imgState, setImgState] = useState<PhotoInternalState>(
     src === null ? 'null' : 'loading'
   );
+
+  // Reset the state machine when src changes. useState initializer only runs
+  // at mount; without this effect, navigating between species (changing src
+  // via prop) leaves imgState stale — most critically, errored → new-string
+  // keeps showSilhouette=true and never mounts the new <img>.
+  //
+  // We track the src that the current state was derived from via a ref so we
+  // can skip resets when src hasn't actually changed (guards against React 18
+  // StrictMode's double-effect invocation and against re-renders with the same
+  // src that would clobber an onLoad that fired between mount and useEffect).
+  const srcRef = useRef(src);
+  useEffect(() => {
+    if (src === srcRef.current) return;
+    srcRef.current = src;
+    setImgState(src === null ? 'null' : 'loading');
+  }, [src]);
 
   const showSilhouette = src === null || imgState === 'errored';
 

@@ -309,6 +309,7 @@ test.describe('<ClusterPill>', () => {
   // Tier thresholds are encoded in cluster.ts; the preview fixtures use
   // count values from DsPreview: sky=50, sand=200, ember=900.
   // aria-label pattern: "{count} sightings" per component contract.
+  // Element shape: <button type="button"> matching MosaicMarker pattern.
 
   test('sky tier (count=50) — desktop', async ({ page }) => {
     await page.setViewportSize(DESKTOP);
@@ -316,9 +317,8 @@ test.describe('<ClusterPill>', () => {
 
     const pill = page.locator('.cluster-pill--sky');
     await expect(pill).toBeVisible();
-    await expect(pill).toHaveAttribute('role', 'img');
+    await expect(pill).toHaveAttribute('type', 'button');
     await expect(pill).toHaveAttribute('aria-label', '50 sightings');
-    await expect(pill).toHaveAttribute('tabindex', '0');
     await expect(pill).toHaveText('50');
   });
 
@@ -339,7 +339,7 @@ test.describe('<ClusterPill>', () => {
 
     const pill = page.locator('.cluster-pill--sand');
     await expect(pill).toBeVisible();
-    await expect(pill).toHaveAttribute('role', 'img');
+    await expect(pill).toHaveAttribute('type', 'button');
     await expect(pill).toHaveAttribute('aria-label', '200 sightings');
     await expect(pill).toHaveText('200');
   });
@@ -360,7 +360,7 @@ test.describe('<ClusterPill>', () => {
 
     const pill = page.locator('.cluster-pill--ember');
     await expect(pill).toBeVisible();
-    await expect(pill).toHaveAttribute('role', 'img');
+    await expect(pill).toHaveAttribute('type', 'button');
     await expect(pill).toHaveAttribute('aria-label', '900 sightings');
     await expect(pill).toHaveText('900');
   });

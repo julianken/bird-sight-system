@@ -8,9 +8,12 @@
  * the sole discriminator).
  *
  * A11y contract:
- *   role="img" + aria-label="{count} sightings" collapses the pill to one
- *   SR announcement. Tier (color, padding, font-size step) is decorative.
- *   WCAG 1.4.1 satisfied by the count text, not by color.
+ *   <button type="button"> with aria-label="{count} sightings" collapses
+ *   the pill to one SR announcement and gives AT users the same activation
+ *   affordance as sighted keyboard users — matching the established
+ *   <MosaicMarker> pattern (MosaicMarker.tsx lines 13–14). Tier (color,
+ *   padding, font-size step) is decorative. WCAG 1.4.1 satisfied by the
+ *   count text inside the pill, not by color.
  *
  * Tier is computed internally from clusterTier() (cluster.ts).
  * The MapLibre cluster layer config (Phase 3) will import the same
@@ -21,16 +24,14 @@
  *   Sand  → 10.4:1 (dark stroke on white fill)
  *   Ember → 5.1:1  (dark stroke on white fill)
  *
- * Keyboard: the pill renders as a focusable div with tabIndex=0 and
- * onKeyDown handler for Enter/Space to match native button semantics.
- * A <button> would be more semantic, but MapLibre Marker overlays in
- * Phase 3 need to suppress native button styling — div + keyboard handler
- * is consistent with the existing cluster trigger pattern in the codebase.
+ * Styling note: UA button reset (border, padding, background) is deferred
+ * to the primitive CSS pass (filed as follow-up). The button is unstyled
+ * here intentionally — CSS ships separately per the Phase 2 scope.
  *
  * Spec: docs/design/01-spec/components.md#clusterpill
  *       docs/design/01-spec/accessibility.md (cluster pill ARIA)
  */
-import type { ReactNode, KeyboardEvent } from 'react';
+import type { ReactNode } from 'react';
 import { clusterTier } from '../../config/cluster.js';
 
 export interface ClusterPillProps {
@@ -41,23 +42,14 @@ export interface ClusterPillProps {
 export function ClusterPill({ count, onClick }: ClusterPillProps): ReactNode {
   const tier = clusterTier(count);
 
-  const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      onClick();
-    }
-  };
-
   return (
-    <div
+    <button
+      type="button"
       className={`cluster-pill cluster-pill--${tier}`}
-      role="img"
       aria-label={`${count} sightings`}
-      tabIndex={0}
       onClick={onClick}
-      onKeyDown={handleKeyDown}
     >
       {count}
-    </div>
+    </button>
   );
 }
