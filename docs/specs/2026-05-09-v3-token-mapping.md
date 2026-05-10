@@ -30,6 +30,25 @@ The `[data-theme="light"]` block in `frontend/src/styles/tokens.css` preserves t
 
 This preserves AA contrast invariants verified by the e2e axe spec (e.g. `.feed-row-time` at 11px on `#fff` with `--color-text-subtle = #5c5c5c` = 6.86:1, passing 4.5:1). New tokens with no existing equivalent (`--color-bg-skeleton`, `--color-decision-point`, `--color-density-*`) take the spec values directly.
 
+## Phase 1 dark-mode contract
+
+The `[data-theme="dark"]` block in `tokens.css` intentionally overrides ONLY new tokens (no existing equivalent in styles.css `:root`). Existing tokens stay at their light-mode values in dark mode for now.
+
+Why: existing CSS patterns like `.surface-nav-tab.is-active { background: var(--color-text-strong); }` reuse text tokens as backgrounds. Flipping `--color-text-strong` to a near-white in dark mode would put white text on near-white background (1.07:1 contrast). The full dark-mode palette landing requires component rewrites that are out of Phase 1 scope.
+
+What this means visually: when a user toggles to dark mode in Phase 1, the page mostly looks like light mode (because no existing token has a dark-mode value). Only NEW tokens (cluster density triad, decision-point) take their dark-mode pairing. This is the deliberate "mechanism-ready, palette-deferred" Phase 1 contract. Phases 3-5 add full dark-mode palette pairings as each surface is rewritten on Phase 2 primitives.
+
+Tokens overridden in `[data-theme="dark"]` (Phase 1):
+- `--color-bg-skeleton` (NEW)
+- `--color-decision-point` (NEW)
+- `--color-density-low|mid|high` (NEW)
+- `--color-density-text` (NEW)
+
+Tokens NOT overridden in `[data-theme="dark"]` (Phase 1):
+- All existing tokens carried from `styles.css :root` (`--color-text-*`, `--color-bg-page|surface|tint|*`, `--color-border-ui`, `--color-accent-notable-*`, `--color-error-*`).
+
+The MutationObserver mechanism in `MapCanvas.tsx` is still active and verified to fire on `[data-theme]` change; it calls `map.setStyle(basemapStyleDark)` even though OpenFreeMap's dark style aliases visually similar tiles for now (G8 is also deferred — see `docs/design/01-spec/open-questions.md`).
+
 ## Lint guard
 
 The CI step `Forbidden raw token names` in `.github/workflows/lint.yml` fails on any
