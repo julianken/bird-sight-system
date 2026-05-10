@@ -57,24 +57,17 @@ echo OK
 
 Expected: `OK`. If either file is missing, Phase 2 has not merged — STOP and resolve the dependency (do not create the files in this phase).
 
-- [ ] **Step 2: Confirm the four value contracts.**
+- [ ] **Step 2: Confirm the four value contracts via Phase 2's tests.**
+
+Phase 2 ships `frontend/src/config/filter.test.ts` and `frontend/src/config/freshness.test.ts` alongside the source modules. Re-run those tests through the existing Vitest toolchain (no separate runtime needed — the frontend workspace is TypeScript-only with `noEmit: true`, so direct `node` import of `.js` paths would fail):
 
 ```bash
-node --input-type=module -e "
-  import('./frontend/src/config/filter.js').then(m => {
-    if (m.FILTER_SENTENCE_DEBOUNCE_MS !== 500) throw new Error('debounce ≠ 500ms');
-    if (m.FILTER_SENTENCE_CLEAR_HOLD_MS !== 1500) throw new Error('clear-hold ≠ 1500ms');
-  });
-  import('./frontend/src/config/freshness.js').then(m => {
-    if (m.FRESHNESS_FRESH_MAX_MS !== 30 * 60 * 1000) throw new Error('fresh ≠ 30min');
-    if (m.FRESHNESS_RECENT_MAX_MS !== 6 * 60 * 60 * 1000) throw new Error('recent ≠ 6h');
-    if (m.FRESHNESS_FRESH_MAX_MS >= m.FRESHNESS_RECENT_MAX_MS) throw new Error('fresh ≥ recent');
-    console.log('OK');
-  });
-"
+npm run test --workspace @bird-watch/frontend -- \
+  frontend/src/config/filter.test.ts \
+  frontend/src/config/freshness.test.ts
 ```
 
-Expected: `OK`. The four constraints (500ms, 1500ms, 30min, 6h, fresh < recent) are accessibility/content contracts spec'd in `docs/design/01-spec/accessibility.md` §FilterSentence live region and `docs/design/01-spec/voice-and-content.md` §Lede contract. If any constraint fails, the bug is in Phase 2's implementation — open an issue against Phase 2, do not edit those files here.
+Expected: all 5 assertions pass — `FILTER_SENTENCE_DEBOUNCE_MS === 500`, `FILTER_SENTENCE_CLEAR_HOLD_MS === 1500`, `FRESHNESS_FRESH_MAX_MS === 30 * 60 * 1000`, `FRESHNESS_RECENT_MAX_MS === 6 * 60 * 60 * 1000`, `FRESHNESS_FRESH_MAX_MS < FRESHNESS_RECENT_MAX_MS`. The four numeric values are accessibility/content contracts spec'd in `docs/design/01-spec/accessibility.md` §FilterSentence live region and `docs/design/01-spec/voice-and-content.md` §Lede contract. If any assertion fails, the bug is in Phase 2's implementation — open an issue against Phase 2, do not edit those files here.
 
 - [ ] **Step 3: No commit.**
 
