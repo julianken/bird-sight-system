@@ -62,12 +62,12 @@ describe('ThemeToggle', () => {
     expect(localStorage.getItem('theme')).toBe('dark');
   });
 
-  it('has an accessible aria-label that names the current mode', () => {
+  it('has an accessible aria-label that names the target theme', () => {
     setTheme('light');
     render(<ThemeToggle />);
     expect(screen.getByRole('button')).toHaveAttribute(
       'aria-label',
-      'Switch to dark mode',
+      'Switch to dark theme',
     );
   });
 
@@ -77,8 +77,27 @@ describe('ThemeToggle', () => {
     await userEvent.click(screen.getByRole('button'));
     expect(screen.getByRole('button')).toHaveAttribute(
       'aria-label',
-      'Switch to light mode',
+      'Switch to light theme',
     );
+  });
+
+  it('button has no aria-live attribute (fix #416 — live region is a sibling)', () => {
+    setTheme('light');
+    render(<ThemeToggle />);
+    const btn = screen.getByRole('button');
+    expect(btn).not.toHaveAttribute('aria-live');
+  });
+
+  it('sibling live region announces the new theme name after toggle', async () => {
+    setTheme('light');
+    const { container } = render(<ThemeToggle />);
+    const liveRegion = container.querySelector('[aria-live="polite"]');
+    expect(liveRegion).toBeInTheDocument();
+    // Before toggle, live region is empty
+    expect(liveRegion?.textContent).toBe('');
+    await userEvent.click(screen.getByRole('button'));
+    // After toggle to dark, live region announces "Dark theme"
+    expect(liveRegion?.textContent).toBe('Dark theme');
   });
 
   // Safari Private Browsing and sandboxed iframes throw SecurityError on
