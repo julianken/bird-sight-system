@@ -29,9 +29,23 @@ const VERMFLY = {
 } as const;
 
 test.describe('Path A happy path', () => {
-  test('feed surface loads by default', async ({ page }) => {
+  test('map surface loads by default (post-Sky-Atlas Phase 0)', async ({ page }) => {
     const app = new AppPage(page);
     await app.goto();
+    await app.waitForAppReady();
+
+    // Phase 0: bare '/' now loads the map surface (DEFAULTS.view='map').
+    // The Map tab is the selected SurfaceNav item on a cold load.
+    const mapTab = page.getByRole('tab', { name: 'Map view' });
+    await expect(mapTab).toHaveAttribute('aria-selected', 'true');
+
+    // Map canvas is visible.
+    await expect(page.locator('[data-testid=map-canvas]')).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('feed surface loads when navigating to ?view=feed', async ({ page }) => {
+    const app = new AppPage(page);
+    await app.goto('view=feed');
     await app.waitForAppReady();
 
     // At least one observation row is present. The seeded dev DB has 11
@@ -41,16 +55,15 @@ test.describe('Path A happy path', () => {
     const rowCount = await page.locator('.feed-row').count();
     expect(rowCount).toBeGreaterThanOrEqual(1);
 
-    // Feed tab is the selected SurfaceNav item on a cold load. The
-    // accessible name is "Feed view" to avoid collision with the
-    // FiltersBar "Species"/"Family" input labels.
+    // Feed tab is the selected SurfaceNav item. The accessible name is
+    // "Feed view" to avoid collision with the FiltersBar labels.
     const feedTab = page.getByRole('tab', { name: 'Feed view' });
     await expect(feedTab).toHaveAttribute('aria-selected', 'true');
   });
 
   test('filters narrow the feed', async ({ page }) => {
     const app = new AppPage(page);
-    await app.goto();
+    await app.goto('view=feed');
     await app.waitForAppReady();
 
     await expect(page.locator('.feed-row').first()).toBeVisible({ timeout: 10_000 });
@@ -122,7 +135,7 @@ test.describe('Path A happy path', () => {
   test('feed row click opens detail surface at mobile and desktop', async ({ page, apiStub }) => {
     await apiStub.stubSpecies('vermfly', VERMFLY);
     const app = new AppPage(page);
-    await app.goto();
+    await app.goto('view=feed');
     await app.waitForAppReady();
 
     await expect(page.locator('.feed-row').first()).toBeVisible({ timeout: 10_000 });

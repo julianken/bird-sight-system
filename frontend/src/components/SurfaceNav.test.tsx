@@ -19,6 +19,16 @@ describe('SurfaceNav', () => {
     expect(mapTab).toHaveAttribute('aria-selected', 'false');
   });
 
+  it('renders tabs in [Map, Species, Feed] order (Sky Atlas Phase 0)', () => {
+    render(<SurfaceNav activeView="map" onSelectView={() => {}} />);
+    const tabs = screen.getAllByRole('tab');
+    expect(tabs.map(t => t.getAttribute('aria-label'))).toEqual([
+      'Map view',
+      'Species view',
+      'Feed view',
+    ]);
+  });
+
   it('tracks aria-selected as activeView changes', () => {
     const { rerender } = render(
       <SurfaceNav activeView="feed" onSelectView={() => {}} />
@@ -77,11 +87,11 @@ describe('SurfaceNav', () => {
   it('ArrowRight on the active tab moves focus AND fires onSelectView with the next value', async () => {
     const onSelectView = vi.fn();
     const user = userEvent.setup();
-    render(<SurfaceNav activeView="feed" onSelectView={onSelectView} />);
+    render(<SurfaceNav activeView="map" onSelectView={onSelectView} />);
 
-    const feedTab = screen.getByRole('tab', { name: 'Feed view' });
-    feedTab.focus();
-    expect(feedTab).toHaveFocus();
+    const mapTab = screen.getByRole('tab', { name: 'Map view' });
+    mapTab.focus();
+    expect(mapTab).toHaveFocus();
 
     await user.keyboard('{ArrowRight}');
     expect(onSelectView).toHaveBeenCalledWith('species');
@@ -97,24 +107,11 @@ describe('SurfaceNav', () => {
     speciesTab.focus();
 
     await user.keyboard('{ArrowLeft}');
-    expect(onSelectView).toHaveBeenCalledWith('feed');
-    expect(screen.getByRole('tab', { name: 'Feed view' })).toHaveFocus();
+    expect(onSelectView).toHaveBeenCalledWith('map');
+    expect(screen.getByRole('tab', { name: 'Map view' })).toHaveFocus();
   });
 
   it('ArrowRight wraps from the last tab to the first', async () => {
-    const onSelectView = vi.fn();
-    const user = userEvent.setup();
-    render(<SurfaceNav activeView="map" onSelectView={onSelectView} />);
-
-    const mapTab = screen.getByRole('tab', { name: 'Map view' });
-    mapTab.focus();
-
-    await user.keyboard('{ArrowRight}');
-    expect(onSelectView).toHaveBeenCalledWith('feed');
-    expect(screen.getByRole('tab', { name: 'Feed view' })).toHaveFocus();
-  });
-
-  it('ArrowLeft wraps from the first tab to the last', async () => {
     const onSelectView = vi.fn();
     const user = userEvent.setup();
     render(<SurfaceNav activeView="feed" onSelectView={onSelectView} />);
@@ -122,9 +119,22 @@ describe('SurfaceNav', () => {
     const feedTab = screen.getByRole('tab', { name: 'Feed view' });
     feedTab.focus();
 
-    await user.keyboard('{ArrowLeft}');
+    await user.keyboard('{ArrowRight}');
     expect(onSelectView).toHaveBeenCalledWith('map');
     expect(screen.getByRole('tab', { name: 'Map view' })).toHaveFocus();
+  });
+
+  it('ArrowLeft wraps from the first tab to the last', async () => {
+    const onSelectView = vi.fn();
+    const user = userEvent.setup();
+    render(<SurfaceNav activeView="map" onSelectView={onSelectView} />);
+
+    const mapTab = screen.getByRole('tab', { name: 'Map view' });
+    mapTab.focus();
+
+    await user.keyboard('{ArrowLeft}');
+    expect(onSelectView).toHaveBeenCalledWith('feed');
+    expect(screen.getByRole('tab', { name: 'Feed view' })).toHaveFocus();
   });
 
   it('Enter on a focused tab activates it', async () => {

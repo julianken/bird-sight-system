@@ -1,0 +1,28 @@
+/*
+ * Global reduced-motion policy.
+ *
+ * When the user has expressed a reduced-motion preference (system
+ * accessibility setting), collapse all CSS transitions and animations
+ * to 0ms. This is the single source of truth for reduced-motion in
+ * the application — components MUST NOT add their own
+ * `prefers-reduced-motion` queries unless they need a per-element
+ * override (e.g., suppressing a transform entirely rather than just
+ * its interpolation).
+ *
+ * One exception: MapLibre camera animations are JavaScript-driven
+ * (map.easeTo / map.flyTo) and are not under the CSS cascade. They
+ * are guarded separately in MapCanvas.tsx by reading
+ * matchMedia('(prefers-reduced-motion: reduce)').matches.
+ *
+ * Per spec:
+ *   docs/specs/2026-05-09-sky-atlas-redesign-design.md §4.6 (Motion policy)
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
