@@ -47,13 +47,13 @@ Phases 3, 4, 5 can ship in any order or in parallel after Phase 2 lands.
 
 | # | Title | Goal | Plan | Status |
 |---|---|---|---|---|
-| 0 | [Pre-redesign engineering](./phase-0-pre-redesign.md) | `pushState` + `DEFAULTS.view='map'` + `motion.css` + MapLibre guard | [`../../plans/2026-05-09-sky-atlas-phase-0-pre-redesign.md`](../../plans/2026-05-09-sky-atlas-phase-0-pre-redesign.md) | Plan written |
-| 1 | [Token foundation](./phase-1-token-foundation.md) | Three-tier tokens, `[data-theme]` mechanic, type ramp, lint guard | not yet written | — |
-| 2 | [Design-system primitives](./phase-2-primitives.md) | `<StatusBlock>`, `<Photo>`, `<FamilySilhouette>`, `<ClusterPill>`, `<FilterSentence>` | not yet written | — |
-| 3 | [Map surface redesign](./phase-3-map-surface.md) | Cluster pills + lede + FamilyLegend revision | not yet written | — |
-| 4 | [Detail surface redesign](./phase-4-detail-surface.md) | Modal desktop + bottom-sheet mobile, photo masthead, h1 + focus | not yet written | — |
-| 5 | [Feed + species surfaces](./phase-5-feed-species.md) | Top-notable card, search visual contrast, FilterSentence live region | not yet written | — |
-| 6 | [Metadata + brand voice](./phase-6-metadata-voice.md) | 19 metadata gaps, voice strings, structured data | not yet written | — |
+| 0 | [Pre-redesign engineering](./phase-0-pre-redesign.md) | `pushState` + `DEFAULTS.view='map'` + `motion.css` + MapLibre guard | [`../../plans/2026-05-09-sky-atlas-phase-0-pre-redesign.md`](../../plans/2026-05-09-sky-atlas-phase-0-pre-redesign.md) | Shipped (#409) |
+| 1 | [Token foundation](./phase-1-token-foundation.md) | Three-tier tokens, `[data-theme]` mechanic, type ramp, lint guard | [`../../plans/2026-05-09-sky-atlas-phase-1-token-foundation.md`](../../plans/2026-05-09-sky-atlas-phase-1-token-foundation.md) | Plan written |
+| 2 | [Design-system primitives](./phase-2-primitives.md) | `<StatusBlock>`, `<Photo>`, `<FamilySilhouette>`, `<ClusterPill>`, `<FilterSentence>` | [`../../plans/2026-05-09-sky-atlas-phase-2-primitives.md`](../../plans/2026-05-09-sky-atlas-phase-2-primitives.md) | Plan written |
+| 3 | [Map surface redesign](./phase-3-map-surface.md) | Cluster pills + lede + FamilyLegend revision | [`../../plans/2026-05-09-sky-atlas-phase-3-map-surface.md`](../../plans/2026-05-09-sky-atlas-phase-3-map-surface.md) | Plan written |
+| 4 | [Detail surface redesign](./phase-4-detail-surface.md) | Modal desktop + bottom-sheet mobile, photo masthead, h1 + focus | [`../../plans/2026-05-09-sky-atlas-phase-4-detail-surface.md`](../../plans/2026-05-09-sky-atlas-phase-4-detail-surface.md) | Plan written |
+| 5 | [Feed + species surfaces](./phase-5-feed-species.md) | Top-notable card, search visual contrast, FilterSentence live region | [`../../plans/2026-05-09-sky-atlas-phase-5-feed-species.md`](../../plans/2026-05-09-sky-atlas-phase-5-feed-species.md) | Plan written |
+| 6 | [Metadata + brand voice](./phase-6-metadata-voice.md) | 19 metadata gaps, voice strings, structured data | [`../../plans/2026-05-09-sky-atlas-phase-6-metadata-voice.md`](../../plans/2026-05-09-sky-atlas-phase-6-metadata-voice.md) | Plan written |
 
 ## Sequencing rationale
 
