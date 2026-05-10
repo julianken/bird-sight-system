@@ -12,7 +12,7 @@
 
 ## Spec reference
 
-This plan implements Phase 0 of `docs/specs/2026-05-09-sky-atlas-redesign-design.md` (sections §4.6 Motion policy, §4.9 URL state pushState fix, §8 Implementation phases). The spec's acceptance criteria for Phase 0:
+This plan implements Phase 0 of the Sky Atlas redesign (see `docs/design/01-spec/url-state.md`, `docs/design/01-spec/motion.md`, `docs/design/02-phases/phase-0-pre-redesign.md`). The phase doc's acceptance criteria for Phase 0:
 
 - Browser back works from detail → previous surface
 - `DEFAULTS.view === 'map'` (URLs without `?view=` load the map)
@@ -235,7 +235,7 @@ Resolves the home-route stakeholder decision (S4) from the redesign
 analysis. Bare bird-maps.com/ URLs now load the map surface; ?view=feed
 remains a valid bookmark path.
 
-Spec: docs/specs/2026-05-09-sky-atlas-redesign-design.md §4.9
+Spec: docs/design/01-spec/url-state.md
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
@@ -440,7 +440,7 @@ All other writes (filter changes, surface switches, leaving detail)
 keep using replaceState. Resolves analysis Theme 2 finding 2.4 — browser
 back now returns to the prior surface from a detail view.
 
-Spec: docs/specs/2026-05-09-sky-atlas-redesign-design.md §4.9
+Spec: docs/design/01-spec/url-state.md
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
@@ -479,7 +479,7 @@ Create `frontend/src/styles/motion.css`:
  * matchMedia('(prefers-reduced-motion: reduce)').matches.
  *
  * Per spec:
- *   docs/specs/2026-05-09-sky-atlas-redesign-design.md §4.6 (Motion policy)
+ *   docs/design/01-spec/motion.md (Motion policy)
  */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -552,7 +552,7 @@ separately).
 Resolves analysis Theme 5 finding 5.6 (zero prefers-reduced-motion
 queries today).
 
-Spec: docs/specs/2026-05-09-sky-atlas-redesign-design.md §4.6
+Spec: docs/design/01-spec/motion.md
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
@@ -710,7 +710,7 @@ the call shape byte-identical otherwise.
 Resolves analysis Theme 5 finding 5.6 (suspected motion-leak at
 MapCanvas.tsx:729).
 
-Spec: docs/specs/2026-05-09-sky-atlas-redesign-design.md §4.6
+Spec: docs/design/01-spec/motion.md
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
@@ -764,7 +764,7 @@ The bare URL ('/') now loads the map surface (DEFAULTS.view='map').
 Update e2e specs that asserted feed rendering on '/' to assert map
 rendering instead.
 
-Spec: docs/specs/2026-05-09-sky-atlas-redesign-design.md §4.9
+Spec: docs/design/01-spec/url-state.md
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
@@ -811,7 +811,7 @@ gh pr create --title "feat: Sky Atlas Phase 0 — pre-redesign engineering" --bo
 N/A — not UI. Phase 0 is plumbing for the Sky Atlas redesign; no visible UI surfaces change. Surface-level visual changes ship in Phases 3–6.
 
 ## Spec
-docs/specs/2026-05-09-sky-atlas-redesign-design.md §§4.6, 4.9 (Motion policy + URL state pushState fix)
+docs/design/01-spec/motion.md + docs/design/01-spec/url-state.md (Motion policy + URL state pushState fix)
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
