@@ -123,6 +123,15 @@ const config: KnipConfig = {
         //             Re-audit 2026-07-27 by confirming main.tsx still contains
         //             the `await import('./dev/DsPreview.js')` call.
         'src/dev/DsPreview.tsx',
+        // 2026-05-10: SurfaceNav.tsx — temporarily orphaned post-Sky-Atlas
+        //             Phase 3 (the <App> mount moved into <AppHeader>). The
+        //             file is still imported in App.tsx as `_SurfaceNav` to
+        //             keep the import alive until a follow-up sweep confirms
+        //             no other consumer exists. Delete in the post-Phase-3
+        //             sweep once the grep is clean. Re-audit 2026-08-09.
+        //             Risk: masks a genuine orphan added to components/ under
+        //             the SurfaceNav name without a caller.
+        'src/components/SurfaceNav.tsx',
       ],
     },
 
