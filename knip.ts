@@ -101,7 +101,29 @@ const config: KnipConfig = {
       //             this file. Re-audit 2026-07-27 by confirming both names
       //             are still consumed by MapCanvas.tsx OR the dark URL has
       //             diverged from the light one.
-      ignore: ['src/tokens.ts', 'src/components/map/basemap-style.ts'],
+      ignore: [
+        'src/tokens.ts',
+        'src/components/map/basemap-style.ts',
+        // 2026-05-10: ds/index.ts barrel export — Phase 2 ships the 6 ds/
+        //             primitives but no surface mounts them yet (Phase 3–5).
+        //             Knip correctly flags the barrel as unused; this is by
+        //             design per the Phase 2 scope boundary documented in
+        //             docs/design/02-phases/phase-2-primitives.md. The ignore
+        //             should be removed when Phase 3 imports from this barrel,
+        //             making the finding self-healing. Re-audit 2026-07-27
+        //             (or when Phase 3 lands) by confirming at least one
+        //             surface imports a named export from ds/index.ts.
+        //             Risk: masks a genuine orphan added to ds/ later without
+        //             a Phase 3+ consumer.
+        'src/components/ds/index.ts',
+        // 2026-05-10: dev/DsPreview.tsx — dev-only primitive preview shim
+        //             imported lazily from main.tsx behind import.meta.env.DEV.
+        //             Dynamic import() prevents knip from tracing the reference.
+        //             Risk: masks genuine orphan added to dev/ without a caller.
+        //             Re-audit 2026-07-27 by confirming main.tsx still contains
+        //             the `await import('./dev/DsPreview.js')` call.
+        'src/dev/DsPreview.tsx',
+      ],
     },
 
     'services/read-api': {},
