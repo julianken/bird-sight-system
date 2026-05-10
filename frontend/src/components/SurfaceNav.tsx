@@ -20,9 +20,9 @@ interface TabDef {
 // WAI-ARIA "automatic activation" tablist pattern selects on focus, so
 // activation and focus move together in Arrow handlers.
 const TABS: readonly TabDef[] = [
-  { value: 'feed', label: 'Feed', accessibleName: 'Feed view' },
-  { value: 'species', label: 'Species', accessibleName: 'Species view' },
   { value: 'map', label: 'Map', accessibleName: 'Map view' },
+  { value: 'species', label: 'Species', accessibleName: 'Species view' },
+  { value: 'feed', label: 'Feed', accessibleName: 'Feed view' },
 ];
 
 export function SurfaceNav(props: SurfaceNavProps) {
