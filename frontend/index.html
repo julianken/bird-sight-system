@@ -10,15 +10,34 @@
       prefers-color-scheme on first visit. User's explicit toggle takes
       precedence over the OS preference after first load.
 
+      Both localStorage and matchMedia are wrapped in try/catch:
+      Safari Private Browsing and sandboxed iframes throw SecurityError
+      on storage access. Without the wrap the script would abort and
+      [data-theme] would never be set, producing a FOUC.
+
+      The resolution rules are mirrored in src/utils/boot-theme.ts and
+      unit-tested there; any change to the rules MUST be applied in both
+      places.
+
       Spec: docs/design/01-spec/tokens.md §Light/dark mechanic
     -->
     <script>
       (function () {
-        var t = localStorage.getItem('theme');
-        if (!t) {
-          t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
-            ? 'dark'
-            : 'light';
+        var t = null;
+        try {
+          t = localStorage.getItem('theme');
+        } catch (e) {
+          // SecurityError (Safari Private Browsing, sandboxed iframe)
+          // — fall through to the prefers-color-scheme branch.
+        }
+        if (t !== 'light' && t !== 'dark') {
+          try {
+            t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+              ? 'dark'
+              : 'light';
+          } catch (e) {
+            t = 'light';
+          }
         }
         document.documentElement.setAttribute('data-theme', t);
       })();

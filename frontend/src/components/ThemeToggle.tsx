@@ -26,7 +26,13 @@ export function ThemeToggle() {
   const toggle = useCallback(() => {
     const next: Theme = theme === 'light' ? 'dark' : 'light';
     document.documentElement.setAttribute('data-theme', next);
-    localStorage.setItem('theme', next);
+    try {
+      localStorage.setItem('theme', next);
+    } catch {
+      // Storage failures (Safari Private Browsing, sandboxed iframe,
+      // quota exceeded) are non-fatal — [data-theme] is the in-session
+      // source of truth, the only loss is persistence across reloads.
+    }
     setTheme(next);
   }, [theme]);
 

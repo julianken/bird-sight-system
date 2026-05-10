@@ -80,4 +80,24 @@ describe('ThemeToggle', () => {
       'Switch to light mode',
     );
   });
+
+  // Safari Private Browsing and sandboxed iframes throw SecurityError on
+  // localStorage writes. The toggle MUST swallow the error and still
+  // update [data-theme] (the in-session source of truth) — only the
+  // cross-reload persistence is forfeit.
+  it('does not crash and still updates [data-theme] when localStorage.setItem throws SecurityError', async () => {
+    setTheme('light');
+    document.documentElement.setAttribute('data-theme', 'light');
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Storage access denied', 'SecurityError');
+    });
+
+    render(<ThemeToggle />);
+
+    await expect(
+      userEvent.click(screen.getByRole('button')),
+    ).resolves.not.toThrow();
+
+    expect(getTheme()).toBe('dark');
+  });
 });
