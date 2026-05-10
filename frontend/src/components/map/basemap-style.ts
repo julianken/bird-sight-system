@@ -15,9 +15,6 @@
  *        'https://tiles.openfreemap.org/styles/dark' (or a self-hosted
  *        equivalent) and the swap mechanism light up automatically.
  *
- * `basemapStyle` is kept as a light alias so existing callers compile
- * without changes until Phase 3 wires the theme-aware prop.
- *
  * Prototype finding 2 (docs/plans/2026-04-22-map-v1-prototype/learnings.md):
  * positron emits MapLibre warnings at zoom >7 — cosmetic, not crashes.
  *
@@ -28,7 +25,3 @@ export const basemapStyleLight = 'https://tiles.openfreemap.org/styles/positron'
 
 /** Aliased to the light URL until G8 closes — see the module comment. */
 export const basemapStyleDark  = basemapStyleLight;
-
-/** Backward-compatible alias — Phase 3 will replace callsites with the
- *  theme-aware selection. */
-export const basemapStyle = basemapStyleLight;
