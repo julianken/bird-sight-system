@@ -252,6 +252,18 @@ export function MapCanvas({
     return () => mql.removeEventListener('change', handler);
   }, []);
 
+  // Phase 0: read prefers-reduced-motion once at mount. useMemo with an empty
+  // dep array captures the value once — intentional. The user must reload to
+  // fully apply other reduced-motion changes anyway, and re-checking adds
+  // complexity for negligible gain.
+  const prefersReducedMotion = useMemo(
+    () =>
+      typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+        ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        : false,
+    [],
+  );
+
   // Unmount cleanup for the `window.__birdMap` test hook (#291). The hook is
   // assigned in `handleLoad` (which fires once per mount); without an unmount
   // cleanup, a remount (e.g. switching from feed view to map view and back)
@@ -436,7 +448,11 @@ export function MapCanvas({
           .getClusterExpansionZoom(clusterId)
           .then((zoom) => {
             if (center) {
-              map.easeTo({ center, zoom });
+              map.easeTo({
+                center,
+                zoom,
+                ...(prefersReducedMotion ? { duration: 0 } : {}),
+              });
             }
           })
           .catch(() => {
@@ -547,7 +563,7 @@ export function MapCanvas({
         setSpritesReady(true);
       });
     return () => { cancelled = true; };
-  }, [mapReady, silhouettes]);
+  }, [mapReady, silhouettes, prefersReducedMotion]);
 
   /**
    * Mosaic reconciler — issue #248. Queries rendered cluster features on
@@ -729,6 +745,7 @@ export function MapCanvas({
             map.easeTo({
               center,
               zoom: Math.min(targetZoom, CLUSTER_MAX_ZOOM),
+              ...(prefersReducedMotion ? { duration: 0 } : {}),
             });
           }
         })
@@ -736,7 +753,7 @@ export function MapCanvas({
           /* matches existing layer-bound err-swallow behavior */
         });
     },
-    [],
+    [prefersReducedMotion],
   );
 
   const handleClosePopover = useCallback(() => setSelectedObs(null), []);

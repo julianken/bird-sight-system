@@ -616,6 +616,73 @@ describe('MapCanvas', () => {
     });
   });
 
+  it('mosaic click under prefers-reduced-motion calls easeTo with duration: 0', async () => {
+    // Simulate a user with reduced-motion preference enabled
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query === '(prefers-reduced-motion: reduce)',
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+
+    try {
+      const cluster = {
+        id: 42,
+        properties: { cluster_id: 42, point_count: 4 },
+        geometry: { type: 'Point', coordinates: [-110.9, 32.2] },
+      };
+      fakeMap.queryRenderedFeatures.mockImplementation(
+        (_: unknown, opts?: { layers?: string[] }) => {
+          if (opts?.layers?.includes('clusters-hit')) return [cluster];
+          return [];
+        },
+      );
+
+      const getClusterLeaves = vi
+        .fn()
+        .mockResolvedValue([
+          { type: 'Feature', properties: { familyCode: 'tyrannidae' } },
+        ]);
+      const getClusterExpansionZoom = vi.fn().mockResolvedValue(13);
+      fakeMap.getSource.mockReturnValue({
+        getClusterLeaves,
+        getClusterExpansionZoom,
+      });
+
+      // Zoom 12 < CLUSTER_MAX_ZOOM (14): the easeTo branch fires.
+      fakeMap.getZoom.mockReturnValue(12);
+
+      render(<MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />);
+      await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+
+      await act(async () => {
+        await bareHandlers['idle']?.();
+      });
+
+      const button = await screen.findByTestId('cluster-mosaic-marker');
+      await act(async () => {
+        button.click();
+      });
+
+      // easeTo runs after getClusterExpansionZoom resolves — wait for it.
+      await waitFor(() => {
+        expect(fakeMap.easeTo).toHaveBeenCalled();
+      });
+
+      // The new contract: easeTo must include duration: 0 under reduced-motion
+      expect(fakeMap.easeTo).toHaveBeenCalledWith(
+        expect.objectContaining({ duration: 0 })
+      );
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
   it('mosaic click at zoom >= CLUSTER_MAX_ZOOM is a NO-OP (auto-spider already fanned)', async () => {
     const cluster = {
       id: 99,
