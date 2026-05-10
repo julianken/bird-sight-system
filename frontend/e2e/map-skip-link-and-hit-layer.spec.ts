@@ -108,13 +108,11 @@ test.describe('Map skip-link + hit-target overlay (#247, #277)', () => {
     // (notable / since / etc.) are preserved by the partial-merge
     // semantics of useUrlState.set.
     //
-    // `useUrlState.writeUrl` omits the `?view=` param entirely when the
-    // value equals the default ('feed') — so we assert via the rendered
-    // tab state (FeedSurface mounted, Feed tab selected) rather than a
-    // URL `view=feed` literal that would never appear.
+    // Phase 0: DEFAULTS.view is now 'map', so switching to 'feed' IS a
+    // non-default value and writeUrl WILL emit ?view=feed in the URL.
     await expect.poll(() => app.getUrlParams().get('view'), {
       timeout: 5_000,
-    }).toBeNull();
+    }).toBe('feed');
     await expect(
       page.getByRole('tab', { name: 'Feed view' }),
     ).toHaveAttribute('aria-selected', 'true');

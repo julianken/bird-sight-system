@@ -60,8 +60,11 @@ test.describe('Map surface', () => {
     await app.filters.toggleNotable(true);
     await expect.poll(() => app.getUrlParams().get('notable'), { timeout: 5_000 })
       .toBe('true');
+    // Phase 0: DEFAULTS.view is now 'map', so ?view= is omitted from the URL
+    // when map is the active view (writeUrl skips the default). Assert the
+    // map canvas is visible rather than asserting a URL param that won't appear.
     await expect.poll(() => app.getUrlParams().get('view'), { timeout: 5_000 })
-      .toBe('map');
+      .toBeNull();
 
     // Map canvas should still be visible after filter change.
     await expect(page.locator('[data-testid=map-canvas]')).toBeVisible();

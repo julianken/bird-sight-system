@@ -39,7 +39,7 @@ test.describe('species detail surface (#151)', () => {
   test('row click navigates to detail surface without narrowing feed', async ({ page, apiStub }) => {
     await apiStub.stubSpecies('vermfly', VERMFLY);
     const app = new AppPage(page);
-    await app.goto();
+    await app.goto('view=feed');
     await app.waitForAppReady();
 
     // Click first feed row.
@@ -59,7 +59,7 @@ test.describe('species detail surface (#151)', () => {
 
   test('FiltersBar species commit narrows feed without opening detail', async ({ page }) => {
     const app = new AppPage(page);
-    await app.goto();
+    await app.goto('view=feed');
     await app.waitForAppReady();
 
     // Wait for species options to be populated.
@@ -73,6 +73,8 @@ test.describe('species detail surface (#151)', () => {
     await expect.poll(() => app.getUrlParams().get('species'), { timeout: 5_000 }).toBe('vermfly');
 
     // detail= should NOT be set. View should stay on feed.
+    // Phase 0: DEFAULTS.view is now 'map', so 'feed' is a non-default view
+    // and writeUrl WILL emit ?view=feed in the URL.
     expect(app.getUrlParams().get('detail')).toBeNull();
     expect(app.getUrlParams().get('view')).toBe('feed');
 
