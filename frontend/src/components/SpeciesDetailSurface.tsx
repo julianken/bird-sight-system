@@ -7,6 +7,7 @@ import { PhenologyChart } from './PhenologyChart.js';
 import { SpeciesDescription } from './SpeciesDescription.js';
 import { Photo } from './ds/Photo.js';
 import { StatusBlock } from './ds/StatusBlock.js';
+import type { FamilyCode } from '../config/family-palette.js';
 
 export interface SpeciesDetailSurfaceProps {
   speciesCode: string;
@@ -117,7 +118,7 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
       <Photo
         src={data.photoUrl ?? null}
         alt={`${data.comName} photo`}
-        family={data.familyCode}
+        family={data.familyCode as FamilyCode | null}
         priority={true}
         layout="masthead"
       />

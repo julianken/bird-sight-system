@@ -201,14 +201,16 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
         // Drag up: maybe advance.
         const nextIdx = Math.min(order.length - 1, currentIdx + 1);
         if (nextIdx === currentIdx) return;
-        const span = heightFor(order[nextIdx]) - heightFor(snap);
-        if (-delta > span * SNAP_TRANSITION_RATIO) goToSnap(order[nextIdx]);
+        const nextSnap = order[nextIdx]!;
+        const span = heightFor(nextSnap) - heightFor(snap);
+        if (-delta > span * SNAP_TRANSITION_RATIO) goToSnap(nextSnap);
       } else if (delta > 0) {
         // Drag down: maybe retract.
         const prevIdx = Math.max(0, currentIdx - 1);
         if (prevIdx === currentIdx) return; // already at peek
-        const span = heightFor(snap) - heightFor(order[prevIdx]);
-        if (delta > span * SNAP_TRANSITION_RATIO) goToSnap(order[prevIdx]);
+        const prevSnap = order[prevIdx]!;
+        const span = heightFor(snap) - heightFor(prevSnap);
+        if (delta > span * SNAP_TRANSITION_RATIO) goToSnap(prevSnap);
       }
     },
     [snap, heightFor, goToSnap, onClose],
