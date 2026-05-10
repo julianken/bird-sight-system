@@ -37,7 +37,7 @@ function readUrl(): UrlState {
   //    'species' so bookmarked species-filter URLs land on the search
   //    surface with the filter active, NOT the detail surface.
   //  - absent ?view= AND ?detail= set → sniff to 'detail'.
-  //  - otherwise default ('feed').
+  //  - otherwise default (DEFAULTS.view — currently 'map').
   let view: View;
   if (rawView === 'hotspots') {
     // Compatibility shim: old bookmarks with ?view=hotspots silently redirect

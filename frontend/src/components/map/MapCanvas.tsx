@@ -563,7 +563,7 @@ export function MapCanvas({
         setSpritesReady(true);
       });
     return () => { cancelled = true; };
-  }, [mapReady, silhouettes, prefersReducedMotion]);
+  }, [mapReady, silhouettes]);
 
   /**
    * Mosaic reconciler — issue #248. Queries rendered cluster features on
