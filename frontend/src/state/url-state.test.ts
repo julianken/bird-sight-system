@@ -227,4 +227,86 @@ describe('useUrlState', () => {
     expect(result.current.state.view).toBe('species');
     expect(result.current.state.detail).toBeNull();
   });
+
+  // --- Phase 0: pushState for detail-surface navigation ---
+
+  describe('pushState semantics for detail navigation', () => {
+    it('navigating to detail uses pushState (history grows by 1)', () => {
+      window.history.replaceState({}, '', '/');
+      const startLen = window.history.length;
+      const { result } = renderHook(() => useUrlState());
+
+      act(() => result.current.set({ view: 'detail', detail: 'vermfly' }));
+
+      expect(window.history.length).toBe(startLen + 1);
+      expect(window.location.search).toContain('detail=vermfly');
+      expect(window.location.search).toContain('view=detail');
+    });
+
+    it('navigating away FROM detail uses replaceState (history does not grow)', () => {
+      window.history.replaceState({}, '', '/?detail=vermfly&view=detail');
+      const { result } = renderHook(() => useUrlState());
+      const startLen = window.history.length;
+
+      act(() => result.current.set({ view: 'feed', detail: null }));
+
+      expect(window.history.length).toBe(startLen);
+      expect(window.location.search).toContain('view=feed');
+      expect(window.location.search).not.toContain('detail=');
+    });
+
+    it('filter changes use replaceState (history does not grow)', () => {
+      window.history.replaceState({}, '', '/');
+      const { result } = renderHook(() => useUrlState());
+      const startLen = window.history.length;
+
+      act(() => result.current.set({ since: '7d' }));
+      act(() => result.current.set({ notable: true }));
+
+      expect(window.history.length).toBe(startLen);
+    });
+
+    it('surface switch (feed → map) uses replaceState (history does not grow)', () => {
+      window.history.replaceState({}, '', '/?view=feed');
+      const { result } = renderHook(() => useUrlState());
+      const startLen = window.history.length;
+
+      act(() => result.current.set({ view: 'map' }));
+
+      expect(window.history.length).toBe(startLen);
+    });
+
+    it('opening detail from a non-default surface preserves the prior URL in history', () => {
+      // jsdom history.back() does not navigate window.location; we verify
+      // the pushState contract by asserting that history grew by exactly 1
+      // when entering detail, and that the current URL is the detail URL.
+      // The pre-detail URL is preserved as the previous history entry —
+      // which is what browser-back would navigate to in a real browser.
+      window.history.replaceState({}, '', '/?view=feed&since=7d');
+      const startLen = window.history.length;
+      const { result } = renderHook(() => useUrlState());
+
+      act(() => result.current.set({ view: 'detail', detail: 'gilwoo' }));
+
+      // One new entry was pushed: pre-detail URL is now the back-stack entry.
+      expect(window.history.length).toBe(startLen + 1);
+      // Current URL is the detail URL.
+      expect(window.location.search).toContain('detail=gilwoo');
+      expect(window.location.search).toContain('view=detail');
+    });
+
+    it('detail → detail navigation (different species) uses pushState (history grows)', () => {
+      window.history.replaceState({}, '', '/?detail=vermfly&view=detail');
+      const { result } = renderHook(() => useUrlState());
+      const startLen = window.history.length;
+
+      act(() => result.current.set({ detail: 'gilwoo' }));
+
+      // Already on detail, only changing species code: still pushState
+      // because each species detail is a distinct user-meaningful navigation
+      // step (matches Wikipedia article-to-article navigation).
+      expect(window.history.length).toBe(startLen + 1);
+      expect(window.location.search).toContain('detail=gilwoo');
+    });
+  });
 });

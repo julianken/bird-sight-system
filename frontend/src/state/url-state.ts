@@ -68,7 +68,7 @@ function readUrl(): UrlState {
   };
 }
 
-function writeUrl(state: UrlState): void {
+function writeUrl(state: UrlState, push: boolean = false): void {
   const p = new URLSearchParams();
   if (state.speciesCode) p.set('species', state.speciesCode);
   if (state.familyCode) p.set('family', state.familyCode);
@@ -76,15 +76,23 @@ function writeUrl(state: UrlState): void {
   if (state.notable) p.set('notable', 'true');
   if (state.detail) p.set('detail', state.detail);
   // Emit ?view= when non-default, OR when ?species= or ?detail= is set and
-  // view is 'feed' — otherwise the sniff in readUrl silently reverts the
-  // user's explicit 'feed' choice back to 'species'/'detail' on reload/popstate.
+  // view is the default — otherwise the sniff in readUrl silently reverts the
+  // user's explicit default-view choice back to 'species'/'detail' on
+  // reload/popstate.
   if (state.view !== DEFAULTS.view || state.speciesCode || state.detail) {
     p.set('view', state.view);
   }
   const q = p.toString();
   const newUrl = q ? `${window.location.pathname}?${q}` : window.location.pathname;
   if (newUrl !== window.location.pathname + window.location.search) {
-    window.history.replaceState({}, '', newUrl);
+    if (push) {
+      // Detail-surface entry: push so browser-back returns to the prior
+      // surface. All other navigations replace (filter changes, tab switches,
+      // leaving detail).
+      window.history.pushState({}, '', newUrl);
+    } else {
+      window.history.replaceState({}, '', newUrl);
+    }
   }
 }
 
@@ -103,7 +111,18 @@ export function useUrlState(): {
   const set = useCallback((partial: Partial<UrlState>) => {
     setState(prev => {
       const next = { ...prev, ...partial };
-      writeUrl(next);
+      // Push (vs replace) when the user is navigating INTO the detail
+      // surface, OR navigating between two different species details.
+      // Both cases are user-meaningful "I clicked into a thing" moves
+      // that the browser back button should undo. Filter changes and
+      // surface switches (feed/species/map) keep replaceState so the
+      // history stack doesn't grow on every chip toggle.
+      const push =
+        // Entering detail from a non-detail surface
+        (next.view === 'detail' && prev.view !== 'detail') ||
+        // Switching between two species on the detail surface
+        (next.view === 'detail' && prev.view === 'detail' && next.detail !== prev.detail);
+      writeUrl(next, push);
       return next;
     });
   }, []);
