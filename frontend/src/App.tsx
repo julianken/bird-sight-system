@@ -10,7 +10,11 @@ import { FeedSurface } from './components/FeedSurface.js';
 import { MapSurface } from './components/MapSurface.js';
 import { SpeciesSearchSurface } from './components/SpeciesSearchSurface.js';
 import { SpeciesDetailSurface } from './components/SpeciesDetailSurface.js';
-import { SurfaceNav } from './components/SurfaceNav.js';
+import { AppHeader } from './components/AppHeader.js';
+// SurfaceNav import retained — component still exists; App no longer mounts
+// it directly (moved to AppHeader). Defer deletion to a follow-up sweep once
+// confirmed no other consumer uses it. (Phase 3)
+import { SurfaceNav as _SurfaceNav } from './components/SurfaceNav.js';
 import { AttributionModal } from './components/AttributionModal.js';
 import { deriveFamilies, deriveSpeciesIndex } from './derived.js';
 import { filterObservationsByBounds } from './lib/viewport-filter.js';
@@ -19,6 +23,16 @@ const apiClient = new ApiClient({ baseUrl: import.meta.env.VITE_API_BASE_URL ?? 
 
 export function App() {
   const { state, set } = useUrlState();
+  // Phase 3: filters panel state + badge count.
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  // Active-filter count: every non-default URL-state field counts as 1.
+  // since !== '14d', notable, speciesCode, familyCode. Detail/view do not
+  // count (they're navigation, not filter narrowing).
+  const filterCount =
+    (state.since !== '14d' ? 1 : 0) +
+    (state.notable ? 1 : 0) +
+    (state.speciesCode ? 1 : 0) +
+    (state.familyCode ? 1 : 0);
   // hotspots intentionally fetched but unused — cheap insurance for v2
   // hotspot-marker layer (Plan 7 decision 5, docs/plans/2026-04-22-plan-7-map-v1.md).
   const { loading, error, observations } = useBirdData(apiClient, {
@@ -95,6 +109,16 @@ export function App() {
     [set, state.familyCode],
   );
 
+  // Phase 3: Attribution modal trigger — AppHeader's "Attribution" button
+  // dispatches a click into the existing AttributionModal trigger inside the
+  // footer (which remains rendered but visually de-emphasized). Phase 6 will
+  // reconcile by removing the footer trigger and wiring a controlled-open API.
+  // TODO(phase-6): replace this querySelector with a proper controlled-open prop.
+  const onOpenAttribution = useCallback(() => {
+    const trigger = document.querySelector<HTMLButtonElement>('.attribution-trigger');
+    trigger?.click();
+  }, []);
+
   const nowRef = useRef(new Date());
   const now = nowRef.current;
 
@@ -153,19 +177,34 @@ export function App() {
 
   return (
     <div className="app">
-      <FiltersBar
-        since={state.since}
-        notable={state.notable}
-        speciesCode={state.speciesCode}
-        familyCode={state.familyCode}
-        families={families}
-        speciesIndex={speciesIndex}
-        onChange={set}
-      />
-      <SurfaceNav
+      <AppHeader
         activeView={state.view}
         onSelectView={view => set({ view })}
+        filterCount={filterCount}
+        onOpenFilters={() => setFiltersOpen(true)}
+        onOpenAttribution={onOpenAttribution}
       />
+      {filtersOpen && (
+        <div className="filters-panel" role="region" aria-label="Filters">
+          <button
+            type="button"
+            className="filters-panel-close"
+            onClick={() => setFiltersOpen(false)}
+            aria-label="Close filters"
+          >
+            ×
+          </button>
+          <FiltersBar
+            since={state.since}
+            notable={state.notable}
+            speciesCode={state.speciesCode}
+            familyCode={state.familyCode}
+            families={families}
+            speciesIndex={speciesIndex}
+            onChange={set}
+          />
+        </div>
+      )}
       <main
         id="main-surface"
         data-render-complete={renderComplete}

@@ -62,7 +62,7 @@ export function FiltersBar(props: FiltersBarProps) {
   }
 
   return (
-    <div className="filters-bar" role="region" aria-label="Filters">
+    <div className="filters-bar">
       <label>
         Time window
         <select
