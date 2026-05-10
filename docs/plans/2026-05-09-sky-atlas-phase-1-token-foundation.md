@@ -221,7 +221,7 @@ No consumers yet — wired in subsequent commits.
 
 Spec: docs/design/01-spec/tokens.md
 
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -314,7 +314,7 @@ callsites green until Phase 3 swaps the theme-aware prop.
 
 Spec: docs/design/01-spec/tokens.md §Light/dark mechanic
 
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -394,7 +394,7 @@ on <html> before any CSS is applied.
 
 Spec: docs/design/01-spec/tokens.md §Light/dark mechanic
 
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -477,7 +477,7 @@ keeps config/region.ts available to any consumer in Phase 2+.
 
 Spec: docs/design/01-spec/architecture.md §Cross-cutting structures
 
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -668,7 +668,7 @@ the new mode to screen readers.
 
 Spec: docs/design/01-spec/tokens.md §Light/dark mechanic
 
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -872,7 +872,7 @@ and dark URLs; the backward-compatible basemapStyle alias is retained.
 
 Spec: docs/design/01-spec/tokens.md §Light/dark mechanic
 
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -970,7 +970,7 @@ Mapping: 11-12px→--type-xs, 13-14px→--type-sm, 15px→--type-base,
 
 Spec: docs/design/01-spec/tokens.md §Type ramp
 
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -1041,7 +1041,7 @@ and covers exactly this failure class.
 
 Spec: docs/design/01-spec/tokens.md §Lint guard
 
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -1107,7 +1107,7 @@ Records mock-to-production token name translation for reviewers and
 future implementers. Companion to the Phase 1 plan; required artifact
 per docs/design/02-phases/phase-1-token-foundation.md §What ships.
 
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
 )"
 ```

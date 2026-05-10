@@ -34,145 +34,51 @@
 | `frontend/src/components/ObservationFeedRow.tsx` | Modify (thin re-export) | Keep existing export as alias to `<FeedRow>` so downstream consumers don't break |
 | `frontend/src/components/SpeciesSearchSurface.tsx` | Modify | Hero autocomplete visual sharpening; mount `<FilterSentence>` |
 | `frontend/src/components/SpeciesSearchSurface.test.tsx` | Modify | Assert visual-contrast classes, FilterSentence mount |
-| `frontend/src/config/filter.ts` | Create | `FILTER_SENTENCE_DEBOUNCE_MS = 500`, `FILTER_SENTENCE_CLEAR_HOLD_MS = 1500` |
-| `frontend/src/config/freshness.ts` | Create | `FRESHNESS_FRESH_MAX_MS`, `FRESHNESS_RECENT_MAX_MS` thresholds |
+| `frontend/src/config/filter.ts` | Verify (Phase 2 ships) | `FILTER_SENTENCE_DEBOUNCE_MS = 500`, `FILTER_SENTENCE_CLEAR_HOLD_MS = 1500` |
+| `frontend/src/config/freshness.ts` | Verify (Phase 2 ships) | `FRESHNESS_FRESH_MAX_MS`, `FRESHNESS_RECENT_MAX_MS` thresholds |
 
 ---
 
-## Task 1: Create `frontend/src/config/filter.ts` and `frontend/src/config/freshness.ts`
+## Task 1: Verify Phase 2 shipped `frontend/src/config/filter.ts` and `frontend/src/config/freshness.ts`
 
-These constants are imported by `<FilterSentence>` and `<FeedSurface>` for debounce behaviour and lede state. Creating them first keeps later tasks from hardcoding magic numbers.
+These constants are imported by `<FilterSentence>` and `<FeedSurface>` for debounce behaviour and lede state. **Phase 2 (`docs/plans/2026-05-09-sky-atlas-phase-2-primitives.md`) creates both files** as part of the `<FilterSentence>` primitive landing — see Phase 2 file structure and Task 2. This phase only verifies the value contracts hold; if the verification fails, fix Phase 2's plan, do not patch over it here.
 
-**Files:**
-- Create: `frontend/src/config/filter.ts`
-- Create: `frontend/src/config/freshness.ts`
+**Files (read-only):**
+- Verify exists: `frontend/src/config/filter.ts`
+- Verify exists: `frontend/src/config/freshness.ts`
 
-- [ ] **Step 1: Write failing tests for the constants.**
-
-Create `frontend/src/config/filter.test.ts`:
-
-```typescript
-import { describe, it, expect } from 'vitest';
-import {
-  FILTER_SENTENCE_DEBOUNCE_MS,
-  FILTER_SENTENCE_CLEAR_HOLD_MS,
-} from './filter.js';
-
-describe('filter config', () => {
-  it('debounce is exactly 500ms (accessibility contract)', () => {
-    expect(FILTER_SENTENCE_DEBOUNCE_MS).toBe(500);
-  });
-
-  it('clear-hold is exactly 1500ms (accessibility contract)', () => {
-    expect(FILTER_SENTENCE_CLEAR_HOLD_MS).toBe(1500);
-  });
-});
-```
-
-Create `frontend/src/config/freshness.test.ts`:
-
-```typescript
-import { describe, it, expect } from 'vitest';
-import {
-  FRESHNESS_FRESH_MAX_MS,
-  FRESHNESS_RECENT_MAX_MS,
-} from './freshness.js';
-
-describe('freshness config', () => {
-  it('fresh threshold is 30 minutes', () => {
-    expect(FRESHNESS_FRESH_MAX_MS).toBe(30 * 60 * 1000);
-  });
-
-  it('recent threshold is 6 hours', () => {
-    expect(FRESHNESS_RECENT_MAX_MS).toBe(6 * 60 * 60 * 1000);
-  });
-
-  it('fresh threshold is strictly less than recent threshold', () => {
-    expect(FRESHNESS_FRESH_MAX_MS).toBeLessThan(FRESHNESS_RECENT_MAX_MS);
-  });
-});
-```
-
-- [ ] **Step 2: Run to confirm failures.**
+- [ ] **Step 1: Confirm files exist on the branch base.**
 
 ```bash
-npm run test --workspace @bird-watch/frontend -- filter.test.ts freshness.test.ts
+test -f frontend/src/config/filter.ts && \
+test -f frontend/src/config/freshness.ts && \
+echo OK
 ```
 
-Expected: module-not-found errors (files don't exist yet).
+Expected: `OK`. If either file is missing, Phase 2 has not merged — STOP and resolve the dependency (do not create the files in this phase).
 
-- [ ] **Step 3: Create the config files.**
-
-Create `frontend/src/config/filter.ts`:
-
-```typescript
-/**
- * FilterSentence live-region timing constants.
- *
- * Both values are load-bearing accessibility contracts:
- *   - FILTER_SENTENCE_DEBOUNCE_MS: rapid filter toggles produce one SR
- *     announcement after the user stops, not one per toggle. 500ms matches
- *     the "settled state" debounce window specified in
- *     docs/design/01-spec/accessibility.md §FilterSentence live region.
- *   - FILTER_SENTENCE_CLEAR_HOLD_MS: when filters clear, hold "All filters
- *     cleared." in the live region for 1500ms before going silent so SR
- *     users hear the state change even on a fast device.
- *
- * Do NOT inline these into components. Both values are referenced by
- * FilterSentence (announcement timing) and by unit tests that assert the
- * debounce contract directly.
- */
-export const FILTER_SENTENCE_DEBOUNCE_MS = 500;
-export const FILTER_SENTENCE_CLEAR_HOLD_MS = 1500;
-```
-
-Create `frontend/src/config/freshness.ts`:
-
-```typescript
-/**
- * Freshness thresholds for the lede state machine.
- *
- * The lede sentence on Feed / Species surfaces evaluates the age of the
- * most recent observation (from meta.freshest_observation_at) against
- * these thresholds to determine the freshness label state.
- *
- * State machine (from docs/design/01-spec/voice-and-content.md):
- *   age ≤ FRESHNESS_FRESH_MAX_MS  → 'fresh'  ("Updated 11 min ago · Source: eBird")
- *   age ≤ FRESHNESS_RECENT_MAX_MS → 'recent' ("Updated 2 h ago · Source: eBird")
- *   age >  FRESHNESS_RECENT_MAX_MS → 'stale'  ("Last updated 9 h ago · Source: eBird")
- */
-export const FRESHNESS_FRESH_MAX_MS = 30 * 60 * 1000;   // 30 minutes
-export const FRESHNESS_RECENT_MAX_MS = 6 * 60 * 60 * 1000; // 6 hours
-```
-
-- [ ] **Step 4: Run to confirm tests pass.**
+- [ ] **Step 2: Confirm the four value contracts.**
 
 ```bash
-npm run test --workspace @bird-watch/frontend -- filter.test.ts freshness.test.ts
+node --input-type=module -e "
+  import('./frontend/src/config/filter.js').then(m => {
+    if (m.FILTER_SENTENCE_DEBOUNCE_MS !== 500) throw new Error('debounce ≠ 500ms');
+    if (m.FILTER_SENTENCE_CLEAR_HOLD_MS !== 1500) throw new Error('clear-hold ≠ 1500ms');
+  });
+  import('./frontend/src/config/freshness.js').then(m => {
+    if (m.FRESHNESS_FRESH_MAX_MS !== 30 * 60 * 1000) throw new Error('fresh ≠ 30min');
+    if (m.FRESHNESS_RECENT_MAX_MS !== 6 * 60 * 60 * 1000) throw new Error('recent ≠ 6h');
+    if (m.FRESHNESS_FRESH_MAX_MS >= m.FRESHNESS_RECENT_MAX_MS) throw new Error('fresh ≥ recent');
+    console.log('OK');
+  });
+"
 ```
 
-Expected: all 5 tests pass.
+Expected: `OK`. The four constraints (500ms, 1500ms, 30min, 6h, fresh < recent) are accessibility/content contracts spec'd in `docs/design/01-spec/accessibility.md` §FilterSentence live region and `docs/design/01-spec/voice-and-content.md` §Lede contract. If any constraint fails, the bug is in Phase 2's implementation — open an issue against Phase 2, do not edit those files here.
 
-- [ ] **Step 5: Commit.**
+- [ ] **Step 3: No commit.**
 
-```bash
-git add frontend/src/config/filter.ts frontend/src/config/filter.test.ts \
-        frontend/src/config/freshness.ts frontend/src/config/freshness.test.ts
-git commit -m "$(cat <<'EOF'
-feat(config): add filter + freshness timing constants (Sky Atlas Phase 5)
-
-Extracts FILTER_SENTENCE_DEBOUNCE_MS (500ms), FILTER_SENTENCE_CLEAR_HOLD_MS
-(1500ms), FRESHNESS_FRESH_MAX_MS (30 min), and FRESHNESS_RECENT_MAX_MS (6 h)
-into dedicated config modules. These are load-bearing accessibility and
-content contracts referenced by FilterSentence and FeedSurface lede logic.
-
-Spec: docs/design/01-spec/accessibility.md §FilterSentence live region
-      docs/design/01-spec/voice-and-content.md §Lede contract
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
-EOF
-)"
-```
+This task is verification-only and produces no diff. Proceed to Task 2.
 
 ---
 
