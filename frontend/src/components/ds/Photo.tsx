@@ -86,7 +86,7 @@ export function Photo({
         src={src!}
         alt={alt}
         loading={priority ? 'eager' : 'lazy'}
-        fetchPriority={priority ? 'high' : undefined}
+        {...(priority ? { fetchPriority: 'high' as const } : {})}
         className={imgState !== 'loaded' ? 'photo__img photo__img--pending' : 'photo__img'}
         onLoad={() => setImgState('loaded')}
         onError={() => setImgState('errored')}
