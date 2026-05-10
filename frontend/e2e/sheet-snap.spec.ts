@@ -5,6 +5,7 @@ test.use({ viewport: { width: 390, height: 844 } });
 
 test.describe('SpeciesDetailSheet snap behavior', () => {
   test('opens at peek; expand button advances peek → half → full; role flips at full', async ({ page, apiStub }) => {
+    await apiStub.stubEmpty();
     await apiStub.stubSpecies('vermfly', VERMFLY_WITH_PHOTO);
     await apiStub.stubPhotoImage();
     const app = new AppPage(page);
@@ -35,6 +36,7 @@ test.describe('SpeciesDetailSheet snap behavior', () => {
   });
 
   test('drag-down past peek dismisses the sheet (URL flips off detail)', async ({ page, apiStub }) => {
+    await apiStub.stubEmpty();
     await apiStub.stubSpecies('vermfly', VERMFLY_WITH_PHOTO);
     await apiStub.stubPhotoImage();
     const app = new AppPage(page);

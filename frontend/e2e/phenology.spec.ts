@@ -33,18 +33,19 @@ test.describe('phenology chart on species detail (#356)', () => {
       test.use({ viewport: { width: viewport.width, height: viewport.height } });
 
       test('happy path — 12 <rect> bars present and chart has accessible label', async ({ page, apiStub }) => {
+        await apiStub.stubEmpty();
         await apiStub.stubSpecies('vermfly', VERMFLY);
         await apiStub.stubPhenology('vermfly', VERMFLY_PHENOLOGY_FULL);
         const app = new AppPage(page);
         await app.goto('detail=vermfly&view=detail');
         await app.waitForAppReady();
 
-        const main = page.locator('main');
-        await expect(main.getByRole('heading', { name: 'Vermilion Flycatcher' }))
+        // Phase 4: content renders in dialog/sheet outside <main>; scope to page.
+        await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' }))
           .toBeVisible({ timeout: 10_000 });
 
         // The chart mounts inside the data block. 12 bars rendered.
-        const chart = main.locator('svg.phenology-chart');
+        const chart = page.locator('svg.phenology-chart');
         await expect(chart).toBeVisible();
         await expect(chart.locator('rect')).toHaveCount(12);
 
@@ -68,19 +69,20 @@ test.describe('phenology chart on species detail (#356)', () => {
       });
 
       test('empty path — placeholder bars visible and no crash', async ({ page, apiStub }) => {
+        await apiStub.stubEmpty();
         await apiStub.stubSpecies('vermfly', VERMFLY);
         await apiStub.stubPhenology('vermfly', VERMFLY_PHENOLOGY_EMPTY);
         const app = new AppPage(page);
         await app.goto('detail=vermfly&view=detail');
         await app.waitForAppReady();
 
-        const main = page.locator('main');
-        await expect(main.getByRole('heading', { name: 'Vermilion Flycatcher' }))
+        // Phase 4: content is outside <main>; scope to page.
+        await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' }))
           .toBeVisible({ timeout: 10_000 });
 
         // Chart still renders 12 placeholder bars (10% height) — empty
         // branch produces a visible "no data" affordance, not a void.
-        const chart = main.locator('svg.phenology-chart');
+        const chart = page.locator('svg.phenology-chart');
         await expect(chart).toBeVisible();
         await expect(chart.locator('rect')).toHaveCount(12);
         // Placeholder bars carry the muted class.
@@ -91,6 +93,7 @@ test.describe('phenology chart on species detail (#356)', () => {
       });
 
       test('error path — no chart element but surface text still present', async ({ page, apiStub }) => {
+        await apiStub.stubEmpty();
         await apiStub.stubSpecies('vermfly', VERMFLY);
         // Fail the phenology fetch — the chart's error branch should
         // return null so the surface text below is unaffected.
@@ -101,20 +104,21 @@ test.describe('phenology chart on species detail (#356)', () => {
         await app.goto('detail=vermfly&view=detail');
         await app.waitForAppReady();
 
-        const main = page.locator('main');
-        await expect(main.getByRole('heading', { name: 'Vermilion Flycatcher' }))
+        // Phase 4: content is outside <main>; scope to page.
+        await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' }))
           .toBeVisible({ timeout: 10_000 });
         // Surface text below the chart is still there — error didn't break the surface.
-        await expect(main.getByText('Pyrocephalus rubinus')).toBeVisible();
-        await expect(main.getByText('Tyrant Flycatchers')).toBeVisible();
+        await expect(page.getByText('Pyrocephalus rubinus')).toBeVisible();
+        // Family name: scope to .species-detail-family to avoid the AttributionModal Phylopic section.
+        await expect(page.locator('.species-detail-family')).toHaveText(/Tyrant Flycatchers/);
         // Wait for the chart's loading state to clear (it shows a
         // role=status while the fetch is in flight; once the 500 lands,
         // the error branch returns null and the loading paragraph is
         // removed). Using the loading paragraph as the gate avoids a
         // race where we'd otherwise assert "no chart" during loading.
-        await expect(main.locator('.phenology-chart-loading')).toHaveCount(0);
+        await expect(page.locator('.phenology-chart-loading')).toHaveCount(0);
         // No chart in the DOM (error branch returns null).
-        await expect(main.locator('svg.phenology-chart')).toHaveCount(0);
+        await expect(page.locator('svg.phenology-chart')).toHaveCount(0);
       });
     });
   }
@@ -143,6 +147,7 @@ test.describe('phenology chart on species detail (#356)', () => {
         });
 
         await page.setViewportSize({ width: viewport.width, height: viewport.height });
+        await apiStub.stubEmpty();
         await apiStub.stubSpecies('vermfly', VERMFLY);
         await apiStub.stubPhenology('vermfly', fixture.rows);
 

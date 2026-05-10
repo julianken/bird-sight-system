@@ -120,6 +120,7 @@ test.describe('axe-core WCAG scans', () => {
   });
 
   test('species detail surface has no WCAG 2/2.1 A/AA violations', async ({ page, apiStub }) => {
+    await apiStub.stubEmpty();
     await apiStub.stubSpecies('vermfly', VERMFLY);
     const app = new AppPage(page);
     await app.goto('detail=vermfly&view=detail');
@@ -148,6 +149,7 @@ test.describe('axe-core WCAG scans', () => {
   // crop bounds, container sizing) — axe validates the rendered DOM at
   // each viewport, not just the markup.
   test('species detail surface with photoUrl has no WCAG 2/2.1 A/AA violations (desktop)', async ({ page, apiStub }) => {
+    await apiStub.stubEmpty();
     await apiStub.stubSpecies('vermfly', VERMFLY_WITH_PHOTO);
     await apiStub.stubPhotoImage();
     const app = new AppPage(page);
@@ -176,6 +178,7 @@ test.describe('axe-core WCAG scans', () => {
   // trigger on close. axe asserts on the rendered DOM at the moment the
   // dialog is open with a real photo loaded.
   test('species detail dialog (desktop) — aria-labelledby resolves; activeElement is heading', async ({ page, apiStub }) => {
+    await apiStub.stubEmpty();
     await apiStub.stubSpecies('vermfly', VERMFLY_WITH_PHOTO);
     await apiStub.stubPhotoImage();
     const app = new AppPage(page);
@@ -212,6 +215,7 @@ test.describe('axe-core WCAG scans', () => {
     test.use({ viewport: { width: 390, height: 844 } });
 
     test('species detail surface has no WCAG 2/2.1 A/AA violations (mobile)', async ({ page, apiStub }) => {
+      await apiStub.stubEmpty();
       await apiStub.stubSpecies('vermfly', VERMFLY);
       const app = new AppPage(page);
       await app.goto('detail=vermfly&view=detail');
@@ -233,6 +237,7 @@ test.describe('axe-core WCAG scans', () => {
     // (column-stacked layout vs side-by-side on desktop), so the
     // image-alt + landmark + reflow rules need to be scanned here too.
     test('species detail surface with photoUrl has no WCAG 2/2.1 A/AA violations (mobile)', async ({ page, apiStub }) => {
+      await apiStub.stubEmpty();
       await apiStub.stubSpecies('vermfly', VERMFLY_WITH_PHOTO);
       await apiStub.stubPhotoImage();
       const app = new AppPage(page);
@@ -274,6 +279,7 @@ test.describe('axe-core WCAG scans', () => {
     // interactive); it flips to role="dialog" aria-modal="true" only at
     // full snap, with `inert` on #main-surface set BEFORE the role flip.
     test('species detail sheet (mobile) at full snap — role="dialog", map inert', async ({ page, apiStub }) => {
+      await apiStub.stubEmpty();
       await apiStub.stubSpecies('vermfly', VERMFLY_WITH_PHOTO);
       await apiStub.stubPhotoImage();
       const app = new AppPage(page);
@@ -361,6 +367,7 @@ test.describe('axe-core WCAG scans', () => {
     });
 
     test('detail view exposes a Credits trigger in the app-level footer', async ({ page, apiStub }) => {
+      await apiStub.stubEmpty();
       await apiStub.stubSpecies('vermfly', VERMFLY);
       const app = new AppPage(page);
       await app.goto('detail=vermfly&view=detail');
@@ -369,6 +376,10 @@ test.describe('axe-core WCAG scans', () => {
         .toBeVisible({ timeout: 10_000 });
       const footer = page.locator('footer.app-footer');
       await expect(footer).toBeVisible();
+      // Phase 4: the Credits trigger IS in the DOM on view=detail — it just
+      // sits behind the detail dialog on the z-axis. The test is "reachable"
+      // meaning it exists in the DOM and is visible; click reachability is
+      // covered by the attribution-modal spec.
       const trigger = footer.getByRole('button', { name: /credits/i });
       await expect(trigger).toBeVisible();
     });
