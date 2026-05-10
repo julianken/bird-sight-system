@@ -12,7 +12,7 @@ describe('useUrlState', () => {
     expect(result.current.state).toEqual({
       since: '14d', notable: false,
       speciesCode: null, familyCode: null,
-      view: 'feed',
+      view: 'map',
       detail: null,
     });
   });
@@ -58,7 +58,7 @@ describe('useUrlState', () => {
   it('falls back to default view when ?view= is invalid', () => {
     window.history.replaceState({}, '', '/?view=nonsense');
     const { result } = renderHook(() => useUrlState());
-    expect(result.current.state.view).toBe('feed');
+    expect(result.current.state.view).toBe('map');
   });
 
   it('sniffs view=species when ?species= is set without an explicit ?view=', () => {
@@ -81,14 +81,14 @@ describe('useUrlState', () => {
 
   it('writes ?view= to URL when view is non-default', () => {
     const { result } = renderHook(() => useUrlState());
-    act(() => result.current.set({ view: 'map' }));
-    expect(window.location.search).toContain('view=map');
+    act(() => result.current.set({ view: 'feed' }));
+    expect(window.location.search).toContain('view=feed');
   });
 
-  it('never serialises the default view to the URL', () => {
-    window.history.replaceState({}, '', '/?view=map');
+  it('never serialises the default view (map) to the URL', () => {
+    window.history.replaceState({}, '', '/?view=feed');
     const { result } = renderHook(() => useUrlState());
-    act(() => result.current.set({ view: 'feed' }));
+    act(() => result.current.set({ view: 'map' }));
     expect(window.location.search).not.toContain('view=');
   });
 
@@ -98,12 +98,12 @@ describe('useUrlState', () => {
     expect(result.current.state.view).toBe('species');
     expect(window.location.search).toContain('view=species');
 
-    act(() => result.current.set({ view: 'map' }));
-    expect(result.current.state.view).toBe('map');
-    expect(window.location.search).toContain('view=map');
-
     act(() => result.current.set({ view: 'feed' }));
     expect(result.current.state.view).toBe('feed');
+    expect(window.location.search).toContain('view=feed');
+
+    act(() => result.current.set({ view: 'map' }));
+    expect(result.current.state.view).toBe('map');
     expect(window.location.search).not.toContain('view=');
   });
 
@@ -140,10 +140,23 @@ describe('useUrlState', () => {
 
   // --- #112: regionId removed, readMigrationFlag ---
 
-  it('default state has view: feed and no regionId property', () => {
+  it('default state has view: map and no regionId property', () => {
+    const { result } = renderHook(() => useUrlState());
+    expect(result.current.state.view).toBe('map');
+    expect(result.current.state).not.toHaveProperty('regionId');
+  });
+
+  it('bare URL (/) lands on map (post-Sky-Atlas Phase 0)', () => {
+    window.history.replaceState({}, '', '/');
+    const { result } = renderHook(() => useUrlState());
+    expect(result.current.state.view).toBe('map');
+    expect(window.location.search).toBe('');
+  });
+
+  it('explicit ?view=feed still works for shared/bookmarked feed URLs', () => {
+    window.history.replaceState({}, '', '/?view=feed');
     const { result } = renderHook(() => useUrlState());
     expect(result.current.state.view).toBe('feed');
-    expect(result.current.state).not.toHaveProperty('regionId');
   });
 
   it('parses ?view=map', () => {

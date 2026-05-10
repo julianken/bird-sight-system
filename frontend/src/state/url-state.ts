@@ -17,7 +17,7 @@ const DEFAULTS: UrlState = {
   familyCode: null,
   since: '14d',
   notable: false,
-  view: 'feed',
+  view: 'map',
   detail: null,
 };
 
