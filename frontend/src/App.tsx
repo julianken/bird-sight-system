@@ -9,12 +9,13 @@ import { FiltersBar } from './components/FiltersBar.js';
 import { FeedSurface } from './components/FeedSurface.js';
 import { MapSurface } from './components/MapSurface.js';
 import { SpeciesSearchSurface } from './components/SpeciesSearchSurface.js';
-import { SpeciesDetailSurface } from './components/SpeciesDetailSurface.js';
+import { SpeciesDetailModal } from './components/SpeciesDetailModal.js';
 import { AppHeader } from './components/AppHeader.js';
 // SurfaceNav import retained — component still exists; App no longer mounts
 // it directly (moved to AppHeader). Defer deletion to a follow-up sweep once
 // confirmed no other consumer uses it. (Phase 3)
 import { SurfaceNav as _SurfaceNav } from './components/SurfaceNav.js';
+import { useIsMobile } from './lib/use-is-mobile.js';
 import { AttributionModal } from './components/AttributionModal.js';
 import { deriveFamilies, deriveSpeciesIndex } from './derived.js';
 import { filterObservationsByBounds } from './lib/viewport-filter.js';
@@ -23,6 +24,7 @@ const apiClient = new ApiClient({ baseUrl: import.meta.env.VITE_API_BASE_URL ?? 
 
 export function App() {
   const { state, set } = useUrlState();
+  const isMobile = useIsMobile();
   // Phase 3: filters panel state + badge count.
   const [filtersOpen, setFiltersOpen] = useState(false);
   // Active-filter count: every non-default URL-state field counts as 1.
@@ -125,6 +127,12 @@ export function App() {
   const onSelectSpecies = useCallback(
     (speciesCode: string) => set({ detail: speciesCode, view: 'detail' }),
     [set]
+  );
+
+  // Close callback for detail modal/sheet wrappers — flips back to feed view.
+  const onCloseDetail = useCallback(
+    () => set({ view: 'feed', detail: null }),
+    [set],
   );
 
   /**
@@ -253,13 +261,27 @@ export function App() {
             onSelectSpecies={onSelectSpecies}
           />
         )}
-        {state.view === 'detail' && state.detail && (
-          <SpeciesDetailSurface
-            speciesCode={state.detail}
-            apiClient={apiClient}
-          />
-        )}
+        {/*
+          Sky Atlas Phase 4 — detail surface routing. The body component
+          (SpeciesDetailSurface) renders inside one of two wrappers:
+          a native <dialog> on desktop, a bottom-sheet on mobile.
+          Selection drives off useIsMobile (max-width: 760px) — same
+          breakpoint the rest of styles.css uses.
+          The wrappers render OUTSIDE <main>: the modal portals via the
+          top-layer (native <dialog>); the sheet sits as a sibling of
+          <main> so `inert` can be applied to <main> without affecting
+          the sheet. Both paths are mounted inside the .app shell.
+        */}
       </main>
+      {state.view === 'detail' && state.detail && !isMobile && (
+        <SpeciesDetailModal
+          key={state.detail}
+          speciesCode={state.detail}
+          apiClient={apiClient}
+          onClose={onCloseDetail}
+        />
+      )}
+      {/* Mobile sheet wired in task 5. */}
       {/*
         Persistent app-level footer (issue #250). Subsumes the per-surface
         SurfaceFooter from #243; the AttributionModal Credits trigger is
