@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Land four pre-redesign engineering changes that resolve the analysis report's structural defects so the Sky Atlas visual redesign can ship on top of a sound foundation: switch the home route to map, fix browser-back for the detail surface (`pushState`), add a global `prefers-reduced-motion` policy, and guard MapLibre camera animations against motion-leak.
+**Goal:** Land five pre-redesign engineering changes that resolve the analysis report's structural defects so the Sky Atlas visual redesign can ship on top of a sound foundation: switch the home route to map, reorder the surface-nav tab order to match the new home (`[Map, Species, Feed]`), fix browser-back for the detail surface (`pushState`), add a global `prefers-reduced-motion` policy, and guard MapLibre camera animations against motion-leak.
 
-**Architecture:** All four changes are frontend-only and orthogonal to each other. The `pushState` change adds one parameter to `writeUrl()` and one branch in the consumer; `DEFAULTS.view='map'` is a one-line change with cascading test updates; `motion.css` is one new file imported once in `main.tsx`; the MapLibre guard is two lines in `MapCanvas.tsx`. Single PR, 4 commits, no migrations, no API contract changes.
+**Architecture:** All five changes are frontend-only and orthogonal to each other. The `pushState` change adds one parameter to `writeUrl()` and one branch in the consumer; `DEFAULTS.view='map'` is a one-line change with cascading test updates; the `SurfaceNav` tab reorder is a one-line change to the `TABS` array with two existing arrow-key wrap tests updated; `motion.css` is one new file imported once in `main.tsx`; the MapLibre guard is two lines in `MapCanvas.tsx`. Single PR, 5 commits, no migrations, no API contract changes.
 
 **Tech Stack:** TypeScript, React 18, Vitest 4, `@testing-library/react`, MapLibre GL 5. Builds with Vite 8. No new dependencies.
 
@@ -16,6 +16,7 @@ This plan implements Phase 0 of `docs/specs/2026-05-09-sky-atlas-redesign-design
 
 - Browser back works from detail → previous surface
 - `DEFAULTS.view === 'map'` (URLs without `?view=` load the map)
+- `<SurfaceNav>` renders tabs in `[Map, Species, Feed]` order (matches new home)
 - Reduced-motion users see no transitions or camera animations
 - All existing tests pass (after default-view assertion updates)
 
@@ -27,6 +28,8 @@ This plan is independent of Phases 1–6 (token foundation, primitives, surface 
 |---|---|---|
 | `frontend/src/state/url-state.ts` | Modify | Add `push?: boolean` parameter to `writeUrl()`; switch `DEFAULTS.view` to `'map'`; thread `push: true` from `set()` when transitioning to detail. |
 | `frontend/src/state/url-state.test.ts` | Modify | Update existing default-view assertions from `'feed'` to `'map'`. Add tests for `pushState` vs `replaceState` semantics. |
+| `frontend/src/components/SurfaceNav.tsx` | Modify | Reorder the `TABS` array from `[feed, species, map]` to `[map, species, feed]` so the visible tab order matches the new home route. |
+| `frontend/src/components/SurfaceNav.test.tsx` | Modify | Add a test asserting visible left-to-right tab order is `[Map, Species, Feed]`. Update the two existing arrow-key wrap tests whose expectations bake in the old order. |
 | `frontend/src/styles/motion.css` | Create | Global `@media (prefers-reduced-motion: reduce)` rule collapsing all transitions and animations to 0ms. |
 | `frontend/src/main.tsx` | Modify | Import `./styles/motion.css` once at app entry, after `./styles.css`. |
 | `frontend/src/components/map/MapCanvas.tsx` | Modify | Read `matchMedia('(prefers-reduced-motion: reduce)').matches` once at mount; pass `duration: 0` to `easeTo()` when set. |
@@ -244,7 +247,178 @@ EOF
 
 ---
 
-## Task 2: Add `pushState` for detail-surface navigation
+## Task 2: Reorder `<SurfaceNav>` tab order from `[Feed, Species, Map]` to `[Map, Species, Feed]`
+
+Pairs with Task 1 (`DEFAULTS.view='map'`). Both express the same stakeholder decision: **map is home**. With the home route flipped to map, the leftmost surface-nav tab should also be Map — otherwise the tab order silently contradicts the new default and reads as a UX inconsistency on first paint. The change itself is a one-line array reorder; the test work is one new ordering assertion plus updates to the two existing arrow-key wrap tests whose expectations bake in the old `[feed, species, map]` adjacency.
+
+**Implementation note:** The existing `<SurfaceNav>` test suite at `frontend/src/components/SurfaceNav.test.tsx` does NOT currently assert the array shape directly — it asserts behavior per-tab and uses arrow-key wrap to indirectly probe order. The failing-test for this task is therefore a **new** assertion (visible left-to-right DOM order is `[Map, Species, Feed]`), plus updates to the two existing wrap tests so they survive the reorder. No semantics other than visible order change.
+
+**Files:**
+- Modify: `frontend/src/components/SurfaceNav.tsx:22–26`
+- Modify: `frontend/src/components/SurfaceNav.test.tsx`
+
+- [ ] **Step 1: Add a failing test that pins the new visible order.**
+
+In `frontend/src/components/SurfaceNav.test.tsx`, add the following test inside the existing `describe('SurfaceNav', ...)` block (place it immediately after the first test, `'renders three tabs with the active one marked aria-selected="true"'`):
+
+```typescript
+  it('renders tabs in [Map, Species, Feed] order (Sky Atlas Phase 0)', () => {
+    render(<SurfaceNav activeView="map" onSelectView={() => {}} />);
+    const tabs = screen.getAllByRole('tab');
+    expect(tabs.map(t => t.getAttribute('aria-label'))).toEqual([
+      'Map view',
+      'Species view',
+      'Feed view',
+    ]);
+  });
+```
+
+`getAllByRole('tab')` returns nodes in document order, so the array equality assertion pins the visible left-to-right order. The accessible-name suffix (`… view`) is the same one the existing `'aria-controls'` test iterates over — using the same string keeps the test consistent with the rest of the file.
+
+- [ ] **Step 2: Update the two existing arrow-key wrap tests whose adjacency assertions bake in the old order.**
+
+The current order is `[feed, species, map]`; the new order is `[map, species, feed]`. Two wrap tests currently assert ArrowRight-from-`map` wraps to `feed` and ArrowLeft-from-`feed` wraps to `map`. After the reorder, those wraps reverse: ArrowRight-from-`feed` should wrap to `map`, and ArrowLeft-from-`map` should wrap to `feed`.
+
+In `frontend/src/components/SurfaceNav.test.tsx`, find:
+
+```typescript
+  it('ArrowRight wraps from the last tab to the first', async () => {
+    const onSelectView = vi.fn();
+    const user = userEvent.setup();
+    render(<SurfaceNav activeView="map" onSelectView={onSelectView} />);
+
+    const mapTab = screen.getByRole('tab', { name: 'Map view' });
+    mapTab.focus();
+
+    await user.keyboard('{ArrowRight}');
+    expect(onSelectView).toHaveBeenCalledWith('feed');
+    expect(screen.getByRole('tab', { name: 'Feed view' })).toHaveFocus();
+  });
+```
+
+and replace with:
+
+```typescript
+  it('ArrowRight wraps from the last tab to the first', async () => {
+    const onSelectView = vi.fn();
+    const user = userEvent.setup();
+    render(<SurfaceNav activeView="feed" onSelectView={onSelectView} />);
+
+    const feedTab = screen.getByRole('tab', { name: 'Feed view' });
+    feedTab.focus();
+
+    await user.keyboard('{ArrowRight}');
+    expect(onSelectView).toHaveBeenCalledWith('map');
+    expect(screen.getByRole('tab', { name: 'Map view' })).toHaveFocus();
+  });
+```
+
+Then find:
+
+```typescript
+  it('ArrowLeft wraps from the first tab to the last', async () => {
+    const onSelectView = vi.fn();
+    const user = userEvent.setup();
+    render(<SurfaceNav activeView="feed" onSelectView={onSelectView} />);
+
+    const feedTab = screen.getByRole('tab', { name: 'Feed view' });
+    feedTab.focus();
+
+    await user.keyboard('{ArrowLeft}');
+    expect(onSelectView).toHaveBeenCalledWith('map');
+    expect(screen.getByRole('tab', { name: 'Map view' })).toHaveFocus();
+  });
+```
+
+and replace with:
+
+```typescript
+  it('ArrowLeft wraps from the first tab to the last', async () => {
+    const onSelectView = vi.fn();
+    const user = userEvent.setup();
+    render(<SurfaceNav activeView="map" onSelectView={onSelectView} />);
+
+    const mapTab = screen.getByRole('tab', { name: 'Map view' });
+    mapTab.focus();
+
+    await user.keyboard('{ArrowLeft}');
+    expect(onSelectView).toHaveBeenCalledWith('feed');
+    expect(screen.getByRole('tab', { name: 'Feed view' })).toHaveFocus();
+  });
+```
+
+Note: the non-wrap arrow-key tests (`ArrowRight on the active tab moves focus AND fires onSelectView with the next value` and its ArrowLeft sibling) currently use `feed → species` and `species → feed` adjacency, which is preserved by the new order — `[map, species, feed]` keeps `species` adjacent to both `map` and `feed`. Those two tests do NOT need updating; verify by reading them after this step.
+
+- [ ] **Step 3: Run the SurfaceNav test file to confirm the new test fails AND the two updated wrap tests fail.**
+
+Run: `npm run test --workspace @bird-watch/frontend -- SurfaceNav.test.tsx`
+
+Expected failures:
+- `renders tabs in [Map, Species, Feed] order …` — fails because current DOM order is `['Feed view', 'Species view', 'Map view']`.
+- `ArrowRight wraps from the last tab to the first` — fails because in the current order `feed` is first, not last; ArrowRight from `feed` goes to `species`, not wrap.
+- `ArrowLeft wraps from the first tab to the last` — fails for the symmetric reason.
+
+The unchanged tests (`ArrowRight on the active tab moves focus AND fires onSelectView with the next value`, etc.) should still pass.
+
+- [ ] **Step 4: Reorder the `TABS` array in `SurfaceNav.tsx`.**
+
+In `frontend/src/components/SurfaceNav.tsx:22–26`, replace:
+
+```typescript
+const TABS: readonly TabDef[] = [
+  { value: 'feed', label: 'Feed', accessibleName: 'Feed view' },
+  { value: 'species', label: 'Species', accessibleName: 'Species view' },
+  { value: 'map', label: 'Map', accessibleName: 'Map view' },
+];
+```
+
+with:
+
+```typescript
+const TABS: readonly TabDef[] = [
+  { value: 'map', label: 'Map', accessibleName: 'Map view' },
+  { value: 'species', label: 'Species', accessibleName: 'Species view' },
+  { value: 'feed', label: 'Feed', accessibleName: 'Feed view' },
+];
+```
+
+This is the entire source change. The `activateIndex`, `handleKeyDown`, and render JSX downstream of `TABS` are all index-driven; reordering the array cascades through automatically.
+
+- [ ] **Step 5: Run the SurfaceNav test file to confirm all tests pass.**
+
+Run: `npm run test --workspace @bird-watch/frontend -- SurfaceNav.test.tsx`
+
+Expected: all tests pass, including the new ordering test and the two updated wrap tests.
+
+- [ ] **Step 6: Run the full frontend test suite (no regressions).**
+
+Run: `npm run test --workspace @bird-watch/frontend`
+
+Expected: all tests pass. The reorder is a pure ordering change; no other component reads from `TABS` (it's a module-private constant), so nothing else can regress.
+
+- [ ] **Step 7: Commit.**
+
+```bash
+git add frontend/src/components/SurfaceNav.tsx frontend/src/components/SurfaceNav.test.tsx
+git commit -m "$(cat <<'EOF'
+feat(nav): reorder SurfaceNav tabs to [Map, Species, Feed] (Sky Atlas Phase 0)
+
+Pairs with the Task 1 DEFAULTS.view='map' change. Both express the
+"map is home" stakeholder decision (S4) — the home route AND the
+leftmost surface-nav tab should now be Map. Reorders the TABS array
+in SurfaceNav.tsx and updates the two existing arrow-key wrap tests
+whose adjacency assertions bake in the old [feed, species, map] order.
+
+Spec: docs/specs/2026-05-09-sky-atlas-redesign-design.md §4.9
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+## Task 3: Add `pushState` for detail-surface navigation
 
 Resolves analysis Theme 2 finding 2.4. Adds a `push?: boolean` parameter to `writeUrl()` (default `false` = current `replaceState` behavior). The hook's `set()` decides when to push: only on transitions where the next view is `'detail'` AND the previous view was not `'detail'`. All other writes (filter changes, tab switches between feed/species/map, leaving detail) keep using `replaceState`.
 
@@ -449,9 +623,9 @@ EOF
 
 ---
 
-## Task 3: Global `motion.css` rule for `prefers-reduced-motion`
+## Task 4: Global `motion.css` rule for `prefers-reduced-motion`
 
-Resolves analysis Theme 5 finding 5.6 (zero `prefers-reduced-motion` queries today). Single global rule collapses all CSS transitions and animations to 0ms when the user has expressed a reduced-motion preference. Becomes the single source of truth — no per-component reduced-motion queries thereafter (with one exception: MapLibre, see Task 4).
+Resolves analysis Theme 5 finding 5.6 (zero `prefers-reduced-motion` queries today). Single global rule collapses all CSS transitions and animations to 0ms when the user has expressed a reduced-motion preference. Becomes the single source of truth — no per-component reduced-motion queries thereafter (with one exception: MapLibre, see Task 5).
 
 **Files:**
 - Create: `frontend/src/styles/motion.css`
@@ -561,9 +735,9 @@ EOF
 
 ---
 
-## Task 4: MapLibre `easeTo` reduced-motion guard
+## Task 5: MapLibre `easeTo` reduced-motion guard
 
-Resolves analysis Theme 5 finding 5.6 (suspected MapLibre motion-leak at `MapCanvas.tsx:729`). MapLibre camera animations are JavaScript-driven and not under the CSS cascade, so the global `motion.css` rule from Task 3 doesn't reach them. Read the preference once at component mount; pass `duration: 0` to `easeTo` when set.
+Resolves analysis Theme 5 finding 5.6 (suspected MapLibre motion-leak at `MapCanvas.tsx:729`). MapLibre camera animations are JavaScript-driven and not under the CSS cascade, so the global `motion.css` rule from Task 4 doesn't reach them. Read the preference once at component mount; pass `duration: 0` to `easeTo` when set.
 
 **Files:**
 - Modify: `frontend/src/components/map/MapCanvas.tsx`
@@ -719,7 +893,7 @@ EOF
 
 ---
 
-## Task 5: Run the full validation suite end-to-end
+## Task 6: Run the full validation suite end-to-end
 
 Before opening the PR, run the full local validation gate — same checks Mergify will require (test, lint, build, e2e).
 
@@ -773,7 +947,7 @@ EOF
 
 ---
 
-## Task 6: Open the PR
+## Task 7: Open the PR
 
 Use the `creating-prs` skill (`.claude/skills/pr-workflow/SKILL.md` per project CLAUDE.md) for the full opening protocol.
 
@@ -795,6 +969,7 @@ Per `frontend/CLAUDE.md` PR workflow rules, the PR body MUST follow `.github/PUL
 gh pr create --title "feat: Sky Atlas Phase 0 — pre-redesign engineering" --body "$(cat <<'EOF'
 ## Summary
 - Switch DEFAULTS.view from 'feed' to 'map' (resolves analysis S4: home route).
+- Reorder SurfaceNav tab order from [Feed, Species, Map] to [Map, Species, Feed] (pairs with the home-route flip — both express "map is home").
 - Add pushState for detail-surface navigation; preserve replaceState everywhere else (resolves analysis Theme 2 finding 2.4: browser back works from detail).
 - Global motion.css rule for prefers-reduced-motion: reduce (resolves analysis Theme 5 finding 5.6).
 - MapLibre easeTo guard for reduced-motion (closes the suspected motion-leak at MapCanvas.tsx:729).
@@ -802,6 +977,7 @@ gh pr create --title "feat: Sky Atlas Phase 0 — pre-redesign engineering" --bo
 ## Test plan
 - [x] All existing unit tests pass; default-view assertions updated.
 - [x] 6 new url-state tests covering pushState semantics for detail entry, detail-to-detail, exit-from-detail, filter changes, surface switches.
+- [x] 1 new SurfaceNav test pinning visible tab order as [Map, Species, Feed]; two existing arrow-key wrap tests updated for the new order.
 - [x] 1 new MapCanvas test asserting easeTo receives duration: 0 under prefers-reduced-motion.
 - [x] `npm run build` succeeds; motion.css present in bundled CSS.
 - [x] `npm run test:e2e` passes; e2e default-route assertions updated for map home.
@@ -840,6 +1016,7 @@ This plan is complete when ALL of the following are true (verifiable against the
 
 - [x] Browser back works from a detail surface to the previously-active surface (verified by url-state.test.ts pushState tests).
 - [x] `DEFAULTS.view === 'map'` (verified by url-state.test.ts default tests).
+- [x] `<SurfaceNav>` renders tabs in `[Map, Species, Feed]` order (verified by SurfaceNav.test.tsx ordering assertion + updated arrow-key wrap tests).
 - [x] CSS-driven transitions and animations collapse to 0ms under `prefers-reduced-motion: reduce` (verified manually + present in bundled CSS).
 - [x] MapLibre camera animations pass `duration: 0` under reduced-motion (verified by MapCanvas.test.tsx).
 - [x] All existing tests pass (verified by `npm test` end-to-end).
