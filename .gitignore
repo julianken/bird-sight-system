@@ -16,6 +16,7 @@ coverage/
 # Local session artifacts
 .superpowers/
 .remember/
+tmp/
 
 # Phylopic curation cache (issue #245). The script `scripts/curate-phylopic.mjs`
 # writes API responses + downloaded SVGs here so re-runs are deterministic and

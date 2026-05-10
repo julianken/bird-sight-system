@@ -1,0 +1,702 @@
+<h2>Sky Atlas v4 — after 3 critic/planner loops</h2>
+<p class="subtitle">19 kinks identified across 3 loops; 16 absorbed into spec contracts (no mock change), 3 produced visual deltas. Below: synthesis, then the 3 visually-changed mocks, then the spec-only changes log.</p>
+
+<style>
+  /* === Sky Atlas v4 tokens (production names — Loop 2 K3) === */
+  /* Note: in production these are renamed to the --color-* prefix.
+     For mock display we keep the v3 names but the spec will translate them. */
+  .sa4-light {
+    --bg-page: #fafaf6;
+    --bg-surface: #ffffff;
+    --bg-tint: #f0ece4;
+    --text-strong: #1a1a1a;
+    --text-body: #2a2a2a;
+    --text-muted: #5a5a5a;
+    --text-subtle: #8a8a8a;
+    --border: #e6e0d4;
+    --divider: #efe9dc;
+    --accent: #f5853b;       /* prod: --color-decision-point */
+    --accent-on: #ffffff;
+    --notable: #c43a1a;       /* prod: --color-accent-notable-fg */
+    --density-sky: #6ec5d9;
+    --density-sand: #e8c060;
+    --density-ember: #e87a4a;
+    --density-text: #1a1a1a;
+    --type-xs: 11px; --type-sm: 13px; --type-base: 15px;
+    --type-md: 17px; --type-lg: 22px; --type-hero: 34px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Inter", sans-serif;
+  }
+  .sa4-dark {
+    --bg-page: #0d1424;
+    --bg-surface: #131c30;
+    --bg-tint: #1c2640;
+    --text-strong: #f5f7fb;
+    --text-body: #d8dee8;
+    --text-muted: #8a98ad;
+    --text-subtle: #5a6478;
+    --border: #283354;
+    --divider: #1c2640;
+    --accent: #6db8d4;
+    --accent-on: #0d1424;
+    --notable: #f5853b;
+    --density-sky: #4a8aa8;
+    --density-sand: #c49850;
+    --density-ember: #c46038;
+    --density-text: #f5f7fb;
+    --type-xs: 11px; --type-sm: 13px; --type-base: 15px;
+    --type-md: 17px; --type-lg: 22px; --type-hero: 34px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Inter", sans-serif;
+  }
+
+  .loops-summary {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    margin: 16px 0 32px;
+  }
+  .loop-card {
+    border-radius: 8px;
+    padding: 14px;
+    border: 1px solid rgba(0,0,0,0.08);
+    background: rgba(0,0,0,0.02);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .loop-card .loop-header {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    color: rgba(0,0,0,0.6);
+  }
+  .loop-card.l1 { background: rgba(245,133,59,0.05); border-color: rgba(245,133,59,0.25); }
+  .loop-card.l2 { background: rgba(74,123,168,0.05); border-color: rgba(74,123,168,0.25); }
+  .loop-card.l3 { background: rgba(120,170,90,0.05); border-color: rgba(120,170,90,0.25); }
+  .loop-card h4 { margin: 0 0 6px 0; font-size: 14px; line-height: 1.3; }
+
+  .delta-section {
+    margin: 36px 0 16px;
+  }
+  .delta-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    opacity: 0.6;
+    margin-bottom: 8px;
+  }
+  .delta-card-pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 12px;
+  }
+  .delta-tile {
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+  }
+  .delta-tile-label {
+    padding: 6px 12px;
+    background: rgba(0,0,0,0.06);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    font-weight: 700;
+  }
+  .delta-tile-label.before { background: rgba(200,90,90,0.15); color: #6a2828; }
+  .delta-tile-label.after { background: rgba(74,170,90,0.15); color: #2d6a3d; }
+
+  /* mobile frame */
+  .v4-mobile {
+    max-width: 320px;
+    margin: 0 auto;
+    border-radius: 22px;
+    border: 7px solid #d4d4d4;
+    background: var(--bg-page);
+    overflow: hidden;
+  }
+  .v4-mobile-body {
+    height: 580px;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-page);
+    color: var(--text-body);
+    font-family: var(--font);
+    font-size: var(--type-base);
+    overflow: hidden;
+  }
+  .v4-header {
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+    gap: 8px;
+  }
+  .v4-brand {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+  .v4-brand-name { font-weight: 700; font-size: 13px; color: var(--text-strong); }
+  .v4-brand-region { font-size: 11px; color: var(--text-muted); }
+  .v4-action-row { display: flex; align-items: center; gap: 6px; }
+  .v4-attribution-link {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    font-family: inherit;
+  }
+  .v4-icon-btn {
+    width: 28px; height: 28px;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 13px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .v4-filter-trigger {
+    padding: 4px 9px;
+    background: var(--bg-tint);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-strong);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .v4-filter-badge {
+    background: var(--accent);
+    color: var(--accent-on);
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 999px;
+    min-width: 14px;
+    text-align: center;
+  }
+
+  .v4-filter-strip {
+    background: var(--bg-surface);
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--divider);
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    flex-shrink: 0;
+  }
+  .v4-filter-chip {
+    background: var(--bg-tint);
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-strong);
+    white-space: nowrap;
+  }
+  .v4-filter-chip.active {
+    background: var(--accent);
+    color: var(--accent-on);
+  }
+
+  .v4-mobile-content {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+  }
+  .v4-mobile-bottom {
+    background: var(--bg-surface);
+    border-top: 1px solid var(--border);
+    padding: 7px 0 12px;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    flex-shrink: 0;
+  }
+  .v4-mobile-tab {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 4px 0;
+  }
+  .v4-mobile-tab.active { color: var(--accent); }
+  .v4-mobile-tab-icon {
+    width: 22px; height: 22px;
+    border-radius: 5px;
+    background: currentColor;
+    opacity: 0.85;
+  }
+
+  .v4-map-area {
+    height: 100%;
+    background:
+      radial-gradient(ellipse at 25% 30%, rgba(245,133,59,0.04), transparent 60%),
+      radial-gradient(ellipse at 75% 70%, rgba(74,123,168,0.05), transparent 60%),
+      #efe9dc;
+    position: relative;
+  }
+  .sa4-dark .v4-map-area {
+    background:
+      radial-gradient(ellipse at 25% 30%, rgba(109,184,212,0.05), transparent 60%),
+      radial-gradient(ellipse at 75% 70%, rgba(245,133,59,0.04), transparent 60%),
+      #182238;
+  }
+  .v4-cluster {
+    position: absolute;
+    background: var(--bg-surface);
+    color: var(--density-text);
+    border-radius: 999px;
+    padding: 5px 10px;
+    font-size: var(--type-sm);
+    font-weight: 700;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    line-height: 1;
+  }
+  .v4-cluster.sky { border: 2px solid var(--density-sky); }
+  .v4-cluster.sand { border: 2px solid var(--density-sand); padding: 6px 12px; font-size: var(--type-base); }
+  .v4-cluster.ember { border: 2px solid var(--density-ember); padding: 7px 14px; font-size: var(--type-md); font-weight: 800; }
+
+  /* desktop popover */
+  .v4-desktop-frame {
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+  }
+  .v4-popover {
+    margin: 16px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    width: 240px;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.14);
+    font-family: var(--font);
+  }
+  .v4-popover-meta {
+    font-size: var(--type-xs);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .v4-popover-name {
+    font-size: var(--type-md);
+    font-weight: 700;
+    color: var(--text-strong);
+    line-height: 1.15;
+    letter-spacing: -0.2px;
+  }
+  .v4-popover-sci {
+    font-size: var(--type-sm);
+    font-style: italic;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+  .v4-popover-stat {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--divider);
+    font-size: var(--type-sm);
+    color: var(--text-strong);
+  }
+  .v4-popover-stat span { color: var(--text-muted); }
+
+  /* OLD: accent-colored CTA (v3) */
+  .v4-popover-cta-old {
+    margin-top: 10px;
+    color: var(--accent);
+    font-size: var(--type-sm);
+    font-weight: 600;
+    cursor: pointer;
+  }
+  /* NEW: text-body underline link (v4) */
+  .v4-popover-cta-new {
+    margin-top: 10px;
+    color: var(--text-body);
+    font-size: var(--type-sm);
+    font-weight: 500;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    text-decoration-color: var(--text-subtle);
+  }
+
+  .spec-only-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .spec-only-card {
+    background: rgba(0,0,0,0.03);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .spec-only-card strong { color: rgba(0,0,0,0.85); }
+  .spec-only-card .meta {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: rgba(0,0,0,0.5);
+    font-weight: 700;
+    margin-bottom: 3px;
+  }
+</style>
+
+<!-- ======================================================== -->
+<!-- LOOP SUMMARY                                              -->
+<!-- ======================================================== -->
+
+<div class="loops-summary">
+  <div class="loop-card l1">
+    <div class="loop-header">Loop 1 · Strategic kinks</div>
+    <h4>7 kinks</h4>
+    <p>Lede has no defined behavior under filter / zero / stale states · accent rule violated by mocks · bottom-sheet smuggles 3 undefined contracts (no <code>&lt;dialog&gt;</code> + live map underneath) · filter-chip strip lacks zero-state · LCP photo conflicts with <code>loading="lazy"</code> · "Arizona" hard-codes scope · freshness label has no fallback</p>
+  </div>
+  <div class="loop-card l2">
+    <div class="loop-header">Loop 2 · System cohesion</div>
+    <h4>6 kinks</h4>
+    <p>Family-channel mechanism has 3 incompatible paths (CSS / JS / DB) · cluster-pill thresholds undefined · v3 token namespace collides with live <code>--color-*</code> namespace (notable regression risk) · <code>&lt;StatusBlock&gt;</code> × <code>&lt;Photo&gt;</code> boundary unspecified · filter-sentence template diverges across surfaces · mobile Credits tab has no desktop equivalent (compliance gap)</p>
+  </div>
+  <div class="loop-card l3">
+    <div class="loop-header">Loop 3 · A11y &amp; final polish</div>
+    <h4>6 kinks</h4>
+    <p>Detail-modal heading is <code>&lt;div&gt;</code> not <code>&lt;h1&gt;</code>; focus on close not heading · <code>&lt;FilterSentence&gt;</code> live-region contract undefined · cluster pills are color-only (WCAG 1.4.1) · bottom-sheet ARIA roles undefined across snap states · reduced-motion policy not specified · notable-affordance spec entry missing</p>
+  </div>
+</div>
+
+<div style="padding:14px 18px;border-radius:8px;background:rgba(74,170,90,0.08);border-left:3px solid #2d6a3d;font-size:13px;line-height:1.6;margin-bottom:32px">
+  <strong>Of 19 kinks: 16 are spec/contract fixes (no mock change), 3 are visual deltas (shown below).</strong> Most loop output translates directly into the design spec — token translation table, primitive APIs, ARIA contracts, debounce constants, threshold values, motion policy. Three changes affect what you see; everything else is implementation discipline.
+</div>
+
+<!-- ======================================================== -->
+<!-- VISUAL DELTAS                                             -->
+<!-- ======================================================== -->
+
+<div class="delta-section">
+  <div class="delta-label">Visual Delta 1 · Drop mobile "Credits" tab → add header "Attribution" link (Loop 2 K6)</div>
+  <p style="font-size:12px;color:rgba(0,0,0,0.6);margin:-2px 0 12px">Mobile bottom bar goes from 4 tabs to 3 (Feed/Species/Map). "Attribution" becomes a small underlined link in the top-right header cluster, on both mobile and desktop. Restores cross-viewport symmetry; makes the AttributionModal's CC BY prominence requirement met by a header button rather than a tab. The header link replaces what was `<footer><Credits></footer>` on desktop.</p>
+  <div class="delta-card-pair cards" data-multiselect>
+    <div class="card">
+      <div class="delta-tile">
+        <div class="delta-tile-label before">v3 — 4 tabs incl. Credits</div>
+        <div class="v4-mobile">
+          <div class="sa4-light">
+            <div class="v4-mobile-body">
+              <div class="v4-header">
+                <div class="v4-brand">
+                  <span class="v4-brand-name">Bird Maps</span>
+                  <span class="v4-brand-region">· AZ</span>
+                </div>
+                <button class="v4-filter-trigger">
+                  Filters <span class="v4-filter-badge">2</span>
+                </button>
+              </div>
+              <div class="v4-filter-strip">
+                <span class="v4-filter-chip active">Notable</span>
+                <span class="v4-filter-chip active">14 days</span>
+                <span class="v4-filter-chip">+ Filter</span>
+              </div>
+              <div class="v4-mobile-content">
+                <div class="v4-map-area">
+                  <div class="v4-cluster sky" style="top:18%;left:22%">38</div>
+                  <div class="v4-cluster sand" style="top:28%;left:50%">140</div>
+                  <div class="v4-cluster ember" style="top:50%;left:56%">755</div>
+                  <div class="v4-cluster sky" style="top:65%;left:70%">17</div>
+                </div>
+              </div>
+              <div class="v4-mobile-bottom" style="grid-template-columns:1fr 1fr 1fr 1fr">
+                <div class="v4-mobile-tab"><div class="v4-mobile-tab-icon"></div>Feed</div>
+                <div class="v4-mobile-tab"><div class="v4-mobile-tab-icon"></div>Species</div>
+                <div class="v4-mobile-tab active"><div class="v4-mobile-tab-icon"></div>Map</div>
+                <div class="v4-mobile-tab"><div class="v4-mobile-tab-icon"></div>Credits</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="delta-tile">
+        <div class="delta-tile-label after">v4 — 3 tabs + header link</div>
+        <div class="v4-mobile">
+          <div class="sa4-light">
+            <div class="v4-mobile-body">
+              <div class="v4-header">
+                <div class="v4-brand">
+                  <span class="v4-brand-name">Bird Maps</span>
+                  <span class="v4-brand-region">· AZ</span>
+                </div>
+                <div class="v4-action-row">
+                  <button class="v4-attribution-link">Attribution</button>
+                  <button class="v4-filter-trigger">
+                    Filters <span class="v4-filter-badge">2</span>
+                  </button>
+                </div>
+              </div>
+              <div class="v4-filter-strip">
+                <span class="v4-filter-chip active">Notable</span>
+                <span class="v4-filter-chip active">14 days</span>
+                <span class="v4-filter-chip">+ Filter</span>
+              </div>
+              <div class="v4-mobile-content">
+                <div class="v4-map-area">
+                  <div class="v4-cluster sky" style="top:18%;left:22%">38</div>
+                  <div class="v4-cluster sand" style="top:28%;left:50%">140</div>
+                  <div class="v4-cluster ember" style="top:50%;left:56%">755</div>
+                  <div class="v4-cluster sky" style="top:65%;left:70%">17</div>
+                </div>
+              </div>
+              <div class="v4-mobile-bottom">
+                <div class="v4-mobile-tab"><div class="v4-mobile-tab-icon"></div>Feed</div>
+                <div class="v4-mobile-tab"><div class="v4-mobile-tab-icon"></div>Species</div>
+                <div class="v4-mobile-tab active"><div class="v4-mobile-tab-icon"></div>Map</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="delta-section">
+  <div class="delta-label">Visual Delta 2 · Popover CTA loses accent (Loop 1 K2 / fix 2)</div>
+  <p style="font-size:12px;color:rgba(0,0,0,0.6);margin:-2px 0 12px">"Open species detail →" on map cluster popover changes from accent-colored to text-body with a thin underline. It's a link affordance, not a primary CTA. Keeps the subtractive accent rule — orange only at decision points (active tab, filter badge, focus halo, active phenology, NOTABLE label). Cluster popover stays uncolored beyond the tier border.</p>
+  <div class="delta-card-pair cards" data-multiselect>
+    <div class="card">
+      <div class="delta-tile">
+        <div class="delta-tile-label before">v3 — accent</div>
+        <div class="v4-desktop-frame sa4-dark" style="background:var(--bg-page);min-height:240px;padding:16px">
+          <div class="v4-popover">
+            <div class="v4-popover-meta">JUST SEEN · 2H AGO</div>
+            <div class="v4-popover-name">Vermilion Flycatcher</div>
+            <div class="v4-popover-sci">Pyrocephalus rubinus</div>
+            <div class="v4-popover-stat"><span>×3 today ·</span> Cave Creek Canyon</div>
+            <div class="v4-popover-cta-old">Open species detail →</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="delta-tile">
+        <div class="delta-tile-label after">v4 — underline link</div>
+        <div class="v4-desktop-frame sa4-dark" style="background:var(--bg-page);min-height:240px;padding:16px">
+          <div class="v4-popover">
+            <div class="v4-popover-meta">JUST SEEN · 2H AGO</div>
+            <div class="v4-popover-name">Vermilion Flycatcher</div>
+            <div class="v4-popover-sci">Pyrocephalus rubinus</div>
+            <div class="v4-popover-stat"><span>×3 today ·</span> Cave Creek Canyon</div>
+            <div class="v4-popover-cta-new">Open species detail →</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="delta-section">
+  <div class="delta-label">Visual Delta 3 · Zero-filter mobile state (Loop 1 K4 / Loop 2 K5)</div>
+  <p style="font-size:12px;color:rgba(0,0,0,0.6);margin:-2px 0 12px">When zero filters are active: mobile chip strip is hidden entirely (no `+ Filter` placeholder), filter sentence collapses, badge count goes to zero (filter trigger shows "Filters" alone). Lede stays at default template "274 species seen across Arizona in the last 14 days." This was undefined in v3.</p>
+  <div class="delta-card-pair cards" data-multiselect>
+    <div class="card">
+      <div class="delta-tile">
+        <div class="delta-tile-label before">v3 — undefined</div>
+        <div class="v4-mobile">
+          <div class="sa4-light">
+            <div class="v4-mobile-body">
+              <div class="v4-header">
+                <div class="v4-brand">
+                  <span class="v4-brand-name">Bird Maps</span>
+                  <span class="v4-brand-region">· AZ</span>
+                </div>
+                <div class="v4-action-row">
+                  <button class="v4-attribution-link">Attribution</button>
+                  <button class="v4-filter-trigger">
+                    Filters <span class="v4-filter-badge">?</span>
+                  </button>
+                </div>
+              </div>
+              <div class="v4-filter-strip">
+                <span class="v4-filter-chip">?</span>
+              </div>
+              <div class="v4-mobile-content">
+                <div style="padding:24px;color:var(--text-muted);font-size:12px;line-height:1.6">
+                  <em>Undefined in v3 — what shows when no filters active? Strip empty? Hidden? Broken sentence below lede?</em>
+                </div>
+              </div>
+              <div class="v4-mobile-bottom">
+                <div class="v4-mobile-tab"><div class="v4-mobile-tab-icon"></div>Feed</div>
+                <div class="v4-mobile-tab"><div class="v4-mobile-tab-icon"></div>Species</div>
+                <div class="v4-mobile-tab active"><div class="v4-mobile-tab-icon"></div>Map</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="delta-tile">
+        <div class="delta-tile-label after">v4 — chip strip hidden, badge omitted</div>
+        <div class="v4-mobile">
+          <div class="sa4-light">
+            <div class="v4-mobile-body">
+              <div class="v4-header">
+                <div class="v4-brand">
+                  <span class="v4-brand-name">Bird Maps</span>
+                  <span class="v4-brand-region">· AZ</span>
+                </div>
+                <div class="v4-action-row">
+                  <button class="v4-attribution-link">Attribution</button>
+                  <button class="v4-filter-trigger">Filters</button>
+                </div>
+              </div>
+              <!-- chip strip hidden: display: none at zero filters -->
+              <div class="v4-mobile-content">
+                <div class="v4-map-area">
+                  <div class="v4-cluster sky" style="top:14%;left:22%">38</div>
+                  <div class="v4-cluster sand" style="top:24%;left:50%">140</div>
+                  <div class="v4-cluster sand" style="top:38%;left:32%">304</div>
+                  <div class="v4-cluster ember" style="top:46%;left:56%">755</div>
+                  <div class="v4-cluster sky" style="top:60%;left:70%">17</div>
+                  <div class="v4-cluster sand" style="top:66%;left:38%">171</div>
+                  <div class="v4-cluster sky" style="top:78%;left:60%">30</div>
+                </div>
+              </div>
+              <div class="v4-mobile-bottom">
+                <div class="v4-mobile-tab"><div class="v4-mobile-tab-icon"></div>Feed</div>
+                <div class="v4-mobile-tab"><div class="v4-mobile-tab-icon"></div>Species</div>
+                <div class="v4-mobile-tab active"><div class="v4-mobile-tab-icon"></div>Map</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ======================================================== -->
+<!-- SPEC-ONLY CHANGES                                         -->
+<!-- ======================================================== -->
+
+<div class="delta-section">
+  <div class="delta-label">Spec-only changes (16 of 19 kinks) — encoded in design spec, no mock change</div>
+  <div class="spec-only-grid">
+
+    <div class="spec-only-card">
+      <div class="meta">L1 K1 · Lede contract</div>
+      <strong>4 lede templates evaluated by priority:</strong> zero-results, single-species, family-filter-active, default. Stale data drops the period clause. Defined for every (view, filters, freshness) tuple.
+    </div>
+
+    <div class="spec-only-card">
+      <div class="meta">L1 K3 · Bottom-sheet contract</div>
+      <strong>Drop <code>&lt;dialog&gt;</code>;</strong> use `<div role="dialog" aria-modal="false">`. Snap heights: peek 96px, half 60% of content, full 100%-8px. Map gets `pointer-events: none` only at full snap.
+    </div>
+
+    <div class="spec-only-card">
+      <div class="meta">L1 K5 · `<Photo>` priority prop</div>
+      <strong>Add `priority` boolean to <code>&lt;Photo&gt;</code>:</strong> masthead passes `priority={true}` → `loading="eager" fetchpriority="high"`. Feed thumbs default to `loading="lazy"`. Resolves LCP penalty on detail surface.
+    </div>
+
+    <div class="spec-only-card">
+      <div class="meta">L1 K6 · Region as config</div>
+      <strong>Extract region label to config:</strong> `frontend/src/config/region.ts` exports `REGION_LABEL`. Wordmark + lede source from same constant. Future expansion = one-line edit.
+    </div>
+
+    <div class="spec-only-card">
+      <div class="meta">L1 K7 · Freshness label state machine</div>
+      <strong>4 states:</strong> fresh / recent / stale / error. Read API exposes `meta.freshest_observation_at` via `MAX(inserted_at)`. Stale state escalates lede + meta line copy.
+    </div>
+
+    <div class="spec-only-card">
+      <div class="meta">L2 K1 · Family-channel mechanism</div>
+      <strong>JS-computed lookup table</strong> at `frontend/src/config/family-palette.ts`. `getFamilyChannel(code)` returns `{fill, on}` AA-paired. CSS custom-property path retired. Components consume via inline `style`.
+    </div>
+
+    <div class="spec-only-card">
+      <div class="meta">L2 K2 · Cluster pill prop API</div>
+      <strong>Pill takes `count`, computes tier internally.</strong> Thresholds (sand ≥100, ember ≥750) live in `frontend/src/config/cluster.ts`. MapLibre cluster layer imports the same constants.
+    </div>
+
+    <div class="spec-only-card">
+      <div class="meta">L2 K3 · Token namespace migration</div>
+      <strong><code>--accent</code> → <code>--color-decision-point</code></strong> (avoid notable collision). `--bg-*` / `--text-*` / `--border` get `--color-` prefix in production. Lint guard fails CI on `var(--accent)` outside mock dir.
+    </div>
+
+    <div class="spec-only-card">
+      <div class="meta">L2 K4 · `<Photo>` × `<StatusBlock>` boundary</div>
+      <strong>They don't compose.</strong> `<Photo>` owns 4-state machine: null-src → silhouette, loading → skeleton, loaded → img, error → silhouette. `<StatusBlock>` is page-level; never wraps `<Photo>`.
+    </div>
+
+    <div class="spec-only-card">
+      <div class="meta">L2 K5 · `<FilterSentence>` template</div>
+      <strong>Single template:</strong> "Showing {filter terms} from the last {period}." Returns `null` at zero filters. Feed's "Sorted by recency" becomes separate `<SortLabel>`. Period clause always present when component renders.
+    </div>
+
+    <div class="spec-only-card">
+      <div class="meta">L3 K1 · Detail dialog heading + focus</div>
+      <strong>Species name promoted to `<h1 id="detail-title" tabIndex={-1}>`.</strong> Dialog `aria-labelledby="detail-title"`. Initial focus targets heading, NOT close button. SR users hear species name on open.
+    </div>
+
+    <div class="spec-only-card">
+      <div class="meta">L3 K2 · `<FilterSentence>` live-region</div>
+      <strong>Always-mounted `role="status" aria-live="polite" aria-atomic="true"`.</strong> 500ms debounce on settled state. Filter-cleared transition holds "All filters cleared." for 1500ms before silence.
+    </div>
+
+    <div class="spec-only-card">
+      <div class="meta">L3 K3 · Cluster pill ARIA</div>
+      <strong>Pill renders `role="img" aria-label="{count} sightings"`.</strong> Tier (sky/sand/ember) is decorative density encoding — count is canonical. WCAG 1.4.1 satisfied by text count, not by color.
+    </div>
+
+    <div class="spec-only-card">
+      <div class="meta">L3 K4 · Bottom-sheet role-switching</div>
+      <strong>Sheet role flips with snap state:</strong> `region` at peek/half, `dialog aria-modal="true"` at full. `inert` set on map BEFORE role flips to dialog. ESC handler scoped to focus inside sheet.
+    </div>
+
+    <div class="spec-only-card">
+      <div class="meta">L3 K5 · Reduced-motion policy</div>
+      <strong>Single `frontend/src/styles/motion.css` rule:</strong> `transition-duration: 0ms !important; animation-duration: 0ms !important;` under `prefers-reduced-motion: reduce`. MapLibre `easeTo` reads matchMedia for `duration: 0`.
+    </div>
+
+    <div class="spec-only-card">
+      <div class="meta">L3 K6 · Notable affordance spec entry</div>
+      <strong>Documented constraint:</strong> "Notable affordance is card layout + label text. Color is amplification only. Future flat-row notable design must retain a non-color discriminator before removing card treatment."
+    </div>
+
+  </div>
+</div>
+
+<div style="margin-top:24px;padding:14px 18px;border-radius:8px;background:rgba(0,0,0,0.05);font-size:13px;line-height:1.6">
+  <strong>Cross-cutting takeaway:</strong> Three of the spec fixes (family-palette, cluster-thresholds, filter-sentence constants) introduce a `frontend/src/config/` module. Combined with `region.ts` and `freshness-threshold.ts`, this becomes the auditable home for runtime parameters, taxonomies, and lookup tables that drive visual or behavioral branching. Token namespace migration (L2 K3) is the only fix that mutates the existing codebase — schedule first, before any v3 component work begins.
+</div>
