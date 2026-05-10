@@ -7,6 +7,7 @@ import { App } from './App.js';
 // called and no console warnings are emitted (issue #357 task 2).
 import './analytics.js';
 import './styles.css';
+import './styles/motion.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
