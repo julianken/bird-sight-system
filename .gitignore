@@ -27,6 +27,7 @@ scripts/.phylopic-cache/
 
 # Playwright output (screenshots, traces from local runs)
 frontend/.playwright-out/
+frontend/.playwright-out-snapshot-gen/
 frontend/playwright-report/
 
 # Playwright MCP runtime artifacts — may contain page snapshots of credential

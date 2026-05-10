@@ -10,8 +10,16 @@ import './styles/tokens.css';
 import './styles.css';
 import './styles/motion.css';
 
+// Dev-only design-system preview shim. Activated by ?ds-preview=<key>.
+// import.meta.env.DEV is false in production builds (tree-shaken entirely).
+let root: React.ReactNode = <App />;
+if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('ds-preview')) {
+  const { DsPreview } = await import('./dev/DsPreview.js');
+  root = <DsPreview />;
+}
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
+    {root}
   </React.StrictMode>
 );
