@@ -1,14 +1,20 @@
 /**
- * Basemap for the map surface.
+ * Basemap URLs for the map surface.
  *
- * Points at OpenFreeMap's hosted `positron` style — free, MapLibre-compatible,
- * includes glyphs + sources + rendering layers. Prototype finding 2
- * (docs/plans/2026-04-22-map-v1-prototype/learnings.md) notes the style emits
- * MapLibre warnings at zoom >7, but those are cosmetic upstream issues, not
- * crashes. Acceptable for production.
+ * Light: OpenFreeMap positron — free, MapLibre-compatible.
+ * Dark:  OpenFreeMap dark — gated on G7/G8 contrast gate; see
+ *        docs/design/01-spec/open-questions.md. If the gate fails,
+ *        MapCanvas falls back to the light basemap for both modes.
  *
- * No self-hosted tile pipeline is planned; the unapplied map-v1 PMTiles
- * Terraform was removed in #385 once it was confirmed the live map at
- * https://bird-maps.com fetches all tiles from `tiles.openfreemap.org`.
+ * `basemapStyle` is kept as a light alias so existing callers compile
+ * without changes until Phase 3 wires the theme-aware prop.
+ *
+ * Prototype finding 2 (docs/plans/2026-04-22-map-v1-prototype/learnings.md):
+ * positron emits MapLibre warnings at zoom >7 — cosmetic, not crashes.
  */
-export const basemapStyle = 'https://tiles.openfreemap.org/styles/positron';
+export const basemapStyleLight = 'https://tiles.openfreemap.org/styles/positron';
+export const basemapStyleDark  = 'https://tiles.openfreemap.org/styles/dark';
+
+/** Backward-compatible alias — Phase 3 will replace callsites with the
+ *  theme-aware selection. */
+export const basemapStyle = basemapStyleLight;
