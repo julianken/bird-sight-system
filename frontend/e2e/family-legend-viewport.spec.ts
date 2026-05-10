@@ -279,12 +279,12 @@ test.describe('FamilyLegend viewport-aware counts (mobile, #351)', () => {
     const observations = await loadObservationsFixture();
     await setupRoutes(page, apiStub, observations);
 
-    // Clear the localStorage default so the responsive collapse-on-mobile
-    // applies on first paint (matches the existing family-legend.spec.ts
-    // pattern).
+    // Clear both the legacy and .v2 localStorage keys so the responsive
+    // collapse-on-mobile applies on first paint.
     await page.addInitScript(() => {
       try {
         window.localStorage.removeItem('family-legend-expanded');
+        window.localStorage.removeItem('family-legend-expanded.v2');
       } catch {
         /* noop */
       }
