@@ -134,6 +134,9 @@ function makeFakeMap() {
     }),
     hasImage: vi.fn((id: string) => sprites.has(id)),
     removeImage: vi.fn((id: string) => sprites.delete(id)),
+    // Phase 1: MutationObserver in MapCanvas calls setStyle when
+    // [data-theme] flips. Default no-op spy; tests assert call args.
+    setStyle: vi.fn(),
   };
 }
 
@@ -1881,5 +1884,64 @@ describe('MapCanvas', () => {
     expect(onViewportChange).toHaveBeenCalledTimes(2);
     expect(onViewportChange).toHaveBeenNthCalledWith(1, firstBounds);
     expect(onViewportChange).toHaveBeenNthCalledWith(2, secondBounds);
+  });
+
+  // --- Phase 1: [data-theme] MutationObserver for basemap swap ---
+  //
+  // The observer is registered on document.documentElement after
+  // mapReady. When [data-theme] flips, observer reads the new value and
+  // calls map.setStyle() with the matching basemap URL. Cleanup on
+  // unmount is verified by the observer.disconnect() call (no leak).
+
+  describe('[data-theme] MutationObserver swaps basemap', () => {
+    it('calls map.setStyle with dark URL when data-theme changes to dark', async () => {
+      // Start in light mode; the observer must register before the flip.
+      document.documentElement.setAttribute('data-theme', 'light');
+
+      render(<MapCanvas observations={[]} silhouettes={SILHOUETTES} />);
+
+      // MockMap fires onLoad in useEffect → handleLoad → mapReady=true.
+      // Wait for the observer effect to register.
+      await waitFor(() => {
+        expect(fakeMap).not.toBeNull();
+      });
+
+      // Mutate the attribute — MutationObserver should pick it up and
+      // call setStyle with the dark URL.
+      act(() => {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      });
+
+      await waitFor(() => {
+        expect(fakeMap.setStyle).toHaveBeenCalledWith(
+          'https://tiles.openfreemap.org/styles/dark',
+        );
+      });
+
+      // Cleanup
+      document.documentElement.setAttribute('data-theme', 'light');
+    });
+
+    it('calls map.setStyle with light URL when data-theme changes to light', async () => {
+      document.documentElement.setAttribute('data-theme', 'dark');
+
+      render(<MapCanvas observations={[]} silhouettes={SILHOUETTES} />);
+
+      await waitFor(() => {
+        expect(fakeMap).not.toBeNull();
+      });
+
+      act(() => {
+        document.documentElement.setAttribute('data-theme', 'light');
+      });
+
+      await waitFor(() => {
+        expect(fakeMap.setStyle).toHaveBeenCalledWith(
+          'https://tiles.openfreemap.org/styles/positron',
+        );
+      });
+
+      document.documentElement.removeAttribute('data-theme');
+    });
   });
 });
