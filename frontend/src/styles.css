@@ -153,7 +153,7 @@ body {
   display: flex;
   gap: var(--space-lg);
   padding: var(--space-sm) var(--space-md);
-  font-size: 13px;
+  font-size: var(--type-sm);
   color: var(--color-text-strong);
 }
 .feed-sort-option {
@@ -216,7 +216,7 @@ body {
   border-radius: 50%;
   background: var(--color-accent-notable-fg);
   color: var(--color-text-white);
-  font-size: 12px;
+  font-size: var(--type-xs);
   font-weight: 700;
   line-height: 1;
 }
@@ -224,7 +224,7 @@ body {
   flex: 1;
   min-width: 0;
   font-weight: 600;
-  font-size: 14px;
+  font-size: var(--type-sm);
   color: var(--color-text-strong);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -233,7 +233,7 @@ body {
 .feed-row-count {
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
-  font-size: 13px;
+  font-size: var(--type-sm);
   color: var(--color-text-body);
   background: var(--color-bg-tint);
   padding: 2px 6px;
@@ -250,7 +250,7 @@ body {
 .feed-row-loc {
   flex-shrink: 1;
   min-width: 0;
-  font-size: 13px;
+  font-size: var(--type-sm);
   /* #555 on #fff = 7.46:1 — well clear of 4.5:1. */
   color: var(--color-text-muted);
   overflow: hidden;
@@ -259,7 +259,7 @@ body {
 }
 .feed-row-time {
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: var(--type-xs);
   /* #5c5c5c on #fff = 6.86:1 — passes AA for 12px normal weight. #777
      (the first draft) failed at 4.47:1. Do NOT lighten this back. */
   color: var(--color-text-subtle);
@@ -269,7 +269,7 @@ body {
   padding: var(--space-xl);
   text-align: center;
   color: var(--color-text-muted);
-  font-size: 14px;
+  font-size: var(--type-sm);
   max-width: 480px;
   margin-inline: auto;
 }
@@ -290,7 +290,7 @@ body {
   width: 100%;
   box-sizing: border-box;
   padding: 10px 14px;
-  font-size: 15px;
+  font-size: var(--type-base);
   border: 1px solid var(--color-border-ui);
   border-radius: 6px;
   background: var(--color-bg-surface);
@@ -329,7 +329,7 @@ body {
 }
 .species-autocomplete-option {
   padding: 8px 14px;
-  font-size: 14px;
+  font-size: var(--type-sm);
   color: var(--color-text-strong);
   cursor: pointer;
   line-height: 1.3;
@@ -348,14 +348,14 @@ body {
   border: 1px solid var(--color-border-ui);
   border-radius: 6px;
   color: var(--color-text-muted);
-  font-size: 13px;
+  font-size: var(--type-sm);
 }
 .species-search-prompt,
 .species-search-empty {
   padding: var(--space-xl) var(--space-lg);
   text-align: center;
   color: var(--color-text-muted);
-  font-size: 14px;
+  font-size: var(--type-sm);
   margin: 0;
 }
 
@@ -368,7 +368,7 @@ body {
   align-items: center;
   flex-wrap: wrap;
 }
-.filters-bar label { display: flex; gap: 6px; align-items: center; font-size: 13px; }
+.filters-bar label { display: flex; gap: 6px; align-items: center; font-size: var(--type-sm); }
 .filters-bar select, .filters-bar input { padding: 4px 8px; }
 
 /* Surface-toggle tablist (#111). Sits between FiltersBar and the map / main
@@ -389,7 +389,7 @@ body {
   border-radius: 4px;
   padding: 6px 14px;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--type-sm);
   color: var(--color-text-strong);
   cursor: pointer;
   line-height: 1.2;
@@ -441,20 +441,20 @@ body {
 }
 .species-detail-common-name {
   margin: 0 0 4px 0;
-  font-size: 20px;
+  font-size: var(--type-lg);
   font-weight: 700;
 }
 .species-detail-sci-name {
   margin: 0 0 12px 0;
-  font-size: 14px;
+  font-size: var(--type-sm);
   color: var(--color-text-muted);
 }
 .species-detail-family {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--type-sm);
   color: var(--color-text-body);
 }
-.species-detail-loading { color: var(--color-text-muted); font-size: 13px; margin: 8px 0 0 0; }
+.species-detail-loading { color: var(--color-text-muted); font-size: var(--type-sm); margin: 8px 0 0 0; }
 /* Phenology chart (#356, #363, #365). 12 monthly observation-count bars
    rendered as inline SVG inside the species detail body. Sits below
    .species-detail-family. The SVG uses width:100% with a max-width cap so
@@ -513,7 +513,7 @@ body {
 }
 .phenology-chart-loading {
   color: var(--color-text-muted);
-  font-size: 13px;
+  font-size: var(--type-sm);
   margin: 12px 0 0 0;
 }
 .species-detail-error {
@@ -523,7 +523,7 @@ body {
   border: 1px solid var(--color-error-border);
   border-radius: 4px;
   color: var(--color-error-text);
-  font-size: 13px;
+  font-size: var(--type-sm);
 }
 
 /* Map surface (#165, #158, #249). The MapLibre canvas fills #main-surface
@@ -568,7 +568,7 @@ body {
   padding: var(--space-sm) var(--space-lg);
   background: var(--color-bg-surface);
   border-top: 1px solid var(--color-border-ui);
-  font-size: 12px;
+  font-size: var(--type-xs);
   color: var(--color-text-muted);
 }
 
@@ -584,7 +584,7 @@ body {
   padding: var(--space-xs) var(--space-sm);
   color: var(--color-text-muted);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--type-xs);
   text-decoration: underline;
   cursor: pointer;
   border-radius: 4px;
@@ -646,7 +646,7 @@ body {
 }
 .attribution-modal-header h2 {
   margin: 0;
-  font-size: 18px;
+  font-size: var(--type-md);
   font-weight: 700;
   color: var(--color-text-strong);
 }
@@ -657,7 +657,7 @@ body {
   border-radius: 4px;
   padding: 4px 12px;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--type-sm);
   color: var(--color-text-strong);
   cursor: pointer;
   min-height: 32px;
@@ -674,13 +674,13 @@ body {
 }
 .attribution-modal-section h3 {
   margin: 0 0 var(--space-xs) 0;
-  font-size: 14px;
+  font-size: var(--type-sm);
   font-weight: 700;
   color: var(--color-text-strong);
 }
 .attribution-modal-section p {
   margin: 0 0 var(--space-xs) 0;
-  font-size: 13px;
+  font-size: var(--type-sm);
   color: var(--color-text-body);
   line-height: 1.4;
 }
@@ -711,7 +711,7 @@ body {
   gap: var(--space-xs);
 }
 .attribution-modal-phylopic-row {
-  font-size: 12px;
+  font-size: var(--type-xs);
   color: var(--color-text-body);
   line-height: 1.4;
   padding: 2px 0;
@@ -752,7 +752,7 @@ body {
   border: 1px solid var(--color-border-ui);
   border-radius: 6px;
   box-shadow: var(--shadow-listbox);
-  font-size: 13px;
+  font-size: var(--type-sm);
   color: var(--color-text-strong);
   max-width: 240px;
 }
@@ -783,7 +783,7 @@ body {
   font-weight: 600;
 }
 .family-legend-chevron {
-  font-size: 12px;
+  font-size: var(--type-xs);
   color: var(--color-text-muted);
 }
 .family-legend-entries {
@@ -812,7 +812,7 @@ body {
   border-radius: 4px;
   padding: 4px 6px;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--type-xs);
   color: var(--color-text-strong);
   cursor: pointer;
   text-align: left;
@@ -839,7 +839,7 @@ body {
 .family-legend-entry-count {
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
-  font-size: 11px;
+  font-size: var(--type-xs);
   color: var(--color-text-body);
   background: var(--color-bg-tint);
   padding: 1px 5px;
@@ -878,7 +878,7 @@ body {
   border-radius: 6px;
   box-shadow: var(--shadow-listbox);
   padding: var(--space-sm) var(--space-md);
-  font-size: 13px;
+  font-size: var(--type-sm);
   color: var(--color-text-strong);
   max-width: 280px;
 }
@@ -901,7 +901,7 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: var(--type-xs);
   font-weight: 700;
 }
 .observation-popover-close {
@@ -909,7 +909,7 @@ body {
   background: transparent;
   border: none;
   font: inherit;
-  font-size: 18px;
+  font-size: var(--type-md);
   line-height: 1;
   color: var(--color-text-muted);
   cursor: pointer;
@@ -921,7 +921,7 @@ body {
 .observation-popover-location,
 .observation-popover-time,
 .observation-popover-count {
-  font-size: 12px;
+  font-size: var(--type-xs);
   color: var(--color-text-body);
   margin-top: 2px;
 }
@@ -932,7 +932,7 @@ body {
   padding: var(--space-xs) 0 0 0;
   margin-top: var(--space-xs);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--type-xs);
   color: var(--color-text-strong);
   cursor: pointer;
   text-decoration: underline;
