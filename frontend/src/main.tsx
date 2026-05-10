@@ -9,6 +9,7 @@ import './analytics.js';
 import './styles/tokens.css';
 import './styles.css';
 import './styles/motion.css';
+import './components/ds/ds-primitives.css';
 
 // Dev-only design-system preview shim. Activated by ?ds-preview=<key>.
 // import.meta.env.DEV is false in production builds (tree-shaken entirely).

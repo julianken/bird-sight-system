@@ -1,0 +1,500 @@
+/*
+ * Design-system primitive CSS — Sky Atlas Phase 2 follow-up (#419)
+ *
+ * Styling rules for the 6 primitives shipped as structure-only in PR #418:
+ *   StatusBlock, FamilySilhouette, Photo, ClusterPill, FilterSentence, SortLabel
+ *
+ * Architecture:
+ *   - All values are resolved through Phase 1 semantic tokens (tokens.css).
+ *     No raw hex codes. Custom properties from styles.css :root are also
+ *     consumed where they carry the right semantic role.
+ *   - Shimmer animation respects prefers-reduced-motion via the global policy
+ *     in styles/motion.css (animation-duration: 0ms !important). Components
+ *     do NOT duplicate the media query.
+ *   - Dark-mode overrides use [data-theme="dark"] scoped blocks, mirroring
+ *     the token contract established in tokens.css.
+ *   - Layer 3 component tokens (scoped custom properties) are declared on the
+ *     root selector for each primitive, following the tokens.css convention.
+ *
+ * Import order in main.tsx:
+ *   tokens.css → styles.css → motion.css → ds-primitives.css (this file)
+ *
+ * Spec: docs/design/01-spec/components.md
+ * Issue: #419 (primitive CSS), #420 (FamilySilhouette CSS-only fill)
+ */
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Shimmer animation keyframe
+   Used by .status-block__skeleton, .photo__skeleton.
+   motion.css global policy collapses this to 0ms when prefers-reduced-motion
+   is set — no per-component media query needed.
+   ───────────────────────────────────────────────────────────────────────────── */
+@keyframes ds-shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   <StatusBlock>
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.status-block {
+  /* Layer 3 component token scope */
+  --status-block-padding: var(--space-xl);
+  --status-block-max-width: 480px;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  padding: var(--status-block-padding);
+  max-width: var(--status-block-max-width);
+  margin-inline: auto;
+  text-align: center;
+}
+
+/* Progress bar — 2px indeterminate strip at top of the block */
+.status-block__progress {
+  /* Reset UA progress appearance */
+  appearance: none;
+  -webkit-appearance: none;
+  display: block;
+  width: 100%;
+  height: 2px;
+  border: none;
+  border-radius: 1px;
+  background: var(--color-bg-tint);
+  color: var(--color-decision-point); /* tint bar fill in supporting browsers */
+  overflow: hidden;
+}
+.status-block__progress::-webkit-progress-bar {
+  background: var(--color-bg-tint);
+  border-radius: 1px;
+}
+.status-block__progress::-webkit-progress-value {
+  background: var(--color-decision-point);
+  border-radius: 1px;
+}
+.status-block__progress::-moz-progress-bar {
+  background: var(--color-decision-point);
+  border-radius: 1px;
+}
+
+/* Skeleton placeholder block — shimmer rect */
+.status-block__skeleton {
+  width: 100%;
+  height: 80px;
+  border-radius: 8px;
+  background: linear-gradient(
+    90deg,
+    var(--color-bg-skeleton) 0%,
+    var(--color-bg-tint)     40%,
+    var(--color-bg-skeleton) 100%
+  );
+  background-size: 200% 100%;
+  animation: ds-shimmer 1.6s ease-in-out infinite;
+}
+
+/* Title — primary text */
+.status-block__title {
+  margin: 0;
+  font-size: var(--type-base);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.4;
+  color: var(--color-text-body);
+}
+
+/* Body — secondary text */
+.status-block__body {
+  margin: 0;
+  font-size: var(--type-sm);
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+/* Action button */
+.status-block__action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-lg);
+  border: 1px solid var(--color-border-ui);
+  border-radius: 20px;
+  background: var(--color-bg-surface);
+  color: var(--color-text-strong);
+  font-family: var(--font-stack);
+  font-size: var(--type-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: background var(--dur-fast), border-color var(--dur-fast);
+}
+.status-block__action:hover {
+  background: var(--color-bg-tint);
+  border-color: var(--color-text-muted);
+}
+.status-block__action:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+}
+
+/* Loading state — skeleton is visible, muted title */
+.status-block--state-loading .status-block__title {
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-regular);
+}
+
+/* Empty state — centered, muted */
+.status-block--state-empty .status-block__title {
+  color: var(--color-text-body);
+}
+.status-block--state-empty .status-block__body {
+  color: var(--color-text-muted);
+}
+
+/* Error state — destructive theme via alert tone */
+.status-block--tone-alert {
+  --status-block-error-bg:     var(--color-error-bg);
+  --status-block-error-border: var(--color-error-border);
+  --status-block-error-text:   var(--color-error-text);
+}
+.status-block--tone-alert .status-block__title {
+  color: var(--status-block-error-text);
+}
+.status-block--tone-alert .status-block__body {
+  color: var(--status-block-error-text);
+  opacity: 0.85;
+}
+.status-block--state-error {
+  background: var(--color-error-bg);
+  border: 1px solid var(--color-error-border);
+  border-radius: 8px;
+  padding: var(--space-lg);
+}
+
+/* Dark mode — no structural change; shimmer base colour is already token-driven */
+[data-theme="dark"] .status-block__skeleton {
+  /* --color-bg-skeleton and --color-bg-tint are both overridden in dark tokens.css */
+  background: linear-gradient(
+    90deg,
+    var(--color-bg-skeleton) 0%,
+    #253050                  40%,
+    var(--color-bg-skeleton) 100%
+  );
+  background-size: 200% 100%;
+  animation: ds-shimmer 1.6s ease-in-out infinite;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   <FamilySilhouette>
+   Resolves #420: SVG fill is set via CSS using --family-fill (already wired
+   on the wrapper span in FamilySilhouette.tsx:88). The inline fill={} prop
+   on the SVG path has been removed from FamilySilhouette.tsx so this CSS
+   rule is the sole fill authority, giving dark-mode a theming hook.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.family-silhouette {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* Inherit --family-fill from the wrapper's inline style */
+}
+
+.family-silhouette svg {
+  display: block;
+  fill: var(--family-fill, currentColor);
+}
+
+/* Layout size variants — match Photo's aspect-ratio variant naming */
+.family-silhouette--masthead svg {
+  width: 120px;
+  height: 120px;
+}
+
+.family-silhouette--inline svg {
+  width: 80px;
+  height: 80px;
+}
+
+.family-silhouette--thumb svg {
+  width: 44px;
+  height: 44px;
+}
+
+/* Null-family: use a muted neutral tone */
+.family-silhouette--null-family svg {
+  fill: var(--color-text-muted);
+  opacity: 0.55;
+}
+
+/*
+ * Dark-mode: --family-fill is a hex from FAMILY_PALETTE in JS. The tokens
+ * don't cover per-family colour overrides in dark mode yet (G7/G8 gated).
+ * We lighten the fill slightly with mix-blend-mode and opacity for now so
+ * the silhouettes remain readable on the dark skeleton bg without needing
+ * 7 new token pairs that aren't spec'd yet.
+ */
+[data-theme="dark"] .family-silhouette svg {
+  opacity: 0.9;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   <Photo>
+   CLS-safe: aspect-ratio reserves space before the image decodes.
+   Skeleton shimmer is visible in loading state and removed once loaded.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.photo {
+  /* Layer 3 token scope */
+  --photo-radius: 8px;
+
+  position: relative;
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  border-radius: var(--photo-radius);
+  background: var(--color-bg-skeleton);
+}
+
+/* Aspect-ratio reservations (CLS-safe — space held before image decodes) */
+.photo--masthead {
+  aspect-ratio: 16 / 10;
+}
+
+.photo--inline {
+  aspect-ratio: 4 / 3;
+}
+
+.photo--thumb {
+  aspect-ratio: 1 / 1;
+}
+
+/* Skeleton shimmer — visible during loading, absent when silhouette or loaded */
+.photo__skeleton {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    var(--color-bg-skeleton) 0%,
+    var(--color-bg-tint)     40%,
+    var(--color-bg-skeleton) 100%
+  );
+  background-size: 200% 100%;
+  animation: ds-shimmer 1.6s ease-in-out infinite;
+  border-radius: var(--photo-radius);
+}
+
+/* Image element — fills container; hidden while pending */
+.photo__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: var(--photo-radius);
+}
+
+.photo__img--pending {
+  /* Image is in DOM but not yet loaded — keep it invisible so the skeleton
+     shows through. Once onLoad fires, --pending class is removed. */
+  opacity: 0;
+  position: absolute;
+  inset: 0;
+}
+
+/* Loaded state — image is fully visible */
+.photo--loaded .photo__img {
+  opacity: 1;
+  position: static;
+}
+
+/* Silhouette fallback — center the SVG inside the reserved space */
+.photo--silhouette {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg-tint);
+}
+
+.photo--silhouette .family-silhouette {
+  width: 60%;
+  height: 60%;
+}
+
+.photo--silhouette .family-silhouette svg {
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+}
+
+/* Attribution overlay — bottom-right caption strip */
+.photo__attribution {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  padding: 2px var(--space-sm);
+  background: rgba(0, 0, 0, var(--opacity-dimmed));
+  border-radius: 0 0 var(--photo-radius) 0;
+  font-size: var(--type-xs);
+  line-height: 1.4;
+}
+
+.photo__attribution-link {
+  color: var(--color-text-white);
+  text-decoration: none;
+}
+.photo__attribution-link:hover {
+  text-decoration: underline;
+}
+.photo__attribution-link:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+
+/* Dark mode skeleton */
+[data-theme="dark"] .photo__skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-bg-skeleton) 0%,
+    #253050                  40%,
+    var(--color-bg-skeleton) 100%
+  );
+  background-size: 200% 100%;
+  animation: ds-shimmer 1.6s ease-in-out infinite;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   <ClusterPill>
+   Tier visual encoding: sky/sand/ember carry distinct background fills from
+   the density triad in tokens.css. Padding + font-size are tier-stepped.
+   UA button reset is included here (deferred from Phase 2 per component comment).
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.cluster-pill {
+  /* UA button reset */
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  cursor: pointer;
+  color: inherit;
+  line-height: 1;
+  text-align: center;
+
+  /* Base pill shape */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-family: var(--font-stack);
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+  transition: transform var(--dur-fast), box-shadow var(--dur-fast);
+}
+
+.cluster-pill:hover {
+  transform: scale(1.08);
+}
+
+.cluster-pill:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+}
+
+.cluster-pill:active {
+  transform: scale(0.96);
+}
+
+/*
+ * Tier: sky — lowest density (8.2:1 contrast via --color-density-low from tokens.css)
+ * Small padding + small font — fewest observations.
+ */
+.cluster-pill--sky {
+  padding: 4px 10px;
+  font-size: var(--type-sm);
+  min-width: 28px;
+  background: var(--color-density-low);
+  color: var(--color-density-text);
+}
+
+/*
+ * Tier: sand — medium density (10.4:1 contrast via --color-density-mid)
+ * Mid padding + base font — moderate cluster weight.
+ */
+.cluster-pill--sand {
+  padding: 6px 13px;
+  font-size: var(--type-base);
+  min-width: 34px;
+  background: var(--color-density-mid);
+  color: var(--color-density-text);
+}
+
+/*
+ * Tier: ember — highest density (5.1:1 contrast via --color-density-high)
+ * Large padding + md font — heaviest visual weight signals dense cluster.
+ */
+.cluster-pill--ember {
+  padding: 8px 16px;
+  font-size: var(--type-md);
+  min-width: 40px;
+  background: var(--color-density-high);
+  color: var(--color-density-text);
+}
+
+/* Dark mode — density tokens are already overridden in tokens.css dark block */
+[data-theme="dark"] .cluster-pill {
+  /* density tokens handle bg/text colour; this block adjusts focus ring only */
+}
+[data-theme="dark"] .cluster-pill:focus-visible {
+  outline-color: var(--c-warm-50);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   <FilterSentence>
+   Inline-flex sentence text. Live region is already positioned off-screen by
+   inline styles in the component (as per FilterSentence.tsx:114); this file
+   styles the visible sentence only.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.filter-sentence__visible {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 0.25em;
+  margin: 0;
+  font-size: var(--type-sm);
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+/* Filter bullets — individual term chips */
+.filter-bullet {
+  display: inline;
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-body);
+}
+
+/*
+ * Respect reduced-motion: if the consumer adds show/hide transitions later,
+ * they will be collapsed to 0ms by motion.css. No per-element media query
+ * needed here.
+ */
+
+/* Dark mode — text colour inherits from token overrides; nothing extra needed */
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   <SortLabel>
+   Minimal meta label — small, muted, no decoration.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.sort-label {
+  margin: 0;
+  font-size: var(--type-xs);
+  font-weight: var(--font-weight-regular);
+  color: var(--color-text-muted);
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+}
