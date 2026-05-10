@@ -45,7 +45,6 @@
   --type-md:   17px;  /* species name in row, modal headings */
   --type-lg:   22px;  /* surface section titles */
   --type-hero: 34px;  /* lede, detail-surface species name */
-  --lede-size: 26px;  /* documented exception between lg and hero */
 
   --font-stack:
     -apple-system, BlinkMacSystemFont, "Segoe UI Variable",
@@ -153,4 +152,15 @@
 .feed-row {
   --feed-row-bg:       var(--color-bg-surface);
   --feed-row-bg-hover: var(--color-bg-tint);
+}
+
+/*
+ * Lede — a one-off display size that sits between --type-lg (22px) and
+ * --type-hero (34px). Scoped here (Layer 3) rather than inside the type
+ * ramp because a type ramp's value is in being a discrete ladder; an
+ * exception inside the ladder weakens the contract. Moved out of Layer 1
+ * intentionally — see commit "refactor(styles): relocate --lede-size".
+ */
+.lede {
+  --lede-size: 26px;
 }
