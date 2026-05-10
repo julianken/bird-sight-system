@@ -13,7 +13,7 @@ import {
 import type { MapLayerMouseEvent, MapRef } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { FamilySilhouette, Observation } from '@bird-watch/shared-types';
-import { basemapStyleLight, basemapStyleDark } from './basemap-style.js';
+import { BASEMAP_LIGHT, BASEMAP_DARK } from './basemap-style.js';
 import {
   observationsToGeoJson,
   buildClusterLayerSpec,
@@ -715,7 +715,7 @@ export function MapCanvas({
   // Registered after mapReady so the map instance is guaranteed to exist.
   // Cleaned up on unmount to prevent leaks. The observer is the single
   // source of truth for basemap-vs-theme coupling — no prop drilling.
-  // Dark URL aliasing (G8): basemapStyleDark may resolve to the same
+  // Dark URL aliasing (G8): BASEMAP_DARK may resolve to the same
   // visual tiles as light during the rollout window; the swap mechanism
   // is correct regardless. See docs/design/01-spec/open-questions.md.
   //
@@ -749,7 +749,7 @@ export function MapCanvas({
               : 'light';
           if (next === prevThemeRef.current) return;
           prevThemeRef.current = next;
-          const style = next === 'dark' ? basemapStyleDark : basemapStyleLight;
+          const style = next === 'dark' ? BASEMAP_DARK : BASEMAP_LIGHT;
           map.setStyle(style);
         }
       }
@@ -934,8 +934,8 @@ export function MapCanvas({
         mapStyle={
           typeof document !== 'undefined' &&
           document.documentElement.getAttribute('data-theme') === 'dark'
-            ? basemapStyleDark
-            : basemapStyleLight
+            ? BASEMAP_DARK
+            : BASEMAP_LIGHT
         }
         onLoad={handleLoad}
         attributionControl={false}
