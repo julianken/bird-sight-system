@@ -237,6 +237,10 @@ export function App() {
             onSkipToFeed={onSkipToFeed}
             onSelectSpecies={onSelectSpecies}
             onViewportChange={onViewportChange}
+            since={state.since}
+            notable={state.notable}
+            freshness="fresh"
+            freshnessLabel="Updated just now · Source: eBird"
           />
         )}
         {state.view === 'species' && (

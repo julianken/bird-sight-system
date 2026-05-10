@@ -41,6 +41,25 @@ const { MapSurface } = await import('./MapSurface.js');
 
 const sampleObs: Observation[] = [];
 
+/* Helper to build an Observation for context-strip tests. */
+function makeObs(overrides: Partial<Observation> & { subId: string }): Observation {
+  return {
+    speciesCode: 'x',
+    comName: 'X',
+    lat: 32.0,
+    lng: -110.0,
+    obsDt: '2026-04-15T12:00:00Z',
+    locId: 'L1',
+    locName: 'X',
+    howMany: 1,
+    isNotable: false,
+    regionId: null,
+    silhouetteId: null,
+    familyCode: null,
+    ...overrides,
+  };
+}
+
 /* Common required-prop set for every test. The skip-link is the only
    thing under test; the rest are dummies so MapSurface mounts. */
 const baseProps = {
@@ -50,6 +69,11 @@ const baseProps = {
   onFamilyToggle: () => {
     /* no-op */
   },
+  // Phase 3 required props — use defaults for pre-existing tests.
+  since: '14d' as const,
+  notable: false,
+  freshness: 'fresh' as const,
+  freshnessLabel: 'Updated just now · Source: eBird',
 };
 
 describe('MapSurface skip-link', () => {
@@ -167,5 +191,82 @@ describe('MapSurface legendObservations prop', () => {
     // exactOptionalPropertyTypes mode disallows passing `undefined` to an
     // optional prop — we want a true omit, not a `prop={undefined}`.
     expect(mapCanvasOnViewportChange).toBeUndefined();
+  });
+});
+
+describe('Phase 3: context strip', () => {
+  const baseObservations = [
+    // 3 species, 3 observations
+    makeObs({ subId: 's1', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher' }),
+    makeObs({ subId: 's2', speciesCode: 'gilwoo', comName: 'Gila Woodpecker' }),
+    makeObs({ subId: 's3', speciesCode: 'cacwre', comName: 'Cactus Wren' }),
+  ];
+
+  it('mounts <MapLede> with the default-template text', () => {
+    render(
+      <MapSurface
+        observations={baseObservations}
+        silhouettes={[]}
+        familyCode={null}
+        onFamilyToggle={vi.fn()}
+        since="14d"
+        notable={false}
+        freshness="fresh"
+        freshnessLabel="Updated 11 min ago · Source: eBird"
+      />,
+    );
+    expect(screen.getByRole('heading', { level: 1, name: /3 species seen across Arizona in the last 14 days\./i })).toBeInTheDocument();
+  });
+
+  it('mounts <FilterSentence> when filters are active', () => {
+    render(
+      <MapSurface
+        observations={baseObservations}
+        silhouettes={[]}
+        familyCode={null}
+        onFamilyToggle={vi.fn()}
+        since="14d"
+        notable={true}
+        freshness="fresh"
+        freshnessLabel="Updated 11 min ago · Source: eBird"
+      />,
+    );
+    // <FilterSentence> renders a span with class .filter-sentence__visible when filters are non-empty
+    expect(document.querySelector('.filter-sentence__visible')).not.toBeNull();
+  });
+
+  it('renders the freshness meta line below the lede', () => {
+    render(
+      <MapSurface
+        observations={baseObservations}
+        silhouettes={[]}
+        familyCode={null}
+        onFamilyToggle={vi.fn()}
+        since="14d"
+        notable={false}
+        freshness="fresh"
+        freshnessLabel="Updated 11 min ago · Source: eBird"
+      />,
+    );
+    expect(screen.getByText('Updated 11 min ago · Source: eBird')).toHaveClass('map-freshness');
+  });
+
+  it('drops period clause and shows "Last updated" copy under stale', () => {
+    render(
+      <MapSurface
+        observations={baseObservations}
+        silhouettes={[]}
+        familyCode={null}
+        onFamilyToggle={vi.fn()}
+        since="14d"
+        notable={false}
+        freshness="stale"
+        freshnessLabel="Last updated 9 h ago · Source: eBird"
+      />,
+    );
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+      '3 species seen across Arizona.',
+    );
+    expect(screen.getByText('Last updated 9 h ago · Source: eBird')).toBeInTheDocument();
   });
 });
