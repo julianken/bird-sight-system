@@ -40,7 +40,13 @@ async function goToPreview(page: import('@playwright/test').Page, key: string) {
 test.describe('<StatusBlock> snapshots', () => {
   test('loading state — desktop light', async ({ page }) => {
     await page.setViewportSize(DESKTOP);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     await goToPreview(page, 'status-loading');
+    // Freeze the indeterminate <progress> animation (Chromium native spinner
+    // is non-deterministic; freeze via animation-play-state + appearance reset).
+    await page.addStyleTag({
+      content: 'progress { animation: none !important; appearance: none !important; background: #e0e0e0 !important; }',
+    });
     await expect(page.locator('.status-block--state-loading')).toBeVisible();
     await expect(page.locator('.status-block--state-loading')).toHaveScreenshot(
       'status-block-loading-desktop-light.png'
@@ -49,7 +55,12 @@ test.describe('<StatusBlock> snapshots', () => {
 
   test('loading state — mobile dark', async ({ page }) => {
     await page.setViewportSize(MOBILE);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     await goToPreview(page, 'status-loading');
+    // Freeze the indeterminate <progress> animation
+    await page.addStyleTag({
+      content: 'progress { animation: none !important; appearance: none !important; background: #e0e0e0 !important; }',
+    });
     await setDark(page);
     await expect(page.locator('.status-block--state-loading')).toBeVisible();
     await expect(page.locator('.status-block--state-loading')).toHaveScreenshot(
