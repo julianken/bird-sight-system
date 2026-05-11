@@ -11,9 +11,10 @@ import type { FamilySilhouette } from '@bird-watch/shared-types';
  *   - CC BY 3.0 / CC BY-SA 3.0 §4(b/c): per-work creator attribution +
  *     license URI; reasonable means of attribution must be prominent enough
  *     to be reachable from every surface that displays the work. The trigger
- *     lives in App.tsx's persistent `<footer role="contentinfo">` so the
- *     prominence requirement is met on every view (`view=map|feed|species|
- *     detail`) without abusing SurfaceNav's `role="tablist"` semantics.
+ *     lives in <AppHeader> (Phase 3) as a persistent header button
+ *     so the prominence requirement is met on every view (view=map|feed|species|
+ *     detail) without abusing SurfaceNav's role="tablist" semantics. The footer
+ *     was removed in Phase 6.
  *   - OSM/OpenFreeMap ODbL §4.3: source attribution + license URL.
  *
  * Modal idioms (this is the codebase's first modal — document the pattern):

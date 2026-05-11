@@ -171,7 +171,7 @@ describe('App aria-busy', () => {
   });
 });
 
-describe('App persistent footer (issue #250)', () => {
+describe('Phase 6: Footer removal + Attribution via AppHeader (issue #250 → Phase 6)', () => {
   beforeEach(() => {
     __resetSilhouettesCache();
     mockGetHotspots.mockResolvedValue([]);
@@ -183,42 +183,45 @@ describe('App persistent footer (issue #250)', () => {
     vi.restoreAllMocks();
   });
 
-  // The persistent app-level footer must (a) carry role="contentinfo",
-  // (b) sit AFTER <main> in the DOM (axe landmark order banner→main→
-  // contentinfo), and (c) host the AttributionModal Credits trigger
-  // reachable from every view.
+  // Phase 6: The persistent footer is removed. <AppHeader> carries the
+  // Attribution trigger reachable from every view, meeting eBird ToU §3
+  // and CC BY-SA §4(b/c). The footer's role="contentinfo" landmark is no
+  // longer needed — banner + main are sufficient per ARIA spec.
   it.each(['feed', 'species', 'map', 'detail'] as const)(
-    'renders a contentinfo footer with a Credits button on view=%s',
+    'no app-footer element on view=%s (footer removed in Phase 6)',
     async view => {
       mockUrlState.state = {
         since: '14d', notable: false, speciesCode: null, familyCode: null, view,
       };
       const { container } = render(<App />);
       const footer = container.querySelector('footer.app-footer');
-      expect(footer).not.toBeNull();
-      expect(footer?.getAttribute('role')).toBe('contentinfo');
-      // Credits button is inside the footer (Phase 3 also adds a "Credits &
-      // attribution" button in AppHeader — target the footer's own trigger).
-      const credits = footer?.querySelector('button.attribution-trigger');
-      expect(credits).not.toBeNull();
+      expect(footer).toBeNull();
     },
   );
 
-  it('renders the footer as the LAST child of .app, after <main>', () => {
+  it.each(['feed', 'species', 'map', 'detail'] as const)(
+    'Attribution trigger is reachable from AppHeader on view=%s',
+    async view => {
+      mockUrlState.state = {
+        since: '14d', notable: false, speciesCode: null, familyCode: null, view,
+      };
+      render(<App />);
+      await screen.findByRole('banner');
+      // AppHeader carries the "Credits & attribution" button
+      const trigger = screen.getByRole('button', { name: /Credits & attribution/i });
+      expect(trigger).toBeInTheDocument();
+    },
+  );
+
+  it('AttributionModal Credits button is still present in the DOM (trigger can find it)', () => {
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
     };
     const { container } = render(<App />);
-    const app = container.querySelector('.app');
-    expect(app).not.toBeNull();
-    const last = app?.lastElementChild;
-    expect(last?.tagName).toBe('FOOTER');
-    expect(last?.classList.contains('app-footer')).toBe(true);
-    // <main> must precede the footer (banner→main→contentinfo order).
-    const main = container.querySelector('main#main-surface');
-    expect(main).not.toBeNull();
-    const position = main!.compareDocumentPosition(last!);
-    expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The modal's own trigger button — className="attribution-trigger"
+    // onOpenAttribution's querySelector('.attribution-trigger') must resolve.
+    const credits = container.querySelector('button.attribution-trigger');
+    expect(credits).not.toBeNull();
   });
 });
 

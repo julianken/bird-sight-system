@@ -373,42 +373,27 @@ export function App() {
         />
       )}
       {/*
-        Persistent app-level footer (issue #250). Subsumes the per-surface
-        SurfaceFooter from #243; the AttributionModal Credits trigger is
-        reachable from every view (`view=map|feed|species|detail`) so the
-        CC BY 3.0 / CC BY-SA 3.0 §4(c) prominence requirement is satisfied
-        without abusing SurfaceNav's `role="tablist"` semantics.
+        Phase 6: Footer removed. The Attribution trigger moved to <AppHeader>
+        in Phase 3 — reachable from every view (map|feed|species|detail),
+        meeting the eBird ToU §3 and CC BY-SA §4(b/c) prominence requirement
+        without abusing SurfaceNav's role="tablist" semantics.
 
-        Position is load-bearing: must be the LAST child of `<div className=
-        "app">` (after `</main>`). This gives both the right visual order
-        (footer at viewport bottom via `.app` flex column + `#main-surface
-        flex: 1`) and the axe-clean landmark order
-        (main → contentinfo). Do NOT move it before FiltersBar / SurfaceNav.
+        <AttributionModal> is mounted here (outside any landmark container)
+        so it remains in the DOM on all surfaces. The AppHeader "Attribution"
+        button fires onOpenAttribution → clicks the modal's own trigger button
+        (.attribution-trigger). Phase 6 retains the Phase 3 querySelector
+        shim; a follow-up PR can replace it with a proper controlled-open prop.
+
+        Silhouettes and photo-credit props threaded as before (issue #274,
+        issue #327 task-11).
       */}
-      <footer role="contentinfo" className="app-footer">
-        {/*
-          Thread the silhouettes loading/error state into the modal so
-          the Phylopic section surfaces an aria-live status during cache
-          misses or API failures (issue #274). Without these props the
-          modal would render an empty list while the fetch is in flight
-          — looks like silhouettes don't exist.
-
-          iNat photo credit (issue #327 task-11): the active SpeciesMeta
-          carries optional `photoAttribution` + `photoLicense` fields
-          when the detail-panel photo exists. Both must be present for
-          the Photos section to render; either-absent collapses it.
-          When `view !== 'detail'` or no species is selected,
-          `activeSpeciesMeta` is null — both props pass `undefined`, so
-          the section omits cleanly on every other view.
-        */}
-        <AttributionModal
-          silhouettes={silhouettes}
-          loading={silhouettesLoading}
-          error={silhouettesError}
-          photoAttribution={activeSpeciesMeta?.photoAttribution}
-          photoLicense={activeSpeciesMeta?.photoLicense}
-        />
-      </footer>
+      <AttributionModal
+        silhouettes={silhouettes}
+        loading={silhouettesLoading}
+        error={silhouettesError}
+        photoAttribution={activeSpeciesMeta?.photoAttribution}
+        photoLicense={activeSpeciesMeta?.photoLicense}
+      />
     </div>
   );
 }
