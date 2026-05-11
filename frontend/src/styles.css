@@ -1325,3 +1325,135 @@ dialog.species-detail-modal .species-detail-modal-close {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
+
+/* ==========================================================================
+   W2 orphan-CSS sweep — 8 classNames referenced in JSX with no rule.
+   Fixes: #455. Append-only; rules ordered by component then severity.
+   Spec refs: docs/analyses/2026-05-11-brainstorm-vs-prod-fidelity/phase-2/
+               iterator-1-orphan-css-sweep.md
+   ========================================================================== */
+
+/* ── MapLede (.map-lede) — BLOCKER ─────────────────────────────────────────
+   Newspaper lede for map / feed / species surfaces (MapLede.tsx:50).
+   Without this rule the <h1> renders at the browser default ~32px bold with
+   top/bottom margins — the spec calls for 26px (--lede-size) with no UA
+   margin. --lede-size is scoped to .lede, .feed-lede in tokens.css; extended
+   here to cover .map-lede so all three lede surfaces share one token.
+   font-weight-semibold (600) rather than bold (700) matches the newspaper-lede
+   "confident but not aggressive" voice-and-content.md contract. */
+.map-lede {
+  --lede-size: 26px;
+  font-size: var(--lede-size);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.25;
+  margin: 0 0 var(--space-md) 0;
+  color: var(--color-text-strong);
+}
+
+/* ── Map context strip (.map-context-strip) — IMPORTANT ────────────────────
+   Section wrapper hosting the lede + filter sentence + freshness paragraph
+   (MapSurface.tsx:175). Without a rule the section is a bare block with no
+   padding or visual separation from the map canvas below. The strip sits
+   ABOVE the map canvas — padding-block gives breathing room; background
+   matches the page surface so the strip reads as chrome rather than content.
+   border-bottom separates chrome from the map edge cleanly. */
+.map-context-strip {
+  padding: var(--space-md) var(--space-lg);
+  background: var(--color-bg-surface);
+  border-bottom: 1px solid var(--color-border-ui);
+}
+
+/* ── Map freshness (.map-freshness) — IMPORTANT ────────────────────────────
+   Metadata paragraph showing data-freshness state (MapSurface.tsx:185).
+   Without a rule it renders as a bare <p> at 1em/16px with UA margins.
+   Spec voice-and-content.md "freshness contract" calls for muted small-caps
+   meta text. font-variant: small-caps is combined with font-weight-medium
+   to reinforce the label character. letter-spacing is mild — enough to
+   suggest a label without adding reading friction. */
+.map-freshness {
+  margin: 0;
+  font-size: var(--type-xs);
+  font-weight: var(--font-weight-medium);
+  font-variant: small-caps;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+
+/* ── Map loading skeleton (.map-loading-skeleton) ───────────────────────────
+   Loading-state placeholder while the map data fetches (MapSurface.tsx:191).
+   Without a rule the bare <div> collapses to zero height and the loading state
+   is invisible. This rule contributes the shimmer `animation` only; the inline
+   `style={}` on MapSurface.tsx:195-200 sets background via `--color-bg-tint`
+   and wins on specificity, so `--color-bg-skeleton` / `--color-bg-skeleton-
+   highlight` tokens are not painted. A future cleanup could move the inline
+   styles into this rule once the skeleton component is refactored to
+   className-only. */
+.map-loading-skeleton {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg-skeleton, var(--color-bg-tint));
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes skeleton-shimmer {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.6; }
+}
+
+/* ── SpeciesDetailSheet snap variants — BLOCKER ────────────────────────────
+   Phase 4 authored --full only; --peek and --half were missed.
+   The component renders `species-detail-sheet species-detail-sheet--${snap}`
+   (SpeciesDetailSheet.tsx:262) so these modifier rules compose onto the base.
+
+   --peek: collapsed bar; gives affordance without covering the map.
+   --half: mid-point snap; common for drill-down gesture contexts.
+   --full: already authored at styles.css:1288 (z-index: 20 uplift). */
+.species-detail-sheet--peek {
+  /* Collapsed bar — anchored at bottom with shallow z-index so map controls
+     remain fully interactive. Content is clipped at the inline-driven 96px
+     peek height. */
+  z-index: 10;
+  overflow: hidden;
+}
+
+.species-detail-sheet--half {
+  /* Half-height state — above the map but below the full-screen tier.
+     Overflow hidden keeps the sheet clean at the snap boundary; .sheet-scroll
+     inside handles scrollable content via its own touch-action. */
+  z-index: 15;
+  overflow: hidden;
+}
+
+/* ── Feed surface wrapper (.feed-surface) — IMPORTANT ──────────────────────
+   Outer wrapper <div> in FeedSurface.tsx (lines 162, 184). Without a rule
+   children inherit body width with no surface-level max-width or padding
+   constraint. padding-top adds breathing room between AppHeader and the lede.
+   The inner .feed, .feed-lede, .feed-sort, .feed-card each carry their own
+   max-width: 760px — the wrapper does not cap width, it provides surface
+   padding only. box-sizing: border-box prevents padding from adding to width. */
+.feed-surface {
+  width: 100%;
+  padding: var(--space-lg) var(--space-lg) 0;
+  box-sizing: border-box;
+}
+
+/* ── Screen-reader-only live region (.filter-sentence-live) — SUGGESTION ───
+   FilterSentence.tsx:116 applies className="filter-sentence-live" to a
+   <div role="status" aria-live="polite"> live region carrying the SR summary.
+   Previously the SR-only treatment was applied via inline style (line 121);
+   this CSS rule restores token-driven consistency and allows the inline escape
+   hatch to be deleted. Pattern follows .skip-link (styles.css:101-112). */
+.filter-sentence-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
