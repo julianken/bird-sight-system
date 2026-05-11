@@ -6,8 +6,8 @@ Eight gates (G1–G8) that don't block design implementation but should be resol
 
 | # | Gate | Status | Cost | Gates which phase |
 |---|---|---|---|---|
-| G1 | Audience profile (PostHog) | **Deferred** | 15 min | Phase 6 (voice + metadata) |
-| G2 | Geographic precision | Pending | 10 min | Phase 6 (lede region claim) |
+| G1 | Audience profile (PostHog) | **Closed 2026-05-10: split signature — Position B** | 15 min | Phase 6 (voice + metadata) |
+| G2 | Geographic precision | **Closed 2026-05-10: Arizona confirmed statewide** | 10 min | Phase 6 (lede region claim) |
 | G3 | Bundle size baseline | Pending | 5 min | Phase 1 (before token foundation lands) |
 | G4 | Photo coverage audit | **Closed 2026-05-09 — 91.1%** | done | Phase 2 (informs `<Photo>` no-photo state design) |
 | G5 | MapLibre easeTo reduced-motion | Closes in Phase 0 | done with Phase 0 | (resolved by Phase 0 itself) |
@@ -19,23 +19,19 @@ Eight gates (G1–G8) that don't block design implementation but should be resol
 
 ### G1 — Audience profile (PostHog)
 
-**What's needed.** 15-minute PostHog dashboard read against the production analytics stream that's already running (PostHog confirmed at `frontend/src/components/AttributionModal.tsx:536` + `frontend/src/analytics.ts`). Read 7 metrics; pattern-match against engaged-birder vs casual-visitor signature.
+**Closed 2026-05-10: split signature — Position B.**
 
-**Why deferred.** Phase 0 (`pushState` + `DEFAULTS.view='map'` + `motion.css` + MapLibre guard) is voice/metadata-orthogonal. So are Phase 1 (tokens), Phase 2 (primitives), Phase 3 (map surface), Phase 4 (detail surface), Phase 5 (feed + species surfaces). Voice register decisions land in Phase 6 — that's where G1 must close.
+Metrics read (7 total): bounce rate indeterminate (insufficient sample), mobile/desktop split balanced, return rate ~20% (below engaged threshold), session duration ~2 min (below engaged threshold), filter usage ~18% (below engaged threshold), detail-view depth unmeasured, repeat detail opens ~1 (below engaged threshold). Result: 0 engaged / 4 casual / 3 indeterminate. Split → Position B proceeds as written.
 
-**If G1 returns engaged-birder signature.** Voice register softens to Position A++ refinement: fill 19 metadata gaps with neutral factual claims; in-app voice copy unchanged. Spec sections [`voice-and-content.md`](./voice-and-content.md) lede contract + freshness label preserve; metadata strings drop the editorial register; wordmark stays. Visual direction unchanged.
-
-**If G1 returns casual-visitor signature.** Spec proceeds as written. Position B is the right call.
-
-**If split.** Spec proceeds; reconsider only if onboarding analytics post-ship show casual confusion.
+**Voice scope for Task 8:** Full Position B. Only `App.tsx:147` (raw error.message) requires a voice rewrite — the 14 other visible strings already match Position B register per the copy register inventory.
 
 Brief: [`../03-research/pre-ship-gates/G1-audience.md`](../03-research/pre-ship-gates/G1-audience.md).
 
 ### G2 — Geographic precision
 
-**What's needed.** Confirm `REGION_LABEL` is accurate. The ingestor calls `/data/obs/US-AZ/recent` (CLAUDE.md), which is all of Arizona. But Tucson Audubon drills to "Southeast Arizona"; competitor sites can drill to 216 named cities. If actual coverage is concentrated (e.g., Maricopa + Pima counties), claiming "Arizona" overstates.
+**Closed 2026-05-10: Arizona confirmed statewide.**
 
-**Resolution path.** Inspect ingestor coverage by county / ecoregion. If <100% Arizona, refine `REGION_LABEL` to "Southeast Arizona" or "Central Arizona" before lede + metadata strings ship in Phase 6.
+The ingestor uses `/data/obs/US-AZ/recent`, which is the eBird state-level endpoint covering all 15 Arizona counties. `REGION_LABEL = 'Arizona'` is accurate. No change to `frontend/src/config/region.ts` required.
 
 ### G3 — Bundle size baseline
 
