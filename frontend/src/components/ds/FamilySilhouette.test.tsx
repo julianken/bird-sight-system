@@ -77,6 +77,28 @@ describe('<FamilySilhouette>', () => {
     expect(document.querySelector('.family-silhouette--circle')).toBeInTheDocument();
   });
 
+  // --- Unknown / raw eBird codes ---
+
+  it('renders the null-family neutral path (not a crash) for an unknown raw eBird family code', () => {
+    // "tyrannidae" is a raw eBird family code that is NOT in the FamilyCode
+    // union — it arrives as `string` from the Observation type. The component
+    // must fall back to the neutral null-family path rather than throwing or
+    // rendering an unknown path key.
+    render(<FamilySilhouette family="tyrannidae" />);
+    // SVG must be present — no crash
+    expect(document.querySelector('svg')).toBeInTheDocument();
+    // The silhouette wrapper must be in the document (component rendered)
+    const el = document.querySelector('[data-testid="family-silhouette"]');
+    expect(el).toBeInTheDocument();
+    // Unknown code still carries the raw family value on the data attribute
+    // (same as the known-code path) — the fallback is internal (path data),
+    // not a CSS-class difference.
+    expect(el).toHaveAttribute('data-family', 'tyrannidae');
+    // The neutral null-family fill is applied via the style custom property
+    // (getFamilyChannel returns the NULL_FAMILY_CHANNEL for unrecognised codes).
+    expect(el).toHaveStyle({ '--family-fill': '#5a6472' });
+  });
+
   // --- Accessibility ---
 
   it('is hidden from the SR tree (presentational) when inside <Photo>', () => {
