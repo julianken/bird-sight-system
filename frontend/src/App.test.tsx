@@ -435,4 +435,20 @@ describe('Phase 5: SpeciesSearchSurface activeFilters wiring (App → SpeciesSea
     expect(visible).not.toBeNull();
     expect(visible?.textContent?.toLowerCase()).toMatch(/notable/);
   });
+
+  it('FilterSentence visible sentence renders on the species surface when speciesCode is set without notable', async () => {
+    // Regression: view=species with speciesCode='annhum' (and notable=false)
+    // must render .filter-sentence__visible. buildFilterTerms pushes speciesCode
+    // when truthy — so the sentence should NOT collapse to null.
+    // Prior to fix, this path was untested and a mount regression left the
+    // visible element absent on the species surface (closes #442).
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: 'annhum', familyCode: null, view: 'species',
+    };
+    const { container } = render(<App />);
+    await screen.findByRole('banner');
+    const visible = container.querySelector('.filter-sentence__visible');
+    expect(visible).not.toBeNull();
+    expect(visible?.textContent).toMatch(/annhum/i);
+  });
 });
