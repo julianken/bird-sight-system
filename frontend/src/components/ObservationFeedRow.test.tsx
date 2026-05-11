@@ -75,9 +75,10 @@ describe('ObservationFeedRow', () => {
     expect(
       screen.getByRole('button', { name: /^Notable sighting, Vermilion Flycatcher/ }),
     ).toBeInTheDocument();
-    // And the visible "!" glyph is aria-hidden so screen readers don't
-    // announce it twice.
-    expect(screen.getByTitle('Notable sighting')).toHaveAttribute('aria-hidden', 'true');
+    // FeedRow encodes notable in the button aria-label; no separate glyph span.
+    expect(screen.getByRole('button')).toHaveAccessibleName(
+      expect.stringContaining('Notable sighting'),
+    );
   });
 
   it('pins the comprehensive accessible name with all five slots', () => {
