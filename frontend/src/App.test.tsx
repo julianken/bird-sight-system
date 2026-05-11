@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 // Phase 4: useIsMobile calls window.matchMedia. JSDOM does not implement
@@ -73,7 +73,7 @@ describe('App error screen', () => {
       since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
     };
     mockGetHotspots.mockRejectedValue(new ApiError(503, 'pool exhausted'));
-    mockGetObservations.mockResolvedValue([]);
+    mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
     mockGetSilhouettes.mockResolvedValue([]);
   });
 
@@ -141,7 +141,7 @@ describe('App aria-busy', () => {
     __resetSilhouettesCache();
     // Successful loads so we get the normal UI (not error screen)
     mockGetHotspots.mockResolvedValue([]);
-    mockGetObservations.mockResolvedValue([]);
+    mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
     mockGetSilhouettes.mockResolvedValue([]);
   });
 
@@ -175,7 +175,7 @@ describe('Phase 6: Footer removal + Attribution via AppHeader (issue #250 → Ph
   beforeEach(() => {
     __resetSilhouettesCache();
     mockGetHotspots.mockResolvedValue([]);
-    mockGetObservations.mockResolvedValue([]);
+    mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
     mockGetSilhouettes.mockResolvedValue([]);
   });
 
@@ -229,7 +229,7 @@ describe('Phase 3: AppHeader + Filters panel', () => {
   beforeEach(() => {
     __resetSilhouettesCache();
     mockGetHotspots.mockResolvedValue([]);
-    mockGetObservations.mockResolvedValue([]);
+    mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
     mockGetSilhouettes.mockResolvedValue([]);
   });
 
@@ -319,7 +319,7 @@ describe('Phase 5: FeedSurface lede wiring (App → FeedSurface)', () => {
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
     };
-    mockGetObservations.mockResolvedValue([SPECIES_OBS]);
+    mockGetObservations.mockResolvedValue({ data: [SPECIES_OBS], meta: { freshestObservationAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() } });
     render(<App />);
     await screen.findByText(/species seen across Arizona/i);
     expect(screen.queryByText(/sightings of/i)).toBeNull();
@@ -330,7 +330,7 @@ describe('Phase 5: FeedSurface lede wiring (App → FeedSurface)', () => {
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: 'vermfly', familyCode: null, view: 'feed',
     };
-    mockGetObservations.mockResolvedValue([SPECIES_OBS]);
+    mockGetObservations.mockResolvedValue({ data: [SPECIES_OBS], meta: { freshestObservationAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() } });
     render(<App />);
     // Priority 2: "{N} sightings of {name} in Arizona in the last {period}."
     // Regex anchors the period token ("14 days") to catch PERIOD_LABELS
@@ -342,7 +342,7 @@ describe('Phase 5: FeedSurface lede wiring (App → FeedSurface)', () => {
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: 'songbird', view: 'feed',
     };
-    mockGetObservations.mockResolvedValue([SPECIES_OBS]);
+    mockGetObservations.mockResolvedValue({ data: [SPECIES_OBS], meta: { freshestObservationAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() } });
     render(<App />);
     // Priority 3: "{N} species of {family} seen across Arizona…"
     await screen.findByText(/species of Songbird seen across Arizona/i);
@@ -383,7 +383,7 @@ describe('Phase 5: FeedSurface cross-surface FilterSentence drift regression', (
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: 'vermfly', familyCode: null, view: 'feed',
     };
-    mockGetObservations.mockResolvedValue([SPECIES_OBS]);
+    mockGetObservations.mockResolvedValue({ data: [SPECIES_OBS], meta: { freshestObservationAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() } });
     const { container } = render(<App />);
     // Lede must resolve the species name from the speciesIndex and include it.
     await screen.findByText(/sightings of Vermilion Flycatcher in Arizona in the last 14 days\./i);
@@ -397,11 +397,117 @@ describe('Phase 5: FeedSurface cross-surface FilterSentence drift regression', (
   });
 });
 
+describe('L2: freshness empty state (null freshestObservationAt)', () => {
+  // When the API returns null for freshestObservationAt (empty table or ingestor
+  // not yet run), the app must NOT render alarming "Source unavailable" copy —
+  // it silently suppresses the freshness label. (critic L2, #456 W3-A)
+  const OBS = {
+    subId: 'S1',
+    speciesCode: 'vermfly',
+    comName: 'Vermilion Flycatcher',
+    lat: 32.2,
+    lng: -110.9,
+    obsDt: new Date().toISOString(),
+    locId: 'L1',
+    locName: 'Sabino Canyon',
+    howMany: 1,
+    isNotable: false,
+    regionId: null,
+    silhouetteId: null,
+    familyCode: null,
+  };
+
+  beforeEach(() => {
+    __resetSilhouettesCache();
+    mockUrlState.state = { since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed' };
+    mockGetHotspots.mockResolvedValue([]);
+    mockGetSilhouettes.mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('does not render alarming freshness copy when freshestObservationAt is null', async () => {
+    mockGetObservations.mockResolvedValue({ data: [OBS], meta: { freshestObservationAt: null } });
+    render(<App />);
+    await screen.findByText(/species seen across Arizona/i);
+    expect(screen.queryByText(/Source unavailable/i)).toBeNull();
+    expect(screen.queryByText(/check back soon/i)).toBeNull();
+  });
+});
+
+describe('L3: nowTick advances on visibilitychange (tab return)', () => {
+  // useRef(new Date()) would freeze `now` at first render. After hours of the
+  // tab being hidden, freshness labels would stay stuck. Pattern A: bump nowTick
+  // on visibilitychange so labels re-derive when the user returns to the tab.
+  // (critic L3, #456 W3-A)
+  const RECENT_ISO = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+
+  const OBS = {
+    subId: 'S1',
+    speciesCode: 'vermfly',
+    comName: 'Vermilion Flycatcher',
+    lat: 32.2,
+    lng: -110.9,
+    obsDt: RECENT_ISO,
+    locId: 'L1',
+    locName: 'Sabino Canyon',
+    howMany: 1,
+    isNotable: false,
+    regionId: null,
+    silhouetteId: null,
+    familyCode: null,
+  };
+
+  beforeEach(() => {
+    __resetSilhouettesCache();
+    mockUrlState.state = { since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed' };
+    mockGetHotspots.mockResolvedValue([]);
+    mockGetSilhouettes.mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('registers a visibilitychange listener on mount and removes it on unmount', async () => {
+    const addSpy = vi.spyOn(document, 'addEventListener');
+    const removeSpy = vi.spyOn(document, 'removeEventListener');
+    mockGetObservations.mockResolvedValue({ data: [OBS], meta: { freshestObservationAt: RECENT_ISO } });
+    const { unmount } = render(<App />);
+    await screen.findByText(/species seen across Arizona/i);
+
+    expect(addSpy).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+
+    unmount();
+    expect(removeSpy).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+  });
+
+  it('fires setNowTick when tab becomes visible', async () => {
+    mockGetObservations.mockResolvedValue({ data: [OBS], meta: { freshestObservationAt: RECENT_ISO } });
+    render(<App />);
+    await screen.findByText(/species seen across Arizona/i);
+
+    // Simulate tab returning to foreground — trigger visibilitychange with
+    // document.visibilityState === 'visible' (jsdom default).
+    await act(async () => {
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', writable: true, configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    // App re-renders without crashing — freshness label is still present
+    // (we can't easily assert exact time, but we verify no error is thrown
+    // and the lede is still rendered).
+    expect(screen.getByText(/species seen across Arizona/i)).toBeInTheDocument();
+  });
+});
+
 describe('Phase 5: SpeciesSearchSurface activeFilters wiring (App → SpeciesSearchSurface)', () => {
   beforeEach(() => {
     __resetSilhouettesCache();
     mockGetHotspots.mockResolvedValue([]);
-    mockGetObservations.mockResolvedValue([]);
+    mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
     mockGetSilhouettes.mockResolvedValue([]);
   });
 

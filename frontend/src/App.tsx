@@ -24,6 +24,7 @@ import { filterObservationsByBounds } from './lib/viewport-filter.js';
 import { REGION_LABEL } from './config/region.js';
 import { SurfaceTitleSync } from './components/SurfaceTitleSync.js';
 import { StatusBlock } from './components/ds/StatusBlock.js';
+import { deriveFreshness } from './lib/freshness.js';
 
 const apiClient = new ApiClient({ baseUrl: import.meta.env.VITE_API_BASE_URL ?? '' });
 
@@ -74,7 +75,7 @@ export function App() {
     (state.familyCode ? 1 : 0);
   // hotspots intentionally fetched but unused — cheap insurance for v2
   // hotspot-marker layer (Plan 7 decision 5, docs/plans/2026-04-22-plan-7-map-v1.md).
-  const { loading, error, observations } = useBirdData(apiClient, {
+  const { loading, error, observations, freshestObservationAt } = useBirdData(apiClient, {
     since: state.since,
     notable: state.notable,
     ...(state.speciesCode ? { speciesCode: state.speciesCode } : {}),
@@ -185,9 +186,34 @@ export function App() {
     trigger?.click();
   }, []);
 
-  const nowRef = useRef(new Date());
   const mainRef = useRef<HTMLElement | null>(null);
-  const now = nowRef.current;
+
+  // nowTick advances when the user returns to the tab so freshness labels
+  // re-derive after the tab has been hidden for a long time. useRef(new Date())
+  // would freeze `now` at first render and never advance — after 5 h open the
+  // "Updated N min ago" label would stay stuck. Pattern A: bump on visibilitychange
+  // (tab return is the primary freshness signal for a passive read-only UI).
+  // Issue: #456 W3-A critic L3.
+  const [nowTick, setNowTick] = useState(() => new Date());
+  useEffect(() => {
+    function handleVisibility() {
+      if (document.visibilityState === 'visible') {
+        setNowTick(new Date());
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, []);
+  const now = nowTick;
+
+  // Derive freshness state + label from meta.freshestObservationAt (#456 W3-A).
+  // Uses the current `now` tick so the label re-derives on data fetch AND on
+  // tab return (visibilitychange above). No polling interval needed.
+  // Spec: docs/design/01-spec/voice-and-content.md §Freshness label state machine.
+  const { state: freshnessState, label: freshnessLabel } = useMemo(
+    () => deriveFreshness(freshestObservationAt, now),
+    [freshestObservationAt, now],
+  );
 
   const onSelectSpecies = useCallback(
     (speciesCode: string) => set({ detail: speciesCode, view: 'detail' }),
@@ -307,6 +333,8 @@ export function App() {
             observationCount={observations.length}
             regionLabel={REGION_LABEL}
             period={period}
+            freshness={freshnessState}
+            freshnessLabel={freshnessLabel}
             {...(speciesName !== undefined ? { speciesName } : {})}
             {...(familyName !== undefined ? { familyName } : {})}
           />
@@ -325,8 +353,8 @@ export function App() {
             notable={state.notable}
             speciesCode={state.speciesCode}
             {...(speciesName !== undefined ? { speciesName } : {})}
-            freshness="fresh"
-            freshnessLabel="Updated just now · Source: eBird"
+            freshness={freshnessState}
+            freshnessLabel={freshnessLabel}
           />
         )}
         {state.view === 'species' && (
@@ -337,6 +365,8 @@ export function App() {
             speciesIndex={speciesIndex}
             now={now}
             onSelectSpecies={onSelectSpecies}
+            freshness={freshnessState}
+            freshnessLabel={freshnessLabel}
             activeFilters={{
               notable: state.notable,
               since: state.since,

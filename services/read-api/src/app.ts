@@ -3,9 +3,11 @@ import { compress } from 'hono/compress';
 import { cors } from 'hono/cors';
 import type { Pool } from '@bird-watch/db-client';
 import {
-  getHotspots, getObservations, getSpeciesMeta, getSilhouettes,
+  getHotspots, getObservations, getFreshestObservationAt,
+  getSpeciesMeta, getSilhouettes,
   getSpeciesPhenology,
 } from '@bird-watch/db-client';
+import type { ObservationsResponse } from '@bird-watch/shared-types';
 import { cacheControlFor } from './cache-headers.js';
 
 export interface AppDeps {
@@ -88,9 +90,21 @@ export function createApp(deps: AppDeps): Hono {
     if (speciesCode !== undefined) filters.speciesCode = speciesCode;
     if (familyCode !== undefined) filters.familyCode = familyCode;
 
-    const rows = await getObservations(deps.pool, filters);
+    // Run both queries in parallel — getObservations fetches the filtered rows;
+    // getFreshestObservationAt provides MAX(ingested_at) for the freshness
+    // state machine on the frontend. The aggregate query is cheap (single
+    // table scan for the max timestamp) and does not vary by filter params —
+    // it reflects the age of our entire dataset, not the filtered slice.
+    const [rows, freshestObservationAt] = await Promise.all([
+      getObservations(deps.pool, filters),
+      getFreshestObservationAt(deps.pool),
+    ]);
     c.header('Cache-Control', cacheControlFor('observations'));
-    return c.json(rows);
+    const body: ObservationsResponse = {
+      data: rows,
+      meta: { freshestObservationAt },
+    };
+    return c.json(body);
   });
 
   app.get('/api/silhouettes', async c => {

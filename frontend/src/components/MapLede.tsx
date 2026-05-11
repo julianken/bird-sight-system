@@ -1,6 +1,6 @@
 import { REGION_LABEL } from '../config/region.js';
 
-export type Freshness = 'fresh' | 'recent' | 'stale' | 'error';
+export type Freshness = 'fresh' | 'recent' | 'stale' | 'empty' | 'error';
 
 export interface MapLedeProps {
   /** Number of distinct species across the active filter scope. */

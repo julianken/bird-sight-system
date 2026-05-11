@@ -183,3 +183,23 @@ export async function getObservations(
     familyCode: r.family_code,
   }));
 }
+
+/**
+ * Returns the ISO string of the most recently ingested observation
+ * (MAX(ingested_at)), or null when the observations table is empty.
+ *
+ * Used by the Read API to populate meta.freshestObservationAt in the
+ * ObservationsResponse envelope (#456 W3-A).
+ *
+ * Note: ingested_at (when the row was written to our DB) is used rather than
+ * obs_dt (when the birder made the observation) because it accurately reflects
+ * how fresh the data in our system is — even if an observation was made days
+ * ago, we want to know when we last received it from eBird.
+ */
+export async function getFreshestObservationAt(pool: Pool): Promise<string | null> {
+  const { rows } = await pool.query<{ max_ingested_at: Date | null }>(
+    'SELECT MAX(ingested_at) AS max_ingested_at FROM observations'
+  );
+  const ts = rows[0]?.max_ingested_at ?? null;
+  return ts ? ts.toISOString() : null;
+}

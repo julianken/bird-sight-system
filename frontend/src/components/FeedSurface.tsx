@@ -6,6 +6,7 @@ import { FeedCard } from './FeedCard.js';
 import { FeedRow } from './FeedRow.js';
 import { FilterSentence } from './ds/FilterSentence.js';
 import { SortLabel } from './ds/SortLabel.js';
+import type { Freshness } from './MapLede.js';
 
 export interface FeedSurfaceFilters {
   notable: boolean;
@@ -49,6 +50,17 @@ export interface FeedSurfaceProps {
    * active. Triggers the Priority 3 lede template.
    */
   familyName?: string;
+  /**
+   * Freshness state from the 4-state machine (#456 W3-A).
+   * When "stale", the lede drops the "in the last {period}" clause.
+   * Spec: docs/design/01-spec/voice-and-content.md §Freshness label state machine.
+   */
+  freshness?: Freshness;
+  /**
+   * Pre-computed freshness label (e.g. "Updated 11 min ago · Source: eBird").
+   * Displayed below the lede on the feed surface.
+   */
+  freshnessLabel?: string;
 }
 
 /**
@@ -87,6 +99,8 @@ export function FeedSurface(props: FeedSurfaceProps) {
     period = '14 days',
     speciesName,
     familyName,
+    freshness = 'fresh',
+    freshnessLabel,
   } = props;
 
   const [sortMode, setSortMode] = useState<FeedSortMode>('recent');
@@ -115,19 +129,23 @@ export function FeedSurface(props: FeedSurfaceProps) {
   // Derive the lede string using the 4-template priority state machine.
   // Templates are explicit branches — no string-template engine.
   // (docs/design/01-spec/voice-and-content.md §Templates are explicit)
+  //
+  // Stale data drops the "in the last {period}" clause per spec:
+  // "Stale data drops the period clause" (voice-and-content.md §Lede contract)
+  const periodClause = freshness === 'stale' ? '' : ` in the last ${period}`;
   const effectiveCount = observationCount ?? observations.length;
   const lede: string = useMemo(() => {
     if (effectiveCount === 0) {
       return 'No sightings match your current filters.';
     }
     if (speciesName) {
-      return `${effectiveCount} sightings of ${speciesName} in ${regionLabel} in the last ${period}.`;
+      return `${effectiveCount} sightings of ${speciesName} in ${regionLabel}${periodClause}.`;
     }
     if (familyName) {
-      return `${effectiveCount} species of ${familyName} seen across ${regionLabel} in the last ${period}.`;
+      return `${effectiveCount} species of ${familyName} seen across ${regionLabel}${periodClause}.`;
     }
-    return `${effectiveCount} species seen across ${regionLabel} in the last ${period}.`;
-  }, [effectiveCount, speciesName, familyName, regionLabel, period]);
+    return `${effectiveCount} species seen across ${regionLabel}${periodClause}.`;
+  }, [effectiveCount, speciesName, familyName, regionLabel, periodClause]);
 
   // Build the ActiveFilters shape expected by <FilterSentence>.
   // Forward all four filter dimensions so FilterSentence renders the same
@@ -184,6 +202,10 @@ export function FeedSurface(props: FeedSurfaceProps) {
     <div className="feed-surface">
       {/* Lede — runtime truth claim, Priority 1–4 state machine */}
       <p className="feed-lede">{lede}</p>
+      {/* Freshness meta line — 4-state machine per voice-and-content.md (#456 W3-A) */}
+      {freshnessLabel && (
+        <p className="feed-freshness">{freshnessLabel}</p>
+      )}
 
       {/* Context strip: SortLabel sibling ABOVE FilterSentence.
           These are independent; do not compose or merge them. */}

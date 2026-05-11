@@ -130,3 +130,19 @@ export type ObservationFilters = {
   speciesCode?: string;
   familyCode?: string;
 };
+
+/**
+ * Envelope returned by GET /api/observations.
+ * The meta.freshestObservationAt field is the ISO string of the most
+ * recently inserted observation (MAX(inserted_at) from the DB).
+ * Null when the observations table is empty.
+ *
+ * Spec: docs/design/01-spec/voice-and-content.md §Freshness label state machine
+ * Issue: #456 W3-A
+ */
+export interface ObservationsResponse {
+  data: Observation[];
+  meta: {
+    freshestObservationAt: string | null;
+  };
+}

@@ -51,22 +51,62 @@ describe('GET /api/observations', () => {
     ]);
   });
 
+  // Helper type matching the new ObservationsResponse envelope
+  type ObsEnvelope = {
+    data: Array<{ subId: string; familyCode?: string | null; [k: string]: unknown }>;
+    meta: { freshestObservationAt: string | null };
+  };
+
   it('returns observations with correct cache header', async () => {
     const app = createApp({ pool: db.pool });
     const res = await app.request('/api/observations?since=30d');
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control'))
       .toBe('public, max-age=1800, stale-while-revalidate=600');
-    const body = await res.json() as Array<unknown>;
-    expect(body).toHaveLength(2);
+    const body = await res.json() as ObsEnvelope;
+    expect(body.data).toHaveLength(2);
+  });
+
+  it('returns meta.freshestObservationAt as an ISO string (#456 W3-A)', async () => {
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/observations?since=30d');
+    expect(res.status).toBe(200);
+    const body = await res.json() as ObsEnvelope;
+    // freshestObservationAt must be a non-null ISO string — the table has rows
+    expect(body.meta.freshestObservationAt).not.toBeNull();
+    expect(typeof body.meta.freshestObservationAt).toBe('string');
+    // Validate ISO 8601 format (YYYY-MM-DDTHH:mm:ss..Z)
+    expect(body.meta.freshestObservationAt).toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/
+    );
+  });
+
+  it('returns meta.freshestObservationAt null when observations table is empty (#456 W3-A)', async () => {
+    // Truncate then immediately test. Restore happens implicitly since
+    // beforeAll re-seeds for future tests in this suite.
+    await db.pool.query('TRUNCATE observations');
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/observations');
+    expect(res.status).toBe(200);
+    const body = await res.json() as ObsEnvelope;
+    expect(body.meta.freshestObservationAt).toBeNull();
+    // Re-seed so subsequent tests in this describe are not affected
+    await upsertObservations(db.pool, [
+      { subId: 'S1', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 31.72, lng: -110.88, obsDt: new Date(Date.now() - 5*86400_000).toISOString(),
+        locId: 'L1', locName: 'X', howMany: 1, isNotable: false },
+      { subId: 'S2', speciesCode: 'annhum', comName: "Anna's Hummingbird",
+        lat: 32.30, lng: -110.99, obsDt: new Date(Date.now() - 20*86400_000).toISOString(),
+        locId: 'L2', locName: 'Y', howMany: 1, isNotable: true },
+    ]);
   });
 
   it('projects familyCode from species_meta onto each observation (#57)', async () => {
     const app = createApp({ pool: db.pool });
     const res = await app.request('/api/observations?since=30d');
     expect(res.status).toBe(200);
-    const body = await res.json() as Array<{ subId: string; familyCode: string | null }>;
-    const byId = Object.fromEntries(body.map(o => [o.subId, o.familyCode]));
+    const body = await res.json() as ObsEnvelope;
+    const byId = Object.fromEntries(body.data.map(o => [o.subId, o.familyCode]));
     expect(byId['S1']).toBe('tyrannidae');
     expect(byId['S2']).toBe('trochilidae');
   });
@@ -74,29 +114,29 @@ describe('GET /api/observations', () => {
   it('filters by since=14d', async () => {
     const app = createApp({ pool: db.pool });
     const res = await app.request('/api/observations?since=14d');
-    const body = await res.json() as Array<{ subId: string }>;
-    expect(body.map(o => o.subId)).toEqual(['S1']);
+    const body = await res.json() as ObsEnvelope;
+    expect(body.data.map(o => o.subId)).toEqual(['S1']);
   });
 
   it('filters by notable=true', async () => {
     const app = createApp({ pool: db.pool });
     const res = await app.request('/api/observations?since=30d&notable=true');
-    const body = await res.json() as Array<{ subId: string }>;
-    expect(body.map(o => o.subId)).toEqual(['S2']);
+    const body = await res.json() as ObsEnvelope;
+    expect(body.data.map(o => o.subId)).toEqual(['S2']);
   });
 
   it('filters by species code', async () => {
     const app = createApp({ pool: db.pool });
     const res = await app.request('/api/observations?since=30d&species=vermfly');
-    const body = await res.json() as Array<{ subId: string }>;
-    expect(body.map(o => o.subId)).toEqual(['S1']);
+    const body = await res.json() as ObsEnvelope;
+    expect(body.data.map(o => o.subId)).toEqual(['S1']);
   });
 
   it('filters by family code', async () => {
     const app = createApp({ pool: db.pool });
     const res = await app.request('/api/observations?since=30d&family=trochilidae');
-    const body = await res.json() as Array<{ subId: string }>;
-    expect(body.map(o => o.subId)).toEqual(['S2']);
+    const body = await res.json() as ObsEnvelope;
+    expect(body.data.map(o => o.subId)).toEqual(['S2']);
   });
 
   it('rejects invalid since values with 400', async () => {

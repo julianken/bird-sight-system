@@ -306,3 +306,40 @@ describe('SpeciesSearchSurface', () => {
     });
   });
 });
+
+describe('SpeciesSearchSurface — freshness meta line (L1 critic fix)', () => {
+  // .species-freshness class must be present so the styles.css rule applies.
+  it('renders freshnessLabel inside a .species-freshness element', () => {
+    const { container } = render(
+      <SpeciesSearchSurface
+        loading={false}
+        speciesCode={null}
+        observations={[]}
+        speciesIndex={SPECIES_INDEX}
+        now={NOW}
+        onSelectSpecies={() => {}}
+        onClearSpecies={() => {}}
+        freshnessLabel="Updated 5 min ago · Source: eBird"
+      />
+    );
+    const el = container.querySelector('.species-freshness');
+    expect(el).not.toBeNull();
+    expect(el?.textContent).toBe('Updated 5 min ago · Source: eBird');
+  });
+
+  it('does NOT render .species-freshness when freshnessLabel is empty string (empty state)', () => {
+    const { container } = render(
+      <SpeciesSearchSurface
+        loading={false}
+        speciesCode={null}
+        observations={[]}
+        speciesIndex={SPECIES_INDEX}
+        now={NOW}
+        onSelectSpecies={() => {}}
+        onClearSpecies={() => {}}
+        freshnessLabel=""
+      />
+    );
+    expect(container.querySelector('.species-freshness')).toBeNull();
+  });
+});

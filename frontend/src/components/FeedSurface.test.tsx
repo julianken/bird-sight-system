@@ -581,3 +581,40 @@ describe('FeedSurface', () => {
     });
   });
 });
+
+describe('FeedSurface — freshness meta line (L1 critic fix)', () => {
+  // .feed-freshness class must be present on the freshness <p> so the CSS rule
+  // in styles.css can apply. Without the class the element renders at UA-default
+  // 1em/16px with browser margins — the spec freshness contract is violated.
+  it('renders freshnessLabel inside a .feed-freshness element', () => {
+    // Must pass a non-empty observations array — FeedSurface short-circuits to
+    // an empty-state render (without the freshness line) when observations === [].
+    const { container } = render(
+      <FeedSurface
+        loading={false}
+        observations={[obs({ subId: 'S1' })]}
+        now={NOW}
+        filters={{ notable: false, since: '14d' }}
+        onSelectSpecies={() => {}}
+        freshnessLabel="Updated 5 min ago · Source: eBird"
+      />
+    );
+    const el = container.querySelector('.feed-freshness');
+    expect(el).not.toBeNull();
+    expect(el?.textContent).toBe('Updated 5 min ago · Source: eBird');
+  });
+
+  it('does NOT render .feed-freshness when freshnessLabel is empty string (empty state)', () => {
+    const { container } = render(
+      <FeedSurface
+        loading={false}
+        observations={[]}
+        now={NOW}
+        filters={{ notable: false, since: '14d' }}
+        onSelectSpecies={() => {}}
+        freshnessLabel=""
+      />
+    );
+    expect(container.querySelector('.feed-freshness')).toBeNull();
+  });
+});
