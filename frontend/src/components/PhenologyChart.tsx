@@ -112,6 +112,11 @@ export function PhenologyChart(props: PhenologyChartProps): JSX.Element | null {
 
   const max = Math.max(0, ...filled.map((d) => d.count));
   const isEmpty = max === 0;
+  // Current calendar month (1-indexed Jan=1…Dec=12). Used to apply the
+  // .active accent class to the current month's bar per spec
+  // voice-and-content.md:83 accent site #4. Computed once outside the
+  // render loop — all 12 bars read the same value.
+  const currentMonth = new Date().getMonth() + 1;
 
   return (
     <svg
@@ -142,7 +147,12 @@ export function PhenologyChart(props: PhenologyChartProps): JSX.Element | null {
           // against the active months. The bottom 38px is reserved for the
           // month-label gutter and is not available to bars.
           height = max === 0 ? 0 : Math.round((d.count / max) * BAR_AREA_HEIGHT);
-          className = 'phenology-bar';
+          // Apply .active to the current calendar month so the accent token
+          // (--color-decision-point: orange light / cyan dark) highlights
+          // it against the muted off-season bars (#443).
+          className = d.month === currentMonth
+            ? 'phenology-bar active'
+            : 'phenology-bar';
         }
         const y = BAR_AREA_HEIGHT - height;
         return (

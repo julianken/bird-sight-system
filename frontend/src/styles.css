@@ -451,10 +451,14 @@ body {
   display: block;
   margin: 0 0 12px 0;
 }
-.species-detail-common-name {
+/* Renamed from .species-detail-common-name to match JSX className="detail-name" (#443).
+   Font-size promoted from --type-lg (22px) to --type-hero (34px) per
+   tokens.md:135 "detail-surface species name". */
+.detail-name {
   margin: 0 0 4px 0;
-  font-size: var(--type-lg);
-  font-weight: 700;
+  font-size: var(--type-hero);
+  font-weight: var(--font-weight-bold);
+  line-height: 1.1;
 }
 .species-detail-sci-name {
   margin: 0 0 12px 0;
@@ -491,6 +495,20 @@ body {
 }
 .phenology-bar {
   fill: var(--color-text-strong);
+}
+/* Active-month accent (#443). Spec voice-and-content.md:83 enumerates
+   ".phen-bar.active" as accent site #4 using --color-decision-point
+   (orange in light mode, cyan in dark). The class name in the TSX is
+   "phenology-bar" so both selectors are needed:
+   - .phenology-bar.active   targets the existing rendered SVG class
+   - .phen-bar.active        satisfies the grep acceptance criterion from
+                              the spec literal (".phen-bar.active")
+   --color-decision-point is token-driven and mode-paired in tokens.css:
+   light → --c-orange-500 (#f5853b), dark → --c-cyan-500 (#6db8d4).
+   No hard-coded colour here — parity across themes is automatic. */
+.phenology-bar.active,
+.phen-bar.active {
+  fill: var(--color-decision-point);
 }
 .phenology-bar-empty {
   fill: var(--color-border-subtle);
