@@ -7,11 +7,21 @@ export interface SpeciesDetailModalProps {
   apiClient: ApiClient;
   onClose: () => void;
   /**
-   * The element that opened the modal. Focus restores to it on close.
-   * If absent, focus restores to whichever element was focused at the
-   * moment of open (mirrors AttributionModal's previouslyFocusedRef).
+   * The element that opened the modal. Focus restores to it on close
+   * IF the element is still attached to the document at close time.
+   * If absent or if the element has been removed from the DOM (e.g.
+   * because its parent subtree unmounted when view switched to 'detail'),
+   * focus falls back to `fallbackFocusSelector`.
    */
   triggerRef?: RefObject<HTMLElement | null>;
+  /**
+   * CSS selector for the stable focus target to use when the original
+   * trigger is no longer in the document (detached node after view-switch
+   * unmount). Defaults to `#surface-tab-feed` — the SurfaceNav tab the
+   * onClose callback navigates back to. Supply a different selector when
+   * the caller returns to a different view (e.g. `#surface-tab-map`).
+   */
+  fallbackFocusSelector?: string;
 }
 
 /**
@@ -32,7 +42,13 @@ export interface SpeciesDetailModalProps {
  * 'detail' via useUrlState.set).
  */
 export function SpeciesDetailModal(props: SpeciesDetailModalProps) {
-  const { speciesCode, apiClient, onClose, triggerRef } = props;
+  const {
+    speciesCode,
+    apiClient,
+    onClose,
+    triggerRef,
+    fallbackFocusSelector = '#surface-tab-feed',
+  } = props;
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
 
@@ -90,9 +106,29 @@ export function SpeciesDetailModal(props: SpeciesDetailModalProps) {
     const dialog = dialogRef.current;
     if (!dialog) return;
     const handleClose = () => {
+      // Restore focus to the element that was active when the modal opened,
+      // but ONLY if that element is still attached to the document. When
+      // the modal's trigger lives in a different view subtree (e.g. a
+      // FeedSurface row, a Map marker, a SpeciesSearchSurface result), that
+      // subtree unmounts as soon as view switches to 'detail', leaving the
+      // ref pointing at a detached DOM node. Calling .focus() on a detached
+      // node is a silent no-op — focus falls to <body>, losing keyboard
+      // context entirely.
+      //
+      // Guard: use document.contains(). If the original trigger is still
+      // live, restore to it. Otherwise focus the stable destination surface
+      // tab that the onClose callback navigates back to (Option A sentinel:
+      // a predictable landmark the user can orient from).
       const previous = previouslyFocusedRef.current;
-      if (previous && typeof previous.focus === 'function') {
-        previous.focus();
+      const isAttached =
+        previous !== null &&
+        typeof previous.focus === 'function' &&
+        document.contains(previous);
+      if (isAttached) {
+        previous!.focus();
+      } else {
+        const fallback = document.querySelector<HTMLElement>(fallbackFocusSelector);
+        fallback?.focus();
       }
       onClose();
     };
@@ -121,7 +157,7 @@ export function SpeciesDetailModal(props: SpeciesDetailModalProps) {
       dialog.removeEventListener('click', handleClick);
       dialog.removeEventListener('keydown', handleKeyDown);
     };
-  }, [onClose]);
+  }, [onClose, fallbackFocusSelector]);
 
   const onCloseClick = useCallback(() => {
     dialogRef.current?.close();
