@@ -191,4 +191,97 @@ describe('SpeciesSearchSurface', () => {
     expect(screen.getByText(/Loading/i)).toBeInTheDocument();
     expect(screen.queryByRole('list', { name: /recent sightings/i })).toBeNull();
   });
+
+  // --- Phase 5: hero autocomplete visual contrast + FilterSentence ---
+
+  describe('visual contrast — hero autocomplete vs header filter', () => {
+    it('autocomplete wrapper carries species-search-hero class', () => {
+      const { container } = render(
+        <SpeciesSearchSurface
+          loading={false}
+          speciesCode={null}
+          observations={[]}
+          speciesIndex={SPECIES_INDEX}
+          now={NOW}
+          onSelectSpecies={() => {}}
+          onClearSpecies={() => {}}
+        />
+      );
+      // The hero class distinguishes the surface autocomplete (navigates)
+      // from the chip-shaped FiltersBar input (narrows). CSS maps this
+      // class to larger input height, search icon, and full-width layout.
+      expect(container.querySelector('.species-search-hero')).toBeInTheDocument();
+    });
+
+    it('search icon element is present inside the hero wrapper', () => {
+      const { container } = render(
+        <SpeciesSearchSurface
+          loading={false}
+          speciesCode={null}
+          observations={[]}
+          speciesIndex={SPECIES_INDEX}
+          now={NOW}
+          onSelectSpecies={() => {}}
+          onClearSpecies={() => {}}
+        />
+      );
+      // Icon is aria-hidden; its presence is tested structurally.
+      const icon = container.querySelector('.species-search-hero-icon');
+      expect(icon).toBeInTheDocument();
+      expect(icon).toHaveAttribute('aria-hidden', 'true');
+    });
+
+    it('autocomplete combobox input is still accessible by role after hero wrapper added', () => {
+      render(
+        <SpeciesSearchSurface
+          loading={false}
+          speciesCode={null}
+          observations={[]}
+          speciesIndex={SPECIES_INDEX}
+          now={NOW}
+          onSelectSpecies={() => {}}
+          onClearSpecies={() => {}}
+        />
+      );
+      // SpeciesAutocomplete's ARIA contract must survive the wrapper change.
+      const input = screen.getByRole('combobox', { name: /search species/i });
+      expect(input).toBeInTheDocument();
+      expect(input).toHaveAttribute('aria-autocomplete', 'list');
+    });
+  });
+
+  describe('<FilterSentence> on SpeciesSearchSurface', () => {
+    it('mounts the always-on live region', () => {
+      render(
+        <SpeciesSearchSurface
+          loading={false}
+          speciesCode={null}
+          observations={[]}
+          speciesIndex={SPECIES_INDEX}
+          now={NOW}
+          onSelectSpecies={() => {}}
+          onClearSpecies={() => {}}
+        />
+      );
+      const liveRegion = document.querySelector('.filter-sentence-live');
+      expect(liveRegion).toBeInTheDocument();
+      expect(liveRegion).toHaveAttribute('aria-live', 'polite');
+    });
+
+    it('renders visible FilterSentence when filters prop is active', () => {
+      render(
+        <SpeciesSearchSurface
+          loading={false}
+          speciesCode={null}
+          observations={[]}
+          speciesIndex={SPECIES_INDEX}
+          now={NOW}
+          onSelectSpecies={() => {}}
+          onClearSpecies={() => {}}
+          activeFilters={{ notable: true, since: '14d', speciesCode: null, familyCode: null }}
+        />
+      );
+      expect(screen.getByText(/notable sightings/i)).toBeInTheDocument();
+    });
+  });
 });
