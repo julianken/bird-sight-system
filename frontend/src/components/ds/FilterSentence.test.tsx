@@ -140,4 +140,64 @@ describe('<FilterSentence>', () => {
     // Visible sentence gone immediately
     expect(document.querySelector('.filter-sentence__visible')).not.toBeInTheDocument();
   });
+
+  // --- vernacular label props ---
+
+  it('renders vernacular familyName prop instead of raw familyCode', () => {
+    render(
+      <FilterSentence
+        filters={makeFilters({ familyCode: 'Tyrannidae' })}
+        familyName="tyrant flycatchers"
+      />
+    );
+    // Should show the vernacular label, not the raw code
+    expect(screen.getByText(/tyrant flycatchers/i)).toBeInTheDocument();
+    expect(screen.queryByText(/tyrannidae/i)).not.toBeInTheDocument();
+  });
+
+  it('falls back to raw familyCode when familyName prop is absent', () => {
+    render(
+      <FilterSentence
+        filters={makeFilters({ familyCode: 'Tyrannidae' })}
+      />
+    );
+    // No vernacular provided — raw code is the fallback
+    expect(screen.getByText(/tyrannidae/i)).toBeInTheDocument();
+  });
+
+  it('renders vernacular speciesName prop instead of raw speciesCode', () => {
+    render(
+      <FilterSentence
+        filters={makeFilters({ speciesCode: 'verflc' })}
+        speciesName="Vermilion Flycatcher"
+      />
+    );
+    expect(screen.getByText(/vermilion flycatcher/i)).toBeInTheDocument();
+    expect(screen.queryByText(/verflc/i)).not.toBeInTheDocument();
+  });
+
+  it('falls back to raw speciesCode when speciesName prop is absent', () => {
+    render(
+      <FilterSentence
+        filters={makeFilters({ speciesCode: 'verflc' })}
+      />
+    );
+    expect(screen.getByText(/verflc/i)).toBeInTheDocument();
+  });
+
+  it('renders all three vernacular terms when all are active', () => {
+    render(
+      <FilterSentence
+        filters={makeFilters({ notable: true, familyCode: 'Tyrannidae', speciesCode: 'verflc' })}
+        familyName="tyrant flycatchers"
+        speciesName="Vermilion Flycatcher"
+      />
+    );
+    expect(screen.getByText(/notable sightings/i)).toBeInTheDocument();
+    expect(screen.getByText(/tyrant flycatchers/i)).toBeInTheDocument();
+    expect(screen.getByText(/vermilion flycatcher/i)).toBeInTheDocument();
+    // Raw codes must not appear
+    expect(screen.queryByText(/tyrannidae/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/verflc/i)).not.toBeInTheDocument();
+  });
 });

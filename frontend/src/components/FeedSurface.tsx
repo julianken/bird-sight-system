@@ -188,7 +188,11 @@ export function FeedSurface(props: FeedSurfaceProps) {
       {/* Context strip: SortLabel sibling ABOVE FilterSentence.
           These are independent; do not compose or merge them. */}
       <SortLabel mode={sortMode} />
-      <FilterSentence filters={activeFilters} />
+      <FilterSentence
+        filters={activeFilters}
+        {...(familyName !== undefined ? { familyName } : {})}
+        {...(speciesName !== undefined ? { speciesName } : {})}
+      />
 
       {/* Sort toggle — radio group for native keyboard arrow-key traversal */}
       <div

@@ -26,6 +26,18 @@ export interface SpeciesSearchSurfaceProps {
    * (live region still mounts; visible sentence is null).
    */
   activeFilters?: ActiveFilters;
+  /**
+   * Human-readable vernacular label for the active family filter.
+   * Forwarded to <FilterSentence> so the visible sentence renders
+   * the vernacular name instead of the raw familyCode.
+   */
+  familyName?: string;
+  /**
+   * Human-readable common name for the active species filter.
+   * Forwarded to <FilterSentence> so the visible sentence renders
+   * the common name instead of the raw speciesCode.
+   */
+  speciesName?: string;
 }
 
 /** Stable module-level no-op for the recent-sightings row list. */
@@ -70,6 +82,8 @@ export function SpeciesSearchSurface(props: SpeciesSearchSurfaceProps) {
     now,
     onSelectSpecies,
     activeFilters = DEFAULT_FILTERS,
+    familyName,
+    speciesName,
   } = props;
 
   const filtered = speciesCode
@@ -98,7 +112,11 @@ export function SpeciesSearchSurface(props: SpeciesSearchSurfaceProps) {
       </div>
 
       {/* Context strip: FilterSentence (always-mounted live region) */}
-      <FilterSentence filters={activeFilters} />
+      <FilterSentence
+        filters={activeFilters}
+        {...(familyName !== undefined ? { familyName } : {})}
+        {...(speciesName !== undefined ? { speciesName } : {})}
+      />
 
       {speciesCode === null && (
         <p className="species-search-prompt" role="status">

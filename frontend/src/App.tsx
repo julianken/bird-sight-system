@@ -323,6 +323,8 @@ export function App() {
             onViewportChange={onViewportChange}
             since={state.since}
             notable={state.notable}
+            speciesCode={state.speciesCode}
+            {...(speciesName !== undefined ? { speciesName } : {})}
             freshness="fresh"
             freshnessLabel="Updated just now · Source: eBird"
           />
@@ -341,6 +343,8 @@ export function App() {
               speciesCode: state.speciesCode,
               familyCode: state.familyCode,
             }}
+            {...(speciesName !== undefined ? { speciesName } : {})}
+            {...(familyName !== undefined ? { familyName } : {})}
           />
         )}
         {/*
