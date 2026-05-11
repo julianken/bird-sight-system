@@ -1,4 +1,5 @@
 import type { Observation } from '@bird-watch/shared-types';
+import type { Since } from '../state/url-state.js';
 import { FeedRow } from './FeedRow.js';
 import { SpeciesAutocomplete } from './SpeciesAutocomplete.js';
 import { FilterSentence } from './ds/FilterSentence.js';
@@ -6,7 +7,7 @@ import type { SpeciesOption } from './FiltersBar.js';
 
 export interface ActiveFilters {
   notable: boolean;
-  since: string;
+  since: Since;
   speciesCode: string | null;
   familyCode: string | null;
 }

@@ -165,9 +165,8 @@ export function FeedSurface(props: FeedSurfaceProps) {
 
   // Find the first notable observation for the elevated card treatment.
   // "First" respects the current sort order.
-  const topNotableIndex = visibleObservations.findIndex(o => o.isNotable);
   const topNotable: Observation | null =
-    topNotableIndex >= 0 ? visibleObservations[topNotableIndex] : null;
+    visibleObservations.find(o => o.isNotable) ?? null;
 
   // All other observations (non-card rows): if a notable is elevated,
   // exclude it from the flat list so it doesn't appear twice.
