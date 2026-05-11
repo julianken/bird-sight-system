@@ -82,7 +82,7 @@ export function AppHeader({
   return (
     <header className="app-header" role="banner">
       <a className="app-header-wordmark" href="/" aria-label={`Bird Maps ${REGION_LABEL} — home`}>
-        Bird Maps <span aria-hidden="true">·</span> {REGION_LABEL}
+        Bird Maps<span className="brand-region"><span aria-hidden="true"> ·</span> {REGION_LABEL}</span>
       </a>
 
       <div className="app-header-nav" role="tablist" aria-label="Surface">
