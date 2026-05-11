@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!--
+    Bird Maps favicon — perched bird silhouette.
+    Designer spec: single-path, #2c2a25, transparent background, legible at 16×16.
+    This is a minimal geometric placeholder; replace with a refined designer asset pre-launch.
+  -->
+  <path fill="#2c2a25" d="M10 22 Q8 19 9 16 Q10 13 13 12 Q11 10 12 8 Q14 6 16 7 Q18 6 20 8 Q22 9 22 12 Q25 13 26 16 Q27 19 24 20 L24 22 Q22 24 20 24 L18 24 Q16 26 14 24 L12 24 Q10 24 10 22Z"/>
+</svg>

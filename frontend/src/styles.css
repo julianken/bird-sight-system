@@ -131,6 +131,18 @@ body {
   border-radius: 4px;
 }
 
+/* AppHeader wordmark region label — Phase 6. The .brand-region span
+   contains the " · Arizona" part of "Bird Maps · Arizona"; the separator
+   dot is aria-hidden so screen readers pronounce the full phrase naturally.
+   Subtle weight + muted color visually demote the region label relative to
+   the "Bird Maps" primary text without hiding it. Margin-left bridges the
+   separator and the text at the correct density. */
+.app-header-wordmark .brand-region {
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-muted);
+  margin-left: var(--space-xs);
+}
+
 /* Feed surface (#116). Reverse-chronological observation rows. Row min-
    height is 44px — iOS HIG tap-target minimum, also referenced in
    risk-viability.md Part 2. Interior spacing uses design-token custom
@@ -545,31 +557,6 @@ body {
   position: relative;
   width: 100%;
   height: 100%;
-}
-
-/* App-level persistent footer (#250). Hosts the AttributionModal Credits
-   trigger reachable from every view (`view=feed|species|map|detail`).
-   Replaces the per-surface SurfaceFooter from #243; the modal subsumes
-   eBird, Phylopic per-silhouette, and OSM/OpenFreeMap credits in one
-   surface so each compliance citation (eBird ToU §3, CC BY 3.0/SA 3.0
-   §4(b/c), OSM ODbL §4.3) lives in one prominent place.
-
-   Position contract: this footer is rendered as the LAST child of
-   `<div className="app">` (after `</main>`). The .app container is a
-   flex column with #main-surface flex: 1, which pushes this footer to
-   the bottom of the viewport without explicit positioning. Don't add
-   `margin-top: auto` — the flex layout already handles it and adding
-   margin on top of flex spacing fights the responsive cap on small
-   viewports. */
-.app-footer {
-  flex-shrink: 0;
-  display: flex;
-  justify-content: center;
-  padding: var(--space-sm) var(--space-lg);
-  background: var(--color-bg-surface);
-  border-top: 1px solid var(--color-border-ui);
-  font-size: var(--type-xs);
-  color: var(--color-text-muted);
 }
 
 /* AttributionModal trigger button. Visually a link rather than a CTA so

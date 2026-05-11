@@ -83,11 +83,47 @@ describe('App error screen', () => {
 
   it('shows a friendly message, not the raw error body', async () => {
     render(<App />);
+    // Phase 6: error screen uses <StatusBlock state="error"> — title "Couldn't load bird data"
+    // must be present; raw body "pool exhausted" must NOT appear.
     await waitFor(() => {
-      expect(screen.getByText('Something went wrong — please try again')).toBeInTheDocument();
+      expect(screen.getByText("Couldn't load bird data")).toBeInTheDocument();
     });
     // Raw body must NOT appear in the DOM
     expect(screen.queryByText(/pool exhausted/)).toBeNull();
+  });
+
+  it('renders crafted copy, not raw error.message, for network errors', async () => {
+    // Arrange: force a network-style error (non-ApiError).
+    // getHotspots already rejects via beforeEach (ApiError 503); this test
+    // also makes getObservations reject with a raw network error. Either
+    // rejection triggers the error screen — the ApiError case is already
+    // covered by the 'shows a friendly message' test above. This test
+    // verifies the craftedFromError body for the network-error branch.
+    mockGetObservations.mockRejectedValue(new Error('Failed to fetch: net::ERR_CONNECTION_REFUSED'));
+
+    render(<App />);
+
+    // Crafted title must appear (StatusBlock renders it)
+    await waitFor(() => {
+      expect(screen.getByText("Couldn't load bird data")).toBeInTheDocument();
+    });
+    // Raw error.message must NOT appear
+    expect(screen.queryByText(/net::ERR_CONNECTION_REFUSED/)).toBeNull();
+    expect(screen.queryByText(/Failed to fetch/)).toBeNull();
+  });
+
+  it('renders a friendly body for a timeout error', async () => {
+    mockGetObservations.mockRejectedValue(new Error('AbortError: signal timed out'));
+    render(<App />);
+    expect(await screen.findByText(/try refreshing/i)).toBeInTheDocument();
+  });
+
+  it('renders a generic friendly body for an unknown error', async () => {
+    mockGetObservations.mockRejectedValue(new Error('some internal error code XYZ-42'));
+    render(<App />);
+    // Generic fallback must NOT expose the raw message
+    await screen.findByRole('status');
+    expect(screen.queryByText(/XYZ-42/)).toBeNull();
   });
 
   it('logs raw error details to console.error', async () => {
@@ -135,7 +171,7 @@ describe('App aria-busy', () => {
   });
 });
 
-describe('App persistent footer (issue #250)', () => {
+describe('Phase 6: Footer removal + Attribution via AppHeader (issue #250 → Phase 6)', () => {
   beforeEach(() => {
     __resetSilhouettesCache();
     mockGetHotspots.mockResolvedValue([]);
@@ -147,42 +183,45 @@ describe('App persistent footer (issue #250)', () => {
     vi.restoreAllMocks();
   });
 
-  // The persistent app-level footer must (a) carry role="contentinfo",
-  // (b) sit AFTER <main> in the DOM (axe landmark order banner→main→
-  // contentinfo), and (c) host the AttributionModal Credits trigger
-  // reachable from every view.
+  // Phase 6: The persistent footer is removed. <AppHeader> carries the
+  // Attribution trigger reachable from every view, meeting eBird ToU §3
+  // and CC BY-SA §4(b/c). The footer's role="contentinfo" landmark is no
+  // longer needed — banner + main are sufficient per ARIA spec.
   it.each(['feed', 'species', 'map', 'detail'] as const)(
-    'renders a contentinfo footer with a Credits button on view=%s',
+    'no app-footer element on view=%s (footer removed in Phase 6)',
     async view => {
       mockUrlState.state = {
         since: '14d', notable: false, speciesCode: null, familyCode: null, view,
       };
       const { container } = render(<App />);
       const footer = container.querySelector('footer.app-footer');
-      expect(footer).not.toBeNull();
-      expect(footer?.getAttribute('role')).toBe('contentinfo');
-      // Credits button is inside the footer (Phase 3 also adds a "Credits &
-      // attribution" button in AppHeader — target the footer's own trigger).
-      const credits = footer?.querySelector('button.attribution-trigger');
-      expect(credits).not.toBeNull();
+      expect(footer).toBeNull();
     },
   );
 
-  it('renders the footer as the LAST child of .app, after <main>', () => {
+  it.each(['feed', 'species', 'map', 'detail'] as const)(
+    'Attribution trigger is reachable from AppHeader on view=%s',
+    async view => {
+      mockUrlState.state = {
+        since: '14d', notable: false, speciesCode: null, familyCode: null, view,
+      };
+      render(<App />);
+      await screen.findByRole('banner');
+      // AppHeader carries the "Credits & attribution" button
+      const trigger = screen.getByRole('button', { name: /Credits & attribution/i });
+      expect(trigger).toBeInTheDocument();
+    },
+  );
+
+  it('AttributionModal Credits button is still present in the DOM (trigger can find it)', () => {
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
     };
     const { container } = render(<App />);
-    const app = container.querySelector('.app');
-    expect(app).not.toBeNull();
-    const last = app?.lastElementChild;
-    expect(last?.tagName).toBe('FOOTER');
-    expect(last?.classList.contains('app-footer')).toBe(true);
-    // <main> must precede the footer (banner→main→contentinfo order).
-    const main = container.querySelector('main#main-surface');
-    expect(main).not.toBeNull();
-    const position = main!.compareDocumentPosition(last!);
-    expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The modal's own trigger button — className="attribution-trigger"
+    // onOpenAttribution's querySelector('.attribution-trigger') must resolve.
+    const credits = container.querySelector('button.attribution-trigger');
+    expect(credits).not.toBeNull();
   });
 });
 

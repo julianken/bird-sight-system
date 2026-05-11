@@ -1,0 +1,16 @@
+{
+  "name": "Bird Maps Arizona",
+  "short_name": "Bird Maps",
+  "description": "Recent Arizona bird sightings, updated in real time from eBird.",
+  "start_url": "/",
+  "display": "browser",
+  "background_color": "#f4f1ea",
+  "theme_color": "#f4f1ea",
+  "icons": [
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}
