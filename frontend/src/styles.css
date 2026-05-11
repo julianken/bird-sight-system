@@ -423,6 +423,109 @@ body {
   color: var(--color-text-subtle);
   font-variant-numeric: tabular-nums;
 }
+/* FeedCard — elevated hero treatment for the top-notable observation.
+   Sits ABOVE the flat FeedRow list in FeedSurface. Visually distinct from
+   .feed-row via card frame (background + border-radius + shadow), larger
+   heading scale, and the NOTABLE small-caps meta-label.
+   Accent token discipline: .feed-card-meta uses a WCAG AA-safe amber.
+   --color-accent-notable-fg (#b8860b) only achieves 3.25:1 on #fff at
+   11px/bold, which fails WCAG 1.4.3 (requires 4.5:1). A darkened amber
+   (#7a6010, 5.99:1) is scoped here as a Layer-3 component token so the
+   shared token stays unchanged for larger / badge-on-dark uses. */
+.feed-card-item {
+  /* <li> wrapper — strips list-item bullet; margin-bottom separates the card
+     from the flat row list below. */
+  list-style: none;
+  margin: 0 0 var(--space-lg) 0;
+  padding: 0;
+}
+.feed-card {
+  /* Card frame: full-width clickable surface with clear visual separation
+     from the flat rows. border-radius + subtle shadow + surface background
+     satisfy the "card frame visible" acceptance criterion. */
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  width: 100%;
+  max-width: 760px;
+  margin-inline: auto;
+  padding: var(--space-lg) var(--space-xl);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-ui);
+  border-radius: 12px;
+  box-shadow: var(--shadow-listbox);
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  appearance: none;
+  transition: background var(--dur-fast) ease;
+}
+.feed-card:hover {
+  background: var(--color-bg-hover);
+}
+.feed-card:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: -2px;
+}
+.feed-card-body {
+  /* Flex column: stacks meta/count row, heading, and detail line vertically
+     with consistent small gaps. flex: 1 lets the text block fill available
+     width after the silhouette icon. */
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.feed-card-meta {
+  /* NOTABLE label — small-caps uppercase treatment + amber accent color.
+     letter-spacing and font-weight reinforce the badge character.
+     textTransform must compute to 'uppercase' (acceptance criterion).
+     Color: #7a6010 (5.99:1 on #ffffff) rather than --color-accent-notable-fg
+     (#b8860b, 3.25:1) because 11px bold requires 4.5:1 per WCAG 1.4.3 AA. */
+  font-size: var(--type-xs);
+  font-weight: var(--font-weight-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #7a6010;
+}
+.feed-card-count {
+  /* Observation count chip — same typographic weight as .feed-card-meta,
+     muted body color; floats on the same visual line as the meta label via
+     the flex column natural stacking (meta → count → name → detail). */
+  font-size: var(--type-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-body);
+  font-variant-numeric: tabular-nums;
+}
+.feed-card-name {
+  /* Species heading: one step above .feed-row-name (--type-sm, 13px) at
+     --type-md (17px), semibold to anchor visual hierarchy. min-width: 0
+     prevents flex blowout on long names. */
+  margin: 0;
+  font-size: var(--type-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-strong);
+  line-height: 1.2;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.feed-card-detail {
+  /* Location + time — muted secondary line below the heading.
+     Inline children (location span + time span) are separated by an
+     interpunct via the gap; explicit display:flex keeps them on one line. */
+  margin: 0;
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  font-size: var(--type-sm);
+  color: var(--color-text-muted);
+  line-height: 1.3;
+}
+
 .feed-empty {
   padding: var(--space-xl);
   text-align: center;
@@ -600,10 +703,14 @@ body {
   display: block;
   margin: 0 0 12px 0;
 }
-.species-detail-common-name {
+/* Renamed from .species-detail-common-name to match JSX className="detail-name" (#443).
+   Font-size promoted from --type-lg (22px) to --type-hero (34px) per
+   tokens.md:135 "detail-surface species name". */
+.detail-name {
   margin: 0 0 4px 0;
-  font-size: var(--type-lg);
-  font-weight: 700;
+  font-size: var(--type-hero);
+  font-weight: var(--font-weight-bold);
+  line-height: 1.1;
 }
 .species-detail-sci-name {
   margin: 0 0 12px 0;
@@ -640,6 +747,20 @@ body {
 }
 .phenology-bar {
   fill: var(--color-text-strong);
+}
+/* Active-month accent (#443). Spec voice-and-content.md:83 enumerates
+   ".phen-bar.active" as accent site #4 using --color-decision-point
+   (orange in light mode, cyan in dark). The class name in the TSX is
+   "phenology-bar" so both selectors are needed:
+   - .phenology-bar.active   targets the existing rendered SVG class
+   - .phen-bar.active        satisfies the grep acceptance criterion from
+                              the spec literal (".phen-bar.active")
+   --color-decision-point is token-driven and mode-paired in tokens.css:
+   light → --c-orange-500 (#f5853b), dark → --c-cyan-500 (#6db8d4).
+   No hard-coded colour here — parity across themes is automatic. */
+.phenology-bar.active,
+.phen-bar.active {
+  fill: var(--color-decision-point);
 }
 .phenology-bar-empty {
   fill: var(--color-border-subtle);
