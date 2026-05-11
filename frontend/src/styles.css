@@ -547,31 +547,6 @@ body {
   height: 100%;
 }
 
-/* App-level persistent footer (#250). Hosts the AttributionModal Credits
-   trigger reachable from every view (`view=feed|species|map|detail`).
-   Replaces the per-surface SurfaceFooter from #243; the modal subsumes
-   eBird, Phylopic per-silhouette, and OSM/OpenFreeMap credits in one
-   surface so each compliance citation (eBird ToU §3, CC BY 3.0/SA 3.0
-   §4(b/c), OSM ODbL §4.3) lives in one prominent place.
-
-   Position contract: this footer is rendered as the LAST child of
-   `<div className="app">` (after `</main>`). The .app container is a
-   flex column with #main-surface flex: 1, which pushes this footer to
-   the bottom of the viewport without explicit positioning. Don't add
-   `margin-top: auto` — the flex layout already handles it and adding
-   margin on top of flex spacing fights the responsive cap on small
-   viewports. */
-.app-footer {
-  flex-shrink: 0;
-  display: flex;
-  justify-content: center;
-  padding: var(--space-sm) var(--space-lg);
-  background: var(--color-bg-surface);
-  border-top: 1px solid var(--color-border-ui);
-  font-size: var(--type-xs);
-  color: var(--color-text-muted);
-}
-
 /* AttributionModal trigger button. Visually a link rather than a CTA so
    the footer stays unobtrusive — the credits surface is reference, not
    action. Underlined + muted color matches the SurfaceFooter idiom the
