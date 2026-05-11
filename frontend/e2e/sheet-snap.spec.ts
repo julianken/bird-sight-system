@@ -47,11 +47,16 @@ test.describe('SpeciesDetailSheet snap behavior', () => {
     const handleBox = await handle.boundingBox();
     if (!handleBox) throw new Error('handle bounding box unavailable');
 
-    // Synthesize a touch drag-down from the handle to the bottom of the
-    // viewport (well beyond DISMISS_THRESHOLD_PX = 160px).
-    await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + 4);
+    // Synthesize a touch drag-down from the handle well past DISMISS_THRESHOLD_PX
+    // (160px). We compute the target from the handle's own position so the test
+    // is stable regardless of where the peek sheet sits vertically — at 390×844
+    // the 96px peek sheet has its handle near y≈748, so a fixed y=800 target
+    // only gives ~48px of travel. Using handleBox.y + 200 guarantees ≥200px.
+    const startX = handleBox.x + handleBox.width / 2;
+    const startY = handleBox.y + handleBox.height / 2;
+    await page.mouse.move(startX, startY);
     await page.mouse.down();
-    await page.mouse.move(handleBox.x + handleBox.width / 2, 800, { steps: 10 });
+    await page.mouse.move(startX, startY + 200, { steps: 20 });
     await page.mouse.up();
 
     // URL must flip away from detail
