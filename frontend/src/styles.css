@@ -143,6 +143,18 @@ body {
   margin-left: var(--space-xs);
 }
 
+/* Feed lede paragraph (#439). The .feed-lede class is applied to the
+   introductory <p> above the feed list. --lede-size (26px) is made available
+   via the extended selector in tokens.css (.lede, .feed-lede). Approach A
+   chosen: design-faithful 26px rather than the 22px --type-lg fallback. */
+.feed-lede {
+  font-size: var(--lede-size);
+  font-weight: 600;
+  line-height: 1.25;
+  margin-bottom: var(--space-lg);
+  color: var(--color-text-strong);
+}
+
 /* Feed surface (#116). Reverse-chronological observation rows. Row min-
    height is 44px — iOS HIG tap-target minimum, also referenced in
    risk-viability.md Part 2. Interior spacing uses design-token custom
@@ -294,6 +306,43 @@ body {
   max-width: 760px;
   margin-inline: auto;
 }
+
+/* Hero autocomplete wrapper — fixes #441 (SVG filled the entire viewport
+   because .species-search-hero had zero CSS rules).
+
+   Design role: the SVG is a LEADING INPUT ICON (not a hero decoration),
+   rendered as a 20 × 20 px search glyph to the left of the combobox.
+   The icon slot is aria-hidden (ARIA contract lives on the combobox, not
+   the decoration). Width/height on the SVG itself constrains the element
+   to its intended size; without this the inline SVG inherits the parent's
+   block width and renders at viewport dimensions.
+
+   Light/dark parity: all values use existing semantic tokens — no new
+   tokens needed. --color-text-muted provides appropriate contrast against
+   --color-bg-surface in both themes (≥4.5:1). */
+.species-search-hero {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  max-width: 760px;
+  padding: var(--space-lg) 0 0;
+  margin-inline: auto;
+}
+.species-search-hero-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+/* Explicit 20 × 20 px bound prevents the inline SVG from inheriting
+   container block-size and ballooning to viewport dimensions (#441).
+   20px matches the 20×20 viewBox — no scaling needed. */
+.species-search-hero-icon svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
 .species-autocomplete {
   position: relative;
   margin: 0 0 var(--space-lg) 0;

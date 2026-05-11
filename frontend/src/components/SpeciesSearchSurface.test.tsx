@@ -283,5 +283,26 @@ describe('SpeciesSearchSurface', () => {
       );
       expect(screen.getByText(/notable sightings/i)).toBeInTheDocument();
     });
+
+    it('renders visible FilterSentence when only speciesCode is set (notable=false)', () => {
+      // Regression for #442: speciesCode-only filter (without notable) must
+      // produce a visible filter sentence. buildFilterTerms pushes speciesCode
+      // when truthy — the sentence must NOT be null when speciesCode='annhum'.
+      render(
+        <SpeciesSearchSurface
+          loading={false}
+          speciesCode={null}
+          observations={[]}
+          speciesIndex={SPECIES_INDEX}
+          now={NOW}
+          onSelectSpecies={() => {}}
+          onClearSpecies={() => {}}
+          activeFilters={{ notable: false, since: '14d', speciesCode: 'annhum', familyCode: null }}
+        />
+      );
+      const visible = document.querySelector('.filter-sentence__visible');
+      expect(visible).not.toBeNull();
+      expect(visible?.textContent).toMatch(/annhum/i);
+    });
   });
 });
