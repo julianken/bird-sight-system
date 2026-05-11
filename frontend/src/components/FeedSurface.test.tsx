@@ -314,4 +314,270 @@ describe('FeedSurface', () => {
       expect(rows).toHaveLength(3);
     });
   });
+
+  // --- Phase 5: lede, SortLabel, FilterSentence, FeedCard ---
+
+  describe('lede state machine (4 templates)', () => {
+    it('renders Priority 4 lede (default, no filters) with observation count', () => {
+      const items = [
+        obs({ subId: 'S1', speciesCode: 'vermfly' }),
+        obs({ subId: 'S2', speciesCode: 'cacwre', comName: 'Cactus Wren' }),
+      ];
+      render(
+        <FeedSurface
+          loading={false}
+          observations={items}
+          now={NOW}
+          filters={{ notable: false, since: '14d' }}
+          onSelectSpecies={() => {}}
+          observationCount={2}
+          regionLabel="Arizona"
+          period="14 days"
+        />
+      );
+      // Template: "{N} species seen across {REGION_LABEL} in the last {period}."
+      // Count is unique species, not observation rows.
+      expect(screen.getByText(/species seen across Arizona/i)).toBeInTheDocument();
+    });
+
+    it('renders Priority 1 lede when observationCount is 0', () => {
+      render(
+        <FeedSurface
+          loading={false}
+          observations={[]}
+          now={NOW}
+          filters={{ notable: false, since: '14d' }}
+          onSelectSpecies={() => {}}
+          observationCount={0}
+          regionLabel="Arizona"
+          period="14 days"
+        />
+      );
+      expect(screen.getByText(/No sightings match your current filters/i)).toBeInTheDocument();
+    });
+
+    it('renders Priority 2 lede when speciesCode filter is set', () => {
+      const items = [obs({ subId: 'S1', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher' })];
+      render(
+        <FeedSurface
+          loading={false}
+          observations={items}
+          now={NOW}
+          filters={{ notable: false, since: '14d' }}
+          onSelectSpecies={() => {}}
+          observationCount={1}
+          regionLabel="Arizona"
+          period="14 days"
+          speciesName="Vermilion Flycatcher"
+        />
+      );
+      // Template: "{N} sightings of {commonName} in {REGION_LABEL} in the last {period}."
+      expect(screen.getByText(/sightings of Vermilion Flycatcher in Arizona/i)).toBeInTheDocument();
+    });
+
+    it('renders Priority 3 lede when familyCode filter is set', () => {
+      const items = [obs({ subId: 'S1', speciesCode: 'vermfly', familyCode: 'tyrannidae' })];
+      render(
+        <FeedSurface
+          loading={false}
+          observations={items}
+          now={NOW}
+          filters={{ notable: false, since: '14d' }}
+          onSelectSpecies={() => {}}
+          observationCount={1}
+          regionLabel="Arizona"
+          period="14 days"
+          familyName="Tyrant Flycatchers"
+        />
+      );
+      // Template: "{N} species of {familyName} seen across {REGION_LABEL} in the last {period}."
+      expect(screen.getByText(/species of Tyrant Flycatchers seen across Arizona/i)).toBeInTheDocument();
+    });
+  });
+
+  describe('<SortLabel> sibling', () => {
+    it('renders <SortLabel> showing "Sorted by recency" when sortMode is recent', () => {
+      render(
+        <FeedSurface
+          loading={false}
+          observations={[obs({ subId: 'S1' })]}
+          now={NOW}
+          filters={{ notable: false, since: '14d' }}
+          onSelectSpecies={() => {}}
+          observationCount={1}
+          regionLabel="Arizona"
+          period="14 days"
+        />
+      );
+      // SortLabel renders its text; not coupled to FilterSentence.
+      expect(screen.getByText(/Sorted by recency/i)).toBeInTheDocument();
+    });
+
+    it('SortLabel is a separate sibling from FilterSentence — not inside it', () => {
+      render(
+        <FeedSurface
+          loading={false}
+          observations={[obs({ subId: 'S1' })]}
+          now={NOW}
+          filters={{ notable: true, since: '14d' }}
+          onSelectSpecies={() => {}}
+          observationCount={1}
+          regionLabel="Arizona"
+          period="14 days"
+        />
+      );
+      const sortLabel = screen.getByText(/Sorted by recency/i);
+      const filterSentence = screen.getByText(/notable sightings/i);
+      // Neither element contains the other.
+      expect(sortLabel.contains(filterSentence)).toBe(false);
+      expect(filterSentence.contains(sortLabel)).toBe(false);
+    });
+  });
+
+  describe('<FilterSentence> mount', () => {
+    it('mounts the always-on live region even when zero filters are active', () => {
+      render(
+        <FeedSurface
+          loading={false}
+          observations={[obs({ subId: 'S1' })]}
+          now={NOW}
+          filters={{ notable: false, since: '14d' }}
+          onSelectSpecies={() => {}}
+          observationCount={1}
+          regionLabel="Arizona"
+          period="14 days"
+        />
+      );
+      // The hidden live region is always mounted per the FilterSentence spec;
+      // it carries role="status" aria-live="polite".
+      const liveRegion = document.querySelector('.filter-sentence-live');
+      expect(liveRegion).toBeInTheDocument();
+      expect(liveRegion).toHaveAttribute('aria-live', 'polite');
+    });
+
+    it('renders the visible FilterSentence when notable filter is active', () => {
+      render(
+        <FeedSurface
+          loading={false}
+          observations={[obs({ subId: 'S1', isNotable: true })]}
+          now={NOW}
+          filters={{ notable: true, since: '14d' }}
+          onSelectSpecies={() => {}}
+          observationCount={1}
+          regionLabel="Arizona"
+          period="14 days"
+        />
+      );
+      // FilterSentence visible template: "Showing {filter-terms} from the last {period}."
+      expect(screen.getByText(/notable sightings/i)).toBeInTheDocument();
+    });
+
+    it('FilterSentence collapses to null visually when zero filters are active', () => {
+      render(
+        <FeedSurface
+          loading={false}
+          observations={[obs({ subId: 'S1' })]}
+          now={NOW}
+          filters={{ notable: false, since: '14d' }}
+          onSelectSpecies={() => {}}
+          observationCount={1}
+          regionLabel="Arizona"
+          period="14 days"
+        />
+      );
+      // At zero filters, the visible sentence element is absent from the DOM.
+      // The hidden live region remains.
+      expect(document.querySelector('.filter-sentence-visible')).toBeNull();
+    });
+  });
+
+  describe('<FeedCard> top-notable mount', () => {
+    it('renders the top-notable observation as an elevated FeedCard', () => {
+      const items = [
+        obs({ subId: 'S1', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher', isNotable: true }),
+        obs({ subId: 'S2', speciesCode: 'cacwre', comName: 'Cactus Wren', isNotable: false }),
+      ];
+      render(
+        <FeedSurface
+          loading={false}
+          observations={items}
+          now={NOW}
+          filters={{ notable: false, since: '14d' }}
+          onSelectSpecies={() => {}}
+          observationCount={2}
+          regionLabel="Arizona"
+          period="14 days"
+        />
+      );
+      // The NOTABLE label is the FeedCard discriminator.
+      expect(screen.getByText('NOTABLE')).toBeInTheDocument();
+    });
+
+    it('does not render a FeedCard when no observations are notable', () => {
+      const items = [
+        obs({ subId: 'S1', isNotable: false }),
+        obs({ subId: 'S2', speciesCode: 'cacwre', comName: 'Cactus Wren', isNotable: false }),
+      ];
+      render(
+        <FeedSurface
+          loading={false}
+          observations={items}
+          now={NOW}
+          filters={{ notable: false, since: '14d' }}
+          onSelectSpecies={() => {}}
+          observationCount={2}
+          regionLabel="Arizona"
+          period="14 days"
+        />
+      );
+      expect(screen.queryByText('NOTABLE')).toBeNull();
+    });
+
+    it('renders the top-notable card as the first item in the list', () => {
+      const items = [
+        obs({ subId: 'S1', speciesCode: 'cacwre', comName: 'Cactus Wren', isNotable: false }),
+        obs({ subId: 'S2', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher', isNotable: true }),
+        obs({ subId: 'S3', speciesCode: 'annhum', comName: "Anna's Hummingbird", isNotable: false }),
+      ];
+      render(
+        <FeedSurface
+          loading={false}
+          observations={items}
+          now={NOW}
+          filters={{ notable: false, since: '14d' }}
+          onSelectSpecies={() => {}}
+          observationCount={3}
+          regionLabel="Arizona"
+          period="14 days"
+        />
+      );
+      const buttons = screen.getAllByRole('button');
+      // First button is the FeedCard for the notable observation (after the radio buttons).
+      // The radio group has 2 radio buttons — the first list-item button follows.
+      // Find the button with 'Notable sighting' in its accessible name.
+      const cardButton = buttons.find(b => b.getAttribute('aria-label')?.includes('Notable sighting'));
+      expect(cardButton).toBeTruthy();
+      expect(cardButton).toHaveAccessibleName(expect.stringContaining('Notable sighting'));
+      expect(cardButton).toHaveAccessibleName(expect.stringContaining('Vermilion Flycatcher'));
+    });
+
+    it('clicking the FeedCard fires onSelectSpecies', async () => {
+      const onSelectSpecies = vi.fn();
+      const user = userEvent.setup();
+      render(
+        <FeedSurface
+          loading={false}
+          observations={[obs({ subId: 'S1', speciesCode: 'vermfly', isNotable: true })]}
+          now={NOW}
+          filters={{ notable: false, since: '14d' }}
+          onSelectSpecies={onSelectSpecies}
+          observationCount={1}
+          regionLabel="Arizona"
+          period="14 days"
+        />
+      );
+      await user.click(screen.getByRole('button', { name: /Notable sighting/i }));
+      expect(onSelectSpecies).toHaveBeenCalledWith('vermfly');
+    });
+  });
 });

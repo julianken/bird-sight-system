@@ -1,7 +1,16 @@
 import type { Observation } from '@bird-watch/shared-types';
-import { ObservationFeedRow } from './ObservationFeedRow.js';
+import type { Since } from '../state/url-state.js';
+import { FeedRow } from './FeedRow.js';
 import { SpeciesAutocomplete } from './SpeciesAutocomplete.js';
+import { FilterSentence } from './ds/FilterSentence.js';
 import type { SpeciesOption } from './FiltersBar.js';
+
+export interface ActiveFilters {
+  notable: boolean;
+  since: Since;
+  speciesCode: string | null;
+  familyCode: string | null;
+}
 
 export interface SpeciesSearchSurfaceProps {
   loading: boolean;
@@ -10,33 +19,58 @@ export interface SpeciesSearchSurfaceProps {
   speciesIndex: SpeciesOption[];
   now: Date;
   onSelectSpecies: (speciesCode: string) => void;
+  onClearSpecies?: () => void;
+  /**
+   * Active filter state for the <FilterSentence> context strip.
+   * Optional: when absent, FilterSentence receives zero-filter state
+   * (live region still mounts; visible sentence is null).
+   */
+  activeFilters?: ActiveFilters;
 }
 
-/** Stable module-level no-op. */
+/** Stable module-level no-op for the recent-sightings row list. */
 const ROW_NOOP: (speciesCode: string) => void = () => {};
 
+const DEFAULT_FILTERS: ActiveFilters = {
+  notable: false,
+  since: '14d',
+  speciesCode: null,
+  familyCode: null,
+};
+
 /**
- * Species-first surface (`?view=species`). Dedicated navigation
- * autocomplete at the top; below it, when `?species=` is set, a
- * "Recent sightings for this species" list — filtered client-side
- * from the parent's observation set, rendered via the shared
- * `<ObservationFeedRow>`.
+ * Species-first surface — Sky Atlas Phase 5.
  *
- * Navigation vs filter (critical distinction):
- *   - `FiltersBar`'s species input NARROWS the observation set in place.
- *     The feed reacts, the URL sets `?species=`, but the user stays on
- *     the feed surface.
- *   - `SpeciesAutocomplete` here is NAVIGATION. Committing a species sets
- *     `?detail=` + `?view=detail` which opens the SpeciesDetailSurface.
+ * Visual distinction between the two species inputs:
+ *   - <FiltersBar> species input (in the header): chip-shaped, narrow,
+ *     class="filters-bar-species-input". It NARROWS the observation set.
+ *   - <SpeciesAutocomplete> here: hero-sized, full-width, search icon,
+ *     wrapped in .species-search-hero. It NAVIGATES to the detail surface.
  *
- * Clicking a row in the recent-sightings list intentionally does NOT
- * re-open the panel (panel is already open for the same species). The
- * row's `onSelectSpecies` receives a no-op handler so the row renders
- * with the same accessible contract as in `FeedSurface`, but a user
- * click does nothing observable — the panel does not flash.
+ * The hero wrapper and icon are purely visual. <SpeciesAutocomplete>'s
+ * ARIA contract (role="combobox", aria-autocomplete="list", aria-expanded,
+ * aria-controls, aria-activedescendant, flat-sentinel group headers,
+ * ArrowDown/Up/Enter/Escape) is preserved verbatim — do NOT pass additional
+ * ARIA attributes via the wrapper.
+ *
+ * <FilterSentence> mounts in the context strip below the hero autocomplete.
+ * The live region is always present (even at zero filters); the visible
+ * sentence renders only when filters are active.
+ *
+ * Recent-sightings row list uses <FeedRow> (not <ObservationFeedRow>).
+ * Rows receive ROW_NOOP for onSelectSpecies — clicking a row when the panel
+ * is already open for the same species is a no-op by design.
  */
 export function SpeciesSearchSurface(props: SpeciesSearchSurfaceProps) {
-  const { loading, speciesCode, observations, speciesIndex, now, onSelectSpecies } = props;
+  const {
+    loading,
+    speciesCode,
+    observations,
+    speciesIndex,
+    now,
+    onSelectSpecies,
+    activeFilters = DEFAULT_FILTERS,
+  } = props;
 
   const filtered = speciesCode
     ? observations.filter(o => o.speciesCode === speciesCode)
@@ -44,10 +78,27 @@ export function SpeciesSearchSurface(props: SpeciesSearchSurfaceProps) {
 
   return (
     <div className="species-search-surface">
-      <SpeciesAutocomplete
-        speciesIndex={speciesIndex}
-        onSelectSpecies={onSelectSpecies}
-      />
+      {/* Hero autocomplete — navigates to detail surface.
+          The wrapper class establishes visual distinction from the header filter chip. */}
+      <div className="species-search-hero">
+        <span className="species-search-hero-icon" aria-hidden="true">
+          {/* SVG search icon — rendered as inline SVG so it inherits currentColor
+              and is not a separate network request. The icon slot is purely decorative;
+              aria-hidden prevents SR double-announcement (combobox label already conveys
+              the search affordance). */}
+          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <circle cx="8.5" cy="8.5" r="5.75" stroke="currentColor" strokeWidth="1.5" />
+            <path d="M13.25 13.25L17 17" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </span>
+        <SpeciesAutocomplete
+          speciesIndex={speciesIndex}
+          onSelectSpecies={onSelectSpecies}
+        />
+      </div>
+
+      {/* Context strip: FilterSentence (always-mounted live region) */}
+      <FilterSentence filters={activeFilters} />
 
       {speciesCode === null && (
         <p className="species-search-prompt" role="status">
@@ -70,7 +121,7 @@ export function SpeciesSearchSurface(props: SpeciesSearchSurfaceProps) {
       {speciesCode !== null && !loading && filtered.length > 0 && (
         <ol className="feed" aria-label="Recent sightings">
           {filtered.map(o => (
-            <ObservationFeedRow
+            <FeedRow
               key={`${o.subId}:${o.speciesCode}`}
               observation={o}
               now={now}

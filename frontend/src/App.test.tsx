@@ -248,3 +248,152 @@ describe('Phase 3: AppHeader + Filters panel', () => {
     expect(trigger).toBeInTheDocument();
   });
 });
+
+describe('Phase 5: FeedSurface lede wiring (App → FeedSurface)', () => {
+  const SPECIES_OBS = {
+    subId: 'S1',
+    speciesCode: 'vermfly',
+    comName: 'Vermilion Flycatcher',
+    lat: 32.2,
+    lng: -110.9,
+    obsDt: new Date().toISOString(),
+    locId: 'L1',
+    locName: 'Sabino Canyon',
+    howMany: 1,
+    isNotable: false,
+    regionId: null,
+    silhouetteId: null,
+    familyCode: 'songbird',
+  };
+
+  beforeEach(() => {
+    __resetSilhouettesCache();
+    mockGetHotspots.mockResolvedValue([]);
+    mockGetSilhouettes.mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('Priority 1 default lede fires when no species/family filter is set', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
+    };
+    mockGetObservations.mockResolvedValue([SPECIES_OBS]);
+    render(<App />);
+    await screen.findByText(/species seen across Arizona/i);
+    expect(screen.queryByText(/sightings of/i)).toBeNull();
+    expect(screen.queryByText(/species of Songbird/i)).toBeNull();
+  });
+
+  it('Priority 2 lede fires (species name in lede) when speciesCode filter is active', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: 'vermfly', familyCode: null, view: 'feed',
+    };
+    mockGetObservations.mockResolvedValue([SPECIES_OBS]);
+    render(<App />);
+    // Priority 2: "{N} sightings of {name} in Arizona in the last {period}."
+    // Regex anchors the period token ("14 days") to catch PERIOD_LABELS
+    // regressions that produce "in the last Last 14 days." or similar.
+    await screen.findByText(/sightings of Vermilion Flycatcher in Arizona in the last 14 days\./i);
+  });
+
+  it('Priority 3 lede fires (family name in lede) when familyCode filter is active (no speciesCode)', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: 'songbird', view: 'feed',
+    };
+    mockGetObservations.mockResolvedValue([SPECIES_OBS]);
+    render(<App />);
+    // Priority 3: "{N} species of {family} seen across Arizona…"
+    await screen.findByText(/species of Songbird seen across Arizona/i);
+  });
+});
+
+describe('Phase 5: FeedSurface cross-surface FilterSentence drift regression', () => {
+  // Regression for PR #429 finding: FeedSurface activeFilters memo hard-coded
+  // speciesCode/familyCode as null, causing the lede to name the species but
+  // the sibling FilterSentence to omit it. Both must reflect the same URL state.
+  const SPECIES_OBS = {
+    subId: 'S1',
+    speciesCode: 'vermfly',
+    comName: 'Vermilion Flycatcher',
+    lat: 32.2,
+    lng: -110.9,
+    obsDt: new Date().toISOString(),
+    locId: 'L1',
+    locName: 'Sabino Canyon',
+    howMany: 1,
+    isNotable: false,
+    regionId: null,
+    silhouetteId: null,
+    familyCode: 'songbird',
+  };
+
+  beforeEach(() => {
+    __resetSilhouettesCache();
+    mockGetHotspots.mockResolvedValue([]);
+    mockGetSilhouettes.mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('with species filter active on feed view, both lede AND FilterSentence mention the species', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: 'vermfly', familyCode: null, view: 'feed',
+    };
+    mockGetObservations.mockResolvedValue([SPECIES_OBS]);
+    const { container } = render(<App />);
+    // Lede must resolve the species name from the speciesIndex and include it.
+    await screen.findByText(/sightings of Vermilion Flycatcher in Arizona in the last 14 days\./i);
+    // FilterSentence visible sentence must also reflect speciesCode — it renders
+    // the raw code as a filter-bullet when no resolved name is available. Either
+    // the code "vermfly" or the resolved name should appear; the key invariant
+    // is that the element is rendered (non-null) and contains the species token.
+    const filterSentenceVisible = container.querySelector('.filter-sentence__visible');
+    expect(filterSentenceVisible).not.toBeNull();
+    expect(filterSentenceVisible?.textContent).toMatch(/vermfly/i);
+  });
+});
+
+describe('Phase 5: SpeciesSearchSurface activeFilters wiring (App → SpeciesSearchSurface)', () => {
+  beforeEach(() => {
+    __resetSilhouettesCache();
+    mockGetHotspots.mockResolvedValue([]);
+    mockGetObservations.mockResolvedValue([]);
+    mockGetSilhouettes.mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('renders FilterSentence live region on the species surface', async () => {
+    // FilterSentence always mounts an aria-live="polite" region regardless
+    // of filter state — verify it is present when view=species.
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'species',
+    };
+    const { container } = render(<App />);
+    await screen.findByRole('banner');
+    const liveRegion = container.querySelector('[aria-live="polite"]');
+    expect(liveRegion).not.toBeNull();
+  });
+
+  it('FilterSentence visible sentence surfaces active filters on the species surface', async () => {
+    // With notable=true, FilterSentence renders a visible .filter-sentence__visible
+    // paragraph (synchronous — no debounce on the visible element, only the live
+    // region). This confirms activeFilters is actually wired through from App.
+    mockUrlState.state = {
+      since: '14d', notable: true, speciesCode: null, familyCode: null, view: 'species',
+    };
+    render(<App />);
+    await screen.findByRole('banner');
+    // The visible paragraph is synchronously rendered when filters are active.
+    const visible = document.querySelector('.filter-sentence__visible');
+    expect(visible).not.toBeNull();
+    expect(visible?.textContent?.toLowerCase()).toMatch(/notable/);
+  });
+});

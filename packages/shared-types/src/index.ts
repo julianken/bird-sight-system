@@ -99,6 +99,17 @@ export interface FamilySilhouette {
   creator: string | null;
 }
 
+/**
+ * Type-narrowed variant of Observation for sightings confirmed as notable.
+ * FeedCard (and any elevated-card consumer) accepts only NotableObservation —
+ * the type system enforces that callers narrow before passing, eliminating the
+ * structural trust the old Observation prop required.
+ *
+ * The caller (FeedSurface) already guards with `o.isNotable` before passing
+ * to FeedCard; this type makes that guard a compile-time contract.
+ */
+export type NotableObservation = Observation & { isNotable: true };
+
 export interface IngestRun {
   id: number;
   kind: 'recent' | 'notable' | 'backfill' | 'hotspots' | 'taxonomy' | 'photos';

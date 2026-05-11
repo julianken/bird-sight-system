@@ -29,7 +29,8 @@ import type { FamilyCode, ShapeVariant } from '../../config/family-palette.js';
 export type SilhouetteLayout = 'inline' | 'masthead' | 'thumb';
 
 export interface FamilySilhouetteProps {
-  family: FamilyCode | null;
+  /** FamilyCode string or null. Unknown codes fall back to the null-family neutral path. */
+  family: FamilyCode | string | null;
   layout?: SilhouetteLayout;
   /** Overrides the palette's default shape if provided. */
   shape?: ShapeVariant;
@@ -72,12 +73,19 @@ export function FamilySilhouette({
   shape: shapeProp,
   ariaLabel,
 }: FamilySilhouetteProps): ReactNode {
-  const channel = getFamilyChannel(family);
+  // Narrow to a known FamilyCode if recognized; treat unknowns as null.
+  const knownFamily: FamilyCode | null =
+    family !== null && family in FAMILY_PATHS
+      ? (family as FamilyCode)
+      : null;
+  const channel = getFamilyChannel(knownFamily);
   const resolvedShape: ShapeVariant = shapeProp ?? channel.shape;
   // pathKey covers the 7 known FamilyCodes and the explicit null sentinel
   // '__null__'. Unknown codes (e.g. raw eBird family codes that haven't
   // been mapped) fall back to '__null__' so no undefined path is rendered.
-  const pathKey = (family !== null && family in FAMILY_PATHS) ? family : '__null__';
+  // Use knownFamily (narrowed FamilyCode | null) rather than the raw `family`
+  // prop (string) so TypeScript can verify the index against the Record type.
+  const pathKey = knownFamily ?? '__null__';
   const path = FAMILY_PATHS[pathKey];
 
   const classes = [
@@ -88,7 +96,14 @@ export function FamilySilhouette({
   ].join(' ');
 
   return (
-    <span className={classes} data-shape={resolvedShape} style={{ '--family-fill': channel.fill } as React.CSSProperties}>
+    <span
+      className={classes}
+      data-shape={resolvedShape}
+      data-testid="family-silhouette"
+      data-family={String(family)}
+      data-layout={layout}
+      style={{ '--family-fill': channel.fill } as React.CSSProperties}
+    >
       <svg
         viewBox="0 0 100 100"
         xmlns="http://www.w3.org/2000/svg"
