@@ -29,11 +29,18 @@ import {
   FILTER_SENTENCE_CLEAR_HOLD_MS,
 } from '../../config/filter.js';
 
+/**
+ * The subset of UrlState that FilterSentence needs. Narrowed in Phase 3
+ * (closes #421) so MapSurface can pass an inline object without threading
+ * view/detail navigation state through the component.
+ */
+export type FilterSentenceFilters = Pick<UrlState, 'speciesCode' | 'familyCode' | 'since' | 'notable'>;
+
 export interface FilterSentenceProps {
-  filters: UrlState;
+  filters: FilterSentenceFilters;
 }
 
-function buildFilterTerms(filters: UrlState): string[] {
+function buildFilterTerms(filters: FilterSentenceFilters): string[] {
   const terms: string[] = [];
   if (filters.notable) terms.push('notable sightings');
   if (filters.familyCode) terms.push(filters.familyCode);
@@ -41,7 +48,7 @@ function buildFilterTerms(filters: UrlState): string[] {
   return terms;
 }
 
-function buildSentence(filters: UrlState): string | null {
+function buildSentence(filters: FilterSentenceFilters): string | null {
   const terms = buildFilterTerms(filters);
   if (terms.length === 0) return null;
   const period = filters.since === '1d' ? '1 day'

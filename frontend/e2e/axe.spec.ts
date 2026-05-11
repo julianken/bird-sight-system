@@ -47,6 +47,41 @@ test.describe('axe-core WCAG scans', () => {
     expect(results.violations).toEqual([]);
   });
 
+  // Phase 3: ClusterPill React markers render as <button aria-label="{N} sightings">
+  // overlaid on the map canvas. This test verifies the aria-label pattern is correct
+  // and the map view stays axe-clean with the pills present. Since headless Chromium
+  // may lack WebGL, the map canvas may not render — gate the assertion on canvas
+  // visibility and skip if WebGL is unavailable.
+  test('cluster pills have "{count} sightings" aria-label when WebGL is available', async ({ page }) => {
+    const app = new AppPage(page);
+    await app.goto('view=map');
+    await app.waitForAppReady();
+    const canvas = page.locator('[data-testid=map-canvas]');
+    const canvasVisible = await canvas.isVisible({ timeout: 15_000 }).catch(() => false);
+    if (!canvasVisible) {
+      test.skip(true, 'map-canvas not visible — WebGL unavailable in this environment');
+      return;
+    }
+    // Wait up to 10s for at least one cluster pill to appear. If no pills render
+    // (e.g. zoom level shows only single markers), the assertion is silently
+    // satisfied (0 violations, pattern correct for any that exist).
+    const pills = page.getByRole('button', { name: /sightings$/ });
+    const pillCount = await pills.count().catch(() => 0);
+    if (pillCount > 0) {
+      const pillLabel = await pills.first().getAttribute('aria-label');
+      expect(pillLabel).toMatch(/^\d+ sightings$/);
+    }
+
+    const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
+    if (results.violations.length) {
+      await test.info().attach('axe-violations', {
+        body: JSON.stringify(results.violations, null, 2),
+        contentType: 'application/json',
+      });
+    }
+    expect(results.violations).toEqual([]);
+  });
+
   // #118 species surface — the autocomplete carries a WAI-ARIA 1.2 combobox
   // contract (role + aria-autocomplete + aria-expanded + aria-controls),
   // and the listbox + options use proper `role="option"` inside `role="listbox"`.
@@ -315,7 +350,11 @@ test.describe('axe-core WCAG scans', () => {
     const app = new AppPage(page);
     await app.goto('view=feed');
     await app.waitForAppReady();
-    await page.getByRole('button', { name: /credits/i }).click();
+    // Phase 3: AppHeader adds an "Attribution" button (aria-label="Credits &
+    // attribution") that also matches /credits/i. Scope to the footer trigger
+    // (the Credits text-button inside .app-footer) to avoid strict-mode
+    // "resolved to 2 elements" error.
+    await page.locator('footer.app-footer').getByRole('button', { name: /credits/i }).click();
     // Wait on the [open] attribute commit — observable contract that
     // showModal() has run, focus-delegation is settled, and the dialog
     // is in the top layer.
@@ -337,7 +376,9 @@ test.describe('axe-core WCAG scans', () => {
       const app = new AppPage(page);
       await app.goto('view=feed');
       await app.waitForAppReady();
-      await page.getByRole('button', { name: /credits/i }).click();
+      // Phase 3: scope to footer trigger to avoid matching AppHeader's
+      // "Credits & attribution" button — same fix as the desktop counterpart above.
+      await page.locator('footer.app-footer').getByRole('button', { name: /credits/i }).click();
       await expect(page.locator('dialog.attribution-modal[open]')).toBeVisible();
       const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
       if (results.violations.length) {

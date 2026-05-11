@@ -5,11 +5,56 @@ export class AppPage {
   readonly filters: FiltersBar;
   readonly mainSurface: Locator;
   readonly errorScreen: Locator;
+  /** Persistent header chrome — wordmark, tablist, action buttons. */
+  readonly appHeader: Locator;
+  /** The three surface tabs inside appHeader (Map, Species, Feed). */
+  readonly appHeaderTabs: Locator;
+  /** Filters trigger button in appHeader (badge shows active-filter count). */
+  readonly filtersTrigger: Locator;
+  /** Theme toggle button in appHeader. */
+  readonly themeToggle: Locator;
+  /** Credits & attribution trigger in appHeader. */
+  readonly attributionTrigger: Locator;
 
   constructor(public readonly page: Page) {
     this.filters = new FiltersBar(page);
     this.mainSurface = page.locator('main#main-surface');
     this.errorScreen = page.locator('.error-screen');
+    this.appHeader = page.locator('header.app-header');
+    this.appHeaderTabs = this.appHeader.getByRole('tab');
+    this.filtersTrigger = this.appHeader.getByRole('button', { name: /^Filters/ });
+    this.themeToggle = this.appHeader.getByRole('button', { name: /Switch to (light|dark) theme/ });
+    this.attributionTrigger = this.appHeader.getByRole('button', { name: /Credits & attribution/ });
+  }
+
+  /**
+   * Open the Filters panel via the AppHeader trigger and wait for the
+   * panel to be visible. Phase 3 renders FiltersBar only inside this
+   * panel, so any test that needs to interact with or assert filter
+   * controls must call this first.
+   *
+   * Effectively idempotent: if the panel is already open, clicking the
+   * trigger calls `setFiltersOpen(true)` again (a no-op in React state),
+   * and `waitFor({ state: 'visible' })` resolves immediately. In practice,
+   * call this once per test that needs filter access — the panel stays open
+   * until the test ends or the Close button is clicked.
+   */
+  async openFilters(): Promise<void> {
+    const panel = this.page.getByRole('region', { name: 'Filters' });
+    // Guard: if the panel is already visible (e.g., test parallelism left it
+    // open from a prior interaction in the same browser context), skip the
+    // trigger click to avoid a double-open no-op that could race on slow CI.
+    const alreadyOpen = await panel.isVisible().catch(() => false);
+    if (!alreadyOpen) {
+      await this.filtersTrigger.click();
+      await panel.waitFor({ state: 'visible' });
+    }
+  }
+
+  /** Navigate to a surface by tab name. */
+  async selectView(view: 'feed' | 'species' | 'map'): Promise<void> {
+    const labelMap = { feed: 'Feed view', species: 'Species view', map: 'Map view' };
+    await this.appHeader.getByRole('tab', { name: labelMap[view] }).click();
   }
 
   async goto(query = '') {

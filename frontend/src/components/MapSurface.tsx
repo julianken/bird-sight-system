@@ -3,6 +3,10 @@ import type { LngLatBounds } from 'maplibre-gl';
 import type { FamilySilhouette, Observation } from '@bird-watch/shared-types';
 import { ErrorBoundary } from './ErrorBoundary.js';
 import { FamilyLegend } from './FamilyLegend.js';
+import { MapLede, type Freshness } from './MapLede.js';
+import { FilterSentence } from './ds/FilterSentence.js';
+import type { Since } from '../state/url-state.js';
+import { prettyFamily } from '../derived.js';
 
 /**
  * Lazy-loaded MapCanvas. The React.lazy() boundary lives HERE — not inside
@@ -81,6 +85,15 @@ export interface MapSurfaceProps {
    * keeps showing full-set counts.
    */
   onViewportChange?: (bounds: LngLatBounds) => void;
+  // --- Phase 3: context strip ---
+  /** Time-window filter (mirrors UrlState.since). */
+  since: Since;
+  /** Notable-only filter (mirrors UrlState.notable). */
+  notable: boolean;
+  /** Freshness state from <App>'s freshness derivation. */
+  freshness: Freshness;
+  /** Pre-formatted freshness meta string (e.g. "Updated 11 min ago · Source: eBird"). */
+  freshnessLabel: string;
 }
 
 /**
@@ -112,6 +125,10 @@ export function MapSurface({
   onSkipToFeed,
   onSelectSpecies,
   onViewportChange,
+  since,
+  notable,
+  freshness,
+  freshnessLabel,
 }: MapSurfaceProps) {
   // Compute the expand-by-default once at mount. The component itself
   // (FamilyLegend) handles localStorage precedence + manual toggle.
@@ -121,6 +138,17 @@ export function MapSurface({
   // narrate viewport state. When absent, fall back to the same array
   // MapCanvas sees so baseline callers and tests stay unchanged.
   const legendObs = legendObservations ?? observations;
+
+  // Phase 3: derive lede inputs from the observations array.
+  const speciesCount = new Set(observations.map(o => o.speciesCode).filter(Boolean)).size;
+  const observationCount = observations.length;
+  // For Template 2 (single species filter), prefer the comName of the first
+  // observation if there's exactly one species in scope.
+  const speciesCommonName =
+    speciesCount === 1 ? (observations[0]?.comName ?? null) : null;
+  const familyName = familyCode ? prettyFamily(familyCode) : null;
+  const period = since === '1d' ? '24 hours' : since.replace('d', ' days');
+
   return (
     <ErrorBoundary
       fallback={
@@ -143,6 +171,19 @@ export function MapSurface({
           Skip to species list
         </button>
       )}
+      {/* Phase 3: context strip — lede + filter sentence + freshness meta */}
+      <section className="map-context-strip" aria-label="Map context">
+        <MapLede
+          speciesCount={speciesCount}
+          observationCount={observationCount}
+          speciesCommonName={speciesCommonName}
+          familyName={familyName}
+          period={period}
+          freshness={freshness}
+        />
+        <FilterSentence filters={{ since, notable, speciesCode: null, familyCode }} />
+        <p className="map-freshness">{freshnessLabel}</p>
+      </section>
       <div className="map-surface">
         <React.Suspense
           fallback={
@@ -156,7 +197,7 @@ export function MapSurface({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                background: '#f4f1ea',
+                background: 'var(--color-bg-tint, #f4f1ea)',
               }}
             >
               Loading map…

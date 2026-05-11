@@ -14,6 +14,8 @@ test.describe('history back navigation', () => {
     const app = new AppPage(page);
     await app.goto();
     await app.waitForAppReady();
+    // Phase 3: FiltersBar is inside a panel triggered from AppHeader.
+    await app.openFilters();
 
     await app.filters.toggleNotable(true);
     await expect.poll(() => app.getUrlParams().get('notable'), { timeout: 5_000 }).toBe('true');

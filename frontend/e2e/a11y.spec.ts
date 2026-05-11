@@ -7,12 +7,19 @@ test.describe('accessibility', () => {
     await app.goto();
     await app.waitForAppReady();
 
-    // Collect the first 20 focused elements after tabbing from body.
-    // Budget is wide enough to survive seed changes that shift filter /
-    // SurfaceNav tab positions.
+    // Phase 3: FiltersBar lives inside a slide-in panel triggered from
+    // AppHeader. Open the panel so the filter controls are in the DOM and
+    // participate in the tab order.
+    await app.openFilters();
+
+    // Collect the first 30 focused elements after tabbing from body.
+    // Budget raised to 30 (from 20) because Phase 3's AppHeader chrome
+    // (wordmark, active-view tab, Attribution, Filters trigger, ThemeToggle)
+    // plus the Close-filters button all precede the four filter controls —
+    // the filters now appear at roughly tab positions 7–10.
     await page.locator('body').focus();
     const visited: string[] = [];
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 30; i++) {
       await page.keyboard.press('Tab');
       const tag = await page.evaluate(() => {
         const el = document.activeElement as HTMLElement | null;
@@ -23,7 +30,19 @@ test.describe('accessibility', () => {
       visited.push(tag);
     }
 
-    // Positively identify the four filters.
+    // Positively identify the four filters — assert they are all reachable.
+    // WCAG 2.1 SC 2.1.1 (Keyboard) requires every interactive control to
+    // be reachable by Tab; it does NOT require a specific ordering relative
+    // to navigation elements.
+    //
+    // Phase 3 architectural note: AppHeader (containing surface-nav tabs) is
+    // rendered before the Filters panel in DOM order. The pre-Phase-3
+    // "all filters before any SurfaceNav tab" ordering assertion was a
+    // consequence of the old FiltersBar/SurfaceNav DOM structure — it was
+    // never a WCAG requirement. Under Phase 3's AppHeader-first layout the
+    // tabs naturally precede the filter panel and that is intentional UX
+    // (navigate to a surface, then open filters). Reachability is preserved;
+    // ordering is not asserted.
     const FILTER_SIGNATURES = ['Time window', 'Notable only', 'Family', 'Species'];
     const timeWindowIdx = visited.findIndex(s => s.includes('Time window'));
     const notableIdx = visited.findIndex(s => s.includes('Notable only'));
@@ -34,18 +53,6 @@ test.describe('accessibility', () => {
     expect(notableIdx, 'Notable only filter must be tabbable').toBeGreaterThanOrEqual(0);
     expect(familyIdx, 'Family filter must be tabbable').toBeGreaterThanOrEqual(0);
     expect(speciesIdx, 'Species filter must be tabbable').toBeGreaterThanOrEqual(0);
-
-    // Every filter must come before the first SurfaceNav tab. Tabs are
-    // buttons with aria-label="Feed view" / "Species view" / "Map view".
-    const firstSurfaceTabIdx = visited.findIndex(s =>
-      s.includes('Feed view') || s.includes('Species view') || s.includes('Map view'),
-    );
-    if (firstSurfaceTabIdx >= 0) {
-      expect(
-        Math.max(timeWindowIdx, notableIdx, familyIdx, speciesIdx),
-        'all four filters must come before any SurfaceNav tab',
-      ).toBeLessThan(firstSurfaceTabIdx);
-    }
 
     void FILTER_SIGNATURES; // keep the doc-ref for grepability
   });

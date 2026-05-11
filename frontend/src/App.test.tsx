@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 // Hoist mock fns so they exist before any module-level code runs.
 const { mockGetHotspots, mockGetObservations, mockGetSilhouettes, mockUrlState } = vi.hoisted(() => ({
@@ -146,9 +147,10 @@ describe('App persistent footer (issue #250)', () => {
       const footer = container.querySelector('footer.app-footer');
       expect(footer).not.toBeNull();
       expect(footer?.getAttribute('role')).toBe('contentinfo');
-      // Credits button is inside the footer.
-      const credits = screen.getByRole('button', { name: /credits/i });
-      expect(footer?.contains(credits)).toBe(true);
+      // Credits button is inside the footer (Phase 3 also adds a "Credits &
+      // attribution" button in AppHeader — target the footer's own trigger).
+      const credits = footer?.querySelector('button.attribution-trigger');
+      expect(credits).not.toBeNull();
     },
   );
 
@@ -167,5 +169,68 @@ describe('App persistent footer (issue #250)', () => {
     expect(main).not.toBeNull();
     const position = main!.compareDocumentPosition(last!);
     expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
+describe('Phase 3: AppHeader + Filters panel', () => {
+  beforeEach(() => {
+    __resetSilhouettesCache();
+    mockGetHotspots.mockResolvedValue([]);
+    mockGetObservations.mockResolvedValue([]);
+    mockGetSilhouettes.mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('renders <AppHeader> at the top of the app', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
+    };
+    render(<App />);
+    // Wait for initial bird data fetch resolution
+    await screen.findByRole('banner');
+    expect(screen.getByRole('banner')).toHaveClass('app-header');
+  });
+
+  it('does NOT mount <SurfaceNav> directly anymore (its tablist is now inside <AppHeader>)', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
+    };
+    render(<App />);
+    await screen.findByRole('banner');
+    // There should be exactly one tablist with aria-label "Surface" — the
+    // one inside <AppHeader>. The legacy <SurfaceNav> mount is removed.
+    const lists = screen.getAllByRole('tablist', { name: /Surface/i });
+    expect(lists).toHaveLength(1);
+    expect(lists[0].closest('header.app-header')).not.toBeNull();
+  });
+
+  it('Filters trigger opens a panel containing <FiltersBar>; closing hides it', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
+    };
+    render(<App />);
+    await screen.findByRole('banner');
+    const trigger = screen.getByRole('button', { name: /Filters/i });
+    // Closed initially: the FiltersBar region should not be in the DOM
+    expect(screen.queryByRole('region', { name: /Filters/i })).toBeNull();
+    await userEvent.click(trigger);
+    expect(screen.getByRole('region', { name: /Filters/i })).toBeInTheDocument();
+    // Close button inside the panel dismisses it
+    await userEvent.click(screen.getByRole('button', { name: /Close filters/i }));
+    expect(screen.queryByRole('region', { name: /Filters/i })).toBeNull();
+  });
+
+  it('Filters badge count reflects active filters (notable + family = 2)', async () => {
+    // Seed URL with active filters before mount
+    mockUrlState.state = {
+      since: '14d', notable: true, speciesCode: null, familyCode: 'corvidae', view: 'feed',
+    };
+    render(<App />);
+    await screen.findByRole('banner');
+    const trigger = screen.getByRole('button', { name: /Filters \(2 active\)/i });
+    expect(trigger).toBeInTheDocument();
   });
 });

@@ -1,12 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { FamilySilhouette, Observation } from '@bird-watch/shared-types';
+import type { FamilySilhouette as FamilySilhouetteData, Observation } from '@bird-watch/shared-types';
 import { prettyFamily } from '../derived.js';
+import { FamilySilhouette } from './ds/FamilySilhouette.js';
+import { getFamilyChannel } from '../config/family-palette.js';
+import type { FamilyCode, ShapeVariant } from '../config/family-palette.js';
+import { FAMILY_PALETTE } from '../config/family-palette.js';
 
-const STORAGE_KEY = 'family-legend-expanded';
+const STORAGE_KEY = 'family-legend-expanded.v2';
+const LEGACY_STORAGE_KEY = 'family-legend-expanded';
 
 export interface FamilyLegendProps {
   /** All known family→silhouette rows (mounted by App via useSilhouettes). */
-  silhouettes: FamilySilhouette[];
+  silhouettes: FamilySilhouetteData[];
   /** Observations currently in scope — drives per-family counts. */
   observations: Observation[];
   /** Currently active family filter (drives the toggle/aria-pressed state). */
@@ -20,17 +25,22 @@ export interface FamilyLegendProps {
   onFamilyToggle: (familyCode: string) => void;
   /**
    * Default expansion state on first paint when localStorage is empty.
-   * Driven by the responsive @media query in styles.css through MapSurface
-   * (390-ish viewports start collapsed; >=760 start expanded). Once the
-   * user manually toggles, the localStorage value overrides this on
-   * subsequent mounts — the responsive default is a first-visit hint, not
-   * a sticky rule.
+   * Driven by the responsive @media query in MapSurface (mobile collapsed,
+   * desktop expanded). Once the user toggles, the new .v2 storage key
+   * wins on subsequent mounts — the responsive default is a first-visit
+   * hint, not a sticky rule.
    */
   defaultExpanded: boolean;
 }
 
 function readStoredExpanded(): boolean | null {
   try {
+    // Migration: drop the legacy key so it can't clobber the mobile
+    // viewport hint on first paint. This runs on every mount; effectively
+    // free since the key is absent after first migration.
+    if (window.localStorage.getItem(LEGACY_STORAGE_KEY) !== null) {
+      window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+    }
     const v = window.localStorage.getItem(STORAGE_KEY);
     if (v === 'true') return true;
     if (v === 'false') return false;
@@ -49,49 +59,15 @@ function writeStoredExpanded(value: boolean): void {
   }
 }
 
-/**
- * Renders a tiny inline-SVG silhouette for an entry. Uses the seeded
- * 24-unit viewBox path from the family_silhouettes table; falls back to a
- * simple filled circle when svgData is null (pre-curation rows). All
- * silhouettes are rendered in the entry's family color.
- */
-function SilhouetteGlyph({ silhouette }: { silhouette: FamilySilhouette }) {
-  const size = 28;
-  if (silhouette.svgData) {
-    return (
-      <svg
-        viewBox="0 0 24 24"
-        width={size}
-        height={size}
-        aria-hidden="true"
-        focusable="false"
-      >
-        <path d={silhouette.svgData} fill={silhouette.color} />
-      </svg>
-    );
-  }
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={size}
-      height={size}
-      aria-hidden="true"
-      focusable="false"
-    >
-      <circle cx={12} cy={12} r={6} fill={silhouette.color} />
-    </svg>
-  );
-}
-
 interface LegendEntry {
   familyCode: string;
   label: string;
   count: number;
-  silhouette: FamilySilhouette;
+  silhouette: FamilySilhouetteData;
 }
 
 function buildEntries(
-  silhouettes: FamilySilhouette[],
+  silhouettes: FamilySilhouetteData[],
   observations: Observation[],
 ): LegendEntry[] {
   // Per-family observation counts. familyCode is nullable on Observation —
@@ -101,7 +77,7 @@ function buildEntries(
     if (!o.familyCode) continue;
     counts.set(o.familyCode, (counts.get(o.familyCode) ?? 0) + 1);
   }
-  const byCode = new Map<string, FamilySilhouette>();
+  const byCode = new Map<string, FamilySilhouetteData>();
   for (const s of silhouettes) byCode.set(s.familyCode, s);
 
   const out: LegendEntry[] = [];
@@ -129,18 +105,17 @@ export function FamilyLegend({
   onFamilyToggle,
   defaultExpanded,
 }: FamilyLegendProps) {
-  // Initial state precedence: localStorage > defaultExpanded prop. The
-  // function-form initializer means readStoredExpanded only runs once at
-  // mount, not on every render.
+  // Initial state precedence: localStorage .v2 > defaultExpanded prop.
+  // The function-form initializer means readStoredExpanded only runs once
+  // at mount, not on every render. The legacy .v1 key is deleted inside
+  // readStoredExpanded so it can never clobber a mobile first-paint.
   const [expanded, setExpanded] = useState<boolean>(() => {
     const stored = readStoredExpanded();
     return stored ?? defaultExpanded;
   });
 
-  // Persist on every change — including the initial-from-default value, so
-  // the next mount across a viewport flip still honors the user's first
-  // active choice. Skip the very first effect run when storage already had
-  // a value (avoid clobbering the same value).
+  // Persist on every change. The write is idempotent; cost is trivial.
+  // Only written after a manual toggle — first paints defer to defaultExpanded.
   useEffect(() => {
     writeStoredExpanded(expanded);
   }, [expanded]);
@@ -185,6 +160,16 @@ export function FamilyLegend({
         >
           {entries.map(entry => {
             const active = entry.familyCode === familyCode;
+            // Resolve the palette channel for shape encoding. Codes not
+            // in FAMILY_PALETTE (e.g. novel families not yet in the type
+            // union) fall back to the null channel via getFamilyChannel(null),
+            // which returns a neutral grey circle — shape still satisfies
+            // WCAG 1.4.1 (circle is the null-family sentinel).
+            const paletteCode = (entry.familyCode in FAMILY_PALETTE)
+              ? (entry.familyCode as FamilyCode)
+              : null;
+            const channel = getFamilyChannel(paletteCode);
+            const shape: ShapeVariant = channel.shape;
             return (
               <li key={entry.familyCode} className="family-legend-entry-item">
                 <button
@@ -194,7 +179,11 @@ export function FamilyLegend({
                   aria-pressed={active}
                   onClick={() => onFamilyToggle(entry.familyCode)}
                 >
-                  <SilhouetteGlyph silhouette={entry.silhouette} />
+                  <FamilySilhouette
+                    family={paletteCode}
+                    layout="thumb"
+                    shape={shape}
+                  />
                   <span className="family-legend-entry-label">{entry.label}</span>
                   <span
                     className="family-legend-entry-count"

@@ -85,7 +85,7 @@ export function FamilySilhouette({
   ].join(' ');
 
   return (
-    <span className={classes} style={{ '--family-fill': channel.fill } as React.CSSProperties}>
+    <span className={classes} data-shape={resolvedShape} style={{ '--family-fill': channel.fill } as React.CSSProperties}>
       <svg
         viewBox="0 0 100 100"
         xmlns="http://www.w3.org/2000/svg"

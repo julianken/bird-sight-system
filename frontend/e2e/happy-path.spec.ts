@@ -69,6 +69,8 @@ test.describe('Path A happy path', () => {
     await expect(page.locator('.feed-row').first()).toBeVisible({ timeout: 10_000 });
     const baselineCount = await page.locator('.feed-row').count();
 
+    // Phase 3: FiltersBar is inside a panel triggered from AppHeader.
+    await app.openFilters();
     await app.filters.toggleNotable(true);
     await expect
       .poll(() => app.getUrlParams().get('notable'), { timeout: 5_000 })

@@ -1,6 +1,7 @@
 import type { FamilySilhouette, Observation } from '@bird-watch/shared-types';
 import type { LayerProps } from 'react-map-gl/maplibre';
 import { FAMILY_COLOR_FALLBACK } from '../../data/family-color.js';
+import { CLUSTER_TIER_BOUNDARIES } from '../../config/cluster.js';
 
 /**
  * Sentinel id matching the `_FALLBACK` row in `family_silhouettes`
@@ -164,77 +165,58 @@ export const CLUSTER_MOSAIC_MAX_POINTS = 8;
 /* ── Layer specs ───────────────────────────────────────────────────────── */
 
 /**
- * Build the cluster-circle layer spec. Uses step expressions for graduated
- * circle sizes based on point_count.
+ * Phase 3: cluster paint is suppressed. The MapLibre cluster source still
+ * runs (for `point_count` aggregation), but no canvas paint is drawn —
+ * <ClusterPillOverlay> in MapCanvas reads cluster features via
+ * queryRenderedFeatures({ layers: ['clusters-hit'] }) and renders a React
+ * <ClusterPill> per cluster instead. The pill component imports
+ * CLUSTER_TIER_BOUNDARIES from the same config module this file imports
+ * from (single source of truth).
+ *
+ * The hit-test layer 'clusters-hit' is unchanged — it covers all clusters
+ * with transparent paint so queryRenderedFeatures still returns features
+ * even though no visible paint exists.
  */
 export function buildClusterLayerSpec(): LayerProps {
   return {
     id: 'clusters',
     type: 'circle',
     source: 'observations',
-    // Issue #248: mosaic markers handle clusters with point_count <= 8.
-    // Cap this layer at the complement so the circle doesn't render under
-    // the HTML mosaic. CLUSTER_MOSAIC_MAX_POINTS is the single boundary
-    // token shared with the React reconciler in MapCanvas.
-    filter: [
-      'all',
-      ['has', 'point_count'],
-      ['>', ['get', 'point_count'], CLUSTER_MOSAIC_MAX_POINTS],
-    ],
+    filter: ['boolean', false],
     paint: {
-      'circle-color': [
-        'step',
-        ['get', 'point_count'],
-        '#51bbd6',
-        100,
-        '#f1f075',
-        750,
-        '#f28cb1',
-      ],
-      'circle-radius': [
-        'step',
-        ['get', 'point_count'],
-        20,
-        100,
-        30,
-        750,
-        40,
-      ],
+      'circle-opacity': 0,
+      'circle-stroke-opacity': 0,
+      'circle-color': '#000',
+      'circle-radius': 0,
     },
   };
 }
 
 /**
- * Build the cluster-count symbol layer spec — renders the observation count
- * inside each cluster circle.
+ * Phase 3: cluster-count layer also suppressed (never renders).
+ * The count is displayed by <ClusterPill>'s aria-label instead.
  */
 export function buildClusterCountLayerSpec(): LayerProps {
   return {
     id: 'cluster-count',
     type: 'symbol',
     source: 'observations',
-    // Same threshold as the cluster circle layer (issue #248). The mosaic
-    // marker carries its own count badge; rendering this symbol on top of
-    // the mosaic would double-render the number.
-    filter: [
-      'all',
-      ['has', 'point_count'],
-      ['>', ['get', 'point_count'], CLUSTER_MOSAIC_MAX_POINTS],
-    ],
+    filter: ['boolean', false],
     layout: {
-      'text-field': ['get', 'point_count_abbreviated'],
+      'text-field': '',
       'text-size': 12,
-      // Must be a font that exists in the basemap style's glyph stack.
-      // OpenFreeMap positron ships Noto Sans {Regular,Bold,Italic} only —
-      // MapLibre's default ["Open Sans Regular","Arial Unicode MS Regular"]
-      // 404s against tiles.openfreemap.org/fonts/...
       'text-font': ['Noto Sans Regular'],
     },
     paint: {
-      'text-color': readToken('--color-text-strong', '#1a1a1a'),
+      'text-color': 'transparent',
     },
   };
 }
+
+// CLUSTER_TIER_BOUNDARIES is re-exported here for callers that need the
+// full lookup; the single source of truth lives in
+// frontend/src/config/cluster.ts.
+export { CLUSTER_TIER_BOUNDARIES };
 
 /**
  * Build the invisible cluster hit-test layer spec (issue #248). The visible

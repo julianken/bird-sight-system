@@ -8,16 +8,20 @@ export class FiltersBar {
   readonly species: Locator;
 
   constructor(page: Page) {
-    // `exact: true` is mandatory on this page object. SurfaceNav renders
-    // three tabs — "Feed view", "Species view", "Map view" — whose accessible
-    // names share substrings with filter labels ("Species", "Family").
-    // Without exact match, getByLabel('Species') would match both the filter
-    // <input> and the "Species view" tab button, causing an ambiguous-locator
-    // error.
-    this.timeWindow = page.getByLabel('Time window', { exact: true });
-    this.notableOnly = page.getByLabel('Notable only', { exact: true });
-    this.family = page.getByLabel('Family', { exact: true });
-    this.species = page.getByLabel('Species', { exact: true });
+    // Phase 3: FiltersBar is rendered inside a filters panel
+    // (`<div class="filters-panel" role="region" aria-label="Filters">`)
+    // that is only mounted when the user opens the Filters drawer via the
+    // AppHeader trigger. Scope every locator to that panel so:
+    //   (a) locators resolve only when the panel is open, giving a clear
+    //       "element not attached" error if a test forgets openFilters(), and
+    //   (b) `exact: true` is preserved — SurfaceNav tab accessible names
+    //       ("Species view", "Family view") still share substrings with
+    //       filter labels; the panel scope adds a second layer of protection.
+    const panel = page.getByRole('region', { name: 'Filters' });
+    this.timeWindow = panel.getByLabel('Time window', { exact: true });
+    this.notableOnly = panel.getByLabel('Notable only', { exact: true });
+    this.family = panel.getByLabel('Family', { exact: true });
+    this.species = panel.getByLabel('Species', { exact: true });
   }
 
   async selectTimeWindow(value: Since) {

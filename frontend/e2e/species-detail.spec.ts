@@ -62,6 +62,9 @@ test.describe('species detail surface (#151)', () => {
     await app.goto('view=feed');
     await app.waitForAppReady();
 
+    // Phase 3: FiltersBar is inside a panel triggered from AppHeader.
+    await app.openFilters();
+
     // Wait for species options to be populated.
     await expect(page.locator('datalist#species-options option').first()).toBeAttached({ timeout: 10_000 });
 

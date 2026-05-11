@@ -21,7 +21,10 @@ test.describe('FamilyLegend (desktop)', () => {
   test('renders expanded by default on desktop view=map', async ({ page }) => {
     const app = new AppPage(page);
     await page.addInitScript(() => {
-      try { window.localStorage.removeItem('family-legend-expanded'); } catch { /* noop */ }
+      try {
+        window.localStorage.removeItem('family-legend-expanded');
+        window.localStorage.removeItem('family-legend-expanded.v2');
+      } catch { /* noop */ }
     });
     await app.goto('view=map');
     await app.waitForAppReady();
@@ -33,7 +36,10 @@ test.describe('FamilyLegend (desktop)', () => {
   test('clicking a family entry sets ?family= and a second click clears it', async ({ page }) => {
     const app = new AppPage(page);
     await page.addInitScript(() => {
-      try { window.localStorage.removeItem('family-legend-expanded'); } catch { /* noop */ }
+      try {
+        window.localStorage.removeItem('family-legend-expanded');
+        window.localStorage.removeItem('family-legend-expanded.v2');
+      } catch { /* noop */ }
     });
     await app.goto('view=map');
     await app.waitForAppReady();
@@ -94,15 +100,27 @@ test.describe('FamilyLegend (desktop)', () => {
 test.describe('FamilyLegend (mobile)', () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test('renders collapsed by default on mobile view=map', async ({ page }) => {
-    const app = new AppPage(page);
+  test('renders collapsed by default on mobile view=map (localStorage cleared)', async ({ page }) => {
+    // Resolves analysis Theme 3 — on mobile with empty localStorage (or
+    // after a clear), the first paint must start collapsed.
+    //
+    // The legacy key migration (family-legend-expanded → .v2) is covered
+    // by unit tests in FamilyLegend.test.tsx. This e2e test covers the
+    // viewport-driven default at the integration level.
+    //
+    // Use addInitScript to clear localStorage BEFORE any React code runs.
+    // localStorage.clear() also removes any .v2 value left by a prior
+    // desktop test in the same Playwright BrowserContext worker.
     await page.addInitScript(() => {
-      try { window.localStorage.removeItem('family-legend-expanded'); } catch { /* noop */ }
+      window.localStorage.clear();
     });
-    await app.goto('view=map');
-    await app.waitForAppReady();
+    await page.goto('/?view=map');
+    await page.locator('main[data-render-complete="true"]').waitFor({ state: 'attached', timeout: 15_000 });
     await expect(page.locator('[data-testid=map-canvas]')).toBeVisible({ timeout: 15_000 });
-    const toggle = page.getByRole('button', { name: /bird families/i });
+
+    const toggle = page.getByRole('button', { name: /Bird families in view/i });
+    await expect(toggle).toBeVisible({ timeout: 10_000 });
+    // On mobile with empty localStorage, the viewport wins: collapsed.
     await expect(toggle).toHaveAttribute('aria-expanded', 'false');
   });
 });

@@ -310,40 +310,36 @@ describe('layer specs', () => {
     ]);
   });
 
-  it('cluster layer filters to clusters with more than 8 points (mosaic threshold)', () => {
-    // Issue #248: clusters with point_count <= 8 render an HTML <Marker>
-    // mosaic instead of the colored circle. The two surfaces must NOT
-    // overlap — pin the boundary in the spec so a future filter loosen
-    // (e.g. ['has', 'point_count']) gets caught here, not in production
-    // where a circle would render under the mosaic.
-    const spec = buildClusterLayerSpec();
-    expect(spec.id).toBe('clusters');
-    expect(spec.type).toBe('circle');
-    expect(spec.filter).toEqual([
-      'all',
-      ['has', 'point_count'],
-      ['>', ['get', 'point_count'], 8],
-    ]);
-  });
+  // Phase 3: cluster-paint-suppression tests replace the pre-Phase-3
+  // paint-expression assertions. The MapLibre cluster SOURCE still runs
+  // (for point_count aggregation), but no canvas paint is drawn —
+  // <ClusterPillOverlay> reads cluster features via queryRenderedFeatures
+  // on the 'clusters-hit' layer and renders a React <Marker> per cluster.
+  describe('buildClusterLayerSpec (Phase 3 — pills replace circle paint)', () => {
+    it('returns a layer that never matches features (paint suppressed by filter)', () => {
+      const spec = buildClusterLayerSpec();
+      expect(spec.id).toBe('clusters');
+      expect(spec.type).toBe('circle');
+      // Phase 3 suppression: filter is set to a never-true expression so
+      // the canvas never paints a cluster circle. The cluster source
+      // itself still computes point_count for the React overlay to read.
+      expect(spec.filter).toEqual(['boolean', false]);
+    });
 
-  it('cluster-count layer renders point_count_abbreviated for large clusters only', () => {
-    const spec = buildClusterCountLayerSpec();
-    expect(spec.id).toBe('cluster-count');
-    expect(spec.type).toBe('symbol');
-    // Same threshold as the cluster circle layer — count text only renders
-    // INSIDE the circle (point_count > 8). Mosaic markers carry their own
-    // count badge in HTML, so duplicating it here would double-render.
-    expect(spec.filter).toEqual([
-      'all',
-      ['has', 'point_count'],
-      ['>', ['get', 'point_count'], 8],
-    ]);
-    const layout = spec.layout as Record<string, unknown>;
-    expect(layout['text-field']).toEqual(['get', 'point_count_abbreviated']);
-    // Must declare a font present in the basemap glyph stack (Noto Sans on
-    // OpenFreeMap positron). Omitting this falls back to Open Sans Regular,
-    // which 404s against tiles.openfreemap.org.
-    expect(layout['text-font']).toEqual(['Noto Sans Regular']);
+    it('cluster-count layer also never matches', () => {
+      const spec = buildClusterCountLayerSpec();
+      expect(spec.id).toBe('cluster-count');
+      expect(spec.filter).toEqual(['boolean', false]);
+    });
+
+    it('imports CLUSTER_TIER_BOUNDARIES from frontend/src/config/cluster.ts', async () => {
+      // Single source of truth assertion — keeps Phase 2 config + Phase 3
+      // layer config bound. Snapshot the import path; if either side
+      // forks the constant, the import resolves to a module that doesn't
+      // re-export it.
+      const config = await import('../../config/cluster.js');
+      expect(config.CLUSTER_TIER_BOUNDARIES).toEqual({ sand: 100, ember: 750 });
+    });
   });
 
   it('clusters-hit layer renders ALL clusters invisibly so queryRenderedFeatures can find them', () => {

@@ -63,10 +63,14 @@ const baseObservations: Observation[] = [
   obs('S4', 'unknownidae'),
 ];
 
-const STORAGE_KEY = 'family-legend-expanded';
+const STORAGE_KEY = 'family-legend-expanded.v2';
+const LEGACY_STORAGE_KEY = 'family-legend-expanded';
 
 function clearLegendStorage() {
-  try { window.localStorage.removeItem(STORAGE_KEY); } catch { /* jsdom only */ }
+  try {
+    window.localStorage.removeItem(STORAGE_KEY);
+    window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+  } catch { /* jsdom only */ }
 }
 
 beforeEach(() => clearLegendStorage());
@@ -230,7 +234,7 @@ describe('FamilyLegend', () => {
     expect(screen.getByRole('button', { name: /bird families in view/i })).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('persists collapse state to localStorage', async () => {
+  it('persists collapse state to localStorage (.v2 key)', async () => {
     const user = userEvent.setup();
     render(
       <FamilyLegend
@@ -248,7 +252,7 @@ describe('FamilyLegend', () => {
     expect(window.localStorage.getItem(STORAGE_KEY)).toBe('true');
   });
 
-  it('localStorage value overrides defaultExpanded', () => {
+  it('localStorage .v2 value overrides defaultExpanded', () => {
     window.localStorage.setItem(STORAGE_KEY, 'true');
     render(
       <FamilyLegend
@@ -259,7 +263,7 @@ describe('FamilyLegend', () => {
         defaultExpanded={false}
       />
     );
-    // Despite defaultExpanded=false, localStorage 'true' wins and shows entries.
+    // Despite defaultExpanded=false, localStorage .v2 'true' wins and shows entries.
     expect(screen.getAllByTestId('family-legend-entry')).toHaveLength(3);
   });
 
@@ -305,5 +309,87 @@ describe('FamilyLegend', () => {
     // Guard against accidental inline-style re-introduction of a 2-column
     // layout — visual contract is enforced by Playwright at PR review time.
     expect(list.style.gridTemplateColumns).not.toBe('1fr 1fr');
+  });
+});
+
+describe('Phase 3: mobile-collapsed default', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it('mobile viewport with empty localStorage starts collapsed', () => {
+    render(
+      <FamilyLegend
+        silhouettes={baseSilhouettes}
+        observations={baseObservations}
+        familyCode={null}
+        onFamilyToggle={vi.fn()}
+        defaultExpanded={false}
+      />,
+    );
+    expect(screen.getByRole('button', { name: /Bird families in view/i })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+  });
+
+  it('legacy localStorage value (.v1 key) is migrated and ignored on first paint', () => {
+    // The user previously set the legacy key on desktop. On mobile first
+    // paint, the legacy key is deleted and the viewport hint wins.
+    window.localStorage.setItem('family-legend-expanded', 'true');
+    render(
+      <FamilyLegend
+        silhouettes={baseSilhouettes}
+        observations={baseObservations}
+        familyCode={null}
+        onFamilyToggle={vi.fn()}
+        defaultExpanded={false}
+      />,
+    );
+    expect(screen.getByRole('button', { name: /Bird families in view/i })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+    expect(window.localStorage.getItem('family-legend-expanded')).toBeNull();
+  });
+
+  it('persistence under the new .v2 key wins on subsequent mounts', () => {
+    window.localStorage.setItem('family-legend-expanded.v2', 'true');
+    render(
+      <FamilyLegend
+        silhouettes={baseSilhouettes}
+        observations={baseObservations}
+        familyCode={null}
+        onFamilyToggle={vi.fn()}
+        defaultExpanded={false}
+      />,
+    );
+    expect(screen.getByRole('button', { name: /Bird families in view/i })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+  });
+});
+
+describe('Phase 3: shape-paired swatches', () => {
+  it('each entry swatch is a <FamilySilhouette> with the shape from getFamilyChannel', () => {
+    render(
+      <FamilyLegend
+        silhouettes={baseSilhouettes}
+        observations={baseObservations}
+        familyCode={null}
+        onFamilyToggle={vi.fn()}
+        defaultExpanded={true}
+      />,
+    );
+    const entries = screen.getAllByTestId('family-legend-entry');
+    // Each entry button contains a <FamilySilhouette> with data-shape attr
+    for (const entry of entries) {
+      const shape = entry.querySelector('[data-shape]');
+      expect(shape).not.toBeNull();
+      expect(['circle', 'square', 'pentagon', 'diamond']).toContain(
+        shape!.getAttribute('data-shape'),
+      );
+    }
   });
 });

@@ -57,6 +57,8 @@ test.describe('Map surface', () => {
     await app.goto('view=map');
     await app.waitForAppReady();
 
+    // Phase 3: FiltersBar is inside a panel triggered from AppHeader.
+    await app.openFilters();
     await app.filters.toggleNotable(true);
     await expect.poll(() => app.getUrlParams().get('notable'), { timeout: 5_000 })
       .toBe('true');
