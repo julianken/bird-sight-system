@@ -163,6 +163,7 @@
  * exception inside the ladder weakens the contract. Moved out of Layer 1
  * intentionally — see commit "refactor(styles): relocate --lede-size".
  */
-.lede {
+.lede,
+.feed-lede {
   --lede-size: 26px;
 }
