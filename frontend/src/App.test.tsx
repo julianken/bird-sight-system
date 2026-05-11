@@ -293,8 +293,10 @@ describe('Phase 5: FeedSurface lede wiring (App → FeedSurface)', () => {
     };
     mockGetObservations.mockResolvedValue([SPECIES_OBS]);
     render(<App />);
-    // Priority 2: "{N} sightings of {name} in Arizona…"
-    await screen.findByText(/sightings of Vermilion Flycatcher in Arizona/i);
+    // Priority 2: "{N} sightings of {name} in Arizona in the last {period}."
+    // Regex anchors the period token ("14 days") to catch PERIOD_LABELS
+    // regressions that produce "in the last Last 14 days." or similar.
+    await screen.findByText(/sightings of Vermilion Flycatcher in Arizona in the last 14 days\./i);
   });
 
   it('Priority 3 lede fires (family name in lede) when familyCode filter is active (no speciesCode)', async () => {

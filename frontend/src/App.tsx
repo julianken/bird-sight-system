@@ -50,13 +50,16 @@ export function App() {
   const families = useMemo(() => deriveFamilies(observations), [observations]);
   const speciesIndex = useMemo(() => deriveSpeciesIndex(observations), [observations]);
 
-  // Map the Since discriminant to the canonical human label used in lede templates.
-  // These labels match the voice-and-content spec; keep in sync with FeedSurface defaults.
+  // Map the Since discriminant to bare-duration tokens used in lede templates.
+  // These must be bare duration strings (e.g. "14 days") NOT noun phrases —
+  // the lede template at FeedSurface reads "in the last {period}." which
+  // would produce "in the last Last 14 days." with full noun phrases.
+  // Spec: docs/design/01-spec/voice-and-content.md §Lede contract.
   const PERIOD_LABELS: Record<Since, string> = {
-    '1d': 'Today',
-    '7d': 'Last 7 days',
-    '14d': 'Last 14 days',
-    '30d': 'Last 30 days',
+    '1d': '1 day',
+    '7d': '7 days',
+    '14d': '14 days',
+    '30d': '30 days',
   };
   const period = PERIOD_LABELS[state.since];
 
