@@ -218,9 +218,17 @@ body {
   outline-offset: 2px;
 }
 .app-header-tab.is-active {
-  background: var(--color-text-strong);
-  color: var(--color-text-white);
-  border-color: var(--color-text-strong);
+  /* Underline-only pattern: mode-safe (works in both light and dark) per
+     v4 mock and #454 W1 cascade-trap fix. The previous filled-chip pattern
+     inverted to white-on-white in dark mode because --color-text-strong
+     flips from #1a1a1a → #f5f7fb in the dark block.
+     border-bottom acts as the visual active indicator; background stays
+     transparent so no dark-mode inversion can occur. */
+  background: transparent;
+  color: var(--color-text-strong);
+  border-color: transparent;
+  border-bottom-color: var(--color-text-strong);
+  border-bottom-width: 2px;
 }
 
 /* Right-side action cluster — Attribution, Filters, ThemeToggle. */
@@ -479,16 +487,18 @@ body {
   gap: var(--space-xs);
 }
 .feed-card-meta {
-  /* NOTABLE label — small-caps uppercase treatment + amber accent color.
+  /* NOTABLE label — small-caps uppercase treatment + deep-ember accent.
      letter-spacing and font-weight reinforce the badge character.
      textTransform must compute to 'uppercase' (acceptance criterion).
-     Color: #7a6010 (5.99:1 on #ffffff) rather than --color-accent-notable-fg
-     (#b8860b, 3.25:1) because 11px bold requires 4.5:1 per WCAG 1.4.3 AA. */
+     Color: var(--color-accent-notable-fg) = var(--c-deep-ember) = #c43a1a
+     in light (7.25:1 on #ffffff — well above 4.5:1 AA at 11px bold).
+     In dark mode the token flips to var(--c-orange-500) = #f5853b
+     (4.52:1 against #131c30 dark surface — meets 4.5:1 AA). */
   font-size: var(--type-xs);
   font-weight: var(--font-weight-bold);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #7a6010;
+  color: var(--color-accent-notable-fg);
 }
 .feed-card-count {
   /* Observation count chip — same typographic weight as .feed-card-meta,
