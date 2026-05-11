@@ -107,7 +107,8 @@ test.describe('axe-core WCAG scans', () => {
   test('error screen has no WCAG 2/2.1 A/AA violations', async ({ page, apiStub }) => {
     await apiStub.stubApiAbort('observations');
     await page.goto('/');
-    await expect(page.locator('.error-screen h2'))
+    // Phase 6: error screen uses <StatusBlock state="error"> — .error-screen gone.
+    await expect(page.locator('[role="status"] .status-block__title'))
       .toHaveText("Couldn't load bird data", { timeout: 10_000 });
     const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
     if (results.violations.length) {
@@ -338,35 +339,26 @@ test.describe('axe-core WCAG scans', () => {
   });
 
   // Issue #243 / #250 — eBird API ToU §3 attribution lives in the app-level
-  // AttributionModal trigger (rendered inside the persistent
-  // `<footer role="contentinfo" class="app-footer">`) which is reachable
-  // from every view. The per-surface SurfaceFooter retired in #250.
-  // The map view continues to render the eBird credit inside maplibre's
-  // AttributionControl alongside OSM and OpenFreeMap (the in-map control
-  // is a low-friction credit and ODbL-compliant for the map data
-  // specifically — the modal subsumes the surface-level redundancy only).
+  // AttributionModal. Phase 6 removed the persistent <footer>; the trigger
+  // is now AttributionModal's own .attribution-trigger button, reachable on
+  // every view via the AppHeader "Attribution" button.
   test.describe('attribution reachability (issue #250)', () => {
-    test('feed view exposes a Credits trigger in the app-level footer', async ({ page }) => {
+    test('feed view exposes a Credits trigger in the DOM', async ({ page }) => {
       const app = new AppPage(page);
       await app.goto('view=feed');
       await app.waitForAppReady();
-      const footer = page.locator('footer.app-footer');
-      await expect(footer).toBeVisible();
-      const trigger = footer.getByRole('button', { name: /credits/i });
-      await expect(trigger).toBeVisible();
+      // Phase 6: no footer — Credits trigger is AttributionModal's own button.
+      await expect(page.locator('button.attribution-trigger')).toBeAttached();
     });
 
-    test('species view exposes a Credits trigger in the app-level footer', async ({ page }) => {
+    test('species view exposes a Credits trigger in the DOM', async ({ page }) => {
       const app = new AppPage(page);
       await app.goto('view=species');
       await app.waitForAppReady();
-      const footer = page.locator('footer.app-footer');
-      await expect(footer).toBeVisible();
-      const trigger = footer.getByRole('button', { name: /credits/i });
-      await expect(trigger).toBeVisible();
+      await expect(page.locator('button.attribution-trigger')).toBeAttached();
     });
 
-    test('detail view exposes a Credits trigger in the app-level footer', async ({ page, apiStub }) => {
+    test('detail view exposes a Credits trigger in the DOM', async ({ page, apiStub }) => {
       await apiStub.stubEmpty();
       await apiStub.stubSpecies('vermfly', VERMFLY);
       const app = new AppPage(page);
@@ -374,28 +366,29 @@ test.describe('axe-core WCAG scans', () => {
       await app.waitForAppReady();
       await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' }))
         .toBeVisible({ timeout: 10_000 });
-      const footer = page.locator('footer.app-footer');
-      await expect(footer).toBeVisible();
-      // Phase 4: the Credits trigger IS in the DOM on view=detail — it just
-      // sits behind the detail dialog on the z-axis. The test is "reachable"
-      // meaning it exists in the DOM and is visible; click reachability is
-      // covered by the attribution-modal spec.
-      const trigger = footer.getByRole('button', { name: /credits/i });
-      await expect(trigger).toBeVisible();
+      // Phase 4: trigger is in DOM behind the detail dialog; reachability =
+      // attached in DOM (click reachability covered by attribution-modal spec).
+      await expect(page.locator('button.attribution-trigger')).toBeAttached();
     });
 
-    test('map view exposes a Credits trigger in the app-level footer', async ({ page }) => {
+    test('map view exposes a Credits trigger in the DOM', async ({ page }) => {
       const app = new AppPage(page);
       await app.goto('view=map');
       await app.waitForAppReady();
-      const footer = page.locator('footer.app-footer');
-      await expect(footer).toBeVisible();
-      const trigger = footer.getByRole('button', { name: /credits/i });
-      await expect(trigger).toBeVisible();
+      await expect(page.locator('button.attribution-trigger')).toBeAttached();
     });
 
-    // SurfaceFooter retired in #250 — assert no leftover surface-level
-    // footers shadow the new app-level footer.
+    // Phase 6: app-footer removed — assert no app-footer element in DOM.
+    test('no app-footer element renders (footer removed Phase 6)', async ({ page }) => {
+      const app = new AppPage(page);
+      for (const view of ['feed', 'species', 'map'] as const) {
+        await app.goto(`view=${view}`);
+        await app.waitForAppReady();
+        await expect(page.locator('footer.app-footer')).toHaveCount(0);
+      }
+    });
+
+    // SurfaceFooter retired in #250 — assert no leftover surface-level footers.
     test('no per-surface footer.surface-footer renders anywhere', async ({ page }) => {
       const app = new AppPage(page);
       for (const view of ['feed', 'species', 'map'] as const) {
@@ -443,11 +436,9 @@ test.describe('axe-core WCAG scans', () => {
     const app = new AppPage(page);
     await app.goto('view=feed');
     await app.waitForAppReady();
-    // Phase 3: AppHeader adds an "Attribution" button (aria-label="Credits &
-    // attribution") that also matches /credits/i. Scope to the footer trigger
-    // (the Credits text-button inside .app-footer) to avoid strict-mode
-    // "resolved to 2 elements" error.
-    await page.locator('footer.app-footer').getByRole('button', { name: /credits/i }).click();
+    // Phase 6: footer removed. Use .attribution-trigger (AttributionModal's
+    // own button) directly — no footer scoping needed.
+    await page.locator('button.attribution-trigger').click();
     // Wait on the [open] attribute commit — observable contract that
     // showModal() has run, focus-delegation is settled, and the dialog
     // is in the top layer.
@@ -469,9 +460,8 @@ test.describe('axe-core WCAG scans', () => {
       const app = new AppPage(page);
       await app.goto('view=feed');
       await app.waitForAppReady();
-      // Phase 3: scope to footer trigger to avoid matching AppHeader's
-      // "Credits & attribution" button — same fix as the desktop counterpart above.
-      await page.locator('footer.app-footer').getByRole('button', { name: /credits/i }).click();
+      // Phase 6: footer removed. Use .attribution-trigger directly.
+      await page.locator('button.attribution-trigger').click();
       await expect(page.locator('dialog.attribution-modal[open]')).toBeVisible();
       const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
       if (results.violations.length) {

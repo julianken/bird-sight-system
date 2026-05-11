@@ -2,10 +2,13 @@ import { test, expect } from './fixtures.js';
 import { AppPage } from './pages/app-page.js';
 
 /**
- * Issue #250 — AttributionModal in the persistent app-level footer.
+ * AttributionModal — Phase 6 update: footer removed; Credits trigger
+ * is AttributionModal's own .attribution-trigger button, accessible
+ * from every view via the AppHeader "Attribution" button which
+ * programmatically clicks .attribution-trigger.
  *
  * Covers:
- *   - Footer reachability from every view (feed, species, map, detail).
+ *   - Credits trigger reachable from every view (feed, species, map, detail).
  *   - Modal open / focus management / Escape close / focus return.
  *   - Phylopic per-silhouette section renders creator + license + image-
  *     page link for at least one silhouette using the seeded Phylopic
@@ -23,22 +26,20 @@ const VERMFLY = {
   taxonOrder: 4400,
 } as const;
 
-test.describe('AttributionModal — footer reachability (desktop)', () => {
+test.describe('AttributionModal — reachability from AppHeader (desktop)', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  // Drive each surface and confirm the persistent app footer + Credits
-  // trigger are present + visible. The detail view needs a stubbed
-  // species lookup so the surface mounts (it depends on
-  // useSpeciesDetail).
+  // Phase 6: footer removed. Credits trigger is AttributionModal's own button
+  // (.attribution-trigger). The AppHeader "Attribution" button programmatically
+  // clicks it. Tests assert on the trigger directly — no footer required.
   for (const view of ['feed', 'species', 'map'] as const) {
     test(`Credits trigger reachable on view=${view}`, async ({ page }) => {
       const app = new AppPage(page);
       await app.goto(`view=${view}`);
       await app.waitForAppReady();
-      const footer = page.locator('footer.app-footer');
-      await expect(footer).toBeVisible();
-      const trigger = footer.getByRole('button', { name: /credits/i });
-      await expect(trigger).toBeVisible();
+      // The modal's own trigger button is always in the DOM
+      const trigger = page.locator('button.attribution-trigger');
+      await expect(trigger).toBeAttached();
       await expect(trigger).toHaveAttribute('aria-expanded', 'false');
     });
   }
@@ -51,12 +52,10 @@ test.describe('AttributionModal — footer reachability (desktop)', () => {
     await app.waitForAppReady();
     await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' }))
       .toBeVisible({ timeout: 10_000 });
-    const footer = page.locator('footer.app-footer');
-    await expect(footer).toBeVisible();
     // Phase 4: the Credits trigger is in the DOM behind the detail dialog.
-    // Reachability = visible in the DOM; click-through is covered separately.
-    const trigger = footer.getByRole('button', { name: /credits/i });
-    await expect(trigger).toBeVisible();
+    // Reachability = attached in the DOM; click-through is covered separately.
+    const trigger = page.locator('button.attribution-trigger');
+    await expect(trigger).toBeAttached();
   });
 });
 
@@ -67,7 +66,7 @@ test.describe('AttributionModal — open / close (desktop)', () => {
     const app = new AppPage(page);
     await app.goto('view=feed');
     await app.waitForAppReady();
-    const trigger = page.locator('footer.app-footer').getByRole('button', { name: /credits/i });
+    const trigger = page.locator('button.attribution-trigger');
     await trigger.click();
     const dialog = page.locator('dialog.attribution-modal');
     await expect(dialog).toHaveAttribute('open', '');
@@ -79,7 +78,7 @@ test.describe('AttributionModal — open / close (desktop)', () => {
     const app = new AppPage(page);
     await app.goto('view=feed');
     await app.waitForAppReady();
-    await page.locator('footer.app-footer').getByRole('button', { name: /credits/i }).click();
+    await page.locator('button.attribution-trigger').click();
     const dialog = page.locator('dialog.attribution-modal');
     await expect(dialog.getByRole('heading', { level: 3, name: /bird sightings data/i })).toBeVisible();
     await expect(dialog.getByRole('heading', { level: 3, name: /family silhouettes/i })).toBeVisible();
@@ -90,7 +89,7 @@ test.describe('AttributionModal — open / close (desktop)', () => {
     const app = new AppPage(page);
     await app.goto('view=feed');
     await app.waitForAppReady();
-    await page.locator('footer.app-footer').getByRole('button', { name: /credits/i }).click();
+    await page.locator('button.attribution-trigger').click();
     const dialog = page.locator('dialog.attribution-modal');
     // Wait for the seeded Phylopic data to land (it arrives via the
     // /api/silhouettes fetch). At least one row with a creator must
@@ -117,7 +116,7 @@ test.describe('AttributionModal — open / close (desktop)', () => {
     const app = new AppPage(page);
     await app.goto('view=feed');
     await app.waitForAppReady();
-    await page.locator('footer.app-footer').getByRole('button', { name: /credits/i }).click();
+    await page.locator('button.attribution-trigger').click();
     const dialog = page.locator('dialog.attribution-modal');
     await expect(dialog.getByRole('heading', { level: 3, name: /bird sightings data/i })).toBeVisible();
     // Wait for any phylopic data to land so the assertion sees the full
@@ -138,7 +137,7 @@ test.describe('AttributionModal — open / close (desktop)', () => {
     const app = new AppPage(page);
     await app.goto('view=feed');
     await app.waitForAppReady();
-    const trigger = page.locator('footer.app-footer').getByRole('button', { name: /credits/i });
+    const trigger = page.locator('button.attribution-trigger');
     await trigger.click();
     const dialog = page.locator('dialog.attribution-modal');
     await expect(dialog).toHaveAttribute('open', '');
@@ -153,7 +152,7 @@ test.describe('AttributionModal — open / close (desktop)', () => {
     const app = new AppPage(page);
     await app.goto('view=feed');
     await app.waitForAppReady();
-    const trigger = page.locator('footer.app-footer').getByRole('button', { name: /credits/i });
+    const trigger = page.locator('button.attribution-trigger');
     await trigger.click();
     const dialog = page.locator('dialog.attribution-modal');
     const close = dialog.getByRole('button', { name: /close/i });
@@ -166,7 +165,7 @@ test.describe('AttributionModal — open / close (desktop)', () => {
     const app = new AppPage(page);
     await app.goto('view=feed');
     await app.waitForAppReady();
-    const trigger = page.locator('footer.app-footer').getByRole('button', { name: /credits/i });
+    const trigger = page.locator('button.attribution-trigger');
     await trigger.click();
     const dialog = page.locator('dialog.attribution-modal');
     const close = dialog.getByRole('button', { name: /close/i });
@@ -181,17 +180,16 @@ test.describe('AttributionModal — mobile viewport', () => {
     const app = new AppPage(page);
     await app.goto('view=feed');
     await app.waitForAppReady();
-    const footer = page.locator('footer.app-footer');
-    await expect(footer).toBeVisible();
-    const trigger = footer.getByRole('button', { name: /credits/i });
-    await expect(trigger).toBeVisible();
+    // Phase 6: footer removed — trigger is AttributionModal's own button.
+    const trigger = page.locator('button.attribution-trigger');
+    await expect(trigger).toBeAttached();
   });
 
   test('open + Escape + focus-return cycle works (mobile)', async ({ page }) => {
     const app = new AppPage(page);
     await app.goto('view=feed');
     await app.waitForAppReady();
-    const trigger = page.locator('footer.app-footer').getByRole('button', { name: /credits/i });
+    const trigger = page.locator('button.attribution-trigger');
     await trigger.click();
     const dialog = page.locator('dialog.attribution-modal');
     await expect(dialog).toHaveAttribute('open', '');
@@ -204,7 +202,7 @@ test.describe('AttributionModal — mobile viewport', () => {
     const app = new AppPage(page);
     await app.goto('view=feed');
     await app.waitForAppReady();
-    await page.locator('footer.app-footer').getByRole('button', { name: /credits/i }).click();
+    await page.locator('button.attribution-trigger').click();
     const dialog = page.locator('dialog.attribution-modal');
     const rows = dialog.locator('[data-testid=attribution-phylopic-row]');
     await expect(rows.first()).toBeVisible({ timeout: 10_000 });
@@ -258,8 +256,10 @@ test.describe('AttributionModal — iNat photo credit (#327 task-11)', () => {
         // page.evaluate to dispatch a synthetic click directly on the DOM
         // node — this bypasses the top-layer pointer interception while keeping
         // the page in view=detail so App.activeSpeciesMeta stays populated.
+        // Phase 6: selector updated from 'footer.app-footer button.attribution-trigger'
+        // to 'button.attribution-trigger' (footer removed).
         await page.evaluate(() => {
-          const btn = document.querySelector('footer.app-footer button.attribution-trigger');
+          const btn = document.querySelector('button.attribution-trigger');
           if (btn instanceof HTMLElement) btn.click();
         });
         const dialog = page.locator('dialog.attribution-modal');
@@ -297,8 +297,10 @@ test.describe('AttributionModal — iNat photo credit (#327 task-11)', () => {
           .toBeVisible({ timeout: 10_000 });
 
         // Phase 4: bypass detail dialog pointer interception via evaluate.
+        // Phase 6: selector updated from 'footer.app-footer button.attribution-trigger'
+        // to 'button.attribution-trigger' (footer removed).
         await page.evaluate(() => {
-          const btn = document.querySelector('footer.app-footer button.attribution-trigger');
+          const btn = document.querySelector('button.attribution-trigger');
           if (btn instanceof HTMLElement) btn.click();
         });
         const dialog = page.locator('dialog.attribution-modal');
