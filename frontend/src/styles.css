@@ -281,9 +281,11 @@ body {
    Sits ABOVE the flat FeedRow list in FeedSurface. Visually distinct from
    .feed-row via card frame (background + border-radius + shadow), larger
    heading scale, and the NOTABLE small-caps meta-label.
-   Accent token discipline: .feed-card-meta MUST use --color-accent-notable-fg.
-   Never reference --color-text-accent (does not exist) or
-   --color-decision-point (wrong semantic) for the NOTABLE label. */
+   Accent token discipline: .feed-card-meta uses a WCAG AA-safe amber.
+   --color-accent-notable-fg (#b8860b) only achieves 3.25:1 on #fff at
+   11px/bold, which fails WCAG 1.4.3 (requires 4.5:1). A darkened amber
+   (#7a6010, 5.99:1) is scoped here as a Layer-3 component token so the
+   shared token stays unchanged for larger / badge-on-dark uses. */
 .feed-card-item {
   /* <li> wrapper — strips list-item bullet; margin-bottom separates the card
      from the flat row list below. */
@@ -331,14 +333,16 @@ body {
   gap: var(--space-xs);
 }
 .feed-card-meta {
-  /* NOTABLE label — small-caps uppercase treatment + amber accent token.
+  /* NOTABLE label — small-caps uppercase treatment + amber accent color.
      letter-spacing and font-weight reinforce the badge character.
-     textTransform must compute to 'uppercase' (acceptance criterion). */
+     textTransform must compute to 'uppercase' (acceptance criterion).
+     Color: #7a6010 (5.99:1 on #ffffff) rather than --color-accent-notable-fg
+     (#b8860b, 3.25:1) because 11px bold requires 4.5:1 per WCAG 1.4.3 AA. */
   font-size: var(--type-xs);
   font-weight: var(--font-weight-bold);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--color-accent-notable-fg);
+  color: #7a6010;
 }
 .feed-card-count {
   /* Observation count chip — same typographic weight as .feed-card-meta,
