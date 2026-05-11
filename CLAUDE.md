@@ -86,16 +86,60 @@ Protocol:
    per-PR preview URLs are configured on this repo yet (Pages deploys only on
    merge to `main`).
 2. `mcp__plugin_playwright_playwright__browser_navigate` to each touched
-   surface; `browser_resize` to at least one mobile (390×844) and one desktop
-   (1440×900) viewport — the two viewports the release-1 exit criteria name.
+   surface; `browser_resize` to all 5 canonical viewports (see below).
 3. Interact with the feature the way a user would (clicks, form fills, URL
    round-trips). `browser_console_messages` must return zero errors and zero
    warnings. A dirty console is a Tier-1 finding at review time.
-4. `browser_take_screenshot` per viewport per touched surface; those feed the
-   PR's Screenshots section (implementer only — reviewers don't re-capture).
-   Screenshots: use the `pr-screenshots-via-user-attachments` skill
-   (paste-flow → `user-attachments/assets/<uuid>` URLs); never commit PNGs to
-   the repo.
+4. `browser_take_screenshot` per viewport per touched surface × 2 themes (light
+   + dark); those feed the PR's Screenshots section (implementer only —
+   reviewers don't re-capture). Screenshots: use the
+   `pr-screenshots-via-user-attachments` skill (paste-flow →
+   `user-attachments/assets/<uuid>` URLs); never commit PNGs to the repo.
+5. Dark-mode capture: set `document.documentElement.setAttribute('data-theme', 'dark')`
+   via Playwright MCP `browser_evaluate` before taking the dark screenshot.
+   Do NOT use `prefers-color-scheme` emulation — the repo's `[data-theme]`
+   attribute convention overrides the media query and emulation won't trigger it.
+
+**Canonical viewport set** (non-negotiable for any design-related PR):
+
+| # | Viewport | Device class |
+|---|---|---|
+| 1 | 390×844 | iPhone 14 Pro (mobile) |
+| 2 | 768×1024 | iPad portrait (tablet) |
+| 3 | 1024×768 | iPad landscape / small laptop |
+| 4 | 1440×900 | Desktop standard |
+| 5 | 1920×1080 | Wide desktop |
+
+This yields 10 captures minimum per touched surface (5 viewports × 2 themes).
+The PR body must contain ≥10 `user-attachments` URLs before bot review.
+Verify: `gh pr view <N> --repo julianken/bird-sight-system --json body --jq '.body | [scan("user-attachments/assets/[a-f0-9-]++")] | length'`
+
+**Design-review subagent invocation contract** (for design-related PRs, #445):
+
+After capturing screenshots, the orchestrator dispatches a design-review
+subagent via the Task tool using these arguments:
+
+```
+subagent_type: "ui-design:ui-designer"
+model: "opus"   # explicit override required — the agent's frontmatter declares
+                # model: inherit, so without this override the subagent inherits
+                # the orchestrator's model (Sonnet). The explicit "opus" provides
+                # cross-tier discipline (NYU, January 2026) even when the
+                # implementer also ran on Sonnet.
+prompt: |
+  <brief naming PR URL, design-intent reference (mock path / spec path /
+   v4 HTML path), all screenshot user-attachments URLs, AC reference from
+   the plan, expected verdict format: PASS / FAIL with file:line-equivalent
+   evidence, capped at 3 findings per viewport per R3>
+```
+
+**NOT via `/design-review`** — that slash command is interactive and serves
+a different purpose (live design ideation sessions). The Task-tool dispatch is
+the correct invocation for automated pre-merge design review.
+
+One dispatch per PR covers all viewports, OR one dispatch per viewport for
+narrower context per pass — orchestrator's choice. All 5 viewports must PASS
+before bot review, critic review, and queue.
 
 `.playwright-mcp/` is already gitignored so per-call snapshot YAMLs never land
 in git. Do not remove it from `.gitignore`.
