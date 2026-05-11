@@ -149,7 +149,12 @@ export const test = base.extend<{ apiStub: ApiStub }>({
           await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
         });
         await page.route('**/api/observations**', async route => {
-          await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            // ObservationsResponse envelope — stubEmpty uses null freshestObservationAt
+            body: JSON.stringify({ data: [], meta: { freshestObservationAt: null } }),
+          });
         });
         await page.route('**/api/silhouettes', async route => {
           await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
@@ -160,7 +165,11 @@ export const test = base.extend<{ apiStub: ApiStub }>({
           await route.fulfill({
             status: 200,
             contentType: 'application/json',
-            body: JSON.stringify(obs),
+            // ObservationsResponse envelope — freshestObservationAt reflects recent data
+            body: JSON.stringify({
+              data: obs,
+              meta: { freshestObservationAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() },
+            }),
           });
         });
       },

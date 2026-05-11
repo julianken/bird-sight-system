@@ -24,13 +24,20 @@ export class ApiClient {
     return this.get<Hotspot[]>('/api/hotspots');
   }
 
-  getObservations(f: ObservationFilters = {}): Promise<ObservationsResponse> {
+  async getObservations(f: ObservationFilters = {}): Promise<ObservationsResponse> {
     const url = new URL('/api/observations', 'http://x');
     if (f.since) url.searchParams.set('since', f.since);
     if (f.notable === true) url.searchParams.set('notable', 'true');
     if (f.speciesCode) url.searchParams.set('species', f.speciesCode);
     if (f.familyCode) url.searchParams.set('family', f.familyCode);
-    return this.get<ObservationsResponse>(url.pathname + url.search);
+    // Defensive: the server may still return a bare Observation[] array during
+    // the deployment window before the read-api is updated. Auto-wrap to the
+    // ObservationsResponse envelope so the frontend never crashes on old responses.
+    const raw = await this.get<ObservationsResponse | Observation[]>(url.pathname + url.search);
+    if (Array.isArray(raw)) {
+      return { data: raw, meta: { freshestObservationAt: null } };
+    }
+    return raw;
   }
 
   getSpecies(code: string): Promise<SpeciesMeta> {
