@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LngLatBounds } from 'maplibre-gl';
 import { ApiClient, ApiError } from './api/client.js';
 import { useUrlState } from './state/url-state.js';
+import type { Since } from './state/url-state.js';
 import { useBirdData } from './data/use-bird-data.js';
 import { useSilhouettes } from './data/use-silhouettes.js';
 import { useSpeciesDetail } from './data/use-species-detail.js';
@@ -20,6 +21,7 @@ import { useIsMobile } from './lib/use-is-mobile.js';
 import { AttributionModal } from './components/AttributionModal.js';
 import { deriveFamilies, deriveSpeciesIndex } from './derived.js';
 import { filterObservationsByBounds } from './lib/viewport-filter.js';
+import { REGION_LABEL } from './config/region.js';
 
 const apiClient = new ApiClient({ baseUrl: import.meta.env.VITE_API_BASE_URL ?? '' });
 
@@ -47,6 +49,30 @@ export function App() {
 
   const families = useMemo(() => deriveFamilies(observations), [observations]);
   const speciesIndex = useMemo(() => deriveSpeciesIndex(observations), [observations]);
+
+  // Map the Since discriminant to the canonical human label used in lede templates.
+  // These labels match the voice-and-content spec; keep in sync with FeedSurface defaults.
+  const PERIOD_LABELS: Record<Since, string> = {
+    '1d': 'Today',
+    '7d': 'Last 7 days',
+    '14d': 'Last 14 days',
+    '30d': 'Last 30 days',
+  };
+  const period = PERIOD_LABELS[state.since];
+
+  // Resolve human-readable species name when a speciesCode filter is active.
+  // Derived from speciesIndex — same source the FiltersBar autocomplete uses.
+  const speciesName = useMemo(
+    () => (state.speciesCode ? speciesIndex.find(s => s.code === state.speciesCode)?.comName : undefined),
+    [speciesIndex, state.speciesCode],
+  );
+
+  // Resolve human-readable family name when a familyCode filter is active.
+  // Derived from families (prettyFamily-capitalised code from deriveFamilies).
+  const familyName = useMemo(
+    () => (state.familyCode ? families.find(f => f.code === state.familyCode)?.name : undefined),
+    [families, state.familyCode],
+  );
 
   // Issue #351: viewport-aware FamilyLegend counts. MapCanvas reports
   // the current bounds on each `idle` (camera-change settle) via
@@ -236,6 +262,11 @@ export function App() {
             filters={{ notable: state.notable, since: state.since }}
             onSelectSpecies={onSelectSpecies}
             speciesIndex={speciesIndex}
+            observationCount={observations.length}
+            regionLabel={REGION_LABEL}
+            period={period}
+            {...(speciesName !== undefined ? { speciesName } : {})}
+            {...(familyName !== undefined ? { familyName } : {})}
           />
         )}
         {state.view === 'map' && (
@@ -262,6 +293,12 @@ export function App() {
             speciesIndex={speciesIndex}
             now={now}
             onSelectSpecies={onSelectSpecies}
+            activeFilters={{
+              notable: state.notable,
+              since: state.since,
+              speciesCode: state.speciesCode,
+              familyCode: state.familyCode,
+            }}
           />
         )}
         {/*
