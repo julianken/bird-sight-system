@@ -143,6 +143,18 @@ body {
   margin-left: var(--space-xs);
 }
 
+/* Feed lede paragraph (#439). The .feed-lede class is applied to the
+   introductory <p> above the feed list. --lede-size (26px) is made available
+   via the extended selector in tokens.css (.lede, .feed-lede). Approach A
+   chosen: design-faithful 26px rather than the 22px --type-lg fallback. */
+.feed-lede {
+  font-size: var(--lede-size);
+  font-weight: 600;
+  line-height: 1.25;
+  margin-bottom: var(--space-lg);
+  color: var(--color-text-strong);
+}
+
 /* Feed surface (#116). Reverse-chronological observation rows. Row min-
    height is 44px — iOS HIG tap-target minimum, also referenced in
    risk-viability.md Part 2. Interior spacing uses design-token custom
@@ -277,6 +289,109 @@ body {
   color: var(--color-text-subtle);
   font-variant-numeric: tabular-nums;
 }
+/* FeedCard — elevated hero treatment for the top-notable observation.
+   Sits ABOVE the flat FeedRow list in FeedSurface. Visually distinct from
+   .feed-row via card frame (background + border-radius + shadow), larger
+   heading scale, and the NOTABLE small-caps meta-label.
+   Accent token discipline: .feed-card-meta uses a WCAG AA-safe amber.
+   --color-accent-notable-fg (#b8860b) only achieves 3.25:1 on #fff at
+   11px/bold, which fails WCAG 1.4.3 (requires 4.5:1). A darkened amber
+   (#7a6010, 5.99:1) is scoped here as a Layer-3 component token so the
+   shared token stays unchanged for larger / badge-on-dark uses. */
+.feed-card-item {
+  /* <li> wrapper — strips list-item bullet; margin-bottom separates the card
+     from the flat row list below. */
+  list-style: none;
+  margin: 0 0 var(--space-lg) 0;
+  padding: 0;
+}
+.feed-card {
+  /* Card frame: full-width clickable surface with clear visual separation
+     from the flat rows. border-radius + subtle shadow + surface background
+     satisfy the "card frame visible" acceptance criterion. */
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  width: 100%;
+  max-width: 760px;
+  margin-inline: auto;
+  padding: var(--space-lg) var(--space-xl);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-ui);
+  border-radius: 12px;
+  box-shadow: var(--shadow-listbox);
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  appearance: none;
+  transition: background var(--dur-fast) ease;
+}
+.feed-card:hover {
+  background: var(--color-bg-hover);
+}
+.feed-card:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: -2px;
+}
+.feed-card-body {
+  /* Flex column: stacks meta/count row, heading, and detail line vertically
+     with consistent small gaps. flex: 1 lets the text block fill available
+     width after the silhouette icon. */
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.feed-card-meta {
+  /* NOTABLE label — small-caps uppercase treatment + amber accent color.
+     letter-spacing and font-weight reinforce the badge character.
+     textTransform must compute to 'uppercase' (acceptance criterion).
+     Color: #7a6010 (5.99:1 on #ffffff) rather than --color-accent-notable-fg
+     (#b8860b, 3.25:1) because 11px bold requires 4.5:1 per WCAG 1.4.3 AA. */
+  font-size: var(--type-xs);
+  font-weight: var(--font-weight-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #7a6010;
+}
+.feed-card-count {
+  /* Observation count chip — same typographic weight as .feed-card-meta,
+     muted body color; floats on the same visual line as the meta label via
+     the flex column natural stacking (meta → count → name → detail). */
+  font-size: var(--type-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-body);
+  font-variant-numeric: tabular-nums;
+}
+.feed-card-name {
+  /* Species heading: one step above .feed-row-name (--type-sm, 13px) at
+     --type-md (17px), semibold to anchor visual hierarchy. min-width: 0
+     prevents flex blowout on long names. */
+  margin: 0;
+  font-size: var(--type-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-strong);
+  line-height: 1.2;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.feed-card-detail {
+  /* Location + time — muted secondary line below the heading.
+     Inline children (location span + time span) are separated by an
+     interpunct via the gap; explicit display:flex keeps them on one line. */
+  margin: 0;
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  font-size: var(--type-sm);
+  color: var(--color-text-muted);
+  line-height: 1.3;
+}
+
 .feed-empty {
   padding: var(--space-xl);
   text-align: center;
@@ -294,6 +409,43 @@ body {
   max-width: 760px;
   margin-inline: auto;
 }
+
+/* Hero autocomplete wrapper — fixes #441 (SVG filled the entire viewport
+   because .species-search-hero had zero CSS rules).
+
+   Design role: the SVG is a LEADING INPUT ICON (not a hero decoration),
+   rendered as a 20 × 20 px search glyph to the left of the combobox.
+   The icon slot is aria-hidden (ARIA contract lives on the combobox, not
+   the decoration). Width/height on the SVG itself constrains the element
+   to its intended size; without this the inline SVG inherits the parent's
+   block width and renders at viewport dimensions.
+
+   Light/dark parity: all values use existing semantic tokens — no new
+   tokens needed. --color-text-muted provides appropriate contrast against
+   --color-bg-surface in both themes (≥4.5:1). */
+.species-search-hero {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  max-width: 760px;
+  padding: var(--space-lg) 0 0;
+  margin-inline: auto;
+}
+.species-search-hero-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+/* Explicit 20 × 20 px bound prevents the inline SVG from inheriting
+   container block-size and ballooning to viewport dimensions (#441).
+   20px matches the 20×20 viewBox — no scaling needed. */
+.species-search-hero-icon svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
 .species-autocomplete {
   position: relative;
   margin: 0 0 var(--space-lg) 0;
