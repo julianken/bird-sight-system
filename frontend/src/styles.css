@@ -1457,3 +1457,85 @@ dialog.species-detail-modal .species-detail-modal-close {
   white-space: nowrap;
   border: 0;
 }
+
+/* ==========================================================================
+   P2 orphan-className sweep — 7 classNames referenced in JSX with no rule.
+   Fixes residual orphans missed by W2 (#471). Append-only; rules ordered by
+   component. Refs: .github/workflows/orphan-classname-check.yml (P2).
+   ========================================================================== */
+
+/* ── Map marker hit layer (.map-marker-hit-layer) ───────────────────────────
+   MapMarkerHitLayer.tsx:122. Absolute-positioned transparent overlay that
+   hosts the interactive <button> hit targets for map observation markers.
+   Layout (position: absolute, inset: 0, pointerEvents: none) is set via
+   inline styles on the component; this CSS rule adds a semantic hook for
+   dev tooling and future override points without competing with the inline
+   layout declarations. */
+.map-marker-hit-layer {
+  /* Layout is controlled by inline styles on the component. This rule
+     exists as a CSS hook (devtools identification + future override point).
+     contain: strict isolates the layer from ancestor reflow. */
+  contain: strict;
+}
+
+/* ── AttributionModal label/credit spans (.attribution-modal-label,
+      .attribution-modal-license-text, .attribution-modal-photographer) ──────
+   AttributionModal.tsx:387, 407, 436, 449. These spans appear inline inside
+   <p> / <li> elements that already inherit .attribution-modal-section's base
+   font-size (--type-sm). The rules here add semantic differentiation only:
+   - .attribution-modal-label: muted fallback for a non-linked resource name
+   - .attribution-modal-license-text: muted fallback for an unlinkable license
+   - .attribution-modal-photographer: stronger weight for the photo credit
+   Without these rules the spans render with unintended inherited emphasis
+   because their sibling <a> elements have the default link color, making the
+   fallback spans visually weaker (correct) but only by accident. */
+.attribution-modal-label {
+  color: var(--color-text-muted);
+}
+.attribution-modal-license-text {
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+}
+.attribution-modal-photographer {
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-strong);
+}
+
+/* ── Autocomplete group header (.autocomplete-group-header) ─────────────────
+   SpeciesAutocomplete.tsx:310. Flat-sentinel list item used as a visual group
+   heading inside the ARIA listbox (role="presentation" — not role="option").
+   Without a rule the <li> inherits listbox padding and appears identical to
+   option rows. The rule reproduces the visual treatment called for in the
+   navigation-spec: small-caps label, muted color, horizontal separator. */
+.autocomplete-group-header {
+  padding: var(--space-xs) var(--space-md);
+  font-size: var(--type-xs);
+  font-weight: var(--font-weight-medium);
+  font-variant: small-caps;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border-subtle);
+  list-style: none;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ── SpeciesDescription section (.species-detail-description,
+      .species-detail-description-credit) ──────────────────────────────────
+   SpeciesDescription.tsx:62, 71. The component renders sanitized Wikipedia
+   HTML inside a <section> and a trailing credit <p>.
+   - .species-detail-description: provides padding so the injected paragraphs
+     don't flush against the sheet edge; limits line-length for reading comfort.
+   - .species-detail-description-credit: muted small meta paragraph matching
+     the freshness/attribution typographic tier throughout the sheet. */
+.species-detail-description {
+  padding: var(--space-md) var(--space-lg);
+  font-size: var(--type-sm);
+  line-height: 1.6;
+  color: var(--color-text-body);
+}
+.species-detail-description-credit {
+  margin: var(--space-md) 0 0;
+  font-size: var(--type-xs);
+  color: var(--color-text-muted);
+}

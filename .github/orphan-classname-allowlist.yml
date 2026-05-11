@@ -1,0 +1,61 @@
+# orphan-classname-allowlist.yml
+#
+# classNames that are intentionally excluded from the orphan-className CI check
+# (.github/workflows/orphan-classname-check.yml).
+#
+# Entry format:
+#   - classname   # <component>:<line> — <rationale> — added <YYYY-MM-DD>
+#
+# When to add an entry:
+#   - The className is computed from a runtime value that cannot be resolved
+#     statically (e.g. `foo--${snap}` where `snap` comes from props with a
+#     union type — extracting union members requires type-checking, which
+#     is out of scope for the shell script).
+#   - The className is a utility class provided by a CSS library (not
+#     authored in this repo) — currently only `sr-only` if ever used
+#     (prefer .filter-sentence-live / .skip-link patterns instead).
+#
+# When NOT to add an entry:
+#   - The className is a ternary branch literal (script extracts these statically).
+#   - The className simply has no CSS rule yet — add the rule instead.
+#
+# Kill-threshold review (same cadence as drift detection, 60-day mark):
+#   If ≥3 entries accumulate without matching CSS rules, the script's
+#   static-extraction coverage should be extended before the allow-list grows.
+#
+# ── Dynamic classNames with non-static suffix ────────────────────────────────
+#
+# species-detail-sheet--{snap}  (SpeciesDetailSurface.tsx)
+#   The component renders `species-detail-sheet--${snap}` where snap is
+#   'peek' | 'half' | 'full'. The CSS rules .species-detail-sheet--peek,
+#   .species-detail-sheet--half, .species-detail-sheet--full exist in
+#   styles.css; the *combined* className `species-detail-sheet--peek` etc.
+#   IS in the CSS, but the script cannot resolve the union suffix statically.
+#   The template-literal prefix `species-detail-sheet ` IS checked (the base
+#   class); the modifier suffix is allowed here.
+#   added: 2026-05-11
+- species-detail-sheet--peek
+- species-detail-sheet--half
+- species-detail-sheet--full
+
+# app-header-tab{is-active}  (AppHeader.tsx)
+#   Template: `app-header-tab${selected ? ' is-active' : ''}` — the script
+#   DOES extract branch literals from ternary patterns, so `is-active` is
+#   checked. The base `app-header-tab` is checked via the static prefix.
+#   No allow-list entry needed for app-header-tab or is-active.
+
+# surface-nav-tab{is-active}  (AppHeader.tsx)
+#   Same ternary pattern as app-header-tab — both sides resolved by script.
+
+# feed-row{feed-row-notable}  (FeedRow.tsx)
+#   Template: `feed-row${observation.isNotable ? ' feed-row-notable' : ''}`
+#   Both the prefix `feed-row` and the branch literal `feed-row-notable`
+#   are extracted statically. No allow-list entry needed.
+
+# family-legend-entry{is-active}  (FamilyLegend.tsx)
+#   String concat: `'family-legend-entry' + (active ? ' is-active' : '')`
+#   The script extracts string-concat branch literals. No entry needed.
+
+# species-autocomplete-option{is-highlighted}  (SpeciesAutocomplete.tsx)
+#   Template: `species-autocomplete-option${selected ? ' is-highlighted' : ''}`
+#   Extracted statically. No entry needed.
