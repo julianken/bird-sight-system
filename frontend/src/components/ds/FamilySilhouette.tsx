@@ -74,7 +74,10 @@ export function FamilySilhouette({
 }: FamilySilhouetteProps): ReactNode {
   const channel = getFamilyChannel(family);
   const resolvedShape: ShapeVariant = shapeProp ?? channel.shape;
-  const pathKey = family ?? '__null__';
+  // pathKey covers the 7 known FamilyCodes and the explicit null sentinel
+  // '__null__'. Unknown codes (e.g. raw eBird family codes that haven't
+  // been mapped) fall back to '__null__' so no undefined path is rendered.
+  const pathKey = (family !== null && family in FAMILY_PATHS) ? family : '__null__';
   const path = FAMILY_PATHS[pathKey];
 
   const classes = [

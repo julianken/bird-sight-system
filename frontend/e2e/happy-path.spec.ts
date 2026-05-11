@@ -117,12 +117,13 @@ test.describe('Path A happy path', () => {
   });
 
   test('detail deep link cold-loads to detail surface', async ({ page, apiStub }) => {
+    await apiStub.stubEmpty();
     await apiStub.stubSpecies('vermfly', VERMFLY);
     const app = new AppPage(page);
     await app.goto('detail=vermfly&view=detail');
     await app.waitForAppReady();
 
-    // Detail surface renders species info inside main.
+    // Phase 4: detail surface renders in a dialog/sheet outside <main>.
     await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeVisible({ timeout: 10_000 });
 
     // No SurfaceNav tab is selected (detail is nav-hidden).

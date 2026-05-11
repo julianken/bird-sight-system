@@ -2,6 +2,20 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
+// Phase 4: useIsMobile calls window.matchMedia. JSDOM does not implement
+// it — polyfill with a stub that returns non-mobile (desktop) by default
+// so App renders SpeciesDetailModal rather than the sheet on view=detail.
+// Using vi.stubGlobal so the mock persists across the test file and is
+// properly restored after each test via vi.restoreAllMocks().
+vi.stubGlobal('matchMedia', (query: string) => ({
+  matches: false,
+  media: query,
+  onchange: null,
+  addEventListener: vi.fn(),
+  removeEventListener: vi.fn(),
+  dispatchEvent: vi.fn(),
+}));
+
 // Hoist mock fns so they exist before any module-level code runs.
 const { mockGetHotspots, mockGetObservations, mockGetSilhouettes, mockUrlState } = vi.hoisted(() => ({
   mockGetHotspots: vi.fn(),

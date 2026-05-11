@@ -13,21 +13,21 @@ import { AppPage } from './pages/app-page.js';
 
 test.describe('species detail surface (#151)', () => {
   test('detail URL mounts the surface with species info', async ({ page, apiStub }) => {
+    await apiStub.stubEmpty();
     await apiStub.stubSpecies('vermfly', VERMFLY);
     const app = new AppPage(page);
     await app.goto('detail=vermfly&view=detail');
     await app.waitForAppReady();
 
-    // Detail surface renders species info inside main. Scope text matches
-    // to <main> — the AttributionModal (#250) renders family names inside
-    // its dialog, which is in the DOM even when closed (React mounts the
-    // children regardless of dialog.open). Without the scope, getByText
-    // hits both the surface's `.species-detail-family` and the modal's
-    // Phylopic section.
-    const main = page.locator('main');
-    await expect(main.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeVisible({ timeout: 10_000 });
-    await expect(main.getByText('Pyrocephalus rubinus')).toBeVisible();
-    await expect(main.getByText('Tyrant Flycatchers')).toBeVisible();
+    // Phase 4: the detail surface renders inside a native <dialog> (desktop)
+    // or bottom-sheet (mobile) OUTSIDE <main>. Scope assertions to the dialog
+    // container rather than <main>. The AttributionModal family names are in a
+    // separate dialog.attribution-modal — use getByRole to avoid collisions.
+    await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Pyrocephalus rubinus')).toBeVisible();
+    // Family name appears in the detail surface; scope to species-detail-family
+    // class to avoid hitting the AttributionModal Phylopic section.
+    await expect(page.locator('.species-detail-family')).toHaveText(/Tyrant Flycatchers/);
 
     // URL carries detail and view params.
     await expect.poll(() => new URL(page.url()).searchParams.get('detail'), { timeout: 5_000 })
@@ -94,34 +94,40 @@ test.describe('species detail surface (#151)', () => {
     await expect(page.getByText('Could not load species details')).toBeVisible({ timeout: 10_000 });
   });
 
-  test('ESC does nothing on detail surface (no modal dismiss)', async ({ page, apiStub }) => {
+  test('ESC closes the detail dialog/sheet and returns to feed', async ({ page, apiStub }) => {
+    await apiStub.stubEmpty();
     await apiStub.stubSpecies('vermfly', VERMFLY);
     const app = new AppPage(page);
     await app.goto('detail=vermfly&view=detail');
     await app.waitForAppReady();
     await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeVisible({ timeout: 10_000 });
 
+    // Phase 4: ESC closes the native <dialog> on desktop and collapses
+    // the bottom-sheet on mobile (at full snap) or dismisses it at peek/half.
     await page.keyboard.press('Escape');
 
-    // Surface should still be visible — ESC has no effect.
-    await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeVisible();
+    // After ESC from a fresh open (peek state on mobile, open on desktop),
+    // view flips back to feed and the detail surface is gone.
     await expect.poll(() => new URL(page.url()).searchParams.get('view'), { timeout: 5_000 })
-      .toBe('detail');
+      .toBe('feed');
+    await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' })).toHaveCount(0);
   });
 
-  test('detail surface has no complementary landmark or overlay', async ({ page, apiStub }) => {
+  test('detail surface has no legacy complementary landmark or overlay', async ({ page, apiStub }) => {
+    await apiStub.stubEmpty();
     await apiStub.stubSpecies('vermfly', VERMFLY);
     const app = new AppPage(page);
     await app.goto('detail=vermfly&view=detail');
     await app.waitForAppReady();
     await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeVisible({ timeout: 10_000 });
 
-    // No complementary landmark (old SpeciesPanel was aside role=complementary).
+    // No legacy complementary landmark (old SpeciesPanel was aside role=complementary).
     await expect(page.getByRole('complementary')).toHaveCount(0);
-    // No overlay.
+    // No legacy overlay class.
     await expect(page.locator('.species-panel-overlay')).toHaveCount(0);
-    // No close button.
-    await expect(page.getByRole('button', { name: 'Close species details' })).toHaveCount(0);
+    // Phase 4: close button exists — the <dialog> has a ×/Close button.
+    // The old test asserted zero; Phase 4 adds a close button in the header.
+    await expect(page.getByRole('button', { name: /close/i })).toBeVisible();
   });
 });
 
@@ -150,20 +156,22 @@ test.describe('species detail surface — photo rendering (#327 task-12)', () =>
       test.use({ viewport: { width: viewport.width, height: viewport.height } });
 
       test('renders <img> when SpeciesMeta carries photoUrl', async ({ page, apiStub }) => {
+        await apiStub.stubEmpty();
         await apiStub.stubSpecies('vermfly', VERMFLY_WITH_PHOTO);
         await apiStub.stubPhotoImage();
         const app = new AppPage(page);
         await app.goto('detail=vermfly&view=detail');
         await app.waitForAppReady();
 
-        const main = page.locator('main');
-        await expect(main.getByRole('heading', { name: 'Vermilion Flycatcher' }))
+        // Phase 4: heading renders inside a <dialog> (desktop) or
+        // bottom-sheet (mobile) — both are outside <main>. Scope to page.
+        await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' }))
           .toBeVisible({ timeout: 10_000 });
 
         // The photo render branch produces an <img> with alt="<comName> photo".
         // Ends-with match (`alt$=` style) via getByAltText regex avoids
         // collisions with any future alt text containing the species name.
-        const photo = main.getByAltText('Vermilion Flycatcher photo');
+        const photo = page.getByAltText('Vermilion Flycatcher photo');
         await expect(photo).toBeVisible();
         await expect(photo).toHaveAttribute('src', 'https://photos.bird-maps.com/vermfly.jpg');
         // The IMG must have actually loaded (naturalWidth>0). The stubbed
@@ -173,24 +181,31 @@ test.describe('species detail surface — photo rendering (#327 task-12)', () =>
         await expect.poll(() => photo.evaluate((img: HTMLImageElement) => img.naturalWidth))
           .toBeGreaterThan(0);
         // Silhouette is NOT rendered on the photo branch.
-        await expect(page.getByTestId('species-detail-silhouette')).toHaveCount(0);
+        // photo--silhouette class is present only when <Photo> is in the
+        // fallback state (src=null or onError). Using the CSS class as the
+        // locator avoids a test-only prop on the shared DS primitive.
+        await expect(page.locator('.photo--silhouette')).toHaveCount(0);
       });
 
       test('renders silhouette fallback when SpeciesMeta has no photoUrl', async ({ page, apiStub }) => {
         // VERMFLY (the no-photo fixture) — exercises the silhouette path.
+        await apiStub.stubEmpty();
         await apiStub.stubSpecies('vermfly', VERMFLY);
         const app = new AppPage(page);
         await app.goto('detail=vermfly&view=detail');
         await app.waitForAppReady();
 
-        const main = page.locator('main');
-        await expect(main.getByRole('heading', { name: 'Vermilion Flycatcher' }))
+        // Phase 4: heading is outside <main> — scope to page.
+        await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' }))
           .toBeVisible({ timeout: 10_000 });
 
         // No photo img.
-        await expect(main.getByAltText('Vermilion Flycatcher photo')).toHaveCount(0);
-        // Silhouette IS visible.
-        const silhouette = page.getByTestId('species-detail-silhouette');
+        await expect(page.getByAltText('Vermilion Flycatcher photo')).toHaveCount(0);
+        // Silhouette IS visible. Use the CSS class-based locator — the
+        // silhouetteTestId prop was removed from the shared DS Photo
+        // primitive; .photo--silhouette is the stable, production-present
+        // selector for the fallback state.
+        const silhouette = page.locator('.photo--silhouette');
         await expect(silhouette).toBeVisible();
       });
     });
@@ -220,6 +235,7 @@ test.describe('species detail surface — photo rendering (#327 task-12)', () =>
         });
 
         await page.setViewportSize({ width: viewport.width, height: viewport.height });
+        await apiStub.stubEmpty();
         await apiStub.stubSpecies('vermfly', fixture.meta);
         // Stub /phenology to an empty array — without this, the detail
         // surface's PhenologyChart would 404 against the dev server's

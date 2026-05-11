@@ -120,6 +120,7 @@ test.describe('axe-core WCAG scans', () => {
   });
 
   test('species detail surface has no WCAG 2/2.1 A/AA violations', async ({ page, apiStub }) => {
+    await apiStub.stubEmpty();
     await apiStub.stubSpecies('vermfly', VERMFLY);
     const app = new AppPage(page);
     await app.goto('detail=vermfly&view=detail');
@@ -148,6 +149,7 @@ test.describe('axe-core WCAG scans', () => {
   // crop bounds, container sizing) — axe validates the rendered DOM at
   // each viewport, not just the markup.
   test('species detail surface with photoUrl has no WCAG 2/2.1 A/AA violations (desktop)', async ({ page, apiStub }) => {
+    await apiStub.stubEmpty();
     await apiStub.stubSpecies('vermfly', VERMFLY_WITH_PHOTO);
     await apiStub.stubPhotoImage();
     const app = new AppPage(page);
@@ -169,10 +171,51 @@ test.describe('axe-core WCAG scans', () => {
     expect(results.violations).toEqual([]);
   });
 
+  // Sky Atlas Phase 4 — detail dialog accessibility contract.
+  // The detail surface is no longer in-flow; on desktop it renders as a
+  // native <dialog> with aria-labelledby="detail-title", initial focus
+  // on the heading (NOT the close button), and focus restoration to the
+  // trigger on close. axe asserts on the rendered DOM at the moment the
+  // dialog is open with a real photo loaded.
+  test('species detail dialog (desktop) — aria-labelledby resolves; activeElement is heading', async ({ page, apiStub }) => {
+    await apiStub.stubEmpty();
+    await apiStub.stubSpecies('vermfly', VERMFLY_WITH_PHOTO);
+    await apiStub.stubPhotoImage();
+    const app = new AppPage(page);
+    await app.goto('detail=vermfly&view=detail');
+    await app.waitForAppReady();
+
+    // Wait for the dialog [open] attribute commit (mirrors the
+    // AttributionModal pattern at AttributionModal.tsx:206-214 — visibility
+    // alone races the open-attribute commit in headless Chromium).
+    const dialog = page.locator('dialog.species-detail-modal');
+    await expect(dialog).toHaveAttribute('open', '');
+
+    // The dialog must reference a non-empty heading via aria-labelledby.
+    await expect(dialog).toHaveAttribute('aria-labelledby', 'detail-title');
+    const heading = page.locator('#detail-title');
+    await expect(heading).toHaveText(/vermilion flycatcher/i);
+
+    // Initial focus targets the heading, not the close button.
+    const focusedId = await page.evaluate(() => document.activeElement?.id);
+    expect(focusedId).toBe('detail-title');
+
+    // No WCAG violations under axe.
+    const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
+    if (results.violations.length) {
+      await test.info().attach('axe-violations', {
+        body: JSON.stringify(results.violations, null, 2),
+        contentType: 'application/json',
+      });
+    }
+    expect(results.violations).toEqual([]);
+  });
+
   test.describe('at 390×844 mobile viewport', () => {
     test.use({ viewport: { width: 390, height: 844 } });
 
     test('species detail surface has no WCAG 2/2.1 A/AA violations (mobile)', async ({ page, apiStub }) => {
+      await apiStub.stubEmpty();
       await apiStub.stubSpecies('vermfly', VERMFLY);
       const app = new AppPage(page);
       await app.goto('detail=vermfly&view=detail');
@@ -194,6 +237,7 @@ test.describe('axe-core WCAG scans', () => {
     // (column-stacked layout vs side-by-side on desktop), so the
     // image-alt + landmark + reflow rules need to be scanned here too.
     test('species detail surface with photoUrl has no WCAG 2/2.1 A/AA violations (mobile)', async ({ page, apiStub }) => {
+      await apiStub.stubEmpty();
       await apiStub.stubSpecies('vermfly', VERMFLY_WITH_PHOTO);
       await apiStub.stubPhotoImage();
       const app = new AppPage(page);
@@ -220,6 +264,50 @@ test.describe('axe-core WCAG scans', () => {
       await app.waitForAppReady();
       await page.getByRole('combobox', { name: 'Search species' }).fill('e');
       await page.keyboard.press('ArrowDown');
+      const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
+      if (results.violations.length) {
+        await test.info().attach('axe-violations', {
+          body: JSON.stringify(results.violations, null, 2),
+          contentType: 'application/json',
+        });
+      }
+      expect(results.violations).toEqual([]);
+    });
+
+    // Sky Atlas Phase 4 — bottom-sheet at full snap accessibility contract.
+    // The sheet is NOT a <dialog> at peek/half (map underneath stays
+    // interactive); it flips to role="dialog" aria-modal="true" only at
+    // full snap, with `inert` on #main-surface set BEFORE the role flip.
+    test('species detail sheet (mobile) at full snap — role="dialog", map inert', async ({ page, apiStub }) => {
+      await apiStub.stubEmpty();
+      await apiStub.stubSpecies('vermfly', VERMFLY_WITH_PHOTO);
+      await apiStub.stubPhotoImage();
+      const app = new AppPage(page);
+      await app.goto('detail=vermfly&view=detail');
+      await app.waitForAppReady();
+
+      const sheet = page.locator('.species-detail-sheet');
+      await expect(sheet).toBeVisible();
+
+      // The sheet opens at peek by default. Drive it to full via the
+      // exposed test handle — the implementation MUST expose either a
+      // `data-snap-state` attribute (preferred — declarative) or a
+      // testing-only setter on `window` for the snap state. Phase 4 uses
+      // `data-snap-state="peek|half|full"` on the sheet root.
+      await sheet.getByRole('button', { name: /expand/i }).click();
+      await sheet.getByRole('button', { name: /expand/i }).click();
+      await expect(sheet).toHaveAttribute('data-snap-state', 'full');
+
+      // At full: role flips to dialog, aria-label is the species name.
+      await expect(sheet).toHaveAttribute('role', 'dialog');
+      await expect(sheet).toHaveAttribute('aria-modal', 'true');
+      await expect(sheet).toHaveAttribute('aria-label', /vermilion flycatcher/i);
+
+      // The map landmark is inert — set BEFORE the role flip in JS, but
+      // observable as a steady-state attribute once the transition settles.
+      const main = page.locator('#main-surface');
+      await expect(main).toHaveAttribute('inert', '');
+
       const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
       if (results.violations.length) {
         await test.info().attach('axe-violations', {
@@ -279,6 +367,7 @@ test.describe('axe-core WCAG scans', () => {
     });
 
     test('detail view exposes a Credits trigger in the app-level footer', async ({ page, apiStub }) => {
+      await apiStub.stubEmpty();
       await apiStub.stubSpecies('vermfly', VERMFLY);
       const app = new AppPage(page);
       await app.goto('detail=vermfly&view=detail');
@@ -287,6 +376,10 @@ test.describe('axe-core WCAG scans', () => {
         .toBeVisible({ timeout: 10_000 });
       const footer = page.locator('footer.app-footer');
       await expect(footer).toBeVisible();
+      // Phase 4: the Credits trigger IS in the DOM on view=detail — it just
+      // sits behind the detail dialog on the z-axis. The test is "reachable"
+      // meaning it exists in the DOM and is visible; click reachability is
+      // covered by the attribution-modal spec.
       const trigger = footer.getByRole('button', { name: /credits/i });
       await expect(trigger).toBeVisible();
     });
