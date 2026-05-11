@@ -83,11 +83,47 @@ describe('App error screen', () => {
 
   it('shows a friendly message, not the raw error body', async () => {
     render(<App />);
+    // Phase 6: error screen uses <StatusBlock state="error"> — title "Couldn't load bird data"
+    // must be present; raw body "pool exhausted" must NOT appear.
     await waitFor(() => {
-      expect(screen.getByText('Something went wrong — please try again')).toBeInTheDocument();
+      expect(screen.getByText("Couldn't load bird data")).toBeInTheDocument();
     });
     // Raw body must NOT appear in the DOM
     expect(screen.queryByText(/pool exhausted/)).toBeNull();
+  });
+
+  it('renders crafted copy, not raw error.message, for network errors', async () => {
+    // Arrange: force a network-style error (non-ApiError).
+    // getHotspots already rejects via beforeEach (ApiError 503); this test
+    // also makes getObservations reject with a raw network error. Either
+    // rejection triggers the error screen — the ApiError case is already
+    // covered by the 'shows a friendly message' test above. This test
+    // verifies the craftedFromError body for the network-error branch.
+    mockGetObservations.mockRejectedValue(new Error('Failed to fetch: net::ERR_CONNECTION_REFUSED'));
+
+    render(<App />);
+
+    // Crafted title must appear (StatusBlock renders it)
+    await waitFor(() => {
+      expect(screen.getByText("Couldn't load bird data")).toBeInTheDocument();
+    });
+    // Raw error.message must NOT appear
+    expect(screen.queryByText(/net::ERR_CONNECTION_REFUSED/)).toBeNull();
+    expect(screen.queryByText(/Failed to fetch/)).toBeNull();
+  });
+
+  it('renders a friendly body for a timeout error', async () => {
+    mockGetObservations.mockRejectedValue(new Error('AbortError: signal timed out'));
+    render(<App />);
+    expect(await screen.findByText(/try refreshing/i)).toBeInTheDocument();
+  });
+
+  it('renders a generic friendly body for an unknown error', async () => {
+    mockGetObservations.mockRejectedValue(new Error('some internal error code XYZ-42'));
+    render(<App />);
+    // Generic fallback must NOT expose the raw message
+    await screen.findByRole('status');
+    expect(screen.queryByText(/XYZ-42/)).toBeNull();
   });
 
   it('logs raw error details to console.error', async () => {

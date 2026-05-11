@@ -23,8 +23,41 @@ import { deriveFamilies, deriveSpeciesIndex } from './derived.js';
 import { filterObservationsByBounds } from './lib/viewport-filter.js';
 import { REGION_LABEL } from './config/region.js';
 import { SurfaceTitleSync } from './components/SurfaceTitleSync.js';
+import { StatusBlock } from './components/ds/StatusBlock.js';
 
 const apiClient = new ApiClient({ baseUrl: import.meta.env.VITE_API_BASE_URL ?? '' });
+
+/**
+ * Maps an Error to a user-facing body string for the top-level error screen.
+ * The title is always "Couldn't load bird data" (unchanged from existing copy).
+ * The body replaces the raw error.message with a crafted string that matches
+ * the Position B voice register (declarative, no apology language, no
+ * exclamation marks).
+ *
+ * New error classes should be added here with a dated comment.
+ * Voice spec: docs/design/01-spec/voice-and-content.md §Copy register inventory
+ */
+function craftedFromError(error: Error): string {
+  const msg = error.message.toLowerCase();
+
+  // Network failure (fetch failed, no connection)
+  if (msg.includes('failed to fetch') || msg.includes('networkerror') || msg.includes('err_connection')) {
+    return 'The server could not be reached. Check your connection and try refreshing.';
+  }
+
+  // Request timeout / abort
+  if (msg.includes('aborterror') || msg.includes('timed out') || msg.includes('timeout')) {
+    return 'The request took too long. Try refreshing.';
+  }
+
+  // HTTP 5xx (server error passed through as a thrown Error)
+  if (msg.includes('500') || msg.includes('502') || msg.includes('503') || msg.includes('504')) {
+    return 'The data service is temporarily unavailable. Try again in a moment.';
+  }
+
+  // Safe fallback — never expose the raw message
+  return 'Something went wrong loading the bird data. Try refreshing.';
+}
 
 export function App() {
   const { state, set } = useUrlState();
@@ -206,10 +239,11 @@ export function App() {
 
   if (error) {
     return (
-      <div className="error-screen">
-        <h2>Couldn't load bird data</h2>
-        <p>{error.message}</p>
-      </div>
+      <StatusBlock
+        state="error"
+        title="Couldn't load bird data"
+        body={craftedFromError(error)}
+      />
     );
   }
 
