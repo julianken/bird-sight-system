@@ -1,5 +1,5 @@
 /**
- * deriveFreshness — 4-state freshness machine
+ * deriveFreshness — 5-state freshness machine
  *
  * Consumes the threshold constants from frontend/src/config/freshness.ts and
  * the freshestObservationAt ISO string from meta.freshestObservationAt to
@@ -9,11 +9,20 @@
  *   fresh  — age ≤ FRESHNESS_FRESH_MAX_MS (30 min) → "Updated N min ago · Source: eBird"
  *   recent — age ≤ FRESHNESS_RECENT_MAX_MS (6 h)   → "Updated N h ago · Source: eBird"
  *   stale  — age > FRESHNESS_RECENT_MAX_MS          → "Last updated N h ago · Source: eBird"
- *   error  — freshestObservationAt is null          → "Source unavailable · check back soon"
+ *   empty  — freshestObservationAt is null AND table is empty (post-migration / fresh deploy)
+ *            → label: '' (suppressed — no display noise on a legitimately empty table)
+ *   error  — freshestObservationAt is null AND ingestor/API truly failed
+ *            → "Source unavailable · check back soon"
+ *
+ * NOTE: The Read API currently returns null for BOTH the empty-table and the
+ * ingestor-failed scenarios. We cannot distinguish them at the frontend today.
+ * Until the API exposes a separate `meta.state` field, null is mapped to 'empty'
+ * (suppress label) rather than 'error' (show alarming copy) — the less-bad choice
+ * for a fresh deploy. The 'error' state is kept in the type for forward-compat.
  *
  * The `now` parameter is injectable for deterministic testing (pass a fixed Date).
  *
- * Issue: #456 W3-A
+ * Issue: #456 W3-A (critic L2)
  */
 
 import {
@@ -21,7 +30,7 @@ import {
   FRESHNESS_RECENT_MAX_MS,
 } from '../config/freshness.js';
 
-export type Freshness = 'fresh' | 'recent' | 'stale' | 'error';
+export type Freshness = 'fresh' | 'recent' | 'stale' | 'empty' | 'error';
 
 export interface FreshnessResult {
   state: Freshness;
@@ -62,7 +71,13 @@ export function deriveFreshness(
   now: Date = new Date()
 ): FreshnessResult {
   if (freshestObservationAt === null) {
-    return { state: 'error', label: 'Source unavailable · check back soon' };
+    // null means either: (a) empty table (post-migration, fresh deploy) — not an
+    // error, just no data yet; or (b) ingestor truly failed. The API does not yet
+    // distinguish these; map to 'empty' with a suppressed label to avoid showing
+    // alarming "Source unavailable" copy when the table is simply empty.
+    // Forward-compat: when the API adds meta.state, thread it here and re-enable
+    // the 'error' return for the real-failure case.
+    return { state: 'empty', label: '' };
   }
 
   const ageMs = now.getTime() - new Date(freshestObservationAt).getTime();

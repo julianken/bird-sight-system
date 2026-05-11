@@ -14,12 +14,24 @@ const NOW = new Date('2026-05-11T15:00:00.000Z');
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 
-describe('deriveFreshness — 4-state machine', () => {
-  describe('error state', () => {
-    it('returns error when freshestObservationAt is null', () => {
+describe('deriveFreshness — 5-state machine', () => {
+  describe('empty state (null freshestObservationAt)', () => {
+    it('returns empty (not error) when freshestObservationAt is null', () => {
+      // null covers both empty-table and ingestor-failed; we map to 'empty' so
+      // a legitimately empty post-migration table does not show alarming copy.
       const result = deriveFreshness(null, NOW);
-      expect(result.state).toBe('error');
-      expect(result.label).toBe('Source unavailable · check back soon');
+      expect(result.state).toBe('empty');
+    });
+
+    it('returns an empty label string for empty state (suppressed display)', () => {
+      const result = deriveFreshness(null, NOW);
+      expect(result.label).toBe('');
+    });
+
+    it('does NOT return error state or alarming copy for null', () => {
+      const result = deriveFreshness(null, NOW);
+      expect(result.state).not.toBe('error');
+      expect(result.label).not.toContain('Source unavailable');
     });
   });
 

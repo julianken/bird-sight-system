@@ -186,14 +186,29 @@ export function App() {
     trigger?.click();
   }, []);
 
-  const nowRef = useRef(new Date());
   const mainRef = useRef<HTMLElement | null>(null);
-  const now = nowRef.current;
+
+  // nowTick advances when the user returns to the tab so freshness labels
+  // re-derive after the tab has been hidden for a long time. useRef(new Date())
+  // would freeze `now` at first render and never advance — after 5 h open the
+  // "Updated N min ago" label would stay stuck. Pattern A: bump on visibilitychange
+  // (tab return is the primary freshness signal for a passive read-only UI).
+  // Issue: #456 W3-A critic L3.
+  const [nowTick, setNowTick] = useState(() => new Date());
+  useEffect(() => {
+    function handleVisibility() {
+      if (document.visibilityState === 'visible') {
+        setNowTick(new Date());
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, []);
+  const now = nowTick;
 
   // Derive freshness state + label from meta.freshestObservationAt (#456 W3-A).
-  // Uses the current `now` tick so the label re-derives whenever the component
-  // re-renders (e.g. on filter change). No separate interval timer is needed:
-  // the component re-renders on data fetch, which is the primary freshness signal.
+  // Uses the current `now` tick so the label re-derives on data fetch AND on
+  // tab return (visibilitychange above). No polling interval needed.
   // Spec: docs/design/01-spec/voice-and-content.md §Freshness label state machine.
   const { state: freshnessState, label: freshnessLabel } = useMemo(
     () => deriveFreshness(freshestObservationAt, now),
