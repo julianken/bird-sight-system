@@ -12,6 +12,23 @@
 
 ---
 
+## Quantified plan literals (implementer checklist)
+
+Before opening a PR for this plan, check off each item or cite a deferral doc
+with a lexically-matching subject (per R13 T7, issue #461):
+
+- [ ] Ship 18 dark-mode token overrides in `[data-theme="dark"]` block (`tokens.css` Layer 2 dark section)
+- [ ] Establish 3-tier token contract: primitive → semantic → component (all three tiers present in `tokens.css`)
+- [ ] Migrate 35 hardcoded `font-size` literals in `styles.css` to type ramp tokens (`grep -c 'font-size: [0-9]' frontend/src/styles.css` returns `0`)
+- [ ] 6-step type ramp declared: `--type-xs`, `--type-sm`, `--type-base`, `--type-md`, `--type-lg`, `--type-hero` (all 6 present in `tokens.css`)
+- [ ] 8 ThemeToggle unit tests pass (toggle state, localStorage persistence, aria-label, aria-label update after toggle)
+- [ ] 2 MapCanvas MutationObserver tests pass (setStyle called with correct URL on data-theme mutation to dark and to light)
+- [ ] FOUC script: `grep -c 'data-theme' frontend/dist/index.html` returns ≥ 1
+- [ ] Forbidden-token lint guard covers all named v3/v4 mock token names (accent, notable, bg-page, bg-surface, bg-tint, text-strong, text-body, text-muted, text-subtle, border)
+- [ ] Zero remaining pixel `font-size` literals in `styles.css` after migration
+
+---
+
 ## Spec reference
 
 - Token system (three tiers, namespace migration table, type ramp, light/dark mechanic): `docs/design/01-spec/tokens.md`
