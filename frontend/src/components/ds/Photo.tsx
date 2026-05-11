@@ -41,13 +41,6 @@ export interface PhotoProps {
   priority?: boolean;
   attribution?: { text: string; href: string };
   layout?: PhotoLayout;
-  /**
-   * data-testid applied to the silhouette <span> when the fallback path
-   * renders (src=null or onError). Omit when no testid is needed.
-   * Consumers that need to assert on the fallback path pass a string
-   * here; <Photo> itself stays generic and testid-free.
-   */
-  silhouetteTestId?: string;
 }
 
 type PhotoInternalState = 'null' | 'loading' | 'loaded' | 'errored';
@@ -59,7 +52,6 @@ export function Photo({
   priority = false,
   attribution,
   layout = 'inline',
-  silhouetteTestId,
 }: PhotoProps): ReactNode {
   const [imgState, setImgState] = useState<PhotoInternalState>(
     src === null ? 'null' : 'loading'
@@ -95,10 +87,7 @@ export function Photo({
 
   if (showSilhouette) {
     return (
-      <span
-        className={classes}
-        {...(silhouetteTestId ? { 'data-testid': silhouetteTestId } : {})}
-      >
+      <span className={classes}>
         <FamilySilhouette family={family} layout={layout} />
       </span>
     );

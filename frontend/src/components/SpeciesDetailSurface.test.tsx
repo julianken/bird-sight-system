@@ -4,6 +4,7 @@ import { SpeciesDetailSurface } from './SpeciesDetailSurface.js';
 import { ApiClient } from '../api/client.js';
 import type { SpeciesMeta, FamilySilhouette } from '@bird-watch/shared-types';
 import { __resetSilhouettesCache } from '../data/use-silhouettes.js';
+import { __resetSpeciesDetailCache } from '../data/use-species-detail.js';
 import { analytics } from '../analytics.js';
 
 // Mock posthog-js so no network call escapes the test environment, even
@@ -56,6 +57,9 @@ function makeClient(overrides: Partial<ApiClient>): ApiClient {
 describe('SpeciesDetailSurface', () => {
   beforeEach(() => {
     __resetSilhouettesCache();
+    // Reset the module-level species detail cache so one test's resolved
+    // species data cannot bleed into the next test's assertions.
+    __resetSpeciesDetailCache();
   });
 
   it('renders common, scientific, and family names when data resolves', async () => {

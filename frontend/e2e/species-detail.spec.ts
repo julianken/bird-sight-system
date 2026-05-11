@@ -181,7 +181,10 @@ test.describe('species detail surface — photo rendering (#327 task-12)', () =>
         await expect.poll(() => photo.evaluate((img: HTMLImageElement) => img.naturalWidth))
           .toBeGreaterThan(0);
         // Silhouette is NOT rendered on the photo branch.
-        await expect(page.getByTestId('species-detail-silhouette')).toHaveCount(0);
+        // photo--silhouette class is present only when <Photo> is in the
+        // fallback state (src=null or onError). Using the CSS class as the
+        // locator avoids a test-only prop on the shared DS primitive.
+        await expect(page.locator('.photo--silhouette')).toHaveCount(0);
       });
 
       test('renders silhouette fallback when SpeciesMeta has no photoUrl', async ({ page, apiStub }) => {
@@ -198,8 +201,11 @@ test.describe('species detail surface — photo rendering (#327 task-12)', () =>
 
         // No photo img.
         await expect(page.getByAltText('Vermilion Flycatcher photo')).toHaveCount(0);
-        // Silhouette IS visible.
-        const silhouette = page.getByTestId('species-detail-silhouette');
+        // Silhouette IS visible. Use the CSS class-based locator — the
+        // silhouetteTestId prop was removed from the shared DS Photo
+        // primitive; .photo--silhouette is the stable, production-present
+        // selector for the fallback state.
+        const silhouette = page.locator('.photo--silhouette');
         await expect(silhouette).toBeVisible();
       });
     });
