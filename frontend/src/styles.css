@@ -143,6 +143,140 @@ body {
   margin-left: var(--space-xs);
 }
 
+/* ── AppHeader chrome bar (#437) ────────────────────────────────────────────
+   Phase 3 renamed SurfaceNav → AppHeader and introduced these class names.
+   The CSS rules were never written (only the .brand-region span landed in
+   Phase 6). Rules below restore the visual contract that .surface-nav /
+   .surface-nav-tab carried, mapped onto the new selector surface.
+
+   Token contract: all tokens resolve identically in light and dark modes
+   for these semantic roles — see tokens.css dark-mode comment at line ~115.
+   Do not add per-theme overrides here without revisiting that constraint. */
+
+/* Top-level chrome bar — stretches full width, pins to top of the
+   flex-column .app layout. Sticky so it stays in view when #main-surface
+   overflows. gap + padding mirror the surface-nav spacing contract. */
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: var(--color-bg-surface);
+  border-bottom: 1px solid var(--color-border-ui);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+/* Brand link — suppress UA link chrome; inherit body typography.
+   font-weight-bold distinguishes the wordmark from body text.
+   The .brand-region span inside carries its own Phase 6 rule above. */
+.app-header-wordmark {
+  text-decoration: none;
+  color: var(--color-text-strong);
+  font-weight: var(--font-weight-bold);
+  line-height: 1.2;
+  flex-shrink: 0;
+}
+.app-header-wordmark:hover {
+  opacity: 0.8;
+}
+.app-header-wordmark:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Tablist container — sits between wordmark and action buttons. flex: 1
+   pushes the right cluster to the far edge on wide viewports. */
+.app-header-nav {
+  display: flex;
+  gap: var(--space-xs);
+  flex: 1;
+}
+
+/* Tab buttons — full UA reset, then design-token styling.
+   Visual contract mirrors the former .surface-nav-tab exactly:
+   same padding, border-radius, font-size, hover / focus / active states. */
+.app-header-tab {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 6px 14px;
+  font: inherit;
+  font-size: var(--type-sm);
+  color: var(--color-text-strong);
+  cursor: pointer;
+  line-height: 1.2;
+}
+.app-header-tab:hover {
+  background: var(--color-bg-tint);
+}
+.app-header-tab:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+}
+.app-header-tab.is-active {
+  background: var(--color-text-strong);
+  color: var(--color-text-white);
+  border-color: var(--color-text-strong);
+}
+
+/* Right-side action cluster — Attribution, Filters, ThemeToggle. */
+.app-header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+}
+
+/* Attribution + Filters buttons — same UA reset + visual contract as tabs.
+   Slightly subdued: color-text-body rather than color-text-strong keeps
+   them secondary to the navigation tabs without becoming invisible. */
+.app-header-attribution,
+.app-header-filters {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 6px 14px;
+  font: inherit;
+  font-size: var(--type-sm);
+  color: var(--color-text-body);
+  cursor: pointer;
+  line-height: 1.2;
+  position: relative;
+}
+.app-header-attribution:hover,
+.app-header-filters:hover {
+  background: var(--color-bg-tint);
+}
+.app-header-attribution:focus-visible,
+.app-header-filters:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+}
+
+/* Numeric badge on the Filters button when filters are active.
+   Inline-block pill positioned after the label text; does not affect
+   button height because it shares the button's line-height. */
+.app-header-filter-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: var(--space-xs);
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--color-text-strong);
+  color: var(--color-text-white);
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+}
+
 /* Feed lede paragraph (#439). The .feed-lede class is applied to the
    introductory <p> above the feed list. --lede-size (26px) is made available
    via the extended selector in tokens.css (.lede, .feed-lede). Approach A
@@ -431,40 +565,6 @@ body {
 }
 .filters-bar label { display: flex; gap: 6px; align-items: center; font-size: var(--type-sm); }
 .filters-bar select, .filters-bar input { padding: 4px 8px; }
-
-/* Surface-toggle tablist (#111). Sits between FiltersBar and the map / main
-   surface. The three tabs drive ?view= in UrlState; see SurfaceNav.tsx for
-   the WAI-ARIA tablist keyboard contract. Styling is intentionally minimal —
-   tokenised palette/typography land with the first real surface in #116. */
-.surface-nav {
-  display: flex;
-  gap: var(--space-xs);
-  padding: var(--space-sm) var(--space-lg);
-  background: var(--color-bg-surface);
-  border-bottom: 1px solid var(--color-border-ui);
-}
-.surface-nav-tab {
-  appearance: none;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  padding: 6px 14px;
-  font: inherit;
-  font-size: var(--type-sm);
-  color: var(--color-text-strong);
-  cursor: pointer;
-  line-height: 1.2;
-}
-.surface-nav-tab:hover { background: var(--color-bg-tint); }
-.surface-nav-tab:focus-visible {
-  outline: 2px solid var(--color-text-strong);
-  outline-offset: 2px;
-}
-.surface-nav-tab.is-active {
-  background: var(--color-text-strong);
-  color: var(--color-text-white);
-  border-color: var(--color-text-strong);
-}
 
 /* Species detail surface (#151). In-flow surface inside <main>, replaces the
    old position:fixed SpeciesPanel sidebar/drawer. Styled consistently with
