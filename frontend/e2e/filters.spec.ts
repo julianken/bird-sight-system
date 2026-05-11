@@ -8,6 +8,9 @@ test.describe('filter flows', () => {
     app = new AppPage(page);
     await app.goto();
     await app.waitForAppReady();
+    // Phase 3: FiltersBar is inside a panel triggered from AppHeader.
+    // Open it once in beforeEach so all filter locators resolve.
+    await app.openFilters();
   });
 
   test('time window select updates URL and respects default-omit', async () => {

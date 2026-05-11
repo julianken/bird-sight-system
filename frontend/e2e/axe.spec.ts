@@ -350,7 +350,11 @@ test.describe('axe-core WCAG scans', () => {
     const app = new AppPage(page);
     await app.goto('view=feed');
     await app.waitForAppReady();
-    await page.getByRole('button', { name: /credits/i }).click();
+    // Phase 3: AppHeader adds an "Attribution" button (aria-label="Credits &
+    // attribution") that also matches /credits/i. Scope to the footer trigger
+    // (the Credits text-button inside .app-footer) to avoid strict-mode
+    // "resolved to 2 elements" error.
+    await page.locator('footer.app-footer').getByRole('button', { name: /credits/i }).click();
     // Wait on the [open] attribute commit — observable contract that
     // showModal() has run, focus-delegation is settled, and the dialog
     // is in the top layer.
@@ -372,7 +376,9 @@ test.describe('axe-core WCAG scans', () => {
       const app = new AppPage(page);
       await app.goto('view=feed');
       await app.waitForAppReady();
-      await page.getByRole('button', { name: /credits/i }).click();
+      // Phase 3: scope to footer trigger to avoid matching AppHeader's
+      // "Credits & attribution" button — same fix as the desktop counterpart above.
+      await page.locator('footer.app-footer').getByRole('button', { name: /credits/i }).click();
       await expect(page.locator('dialog.attribution-modal[open]')).toBeVisible();
       const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
       if (results.violations.length) {

@@ -4,12 +4,20 @@ import { AppPage } from './pages/app-page.js';
 // `exact: true` mandatory on every getByLabel filter locator — see
 // pages/filters-bar.ts for rationale (FiltersBar datalist + SurfaceNav
 // tabs share substrings with "Species" and "Family" labels).
+//
+// Phase 3: FiltersBar is rendered inside a slide-in panel triggered from
+// AppHeader. Every test that needs to assert filter control values must
+// call `app.openFilters()` before using any filter locator so the panel
+// is mounted. URL-state restoration happens at App mount time (before the
+// panel opens), so the values will already be correct once the panel renders.
 
 test.describe('deep-link restore', () => {
   test('notable + since deep-link restores filter values', async ({ page }) => {
     const app = new AppPage(page);
     await app.goto('notable=true&since=7d');
     await app.waitForAppReady();
+    // Phase 3: open panel so FiltersBar is in the DOM.
+    await app.openFilters();
     await expect(page.getByLabel('Notable only', { exact: true })).toBeChecked();
     await expect(page.getByLabel('Time window', { exact: true })).toHaveValue('7d');
   });
@@ -18,6 +26,8 @@ test.describe('deep-link restore', () => {
     const app = new AppPage(page);
     await app.goto('since=garbage');
     await app.waitForAppReady();
+    // Phase 3: open panel so FiltersBar is in the DOM.
+    await app.openFilters();
     await expect(page.getByLabel('Time window', { exact: true })).toHaveValue('14d');
     // writeUrl only fires inside set(), never on mount — do NOT assert URL normalization here.
   });
@@ -26,6 +36,8 @@ test.describe('deep-link restore', () => {
     const app = new AppPage(page);
     await app.goto('species=vermfly');
     await app.waitForAppReady();
+    // Phase 3: open panel so FiltersBar is in the DOM.
+    await app.openFilters();
     // Skip if dev DB has no observations (speciesIndex will be empty).
     const familySel = page.getByLabel('Family', { exact: true });
     const familyOptionCount = await familySel.locator('option').count();
@@ -39,6 +51,8 @@ test.describe('deep-link restore', () => {
     const app = new AppPage(page);
     await app.goto('family=tyrannidae');
     await app.waitForAppReady();
+    // Phase 3: open panel so FiltersBar is in the DOM.
+    await app.openFilters();
     const familySel = page.getByLabel('Family', { exact: true });
     const optionCount = await familySel.locator('option').count();
     test.skip(optionCount <= 1, 'species_meta is empty — no families to restore from URL');
@@ -49,6 +63,8 @@ test.describe('deep-link restore', () => {
     const app = new AppPage(page);
     await app.goto();
     await app.waitForAppReady();
+    // Phase 3: open panel so FiltersBar is in the DOM.
+    await app.openFilters();
     await expect(page.getByLabel('Time window', { exact: true })).toHaveValue('14d');
     await expect(page.getByLabel('Notable only', { exact: true })).not.toBeChecked();
     await expect(page.getByLabel('Family', { exact: true })).toHaveValue('');
