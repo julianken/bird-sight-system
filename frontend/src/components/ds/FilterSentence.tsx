@@ -118,7 +118,6 @@ export function FilterSentence({ filters }: FilterSentenceProps): ReactNode {
         aria-live="polite"
         aria-atomic="true"
         aria-relevant="text"
-        style={{ position: 'absolute', width: '1px', height: '1px', overflow: 'hidden', clip: 'rect(0,0,0,0)', whiteSpace: 'nowrap' }}
       >
         {liveText}
       </div>
