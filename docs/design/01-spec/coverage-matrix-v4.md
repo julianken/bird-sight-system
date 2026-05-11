@@ -91,7 +91,7 @@
 | `--accent-secondary: #1d3b5b` (deep sky) and `--accent-cool: #4a7ba8` (daylight blue) from system poster | system-poster `sky-atlas-system.html:17-18` | `DROPPED — UNSTATED` | none | System poster had 3 accents; v4 collapsed to 1 (subtractive discipline at `voice-and-content.md:104-108`), but the compression is undocumented. A future designer reading only the spec cannot know 3 accents were considered and rejected |
 | Cluster pill `::before` colored dot prefix (dot inside the pill) | v3 cluster idiom `sky-atlas-v3.html:373-381`; adopted in v4 visually | `DROPPED — UNSTATED` | none | `components.md:115-126` ClusterPill API has `count` + `onClick` only; dot prefix absent; no documented rationale |
 | Photo attribution overlay scrim color (`rgba(0,0,0,0.55)`) | agent-2 idea 6 | `DROPPED — UNSTATED` | none | `<Photo>` API has `attribution: {text, href}` at `components.md:51,63` but no scrim token; scrim color is a free implementation choice |
-| Italic scientific-name typography | v3 popover `sky-atlas-v3.html:316`; v3 detail `sky-atlas-v3.html:531`; v3 sheet `sky-atlas-v3.html:752`; v4 popover; system-poster | `DROPPED — UNSTATED` | none | Every mock renders sci-names in italic; spec is silent on typography family/style for sci-names; `voice-and-content.md` covers voice register but not type style |
+| Italic scientific-name typography | v3 popover `sky-atlas-v3.html:466`; v3 detail `sky-atlas-v3.html:531`; v3 sheet `sky-atlas-v3.html:752`; v4 popover; system-poster | `DROPPED — UNSTATED` | none | Every mock renders sci-names in italic; spec is silent on typography family/style for sci-names; `voice-and-content.md` covers voice register but not type style |
 | Inline-measured contrast comments extended to canvas paint expressions | agent-3 idea 1 closing | `MODIFIED — UNSTATED` | `accessibility.md:33-39` | Partial capture — extension enumerated but no CI enforcement added (unlike the lint guard at `tokens.md:114-122`); delta between "enumerated" and "enforced" is undocumented |
 | `<Photo>` masthead overlay treatment (gradient + white species-name text + credit position) | agent-4 idea 6; v3 detail `sky-atlas-v3.html:496-528` (`linear-gradient(180deg, transparent 0%, transparent 50%, rgba(0,0,0,0.7) 100%)`) | `MODIFIED — UNSTATED` | `components.md:54` | Spec captures `layout: 'masthead'` prop but not the overlay's visual contract; gradient, text color, credit position are left to implementation; explains V-2 detail-surface drift in 4-agent audit |
 | Detail surface as full-bleed at desktop (not modal-width dialog) | v3/v4 detail-desktop mockup `sky-atlas-v3.html:486-558` | `MODIFIED — UNSTATED` | `architecture.md:41`; `accessibility.md:20-23` | Spec says native `<dialog>` modal; mockups show full-viewport treatment; spec does not address dialog width at desktop; this implicitly downgraded full-bleed to modal-width without documentation |
@@ -106,14 +106,14 @@
 
 | Disposition | Count |
 |---|---|
-| `CAPTURED` | 51 |
+| `CAPTURED` | 52 |
 | `DEFERRED-INTENTIONAL` | 9 |
 | `DROPPED — DOCUMENTED` | 1 |
 | `DROPPED — UNSTATED` | 5 |
 | `MODIFIED — DOCUMENTED` | 1 |
 | `MODIFIED — UNSTATED` | 3 |
 | `REJECTED-IN-BRAINSTORM` | 3 |
-| **Total** | **73** |
+| **Total** | **74** |
 
 > One row from the seed matrix (`pushState` on detail-surface entry) was sourced from the phase-4 analysis report rather than a committed brainstorm artifact. It is included as `CAPTURED` because its spec citation exists and removing it would create a gap in the record. The scope bound does not exclude it.
 
