@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
-import { useSpeciesDetail } from './use-species-detail.js';
+import { useSpeciesDetail, __resetSpeciesDetailCache } from './use-species-detail.js';
 import { ApiClient } from '../api/client.js';
 import type { SpeciesMeta } from '@bird-watch/shared-types';
 
@@ -18,7 +18,12 @@ const VERMFLY: SpeciesMeta = {
 };
 
 describe('useSpeciesDetail', () => {
-  beforeEach(() => { vi.restoreAllMocks(); });
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    // Reset the module-level cache between tests so one test's warm state
+    // cannot bleed into the next test's cold-path assertions.
+    __resetSpeciesDetailCache();
+  });
 
   it('does not fetch when speciesCode is null', () => {
     const getSpecies = vi.fn();
@@ -70,12 +75,10 @@ describe('useSpeciesDetail', () => {
     const getSpecies = vi.fn().mockImplementation(() => deferred);
     const client = makeClient({ getSpecies } as unknown as Partial<ApiClient>);
 
-    // NOTE: both mounts share the same hook *component instance* via
-    // `rerender`, which is how the ref-backed cache survives. (A genuine
-    // unmount would drop the ref — see the JSDoc on the hook for why
-    // that's acceptable; the browser HTTP cache catches a full reload.)
-    // Here we simulate "panel closed mid-flight" via code=null, then
-    // "panel reopened" via code=X.
+    // Simulate "panel closed mid-flight" via code=null, then "panel
+    // reopened" via code=X. The module-level cache absorbs the deferred
+    // resolution even after the effect cleans up (cancelled=true), so
+    // the re-open sees a cache hit with no second network call.
     const { result, rerender } = renderHook(
       ({ code }: { code: string | null }) => useSpeciesDetail(client, code),
       { initialProps: { code: 'vermfly' as string | null } }
@@ -87,10 +90,10 @@ describe('useSpeciesDetail', () => {
     rerender({ code: null });
     await waitFor(() => expect(result.current.data).toBeNull());
 
-    // Fetch resolves AFTER the consumer moved away — the cache should still
-    // absorb the result, because the data is useful to the next consumer.
+    // Fetch resolves AFTER the consumer moved away — the module cache should
+    // still absorb the result, because the data is useful to the next consumer.
     resolve(VERMFLY);
-    // Drain microtasks so the hook's `.then(meta => cacheRef.current.set(...))`
+    // Drain microtasks so the hook's `.then(meta => _moduleCache.set(...))`
     // runs before the next render reads the cache. Two turns are needed —
     // one for the `await deferred` continuation, one for React's internal
     // fulfillment bookkeeping.
@@ -104,6 +107,31 @@ describe('useSpeciesDetail', () => {
     await waitFor(() => expect(result.current.data).toEqual(VERMFLY));
     expect(result.current.loading).toBe(false);
     expect(getSpecies).toHaveBeenCalledTimes(1);
+  });
+
+  it('module-scope cache: two concurrent mounts share resolved data — only one fetch fires', async () => {
+    // Validates the Phase 4 scenario: SpeciesDetailSheet calls the hook to
+    // get data.comName for the sheet header ARIA label, while
+    // SpeciesDetailSurface (inside the sheet body) calls it for the full
+    // species payload. Both mounts use the same speciesCode. With a per-
+    // instance ref cache each mount would issue its own fetch; with the
+    // module-level cache the second mount resolves from cache.
+    const getSpecies = vi.fn().mockResolvedValue(VERMFLY);
+    const client = makeClient({ getSpecies } as unknown as Partial<ApiClient>);
+
+    // Mount first consumer — cache is cold, fetch fires.
+    const { result: result1 } = renderHook(() => useSpeciesDetail(client, 'vermfly'));
+    await waitFor(() => expect(result1.current.data).toEqual(VERMFLY));
+    expect(getSpecies).toHaveBeenCalledTimes(1);
+
+    // Mount second consumer with same code — must hit module cache, no second fetch.
+    const { result: result2 } = renderHook(() => useSpeciesDetail(client, 'vermfly'));
+    await waitFor(() => expect(result2.current.data).toEqual(VERMFLY));
+
+    // Still exactly 1 call — cache hit on second mount.
+    expect(getSpecies).toHaveBeenCalledTimes(1);
+    expect(result2.current.loading).toBe(false);
+    expect(result2.current.error).toBeNull();
   });
 
   it('surfaces error state and does not cache failures', async () => {

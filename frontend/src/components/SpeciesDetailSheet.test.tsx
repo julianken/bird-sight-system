@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { SpeciesDetailSheet } from './SpeciesDetailSheet.js';
 import { ApiClient } from '../api/client.js';
 import type { SpeciesMeta } from '@bird-watch/shared-types';
+import { __resetSpeciesDetailCache } from '../data/use-species-detail.js';
 
 const VERMFLY_WITH_PHOTO: SpeciesMeta = {
   speciesCode: 'vermfly',
@@ -37,6 +38,9 @@ describe('<SpeciesDetailSheet>', () => {
     mainEl = document.createElement('main');
     mainEl.id = 'main-surface';
     document.body.appendChild(mainEl);
+    // Reset the module-level species detail cache so a resolved entry from
+    // one test cannot bleed into the next test's mock expectations.
+    __resetSpeciesDetailCache();
   });
 
   it('opens at peek snap with role="region" and aria-label "Selected sighting"', async () => {
