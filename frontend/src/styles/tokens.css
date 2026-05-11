@@ -138,11 +138,11 @@
 
   --color-density-low:  #4a8aa8;
   --color-density-mid:  #c49850;
-  --color-density-high: #b85530;
+  --color-density-high: #d06848;
   /* Plan literal: #f5f7fb — fails 4.5:1 against dark density pill backgrounds
      (#4a8aa8 → 3.83:1, original #c46038 → 4.44:1). Swapped to var(--c-navy-900)
-     (#0d1424) and darkened ember to #b85530; all three tiers now pass:
-     low 5.30:1, mid 7.74:1, high 4.51:1. */
+     (#0d1424) and lightened ember to #d06848; all three tiers now pass:
+     low 5.30:1, mid 7.74:1, high 5.04:1. */
   --color-density-text: var(--c-navy-900);
 
   --color-accent-notable-fg: var(--c-orange-500);

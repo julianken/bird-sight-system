@@ -100,6 +100,21 @@ describe('tokens.css — W1 conformance', () => {
       expect(darkBlock).toMatch(/--color-density-text:/);
     });
 
+    // FI-1: value-pinned assertions for the density triad AA contrast fix.
+    // Contrast ratios against --color-density-text (#0d1424 / var(--c-navy-900)):
+    //   low  (#4a8aa8) → 5.30:1  ✓ AA
+    //   mid  (#c49850) → 7.74:1  ✓ AA
+    //   high (#d06848) → 5.04:1  ✓ AA  (LB-2 fix: was #b85530 → 3.83:1 FAIL)
+    it('pins ember tier to #d06848 (5.04:1 AA vs --c-navy-900)', () => {
+      expect(darkBlock).toMatch(/--color-density-high:\s*#d06848/);
+    });
+    it('pins sky tier to #4a8aa8 (5.30:1 AA vs --c-navy-900)', () => {
+      expect(darkBlock).toMatch(/--color-density-low:\s*#4a8aa8/);
+    });
+    it('pins sand tier to #c49850 (7.74:1 AA vs --c-navy-900)', () => {
+      expect(darkBlock).toMatch(/--color-density-mid:\s*#c49850/);
+    });
+
     // Group 6: accent + error (3)
     it('overrides --color-accent-notable-fg (dark uses orange-500)', () => {
       expect(darkBlock).toMatch(/--color-accent-notable-fg:\s*var\(--c-orange-500\)/);
