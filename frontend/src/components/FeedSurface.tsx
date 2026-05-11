@@ -2,7 +2,10 @@ import { useMemo, useState } from 'react';
 import type { Observation } from '@bird-watch/shared-types';
 import type { Since } from '../state/url-state.js';
 import type { SpeciesOption } from './FiltersBar.js';
-import { ObservationFeedRow } from './ObservationFeedRow.js';
+import { FeedCard } from './FeedCard.js';
+import { FeedRow } from './FeedRow.js';
+import { FilterSentence } from './ds/FilterSentence.js';
+import { SortLabel } from './ds/SortLabel.js';
 
 export interface FeedSurfaceFilters {
   notable: boolean;
@@ -24,48 +27,68 @@ export interface FeedSurfaceProps {
    * as the all-null-taxonOrder cold-load case).
    */
   speciesIndex?: SpeciesOption[];
+  /**
+   * Total unique-species count for the lede template (Priority 4).
+   * When absent, FeedSurface derives it from observations.length as a
+   * rough fallback (may overcount if multiple obs share a species code).
+   */
+  observationCount?: number;
+  /** Human-readable region label for the lede ("Arizona"). */
+  regionLabel?: string;
+  /** Human-readable period for the lede ("14 days"). */
+  period?: string;
+  /**
+   * Common name of the selected species — present when speciesCode filter
+   * is active. Triggers the Priority 2 lede template.
+   */
+  speciesName?: string;
+  /**
+   * Common name of the selected family — present when familyCode filter is
+   * active. Triggers the Priority 3 lede template.
+   */
+  familyName?: string;
 }
 
 /**
- * Default view for the bird-maps site: reverse-chronological observation
- * rows. The parent (App.tsx) supplies already-filtered observations — this
- * component does NOT re-filter by `notable` or `since`. The `filters` prop
- * is consumed only to generate filter-aware empty-state copy.
+ * Feed surface — Sky Atlas Phase 5.
  *
- * Sort contract (Plan 6 Task 10 / issue #119):
- *   - "Recent" (default): the server order is preserved. No client
- *     re-sort; the Read API already returns observations by `obs_dt DESC`.
- *   - "Taxonomic": sort by `speciesIndex[code].taxonOrder ASC`, with
- *     null values placed AFTER all non-null values. Within the null
- *     group, sort alphabetically by `comName` so the output is
- *     deterministic regardless of the input order. Rationale: on a
- *     cold load, no cached `SpeciesMeta` means every `taxonOrder` is
- *     null and taxonomic sort degrades to alphabetical — the same
- *     contract documented on the issue body.
+ * Lede templates (evaluated in priority order, from
+ * docs/design/01-spec/voice-and-content.md §Lede contract):
+ *   1. Zero results → "No sightings match your current filters."
+ *   2. speciesName set → "{N} sightings of {name} in {region} in the last {period}."
+ *   3. familyName set → "{N} species of {family} seen across {region} in the last {period}."
+ *   4. Default → "{N} species seen across {region} in the last {period}."
  *
- * The sort mode is COMPONENT-LOCAL state (not URL-persisted) per the
- * "Out of scope" note on issue #119. A future URL-persistent iteration
- * would lift this into useUrlState.
+ * <SortLabel> is a separate sibling ABOVE <FilterSentence> in the context
+ * strip. These are independent components that must NOT be composed together
+ * (docs/design/01-spec/components.md §<FilterSentence>: "Sort prefix is NOT
+ * this component").
  *
- * Empty-state branches (spec):
- *   - loading       → "Loading observations…"
- *   - notable=true  → "No notable sightings in this window."
- *   - since=1d      → "No observations reported today."
- *   - otherwise     → "No observations to show."
+ * The top-notable observation (first isNotable=true in the observations array)
+ * renders as an elevated <FeedCard>. Remaining observations render as flat
+ * <FeedRow> items. Both are children of the same <ol> to preserve list semantics.
  *
- * NOTE on error states: a broken API surfaces as the full-screen
- * `.error-screen` in App.tsx (it returns early). By the time a FeedSurface
- * renders, we know the request succeeded — an empty array means zero
- * matches, not a backend outage. That's why no empty branch mentions
- * "something broke" or "try again".
+ * Sort contract (unchanged from existing implementation):
+ *   - "Recent" (default): server order preserved. No client re-sort.
+ *   - "Taxonomic": taxonOrder ASC, nulls last, ties by comName.
  */
 export function FeedSurface(props: FeedSurfaceProps) {
-  const { loading, observations, now, filters, onSelectSpecies, speciesIndex } = props;
+  const {
+    loading,
+    observations,
+    now,
+    filters,
+    onSelectSpecies,
+    speciesIndex,
+    observationCount,
+    regionLabel = 'Arizona',
+    period = '14 days',
+    speciesName,
+    familyName,
+  } = props;
+
   const [sortMode, setSortMode] = useState<FeedSortMode>('recent');
 
-  // Derive a code→taxonOrder lookup from speciesIndex once per render.
-  // Missing speciesIndex or species without a taxonOrder bucket as null
-  // (sorted last per the documented contract above).
   const taxonMap = useMemo(() => {
     const map = new Map<string, number | null>();
     if (speciesIndex) {
@@ -76,19 +99,42 @@ export function FeedSurface(props: FeedSurfaceProps) {
 
   const visibleObservations = useMemo(() => {
     if (sortMode === 'recent') return observations;
-    // Taxonomic: nulls last, ascending by taxonOrder, ties broken by comName.
-    // The slice() preserves the parent's array reference identity so
-    // server-order memoisation higher up isn't defeated.
     return observations.slice().sort((a, b) => {
       const ta = taxonMap.get(a.speciesCode) ?? null;
       const tb = taxonMap.get(b.speciesCode) ?? null;
       if (ta === null && tb === null) return a.comName.localeCompare(b.comName);
-      if (ta === null) return 1; // a after b
-      if (tb === null) return -1; // a before b
+      if (ta === null) return 1;
+      if (tb === null) return -1;
       if (ta === tb) return a.comName.localeCompare(b.comName);
       return ta - tb;
     });
   }, [observations, sortMode, taxonMap]);
+
+  // Derive the lede string using the 4-template priority state machine.
+  // Templates are explicit branches — no string-template engine.
+  // (docs/design/01-spec/voice-and-content.md §Templates are explicit)
+  const effectiveCount = observationCount ?? observations.length;
+  const lede: string = useMemo(() => {
+    if (effectiveCount === 0) {
+      return 'No sightings match your current filters.';
+    }
+    if (speciesName) {
+      return `${effectiveCount} sightings of ${speciesName} in ${regionLabel} in the last ${period}.`;
+    }
+    if (familyName) {
+      return `${effectiveCount} species of ${familyName} seen across ${regionLabel} in the last ${period}.`;
+    }
+    return `${effectiveCount} species seen across ${regionLabel} in the last ${period}.`;
+  }, [effectiveCount, speciesName, familyName, regionLabel, period]);
+
+  // Build the ActiveFilters shape expected by <FilterSentence>.
+  // Phase 5 maps the existing FeedSurfaceFilters onto it.
+  const activeFilters = useMemo(() => ({
+    notable: filters.notable,
+    since: filters.since,
+    speciesCode: null as string | null,
+    familyCode: null as string | null,
+  }), [filters]);
 
   if (loading) {
     return (
@@ -108,17 +154,38 @@ export function FeedSurface(props: FeedSurfaceProps) {
       hint = 'No observations to show.';
     }
     return (
-      <div className="feed-empty" role="status">
-        {hint}
+      <div className="feed-surface">
+        <p className="feed-lede">{lede}</p>
+        <div className="feed-empty" role="status">
+          {hint}
+        </div>
       </div>
     );
   }
 
+  // Find the first notable observation for the elevated card treatment.
+  // "First" respects the current sort order.
+  const topNotableIndex = visibleObservations.findIndex(o => o.isNotable);
+  const topNotable: Observation | null =
+    topNotableIndex >= 0 ? visibleObservations[topNotableIndex] : null;
+
+  // All other observations (non-card rows): if a notable is elevated,
+  // exclude it from the flat list so it doesn't appear twice.
+  const flatObservations: Observation[] = topNotable
+    ? visibleObservations.filter(o => o !== topNotable)
+    : visibleObservations;
+
   return (
-    <>
-      {/* Radio group for native keyboard arrow-key traversal. role=radiogroup
-          with a visible label satisfies axe without an explicit aria-labelledby
-          on every radio. */}
+    <div className="feed-surface">
+      {/* Lede — runtime truth claim, Priority 1–4 state machine */}
+      <p className="feed-lede">{lede}</p>
+
+      {/* Context strip: SortLabel sibling ABOVE FilterSentence.
+          These are independent; do not compose or merge them. */}
+      <SortLabel mode={sortMode} />
+      <FilterSentence filters={activeFilters} />
+
+      {/* Sort toggle — radio group for native keyboard arrow-key traversal */}
       <div
         className="feed-sort"
         role="radiogroup"
@@ -145,9 +212,19 @@ export function FeedSurface(props: FeedSurfaceProps) {
           <span>Taxonomic</span>
         </label>
       </div>
+
+      {/* Unified observation list: top-notable card-row first, then flat rows */}
       <ol className="feed" aria-label="Observations">
-        {visibleObservations.map(o => (
-          <ObservationFeedRow
+        {topNotable && (
+          <FeedCard
+            key={`card:${topNotable.subId}:${topNotable.speciesCode}`}
+            observation={topNotable}
+            now={now}
+            onSelectSpecies={onSelectSpecies}
+          />
+        )}
+        {flatObservations.map(o => (
+          <FeedRow
             key={`${o.subId}:${o.speciesCode}`}
             observation={o}
             now={now}
@@ -155,6 +232,6 @@ export function FeedSurface(props: FeedSurfaceProps) {
           />
         ))}
       </ol>
-    </>
+    </div>
   );
 }
