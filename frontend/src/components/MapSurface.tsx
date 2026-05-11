@@ -197,7 +197,7 @@ export function MapSurface({
           {...(familyName !== null ? { familyName } : {})}
           {...(speciesName !== undefined ? { speciesName } : {})}
         />
-        <p className="map-freshness">{freshnessLabel}</p>
+        {freshnessLabel && <p className="map-freshness">{freshnessLabel}</p>}
       </section>
       <div className="map-surface">
         <React.Suspense
