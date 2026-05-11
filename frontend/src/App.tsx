@@ -262,7 +262,7 @@ export function App() {
             loading={loading}
             observations={observations}
             now={now}
-            filters={{ notable: state.notable, since: state.since }}
+            filters={{ notable: state.notable, since: state.since, speciesCode: state.speciesCode, familyCode: state.familyCode }}
             onSelectSpecies={onSelectSpecies}
             speciesIndex={speciesIndex}
             observationCount={observations.length}

@@ -10,6 +10,8 @@ import { SortLabel } from './ds/SortLabel.js';
 export interface FeedSurfaceFilters {
   notable: boolean;
   since: Since;
+  speciesCode: string | null;
+  familyCode: string | null;
 }
 
 export type FeedSortMode = 'recent' | 'taxonomic';
@@ -128,12 +130,15 @@ export function FeedSurface(props: FeedSurfaceProps) {
   }, [effectiveCount, speciesName, familyName, regionLabel, period]);
 
   // Build the ActiveFilters shape expected by <FilterSentence>.
-  // Phase 5 maps the existing FeedSurfaceFilters onto it.
+  // Forward all four filter dimensions so FilterSentence renders the same
+  // active-filter sentence as the species surface. Omitting speciesCode/
+  // familyCode caused cross-surface drift: feed lede named the species but
+  // the sibling FilterSentence omitted it (fix for PR #429 review finding).
   const activeFilters = useMemo(() => ({
     notable: filters.notable,
     since: filters.since,
-    speciesCode: null as string | null,
-    familyCode: null as string | null,
+    speciesCode: filters.speciesCode,
+    familyCode: filters.familyCode,
   }), [filters]);
 
   if (loading) {
