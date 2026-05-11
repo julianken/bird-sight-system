@@ -38,6 +38,14 @@ Upload screenshots via the user-attachments paste flow (skill:
 and survive branch deletion. Do NOT commit PNGs to the repo and do NOT use
 `raw.githubusercontent.com` URLs. -->
 
+- [ ] Every new/renamed `className` in this PR has a matching CSS rule in
+      `frontend/src/styles.css` or `frontend/src/components/ds/ds-primitives.css`
+      (or marked `N/A — class is consumed only by a primitive that ships its own CSS`)
+- [ ] Multi-viewport design QA: PR body has ≥10 `user-attachments` URLs
+      (5 viewports × 2 themes per #445). Verify:
+      `gh pr view <N> --repo julianken/bird-sight-system --json body --jq '.body | [scan("user-attachments/assets/[a-f0-9-]++")] | length'`
+      returns ≥ 10 (or marked `N/A — not UI`)
+
 ## Test plan
 
 <!-- Checklist of the verifications you ran. Reviewers expect all boxes checked
