@@ -32,7 +32,39 @@
 
     <!-- [data-theme] inline blocking script — added in Phase 1; verify present above this comment -->
 
-    <!-- JSON-LD — added in Task 6 -->
+    <!-- Structured data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebPage",
+      "name": "Bird Maps · Arizona",
+      "description": "Recent Arizona bird sightings, updated in real time from eBird.",
+      "url": "https://bird-maps.com/",
+      "inLanguage": "en-US",
+      "mainEntity": {
+        "@type": "Dataset",
+        "name": "Arizona Recent Bird Observations",
+        "description": "Recent bird sightings across Arizona, sourced from eBird (Cornell Lab of Ornithology). Updated in real time.",
+        "url": "https://bird-maps.com/",
+        "license": "https://www.birds.cornell.edu/home/ebird-data-access-terms-of-use/",
+        "creator": {
+          "@type": "Organization",
+          "name": "eBird",
+          "url": "https://ebird.org"
+        },
+        "spatialCoverage": {
+          "@type": "Place",
+          "name": "Arizona, United States",
+          "geo": {
+            "@type": "GeoShape",
+            "box": "31.332 -114.815 37.004 -109.045"
+          }
+        },
+        "temporalCoverage": "P14D",
+        "variableMeasured": "Bird species observations"
+      }
+    }
+    </script>
     <!--
       Inline blocking script: sets [data-theme] on <html> before first paint
       to prevent FOUC. Reads localStorage['theme']; falls back to
