@@ -30,6 +30,10 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.json" />
 
+    <!-- Preconnect: establish TCP+TLS to critical-path cross-origin hosts during parse -->
+    <link rel="preconnect" href="https://api.bird-maps.com" crossorigin>
+    <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin>
+
     <!-- [data-theme] inline blocking script — added in Phase 1; verify present above this comment -->
 
     <!-- Structured data -->
