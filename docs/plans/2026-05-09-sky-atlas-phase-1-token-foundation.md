@@ -17,7 +17,7 @@
 Before opening a PR for this plan, check off each item or cite a deferral doc
 with a lexically-matching subject (per R13 T7, issue #461):
 
-- [ ] Ship 14 dark-mode token overrides in `[data-theme="dark"]` block (`tokens.css` Layer 2 dark section)
+- [ ] Ship 18 dark-mode token overrides in `[data-theme="dark"]` block (`tokens.css` Layer 2 dark section)
 - [ ] Establish 3-tier token contract: primitive → semantic → component (all three tiers present in `tokens.css`)
 - [ ] Migrate 35 hardcoded `font-size` literals in `styles.css` to type ramp tokens (`grep -c 'font-size: [0-9]' frontend/src/styles.css` returns `0`)
 - [ ] 6-step type ramp declared: `--type-xs`, `--type-sm`, `--type-base`, `--type-md`, `--type-lg`, `--type-hero` (all 6 present in `tokens.css`)
