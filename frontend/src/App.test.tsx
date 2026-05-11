@@ -387,13 +387,13 @@ describe('Phase 5: FeedSurface cross-surface FilterSentence drift regression', (
     const { container } = render(<App />);
     // Lede must resolve the species name from the speciesIndex and include it.
     await screen.findByText(/sightings of Vermilion Flycatcher in Arizona in the last 14 days\./i);
-    // FilterSentence visible sentence must also reflect speciesCode — it renders
-    // the raw code as a filter-bullet when no resolved name is available. Either
-    // the code "vermfly" or the resolved name should appear; the key invariant
-    // is that the element is rendered (non-null) and contains the species token.
+    // FilterSentence visible sentence must reflect the species — either the
+    // resolved common name (when speciesName is threaded from App) or the raw
+    // code as a fallback. The key invariant is that the element is rendered
+    // (non-null) and contains either the resolved name or the raw code.
     const filterSentenceVisible = container.querySelector('.filter-sentence__visible');
     expect(filterSentenceVisible).not.toBeNull();
-    expect(filterSentenceVisible?.textContent).toMatch(/vermfly/i);
+    expect(filterSentenceVisible?.textContent).toMatch(/vermilion flycatcher|vermfly/i);
   });
 });
 

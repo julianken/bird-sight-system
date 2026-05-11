@@ -38,18 +38,39 @@ export type FilterSentenceFilters = Pick<UrlState, 'speciesCode' | 'familyCode' 
 
 export interface FilterSentenceProps {
   filters: FilterSentenceFilters;
+  /**
+   * Human-readable vernacular label for the active family filter (e.g.
+   * "woodpeckers"). When provided, replaces the raw familyCode in the
+   * visible sentence. Falls back to raw familyCode when absent. Canonical
+   * source: prettyFamily(familyCode) from derived.ts.
+   */
+  familyName?: string;
+  /**
+   * Human-readable common name for the active species filter (e.g.
+   * "Vermilion Flycatcher"). When provided, replaces the raw speciesCode in
+   * the visible sentence. Falls back to raw speciesCode when absent.
+   */
+  speciesName?: string;
 }
 
-function buildFilterTerms(filters: FilterSentenceFilters): string[] {
+function buildFilterTerms(
+  filters: FilterSentenceFilters,
+  familyName?: string,
+  speciesName?: string,
+): string[] {
   const terms: string[] = [];
   if (filters.notable) terms.push('notable sightings');
-  if (filters.familyCode) terms.push(filters.familyCode);
-  if (filters.speciesCode) terms.push(filters.speciesCode);
+  if (filters.familyCode) terms.push(familyName ?? filters.familyCode);
+  if (filters.speciesCode) terms.push(speciesName ?? filters.speciesCode);
   return terms;
 }
 
-function buildSentence(filters: FilterSentenceFilters): string | null {
-  const terms = buildFilterTerms(filters);
+function buildSentence(
+  filters: FilterSentenceFilters,
+  familyName?: string,
+  speciesName?: string,
+): string | null {
+  const terms = buildFilterTerms(filters, familyName, speciesName);
   if (terms.length === 0) return null;
   const period = filters.since === '1d' ? '1 day'
     : filters.since === '7d' ? '7 days'
@@ -58,8 +79,8 @@ function buildSentence(filters: FilterSentenceFilters): string | null {
   return `Showing ${terms.join(', ')} from the last ${period}.`;
 }
 
-export function FilterSentence({ filters }: FilterSentenceProps): ReactNode {
-  const sentence = buildSentence(filters);
+export function FilterSentence({ filters, familyName, speciesName }: FilterSentenceProps): ReactNode {
+  const sentence = buildSentence(filters, familyName, speciesName);
   const [liveText, setLiveText] = useState('');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearHoldRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -99,7 +120,7 @@ export function FilterSentence({ filters }: FilterSentenceProps): ReactNode {
       {sentence && (
         <p className="filter-sentence__visible">
           Showing{' '}
-          {buildFilterTerms(filters).map((term, i, arr) => (
+          {buildFilterTerms(filters, familyName, speciesName).map((term, i, arr) => (
             <span key={term}>
               <span className="filter-bullet">{term}</span>
               {i < arr.length - 1 ? ', ' : ''}

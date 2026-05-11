@@ -90,6 +90,15 @@ export interface MapSurfaceProps {
   since: Since;
   /** Notable-only filter (mirrors UrlState.notable). */
   notable: boolean;
+  /** Currently active species filter code (mirrors UrlState.speciesCode). */
+  speciesCode: string | null;
+  /**
+   * Human-readable common name for the active species filter (e.g.
+   * "Vermilion Flycatcher"). Forwarded to <FilterSentence> so the visible
+   * sentence renders the common name instead of the raw eBird code.
+   * Optional — when absent FilterSentence falls back to the raw code.
+   */
+  speciesName?: string;
   /** Freshness state from <App>'s freshness derivation. */
   freshness: Freshness;
   /** Pre-formatted freshness meta string (e.g. "Updated 11 min ago · Source: eBird"). */
@@ -127,6 +136,8 @@ export function MapSurface({
   onViewportChange,
   since,
   notable,
+  speciesCode,
+  speciesName,
   freshness,
   freshnessLabel,
 }: MapSurfaceProps) {
@@ -181,7 +192,11 @@ export function MapSurface({
           period={period}
           freshness={freshness}
         />
-        <FilterSentence filters={{ since, notable, speciesCode: null, familyCode }} />
+        <FilterSentence
+          filters={{ since, notable, speciesCode, familyCode }}
+          {...(familyName !== null ? { familyName } : {})}
+          {...(speciesName !== undefined ? { speciesName } : {})}
+        />
         <p className="map-freshness">{freshnessLabel}</p>
       </section>
       <div className="map-surface">
