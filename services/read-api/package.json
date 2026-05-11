@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@bird-watch/db-client": "*",
+    "@bird-watch/shared-types": "*",
     "@hono/node-server": "^2.0.1",
     "hono": "^4.12.16"
   },
