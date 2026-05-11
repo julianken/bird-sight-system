@@ -22,6 +22,7 @@ import { AttributionModal } from './components/AttributionModal.js';
 import { deriveFamilies, deriveSpeciesIndex } from './derived.js';
 import { filterObservationsByBounds } from './lib/viewport-filter.js';
 import { REGION_LABEL } from './config/region.js';
+import { SurfaceTitleSync } from './components/SurfaceTitleSync.js';
 
 const apiClient = new ApiClient({ baseUrl: import.meta.env.VITE_API_BASE_URL ?? '' });
 
@@ -216,6 +217,10 @@ export function App() {
 
   return (
     <div className="app">
+      <SurfaceTitleSync
+        view={state.view}
+        speciesCommonName={activeSpeciesMeta?.comName ?? null}
+      />
       <AppHeader
         activeView={state.view}
         onSelectView={view => set({ view })}
