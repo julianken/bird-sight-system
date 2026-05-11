@@ -1,9 +1,15 @@
-import type { Observation } from '@bird-watch/shared-types';
+import type { NotableObservation } from '@bird-watch/shared-types';
 import { formatRelativeTime } from '../utils/format-time.js';
 import { FamilySilhouette } from './ds/FamilySilhouette.js';
 
 export interface FeedCardProps {
-  observation: Observation;
+  /**
+   * Narrowed to NotableObservation — callers must guard with `o.isNotable`
+   * before passing. FeedSurface already does this in the topNotable branch.
+   * The type system enforces the notable contract at compile time rather than
+   * relying on structural trust at runtime.
+   */
+  observation: NotableObservation;
   now: Date;
   onSelectSpecies: (speciesCode: string) => void;
 }

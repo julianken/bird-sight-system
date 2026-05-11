@@ -1,12 +1,15 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { Observation } from '@bird-watch/shared-types';
+import type { NotableObservation } from '@bird-watch/shared-types';
 import { FeedCard } from './FeedCard.js';
 
 const NOW = new Date(2026, 3, 15, 15, 0, 0, 0);
 
-const NOTABLE_OBS: Observation = {
+// Typed as NotableObservation (Observation & { isNotable: true }) — this is the
+// narrowed type FeedCard accepts. The type annotation documents the contract
+// enforced at the prop boundary: callers must narrow before passing.
+const NOTABLE_OBS: NotableObservation = {
   subId: 'S001',
   speciesCode: 'vermfly',
   comName: 'Vermilion Flycatcher',
@@ -114,5 +117,16 @@ describe('FeedCard', () => {
       />
     );
     expect(screen.getByTestId('family-silhouette')).toHaveAttribute('data-family', 'null');
+  });
+
+  it('type narrowing: observation prop is NotableObservation (isNotable: true) at the call site', () => {
+    // This test documents the narrowed-type contract rather than a runtime behaviour.
+    // At compile time, passing an Observation with isNotable: false to FeedCard is a
+    // type error — the prop is NotableObservation (Observation & { isNotable: true }).
+    // Here we assert the fixture itself satisfies the narrowed type and renders correctly,
+    // confirming no runtime regression from the type tightening.
+    const narrowed: NotableObservation = { ...NOTABLE_OBS, isNotable: true };
+    render(<FeedCard observation={narrowed} now={NOW} onSelectSpecies={() => {}} />);
+    expect(screen.getByText('NOTABLE')).toBeInTheDocument();
   });
 });

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { Observation } from '@bird-watch/shared-types';
+import type { Observation, NotableObservation } from '@bird-watch/shared-types';
 import type { Since } from '../state/url-state.js';
 import type { SpeciesOption } from './FiltersBar.js';
 import { FeedCard } from './FeedCard.js';
@@ -164,9 +164,10 @@ export function FeedSurface(props: FeedSurfaceProps) {
   }
 
   // Find the first notable observation for the elevated card treatment.
-  // "First" respects the current sort order.
-  const topNotable: Observation | null =
-    visibleObservations.find(o => o.isNotable) ?? null;
+  // "First" respects the current sort order. Narrowed to NotableObservation
+  // (Observation & { isNotable: true }) to satisfy FeedCard's type contract.
+  const topNotable: NotableObservation | null =
+    visibleObservations.find((o): o is NotableObservation => o.isNotable) ?? null;
 
   // All other observations (non-card rows): if a notable is elevated,
   // exclude it from the flat list so it doesn't appear twice.
