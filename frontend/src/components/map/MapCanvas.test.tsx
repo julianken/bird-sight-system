@@ -2059,5 +2059,47 @@ describe('MapCanvas', () => {
         );
       });
     });
+
+    it('only renders ClusterPill for large clusters (point_count > CLUSTER_MOSAIC_MAX_POINTS), not small ones', async () => {
+      // Regression test for perf-critic finding on PR #427:
+      // The refreshClusters filter was missing the point_count guard, causing
+      // every cluster with point_count <= 8 to receive BOTH a <MosaicMarker>
+      // (from the existing mosaics reconciler) AND a <ClusterPill>, producing
+      // two overlapping DOM nodes per small cluster. The pill also stole
+      // z-order and click events from the mosaic.
+      fakeMap.queryRenderedFeatures.mockReturnValue([
+        {
+          // Small cluster — handled exclusively by the mosaics reconciler.
+          // Must NOT produce a ClusterPill.
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [-110, 32] },
+          properties: { cluster: true, cluster_id: 10, point_count: 5 },
+        },
+        {
+          // Large cluster — falls outside mosaic territory.
+          // MUST produce a ClusterPill.
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [-111, 33] },
+          properties: { cluster: true, cluster_id: 20, point_count: 50 },
+        },
+      ]);
+
+      render(<MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />);
+      await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+
+      await act(async () => {
+        await bareHandlers['idle']?.();
+      });
+
+      // Only the large cluster (point_count=50) should have a pill.
+      // The small cluster (point_count=5) is owned by the mosaics reconciler
+      // and must not receive a pill.
+      const allPills = screen
+        .queryAllByRole('button', { name: /sightings$/ })
+        .filter(p => p.classList.contains('cluster-pill'));
+
+      expect(allPills).toHaveLength(1);
+      expect(allPills[0]).toHaveAttribute('aria-label', '50 sightings');
+    });
   });
 });

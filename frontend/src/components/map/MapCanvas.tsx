@@ -882,7 +882,8 @@ export function MapCanvas({
           f.properties.cluster === true &&
           typeof f.properties.cluster_id === 'number' &&
           typeof f.properties.point_count === 'number' &&
-          f.geometry.type === 'Point'
+          f.geometry.type === 'Point' &&
+          f.properties.point_count > CLUSTER_MOSAIC_MAX_POINTS
         ) {
           next.push({
             cluster_id: f.properties.cluster_id,
