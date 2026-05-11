@@ -9,6 +9,12 @@ export interface BirdDataState {
   error: Error | null;
   hotspots: Hotspot[];
   observations: Observation[];
+  /**
+   * ISO string of the most recently ingested observation (MAX(ingested_at)),
+   * or null when the table is empty / read-api unavailable. Sourced from
+   * meta.freshestObservationAt in the ObservationsResponse envelope (#456 W3-A).
+   */
+  freshestObservationAt: string | null;
 }
 
 export function useBirdData(
@@ -17,6 +23,7 @@ export function useBirdData(
 ): BirdDataState {
   const [hotspots, setHotspots] = useState<Hotspot[]>([]);
   const [observations, setObservations] = useState<Observation[]>([]);
+  const [freshestObservationAt, setFreshestObservationAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
@@ -33,16 +40,20 @@ export function useBirdData(
     return () => { cancelled = true; };
   }, [client]);
 
-  // Observation refetch on filter change
+  // Observation refetch on filter change — unwrap the ObservationsResponse envelope
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     client.getObservations(filters)
-      .then(o => { if (!cancelled) setObservations(o); })
+      .then(envelope => {
+        if (cancelled) return;
+        setObservations(envelope.data);
+        setFreshestObservationAt(envelope.meta.freshestObservationAt);
+      })
       .catch(err => { if (!cancelled) setError(err as Error); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [client, filters.since, filters.notable, filters.speciesCode, filters.familyCode]);
 
-  return { loading, error, hotspots, observations };
+  return { loading, error, hotspots, observations, freshestObservationAt };
 }

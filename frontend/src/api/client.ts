@@ -1,5 +1,5 @@
 import type {
-  Hotspot, Observation, SpeciesMeta, ObservationFilters,
+  Hotspot, Observation, ObservationsResponse, SpeciesMeta, ObservationFilters,
   FamilySilhouette,
 } from '@bird-watch/shared-types';
 
@@ -24,13 +24,13 @@ export class ApiClient {
     return this.get<Hotspot[]>('/api/hotspots');
   }
 
-  getObservations(f: ObservationFilters = {}): Promise<Observation[]> {
+  getObservations(f: ObservationFilters = {}): Promise<ObservationsResponse> {
     const url = new URL('/api/observations', 'http://x');
     if (f.since) url.searchParams.set('since', f.since);
     if (f.notable === true) url.searchParams.set('notable', 'true');
     if (f.speciesCode) url.searchParams.set('species', f.speciesCode);
     if (f.familyCode) url.searchParams.set('family', f.familyCode);
-    return this.get<Observation[]>(url.pathname + url.search);
+    return this.get<ObservationsResponse>(url.pathname + url.search);
   }
 
   getSpecies(code: string): Promise<SpeciesMeta> {

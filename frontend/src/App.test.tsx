@@ -73,7 +73,7 @@ describe('App error screen', () => {
       since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
     };
     mockGetHotspots.mockRejectedValue(new ApiError(503, 'pool exhausted'));
-    mockGetObservations.mockResolvedValue([]);
+    mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
     mockGetSilhouettes.mockResolvedValue([]);
   });
 
@@ -141,7 +141,7 @@ describe('App aria-busy', () => {
     __resetSilhouettesCache();
     // Successful loads so we get the normal UI (not error screen)
     mockGetHotspots.mockResolvedValue([]);
-    mockGetObservations.mockResolvedValue([]);
+    mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
     mockGetSilhouettes.mockResolvedValue([]);
   });
 
@@ -175,7 +175,7 @@ describe('Phase 6: Footer removal + Attribution via AppHeader (issue #250 → Ph
   beforeEach(() => {
     __resetSilhouettesCache();
     mockGetHotspots.mockResolvedValue([]);
-    mockGetObservations.mockResolvedValue([]);
+    mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
     mockGetSilhouettes.mockResolvedValue([]);
   });
 
@@ -229,7 +229,7 @@ describe('Phase 3: AppHeader + Filters panel', () => {
   beforeEach(() => {
     __resetSilhouettesCache();
     mockGetHotspots.mockResolvedValue([]);
-    mockGetObservations.mockResolvedValue([]);
+    mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
     mockGetSilhouettes.mockResolvedValue([]);
   });
 
@@ -319,7 +319,7 @@ describe('Phase 5: FeedSurface lede wiring (App → FeedSurface)', () => {
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
     };
-    mockGetObservations.mockResolvedValue([SPECIES_OBS]);
+    mockGetObservations.mockResolvedValue({ data: [SPECIES_OBS], meta: { freshestObservationAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() } });
     render(<App />);
     await screen.findByText(/species seen across Arizona/i);
     expect(screen.queryByText(/sightings of/i)).toBeNull();
@@ -330,7 +330,7 @@ describe('Phase 5: FeedSurface lede wiring (App → FeedSurface)', () => {
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: 'vermfly', familyCode: null, view: 'feed',
     };
-    mockGetObservations.mockResolvedValue([SPECIES_OBS]);
+    mockGetObservations.mockResolvedValue({ data: [SPECIES_OBS], meta: { freshestObservationAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() } });
     render(<App />);
     // Priority 2: "{N} sightings of {name} in Arizona in the last {period}."
     // Regex anchors the period token ("14 days") to catch PERIOD_LABELS
@@ -342,7 +342,7 @@ describe('Phase 5: FeedSurface lede wiring (App → FeedSurface)', () => {
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: 'songbird', view: 'feed',
     };
-    mockGetObservations.mockResolvedValue([SPECIES_OBS]);
+    mockGetObservations.mockResolvedValue({ data: [SPECIES_OBS], meta: { freshestObservationAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() } });
     render(<App />);
     // Priority 3: "{N} species of {family} seen across Arizona…"
     await screen.findByText(/species of Songbird seen across Arizona/i);
@@ -383,7 +383,7 @@ describe('Phase 5: FeedSurface cross-surface FilterSentence drift regression', (
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: 'vermfly', familyCode: null, view: 'feed',
     };
-    mockGetObservations.mockResolvedValue([SPECIES_OBS]);
+    mockGetObservations.mockResolvedValue({ data: [SPECIES_OBS], meta: { freshestObservationAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() } });
     const { container } = render(<App />);
     // Lede must resolve the species name from the speciesIndex and include it.
     await screen.findByText(/sightings of Vermilion Flycatcher in Arizona in the last 14 days\./i);
@@ -401,7 +401,7 @@ describe('Phase 5: SpeciesSearchSurface activeFilters wiring (App → SpeciesSea
   beforeEach(() => {
     __resetSilhouettesCache();
     mockGetHotspots.mockResolvedValue([]);
-    mockGetObservations.mockResolvedValue([]);
+    mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
     mockGetSilhouettes.mockResolvedValue([]);
   });
 
