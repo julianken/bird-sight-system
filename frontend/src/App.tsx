@@ -24,6 +24,7 @@ import { filterObservationsByBounds } from './lib/viewport-filter.js';
 import { REGION_LABEL } from './config/region.js';
 import { SurfaceTitleSync } from './components/SurfaceTitleSync.js';
 import { StatusBlock } from './components/ds/StatusBlock.js';
+import { deriveFreshness } from './lib/freshness.js';
 
 const apiClient = new ApiClient({ baseUrl: import.meta.env.VITE_API_BASE_URL ?? '' });
 
@@ -74,7 +75,7 @@ export function App() {
     (state.familyCode ? 1 : 0);
   // hotspots intentionally fetched but unused — cheap insurance for v2
   // hotspot-marker layer (Plan 7 decision 5, docs/plans/2026-04-22-plan-7-map-v1.md).
-  const { loading, error, observations } = useBirdData(apiClient, {
+  const { loading, error, observations, freshestObservationAt } = useBirdData(apiClient, {
     since: state.since,
     notable: state.notable,
     ...(state.speciesCode ? { speciesCode: state.speciesCode } : {}),
@@ -188,6 +189,16 @@ export function App() {
   const nowRef = useRef(new Date());
   const mainRef = useRef<HTMLElement | null>(null);
   const now = nowRef.current;
+
+  // Derive freshness state + label from meta.freshestObservationAt (#456 W3-A).
+  // Uses the current `now` tick so the label re-derives whenever the component
+  // re-renders (e.g. on filter change). No separate interval timer is needed:
+  // the component re-renders on data fetch, which is the primary freshness signal.
+  // Spec: docs/design/01-spec/voice-and-content.md §Freshness label state machine.
+  const { state: freshnessState, label: freshnessLabel } = useMemo(
+    () => deriveFreshness(freshestObservationAt, now),
+    [freshestObservationAt, now],
+  );
 
   const onSelectSpecies = useCallback(
     (speciesCode: string) => set({ detail: speciesCode, view: 'detail' }),
@@ -307,6 +318,8 @@ export function App() {
             observationCount={observations.length}
             regionLabel={REGION_LABEL}
             period={period}
+            freshness={freshnessState}
+            freshnessLabel={freshnessLabel}
             {...(speciesName !== undefined ? { speciesName } : {})}
             {...(familyName !== undefined ? { familyName } : {})}
           />
@@ -325,8 +338,8 @@ export function App() {
             notable={state.notable}
             speciesCode={state.speciesCode}
             {...(speciesName !== undefined ? { speciesName } : {})}
-            freshness="fresh"
-            freshnessLabel="Updated just now · Source: eBird"
+            freshness={freshnessState}
+            freshnessLabel={freshnessLabel}
           />
         )}
         {state.view === 'species' && (
@@ -337,6 +350,8 @@ export function App() {
             speciesIndex={speciesIndex}
             now={now}
             onSelectSpecies={onSelectSpecies}
+            freshness={freshnessState}
+            freshnessLabel={freshnessLabel}
             activeFilters={{
               notable: state.notable,
               since: state.since,
