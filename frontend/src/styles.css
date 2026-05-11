@@ -1380,13 +1380,15 @@ dialog.species-detail-modal .species-detail-modal-close {
   line-height: 1.4;
 }
 
-/* ── Map loading skeleton (.map-loading-skeleton) — IMPORTANT ──────────────
+/* ── Map loading skeleton (.map-loading-skeleton) ───────────────────────────
    Loading-state placeholder while the map data fetches (MapSurface.tsx:191).
    Without a rule the bare <div> collapses to zero height and the loading state
-   is invisible. Token-driven shimmer animation adapts automatically to
-   light/dark via --color-bg-skeleton and --color-bg-skeleton-highlight from
-   tokens.css. The inline styles on the element (MapSurface.tsx:195-200) are
-   superseded by this rule. */
+   is invisible. This rule contributes the shimmer `animation` only; the inline
+   `style={}` on MapSurface.tsx:195-200 sets background via `--color-bg-tint`
+   and wins on specificity, so `--color-bg-skeleton` / `--color-bg-skeleton-
+   highlight` tokens are not painted. A future cleanup could move the inline
+   styles into this rule once the skeleton component is refactored to
+   className-only. */
 .map-loading-skeleton {
   width: 100%;
   height: 100%;
