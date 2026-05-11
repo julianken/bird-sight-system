@@ -261,7 +261,13 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
       >
         <span aria-hidden="true" className="sheet-handle-grip" />
       </button>
-      <div className="sheet-scroll">
+      {/* axe `scrollable-region-focusable` (WCAG 2.1.1): .sheet-scroll has
+          overflow-y: auto so it can scroll when species detail content
+          (photo + phenology chart) exceeds the sheet height. Keyboard users
+          must be able to focus the scrollable region itself — tabIndex={0}
+          adds it to the tab order. Mirrors the same fix on #main-surface
+          in App.tsx. */}
+      <div className="sheet-scroll" tabIndex={0}>
         <SpeciesDetailSurface speciesCode={speciesCode} apiClient={apiClient} />
       </div>
     </div>

@@ -121,6 +121,7 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
         family={data.familyCode as FamilyCode | null}
         priority={true}
         layout="masthead"
+        silhouetteTestId="species-detail-silhouette"
       />
       <h1 id="detail-title" tabIndex={-1} className="detail-name">
         {data.comName}

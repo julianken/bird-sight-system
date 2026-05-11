@@ -52,8 +52,15 @@ const NULL_FAMILY_CHANNEL: FamilyChannel = {
 /**
  * Returns the color+shape channel for a given family code.
  * Passing `null` returns the neutral grey channel — never throws.
+ *
+ * Defensive: if `family` is a non-null string that is not in the 7-item
+ * FamilyCode palette (e.g. a raw eBird family code like "tyrannidae" that
+ * hasn't been mapped), falls back to NULL_FAMILY_CHANNEL rather than
+ * returning undefined and crashing downstream callers. The `as FamilyCode`
+ * casts in consumers (e.g. SpeciesDetailSurface) mean the TypeScript type
+ * alone cannot guard this — the runtime check is load-bearing.
  */
 export function getFamilyChannel(family: FamilyCode | null): FamilyChannel {
   if (family === null) return NULL_FAMILY_CHANNEL;
-  return FAMILY_PALETTE[family];
+  return FAMILY_PALETTE[family] ?? NULL_FAMILY_CHANNEL;
 }
