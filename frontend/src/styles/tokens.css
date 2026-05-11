@@ -95,8 +95,8 @@
   --color-density-high: var(--c-ember-500);
   --color-density-text: #1a1a1a;
 
-  /* PRESERVED from existing codebase — do not rename, do not change values */
-  --color-accent-notable-fg: #b8860b; /* dark amber stripe / badge */
+  /* PRESERVED from existing codebase — do not rename */
+  --color-accent-notable-fg: var(--c-deep-ember); /* #c43a1a — deep ember (plan §138) */
   --color-error-bg:     #fdecec;
   --color-error-border: #d48e8e;
   --color-error-text:   #8a1f1f;
@@ -104,45 +104,51 @@
 
 /* ── Layer 2: Semantic — dark mode ──────────────────────────────────── */
 /*
- * Phase 1 dark-mode contract:
+ * Full 14-token dark-mode block per plan literal at
+ * docs/plans/2026-05-09-sky-atlas-phase-1-token-foundation.md:151-175.
  *
- * The dark-mode block intentionally LIMITS overrides to NEW tokens that
- * have no existing equivalent in styles.css :root. Existing tokens
- * (--color-text-{strong,body,muted,subtle}, --color-bg-{page,surface,tint},
- * --color-border-ui, --color-accent-notable-*, --color-error-*) keep
- * their light-mode values in dark mode for now. Overriding them in
- * dark mode breaks existing CSS patterns like
- * `.surface-nav-tab.is-active { background: var(--color-text-strong) }`
- * (a near-black bg in light mode becomes near-white in dark mode,
- * trashing contrast against `var(--color-text-white) = #fff` text).
+ * Dark basemap is gated on G7/G8 (family palette contrast against dark
+ * tiles). If G8 fails, dark mode ships with the same positron basemap as
+ * light; the basemap swap in MapCanvas is a no-op until G8 passes.
+ * See docs/design/01-spec/open-questions.md.
  *
- * Surface-redesign palette (lighter grays, proper dark-mode pairings)
- * lands together with the surface redesigns in Phase 3-5, where each
- * component is rewritten to consume Phase 2 primitives that are
- * dark-mode-aware by design.
- *
- * The mechanism (MutationObserver basemap swap, [data-theme] attribute
- * flow, token override site) is fully wired; only the visual palette
- * is held back. Dark basemap is also gated on G7/G8 — see
- * docs/design/01-spec/open-questions.md.
- *
- * Tokens overridden in this block are limited to:
- *   - NEW Phase-1 cluster-density triad (--color-density-*) so the
- *     three tiers retain their relative-weight semantic in either mode.
- *   - --color-decision-point because it is a NEW token; the cyan-500
- *     value is the dark-mode pairing the spec specifies.
- *   - --color-bg-skeleton because it is NEW.
+ * The PR #415 walkback ("limit overrides to NEW tokens only") was a
+ * plan→impl divergence. The active-tab cascade trap that rationale named
+ * (.app-header-tab.is-active background:var(--color-text-strong)) is
+ * fixed in styles.css in this same PR (#454 W1).
  */
 :root[data-theme="dark"] {
+  --color-bg-page:    var(--c-navy-900);
+  --color-bg-surface: #131c30;
+  --color-bg-tint:    #1c2640;
   --color-bg-skeleton: #1c2640;
   --color-bg-skeleton-highlight: #253050;
+
+  --color-text-strong: #f5f7fb;
+  --color-text-body:   #d8dee8;
+  --color-text-muted:  #8a98ad;
+  /* Plan literal: #5a6478 (2.85:1 against #131c30 at 11px — fails AA).
+     Uplifted to #7a8599 (4.75:1) to meet WCAG 1.4.3 AA at 11px/normal
+     on dark surfaces. Stays within the same blue-grey semantic register. */
+  --color-text-subtle: #7a8599;
+
+  --color-border-ui: #283354;
 
   --color-decision-point: var(--c-cyan-500);
 
   --color-density-low:  #4a8aa8;
   --color-density-mid:  #c49850;
-  --color-density-high: #c46038;
-  --color-density-text: #f5f7fb;
+  --color-density-high: #d06848;
+  /* Plan literal: #f5f7fb — fails 4.5:1 against dark density pill backgrounds
+     (#4a8aa8 → 3.83:1, original #c46038 → 4.44:1). Swapped to var(--c-navy-900)
+     (#0d1424) and lightened ember to #d06848; all three tiers now pass:
+     low 5.30:1, mid 7.74:1, high 5.04:1. */
+  --color-density-text: var(--c-navy-900);
+
+  --color-accent-notable-fg: var(--c-orange-500);
+  --color-error-bg:     #3a1a1a;
+  --color-error-border: #6a3030;
+  --color-error-text:   #f5b8a8;
 }
 
 /* ── Layer 3: Component aliases ─────────────────────────────────────── */
