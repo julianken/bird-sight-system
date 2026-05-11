@@ -201,4 +201,31 @@ describe('<SpeciesDetailSheet>', () => {
 
     await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
+
+  it('unmounting at full snap cleans up inert on <main> (viewport-flip regression)', async () => {
+    // Simulate: mobile user opens sheet, drags to full snap (inert set), then
+    // rotates device. App.tsx's viewport router unmounts SpeciesDetailSheet
+    // and mounts SpeciesDetailModal. Without the cleanup function the inert
+    // attribute leaks onto <main> and blocks all pointer events + tab order.
+    const { unmount } = render(
+      <SpeciesDetailSheet
+        speciesCode="vermfly"
+        apiClient={makeClient()}
+        onClose={vi.fn()}
+        mainRef={{ current: mainEl }}
+      />
+    );
+    const expand = await screen.findByRole('button', { name: /expand/i });
+
+    // Advance to half, then full — inert is set on <main> by goToSnap('full').
+    await userEvent.click(expand);
+    await userEvent.click(expand);
+    expect(mainEl).toHaveAttribute('inert', '');
+
+    // Simulate the viewport flip: sheet unmounts (modal would mount next).
+    unmount();
+
+    // Cleanup must have removed inert — the modal that takes over starts clean.
+    expect(mainEl).not.toHaveAttribute('inert');
+  });
 });

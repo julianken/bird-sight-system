@@ -105,12 +105,34 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
   // from 'full', the React commit runs first (the new role="region"
   // attribute lands on the sheet), then this layout effect fires and
   // removes `inert` from <main>. Observable order: role → inert-removal.
+  //
+  // The cleanup function is the load-bearing fix for the viewport-flip bug:
+  // if the user rotates the device mid-snap, App.tsx swaps SpeciesDetailSheet
+  // for SpeciesDetailModal and this sheet unmounts without ever reaching the
+  // snap !== 'full' branch above. Without cleanup, `inert` leaks onto <main>
+  // indefinitely — pointer events blocked, tab order broken.
+  //
+  // Cleanup closure mechanics: `snap` is captured at effect-run time. When the
+  // effect ran with snap==='full', the cleanup removes inert — covering both
+  // the normal collapse path and the unmount-at-full (viewport-flip) path.
+  // When the effect ran with snap!=='full', the cleanup is a no-op (inert
+  // was already removed in the effect body), so intermediate snap transitions
+  // (peek→half, half→peek, etc.) don't disturb the sequencing contract.
   useLayoutEffect(() => {
     const main = mainRef.current;
     if (!main) return;
-    if (snap !== 'full' && main.hasAttribute('inert')) {
+    if (snap !== 'full') {
       main.removeAttribute('inert');
     }
+    const wasAtFull = snap === 'full';
+    return () => {
+      // If this effect ran while at full snap, remove inert on teardown.
+      // This covers both normal snap transitions (cleanup before next effect
+      // body) and unmount mid-snap (viewport-flip: sheet→modal handoff).
+      if (wasAtFull) {
+        main.removeAttribute('inert');
+      }
+    };
   }, [snap, mainRef]);
 
   const goToSnap = useCallback(
