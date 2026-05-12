@@ -393,3 +393,44 @@ describe('Phase 3: shape-paired swatches', () => {
     }
   });
 });
+
+describe('DB color binding (NEW-3 fix)', () => {
+  it('legend silhouette chips use the DB color from silhouettes[].color, not the grey fallback', () => {
+    // The tyrannidae silhouette has color '#C77A2E' in baseSilhouettes.
+    // Before the fix, every entry rendered grey (#5a6472 / null-family fallback)
+    // because the legend passed paletteCode=null for all unknown family codes.
+    // After the fix, the silhouette.color from the DB payload must reach
+    // <FamilySilhouette color="..."> and override channel.fill.
+    render(
+      <FamilyLegend
+        silhouettes={baseSilhouettes}
+        observations={baseObservations}
+        familyCode={null}
+        onFamilyToggle={vi.fn()}
+        defaultExpanded={true}
+      />,
+    );
+    // Find the tyrannidae entry's FamilySilhouette span
+    const tyrEntry = screen.getByRole('button', { name: /Tyrant Flycatchers/ });
+    const silhouette = tyrEntry.querySelector('[data-testid="family-silhouette"]') as HTMLElement;
+    expect(silhouette).not.toBeNull();
+    // Must use DB color #C77A2E, NOT the grey null-family fallback #5a6472
+    expect(silhouette.style.getPropertyValue('--family-fill')).toBe('#C77A2E');
+  });
+
+  it('trochilidae legend chip uses its DB color', () => {
+    render(
+      <FamilyLegend
+        silhouettes={baseSilhouettes}
+        observations={baseObservations}
+        familyCode={null}
+        onFamilyToggle={vi.fn()}
+        defaultExpanded={true}
+      />,
+    );
+    const trochEntry = screen.getByRole('button', { name: /Hummingbirds/ });
+    const silhouette = trochEntry.querySelector('[data-testid="family-silhouette"]') as HTMLElement;
+    expect(silhouette).not.toBeNull();
+    expect(silhouette.style.getPropertyValue('--family-fill')).toBe('#7B2D8E');
+  });
+});

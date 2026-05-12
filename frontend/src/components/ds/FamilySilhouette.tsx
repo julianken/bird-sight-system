@@ -34,6 +34,15 @@ export interface FamilySilhouetteProps {
   layout?: SilhouetteLayout;
   /** Overrides the palette's default shape if provided. */
   shape?: ShapeVariant;
+  /**
+   * Concrete hex color from the DB silhouettes payload (e.g. "#C77A2E").
+   * When provided, overrides the palette channel's fill in the inline style.
+   * The FAMILY_PALETTE fill becomes shape-encoding-only when this is set.
+   * If absent, falls back to the palette channel fill (or neutral grey for
+   * unknown/null families). This preserves graceful degradation for
+   * consumers that haven't yet threaded the silhouettes color down.
+   */
+  color?: string;
   /** aria-label for standalone use. Omit when inside <Photo> (aria-hidden). */
   ariaLabel?: string;
 }
@@ -71,6 +80,7 @@ export function FamilySilhouette({
   family,
   layout = 'inline',
   shape: shapeProp,
+  color,
   ariaLabel,
 }: FamilySilhouetteProps): ReactNode {
   // Narrow to a known FamilyCode if recognized; treat unknowns as null.
@@ -87,6 +97,10 @@ export function FamilySilhouette({
   // prop (string) so TypeScript can verify the index against the Record type.
   const pathKey = knownFamily ?? '__null__';
   const path = FAMILY_PATHS[pathKey];
+  // `color` prop (DB-sourced hex) takes precedence over the palette channel
+  // fill. The palette's fill becomes shape-encoding-only when color is set.
+  // This makes the DB silhouettes table the single source of truth for color.
+  const fill = color ?? channel.fill;
 
   const classes = [
     'family-silhouette',
@@ -102,7 +116,7 @@ export function FamilySilhouette({
       data-testid="family-silhouette"
       data-family={String(family)}
       data-layout={layout}
-      style={{ '--family-fill': channel.fill } as React.CSSProperties}
+      style={{ '--family-fill': fill } as React.CSSProperties}
     >
       <svg
         viewBox="0 0 100 100"

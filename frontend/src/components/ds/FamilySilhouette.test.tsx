@@ -77,6 +77,37 @@ describe('<FamilySilhouette>', () => {
     expect(document.querySelector('.family-silhouette--circle')).toBeInTheDocument();
   });
 
+  // --- color prop (DB-sourced hex override) ---
+
+  it('uses the color prop as --family-fill when provided, overriding the palette fill', () => {
+    // The DB silhouettes payload ships real hex per familyCode. When passed as
+    // `color`, it must win over the palette channel's fill regardless of whether
+    // `family` is a known FamilyCode or a raw eBird code.
+    render(<FamilySilhouette family="tyrannidae" color="#C77A2E" />);
+    const el = document.querySelector('[data-testid="family-silhouette"]');
+    expect(el).toBeInTheDocument();
+    // color prop must override the null-family fallback (#5a6472)
+    expect(el).toHaveStyle({ '--family-fill': '#C77A2E' });
+  });
+
+  it('uses the color prop as --family-fill for a known FamilyCode too', () => {
+    // Even for known family codes, the DB color (passed as prop) wins over the
+    // palette — the palette's fill becomes shape-encoding-only.
+    render(<FamilySilhouette family="raptor" color="#FF0000" />);
+    const el = document.querySelector('[data-testid="family-silhouette"]');
+    expect(el).toHaveStyle({ '--family-fill': '#FF0000' });
+  });
+
+  it('falls back to palette fill when color prop is absent', () => {
+    // When color is not provided, the existing palette-channel fill applies.
+    // This preserves the graceful degradation path (null silhouettes / missing
+    // color) so components that don't yet thread color remain grey.
+    render(<FamilySilhouette family="raptor" />);
+    const el = document.querySelector('[data-testid="family-silhouette"]');
+    // raptor palette fill is #8b5e3c (FAMILY_PALETTE)
+    expect(el).toHaveStyle({ '--family-fill': '#8b5e3c' });
+  });
+
   // --- Unknown / raw eBird codes ---
 
   it('renders the null-family neutral path (not a crash) for an unknown raw eBird family code', () => {

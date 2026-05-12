@@ -41,6 +41,11 @@ export interface PhotoProps {
   priority?: boolean;
   attribution?: { text: string; href: string };
   layout?: PhotoLayout;
+  /**
+   * Concrete hex color from the DB silhouettes payload. When provided, overrides
+   * the palette channel fill in <FamilySilhouette>. Absent = palette/grey fallback.
+   */
+  color?: string;
 }
 
 type PhotoInternalState = 'null' | 'loading' | 'loaded' | 'errored';
@@ -52,6 +57,7 @@ export function Photo({
   priority = false,
   attribution,
   layout = 'inline',
+  color,
 }: PhotoProps): ReactNode {
   const [imgState, setImgState] = useState<PhotoInternalState>(
     src === null ? 'null' : 'loading'
@@ -88,7 +94,11 @@ export function Photo({
   if (showSilhouette) {
     return (
       <span className={classes}>
-        <FamilySilhouette family={family} layout={layout} />
+        <FamilySilhouette
+          family={family}
+          layout={layout}
+          {...(color !== undefined ? { color } : {})}
+        />
       </span>
     );
   }

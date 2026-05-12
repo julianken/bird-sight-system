@@ -160,11 +160,11 @@ export function FamilyLegend({
         >
           {entries.map(entry => {
             const active = entry.familyCode === familyCode;
-            // Resolve the palette channel for shape encoding. Codes not
-            // in FAMILY_PALETTE (e.g. novel families not yet in the type
-            // union) fall back to the null channel via getFamilyChannel(null),
-            // which returns a neutral grey circle — shape still satisfies
-            // WCAG 1.4.1 (circle is the null-family sentinel).
+            // Shape is still sourced from the palette channel (WCAG 1.4.1 —
+            // color is not the sole discriminator). Codes not in FAMILY_PALETTE
+            // fall back to the null-channel shape (circle). The fill color,
+            // however, now comes from the DB silhouettes payload via the `color`
+            // prop — the palette fill is shape-encoding-only after this fix.
             const paletteCode = (entry.familyCode in FAMILY_PALETTE)
               ? (entry.familyCode as FamilyCode)
               : null;
@@ -180,9 +180,10 @@ export function FamilyLegend({
                   onClick={() => onFamilyToggle(entry.familyCode)}
                 >
                   <FamilySilhouette
-                    family={paletteCode}
+                    family={entry.familyCode}
                     layout="thumb"
                     shape={shape}
+                    color={entry.silhouette.color}
                   />
                   <span className="family-legend-entry-label">{entry.label}</span>
                   <span

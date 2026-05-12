@@ -6,6 +6,7 @@ import type { SpeciesMeta, FamilySilhouette } from '@bird-watch/shared-types';
 import { __resetSilhouettesCache } from '../data/use-silhouettes.js';
 import { __resetSpeciesDetailCache } from '../data/use-species-detail.js';
 import { analytics } from '../analytics.js';
+import { FAMILY_COLOR_FALLBACK } from '../data/family-color.js';
 
 // Mock posthog-js so no network call escapes the test environment, even
 // if a future contributor sets `VITE_POSTHOG_KEY` in their local .env.
@@ -347,6 +348,27 @@ describe('SpeciesDetailSurface', () => {
     await waitFor(() =>
       expect(container.querySelector('.family-silhouette')).not.toBeNull()
     );
+  });
+
+  it('masthead silhouette carries family DB color (not grey) when photoUrl is null and silhouettes resolve', async () => {
+    // Bot finding on #480: Photo.color was added but SpeciesDetailSurface never
+    // resolved or forwarded it. When data.photoUrl is null the silhouette must
+    // render in the family's DB color, not the FAMILY_COLOR_FALLBACK grey.
+    const client = makeClient({
+      getSpecies: vi.fn().mockResolvedValue(VERMFLY),
+      getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
+    } as unknown as Partial<ApiClient>);
+    const { container } = render(<SpeciesDetailSurface speciesCode="vermfly" apiClient={client} />);
+    // Wait for the silhouette to render (data and silhouettes must both resolve).
+    const silhouetteEl = await waitFor(() => {
+      const el = container.querySelector('.family-silhouette') as HTMLElement | null;
+      if (!el) throw new Error('.family-silhouette not yet rendered');
+      return el;
+    });
+    // The DB color (#C77A2E) from TYRANNIDAE_SILHOUETTE must be wired through
+    // buildFamilyColorResolver → Photo.color → FamilySilhouette → --family-fill.
+    expect(silhouetteEl.style.getPropertyValue('--family-fill')).toBe('#C77A2E');
+    expect(silhouetteEl.style.getPropertyValue('--family-fill')).not.toBe(FAMILY_COLOR_FALLBACK);
   });
 
   // ─── Analytics instrumentation (issue #357 tasks 3, 4) ─────────────────
