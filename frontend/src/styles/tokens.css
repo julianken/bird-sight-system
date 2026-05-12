@@ -146,6 +146,13 @@
   --color-density-text: var(--c-navy-900);
 
   --color-accent-notable-fg: var(--c-orange-500);
+  /* Hotfix NEW-1: light-mode #fff8e1 was not overridden here, so dark mode
+     resolved the pale cream on a dark navy page — low contrast and jarring.
+     Deep amber-shadow (#2a2620) passes 14.02:1 against --color-text-strong
+     (#f5f7fb) in dark. The orange left-border (--color-accent-notable-fg)
+     and light text remain coherent against this warm dark ground. */
+  --color-accent-notable-bg:       #2a2620; /* deep amber-shadow (14.02:1 vs #f5f7fb) */
+  --color-accent-notable-bg-hover: #332e26; /* slight lift on hover                  */
   --color-error-bg:     #3a1a1a;
   --color-error-border: #6a3030;
   --color-error-text:   #f5b8a8;

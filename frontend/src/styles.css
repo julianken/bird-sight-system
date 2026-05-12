@@ -438,6 +438,13 @@ body {
   color: var(--color-text-subtle);
   font-variant-numeric: tabular-nums;
 }
+/* Notable-row timestamp override: --color-text-subtle (#7a8599 dark) on
+   #2a2620 = 4.04:1 — still below AA 4.5:1. Override to --color-text-muted
+   (#8a98ad dark) which gives 5.14:1 against #2a2620. Light mode is
+   unaffected (both tokens resolve to similar values on the warm-cream bg). */
+.feed-row-notable .feed-row-time {
+  color: var(--color-text-muted);
+}
 /* FeedCard — elevated hero treatment for the top-notable observation.
    Sits ABOVE the flat FeedRow list in FeedSurface. Visually distinct from
    .feed-row via card frame (background + border-radius + shadow), larger
