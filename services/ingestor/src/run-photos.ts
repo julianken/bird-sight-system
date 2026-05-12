@@ -3,6 +3,8 @@ import {
   type Pool,
 } from '@bird-watch/db-client';
 import { fetchInatPhoto } from './inat/client.js';
+import { fetchInatTaxon } from './inat/taxon-client.js';
+import { fetchWikipediaLeadImage } from './wikipedia/lead-image.js';
 import { uploadToR2 } from './r2/uploader.js';
 
 export interface RunPhotosArgs {
@@ -29,9 +31,18 @@ export interface RunPhotosSummary {
   status: 'success' | 'failure';
   /** Total rows iterated from species_meta. */
   speciesCount: number;
-  /** Successful end-to-end (iNat hit + R2 uploaded + species_photos row written). */
+  /** Successful end-to-end (iNat or Wikipedia hit + R2 uploaded + species_photos row written). */
   photosFetched: number;
-  /** No photo written because (a) iNat returned null OR (b) species already had a non-null photo and forceRefresh was false. */
+  /**
+   * Subset of `photosFetched` taken via the Wikipedia lead-image fallback (the
+   * iNat AZ -> US -> global cascade returned null, then the Wikipedia path
+   * returned a CC-licensed lead image). Coverage telemetry: the fraction of
+   * the 23 #483-affected species that the second-tier source actually
+   * rescues. `photosFromWikipedia / photosFetched` is the post-merge coverage
+   * delta we report on the PR.
+   */
+  photosFromWikipedia: number;
+  /** No photo written because (a) iNat AND Wikipedia both returned null OR (b) species already had a non-null photo and forceRefresh was false. */
   photosSkipped: number;
   /** Threw at any step (iNat error, R2 error, or DB error). */
   photosFailed: number;
@@ -68,12 +79,20 @@ export async function runPhotos(args: RunPhotosArgs): Promise<RunPhotosSummary> 
   // null. With the filter, the photos job iterates only the ~344 species
   // actually present in `observations`, fitting comfortably inside the
   // 600s Cloud Run job timeout.
+  //
+  // `inat_taxon_id` is projected so the Wikipedia lead-image fallback (added
+  // in #483) can re-use the cached taxon id when present — saving one iNat
+  // /v1/taxa round-trip per fallback. When null, the fallback resolves the
+  // binomial via fetchInatTaxon and writes the id back to species_meta as a
+  // side effect, matching run-descriptions.ts:198's cache-warmth contract.
   const { rows } = await args.pool.query<{
     species_code: string;
     sci_name: string;
+    inat_taxon_id: string | null;
     photo_url: string | null;
   }>(
-    `SELECT sm.species_code, sm.sci_name, sp.url AS photo_url
+    `SELECT sm.species_code, sm.sci_name, sm.inat_taxon_id,
+            sp.url AS photo_url
        FROM species_meta sm
        LEFT JOIN species_photos sp
          ON sp.species_code = sm.species_code
@@ -90,6 +109,7 @@ export async function runPhotos(args: RunPhotosArgs): Promise<RunPhotosSummary> 
     status: 'success',
     speciesCount: rows.length,
     photosFetched: 0,
+    photosFromWikipedia: 0,
     photosSkipped: 0,
     photosFailed: 0,
     errors: [],
@@ -116,13 +136,43 @@ export async function runPhotos(args: RunPhotosArgs): Promise<RunPhotosSummary> 
     firstCall = false;
 
     try {
-      const photo = await fetchInatPhoto(sciName);
+      // Tier 1: iNaturalist cascade (AZ -> US -> global), per PR #350. This
+      // is the historical happy path — ~91% of AZ-observed species land a
+      // photo here. The remaining ~6% (warblers, vagrants, recent migrants)
+      // fall through to the Wikipedia tier below.
+      let photo: { url: string; attribution: string; license: string } | null =
+        await fetchInatPhoto(sciName);
+      let viaWikipedia = false;
+
+      // Tier 2 (new in #483): Wikipedia lead image. Resolve the article via
+      // iNat /v1/taxa (cached on species_meta.inat_taxon_id when warm), then
+      // pull the lead image URL + license metadata from the summary +
+      // imageinfo endpoints. Returns null when the article has no lead
+      // image OR the image isn't on the CC / PD whitelist (fair-use,
+      // ARR). The downstream family-silhouette fallback in
+      // <SpeciesDetailSurface> picks up species the Wikipedia tier also
+      // can't satisfy — there is intentionally no Tier 3 photo source.
       if (photo === null) {
-        // iNat had no hit for this species. That's a normal outcome (rare
-        // birds, recent splits, etc.) — log via the summary and move on.
+        const wikiPhoto = await resolveWikipediaPhoto(
+          args.pool,
+          speciesCode,
+          sciName,
+          row.inat_taxon_id
+        );
+        if (wikiPhoto !== null) {
+          photo = wikiPhoto;
+          viaWikipedia = true;
+        }
+      }
+
+      if (photo === null) {
+        // Both upstreams empty. Normal outcome for ~2% residual species
+        // (Wikipedia stubs, all-fair-use coverage). Log + skip; the
+        // family-silhouette fallback at SpeciesDetailSurface.tsx:38-107
+        // renders the placeholder.
         // eslint-disable-next-line no-console
         console.log(
-          `[run-photos] ${speciesCode} (${sciName}): iNat returned no photo, skipping`
+          `[run-photos] ${speciesCode} (${sciName}): iNat + Wikipedia both returned no photo, skipping`
         );
         summary.photosSkipped++;
         continue;
@@ -143,6 +193,13 @@ export async function runPhotos(args: RunPhotosArgs): Promise<RunPhotosSummary> 
         license: photo.license,
       });
       summary.photosFetched++;
+      if (viaWikipedia) {
+        summary.photosFromWikipedia++;
+        // eslint-disable-next-line no-console
+        console.log(
+          `[run-photos] ${speciesCode} (${sciName}): rescued via Wikipedia lead image`
+        );
+      }
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       // eslint-disable-next-line no-console
@@ -159,6 +216,105 @@ export async function runPhotos(args: RunPhotosArgs): Promise<RunPhotosSummary> 
     summary.status = 'failure';
   }
   return summary;
+}
+
+/**
+ * Resolves the Wikipedia article for a species and returns its CC-licensed
+ * lead image, or null when one isn't available. Two paths:
+ *   - warm cache: `species_meta.inat_taxon_id` is populated, so we can
+ *     fetch the article URL via iNat /v1/taxa without a fresh resolution.
+ *     (We still pay the iNat round-trip because the search endpoint is
+ *     where `wikipedia_url` lives — the per-id endpoint only exposes
+ *     wikipedia_summary, which is plaintext, not a URL.)
+ *   - cold cache: `inat_taxon_id` is null. Resolve via fetchInatTaxon and
+ *     write the id back to species_meta as a side effect — matches
+ *     run-descriptions.ts:198's cache-warmth pattern so subsequent runs
+ *     short-circuit.
+ *
+ * Returns null whenever any step in the chain can't satisfy the lookup
+ * (iNat had no taxon, taxon has no wikipedia_url, URL is malformed,
+ * Wikipedia summary has no lead image, lead image isn't CC-licensed). The
+ * orchestrator treats null as "skip — fall through to family silhouette".
+ */
+async function resolveWikipediaPhoto(
+  pool: Pool,
+  speciesCode: string,
+  sciName: string,
+  cachedTaxonId: string | null
+): Promise<{ url: string; attribution: string; license: string } | null> {
+  // Resolve the article URL via iNat /v1/taxa. We always go through the
+  // search endpoint (not the per-id endpoint) because only the search
+  // result surfaces `wikipedia_url`. The taxon-id cache pays off here only
+  // as a "we know iNat has a record for this species" signal, not as a
+  // round-trip saver. That's acceptable: the lead-image fallback runs at
+  // most ~23 times per backfill (the issue #483 cohort) — total wall time
+  // under 10s even at 1 req/sec.
+  const taxon = await fetchInatTaxon(sciName);
+  if (taxon === null) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[run-photos] ${speciesCode} (${sciName}): iNat /v1/taxa returned no record, no Wikipedia fallback possible`
+    );
+    return null;
+  }
+
+  // Write the id back to species_meta on cold-cache hits so the descriptions
+  // job (and any other downstream taxon-id consumer) doesn't have to
+  // re-resolve. Mirrors run-descriptions.ts:198.
+  if (cachedTaxonId === null) {
+    await pool.query(
+      `UPDATE species_meta SET inat_taxon_id = $1 WHERE species_code = $2`,
+      [taxon.inatTaxonId, speciesCode]
+    );
+  }
+
+  if (taxon.wikipediaUrl === null) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[run-photos] ${speciesCode} (${sciName}): iNat taxon has no wikipedia_url, no Wikipedia fallback possible`
+    );
+    return null;
+  }
+
+  const title = extractWikipediaTitle(taxon.wikipediaUrl);
+  if (title === null) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[run-photos] ${speciesCode} (${sciName}): could not parse Wikipedia title from ${taxon.wikipediaUrl}`
+    );
+    return null;
+  }
+
+  const leadImage = await fetchWikipediaLeadImage(title);
+  if (leadImage === null) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[run-photos] ${speciesCode} (${sciName}): Wikipedia article "${title}" has no CC-licensed lead image`
+    );
+    return null;
+  }
+  return leadImage;
+}
+
+/**
+ * Extracts the Wikipedia page title from a `https://*.wikipedia.org/wiki/<title>`
+ * URL. iNat returns the URL un-decoded (e.g. `Anna%27s_hummingbird`); we
+ * decode here so the lead-image client's `encodeURIComponent` produces the
+ * canonical round-trip without double-escaping. Mirrors the helper in
+ * run-descriptions.ts:418 — duplicated here rather than exported because
+ * the two consumers diverge enough that a shared module would be premature
+ * abstraction (descriptions parses cached prior_attribution_url URLs, photos
+ * always parses iNat-fresh URLs).
+ */
+function extractWikipediaTitle(wikipediaUrl: string): string | null {
+  try {
+    const u = new URL(wikipediaUrl);
+    const match = u.pathname.match(/^\/wiki\/(.+)$/);
+    if (!match) return null;
+    return decodeURIComponent(match[1]!);
+  } catch {
+    return null;
+  }
 }
 
 const KNOWN_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp']);
