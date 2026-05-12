@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import type { ApiClient } from '../api/client.js';
 import { useSpeciesDetail } from '../data/use-species-detail.js';
 import { useSilhouettes } from '../data/use-silhouettes.js';
-import { buildFamilyColorResolver } from '../data/family-color.js';
+import { buildFamilyColorResolver, buildFamilyPathResolver } from '../data/family-color.js';
 import { analytics } from '../analytics.js';
 import { PhenologyChart } from './PhenologyChart.js';
 import { SpeciesDescription } from './SpeciesDescription.js';
@@ -51,6 +51,14 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
   // family's DB color when photoUrl is null (bot finding on #480).
   const resolveColor = useMemo(
     () => buildFamilyColorResolver(silhouettes),
+    [silhouettes],
+  );
+
+  // Build the familyCode → svgData (path) resolver once per silhouettes identity
+  // change. Mirrors the color resolver — ensures the masthead fallback silhouette
+  // renders the real DB shape (not the generic apple glyph).
+  const resolvePath = useMemo(
+    () => buildFamilyPathResolver(silhouettes),
     [silhouettes],
   );
 
@@ -129,6 +137,7 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
         alt={`${data.comName} photo`}
         family={data.familyCode as FamilyCode | null}
         color={resolveColor(data.familyCode)}
+        pathD={resolvePath(data.familyCode)}
         priority={true}
         layout="masthead"
       />

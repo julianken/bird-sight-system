@@ -46,6 +46,12 @@ export interface PhotoProps {
    * the palette channel fill in <FamilySilhouette>. Absent = palette/grey fallback.
    */
   color?: string;
+  /**
+   * Raw SVG path string from the DB silhouettes payload. When provided, overrides
+   * the abstract FAMILY_PATHS lookup in <FamilySilhouette> so the detail masthead
+   * fallback renders the real family shape. Absent = abstract palette path fallback.
+   */
+  pathD?: string | null;
 }
 
 type PhotoInternalState = 'null' | 'loading' | 'loaded' | 'errored';
@@ -58,6 +64,7 @@ export function Photo({
   attribution,
   layout = 'inline',
   color,
+  pathD,
 }: PhotoProps): ReactNode {
   const [imgState, setImgState] = useState<PhotoInternalState>(
     src === null ? 'null' : 'loading'
@@ -98,6 +105,7 @@ export function Photo({
           family={family}
           layout={layout}
           {...(color !== undefined ? { color } : {})}
+          {...(pathD != null ? { pathD } : {})}
         />
       </span>
     );

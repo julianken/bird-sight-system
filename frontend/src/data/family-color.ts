@@ -10,7 +10,42 @@ import type { FamilySilhouette } from '@bird-watch/shared-types';
  */
 export const FAMILY_COLOR_FALLBACK = '#555';
 
+export type FamilyPathResolver = (familyCode: string | null | undefined) => string | null;
+
 export type FamilyColorResolver = (familyCode: string | null | undefined) => string;
+
+/**
+ * Build a `familyCode → svgData` resolver from the `/api/silhouettes` response.
+ *
+ * Mirrors `buildFamilyColorResolver` — the DB stores per-family SVG path data
+ * keyed by real eBird family code (e.g. "tyrannidae", "accipitridae"). This
+ * resolver is the single source of truth for shape; it replaces the
+ * frontend-only abstract FAMILY_PATHS palette for all DB-backed families.
+ *
+ * Fallback semantics:
+ *   - null / undefined familyCode → null (caller falls back to FAMILY_PATHS)
+ *   - familyCode not in silhouettes → null
+ *   - svgData is null for that family → null (Phylopic-less policy)
+ *   - silhouettes === [] (pre-resolve) → null for every code
+ *
+ * Returns null (not a sentinel string) so callers can detect "no DB shape
+ * available" and fall back to the abstract FAMILY_PATHS palette gracefully.
+ * This preserves the graceful degradation contract for test environments and
+ * the cold-load state before useSilhouettes resolves.
+ */
+export function buildFamilyPathResolver(
+  silhouettes: readonly FamilySilhouette[],
+): FamilyPathResolver {
+  const byFamily = new Map<string, string | null>();
+  for (const s of silhouettes) byFamily.set(s.familyCode.toLowerCase(), s.svgData);
+
+  return (familyCode: string | null | undefined): string | null => {
+    if (!familyCode) return null;
+    const key = familyCode.toLowerCase();
+    if (!byFamily.has(key)) return null;
+    return byFamily.get(key) ?? null;
+  };
+}
 
 /**
  * Build a `familyCode → color` resolver from the `/api/silhouettes` response.

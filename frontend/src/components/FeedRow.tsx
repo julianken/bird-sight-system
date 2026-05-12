@@ -14,6 +14,13 @@ export interface FeedRowProps {
    * falls back to the null-family grey (graceful degradation).
    */
   color?: string;
+  /**
+   * Raw SVG path string from the DB silhouettes payload resolved by the
+   * parent (FeedSurface) via buildFamilyPathResolver. When provided,
+   * overrides the abstract FAMILY_PATHS lookup in <FamilySilhouette>.
+   * When absent, falls back to the abstract palette path (graceful degradation).
+   */
+  pathD?: string | null;
 }
 
 /**
@@ -52,7 +59,7 @@ export interface FeedRowProps {
  * identity-stable onSelectSpecies (useCallback in parent).
  */
 function FeedRowImpl(props: FeedRowProps) {
-  const { observation, now, onSelectSpecies, color } = props;
+  const { observation, now, onSelectSpecies, color, pathD } = props;
 
   function activate() {
     onSelectSpecies(observation.speciesCode);
@@ -94,6 +101,7 @@ function FeedRowImpl(props: FeedRowProps) {
           family={observation.familyCode}
           layout="thumb"
           {...(color !== undefined ? { color } : {})}
+          {...(pathD != null ? { pathD } : {})}
         />
         <span className="feed-row-name" aria-hidden="true">{observation.comName}</span>
         {countContent.chip !== null && (

@@ -17,6 +17,12 @@ export interface FeedCardProps {
    * the palette channel fill in <FamilySilhouette>. Absent = palette/grey fallback.
    */
   color?: string;
+  /**
+   * Raw SVG path string from the DB silhouettes payload. When provided, overrides
+   * the abstract FAMILY_PATHS lookup in <FamilySilhouette>.
+   * Absent = abstract palette path fallback.
+   */
+  pathD?: string | null;
 }
 
 /**
@@ -54,7 +60,7 @@ export interface FeedCardProps {
  *   </li>
  */
 export function FeedCard(props: FeedCardProps) {
-  const { observation, now, onSelectSpecies, color } = props;
+  const { observation, now, onSelectSpecies, color, pathD } = props;
 
   const countSlot =
     observation.howMany === null
@@ -90,6 +96,7 @@ export function FeedCard(props: FeedCardProps) {
           family={observation.familyCode}
           layout="inline"
           {...(color !== undefined ? { color } : {})}
+          {...(pathD != null ? { pathD } : {})}
         />
         <div className="feed-card-body">
           <span className="feed-card-meta" aria-hidden="true">NOTABLE</span>
