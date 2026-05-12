@@ -62,21 +62,20 @@ function stubSilhouettes() {
 function stubObservations(): Observation[] {
   return [
     {
-      obsSoFar: '2026-05-01',
+      subId: 'S12345678',
       speciesCode: 'vermfly',
       comName: 'Vermilion Flycatcher',
-      sciName: 'Pyrocephalus rubinus',
       familyCode: 'tyrannidae',
-      familyName: 'Tyrant Flycatchers',
       lat: 32.2217,
       lng: -110.9265,
+      locId: 'L123456',
       locName: 'Tucson, AZ',
       obsDt: '2026-05-01',
       howMany: 1,
-      subId: 'S12345678',
       isNotable: false,
-      region_id: 1,
-    } as Observation,
+      regionId: '1',
+      silhouetteId: null,
+    },
   ];
 }
 
