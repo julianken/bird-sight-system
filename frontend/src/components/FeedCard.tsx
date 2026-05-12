@@ -12,6 +12,11 @@ export interface FeedCardProps {
   observation: NotableObservation;
   now: Date;
   onSelectSpecies: (speciesCode: string) => void;
+  /**
+   * Concrete hex color from the DB silhouettes payload. When provided, overrides
+   * the palette channel fill in <FamilySilhouette>. Absent = palette/grey fallback.
+   */
+  color?: string;
 }
 
 /**
@@ -49,7 +54,7 @@ export interface FeedCardProps {
  *   </li>
  */
 export function FeedCard(props: FeedCardProps) {
-  const { observation, now, onSelectSpecies } = props;
+  const { observation, now, onSelectSpecies, color } = props;
 
   const countSlot =
     observation.howMany === null
@@ -84,6 +89,7 @@ export function FeedCard(props: FeedCardProps) {
         <FamilySilhouette
           family={observation.familyCode}
           layout="inline"
+          {...(color !== undefined ? { color } : {})}
         />
         <div className="feed-card-body">
           <span className="feed-card-meta" aria-hidden="true">NOTABLE</span>

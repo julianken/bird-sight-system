@@ -263,14 +263,18 @@ export function FeedSurface(props: FeedSurfaceProps) {
 
       {/* Unified observation list: top-notable card-row first, then flat rows */}
       <ol className="feed" aria-label="Observations">
-        {topNotable && (
-          <FeedCard
-            key={`card:${topNotable.subId}:${topNotable.speciesCode}`}
-            observation={topNotable}
-            now={now}
-            onSelectSpecies={onSelectSpecies}
-          />
-        )}
+        {topNotable && (() => {
+          const notableColor = topNotable.familyCode ? resolveColor(topNotable.familyCode) : undefined;
+          return (
+            <FeedCard
+              key={`card:${topNotable.subId}:${topNotable.speciesCode}`}
+              observation={topNotable}
+              now={now}
+              onSelectSpecies={onSelectSpecies}
+              {...(notableColor !== undefined ? { color: notableColor } : {})}
+            />
+          );
+        })()}
         {flatObservations.map(o => {
           const familyColor = o.familyCode ? resolveColor(o.familyCode) : undefined;
           return (
