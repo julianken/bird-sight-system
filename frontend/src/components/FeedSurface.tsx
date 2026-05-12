@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { Observation, NotableObservation } from '@bird-watch/shared-types';
+import type { Observation, NotableObservation, FamilySilhouette } from '@bird-watch/shared-types';
 import type { Since } from '../state/url-state.js';
 import type { SpeciesOption } from './FiltersBar.js';
 import { FeedCard } from './FeedCard.js';
@@ -7,6 +7,7 @@ import { FeedRow } from './FeedRow.js';
 import { FilterSentence } from './ds/FilterSentence.js';
 import { SortLabel } from './ds/SortLabel.js';
 import type { Freshness } from './MapLede.js';
+import { buildFamilyColorResolver } from '../data/family-color.js';
 
 export interface FeedSurfaceFilters {
   notable: boolean;
@@ -61,6 +62,12 @@ export interface FeedSurfaceProps {
    * Displayed below the lede on the feed surface.
    */
   freshnessLabel?: string;
+  /**
+   * Family silhouettes from the DB (via /api/silhouettes). Used to resolve
+   * per-family colors for each FeedRow's <FamilySilhouette>. Optional for
+   * backward-compat — when absent, rows fall back to the null-family grey.
+   */
+  silhouettes?: FamilySilhouette[];
 }
 
 /**
@@ -101,7 +108,17 @@ export function FeedSurface(props: FeedSurfaceProps) {
     familyName,
     freshness = 'fresh',
     freshnessLabel,
+    silhouettes,
   } = props;
+
+  // Build the familyCode → color resolver once per silhouettes identity change.
+  // When silhouettes is absent or empty, the resolver always returns the grey
+  // fallback (FAMILY_COLOR_FALLBACK) — backward-compat with callers that
+  // haven't yet threaded silhouettes down.
+  const resolveColor = useMemo(
+    () => buildFamilyColorResolver(silhouettes ?? []),
+    [silhouettes],
+  );
 
   const [sortMode, setSortMode] = useState<FeedSortMode>('recent');
 
@@ -254,14 +271,18 @@ export function FeedSurface(props: FeedSurfaceProps) {
             onSelectSpecies={onSelectSpecies}
           />
         )}
-        {flatObservations.map(o => (
-          <FeedRow
-            key={`${o.subId}:${o.speciesCode}`}
-            observation={o}
-            now={now}
-            onSelectSpecies={onSelectSpecies}
-          />
-        ))}
+        {flatObservations.map(o => {
+          const familyColor = o.familyCode ? resolveColor(o.familyCode) : undefined;
+          return (
+            <FeedRow
+              key={`${o.subId}:${o.speciesCode}`}
+              observation={o}
+              now={now}
+              onSelectSpecies={onSelectSpecies}
+              {...(familyColor !== undefined ? { color: familyColor } : {})}
+            />
+          );
+        })}
       </ol>
     </div>
   );

@@ -184,4 +184,29 @@ describe('FeedRow', () => {
     );
     expect(container.firstChild?.nodeName).toBe('LI');
   });
+
+  describe('DB color binding (NEW-3 fix)', () => {
+    it('renders grey fallback when no color prop is provided', () => {
+      // Without the color prop, the silhouette falls back to the null-family
+      // grey (#5a6472) because tyrannidae is not in the 7-item FamilyCode union.
+      render(<FeedRow observation={BASE_OBS} now={NOW} onSelectSpecies={() => {}} />);
+      const silhouette = screen.getByTestId('family-silhouette') as HTMLElement;
+      // Without color prop: grey fallback from NULL_FAMILY_CHANNEL
+      expect(silhouette.style.getPropertyValue('--family-fill')).toBe('#5a6472');
+    });
+
+    it('uses the color prop to tint the FamilySilhouette with DB color', () => {
+      // When the parent threads the DB color down, it must reach the silhouette.
+      render(
+        <FeedRow
+          observation={BASE_OBS}
+          now={NOW}
+          onSelectSpecies={() => {}}
+          color="#C77A2E"
+        />
+      );
+      const silhouette = screen.getByTestId('family-silhouette') as HTMLElement;
+      expect(silhouette.style.getPropertyValue('--family-fill')).toBe('#C77A2E');
+    });
+  });
 });

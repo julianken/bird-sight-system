@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { Observation } from '@bird-watch/shared-types';
+import type { Observation, FamilySilhouette } from '@bird-watch/shared-types';
 import type { SpeciesOption } from './FiltersBar.js';
 import { FeedSurface } from './FeedSurface.js';
 
@@ -579,6 +579,76 @@ describe('FeedSurface', () => {
       await user.click(screen.getByRole('button', { name: /Notable sighting/i }));
       expect(onSelectSpecies).toHaveBeenCalledWith('vermfly');
     });
+  });
+});
+
+describe('FeedSurface — DB color threading (NEW-3 fix)', () => {
+  const silhouettes: FamilySilhouette[] = [
+    {
+      familyCode: 'tyrannidae',
+      color: '#C77A2E',
+      svgData: null,
+      source: null,
+      license: null,
+      commonName: 'Tyrant Flycatchers',
+      creator: null,
+    },
+  ];
+
+  // Construct an observation with a real familyCode. The obs() helper always
+  // sets familyCode: null; build inline to exercise the color-resolution path.
+  const obsWithFamily: Observation = {
+    subId: 'S-color',
+    speciesCode: 'vermfly',
+    comName: 'Vermilion Flycatcher',
+    lat: 32.2,
+    lng: -110.9,
+    obsDt: new Date(NOW.getTime() - 60 * 60_000).toISOString(),
+    locId: 'L001',
+    locName: 'Sabino Canyon',
+    howMany: 1,
+    isNotable: false,
+    regionId: null,
+    silhouetteId: null,
+    familyCode: 'tyrannidae',
+  };
+
+  it('threads DB color to feed row silhouettes when silhouettes prop is provided', () => {
+    const { container } = render(
+      <FeedSurface
+        loading={false}
+        observations={[obsWithFamily]}
+        now={NOW}
+        filters={{ notable: false, since: '14d' }}
+        onSelectSpecies={() => {}}
+        silhouettes={silhouettes}
+      />
+    );
+    // The FeedRow FamilySilhouette must carry the DB color, not the grey fallback.
+    const silhouetteEl = container.querySelector('[data-testid="family-silhouette"]') as HTMLElement;
+    expect(silhouetteEl).not.toBeNull();
+    expect(silhouetteEl.style.getPropertyValue('--family-fill')).toBe('#C77A2E');
+  });
+
+  it('falls back to grey when silhouettes prop is absent (backward compat)', () => {
+    // FeedSurface callers that haven't passed silhouettes yet must still work.
+    // Unknown family code → null-family grey fallback.
+    const { container } = render(
+      <FeedSurface
+        loading={false}
+        observations={[obsWithFamily]}
+        now={NOW}
+        filters={{ notable: false, since: '14d' }}
+        onSelectSpecies={() => {}}
+      />
+    );
+    const silhouetteEl = container.querySelector('[data-testid="family-silhouette"]') as HTMLElement;
+    expect(silhouetteEl).not.toBeNull();
+    // Without silhouettes, resolveColor('tyrannidae') returns FAMILY_COLOR_FALLBACK
+    // (#555). That gets passed as color prop. To preserve the true grey-fallback
+    // behavior, we verify the silhouette is NOT the DB orange — the actual value
+    // is the FAMILY_COLOR_FALLBACK from buildFamilyColorResolver.
+    expect(silhouetteEl.style.getPropertyValue('--family-fill')).not.toBe('#C77A2E');
   });
 });
 

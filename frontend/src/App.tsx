@@ -335,6 +335,7 @@ export function App() {
             period={period}
             freshness={freshnessState}
             freshnessLabel={freshnessLabel}
+            silhouettes={silhouettes}
             {...(speciesName !== undefined ? { speciesName } : {})}
             {...(familyName !== undefined ? { familyName } : {})}
           />

@@ -7,6 +7,13 @@ export interface FeedRowProps {
   observation: Observation;
   now: Date;
   onSelectSpecies: (speciesCode: string) => void;
+  /**
+   * Concrete hex color from the DB silhouettes payload resolved by the
+   * parent (FeedSurface) via buildFamilyColorResolver. When provided,
+   * overrides the palette channel fill in <FamilySilhouette>. When absent,
+   * falls back to the null-family grey (graceful degradation).
+   */
+  color?: string;
 }
 
 /**
@@ -45,7 +52,7 @@ export interface FeedRowProps {
  * identity-stable onSelectSpecies (useCallback in parent).
  */
 function FeedRowImpl(props: FeedRowProps) {
-  const { observation, now, onSelectSpecies } = props;
+  const { observation, now, onSelectSpecies, color } = props;
 
   function activate() {
     onSelectSpecies(observation.speciesCode);
@@ -86,6 +93,7 @@ function FeedRowImpl(props: FeedRowProps) {
         <FamilySilhouette
           family={observation.familyCode}
           layout="thumb"
+          {...(color !== undefined ? { color } : {})}
         />
         <span className="feed-row-name" aria-hidden="true">{observation.comName}</span>
         {countContent.chip !== null && (
