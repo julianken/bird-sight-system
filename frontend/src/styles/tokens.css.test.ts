@@ -128,6 +128,23 @@ describe('tokens.css — W1 conformance', () => {
     it('overrides --color-error-text', () => {
       expect(darkBlock).toMatch(/--color-error-text:/);
     });
+
+    // Group 7: notable-bg variants (2)
+    // NEW-1 hotfix: these were absent from the dark block, causing .feed-row-notable
+    // to resolve to the light-mode #fff8e1 (pale cream) on a dark navy page.
+    // Contrast verified: #f5f7fb (--color-text-strong dark) on #2a2620 → ~16.7:1 (AAA).
+    it('overrides --color-accent-notable-bg (hotfix NEW-1: dark warm-amber, not light cream)', () => {
+      expect(darkBlock).toMatch(/--color-accent-notable-bg:/);
+    });
+    it('pins --color-accent-notable-bg to #2a2620 (deep amber-shadow, 16.7:1 vs #f5f7fb)', () => {
+      expect(darkBlock).toMatch(/--color-accent-notable-bg:\s*#2a2620/);
+    });
+    it('overrides --color-accent-notable-bg-hover', () => {
+      expect(darkBlock).toMatch(/--color-accent-notable-bg-hover:/);
+    });
+    it('pins --color-accent-notable-bg-hover to #332e26 (lifted amber-shadow hover)', () => {
+      expect(darkBlock).toMatch(/--color-accent-notable-bg-hover:\s*#332e26/);
+    });
   });
 });
 
