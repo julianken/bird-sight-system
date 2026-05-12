@@ -7,13 +7,15 @@ beforeAll(async () => { db = await startTestDb(); }, 90_000);
 afterAll(async () => { await db?.stop(); });
 
 describe('getSilhouettes', () => {
-  it('returns all 26 seeded families (25 real + _FALLBACK)', async () => {
+  it('returns all 65 seeded families (64 real + _FALLBACK)', async () => {
     // 15 from migration 9000 + 10 AZ-family expansion from migration 15000
-    // (#244) + the `_FALLBACK` row from migration 18000 (#246). The
-    // _FALLBACK row backs the SDF symbol layer's fallback rendering for
-    // observations whose family has no usable Phylopic silhouette.
+    // (#244) + the `_FALLBACK` row from migration 18000 (#246) + icteridae
+    // from migration 33000 (#482) + 38 observed-family backfill from
+    // migration 34000 (#495). The _FALLBACK row backs the SDF symbol
+    // layer's fallback rendering for observations whose family has no
+    // usable Phylopic silhouette.
     const rows = await getSilhouettes(db.pool);
-    expect(rows).toHaveLength(26);
+    expect(rows).toHaveLength(65);
     // _FALLBACK row exists with sentinel family_code.
     const fallback = rows.find(r => r.familyCode === '_FALLBACK');
     expect(fallback).toBeDefined();
@@ -131,6 +133,47 @@ describe('getSilhouettes', () => {
       threskiornithidae: '#C56B9D',
       // --- migration 18000 (issue #246 fallback) ---
       _FALLBACK: '#555555',
+      // --- migration 33000 (issue #482 icteridae fill) ---
+      icteridae: '#F4B400',
+      // --- migration 34000 (issue #495 backfill) ---
+      aegithalidae: '#C2B098',
+      alaudidae: '#B89060',
+      alcedinidae: '#5481A0',
+      apodidae: '#36322E',
+      bombycillidae: '#C9A878',
+      calcariidae: '#E5C28A',
+      certhiidae: '#6B4A30',
+      charadriidae: '#BFA682',
+      cinclidae: '#6E7378',
+      falconidae: '#475360',
+      gaviidae: '#2B3845',
+      gruidae: '#8A8470',
+      hirundinidae: '#5BA0C0',
+      icteriidae: '#F4E04D',
+      laniidae: '#7E848A',
+      laridae: '#8FA7B5',
+      motacillidae: '#7E6440',
+      numididae: '#5A6878',
+      pandionidae: '#4A3520',
+      passeridae: '#8E5B3A',
+      pelecanidae: '#E8D4B8',
+      peucedramidae: '#8A8C66',
+      phalacrocoracidae: '#26302C',
+      phasianidae: '#6E7A48',
+      podicipedidae: '#2F4D4A',
+      polioptilidae: '#A8B5C2',
+      psittacidae: '#3FA850',
+      psittaculidae: '#4FB8B0',
+      ptiliogonatidae: '#1A1418',
+      rallidae: '#403E3A',
+      recurvirostridae: '#E1B8C0',
+      regulidae: '#6FA050',
+      sittidae: '#6B7A8E',
+      sturnidae: '#2D2538',
+      tityridae: '#A88AA0',
+      turdidae: '#A05A3A',
+      tytonidae: '#D6B878',
+      vireonidae: '#7E9B5C',
     });
   });
 
@@ -146,7 +189,7 @@ describe('getSilhouettes', () => {
     expect(nullCommon).toEqual([]);
   });
 
-  it('common-name snapshot for all 26 seeded families (incl. _FALLBACK)', async () => {
+  it('common-name snapshot for all 65 seeded families (incl. _FALLBACK)', async () => {
     // Curated English common names per migration 1700000019500. Update both
     // sides together if the seed text changes.
     const rows = await getSilhouettes(db.pool);
@@ -182,6 +225,49 @@ describe('getSilhouettes', () => {
       // _FALLBACK row from migration 18000 (issue #246) — back-stops the
       // map's symbol layer when a family has no usable Phylopic SVG.
       _FALLBACK: 'Unknown family',
+      // icteridae row from migration 33000 (issue #482) — was missing from
+      // the original Phylopic curation, hiding every blackbird/oriole/grackle
+      // from the legend until this migration backfilled it.
+      icteridae: 'Blackbirds, Orioles & Allies',
+      // --- migration 34000 (issue #495 backfill) ---
+      aegithalidae: 'Bushtits',
+      alaudidae: 'Larks',
+      alcedinidae: 'Kingfishers',
+      apodidae: 'Swifts',
+      bombycillidae: 'Waxwings',
+      calcariidae: 'Longspurs & Snow Buntings',
+      certhiidae: 'Treecreepers',
+      charadriidae: 'Plovers & Lapwings',
+      cinclidae: 'Dippers',
+      falconidae: 'Falcons & Caracaras',
+      gaviidae: 'Loons',
+      gruidae: 'Cranes',
+      hirundinidae: 'Swallows',
+      icteriidae: 'Yellow-breasted Chat',
+      laniidae: 'Shrikes',
+      laridae: 'Gulls, Terns & Skimmers',
+      motacillidae: 'Wagtails & Pipits',
+      numididae: 'Guineafowl',
+      pandionidae: 'Ospreys',
+      passeridae: 'Old World Sparrows',
+      pelecanidae: 'Pelicans',
+      peucedramidae: 'Olive Warbler',
+      phalacrocoracidae: 'Cormorants & Shags',
+      phasianidae: 'Pheasants, Grouse & Allies',
+      podicipedidae: 'Grebes',
+      polioptilidae: 'Gnatcatchers',
+      psittacidae: 'African & New World Parrots',
+      psittaculidae: 'Old World Parrots',
+      ptiliogonatidae: 'Silky-flycatchers',
+      rallidae: 'Rails, Gallinules & Coots',
+      recurvirostridae: 'Stilts & Avocets',
+      regulidae: 'Kinglets',
+      sittidae: 'Nuthatches',
+      sturnidae: 'Starlings & Mynas',
+      tityridae: 'Tityras & Allies',
+      turdidae: 'Thrushes',
+      tytonidae: 'Barn-Owls',
+      vireonidae: 'Vireos',
     });
   });
 });
