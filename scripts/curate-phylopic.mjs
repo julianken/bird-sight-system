@@ -858,11 +858,10 @@ function emitMigrationSql(picks, skipFamilies, mode = 'update', colorByFamily = 
         const cn = commonNameByFamily[pick.family];
         if (!color) throw new Error(`color missing for family ${pick.family} — populate COLOR_BY_FAMILY`);
         if (!cn) throw new Error(`common_name missing for family ${pick.family} — populate COMMON_NAME_BY_FAMILY`);
-        const comma = idx < successes.length - 1 || failures.length > 0 ? ',' : '';
+        const comma = idx < successes.length - 1 ? ',' : '';
         return `  ('${pick.family}', '${pick.family}', '${d}', '${color}', '${src}', '${lic}', ${cre}, '${escapeSqlString(cn)}')${comma}`;
       });
       lines.push(...rows);
-      if (failures.length === 0) lines[lines.length - 1] = lines[lines.length - 1].replace(/,$/, '');
       lines.push('ON CONFLICT (id) DO NOTHING;');
       lines.push('');
     }
