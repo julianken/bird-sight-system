@@ -1,7 +1,7 @@
 # Sky Atlas v4 — Mock-to-Spec Coverage Matrix
 
 **Version:** v4 (2026-05-11)
-**Scope:** Every visual property *named in a committed brainstorm artifact* (`05-archive/brainstorm-mocks/` or `05-archive/design-agents/`). Properties never mentioned in any brainstorm artifact are out of scope — this is a deliberate false-precision guard. The discovery set is 74 rows, seeded from `docs/analyses/2026-05-11-brainstorm-vs-prod-fidelity/phase-1/area-2-spec-capture-audit.md`.
+**Scope:** Every visual property *named in a committed brainstorm artifact* (`05-archive/brainstorm-mocks/` or `05-archive/design-agents/`). Properties never mentioned in any brainstorm artifact are out of scope — this is a deliberate false-precision guard. The discovery set is 74 rows; this matrix itself is the canonical record of the area-2 audit findings.
 
 ---
 
@@ -152,15 +152,11 @@
 
 ## Seed Source
 
-This matrix was seeded from:
+This matrix is itself the durable record of the W5 brainstorm-vs-prod-fidelity audit. Each row encodes the evidence citation (brainstorm artifact, line/section), disposition, and spec citation — this is the audit trail.
 
-`docs/analyses/2026-05-11-brainstorm-vs-prod-fidelity/phase-1/area-2-spec-capture-audit.md` (rows 9–84)
-
-That document contains the full evidence citations, confidence assessments, and key findings that motivated each disposition. Consult it for audit trail depth not reproduced here.
-
-Related analyses:
-- Typography spec silence: `docs/analyses/2026-05-11-brainstorm-vs-prod-fidelity/phase-2/iterator-4-typography-spec-silence.md`
-- Drift prevention synthesis: `docs/analyses/2026-05-11-brainstorm-vs-prod-fidelity/phase-3/synthesis-3-drift-prevention.md`
-- Full analysis report: `docs/analyses/2026-05-11-brainstorm-vs-prod-fidelity/phase-4/analysis-report.md`
+Related spec sections that capture the specific findings the audit surfaced:
+- Typography contracts (7 previously-unstated contracts): `docs/design/01-spec/tokens.md` §"Typography contracts" (§1–§7)
+- Drift-prevention deferred items: `docs/design/01-spec/open-questions.md` §"W5 spec captures (2026-05-11)"
+- Full disposition counts and W5 resolution summary: this file's Summary Counts and W5 changes sections above
 
 Issue: [#463](https://github.com/julianken/bird-sight-system/issues/463)

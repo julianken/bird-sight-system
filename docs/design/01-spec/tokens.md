@@ -233,7 +233,7 @@ The `font-feature-settings: "tnum"` approach is preferred over `font-variant-num
 
 ---
 
-**W5 audit note (2026-05-11):** These seven contracts were surfaced in `docs/analyses/2026-05-11-brainstorm-vs-prod-fidelity/phase-2/iterator-4-typography-spec-silence.md` as previously unstated. The `<em>` sci-name italic (§1) is shared with the sci-name italic finding in `coverage-matrix-v4.md` row 94. Count: 7 distinct contracts de-duplicated from the 8-row iterator-4 table (the `<em>` contract counted once here; the coverage matrix row captures the same finding from the brainstorm-artifact perspective).
+**W5 audit note (2026-05-11):** These seven contracts were surfaced by the W5 brainstorm-vs-prod-fidelity audit as previously unstated typography silences. The canonical record of all audit findings lives in `docs/design/01-spec/coverage-matrix-v4.md`. The `<em>` sci-name italic (§1) is shared with the sci-name italic finding in `coverage-matrix-v4.md` row 94. Count: 7 distinct contracts (the `<em>` contract counted once here; the coverage matrix row captures the same finding from the brainstorm-artifact perspective).
 
 ## Light/dark mechanic
 
