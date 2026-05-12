@@ -146,6 +146,74 @@ describe('GET /api/observations', () => {
   });
 });
 
+describe('species_meta backfill for eBird hybrid/spuh codes (#484)', () => {
+  // The 10 codes from issue #484 — eBird hybrid codes that have been observed
+  // in US-AZ but historically had no species_meta row, causing /api/species/:code
+  // to 404 even though /api/observations returns them. Migration
+  // 1700000032000_backfill_species_meta_spuh_hybrid.sql inserts these rows;
+  // the ingest-time invariant in services/ingestor/src/run-ingest.ts catches
+  // any future leak before it reaches the read path.
+  const LEAKING_CODES = [
+    'ixlbun', 'mallar4',
+    'x00059', 'x00618', 'x00689', 'x00758', 'x00776',
+    'x01129', 'x01172', 'x01228',
+  ];
+
+  it('every backfilled code resolves with HTTP 200 from /api/species/:code', async () => {
+    const app = createApp({ pool: db.pool });
+    for (const code of LEAKING_CODES) {
+      const res = await app.request(`/api/species/${code}`);
+      expect(res.status, `species_code ${code} should resolve 200`).toBe(200);
+      const body = await res.json() as {
+        speciesCode: string; comName: string; sciName: string;
+        familyCode: string; familyName: string;
+      };
+      expect(body.speciesCode).toBe(code);
+      // family_code must be lowercased scientific family name (the join key
+      // used by family_silhouettes), per the convention in run-taxonomy.ts.
+      expect(body.familyCode).toMatch(/^[a-z]+$/);
+      // family_name carries the human-readable English label.
+      expect(body.familyName.length).toBeGreaterThan(0);
+      // Hybrid display name should round-trip — the comName must include
+      // either ' x ' (eBird hybrid convention) or the literal word 'hybrid'.
+      expect(body.comName.toLowerCase()).toMatch(/hybrid| x /);
+    }
+  });
+
+  it('the acceptance invariant — every speciesCode in /api/observations resolves 200 from /api/species/:code', async () => {
+    // Seed observations with each leaking code, then walk /api/observations
+    // and verify every species_code there is renderable via /api/species/:code.
+    // This is the acceptance assertion from #484: "Every speciesCode in
+    // /api/observations resolves with HTTP 200 from /api/species/:code".
+    await db.pool.query('TRUNCATE observations');
+    await upsertObservations(db.pool, LEAKING_CODES.map((code, i) => ({
+      subId: `S-leak-${i}`,
+      speciesCode: code,
+      comName: code,
+      lat: 32.30,
+      lng: -110.99,
+      obsDt: new Date(Date.now() - i * 86400_000).toISOString(),
+      locId: 'L-leak',
+      locName: 'Test',
+      howMany: 1,
+      isNotable: false,
+    })));
+
+    const app = createApp({ pool: db.pool });
+    const obsRes = await app.request('/api/observations?since=30d');
+    expect(obsRes.status).toBe(200);
+    const obsBody = await obsRes.json() as {
+      data: Array<{ speciesCode: string }>;
+    };
+    const codes = Array.from(new Set(obsBody.data.map(o => o.speciesCode)));
+    expect(codes.length).toBeGreaterThan(0);
+    for (const code of codes) {
+      const res = await app.request(`/api/species/${code}`);
+      expect(res.status, `species_code ${code} must resolve 200`).toBe(200);
+    }
+  });
+});
+
 describe('error handling', () => {
   it('returns 503 when DB query throws a connection error', async () => {
     const pg = await import('pg');

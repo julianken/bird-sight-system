@@ -270,6 +270,41 @@ export async function getSpeciesPhenology(
   return rows.map(r => ({ month: r.month, count: r.count }));
 }
 
+/**
+ * Returns the subset of `speciesCodes` that have NO matching `species_meta`
+ * row. Result is sorted lexicographically so error messages are stable across
+ * runs (easier to grep ingest-run logs).
+ *
+ * Loadbearing for the ingest-time invariant in
+ * `services/ingestor/src/run-ingest.ts` (issue #484): before upserting a batch
+ * of eBird observations, we ask the DB which `species_code`s in the batch
+ * have no `species_meta` parent. Any missing code aborts the ingest with a
+ * loud error rather than silently inserting an observation the read-api will
+ * 404 on. Future eBird hybrid/spuh additions to the AZ feed therefore become
+ * a CI/cron failure a maintainer sees, not a user-reported prod 404.
+ *
+ * Empty input → empty output (no DB round-trip). Duplicate codes in the input
+ * are de-duplicated by the SQL UNNEST + EXCEPT shape, so the caller does not
+ * need to pre-dedupe.
+ */
+export async function findMissingSpeciesMeta(
+  pool: Pool,
+  speciesCodes: readonly string[]
+): Promise<string[]> {
+  if (speciesCodes.length === 0) return [];
+  const { rows } = await pool.query<{ species_code: string }>(
+    `SELECT code AS species_code
+       FROM UNNEST($1::text[]) AS u(code)
+      WHERE NOT EXISTS (
+        SELECT 1 FROM species_meta sm WHERE sm.species_code = u.code
+      )
+      GROUP BY code
+      ORDER BY code`,
+    [speciesCodes]
+  );
+  return rows.map(r => r.species_code);
+}
+
 export async function upsertSpeciesMeta(
   pool: Pool,
   inputs: SpeciesMeta[]
