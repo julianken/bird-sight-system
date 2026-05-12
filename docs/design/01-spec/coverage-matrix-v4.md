@@ -87,14 +87,14 @@
 | Webfont (Source Serif Pro / Inter proposal) | agent-2 idea 4 closing; agent-5 Field Notebook | `DEFERRED-INTENTIONAL` | `architecture.md:96`; `tokens.md:157` | "System stack is the brand for v1" |
 | Spring-physics overshoot on popover entry (`cubic-bezier(0.34,1.56,0.64,1)`) | agent-1 idea 6 | `DEFERRED-INTENTIONAL` | `motion.md:95` | "Deferred to v1.1" |
 | Skeleton shimmer (Idea 2 of agent-1) | agent-1 idea 2; `sky-atlas-v3` reference | `DROPPED — DOCUMENTED` | `motion.md:91` | "Cargo-cult; against iOS-restraint posture" |
-| Body background radial-gradient (ellipse at 25% 30%, sunrise + daylight blue layers) | v4 map-area `sky-atlas-v4.html:251-264`; also v3 `sky-atlas-v3.html:325-340` | `DROPPED — UNSTATED` | none | Spec defines only flat `--color-bg-page` at `tokens.md:48`; no "atmospheric chrome" layer in any spec file; no documented rationale for drop. **Action:** either add `--atmosphere-overlay-light/dark` token + architecture note, or document the rejection explicitly |
-| `--accent-secondary: #1d3b5b` (deep sky) and `--accent-cool: #4a7ba8` (daylight blue) from system poster | system-poster `sky-atlas-system.html:17-18` | `DROPPED — UNSTATED` | none | System poster had 3 accents; v4 collapsed to 1 (subtractive discipline at `voice-and-content.md:104-108`), but the compression is undocumented. A future designer reading only the spec cannot know 3 accents were considered and rejected |
-| Cluster pill `::before` colored dot prefix (dot inside the pill) | v3 cluster idiom `sky-atlas-v3.html:373-381`; adopted in v4 visually | `DROPPED — UNSTATED` | none | `components.md:115-126` ClusterPill API has `count` + `onClick` only; dot prefix absent; no documented rationale |
-| Photo attribution overlay scrim color (`rgba(0,0,0,0.55)`) | agent-2 idea 6 | `DROPPED — UNSTATED` | none | `<Photo>` API has `attribution: {text, href}` at `components.md:51,63` but no scrim token; scrim color is a free implementation choice |
-| Italic scientific-name typography | v3 popover `sky-atlas-v3.html:466`; v3 detail `sky-atlas-v3.html:531`; v3 sheet `sky-atlas-v3.html:752`; v4 popover; system-poster | `DROPPED — UNSTATED` | none | Every mock renders sci-names in italic; spec is silent on typography family/style for sci-names; `voice-and-content.md` covers voice register but not type style |
-| Inline-measured contrast comments extended to canvas paint expressions | agent-3 idea 1 closing | `MODIFIED — UNSTATED` | `accessibility.md:33-39` | Partial capture — extension enumerated but no CI enforcement added (unlike the lint guard at `tokens.md:114-122`); delta between "enumerated" and "enforced" is undocumented |
-| `<Photo>` masthead overlay treatment (gradient + white species-name text + credit position) | agent-4 idea 6; v3 detail `sky-atlas-v3.html:496-528` (`linear-gradient(180deg, transparent 0%, transparent 50%, rgba(0,0,0,0.7) 100%)`) | `MODIFIED — UNSTATED` | `components.md:54` | Spec captures `layout: 'masthead'` prop but not the overlay's visual contract; gradient, text color, credit position are left to implementation; explains V-2 detail-surface drift in 4-agent audit |
-| Detail surface as full-bleed at desktop (not modal-width dialog) | v3/v4 detail-desktop mockup `sky-atlas-v3.html:486-558` | `MODIFIED — UNSTATED` | `architecture.md:41`; `accessibility.md:20-23` | Spec says native `<dialog>` modal; mockups show full-viewport treatment; spec does not address dialog width at desktop; this implicitly downgraded full-bleed to modal-width without documentation |
+| Body background radial-gradient (ellipse at 25% 30%, sunrise + daylight blue layers) | v4 map-area `sky-atlas-v4.html:251-264`; also v3 `sky-atlas-v3.html:325-340` | `DEFERRED-INTENTIONAL` | `open-questions.md` W5 spec captures section | Flat `--color-bg-page` adopted; gradient deferred to v1.1 as optional atmosphere overlay. Rationale: contrast predictability, mobile perf, contrast-arithmetic simplicity. Future token: `--color-bg-atmosphere-light/dark`. Documented 2026-05-11 |
+| `--accent-secondary: #1d3b5b` (deep sky) and `--accent-cool: #4a7ba8` (daylight blue) from system poster | system-poster `sky-atlas-system.html:17-18` | `DROPPED — DOCUMENTED` | `open-questions.md` W5 spec captures section; `voice-and-content.md:104-108` | System poster 3-accent option compressed to 1 (`--color-decision-point`) under subtractive discipline. Rationale in `voice-and-content.md:104-108`. Cross-link added 2026-05-11 |
+| Cluster pill `::before` colored dot prefix (dot inside the pill) | v3 cluster idiom `sky-atlas-v3.html:373-381`; adopted in v4 visually | `DEFERRED-INTENTIONAL` | `components.md` ClusterPill section (W5 note) | Dot dropped in v1: density already encoded by border color + size tier; dot adds compositing cost on a high-density map canvas. Spec note added. v1.1 follow-up: #475. Documented 2026-05-11 |
+| Photo attribution overlay scrim color (`rgba(0,0,0,0.55)`) | agent-2 idea 6 | `CAPTURED` | `components.md` Photo section (W5 masthead overlay contract) | Scrim `rgba(0,0,0,0.55)` now contractually specified; token `--color-photo-attribution-scrim` introduced. Captured 2026-05-11 |
+| Italic scientific-name typography | v3 popover `sky-atlas-v3.html:466`; v3 detail `sky-atlas-v3.html:531`; v3 sheet `sky-atlas-v3.html:752`; v4 popover; system-poster | `CAPTURED` | `tokens.md` Typography contracts §1; `voice-and-content.md` Typography conventions §sci-name italic | `<em>` element contracts the italic via UA default; explicit spec entry added. Captured 2026-05-11 |
+| Inline-measured contrast comments extended to canvas paint expressions | agent-3 idea 1 closing | `MODIFIED — UNSTATED` | `accessibility.md:33-39` | Partial capture — extension enumerated but no CI enforcement added (unlike the lint guard at `tokens.md:114-122`); delta between "enumerated" and "enforced" is undocumented. Remains open for a future CI-enforcement PR |
+| `<Photo>` masthead overlay treatment (gradient + white species-name text + credit position) | agent-4 idea 6; v3 detail `sky-atlas-v3.html:496-528` (`linear-gradient(180deg, transparent 0%, transparent 50%, rgba(0,0,0,0.7) 100%)`) | `CAPTURED` | `components.md` Photo section (W5 masthead overlay contract) | Full gradient + text + credit position contract added. Captured 2026-05-11 |
+| Detail surface as full-bleed at desktop (not modal-width dialog) | v3/v4 detail-desktop mockup `sky-atlas-v3.html:486-558` | `MODIFIED — UNSTATED` | `architecture.md:41`; `accessibility.md:20-23` | Spec says native `<dialog>` modal; mockups show full-viewport treatment; spec does not address dialog width at desktop; this implicitly downgraded full-bleed to modal-width without documentation. Remains open — no spec addition warranted until desktop detail redesign is in scope |
 | Family-color × basemap 32-cell audit matrix (8 families × 2 modes × 2 basemaps) | agent-2 idea 3 closing | `MODIFIED — DOCUMENTED` | `open-questions.md:75-80,83-88` | G7 captures light version; dark mode rolled into G8; only worst-case zoom check specified — per-family/per-mode/per-basemap matrix is not contracted, but the partial scope is explicit |
 | Brand mark (26px diamond-in-square) | `sky-atlas-v3` mock; system-poster | `REJECTED-IN-BRAINSTORM` | `architecture.md:31` | Agent-5 counter 7 adopted in v4 ("no brand mark") |
 | Dense-data / "Data Atlas" tabular direction | agent-5 counter 6 | `REJECTED-IN-BRAINSTORM` | `voice-and-content.md`; `open-questions.md:22-28` | G1 closed → Position B |
@@ -106,27 +106,30 @@
 
 | Disposition | Count |
 |---|---|
-| `CAPTURED` | 52 |
-| `DEFERRED-INTENTIONAL` | 9 |
-| `DROPPED — DOCUMENTED` | 1 |
-| `DROPPED — UNSTATED` | 5 |
+| `CAPTURED` | 55 |
+| `DEFERRED-INTENTIONAL` | 11 |
+| `DROPPED — DOCUMENTED` | 2 |
+| `DROPPED — UNSTATED` | 0 |
 | `MODIFIED — DOCUMENTED` | 1 |
-| `MODIFIED — UNSTATED` | 3 |
+| `MODIFIED — UNSTATED` | 2 |
 | `REJECTED-IN-BRAINSTORM` | 3 |
 | **Total** | **74** |
 
 > One row from the seed matrix (`pushState` on detail-surface entry) was sourced from the phase-4 analysis report rather than a committed brainstorm artifact. It is included as `CAPTURED` because its spec citation exists and removing it would create a gap in the record. The scope bound does not exclude it.
 
-**Actionable findings (requires spec update or documented rationale):**
+**W5 changes (2026-05-11):** The five `DROPPED — UNSTATED` and two actionable `MODIFIED — UNSTATED` rows from the initial matrix have been resolved:
+- Body gradient: `DROPPED — UNSTATED` → `DEFERRED-INTENTIONAL` (flat adopted; gradient deferred v1.1)
+- `--accent-secondary/cool` compression: `DROPPED — UNSTATED` → `DROPPED — DOCUMENTED`
+- Cluster-pill dot prefix: `DROPPED — UNSTATED` → `DEFERRED-INTENTIONAL` (v1.1 follow-up #475)
+- Photo scrim color: `DROPPED — UNSTATED` → `CAPTURED` (token + contract specified)
+- Sci-name italic: `DROPPED — UNSTATED` → `CAPTURED` (`<em>` contract; tokens.md + voice-and-content.md)
+- Masthead overlay: `MODIFIED — UNSTATED` → `CAPTURED` (full gradient/text/credit contract)
+- `--accent-secondary` cross-link: resolved as `DROPPED — DOCUMENTED`
 
-1. Body radial-gradient — `DROPPED — UNSTATED` — no atmospheric background treatment in spec; either add token or document rejection
-2. `--accent-secondary` + `--accent-cool` compression — `DROPPED — UNSTATED` — subtractive rationale exists in `voice-and-content.md:104-108` but is not explicitly stated as the reason for the 3→1 collapse
-3. Cluster pill `::before` dot prefix — `DROPPED — UNSTATED` — dot is in both v3 and v4 mocks; absent from ClusterPill API with no note
-4. Photo attribution scrim color — `DROPPED — UNSTATED` — scrim is a free implementation choice when it should be a token
-5. Italic sci-name typography — `DROPPED — UNSTATED` — universal in mocks; absent from spec
-6. Masthead overlay visual contract — `MODIFIED — UNSTATED` — `layout: 'masthead'` without gradient/color contract leaves Phase 4 free-fill
-7. Detail surface desktop width — `MODIFIED — UNSTATED` — `<dialog>` modal choice implicitly downgraded full-bleed; undocumented
-8. Canvas contrast enforcement gap — `MODIFIED — UNSTATED` — convention documented but not enforced (unlike CSS lint guard)
+**Remaining open (not resolved in W5):**
+
+1. Detail surface desktop width — `MODIFIED — UNSTATED` — `<dialog>` modal choice implicitly downgraded full-bleed; no spec coverage for desktop dialog width. Defer until desktop detail redesign is in scope.
+2. Canvas contrast enforcement gap — `MODIFIED — UNSTATED` — convention documented but no CI enforcement (unlike CSS lint guard). Defer until a canvas-paint CI check is authored.
 
 ---
 

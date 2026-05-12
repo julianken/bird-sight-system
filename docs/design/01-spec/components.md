@@ -54,6 +54,27 @@ type PhotoProps = {
 };
 ```
 
+**Photo `srcset` — DEFERRED-INTENTIONAL (v1):** The brainstorm design-system agent (agent-2 idea 6, `agent-2-design-system-architect.md:51`) specified `srcset` as a mandatory property baked into `<Photo>` so it "cannot be forgotten." The v1 `<Photo>` primitive shipped without a `srcset` prop. Decision: `DEFERRED-INTENTIONAL` — the eBird / iNat photo API returns a single URL at the photo's canonical resolution; there is no multi-resolution endpoint available at v1. When a CDN image-resize pipeline is added (v1.1+), introduce `srcset: string | undefined` to the prop type and set `sizes` based on `layout`. Do not add a dead `srcset` prop pointing at the same URL — that is false affordance. File a follow-up issue when the CDN pipeline is in scope.
+
+**Attribution scrim token — CAPTURED (W5):** The `attribution` prop renders a translucent scrim over the bottom-right of the photo. The scrim background color is `rgba(0,0,0,0.55)` — sourced from agent-2 idea 6 token shape (`--photo-attribution-bg: rgba(0,0,0,0.55)`) and confirmed in `sky-atlas-v3.html:551-556` (`.v3-detail-photo-credit`). Implementation must use this value or reference a semantic token `--color-photo-attribution-scrim: rgba(0,0,0,0.55)`. A free implementation choice is not acceptable — the 0.55 opacity was chosen to clear 4.5:1 for white text on the range of photo content tested in the brainstorm.
+
+**Masthead overlay visual contract — CAPTURED (W5):** The `layout='masthead'` variant (used on the detail surface) renders species name and sci-name over a darkening gradient on the photo bottom half. The contracted visual treatment, from `sky-atlas-v3.html:499-501`, is:
+
+```css
+background:
+  linear-gradient(180deg, transparent 0%, transparent 50%, rgba(0,0,0,0.7) 100%),
+  <photo-image>;
+```
+
+Species name text: `color: white`, `font-weight: 800`, `font-size: var(--type-hero)` (34px), `letter-spacing: -0.8px`, `line-height: 1`. Sci-name text: `color: rgba(255,255,255,0.85)`, `font-style: italic`, `font-size: var(--type-base)`. Photo credit (attribution): `font-size: var(--type-xs)`, `text-transform: uppercase`, `letter-spacing: 1.5px`, `color: rgba(255,255,255,0.85)`, position `bottom: 14px; right: 14px`.
+
+Dark-mode masthead gradient deepens to `rgba(0,0,0,0.85)` at 100% (see `sky-atlas-v3.html:508-512`).
+
+This overlay contract was previously `MODIFIED — UNSTATED` in `coverage-matrix-v4.md` (row 96); the `layout: 'masthead'` prop existed but without this visual definition, leaving the implementation as free-fill. The contract above is now **inescapable** — any Phase 4 implementation that deviates must update this file first.
+
+```ts
+```
+
 Internal state machine (4 states):
 
 | Condition | Render |
@@ -124,6 +145,8 @@ A11y:
 ```
 
 `role="img"` + `aria-label` collapses the pill to one SR announcement ("140 sightings"). Tier (color, padding/font-size step) is **decorative density encoding**; the count is canonical. WCAG 1.4.1 satisfied by the count text inside the pill, not by color.
+
+**Cluster-pill `::before` dot prefix — DEFERRED-INTENTIONAL (v1.1), follow-up filed:** Both v3 and v4 mocks show a small colored dot inside the pill preceding the count (`sky-atlas-v3.html:373-381` — the v3 cluster idiom; adopted in v4 visually). The v1 `<ClusterPill>` API (`count` + `onClick`) has no `::before` dot. Decision: the dot is a visual density-encoding reinforcement — it repeats information already conveyed by the pill's border color and size tier. Dropping it simplifies the component and removes a compositing layer on the map canvas, where many cluster pills render simultaneously. This drop was `DROPPED — UNSTATED` in `coverage-matrix-v4.md` (row 92); it is now `DEFERRED-INTENTIONAL — DOCUMENTED`. If adopted in v1.1: the dot color should be `currentColor` (matches the density-stroke color via `color` property inheritance), size `6px` circle, positioned with `display: flex; align-items: center; gap: 4px` (the v4 pill already uses this flex layout at `sky-atlas-v4.html:271-273`). Follow-up: [#475](https://github.com/julianken/bird-sight-system/issues/475) — file this issue after this PR merges if the dot behavior is wanted for v1.1.
 
 ## `<FilterSentence>`
 
