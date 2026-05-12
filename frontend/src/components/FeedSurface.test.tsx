@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import type { Observation, FamilySilhouette } from '@bird-watch/shared-types';
 import type { SpeciesOption } from './FiltersBar.js';
 import { FeedSurface } from './FeedSurface.js';
+import { FAMILY_COLOR_FALLBACK } from '../data/family-color.js';
 
 const NOW = new Date(2026, 3, 15, 15, 0, 0, 0);
 
@@ -644,11 +645,10 @@ describe('FeedSurface — DB color threading (NEW-3 fix)', () => {
     );
     const silhouetteEl = container.querySelector('[data-testid="family-silhouette"]') as HTMLElement;
     expect(silhouetteEl).not.toBeNull();
-    // Without silhouettes, resolveColor('tyrannidae') returns FAMILY_COLOR_FALLBACK
-    // (#555). That gets passed as color prop. To preserve the true grey-fallback
-    // behavior, we verify the silhouette is NOT the DB orange — the actual value
-    // is the FAMILY_COLOR_FALLBACK from buildFamilyColorResolver.
-    expect(silhouetteEl.style.getPropertyValue('--family-fill')).not.toBe('#C77A2E');
+    // Without silhouettes, resolveColor('tyrannidae') returns FAMILY_COLOR_FALLBACK.
+    // Assert the exact fallback value rather than negating the DB orange — safer
+    // because a future palette change wouldn't silently pass a wrong value.
+    expect(silhouetteEl.style.getPropertyValue('--family-fill')).toBe(FAMILY_COLOR_FALLBACK);
   });
 });
 

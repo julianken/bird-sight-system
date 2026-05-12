@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { ApiClient } from '../api/client.js';
 import { useSpeciesDetail } from '../data/use-species-detail.js';
 import { useSilhouettes } from '../data/use-silhouettes.js';
+import { buildFamilyColorResolver } from '../data/family-color.js';
 import { analytics } from '../analytics.js';
 import { PhenologyChart } from './PhenologyChart.js';
 import { SpeciesDescription } from './SpeciesDescription.js';
@@ -40,10 +41,18 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
   const { speciesCode, apiClient } = props;
   const detail = useSpeciesDetail(apiClient, speciesCode);
   const { loading, error, data } = detail;
-  // useSilhouettes is still mounted here so the <Photo> component's
-  // internal FamilySilhouette fallback can find the family payload. The
-  // data is cached at module level so there is no second network call.
-  void useSilhouettes(apiClient);
+  // useSilhouettes provides the family-color payload. The data is cached at
+  // module level so there is no second network call when other consumers
+  // (App.tsx, AttributionModal) have already called the hook.
+  const { silhouettes } = useSilhouettes(apiClient);
+
+  // Build the familyCode → color resolver once per silhouettes identity change.
+  // Mirrors the FeedSurface pattern so the masthead silhouette renders in the
+  // family's DB color when photoUrl is null (bot finding on #480).
+  const resolveColor = useMemo(
+    () => buildFamilyColorResolver(silhouettes),
+    [silhouettes],
+  );
 
   // Analytics: panel_opened / panel_dwell_ms (preserved from pre-Phase-4).
   useEffect(() => {
@@ -119,6 +128,7 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
         src={data.photoUrl ?? null}
         alt={`${data.comName} photo`}
         family={data.familyCode as FamilyCode | null}
+        color={resolveColor(data.familyCode)}
         priority={true}
         layout="masthead"
       />
