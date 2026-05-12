@@ -299,6 +299,119 @@ describe('fetchWikipediaLeadImage', () => {
     expect(result!.license).toBe('cc-by-4.0');
   });
 
+  // CC-compliance regression suite. bird-maps.com displays derived
+  // thumbnails commercially, so non-commercial (NC) and no-derivative (ND)
+  // CC variants MUST reject — even though they superficially share the
+  // `cc-by-` prefix. A prior substring-match implementation accepted these
+  // accidentally; these tests pin the correct behavior.
+  const licenseRejectCases = [
+    { code: 'cc-by-nc-4.0', short: 'CC BY-NC 4.0', label: 'CC BY-NC 4.0' },
+    { code: 'cc-by-nc-sa-4.0', short: 'CC BY-NC-SA 4.0', label: 'CC BY-NC-SA 4.0' },
+    { code: 'cc-by-nd-4.0', short: 'CC BY-ND 4.0', label: 'CC BY-ND 4.0' },
+  ];
+  for (const { code, short, label } of licenseRejectCases) {
+    it(`rejects ${label} (NC/ND not commercially licensable) by returning null`, async () => {
+      server.use(
+        http.get(WIKI_SUMMARY_URL, () => {
+          return HttpResponse.json(
+            {
+              originalimage: {
+                source:
+                  'https://upload.wikimedia.org/wikipedia/commons/n/nc/Nc_bird.jpg',
+                width: 800,
+                height: 600,
+              },
+            },
+            { status: 200 }
+          );
+        }),
+        http.get(WIKI_ACTION_URL, () => {
+          return HttpResponse.json({
+            query: {
+              pages: {
+                '77777': {
+                  title: 'File:Nc_bird.jpg',
+                  imageinfo: [
+                    {
+                      url: 'https://upload.wikimedia.org/wikipedia/commons/n/nc/Nc_bird.jpg',
+                      descriptionurl:
+                        'https://commons.wikimedia.org/wiki/File:Nc_bird.jpg',
+                      extmetadata: {
+                        LicenseShortName: { value: short },
+                        License: { value: code },
+                        Artist: { value: 'NC Photographer' },
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          });
+        })
+      );
+
+      const result = await fetchWikipediaLeadImage('Nc_article');
+      expect(result).toBeNull();
+    });
+  }
+
+  // Positive controls for the allowlist — pin the accepted shapes so a
+  // future tightening of the filter doesn't accidentally over-reject the
+  // mainstream CC and PD codes.
+  const licenseAcceptCases = [
+    { code: 'cc-by-4.0', short: 'CC BY 4.0', expected: 'cc-by-4.0' },
+    { code: 'cc-by-sa-4.0', short: 'CC BY-SA 4.0', expected: 'cc-by-sa-4.0' },
+    { code: 'cc0', short: 'CC0', expected: 'cc0' },
+    { code: 'pd', short: 'Public domain', expected: 'pd' },
+    { code: '', short: 'Public domain', expected: 'public-domain' },
+  ];
+  for (const { code, short, expected } of licenseAcceptCases) {
+    it(`accepts ${short || code} via the allowlist`, async () => {
+      server.use(
+        http.get(WIKI_SUMMARY_URL, () => {
+          return HttpResponse.json(
+            {
+              originalimage: {
+                source:
+                  'https://upload.wikimedia.org/wikipedia/commons/o/ok/Ok_bird.jpg',
+                width: 800,
+                height: 600,
+              },
+            },
+            { status: 200 }
+          );
+        }),
+        http.get(WIKI_ACTION_URL, () => {
+          return HttpResponse.json({
+            query: {
+              pages: {
+                '88888': {
+                  title: 'File:Ok_bird.jpg',
+                  imageinfo: [
+                    {
+                      url: 'https://upload.wikimedia.org/wikipedia/commons/o/ok/Ok_bird.jpg',
+                      descriptionurl:
+                        'https://commons.wikimedia.org/wiki/File:Ok_bird.jpg',
+                      extmetadata: {
+                        LicenseShortName: { value: short },
+                        License: { value: code },
+                        Artist: { value: 'Allowed Photographer' },
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          });
+        })
+      );
+
+      const result = await fetchWikipediaLeadImage('Ok_article');
+      expect(result).not.toBeNull();
+      expect(result!.license).toBe(expected);
+    });
+  }
+
   it('returns null when the action API has no imageinfo for the file', async () => {
     // The summary returned an originalimage URL but the action API can't
     // resolve metadata (missing page, redacted file). Without provenance

@@ -48,17 +48,70 @@ export interface FetchWikipediaLeadImageOptions {
 
 /**
  * License codes that bird-maps.com is licensed to display. Anything not on
- * this whitelist (fair-use, ARR, "non-commercial", unknown) returns null
- * from the lead-image client. The list intentionally mirrors the iNat
- * client's `cc-by`, `cc-by-sa`, `cc0` set, plus public-domain variants
- * (PD-USGov, PD-old) that Wikipedia surfaces but iNat doesn't expose.
+ * this allowlist (fair-use, ARR, NC, ND, unknown) returns null from the
+ * lead-image client. The list intentionally mirrors the iNat client's
+ * `cc-by`, `cc-by-sa`, `cc0` set, plus public-domain variants (PD-USGov,
+ * PD-old) that Wikipedia surfaces but iNat doesn't expose.
  *
- * The match is a prefix check on a lowercased license code stripped of
- * whitespace — so `cc-by-4.0`, `cc-by-sa-4.0`, `cc-by-sa-3.0` all match.
- * `cc-by-nc` and `cc-by-nc-sa` are deliberately excluded (NC = no
- * commercial; future donations/grants tiers could reclassify).
+ * CC compliance is the load-bearing concern here. bird-maps.com displays
+ * derived thumbnails commercially, so non-commercial (NC) and no-derivative
+ * (ND) licenses MUST reject — even when they superficially look like CC-BY.
+ * That is why the check below is an exact-token allowlist plus an
+ * explicit NC/ND deny pattern, not a substring match. A previous version
+ * used `licenseHaystack.includes('cc-by-')`, which accepted `cc-by-nc-4.0`
+ * and `cc-by-nd-4.0` because they share the `cc-by-` prefix.
  */
-const ACCEPTED_LICENSE_PREFIXES = ['cc-by-', 'cc-by-sa-', 'cc0', 'cc-zero', 'pd', 'public domain'] as const;
+
+/**
+ * Returns true when the given license string (lowercased, whitespace-trimmed
+ * tokens from the License + LicenseShortName fields) is one we are licensed
+ * to display. Operates on tokens rather than substrings so `cc-by-nc-4.0`
+ * cannot match the `cc-by-*` rule.
+ */
+function isAcceptedLicense(rawLicense: string, licenseShortName: string): boolean {
+  // Normalize: lowercase, collapse internal whitespace, then split on
+  // whitespace to get a token set. The two fields together cover both the
+  // machine-readable License code and the human-readable LicenseShortName
+  // (e.g. "Public domain", "CC BY-SA 4.0") — Wikipedia uploads can populate
+  // either or both.
+  const normalize = (s: string) =>
+    s.toLowerCase().replace(/\s+/g, ' ').trim();
+  const license = normalize(rawLicense);
+  const short = normalize(licenseShortName);
+
+  // Explicit deny on any NC (non-commercial) or ND (no-derivative) signal,
+  // regardless of where it appears. Commercial-eligible display is a non-
+  // negotiable for bird-maps.com, so reject defensively if either token
+  // appears anywhere in the license code or short name.
+  const combined = `${license} ${short}`;
+  if (/(^|[\s-])(nc|nd)([\s-]|$)/.test(combined)) return false;
+
+  // Allowlist patterns. Anchored on either the start of the string or a
+  // whitespace boundary so the short name "CC BY 4.0" tokenizes correctly
+  // ("cc by 4.0" — note the space, not a hyphen). The patterns intentionally
+  // do not match `cc-by-nc-*` or `cc-by-nd-*` because the deny block above
+  // already rejected those.
+  const acceptPatterns: RegExp[] = [
+    /^cc-by(-sa)?(-\d+(\.\d+)?)?$/, // cc-by, cc-by-sa, cc-by-4.0, cc-by-sa-4.0
+    /^cc by(-sa)?( \d+(\.\d+)?)?$/, // "cc by 4.0", "cc by-sa 4.0" short-name shape
+    /^cc0(-\d+(\.\d+)?)?$/,
+    /^cc-zero$/,
+    /^pd(-.*)?$/, // pd, pd-usgov, pd-old, etc.
+    /^public domain$/,
+  ];
+
+  // Check each whitespace-separated chunk of the combined string. We split
+  // on runs of whitespace so multi-word short names like "public domain"
+  // still match as a single chunk via the dedicated pattern.
+  const chunks = [license, short, ...license.split(/\s+/), ...short.split(/\s+/)];
+  for (const chunk of chunks) {
+    if (!chunk) continue;
+    for (const pat of acceptPatterns) {
+      if (pat.test(chunk)) return true;
+    }
+  }
+  return false;
+}
 
 interface SummaryPayload {
   originalimage?: {
@@ -186,15 +239,11 @@ export async function fetchWikipediaLeadImage(
   const artist = stripHtml(ext.Artist?.value ?? '').trim();
   const descriptionUrl = info.descriptionurl ?? '';
 
-  // License whitelist. The action API normalizes most licenses to a
+  // License allowlist. The action API normalizes most licenses to a
   // lowercase code in the License field (e.g. `cc-by-sa-4.0`, `cc0`, `pd`),
   // but some uploads have only the LicenseShortName populated (e.g. "Public
-  // domain"). Check both. `Fair use` and unknown licenses fail the check.
-  const licenseHaystack = `${rawLicense} ${licenseShortName.toLowerCase()}`;
-  const passes = ACCEPTED_LICENSE_PREFIXES.some((prefix) =>
-    licenseHaystack.includes(prefix)
-  );
-  if (!passes) return null;
+  // domain"). Check both. `Fair use`, NC, ND, and unknown licenses fail.
+  if (!isAcceptedLicense(rawLicense, licenseShortName)) return null;
 
   // Normalize the license code we persist. Prefer the machine-readable
   // License field; fall back to a slug of LicenseShortName when only the
