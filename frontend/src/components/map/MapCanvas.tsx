@@ -43,6 +43,54 @@ import {
 import { StackedSilhouetteMarker } from './StackedSilhouetteMarker.js';
 import { useAutoSpider } from './use-auto-spider.js';
 
+/**
+ * PresentationMarker — a <Marker> wrapper that removes `role="button"` from
+ * the maplibre-gl marker container div after mount.
+ *
+ * Why this is needed (WCAG 4.1.2 / #459 W4-C):
+ *   maplibre-gl's Marker.addTo() calls `setAttribute('role', 'button')` on
+ *   its container element unless a role is already present. When the Marker
+ *   children are themselves interactive elements (<button>: MosaicMarker,
+ *   StackedSilhouetteMarker, ClusterPill), the result is a `<div role="button">`
+ *   wrapping a `<button>` — a nested-interactive WCAG 4.1.2 violation that
+ *   axe-core flags on every visible marker (47 violations in the 2026-05-11
+ *   audit).
+ *
+ * Fix: react-map-gl's Marker component exposes the MapLibre MarkerInstance
+ * via forwardRef. After mount we set role="presentation" on the wrapper
+ * element. This overrides maplibre's role="button" and removes the
+ * interactive semantics from the container; the child <button> remains the
+ * canonical interactive element with full keyboard + AT support.
+ *
+ * We do NOT use aria-hidden="true" — that propagates to children and hides
+ * the inner <button> from assistive technologies (silent AT regression).
+ */
+interface PresentationMarkerProps {
+  longitude: number;
+  latitude: number;
+  anchor?: 'center' | 'top' | 'bottom' | 'left' | 'right' |
+    'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+  children: React.ReactNode;
+}
+
+function PresentationMarker({ longitude, latitude, anchor, children }: PresentationMarkerProps) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const markerRef = useRef<any>(null);
+
+  useEffect(() => {
+    const mk = markerRef.current;
+    if (mk && typeof mk.getElement === 'function') {
+      mk.getElement().setAttribute('role', 'presentation');
+    }
+  }, []);
+
+  return (
+    <Marker ref={markerRef} longitude={longitude} latitude={latitude} anchor={anchor}>
+      {children}
+    </Marker>
+  );
+}
+
 export interface MapCanvasProps {
   observations: Observation[];
   /**
@@ -1004,7 +1052,7 @@ export function MapCanvas({
         */}
         {Array.from(mosaics.values())
           .map((entry) => (
-            <Marker
+            <PresentationMarker
               key={entry.clusterId}
               longitude={entry.longitude}
               latitude={entry.latitude}
@@ -1014,7 +1062,7 @@ export function MapCanvas({
                 totalCount={entry.totalCount}
                 onClick={handleMosaicClick(entry)}
               />
-            </Marker>
+            </PresentationMarker>
           ))}
         {/*
           Issue #277 (Spider v2 Task 3): one <Marker>+<StackedSilhouetteMarker>
@@ -1024,7 +1072,7 @@ export function MapCanvas({
         */}
         {autoSpiderStacks.flatMap((stack) =>
           stack.leaves.map((leaf) => (
-            <Marker
+            <PresentationMarker
               key={leaf.subId}
               longitude={leaf.lngLat[0]}
               latitude={leaf.lngLat[1]}
@@ -1047,16 +1095,16 @@ export function MapCanvas({
                   if (obs) setSelectedObs(obs);
                 }}
               />
-            </Marker>
+            </PresentationMarker>
           )),
         )}
         {/* Phase 3: <ClusterPill> overlays — one per large cluster (point_count > 8).
             The mosaics reconciler handles point_count <= 8; pills cover the rest.
             Keyed by cluster_id so panning/zooming reconciles cleanly. */}
         {clusterFeatures.map((c) => (
-          <Marker key={c.cluster_id} longitude={c.lng} latitude={c.lat} anchor="center">
+          <PresentationMarker key={c.cluster_id} longitude={c.lng} latitude={c.lat} anchor="center">
             <ClusterPill count={c.point_count} onClick={() => handleClusterPillClick(c)} />
-          </Marker>
+          </PresentationMarker>
         ))}
       </MapView>
       {/* Issue #247 (original hit-layer) / #277 (Spider v2 narrowed to auto-spider stacks +
