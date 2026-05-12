@@ -83,15 +83,20 @@ describe('Down(14000→17000) rollback chain', () => {
       }
     }
 
-    // After Down(17000), no seeded family should have NULL svg_data.
-    // The fixed Down section restores the original placeholder path-d strings.
+    // After Down(17000), the original 25 seeded families should have non-null
+    // svg_data — the fixed Down section restores their placeholder path-d
+    // strings. Migration 34000 (issue #495) inserts 38 backfill rows, 11 of
+    // which have svg_data=NULL (skip families for which Phylopic had no
+    // usable candidate); those NULLs are out of scope for the Down(17000)
+    // contract because migration 34000 is post-17000 and not rolled back by
+    // this chain.
     const { rows } = await pool.query<{ count: string }>(
       `SELECT COUNT(*) AS count
          FROM family_silhouettes
         WHERE svg_data IS NULL
           AND family_code NOT IN ('_FALLBACK')`
     );
-    expect(Number(rows[0]!.count)).toBe(0);
+    expect(Number(rows[0]!.count)).toBe(11);
   });
 
   it('runs Down(16000) and Down(15000) without error', async () => {
@@ -109,17 +114,29 @@ describe('Down(14000→17000) rollback chain', () => {
 
     // After Down(15000), only the 15 original families from migration 9000
     // plus any post-17000 INSERTs that this test chain doesn't roll back
-    // (migration 33000 / issue #482 added the `icteridae` row) should
-    // remain. The chain deliberately only exercises Down(14000→17000), so
-    // post-17000 seeds are out of scope and counted into the baseline.
+    // (migration 33000 / issue #482 added the `icteridae` row; migration
+    // 34000 / issue #495 added 38 backfill rows) should remain. The chain
+    // deliberately only exercises Down(14000→17000), so post-17000 seeds
+    // are out of scope and counted into the baseline.
     const { rows } = await pool.query<{ count: string }>(
       `SELECT COUNT(*) AS count FROM family_silhouettes`
     );
-    expect(Number(rows[0]!.count)).toBe(16);
+    expect(Number(rows[0]!.count)).toBe(54);
   });
 
   it('runs Down(14000) — SET NOT NULL — without a constraint violation', async () => {
     const migrationsDir = resolve(process.cwd(), '../../migrations');
+
+    // Apply Down(34000) first to remove the 11 NULL-svg_data rows that
+    // migration 34000 (issue #495) inserts for skip families. The
+    // Down(14000) test's contract is that the placeholder restoration in
+    // Down(17000) leaves no NULLs among the originally-seeded 25; rows
+    // inserted by later migrations are post-17000 state and must be rolled
+    // back before SET NOT NULL can be re-applied.
+    const { down: down34000 } = parseMigration(
+      join(migrationsDir, '1700000034000_backfill_observed_family_silhouettes.sql')
+    );
+    await pool.query(down34000);
 
     const { down } = parseMigration(
       join(migrationsDir, '1700000014000_relax_family_silhouettes_svg_data_nullable.sql')
@@ -156,18 +173,35 @@ describe('Down(14000→17000) rollback chain', () => {
       }
     }
 
-    // After re-applying Up(14000→17000), all 25 originally-seeded families
-    // should be present with svg_data set by the Phylopic seed (non-null
-    // for the 22 families that have usable Phylopic SVGs). Exclude the
-    // _FALLBACK sentinel row. The +1 accounts for the `icteridae` row
-    // inserted by migration 33000 (issue #482), which the test container
-    // applies before the down/up chain runs but which this chain doesn't
-    // roll back.
+    // Re-apply migration 34000 Up — the previous test (Down(14000) SET NOT
+    // NULL) rolled it back to clean up 11 NULL svg_data rows. Migration
+    // 34000 references the `common_name` column added by migration 19000
+    // (and the _FALLBACK sentinel from 18000), so re-apply 18000 and 19000
+    // first (they were rolled back by the test 1 downSequence).
+    for (const filename of [
+      '1700000018000_seed_family_silhouettes_fallback.sql',
+      '1700000019000_add_common_name_to_family_silhouettes.sql',
+      '1700000034000_backfill_observed_family_silhouettes.sql',
+    ]) {
+      const { up } = parseMigration(join(migrationsDir, filename));
+      if (up) {
+        await pool.query(up);
+      }
+    }
+
+    // After re-applying Up(14000→17000) and Up(34000), all 25 originally-
+    // seeded families should be present with svg_data set by the Phylopic
+    // seed (non-null for the 22 families that have usable Phylopic SVGs).
+    // Exclude the _FALLBACK sentinel row. The +1 accounts for the
+    // `icteridae` row inserted by migration 33000 (issue #482); the +38
+    // accounts for the backfill from migration 34000 (issue #495). The
+    // test container applies both before the down/up chain runs but this
+    // chain doesn't roll them back.
     const { rows } = await pool.query<{ count: string }>(
       `SELECT COUNT(*) AS count
          FROM family_silhouettes
         WHERE family_code != '_FALLBACK'`
     );
-    expect(Number(rows[0]!.count)).toBe(26);
+    expect(Number(rows[0]!.count)).toBe(64);
   });
 });
