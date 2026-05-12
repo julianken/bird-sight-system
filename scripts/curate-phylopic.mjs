@@ -972,7 +972,55 @@ function loadPicksConfig() {
 // Keys MUST be the lowercase family_code; values MUST be the per-row column
 // value. emitMigrationSql throws on missing keys so the migration cannot
 // silently land with NULL color or NULL common_name.
-const COLOR_BY_FAMILY = {};
+// Hand-picked per the field-mark methodology in
+// docs/plans/2026-05-12-backfill-38-family-silhouettes.md Task 3.
+// Each color is verified distinct (no exact dup, perceptually separated) from
+// the existing 27-color palette across migrations 9000/15000/17000/18000/33000
+// and from every other entry in this object. Where a family's primary AZ
+// species has a strong field-mark color, the value echoes it.
+const COLOR_BY_FAMILY = {
+  aegithalidae:        '#C2B098', // Bushtits — pale buff-gray flock bird
+  alaudidae:           '#B89060', // Larks — desert sand plumage (Horned Lark)
+  alcedinidae:         '#5481A0', // Kingfishers — Belted Kingfisher slate-blue back
+  apodidae:            '#36322E', // Swifts — sooty near-black (Vaux's / White-throated)
+  bombycillidae:       '#C9A878', // Waxwings — Cedar Waxwing muted gold/cinnamon
+  calcariidae:         '#E5C28A', // Longspurs — wheat/buff (winter plumage dominant in AZ)
+  certhiidae:          '#6B4A30', // Brown Creeper — streaked bark brown
+  charadriidae:        '#BFA682', // Plovers — Killdeer sandy upperparts
+  cinclidae:           '#6E7378', // Dippers — American Dipper slate-gray
+  falconidae:          '#475360', // Falcons — Peregrine slate-blue mantle
+  gaviidae:            '#2B3845', // Loons — Common Loon black-with-blue-sheen
+  gruidae:             '#8A8470', // Cranes — Sandhill Crane warm gray
+  hirundinidae:        '#5BA0C0', // Swallows — Barn Swallow iridescent blue back
+  icteriidae:          '#F4E04D', // Yellow-breasted Chat — bright lemon yellow breast
+                                  // (distinct from icteridae #F4B400 deep gold)
+  laniidae:            '#7E848A', // Shrikes — Loggerhead Shrike gray upperparts
+  laridae:             '#8FA7B5', // Gulls — neutral grey-blue mantle
+  motacillidae:        '#7E6440', // Pipits/Wagtails — American Pipit streaky brown
+  numididae:           '#5A6878', // Guineafowl — speckled blue-gray (AZ escapees)
+  pandionidae:         '#4A3520', // Osprey — dorsal brown
+  passeridae:          '#8E5B3A', // House Sparrow — warm chestnut crown/nape
+  pelecanidae:         '#E8D4B8', // Pelicans — American White Pelican cream/pink
+  peucedramidae:       '#8A8C66', // Olive Warbler — olive-gray with rust head
+  phalacrocoracidae:   '#26302C', // Cormorants — Double-crested glossy black-green
+  phasianidae:         '#6E7A48', // Pheasants/Quail-relatives — iridescent green-olive
+  podicipedidae:       '#2F4D4A', // Grebes — Eared/Pied-billed dark with teal sheen
+  polioptilidae:       '#A8B5C2', // Gnatcatchers — Blue-gray Gnatcatcher pale blue-gray
+  psittacidae:         '#3FA850', // New World parrots — Rosy-faced Lovebird bright green
+  psittaculidae:       '#4FB8B0', // Old World parrots — escaped budgerigars turquoise
+  ptiliogonatidae:     '#1A1418', // Phainopepla — glossy near-black with red eye
+                                  // (note: distinct lineage from already-seeded
+                                  // ptilogonatidae — eBird v2024 spelling)
+  rallidae:            '#403E3A', // Rails/Coots — American Coot dark sooty
+  recurvirostridae:    '#E1B8C0', // Avocets/Stilts — Black-necked Stilt pink legs
+  regulidae:           '#6FA050', // Kinglets — olive-green with bright crown
+  sittidae:            '#6B7A8E', // Nuthatches — White-breasted slate-blue back
+  sturnidae:           '#2D2538', // Starlings — European iridescent purple-green-black
+  tityridae:           '#A88AA0', // Rose-throated Becard — gray with rosy throat
+  turdidae:            '#A05A3A', // Thrushes — American Robin breast / Hermit Thrush mantle
+  tytonidae:           '#D6B878', // Barn Owl — golden buff dorsal
+  vireonidae:          '#7E9B5C', // Vireos — olive-green back
+};
 const COMMON_NAME_BY_FAMILY = {};
 
 async function main() {
