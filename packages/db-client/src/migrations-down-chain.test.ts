@@ -108,11 +108,14 @@ describe('Down(14000→17000) rollback chain', () => {
     }
 
     // After Down(15000), only the 15 original families from migration 9000
-    // should remain.
+    // plus any post-17000 INSERTs that this test chain doesn't roll back
+    // (migration 33000 / issue #482 added the `icteridae` row) should
+    // remain. The chain deliberately only exercises Down(14000→17000), so
+    // post-17000 seeds are out of scope and counted into the baseline.
     const { rows } = await pool.query<{ count: string }>(
       `SELECT COUNT(*) AS count FROM family_silhouettes`
     );
-    expect(Number(rows[0]!.count)).toBe(15);
+    expect(Number(rows[0]!.count)).toBe(16);
   });
 
   it('runs Down(14000) — SET NOT NULL — without a constraint violation', async () => {
@@ -153,14 +156,18 @@ describe('Down(14000→17000) rollback chain', () => {
       }
     }
 
-    // After re-applying, all 25 families should be present and svg_data
-    // should have been set by the Phylopic seed (non-null for the 22 families
-    // that have usable Phylopic SVGs). Exclude the _FALLBACK sentinel row.
+    // After re-applying Up(14000→17000), all 25 originally-seeded families
+    // should be present with svg_data set by the Phylopic seed (non-null
+    // for the 22 families that have usable Phylopic SVGs). Exclude the
+    // _FALLBACK sentinel row. The +1 accounts for the `icteridae` row
+    // inserted by migration 33000 (issue #482), which the test container
+    // applies before the down/up chain runs but which this chain doesn't
+    // roll back.
     const { rows } = await pool.query<{ count: string }>(
       `SELECT COUNT(*) AS count
          FROM family_silhouettes
         WHERE family_code != '_FALLBACK'`
     );
-    expect(Number(rows[0]!.count)).toBe(25);
+    expect(Number(rows[0]!.count)).toBe(26);
   });
 });
