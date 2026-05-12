@@ -371,6 +371,10 @@
   font-weight: var(--font-weight-semibold);
   white-space: nowrap;
   transition: transform var(--dur-fast), box-shadow var(--dur-fast);
+  /* WCAG 2.5.8 Target Size (Minimum) — 24×24px floor. Audit measured
+     sky-tier pills at ~21px tall on desktop; this ensures the touch target
+     meets the 24px minimum without altering the visual padding. */
+  min-height: 24px;
 }
 
 .cluster-pill:hover {

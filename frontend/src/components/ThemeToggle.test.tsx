@@ -62,23 +62,49 @@ describe('ThemeToggle', () => {
     expect(localStorage.getItem('theme')).toBe('dark');
   });
 
-  it('has an accessible aria-label that names the target theme', () => {
+  // Fix #459 W4-C: static aria-label + aria-pressed is the WAI-ARIA-compliant
+  // pattern for a toggle button. Changing aria-label to describe the *target*
+  // state (antipattern) causes AT to announce "Switch to dark theme, toggle
+  // button, pressed" after the toggle — incoherent. Static label + aria-pressed
+  // lets AT announce "Toggle color theme, toggle button, pressed/not pressed".
+  it('has a static aria-label that does not change on toggle', async () => {
     setTheme('light');
     render(<ThemeToggle />);
-    expect(screen.getByRole('button')).toHaveAttribute(
-      'aria-label',
-      'Switch to dark theme',
-    );
+    const btn = screen.getByRole('button');
+    expect(btn).toHaveAttribute('aria-label', 'Toggle color theme');
+    await userEvent.click(btn);
+    // After toggle, the aria-label must remain the same static value
+    expect(btn).toHaveAttribute('aria-label', 'Toggle color theme');
   });
 
-  it('aria-label updates after toggle', async () => {
+  it('aria-pressed is false when theme is light', () => {
     setTheme('light');
     render(<ThemeToggle />);
-    await userEvent.click(screen.getByRole('button'));
-    expect(screen.getByRole('button')).toHaveAttribute(
-      'aria-label',
-      'Switch to light theme',
-    );
+    expect(screen.getByRole('button')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('aria-pressed is true when theme is dark', () => {
+    setTheme('dark');
+    render(<ThemeToggle />);
+    expect(screen.getByRole('button')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('aria-pressed toggles from false to true on click (light → dark)', async () => {
+    setTheme('light');
+    render(<ThemeToggle />);
+    const btn = screen.getByRole('button');
+    expect(btn).toHaveAttribute('aria-pressed', 'false');
+    await userEvent.click(btn);
+    expect(btn).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('aria-pressed toggles from true to false on click (dark → light)', async () => {
+    setTheme('dark');
+    render(<ThemeToggle />);
+    const btn = screen.getByRole('button');
+    expect(btn).toHaveAttribute('aria-pressed', 'true');
+    await userEvent.click(btn);
+    expect(btn).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('button has no aria-live attribute (fix #416 — live region is a sibling)', () => {
