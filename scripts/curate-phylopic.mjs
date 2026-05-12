@@ -82,7 +82,7 @@ const MIGRATION_PATH = resolve(
 );
 
 const PHYLOPIC_API = 'https://api.phylopic.org';
-const PHYLOPIC_BUILD = '537';
+const PHYLOPIC_BUILD = '538';
 const PHYLOPIC_WEB = 'https://www.phylopic.org';
 
 const REFRESH = process.argv.includes('--refresh');
