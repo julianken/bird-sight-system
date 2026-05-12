@@ -1021,7 +1021,55 @@ const COLOR_BY_FAMILY = {
   tytonidae:           '#D6B878', // Barn Owl — golden buff dorsal
   vireonidae:          '#7E9B5C', // Vireos — olive-green back
 };
-const COMMON_NAME_BY_FAMILY = {};
+// English family-display names following the eBird taxonomy v2024 convention
+// and the "Group", "Group & Group", "Group & Allies" precedent set by
+// migration 1700000019500_seed_family_common_names.sql (issue #249). Keys are
+// alphabetical and match BACKFILL_FAMILIES exactly. Notable disambiguations:
+//   icteriidae       — monotypic family (Yellow-breasted Chat); eBird uses
+//                      the species name as the family display.
+//   ptiliogonatidae  — eBird v2024 spelling distinct from migration 19500's
+//                      already-seeded `ptilogonatidae`. eBird display:
+//                      "Silky-flycatchers" (lowercase f).
+const COMMON_NAME_BY_FAMILY = {
+  aegithalidae:        'Bushtits',
+  alaudidae:           'Larks',
+  alcedinidae:         'Kingfishers',
+  apodidae:            'Swifts',
+  bombycillidae:       'Waxwings',
+  calcariidae:         'Longspurs & Snow Buntings',
+  certhiidae:          'Treecreepers',
+  charadriidae:        'Plovers & Lapwings',
+  cinclidae:           'Dippers',
+  falconidae:          'Falcons & Caracaras',
+  gaviidae:            'Loons',
+  gruidae:             'Cranes',
+  hirundinidae:        'Swallows',
+  icteriidae:          'Yellow-breasted Chat',
+  laniidae:            'Shrikes',
+  laridae:             'Gulls, Terns & Skimmers',
+  motacillidae:        'Wagtails & Pipits',
+  numididae:           'Guineafowl',
+  pandionidae:         'Ospreys',
+  passeridae:          'Old World Sparrows',
+  pelecanidae:         'Pelicans',
+  peucedramidae:       'Olive Warbler',
+  phalacrocoracidae:   'Cormorants & Shags',
+  phasianidae:         'Pheasants, Grouse & Allies',
+  podicipedidae:       'Grebes',
+  polioptilidae:       'Gnatcatchers',
+  psittacidae:         'African & New World Parrots',
+  psittaculidae:       'Old World Parrots',
+  ptiliogonatidae:     'Silky-flycatchers',
+  rallidae:            'Rails, Gallinules & Coots',
+  recurvirostridae:    'Stilts & Avocets',
+  regulidae:           'Kinglets',
+  sittidae:            'Nuthatches',
+  sturnidae:           'Starlings & Mynas',
+  tityridae:           'Tityras & Allies',
+  turdidae:            'Thrushes',
+  tytonidae:           'Barn-Owls',
+  vireonidae:          'Vireos',
+};
 
 async function main() {
   const config = loadPicksConfig();
