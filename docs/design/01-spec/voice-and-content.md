@@ -107,6 +107,26 @@ Color carries meaning. When accent appears, something is interactive. The existi
 
 The most common Sky Atlas mistake will be painting the lede's filter-bullet OR the popover meta-label OR a card-row in accent for narrative emphasis. Don't. The 8 enumerated sites are exhaustive; everything else stays muted text.
 
+## Typography conventions
+
+Typographic contracts that cross the boundary between design tokens and content/voice decisions. Token-level contracts (line-height, tracking scale, weight-role mapping, `font-variant-numeric`) live in [`tokens.md` — Typography contracts](./tokens.md#typography-contracts). Conventions here are about *which text is styled how*, not how the style tokens are defined.
+
+### Scientific-name italic
+
+Scientific names (binomial nomenclature) are **always rendered in italic** — the biological convention. This is not a decorative choice; italic for scientific names is an internationally accepted typography standard. Every brainstorm mock encodes this: `sky-atlas-v3.html:466` (`.v3-popover-sci { font-style: italic }`), `sky-atlas-v3.html:531` (`.v3-detail-sci { font-style: italic }`), `sky-atlas-v3.html:752` (`.v3-sheet-sci { font-style: italic }`).
+
+**Contracted implementation:** wrap scientific names in `<em>`. The browser UA default renders `<em>` in italic; no explicit `font-style: italic` in component CSS is required. Using `<em>` carries semantic meaning (emphasis, which maps onto the biological emphasis of a formal name) AND avoids a presentational CSS rule. Do not use `<span class="sci-name">` with CSS italic — that loses semantics if the stylesheet is absent.
+
+**In the masthead layout:** the sci-name appears over the photo (see `<Photo>` masthead overlay contract in `components.md`) in `color: rgba(255,255,255,0.85)` italic. The `<em>` element inherits the white color from the overlay container; no additional rule needed.
+
+### NOTABLE label typography
+
+The NOTABLE label (`--color-accent-notable-fg`) is rendered in `text-transform: uppercase; letter-spacing: 1.5px; font-weight: var(--font-weight-semibold)`. Source: the label-uppercase convention in `tokens.md` §2 (Typography contracts) and the font-weight role mapping in `tokens.md` §5 (NOTABLE → 600 / `--font-weight-semibold`). This is a system label, not a content string — the full typography applies. See accent discipline in [Accent discipline](#accent-discipline) for the token to use (`--color-accent-notable-fg`, not `--color-decision-point`).
+
+### Freshness meta-line typography
+
+The "Updated N min ago · Source: eBird" line (see [Freshness label state machine](#freshness-label-state-machine)) renders at `--type-xs` in `text-transform: uppercase; letter-spacing: 1.5px`. This is a system-state label and follows the uppercase-tracking convention for labels.
+
 ## Copy register inventory
 
 For Phase 6's voice-pass rewrites, the existing 14 strings to update or preserve:

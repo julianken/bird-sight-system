@@ -87,6 +87,43 @@ Gates Phase 1's family-palette commit. If any family fails 3:1, the affected tok
 
 **Recommendation.** Do not promise dark mode in marketing/social meta tags until G8 passes. Phase 1 ships the `[data-theme]` mechanism; whether the dark-mode toggle is exposed to users in v1 depends on G8.
 
+## W5 spec captures (2026-05-11)
+
+Items surfaced by the 2026-05-11 brainstorm-vs-production fidelity audit (`coverage-matrix-v4.md`) and formally resolved here.
+
+### Body radial-gradient — DEFERRED-INTENTIONAL
+
+The v4 brainstorm mock specifies a two-layer radial-gradient on the map-area background (`sky-atlas-v4.html:253-264`):
+
+```css
+/* light */
+background:
+  radial-gradient(ellipse at 25% 30%, rgba(245,133,59,0.04), transparent 60%),
+  radial-gradient(ellipse at 75% 70%, rgba(74,123,168,0.05), transparent 60%),
+  #efe9dc;
+/* dark */
+background:
+  radial-gradient(ellipse at 25% 30%, rgba(109,184,212,0.05), transparent 60%),
+  radial-gradient(ellipse at 75% 70%, rgba(245,133,59,0.04), transparent 60%),
+  #182238;
+```
+
+Production ships a flat `--color-bg-page` (`#f4f1ea` light / `#0d1424` dark — `tokens.css`). The gradient was silently dropped without documentation.
+
+**Decision (2026-05-11):** `DEFERRED-INTENTIONAL` — not adopted in v1. Rationale: (1) The flat value is simpler to reason about for dark-mode contrast, especially under the family-color overlay on the map canvas. (2) The gradient is a 4% opacity "atmospheric warmth" effect — it is imperceptible in most system-font rendering environments and adds CPU/GPU composite cost on low-end mobile. (3) Contrast arithmetic is harder against a non-uniform background; WCAG compliance is provable on flat but only probabilistic on a gradient. (4) A future v1.1 "atmosphere mode" can adopt the gradient as an opt-in visual layer rather than baking it into the base token.
+
+**If adopted in v1.1:** introduce `--color-bg-atmosphere-light` and `--color-bg-atmosphere-dark` as optional overlay tokens; do not fold them into `--color-bg-page`. The gradient must be verified against all 7 family-color silhouettes (G7) at their worst-case opacity. File a new issue to track.
+
+**Coverage-matrix row:** row 90 (`body background radial-gradient`) — update disposition from `DROPPED — UNSTATED` to `DEFERRED-INTENTIONAL`, cite `open-questions.md:W5-spec-captures`.
+
+### `--accent-secondary` / `--accent-cool` compression — DROPPED — DOCUMENTED
+
+The system poster (`sky-atlas-system.html:17-18`) defined three accent hues: `--accent` (orange/cyan), `--accent-secondary: #1d3b5b` (deep sky), and `--accent-cool: #4a7ba8` (daylight blue). v4 collapsed to one accent token (`--color-decision-point`) under the subtractive discipline (`voice-and-content.md:104-108`). The compression was previously DROPPED — UNSTATED because the rationale existed in `voice-and-content.md` but was not cross-linked to the token itself.
+
+**Decision (2026-05-11):** `DROPPED — DOCUMENTED`. The subtractive rationale in `voice-and-content.md:104-108` is the authoritative explanation. The system-poster three-accent proposal was a brainstorm option, not a committed contract. The single `--color-decision-point` token is correct. No follow-up needed.
+
+**Coverage-matrix row:** row 91 — update from `DROPPED — UNSTATED` to `DROPPED — DOCUMENTED`.
+
 ## Update protocol
 
 When a gate closes:

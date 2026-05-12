@@ -156,6 +156,85 @@ The 35+ hardcoded `font-size` literals in the existing `frontend/src/styles.css`
 
 Webfont swap is a one-token operation if ever needed: change `--font-stack`. The system stack is the brand for v1.
 
+## Typography contracts
+
+Seven implicit conventions that every brainstorm mock honours and that production code implements, but that the spec previously left unstated. Captured here so future implementers have an inescapable reference.
+
+### 1. Scientific-name italic — UA-default delegation
+
+Every mock renders scientific names in italic: `sky-atlas-v3.html:466,531,752`; v4 popover; system poster. Production wraps them in `<em>` (`SpeciesDetailSurface.tsx`), which delegates the italic to the browser UA stylesheet default (`font-style: italic`). This is the **contracted approach** — no explicit `font-style: italic` rule in component CSS is required because `<em>` carries semantic italic by definition. If the UA default ever needs overriding (e.g., a future webfont that ships its own italic variant), add `em { font-style: italic; }` to `tokens.css`. Do not lose the italic by switching to a `<span>` without carrying the style.
+
+**Disposition:** `CAPTURED` — v3 CSS evidence at `sky-atlas-v3.html:466` (`font-style: italic` on `.v3-popover-sci`). Implementation: `<em>` element in `SpeciesDetailSurface.tsx`.
+
+### 2. Label uppercase + tracking
+
+Short meta labels (NOTABLE, freshness state line "Updated N min ago · Source: eBird", region strip, masthead overlay family tag) are rendered in `text-transform: uppercase` with `letter-spacing: 1.5px`. Source: `sky-atlas-v3.html:513-520` (`.v3-detail-meta-overlay`). The convention communicates "system label" vs "narrative content" without a separate typeface.
+
+**Rule:** Any element rendered in `--type-xs` or `--type-sm` that functions as a system label (not user-generated content) takes `text-transform: uppercase; letter-spacing: 1.5px`. Elements functioning as body copy or species names do not.
+
+**Disposition:** `CAPTURED` — evidence at `sky-atlas-v3.html:514-515`.
+
+### 3. Letter-spacing scale
+
+Three tiers explicitly used in mocks (do not introduce additional steps without documenting rationale):
+
+| Token | Value | Used for |
+|---|---|---|
+| `--tracking-tight` | `-0.4px` to `-0.8px` | Hero / display type (species name at `--type-hero` or `--lede-size`) |
+| `--tracking-normal` | `0` | Body and secondary text (`--type-base`, `--type-sm`) |
+| `--tracking-wide` | `1.5px` | Uppercase labels (`--type-xs`, `--type-sm` uppercase) |
+
+The tight range (`-0.4px` for `--type-md` headings, `-0.8px` for `--type-hero`) mirrors Apple HIG negative tracking at display sizes. Values sourced from `sky-atlas-v3.html:525,745`.
+
+**Disposition:** `CAPTURED` — evidence at `sky-atlas-v3.html:461,525,745` and `sky-atlas-v4.html`. The `--tracking-*` tokens are not yet declared in the CSS block above; they should be added to the `:root` ramp block in Phase 1.
+
+### 4. Line-height per type tier
+
+| Tier | Token | Declared line-height | Notes |
+|---|---|---|---|
+| Hero / display (`--type-hero`, `--lede-size`) | — | `1` to `1.05` | Tight; space is data at display size |
+| Section title (`--type-lg`) | — | `1.15` | Minor breathing room |
+| Body (`--type-base`, `--type-md`) | — | `1.4` to `1.5` | Reading comfort |
+| Caption / label (`--type-sm`, `--type-xs`) | — | `1.15` to `1.2` | Dense; used in constrained spaces |
+
+Source: `sky-atlas-v3.html:460-461` (`line-height: 1.15` for `.v3-popover-name`), `sky-atlas-v3.html:747` (`line-height: 1.05` for hero name). Implementers must not use `line-height: 1.5` on display-size elements — the compressed line-height is a design intent, not a shortcut.
+
+**Disposition:** `CAPTURED` — evidence across v3 mock CSS. Line-height values should be added as explicit token comments in Phase 1.
+
+### 5. Font-weight role mapping
+
+| Role | Weight | Token |
+|---|---|---|
+| Hero species name, map legend heading | 800 | `--font-weight-heavy` |
+| Section headings, popover species name | 700 | `--font-weight-bold` |
+| NOTABLE label, CTA text | 600 | `--font-weight-semibold` |
+| Photo credit, secondary meta | 500 | `--font-weight-medium` |
+| Body copy, filter sentence | 400 | `--font-weight-regular` |
+
+The five weight tokens in the `:root` ramp above correspond exactly to these five roles. **Do not use numeric weights directly in component CSS** — always reference the semantic token so a future weight audit changes one definition, not N component rules.
+
+Source: v3 and v4 mocks consistently use 800 for hero names (e.g., `sky-atlas-v3.html:745`, `sky-atlas-v4.html:273`), 700 for popover headings.
+
+**Disposition:** `CAPTURED` — weight tokens declared at `:root` above; role assignment added here as contract.
+
+### 6. Font-family token consumption
+
+All component CSS must consume `var(--font-stack)` through `body { font-family }` inheritance. No component may hardcode a `font-family` value or `var(--font-stack)` directly — inheritance from `body` is the correct mechanism. Exception: `<code>` and `<pre>` elements use the browser monospace default. If any element resets `font-family: inherit`, it must be flagged in review as a design-system violation.
+
+**Disposition:** `CAPTURED` — `body { font-family: var(--font-stack); }` is the single declaration point. The lint guard for `--accent` (see Lint guard section) should be extended to catch `font-family:` declarations in component files.
+
+### 7. `font-variant-numeric: tabular-nums` global declaration
+
+`body { font-feature-settings: "tnum"; }` is already declared in the CSS block above. This is the contract: all numeric content (counts, timestamps, percentages) renders in tabular numerics by default because every number on this site is compared — sighting counts, time deltas, family percentages. Components that intentionally render non-tabular numbers (e.g., a running prose sentence containing a number) may opt out with `font-variant-numeric: normal`, but this opt-out must be explicit and documented in a comment.
+
+The `font-feature-settings: "tnum"` approach is preferred over `font-variant-numeric: tabular-nums` because of wider system-font support. Both are equivalent for this font stack, but keep them consistent — don't mix the two syntaxes.
+
+**Disposition:** `CAPTURED` — declared in body block above. The `<Photo>` attribution (credit text) and `<FilterSentence>` copy are the only surfaces where tabular-nums would be unexpected and may warrant `font-variant-numeric: normal`.
+
+---
+
+**W5 audit note (2026-05-11):** These seven contracts were surfaced by the W5 brainstorm-vs-prod-fidelity audit as previously unstated typography silences. The canonical record of all audit findings lives in `docs/design/01-spec/coverage-matrix-v4.md`. The `<em>` sci-name italic (§1) is shared with the sci-name italic finding in `coverage-matrix-v4.md` row 94. Count: 7 distinct contracts (the `<em>` contract counted once here; the coverage matrix row captures the same finding from the brainstorm-artifact perspective).
+
 ## Light/dark mechanic
 
 Implementation:
