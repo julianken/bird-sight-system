@@ -3,6 +3,7 @@ import { startTestDb, type TestDb } from './test-helpers.js';
 import {
   getSpeciesMeta,
   upsertSpeciesMeta,
+  findMissingSpeciesMeta,
   insertSpeciesPhoto,
   getSpeciesPhotos,
   getSpeciesPhenology,
@@ -42,6 +43,44 @@ describe('species meta', () => {
     expect(meta).toBeDefined();
     expect(typeof meta!.taxonOrder).toBe('number');
     expect(meta!.taxonOrder).toBe(30501);
+  });
+});
+
+describe('findMissingSpeciesMeta (#484 ingest invariant helper)', () => {
+  beforeEach(async () => {
+    await upsertSpeciesMeta(db.pool, [
+      { speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        sciName: 'Pyrocephalus rubinus', familyCode: 'tyrannidae',
+        familyName: 'Tyrant Flycatchers', taxonOrder: 30501 },
+      { speciesCode: 'annhum', comName: "Anna's Hummingbird",
+        sciName: 'Calypte anna', familyCode: 'trochilidae',
+        familyName: 'Hummingbirds', taxonOrder: 6000 },
+    ]);
+  });
+
+  it('returns [] when every code has a species_meta row', async () => {
+    const missing = await findMissingSpeciesMeta(db.pool, ['vermfly', 'annhum']);
+    expect(missing).toEqual([]);
+  });
+
+  it('returns [] for an empty input (no DB round-trip needed)', async () => {
+    const missing = await findMissingSpeciesMeta(db.pool, []);
+    expect(missing).toEqual([]);
+  });
+
+  it('returns the subset of codes that have no species_meta row', async () => {
+    const missing = await findMissingSpeciesMeta(db.pool, [
+      'vermfly', 'xMISS1', 'annhum', 'xMISS2',
+    ]);
+    // Sorted lexicographically for stable error messages.
+    expect(missing).toEqual(['xMISS1', 'xMISS2']);
+  });
+
+  it('de-duplicates repeated missing codes in the input', async () => {
+    const missing = await findMissingSpeciesMeta(db.pool, [
+      'xMISS', 'xMISS', 'xMISS',
+    ]);
+    expect(missing).toEqual(['xMISS']);
   });
 });
 
