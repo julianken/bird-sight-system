@@ -25,18 +25,26 @@
 #
 # ── Dynamic classNames with non-static suffix ────────────────────────────────
 #
-# species-detail-sheet--{snap}  (SpeciesDetailSurface.tsx)
-#   The component renders `species-detail-sheet--${snap}` where snap is
-#   'peek' | 'half' | 'full'. The CSS rules .species-detail-sheet--peek,
-#   .species-detail-sheet--half, .species-detail-sheet--full exist in
-#   styles.css; the *combined* className `species-detail-sheet--peek` etc.
-#   IS in the CSS, but the script cannot resolve the union suffix statically.
-#   The template-literal prefix `species-detail-sheet ` IS checked (the base
-#   class); the modifier suffix is allowed here.
-#   added: 2026-05-11
-- species-detail-sheet--peek
-- species-detail-sheet--half
-- species-detail-sheet--full
+# cluster-pill--  (ClusterPill.tsx:48)
+#   Template: `cluster-pill cluster-pill--${tier}` where tier is 'sky' | 'sand' | 'ember'.
+#   The CSS rules .cluster-pill--sky/sand/ember exist in ds-primitives.css.
+#   The script extracts `cluster-pill--` as a static segment (the literal text
+#   ends in `--` immediately before the `${}`); that truncated fragment has no
+#   CSS rule and must be allowed here.  The base class `cluster-pill` is checked
+#   separately and resolves fine.  added: 2026-05-11
+- cluster-pill--
+
+# species-detail-sheet--  (SpeciesDetailSheet.tsx:262)
+#   Template: `species-detail-sheet species-detail-sheet--${snap}` where snap is
+#   'peek' | 'half' | 'full'. CSS rules for all three variants exist in styles.css.
+#   The script extracts `species-detail-sheet--` as a static segment (text ends
+#   in `--` before `${}`); that truncated fragment has no CSS rule.
+#   The base class `species-detail-sheet` is checked separately and resolves fine.
+#
+#   NOTE: the prior entries for species-detail-sheet--peek/half/full were removed
+#   (2026-05-11) — they were never consulted because the script never generated
+#   those suffixed strings as candidates.  added: 2026-05-11
+- species-detail-sheet--
 
 # app-header-tab{is-active}  (AppHeader.tsx)
 #   Template: `app-header-tab${selected ? ' is-active' : ''}` — the script

@@ -120,21 +120,42 @@ while IFS= read -r tsx_file; do
     done
 
     # ── 3b. Template literal ternary branches: className={`...${cond ? ' cls' : ''}...`}
-    # Extract static prefix before first ${ and all single-quoted branch literals.
+    # Extract all static segments (between ${} expressions) and all single-quoted branch literals.
     if printf '%s' "$raw_line" | grep -qE 'className=\{`'; then
-      # Static prefix: everything between className={` and the first ${
-      prefix="$(printf '%s' "$raw_line" | sed -n "s/.*className=\`\([^\$\`{]*\).*/\1/p")"
-      for cls in $prefix; do
-        [[ -z "$cls" ]] && continue
-        is_known "$cls" && continue
-        printf '%s\t%s\t%d\n' "$cls" "$rel_file" "$line_num" >> "$TMP_ORPHANS"
-      done
-      # Branch literals from ternary: ? ' class-name' :
-      # Also handles ? 'class-name' : (no leading space in the literal)
+      # Static segments: extract entire template content between className={` ... `},
+      # then replace every ${...} expression with a space so the remaining words
+      # are the static class tokens.  This covers both the prefix and any segments
+      # that appear after a ternary (e.g. `base ${a ? 'x' : ''} extra`).
+      #
+      # Bug fix — was: sed -n "s/.*className=\`\([^\$\`{]*\).*/\1/p"
+      #   That pattern matched className=` (no brace) so it never matched the
+      #   real JSX syntax className={\` and always returned empty.
+      tmpl_inner="$(printf '%s' "$raw_line" \
+        | grep -oE 'className=\{`[^`]+`' \
+        | sed 's/className={`//' \
+        | sed 's/`$//')"
+      if [[ -n "$tmpl_inner" ]]; then
+        static_parts="$(printf '%s' "$tmpl_inner" | sed 's/\${[^}]*}/ /g')"
+        for cls in $static_parts; do
+          [[ -z "$cls" ]] && continue
+          is_known "$cls" && continue
+          printf '%s\t%s\t%d\n' "$cls" "$rel_file" "$line_num" >> "$TMP_ORPHANS"
+        done
+      fi
+      # Branch literals from ternary: ? 'class-name' : or ? ' class-name' :
+      # Also catches the else branch:             : 'class-name' or : ' class-name'
+      #
+      # Bug fix — was: grep -oE "\? +' *[a-zA-Z_]...' *:"
+      #   That pattern required any optional space to sit OUTSIDE the quote marks
+      #   (before the opening quote), so `? ' is-active'` — where the space is
+      #   INSIDE the single-quote — was never matched.
+      #   The fix allows optional whitespace inside the quote via [[:space:]]* and
+      #   strips it after extraction with sed.
       printf '%s\n' "$raw_line" \
-        | grep -oE "\? +' *[a-zA-Z_][a-zA-Z0-9_-]*' *:" \
-        | grep -oE "'[a-zA-Z_][a-zA-Z0-9_-]*'" \
+        | grep -oE "[?:][[:space:]]+'[[:space:]]*[a-zA-Z_][a-zA-Z0-9_-]*[[:space:]]*'" \
+        | grep -oE "'[[:space:]]*[a-zA-Z_][a-zA-Z0-9_-]*[[:space:]]*'" \
         | tr -d "'" \
+        | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' \
         | while IFS= read -r branch_cls; do
             [[ -z "$branch_cls" ]] && continue
             is_known "$branch_cls" && continue
