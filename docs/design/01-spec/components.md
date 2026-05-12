@@ -72,9 +72,6 @@ Dark-mode masthead gradient deepens to `rgba(0,0,0,0.85)` at 100% (see `sky-atla
 
 This overlay contract was previously `MODIFIED — UNSTATED` in `coverage-matrix-v4.md` (row 96); the `layout: 'masthead'` prop existed but without this visual definition, leaving the implementation as free-fill. The contract above is now **inescapable** — any Phase 4 implementation that deviates must update this file first.
 
-```ts
-```
-
 Internal state machine (4 states):
 
 | Condition | Render |

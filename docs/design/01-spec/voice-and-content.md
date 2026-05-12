@@ -121,7 +121,7 @@ Scientific names (binomial nomenclature) are **always rendered in italic** — t
 
 ### NOTABLE label typography
 
-The NOTABLE label (`--color-accent-notable-fg`) is rendered in `text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700`. Source: the label-uppercase convention in `tokens.md` §2 (Typography contracts). This is a system label, not a content string — the full typography applies. See accent discipline in [Accent discipline](#accent-discipline) for the token to use (`--color-accent-notable-fg`, not `--color-decision-point`).
+The NOTABLE label (`--color-accent-notable-fg`) is rendered in `text-transform: uppercase; letter-spacing: 1.5px; font-weight: var(--font-weight-semibold)`. Source: the label-uppercase convention in `tokens.md` §2 (Typography contracts) and the font-weight role mapping in `tokens.md` §5 (NOTABLE → 600 / `--font-weight-semibold`). This is a system label, not a content string — the full typography applies. See accent discipline in [Accent discipline](#accent-discipline) for the token to use (`--color-accent-notable-fg`, not `--color-decision-point`).
 
 ### Freshness meta-line typography
 
