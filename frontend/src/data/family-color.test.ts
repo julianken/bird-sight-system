@@ -1,10 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { buildFamilyColorResolver, FAMILY_COLOR_FALLBACK } from './family-color.js';
+import { buildFamilyColorResolver, buildFamilyPathResolver, FAMILY_COLOR_FALLBACK } from './family-color.js';
 import type { FamilySilhouette } from '@bird-watch/shared-types';
 
+const TYRANNIDAE_PATH = 'M5 13 C5 9 9 8 13 9 L17 7 L17 10 L15 11 L15 14 L13 15 L8 15 L5 13 Z';
+const TROCHILIDAE_PATH = 'M3 13 L8 11 L13 12 L18 9 L22 11 L18 13 L13 14 L8 14 L3 15 Z';
+
 const sampleSilhouettes: FamilySilhouette[] = [
-  { familyCode: 'tyrannidae',   color: '#C77A2E', svgData: null, source: null, license: null, commonName: null, creator: null },
-  { familyCode: 'trochilidae',  color: '#7B2D8E', svgData: null, source: null, license: null, commonName: null, creator: null },
+  { familyCode: 'tyrannidae',   color: '#C77A2E', svgData: TYRANNIDAE_PATH, source: 'placeholder', license: 'CC0', commonName: null, creator: null },
+  { familyCode: 'trochilidae',  color: '#7B2D8E', svgData: TROCHILIDAE_PATH, source: 'placeholder', license: 'CC0', commonName: null, creator: null },
   { familyCode: 'picidae',      color: '#FF0808', svgData: null, source: null, license: null, commonName: null, creator: null },
 ];
 
@@ -45,5 +48,49 @@ describe('buildFamilyColorResolver', () => {
     const out = color('nope');
     expect(out.length).toBeGreaterThan(0);
     expect(out).not.toBe('transparent');
+  });
+});
+
+describe('buildFamilyPathResolver', () => {
+  it('returns the DB svgData path string for a family with a non-null svgData', () => {
+    const path = buildFamilyPathResolver(sampleSilhouettes);
+    expect(path('tyrannidae')).toBe(TYRANNIDAE_PATH);
+    expect(path('trochilidae')).toBe(TROCHILIDAE_PATH);
+  });
+
+  it('matches family codes case-insensitively', () => {
+    const path = buildFamilyPathResolver(sampleSilhouettes);
+    expect(path('TYRANNIDAE')).toBe(TYRANNIDAE_PATH);
+    expect(path('Trochilidae')).toBe(TROCHILIDAE_PATH);
+  });
+
+  it('returns null for a family whose svgData is null (Phylopic-less policy)', () => {
+    // picidae row has svgData: null — resolver must return null so caller
+    // falls back to the abstract FAMILY_PATHS palette, not an empty string.
+    const path = buildFamilyPathResolver(sampleSilhouettes);
+    expect(path('picidae')).toBeNull();
+  });
+
+  it('returns null for an unknown family code (not in silhouettes)', () => {
+    const path = buildFamilyPathResolver(sampleSilhouettes);
+    expect(path('not-a-family')).toBeNull();
+  });
+
+  it('returns null when familyCode is null or undefined', () => {
+    const path = buildFamilyPathResolver(sampleSilhouettes);
+    expect(path(null)).toBeNull();
+    expect(path(undefined)).toBeNull();
+  });
+
+  it('returns null for every lookup when the silhouettes array is empty (pre-resolve state)', () => {
+    const path = buildFamilyPathResolver([]);
+    expect(path('tyrannidae')).toBeNull();
+    expect(path(null)).toBeNull();
+  });
+
+  it('never throws — callers rely on null as the stable fallback signal', () => {
+    const path = buildFamilyPathResolver([]);
+    expect(() => path('anything')).not.toThrow();
+    expect(() => path(null)).not.toThrow();
   });
 });

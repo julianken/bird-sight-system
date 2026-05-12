@@ -7,7 +7,7 @@ import { FeedRow } from './FeedRow.js';
 import { FilterSentence } from './ds/FilterSentence.js';
 import { SortLabel } from './ds/SortLabel.js';
 import type { Freshness } from './MapLede.js';
-import { buildFamilyColorResolver } from '../data/family-color.js';
+import { buildFamilyColorResolver, buildFamilyPathResolver } from '../data/family-color.js';
 
 export interface FeedSurfaceFilters {
   notable: boolean;
@@ -117,6 +117,14 @@ export function FeedSurface(props: FeedSurfaceProps) {
   // haven't yet threaded silhouettes down.
   const resolveColor = useMemo(
     () => buildFamilyColorResolver(silhouettes ?? []),
+    [silhouettes],
+  );
+
+  // Build the familyCode → svgData (path) resolver once per silhouettes identity
+  // change. Mirrors the color resolver — returns null when no DB path is available
+  // so FamilySilhouette falls back to the abstract palette (graceful degradation).
+  const resolvePath = useMemo(
+    () => buildFamilyPathResolver(silhouettes ?? []),
     [silhouettes],
   );
 
@@ -265,6 +273,7 @@ export function FeedSurface(props: FeedSurfaceProps) {
       <ol className="feed" aria-label="Observations">
         {topNotable && (() => {
           const notableColor = topNotable.familyCode ? resolveColor(topNotable.familyCode) : undefined;
+          const notablePath = topNotable.familyCode ? resolvePath(topNotable.familyCode) : null;
           return (
             <FeedCard
               key={`card:${topNotable.subId}:${topNotable.speciesCode}`}
@@ -272,11 +281,13 @@ export function FeedSurface(props: FeedSurfaceProps) {
               now={now}
               onSelectSpecies={onSelectSpecies}
               {...(notableColor !== undefined ? { color: notableColor } : {})}
+              {...(notablePath != null ? { pathD: notablePath } : {})}
             />
           );
         })()}
         {flatObservations.map(o => {
           const familyColor = o.familyCode ? resolveColor(o.familyCode) : undefined;
+          const familyPath = o.familyCode ? resolvePath(o.familyCode) : null;
           return (
             <FeedRow
               key={`${o.subId}:${o.speciesCode}`}
@@ -284,6 +295,7 @@ export function FeedSurface(props: FeedSurfaceProps) {
               now={now}
               onSelectSpecies={onSelectSpecies}
               {...(familyColor !== undefined ? { color: familyColor } : {})}
+              {...(familyPath != null ? { pathD: familyPath } : {})}
             />
           );
         })}

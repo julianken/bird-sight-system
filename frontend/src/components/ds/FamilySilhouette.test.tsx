@@ -130,6 +130,51 @@ describe('<FamilySilhouette>', () => {
     expect(el).toHaveStyle({ '--family-fill': '#5a6472' });
   });
 
+  // --- pathD prop (DB-sourced SVG path override, issue #NEW-3 follow-up) ---
+
+  const DB_PATH = 'M5 13 C5 9 9 8 13 9 L17 7 L17 10 L15 11 L15 14 L13 15 L8 15 L5 13 Z';
+
+  it('renders the provided pathD string as the <path d> attribute when pathD is given', () => {
+    render(<FamilySilhouette family="tyrannidae" pathD={DB_PATH} color="#C77A2E" />);
+    const path = document.querySelector('path');
+    expect(path).not.toBeNull();
+    expect(path).toHaveAttribute('d', DB_PATH);
+  });
+
+  it('uses a 24×24 viewBox when pathD is provided (DB coordinate space)', () => {
+    render(<FamilySilhouette family="tyrannidae" pathD={DB_PATH} color="#C77A2E" />);
+    const svg = document.querySelector('svg');
+    expect(svg).toHaveAttribute('viewBox', '0 0 24 24');
+  });
+
+  it('uses a 100×100 viewBox when pathD is absent (abstract palette coordinate space)', () => {
+    render(<FamilySilhouette family="raptor" />);
+    const svg = document.querySelector('svg');
+    expect(svg).toHaveAttribute('viewBox', '0 0 100 100');
+  });
+
+  it('falls back to the abstract FAMILY_PATHS palette path when pathD is null', () => {
+    // pathD=null (Phylopic-less family) must fall through to the abstract
+    // palette — NOT render an empty <path d="">.
+    render(<FamilySilhouette family="tyrannidae" pathD={null} />);
+    const path = document.querySelector('path');
+    expect(path).not.toBeNull();
+    // Must have some path data (the null-family fallback from FAMILY_PATHS)
+    expect(path?.getAttribute('d')?.length).toBeGreaterThan(0);
+    // viewBox should be the abstract palette's 100×100 space
+    const svg = document.querySelector('svg');
+    expect(svg).toHaveAttribute('viewBox', '0 0 100 100');
+  });
+
+  it('pathD does not affect color — color prop and pathD are independent', () => {
+    render(<FamilySilhouette family="tyrannidae" pathD={DB_PATH} color="#FF0808" />);
+    const el = document.querySelector('[data-testid="family-silhouette"]');
+    expect(el).toHaveStyle({ '--family-fill': '#FF0808' });
+    // And the path is still the DB path
+    const path = document.querySelector('path');
+    expect(path).toHaveAttribute('d', DB_PATH);
+  });
+
   // --- Accessibility ---
 
   it('is hidden from the SR tree (presentational) when inside <Photo>', () => {

@@ -43,6 +43,22 @@ export interface FamilySilhouetteProps {
    * consumers that haven't yet threaded the silhouettes color down.
    */
   color?: string;
+  /**
+   * Raw SVG `<path d="...">` string from the DB silhouettes payload.
+   * When provided, overrides the abstract FAMILY_PATHS palette lookup so
+   * the real per-family silhouette shape is rendered instead of the 7-key
+   * abstract placeholder. Mirrors the `color` prop's override pattern.
+   *
+   * Fallback semantics: when absent (pre-resolve, unknown family, or the DB
+   * row has svgData=null), the component falls back to FAMILY_PATHS[pathKey]
+   * exactly as before — graceful degradation is preserved.
+   *
+   * The DB viewBox is 24×24 (all seed migrations use a 24-unit coordinate
+   * space); the SVG element's viewBox remains "0 0 100 100" (set by the
+   * abstract palette) when pathD is absent, and switches to "0 0 24 24"
+   * when pathD is present to match the DB path coordinate space.
+   */
+  pathD?: string | null;
   /** aria-label for standalone use. Omit when inside <Photo> (aria-hidden). */
   ariaLabel?: string;
 }
@@ -81,6 +97,7 @@ export function FamilySilhouette({
   layout = 'inline',
   shape: shapeProp,
   color,
+  pathD,
   ariaLabel,
 }: FamilySilhouetteProps): ReactNode {
   // Narrow to a known FamilyCode if recognized; treat unknowns as null.
@@ -96,7 +113,14 @@ export function FamilySilhouette({
   // Use knownFamily (narrowed FamilyCode | null) rather than the raw `family`
   // prop (string) so TypeScript can verify the index against the Record type.
   const pathKey = knownFamily ?? '__null__';
-  const path = FAMILY_PATHS[pathKey];
+
+  // `pathD` prop (DB-sourced SVG path string) takes precedence over the abstract
+  // FAMILY_PATHS palette. When absent or null, fall back to the palette path so
+  // graceful degradation (pre-resolve, Phylopic-less families, tests) still works.
+  // DB paths use a 24×24 coordinate space; palette paths use 100×100.
+  const resolvedPathD = pathD ?? FAMILY_PATHS[pathKey];
+  const viewBox = pathD ? '0 0 24 24' : '0 0 100 100';
+
   // `color` prop (DB-sourced hex) takes precedence over the palette channel
   // fill. The palette's fill becomes shape-encoding-only when color is set.
   // This makes the DB silhouettes table the single source of truth for color.
@@ -119,13 +143,13 @@ export function FamilySilhouette({
       style={{ '--family-fill': fill } as React.CSSProperties}
     >
       <svg
-        viewBox="0 0 100 100"
+        viewBox={viewBox}
         xmlns="http://www.w3.org/2000/svg"
         aria-hidden={ariaLabel ? undefined : 'true'}
         aria-label={ariaLabel}
         role={ariaLabel ? 'img' : undefined}
       >
-        <path d={path} />
+        <path d={resolvedPathD} />
       </svg>
     </span>
   );
