@@ -1,4 +1,4 @@
-import type { SpeciesMeta } from './index.js';
+import type { SpeciesMeta, ObservationsResponse, Observation } from './index.js';
 
 // Compile-time-only tests for the optional photo projection fields added
 // to SpeciesMeta in issue #327, task-3. These fields are derived at read
@@ -68,3 +68,37 @@ const _bad3: SpeciesMeta = {
   photoLicense: { label: 'CC BY 4.0' },
 };
 void _bad1; void _bad2; void _bad3;
+
+// ── ObservationsResponse type-level tests (#456 W3-A) ──────────────────────
+
+// Case 5: well-formed envelope with a timestamp
+const _obs: Observation = {
+  subId: 'S1', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+  lat: 31.72, lng: -110.88, obsDt: '2026-05-11T10:00:00.000Z',
+  locId: 'L1', locName: null, howMany: 1, isNotable: false,
+  regionId: null, silhouetteId: null, familyCode: 'tyrannidae',
+};
+const _freshResponse: ObservationsResponse = {
+  data: [_obs],
+  meta: { freshestObservationAt: '2026-05-11T10:00:00.000Z' },
+};
+void _freshResponse;
+
+// Case 6: null freshestObservationAt (empty table)
+const _emptyResponse: ObservationsResponse = {
+  data: [],
+  meta: { freshestObservationAt: null },
+};
+void _emptyResponse;
+
+// Case 7: freshestObservationAt narrows to string | null
+const _ts: string | null = _freshResponse.meta.freshestObservationAt;
+void _ts;
+
+// Case 8: non-null meta.freshestObservationAt must be string
+const _badEnvelope: ObservationsResponse = {
+  data: [],
+  // @ts-expect-error — freshestObservationAt must be string | null, not number
+  meta: { freshestObservationAt: 12345 },
+};
+void _badEnvelope;

@@ -1380,6 +1380,34 @@ dialog.species-detail-modal .species-detail-modal-close {
   line-height: 1.4;
 }
 
+/* ── Surface freshness meta lines (.feed-freshness, .species-freshness) ─────
+   Metadata paragraphs showing data-freshness state on FeedSurface and
+   SpeciesSearchSurface (FeedSurface.tsx:207, SpeciesSearchSurface.tsx:116).
+   Without rules these render as bare <p> elements at 1em/16px with UA margins.
+   Spec voice-and-content.md "freshness contract" calls for muted small-caps
+   meta text — identical visual treatment to .map-freshness (PR #471 W2).
+   Two standalone rules that mirror .map-freshness exactly so a future
+   grouped-selector refactor is trivially safe. */
+.feed-freshness {
+  margin: 0;
+  font-size: var(--type-xs);
+  font-weight: var(--font-weight-medium);
+  font-variant: small-caps;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+
+.species-freshness {
+  margin: 0;
+  font-size: var(--type-xs);
+  font-weight: var(--font-weight-medium);
+  font-variant: small-caps;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+
 /* ── Map loading skeleton (.map-loading-skeleton) ───────────────────────────
    Loading-state placeholder while the map data fetches (MapSurface.tsx:191).
    Without a rule the bare <div> collapses to zero height and the loading state

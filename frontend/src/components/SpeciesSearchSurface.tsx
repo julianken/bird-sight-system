@@ -4,6 +4,7 @@ import { FeedRow } from './FeedRow.js';
 import { SpeciesAutocomplete } from './SpeciesAutocomplete.js';
 import { FilterSentence } from './ds/FilterSentence.js';
 import type { SpeciesOption } from './FiltersBar.js';
+import type { Freshness } from './MapLede.js';
 
 export interface ActiveFilters {
   notable: boolean;
@@ -38,6 +39,17 @@ export interface SpeciesSearchSurfaceProps {
    * the common name instead of the raw speciesCode.
    */
   speciesName?: string;
+  /**
+   * Freshness state from the 4-state machine (#456 W3-A). Optional for
+   * backward-compat; when absent, no freshness meta line is rendered.
+   * Spec: docs/design/01-spec/voice-and-content.md §Freshness label state machine.
+   */
+  freshness?: Freshness;
+  /**
+   * Pre-computed freshness label (e.g. "Updated 11 min ago · Source: eBird").
+   * Displayed below the autocomplete hero on the species surface.
+   */
+  freshnessLabel?: string;
 }
 
 /** Stable module-level no-op for the recent-sightings row list. */
@@ -84,6 +96,8 @@ export function SpeciesSearchSurface(props: SpeciesSearchSurfaceProps) {
     activeFilters = DEFAULT_FILTERS,
     familyName,
     speciesName,
+    freshness: _freshness,
+    freshnessLabel,
   } = props;
 
   const filtered = speciesCode
@@ -110,6 +124,11 @@ export function SpeciesSearchSurface(props: SpeciesSearchSurfaceProps) {
           onSelectSpecies={onSelectSpecies}
         />
       </div>
+
+      {/* Freshness meta line — 4-state machine per voice-and-content.md (#456 W3-A) */}
+      {freshnessLabel && (
+        <p className="species-freshness">{freshnessLabel}</p>
+      )}
 
       {/* Context strip: FilterSentence (always-mounted live region) */}
       <FilterSentence

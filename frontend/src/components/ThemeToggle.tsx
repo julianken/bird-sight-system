@@ -49,15 +49,15 @@ export function ThemeToggle() {
     setTheme(next);
   }, [theme]);
 
-  const icon  = theme === 'light' ? '☀' : '☾';
-  const label = theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme';
+  const icon = theme === 'light' ? '☀' : '☾';
 
   return (
     <>
       <button
         type="button"
         onClick={toggle}
-        aria-label={label}
+        aria-label="Toggle color theme"
+        aria-pressed={theme === 'dark'}
       >
         {icon}
       </button>

@@ -10,7 +10,8 @@ describe('ApiClient', () => {
   });
 
   it('encodes filter query params for /api/observations', async () => {
-    vi.spyOn(global, 'fetch').mockResolvedValue(new Response('[]', { status: 200 }));
+    const envelope = JSON.stringify({ data: [], meta: { freshestObservationAt: null } });
+    vi.spyOn(global, 'fetch').mockResolvedValue(new Response(envelope, { status: 200 }));
     const client = new ApiClient({ baseUrl: '' });
     await client.getObservations({ since: '14d', notable: true, speciesCode: 'vermfly' });
     const call = (fetch as unknown as { mock: { calls: [string, unknown][] } }).mock.calls[0]!;

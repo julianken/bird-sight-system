@@ -79,7 +79,8 @@ describe('<AppHeader>', () => {
 
   it('mounts the <ThemeToggle> in the right cluster', () => {
     render(<AppHeader {...baseProps} />);
-    // ThemeToggle from Phase 1 renders a button with aria-label like "Switch to dark theme"
-    expect(screen.getByRole('button', { name: /Switch to (light|dark) theme/i })).toBeInTheDocument();
+    // Fix #459 W4-C: ThemeToggle now uses a static aria-label + aria-pressed.
+    // The label no longer changes with theme state.
+    expect(screen.getByRole('button', { name: /Toggle color theme/i })).toBeInTheDocument();
   });
 });
