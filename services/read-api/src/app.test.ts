@@ -181,7 +181,7 @@ describe('GET /api/silhouettes', () => {
     }>;
     // 15 rows from migration 9000 + 10 AZ-family expansion rows from
     // migration 15000 (issue #244) + the `_FALLBACK` row from migration
-    // 18000 (issue #246) + icteridae row from migration 32000 (issue #482)
+    // 18000 (issue #246) + icteridae row from migration 33000 (issue #482)
     // → 27 total.
     expect(body).toHaveLength(27);
     // Spot-check the _FALLBACK row round-trips through the Hono response

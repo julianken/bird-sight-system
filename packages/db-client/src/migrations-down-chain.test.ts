@@ -109,7 +109,7 @@ describe('Down(14000→17000) rollback chain', () => {
 
     // After Down(15000), only the 15 original families from migration 9000
     // plus any post-17000 INSERTs that this test chain doesn't roll back
-    // (migration 32000 / issue #482 added the `icteridae` row) should
+    // (migration 33000 / issue #482 added the `icteridae` row) should
     // remain. The chain deliberately only exercises Down(14000→17000), so
     // post-17000 seeds are out of scope and counted into the baseline.
     const { rows } = await pool.query<{ count: string }>(
@@ -160,7 +160,7 @@ describe('Down(14000→17000) rollback chain', () => {
     // should be present with svg_data set by the Phylopic seed (non-null
     // for the 22 families that have usable Phylopic SVGs). Exclude the
     // _FALLBACK sentinel row. The +1 accounts for the `icteridae` row
-    // inserted by migration 32000 (issue #482), which the test container
+    // inserted by migration 33000 (issue #482), which the test container
     // applies before the down/up chain runs but which this chain doesn't
     // roll back.
     const { rows } = await pool.query<{ count: string }>(

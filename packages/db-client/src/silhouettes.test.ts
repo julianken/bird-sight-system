@@ -10,7 +10,7 @@ describe('getSilhouettes', () => {
   it('returns all 27 seeded families (26 real + _FALLBACK)', async () => {
     // 15 from migration 9000 + 10 AZ-family expansion from migration 15000
     // (#244) + the `_FALLBACK` row from migration 18000 (#246) + icteridae
-    // from migration 32000 (#482). The _FALLBACK row backs the SDF symbol
+    // from migration 33000 (#482). The _FALLBACK row backs the SDF symbol
     // layer's fallback rendering for observations whose family has no
     // usable Phylopic silhouette.
     const rows = await getSilhouettes(db.pool);
@@ -132,7 +132,7 @@ describe('getSilhouettes', () => {
       threskiornithidae: '#C56B9D',
       // --- migration 18000 (issue #246 fallback) ---
       _FALLBACK: '#555555',
-      // --- migration 32000 (issue #482 icteridae fill) ---
+      // --- migration 33000 (issue #482 icteridae fill) ---
       icteridae: '#F4B400',
     });
   });
@@ -185,7 +185,7 @@ describe('getSilhouettes', () => {
       // _FALLBACK row from migration 18000 (issue #246) — back-stops the
       // map's symbol layer when a family has no usable Phylopic SVG.
       _FALLBACK: 'Unknown family',
-      // icteridae row from migration 32000 (issue #482) — was missing from
+      // icteridae row from migration 33000 (issue #482) — was missing from
       // the original Phylopic curation, hiding every blackbird/oriole/grackle
       // from the legend until this migration backfilled it.
       icteridae: 'Blackbirds, Orioles & Allies',
