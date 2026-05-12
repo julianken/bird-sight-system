@@ -1,0 +1,69 @@
+# orphan-classname-allowlist.yml
+#
+# classNames that are intentionally excluded from the orphan-className CI check
+# (.github/workflows/orphan-classname-check.yml).
+#
+# Entry format:
+#   - classname   # <component>:<line> — <rationale> — added <YYYY-MM-DD>
+#
+# When to add an entry:
+#   - The className is computed from a runtime value that cannot be resolved
+#     statically (e.g. `foo--${snap}` where `snap` comes from props with a
+#     union type — extracting union members requires type-checking, which
+#     is out of scope for the shell script).
+#   - The className is a utility class provided by a CSS library (not
+#     authored in this repo) — currently only `sr-only` if ever used
+#     (prefer .filter-sentence-live / .skip-link patterns instead).
+#
+# When NOT to add an entry:
+#   - The className is a ternary branch literal (script extracts these statically).
+#   - The className simply has no CSS rule yet — add the rule instead.
+#
+# Kill-threshold review (same cadence as drift detection, 60-day mark):
+#   If ≥3 entries accumulate without matching CSS rules, the script's
+#   static-extraction coverage should be extended before the allow-list grows.
+#
+# ── Dynamic classNames with non-static suffix ────────────────────────────────
+#
+# cluster-pill--  (ClusterPill.tsx:48)
+#   Template: `cluster-pill cluster-pill--${tier}` where tier is 'sky' | 'sand' | 'ember'.
+#   The CSS rules .cluster-pill--sky/sand/ember exist in ds-primitives.css.
+#   The script extracts `cluster-pill--` as a static segment (the literal text
+#   ends in `--` immediately before the `${}`); that truncated fragment has no
+#   CSS rule and must be allowed here.  The base class `cluster-pill` is checked
+#   separately and resolves fine.  added: 2026-05-11
+- cluster-pill--
+
+# species-detail-sheet--  (SpeciesDetailSheet.tsx:262)
+#   Template: `species-detail-sheet species-detail-sheet--${snap}` where snap is
+#   'peek' | 'half' | 'full'. CSS rules for all three variants exist in styles.css.
+#   The script extracts `species-detail-sheet--` as a static segment (text ends
+#   in `--` before `${}`); that truncated fragment has no CSS rule.
+#   The base class `species-detail-sheet` is checked separately and resolves fine.
+#
+#   NOTE: the prior entries for species-detail-sheet--peek/half/full were removed
+#   (2026-05-11) — they were never consulted because the script never generated
+#   those suffixed strings as candidates.  added: 2026-05-11
+- species-detail-sheet--
+
+# app-header-tab{is-active}  (AppHeader.tsx)
+#   Template: `app-header-tab${selected ? ' is-active' : ''}` — the script
+#   DOES extract branch literals from ternary patterns, so `is-active` is
+#   checked. The base `app-header-tab` is checked via the static prefix.
+#   No allow-list entry needed for app-header-tab or is-active.
+
+# surface-nav-tab{is-active}  (AppHeader.tsx)
+#   Same ternary pattern as app-header-tab — both sides resolved by script.
+
+# feed-row{feed-row-notable}  (FeedRow.tsx)
+#   Template: `feed-row${observation.isNotable ? ' feed-row-notable' : ''}`
+#   Both the prefix `feed-row` and the branch literal `feed-row-notable`
+#   are extracted statically. No allow-list entry needed.
+
+# family-legend-entry{is-active}  (FamilyLegend.tsx)
+#   String concat: `'family-legend-entry' + (active ? ' is-active' : '')`
+#   The script extracts string-concat branch literals. No entry needed.
+
+# species-autocomplete-option{is-highlighted}  (SpeciesAutocomplete.tsx)
+#   Template: `species-autocomplete-option${selected ? ' is-highlighted' : ''}`
+#   Extracted statically. No entry needed.
