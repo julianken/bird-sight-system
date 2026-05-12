@@ -107,4 +107,67 @@ describe('runIngest', () => {
     expect(runs[0]?.status).toBe('failure');
     expect(runs[0]?.errorMessage).toContain('502');
   });
+
+  // Invariant from issue #484: if eBird returns an observation whose
+  // species_code has no matching species_meta row, the ingest must fail
+  // LOUDLY rather than silently inserting an observation that the read-api
+  // cannot resolve to a /api/species/:code response. Future eBird hybrid/spuh
+  // codes that appear in the AZ feed therefore become a CI/cron failure that
+  // a maintainer sees, not a silent prod 404 a user reports.
+  it('fails the ingest when an observation references a missing species_meta row (#484 invariant)', async () => {
+    const RECENT_WITH_LEAK = [
+      ...RECENT,
+      // `xUNKNOWN1` is a synthetic eBird-style spuh code with no
+      // species_meta row — simulates the bug class from #484
+      // (`ixlbun`, `x00059`, etc. before the backfill).
+      { speciesCode: 'xUNKNOWN1', comName: 'Unknown Hybrid',
+        sciName: 'Genus species x other', locId: 'L3', locName: 'Test',
+        obsDt: '2026-04-15 10:00', howMany: 1, lat: 32.30, lng: -110.99,
+        obsValid: true, obsReviewed: false, locationPrivate: false,
+        subId: 'S102' },
+    ];
+    server.use(
+      http.get('https://api.ebird.org/v2/data/obs/US-AZ/recent',
+        () => HttpResponse.json(RECENT_WITH_LEAK)),
+      http.get('https://api.ebird.org/v2/data/obs/US-AZ/recent/notable',
+        () => HttpResponse.json([])),
+    );
+
+    const summary = await runIngest({
+      pool: db.pool, apiKey: 'k', regionCode: 'US-AZ',
+    });
+
+    expect(summary.status).toBe('failure');
+    expect(summary.error).toBeDefined();
+    // Error message must name the offending code(s) so a triage agent can
+    // jump straight to a `species_meta` backfill PR without re-deriving
+    // which code triggered the failure.
+    expect(summary.error).toContain('xUNKNOWN1');
+    // No observations may have been inserted — the invariant runs BEFORE
+    // upsert, so a leak fails the whole batch rather than corrupting the
+    // read path.
+    const obs = await getObservations(db.pool, {});
+    expect(obs).toHaveLength(0);
+    // Failure must be recorded in ingest_runs for the freshness monitor.
+    const runs = await getRecentIngestRuns(db.pool, 5);
+    expect(runs[0]?.status).toBe('failure');
+    expect(runs[0]?.errorMessage).toContain('xUNKNOWN1');
+  });
+
+  it('succeeds (no false-positive invariant trip) when every observation has a species_meta row', async () => {
+    // Regression guard: the invariant must NOT block legitimate ingests
+    // — only the ones that genuinely reference missing species_meta rows.
+    // RECENT's two codes (vermfly, annhum) are both seeded in beforeAll.
+    server.use(
+      http.get('https://api.ebird.org/v2/data/obs/US-AZ/recent',
+        () => HttpResponse.json(RECENT)),
+      http.get('https://api.ebird.org/v2/data/obs/US-AZ/recent/notable',
+        () => HttpResponse.json([])),
+    );
+    const summary = await runIngest({
+      pool: db.pool, apiKey: 'k', regionCode: 'US-AZ',
+    });
+    expect(summary.status).toBe('success');
+    expect(summary.upserted).toBe(2);
+  });
 });

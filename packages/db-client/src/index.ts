@@ -9,6 +9,7 @@ export {
 export {
   getSpeciesMeta,
   upsertSpeciesMeta,
+  findMissingSpeciesMeta,
   insertSpeciesPhoto,
   getSpeciesPhotos,
   getSpeciesPhenology,
