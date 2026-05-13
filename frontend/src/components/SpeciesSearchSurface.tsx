@@ -106,6 +106,11 @@ export function SpeciesSearchSurface(props: SpeciesSearchSurfaceProps) {
 
   return (
     <div className="species-search-surface">
+      {/* Page-level heading for screen readers — visually hidden so it does
+          not duplicate the autocomplete placeholder or disrupt the visual
+          design. Provides the required <h1> per WCAG 1.3.1 and 2.4.6.
+          A11Y-3 fix (issue #513). */}
+      <h1 className="sr-only">Search Species</h1>
       {/* Hero autocomplete — navigates to detail surface.
           The wrapper class establishes visual distinction from the header filter chip. */}
       <div className="species-search-hero">

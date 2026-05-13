@@ -368,7 +368,7 @@ export function FeedSurface(props: FeedSurfaceProps) {
     }
     return (
       <div className="feed-surface">
-        <p className="feed-lede">{lede}</p>
+        <h1 className="feed-lede">{lede}</h1>
         <div className="feed-empty" role="status">
           {hint}
         </div>
@@ -399,7 +399,7 @@ export function FeedSurface(props: FeedSurfaceProps) {
   return (
     <div className="feed-surface">
       {/* Lede — runtime truth claim, Priority 1–4 state machine */}
-      <p className="feed-lede">{lede}</p>
+      <h1 className="feed-lede">{lede}</h1>
       {/* Freshness meta line — 4-state machine per voice-and-content.md (#456 W3-A) */}
       {freshnessLabel && (
         <p className="feed-freshness">{freshnessLabel}</p>
