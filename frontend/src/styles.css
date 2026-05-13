@@ -37,7 +37,11 @@
   /* Notable / amber accent */
   --color-accent-notable-bg:       #fff8e1; /* soft amber notable row bg   */
   --color-accent-notable-bg-hover: #fff3c4; /* hover on notable row        */
-  --color-accent-notable-fg:       #b8860b; /* dark amber stripe / badge   */
+  /* --color-accent-notable-fg removed — tokens.css [data-theme] block is
+     the sole authority: light → #c43a1a (--c-deep-ember), dark → #f5853b
+     (--c-orange-500). The former bare-:root value #b8860b (olive amber)
+     was only reachable if no data-theme attribute was set, and served as
+     an unintended fallback that misrepresented the redesign palette.    */
 
   /* Borders */
   --color-border-subtle:   #e6e1d2; /* row dividers                        */
@@ -190,11 +194,15 @@ body {
 }
 
 /* Tablist container — sits between wordmark and action buttons. flex: 1
-   pushes the right cluster to the far edge on wide viewports. */
+   pushes the right cluster to the far edge on wide viewports.
+   justify-content: center aligns the tab cluster to the horizontal
+   midpoint of the available space between the wordmark and right cluster,
+   matching the v4 mock's centred navigation treatment. */
 .app-header-nav {
   display: flex;
   gap: var(--space-xs);
   flex: 1;
+  justify-content: center;
 }
 
 /* Tab buttons — full UA reset, then design-token styling.
