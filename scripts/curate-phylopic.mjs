@@ -74,6 +74,7 @@
  *   node scripts/curate-phylopic.mjs --refresh         # bypass cache, re-fetch all
  *   node scripts/curate-phylopic.mjs --backfill        # 38-family backfill; INSERT-mode (migration 34000)
  *   node scripts/curate-phylopic.mjs --recurate-nulls  # 14 NULL-svg families; UPDATE-mode (migration 35000, issue #498)
+ *   node scripts/curate-phylopic.mjs --rescue-via-species  # 14 NULL-svg families, species/genus cascade; UPDATE-mode (migration 36000, issue #500)
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
@@ -85,11 +86,13 @@ const CACHE_DIR = resolve(__dirname, '.phylopic-cache');
 const PICKS_PATH = resolve(__dirname, 'phylopic-picks.json');
 const MIGRATION_PATH = resolve(
   REPO_ROOT,
-  process.argv.includes('--recurate-nulls')
-    ? 'migrations/1700000035000_recurate_null_silhouettes.sql'
-    : process.argv.includes('--backfill')
-      ? 'migrations/1700000034000_backfill_observed_family_silhouettes.sql'
-      : 'migrations/1700000017000_seed_family_silhouettes_phylopic.sql',
+  process.argv.includes('--rescue-via-species')
+    ? 'migrations/1700000036000_rescue_null_silhouettes_via_species.sql'
+    : process.argv.includes('--recurate-nulls')
+      ? 'migrations/1700000035000_recurate_null_silhouettes.sql'
+      : process.argv.includes('--backfill')
+        ? 'migrations/1700000034000_backfill_observed_family_silhouettes.sql'
+        : 'migrations/1700000017000_seed_family_silhouettes_phylopic.sql',
 );
 
 const PHYLOPIC_API = 'https://api.phylopic.org';
@@ -99,6 +102,11 @@ const PHYLOPIC_WEB = 'https://www.phylopic.org';
 const REFRESH = process.argv.includes('--refresh');
 const BACKFILL = process.argv.includes('--backfill');
 const RECURATE_NULLS = process.argv.includes('--recurate-nulls');
+// Issue #500. When set, NULL families that fail family-node lookup (or whose
+// candidates are all gate-rejected) fall back to a hand-picked species/genus
+// override. Composes with --recurate-nulls or stands alone; either way it
+// targets the 14 RECURATE_FAMILIES list. Emits migration 36000.
+const RESCUE_VIA_SPECIES = process.argv.includes('--rescue-via-species');
 
 // All 25 families seeded across migrations 9000 + 15000. Preserve exact
 // family_code casing from the seed migrations — Phylopic's filter_name is
@@ -146,6 +154,37 @@ const RECURATE_FAMILIES = [
   'peucedramidae', 'phasianidae', 'polioptilidae', 'ptiliogonatidae',
   'ptilogonatidae', 'remizidae', 'tityridae', 'tytonidae', 'vireonidae',
 ];
+
+// Issue #500. Hand-picked iconic AZ species (or representative genus) for each
+// of the 14 NULL family_silhouettes. Used by the --rescue-via-species fallback
+// path: when a family's own node returns 404 or all candidates are gate-rejected,
+// the script tries the species binomial, then (on 404) the genus alone.
+// Phylopic node names are typically scientific binomials or genus names;
+// /nodes?filter_name is case-insensitive but a strict slug match.
+//
+// Selection rationale: each species is iconic for AZ birding and the species
+// is well-illustrated relative to its family (cuckoo as a family is a less-
+// illustrated abstraction; Greater Roadrunner is famous and likely has CC0
+// silhouettes). Monotypic families (icteriidae, peucedramidae) collapse to
+// their sole species naturally. ptilogonatidae and ptiliogonatidae are
+// alternate spellings of the same lineage in current/legacy eBird; both map
+// to Phainopepla nitens.
+const SPECIES_OVERRIDES = {
+  calcariidae:      'Calcarius ornatus',         // Chestnut-collared Longspur (most-regular AZ winter)
+  cuculidae:        'Geococcyx californianus',   // Greater Roadrunner (iconic AZ)
+  gaviidae:         'Gavia immer',               // Common Loon (regular AZ migrant)
+  icteriidae:       'Icteria virens',            // Yellow-breasted Chat (monotypic family)
+  numididae:        'Numida meleagris',          // Helmeted Guineafowl (introduced AZ)
+  peucedramidae:    'Peucedramus taeniatus',     // Olive Warbler (monotypic family)
+  phasianidae:      'Meleagris gallopavo',       // Wild Turkey (most-observed AZ phasianid)
+  polioptilidae:    'Polioptila caerulea',       // Blue-gray Gnatcatcher (common AZ)
+  ptiliogonatidae:  'Phainopepla nitens',        // Phainopepla (iconic AZ)
+  ptilogonatidae:   'Phainopepla nitens',        // same lineage, older eBird spelling
+  remizidae:        'Auriparus flaviceps',       // Verdin (AZ desert specialist)
+  tityridae:        'Pachyramphus aglaiae',      // Rose-throated Becard (rare AZ specialty)
+  tytonidae:        'Tyto alba',                 // Barn Owl (common AZ)
+  vireonidae:       'Vireo plumbeus',            // Plumbeous Vireo (common AZ)
+};
 
 // Short identifier mapping per the Phylopic license URL convention. Phylopic
 // surfaces `_links.license.href` like `https://creativecommons.org/publicdomain/zero/1.0/`
@@ -308,7 +347,11 @@ async function getSvg(url) {
  * after 3 retries — caller aborts the run.
  */
 async function lookupNodeUuid(familyName) {
-  const url = `${PHYLOPIC_API}/nodes?build=${PHYLOPIC_BUILD}&filter_name=${encodeURIComponent(familyName)}&page=0`;
+  // Phylopic /nodes?filter_name is case-SENSITIVE on the URL value — lowercase
+  // is the convention (taxonomic family/genus/binomial slugs). Family codes in
+  // FAMILIES are already lowercase; species/genus overrides (issue #500) are
+  // typically capitalized binomials, so we normalize here.
+  const url = `${PHYLOPIC_API}/nodes?build=${PHYLOPIC_BUILD}&filter_name=${encodeURIComponent(familyName.toLowerCase())}&page=0`;
   const json = await getJson(url);
   // The API returns a paged list at _embedded.items where each item has a
   // _links.self.href like /nodes/<uuid>. Pick the first item whose
@@ -721,17 +764,30 @@ function extractPathD(svgText) {
   } catch (err) {
     return { ok: false, reason: `normalize-error: ${err.message}` };
   }
-  // Quality audit (issue #498): reject paths that are too short or too
-  // simple to be a real silhouette. <100 chars or <5 distinct path commands
-  // is the floor where the rendered glyph degrades into a near-meaningless
-  // blob at FamilyLegend's 24-28px target size.
+  // Quality audit (issue #498, corrected #500): reject paths that are too
+  // short or too simple to be a real silhouette.
+  //
+  // The original #499 gate read "≥5 distinct path commands" — but potrace
+  // (the tool that produces every Phylopic vectorFile) emits only M, L, C, Z.
+  // Auditing the 22 production-shipped paths from migration 17000 shows 21 of
+  // 22 have exactly 4 distinct commands (M, L, C, Z) and 1 has 3 (M, C, Z).
+  // The "≥5 distinct" rule would reject EVERY shipped silhouette — it was a
+  // mis-calibrated gate that survived #499 only because that PR rescued 0
+  // families. Re-running #499's gate against any real Phylopic silhouette
+  // produces the same outcome.
+  //
+  // The replacement gate measures path *complexity* via TOTAL command count
+  // (an M-L-C-Z silhouette with hundreds of curve operations is a real
+  // outline; one with only a handful is a blob). 20 commands is the floor —
+  // below that, the rendered glyph at 24-28px degrades into a near-meaningless
+  // blob, regardless of which command letters appear. The 22 shipped paths
+  // have command counts in [120, 700+].
   if (normalized.length < 100) {
     return { ok: false, reason: `svgPathD-too-short: ${normalized.length} chars` };
   }
   const cmdMatches = normalized.match(/[MmLlHhVvCcSsQqTtAaZz]/g) ?? [];
-  const distinctCmds = new Set(cmdMatches.map(c => c.toUpperCase()));
-  if (distinctCmds.size < 5) {
-    return { ok: false, reason: `svgPathD-too-simple: ${distinctCmds.size} distinct commands` };
+  if (cmdMatches.length < 20) {
+    return { ok: false, reason: `svgPathD-too-simple: ${cmdMatches.length} path commands` };
   }
   return { ok: true, d: normalized };
 }
@@ -781,56 +837,59 @@ function todayUtc() {
  * main() can refuse to write a misleading migration.
  */
 async function curateFamily(family) {
-  console.log(`\n[${family}] resolving node...`);
+  return await curateBySlug(family, family, 'family');
+}
+
+/**
+ * Issue #500. Lookup + enumerate + pick against an arbitrary Phylopic
+ * `filter_name` slug, returning the same `{ kind, family, picked, considered,
+ * reason }` shape as curateFamily. `label` records which resolution path the
+ * caller is exploring ("family", "species", or "genus") so the audit trail
+ * can attribute each pick to its lookup type.
+ *
+ *   kind: 'picked'  — usable pick found; carries svgPathD + provenance
+ *   kind: 'absent'  — 404 / no-node / no-candidates / all-rejected
+ *   kind: 'failed'  — transient 5xx / network error after retries; main() aborts
+ */
+async function curateBySlug(family, slug, label) {
+  console.log(`\n[${family}/${label}] resolving node for slug "${slug}"...`);
   let nodeUuid;
   try {
-    nodeUuid = await lookupNodeUuid(family);
+    nodeUuid = await lookupNodeUuid(slug);
   } catch (err) {
     if (err instanceof HttpError && err.status === 404) {
-      console.warn(`[${family}] HTTP 404 from Phylopic /nodes — family genuinely absent (or wrong slug); emitting NULL row`);
+      console.warn(`[${family}/${label}] HTTP 404 from /nodes for "${slug}"`);
       return { kind: 'absent', family, picked: null, considered: [], reason: 'http-404-on-nodes' };
     }
-    // 5xx or network error after 3 retries — surface to main() for abort.
     return { kind: 'failed', family, picked: null, considered: [], reason: `lookup-failed: ${err.message}`, error: err };
   }
   if (!nodeUuid) {
-    console.warn(`[${family}] no taxonomic node found (empty items list) → NULL row`);
+    console.warn(`[${family}/${label}] no taxonomic node found for "${slug}" (empty items list)`);
     return { kind: 'absent', family, picked: null, considered: [], reason: 'no-node' };
   }
-  console.log(`[${family}] node ${nodeUuid}, enumerating images...`);
+  console.log(`[${family}/${label}] node ${nodeUuid}, enumerating images...`);
   let candidates;
   let rejected;
   try {
     ({ candidates, rejected } = await enumerateCandidates(nodeUuid));
   } catch (err) {
     if (err instanceof HttpError && err.status === 404) {
-      console.warn(`[${family}] HTTP 404 from Phylopic /images — node has no images attached; emitting NULL row`);
+      console.warn(`[${family}/${label}] HTTP 404 from /images — node has no images attached`);
       return { kind: 'absent', family, picked: null, considered: [], reason: 'http-404-on-images' };
     }
     return { kind: 'failed', family, picked: null, considered: [], reason: `images-failed: ${err.message}`, error: err };
   }
   if (candidates.length === 0) {
-    // Pre-SVG-gate rejections still get recorded so picks.json can
-    // distinguish "Phylopic returned 0 items" from "every item failed the
-    // license / creator-deny / image-page-url gate" (#499 follow-up).
-    console.warn(`[${family}] zero candidates with vectorFile + accepted license → NULL row (${rejected.length} rejected pre-SVG)`);
+    console.warn(`[${family}/${label}] zero candidates with vectorFile + accepted license (${rejected.length} rejected pre-SVG)`);
     return { kind: 'absent', family, picked: null, considered: rejected, reason: 'no-candidates' };
   }
   const sorted = autoPick(candidates);
-  // Walk the sorted list, attempting SVG extraction until one succeeds.
-  // Pre-SVG-gate rejections appear first in `considered` so the audit trail
-  // records every candidate the API returned, in encounter order.
   const considered = [...rejected];
   for (const cand of sorted) {
     let svg;
     try {
       svg = await getSvg(cand.vectorFileUrl);
     } catch (err) {
-      // SVG fetch failures are per-candidate, not per-family — only abort
-      // the run if every candidate failed AND the failures were transient.
-      // For simplicity, treat any HttpError/NetworkError on a single SVG as
-      // a candidate skip (log it and try the next). If all SVGs fail this
-      // way the family falls into the all-rejected NULL row branch.
       considered.push({ ...cand, status: 'svg-fetch-failed', skipReason: err.message });
       continue;
     }
@@ -840,23 +899,96 @@ async function curateFamily(family) {
       continue;
     }
     considered.push({ ...cand, status: 'picked', svgPathD: extracted.d });
-    // Any candidates after the picked one haven't been tried — append them
-    // with status 'not-tried'. Offset from the sorted list by how many
-    // we've already walked (= considered.length minus the pre-SVG rejected
-    // entries we prepended).
     const walked = considered.length - rejected.length;
     return {
       kind: 'picked',
       family,
-      picked: { ...cand, svgPathD: extracted.d },
+      picked: { ...cand, svgPathD: extracted.d, resolvedSlug: slug },
       considered: considered.concat(
         sorted.slice(walked).map(c => ({ ...c, status: 'not-tried' }))
       ),
       reason: `picked-by-license-${cand.licenseId}`,
     };
   }
-  console.warn(`[${family}] all ${candidates.length} candidates rejected → NULL row (${rejected.length} additional pre-SVG rejections recorded)`);
+  console.warn(`[${family}/${label}] all ${candidates.length} candidates rejected → no pick (${rejected.length} pre-SVG rejections)`);
   return { kind: 'absent', family, picked: null, considered, reason: 'all-rejected' };
+}
+
+/**
+ * Issue #500. Cascade lookup for a NULL family: try the family-node first;
+ * on 'absent' (any reason — 404, no-candidates, all-rejected), fall back to
+ * the species binomial from SPECIES_OVERRIDES; on 'absent' for the species,
+ * fall back to the genus (binomial split on first space).
+ *
+ * Returns the same shape as curateFamily plus a `resolutionPath` field on
+ * the picked result so picks.json records which lookup type produced the
+ * pick ("family" | "species" | "genus"). On final absence, returns the
+ * cascaded `attempts[]` so the audit trail records every slug we tried.
+ *
+ * Transient failures (5xx / network) at ANY step propagate up so the run
+ * aborts — we don't downgrade a transient outage into "no pick".
+ */
+async function rescueFamilyViaSpecies(family) {
+  const attempts = [];
+  // Step 1: family-node lookup (same as curateFamily).
+  const familyResult = await curateFamily(family);
+  attempts.push({ slug: family, label: 'family', kind: familyResult.kind, reason: familyResult.reason });
+  if (familyResult.kind === 'picked') {
+    return { ...familyResult, resolutionPath: 'family', attempts, considered: familyResult.considered };
+  }
+  if (familyResult.kind === 'failed') {
+    return { ...familyResult, attempts };
+  }
+  // Step 2: species-binomial fallback.
+  const species = SPECIES_OVERRIDES[family];
+  if (!species) {
+    // No override registered — final answer is the family-level absence.
+    return { ...familyResult, resolutionPath: null, attempts };
+  }
+  console.log(`[${family}] family-node lookup failed (${familyResult.reason}); falling back to species "${species}"`);
+  const speciesResult = await curateBySlug(family, species, 'species');
+  attempts.push({ slug: species, label: 'species', kind: speciesResult.kind, reason: speciesResult.reason });
+  if (speciesResult.kind === 'picked') {
+    return { ...speciesResult, resolutionPath: 'species', attempts, considered: speciesResult.considered };
+  }
+  if (speciesResult.kind === 'failed') {
+    return { ...speciesResult, attempts };
+  }
+  // Step 3: genus fallback (binomial split on first space). Skip if the
+  // override was already genus-only (no space).
+  const firstSpace = species.indexOf(' ');
+  if (firstSpace === -1) {
+    // Species override is genus-only; no further split available.
+    return {
+      kind: 'absent',
+      family,
+      picked: null,
+      considered: speciesResult.considered,
+      reason: `cascade-exhausted: family=${familyResult.reason}, species=${speciesResult.reason}`,
+      resolutionPath: null,
+      attempts,
+    };
+  }
+  const genus = species.slice(0, firstSpace);
+  console.log(`[${family}] species lookup failed (${speciesResult.reason}); falling back to genus "${genus}"`);
+  const genusResult = await curateBySlug(family, genus, 'genus');
+  attempts.push({ slug: genus, label: 'genus', kind: genusResult.kind, reason: genusResult.reason });
+  if (genusResult.kind === 'picked') {
+    return { ...genusResult, resolutionPath: 'genus', attempts, considered: genusResult.considered };
+  }
+  if (genusResult.kind === 'failed') {
+    return { ...genusResult, attempts };
+  }
+  // All three exhausted.
+  return {
+    kind: 'absent',
+    family,
+    picked: null,
+    considered: genusResult.considered,
+    reason: `cascade-exhausted: family=${familyResult.reason}, species=${speciesResult.reason}, genus=${genusResult.reason}`,
+    resolutionPath: null,
+    attempts,
+  };
 }
 
 /**
@@ -876,6 +1008,100 @@ function emitMigrationSql(picks, skipFamilies, mode = 'update', colorByFamily = 
   const today = todayUtc();
   const lines = [];
   lines.push('-- Up Migration');
+  if (mode === 'rescue') {
+    const sortedPicks = [...picks].sort((a, b) => a.family.localeCompare(b.family));
+    const rescued = sortedPicks.filter(p => p.picked);
+    const stillNull = sortedPicks.filter(p => !p.picked);
+    lines.push('-- Issue #500. Rescues the 14 NULL-svg_data family_silhouettes via');
+    lines.push('-- species/genus-level Phylopic lookup. After PR #499 (#498 build-538');
+    lines.push('-- re-audit), every family-node lookup either 404\'d or produced only');
+    lines.push('-- license-incompatible candidates. Phylopic coverage is denser at the');
+    lines.push('-- species node for iconic taxa than at the family-node abstraction —');
+    lines.push('-- the script tries an iconic AZ species per family, then the genus on');
+    lines.push('-- species 404.');
+    lines.push('--');
+    lines.push(`-- Generated by scripts/curate-phylopic.mjs --rescue-via-species on ${today}`);
+    lines.push('-- using the Phylopic API two-step recipe (/nodes?filter_name →');
+    lines.push('-- /images?filter_node) and the existing auto-pick heuristic + quality');
+    lines.push('-- gates (license whitelist, real creator, valid imagePageUrl,');
+    lines.push('-- svgPathD ≥100 chars + ≥20 total path commands; PD-mark rejected).');
+    lines.push('-- The "≥20 total path commands" rule replaces #499\'s "≥5 distinct path');
+    lines.push('-- commands" rule, which was mis-calibrated against potrace output —');
+    lines.push('-- every shipped Phylopic silhouette in migration 17000 uses only M, L,');
+    lines.push('-- C, Z (≤4 distinct), so the original gate would have rejected the entire');
+    lines.push('-- production corpus. See the corrected gate at extractPathD() in');
+    lines.push('-- scripts/curate-phylopic.mjs (with detailed comment on the audit).');
+    lines.push('--');
+    lines.push('-- Rescued (svg_data flipped from NULL → real path-d via species/genus):');
+    if (rescued.length === 0) {
+      lines.push('--   (none — species + genus lookups added no usable picks for the 14 NULL families)');
+    } else {
+      for (const r of rescued) {
+        const path = r.resolutionPath ?? 'species';
+        const slug = r.picked.resolvedSlug ?? '(unknown slug)';
+        lines.push(`--   ${r.family} — via ${path} "${slug}" — ${r.picked.licenseId}, creator: ${r.picked.creatorName ?? '(unknown)'}, ${r.picked.imagePageUrl}`);
+      }
+    }
+    lines.push('--');
+    lines.push('-- Still NULL after species/genus cascade (rejection reason in parentheses):');
+    if (stillNull.length === 0) {
+      lines.push('--   (none — all 14 rescued)');
+    } else {
+      for (const r of stillNull) {
+        lines.push(`--   ${r.family} (${r.reason})`);
+      }
+    }
+    lines.push('--');
+    lines.push('-- The full audit trail (every slug attempted, every candidate considered)');
+    lines.push('-- lives at scripts/phylopic-picks.json under the updated entries. Each');
+    lines.push('-- rescued entry carries `resolutionPath: "family"|"species"|"genus"` so');
+    lines.push('-- a future reader can see which lookup path produced the pick.');
+    lines.push('--');
+    lines.push('-- After this migration lands in main, the operator runs');
+    lines.push('-- scripts/purge-silhouettes-cache.sh (#252) as part of the production');
+    lines.push('-- deploy runbook to purge the CDN cache for /api/silhouettes.');
+    lines.push('');
+    if (rescued.length === 0) {
+      lines.push('-- No UPDATEs: species + genus lookups produced zero usable picks. This');
+      lines.push('-- migration is intentionally a comment-only audit record (with a SELECT 1');
+      lines.push('-- to satisfy node-pg-migrate\'s "Up section must execute" contract). The');
+      lines.push('-- 14 family rows remain svg_data=NULL; _FALLBACK still tints them.');
+      lines.push('SELECT 1;');
+      lines.push('');
+    } else {
+      for (const pick of rescued) {
+        const p = pick.picked;
+        const d = escapeSqlString(p.svgPathD);
+        const src = escapeSqlString(p.imagePageUrl);
+        const lic = escapeSqlString(p.licenseId);
+        const cre = p.creatorName ? `'${escapeSqlString(p.creatorName)}'` : 'NULL';
+        const path = pick.resolutionPath ?? 'species';
+        const slug = p.resolvedSlug ?? '(unknown slug)';
+        lines.push(`-- ${pick.family} — via ${path} "${slug}" — ${p.licenseId}, creator: ${p.creatorName ?? '(unknown)'}`);
+        lines.push(`-- page: ${p.imagePageUrl}`);
+        lines.push(`UPDATE family_silhouettes SET`);
+        lines.push(`  svg_data = '${d}',`);
+        lines.push(`  source = '${src}',`);
+        lines.push(`  license = '${lic}',`);
+        lines.push(`  creator = ${cre}`);
+        lines.push(`WHERE family_code = '${pick.family}';`);
+        lines.push('');
+      }
+    }
+    lines.push('-- Down Migration');
+    lines.push('-- Revert ONLY the rescued rows back to NULL. Families that were not');
+    lines.push('-- rescued in this migration are unchanged.');
+    if (rescued.length === 0) {
+      lines.push('-- No-op: nothing was rescued, so nothing to revert.');
+      lines.push('SELECT 1;');
+    } else {
+      const codes = rescued.map(p => `'${p.family}'`).join(', ');
+      lines.push(`UPDATE family_silhouettes SET svg_data = NULL, source = NULL, license = NULL, creator = NULL`);
+      lines.push(`WHERE family_code IN (${codes});`);
+    }
+    lines.push('');
+    return lines.join('\n');
+  }
   if (mode === 'recurate') {
     const sortedPicks = [...picks].sort((a, b) => a.family.localeCompare(b.family));
     const rescued = sortedPicks.filter(p => p.picked);
@@ -1259,9 +1485,14 @@ const COMMON_NAME_BY_FAMILY = {
 async function main() {
   const config = loadPicksConfig();
   const skipSet = new Set(config.skipFamilies);
-  const targetFamilies = RECURATE_NULLS ? RECURATE_FAMILIES : BACKFILL ? BACKFILL_FAMILIES : FAMILIES;
+  const targetFamilies = (RESCUE_VIA_SPECIES || RECURATE_NULLS)
+    ? RECURATE_FAMILIES
+    : BACKFILL ? BACKFILL_FAMILIES : FAMILIES;
   console.log(`Curating ${targetFamilies.length} families against Phylopic API (build=${PHYLOPIC_BUILD})`);
   console.log(`Cache: ${CACHE_DIR}${REFRESH ? ' (REFRESH mode — bypassing)' : ''}`);
+  if (RESCUE_VIA_SPECIES) {
+    console.log('Mode: --rescue-via-species (family → species → genus cascade per SPECIES_OVERRIDES)');
+  }
   if (skipSet.size > 0) {
     console.log(`Skipping (operator-flagged absent): ${[...skipSet].sort().join(', ')}`);
   }
@@ -1279,7 +1510,9 @@ async function main() {
       });
       continue;
     }
-    const result = await curateFamily(family);
+    const result = RESCUE_VIA_SPECIES
+      ? await rescueFamilyViaSpecies(family)
+      : await curateFamily(family);
     picks.push(result);
     if (result.kind === 'failed') {
       failures.push(result);
@@ -1317,8 +1550,13 @@ async function main() {
           imagePageUrl: p.picked.imagePageUrl,
           uuid: p.picked.uuid,
           svgPathD: p.picked.svgPathD ?? null,
+          ...(p.picked.resolvedSlug ? { resolvedSlug: p.picked.resolvedSlug } : {}),
         }
       : null,
+    // Issue #500: rescue mode records which lookup path produced the pick
+    // ("family" | "species" | "genus") plus the full attempts cascade.
+    ...(p.resolutionPath !== undefined ? { resolutionPath: p.resolutionPath } : {}),
+    ...(p.attempts ? { attempts: p.attempts } : {}),
     reason: p.reason,
     candidateCount: p.considered.length,
     considered: p.considered.map(c => ({
@@ -1331,8 +1569,8 @@ async function main() {
   }));
 
   let summary;
-  if (RECURATE_NULLS) {
-    // Load existing picks file and merge: replace entries for the 14 target
+  if (RESCUE_VIA_SPECIES || RECURATE_NULLS) {
+    // Load existing picks file and merge: replace entries for the target
     // families, keep the other 24 as-is.
     let existing = null;
     if (existsSync(PICKS_PATH)) {
@@ -1352,6 +1590,7 @@ async function main() {
       autoPickHeuristic: 'license-preference (CC0 > CC-BY-3.0 > CC-BY-4.0 > CC-BY-SA-3.0), then creator-name asc, then uuid asc',
       skipFamilies: config.skipFamilies,
       _skipFamilies_deprecation_note: 'skipFamilies is deprecated as of issue #498. Empty by convention; the script\'s NULL-emission path handles genuine API absences. Do not re-introduce entries — if a family is unrescueable, let it land as NULL with a SQL-comment-recorded reason.',
+      ...(RESCUE_VIA_SPECIES ? { _rescue_via_species_note: 'Rescue mode (issue #500) cascades family → species → genus lookups for the 14 RECURATE_FAMILIES. Each rescued entry carries `resolutionPath` + `attempts[]` so a reader can see which lookup path produced the pick.' } : {}),
       families: merged,
     };
   } else {
@@ -1369,7 +1608,7 @@ async function main() {
   const sql = emitMigrationSql(
     picks,
     config.skipFamilies,
-    RECURATE_NULLS ? 'recurate' : BACKFILL ? 'backfill' : 'update',
+    RESCUE_VIA_SPECIES ? 'rescue' : RECURATE_NULLS ? 'recurate' : BACKFILL ? 'backfill' : 'update',
     BACKFILL ? COLOR_BY_FAMILY : {},
     BACKFILL ? COMMON_NAME_BY_FAMILY : {},
   );
