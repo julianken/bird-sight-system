@@ -46,6 +46,17 @@
 #   those suffixed strings as candidates.  added: 2026-05-11
 - species-detail-sheet--
 
+# family-silhouette--  (FamilySilhouette.tsx:124)
+#   Template: `family-silhouette family-silhouette-img family-silhouette--${layout}`
+#   on the imgUrl branch (#502), where layout is 'inline' | 'masthead' | 'thumb'.
+#   CSS rules .family-silhouette--inline / --masthead / --thumb exist in
+#   ds-primitives.css. The script extracts `family-silhouette--` as a truncated
+#   static segment (text ends in `--` immediately before `${}`); that fragment
+#   has no CSS rule and must be allowed here. The base classes
+#   `family-silhouette` and `family-silhouette-img` are checked separately
+#   and resolve fine.  added: 2026-05-13
+- family-silhouette--
+
 # app-header-tab{is-active}  (AppHeader.tsx)
 #   Template: `app-header-tab${selected ? ' is-active' : ''}` — the script
 #   DOES extract branch literals from ternary patterns, so `is-active` is

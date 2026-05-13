@@ -38,6 +38,30 @@ const config: KnipConfig = {
     //             `packages/shared-types/package.json` "test" script still
     //             references the test tsconfig.
     'packages/shared-types/src/index.test.ts',
+
+    // 2026-05-13: silhouette-server worker (#502) is loaded by Terraform
+    //             (infra/terraform/silhouettes.tf
+    //             `file("${path.module}/../workers/silhouette-server.js")`)
+    //             which knip's static analysis cannot trace. Mirrors the
+    //             photo-server worker ignore above.
+    //             Risk: masks a genuine orphan if the Terraform reference is
+    //             ever removed without also deleting the .js file — re-audit
+    //             at the next quarterly review (2026-07-27) by spot-checking
+    //             that `grep -rn silhouette-server.js infra/terraform/` still
+    //             returns hits.
+    'infra/workers/silhouette-server.js',
+    'infra/workers/silhouette-server.test.js',
+
+    // 2026-05-13: scripts/silhouette.test.mjs is the test sibling of
+    //             scripts/silhouette.mjs (Task 11 of #502). It runs under
+    //             `node --test` (no static test-runner config knip can trace);
+    //             the test step is invoked via the root package.json's
+    //             "test:scripts" script. Knip classifies it as orphaned.
+    //             Risk: masks a genuine orphan if scripts/silhouette.mjs is
+    //             ever deleted without also removing the test. Re-audit
+    //             2026-07-27 by confirming scripts/silhouette.mjs still exists
+    //             and its test is invoked by an npm script.
+    'scripts/silhouette.test.mjs',
   ],
 
   // 2026-04-27: React component Props interfaces and other exports used only
@@ -137,6 +161,18 @@ const config: KnipConfig = {
 
     'services/read-api': {},
     'services/ingestor': {},
+    'services/admin-api': {
+      // 2026-05-13: @bird-watch/shared-types is pulled in by Dockerfile's
+      //             `npm run build --workspace @bird-watch/shared-types`
+      //             pre-build step (so admin-api's TypeScript can resolve
+      //             types at runtime even though no admin-api source file
+      //             currently imports from it). Knip can't trace
+      //             Dockerfile-only references.
+      //             Risk: masks a genuine unused-dep if shared-types stops
+      //             being needed at build time without also removing the
+      //             Dockerfile reference. Re-audit 2026-07-27.
+      ignoreDependencies: ['@bird-watch/shared-types'],
+    },
     'packages/db-client': {},
     'packages/shared-types': {},
   },

@@ -184,6 +184,7 @@ export function FamilyLegend({
                     layout="thumb"
                     shape={shape}
                     color={entry.silhouette.color}
+                    {...(entry.silhouette.svgUrl != null ? { imgUrl: entry.silhouette.svgUrl } : {})}
                     {...(entry.silhouette.svgData != null ? { pathD: entry.silhouette.svgData } : {})}
                   />
                   <span className="family-legend-entry-label">{entry.label}</span>
