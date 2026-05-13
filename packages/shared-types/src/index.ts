@@ -81,6 +81,15 @@ export interface FamilySilhouette {
   // family color). The DB column is nullable per migration
   // 1700000014000_relax_family_silhouettes_svg_data_nullable.sql.
   svgData: string | null;
+  // svgUrl (issue #502) is the admin-api-uploaded CDN-served SVG URL. NULL
+  // for rows that haven't been overridden via the admin-api. Consumers
+  // that render the silhouette as an <img> (FamilyLegend's SilhouetteGlyph,
+  // SpeciesDetailSurface's SpeciesDetailSilhouette) prefer svgUrl when
+  // non-null and fall back to inline path-d (svgData) when null. The map's
+  // SDF sprite pipeline (MapCanvas#registerSilhouetteSprite) ALWAYS uses
+  // svgData and ignores svgUrl — sprite registration is synchronous at
+  // map init and an external URL would require N async fetches.
+  svgUrl: string | null;
   source: string | null;
   license: string | null;
   // English common name for the family — added by migrations
