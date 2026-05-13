@@ -44,7 +44,7 @@ export async function handleScheduled(
         return await runHotspotIngest({ pool, apiKey: env.EBIRD_API_KEY, regionCode: 'US-AZ' });
       case 'backfill':
         return await runBackfill({
-          pool, apiKey: env.EBIRD_API_KEY, regionCode: 'US-AZ', days: 30,
+          pool, apiKey: env.EBIRD_API_KEY, regionCode: 'US-AZ', days: 19,
         });
       case 'taxonomy':
         return await runTaxonomy({ pool, apiKey: env.EBIRD_API_KEY });
