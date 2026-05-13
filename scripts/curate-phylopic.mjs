@@ -778,10 +778,29 @@ function extractPathD(svgText) {
   //
   // The replacement gate measures path *complexity* via TOTAL command count
   // (an M-L-C-Z silhouette with hundreds of curve operations is a real
-  // outline; one with only a handful is a blob). 20 commands is the floor —
-  // below that, the rendered glyph at 24-28px degrades into a near-meaningless
-  // blob, regardless of which command letters appear. The 22 shipped paths
-  // have command counts in [120, 700+].
+  // outline; one with only a handful is a blob). The floor is set at 20.
+  //
+  // Empirical audit of the actually-shipped corpus (extract every `svg_data`
+  // literal from migrations/1700000017000_seed_family_silhouettes_phylopic.sql
+  // and count /[MLCQTAZ]/i matches per path):
+  //
+  //   n           = 22 paths
+  //   min         =  3 commands
+  //   max         = 43 commands
+  //   median      = 16 commands
+  //   below 20    = 13 of 22 (≈59%)
+  //
+  // Honest caveat: the ≥20 floor is NOT calibrated to pass the entire shipped
+  // corpus — 13 of 22 already-shipped paths sit below it. This is a "going
+  // forward" tightening that fires at curation time, not at runtime, so the
+  // shipped corpus is unaffected. Future curations that produce a silhouette
+  // with fewer than 20 commands will be rejected on the assumption that the
+  // result will look like a blob at 24-28px render size; if a real failure
+  // surfaces at that boundary, revisit the floor.
+  //
+  // For #500's rescue picks specifically, the four selected silhouettes have
+  // command counts {gaviidae: 25, numididae: 22, phasianidae: 22, tytonidae: 33},
+  // all comfortably above the floor.
   if (normalized.length < 100) {
     return { ok: false, reason: `svgPathD-too-short: ${normalized.length} chars` };
   }

@@ -12,12 +12,24 @@
 -- /images?filter_node) and the existing auto-pick heuristic + quality
 -- gates (license whitelist, real creator, valid imagePageUrl,
 -- svgPathD ≥100 chars + ≥20 total path commands; PD-mark rejected).
+--
 -- The "≥20 total path commands" rule replaces #499's "≥5 distinct path
 -- commands" rule, which was mis-calibrated against potrace output —
 -- every shipped Phylopic silhouette in migration 17000 uses only M, L,
 -- C, Z (≤4 distinct), so the original gate would have rejected the entire
--- production corpus. See the corrected gate at extractPathD() in
--- scripts/curate-phylopic.mjs (with detailed comment on the audit).
+-- production corpus.
+--
+-- Empirical audit of the actually-shipped corpus (svg_data literals from
+-- migration 17000, counting /[MLCQTAZ]/i matches per path):
+--   n = 22, min = 3, max = 43, median = 16, below 20 = 13 of 22 (≈59%).
+--
+-- The ≥20 floor is therefore NOT a back-fit to the shipped corpus — it is
+-- a going-forward tightening that fires at curation time, not at runtime.
+-- Already-shipped silhouettes are unaffected. The four rescues in this
+-- migration have command counts {gaviidae: 25, numididae: 22,
+-- phasianidae: 22, tytonidae: 33}, all comfortably above the floor.
+-- See the corrected gate at extractPathD() in scripts/curate-phylopic.mjs
+-- (with full detail on the audit).
 --
 -- Rescued (svg_data flipped from NULL → real path-d via species/genus):
 --   gaviidae — via genus "Gavia" — CC0-1.0, creator: Andy Wilson, https://www.phylopic.org/images/b6673a57-d8ec-4983-8c64-ab1500794a96
