@@ -45,6 +45,23 @@ describe('validateSvg', () => {
     expect(() => validateSvg(Buffer.from(wide, 'utf8'))).toThrow(ValidationError);
   });
 
+  it('accepts a single-quoted viewBox of 0 0 24 24', () => {
+    const single = `<svg xmlns="http://www.w3.org/2000/svg" viewBox='0 0 24 24'><path d="M1 1"/></svg>`;
+    const result = validateSvg(Buffer.from(single, 'utf8'));
+    expect(result.pathD).toBe('M1 1');
+  });
+
+  it('rejects a single-quoted viewBox of 0 0 100 100 (regex must not bypass quote-style)', () => {
+    const single = `<svg xmlns="http://www.w3.org/2000/svg" viewBox='0 0 100 100'><path d="M1 1"/></svg>`;
+    expect(() => validateSvg(Buffer.from(single, 'utf8'))).toThrow(ValidationError);
+  });
+
+  it('accepts a single-quoted d attribute on <path>', () => {
+    const single = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d='M3 4 L5 6'/></svg>`;
+    const result = validateSvg(Buffer.from(single, 'utf8'));
+    expect(result.pathD).toBe('M3 4 L5 6');
+  });
+
   it('rejects an SVG with no <path>', () => {
     const empty = `<svg xmlns="http://www.w3.org/2000/svg"/>`;
     expect(() => validateSvg(Buffer.from(empty, 'utf8'))).toThrow(ValidationError);

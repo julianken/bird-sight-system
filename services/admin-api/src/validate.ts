@@ -56,19 +56,21 @@ export function validateSvg(body: Buffer): ValidatedSvg {
   const pathTag = pathMatches[0]!;
 
   // viewBox, if present, must be exactly "0 0 24 24" — allows whitespace
-  // variation inside the value.
-  const viewBoxMatch = text.match(/\bviewBox\s*=\s*"([^"]*)"/);
+  // variation inside the value. Accepts either quote style: a single-quoted
+  // viewBox attribute would otherwise bypass enforcement entirely.
+  const viewBoxMatch = text.match(/\bviewBox\s*=\s*(?:"([^"]*)"|'([^']*)')/);
   if (viewBoxMatch) {
-    const normalized = viewBoxMatch[1]!.trim().replace(/\s+/g, ' ');
+    const raw = viewBoxMatch[1] ?? viewBoxMatch[2]!;
+    const normalized = raw.trim().replace(/\s+/g, ' ');
     if (normalized !== '0 0 24 24') {
-      throw new ValidationError(`viewBox must be "0 0 24 24" (got "${viewBoxMatch[1]}")`);
+      throw new ValidationError(`viewBox must be "0 0 24 24" (got "${raw}")`);
     }
   }
 
-  // Extract d=
-  const dMatch = pathTag.match(/\bd\s*=\s*"([^"]*)"/);
+  // Extract d= (accept either quote style for the same reason as viewBox).
+  const dMatch = pathTag.match(/\bd\s*=\s*(?:"([^"]*)"|'([^']*)')/);
   if (!dMatch) throw new ValidationError('<path> missing d attribute');
-  const pathD = dMatch[1]!;
+  const pathD = dMatch[1] ?? dMatch[2]!;
   if (!SVG_PATH_DATA_CHARSET.test(pathD)) {
     throw new ValidationError('path d has invalid characters');
   }

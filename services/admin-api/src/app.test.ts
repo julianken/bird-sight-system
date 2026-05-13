@@ -137,6 +137,37 @@ describe('admin-api app', () => {
     expect(s3Mock.commandCalls(DeleteObjectCommand)).toHaveLength(0);
   });
 
+  it('PUT over an existing svg_url deletes the prior R2 object before responding', async () => {
+    // Seed: first PUT establishes a prior svg_url + R2 key.
+    const firstSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2 L20 22 L4 22 Z"/></svg>`;
+    const seedRes = await app.request('/admin/silhouettes/family/cuculidae', {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${TOKEN}` },
+      body: multipart('cuculidae.svg', Buffer.from(firstSvg, 'utf8')),
+    });
+    expect(seedRes.status).toBe(200);
+    const seedBody = (await seedRes.json()) as { key: string };
+    const priorKey = seedBody.key;
+
+    s3Mock.resetHistory();
+
+    // Second PUT with different SVG bytes → different sha → different key.
+    const secondSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M1 1 L2 2 L3 3 Z"/></svg>`;
+    const overwriteRes = await app.request('/admin/silhouettes/family/cuculidae', {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${TOKEN}` },
+      body: multipart('cuculidae.svg', Buffer.from(secondSvg, 'utf8')),
+    });
+    expect(overwriteRes.status).toBe(200);
+    const overwriteBody = (await overwriteRes.json()) as { key: string };
+    expect(overwriteBody.key).not.toBe(priorKey);
+
+    // The prior R2 object must have been deleted as part of the overwrite.
+    const deletes = s3Mock.commandCalls(DeleteObjectCommand);
+    expect(deletes).toHaveLength(1);
+    expect(deletes[0]!.args[0].input.Key).toBe(priorKey);
+  });
+
   it('PUT logs but does not fail when purge fails', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValue(new Response('boom', { status: 500 }));
     const res = await app.request('/admin/silhouettes/family/cuculidae', {

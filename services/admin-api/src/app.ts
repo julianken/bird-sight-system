@@ -55,6 +55,24 @@ export function createApp(deps: AppDeps): Hono {
     // pointing at a non-existent key would render broken images.
     const put = await deps.storage.putSilhouette(code, validated.source);
 
+    // If a prior silhouette object exists in R2, delete it before swapping the
+    // DB pointer. Keys are content-addressed (sha-suffixed) so the new PUT will
+    // never collide with the prior key — leaving the old object behind would
+    // leak an immutable R2 object on every overwrite. Mirror the DELETE
+    // handler's cleanup pattern; non-fatal on failure (DB UPDATE is the
+    // load-bearing part, R2 cleanup is hygiene).
+    const priorUrl = existing.rows[0]!.svg_url;
+    if (priorUrl) {
+      try {
+        const priorKey = new URL(priorUrl).pathname.replace(/^\//, '');
+        if (priorKey !== put.key) {
+          await deps.storage.deleteSilhouette(priorKey);
+        }
+      } catch (err) {
+        console.warn(`[admin-api] R2 cleanup of prior object failed: ${err}`);
+      }
+    }
+
     await deps.pool.query(
       `UPDATE family_silhouettes SET svg_url = $1, svg_data = $2 WHERE family_code = $3`,
       [put.url, validated.pathD, code],
