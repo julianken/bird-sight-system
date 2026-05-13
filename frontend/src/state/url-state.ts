@@ -32,12 +32,23 @@ function readUrl(): UrlState {
   const detail = p.get('detail');
 
   // View resolution:
-  //  - explicit, valid ?view= wins.
+  //  - explicit, valid ?view= wins — EXCEPT the #511 guard below.
   //  - absent ?view= AND ?species= set (without ?detail=) → sniff to
   //    'species' so bookmarked species-filter URLs land on the search
   //    surface with the filter active, NOT the detail surface.
   //  - absent ?view= AND ?detail= set → sniff to 'detail'.
   //  - otherwise default (DEFAULTS.view — currently 'map').
+  //
+  // #511 guard: if ?detail= is set and the resolved view is the default
+  // ('map'), sniff to 'detail' regardless of the explicit ?view=map.
+  // Rationale: ?detail=X&view=map is a corrupted URL that can be produced
+  // by a race between a view-reset write and the browser history. Honouring
+  // ?view=map in that case silently drops the deep-link intent and lands the
+  // user on the map surface. Sniffing to 'detail' is safe because there is
+  // no valid user-authored URL where ?detail= is set but the intended surface
+  // is map (detail always implies the detail surface; users navigating from
+  // detail→map via the tab strip will have ?detail= cleared by onCloseDetail
+  // or their URL entry won't carry ?detail= at all).
   let view: View;
   if (rawView === 'hotspots') {
     // Compatibility shim: old bookmarks with ?view=hotspots silently redirect
@@ -50,6 +61,10 @@ function readUrl(): UrlState {
     window.history.replaceState({}, '', newUrl);
   } else if (rawView && VALID_VIEW.has(rawView)) {
     view = rawView as View;
+    // #511 guard: ?detail=X&view=map → sniff to detail.
+    if (view === DEFAULTS.view && detail) {
+      view = 'detail';
+    }
   } else if (!rawView && detail) {
     view = 'detail';
   } else if (!rawView && speciesCode) {
