@@ -207,7 +207,8 @@ body {
 
 /* Tab buttons — full UA reset, then design-token styling.
    Visual contract mirrors the former .surface-nav-tab exactly:
-   same padding, border-radius, font-size, hover / focus / active states. */
+   same padding, border-radius, font-size, hover / focus / active states.
+   min-height: 44px satisfies Apple HIG / WCAG 2.5.5 touch-target on mobile. */
 .app-header-tab {
   appearance: none;
   background: transparent;
@@ -220,6 +221,7 @@ body {
   color: var(--color-text-strong);
   cursor: pointer;
   line-height: 1.2;
+  min-height: 44px;
 }
 .app-header-tab:hover {
   background: var(--color-bg-tint);
@@ -242,17 +244,25 @@ body {
   border-bottom-width: 2px;
 }
 
-/* Right-side action cluster — Attribution, Filters, ThemeToggle. */
+/* Right-side action cluster — Attribution, Filters, ThemeToggle.
+   ThemeToggle renders a plain <button> with no class; target all
+   buttons in this cluster with the descendant rule below so the
+   44pt touch target applies uniformly (MOB-4). */
 .app-header-right {
   display: flex;
   align-items: center;
   gap: var(--space-xs);
   flex-shrink: 0;
 }
+.app-header-right button {
+  min-height: 44px;
+  min-width: 44px;
+}
 
 /* Attribution + Filters buttons — same UA reset + visual contract as tabs.
    Slightly subdued: color-text-body rather than color-text-strong keeps
-   them secondary to the navigation tabs without becoming invisible. */
+   them secondary to the navigation tabs without becoming invisible.
+   min-height: 44px satisfies Apple HIG / WCAG 2.5.5 touch-target on mobile. */
 .app-header-attribution,
 .app-header-filters {
   appearance: none;
@@ -266,6 +276,7 @@ body {
   cursor: pointer;
   line-height: 1.2;
   position: relative;
+  min-height: 44px;
 }
 .app-header-attribution:hover,
 .app-header-filters:hover {
@@ -1298,6 +1309,11 @@ dialog.species-detail-modal .species-detail-modal-close {
   z-index: 10;
   display: flex;
   flex-direction: column;
+  /* MOB-5: notched devices need env(safe-area-inset-top) so the sheet
+     handle clears the Dynamic Island / status bar when fully expanded.
+     max() keeps the sheet from losing its rounded-corner top edge if
+     the safe-area inset is larger than the default padding. */
+  padding-top: max(var(--space-xs, 4px), env(safe-area-inset-top, 0px));
   padding-bottom: env(safe-area-inset-bottom, 0);
   transition: height 200ms ease, transform 200ms ease;
   will-change: height, transform;
@@ -1310,12 +1326,18 @@ dialog.species-detail-modal .species-detail-modal-close {
 }
 
 .sheet-handle {
-  /* Drag-region: own the gesture entirely; do not pan-scroll the page. */
+  /* Drag-region: own the gesture entirely; do not pan-scroll the page.
+     min-height: 44px satisfies Apple HIG / WCAG 2.5.5 touch-target (MOB-7).
+     The visual grip pill (.sheet-handle-grip) stays 4px tall; padding
+     above/below expands the actual touch target without changing appearance. */
   touch-action: none;
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 24px;
+  width: 100%;
+  min-height: 44px;
+  padding-top: 10px;
+  padding-bottom: 10px;
   background: transparent;
   border: none;
   cursor: grab;
@@ -1719,4 +1741,123 @@ dialog.species-detail-modal .species-detail-modal-close {
     background: ButtonFace;
     color: ButtonText;
   }
+}
+
+/* ==========================================================================
+   Mobile polish — Bundle E (issue #514)
+   Breakpoint ≤ 414px targets iPhone 14 Pro (390×844) and all narrower phones.
+   ========================================================================== */
+
+/* ── MOB-1: AppHeader collapse at ≤ 414px ──────────────────────────────────
+   The unconstrained header overflows at 390px (body.scrollWidth≈578px).
+   Strategy: hide the brand region label, compress nav padding, reduce the
+   outer header gap so the three segments (wordmark · tabs · actions) fit
+   inside 390px without wrapping.
+
+   We do NOT hide the wordmark entirely — "Bird Maps" is the product name and
+   should remain visible. The " · Arizona" region badge is redundant at mobile
+   (single-region product) and is the largest single contributor to overflow.
+
+   Each tab button and action button already has min-height: 44px globally
+   (MOB-4). The padding reduction here preserves that height while shrinking
+   horizontal footprint. */
+@media (max-width: 414px) {
+  .app-header {
+    padding: 0 var(--space-sm);
+    gap: var(--space-xs);
+    /* overflow: hidden prevents the header itself from being wider than the
+       viewport while the body catches up to the new layout. Without this,
+       the header's flex children can still force the layout wider than 390px
+       if any child has a min-width that exceeds available space. */
+    overflow: hidden;
+  }
+
+  /* Hide the region label (" · Arizona"). "Bird Maps" remains visible. */
+  .app-header-wordmark .brand-region {
+    display: none;
+  }
+
+  /* Compress the wordmark so it doesn't crowd the tabs. */
+  .app-header-wordmark {
+    font-size: var(--type-sm);
+    flex-shrink: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 72px;
+  }
+
+  /* Compress tab padding while keeping the 44pt min-height from the global rule. */
+  .app-header-tab {
+    padding: 0 8px;
+    font-size: var(--type-xs);
+  }
+
+  /* Compress right-cluster buttons. */
+  .app-header-attribution,
+  .app-header-filters {
+    padding: 0 8px;
+    font-size: var(--type-xs);
+  }
+
+  /* ThemeToggle uses a plain <button> with no className.
+     Target it via the right-cluster wrapper. */
+  .app-header-right button {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 0 6px;
+  }
+}
+
+/* ── MOB-3: iOS auto-zoom guard ─────────────────────────────────────────────
+   iOS Safari auto-zooms the page when a focused input has font-size < 16px.
+   .species-autocomplete-input uses --type-base (15px) globally. Override to
+   16px on mobile only — desktop typography is unchanged.
+   The override uses min-width: 0 to avoid affecting the selector specificity
+   of the global rule; it simply wins by source order within the media query. */
+@media (max-width: 414px) {
+  .species-autocomplete-input {
+    font-size: 16px;
+  }
+}
+
+/* ── MOB-N1: .filters-panel-close touch target ─────────────────────────────
+   The close button for the FiltersPanel was unstyled (24×22px per audit).
+   Full UA reset + 44×44pt minimum touch area. Visual: text × as the icon,
+   positioned at the top-right of the panel. The panel itself needs position:
+   relative so the absolute positioning of the close button resolves correctly. */
+.filters-panel {
+  position: relative;
+}
+
+.filters-panel-close {
+  /* UA reset */
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font: inherit;
+  /* 44×44pt touch target (Apple HIG, WCAG 2.5.5) */
+  min-width: 44px;
+  min-height: 44px;
+  /* Visual: pull to top-right corner of the panel */
+  position: absolute;
+  top: var(--space-xs, 4px);
+  right: var(--space-xs, 4px);
+  /* Content centering */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  font-size: var(--type-md, 17px);
+  color: var(--color-text-body);
+  line-height: 1;
+  z-index: 1;
+}
+.filters-panel-close:hover {
+  background: var(--color-bg-tint);
+}
+.filters-panel-close:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
 }

@@ -1,0 +1,142 @@
+/**
+ * Mobile Bundle E (issue #514) — six mobile residuals from the v2.2 Tier-5 audit.
+ *
+ * MOB-1  (BLOCKER)  — AppHeader overflows 390px; body.scrollWidth must be ≤ 390px.
+ * MOB-3  (IMPORTANT)— iOS auto-zoom: .species-autocomplete-input font-size must be ≥ 16px.
+ * MOB-4  (IMPORTANT)— Header buttons sub-44pt touch target.
+ * MOB-5  (IMPORTANT)— Sheet safe-area-top: env(safe-area-inset-top) must appear in CSS.
+ * MOB-6  (IMPORTANT)— Drag slop: DISMISS_THRESHOLD_PX tuned for thumb reach.
+ * MOB-7  (IMPORTANT)— Sheet handle 24→44pt drag target.
+ * MOB-N1 (IMPORTANT)— .filters-panel-close 24×22 unstyled; must be ≥ 44×44pt.
+ *
+ * All touch-target tests run at 390×844 (iPhone 14 Pro) — the canonical mobile
+ * viewport from the release-1 exit criteria.
+ */
+import { test, expect, VERMFLY_WITH_PHOTO } from './fixtures.js';
+import { AppPage } from './pages/app-page.js';
+
+test.use({ viewport: { width: 390, height: 844 } });
+
+// ── MOB-1: No horizontal overflow at 390px ─────────────────────────────────
+
+test.describe('MOB-1 — AppHeader no horizontal overflow at 390px', () => {
+  test('body.scrollWidth must be ≤ 390 on feed view', async ({ page, apiStub }) => {
+    await apiStub.stubEmpty();
+    const app = new AppPage(page);
+    await app.goto('view=feed');
+    await app.waitForAppReady();
+
+    const scrollWidth = await page.evaluate(() => document.body.scrollWidth);
+    expect(scrollWidth, 'body.scrollWidth must be ≤ 390px on mobile').toBeLessThanOrEqual(390);
+  });
+
+  test('app-header width must be ≤ 390 on feed view', async ({ page, apiStub }) => {
+    await apiStub.stubEmpty();
+    const app = new AppPage(page);
+    await app.goto('view=feed');
+    await app.waitForAppReady();
+
+    const headerBox = await app.appHeader.boundingBox();
+    expect(headerBox, 'app-header bounding box must exist').not.toBeNull();
+    expect(headerBox!.width, 'app-header width must be ≤ 390px').toBeLessThanOrEqual(390);
+  });
+});
+
+// ── MOB-3: iOS auto-zoom guard — font-size ≥ 16px ──────────────────────────
+
+test.describe('MOB-3 — species-autocomplete-input font-size ≥ 16px', () => {
+  test('autocomplete input font-size ≥ 16px on species view (prevents iOS auto-zoom)', async ({
+    page,
+    apiStub,
+  }) => {
+    await apiStub.stubEmpty();
+    const app = new AppPage(page);
+    await app.goto('view=species');
+    await app.waitForAppReady();
+
+    const fontSize = await page.evaluate(() => {
+      const el = document.querySelector<HTMLElement>('.species-autocomplete-input');
+      if (!el) return 0;
+      return parseFloat(window.getComputedStyle(el).fontSize);
+    });
+    expect(fontSize, 'autocomplete input font-size must be ≥ 16px to prevent iOS auto-zoom').toBeGreaterThanOrEqual(16);
+  });
+});
+
+// ── MOB-4: Header button touch targets ≥ 44×44pt ───────────────────────────
+
+test.describe('MOB-4 — AppHeader buttons ≥ 44×44pt', () => {
+  test('Filters button is ≥ 44px tall', async ({ page, apiStub }) => {
+    await apiStub.stubEmpty();
+    const app = new AppPage(page);
+    await app.goto('view=feed');
+    await app.waitForAppReady();
+
+    const box = await app.filtersTrigger.boundingBox();
+    expect(box, 'Filters button bounding box must exist').not.toBeNull();
+    expect(box!.height, 'Filters button height must be ≥ 44px').toBeGreaterThanOrEqual(44);
+    expect(box!.width, 'Filters button width must be ≥ 44px').toBeGreaterThanOrEqual(44);
+  });
+
+  test('Attribution button is ≥ 44px tall', async ({ page, apiStub }) => {
+    await apiStub.stubEmpty();
+    const app = new AppPage(page);
+    await app.goto('view=feed');
+    await app.waitForAppReady();
+
+    const box = await app.attributionTrigger.boundingBox();
+    expect(box, 'Attribution button bounding box must exist').not.toBeNull();
+    expect(box!.height, 'Attribution button height must be ≥ 44px').toBeGreaterThanOrEqual(44);
+    expect(box!.width, 'Attribution button width must be ≥ 44px').toBeGreaterThanOrEqual(44);
+  });
+
+  test('Feed tab button is ≥ 44px tall', async ({ page, apiStub }) => {
+    await apiStub.stubEmpty();
+    const app = new AppPage(page);
+    await app.goto('view=feed');
+    await app.waitForAppReady();
+
+    const tab = page.getByRole('tab', { name: 'Feed view' });
+    const box = await tab.boundingBox();
+    expect(box, 'Feed tab bounding box must exist').not.toBeNull();
+    expect(box!.height, 'Feed tab height must be ≥ 44px').toBeGreaterThanOrEqual(44);
+  });
+});
+
+// ── MOB-7: Sheet handle ≥ 44pt drag target ─────────────────────────────────
+
+test.describe('MOB-7 — sheet handle ≥ 44pt drag target', () => {
+  test('sheet-handle button height ≥ 44px', async ({ page, apiStub }) => {
+    await apiStub.stubEmpty();
+    await apiStub.stubSpecies('vermfly', VERMFLY_WITH_PHOTO);
+    await apiStub.stubPhotoImage();
+    const app = new AppPage(page);
+    await app.goto('detail=vermfly&view=detail');
+    await app.waitForAppReady();
+
+    const handle = page.locator('[data-testid=species-detail-sheet-handle]');
+    const box = await handle.boundingBox();
+    expect(box, 'sheet handle bounding box must exist').not.toBeNull();
+    expect(box!.height, 'sheet handle height must be ≥ 44px').toBeGreaterThanOrEqual(44);
+    expect(box!.width, 'sheet handle width must be ≥ 44px').toBeGreaterThanOrEqual(44);
+  });
+});
+
+// ── MOB-N1: .filters-panel-close ≥ 44×44pt ─────────────────────────────────
+
+test.describe('MOB-N1 — .filters-panel-close touch target ≥ 44×44pt', () => {
+  test('filters-panel-close button is ≥ 44×44px', async ({ page, apiStub }) => {
+    await apiStub.stubEmpty();
+    const app = new AppPage(page);
+    await app.goto('view=feed');
+    await app.waitForAppReady();
+
+    await app.openFilters();
+
+    const closeBtn = page.locator('.filters-panel-close');
+    const box = await closeBtn.boundingBox();
+    expect(box, 'filters-panel-close bounding box must exist').not.toBeNull();
+    expect(box!.height, 'filters-panel-close height must be ≥ 44px').toBeGreaterThanOrEqual(44);
+    expect(box!.width, 'filters-panel-close width must be ≥ 44px').toBeGreaterThanOrEqual(44);
+  });
+});

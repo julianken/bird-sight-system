@@ -13,15 +13,20 @@ import { useSpeciesDetail } from '../data/use-species-detail.js';
 
 type SnapState = 'peek' | 'half' | 'full';
 
-const PEEK_PX = 96;
+// MOB-6: PEEK_PX raised from 96 → 120 so the peek strip is comfortably
+// reachable by a thumb at the bottom of a 390×844 screen (96px was tight
+// against the safe-area-inset-bottom on notched devices). DISMISS_THRESHOLD_PX
+// lowered from 160 → 80 so a short downward flick dismisses the sheet — the
+// old 160px required a deliberate two-thirds swipe that felt sluggish.
+const PEEK_PX = 120;
 // half + full are computed at runtime against window.innerHeight so they
 // honor the actual viewport (post safe-area, post URL-bar collapse on
 // mobile Safari). Constants here are the FRACTIONS:
 const HALF_FRACTION = 0.6;
 const FULL_INSET_PX = 8;
 // Drag dismissal: dragging the handle down past peek by this many pixels
-// dismisses the sheet (calls onClose).
-const DISMISS_THRESHOLD_PX = 160;
+// dismisses the sheet (calls onClose). 80px ≈ one thumb's travel.
+const DISMISS_THRESHOLD_PX = 80;
 // Drag transition thresholds — half travel between adjacent snaps flips.
 const SNAP_TRANSITION_RATIO = 0.5;
 
