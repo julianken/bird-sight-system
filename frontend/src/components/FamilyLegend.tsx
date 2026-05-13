@@ -152,54 +152,53 @@ export function FamilyLegend({
           {expanded ? '▾' : '▸'}
         </span>
       </button>
-      {expanded && entries.length > 0 && (
-        <ul
-          id="family-legend-entries"
-          className="family-legend-entries"
-          role="list"
-        >
-          {entries.map(entry => {
-            const active = entry.familyCode === familyCode;
-            // Shape is still sourced from the palette channel (WCAG 1.4.1 —
-            // color is not the sole discriminator). Codes not in FAMILY_PALETTE
-            // fall back to the null-channel shape (circle). The fill color,
-            // however, now comes from the DB silhouettes payload via the `color`
-            // prop — the palette fill is shape-encoding-only after this fix.
-            const paletteCode = (entry.familyCode in FAMILY_PALETTE)
-              ? (entry.familyCode as FamilyCode)
-              : null;
-            const channel = getFamilyChannel(paletteCode);
-            const shape: ShapeVariant = channel.shape;
-            return (
-              <li key={entry.familyCode} className="family-legend-entry-item">
-                <button
-                  type="button"
-                  data-testid="family-legend-entry"
-                  className={'family-legend-entry' + (active ? ' is-active' : '')}
-                  aria-pressed={active}
-                  onClick={() => onFamilyToggle(entry.familyCode)}
+      <ul
+        id="family-legend-entries"
+        className="family-legend-entries"
+        role="list"
+        hidden={!expanded || entries.length === 0}
+      >
+        {entries.map(entry => {
+          const active = entry.familyCode === familyCode;
+          // Shape is still sourced from the palette channel (WCAG 1.4.1 —
+          // color is not the sole discriminator). Codes not in FAMILY_PALETTE
+          // fall back to the null-channel shape (circle). The fill color,
+          // however, now comes from the DB silhouettes payload via the `color`
+          // prop — the palette fill is shape-encoding-only after this fix.
+          const paletteCode = (entry.familyCode in FAMILY_PALETTE)
+            ? (entry.familyCode as FamilyCode)
+            : null;
+          const channel = getFamilyChannel(paletteCode);
+          const shape: ShapeVariant = channel.shape;
+          return (
+            <li key={entry.familyCode} className="family-legend-entry-item">
+              <button
+                type="button"
+                data-testid="family-legend-entry"
+                className={'family-legend-entry' + (active ? ' is-active' : '')}
+                aria-pressed={active}
+                onClick={() => onFamilyToggle(entry.familyCode)}
+              >
+                <FamilySilhouette
+                  family={entry.familyCode}
+                  layout="thumb"
+                  shape={shape}
+                  color={entry.silhouette.color}
+                  {...(entry.silhouette.svgUrl != null ? { imgUrl: entry.silhouette.svgUrl } : {})}
+                  {...(entry.silhouette.svgData != null ? { pathD: entry.silhouette.svgData } : {})}
+                />
+                <span className="family-legend-entry-label">{entry.label}</span>
+                <span
+                  className="family-legend-entry-count"
+                  aria-label={`${entry.count} observations in view`}
                 >
-                  <FamilySilhouette
-                    family={entry.familyCode}
-                    layout="thumb"
-                    shape={shape}
-                    color={entry.silhouette.color}
-                    {...(entry.silhouette.svgUrl != null ? { imgUrl: entry.silhouette.svgUrl } : {})}
-                    {...(entry.silhouette.svgData != null ? { pathD: entry.silhouette.svgData } : {})}
-                  />
-                  <span className="family-legend-entry-label">{entry.label}</span>
-                  <span
-                    className="family-legend-entry-count"
-                    aria-label={`${entry.count} observations in view`}
-                  >
-                    {entry.count}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+                  {entry.count}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
     </aside>
   );
 }
