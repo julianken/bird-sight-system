@@ -95,7 +95,7 @@ describe('handleScheduled', () => {
   });
 
   it("dispatches to runBackfill when kind is 'backfill'", async () => {
-    const summary = { status: 'success', daysProcessed: 30 };
+    const summary = { status: 'success', daysProcessed: 19 };
     runBackfillMock.mockResolvedValue(summary);
 
     const result = await handleScheduled('backfill', ENV);
@@ -104,7 +104,7 @@ describe('handleScheduled', () => {
       pool: POOL_SENTINEL,
       apiKey: 'test-key',
       regionCode: 'US-AZ',
-      days: 30,
+      days: 19,
     });
     expect(result).toBe(summary);
     expect(closePoolMock).toHaveBeenCalledWith(POOL_SENTINEL);
