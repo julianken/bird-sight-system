@@ -249,14 +249,20 @@ describe('useUrlState', () => {
     expect(window.location.search).toContain('detail=annhum');
   });
 
-  it('?detail=X&view=map (corrupted URL) sniffs to detail view (#511 guard)', () => {
-    // If a race or PostHog history-instrumentation writes ?detail=X&view=map,
-    // readUrl must recover to view=detail rather than landing on the map surface
-    // and losing the deep-link intent.
+  it('?detail=X&view=map (corrupted URL) sniffs to detail view AND canonicalizes URL bar (#511 guard)', () => {
+    // If a race writes ?detail=X&view=map, readUrl must recover to view=detail
+    // AND call replaceState so the address bar reflects the corrected view.
+    // Without the replaceState call, window.location.search retains ?view=map
+    // even though internal state correctly resolves to 'detail' — this causes
+    // e2e specs that poll the URL bar to time out (root cause of CI failure).
     window.history.replaceState({}, '', '/?detail=annhum&view=map');
     const { result } = renderHook(() => useUrlState());
     expect(result.current.state.view).toBe('detail');
     expect(result.current.state.detail).toBe('annhum');
+    // URL bar must be canonicalized — same assertion pattern as the hotspots shim.
+    expect(window.location.search).toContain('view=detail');
+    expect(window.location.search).not.toContain('view=map');
+    expect(window.location.search).toContain('detail=annhum');
   });
 
   it('explicit ?view=map WITHOUT ?detail= still resolves to map (no false positive)', () => {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { analytics } from '../analytics.js';
 
 export type Since = '1d' | '7d' | '14d' | '30d';
 export type View = 'feed' | 'species' | 'map' | 'detail';
@@ -61,9 +62,32 @@ function readUrl(): UrlState {
     window.history.replaceState({}, '', newUrl);
   } else if (rawView && VALID_VIEW.has(rawView)) {
     view = rawView as View;
-    // #511 guard: ?detail=X&view=map → sniff to detail.
+    // #511 guard: ?detail=X&view=map → sniff to detail AND canonicalize
+    // the URL bar so future popstate reads reflect the corrected view.
+    // Mirrors the ?view=hotspots shim above: update internal state AND
+    // call replaceState so the address bar agrees with readUrl's output.
+    // Without replaceState the address bar retains ?view=map which causes
+    // e2e URL assertions that poll window.location.search to time out.
     if (view === DEFAULTS.view && detail) {
       view = 'detail';
+      // Capture the corrupted URL BEFORE replaceState rewrites it so the
+      // instrumentation payload carries the original form.
+      const corruptedUrl = window.location.pathname + window.location.search;
+      const canonical = new URLSearchParams(window.location.search);
+      canonical.set('view', 'detail');
+      const cq = canonical.toString();
+      const canonicalUrl = cq
+        ? `${window.location.pathname}?${cq}`
+        : window.location.pathname;
+      window.history.replaceState({}, '', canonicalUrl);
+      // Instrumentation: log + PostHog event so the real emitter can be
+      // identified in production. Root cause is unidentified — see #511
+      // and PR #517. Follow-up issue: #518.
+      console.warn('[#511 guard] Corrupted URL detected and recovered:', corruptedUrl);
+      analytics.capture('url_corruption_recovered_511', {
+        corrupted_url: corruptedUrl,
+        detail_code: detail,
+      });
     }
   } else if (!rawView && detail) {
     view = 'detail';

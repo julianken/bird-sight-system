@@ -5,10 +5,14 @@
  * `?view=detail&detail=<code>` briefly self-redirects to map/default
  * after the observation data fetch completes (~600ms real-API latency).
  *
- * Root cause: a corrupted URL `?detail=X&view=map` can be produced by a
- * race between a view-reset write (e.g. PostHog history instrumentation)
- * and the browser history. The fix (url-state.ts #511 guard) sniffs
- * `?detail=X&view=map` back to `view=detail` in `readUrl`.
+ * Root cause (unidentified emitter — see #511 and PR #517 body): a corrupted
+ * URL `?detail=X&view=map` is observed in production. PostHog is NOT the
+ * emitter (analytics.ts configures autocapture:false + capture_pageview:false,
+ * both features that would wrap history.replaceState are disabled). The actual
+ * write site has not been identified via static analysis. The fix adds a
+ * defensive guard in `readUrl` that sniffs `?detail=X&view=map` back to
+ * `view=detail` AND canonicalizes the URL bar via replaceState, plus
+ * instrumentation to surface the real emitter in production logs.
  *
  * Test strategy:
  *   - Use a 700ms-delayed observations stub to simulate real-API latency.
