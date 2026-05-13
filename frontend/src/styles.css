@@ -262,7 +262,10 @@ body {
 /* Attribution + Filters buttons — same UA reset + visual contract as tabs.
    Slightly subdued: color-text-body rather than color-text-strong keeps
    them secondary to the navigation tabs without becoming invisible.
-   min-height applied inside ≤480px media query (MOB-4) — desktop unchanged. */
+   min-height applied inside ≤480px media query (MOB-4) — desktop unchanged.
+   Icon/label visibility:
+   - .app-header-btn-icon hidden at desktop (>480px); shown at mobile (≤480px).
+   - .app-header-btn-label shown at desktop (>480px); sr-only at mobile (≤480px). */
 .app-header-attribution,
 .app-header-filters {
   appearance: none;
@@ -276,6 +279,19 @@ body {
   cursor: pointer;
   line-height: 1.2;
   position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Desktop default: icon hidden, text label visible */
+.app-header-btn-icon {
+  display: none;
+}
+
+/* Desktop default: text label visible (override sr-only at desktop) */
+.app-header-btn-label {
+  /* visible by default at desktop */
 }
 .app-header-attribution:hover,
 .app-header-filters:hover {
@@ -1811,17 +1827,41 @@ dialog.species-detail-modal .species-detail-modal-close {
     min-height: 44px;
   }
 
-  /* Right-cluster text buttons: collapse to 44px icon-only touch targets.
-     font-size: 0 hides the visible text ("Attribution", "Filters") without
-     removing it from the DOM — aria-label on each button preserves the
-     accessible name (the filterCount is baked into aria-label when > 0).
-     min-height + min-width enforce the 44pt touch target. */
+  /* Right-cluster buttons: collapse to 44pt icon-only touch targets at mobile.
+     The text label (.app-header-btn-label) becomes sr-only so screen readers
+     still announce the button's purpose. The SVG icon (.app-header-btn-icon)
+     is shown as the visual affordance. aria-label on each button provides the
+     accessible name (the filterCount is baked in when > 0).
+     padding: 0 + justify-content: center + min-width/height enforce the 44pt
+     touch target (Apple HIG). */
   .app-header-attribution,
   .app-header-filters {
-    font-size: 0;
     padding: 0;
     min-width: 44px;
     min-height: 44px;
+    justify-content: center;
+  }
+
+  /* Mobile: show the SVG icon */
+  .app-header-btn-icon {
+    display: inline-block;
+    flex-shrink: 0;
+  }
+
+  /* Mobile: visually hide the text label but keep it in the accessibility tree.
+     Uses the same clip pattern as .sr-only (defined globally). The inline-flex
+     container on the button means we can't use position:absolute without layout
+     side effects, so we apply sr-only via a scoped class override. */
+  .app-header-btn-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 
   /* Hide the filter count badge at mobile — the accessible name on the

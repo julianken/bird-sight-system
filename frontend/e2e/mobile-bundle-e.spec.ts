@@ -147,6 +147,38 @@ test.describe('MOB-4 — AppHeader buttons ≥ 44×44pt', () => {
     expect(box, 'Feed tab bounding box must exist').not.toBeNull();
     expect(box!.height, 'Feed tab height must be ≥ 44px').toBeGreaterThanOrEqual(44);
   });
+
+  // Regression guard: round-1 fix used font-size:0 which produced empty
+  // 44×44 squares with no visual affordance. Strategy A (SVG icons) must
+  // render a visible <svg> inside each button at mobile viewport.
+  test('Filters button has a visible SVG icon at 390px (no empty-square regression)', async ({
+    page,
+    apiStub,
+  }) => {
+    await apiStub.stubEmpty();
+    const app = new AppPage(page);
+    await app.goto('view=feed');
+    await app.waitForAppReady();
+
+    const icon = app.filtersTrigger.locator('svg.app-header-btn-icon');
+    await expect(icon, 'Filters button must contain a visible SVG icon at mobile').toBeVisible();
+  });
+
+  test('Attribution button has a visible SVG icon at 390px (no empty-square regression)', async ({
+    page,
+    apiStub,
+  }) => {
+    await apiStub.stubEmpty();
+    const app = new AppPage(page);
+    await app.goto('view=feed');
+    await app.waitForAppReady();
+
+    const icon = app.attributionTrigger.locator('svg.app-header-btn-icon');
+    await expect(
+      icon,
+      'Attribution button must contain a visible SVG icon at mobile',
+    ).toBeVisible();
+  });
 });
 
 // ── MOB-7: Sheet handle ≥ 44pt drag target ─────────────────────────────────

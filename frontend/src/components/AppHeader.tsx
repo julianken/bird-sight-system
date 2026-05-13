@@ -121,7 +121,24 @@ export function AppHeader({
           onClick={onOpenAttribution}
           aria-label="Credits & attribution"
         >
-          Attribution
+          {/* Info-circle icon — visible at mobile (≤480px), hidden at desktop via CSS */}
+          <svg
+            className="app-header-btn-icon"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <path d="M12 16v-4M12 8h.01" />
+          </svg>
+          {/* Text label — visible at desktop (>480px), sr-only at mobile */}
+          <span className="app-header-btn-label">Attribution</span>
         </button>
         <button
           type="button"
@@ -129,7 +146,23 @@ export function AppHeader({
           onClick={onOpenFilters}
           aria-label={filterTriggerLabel}
         >
-          Filters
+          {/* Funnel/filter icon — visible at mobile (≤480px), hidden at desktop via CSS */}
+          <svg
+            className="app-header-btn-icon"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+          </svg>
+          {/* Text label — visible at desktop (>480px), sr-only at mobile */}
+          <span className="app-header-btn-label">Filters</span>
           {filterCount > 0 && (
             <span className="app-header-filter-badge" aria-hidden="true">
               {filterCount}
