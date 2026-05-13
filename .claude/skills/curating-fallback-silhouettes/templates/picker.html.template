@@ -220,8 +220,14 @@
     command set; no <code>&lt;g&gt;</code> /
     <code>&lt;defs&gt;</code> / <code>&lt;style&gt;</code> /
     <code>&lt;script&gt;</code> / event handlers / <code>xlink:*</code>;
-    body ≤ 64 KB; <strong>≥ 20 path commands</strong>
-    (typical real silhouettes land at 22–33 commands).
+    body ≤ 64 KB.
+    <br><br>
+    <em>Operator hint (not a validator gate):</em> paths under ~20
+    commands tend to render as unrecognizable blobs at 24–28px legend
+    scale. The automated Phylopic sourcing pipeline applies a ≥20-command
+    floor at curation time for this reason; the admin-api validator does
+    not enforce a floor, so a hand-curated silhouette below 20 will upload
+    fine but may not read at small sizes.
   </div>
 
   <div class="grid">

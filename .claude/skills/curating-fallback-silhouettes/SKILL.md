@@ -26,7 +26,7 @@ The Phylopic curation pipeline (`scripts/curate-phylopic.mjs`) sweeps every AZ f
 ## Preconditions
 
 - `bird-admin-api` Cloud Run service deployed (issue #502 landed it; see `docs/runbooks/silhouette-override.md` for the deploy bootstrap).
-- `npm run silhouette` alias present in root `package.json` (it forwards to `scripts/silhouette-cli.mjs`).
+- `npm run silhouette` alias present in root `package.json` (it forwards to `scripts/silhouette.mjs`).
 - Env loaded:
   ```bash
   export ADMIN_API_URL="$(gcloud run services describe bird-admin-api \
@@ -91,16 +91,22 @@ Ordering rule (best tracing-fit first, so the eye lands on the most likely winne
 4. CC-BY-SA-* (share-alike propagation — flag with a badge)
 5. CC-BY-NC-*, CC-BY-ND-*, PD-mark (reference only — include with a "cannot ship" warning so the user knows why a tempting result is excluded)
 
-A quick substitution:
+A quick substitution (multi-line `sed` form — portable across macOS BSD
+`sed` and GNU `sed`; the single-line `{r file; d}` shape that GNU `sed`
+accepts fails on BSD `sed` with `extra characters at the end of d
+command`):
 
 ```bash
 FAMILY=cuculidae
 DIR="/tmp/silhouette-picker/$FAMILY"
 mkdir -p "$DIR"
-# Build CANDIDATES_HTML in your head or via a small helper; then:
+# Build /tmp/candidates.html (one <article class="card">…</article> per
+# candidate; see the picker template header for the card shape), then:
 sed -e "s/{{FAMILY}}/$FAMILY/g" \
-    -e "/{{CANDIDATES}}/{r /tmp/candidates.html
-                         d}" \
+    -e "/{{CANDIDATES}}/{
+          r /tmp/candidates.html
+          d
+        }" \
     .claude/skills/curating-fallback-silhouettes/templates/picker.html.template \
   > "$DIR/index.html"
 cd "$DIR" && python3 -m http.server 8765 &
@@ -118,7 +124,15 @@ Admin-api validator requires:
 - Body ≤ 64 KB
 - path-d charset: digits, the SVG command letters, space, dash, dot, comma
 - No `<g>`, `<defs>`, `<use>`, `<style>`, `<script>`, event handlers, or `xlink:*`
-- ≥20 path commands (gate from `extractPathD` in `scripts/curate-phylopic.mjs`)
+
+Operator hint (not enforced by the validator): paths under ~20 commands
+tend to render as unrecognizable blobs at 24–28px legend scale. The
+automated Phylopic sourcing pipeline (`extractPathD` in
+`scripts/curate-phylopic.mjs`) applies a ≥20-command floor at curation
+time as a quality heuristic, but the admin-api validator
+(`services/admin-api/src/validate.ts`) does not — a hand-curated
+silhouette below 20 commands will upload fine but may not read at small
+sizes. Squint-test before shipping.
 
 If the chosen file violates any rule, reduce it. The algorithm to apply:
 
@@ -227,7 +241,7 @@ Apply this on every candidate before adding it to the picker.
 - **"Unknown" creator on Wikimedia.** Plates labeled "Unknown, <year>" by Wikimedia editors are usually well-known publications (Audubon, Bird-Lore, Birds and Nature). Substitute the publication name + year as the creator string before upload — anonymous credit is rejected by the audit downstream.
 - **CSS `mask-image` requires CORS on the silhouette URL.** The Worker that serves R2 silhouette URLs sets `access-control-allow-origin: *`. If the Worker is ever modified, preserve that header — without it the `mask-image` pipeline degrades to inline-SVG fallback and the SDF clustering breaks.
 - **One iconic species per family.** Squint-test at 24–28px before committing. A "technically correct but unrecognizable at small sizes" silhouette is worse than the `_FALLBACK` shape because the user assumes it's information.
-- **Validator's ≥20-command floor was tightened in #500.** Pre-#500 silhouettes can have fewer (median 16, see comment block in `extractPathD`). Going forward, anything below 20 is rejected — if a hand-curated silhouette is otherwise good but trips the floor, add a few smoothing curves rather than dropping the candidate.
+- **Phylopic curation pipeline's ≥20-command floor (issue #500) is a sourcing filter, not a validator rule.** It fires inside `extractPathD` in `scripts/curate-phylopic.mjs` and gates which Phylopic results the automated pipeline accepts. The admin-api validator (`services/admin-api/src/validate.ts`) does NOT enforce a path-command floor, so a hand-curated silhouette below 20 commands will upload successfully. Pre-#500 silhouettes ship at a median of 16 commands. Treat ~20 as a squint-test rule of thumb for legibility at 24–28px; if a hand-curated silhouette is otherwise good but reads as a blob, add a few smoothing curves before retrying — but don't drop the candidate just because it trips the heuristic.
 
 ## Rollback
 
