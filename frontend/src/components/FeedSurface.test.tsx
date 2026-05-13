@@ -652,6 +652,109 @@ describe('FeedSurface — DB color threading (NEW-3 fix)', () => {
   });
 });
 
+describe('FeedSurface — row virtualization (issue #509)', () => {
+  /**
+   * Virtualization contract: with a large dataset the DOM must render
+   * significantly fewer rows than observations.length. react-window only
+   * mounts items that fit in the container's visible height plus overscan.
+   *
+   * jsdom has no real layout engine; ResizeObserver never fires. The
+   * component therefore falls back to `ROW_HEIGHT_PX * OVERSCAN_COUNT` worth
+   * of content rendered using the `defaultHeight` passed to the List.
+   * We assert only that DOM row count < observations.length (strict bound)
+   * and that list semantics survive.
+   *
+   * The FEED_LIST_DEFAULT_HEIGHT constant (exported from FeedSurface) is
+   * used as the defaultHeight prop; jsdom renders at most
+   * Math.ceil(FEED_LIST_DEFAULT_HEIGHT / ROW_HEIGHT_PX) + overscan rows.
+   */
+  function makeObs(n: number): Observation[] {
+    return Array.from({ length: n }, (_, i) => ({
+      subId: `SVIRT${i}`,
+      speciesCode: `sp${i}`,
+      comName: `Species ${i}`,
+      lat: 32.2,
+      lng: -110.9,
+      obsDt: new Date(2026, 3, 15, 14, 0, 0, 0).toISOString(),
+      locId: 'L001',
+      locName: 'Test Canyon',
+      howMany: 1,
+      isNotable: false as const,
+      regionId: null,
+      silhouetteId: null,
+      familyCode: null,
+    }));
+  }
+
+  it('renders fewer DOM rows than observations when observations exceed viewport capacity', () => {
+    const BIG = 300;
+    const observations = makeObs(BIG);
+    const { container } = render(
+      <FeedSurface
+        loading={false}
+        observations={observations}
+        now={NOW}
+        filters={{ notable: false, since: '14d' }}
+        onSelectSpecies={() => {}}
+      />
+    );
+    // With virtualization the rendered <li> count must be strictly less
+    // than the total observation count. Without virtualization this would
+    // equal BIG (300).
+    const renderedRows = container.querySelectorAll('.feed-row-item, .feed-card-item');
+    expect(renderedRows.length).toBeLessThan(BIG);
+  });
+
+  it('preserves <ol aria-label="Observations"> list semantics', () => {
+    const observations = makeObs(300);
+    render(
+      <FeedSurface
+        loading={false}
+        observations={observations}
+        now={NOW}
+        filters={{ notable: false, since: '14d' }}
+        onSelectSpecies={() => {}}
+      />
+    );
+    const list = screen.getByRole('list', { name: 'Observations' });
+    expect(list).toBeInTheDocument();
+  });
+
+  it('preserves FilterSentence live region even with virtualized list', () => {
+    const observations = makeObs(300);
+    const { container } = render(
+      <FeedSurface
+        loading={false}
+        observations={observations}
+        now={NOW}
+        filters={{ notable: false, since: '14d' }}
+        onSelectSpecies={() => {}}
+      />
+    );
+    const liveRegion = container.querySelector('.filter-sentence-live');
+    expect(liveRegion).toBeInTheDocument();
+  });
+
+  it('clicking a visible row still fires onSelectSpecies', async () => {
+    const onSelectSpecies = vi.fn();
+    const user = userEvent.setup();
+    const observations = makeObs(300);
+    render(
+      <FeedSurface
+        loading={false}
+        observations={observations}
+        now={NOW}
+        filters={{ notable: false, since: '14d' }}
+        onSelectSpecies={onSelectSpecies}
+      />
+    );
+    // Click the first rendered button — must still delegate to onSelectSpecies.
+    const firstButton = screen.getAllByRole('button')[0];
+    await user.click(firstButton);
+    expect(onSelectSpecies).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('FeedSurface — freshness meta line (L1 critic fix)', () => {
   // .feed-freshness class must be present on the freshness <p> so the CSS rule
   // in styles.css can apply. Without the class the element renders at UA-default
