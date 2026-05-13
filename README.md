@@ -121,3 +121,8 @@ The compute is plain Docker. To migrate to AWS / Azure / Fly:
 | **GCP → Azure** | Push Dockerfiles to ACR; deploy to Azure Container Apps; replace Cloud Scheduler with Azure Logic Apps or Functions Timer; replace Secret Manager with Key Vault | Application code, Neon DB, frontend |
 | **GCP → Fly.io** | Push Dockerfiles to Fly registry; `fly deploy` for the API service; use Fly's Cron Manager (JSON schedules) for arbitrary crons — `fly machines run --schedule` only accepts `hourly`/`daily`/`weekly`/`monthly` literals, which covers the backfill + hotspots jobs but not the 30-minute recent cron | Application code, frontend (could move to Fly too) |
 | **Neon → another Postgres** | `pg_dump` from Neon → restore to RDS / Cloud SQL / Azure DB / self-hosted; update `DATABASE_URL` secret | Compute layer, all application code |
+
+## Operator runbooks
+
+- Silhouette upload (technical reference) — [`docs/runbooks/silhouette-override.md`](docs/runbooks/silhouette-override.md)
+- Curating fallback silhouettes (human-in-the-loop workflow) — [`.claude/skills/curating-fallback-silhouettes/SKILL.md`](.claude/skills/curating-fallback-silhouettes/SKILL.md)
