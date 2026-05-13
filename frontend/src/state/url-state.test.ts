@@ -228,6 +228,58 @@ describe('useUrlState', () => {
     expect(result.current.state.detail).toBeNull();
   });
 
+  // --- #511: detail deep-link view stickiness after data refresh ---
+  // These tests cover the production bug where ?view=detail&detail=X briefly
+  // reverts to map/default after the observation data fetch completes. The root
+  // cause is a URL that can end up as ?detail=X&view=map (default view with
+  // detail param set) — readUrl must sniff that back to 'detail' instead of
+  // accepting the explicit ?view=map override.
+
+  it('deep-link ?view=detail&detail=X stays detail after set() with only filter changes', () => {
+    window.history.replaceState({}, '', '/?view=detail&detail=annhum');
+    const { result } = renderHook(() => useUrlState());
+    expect(result.current.state.view).toBe('detail');
+
+    // Simulate a data-refresh side-effect: some path calls set() without
+    // explicitly carrying view. The partial merge must NOT clobber view.
+    act(() => result.current.set({ since: '7d' }));
+    expect(result.current.state.view).toBe('detail');
+    expect(result.current.state.detail).toBe('annhum');
+    expect(window.location.search).toContain('view=detail');
+    expect(window.location.search).toContain('detail=annhum');
+  });
+
+  it('?detail=X&view=map (corrupted URL) sniffs to detail view AND canonicalizes URL bar (#511 guard)', () => {
+    // If a race writes ?detail=X&view=map, readUrl must recover to view=detail
+    // AND call replaceState so the address bar reflects the corrected view.
+    // Without the replaceState call, window.location.search retains ?view=map
+    // even though internal state correctly resolves to 'detail' — this causes
+    // e2e specs that poll the URL bar to time out (root cause of CI failure).
+    window.history.replaceState({}, '', '/?detail=annhum&view=map');
+    const { result } = renderHook(() => useUrlState());
+    expect(result.current.state.view).toBe('detail');
+    expect(result.current.state.detail).toBe('annhum');
+    // URL bar must be canonicalized — same assertion pattern as the hotspots shim.
+    expect(window.location.search).toContain('view=detail');
+    expect(window.location.search).not.toContain('view=map');
+    expect(window.location.search).toContain('detail=annhum');
+  });
+
+  it('explicit ?view=map WITHOUT ?detail= still resolves to map (no false positive)', () => {
+    window.history.replaceState({}, '', '/?view=map');
+    const { result } = renderHook(() => useUrlState());
+    expect(result.current.state.view).toBe('map');
+    expect(result.current.state.detail).toBeNull();
+  });
+
+  it('explicit ?view=map with ?species= (no detail) resolves to map, not detail', () => {
+    window.history.replaceState({}, '', '/?view=map&species=vermfly');
+    const { result } = renderHook(() => useUrlState());
+    expect(result.current.state.view).toBe('map');
+    expect(result.current.state.detail).toBeNull();
+    expect(result.current.state.speciesCode).toBe('vermfly');
+  });
+
   // --- Phase 0: pushState for detail-surface navigation ---
 
   describe('pushState semantics for detail navigation', () => {
