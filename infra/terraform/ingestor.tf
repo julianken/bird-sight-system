@@ -88,8 +88,18 @@ resource "google_cloud_run_v2_job" "ingestor" {
   template {
     template {
       service_account = google_service_account.ingestor.email
-      timeout         = "300s"
-      max_retries     = 1
+      # Bumped 300s → 900s in PR following #505/#506. The 300s ceiling was
+      # exposed as too tight when the nightly backfill stamp-UPDATE ran for
+      # 5 days against a growing observations table and got SIGKILLed
+      # mid-batch. #506 fixed the underlying O(N²) stamp scope, so backfill
+      # now finishes in seconds — but the 300s fuse was also serving as a
+      # defensive ceiling, and we want more headroom for transient Neon
+      # latency / eBird slow responses / future scope creep before the
+      # container is killed. 15 minutes is still well below Cloud Run Jobs'
+      # 168h max and short enough that a genuinely-stuck job surfaces
+      # within a single cron interval (30 min for `recent`).
+      timeout     = "900s"
+      max_retries = 1
 
       containers {
         image = "${google_artifact_registry_repository.birdwatch.location}-docker.pkg.dev/${var.gcp_project_id}/${google_artifact_registry_repository.birdwatch.repository_id}/ingestor:latest"
@@ -275,13 +285,12 @@ resource "google_cloud_scheduler_job" "ingest_taxonomy" {
 
 # ── Photos ingest job (issue #327) ───────────────────────────────────────
 #
-# Separate Cloud Run Job because the photos kind needs a 600s timeout to
-# walk ~344 species × (iNat fetch + R2 PUT). The other kinds (recent,
-# backfill, hotspots, taxonomy) finish well within 300s and are tuned for
-# that ceiling — bumping the shared job's timeout would mask runtime
-# regressions in the eBird-driven kinds. Mirrors the .ingestor job's shape
-# (image, env, lifecycle.ignore_changes) so deploy-ingestor.yml's image-tag
-# rollout reaches both jobs from a single Artifact Registry push.
+# Separate Cloud Run Job because the photos kind originally needed a 600s
+# timeout to walk ~344 species × (iNat fetch + R2 PUT) — kept distinct from
+# the shared `bird-ingestor` job so its needs evolve independently.
+# Mirrors the .ingestor job's shape (image, env,
+# lifecycle.ignore_changes) so deploy-ingestor.yml's image-tag rollout
+# reaches both jobs from a single Artifact Registry push.
 resource "google_cloud_run_v2_job" "ingestor_photos" {
   name     = "bird-ingestor-photos"
   location = var.gcp_region
