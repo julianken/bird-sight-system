@@ -1,4 +1,4 @@
-import { useMemo, useState, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
+import { useMemo, useState, useRef, useCallback } from 'react';
 import type { CSSProperties } from 'react';
 import { List } from 'react-window';
 import type { RowComponentProps } from 'react-window';
@@ -284,48 +284,65 @@ export function FeedSurface(props: FeedSurfaceProps) {
   // ------------------------------------------------------------------
   // Height measurement for the virtual list.
   //
-  // react-window uses style.height as the authoritative height of the
-  // visible window. defaultHeight is only a server-render / jsdom
-  // fallback and must NOT be passed alongside style.height — react-window
-  // v2 treats the last prop it sees as authoritative, but in practice the
-  // two sources produce a stale-closure bug where the component mounts at
-  // 600px and never re-measures even when style.height changes.
+  // react-window uses style.height as the authoritative height for the
+  // visible window. We MUST NOT pass defaultHeight alongside style.height
+  // — react-window v2 prefers the internal cached value from defaultHeight
+  // and ignores style.height updates, producing a stuck-at-600px bug when
+  // the container is taller than 600px (repro: 1920×1080, 768×1024).
   //
-  // Fix: measure listContainerRef.clientHeight synchronously in
-  // useLayoutEffect (fires before paint, clientHeight is valid), then
-  // attach a ResizeObserver for ongoing changes. The state initial value
-  // is FEED_LIST_DEFAULT_HEIGHT only as a jsdom/SSR fallback (those
-  // environments never run ResizeObserver or have a real clientHeight).
+  // Why effects with listContainerRef won't work:
+  //   FeedSurface renders a loading placeholder while data is in flight,
+  //   so the <div ref={listContainerRef}> is NOT in the DOM on first
+  //   render. useEffect / useLayoutEffect with [] deps fire after the
+  //   first render — but at that point the ref is still null. By the time
+  //   data loads and the list container appears, the effects have already
+  //   run and won't re-fire.
+  //
+  // Fix: use a ref callback (setListContainerEl). The callback fires
+  //   - when the element first mounts (with the element), and
+  //   - when it unmounts (with null).
+  //   This is timing-agnostic — it fires regardless of async data delays.
+  //
+  // On attach: measure clientHeight immediately + attach ResizeObserver
+  //   for ongoing changes. The ObserverRef stores the current observer
+  //   instance so the cleanup can disconnect it when the element unmounts.
+  //
+  // The state initial value FEED_LIST_DEFAULT_HEIGHT = 600 is a jsdom /
+  //   SSR fallback only — in jsdom clientHeight is always 0, so the
+  //   `h > 0` guard preserves the fallback and tests continue to work.
   // ------------------------------------------------------------------
-  const listContainerRef = useRef<HTMLDivElement>(null);
   const [listHeight, setListHeight] = useState<number>(FEED_LIST_DEFAULT_HEIGHT);
+  const observerRef = useRef<ResizeObserver | null>(null);
 
-  // Synchronous initial measurement — prevents the 600px flash on first
-  // paint at wide viewports where the container is taller than 600px.
-  useLayoutEffect(() => {
-    const el = listContainerRef.current;
+  // Ref callback — fires when the list container element first mounts
+  // (el is the element) and when it unmounts (el is null).
+  const setListContainerEl = useCallback((el: HTMLDivElement | null) => {
+    // Disconnect any previous observer before setting up a new one.
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+      observerRef.current = null;
+    }
     if (!el) return;
+
+    // Synchronous initial measurement — covers the common case where the
+    // element has a real size at mount time (data already loaded).
     const h = el.clientHeight;
     if (h > 0) setListHeight(h);
-  }, []);
 
-  // ResizeObserver — tracks ongoing container height changes (window
-  // resize, panel open/close, etc.). Runs as a regular effect because
-  // it doesn't need to block paint.
-  useEffect(() => {
-    const el = listContainerRef.current;
-    if (!el || typeof ResizeObserver === 'undefined') return;
-
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        if (entry.target === el) {
-          const h = entry.contentRect.height;
-          if (h > 0) setListHeight(h);
+    // ResizeObserver for ongoing changes (window resize, panel layout
+    // shifts, etc.).
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          if (entry.target === el) {
+            const rh = entry.contentRect.height;
+            if (rh > 0) setListHeight(rh);
+          }
         }
-      }
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
+      });
+      observer.observe(el);
+      observerRef.current = observer;
+    }
   }, []);
 
   // Stable onSelectSpecies reference for rowProps — prevents all visible rows
@@ -465,7 +482,7 @@ export function FeedSurface(props: FeedSurfaceProps) {
         back to FEED_LIST_DEFAULT_HEIGHT (600px) in jsdom / SSR.
       */}
       <div
-        ref={listContainerRef}
+        ref={setListContainerEl}
         className="feed-list-container"
         style={{ flex: '1 1 auto', minHeight: 0 }}
       >
