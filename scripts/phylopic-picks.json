@@ -1,12 +1,9 @@
 {
-  "generatedAt": "2026-05-12T22:06:08.924Z",
+  "generatedAt": "2026-05-13T01:02:43.794Z",
   "phylopicBuild": "538",
   "autoPickHeuristic": "license-preference (CC0 > CC-BY-3.0 > CC-BY-4.0 > CC-BY-SA-3.0), then creator-name asc, then uuid asc",
-  "skipFamilies": [
-    "cuculidae",
-    "ptilogonatidae",
-    "remizidae"
-  ],
+  "skipFamilies": [],
+  "_skipFamilies_deprecation_note": "skipFamilies is deprecated as of issue #498. Empty by convention; the script's NULL-emission path handles genuine API absences. Do not re-introduce entries — if a family is unrescueable, let it land as NULL with a SQL-comment-recorded reason.",
   "families": [
     {
       "family": "aegithalidae",
@@ -237,6 +234,13 @@
           "skipReason": null
         }
       ]
+    },
+    {
+      "family": "cuculidae",
+      "picked": null,
+      "reason": "no-candidates",
+      "candidateCount": 0,
+      "considered": []
     },
     {
       "family": "falconidae",
@@ -982,6 +986,13 @@
       "considered": []
     },
     {
+      "family": "ptilogonatidae",
+      "picked": null,
+      "reason": "http-404-on-nodes",
+      "candidateCount": 0,
+      "considered": []
+    },
+    {
       "family": "rallidae",
       "picked": {
         "licenseId": "CC0-1.0",
@@ -1047,6 +1058,13 @@
           "skipReason": null
         }
       ]
+    },
+    {
+      "family": "remizidae",
+      "picked": null,
+      "reason": "http-404-on-nodes",
+      "candidateCount": 0,
+      "considered": []
     },
     {
       "family": "sittidae",

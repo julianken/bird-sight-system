@@ -46,6 +46,13 @@
  *     failed" from "operator confirmed no usable Phylopic exists" so the
  *     resulting migration is honest about which case applies.
  *
+ *     DEPRECATED as of issue #498: skipFamilies is empty by convention.
+ *     The script's existing NULL-emission path already handles genuine
+ *     API absences. Re-curating against current Phylopic builds is
+ *     cheap (one script run) and surfaces newly-contributed silhouettes
+ *     that would have been silently skipped by the memoized list. Do
+ *     not re-introduce entries here without a strong operational reason.
+ *
  * Outputs (committed, both reproducible from the same Phylopic API state):
  *   - `scripts/phylopic-picks.json` — full candidate list per family + the
  *     chosen one + the heuristic that picked it. Audit trail for the
@@ -63,8 +70,10 @@
  * fronted by CloudFront with `max-age=300, stale-while-revalidate=86400`).
  *
  * Usage:
- *   node scripts/curate-phylopic.mjs           # use cache if present
- *   node scripts/curate-phylopic.mjs --refresh # bypass cache, re-fetch all
+ *   node scripts/curate-phylopic.mjs                   # 25-family seed; UPDATE-mode (migration 17000)
+ *   node scripts/curate-phylopic.mjs --refresh         # bypass cache, re-fetch all
+ *   node scripts/curate-phylopic.mjs --backfill        # 38-family backfill; INSERT-mode (migration 34000)
+ *   node scripts/curate-phylopic.mjs --recurate-nulls  # 14 NULL-svg families; UPDATE-mode (migration 35000, issue #498)
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
@@ -76,9 +85,11 @@ const CACHE_DIR = resolve(__dirname, '.phylopic-cache');
 const PICKS_PATH = resolve(__dirname, 'phylopic-picks.json');
 const MIGRATION_PATH = resolve(
   REPO_ROOT,
-  process.argv.includes('--backfill')
-    ? 'migrations/1700000034000_backfill_observed_family_silhouettes.sql'
-    : 'migrations/1700000017000_seed_family_silhouettes_phylopic.sql',
+  process.argv.includes('--recurate-nulls')
+    ? 'migrations/1700000035000_recurate_null_silhouettes.sql'
+    : process.argv.includes('--backfill')
+      ? 'migrations/1700000034000_backfill_observed_family_silhouettes.sql'
+      : 'migrations/1700000017000_seed_family_silhouettes_phylopic.sql',
 );
 
 const PHYLOPIC_API = 'https://api.phylopic.org';
@@ -87,6 +98,7 @@ const PHYLOPIC_WEB = 'https://www.phylopic.org';
 
 const REFRESH = process.argv.includes('--refresh');
 const BACKFILL = process.argv.includes('--backfill');
+const RECURATE_NULLS = process.argv.includes('--recurate-nulls');
 
 // All 25 families seeded across migrations 9000 + 15000. Preserve exact
 // family_code casing from the seed migrations — Phylopic's filter_name is
@@ -117,6 +129,22 @@ const BACKFILL_FAMILIES = [
   'ptiliogonatidae', 'rallidae', 'recurvirostridae', 'regulidae',
   'sittidae', 'sturnidae', 'tityridae', 'turdidae', 'tytonidae',
   'vireonidae',
+];
+
+// Families to re-curate per issue #498. These are the 14 family_silhouettes
+// rows that landed with svg_data=NULL after the legacy migration 17000 (3
+// legacy operator-skipped: cuculidae, ptilogonatidae, remizidae) and after
+// the #495 backfill in migration 34000 (11 families where Phylopic build
+// ~525 returned no license-compatible vectorFile). Run against build 538
+// (or newer) to pick up any newly-contributed CC silhouettes since the
+// original curation. Triggers an UPDATE-mode migration that flips
+// svg_data/source/license/creator from NULL → real values for any family
+// that now has a usable pick; the rest stay NULL and are surfaced in the
+// migration comment + PR body.
+const RECURATE_FAMILIES = [
+  'calcariidae', 'cuculidae', 'gaviidae', 'icteriidae', 'numididae',
+  'peucedramidae', 'phasianidae', 'polioptilidae', 'ptiliogonatidae',
+  'ptilogonatidae', 'remizidae', 'tityridae', 'tytonidae', 'vireonidae',
 ];
 
 // Short identifier mapping per the Phylopic license URL convention. Phylopic
@@ -330,6 +358,17 @@ async function enumerateCandidates(nodeUuid) {
     // Slug isn't surfaced reliably via the API; fall back to <uuid> alone
     // (the Phylopic web app accepts /images/<uuid> and 301s to the slug).
     const imagePageUrl = uuid ? `${PHYLOPIC_WEB}/images/${uuid}` : null;
+    // Quality audit (issue #498): reject candidates with bad-shape attribution.
+    // The AttributionModal must surface a real creator + a working Phylopic
+    // page link; "", "-", "Anonymous", or null all degrade the UX to
+    // un-attributable, which is the worst case for a CC-licensed asset.
+    const creatorDeny = new Set(['', '-', 'Anonymous']);
+    if (!creatorName || creatorDeny.has(creatorName.trim())) {
+      continue;
+    }
+    if (!imagePageUrl || !/^https:\/\/www\.phylopic\.org\/images\/[0-9a-f-]+/.test(imagePageUrl)) {
+      continue;
+    }
     candidates.push({
       uuid,
       vectorFileUrl: vectorFile,
@@ -642,6 +681,18 @@ function extractPathD(svgText) {
   } catch (err) {
     return { ok: false, reason: `normalize-error: ${err.message}` };
   }
+  // Quality audit (issue #498): reject paths that are too short or too
+  // simple to be a real silhouette. <100 chars or <5 distinct path commands
+  // is the floor where the rendered glyph degrades into a near-meaningless
+  // blob at FamilyLegend's 24-28px target size.
+  if (normalized.length < 100) {
+    return { ok: false, reason: `svgPathD-too-short: ${normalized.length} chars` };
+  }
+  const cmdMatches = normalized.match(/[MmLlHhVvCcSsQqTtAaZz]/g) ?? [];
+  const distinctCmds = new Set(cmdMatches.map(c => c.toUpperCase()));
+  if (distinctCmds.size < 5) {
+    return { ok: false, reason: `svgPathD-too-simple: ${distinctCmds.size} distinct commands` };
+  }
   return { ok: true, d: normalized };
 }
 
@@ -774,6 +825,90 @@ function emitMigrationSql(picks, skipFamilies, mode = 'update', colorByFamily = 
   const today = todayUtc();
   const lines = [];
   lines.push('-- Up Migration');
+  if (mode === 'recurate') {
+    const sortedPicks = [...picks].sort((a, b) => a.family.localeCompare(b.family));
+    const rescued = sortedPicks.filter(p => p.picked);
+    const stillNull = sortedPicks.filter(p => !p.picked);
+    lines.push('-- Issue #498. Re-curates the 14 NULL-svg_data family_silhouettes');
+    lines.push('-- rows against Phylopic build 538 — 3 legacy from migration 17000\'s');
+    lines.push('-- operator-skip list (cuculidae, ptilogonatidae, remizidae) and 11');
+    lines.push('-- from the #495 backfill (migration 34000) where the prior curation');
+    lines.push('-- pass found no license-compatible vectorFile.');
+    lines.push('--');
+    lines.push(`-- Generated by scripts/curate-phylopic.mjs --recurate-nulls on ${today}`);
+    lines.push('-- using the Phylopic API two-step recipe (/nodes?filter_name →');
+    lines.push('-- /images?filter_node) and the existing auto-pick heuristic');
+    lines.push('-- (license preference CC0 > CC-BY-3.0 > CC-BY-4.0 > CC-BY-SA-3.0,');
+    lines.push('-- then alphabetic creator, then UUID).');
+    lines.push('--');
+    lines.push('-- Rescued (svg_data flipped from NULL → real path-d):');
+    if (rescued.length === 0) {
+      lines.push('--   (none — build 538 added no usable picks for the 14 NULL families)');
+    } else {
+      for (const r of rescued) {
+        lines.push(`--   ${r.family} — ${r.picked.licenseId}, creator: ${r.picked.creatorName ?? '(unknown)'}`);
+      }
+    }
+    lines.push('--');
+    lines.push('-- Still NULL after build 538 (rejection reason in parentheses):');
+    if (stillNull.length === 0) {
+      lines.push('--   (none — all 14 rescued)');
+    } else {
+      for (const r of stillNull) {
+        lines.push(`--   ${r.family} (${r.reason})`);
+      }
+    }
+    lines.push('--');
+    lines.push('-- The full audit trail (every candidate the heuristic considered,');
+    lines.push('-- per family) lives at scripts/phylopic-picks.json under the updated');
+    lines.push('-- entries. The skipFamilies memoization mechanism is now empty and');
+    lines.push('-- deprecated — see the comment at the top of scripts/curate-phylopic.mjs.');
+    lines.push('--');
+    lines.push('-- After this migration lands in main, the operator runs');
+    lines.push('-- scripts/purge-silhouettes-cache.sh (#252) as part of the production');
+    lines.push('-- deploy runbook to purge the CDN cache for /api/silhouettes.');
+    lines.push('');
+    if (rescued.length === 0) {
+      lines.push('-- No UPDATEs: build 538 produced zero usable picks. This migration');
+      lines.push('-- is intentionally a comment-only audit record (with a SELECT 1 to');
+      lines.push('-- satisfy node-pg-migrate\'s "Up section must execute" contract).');
+      lines.push('-- The 14 family rows remain svg_data=NULL; the _FALLBACK consumer');
+      lines.push('-- (#246) continues to render the generic shape tinted with each');
+      lines.push('-- family\'s color. Re-run scripts/curate-phylopic.mjs --recurate-nulls');
+      lines.push('-- against a newer Phylopic build to pick up future contributions.');
+      lines.push('SELECT 1;');
+      lines.push('');
+    } else {
+      for (const pick of rescued) {
+        const p = pick.picked;
+        const d = escapeSqlString(p.svgPathD);
+        const src = escapeSqlString(p.imagePageUrl);
+        const lic = escapeSqlString(p.licenseId);
+        const cre = p.creatorName ? `'${escapeSqlString(p.creatorName)}'` : 'NULL';
+        lines.push(`-- ${pick.family} — ${p.licenseId}, creator: ${p.creatorName ?? '(unknown)'}`);
+        lines.push(`UPDATE family_silhouettes SET`);
+        lines.push(`  svg_data = '${d}',`);
+        lines.push(`  source = '${src}',`);
+        lines.push(`  license = '${lic}',`);
+        lines.push(`  creator = ${cre}`);
+        lines.push(`WHERE family_code = '${pick.family}';`);
+        lines.push('');
+      }
+    }
+    lines.push('-- Down Migration');
+    lines.push('-- Revert ONLY the rescued rows back to NULL. Families that were not');
+    lines.push('-- rescued in this migration are unchanged.');
+    if (rescued.length === 0) {
+      lines.push('-- No-op: nothing was rescued, so nothing to revert.');
+      lines.push('SELECT 1;');
+    } else {
+      const codes = rescued.map(p => `'${p.family}'`).join(', ');
+      lines.push(`UPDATE family_silhouettes SET svg_data = NULL, source = NULL, license = NULL, creator = NULL`);
+      lines.push(`WHERE family_code IN (${codes});`);
+    }
+    lines.push('');
+    return lines.join('\n');
+  }
   if (mode === 'backfill') {
     lines.push('-- Issue #495. Backfills family_silhouettes rows for the 38 AZ-observed');
     lines.push('-- bird families surfaced by the audit query in #482/#494, closing the');
@@ -1073,7 +1208,7 @@ const COMMON_NAME_BY_FAMILY = {
 async function main() {
   const config = loadPicksConfig();
   const skipSet = new Set(config.skipFamilies);
-  const targetFamilies = BACKFILL ? BACKFILL_FAMILIES : FAMILIES;
+  const targetFamilies = RECURATE_NULLS ? RECURATE_FAMILIES : BACKFILL ? BACKFILL_FAMILIES : FAMILIES;
   console.log(`Curating ${targetFamilies.length} families against Phylopic API (build=${PHYLOPIC_BUILD})`);
   console.log(`Cache: ${CACHE_DIR}${REFRESH ? ' (REFRESH mode — bypassing)' : ''}`);
   if (skipSet.size > 0) {
@@ -1119,39 +1254,71 @@ async function main() {
     process.exit(2);
   }
 
-  const summary = {
-    generatedAt: new Date().toISOString(),
-    phylopicBuild: PHYLOPIC_BUILD,
-    autoPickHeuristic: 'license-preference (CC0 > CC-BY-3.0 > CC-BY-4.0 > CC-BY-SA-3.0), then creator-name asc, then uuid asc',
-    skipFamilies: config.skipFamilies,
-    families: picks.map(p => ({
-      family: p.family,
-      picked: p.picked
-        ? {
-            licenseId: p.picked.licenseId,
-            creatorName: p.picked.creatorName,
-            imagePageUrl: p.picked.imagePageUrl,
-            uuid: p.picked.uuid,
-          }
-        : null,
-      reason: p.reason,
-      candidateCount: p.considered.length,
-      considered: p.considered.map(c => ({
-        uuid: c.uuid,
-        licenseId: c.licenseId,
-        creatorName: c.creatorName,
-        status: c.status,
-        skipReason: c.skipReason ?? null,
-      })),
+  // Build per-family entries for the picks JSON. In --recurate-nulls mode,
+  // merge the new entries into the existing file rather than overwriting —
+  // the picks file is the cumulative audit trail across runs.
+  const familyEntries = picks.map(p => ({
+    family: p.family,
+    picked: p.picked
+      ? {
+          licenseId: p.picked.licenseId,
+          creatorName: p.picked.creatorName,
+          imagePageUrl: p.picked.imagePageUrl,
+          uuid: p.picked.uuid,
+          svgPathD: p.picked.svgPathD ?? null,
+        }
+      : null,
+    reason: p.reason,
+    candidateCount: p.considered.length,
+    considered: p.considered.map(c => ({
+      uuid: c.uuid,
+      licenseId: c.licenseId,
+      creatorName: c.creatorName,
+      status: c.status,
+      skipReason: c.skipReason ?? null,
     })),
-  };
+  }));
+
+  let summary;
+  if (RECURATE_NULLS) {
+    // Load existing picks file and merge: replace entries for the 14 target
+    // families, keep the other 24 as-is.
+    let existing = null;
+    if (existsSync(PICKS_PATH)) {
+      try {
+        existing = JSON.parse(readFileSync(PICKS_PATH, 'utf-8'));
+      } catch {
+        existing = null;
+      }
+    }
+    const existingFamilies = Array.isArray(existing?.families) ? existing.families : [];
+    const targetSet = new Set(targetFamilies);
+    const preserved = existingFamilies.filter(f => !targetSet.has(f.family));
+    const merged = [...preserved, ...familyEntries].sort((a, b) => a.family.localeCompare(b.family));
+    summary = {
+      generatedAt: new Date().toISOString(),
+      phylopicBuild: PHYLOPIC_BUILD,
+      autoPickHeuristic: 'license-preference (CC0 > CC-BY-3.0 > CC-BY-4.0 > CC-BY-SA-3.0), then creator-name asc, then uuid asc',
+      skipFamilies: config.skipFamilies,
+      _skipFamilies_deprecation_note: 'skipFamilies is deprecated as of issue #498. Empty by convention; the script\'s NULL-emission path handles genuine API absences. Do not re-introduce entries — if a family is unrescueable, let it land as NULL with a SQL-comment-recorded reason.',
+      families: merged,
+    };
+  } else {
+    summary = {
+      generatedAt: new Date().toISOString(),
+      phylopicBuild: PHYLOPIC_BUILD,
+      autoPickHeuristic: 'license-preference (CC0 > CC-BY-3.0 > CC-BY-4.0 > CC-BY-SA-3.0), then creator-name asc, then uuid asc',
+      skipFamilies: config.skipFamilies,
+      families: familyEntries,
+    };
+  }
   writeFileSync(PICKS_PATH, JSON.stringify(summary, null, 2));
   console.log(`\nWrote ${PICKS_PATH}`);
 
   const sql = emitMigrationSql(
     picks,
     config.skipFamilies,
-    BACKFILL ? 'backfill' : 'update',
+    RECURATE_NULLS ? 'recurate' : BACKFILL ? 'backfill' : 'update',
     BACKFILL ? COLOR_BY_FAMILY : {},
     BACKFILL ? COMMON_NAME_BY_FAMILY : {},
   );
