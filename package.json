@@ -19,8 +19,8 @@
     "silhouette": "node scripts/silhouette.mjs"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0",
-    "knip": "^6.11.0",
+    "@types/node": "^24.12.4",
+    "knip": "^6.13.1",
     "node-pg-migrate": "^8.0.4",
     "pg": "^8.11.3",
     "tsx": "^4.7.0",

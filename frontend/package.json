@@ -14,7 +14,7 @@
   "dependencies": {
     "@bird-watch/shared-types": "*",
     "maplibre-gl": "^5.24.0",
-    "posthog-js": "^1.372.6",
+    "posthog-js": "^1.373.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-map-gl": "^8.1.1",
@@ -22,7 +22,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.11.3",
-    "@playwright/test": "^1.41.0",
+    "@playwright/test": "^1.60.0",
     "@testing-library/jest-dom": "^6.2.0",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.5.0",
@@ -31,7 +31,7 @@
     "@types/react-window": "^1.8.8",
     "@vitejs/plugin-react": "^6.0.1",
     "jsdom": "^29.1.1",
-    "vite": "^8.0.10",
-    "vitest": "^4.1.5"
+    "vite": "^8.0.12",
+    "vitest": "^4.1.6"
   }
 }
