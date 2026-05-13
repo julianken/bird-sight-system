@@ -25,6 +25,18 @@ describe('getSilhouettes', () => {
     expect(fallback!.license).toBeNull();
     expect(fallback!.creator).toBeNull();
     expect(fallback!.commonName).toBe('Unknown family');
+    // svgUrl (issue #502) is null for every seeded row — admin-api uploads
+    // are the only writer, and no overrides have landed yet.
+    expect(fallback!.svgUrl).toBeNull();
+  });
+
+  it('projects svgUrl as null for every seeded row (issue #502)', async () => {
+    // Every row in the post-migration baseline must surface svgUrl: null
+    // (column added by migration 1700000037000; admin-api PUT is the
+    // only writer, and no uploads have landed yet).
+    const rows = await getSilhouettes(db.pool);
+    const nonNull = rows.filter(r => r.svgUrl !== null);
+    expect(nonNull).toEqual([]);
   });
 
   it('projects each row with familyCode, color, svgData, source, license, commonName, creator', async () => {
