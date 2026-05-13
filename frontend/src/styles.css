@@ -208,7 +208,8 @@ body {
 /* Tab buttons — full UA reset, then design-token styling.
    Visual contract mirrors the former .surface-nav-tab exactly:
    same padding, border-radius, font-size, hover / focus / active states.
-   min-height: 44px satisfies Apple HIG / WCAG 2.5.5 touch-target on mobile. */
+   min-height is applied inside the ≤480px media query (MOB-4) to keep the
+   desktop header height unchanged. */
 .app-header-tab {
   appearance: none;
   background: transparent;
@@ -221,7 +222,6 @@ body {
   color: var(--color-text-strong);
   cursor: pointer;
   line-height: 1.2;
-  min-height: 44px;
 }
 .app-header-tab:hover {
   background: var(--color-bg-tint);
@@ -246,8 +246,9 @@ body {
 
 /* Right-side action cluster — Attribution, Filters, ThemeToggle.
    ThemeToggle renders a plain <button> with no class; target all
-   buttons in this cluster with the descendant rule below so the
-   44pt touch target applies uniformly (MOB-4). */
+   buttons in this cluster with the descendant rule below.
+   min-height/min-width 44pt touch targets are applied inside the
+   ≤480px media query (MOB-4) to keep the desktop header unchanged. */
 .app-header-right {
   display: flex;
   align-items: center;
@@ -255,14 +256,13 @@ body {
   flex-shrink: 0;
 }
 .app-header-right button {
-  min-height: 44px;
-  min-width: 44px;
+  /* touch targets set in @media (max-width: 480px) block — see MOB-4 */
 }
 
 /* Attribution + Filters buttons — same UA reset + visual contract as tabs.
    Slightly subdued: color-text-body rather than color-text-strong keeps
    them secondary to the navigation tabs without becoming invisible.
-   min-height: 44px satisfies Apple HIG / WCAG 2.5.5 touch-target on mobile. */
+   min-height applied inside ≤480px media query (MOB-4) — desktop unchanged. */
 .app-header-attribution,
 .app-header-filters {
   appearance: none;
@@ -276,7 +276,6 @@ body {
   cursor: pointer;
   line-height: 1.2;
   position: relative;
-  min-height: 44px;
 }
 .app-header-attribution:hover,
 .app-header-filters:hover {
@@ -1748,7 +1747,7 @@ dialog.species-detail-modal .species-detail-modal-close {
    Breakpoint ≤ 414px targets iPhone 14 Pro (390×844) and all narrower phones.
    ========================================================================== */
 
-/* ── MOB-1: AppHeader collapse at ≤ 414px ──────────────────────────────────
+/* ── MOB-1/MOB-4: AppHeader collapse + touch targets at ≤ 480px ─────────────
    The unconstrained header overflows at 390px (body.scrollWidth≈578px).
    Strategy: hide the brand region label, compress nav padding, reduce the
    outer header gap so the three segments (wordmark · tabs · actions) fit
@@ -1758,10 +1757,22 @@ dialog.species-detail-modal .species-detail-modal-close {
    should remain visible. The " · Arizona" region badge is redundant at mobile
    (single-region product) and is the largest single contributor to overflow.
 
-   Each tab button and action button already has min-height: 44px globally
-   (MOB-4). The padding reduction here preserves that height while shrinking
-   horizontal footprint. */
-@media (max-width: 414px) {
+   Space budget at 390px:
+     16px (padding) + 8px (2×4px gaps) = 24px overhead.
+     Available: 366px.
+     Wordmark:       80px (flex-shrink: 0 — guaranteed, no flex contention)
+     Right cluster: 140px (3 × 44px icon-only buttons + 2 × 4px gaps)
+     Nav:           146px remaining for 3 tabs
+
+   The right-cluster Attribution + Filters buttons hide their text labels
+   at this breakpoint (font-size: 0; icon-sized footprint). Their aria-label
+   attributes remain intact — accessibility is preserved via the accessible
+   name, not the visible text. This frees ~120px vs. the previous text-label
+   layout, giving the wordmark guaranteed render space.
+
+   min-height: 44px touch targets (MOB-4) are scoped here rather than
+   globally so the desktop header height is unchanged. */
+@media (max-width: 480px) {
   .app-header {
     padding: 0 var(--space-sm);
     gap: var(--space-xs);
@@ -1772,32 +1783,51 @@ dialog.species-detail-modal .species-detail-modal-close {
     overflow: hidden;
   }
 
-  /* Hide the region label (" · Arizona"). "Bird Maps" remains visible. */
+  /* Hide the region label (" · Arizona"). "Bird Maps" remains fully visible. */
   .app-header-wordmark .brand-region {
     display: none;
   }
 
-  /* Compress the wordmark so it doesn't crowd the tabs. */
+  /* Guarantee the wordmark renders untruncated.
+     flex-shrink: 0 prevents the nav's flex:1 from squeezing the wordmark
+     below its natural width (~65px for "Bird Maps" at --type-sm / 13px).
+     max-width: 80px gives comfortable headroom above the 65px scrollWidth.
+     Without flex-shrink: 0 here, the flex algorithm allocates space to the
+     nav first (flex-grow: 1) and the wordmark falls below 72px (measured
+     46px at 390px — see design review BLOCKING finding). */
   .app-header-wordmark {
     font-size: var(--type-sm);
-    flex-shrink: 1;
+    flex-shrink: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 72px;
+    max-width: 80px;
   }
 
-  /* Compress tab padding while keeping the 44pt min-height from the global rule. */
+  /* Compress tab padding while keeping the 44pt min-height touch target. */
   .app-header-tab {
     padding: 0 8px;
     font-size: var(--type-xs);
+    min-height: 44px;
   }
 
-  /* Compress right-cluster buttons. */
+  /* Right-cluster text buttons: collapse to 44px icon-only touch targets.
+     font-size: 0 hides the visible text ("Attribution", "Filters") without
+     removing it from the DOM — aria-label on each button preserves the
+     accessible name (the filterCount is baked into aria-label when > 0).
+     min-height + min-width enforce the 44pt touch target. */
   .app-header-attribution,
   .app-header-filters {
-    padding: 0 8px;
-    font-size: var(--type-xs);
+    font-size: 0;
+    padding: 0;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* Hide the filter count badge at mobile — the accessible name on the
+     Filters button already announces "Filters (N active)" via aria-label. */
+  .app-header-filter-badge {
+    display: none;
   }
 
   /* ThemeToggle uses a plain <button> with no className.
@@ -1811,14 +1841,13 @@ dialog.species-detail-modal .species-detail-modal-close {
 
 /* ── MOB-3: iOS auto-zoom guard ─────────────────────────────────────────────
    iOS Safari auto-zooms the page when a focused input has font-size < 16px.
-   .species-autocomplete-input uses --type-base (15px) globally. Override to
-   16px on mobile only — desktop typography is unchanged.
-   The override uses min-width: 0 to avoid affecting the selector specificity
-   of the global rule; it simply wins by source order within the media query. */
-@media (max-width: 414px) {
-  .species-autocomplete-input {
-    font-size: 16px;
-  }
+   This affects ALL iPhone models regardless of viewport width — including
+   iPhone 12/14/15 Pro Max (428/430px) which were missed by the original
+   max-width: 414px scope. The rule is pulled out of the media query entirely:
+   16px on an autocomplete input is visually neutral at desktop and eliminates
+   the maintenance liability of tracking new iPhone widths. */
+.species-autocomplete-input {
+  font-size: 16px;
 }
 
 /* ── MOB-N1: .filters-panel-close touch target ─────────────────────────────

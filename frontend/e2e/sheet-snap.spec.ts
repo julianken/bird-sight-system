@@ -48,10 +48,10 @@ test.describe('SpeciesDetailSheet snap behavior', () => {
     if (!handleBox) throw new Error('handle bounding box unavailable');
 
     // Synthesize a touch drag-down from the handle well past DISMISS_THRESHOLD_PX
-    // (160px). We compute the target from the handle's own position so the test
+    // (80px). We compute the target from the handle's own position so the test
     // is stable regardless of where the peek sheet sits vertically — at 390×844
-    // the 96px peek sheet has its handle near y≈748, so a fixed y=800 target
-    // only gives ~48px of travel. Using handleBox.y + 200 guarantees ≥200px.
+    // the 120px peek sheet has its handle near y≈724, so a fixed y=800 target
+    // only gives ~68px of travel. Using handleBox.y + 200 guarantees ≥200px.
     const startX = handleBox.x + handleBox.width / 2;
     const startY = handleBox.y + handleBox.height / 2;
     await page.mouse.move(startX, startY);

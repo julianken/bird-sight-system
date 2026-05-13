@@ -40,7 +40,7 @@ export interface SpeciesDetailSheetProps {
 
 /**
  * Mobile bottom-sheet detail surface (Sky Atlas Phase 4). Apple Maps
- * "Look Up" idiom: three snap points (peek 96px / half 60vh / full
+ * "Look Up" idiom: three snap points (peek 120px / half 60vh / full
  * 100vh−8px). The sheet is NOT a <dialog> at peek/half — peek/half
  * leave the map underneath interactive, which a modal <dialog> by
  * definition cannot. The role flips with snap state per

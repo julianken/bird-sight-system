@@ -30,6 +30,29 @@ test.describe('MOB-1 — AppHeader no horizontal overflow at 390px', () => {
     expect(scrollWidth, 'body.scrollWidth must be ≤ 390px on mobile').toBeLessThanOrEqual(390);
   });
 
+  test('wordmark renders full "Bird Maps" text without truncation at 390px', async ({
+    page,
+    apiStub,
+  }) => {
+    await apiStub.stubEmpty();
+    const app = new AppPage(page);
+    await app.goto('view=feed');
+    await app.waitForAppReady();
+
+    // Visible text must include full product name — not "Bird ..." or "B.."
+    await expect(page.locator('.app-header-wordmark')).toContainText('Bird Maps');
+
+    // scrollWidth ≤ clientWidth confirms no ellipsis is applied
+    const wm = await page.locator('.app-header-wordmark').evaluate(el => ({
+      scroll: (el as HTMLElement).scrollWidth,
+      client: (el as HTMLElement).clientWidth,
+    }));
+    expect(
+      wm.scroll,
+      `wordmark scrollWidth (${wm.scroll}px) must be ≤ clientWidth (${wm.client}px) — ellipsis applied`,
+    ).toBeLessThanOrEqual(wm.client);
+  });
+
   test('app-header width must be ≤ 390 on feed view', async ({ page, apiStub }) => {
     await apiStub.stubEmpty();
     const app = new AppPage(page);
@@ -43,9 +66,11 @@ test.describe('MOB-1 — AppHeader no horizontal overflow at 390px', () => {
 });
 
 // ── MOB-3: iOS auto-zoom guard — font-size ≥ 16px ──────────────────────────
+// Covers iPhone 14 Pro (390px), iPhone 14 Pro Max (428px), iPhone 15 Pro Max
+// (430px) — all are affected by iOS Safari's auto-zoom on inputs < 16px.
 
 test.describe('MOB-3 — species-autocomplete-input font-size ≥ 16px', () => {
-  test('autocomplete input font-size ≥ 16px on species view (prevents iOS auto-zoom)', async ({
+  test('autocomplete input font-size ≥ 16px on species view at 390px (prevents iOS auto-zoom)', async ({
     page,
     apiStub,
   }) => {
@@ -60,6 +85,27 @@ test.describe('MOB-3 — species-autocomplete-input font-size ≥ 16px', () => {
       return parseFloat(window.getComputedStyle(el).fontSize);
     });
     expect(fontSize, 'autocomplete input font-size must be ≥ 16px to prevent iOS auto-zoom').toBeGreaterThanOrEqual(16);
+  });
+
+  test('autocomplete input font-size ≥ 16px on species view at 428px (iPhone Pro Max — prevents iOS auto-zoom)', async ({
+    page,
+    apiStub,
+  }) => {
+    // iPhone Pro Max viewports (428/430px) are wider than the old 414px guard
+    // and were previously excluded from the 16px override. The rule is now
+    // unconditional so this viewport inherits it automatically.
+    await page.setViewportSize({ width: 428, height: 926 });
+    await apiStub.stubEmpty();
+    const app = new AppPage(page);
+    await app.goto('view=species');
+    await app.waitForAppReady();
+
+    const fontSize = await page.evaluate(() => {
+      const el = document.querySelector<HTMLElement>('.species-autocomplete-input');
+      if (!el) return 0;
+      return parseFloat(window.getComputedStyle(el).fontSize);
+    });
+    expect(fontSize, 'autocomplete input font-size must be ≥ 16px at 428px (iPhone Pro Max)').toBeGreaterThanOrEqual(16);
   });
 });
 
