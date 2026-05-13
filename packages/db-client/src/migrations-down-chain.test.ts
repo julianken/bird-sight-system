@@ -83,20 +83,22 @@ describe('Down(14000→17000) rollback chain', () => {
       }
     }
 
-    // After Down(17000), the original 25 seeded families should have non-null
-    // svg_data — the fixed Down section restores their placeholder path-d
-    // strings. Migration 34000 (issue #495) inserts 38 backfill rows, 11 of
-    // which have svg_data=NULL (skip families for which Phylopic had no
-    // usable candidate); those NULLs are out of scope for the Down(17000)
-    // contract because migration 34000 is post-17000 and not rolled back by
-    // this chain.
+    // After Down(17000), the family_silhouettes table has 7 NULL svg_data
+    // rows remaining (was 11 after #495; 4 were rescued by migration 36000).
+    // Migration 34000 (issue #495) inserts 38 backfill rows, 11 of which
+    // originally had svg_data=NULL (Phylopic had no usable candidate at the
+    // family node). Migration 36000 (issue #500) rescues 4 of those NULLs
+    // via species/genus-level Phylopic lookup (gaviidae, numididae,
+    // phasianidae, tytonidae), leaving 7 NULL. Those rows are out of scope
+    // for the Down(17000) contract — migrations 34000 and 36000 are post-
+    // 17000 and not rolled back by this chain.
     const { rows } = await pool.query<{ count: string }>(
       `SELECT COUNT(*) AS count
          FROM family_silhouettes
         WHERE svg_data IS NULL
           AND family_code NOT IN ('_FALLBACK')`
     );
-    expect(Number(rows[0]!.count)).toBe(11);
+    expect(Number(rows[0]!.count)).toBe(7);
   });
 
   it('runs Down(16000) and Down(15000) without error', async () => {
