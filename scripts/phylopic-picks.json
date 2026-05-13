@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-13T01:02:43.794Z",
+  "generatedAt": "2026-05-13T01:19:10.464Z",
   "phylopicBuild": "538",
   "autoPickHeuristic": "license-preference (CC0 > CC-BY-3.0 > CC-BY-4.0 > CC-BY-SA-3.0), then creator-name asc, then uuid asc",
   "skipFamilies": [],
@@ -239,8 +239,16 @@
       "family": "cuculidae",
       "picked": null,
       "reason": "no-candidates",
-      "candidateCount": 0,
-      "considered": []
+      "candidateCount": 1,
+      "considered": [
+        {
+          "uuid": "61ddd908-b19d-4769-a1b3-0243d4b13431",
+          "licenseId": null,
+          "creatorName": "Nicolas Huet le Jeune and Jean-Gabriel Prêtre (vectorized by T. Michael Keesey)",
+          "status": "rejected-pre-svg",
+          "skipReason": "license-rejected:https://creativecommons.org/publicdomain/mark/1.0/"
+        }
+      ]
     },
     {
       "family": "falconidae",
@@ -824,8 +832,16 @@
       "family": "phasianidae",
       "picked": null,
       "reason": "no-candidates",
-      "candidateCount": 0,
-      "considered": []
+      "candidateCount": 1,
+      "considered": [
+        {
+          "uuid": "14269801-89fe-405c-a425-2286c54ee60d",
+          "licenseId": null,
+          "creatorName": null,
+          "status": "rejected-pre-svg",
+          "skipReason": "license-rejected:https://creativecommons.org/publicdomain/mark/1.0/"
+        }
+      ]
     },
     {
       "family": "podicipedidae",
@@ -1270,8 +1286,16 @@
       "family": "tytonidae",
       "picked": null,
       "reason": "no-candidates",
-      "candidateCount": 0,
-      "considered": []
+      "candidateCount": 1,
+      "considered": [
+        {
+          "uuid": "b4f3d9fb-4b03-4cba-89ee-039256936b6a",
+          "licenseId": null,
+          "creatorName": "John Gould & Henry C. Richter",
+          "status": "rejected-pre-svg",
+          "skipReason": "license-rejected:https://creativecommons.org/publicdomain/mark/1.0/"
+        }
+      ]
     },
     {
       "family": "vireonidae",

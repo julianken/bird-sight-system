@@ -327,27 +327,42 @@ async function lookupNodeUuid(familyName) {
 
 /**
  * Enumerate Phylopic image candidates attached to a node via
- * /images?filter_node=<uuid>&embed_items=true. Returns an array of
- * normalized candidate descriptors:
- *   { uuid, vectorFileUrl, sourceFileUrl, licenseUrl, licenseId, creatorName,
- *     imagePageUrl, slug }
+ * /images?filter_node=<uuid>&embed_items=true. Returns
+ *   { candidates, rejected }
+ * where `candidates` are descriptors that passed every pre-SVG quality gate
+ * and are eligible for the auto-pick heuristic, and `rejected` are
+ * descriptors that one of the gates dropped — they're carried forward into
+ * the per-family `considered[]` array so picks.json records WHY each was
+ * rejected.
+ *
+ * Pre-SVG gates (issue #498), in order:
+ *   - `no-vector-file`         — `_links.vectorFile.href` missing
+ *   - `license-rejected:<url>` — license not in LICENSE_URL_TO_ID
+ *   - `creator-denied:<name>`  — creator is null/blank/"-"/"Anonymous"
+ *   - `image-page-url-invalid` — image-page URL doesn't match the canonical regex
+ *
+ * Without recording these, a family whose every candidate fails a pre-SVG
+ * gate is indistinguishable from a node that legitimately returned zero
+ * items — picks.json shows `candidateCount: 0, considered: []` in both
+ * cases. The follow-up to #499 (bot review) made this an audit-trail
+ * regression we have to fix.
  */
 async function enumerateCandidates(nodeUuid) {
   const url = `${PHYLOPIC_API}/images?build=${PHYLOPIC_BUILD}&filter_node=${nodeUuid}&page=0&embed_items=true`;
   const json = await getJson(url);
   const items = json?._embedded?.items ?? [];
   const candidates = [];
+  const rejected = [];
+  const creatorDeny = new Set(['', '-', 'Anonymous']);
   for (const item of items) {
     const links = item?._links ?? {};
     const vectorFile = links?.vectorFile?.href ?? null;
     const sourceFile = links?.sourceFile?.href ?? null;
-    if (!vectorFile) continue; // strictly require the auto-gen SVG
     const selfHref = links?.self?.href ?? '';
     const uuidMatch = selfHref.match(/\/images\/([0-9a-f-]{36})/i);
     const uuid = uuidMatch ? uuidMatch[1] : null;
     const licenseUrl = links?.license?.href ?? null;
     const licenseId = licenseUrl ? (LICENSE_URL_TO_ID[licenseUrl] ?? null) : null;
-    if (!licenseId) continue; // license outside our accepted set → reject
     // Contributor name — embedded under _embedded.contributor.name when
     // embed_items=true, or contributorName at the item root.
     const creatorName =
@@ -358,18 +373,7 @@ async function enumerateCandidates(nodeUuid) {
     // Slug isn't surfaced reliably via the API; fall back to <uuid> alone
     // (the Phylopic web app accepts /images/<uuid> and 301s to the slug).
     const imagePageUrl = uuid ? `${PHYLOPIC_WEB}/images/${uuid}` : null;
-    // Quality audit (issue #498): reject candidates with bad-shape attribution.
-    // The AttributionModal must surface a real creator + a working Phylopic
-    // page link; "", "-", "Anonymous", or null all degrade the UX to
-    // un-attributable, which is the worst case for a CC-licensed asset.
-    const creatorDeny = new Set(['', '-', 'Anonymous']);
-    if (!creatorName || creatorDeny.has(creatorName.trim())) {
-      continue;
-    }
-    if (!imagePageUrl || !/^https:\/\/www\.phylopic\.org\/images\/[0-9a-f-]+/.test(imagePageUrl)) {
-      continue;
-    }
-    candidates.push({
+    const base = {
       uuid,
       vectorFileUrl: vectorFile,
       sourceFileUrl: sourceFile,
@@ -377,9 +381,45 @@ async function enumerateCandidates(nodeUuid) {
       licenseId,
       creatorName,
       imagePageUrl,
-    });
+    };
+    // Gate 1: strictly require the auto-gen SVG.
+    if (!vectorFile) {
+      rejected.push({ ...base, status: 'rejected-pre-svg', skipReason: 'no-vector-file' });
+      continue;
+    }
+    // Gate 2: license must be in our accepted set. Record the offending
+    // URL (or '<null>') so a reader can see e.g. "publicdomain/mark/1.0".
+    if (!licenseId) {
+      rejected.push({
+        ...base,
+        status: 'rejected-pre-svg',
+        skipReason: `license-rejected:${licenseUrl ?? '<null>'}`,
+      });
+      continue;
+    }
+    // Gate 3 (issue #498): reject candidates with bad-shape attribution.
+    // The AttributionModal must surface a real creator + a working Phylopic
+    // page link; "", "-", "Anonymous", or null all degrade the UX to
+    // un-attributable, which is the worst case for a CC-licensed asset.
+    if (!creatorName || creatorDeny.has(creatorName.trim())) {
+      rejected.push({
+        ...base,
+        status: 'rejected-pre-svg',
+        skipReason: `creator-denied:${creatorName ?? '<null>'}`,
+      });
+      continue;
+    }
+    if (!imagePageUrl || !/^https:\/\/www\.phylopic\.org\/images\/[0-9a-f-]+/.test(imagePageUrl)) {
+      rejected.push({
+        ...base,
+        status: 'rejected-pre-svg',
+        skipReason: 'image-page-url-invalid',
+      });
+      continue;
+    }
+    candidates.push(base);
   }
-  return candidates;
+  return { candidates, rejected };
 }
 
 /**
@@ -759,8 +799,9 @@ async function curateFamily(family) {
   }
   console.log(`[${family}] node ${nodeUuid}, enumerating images...`);
   let candidates;
+  let rejected;
   try {
-    candidates = await enumerateCandidates(nodeUuid);
+    ({ candidates, rejected } = await enumerateCandidates(nodeUuid));
   } catch (err) {
     if (err instanceof HttpError && err.status === 404) {
       console.warn(`[${family}] HTTP 404 from Phylopic /images — node has no images attached; emitting NULL row`);
@@ -769,12 +810,17 @@ async function curateFamily(family) {
     return { kind: 'failed', family, picked: null, considered: [], reason: `images-failed: ${err.message}`, error: err };
   }
   if (candidates.length === 0) {
-    console.warn(`[${family}] zero candidates with vectorFile + accepted license → NULL row`);
-    return { kind: 'absent', family, picked: null, considered: [], reason: 'no-candidates' };
+    // Pre-SVG-gate rejections still get recorded so picks.json can
+    // distinguish "Phylopic returned 0 items" from "every item failed the
+    // license / creator-deny / image-page-url gate" (#499 follow-up).
+    console.warn(`[${family}] zero candidates with vectorFile + accepted license → NULL row (${rejected.length} rejected pre-SVG)`);
+    return { kind: 'absent', family, picked: null, considered: rejected, reason: 'no-candidates' };
   }
   const sorted = autoPick(candidates);
   // Walk the sorted list, attempting SVG extraction until one succeeds.
-  const considered = [];
+  // Pre-SVG-gate rejections appear first in `considered` so the audit trail
+  // records every candidate the API returned, in encounter order.
+  const considered = [...rejected];
   for (const cand of sorted) {
     let svg;
     try {
@@ -794,17 +840,22 @@ async function curateFamily(family) {
       continue;
     }
     considered.push({ ...cand, status: 'picked', svgPathD: extracted.d });
+    // Any candidates after the picked one haven't been tried — append them
+    // with status 'not-tried'. Offset from the sorted list by how many
+    // we've already walked (= considered.length minus the pre-SVG rejected
+    // entries we prepended).
+    const walked = considered.length - rejected.length;
     return {
       kind: 'picked',
       family,
       picked: { ...cand, svgPathD: extracted.d },
       considered: considered.concat(
-        sorted.slice(considered.length).map(c => ({ ...c, status: 'not-tried' }))
+        sorted.slice(walked).map(c => ({ ...c, status: 'not-tried' }))
       ),
       reason: `picked-by-license-${cand.licenseId}`,
     };
   }
-  console.warn(`[${family}] all ${candidates.length} candidates rejected → NULL row`);
+  console.warn(`[${family}] all ${candidates.length} candidates rejected → NULL row (${rejected.length} additional pre-SVG rejections recorded)`);
   return { kind: 'absent', family, picked: null, considered, reason: 'all-rejected' };
 }
 
