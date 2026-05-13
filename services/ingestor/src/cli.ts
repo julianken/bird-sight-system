@@ -111,7 +111,7 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
     } else if (kind === 'hotspots') {
       summary = await deps.runHotspotIngest({ pool, apiKey, regionCode: 'US-AZ' });
     } else if (kind === 'backfill') {
-      summary = await deps.runBackfill({ pool, apiKey, regionCode: 'US-AZ', days: 30 });
+      summary = await deps.runBackfill({ pool, apiKey, regionCode: 'US-AZ', days: 19 });
     } else if (kind === 'backfill-extended') {
       // 'backfill-extended': one-shot 365-day backfill at 1 rps; this is NOT
       // scheduled — it's an operator-triggered one-shot to populate historical

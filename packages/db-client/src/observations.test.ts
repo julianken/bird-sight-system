@@ -87,6 +87,56 @@ describe('upsertObservations', () => {
     const verm = all.find(o => o.subId === 'S100')!;
     expect(verm.isNotable).toBe(true);
   });
+
+  it('scopes the stamp UPDATE to the current batch — pre-existing NULL-stamp residue is not touched (#505)', async () => {
+    // Insert N₁ pre-existing rows directly (bypassing upsertObservations) with
+    // region_id NULL — these simulate the NULL-stamp residue that turned the
+    // per-iteration stamp UPDATE into an O(table) scan on every backfill day.
+    const residueRows: string[] = [];
+    const residueValues: unknown[] = [];
+    for (let i = 0; i < 100; i++) {
+      const off = i * 9;
+      residueRows.push(
+        `($${off + 1}, $${off + 2}, $${off + 3}, $${off + 4}, $${off + 5}, ` +
+        `$${off + 6}, $${off + 7}, $${off + 8}, $${off + 9})`
+      );
+      residueValues.push(
+        `R-${i}`, 'vermfly', 31.72, -110.88, '2026-04-01T08:00:00Z',
+        `L-residue-${i}`, 'Madera', 1, false,
+      );
+    }
+    await db.pool.query(
+      `INSERT INTO observations
+        (sub_id, species_code, lat, lng, obs_dt, loc_id, loc_name, how_many, is_notable)
+       VALUES ${residueRows.join(',')}`,
+      residueValues
+    );
+    // Force NULL stamps on the residue rows.
+    await db.pool.query("UPDATE observations SET region_id = NULL, silhouette_id = NULL");
+
+    // Now call upsertObservations with a small batch of M new rows.
+    const count = await upsertObservations(db.pool, sample);
+    expect(count).toBe(2);
+
+    // Assert: the M new rows are stamped...
+    const all = await getObservations(db.pool, {});
+    const newVerm = all.find(o => o.subId === 'S100')!;
+    expect(newVerm.regionId).toBe('sky-islands-santa-ritas');
+    expect(newVerm.silhouetteId).toBe('tyrannidae');
+    const newAnna = all.find(o => o.subId === 'S101')!;
+    expect(newAnna.regionId).toBe('sonoran-tucson');
+
+    // ...AND the N₁ pre-existing NULL residue rows are STILL NULL — proving
+    // the stamp UPDATE was scoped to the batch, not the table.
+    const residueAfter = await db.pool.query<{ region_id: string | null; silhouette_id: string | null }>(
+      "SELECT region_id, silhouette_id FROM observations WHERE sub_id LIKE 'R-%'"
+    );
+    expect(residueAfter.rows).toHaveLength(100);
+    for (const r of residueAfter.rows) {
+      expect(r.region_id).toBeNull();
+      expect(r.silhouette_id).toBeNull();
+    }
+  });
 });
 
 describe('getObservations filters', () => {
