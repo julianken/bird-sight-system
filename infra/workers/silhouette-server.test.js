@@ -13,7 +13,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { contentTypeFor } from './silhouette-server.js';
+import worker, { contentTypeFor } from './silhouette-server.js';
 
 describe('contentTypeFor (silhouette-server)', () => {
   it('returns image/svg+xml for .svg', () => {
@@ -32,5 +32,45 @@ describe('contentTypeFor (silhouette-server)', () => {
     // get the right Content-Type if it ever lands.
     assert.equal(contentTypeFor('family/cuculidae.SVG'), 'image/svg+xml');
     assert.equal(contentTypeFor('family/cuculidae.Svg'), 'image/svg+xml');
+  });
+});
+
+// CORS: the frontend legend uses CSS `mask-image: url(...)` against the
+// silhouette URL. Browsers silently treat the SVG as cross-origin tainted and
+// the mask fails to render unless the response carries an
+// `Access-Control-Allow-Origin` header. Silhouettes are public, read-only,
+// CC0/CC-BY assets, so a wildcard origin is appropriate. Both hit (200) and
+// miss (404) responses must include the header — a missed family that later
+// lands must not require a cache bust to start working in the legend.
+describe('silhouette-server fetch (CORS)', () => {
+  /** @returns {{ SILHOUETTES: { get: (key: string) => Promise<{ body: string } | null> } }} */
+  function envWith(map) {
+    return {
+      SILHOUETTES: {
+        async get(key) {
+          return key in map ? { body: map[key] } : null;
+        },
+      },
+    };
+  }
+
+  it('returns Access-Control-Allow-Origin: * on a hit', async () => {
+    const env = envWith({ 'family/cuculidae.deadbeef.svg': '<svg/>' });
+    const res = await worker.fetch(
+      new Request('https://silhouettes.bird-maps.com/family/cuculidae.deadbeef.svg'),
+      env,
+    );
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('Access-Control-Allow-Origin'), '*');
+  });
+
+  it('returns Access-Control-Allow-Origin: * on a miss', async () => {
+    const env = envWith({});
+    const res = await worker.fetch(
+      new Request('https://silhouettes.bird-maps.com/family/missing.svg'),
+      env,
+    );
+    assert.equal(res.status, 404);
+    assert.equal(res.headers.get('Access-Control-Allow-Origin'), '*');
   });
 });
