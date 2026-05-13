@@ -24,6 +24,95 @@ export interface FeedRowProps {
 }
 
 /**
+ * Renders the interactive button content for a single feed row.
+ *
+ * Separated from <FeedRow> so the virtual list in FeedSurface can embed the
+ * button inside an <li> that carries react-window's absolute-positioning
+ * `style` prop, avoiding nested <li> elements (invalid HTML).
+ *
+ * DOM structure produced:
+ *   <button .feed-row [.feed-row-notable]>
+ *     <FamilySilhouette layout="thumb" />
+ *     <span .feed-row-name>comName</span>
+ *     [<span .feed-row-count>×N</span>]
+ *     [<span .feed-row-count-unknown>—</span>]
+ *     [<span .feed-row-loc>locName</span>]
+ *     <span .feed-row-time>relative time</span>
+ *   </button>
+ *
+ * ARIA contract (preserved from ObservationFeedRow, issue #117):
+ *   Single aria-label on the button combines all five slots in fixed order:
+ *   notable flag → comName → count → locName → relative time.
+ *   All child spans are aria-hidden. The button receives focus; Enter/Space
+ *   activate natively.
+ *
+ * Not memoised here — callers that need memoisation (FeedRow) apply it at
+ * their level.
+ */
+export function FeedRowButton(props: FeedRowProps) {
+  const { observation, now, onSelectSpecies, color, pathD } = props;
+
+  function activate() {
+    onSelectSpecies(observation.speciesCode);
+  }
+
+  const countContent: { chip: string | null; dash: boolean } =
+    observation.howMany === null
+      ? { chip: null, dash: true }
+      : observation.howMany > 1
+      ? { chip: `×${observation.howMany}`, dash: false }
+      : { chip: null, dash: false };
+
+  const countSlot =
+    observation.howMany === null
+      ? 'count unknown'
+      : observation.howMany > 1
+      ? `${observation.howMany} birds`
+      : null;
+
+  const ariaLabel = [
+    observation.isNotable ? 'Notable sighting' : null,
+    observation.comName,
+    countSlot,
+    observation.locName ? `at ${observation.locName}` : null,
+    formatRelativeTime(observation.obsDt, now),
+  ]
+    .filter((s): s is string => s !== null)
+    .join(', ');
+
+  return (
+    <button
+      type="button"
+      className={`feed-row${observation.isNotable ? ' feed-row-notable' : ''}`}
+      aria-label={ariaLabel}
+      onClick={activate}
+    >
+      <FamilySilhouette
+        family={observation.familyCode}
+        layout="thumb"
+        {...(color !== undefined ? { color } : {})}
+        {...(pathD != null ? { pathD } : {})}
+      />
+      <span className="feed-row-name" aria-hidden="true">{observation.comName}</span>
+      {countContent.chip !== null && (
+        <span className="feed-row-count" aria-hidden="true">
+          {countContent.chip}
+        </span>
+      )}
+      {countContent.dash && (
+        <span className="feed-row-count feed-row-count-unknown" aria-hidden="true">—</span>
+      )}
+      {observation.locName !== null && (
+        <span className="feed-row-loc" aria-hidden="true">{observation.locName}</span>
+      )}
+      <span className="feed-row-time" aria-hidden="true">
+        {formatRelativeTime(observation.obsDt, now)}
+      </span>
+    </button>
+  );
+}
+
+/**
  * Flat feed list row. Replaces the emoji/glyph approach of the v3 mock with
  * a `<FamilySilhouette layout="thumb">` in the leading slot. The silhouette
  * is always present: null familyCode renders the neutral grey generic-bird
@@ -59,66 +148,9 @@ export interface FeedRowProps {
  * identity-stable onSelectSpecies (useCallback in parent).
  */
 function FeedRowImpl(props: FeedRowProps) {
-  const { observation, now, onSelectSpecies, color, pathD } = props;
-
-  function activate() {
-    onSelectSpecies(observation.speciesCode);
-  }
-
-  const countContent: { chip: string | null; dash: boolean } =
-    observation.howMany === null
-      ? { chip: null, dash: true }
-      : observation.howMany > 1
-      ? { chip: `×${observation.howMany}`, dash: false }
-      : { chip: null, dash: false };
-
-  const countSlot =
-    observation.howMany === null
-      ? 'count unknown'
-      : observation.howMany > 1
-      ? `${observation.howMany} birds`
-      : null;
-
-  const ariaLabel = [
-    observation.isNotable ? 'Notable sighting' : null,
-    observation.comName,
-    countSlot,
-    observation.locName ? `at ${observation.locName}` : null,
-    formatRelativeTime(observation.obsDt, now),
-  ]
-    .filter((s): s is string => s !== null)
-    .join(', ');
-
   return (
     <li className="feed-row-item">
-      <button
-        type="button"
-        className={`feed-row${observation.isNotable ? ' feed-row-notable' : ''}`}
-        aria-label={ariaLabel}
-        onClick={activate}
-      >
-        <FamilySilhouette
-          family={observation.familyCode}
-          layout="thumb"
-          {...(color !== undefined ? { color } : {})}
-          {...(pathD != null ? { pathD } : {})}
-        />
-        <span className="feed-row-name" aria-hidden="true">{observation.comName}</span>
-        {countContent.chip !== null && (
-          <span className="feed-row-count" aria-hidden="true">
-            {countContent.chip}
-          </span>
-        )}
-        {countContent.dash && (
-          <span className="feed-row-count feed-row-count-unknown" aria-hidden="true">—</span>
-        )}
-        {observation.locName !== null && (
-          <span className="feed-row-loc" aria-hidden="true">{observation.locName}</span>
-        )}
-        <span className="feed-row-time" aria-hidden="true">
-          {formatRelativeTime(observation.obsDt, now)}
-        </span>
-      </button>
+      <FeedRowButton {...props} />
     </li>
   );
 }

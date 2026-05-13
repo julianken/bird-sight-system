@@ -1472,16 +1472,25 @@ dialog.species-detail-modal .species-detail-modal-close {
 }
 
 /* ── Feed surface wrapper (.feed-surface) — IMPORTANT ──────────────────────
-   Outer wrapper <div> in FeedSurface.tsx (lines 162, 184). Without a rule
-   children inherit body width with no surface-level max-width or padding
-   constraint. padding-top adds breathing room between AppHeader and the lede.
+   Outer wrapper <div> in FeedSurface.tsx. Without a rule children inherit
+   body width with no surface-level max-width or padding constraint.
+   padding-top adds breathing room between AppHeader and the lede.
    The inner .feed, .feed-lede, .feed-sort, .feed-card each carry their own
    max-width: 760px — the wrapper does not cap width, it provides surface
-   padding only. box-sizing: border-box prevents padding from adding to width. */
+   padding only. box-sizing: border-box prevents padding from adding to width.
+
+   Issue #509: display:flex + flex-direction:column + flex:1 let the
+   .feed-list-container child (react-window wrapper) expand to fill the
+   remaining height in #main-surface. Without flex here, .feed-list-container's
+   flex:1 has nothing to fill against and defaults to content height. */
 .feed-surface {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
   width: 100%;
   padding: var(--space-lg) var(--space-lg) 0;
   box-sizing: border-box;
+  min-height: 0;
 }
 
 /* ── Screen-reader-only live region (.filter-sentence-live) — SUGGESTION ───
@@ -1581,4 +1590,20 @@ dialog.species-detail-modal .species-detail-modal-close {
   margin: var(--space-md) 0 0;
   font-size: var(--type-xs);
   color: var(--color-text-muted);
+}
+
+/* ── Virtual feed list container (.feed-list-container) — issue #509 ────────
+   FeedSurface.tsx: wrapper div around the react-window List component.
+   flex: 1 1 auto lets the container expand to fill available space in the
+   .feed-surface column layout. overflow: hidden clips the react-window
+   positioning context; the virtual <ol.feed> carries overflow-y: auto via
+   react-window's injected style.
+   The container does not set a fixed height — height is measured via
+   ResizeObserver in FeedSurface.tsx and passed to the List as a style prop.
+   The 120px minimum ensures the list is visible on first paint before the
+   ResizeObserver fires (jsdom / cold SSR). */
+.feed-list-container {
+  flex: 1 1 auto;
+  min-height: 120px;
+  overflow: hidden;
 }

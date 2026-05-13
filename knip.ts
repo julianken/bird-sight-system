@@ -91,6 +91,17 @@ const config: KnipConfig = {
     //             ignore until those scripts migrate to a different runner
     //             (e.g., bun, ts-node, native node --import).
     'tsx',
+
+    // 2026-05-13: @types/react-window — provides ambient TypeScript type
+    //             declarations consumed implicitly when type-checking imports
+    //             from the react-window package. TypeScript's automatic @types/
+    //             resolution is invisible to knip's static analysis (no explicit
+    //             `import type` statement references this package directly).
+    //             Risk: masks a genuine unused @types/ dep if react-window is
+    //             removed without also removing @types/react-window from
+    //             frontend/package.json. Re-audit 2026-07-27 by confirming
+    //             react-window is still in frontend/package.json dependencies.
+    '@types/react-window',
   ],
 
   workspaces: {
@@ -140,22 +151,12 @@ const config: KnipConfig = {
         //             Risk: masks a genuine orphan added to ds/ later without
         //             a Phase 3+ consumer.
         'src/components/ds/index.ts',
-        // 2026-05-10: dev/DsPreview.tsx — dev-only primitive preview shim
-        //             imported lazily from main.tsx behind import.meta.env.DEV.
-        //             Dynamic import() prevents knip from tracing the reference.
-        //             Risk: masks genuine orphan added to dev/ without a caller.
-        //             Re-audit 2026-07-27 by confirming main.tsx still contains
-        //             the `await import('./dev/DsPreview.js')` call.
-        'src/dev/DsPreview.tsx',
-        // 2026-05-10: SurfaceNav.tsx — temporarily orphaned post-Sky-Atlas
-        //             Phase 3 (the <App> mount moved into <AppHeader>). The
-        //             file is still imported in App.tsx as `_SurfaceNav` to
-        //             keep the import alive until a follow-up sweep confirms
-        //             no other consumer exists. Delete in the post-Phase-3
-        //             sweep once the grep is clean. Re-audit 2026-08-09.
-        //             Risk: masks a genuine orphan added to components/ under
-        //             the SurfaceNav name without a caller.
-        'src/components/SurfaceNav.tsx',
+        // 2026-05-10: dev/DsPreview.tsx — ignore removed 2026-05-13 after
+        //             knip confirmed the dynamic import in main.tsx is now
+        //             traceable (knip 6.11.0+). No longer needs silencing.
+        // 2026-05-10: SurfaceNav.tsx — ignore removed 2026-05-13 after
+        //             knip confirmed the _SurfaceNav import in App.tsx is
+        //             now traceable. No longer needs silencing.
       ],
     },
 
