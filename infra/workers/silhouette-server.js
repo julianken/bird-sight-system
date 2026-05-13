@@ -46,11 +46,19 @@ export default {
 
     const object = await env.SILHOUETTES.get(key);
 
+    // Silhouettes are public, read-only, license-clean (CC0/CC-BY) assets and
+    // are consumed by the frontend legend via CSS `mask-image: url(...)`. The
+    // browser treats the SVG as cross-origin tainted and silently fails the
+    // mask render unless the response carries an `Access-Control-Allow-Origin`
+    // header. Wildcard origin is appropriate for this asset class. Applied to
+    // both hit and miss so a family that later lands starts rendering in the
+    // legend without a cache bust.
     if (object === null) {
       return new Response(null, {
         status: 404,
         headers: {
           'Cache-Control': 'public, max-age=60',
+          'Access-Control-Allow-Origin': '*',
         },
       });
     }
@@ -59,6 +67,7 @@ export default {
       headers: {
         'Content-Type': contentTypeFor(key),
         'Cache-Control': 'public, max-age=31536000, immutable',
+        'Access-Control-Allow-Origin': '*',
       },
     });
   },
