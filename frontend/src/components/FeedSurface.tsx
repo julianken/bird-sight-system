@@ -1,4 +1,4 @@
-import { useMemo, useState, useRef, useCallback, useEffect } from 'react';
+import { useMemo, useState, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
 import type { CSSProperties } from 'react';
 import { List } from 'react-window';
 import type { RowComponentProps } from 'react-window';
@@ -284,13 +284,34 @@ export function FeedSurface(props: FeedSurfaceProps) {
   // ------------------------------------------------------------------
   // Height measurement for the virtual list.
   //
-  // react-window needs an explicit pixel height to compute the visible
-  // row window. We measure the list container height via ResizeObserver
-  // and track it in state. Initial value = FEED_LIST_DEFAULT_HEIGHT.
+  // react-window uses style.height as the authoritative height of the
+  // visible window. defaultHeight is only a server-render / jsdom
+  // fallback and must NOT be passed alongside style.height — react-window
+  // v2 treats the last prop it sees as authoritative, but in practice the
+  // two sources produce a stale-closure bug where the component mounts at
+  // 600px and never re-measures even when style.height changes.
+  //
+  // Fix: measure listContainerRef.clientHeight synchronously in
+  // useLayoutEffect (fires before paint, clientHeight is valid), then
+  // attach a ResizeObserver for ongoing changes. The state initial value
+  // is FEED_LIST_DEFAULT_HEIGHT only as a jsdom/SSR fallback (those
+  // environments never run ResizeObserver or have a real clientHeight).
   // ------------------------------------------------------------------
   const listContainerRef = useRef<HTMLDivElement>(null);
   const [listHeight, setListHeight] = useState<number>(FEED_LIST_DEFAULT_HEIGHT);
 
+  // Synchronous initial measurement — prevents the 600px flash on first
+  // paint at wide viewports where the container is taller than 600px.
+  useLayoutEffect(() => {
+    const el = listContainerRef.current;
+    if (!el) return;
+    const h = el.clientHeight;
+    if (h > 0) setListHeight(h);
+  }, []);
+
+  // ResizeObserver — tracks ongoing container height changes (window
+  // resize, panel open/close, etc.). Runs as a regular effect because
+  // it doesn't need to block paint.
   useEffect(() => {
     const el = listContainerRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
@@ -456,7 +477,6 @@ export function FeedSurface(props: FeedSurfaceProps) {
           rowCount={flatObservations.length}
           rowHeight={ROW_HEIGHT_PX}
           rowProps={rowProps}
-          defaultHeight={FEED_LIST_DEFAULT_HEIGHT}
           style={{ height: listHeight }}
           overscanCount={3}
         />

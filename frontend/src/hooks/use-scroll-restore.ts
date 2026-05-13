@@ -22,6 +22,18 @@ import { useEffect, useRef } from 'react';
  * (devicePixelRatio math, zoom) can move scrollY by ±1 even with no user
  * input. 2px is tight enough to not swallow a real 3px scroll, loose
  * enough to ignore rounding.
+ *
+ * Scroll-surface split (as of PR #516 / issue #509):
+ *   This hook watches window.scrollY, which is correct for surfaces that
+ *   scroll the document itself — specifically the species detail panel
+ *   open/close transition (App.tsx). It is NOT wired to the virtualized
+ *   feed list, which uses an inner OL element as its scroll container.
+ *   Feed-internal scroll position is preserved across filter changes by
+ *   react-window's own internal state (the List component keeps its
+ *   scrollOffset ref alive through re-renders when filters change because
+ *   the component is never unmounted — only rowCount/rowProps update).
+ *   Both surfaces therefore preserve position correctly, through different
+ *   mechanisms. The e2e suite covers both (feed-virtualize.spec.ts).
  */
 export function useScrollRestore(active: boolean): void {
   const capturedRef = useRef<number | null>(null);
