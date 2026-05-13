@@ -287,9 +287,8 @@ resource "google_cloud_scheduler_job" "ingest_taxonomy" {
 #
 # Separate Cloud Run Job because the photos kind originally needed a 600s
 # timeout to walk ~344 species × (iNat fetch + R2 PUT) — kept distinct from
-# the shared `bird-ingestor` job so its needs evolve independently. The
-# shared job's timeout is now 900s (post-#506) and still under the photos
-# ceiling. Mirrors the .ingestor job's shape (image, env,
+# the shared `bird-ingestor` job so its needs evolve independently.
+# Mirrors the .ingestor job's shape (image, env,
 # lifecycle.ignore_changes) so deploy-ingestor.yml's image-tag rollout
 # reaches both jobs from a single Artifact Registry push.
 resource "google_cloud_run_v2_job" "ingestor_photos" {
