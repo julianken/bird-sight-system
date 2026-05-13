@@ -98,8 +98,8 @@ resource "google_cloud_run_v2_job" "ingestor" {
       # container is killed. 15 minutes is still well below Cloud Run Jobs'
       # 168h max and short enough that a genuinely-stuck job surfaces
       # within a single cron interval (30 min for `recent`).
-      timeout         = "900s"
-      max_retries     = 1
+      timeout     = "900s"
+      max_retries = 1
 
       containers {
         image = "${google_artifact_registry_repository.birdwatch.location}-docker.pkg.dev/${var.gcp_project_id}/${google_artifact_registry_repository.birdwatch.repository_id}/ingestor:latest"
