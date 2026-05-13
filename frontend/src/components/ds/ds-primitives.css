@@ -216,6 +216,30 @@
   opacity: 0.55;
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   Admin-api uploaded CDN-served silhouette (#502).
+   When FamilySilhouette receives imgUrl, it renders as a mask div instead of
+   an inline <svg> — the SVG is loaded as an alpha mask and the family color
+   comes from the background-color. One uploaded asset → N tinted renders,
+   no per-color asset variants. The map's SDF sprite pipeline ignores imgUrl
+   and reads pathD (sprite registration is synchronous at map init).
+   ───────────────────────────────────────────────────────────────────────────── */
+.family-silhouette-img {
+  display: inline-block;
+  background-color: var(--family-silhouette-color, var(--color-text-muted));
+  -webkit-mask-image: var(--family-silhouette-mask);
+          mask-image: var(--family-silhouette-mask);
+  -webkit-mask-repeat: no-repeat;
+          mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+          mask-position: center;
+  -webkit-mask-size: contain;
+          mask-size: contain;
+}
+.family-silhouette-img.family-silhouette--masthead { width: 120px; height: 120px; }
+.family-silhouette-img.family-silhouette--inline   { width: 80px;  height: 80px;  }
+.family-silhouette-img.family-silhouette--thumb    { width: 44px;  height: 44px;  }
+
 /*
  * Dark-mode: --family-fill is a hex from FAMILY_PALETTE in JS. The tokens
  * don't cover per-family colour overrides in dark mode yet (G7/G8 gated).

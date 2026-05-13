@@ -59,6 +59,16 @@ export interface FamilySilhouetteProps {
    * when pathD is present to match the DB path coordinate space.
    */
   pathD?: string | null;
+  /**
+   * Admin-api-uploaded CDN-served SVG URL (#502). When non-null, takes
+   * precedence over `pathD`: the silhouette renders as a CSS-mask div with
+   * the family color as background, so the same uploaded asset renders
+   * tinted with each family's color without per-color asset variants.
+   * When null (the default), the component falls back to the existing
+   * pathD render path. The map's SDF sprite pipeline ignores this prop
+   * and always reads pathD (synchronous sprite registration at map init).
+   */
+  imgUrl?: string | null;
   /** aria-label for standalone use. Omit when inside <Photo> (aria-hidden). */
   ariaLabel?: string;
 }
@@ -98,8 +108,34 @@ export function FamilySilhouette({
   shape: shapeProp,
   color,
   pathD,
+  imgUrl,
   ariaLabel,
 }: FamilySilhouetteProps): ReactNode {
+  // imgUrl (admin-api uploaded CDN URL, #502) takes precedence over inline
+  // path-d. Render the silhouette as a CSS-mask div: the SVG is loaded as a
+  // mask (alpha channel only) and the family color comes from the background.
+  // This lets one uploaded asset render tinted with each family's color
+  // without per-color asset variants. Map's SDF pipeline ignores imgUrl and
+  // reads pathD (sprite registration is synchronous at map init).
+  if (imgUrl) {
+    const resolvedColor = color ?? '#5a6472';
+    return (
+      <span
+        className={`family-silhouette family-silhouette-img family-silhouette--${layout}`}
+        data-testid="family-silhouette"
+        data-family={String(family)}
+        data-layout={layout}
+        style={{
+          ['--family-silhouette-mask' as string]: `url(${imgUrl})`,
+          ['--family-silhouette-color' as string]: resolvedColor,
+        } as React.CSSProperties}
+        aria-label={ariaLabel}
+        aria-hidden={ariaLabel ? undefined : 'true'}
+        role={ariaLabel ? 'img' : undefined}
+      />
+    );
+  }
+
   // Narrow to a known FamilyCode if recognized; treat unknowns as null.
   const knownFamily: FamilyCode | null =
     family !== null && family in FAMILY_PATHS

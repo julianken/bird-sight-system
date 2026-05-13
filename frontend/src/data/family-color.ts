@@ -12,7 +12,33 @@ export const FAMILY_COLOR_FALLBACK = '#555';
 
 export type FamilyPathResolver = (familyCode: string | null | undefined) => string | null;
 
+export type FamilyImgUrlResolver = (familyCode: string | null | undefined) => string | null;
+
 export type FamilyColorResolver = (familyCode: string | null | undefined) => string;
+
+/**
+ * Build a `familyCode → svgUrl` resolver from the `/api/silhouettes` response
+ * (issue #502 — admin-api-uploaded CDN URL).
+ *
+ * Mirrors `buildFamilyPathResolver`. When non-null, the resolved URL takes
+ * precedence over inline path-d in FamilyLegend and SpeciesDetailSurface
+ * (the silhouette renders as a CSS-mask div tinted with the family color).
+ * The map's SDF sprite pipeline ignores this value and reads svgData
+ * directly — sprite registration is synchronous at map init.
+ */
+export function buildFamilyImgUrlResolver(
+  silhouettes: readonly FamilySilhouette[],
+): FamilyImgUrlResolver {
+  const byFamily = new Map<string, string | null>();
+  for (const s of silhouettes) byFamily.set(s.familyCode.toLowerCase(), s.svgUrl);
+
+  return (familyCode: string | null | undefined): string | null => {
+    if (!familyCode) return null;
+    const key = familyCode.toLowerCase();
+    if (!byFamily.has(key)) return null;
+    return byFamily.get(key) ?? null;
+  };
+}
 
 /**
  * Build a `familyCode → svgData` resolver from the `/api/silhouettes` response.

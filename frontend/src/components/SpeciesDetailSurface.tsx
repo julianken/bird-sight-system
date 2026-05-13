@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import type { ApiClient } from '../api/client.js';
 import { useSpeciesDetail } from '../data/use-species-detail.js';
 import { useSilhouettes } from '../data/use-silhouettes.js';
-import { buildFamilyColorResolver, buildFamilyPathResolver } from '../data/family-color.js';
+import { buildFamilyColorResolver, buildFamilyPathResolver, buildFamilyImgUrlResolver } from '../data/family-color.js';
 import { analytics } from '../analytics.js';
 import { PhenologyChart } from './PhenologyChart.js';
 import { SpeciesDescription } from './SpeciesDescription.js';
@@ -59,6 +59,15 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
   // renders the real DB shape (not the generic apple glyph).
   const resolvePath = useMemo(
     () => buildFamilyPathResolver(silhouettes),
+    [silhouettes],
+  );
+
+  // Build the familyCode → svgUrl resolver (#502). When the admin-api has
+  // uploaded an operator-curated SVG for the family, the masthead fallback
+  // (and FamilySilhouette internally) prefer the CDN URL over the inline
+  // path-d, rendering as a CSS-mask div tinted with the family color.
+  const resolveImgUrl = useMemo(
+    () => buildFamilyImgUrlResolver(silhouettes),
     [silhouettes],
   );
 
@@ -138,6 +147,7 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
         family={data.familyCode as FamilyCode | null}
         color={resolveColor(data.familyCode)}
         pathD={resolvePath(data.familyCode)}
+        imgUrl={resolveImgUrl(data.familyCode)}
         priority={true}
         layout="masthead"
       />

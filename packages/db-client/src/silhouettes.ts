@@ -11,18 +11,24 @@ import type { FamilySilhouette } from '@bird-watch/shared-types';
  *
  * Rows are returned ordered by family_code so consumers (e.g. parity tests,
  * deterministic snapshots) don't depend on Postgres heap order.
+ *
+ * svgUrl (issue #502) is the admin-api-uploaded CDN-served SVG URL; NULL for
+ * rows that haven't been overridden via the admin-api. svgData remains the
+ * load-bearing path-d for the map's synchronous SDF sprite pipeline; the
+ * admin-api writes both atomically on upload.
  */
 export async function getSilhouettes(pool: Pool): Promise<FamilySilhouette[]> {
   const { rows } = await pool.query<{
     family_code: string;
     color: string;
     svg_data: string | null;
+    svg_url: string | null;
     source: string | null;
     license: string | null;
     common_name: string | null;
     creator: string | null;
   }>(
-    `SELECT family_code, color, svg_data, source, license, common_name, creator
+    `SELECT family_code, color, svg_data, svg_url, source, license, common_name, creator
      FROM family_silhouettes
      ORDER BY family_code`
   );
@@ -30,6 +36,7 @@ export async function getSilhouettes(pool: Pool): Promise<FamilySilhouette[]> {
     familyCode: r.family_code,
     color: r.color,
     svgData: r.svg_data,
+    svgUrl: r.svg_url,
     source: r.source,
     license: r.license,
     commonName: r.common_name,

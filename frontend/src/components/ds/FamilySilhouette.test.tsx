@@ -175,6 +175,50 @@ describe('<FamilySilhouette>', () => {
     expect(path).toHaveAttribute('d', DB_PATH);
   });
 
+  // --- imgUrl prop (admin-api-uploaded CDN URL, issue #502) ---
+
+  it('renders an <img>-style mask div when imgUrl is provided', () => {
+    const { container } = render(
+      <FamilySilhouette
+        family="cuculidae"
+        layout="thumb"
+        color="#A05A3A"
+        imgUrl="https://silhouettes.bird-maps.com/family/cuculidae.deadbeef.svg"
+      />,
+    );
+    const img = container.querySelector('.family-silhouette-img');
+    expect(img).not.toBeNull();
+    expect(img!.getAttribute('style')).toContain('--family-silhouette-mask: url(');
+    expect(img!.getAttribute('style')).toContain('#A05A3A');
+  });
+
+  it('falls back to inline path-d when imgUrl is null and pathD is provided', () => {
+    const { container } = render(
+      <FamilySilhouette
+        family="cuculidae"
+        layout="thumb"
+        color="#A05A3A"
+        pathD="M12 2 L20 22 L4 22 Z"
+      />,
+    );
+    expect(container.querySelector('.family-silhouette-img')).toBeNull();
+    expect(container.querySelector('path')).not.toBeNull();
+  });
+
+  it('imgUrl takes precedence over pathD when both are provided', () => {
+    const { container } = render(
+      <FamilySilhouette
+        family="cuculidae"
+        layout="thumb"
+        color="#A05A3A"
+        pathD="M12 2"
+        imgUrl="https://silhouettes.bird-maps.com/family/cuculidae.deadbeef.svg"
+      />,
+    );
+    expect(container.querySelector('.family-silhouette-img')).not.toBeNull();
+    expect(container.querySelector('path')).toBeNull();
+  });
+
   // --- Accessibility ---
 
   it('is hidden from the SR tree (presentational) when inside <Photo>', () => {

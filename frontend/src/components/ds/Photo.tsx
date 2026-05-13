@@ -52,6 +52,13 @@ export interface PhotoProps {
    * fallback renders the real family shape. Absent = abstract palette path fallback.
    */
   pathD?: string | null;
+  /**
+   * Admin-api uploaded CDN-served SVG URL (#502). When non-null, takes
+   * precedence over pathD in <FamilySilhouette> — the silhouette renders as a
+   * CSS-mask div tinted with the family color. Threaded through <Photo> so the
+   * SpeciesDetailSurface masthead fallback uses the operator-curated asset.
+   */
+  imgUrl?: string | null;
 }
 
 type PhotoInternalState = 'null' | 'loading' | 'loaded' | 'errored';
@@ -65,6 +72,7 @@ export function Photo({
   layout = 'inline',
   color,
   pathD,
+  imgUrl,
 }: PhotoProps): ReactNode {
   const [imgState, setImgState] = useState<PhotoInternalState>(
     src === null ? 'null' : 'loading'
@@ -105,6 +113,7 @@ export function Photo({
           family={family}
           layout={layout}
           {...(color !== undefined ? { color } : {})}
+          {...(imgUrl != null ? { imgUrl } : {})}
           {...(pathD != null ? { pathD } : {})}
         />
       </span>
