@@ -207,7 +207,9 @@ body {
 
 /* Tab buttons — full UA reset, then design-token styling.
    Visual contract mirrors the former .surface-nav-tab exactly:
-   same padding, border-radius, font-size, hover / focus / active states. */
+   same padding, border-radius, font-size, hover / focus / active states.
+   min-height is applied inside the ≤480px media query (MOB-4) to keep the
+   desktop header height unchanged. */
 .app-header-tab {
   appearance: none;
   background: transparent;
@@ -242,17 +244,28 @@ body {
   border-bottom-width: 2px;
 }
 
-/* Right-side action cluster — Attribution, Filters, ThemeToggle. */
+/* Right-side action cluster — Attribution, Filters, ThemeToggle.
+   ThemeToggle renders a plain <button> with no class; target all
+   buttons in this cluster with the descendant rule below.
+   min-height/min-width 44pt touch targets are applied inside the
+   ≤480px media query (MOB-4) to keep the desktop header unchanged. */
 .app-header-right {
   display: flex;
   align-items: center;
   gap: var(--space-xs);
   flex-shrink: 0;
 }
+.app-header-right button {
+  /* touch targets set in @media (max-width: 480px) block — see MOB-4 */
+}
 
 /* Attribution + Filters buttons — same UA reset + visual contract as tabs.
    Slightly subdued: color-text-body rather than color-text-strong keeps
-   them secondary to the navigation tabs without becoming invisible. */
+   them secondary to the navigation tabs without becoming invisible.
+   min-height applied inside ≤480px media query (MOB-4) — desktop unchanged.
+   Icon/label visibility:
+   - .app-header-btn-icon hidden at desktop (>480px); shown at mobile (≤480px).
+   - .app-header-btn-label shown at desktop (>480px); sr-only at mobile (≤480px). */
 .app-header-attribution,
 .app-header-filters {
   appearance: none;
@@ -266,6 +279,19 @@ body {
   cursor: pointer;
   line-height: 1.2;
   position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Desktop default: icon hidden, text label visible */
+.app-header-btn-icon {
+  display: none;
+}
+
+/* Desktop default: text label visible (override sr-only at desktop) */
+.app-header-btn-label {
+  /* visible by default at desktop */
 }
 .app-header-attribution:hover,
 .app-header-filters:hover {
@@ -1298,6 +1324,11 @@ dialog.species-detail-modal .species-detail-modal-close {
   z-index: 10;
   display: flex;
   flex-direction: column;
+  /* MOB-5: notched devices need env(safe-area-inset-top) so the sheet
+     handle clears the Dynamic Island / status bar when fully expanded.
+     max() keeps the sheet from losing its rounded-corner top edge if
+     the safe-area inset is larger than the default padding. */
+  padding-top: max(var(--space-xs, 4px), env(safe-area-inset-top, 0px));
   padding-bottom: env(safe-area-inset-bottom, 0);
   transition: height 200ms ease, transform 200ms ease;
   will-change: height, transform;
@@ -1310,12 +1341,18 @@ dialog.species-detail-modal .species-detail-modal-close {
 }
 
 .sheet-handle {
-  /* Drag-region: own the gesture entirely; do not pan-scroll the page. */
+  /* Drag-region: own the gesture entirely; do not pan-scroll the page.
+     min-height: 44px satisfies Apple HIG / WCAG 2.5.5 touch-target (MOB-7).
+     The visual grip pill (.sheet-handle-grip) stays 4px tall; padding
+     above/below expands the actual touch target without changing appearance. */
   touch-action: none;
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 24px;
+  width: 100%;
+  min-height: 44px;
+  padding-top: 10px;
+  padding-bottom: 10px;
   background: transparent;
   border: none;
   cursor: grab;
@@ -1719,4 +1756,177 @@ dialog.species-detail-modal .species-detail-modal-close {
     background: ButtonFace;
     color: ButtonText;
   }
+}
+
+/* ==========================================================================
+   Mobile polish — Bundle E (issue #514)
+   Breakpoint ≤ 414px targets iPhone 14 Pro (390×844) and all narrower phones.
+   ========================================================================== */
+
+/* ── MOB-1/MOB-4: AppHeader collapse + touch targets at ≤ 480px ─────────────
+   The unconstrained header overflows at 390px (body.scrollWidth≈578px).
+   Strategy: hide the brand region label, compress nav padding, reduce the
+   outer header gap so the three segments (wordmark · tabs · actions) fit
+   inside 390px without wrapping.
+
+   We do NOT hide the wordmark entirely — "Bird Maps" is the product name and
+   should remain visible. The " · Arizona" region badge is redundant at mobile
+   (single-region product) and is the largest single contributor to overflow.
+
+   Space budget at 390px:
+     16px (padding) + 8px (2×4px gaps) = 24px overhead.
+     Available: 366px.
+     Wordmark:       80px (flex-shrink: 0 — guaranteed, no flex contention)
+     Right cluster: 140px (3 × 44px icon-only buttons + 2 × 4px gaps)
+     Nav:           146px remaining for 3 tabs
+
+   The right-cluster Attribution + Filters buttons hide their text labels
+   at this breakpoint (font-size: 0; icon-sized footprint). Their aria-label
+   attributes remain intact — accessibility is preserved via the accessible
+   name, not the visible text. This frees ~120px vs. the previous text-label
+   layout, giving the wordmark guaranteed render space.
+
+   min-height: 44px touch targets (MOB-4) are scoped here rather than
+   globally so the desktop header height is unchanged. */
+@media (max-width: 480px) {
+  .app-header {
+    padding: 0 var(--space-sm);
+    gap: var(--space-xs);
+    /* overflow: hidden prevents the header itself from being wider than the
+       viewport while the body catches up to the new layout. Without this,
+       the header's flex children can still force the layout wider than 390px
+       if any child has a min-width that exceeds available space. */
+    overflow: hidden;
+  }
+
+  /* Hide the region label (" · Arizona"). "Bird Maps" remains fully visible. */
+  .app-header-wordmark .brand-region {
+    display: none;
+  }
+
+  /* Guarantee the wordmark renders untruncated.
+     flex-shrink: 0 prevents the nav's flex:1 from squeezing the wordmark
+     below its natural width (~65px for "Bird Maps" at --type-sm / 13px).
+     max-width: 80px gives comfortable headroom above the 65px scrollWidth.
+     Without flex-shrink: 0 here, the flex algorithm allocates space to the
+     nav first (flex-grow: 1) and the wordmark falls below 72px (measured
+     46px at 390px — see design review BLOCKING finding). */
+  .app-header-wordmark {
+    font-size: var(--type-sm);
+    flex-shrink: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 80px;
+  }
+
+  /* Compress tab padding while keeping the 44pt min-height touch target. */
+  .app-header-tab {
+    padding: 0 8px;
+    font-size: var(--type-xs);
+    min-height: 44px;
+  }
+
+  /* Right-cluster buttons: collapse to 44pt icon-only touch targets at mobile.
+     The text label (.app-header-btn-label) becomes sr-only so screen readers
+     still announce the button's purpose. The SVG icon (.app-header-btn-icon)
+     is shown as the visual affordance. aria-label on each button provides the
+     accessible name (the filterCount is baked in when > 0).
+     padding: 0 + justify-content: center + min-width/height enforce the 44pt
+     touch target (Apple HIG). */
+  .app-header-attribution,
+  .app-header-filters {
+    padding: 0;
+    min-width: 44px;
+    min-height: 44px;
+    justify-content: center;
+  }
+
+  /* Mobile: show the SVG icon */
+  .app-header-btn-icon {
+    display: inline-block;
+    flex-shrink: 0;
+  }
+
+  /* Mobile: visually hide the text label but keep it in the accessibility tree.
+     Uses the same clip pattern as .sr-only (defined globally). The inline-flex
+     container on the button means we can't use position:absolute without layout
+     side effects, so we apply sr-only via a scoped class override. */
+  .app-header-btn-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  /* Hide the filter count badge at mobile — the accessible name on the
+     Filters button already announces "Filters (N active)" via aria-label. */
+  .app-header-filter-badge {
+    display: none;
+  }
+
+  /* ThemeToggle uses a plain <button> with no className.
+     Target it via the right-cluster wrapper. */
+  .app-header-right button {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 0 6px;
+  }
+}
+
+/* ── MOB-3: iOS auto-zoom guard ─────────────────────────────────────────────
+   iOS Safari auto-zooms the page when a focused input has font-size < 16px.
+   This affects ALL iPhone models regardless of viewport width — including
+   iPhone 12/14/15 Pro Max (428/430px) which were missed by the original
+   max-width: 414px scope. The rule is pulled out of the media query entirely:
+   16px on an autocomplete input is visually neutral at desktop and eliminates
+   the maintenance liability of tracking new iPhone widths. */
+.species-autocomplete-input {
+  font-size: 16px;
+}
+
+/* ── MOB-N1: .filters-panel-close touch target ─────────────────────────────
+   The close button for the FiltersPanel was unstyled (24×22px per audit).
+   Full UA reset + 44×44pt minimum touch area. Visual: text × as the icon,
+   positioned at the top-right of the panel. The panel itself needs position:
+   relative so the absolute positioning of the close button resolves correctly. */
+.filters-panel {
+  position: relative;
+}
+
+.filters-panel-close {
+  /* UA reset */
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font: inherit;
+  /* 44×44pt touch target (Apple HIG, WCAG 2.5.5) */
+  min-width: 44px;
+  min-height: 44px;
+  /* Visual: pull to top-right corner of the panel */
+  position: absolute;
+  top: var(--space-xs, 4px);
+  right: var(--space-xs, 4px);
+  /* Content centering */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  font-size: var(--type-md, 17px);
+  color: var(--color-text-body);
+  line-height: 1;
+  z-index: 1;
+}
+.filters-panel-close:hover {
+  background: var(--color-bg-tint);
+}
+.filters-panel-close:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
 }
