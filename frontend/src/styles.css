@@ -1518,6 +1518,25 @@ dialog.species-detail-modal .species-detail-modal-close {
   border: 0;
 }
 
+/* ── Screen-reader-only utility (.sr-only) — issue #513 ─────────────────────
+   Generic visually-hidden class for content that must be in the accessibility
+   tree but should not be visible on screen. Pattern matches .filter-sentence-live
+   and the WebAIM "clip pattern" recommendation (https://webaim.org/techniques/css/invisiblecontent/).
+   Used by SpeciesSearchSurface to provide an <h1> landmark for assistive
+   technology (WCAG 1.3.1 Info and Relationships / WCAG 2.4.6 Headings and Labels)
+   without disrupting the visual design. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* ==========================================================================
    P2 orphan-className sweep — 7 classNames referenced in JSX with no rule.
    Fixes residual orphans missed by W2 (#471). Append-only; rules ordered by
@@ -1614,4 +1633,90 @@ dialog.species-detail-modal .species-detail-modal-close {
   flex: 1 1 auto;
   min-height: 120px;
   overflow: hidden;
+}
+
+/* ── Windows High Contrast / forced-colors fallback — issue #513 (A11Y-9) ──
+   When forced-colors: active (Windows High Contrast Mode, Contrast Themes on
+   Windows 11, forced-colors in Edge/Chrome DevTools), the UA overrides all
+   CSS color values to a restricted system-color palette. Elements that define
+   visibility through CSS color alone (backgrounds, borders painted via box-
+   shadow, SVG fill) become invisible.
+
+   Strategy:
+   - `forced-color-adjust: none` is INTENTIONALLY NOT used here: letting the
+     UA manage colors (the default `forced-color-adjust: auto`) is almost
+     always more correct than overriding. The browser knows the user's chosen
+     palette (ButtonText, ButtonFace, Highlight, etc.); we don't.
+   - We instead ensure interactive elements use semantic CSS properties (border,
+     outline, color) that the UA can remap, rather than relying on box-shadow
+     or background for all affordance communication.
+   - `ButtonText` / `ButtonFace` are CSS system-color keywords that resolve
+     correctly in every forced-color mode variant (Windows HCM white, black,
+     and custom themes; Edge forced-colors emulation).
+
+   Reference: https://www.w3.org/WAI/WCAG21/Techniques/css/C25
+   WCAG 1.4.1 (Use of Color), 1.4.11 (Non-text Contrast) */
+@media (forced-colors: active) {
+  /* Interactive elements: ensure a visible border is present so the browser
+     can apply ButtonBorder or LinkText over it. box-shadow-only affordances
+     (e.g. the focus ring on buttons that zero out the outline) are invisible
+     in forced-colors — fall back to a 1px border. */
+  button,
+  [role="button"],
+  [role="tab"],
+  [role="radio"],
+  input[type="radio"],
+  input[type="checkbox"],
+  select,
+  a[href] {
+    forced-color-adjust: auto;
+  }
+
+  /* Focus indicators: ensure outline is always visible by removing any
+     override that sets outline: none (it will render as ButtonText in
+     forced-colors regardless of our color value, so we just need it present). */
+  :focus-visible {
+    outline: 2px solid ButtonText;
+    outline-offset: 2px;
+  }
+
+  /* AppHeader tab buttons — selected state is typically communicated via
+     background-color only; add a bottom border so it remains visible. */
+  .app-header-tab.is-active {
+    border-bottom: 3px solid ButtonText;
+  }
+
+  /* Feed rows and cards — border-bottom row separators should use
+     ButtonText so they remain visible regardless of forced palette. */
+  .feed-row-item,
+  .feed-card {
+    border-bottom-color: ButtonText;
+  }
+
+  /* Filter badge — background-only badge is invisible; add a border. */
+  .app-header-filter-badge {
+    border: 1px solid ButtonText;
+  }
+
+  /* Theme toggle and other icon-only buttons: ensure the SVG icon inherits
+     ButtonText (forced-colors UA remapping handles this automatically for
+     SVG `fill: currentColor`, but make the dependency explicit). */
+  .theme-toggle svg,
+  .species-search-hero-icon svg {
+    fill: ButtonText;
+  }
+
+  /* Cluster pills (map): ensure text + border remain distinguishable. */
+  .cluster-pill {
+    border: 1px solid ButtonText;
+    color: ButtonText;
+  }
+
+  /* Skip-link reveal state — must remain visible over forced-color backgrounds. */
+  .skip-link:focus,
+  .skip-link:focus-visible {
+    outline: 2px solid ButtonText;
+    background: ButtonFace;
+    color: ButtonText;
+  }
 }
