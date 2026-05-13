@@ -50,6 +50,19 @@ export async function upsertObservations(
       ingested_at = now()
   `;
 
+  // Build a (sub_id, species_code) VALUES set that scopes the stamp UPDATE to
+  // just the rows in this batch. Without this scoping the WHERE clause goes
+  // O(table) — every batch re-scans every NULL-stamp residue row in
+  // observations, which is what made the daily backfill loop time out (#505).
+  // runReconcileStamping() remains the once-per-run sweeper for NULL residue.
+  const stampValues: unknown[] = [];
+  const stampPlaceholders: string[] = [];
+  inputs.forEach((o, i) => {
+    const off = i * 2;
+    stampPlaceholders.push(`($${off + 1}, $${off + 2})`);
+    stampValues.push(o.subId, o.speciesCode);
+  });
+
   const stampSql = `
     UPDATE observations o
     SET
@@ -66,11 +79,14 @@ export async function upsertObservations(
         WHERE sm.species_code = o.species_code
         LIMIT 1
       )
-    WHERE o.region_id IS NULL OR o.silhouette_id IS NULL
+    FROM (VALUES ${stampPlaceholders.join(',')}) AS batch(sub_id, species_code)
+    WHERE o.sub_id = batch.sub_id
+      AND o.species_code = batch.species_code
+      AND (o.region_id IS NULL OR o.silhouette_id IS NULL)
   `;
 
   await pool.query(insertSql, values);
-  await pool.query(stampSql);
+  await pool.query(stampSql, stampValues);
   return inputs.length;
 }
 
@@ -78,11 +94,11 @@ export async function upsertObservations(
  * Re-runs the region/silhouette stamping UPDATE across ALL observations whose
  * region_id or silhouette_id is still NULL. Idempotent.
  *
- * upsertObservations only stamps rows it just touched (via its WHERE filter,
- * which in practice catches the current batch). When species_meta is empty
- * at ingest time (as on prod pre-#83), the silhouette JOIN finds no row and
- * silhouette_id stays NULL — even after the batch is stamped. Running this
- * after a taxonomy job is loaded backfills every orphaned row.
+ * upsertObservations stamps only the rows in its own batch (the UPDATE is
+ * scoped to the batch's (sub_id, species_code) pairs). Anything that was NULL
+ * at the time of its batch — e.g. a silhouette JOIN that missed because
+ * species_meta was empty at the time, as on prod pre-#83 — stays NULL until
+ * this function sweeps it. Run once at the end of a taxonomy or backfill run.
  *
  * Returns the number of rows updated.
  */
