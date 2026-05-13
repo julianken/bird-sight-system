@@ -1,12 +1,9 @@
 {
-  "generatedAt": "2026-05-12T22:06:08.924Z",
+  "generatedAt": "2026-05-13T01:19:10.464Z",
   "phylopicBuild": "538",
   "autoPickHeuristic": "license-preference (CC0 > CC-BY-3.0 > CC-BY-4.0 > CC-BY-SA-3.0), then creator-name asc, then uuid asc",
-  "skipFamilies": [
-    "cuculidae",
-    "ptilogonatidae",
-    "remizidae"
-  ],
+  "skipFamilies": [],
+  "_skipFamilies_deprecation_note": "skipFamilies is deprecated as of issue #498. Empty by convention; the script's NULL-emission path handles genuine API absences. Do not re-introduce entries — if a family is unrescueable, let it land as NULL with a SQL-comment-recorded reason.",
   "families": [
     {
       "family": "aegithalidae",
@@ -235,6 +232,21 @@
           "creatorName": "Beth Reinke",
           "status": "picked",
           "skipReason": null
+        }
+      ]
+    },
+    {
+      "family": "cuculidae",
+      "picked": null,
+      "reason": "no-candidates",
+      "candidateCount": 1,
+      "considered": [
+        {
+          "uuid": "61ddd908-b19d-4769-a1b3-0243d4b13431",
+          "licenseId": null,
+          "creatorName": "Nicolas Huet le Jeune and Jean-Gabriel Prêtre (vectorized by T. Michael Keesey)",
+          "status": "rejected-pre-svg",
+          "skipReason": "license-rejected:https://creativecommons.org/publicdomain/mark/1.0/"
         }
       ]
     },
@@ -820,8 +832,16 @@
       "family": "phasianidae",
       "picked": null,
       "reason": "no-candidates",
-      "candidateCount": 0,
-      "considered": []
+      "candidateCount": 1,
+      "considered": [
+        {
+          "uuid": "14269801-89fe-405c-a425-2286c54ee60d",
+          "licenseId": null,
+          "creatorName": null,
+          "status": "rejected-pre-svg",
+          "skipReason": "license-rejected:https://creativecommons.org/publicdomain/mark/1.0/"
+        }
+      ]
     },
     {
       "family": "podicipedidae",
@@ -982,6 +1002,13 @@
       "considered": []
     },
     {
+      "family": "ptilogonatidae",
+      "picked": null,
+      "reason": "http-404-on-nodes",
+      "candidateCount": 0,
+      "considered": []
+    },
+    {
       "family": "rallidae",
       "picked": {
         "licenseId": "CC0-1.0",
@@ -1047,6 +1074,13 @@
           "skipReason": null
         }
       ]
+    },
+    {
+      "family": "remizidae",
+      "picked": null,
+      "reason": "http-404-on-nodes",
+      "candidateCount": 0,
+      "considered": []
     },
     {
       "family": "sittidae",
@@ -1252,8 +1286,16 @@
       "family": "tytonidae",
       "picked": null,
       "reason": "no-candidates",
-      "candidateCount": 0,
-      "considered": []
+      "candidateCount": 1,
+      "considered": [
+        {
+          "uuid": "b4f3d9fb-4b03-4cba-89ee-039256936b6a",
+          "licenseId": null,
+          "creatorName": "John Gould & Henry C. Richter",
+          "status": "rejected-pre-svg",
+          "skipReason": "license-rejected:https://creativecommons.org/publicdomain/mark/1.0/"
+        }
+      ]
     },
     {
       "family": "vireonidae",
