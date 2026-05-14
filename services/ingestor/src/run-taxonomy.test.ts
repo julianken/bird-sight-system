@@ -11,8 +11,10 @@ import { runTaxonomy } from './run-taxonomy.js';
 const server = setupServer();
 let db: TestDb;
 
-// A realistic mix: 5 species rows + 2 non-species (issf + spuh) that must be
-// dropped. familyComName → familyName is the only rename.
+// A realistic mix: 5 species rows + 2 non-species (issf + spuh). After #527
+// PR-2 the filter keeps all 7 known eBird categories — issf/spuh/hybrid/
+// slash/domestic/form upsert alongside species. The "unknown future eBird
+// category" case has its own test below.
 const TAXONOMY_FIXTURE = [
   {
     sciName: 'Pyrocephalus rubinus', comName: 'Vermilion Flycatcher',
@@ -44,7 +46,7 @@ const TAXONOMY_FIXTURE = [
     familyCode: 'tyrann1', familyComName: 'Tyrant Flycatchers',
     familySciName: 'Tyrannidae',
   },
-  // issf — subspecies form, must be dropped
+  // issf — subspecies form, kept post-#527
   {
     sciName: 'Junco hyemalis hyemalis/carolinensis',
     comName: 'Dark-eyed Junco (Slate-colored)',
@@ -52,12 +54,72 @@ const TAXONOMY_FIXTURE = [
     familyCode: 'passer1', familyComName: 'Old World Sparrows',
     familySciName: 'Passeridae',
   },
-  // spuh — genus-level, must be dropped
+  // spuh — genus-level, kept post-#527
   {
     sciName: 'Empidonax sp.', comName: 'Empidonax flycatcher sp.',
     speciesCode: 'y00005', category: 'spuh', taxonOrder: 30400,
     familyCode: 'tyrann1', familyComName: 'Tyrant Flycatchers',
     familySciName: 'Tyrannidae',
+  },
+];
+
+// All 7 known eBird categories — used by the post-#527 test that exercises
+// the full allowlist plus a forward-compat unknown-category row that must
+// still be filtered out.
+const ALL_CATEGORIES_FIXTURE = [
+  {
+    sciName: 'Pyrocephalus rubinus', comName: 'Vermilion Flycatcher',
+    speciesCode: 'verfly', category: 'species', taxonOrder: 30501,
+    familyCode: 'tyrann1', familyComName: 'Tyrant Flycatchers',
+    familySciName: 'Tyrannidae',
+  },
+  {
+    sciName: 'Junco hyemalis hyemalis', comName: 'Dark-eyed Junco (Slate-colored)',
+    speciesCode: 'daejun1', category: 'issf', taxonOrder: 31000,
+    familyCode: 'passer1', familyComName: 'Old World Sparrows',
+    familySciName: 'Passeridae',
+  },
+  {
+    sciName: 'Icterus bullockii x galbula', comName: "Bullock's x Baltimore Oriole (hybrid)",
+    speciesCode: 'x00013', category: 'hybrid', taxonOrder: 32500,
+    familyCode: 'icteri1', familyComName: 'Troupials and Allies',
+    familySciName: 'Icteridae',
+  },
+  {
+    sciName: 'Empidonax sp.', comName: 'Empidonax flycatcher sp.',
+    speciesCode: 'y00005', category: 'spuh', taxonOrder: 30400,
+    familyCode: 'tyrann1', familyComName: 'Tyrant Flycatchers',
+    familySciName: 'Tyrannidae',
+  },
+  {
+    sciName: 'Buteo jamaicensis/swainsoni',
+    comName: 'Red-tailed/Swainson’s Hawk',
+    speciesCode: 'y00050', category: 'slash', taxonOrder: 5100,
+    familyCode: 'accipi1', familyComName: 'Hawks, Eagles, and Kites',
+    familySciName: 'Accipitridae',
+  },
+  {
+    sciName: 'Anas platyrhynchos (Domestic type)',
+    comName: 'Mallard (Domestic type)',
+    speciesCode: 'maldom', category: 'domestic', taxonOrder: 250,
+    familyCode: 'anatid1', familyComName: 'Ducks, Geese, and Waterfowl',
+    familySciName: 'Anatidae',
+  },
+  {
+    sciName: 'Columba livia (Feral Pigeon)', comName: 'Rock Pigeon (Feral Pigeon)',
+    speciesCode: 'rocpig1', category: 'form', taxonOrder: 14000,
+    familyCode: 'columb1', familyComName: 'Pigeons and Doves',
+    familySciName: 'Columbidae',
+  },
+  // Forward-compat: an eBird-invented 8th category. Must be filtered out so
+  // a future schema change can't silently land rows with unknown semantics.
+  // The Set<EbirdTaxon['category']> typing in run-taxonomy.ts ensures we
+  // can't accidentally widen the allowlist without a type-system signal.
+  {
+    sciName: 'Future Sp.', comName: 'Future Category Bird',
+    speciesCode: 'z99999', category: 'newcategory', taxonOrder: 99999,
+    familyCode: 'futur1', familyComName: 'Future Family',
+    familySciName: 'Futuridae',
   },
 ];
 
@@ -79,7 +141,7 @@ afterAll(async () => {
 });
 
 describe('runTaxonomy', () => {
-  it('fetches taxonomy, filters to species, upserts species_meta, records success run', async () => {
+  it('fetches taxonomy, keeps all 7 known categories, upserts species_meta, records success run', async () => {
     server.use(
       http.get('https://api.ebird.org/v2/ref/taxonomy/ebird', () =>
         HttpResponse.json(TAXONOMY_FIXTURE)
@@ -92,8 +154,10 @@ describe('runTaxonomy', () => {
 
     expect(summary.status).toBe('success');
     expect(summary.totalFetched).toBe(7);
-    expect(summary.nonSpeciesFiltered).toBe(2);
-    expect(summary.speciesInserted).toBe(5);
+    // Post-#527 PR-2: issf + spuh are kept alongside species. Nothing is
+    // filtered because all 7 fixture rows match a known category.
+    expect(summary.nonSpeciesFiltered).toBe(0);
+    expect(summary.speciesInserted).toBe(7);
 
     // Verify a real row landed. `family_code` is derived from `familySciName`
     // (lowercased) — not eBird's `familyCode` — because family_silhouettes is
@@ -109,16 +173,50 @@ describe('runTaxonomy', () => {
       taxonOrder: 30501,
     });
 
-    // Non-species rows are not written.
-    expect(await getSpeciesMeta(db.pool, 'daejun1')).toBeNull();
-    expect(await getSpeciesMeta(db.pool, 'y00005')).toBeNull();
+    // The hybrid/spuh/issf rows that #484 used to drop now land. This is the
+    // structural fix for the x00013 incident (#527).
+    expect(await getSpeciesMeta(db.pool, 'daejun1')).not.toBeNull();
+    expect(await getSpeciesMeta(db.pool, 'y00005')).not.toBeNull();
 
     // Ingest run is recorded with kind='taxonomy' and status='success'.
     const runs = await getRecentIngestRuns(db.pool, 5);
     expect(runs[0]?.kind).toBe('taxonomy');
     expect(runs[0]?.status).toBe('success');
     expect(runs[0]?.obsFetched).toBe(7);
-    expect(runs[0]?.obsUpserted).toBe(5);
+    expect(runs[0]?.obsUpserted).toBe(7);
+  });
+
+  it('keeps all 7 eBird categories and filters out unknown future categories (#527 forward-compat)', async () => {
+    server.use(
+      http.get('https://api.ebird.org/v2/ref/taxonomy/ebird', () =>
+        HttpResponse.json(ALL_CATEGORIES_FIXTURE)
+      )
+    );
+
+    const summary = await runTaxonomy({
+      pool: db.pool, apiKey: 'test-key',
+    });
+
+    expect(summary.status).toBe('success');
+    expect(summary.totalFetched).toBe(8);
+    // 7 known categories kept + 1 unknown ('newcategory') filtered.
+    expect(summary.nonSpeciesFiltered).toBe(1);
+    expect(summary.speciesInserted).toBe(7);
+
+    // Each of the 7 known categories produced a species_meta row.
+    expect(await getSpeciesMeta(db.pool, 'verfly')).not.toBeNull();  // species
+    expect(await getSpeciesMeta(db.pool, 'daejun1')).not.toBeNull(); // issf
+    expect(await getSpeciesMeta(db.pool, 'x00013')).not.toBeNull();  // hybrid
+    expect(await getSpeciesMeta(db.pool, 'y00005')).not.toBeNull();  // spuh
+    expect(await getSpeciesMeta(db.pool, 'y00050')).not.toBeNull();  // slash
+    expect(await getSpeciesMeta(db.pool, 'maldom')).not.toBeNull();  // domestic
+    expect(await getSpeciesMeta(db.pool, 'rocpig1')).not.toBeNull(); // form
+
+    // The forward-compat row with an unknown category is NOT upserted. If
+    // eBird ever invents an 8th category, the relaxed missing-code invariant
+    // in run-ingest.ts (PR-3, gated on #528) is what surfaces it — not a
+    // silent insert here with unknown semantics.
+    expect(await getSpeciesMeta(db.pool, 'z99999')).toBeNull();
   });
 
   it('reconcile-stamps existing observations — post-run they carry silhouette_id and region_id', async () => {

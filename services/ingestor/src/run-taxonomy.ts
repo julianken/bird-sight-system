@@ -43,7 +43,20 @@ export async function runTaxonomy(opts: RunTaxonomyOptions): Promise<RunTaxonomy
   const runId = await startIngestRun(opts.pool, 'taxonomy');
   try {
     const taxonomy = await client.fetchTaxonomy();
-    const speciesOnly = taxonomy.filter(t => t.category === 'species');
+    // eBird's category enum is a closed union of 7 values (see
+    // `ebird/types.ts:42`). We keep all of them here so the monthly taxonomy
+    // cron populates species_meta for hybrid/spuh/slash/domestic/form/issf
+    // rows (not just true species). PR #484's species-only invariant
+    // previously stalled production for 42h on a missing hybrid (`x00013`,
+    // Bullock's x Baltimore Oriole); see issue #527 for the incident. The
+    // allowlist shape is deliberate: if eBird invents an 8th category, it
+    // falls through and is logged by the relaxed invariant in
+    // `run-ingest.ts` (#527 PR-3, gated on #528) rather than silently
+    // upserted with unknown semantics.
+    const KEPT_CATEGORIES = new Set<EbirdTaxon['category']>([
+      'species', 'issf', 'hybrid', 'spuh', 'slash', 'domestic', 'form',
+    ]);
+    const speciesOnly = taxonomy.filter(t => KEPT_CATEGORIES.has(t.category));
     const nonSpeciesFiltered = taxonomy.length - speciesOnly.length;
 
     const inputs = speciesOnly.map(toSpeciesMeta);
