@@ -11,7 +11,7 @@ The system is treated as a microservice architecture, not a single app. The user
 
 ## Architecture
 
-Three external dependencies + four internal services.
+Two external dependencies + four internal services.
 
 ### External (consumed, not owned)
 
