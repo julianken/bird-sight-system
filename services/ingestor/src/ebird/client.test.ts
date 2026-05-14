@@ -70,7 +70,12 @@ describe('EbirdClient.fetchTaxonomy', () => {
     server.use(
       http.get('https://api.ebird.org/v2/ref/taxonomy/ebird', ({ request }) => {
         const url = new URL(request.url);
-        expect(url.searchParams.get('cat')).toBe('species');
+        // `cat` IS server-side (see client.ts comment + issue #527): we must
+        // pass the full 7-category union explicitly. `cat=species` alone
+        // returns ~11.2k rows; the full list returns ~17.8k.
+        expect(url.searchParams.get('cat')).toBe(
+          'species,issf,hybrid,spuh,slash,domestic,form'
+        );
         expect(url.searchParams.get('fmt')).toBe('json');
         expect(url.searchParams.get('locale')).toBe('en');
         // eBird's /ref/taxonomy/ebird requires a NUMERIC version (e.g. 2024) OR
