@@ -55,9 +55,8 @@ export async function upsertHotspots(pool: Pool, inputs: HotspotInput[]): Promis
       latest_obs_dt       = EXCLUDED.latest_obs_dt
   `;
 
-  // region_id stamping was removed in #532 (PR-1 of 4). The per-state
-  // ecoregion concept is being retired from the data layer; the column
-  // itself is dropped in PR-3. This is the incidental retirement of #527's
+  // region_id stamping was removed in #532 (PR-1 of 4); the column itself
+  // is dropped in PR-3. This is the incidental retirement of #527's
   // Recommendation 0C (docs/analyses/2026-05-14-process-scale-options/
   // phase-4/analysis-report.md).
   await pool.query(insertSql, values);
