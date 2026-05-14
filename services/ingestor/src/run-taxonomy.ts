@@ -66,9 +66,10 @@ export async function runTaxonomy(opts: RunTaxonomyOptions): Promise<RunTaxonomy
       speciesInserted += await upsertSpeciesMeta(opts.pool, chunk);
     }
 
-    // Fill silhouette_id / region_id on rows whose species_meta JOIN previously
-    // found nothing. Idempotent — a no-op on subsequent runs once all rows are
-    // stamped.
+    // Fill silhouette_id on rows whose species_meta JOIN previously found
+    // nothing. Idempotent — a no-op on subsequent runs once all rows are
+    // stamped. (region_id stamping was removed in #532 PR-1; the column
+    // itself is dropped in PR-3.)
     const reconciled = await runReconcileStamping(opts.pool);
 
     await finishIngestRun(opts.pool, runId, {

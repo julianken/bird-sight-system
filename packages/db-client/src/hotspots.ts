@@ -55,23 +55,11 @@ export async function upsertHotspots(pool: Pool, inputs: HotspotInput[]): Promis
       latest_obs_dt       = EXCLUDED.latest_obs_dt
   `;
 
-  const updateSql = `
-    UPDATE hotspots h
-    SET region_id = (
-      SELECT r.id FROM regions r
-      WHERE ST_Contains(r.geom, h.geom)
-      ORDER BY ST_Area(r.geom) ASC
-      LIMIT 1
-    )
-    WHERE region_id IS NULL OR region_id <> (
-      SELECT r.id FROM regions r
-      WHERE ST_Contains(r.geom, h.geom)
-      ORDER BY ST_Area(r.geom) ASC
-      LIMIT 1
-    )
-  `;
-
+  // region_id stamping was removed in #532 (PR-1 of 4). The per-state
+  // ecoregion concept is being retired from the data layer; the column
+  // itself is dropped in PR-3. This is the incidental retirement of #527's
+  // Recommendation 0C (docs/analyses/2026-05-14-process-scale-options/
+  // phase-4/analysis-report.md).
   await pool.query(insertSql, values);
-  await pool.query(updateSql);
   return inputs.length;
 }

@@ -66,12 +66,6 @@ export async function upsertObservations(
   const stampSql = `
     UPDATE observations o
     SET
-      region_id = (
-        SELECT r.id FROM regions r
-        WHERE ST_Contains(r.geom, o.geom)
-        ORDER BY ST_Area(r.geom) ASC
-        LIMIT 1
-      ),
       silhouette_id = (
         SELECT fs.id
         FROM species_meta sm
@@ -82,7 +76,7 @@ export async function upsertObservations(
     FROM (VALUES ${stampPlaceholders.join(',')}) AS batch(sub_id, species_code)
     WHERE o.sub_id = batch.sub_id
       AND o.species_code = batch.species_code
-      AND (o.region_id IS NULL OR o.silhouette_id IS NULL)
+      AND o.silhouette_id IS NULL
   `;
 
   await pool.query(insertSql, values);
@@ -91,8 +85,8 @@ export async function upsertObservations(
 }
 
 /**
- * Re-runs the region/silhouette stamping UPDATE across ALL observations whose
- * region_id or silhouette_id is still NULL. Idempotent.
+ * Re-runs the silhouette stamping UPDATE across ALL observations whose
+ * silhouette_id is still NULL. Idempotent.
  *
  * upsertObservations stamps only the rows in its own batch (the UPDATE is
  * scoped to the batch's (sub_id, species_code) pairs). Anything that was NULL
@@ -100,18 +94,16 @@ export async function upsertObservations(
  * species_meta was empty at the time, as on prod pre-#83 — stays NULL until
  * this function sweeps it. Run once at the end of a taxonomy or backfill run.
  *
+ * Note: region_id is no longer stamped here as of #532 (PR-1 of 4). The
+ * per-state ecoregion concept is being removed from the data layer; the
+ * column itself is dropped in PR-3.
+ *
  * Returns the number of rows updated.
  */
 export async function runReconcileStamping(pool: Pool): Promise<number> {
   const { rowCount } = await pool.query(`
     UPDATE observations o
     SET
-      region_id = COALESCE(o.region_id, (
-        SELECT r.id FROM regions r
-        WHERE ST_Contains(r.geom, o.geom)
-        ORDER BY ST_Area(r.geom) ASC
-        LIMIT 1
-      )),
       silhouette_id = COALESCE(o.silhouette_id, (
         SELECT fs.id
         FROM species_meta sm
@@ -119,7 +111,7 @@ export async function runReconcileStamping(pool: Pool): Promise<number> {
         WHERE sm.species_code = o.species_code
         LIMIT 1
       ))
-    WHERE o.region_id IS NULL OR o.silhouette_id IS NULL
+    WHERE o.silhouette_id IS NULL
   `);
   return rowCount ?? 0;
 }

@@ -37,21 +37,32 @@ describe('upsertObservations', () => {
     },
   ];
 
-  it('inserts new observations and stamps region_id + silhouette_id', async () => {
+  it('inserts new observations and stamps silhouette_id (region_id no longer written; #532)', async () => {
     const count = await upsertObservations(db.pool, sample);
     expect(count).toBe(2);
 
     const all = await getObservations(db.pool, {});
     expect(all).toHaveLength(2);
     const verm = all.find(o => o.subId === 'S100')!;
-    expect(verm.regionId).toBe('sky-islands-santa-ritas');
+    expect(verm.regionId).toBeNull();
     expect(verm.silhouetteId).toBe('tyrannidae');
     expect(verm.familyCode).toBe('tyrannidae');
     const anna = all.find(o => o.subId === 'S101')!;
-    expect(anna.regionId).toBe('sonoran-tucson');
+    expect(anna.regionId).toBeNull();
     expect(anna.silhouetteId).toBe('trochilidae');
     expect(anna.familyCode).toBe('trochilidae');
     expect(anna.isNotable).toBe(true);
+  });
+
+  it('does not write observations.region_id for new rows (#532 PR-1 regression)', async () => {
+    await upsertObservations(db.pool, sample);
+    const { rows } = await db.pool.query<{ region_id: string | null }>(
+      'SELECT region_id FROM observations'
+    );
+    expect(rows).toHaveLength(2);
+    for (const r of rows) {
+      expect(r.region_id).toBeNull();
+    }
   });
 
   it('returns familyCode = null when the species is absent from species_meta (#57)', async () => {
@@ -90,7 +101,7 @@ describe('upsertObservations', () => {
 
   it('scopes the stamp UPDATE to the current batch — pre-existing NULL-stamp residue is not touched (#505)', async () => {
     // Insert N₁ pre-existing rows directly (bypassing upsertObservations) with
-    // region_id NULL — these simulate the NULL-stamp residue that turned the
+    // silhouette_id NULL — these simulate the NULL-stamp residue that turned the
     // per-iteration stamp UPDATE into an O(table) scan on every backfill day.
     const residueRows: string[] = [];
     const residueValues: unknown[] = [];
@@ -111,29 +122,27 @@ describe('upsertObservations', () => {
        VALUES ${residueRows.join(',')}`,
       residueValues
     );
-    // Force NULL stamps on the residue rows.
-    await db.pool.query("UPDATE observations SET region_id = NULL, silhouette_id = NULL");
+    // Force NULL silhouette stamps on the residue rows.
+    await db.pool.query("UPDATE observations SET silhouette_id = NULL");
 
     // Now call upsertObservations with a small batch of M new rows.
     const count = await upsertObservations(db.pool, sample);
     expect(count).toBe(2);
 
-    // Assert: the M new rows are stamped...
+    // Assert: the M new rows have their silhouette_id stamped...
     const all = await getObservations(db.pool, {});
     const newVerm = all.find(o => o.subId === 'S100')!;
-    expect(newVerm.regionId).toBe('sky-islands-santa-ritas');
     expect(newVerm.silhouetteId).toBe('tyrannidae');
     const newAnna = all.find(o => o.subId === 'S101')!;
-    expect(newAnna.regionId).toBe('sonoran-tucson');
+    expect(newAnna.silhouetteId).toBe('trochilidae');
 
     // ...AND the N₁ pre-existing NULL residue rows are STILL NULL — proving
     // the stamp UPDATE was scoped to the batch, not the table.
-    const residueAfter = await db.pool.query<{ region_id: string | null; silhouette_id: string | null }>(
-      "SELECT region_id, silhouette_id FROM observations WHERE sub_id LIKE 'R-%'"
+    const residueAfter = await db.pool.query<{ silhouette_id: string | null }>(
+      "SELECT silhouette_id FROM observations WHERE sub_id LIKE 'R-%'"
     );
     expect(residueAfter.rows).toHaveLength(100);
     for (const r of residueAfter.rows) {
-      expect(r.region_id).toBeNull();
       expect(r.silhouette_id).toBeNull();
     }
   });
@@ -182,7 +191,7 @@ describe('getObservations filters', () => {
 });
 
 describe('runReconcileStamping', () => {
-  it('fills NULL silhouette_id / region_id on existing rows after species_meta lands', async () => {
+  it('fills NULL silhouette_id on existing rows after species_meta lands', async () => {
     // Wipe species_meta so the initial upsert leaves silhouette_id NULL (the
     // exact prod shape in #83: observations ingested before species_meta was
     // populated).
@@ -197,9 +206,6 @@ describe('runReconcileStamping', () => {
     ]);
     const before = await getObservations(db.pool, {});
     expect(before[0]?.silhouetteId).toBeNull();
-    // region_id comes from the geometry JOIN which is independent of species_meta,
-    // so it is already populated. Null it out to prove reconcile fills it too.
-    await db.pool.query("UPDATE observations SET region_id = NULL WHERE sub_id = 'S900'");
 
     // Populate species_meta (simulating a successful runTaxonomy) and reconcile.
     await db.pool.query(
@@ -211,7 +217,9 @@ describe('runReconcileStamping', () => {
 
     const after = await getObservations(db.pool, {});
     expect(after[0]?.silhouetteId).toBe('tyrannidae');
-    expect(after[0]?.regionId).toBe('sky-islands-santa-ritas');
+    // region_id is no longer stamped by reconcile as of #532 (PR-1); the
+    // column itself is dropped in PR-3.
+    expect(after[0]?.regionId).toBeNull();
   });
 
   it('is idempotent — a second run touches no rows', async () => {

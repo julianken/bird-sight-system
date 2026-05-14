@@ -18,7 +18,7 @@ beforeEach(async () => { await db.pool.query('TRUNCATE hotspots'); });
 afterAll(async () => { server.close(); await db?.stop(); });
 
 describe('runHotspotIngest', () => {
-  it('fetches hotspots from eBird and upserts with region stamping', async () => {
+  it('fetches hotspots from eBird and upserts them (region stamping removed in #532 PR-1)', async () => {
     server.use(
       http.get('https://api.ebird.org/v2/ref/hotspot/US-AZ', () => HttpResponse.json([
         { locId: 'L1', locName: 'Madera Canyon', countryCode: 'US',
