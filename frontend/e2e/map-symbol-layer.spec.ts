@@ -64,7 +64,6 @@ function observationFixture(): Observation[] {
       locName: 'Sweetwater Wetlands',
       howMany: 1,
       isNotable: false,
-      regionId: null,
       silhouetteId: 'tyrannidae',
       familyCode: 'tyrannidae',
     },

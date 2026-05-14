@@ -18,7 +18,6 @@ export interface Observation {
   locName: string | null;
   howMany: number | null;
   isNotable: boolean;
-  regionId: string | null;
   silhouetteId: string | null;
   // familyCode is nullable, NOT optional. The Read API populates it from
   // species_meta via a LEFT JOIN, so a species absent from species_meta

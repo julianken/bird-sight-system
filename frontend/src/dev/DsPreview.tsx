@@ -50,7 +50,6 @@ const CANNED_NOTABLE: NotableObservation = {
   locName: 'Papago Park',
   howMany: 3,
   isNotable: true,
-  regionId: 'AZ',
   silhouetteId: null,
   familyCode: 'tyrannidae',
   taxonOrder: 4400,
@@ -63,21 +62,21 @@ const CANNED_FLAT: Observation[] = [
     lat: 33.46, lng: -112.08,
     obsDt: new Date(Date.now() - 45 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19),
     locId: 'L002', locName: 'South Mountain', howMany: 1, isNotable: false,
-    regionId: 'AZ', silhouetteId: null, familyCode: 'picidae', taxonOrder: 5200,
+    silhouetteId: null, familyCode: 'picidae', taxonOrder: 5200,
   },
   {
     subId: 'S003', speciesCode: 'incdov', comName: 'Inca Dove',
     lat: 33.44, lng: -112.06,
     obsDt: new Date(Date.now() - 90 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19),
     locId: 'L003', locName: 'Desert Botanical Garden', howMany: null, isNotable: false,
-    regionId: 'AZ', silhouetteId: null, familyCode: 'columbidae', taxonOrder: 3100,
+    silhouetteId: null, familyCode: 'columbidae', taxonOrder: 3100,
   },
   {
     subId: 'S004', speciesCode: 'annhum', comName: "Anna's Hummingbird",
     lat: 33.47, lng: -112.05,
     obsDt: new Date(Date.now() - 120 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19),
     locId: 'L004', locName: 'Phoenix Zoo', howMany: 2, isNotable: false,
-    regionId: 'AZ', silhouetteId: null, familyCode: 'trochilidae', taxonOrder: 1600,
+    silhouetteId: null, familyCode: 'trochilidae', taxonOrder: 1600,
   },
 ];
 

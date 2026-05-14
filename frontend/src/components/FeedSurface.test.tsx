@@ -20,7 +20,6 @@ function obs(partial: Partial<Observation>): Observation {
     locName: partial.locName ?? 'Sabino Canyon',
     howMany: partial.howMany ?? 1,
     isNotable: partial.isNotable ?? false,
-    regionId: null,
     silhouetteId: null,
     familyCode: null,
   };
@@ -609,7 +608,6 @@ describe('FeedSurface — DB color threading (NEW-3 fix)', () => {
     locName: 'Sabino Canyon',
     howMany: 1,
     isNotable: false,
-    regionId: null,
     silhouetteId: null,
     familyCode: 'tyrannidae',
   };
@@ -680,7 +678,6 @@ describe('FeedSurface — row virtualization (issue #509)', () => {
       locName: 'Test Canyon',
       howMany: 1,
       isNotable: false as const,
-      regionId: null,
       silhouetteId: null,
       familyCode: null,
     }));

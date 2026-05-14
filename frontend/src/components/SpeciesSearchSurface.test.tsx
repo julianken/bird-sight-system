@@ -25,7 +25,6 @@ function obs(partial: Partial<Observation>): Observation {
     locName: partial.locName ?? 'Sabino Canyon',
     howMany: partial.howMany ?? 1,
     isNotable: partial.isNotable ?? false,
-    regionId: null,
     silhouetteId: null,
     familyCode: null,
   };

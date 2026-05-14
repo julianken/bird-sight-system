@@ -20,7 +20,6 @@ const NOTABLE_OBS: NotableObservation = {
   locName: 'Sabino Canyon',
   howMany: 3,
   isNotable: true,
-  regionId: null,
   silhouetteId: null,
   familyCode: 'tyrannidae',
 };

@@ -300,7 +300,6 @@ describe('Phase 5: FeedSurface lede wiring (App → FeedSurface)', () => {
     locName: 'Sabino Canyon',
     howMany: 1,
     isNotable: false,
-    regionId: null,
     silhouetteId: null,
     familyCode: 'songbird',
   };
@@ -364,7 +363,6 @@ describe('Phase 5: FeedSurface cross-surface FilterSentence drift regression', (
     locName: 'Sabino Canyon',
     howMany: 1,
     isNotable: false,
-    regionId: null,
     silhouetteId: null,
     familyCode: 'songbird',
   };
@@ -412,7 +410,6 @@ describe('L2: freshness empty state (null freshestObservationAt)', () => {
     locName: 'Sabino Canyon',
     howMany: 1,
     isNotable: false,
-    regionId: null,
     silhouetteId: null,
     familyCode: null,
   };
@@ -455,7 +452,6 @@ describe('L3: nowTick advances on visibilitychange (tab return)', () => {
     locName: 'Sabino Canyon',
     howMany: 1,
     isNotable: false,
-    regionId: null,
     silhouetteId: null,
     familyCode: null,
   };

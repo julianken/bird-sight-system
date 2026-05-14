@@ -129,7 +129,6 @@ function stackedObs(): Observation[] {
     locName: 'Sweetwater Wetlands',
     howMany: 1,
     isNotable: false,
-    regionId: null,
     silhouetteId: familyCode,
     familyCode,
   }));

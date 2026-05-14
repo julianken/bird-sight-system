@@ -39,7 +39,6 @@ function clusterAt(
     locName: 'Test Hotspot',
     howMany: 1,
     isNotable: false,
-    regionId: null,
     silhouetteId: null,
     familyCode: family,
   }));

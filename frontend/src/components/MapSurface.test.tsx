@@ -53,7 +53,6 @@ function makeObs(overrides: Partial<Observation> & { subId: string }): Observati
     locName: 'X',
     howMany: 1,
     isNotable: false,
-    regionId: null,
     silhouetteId: null,
     familyCode: null,
     ...overrides,
@@ -138,7 +137,6 @@ function obs(subId: string, lat: number, lng: number): Observation {
     locName: 'X',
     howMany: 1,
     isNotable: false,
-    regionId: null,
     silhouetteId: null,
     familyCode: null,
   };

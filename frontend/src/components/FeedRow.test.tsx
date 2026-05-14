@@ -17,7 +17,6 @@ const BASE_OBS: Observation = {
   locName: 'Sabino Canyon',
   howMany: 1,
   isNotable: false,
-  regionId: null,
   silhouetteId: null,
   familyCode: 'tyrannidae',
 };

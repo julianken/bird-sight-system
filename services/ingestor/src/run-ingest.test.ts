@@ -68,12 +68,12 @@ describe('runIngest', () => {
     const obs = await getObservations(db.pool, {});
     expect(obs).toHaveLength(2);
     const verm = obs.find(o => o.subId === 'S100')!;
-    // region_id no longer written by ingest as of #532 (PR-1); column dropped in PR-3.
-    expect(verm.regionId).toBeNull();
+    // regionId removed from wire shape by PR-2 of #532; column dropped in PR-3.
+    expect(verm).not.toHaveProperty('regionId');
     expect(verm.silhouetteId).toBe('tyrannidae');
     expect(verm.isNotable).toBe(false);
     const anna = obs.find(o => o.subId === 'S101')!;
-    expect(anna.regionId).toBeNull();
+    expect(anna).not.toHaveProperty('regionId');
     expect(anna.silhouetteId).toBe('trochilidae');
     expect(anna.isNotable).toBe(true);
 

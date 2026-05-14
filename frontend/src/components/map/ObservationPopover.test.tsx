@@ -16,7 +16,6 @@ function makeObs(partial: Partial<Observation> = {}): Observation {
     locName: 'locName' in partial ? (partial.locName as string | null) : 'Sabino Canyon',
     howMany: 'howMany' in partial ? (partial.howMany as number | null) : 3,
     isNotable: partial.isNotable ?? false,
-    regionId: null,
     silhouetteId: null,
     familyCode: null,
   };
