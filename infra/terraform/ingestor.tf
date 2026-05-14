@@ -258,8 +258,9 @@ resource "google_cloud_scheduler_job" "ingest_hotspots" {
 
 # Monthly refresh of species_meta from eBird's taxonomy endpoint. eBird ships a
 # new taxonomy version yearly, so monthly is comfortably ahead of drift. After
-# upsert, the job also reconciles region_id / silhouette_id across observations
-# that lacked a species_meta row at original ingest time (the #83 fix path).
+# upsert, the job also reconciles silhouette_id across observations that lacked
+# a species_meta row at original ingest time (the #83 fix path; region_id
+# reconcile was retired with the regions table in #532 PR-3 #536).
 resource "google_cloud_scheduler_job" "ingest_taxonomy" {
   name      = "bird-ingest-taxonomy"
   region    = var.gcp_region

@@ -16,7 +16,7 @@ sequenceDiagram
 
     Ingestor->>eBird: GET /data/obs/US-AZ/recent
     Ingestor->>eBird: GET /data/obs/US-AZ/recent/notable
-    Ingestor->>Postgres: INSERT observations (with ST_Contains region stamp)
+    Ingestor->>Postgres: INSERT observations (upsert + silhouette stamp)
 ```
 
 ## Summary

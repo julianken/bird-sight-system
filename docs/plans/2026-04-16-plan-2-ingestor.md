@@ -1,5 +1,7 @@
 # Ingestor Service Implementation Plan
 
+> **Update 2026-05-14:** the `regions` table and `region_id` stamping path were removed via epic #532 (PRs #534, #535, #536; audit at `docs/analyses/2026-05-14-region-removal-audit/`). Every `regionId` / `region_id` reference below describes the original plan as executed and is preserved for historical traceability. The live ingestor no longer writes `region_id`; only `silhouette_id` is stamped. Note: `regionCode: 'US-AZ'` in test fixtures refers to the eBird API's region path-parameter (an external API surface, not the internal region concept) and is still valid.
+
 > **Status: superseded by current ingestor implementation** — executed 2026-04-19; Epic-251 added `run-taxonomy` and `run-hotspots` ingest layers post-plan (family silhouettes pipeline). Do not re-execute verbatim.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

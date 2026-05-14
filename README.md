@@ -10,11 +10,11 @@ A web app that renders recent eBird observations across Arizona on a MapLibre GL
 
 ## Architecture
 
-Three external dependencies + four internal services. Monorepo. Everything provisioned by Terraform.
+Two external dependencies + four internal services. Monorepo. Everything provisioned by Terraform.
 
 - **eBird API** → polled every 30 min by the Ingestor
-- **Phylopic** + **EPA / BCR ecoregions** → one-time seed
-- **Ingestor** (GCP Cloud Run Job, Cloud Scheduler-triggered) → upserts to Postgres, stamps `region_id` via PostGIS
+- **Phylopic** → one-time seed of family silhouettes
+- **Ingestor** (GCP Cloud Run Job, Cloud Scheduler-triggered) → upserts to Postgres, stamps `silhouette_id` via family-code lookup
 - **Read API** (GCP Cloud Run Service, scale-to-zero) → serves typed JSON with per-endpoint cache TTLs
 - **Postgres + PostGIS** (Neon, serverless, scale-to-zero) → persistent rolling store, analytics-ready
 - **Frontend** (React + Vite, Cloudflare Pages) → MapLibre GL JS real-geographic map, StackedSilhouetteMarker clustering, FamilyLegend, FiltersBar
