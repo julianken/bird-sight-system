@@ -20,7 +20,6 @@ function obs(subId: string, lat: number, lng: number): Observation {
     locName: 'X',
     howMany: 1,
     isNotable: false,
-    regionId: null,
     silhouetteId: null,
     familyCode: null,
   };

@@ -37,18 +37,18 @@ describe('upsertObservations', () => {
     },
   ];
 
-  it('inserts new observations and stamps silhouette_id (region_id no longer written; #532)', async () => {
+  it('inserts new observations and stamps silhouette_id (regionId removed from wire shape; #532)', async () => {
     const count = await upsertObservations(db.pool, sample);
     expect(count).toBe(2);
 
     const all = await getObservations(db.pool, {});
     expect(all).toHaveLength(2);
     const verm = all.find(o => o.subId === 'S100')!;
-    expect(verm.regionId).toBeNull();
+    expect(verm).not.toHaveProperty('regionId');
     expect(verm.silhouetteId).toBe('tyrannidae');
     expect(verm.familyCode).toBe('tyrannidae');
     const anna = all.find(o => o.subId === 'S101')!;
-    expect(anna.regionId).toBeNull();
+    expect(anna).not.toHaveProperty('regionId');
     expect(anna.silhouetteId).toBe('trochilidae');
     expect(anna.familyCode).toBe('trochilidae');
     expect(anna.isNotable).toBe(true);
@@ -217,9 +217,9 @@ describe('runReconcileStamping', () => {
 
     const after = await getObservations(db.pool, {});
     expect(after[0]?.silhouetteId).toBe('tyrannidae');
-    // region_id is no longer stamped by reconcile as of #532 (PR-1); the
-    // column itself is dropped in PR-3.
-    expect(after[0]?.regionId).toBeNull();
+    // regionId removed from wire shape by PR-2 of #532; the DB column is
+    // dropped in PR-3.
+    expect(after[0]).not.toHaveProperty('regionId');
   });
 
   it('is idempotent — a second run touches no rows', async () => {

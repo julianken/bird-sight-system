@@ -248,8 +248,8 @@ describe('runTaxonomy', () => {
     const after = await getObservations(db.pool, {});
     // verfly → tyrann1 → silhouette 'tyrannidae' (seeded in migration 9)
     expect(after[0]?.silhouetteId).toBe('tyrannidae');
-    // region_id no longer stamped by reconcile as of #532 (PR-1); column dropped in PR-3.
-    expect(after[0]?.regionId).toBeNull();
+    // regionId removed from wire shape by PR-2 of #532; column dropped in PR-3.
+    expect(after[0]).not.toHaveProperty('regionId');
     // comName now resolves through species_meta instead of falling back to code
     expect(after[0]?.comName).toBe('Vermilion Flycatcher');
   });

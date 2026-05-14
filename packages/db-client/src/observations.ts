@@ -148,7 +148,7 @@ export async function getObservations(
     SELECT
       o.sub_id, o.species_code, sm.com_name, sm.family_code,
       o.lat, o.lng, o.obs_dt, o.loc_id, o.loc_name, o.how_many,
-      o.is_notable, o.region_id, o.silhouette_id
+      o.is_notable, o.silhouette_id
     FROM observations o
     LEFT JOIN species_meta sm ON sm.species_code = o.species_code
     ${where}
@@ -167,7 +167,6 @@ export async function getObservations(
     loc_name: string | null;
     how_many: number | null;
     is_notable: boolean;
-    region_id: string | null;
     silhouette_id: string | null;
   }>(sql, params);
 
@@ -186,7 +185,6 @@ export async function getObservations(
     locName: r.loc_name,
     howMany: r.how_many,
     isNotable: r.is_notable,
-    regionId: r.region_id,
     silhouetteId: r.silhouette_id,
     familyCode: r.family_code,
   }));

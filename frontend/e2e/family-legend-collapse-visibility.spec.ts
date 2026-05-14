@@ -73,7 +73,6 @@ function stubObservations(): Observation[] {
       obsDt: '2026-05-01',
       howMany: 1,
       isNotable: false,
-      regionId: '1',
       silhouetteId: null,
     },
   ];

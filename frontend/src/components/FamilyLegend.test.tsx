@@ -47,7 +47,6 @@ function obs(subId: string, familyCode: string): Observation {
     locName: 'X',
     howMany: 1,
     isNotable: false,
-    regionId: null,
     silhouetteId: null,
     familyCode,
   };

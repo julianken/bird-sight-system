@@ -76,7 +76,7 @@ const _obs: Observation = {
   subId: 'S1', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
   lat: 31.72, lng: -110.88, obsDt: '2026-05-11T10:00:00.000Z',
   locId: 'L1', locName: null, howMany: 1, isNotable: false,
-  regionId: null, silhouetteId: null, familyCode: 'tyrannidae',
+  silhouetteId: null, familyCode: 'tyrannidae',
 };
 const _freshResponse: ObservationsResponse = {
   data: [_obs],
