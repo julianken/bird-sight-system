@@ -66,10 +66,13 @@ export class EbirdClient {
   }
 
   /**
-   * Fetches the full eBird taxonomy (~17k rows including issf/spuh/slash/form/
-   * hybrid sub-categories). The `cat=species` parameter is an eBird server-side
-   * hint but does not actually restrict the response — callers MUST still filter
-   * to `category === 'species'` before writing to species_meta.
+   * Fetches eBird taxonomy across all 7 categories (species, issf, hybrid,
+   * spuh, slash, domestic, form) — ~17.8k rows. `cat` IS server-side: probes
+   * confirmed `cat=species` returns 11,167 rows vs 17,891 with no `cat` param
+   * and 17,849 with the full 7-value list (see issue #527). We pass the list
+   * explicitly to match our typed `EbirdTaxon['category']` union — if eBird
+   * ever invents an 8th category it falls through `run-taxonomy.ts`'s
+   * `KEPT_CATEGORIES` allowlist rather than being silently upserted.
    *
    * NOTE: no `version` param. `/ref/taxonomy/ebird` wants a NUMERIC version
    * (e.g. 2024) — sending `version=latest` triggers `400 typeMismatch`
@@ -79,7 +82,7 @@ export class EbirdClient {
    */
   async fetchTaxonomy(): Promise<EbirdTaxon[]> {
     const url = new URL(`${this.baseUrl}/ref/taxonomy/ebird`);
-    url.searchParams.set('cat', 'species');
+    url.searchParams.set('cat', 'species,issf,hybrid,spuh,slash,domestic,form');
     url.searchParams.set('fmt', 'json');
     url.searchParams.set('locale', 'en');
     return this.getJson<EbirdTaxon[]>(url);
