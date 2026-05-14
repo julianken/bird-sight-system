@@ -60,15 +60,10 @@ jobs:
               ('S_e2e_4', 'eletro1',  31.75, -110.87, NOW(), 'L_e2e_4', 'Madera Canyon',  1, true)
             ON CONFLICT (sub_id, species_code) DO NOTHING;
 
-            -- 3. Stamp region_id (smallest-area ST_Contains) and silhouette_id (via species_meta → family_silhouettes).
+            -- 3. Stamp silhouette_id (via species_meta → family_silhouettes).
+            --    region_id stamping was retired with the regions table in #532 PR-3.
             UPDATE observations o
             SET
-              region_id = (
-                SELECT r.id FROM regions r
-                WHERE ST_Contains(r.geom, o.geom)
-                ORDER BY ST_Area(r.geom) ASC
-                LIMIT 1
-              ),
               silhouette_id = (
                 SELECT fs.id
                 FROM species_meta sm
@@ -78,8 +73,8 @@ jobs:
               )
             WHERE o.sub_id LIKE 'S_e2e_%';
 
-            -- 4. Confirm rows landed with region stamps.
-            SELECT count(*) FROM observations WHERE region_id IS NOT NULL;
+            -- 4. Confirm rows landed with silhouette stamps.
+            SELECT count(*) FROM observations WHERE silhouette_id IS NOT NULL;
           SEED_SQL
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium

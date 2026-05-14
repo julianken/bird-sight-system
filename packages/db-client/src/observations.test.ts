@@ -54,16 +54,11 @@ describe('upsertObservations', () => {
     expect(anna.isNotable).toBe(true);
   });
 
-  it('does not write observations.region_id for new rows (#532 PR-1 regression)', async () => {
-    await upsertObservations(db.pool, sample);
-    const { rows } = await db.pool.query<{ region_id: string | null }>(
-      'SELECT region_id FROM observations'
-    );
-    expect(rows).toHaveLength(2);
-    for (const r of rows) {
-      expect(r.region_id).toBeNull();
-    }
-  });
+  // PR-1 of #532 introduced a regression test asserting `region_id IS NULL`
+  // on new rows. PR-3 dropped the column entirely, so the raw-SQL form of
+  // that assertion now references a non-existent column. The wire-shape
+  // assertions above (`expect(verm).not.toHaveProperty('regionId')`) cover
+  // the contract that survives.
 
   it('returns familyCode = null when the species is absent from species_meta (#57)', async () => {
     // LEFT JOIN on species_meta means an observation for a species not
