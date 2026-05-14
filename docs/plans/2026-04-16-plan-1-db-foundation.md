@@ -1,5 +1,7 @@
 # Database Foundation Implementation Plan
 
+> **Update 2026-05-14:** the `regions` table and `region_id` columns on `observations` / `hotspots` were dropped via epic #532 (PRs #534, #535, #536; audit at `docs/analyses/2026-05-14-region-removal-audit/`). Task 5 (`regions` table), Task 11 (Arizona ecoregion seed), and every `region_id` line in Tasks 6, 7, 8, and the reconcile-UPDATE example below describe the original plan as executed and are preserved for historical traceability. The live schema no longer carries these concepts.
+
 > **Status: superseded by current monorepo state** — executed 2026-04-19; schema has evolved through migration 19700 (added `creator` and `common_name` to `family_silhouettes`); `packages/family-mapping` (Task 14) was deleted in PR #192. Do not re-execute verbatim.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

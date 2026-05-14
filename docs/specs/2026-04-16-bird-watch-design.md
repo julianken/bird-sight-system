@@ -19,13 +19,12 @@ Three external dependencies + four internal services.
 |---|---|---|
 | **eBird API** | Source of all observation and hotspot data for Arizona | Polled every 30 min |
 | **Phylopic** | Bird family silhouettes (CC-licensed) | One-time seed |
-| **EPA / BCR** | Ecoregion polygon GeoJSON for Arizona | One-time seed |
 
 ### Internal (owned, in monorepo)
 
 | Service | Type | Responsibility |
 |---|---|---|
-| **Ingestor** | Serverless function, scheduled trigger | Pulls eBird data every 30 min, plus daily back-fill; upserts into the DB; stamps each observation with its `region_id` (via PostGIS `ST_Contains`) and `silhouette_id` (via family-code lookup) |
+| **Ingestor** | Serverless function, scheduled trigger | Pulls eBird data every 30 min, plus daily back-fill; upserts into the DB; stamps each observation with its `silhouette_id` (via family-code lookup) |
 | **Read API** | Serverless function, HTTP, behind CDN | Serves typed JSON to the frontend; sets per-endpoint cache TTLs |
 | **PostgreSQL + PostGIS** | Managed serverless database | Persistent rolling store of all observations + reference data; analytics-ready |
 | **Frontend** | Static React + Vite, served from CDN | Stylized map UI, badges, inline-expansion drill-in, filter bar |
@@ -57,7 +56,7 @@ The Plan-4 SVG-ecoregion renderer was deleted in PR #166 and replaced with a Map
 |---|---|
 | `handler` | Scheduled-trigger entry point |
 | `ebird-client` | Wraps eBird API calls; handles auth header, retries, response shape |
-| `upsert` | Inserts/updates observations and hotspots; PostGIS handles region assignment in SQL |
+| `upsert` | Inserts/updates observations and hotspots |
 
 ### Read API (`services/read-api/`)
 
@@ -73,7 +72,7 @@ The Plan-4 SVG-ecoregion renderer was deleted in PR #166 and replaced with a Map
 
 | Package | Purpose |
 |---|---|
-| `shared-types` | TypeScript shapes for Observation, Region, Species, Hotspot, FamilySilhouette — used by all internal services |
+| `shared-types` | TypeScript shapes for Observation, Species, Hotspot, FamilySilhouette — used by all internal services |
 | `db-client` | Typed query layer over Postgres; used by Ingestor and Read API |
 
 `familyCode → color` and `familyCode → svgData` are no longer a compile-time lookup table: they live in the `family_silhouettes` DB table (see Data model) and are served to the frontend via `GET /api/silhouettes` (PR #172). The previous `@bird-watch/family-mapping` package was deleted in PR #192.
@@ -86,7 +85,7 @@ The Plan-4 SVG-ecoregion renderer was deleted in PR #166 and replaced with a Map
 2. Ingestor calls `eBird-client.fetchRecent("US-AZ", { back: 14 })` → returns up to 10K obs with lat/lng.
 3. Ingestor calls `eBird-client.fetchNotable("US-AZ", { back: 14 })` → returns the subset flagged as notable (rare for the area). The set of `(sub_id, species_code)` keys here is used to compute `is_notable=true` on the upsert.
 4. For each obs, Ingestor builds an upsert row keyed on `(sub_id, species_code)` to dedup re-fetches; sets `is_notable` based on membership in the notable set.
-5. Single SQL `INSERT ... ON CONFLICT ... DO UPDATE` writes all rows. Same query computes `region_id` via `ST_Contains((SELECT geom FROM regions WHERE ST_Contains(geom, ST_MakePoint(lng, lat))), point)` and `silhouette_id` via JOIN against `family_silhouettes`.
+5. Single SQL `INSERT ... ON CONFLICT ... DO UPDATE` writes all rows. Same query computes `silhouette_id` via JOIN against `family_silhouettes`.
 6. Ingestor logs run metadata to `ingest_runs` table.
 
 Ingestor does **not** trigger a CDN purge in MVP. Cache freshness is bounded by the `/observations` TTL (30 min), which matches the ingest cadence — so data is never more than ~30 min stale either way. Adding tag-based purge is a future enhancement (see Open questions).
@@ -118,29 +117,13 @@ CREATE TABLE observations (
   loc_name        TEXT,
   how_many        INTEGER,
   is_notable      BOOLEAN DEFAULT false,
-  region_id       TEXT REFERENCES regions(id),
   silhouette_id   TEXT REFERENCES family_silhouettes(id),
   ingested_at     TIMESTAMPTZ DEFAULT now(),
   PRIMARY KEY (sub_id, species_code)
 );
-CREATE INDEX obs_region ON observations (region_id);
 CREATE INDEX obs_species ON observations (species_code);
 CREATE INDEX obs_dt ON observations (obs_dt DESC);
 CREATE INDEX obs_geom ON observations USING GIST (geom);
-```
-
-### `regions`
-
-```sql
-CREATE TABLE regions (
-  id          TEXT PRIMARY KEY,             -- e.g. "sky-islands-santa-ritas"
-  name        TEXT NOT NULL,
-  parent_id   TEXT REFERENCES regions(id),  -- null for top-level ecoregions
-  geom        GEOMETRY(MULTIPOLYGON, 4326) NOT NULL,
-  display_color TEXT NOT NULL,              -- hex
-  svg_path    TEXT NOT NULL                 -- stylized poligap-style path
-);
-CREATE INDEX regions_geom ON regions USING GIST (geom);
 ```
 
 ### `hotspots`
@@ -152,12 +135,10 @@ CREATE TABLE hotspots (
   lat                 DOUBLE PRECISION NOT NULL,
   lng                 DOUBLE PRECISION NOT NULL,
   geom                GEOMETRY(POINT, 4326) GENERATED ALWAYS AS (ST_MakePoint(lng, lat)) STORED,
-  region_id           TEXT REFERENCES regions(id),
   num_species_alltime INTEGER,
   latest_obs_dt       TIMESTAMPTZ
 );
 CREATE INDEX hotspots_geom ON hotspots USING GIST (geom);
-CREATE INDEX hotspots_region ON hotspots (region_id);
 ```
 
 ### `species_meta`
@@ -245,7 +226,7 @@ Frontend exposes four filters in the FiltersBar; all map to `/api/observations` 
 | Species search | `?species=:code` (autocomplete UI on common name → submits species code) | unset |
 | Family filter | `?family=:code` (dropdown of AZ families derived from `species_meta`) | unset |
 
-URL state mirrors the filter state in addition to `region` and `species`, so a fully-filtered view is shareable.
+URL state mirrors the filter state in addition to `species`, so a fully-filtered view is shareable.
 
 ## Error handling
 
@@ -268,7 +249,7 @@ URL state mirrors the filter state in addition to `region` and `species`, so a f
 | `Ingestor handler` | Integration: scheduled trigger → mock eBird → real DB → assert upserted rows | Vitest + Testcontainers |
 | `Read API routes` | Integration: HTTP call → real DB → assert response shape + cache headers | Vitest, supertest |
 | `Frontend components` | Unit + interaction tests | Vitest, React Testing Library |
-| `Frontend map flow` | E2E: load → click region → verify expansion + URL update | Playwright |
+| `Frontend map flow` | E2E: load → click cluster → verify expansion + URL update | Playwright |
 
 Tests do not mock the database — they hit a real Postgres (containerized in CI). The ingest path is too geometry-dependent to mock meaningfully.
 
@@ -302,9 +283,8 @@ bird-watch/
     family-mapping/
   migrations/
     1700000001000_enable_postgis.sql
-    1700000002000_regions.sql
     1700000003000_family_silhouettes.sql
-    … (20 files total, timestamp-prefixed)
+    … (45 files total, timestamp-prefixed)
   infra/
     terraform/
       main.tf

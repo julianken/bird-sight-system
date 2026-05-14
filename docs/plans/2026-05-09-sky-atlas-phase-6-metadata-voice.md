@@ -109,17 +109,17 @@ Verify that `REGION_LABEL` ("Arizona") accurately describes actual coverage befo
 
 **Files:** none modified unless G2 reveals inaccuracy (in which case `frontend/src/config/region.ts` is updated).
 
-- [ ] **Step 1: Query coverage by county or ecoregion.**
+- [ ] **Step 1: Query coverage by location.**
 
-The ingestor calls `/data/obs/US-AZ/recent` (confirmed in CLAUDE.md), which covers all of Arizona by design. Verify this is a genuine statewide pull rather than a de facto sub-region pull:
+The ingestor calls `/data/obs/US-AZ/recent` (confirmed in CLAUDE.md), which covers all of Arizona by design. Verify this is a genuine statewide pull rather than a de facto sub-region pull. The schema no longer carries `region_id` (dropped in epic #532 / PR-3 #536), so group by `loc_name` — eBird location names typically embed town/county, which is sufficient to spot-check distribution:
 
 ```bash
-# Count observations per eBird region code in the DB (run from services/read-api or with a local DB connection)
+# Top-20 most-observed locations (run from services/read-api or with a local DB connection)
 # Expected: broad distribution across AZ counties (Maricopa, Pima, Cochise, Yavapai, etc.)
-psql $DATABASE_URL -c "SELECT region_id, COUNT(*) FROM observations GROUP BY region_id ORDER BY COUNT(*) DESC LIMIT 20;"
+psql $DATABASE_URL -c "SELECT loc_name, COUNT(*) FROM observations GROUP BY loc_name ORDER BY COUNT(*) DESC LIMIT 20;"
 ```
 
-If coverage is concentrated (<10% of records outside Maricopa + Pima counties), consult with the maintainer before using "Arizona" as the `REGION_LABEL`. If the distribution is genuinely statewide, `REGION_LABEL = 'Arizona'` stands.
+If coverage is concentrated (<10% of records outside Maricopa + Pima counties — eyeball the city/county tokens in `loc_name`), consult with the maintainer before using "Arizona" as the `REGION_LABEL`. If the distribution is genuinely statewide, `REGION_LABEL = 'Arizona'` stands.
 
 - [ ] **Step 2: Update `docs/design/01-spec/open-questions.md` G2 row.**
 

@@ -25,10 +25,9 @@ Plan 1 must run first because it scaffolds the monorepo. Plans 2–4 can run in 
 
 ## Architecture (when code lands)
 
-Three external dependencies (eBird API, Phylopic, EPA/BCR ecoregion data) feed four internal services: an Ingestor (scheduled), a Read API (HTTP, behind CDN), Postgres + PostGIS, and a static React frontend. The full architecture, data model, API contract, caching strategy, error-handling, and testing strategy are in the spec — read it before making structural changes.
+Two external dependencies (eBird API, Phylopic) feed four internal services: an Ingestor (scheduled), a Read API (HTTP, behind CDN), Postgres + PostGIS, and a static React frontend. The full architecture, data model, API contract, caching strategy, error-handling, and testing strategy are in the spec — read it before making structural changes.
 
-Two design choices that are easy to violate accidentally:
-- **Region assignment happens at ingest, not at request time.** PostGIS `ST_Contains` stamps `region_id` on each observation when it lands. Don't add point-in-polygon math to the read path.
+One design choice that is easy to violate accidentally:
 - **The Read API is platform-agnostic.** It's a `Hono` app exported from `services/read-api/src/app.ts`. Cloud-specific wrappers (Cloud Run entry, AWS Lambda handler, etc.) live in separate files and only adapt the entry point.
 
 ## Conventions baked into the plans
@@ -167,7 +166,7 @@ control dependencies, and this suite has none.
 **Navigation contract.** Every test begins by issuing `page.goto(...)`
 (optionally with query params or a preceding `page.route` stub) — tests never
 rely on state left over from a prior test. Tests that expect a healthy map
-wait for the 9-region render before asserting (`app.waitForMapLoad()` via the
+wait for the map render before asserting (`app.waitForMapLoad()` via the
 Page Object Model); tests that deliberately fail the API skip that wait and
 assert directly on `.error-screen`.
 
