@@ -310,6 +310,7 @@ Shape-picker rules (each test name pins one rule):
 Tile-builder rules:
 
 - `buildAdaptiveTiles(200 leaves, 20 unique families, capacity=16) → 16 tiles, descending count`
+- **`toPositiveInt` invariant**: `toPositiveInt(1) → 1 (typed)`, `toPositiveInt(0)` throws, `toPositiveInt(-1)` throws, `toPositiveInt(1.5)` throws (constructor enforces positive *integer* domain)
 - **Null-familyCode dropout** (LEFT JOIN miss per `Observation` contract): leaves with `familyCode === null` are silently dropped — copied verbatim from `cluster-mosaic.test.ts` so the invariant is preserved
 - **Under-capacity** when fewer families than capacity: `buildAdaptiveTiles(5 leaves, 2 families, capacity=4) → 2 tiles` (not 4 — caller pads visually)
 - **Fallback by null `svgData`**: leaves whose resolved silhouette `svgData === null` produce tiles with `kind === 'fallback'` — preserved from prior `cluster-mosaic.test.ts`
@@ -324,6 +325,7 @@ Memoization (Concerns A, B, C from §5.3):
 - **Catalogue invalidation**: when `silhouettes.length` changes (catalogue load / refresh), the module-scoped `Map` is wholesale-cleared and `useMemo` recomputes (silhouettesVersion delta busts the key)
 - **Upstream silhouette resolution**: `buildAdaptiveTiles(leaves, silhouettesById, shape)` is pure — it does NOT read from any ref. A regression test asserts that calling it with two different `silhouettesById` arguments returns differently-resolved tiles, even with identical `leaves`
 - **Rejected-Promise eviction**: `getClusterLeaves` rejection on a cache key removes the entry in the same microtask. A retry on the same key re-invokes the underlying call (does NOT return the rejected Promise). Test name: `"Concern B cache: rejected getClusterLeaves promise is evicted, retry invokes the underlying call"`
+- **Rejection log channel**: a single `console.warn` per `${zoom}:${cluster_id}` per session (rate-limited via a `Set<string>` of warned keys) — matches the existing `MapCanvas.tsx:187` pattern. Tests assert exactly one warning emitted for repeated rejections on the same key
 - **Race-safe commit**: the `cacheGeneration` counter increments on every effect re-registration; an in-flight reconcile captures its generation at entry and no-ops `setMosaics` if the generation has advanced. Test name: `"reconcile does not commit tiles when cacheGeneration advanced mid-flight"`
 - **`silhouettesVersion` invalidates on in-place replacement**: two catalogue snapshots with identical `length` but different `svgData` for the same `familyCode` bust the useMemo key. Test name: `"silhouettesVersion bump invalidates memo even when silhouettes.length is unchanged"`
 
