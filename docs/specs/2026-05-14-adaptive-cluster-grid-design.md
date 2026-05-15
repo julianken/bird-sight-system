@@ -80,26 +80,36 @@ The brainstorm considered three approaches. **Approach A** was chosen because it
 `pickGridShape(uniqueFamilies, pointCount) → GridShape` returns a discriminated union:
 
 ```ts
+type Dim = 1 | 2 | 3 | 4;
+
 type GridShape =
-  | { tag: 'grid'; cols: number; rows: number; capacity: number; overflow: number }
+  | { tag: 'grid'; cols: Dim; rows: Dim }                      // visibleCapacity = cols*rows
+  | { tag: 'grid-overflow'; cols: Dim; rows: Dim; hiddenCount: number }   // visibleCapacity = cols*rows - 1 (reserved for "+N")
   | { tag: 'pill' };
+
+type ResolvedGrid = Exclude<GridShape, { tag: 'pill' }>;       // what AdaptiveGridMarker receives
+
+// Helper, not a stored field — derived deterministically:
+declare function visibleCapacity(shape: ResolvedGrid): number;
+// grid       → cols * rows
+// grid-overflow → cols * rows - 1
 ```
 
-`overflow` is the count of families hidden beyond `capacity` (≥ 0). When `overflow > 0`, the renderer reserves the last cell as an inline "+N more" indicator (see mobile cap below).
+The separate `grid-overflow` tag is deliberate: the previous `{ tag:'grid'; capacity; overflow }` shape made it constructible to express nonsense (`overflow > 0` with `capacity === cols*rows`, or `capacity` inconsistent with `cols*rows`). The discriminated union makes "overflow reserves a cell" representable only via the dedicated tag. `Dim` typing prevents arbitrary integers in dimension fields.
 
 Rules (desktop · viewport > 480px):
 
-| Unique families | Shape | Capacity | Overflow |
-|---|---|---|---|
-| 1 | 1×1 | 1 | 0 |
-| 2 | 2×1 | 2 | 0 |
-| 3–4 | 2×2 | 4 | 0 |
-| 5–9 | 3×3 | 9 | 0 |
-| 10–16 | 4×4 | 16 | 0 |
+| Unique families | Shape | Visible capacity |
+|---|---|---|
+| 1 | `{tag:'grid', cols:1, rows:1}` | 1 |
+| 2 | `{tag:'grid', cols:2, rows:1}` | 2 |
+| 3–4 | `{tag:'grid', cols:2, rows:2}` | 4 |
+| 5–9 | `{tag:'grid', cols:3, rows:3}` | 9 |
+| 10–16 | `{tag:'grid', cols:4, rows:4}` | 16 |
 
 **Pill fallback** when `uniqueFamilies > 16 OR point_count > 64`. The observation-count cap exists because raising `clusterMaxZoom` to 22 produces dense low-zoom clusters whose DOM cost as 4×4 grids regresses against today's lightweight pills (see §10 Gate 2). The Tucson 1640-obs cluster stays a pill at z = 8; as the user zooms in, smaller fragments emerge with `point_count ≤ 64` and `uniqueFamilies ≤ 16` and become grids.
 
-**Mobile cap** at viewport ≤ 480px: the 4×4 case collapses to 3×3 with the top-8 silhouettes plus an inline "+N more" cell driven by `overflow > 0`. Concretely, `pickGridShape(12, /*pointCount*/ 12, /*isMobile*/ true) → {tag:'grid', cols:3, rows:3, capacity:8, overflow:4}`. Prevents adjacent 104×104 markers from overlapping on 390-wide viewports.
+**Mobile cap** at viewport ≤ 480px: the 4×4 case collapses to `{tag:'grid-overflow', cols:3, rows:3, hiddenCount: uniqueFamilies - 8}`. Concretely, `pickGridShape(12, /*pointCount*/ 12, /*isMobile*/ true) → {tag:'grid-overflow', cols:3, rows:3, hiddenCount: 4}`. Visible capacity is 8 (the 9th cell is the "+N more" indicator). Prevents adjacent 104×104 markers from overlapping on 390-wide viewports.
 
 ### 4.2 Family ordering
 
@@ -166,24 +176,25 @@ The redesign inherits this. **The spec re-states this explicitly** because a fut
 
 ```ts
 interface AdaptiveGridMarkerProps {
-  shape: GridShape;             // already resolved by parent — never 'pill' here
-  tiles: AdaptiveTile[];        // capacity-sized, sorted by aggregateClusterFamilies
-  totalCount: number;           // point_count
-  uniqueFamilies: number;       // for aria-label
+  shape: ResolvedGrid;                // narrowed by parent — pill rendered separately
+  tiles: ReadonlyArray<AdaptiveTile>;  // length ≤ visibleCapacity(shape), sorted by aggregateClusterFamilies
+  totalCount: number;                  // point_count
+  uniqueFamilies: number;              // for aria-label
   onClick: (e: MouseEvent<HTMLButtonElement>) => void;
-  isCoarsePointer?: boolean;    // wired via useMediaQuery('(pointer: coarse)')
-  isMobileViewport?: boolean;   // for the 3×3 cap at ≤480px
+  isCoarsePointer?: boolean;           // wired via useMediaQuery('(pointer: coarse)')
 }
 
-interface AdaptiveTile {
-  familyCode: string;
-  silhouetteSrc: string | null;  // null → fallback shape (existing pattern)
-  color: string;
-  count: number;
-}
+// Discriminated union — matches existing MosaicTile precedent at cluster-mosaic.ts:42-58.
+// Keeps the field name `svgData` (consistent with FamilySilhouette.svgData in shared-types/index.ts);
+// no surprise rename. Fallback variant carries only the fields actually rendered.
+type AdaptiveTile =
+  | { kind: 'rendered'; familyCode: string; svgData: string; color: string; count: number }
+  | { kind: 'fallback'; familyCode: string; color: string; count: number };
 ```
 
-The marker takes a resolved `shape` — it does not call `pickGridShape` internally. Pill fallback is selected by the parent and renders `<ClusterPill>` directly.
+The marker takes a `ResolvedGrid` (pill is unreachable at the type level — `Exclude<GridShape, { tag: 'pill' }>`). The parent renders `<ClusterPill>` directly for `shape.tag === 'pill'`. `isMobileViewport` is no longer threaded — the mobile cap is already encoded in `shape.tag === 'grid-overflow'`.
+
+`tiles.length` may be less than `visibleCapacity(shape)` when fewer families are present than the grid can hold. Empty slots render as transparent padders in the marker (existing behavior, preserved). When `shape.tag === 'grid-overflow'`, the last visible slot is always the "+N more" indicator using `shape.hiddenCount` — never a tile.
 
 ### 5.2 `adaptive-grid.ts`
 
@@ -209,13 +220,21 @@ export function aggregateClusterFamilies(
 
 `MapCanvas.tsx:704-722` runs the cluster-leaves + family-aggregation chain on every map `idle` (registered at `MapCanvas.tsx:742`). Today this is bounded by `CLUSTER_MOSAIC_MAX_POINTS=8`; the redesign removes that ceiling, so worst-case is 1640 leaves iterated per marker per idle for the Tucson hotspot.
 
-There are **two separable caching concerns** the implementation must address — conflated in earlier brainstorming, separated here:
+There are **three separable caching concerns** the implementation must address:
 
-**Concern A — Render-pass stability.** The derived `tiles: AdaptiveTile[]` array passed to `<AdaptiveGridMarker>` should not be a new identity on every render when the inputs haven't changed, or React.memo on the marker is defeated. Solution: `useMemo` keyed on `[cluster_id, point_count]` at the parent. Garbage-collected when the cluster leaves the viewport. Idiomatic React.
+**Concern A — Render-pass stability.** The derived `tiles: ReadonlyArray<AdaptiveTile>` passed to `<AdaptiveGridMarker>` should not be a new identity on every render when the inputs haven't changed, or `React.memo` on the marker is defeated. Solution: `useMemo` at the parent keyed on `[zoom, cluster_id, point_count, silhouettesVersion]` (see Concern C for the version token). Garbage-collected by React when the cluster leaves the viewport. Idiomatic React.
 
-**Concern B — Async-call avoidance across idle ticks.** `getClusterLeaves` is an async supercluster call. Running it for every visible cluster on every `idle` event is the actual perf hot path. This caching layer lives *outside* React render — a module-scoped `Map<string, Promise<AdaptiveTile[]>>` keyed on `${cluster_id}:${point_count}` in `MapCanvas.tsx`. Evicted when the corresponding cluster_id leaves the current viewport's feature set (computed once per idle).
+**Concern B — Async-call avoidance across idle ticks.** `getClusterLeaves` is an async supercluster call. Running it for every visible cluster on every `idle` event is the actual perf hot path. This caching layer lives *outside* React render — a module-scoped `Map<string, Promise<AdaptiveTile[]>>` in `MapCanvas.tsx` keyed on **`${zoom}:${cluster_id}:${point_count}`**. The zoom prefix is load-bearing: supercluster's integer `cluster_id` values can collide across zoom levels, and without it the cache will silently return a stale tile array from a different zoom's leaf set. Eviction: at the end of each `idle` handler, drop entries whose `zoom:cluster_id` is not present in the current viewport's feature set.
 
-Both layers are **functional requirements** — the §10 Gate 1 p99 bound depends on hitting Concern B's cache for unchanged clusters and skipping the leaf iteration entirely. The plan body's first task is to write the failing perf assertion, then add the cache to make it pass.
+**Concern C — Catalogue rebuild invalidation.** Supercluster's index is rebuilt when `silhouettes.length` changes (this is the existing effect-deps trigger at `MapCanvas.tsx:760`). After a rebuild, spatially equivalent clusters can be assigned different `cluster_id` values, and downstream `aggregateClusterFamilies` may resolve different `svgData` for the same family if the catalogue rows changed. The implementation must:
+
+1. Wholesale-clear the Concern B `Map` whenever the effect re-registers (i.e., on `silhouettes.length` change). One line at the top of the effect body.
+2. Include a `silhouettesVersion` token (`silhouettes.length` is sufficient as a coarse proxy — increments on catalogue load) in the Concern A `useMemo` key. This is the third dependency named above.
+3. Resolve silhouette `svgData` for each family **upstream** of `buildAdaptiveTiles` rather than reading `silhouettesRef.current` inside the tile-builder. Today's `buildMosaicTiles` does the wrong thing at `MapCanvas.tsx:714` — reading from a ref bypasses every memo key. Move silhouette resolution to a pure transformation: `(leaves, silhouettesById) → tiles`. Tests pass `silhouettesById` explicitly.
+
+All three are **functional requirements** — the §10 Gate 1 p99 bound depends on hitting Concern B's cache for unchanged clusters AND on the catalogue not silently invalidating it on every load. The plan body's first task is to write the failing perf assertion, then add the three layers to make it pass.
+
+**Test-only escape hatch.** The module-scoped `Map` of Concern B is not multi-instance safe and survives `afterEach` unless explicitly cleared. Export a `__resetCacheForTesting()` function from `MapCanvas.tsx` (gated by `if (process.env.NODE_ENV === 'test')` to keep it out of prod bundles) and call it in a `beforeEach`. This avoids state leakage between unit tests and avoids the surprise during Vite HMR sessions in dev.
 
 ## 6. File map
 
@@ -229,7 +248,7 @@ Both layers are **functional requirements** — the §10 Gate 1 p99 bound depend
 | `frontend/src/components/map/adaptive-grid.test.ts` | Shape-picker rules, tile-builder edges |
 | `frontend/e2e/map-adaptive-grid.spec.ts` | E2E for grid render, pill fallback, zoom progression |
 
-### Deleted (13)
+### Deleted (14)
 
 | File | Reason |
 |---|---|
@@ -246,6 +265,7 @@ Both layers are **functional requirements** — the §10 Gate 1 p99 bound depend
 | `frontend/src/components/map/fan-layout.ts` | |
 | `frontend/src/components/map/fan-layout.test.ts` | |
 | `frontend/e2e/map-stack-fanout.spec.ts` | |
+| `frontend/e2e/map-cluster-mosaic.spec.ts` | Renamed and rewritten as `map-adaptive-grid.spec.ts`; old spec deleted in same commit |
 
 ### Modified (3)
 
@@ -269,14 +289,17 @@ Both layers are **functional requirements** — the §10 Gate 1 p99 bound depend
 
 Shape-picker rules (each test name pins one rule):
 
-- `pickGridShape(1, 1, false) → {tag:'grid', cols:1, rows:1, capacity:1, overflow:0}`
-- `pickGridShape(2, …)`, `pickGridShape(3, …) → 2×2`, `pickGridShape(4, …) → 2×2` (and 2 → 2×1 explicitly)
+- `pickGridShape(1, 1, false) → {tag:'grid', cols:1, rows:1}`
+- `pickGridShape(2, …) → 2×1`, `pickGridShape(3, …) → 2×2`, `pickGridShape(4, …) → 2×2`
 - `pickGridShape(5..9, …) → 3×3`; `pickGridShape(10..16, …) → 4×4`
 - **Family-cap fires alone**: `pickGridShape(17, 30, false) → {tag:'pill'}` (uniqueFamilies > 16, pointCount well under 64)
 - **Count-cap fires alone**: `pickGridShape(8, 65, false) → {tag:'pill'}` (family rule alone would give 3×3; pointCount > 64 forces pill)
-- **Boundary**: `pickGridShape(8, 64, false) → {tag:'grid', 3×3}` (count = 64 inclusive, no pill)
-- **Boundary**: `pickGridShape(16, 64, false) → {tag:'grid', 4×4, overflow:0}` (max grid)
-- **Mobile cap**: `pickGridShape(12, 12, true) → {tag:'grid', cols:3, rows:3, capacity:8, overflow:4}`
+- **Boundary (count)**: `pickGridShape(8, 64, false) → {tag:'grid', cols:3, rows:3}` (count = 64 inclusive, no pill)
+- **Boundary (family + count co-fire)**: `pickGridShape(16, 65, false) → {tag:'pill'}` (locks count-cap at the family-cap boundary — catches a `>` vs `>=` boundary mutation)
+- **Boundary (max grid)**: `pickGridShape(16, 64, false) → {tag:'grid', cols:4, rows:4}`
+- **Mobile cap**: `pickGridShape(12, 12, true) → {tag:'grid-overflow', cols:3, rows:3, hiddenCount: 4}`
+- **Mobile boundary**: `pickGridShape(8, 8, true) → {tag:'grid', cols:3, rows:3}` (no overflow when families fit)
+- **Mobile boundary**: `pickGridShape(9, 9, true) → {tag:'grid-overflow', cols:3, rows:3, hiddenCount: 1}` (first overflow case)
 
 Tile-builder rules:
 
@@ -285,35 +308,32 @@ Tile-builder rules:
 - **Under-capacity** when fewer families than capacity: `buildAdaptiveTiles(5 leaves, 2 families, capacity=4) → 2 tiles` (not 4 — caller pads visually)
 - **Fallback by null `svgData`**: leaves with `silhouetteSrc === null` produce tiles with `isFallback === true` — preserved from prior `cluster-mosaic.test.ts`
 
-Memoization (Concern A and B from §5.3):
+Memoization (Concerns A, B, C from §5.3):
 
-- `useMemo` reuses tile-array identity when `(cluster_id, point_count)` is unchanged
-- Module-scoped async cache returns the cached `Promise<tiles>` and skips the `getClusterLeaves` call when both keys match
-- Cache invalidates when `point_count` changes for the same `cluster_id`
-- Cache evicts entries whose `cluster_id` is not in the current viewport feature-set
+- `useMemo` reuses tile-array identity when `[zoom, cluster_id, point_count, silhouettesVersion]` is unchanged
+- Module-scoped async cache returns the cached `Promise<tiles>` and skips the `getClusterLeaves` call when all four key components match
+- Cache invalidates when `point_count` changes for the same `cluster_id` at the same `zoom`
+- **Cache uses zoom-prefixed key** — `${zoom}:${cluster_id}:${point_count}` — and a test asserts that the same `cluster_id:point_count` at two different zoom levels produces two independent cache entries (catches collisions silent in an unprefixed key)
+- Cache evicts entries whose `zoom:cluster_id` is not in the current viewport feature-set
+- **Catalogue invalidation**: when `silhouettes.length` changes (catalogue load / refresh), the module-scoped `Map` is wholesale-cleared and `useMemo` recomputes (silhouettesVersion delta busts the key)
+- **Upstream silhouette resolution**: `buildAdaptiveTiles(leaves, silhouettesById)` is pure — it does NOT read from any ref. A regression test asserts that calling it with two different `silhouettesById` arguments returns differently-resolved tiles, even with identical `leaves`
 
 ### Component (`AdaptiveGridMarker.test.tsx`)
 
 - Renders 1×1 with NO badge when `totalCount === 1`
 - Renders 1×1 with badge "5" when `totalCount === 5` (single-family cluster)
 - Renders 2×2 with 4 per-cell badges in descending count order
-- Renders fallback tile (opacity 0.5) when `silhouetteSrc === null` — existing behavior preserved
-- Renders "+N more" cell when `shape.overflow > 0` (mobile 3×3 case)
-- aria-label matches the patterns in §4.6
+- Renders fallback tile (opacity 0.5) for tiles with `kind === 'fallback'` (preserved from `cluster-mosaic` behavior — see §5.1 type)
+- Renders "+N more" cell when `shape.tag === 'grid-overflow'` (mobile 3×3 case)
+- **aria-label single-observation case**: `"Single observation: Cooper's Hawk."` exactly when `totalCount === 1`
+- **aria-label coincident-pair case**: `"2 coincident observations: <comName1> and <comName2>. Activate to zoom in."` exactly when `totalCount === 2` and `cols === 1`
+- **aria-label grid case**: `"Cluster: 47 observations, 11 families. Activate to zoom in."` for any multi-cell grid
+- **aria-label pill case**: identical-format label when `shape.tag === 'pill'`
 - aria-describedby target exists for grids and pills, has at most 9 list items (8 families + "and N more")
 - **Hit-extender overlay element has `tabIndex === -1`** (inherits the §4.7 contract — load-bearing, easy to silently break)
 - Hit-extender overlay element has `getBoundingClientRect()` ≥ 44×44 (`pointer:fine`) or ≥ 48×48 (`pointer:coarse`)
 - **Dark-mode badge contrast**: with `data-theme="dark"` applied, badge's `getComputedStyle().boxShadow` includes the 1px white stroke specified in §4.3
-
-### Component (`AdaptiveGridMarker.test.tsx`)
-
-- Renders 1×1 with NO badge when `totalCount === 1`
-- Renders 1×1 with badge "5" when `totalCount === 5` (single-family cluster)
-- Renders 2×2 with 4 per-cell badges in descending count order
-- Renders fallback tile (opacity 0.5) when `silhouetteSrc === null` — existing behavior preserved
-- aria-label matches the patterns in §4.6
-- aria-describedby target exists for grids and pills, has at most 9 list items (8 families + "and N more")
-- Hit-extender overlay element has `getBoundingClientRect()` ≥ 44×44 (`pointer:fine`) or ≥ 48×48 (`pointer:coarse`)
+- **Notable indicator preserved (AC8, inherited from `StackedSilhouetteMarker.test.tsx:183-221`)**: a 1×1 grid for an `isNotable: true` leaf renders an amber `<circle>` ring inside the tile SVG; a non-notable leaf does NOT render the circle; the circle's DOM order precedes the halo path (z-order test)
 
 ### E2E (`map-adaptive-grid.spec.ts`)
 
@@ -323,8 +343,9 @@ Memoization (Concern A and B from §5.3):
 - Pinch-zoom z=8 → z=15: no `auto-spider-leader-lines-layer` in rendered layer list; no `inStack`-keyed DOM attributes anywhere on the page
 - No DOM `[data-fallback="true"]` in a count=1 1×1 (single-observation shouldn't be a fallback)
 - Axe assertions on aria-describedby contents
-- **Perf-budget regression assertion (Gate 1 in CI)**: `performance.measure('mosaic-reconcile')` p99 < 16ms during a scripted pinch-zoom z=8 → z=15 at 390×844 with ≥ 344 seeded rows. Fails CI if exceeded — turns Gate 1 from a one-shot prototype check into a continuous regression guard.
-- **DOM-marker-count regression assertion (Gate 2 in CI)**: visible-marker count via `page.locator('[data-testid=adaptive-grid-marker], [data-testid=cluster-pill]').count()` ≤ 2500 at each canonical viewport. Fails CI if exceeded.
+- **Perf-budget regression assertion (Gate 1)**: wall-clock-based `performance.measure('mosaic-reconcile')` p99 < 16ms during a scripted pinch-zoom z=8 → z=15 at 390×844 with ≥ 344 seeded rows. **Gated by `process.env.CI_PERF_GATE`** and runs in a dedicated `.github/workflows/perf-gate.yml` workflow with a `runs-on: ubuntu-latest-4-cores` runner (or the smallest stable larger runner the project's plan supports). Wall-clock perf budgets on the default 2-vCPU runner are too flaky for the project's `retries: 0` policy.
+- **DOM-marker-count regression assertion (Gate 2 in default CI)**: visible-marker count via `page.locator('[data-testid=adaptive-grid-marker], [data-testid=cluster-pill]').count()` ≤ 2500 at each canonical viewport. Deterministic counter, not wall-clock — safe in the default Mergify-gated `e2e` workflow.
+- **Cache-hit-rate proxy assertion (alternative to wall-clock)**: instrumented counter via a test hook exposes `getClusterLeavesCallCount` per pinch-zoom session; asserts call count ≤ 2× the visible-cluster count over the entire gesture (i.e., cache hits dominate). Deterministic, safe in default CI.
 
 ## 8. Inherited and preserved behavior
 
