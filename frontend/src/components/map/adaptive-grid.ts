@@ -2,11 +2,25 @@
  * Adaptive cluster-grid logic for the `<AdaptiveGridMarker>` component
  * (epic #539, spec `docs/specs/2026-05-14-adaptive-cluster-grid-design.md`).
  *
- * This module is the pure-logic + types layer that backs the marker.
- * Phase 1A scope: branded `PositiveInt`, the `GridShape` discriminated
- * union, `pickGridShape` encoding the §4.1 sizing-rules table, and
- * `visibleCapacity`. `buildAdaptiveTiles` + `aggregateClusterFamilies`
- * land in the next commit.
+ * This module is the pure-logic + types layer that backs the marker:
+ *
+ *   - `toPositiveInt` / `PositiveInt`: branded type for `hiddenCount`, so
+ *     a `grid-overflow` shape cannot be constructed with a non-positive
+ *     hidden count (spec §4.1).
+ *   - `pickGridShape(uniqueFamilies, pointCount, isMobile) → GridShape`:
+ *     the §4.1 sizing-rules table encoded as a function. Returns a
+ *     discriminated union (`grid` / `grid-overflow` / `pill`) so callers
+ *     can narrow at the type level — `pill` is unreachable for the
+ *     marker component, which only accepts `ResolvedGrid`.
+ *   - `buildAdaptiveTiles(leaves, silhouettesById, shape) → AdaptiveTile[]`:
+ *     the pure tile-builder. Aggregates leaves by family, resolves each
+ *     family against the supplied silhouette catalogue, and produces a
+ *     `rendered | fallback | pending` tile per visible slot. Pure by
+ *     contract — does NOT read from any module-scoped ref (spec §5.3
+ *     Concern C, point 3).
+ *   - `aggregateClusterFamilies`: moved verbatim from `cluster-mosaic.ts`
+ *     (Phase 2 deletes the source). Behavior preserved: descending count,
+ *     ascending familyCode tie-break, null-familyCode dropout.
  */
 
 export type PositiveInt = number & { readonly __brand: 'PositiveInt' };
@@ -72,4 +86,128 @@ export function pickGridShape(
   if (uniqueFamilies <= 4) return { tag: 'grid', cols: 2, rows: 2 };
   if (uniqueFamilies <= 9) return { tag: 'grid', cols: 3, rows: 3 };
   return { tag: 'grid', cols: 4, rows: 4 };
+}
+
+/**
+ * Minimal shape of a cluster leaf as returned by maplibre-gl 5.x's
+ * `GeoJSONSource.getClusterLeaves`. Only `properties.familyCode` is read;
+ * everything else (geometry, id, type discriminator) is ignored. Kept
+ * structurally typed so test fixtures don't have to construct full
+ * MapGeoJSONFeature instances.
+ *
+ * Copied from `cluster-mosaic.ts` so this module is independent of the
+ * legacy file (Phase 2 deletes that file atomically).
+ */
+export interface ClusterLeafFeature {
+  type: 'Feature';
+  properties: {
+    familyCode: string | null;
+  } & Record<string, unknown>;
+}
+
+export interface FamilyAggregate {
+  familyCode: string;
+  count: number;
+}
+
+/**
+ * Per-family lookup passed to `buildAdaptiveTiles`. The caller resolves
+ * this once per reconcile from the silhouette catalogue (the upstream
+ * silhouette-resolution rule from spec §5.3 Concern C). An empty map
+ * signals "catalogue not loaded yet" — distinct from "loaded but no art
+ * for this family" — and produces `kind: 'pending'` tiles.
+ */
+export type SilhouettesById = ReadonlyMap<
+  string,
+  { svgData: string | null; color: string }
+>;
+
+/**
+ * Per-cell datum the marker renders. Three variants:
+ *   - `rendered`: catalogue loaded, family has CC-licensed art.
+ *   - `fallback`: catalogue loaded, family has no art (uncurated /
+ *     missing). Renderer paints at opacity 0.5 with a generic shape.
+ *   - `pending`: catalogue not yet loaded for ANY family. Renderer
+ *     paints a skeleton/shimmer so a cold-load map is distinguishable
+ *     from a real coverage gap (spec §5.1 type comment).
+ */
+export type AdaptiveTile =
+  | { kind: 'rendered'; familyCode: string; svgData: string; color: string; count: number }
+  | { kind: 'fallback'; familyCode: string; color: string; count: number }
+  | { kind: 'pending'; familyCode: string; count: number };
+
+/**
+ * Reduce the leaves of a single cluster into a sorted
+ * [{familyCode, count}] list. Leaves with `properties.familyCode === null`
+ * are skipped — they cannot drive a tile (no family to look up).
+ *
+ * Sort: descending count, ascending familyCode for ties. The tie-breaker
+ * keeps tile order stable across renders; without it, two families tied
+ * at count=1 could swap positions on every reconciler pass.
+ *
+ * Moved verbatim from `cluster-mosaic.ts:80-95` per spec §6 / plan
+ * Task 1.4. The legacy file is deleted in Phase 2.
+ */
+export function aggregateClusterFamilies(
+  leaves: ClusterLeafFeature[],
+): FamilyAggregate[] {
+  const counts = new Map<string, number>();
+  for (const leaf of leaves) {
+    const code = leaf.properties.familyCode;
+    if (!code) continue;
+    counts.set(code, (counts.get(code) ?? 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .map(([familyCode, count]) => ({ familyCode, count }))
+    .sort((a, b) => {
+      if (a.count !== b.count) return b.count - a.count;
+      return a.familyCode.localeCompare(b.familyCode);
+    });
+}
+
+/**
+ * Pure tile-builder for `<AdaptiveGridMarker>`. Aggregates the cluster's
+ * leaves, takes the top `visibleCapacity(shape)` families (caller pads
+ * visually if fewer families are present), and resolves each against the
+ * `silhouettesById` map to produce a discriminated-union tile.
+ *
+ * Spec §5.3 Concern C (point 3): this function MUST NOT read from any
+ * module-scoped ref. The caller threads the resolved catalogue
+ * explicitly, so an in-flight reconcile cannot pick up a newer
+ * catalogue mid-flight and produce mismatched tiles. Tests assert that
+ * identical leaves with different `silhouettesById` arguments produce
+ * differently-resolved tiles.
+ *
+ * Empty `silhouettesById` is treated as "catalogue not loaded yet" and
+ * yields all-`pending` tiles, distinct from the per-family "loaded but
+ * no art" `fallback` case.
+ */
+export function buildAdaptiveTiles(
+  leaves: ClusterLeafFeature[],
+  silhouettesById: SilhouettesById,
+  shape: ResolvedGrid,
+): ReadonlyArray<AdaptiveTile> {
+  const families = aggregateClusterFamilies(leaves);
+  const visible = families.slice(0, visibleCapacity(shape));
+  return visible.map((fam): AdaptiveTile => {
+    if (silhouettesById.size === 0) {
+      return { kind: 'pending', familyCode: fam.familyCode, count: fam.count };
+    }
+    const silhouette = silhouettesById.get(fam.familyCode);
+    if (!silhouette || silhouette.svgData === null) {
+      return {
+        kind: 'fallback',
+        familyCode: fam.familyCode,
+        color: silhouette?.color ?? '#888888',
+        count: fam.count,
+      };
+    }
+    return {
+      kind: 'rendered',
+      familyCode: fam.familyCode,
+      svgData: silhouette.svgData,
+      color: silhouette.color,
+      count: fam.count,
+    };
+  });
 }
