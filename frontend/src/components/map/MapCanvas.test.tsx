@@ -218,6 +218,21 @@ const SILHOUETTES: FamilySilhouette[] = [
   },
 ];
 
+/**
+ * Fire every registered bare `idle` handler in registration order.
+ * Multiple subsystems (adaptive-grid reconciler, ClusterPillOverlay,
+ * MapMarkerHitLayer, viewport-change) each register their own listener —
+ * `bareHandlers` is last-writer-wins, so we use `bareHandlersAll` to
+ * capture them all and invoke each in sequence (matches what maplibre
+ * would do).
+ */
+async function fireAllIdleHandlers() {
+  const handlers = bareHandlersAll['idle'] ?? [];
+  for (const h of handlers) {
+    await h();
+  }
+}
+
 describe('MapCanvas', () => {
   beforeEach(() => {
     capturedSourceProps = {};
@@ -521,18 +536,21 @@ describe('MapCanvas', () => {
     await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
 
     // Idle #1: leaves rejects. The cache entry must be evicted in the
-    // same microtask via the `.catch()` cleanup at insert time.
+    // same microtask via the `.catch()` cleanup at insert time. Fire ALL
+    // idle handlers — the adaptive-grid reconciler is one of several
+    // (the ClusterPillOverlay and onViewportChange also register on idle).
     await act(async () => {
-      await bareHandlers['idle']?.();
+      await fireAllIdleHandlers();
     });
     // Allow the rejection microtask to run.
     await act(async () => {
+      await Promise.resolve();
       await Promise.resolve();
     });
 
     // Idle #2: cache evicted → reconciler must re-invoke getClusterLeaves.
     await act(async () => {
-      await bareHandlers['idle']?.();
+      await fireAllIdleHandlers();
     });
 
     expect(callCount).toBe(2);
@@ -556,44 +574,58 @@ describe('MapCanvas', () => {
     };
     fakeMap.queryRenderedFeatures.mockReturnValue([cluster]);
 
-    let resolveLeaves: ((v: unknown) => void) | null = null;
-    const leavesPromise = new Promise<unknown>((res) => {
-      resolveLeaves = res;
+    // First call: returns a pending Promise we control.
+    // Subsequent calls: return a never-resolving Promise so reconcile #2
+    // (post-rerender, fresh cacheGeneration) stays in-flight and doesn't
+    // commit either. Only the race-safe commit check is under test.
+    let resolveLeaves1: ((v: unknown) => void) | null = null;
+    const leavesPromise1 = new Promise<unknown>((res) => {
+      resolveLeaves1 = res;
     });
-    fakeMap.getSource.mockReturnValue({
-      getClusterLeaves: vi.fn().mockReturnValue(leavesPromise),
+    const neverResolving = new Promise<unknown>(() => { /* hang forever */ });
+    let callCount = 0;
+    const getClusterLeaves = vi.fn().mockImplementation(() => {
+      callCount += 1;
+      return callCount === 1 ? leavesPromise1 : neverResolving;
     });
+    fakeMap.getSource.mockReturnValue({ getClusterLeaves });
 
     const { rerender } = render(
       <MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />,
     );
     await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
 
-    // Kick reconcile #1 — it captures myGen but awaits getClusterLeaves.
+    // Reconcile #1 already fired on mount (effect's immediate `void reconcile()`).
+    // Yield microtasks so it enters its await on leavesPromise1.
     await act(async () => {
-      void bareHandlers['idle']?.();
+      await Promise.resolve();
     });
+    expect(callCount).toBe(1);
 
     // Trigger a fresh silhouettes catalogue identity → effect re-registers
-    // → cacheGeneration increments and clears cache.
+    // → cacheGeneration increments and clears cache → reconcile #2 fires
+    // immediately and grabs neverResolving (call #2).
     rerender(
       <MapCanvas observations={[makeObs()]} silhouettes={[...SILHOUETTES]} />,
     );
-
-    // Now resolve reconcile #1's leaves. The race-safe commit check should
-    // detect myGen !== cacheGeneration and SKIP setGrids.
     await act(async () => {
-      resolveLeaves?.([
+      await Promise.resolve();
+    });
+    expect(callCount).toBe(2);
+
+    // Now resolve reconcile #1's leaves. The race-safe commit check
+    // (`myGen !== cacheGeneration`) should detect generation advanced
+    // and SKIP setGrids. Reconcile #2 is still awaiting neverResolving.
+    await act(async () => {
+      resolveLeaves1?.([
         { type: 'Feature', properties: { familyCode: 'tyrannidae' } },
       ]);
-      // Let microtasks drain.
       await Promise.resolve();
       await Promise.resolve();
     });
 
-    // No adaptive-grid marker should have been committed from the stale
-    // reconcile #1. The new reconcile (gen=N+1) would only fire on its
-    // own idle event — without us firing it, we expect zero markers.
+    // No adaptive-grid marker — reconcile #1's commit was suppressed and
+    // reconcile #2 is still pending.
     expect(
       document.querySelectorAll('[data-testid="adaptive-grid-marker"]').length,
     ).toBe(0);
@@ -658,7 +690,7 @@ describe('MapCanvas', () => {
     await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
 
     await act(async () => {
-      await bareHandlers['idle']?.();
+      await fireAllIdleHandlers();
     });
     const callsAfterZoom8 = getClusterLeaves.mock.calls.length;
     expect(callsAfterZoom8).toBeGreaterThanOrEqual(1);
@@ -666,7 +698,7 @@ describe('MapCanvas', () => {
     // Simulate a zoom-in: zoom 12 → different floor → different cache key.
     fakeMap.getZoom.mockReturnValue(12);
     await act(async () => {
-      await bareHandlers['idle']?.();
+      await fireAllIdleHandlers();
     });
 
     // The reconciler must have re-invoked getClusterLeaves under the new
@@ -675,13 +707,6 @@ describe('MapCanvas', () => {
   });
 
   /* ── onViewportChange (preserved) ───────────────────────────────── */
-
-  async function fireAllIdleHandlers() {
-    const handlers = bareHandlersAll['idle'] ?? [];
-    for (const h of handlers) {
-      await h();
-    }
-  }
 
   it('does NOT throw when onViewportChange is omitted (optional prop)', async () => {
     render(<MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />);
