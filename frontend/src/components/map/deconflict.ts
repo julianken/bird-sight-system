@@ -1,4 +1,6 @@
 import type { ResolvedGrid } from './adaptive-grid.js';
+import { markerDimensions, MIN_MARKER_PX } from './AdaptiveGridMarker.js';
+import { pillDimensions } from '../ds/ClusterPill.js';
 
 /**
  * Pure post-clustering deconflict layer (issue #554). Resolves visible
@@ -12,6 +14,8 @@ import type { ResolvedGrid } from './adaptive-grid.js';
  * Spec / proposal: docs/plans/2026-05-15-marker-overlap-deconflict.md
  *                  github.com/julianken/bird-sight-system/issues/554
  */
+
+const BUCKET_PX = MIN_MARKER_PX / 2; // 14
 
 /** Axis-aligned bounding box, in screen pixels. */
 export interface AABB {
@@ -69,7 +73,15 @@ export interface DeconflictGroup {
  * marker can be ±1px off the predicted box).
  */
 export function intersect(a: AABB, b: AABB, margin = 0): boolean {
-  throw new Error('not implemented');
+  const ax2 = a.x + a.w + margin;
+  const ay2 = a.y + a.h + margin;
+  const bx2 = b.x + b.w + margin;
+  const by2 = b.y + b.h + margin;
+  const ax1 = a.x - margin;
+  const ay1 = a.y - margin;
+  const bx1 = b.x - margin;
+  const by1 = b.y - margin;
+  return ax1 < bx2 && bx1 < ax2 && ay1 < by2 && by1 < ay2;
 }
 
 /**
@@ -77,7 +89,10 @@ export function intersect(a: AABB, b: AABB, margin = 0): boolean {
  * position. Uses `markerDimensions` (grid) or `pillDimensions` (pill).
  */
 export function aabbForShape(rendered: RenderedShape, px: number, py: number): AABB {
-  throw new Error('not implemented');
+  const { w, h } = rendered.kind === 'grid'
+    ? markerDimensions(rendered.shape)
+    : pillDimensions(rendered.count);
+  return { x: px - w / 2, y: py - h / 2, w, h };
 }
 
 /**
@@ -88,7 +103,27 @@ export function aabbForShape(rendered: RenderedShape, px: number, py: number): A
  * and j are node indices that should be in the same component.
  */
 export function unionFind(n: number, edges: ReadonlyArray<[number, number]>): number[] {
-  throw new Error('not implemented');
+  const parent = Array.from({ length: n }, (_, i) => i);
+  const rank = new Array(n).fill(0);
+  const find = (x: number): number => {
+    // noUncheckedIndexedAccess: parent is length-n, x always < n by construction
+    while (parent[x] !== x) {
+      const grandparent = parent[parent[x]!] as number;
+      parent[x] = grandparent; // path halving
+      x = parent[x] as number;
+    }
+    return x;
+  };
+  const union = (a: number, b: number): void => {
+    const ra = find(a), rb = find(b);
+    if (ra === rb) return;
+    // noUncheckedIndexedAccess: ra, rb are valid indices (results of find)
+    if ((rank[ra] as number) < (rank[rb] as number)) parent[ra] = rb;
+    else if ((rank[ra] as number) > (rank[rb] as number)) parent[rb] = ra;
+    else { parent[rb] = ra; (rank[ra] as number)++; }
+  };
+  for (const [i, j] of edges) union(i, j);
+  return parent.map((_, i) => find(i));
 }
 
 /**
@@ -101,7 +136,19 @@ export function unionFind(n: number, edges: ReadonlyArray<[number, number]>): nu
  * 105/14=7.5 → 8), so implementations using `Math.floor` will fail.
  */
 export function bucketKey(px: number, py: number, zoom: number, BUCKET_PX: number): string {
-  throw new Error('not implemented');
+  const qx = Math.round(px / BUCKET_PX);
+  const qy = Math.round(py / BUCKET_PX);
+  return `bucket-${qx}-${qy}-${zoom}`;
+}
+
+function ariaLabelFor(anchor: DeconflictInput, others: DeconflictInput[]): string {
+  if (others.length === 0) {
+    const familyWord = anchor.uniqueFamilies === 1 ? 'family' : 'families';
+    return `Cluster: ${anchor.point_count} observations, ${anchor.uniqueFamilies} ${familyWord}. Activate to zoom in.`;
+  }
+  const otherCount = others.reduce((sum, o) => sum + o.point_count, 0);
+  const clusterWord = others.length === 1 ? '1 cluster' : `${others.length} clusters`;
+  return `Cluster: ${anchor.point_count} observations (+${otherCount} nearby in ${clusterWord}). Activate to zoom in.`;
 }
 
 /**
@@ -113,5 +160,49 @@ export function buildGroups(
   clusters: ReadonlyArray<DeconflictInput>,
   zoom: number,
 ): DeconflictGroup[] {
-  throw new Error('not implemented');
+  if (clusters.length === 0) return [];
+
+  // 1. Compute AABBs
+  const aabbs = clusters.map((c) => aabbForShape(c.rendered, c.px, c.py));
+
+  // 2. Build edge set (O(N²) — bounded by visible cluster count, ≤~50 in practice)
+  const edges: Array<[number, number]> = [];
+  for (let i = 0; i < clusters.length; i++) {
+    for (let j = i + 1; j < clusters.length; j++) {
+      // noUncheckedIndexedAccess: i,j < clusters.length, aabbs same length
+      if (intersect(aabbs[i] as AABB, aabbs[j] as AABB, /* margin */ 1)) {
+        edges.push([i, j]);
+      }
+    }
+  }
+
+  // 3. Union-Find → component id per node
+  const reps = unionFind(clusters.length, edges);
+
+  // 4. Group nodes by component
+  const componentMembers = new Map<number, number[]>();
+  for (let i = 0; i < reps.length; i++) {
+    // noUncheckedIndexedAccess: reps is length clusters.length, i < reps.length
+    const r = reps[i] as number;
+    if (!componentMembers.has(r)) componentMembers.set(r, []);
+    componentMembers.get(r)!.push(i);
+  }
+
+  // 5. For each component, pick anchor (min cluster_id) + assemble group
+  const groups: DeconflictGroup[] = [];
+  for (const indices of componentMembers.values()) {
+    // noUncheckedIndexedAccess: indices come from a Map we built above, bounds are guaranteed
+    const members = indices.map((i) => clusters[i] as DeconflictInput);
+    const anchor = members.reduce((a, b) => (a.cluster_id < b.cluster_id ? a : b)) as DeconflictInput;
+    const others = members.filter((m): m is DeconflictInput => m.cluster_id !== anchor.cluster_id);
+    const memberIds = members.map((m) => m.cluster_id).sort((a, b) => a - b);
+    groups.push({
+      anchor,
+      memberIds,
+      key: bucketKey(anchor.px, anchor.py, zoom, BUCKET_PX),
+      ariaLabel: ariaLabelFor(anchor, others),
+    });
+  }
+
+  return groups;
 }

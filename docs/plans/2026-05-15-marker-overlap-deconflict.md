@@ -366,7 +366,7 @@ describe('deconflict', () => {
     const groups = buildGroups([A, B], /* zoom */ 8);
     expect(groups).toHaveLength(1);
     expect(groups[0].anchor.cluster_id).toBe(5);
-    expect(groups[0].memberIds.sort()).toEqual([5, 12]);
+    expect(groups[0].memberIds).toEqual([5, 12]);  // buildGroups guarantees sorted memberIds
   });
 
   // Test 2
@@ -397,7 +397,7 @@ describe('deconflict', () => {
     const C = cluster(3, 160, 0);
     const groups = buildGroups([A, B, C], 8);
     expect(groups).toHaveLength(1);
-    expect(groups[0].memberIds.sort()).toEqual([1, 2, 3]);
+    expect(groups[0].memberIds).toEqual([1, 2, 3]);  // buildGroups guarantees sorted memberIds
     expect(groups[0].anchor.cluster_id).toBe(1);
   });
 
@@ -467,7 +467,7 @@ describe('deconflict', () => {
     const inputs = [cluster(7, 100, 100), cluster(3, 110, 100), cluster(15, 120, 100)];
     const groups = buildGroups(inputs, 8);
     expect(groups).toHaveLength(1);
-    expect(groups[0].memberIds.sort()).toEqual([3, 7, 15]);
+    expect(groups[0].memberIds).toEqual([3, 7, 15]);  // buildGroups guarantees sorted memberIds
     expect(groups[0].anchor.cluster_id).toBe(3);  // min(id)
   });
 
