@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { AdaptiveGridMarker } from './AdaptiveGridMarker.js';
+import { markerDimensions, MIN_MARKER_PX } from './AdaptiveGridMarker.js';
 import type { AdaptiveTile, ResolvedGrid, PositiveInt } from './adaptive-grid.js';
 import { toPositiveInt } from './adaptive-grid.js';
 
@@ -394,5 +395,24 @@ describe('AdaptiveGridMarker', () => {
     );
     const circles = document.querySelectorAll('svg circle');
     expect(circles.length).toBe(0);
+  });
+});
+
+describe('markerDimensions', () => {
+  it('1×1 grid → 28×28 (matches MIN_MARKER_PX)', () => {
+    expect(markerDimensions({ tag: 'grid', cols: 1, rows: 1 })).toEqual({ w: 28, h: 28 });
+    expect(MIN_MARKER_PX).toBe(28);
+  });
+  it('2×1 grid → 52×28', () => {
+    expect(markerDimensions({ tag: 'grid', cols: 2, rows: 1 })).toEqual({ w: 52, h: 28 });
+  });
+  it('2×2 grid → 52×52', () => {
+    expect(markerDimensions({ tag: 'grid', cols: 2, rows: 2 })).toEqual({ w: 52, h: 52 });
+  });
+  it('3×3 grid → 76×76', () => {
+    expect(markerDimensions({ tag: 'grid', cols: 3, rows: 3 })).toEqual({ w: 76, h: 76 });
+  });
+  it('4×4 grid → 100×100 (the worst-case overlap source per issue #554)', () => {
+    expect(markerDimensions({ tag: 'grid', cols: 4, rows: 4 })).toEqual({ w: 100, h: 100 });
   });
 });

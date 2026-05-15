@@ -79,19 +79,29 @@ export interface AdaptiveGridMarkerProps {
 }
 
 // Layout constants — match MosaicMarker's 22px tile / 2px gap (issue #248).
-const CELL_PX = 22;
-const GRID_GAP_PX = 2;
-const GRID_PADDING_PX = 3;
+export const CELL_PX = 22;
+export const GRID_GAP_PX = 2;
+export const GRID_PADDING_PX = 3;
 
 const HIT_MIN_FINE = 44;
 const HIT_MIN_COARSE = 48;
 
 const NOTABLE_AMBER = '#f59e0b';
 
-function markerDimensions(shape: ResolvedGrid): { width: number; height: number } {
-  const width = shape.cols * CELL_PX + (shape.cols - 1) * GRID_GAP_PX + 2 * GRID_PADDING_PX;
-  const height = shape.rows * CELL_PX + (shape.rows - 1) * GRID_GAP_PX + 2 * GRID_PADDING_PX;
-  return { width, height };
+/**
+ * Minimum possible rendered marker width/height, used by the deconflict
+ * module (issue #554) to derive the spatial-bucket key:
+ *
+ *   BUCKET_PX = MIN_MARKER_PX / 2 = 14
+ *
+ * Equals the 1×1 grid width: 1*22 + 0*2 + 2*3 = 28.
+ */
+export const MIN_MARKER_PX = 28;
+
+export function markerDimensions(shape: ResolvedGrid): { w: number; h: number } {
+  const w = shape.cols * CELL_PX + (shape.cols - 1) * GRID_GAP_PX + 2 * GRID_PADDING_PX;
+  const h = shape.rows * CELL_PX + (shape.rows - 1) * GRID_GAP_PX + 2 * GRID_PADDING_PX;
+  return { w, h };
 }
 
 export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
@@ -107,7 +117,7 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
   } = props;
 
   const visibleN = visibleCapacity(shape);
-  const { width: markerWidth, height: markerHeight } = markerDimensions(shape);
+  const { w: markerWidth, h: markerHeight } = markerDimensions(shape);
 
   // Per-axis hit-extender — corrected formula from issue #541.
   // For non-square markers (e.g. 2×1 = 52×28), a single scalar `inset` using
