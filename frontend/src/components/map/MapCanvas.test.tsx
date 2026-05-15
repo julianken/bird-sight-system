@@ -70,7 +70,21 @@ function makeFakeMap() {
       getNorth: () => 35,
       contains: (_p: [number, number]) => true,
     })),
-    project: vi.fn(() => ({ x: 700, y: 400 })),
+    // Project coords into a deterministic pixel grid so the deconflict
+    // layer (#554) sees distinct screen positions per cluster. The mock
+    // uses an arbitrary linear transform — only relative distance matters.
+    // A naive constant `{x: 700, y: 400}` collapsed every cluster into
+    // one bbox and broke the multi-cluster reconciler tests.
+    //
+    // The 1000x multiplier guarantees that ANY two lng/lat tuples ≥0.01
+    // apart project to non-overlapping bboxes (>100px gap, larger than
+    // the worst-case 4×4 grid bbox).
+    project: vi.fn(
+      (coords: [number, number] | undefined) => {
+        const [lng = 0, lat = 0] = coords ?? [0, 0];
+        return { x: (lng + 180) * 1000, y: (90 - lat) * 1000 };
+      },
+    ),
     unproject: vi.fn(() => [-111, 34]),
     addSource: vi.fn(),
     removeSource: vi.fn(),

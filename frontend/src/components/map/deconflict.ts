@@ -1,4 +1,4 @@
-import type { ResolvedGrid } from './adaptive-grid.js';
+import type { AdaptiveTile, ResolvedGrid } from './adaptive-grid.js';
 import { markerDimensions, MIN_MARKER_PX } from './AdaptiveGridMarker.js';
 import { pillDimensions } from '../ds/ClusterPill.js';
 
@@ -55,6 +55,22 @@ export interface DeconflictInput {
   point_count: number;
   /** Unique families (for aria-label aggregation). */
   uniqueFamilies: number;
+  /**
+   * Longitude (anchor coord — used by MapCanvas's click handler easeTo and
+   * by PresentationMarker positioning). Optional only because Task 2's unit
+   * tests don't set it; production callers always pass a value.
+   */
+  longitude?: number;
+  /**
+   * Latitude (anchor coord — used by MapCanvas's click handler easeTo and
+   * by PresentationMarker positioning). Optional only because Task 2's unit
+   * tests don't set it; production callers always pass a value.
+   */
+  latitude?: number;
+  /** Optional render-only: AdaptiveGrid tile array (anchor's resolved data). */
+  tiles?: ReadonlyArray<AdaptiveTile>;
+  /** Optional render-only: whether this anchor is a single notable observation. */
+  isNotable?: boolean;
 }
 
 /** A group emitted by `buildGroups`. */
