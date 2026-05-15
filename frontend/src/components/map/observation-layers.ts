@@ -3,6 +3,10 @@ import type { LayerProps } from 'react-map-gl/maplibre';
 import { FAMILY_COLOR_FALLBACK } from '../../data/family-color.js';
 import { CLUSTER_TIER_BOUNDARIES } from '../../config/cluster.js';
 
+// Epic #539 cutover: `inStack` plumbing is retired. The auto-spider
+// subsystem that produced it has been deleted along with its filter
+// clauses on the unclustered-point and notable-ring layers.
+
 /**
  * Sentinel id matching the `_FALLBACK` row in `family_silhouettes`
  * (migration 1700000018000_seed_family_silhouettes_fallback.sql). Used as
@@ -51,13 +55,6 @@ export interface ObservationFeatureCollection {
       silhouetteId: string;
       /** Family color from the silhouettes join; FAMILY_COLOR_FALLBACK on miss. */
       color: string;
-      /**
-       * True when this observation belongs to an auto-spider stack (issue #277).
-       * The unclustered-point symbol layer filters out in-stack features so the
-       * SDF silhouette doesn't double-render alongside the StackedSilhouetteMarker
-       * which has already claimed visual ownership of those positions.
-       */
-      inStack: boolean;
     };
   }>;
 }
@@ -79,7 +76,6 @@ export interface ObservationFeatureCollection {
 export function observationsToGeoJson(
   observations: Observation[],
   silhouettes: readonly FamilySilhouette[] = [],
-  stackedSubIds: ReadonlySet<string> = new Set(),
 ): ObservationFeatureCollection {
   // Build a lookup keyed by lowercased familyCode so the join is
   // case-tolerant. Silhouettes are seeded lowercase but defensive for
@@ -118,11 +114,6 @@ export function observationsToGeoJson(
           familyCode: o.familyCode ?? null,
           silhouetteId,
           color,
-          // Issue #277: true when this observation is claimed by an auto-spider
-          // stack. The unclustered-point layer filters these out so the SDF
-          // symbol doesn't double-render at the original lat/lng while
-          // StackedSilhouetteMarker renders at the fanned position.
-          inStack: stackedSubIds.has(o.subId),
         },
       };
     }),
@@ -149,18 +140,18 @@ export function notableColor(): string {
 
 /* ── Cluster source defaults ───────────────────────────────────────────── */
 
-export const CLUSTER_MAX_ZOOM = 14;
-export const CLUSTER_RADIUS = 50;
 /**
- * Mosaic-vs-circle threshold (issue #248). Clusters with `point_count` AT OR
- * BELOW this value render an HTML `<Marker>` 2×2 family-silhouette mosaic in
- * MapCanvas. Larger clusters keep the colored count circle. The two surfaces
- * are mutually exclusive — the cluster-circle and cluster-count layers both
- * filter to `point_count > CLUSTER_MOSAIC_MAX_POINTS` to prevent visual
- * double-rendering. Bumping this threshold also bumps the React reconciler's
- * DOM-marker count; HTML markers don't scale beyond ~5k visible (DOM perf).
+ * Epic #539 cutover: raised from 14 → 22. Above this zoom level the
+ * supercluster source stops clustering and individual observations render
+ * as unclustered points. The adaptive-grid approach disambiguates
+ * coincident observations via grid shape (1×1, 2×1) up to the maximum
+ * sane render zoom, so clustering remains active much longer than the
+ * legacy 14-cap allowed. The companion `<Source>` JSX in MapCanvas must
+ * also set `maxzoom={24}` (Phase 0 finding F4) — without it MapLibre
+ * warns that source maxzoom (default 18) must exceed clusterMaxZoom.
  */
-export const CLUSTER_MOSAIC_MAX_POINTS = 8;
+export const CLUSTER_MAX_ZOOM = 22;
+export const CLUSTER_RADIUS = 50;
 
 /* ── Layer specs ───────────────────────────────────────────────────────── */
 
@@ -219,12 +210,12 @@ export function buildClusterCountLayerSpec(): LayerProps {
 export { CLUSTER_TIER_BOUNDARIES };
 
 /**
- * Build the invisible cluster hit-test layer spec (issue #248). The visible
- * cluster circle layer is filtered to `point_count > CLUSTER_MOSAIC_MAX_POINTS`,
- * so small clusters aren't rendered to the canvas — and `queryRenderedFeatures`
- * only returns features that ARE rendered. This layer covers all clusters with
- * fully transparent paint so the React reconciler can pull small clusters out
- * for HTML mosaic-marker materialization. Mirrors maplibre's official
+ * Build the invisible cluster hit-test layer spec. The visible cluster
+ * circle layer is paint-suppressed (epic #539: adaptive-grid markers and
+ * ClusterPill carry the cluster signal), so canvas paint exists only on
+ * this transparent layer. `queryRenderedFeatures({ layers: ['clusters-hit'] })`
+ * returns every clustered feature in the viewport so the React reconciler
+ * can materialize them as grids or pills. Mirrors maplibre's official
  * "Display HTML clusters with custom properties" example pattern.
  */
 export function buildClustersHitLayerSpec(): LayerProps {
@@ -242,11 +233,12 @@ export function buildClustersHitLayerSpec(): LayerProps {
       'circle-color': '#000',
       'circle-stroke-color': '#000',
       'circle-stroke-width': 0,
-      // Radius is wide enough to cover a worst-case 22+22+gap mosaic
+      // Radius is wide enough to cover a worst-case 4×4 adaptive-grid
       // composite — taps near a tile edge still register against the
-      // cluster center. The mosaic-vs-circle threshold is point_count <= 8;
-      // at 22px tiles + 2px gap + 4px badge overhang the marker is roughly
-      // 50px wide, so a 25-radius hit circle gives a reasonable tap target.
+      // cluster center. The grid is bounded by visibleCapacity(shape);
+      // at 22px tiles + 2px gap + 4px badge overhang the marker is
+      // roughly 100px wide at 4×4. Keep 25 — taps elsewhere route
+      // through the React marker's outer button anyway.
       'circle-radius': 25,
     },
   };
@@ -271,11 +263,8 @@ export function buildUnclusteredPointLayerSpec(): LayerProps {
     id: 'unclustered-point',
     type: 'symbol',
     source: 'observations',
-    // Issue #277: extend to also exclude in-stack features. The ['!='] form
-    // is correct here because inStack is always present on every feature
-    // (observationsToGeoJson sets it on every output feature). The
-    // ['!', ['has', ...]] form is for absent-property checks only.
-    filter: ['all', ['!', ['has', 'point_count']], ['!=', ['get', 'inStack'], true]],
+    // Epic #539 cutover: inStack filter removed alongside auto-spider.
+    filter: ['!', ['has', 'point_count']],
     layout: {
       'icon-image': ['get', 'silhouetteId'],
       // 0.85 keeps a 32-viewBox SDF roughly in the 24-28px range on the
@@ -333,7 +322,6 @@ export function buildNotableRingLayerSpec(): LayerProps {
       'all',
       ['!', ['has', 'point_count']],
       ['==', ['get', 'isNotable'], true],
-      ['!=', ['get', 'inStack'], true],
     ],
     paint: {
       // Hollow ring — fill is transparent so the silhouette body shows
