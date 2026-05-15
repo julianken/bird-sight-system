@@ -54,7 +54,12 @@ export interface AdaptiveGridMarkerProps {
    * empty trailing slots render as transparent padders.
    */
   tiles: ReadonlyArray<AdaptiveTile>;
-  /** Cluster's full `point_count` (drives badge visibility for the 1×1 single-obs case). */
+  /**
+   * Cluster's full `point_count`. Not used for badge visibility (per spec
+   * §4.3 that's a per-cell decision driven by `cellCount > 1`) but kept on
+   * the public prop shape because callers thread it for aria-label
+   * construction and parity with sibling marker components.
+   */
   totalCount: number;
   /** For aria-label parity; not currently rendered (parent threads label). */
   uniqueFamilies: number;
@@ -93,7 +98,6 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
   const {
     shape,
     tiles,
-    totalCount,
     ariaLabel,
     describedByListId,
     describedByItems,
@@ -122,10 +126,11 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
     pointerEvents: 'auto',
   };
 
-  // The badge is hidden ONLY when both the cluster total is 1 AND the cell
-  // count is 1 — i.e. the single-observation case, where the marker reads
-  // identically to today's individual marker (spec §4.3).
-  const showBadgeFor = (cellCount: number): boolean => totalCount > 1 || cellCount > 1;
+  // Per spec §4.3 line 124: hidden when cell.count === 1 (regardless of the
+  // cluster's total observation count). In a 1×1 single-observation marker,
+  // this collapses to the same outcome as the prior "totalCount > 1" guard
+  // because cellCount === totalCount === 1.
+  const showBadgeFor = (cellCount: number): boolean => cellCount > 1;
 
   return (
     <button
