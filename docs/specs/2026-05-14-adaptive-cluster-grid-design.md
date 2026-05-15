@@ -411,6 +411,8 @@ Instrument `performance.mark` brackets around the `mosaics` state update in `Map
 - **Pass**: p99 measure duration < 16ms (one frame budget) at 390×844 with ≥ 344 canned rows during a pinch-zoom from z=8 → z=15.
 - **Fail**: reduce `clusterMaxZoom` cap, or tighten the observation-count pill threshold below 64.
 
+**Initial implementation note (2026-05-15):** the first ship of this gate uses a wall-clock `flyTo` budget (5000ms ceiling) as a proxy until the `performance.measure('mosaic-reconcile')` instrumentation is wired through the Vite + jsdom environment. The proxy gate runs as `map-adaptive-grid.spec.ts @perf` and is soft-launched via `continue-on-error: true` in `.github/workflows/perf-gate.yml` — failures surface in the CI summary but do not block merge. Tightening to the spec'd p99 < 16ms target on the `performance.measure` instrument is tracked as a follow-up; flipping `continue-on-error` to `false` is the explicit promotion step.
+
 ### Gate 2 · DOM-marker ceiling (perf, NEW)
 
 `observation-layers.ts:163` carries an explicit comment that "HTML markers don't scale beyond ~5k visible (DOM perf)."
