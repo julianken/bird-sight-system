@@ -194,7 +194,7 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
 interface TileCellProps {
   tile: AdaptiveTile;
   showBadge: boolean;
-  isNotable?: boolean;
+  isNotable: boolean | undefined;
 }
 
 function TileCell({ tile, showBadge, isNotable }: TileCellProps) {
