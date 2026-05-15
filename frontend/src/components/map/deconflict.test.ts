@@ -297,6 +297,30 @@ describe('deconflict', () => {
     expect(groups[0].anchor.rendered.kind).toBe('grid');
   });
 
+  it('two silhouettes coincident at anchor center radiate to different positions', () => {
+    const A = cluster(1, 100, 100, grid4x4, /* count */ 32, /* uniqueFamilies */ 16);
+    const silA: DeconflictInput = {
+      cluster_id: -100,
+      px: 100,
+      py: 100,
+      rendered: { kind: 'silhouette' },
+      point_count: 1,
+      uniqueFamilies: 1,
+      longitude: 0,
+      latitude: 0,
+      subId: 'OBS-AAA',
+    };
+    const silB: DeconflictInput = { ...silA, cluster_id: -101, subId: 'OBS-BBB' };
+    const groups = buildGroups([A, silA, silB], 8);
+    const offsets = displaceSilhouettes(groups, [A, silA, silB]);
+    const offA = offsets.get('OBS-AAA');
+    const offB = offsets.get('OBS-BBB');
+    expect(offA).toBeDefined();
+    expect(offB).toBeDefined();
+    // Different directions (any of dx, dy differs)
+    expect(offA!.dx !== offB!.dx || offA!.dy !== offB!.dy).toBe(true);
+  });
+
   it('two silhouettes both overlapping the same anchor → both get offsets in different directions', () => {
     // 4×4 grid at (100,100); two silhouettes flanking east and west.
     const A = cluster(1, 100, 100, grid4x4);

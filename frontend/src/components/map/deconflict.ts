@@ -336,11 +336,17 @@ export function displaceSilhouettes(
       // Vector from anchor center → silhouette center.
       let vx = s.px - anchor.px;
       let vy = s.py - anchor.py;
-      // Degenerate: silhouette exactly coincident with anchor center.
-      // Pick an arbitrary direction (east) so the silhouette still moves.
-      if (vx === 0 && vy === 0) {
-        vx = 1;
-        vy = 0;
+      // Degenerate case: silhouette center === anchor center.
+      // Use a stable hash of the subId to pick a direction so coincident
+      // silhouettes spread radially instead of stacking on the east flank.
+      if (Math.abs(vx) < 1e-6 && Math.abs(vy) < 1e-6) {
+        // Hash subId to a stable angle in [0, 2π)
+        const seed = s.subId
+          ? Array.from(s.subId).reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 0)
+          : 0;
+        const angle = (Math.abs(seed) % 360) * (Math.PI / 180);
+        vx = Math.cos(angle);
+        vy = Math.sin(angle);
       }
       const mag = Math.hypot(vx, vy);
       const ux = vx / mag;

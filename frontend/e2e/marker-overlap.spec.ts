@@ -145,6 +145,20 @@ for (const viewport of VIEWPORTS) {
       await page.waitForTimeout(500);
 
       const result = await measureOverlap(page);
+      // INTENTIONALLY strict: total_overlap_area must be exactly zero.
+      //
+      // The silhouette-displacement layer (deconflict.ts displaceSilhouettes)
+      // caps displacement at 20px from the geographic position. A silhouette
+      // deeply embedded inside a 4×4 grid anchor (100×100) would need ~50px
+      // to clear and gets capped at 20, leaving ~30px residual overlap.
+      //
+      // We assert zero so that this failure mode fires LOUDLY in CI when the
+      // seeded fixture ever produces such a geometry. The maintainer then
+      // decides: raise the 20px cap, or add a per-marker exception path. Do
+      // NOT relax this assertion to `<= someResidual` — that hides the signal.
+      //
+      // Observed at the time of writing (2026-05-15): the AZ fixture
+      // produces ≤5 cross-overlaps at z=8, all resolved within the 20px cap.
       expect(
         result.total_overlap_area,
         `marker_count=${result.marker_count}, worst_overlap=${result.worst_overlap_area}px²`,

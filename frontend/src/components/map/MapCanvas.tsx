@@ -1121,6 +1121,16 @@ export function MapCanvas({
       cancelled = true;
       map.off('load', onLoad);
       map.off('idle', onIdle);
+      // Clear orphaned `hidden` feature-state so silhouettes don't stay
+      // invisible after the effect re-runs (e.g. catalogue swap, unmount).
+      for (const subId of prevHiddenSubIdsRef.current) {
+        try {
+          map.removeFeatureState({ source: 'observations', id: subId }, 'hidden');
+        } catch {
+          // map.getSource('observations') may be gone if the map was disposed.
+        }
+      }
+      prevHiddenSubIdsRef.current = new Set();
     };
     // Re-register when the silhouettes catalogue OR the resolved
     // silhouettesById map changes, OR when the map first becomes ready.
