@@ -53,3 +53,30 @@ export function ClusterPill({ count, onClick }: ClusterPillProps): ReactNode {
     </button>
   );
 }
+
+/**
+ * Predicted rendered bounding box for a ClusterPill at a given count.
+ * Used by the deconflict module (issue #554) to compute the AABB without
+ * a DOM round-trip.
+ *
+ * Values are derived from `ds-primitives.css:421-451` per-tier rules
+ * (padding + font-size + min-width) and validated against live measurement
+ * on 2026-05-15 (sky 36×24, sand 55×27, ember 73×33 at typical counts).
+ *
+ * The width formula assumes a tabular-digit width of ~8px (sky), ~9px
+ * (sand), ~10px (ember). If the design system rebases on a different
+ * font, this function needs to be retuned — there's a unit test in
+ * ClusterPill.test.tsx that asserts measured dimensions stay within
+ * ±4px of predicted.
+ */
+export function pillDimensions(count: number): { w: number; h: number } {
+  const tier = clusterTier(count);
+  const digits = String(count).length;
+  if (tier === 'sky') {
+    return { w: Math.max(28, digits * 8 + 20), h: 24 };
+  }
+  if (tier === 'sand') {
+    return { w: Math.max(34, digits * 9 + 26), h: 27 };
+  }
+  return { w: Math.max(40, digits * 10 + 32), h: 33 };
+}

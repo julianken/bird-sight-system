@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { ClusterPill } from './ClusterPill.js';
+import { ClusterPill, pillDimensions } from './ClusterPill.js';
 
 describe('<ClusterPill>', () => {
   // --- Element shape and ARIA ---
@@ -93,5 +93,26 @@ describe('<ClusterPill>', () => {
     pill.focus();
     await userEvent.keyboard(' ');
     expect(onClick).toHaveBeenCalledOnce();
+  });
+});
+
+describe('pillDimensions', () => {
+  it('sky tier (count < 100) → min-width respected for short counts', () => {
+    expect(pillDimensions(30)).toEqual({ w: 36, h: 24 });
+  });
+  it('sky tier 3-digit count uses formula', () => {
+    expect(pillDimensions(99)).toEqual({ w: 36, h: 24 });
+  });
+  it('sand tier (100 ≤ count < 750) → 3-digit width', () => {
+    expect(pillDimensions(214)).toEqual({ w: 53, h: 27 });
+  });
+  it('ember tier (count ≥ 750) → 4-digit width', () => {
+    expect(pillDimensions(1648)).toEqual({ w: 72, h: 33 });
+  });
+  it('sand tier boundary (count = 100)', () => {
+    expect(pillDimensions(100)).toEqual({ w: 53, h: 27 });
+  });
+  it('ember tier boundary (count = 750)', () => {
+    expect(pillDimensions(750)).toEqual({ w: 62, h: 33 });
   });
 });

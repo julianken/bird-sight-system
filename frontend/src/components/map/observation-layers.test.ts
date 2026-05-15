@@ -209,11 +209,14 @@ describe('layer specs', () => {
     expect(paint['icon-color']).toEqual(['get', 'color']);
     // _FALLBACK silhouette renders at 50% opacity so missing-Phylopic
     // families read as "we don't have a shape for this" instead of
-    // visually equal to the rest.
+    // visually equal to the rest. The first branch (issue #554 scope
+    // expansion 2026-05-15) drops opacity to 0 for silhouettes whose
+    // displaced React twin is rendered by MapCanvas — keyed by the
+    // `hidden` feature-state set via promoteId="subId".
     expect(paint['icon-opacity']).toEqual([
       'case',
-      ['==', ['get', 'silhouetteId'], FALLBACK_SILHOUETTE_ID],
-      0.5,
+      ['boolean', ['feature-state', 'hidden'], false], 0,
+      ['==', ['get', 'silhouetteId'], FALLBACK_SILHOUETTE_ID], 0.5,
       1.0,
     ]);
   });
