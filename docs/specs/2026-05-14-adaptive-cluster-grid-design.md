@@ -240,7 +240,7 @@ There are **three separable caching concerns** the implementation must address:
 
 All three are **functional requirements** — the §10 Gate 1 p99 bound depends on hitting Concern B's cache for unchanged clusters AND on the catalogue not silently invalidating it on every load. The plan body's first task is to write the failing perf assertion, then add the three layers to make it pass.
 
-**Test-only escape hatch.** The module-scoped `Map` of Concern B is not multi-instance safe and survives `afterEach` unless explicitly cleared. Export a `__resetCacheForTesting()` function from `MapCanvas.tsx` (gated by `if (process.env.NODE_ENV === 'test')` to keep it out of prod bundles) and call it in a `beforeEach`. This avoids state leakage between unit tests and avoids the surprise during Vite HMR sessions in dev.
+**Test-only escape hatch.** The module-scoped `Map` of Concern B is not multi-instance safe and survives `afterEach` unless explicitly cleared. Export a `__resetAdaptiveGridCacheForTesting()` function from `MapCanvas.tsx` (gated by `if (process.env.NODE_ENV === 'test')` to keep it out of prod bundles) and call it in a `beforeEach`. This avoids state leakage between unit tests and avoids the surprise during Vite HMR sessions in dev.
 
 ## 6. File map
 
