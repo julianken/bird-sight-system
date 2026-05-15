@@ -344,6 +344,7 @@ import {
 // Shared fixtures
 const grid4x4 = { kind: 'grid', shape: { tag: 'grid', cols: 4, rows: 4 } } as const;
 const grid2x2 = { kind: 'grid', shape: { tag: 'grid', cols: 2, rows: 2 } } as const;
+const grid1x1 = { kind: 'grid', shape: { tag: 'grid', cols: 1, rows: 1 } } as const;
 const pillSand = { kind: 'pill', count: 214 } as const;
 
 function cluster(
@@ -437,6 +438,15 @@ describe('deconflict', () => {
     const groups = buildGroups([A], 8);
     expect(groups[0].ariaLabel).toBe(
       'Cluster: 7 observations, 3 families. Activate to zoom in.',
+    );
+  });
+
+  // Test 9b
+  it('aria-label uses singular "family" for uniqueFamilies=1', () => {
+    const A = cluster(1, 0, 0, grid1x1 as DeconflictInput['rendered'], /* count */ 1, /* uniqueFamilies */ 1);
+    const groups = buildGroups([A], 8);
+    expect(groups[0].ariaLabel).toBe(
+      'Cluster: 1 observations, 1 family. Activate to zoom in.',
     );
   });
 

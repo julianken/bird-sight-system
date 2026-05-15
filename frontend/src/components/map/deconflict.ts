@@ -15,7 +15,11 @@ import { pillDimensions } from '../ds/ClusterPill.js';
  *                  github.com/julianken/bird-sight-system/issues/554
  */
 
-const BUCKET_PX = MIN_MARKER_PX / 2; // 14
+// MIN_MARKER_PX must remain even — odd values produce non-integer bucket
+// keys (`bucket-7.5-3-8`), which still work for React keys but are fragile.
+// MIN_MARKER_PX = 28 today; the AdaptiveGridMarker formula
+// 1*CELL_PX + 2*GRID_PADDING_PX = 22 + 6 = 28 keeps it even by construction.
+const BUCKET_PX = MIN_MARKER_PX / 2;  // 14
 
 /** Axis-aligned bounding box, in screen pixels. */
 export interface AABB {
