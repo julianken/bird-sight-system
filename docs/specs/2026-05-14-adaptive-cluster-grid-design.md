@@ -81,10 +81,12 @@ The brainstorm considered three approaches. **Approach A** was chosen because it
 
 ```ts
 type Dim = 1 | 2 | 3 | 4;
+type PositiveInt = number & { readonly __brand: 'PositiveInt' };
+declare function toPositiveInt(n: number): PositiveInt;  // throws on n < 1
 
 type GridShape =
   | { tag: 'grid'; cols: Dim; rows: Dim }                      // visibleCapacity = cols*rows
-  | { tag: 'grid-overflow'; cols: Dim; rows: Dim; hiddenCount: number }   // visibleCapacity = cols*rows - 1 (reserved for "+N")
+  | { tag: 'grid-overflow'; cols: Dim; rows: Dim; hiddenCount: PositiveInt }   // visibleCapacity = cols*rows - 1 (reserved for "+N")
   | { tag: 'pill' };
 
 type ResolvedGrid = Exclude<GridShape, { tag: 'pill' }>;       // what AdaptiveGridMarker receives
@@ -187,9 +189,13 @@ interface AdaptiveGridMarkerProps {
 // Discriminated union — matches existing MosaicTile precedent at cluster-mosaic.ts:42-58.
 // Keeps the field name `svgData` (consistent with FamilySilhouette.svgData in shared-types/index.ts);
 // no surprise rename. Fallback variant carries only the fields actually rendered.
+// `pending` distinguishes "catalogue not loaded yet" from "loaded but no art for this family" —
+// without it both cases render as fallback (opacity 0.5) and a cold-load map is indistinguishable
+// from a real coverage gap.
 type AdaptiveTile =
   | { kind: 'rendered'; familyCode: string; svgData: string; color: string; count: number }
-  | { kind: 'fallback'; familyCode: string; color: string; count: number };
+  | { kind: 'fallback'; familyCode: string; color: string; count: number }     // catalogue loaded, no art for this family
+  | { kind: 'pending'; familyCode: string; count: number };                     // catalogue not loaded yet (render skeleton)
 ```
 
 The marker takes a `ResolvedGrid` (pill is unreachable at the type level — `Exclude<GridShape, { tag: 'pill' }>`). The parent renders `<ClusterPill>` directly for `shape.tag === 'pill'`. `isMobileViewport` is no longer threaded — the mobile cap is already encoded in `shape.tag === 'grid-overflow'`.
@@ -224,13 +230,13 @@ There are **three separable caching concerns** the implementation must address:
 
 **Concern A — Render-pass stability.** The derived `tiles: ReadonlyArray<AdaptiveTile>` passed to `<AdaptiveGridMarker>` should not be a new identity on every render when the inputs haven't changed, or `React.memo` on the marker is defeated. Solution: `useMemo` at the parent keyed on `[zoom, cluster_id, point_count, silhouettesVersion]` (see Concern C for the version token). Garbage-collected by React when the cluster leaves the viewport. Idiomatic React.
 
-**Concern B — Async-call avoidance across idle ticks.** `getClusterLeaves` is an async supercluster call. Running it for every visible cluster on every `idle` event is the actual perf hot path. This caching layer lives *outside* React render — a module-scoped `Map<string, Promise<AdaptiveTile[]>>` in `MapCanvas.tsx` keyed on **`${zoom}:${cluster_id}:${point_count}`**. The zoom prefix is load-bearing: supercluster's integer `cluster_id` values can collide across zoom levels, and without it the cache will silently return a stale tile array from a different zoom's leaf set. Eviction: at the end of each `idle` handler, drop entries whose `zoom:cluster_id` is not present in the current viewport's feature set.
+**Concern B — Async-call avoidance across idle ticks.** `getClusterLeaves` is an async supercluster call. Running it for every visible cluster on every `idle` event is the actual perf hot path. This caching layer lives *outside* React render — a module-scoped `Map<string, Promise<AdaptiveTile[]>>` in `MapCanvas.tsx` keyed on **`${zoom}:${cluster_id}:${point_count}`** (zoom is `Math.floor(map.getZoom())` to handle fractional values from continuous-zoom devices). The zoom prefix is load-bearing: supercluster's integer `cluster_id` values can collide across zoom levels, and without it the cache will silently return a stale tile array from a different zoom's leaf set. Eviction: at the end of each `idle` handler, drop entries whose `zoom:cluster_id` is not present in the current viewport's feature set. **Rejected-Promise eviction**: if a stored Promise rejects, the cache entry is deleted in the same microtask (a `.catch()` cleanup at insert time) so a transient supercluster failure does not poison the cache for the lifetime of the cluster. The rejection is logged once via the project's standard error path; tests assert that a retry after rejection re-invokes `getClusterLeaves` rather than returning the rejected Promise.
 
-**Concern C — Catalogue rebuild invalidation.** Supercluster's index is rebuilt when `silhouettes.length` changes (this is the existing effect-deps trigger at `MapCanvas.tsx:760`). After a rebuild, spatially equivalent clusters can be assigned different `cluster_id` values, and downstream `aggregateClusterFamilies` may resolve different `svgData` for the same family if the catalogue rows changed. The implementation must:
+**Concern C — Catalogue rebuild invalidation.** Supercluster's index is rebuilt when `silhouettes.length` changes (this is the existing effect-deps trigger at `MapCanvas.tsx:760`). After a rebuild, spatially equivalent clusters can be assigned different `cluster_id` values, and downstream silhouette resolution may produce different `svgData` for the same family if the catalogue rows changed. The implementation must:
 
-1. Wholesale-clear the Concern B `Map` whenever the effect re-registers (i.e., on `silhouettes.length` change). One line at the top of the effect body.
-2. Include a `silhouettesVersion` token (`silhouettes.length` is sufficient as a coarse proxy — increments on catalogue load) in the Concern A `useMemo` key. This is the third dependency named above.
-3. Resolve silhouette `svgData` for each family **upstream** of `buildAdaptiveTiles` rather than reading `silhouettesRef.current` inside the tile-builder. Today's `buildMosaicTiles` does the wrong thing at `MapCanvas.tsx:714` — reading from a ref bypasses every memo key. Move silhouette resolution to a pure transformation: `(leaves, silhouettesById) → tiles`. Tests pass `silhouettesById` explicitly.
+1. **Generation counter + race-safe commit.** Introduce a module-scoped monotonic `cacheGeneration: number` in `MapCanvas.tsx`. The effect body increments this counter and wholesale-clears the Concern B `Map` whenever it re-registers. Each `reconcile` invocation captures `const myGen = cacheGeneration` at its top; before calling `setMosaics(next)`, it checks `myGen === cacheGeneration` and no-ops the commit if the generation has advanced. This closes the race where an in-flight reconcile from the prior catalogue commits stale tiles after a refresh.
+2. **`silhouettesVersion` is a monotonic integer, not `silhouettes.length`.** A length-only proxy misses in-place row replacement (same count, different `svgData` — Phylopic refreshes, low-res→hi-res swaps). The version increments on every catalogue write in the same place where supercluster's index is rebuilt. The useMemo key carries `silhouettesVersion`, not `silhouettes.length`.
+3. **Upstream silhouette resolution.** Resolve silhouette `svgData` for each family **upstream** of `buildAdaptiveTiles` rather than reading `silhouettesRef.current` inside the tile-builder. Today's `buildMosaicTiles` does the wrong thing at `MapCanvas.tsx:714` — reading from a ref bypasses every memo key. The new signature is pure: `buildAdaptiveTiles(leaves, silhouettesById, shape) → ReadonlyArray<AdaptiveTile>`. The caller resolves `silhouettesById` once per reconcile and threads it explicitly. Tests pass `silhouettesById` as an argument and verify identical-leaf inputs with different catalogues produce different `svgData`.
 
 All three are **functional requirements** — the §10 Gate 1 p99 bound depends on hitting Concern B's cache for unchanged clusters AND on the catalogue not silently invalidating it on every load. The plan body's first task is to write the failing perf assertion, then add the three layers to make it pass.
 
@@ -306,7 +312,7 @@ Tile-builder rules:
 - `buildAdaptiveTiles(200 leaves, 20 unique families, capacity=16) → 16 tiles, descending count`
 - **Null-familyCode dropout** (LEFT JOIN miss per `Observation` contract): leaves with `familyCode === null` are silently dropped — copied verbatim from `cluster-mosaic.test.ts` so the invariant is preserved
 - **Under-capacity** when fewer families than capacity: `buildAdaptiveTiles(5 leaves, 2 families, capacity=4) → 2 tiles` (not 4 — caller pads visually)
-- **Fallback by null `svgData`**: leaves with `silhouetteSrc === null` produce tiles with `isFallback === true` — preserved from prior `cluster-mosaic.test.ts`
+- **Fallback by null `svgData`**: leaves whose resolved silhouette `svgData === null` produce tiles with `kind === 'fallback'` — preserved from prior `cluster-mosaic.test.ts`
 
 Memoization (Concerns A, B, C from §5.3):
 
@@ -316,7 +322,10 @@ Memoization (Concerns A, B, C from §5.3):
 - **Cache uses zoom-prefixed key** — `${zoom}:${cluster_id}:${point_count}` — and a test asserts that the same `cluster_id:point_count` at two different zoom levels produces two independent cache entries (catches collisions silent in an unprefixed key)
 - Cache evicts entries whose `zoom:cluster_id` is not in the current viewport feature-set
 - **Catalogue invalidation**: when `silhouettes.length` changes (catalogue load / refresh), the module-scoped `Map` is wholesale-cleared and `useMemo` recomputes (silhouettesVersion delta busts the key)
-- **Upstream silhouette resolution**: `buildAdaptiveTiles(leaves, silhouettesById)` is pure — it does NOT read from any ref. A regression test asserts that calling it with two different `silhouettesById` arguments returns differently-resolved tiles, even with identical `leaves`
+- **Upstream silhouette resolution**: `buildAdaptiveTiles(leaves, silhouettesById, shape)` is pure — it does NOT read from any ref. A regression test asserts that calling it with two different `silhouettesById` arguments returns differently-resolved tiles, even with identical `leaves`
+- **Rejected-Promise eviction**: `getClusterLeaves` rejection on a cache key removes the entry in the same microtask. A retry on the same key re-invokes the underlying call (does NOT return the rejected Promise). Test name: `"Concern B cache: rejected getClusterLeaves promise is evicted, retry invokes the underlying call"`
+- **Race-safe commit**: the `cacheGeneration` counter increments on every effect re-registration; an in-flight reconcile captures its generation at entry and no-ops `setMosaics` if the generation has advanced. Test name: `"reconcile does not commit tiles when cacheGeneration advanced mid-flight"`
+- **`silhouettesVersion` invalidates on in-place replacement**: two catalogue snapshots with identical `length` but different `svgData` for the same `familyCode` bust the useMemo key. Test name: `"silhouettesVersion bump invalidates memo even when silhouettes.length is unchanged"`
 
 ### Component (`AdaptiveGridMarker.test.tsx`)
 
@@ -334,6 +343,7 @@ Memoization (Concerns A, B, C from §5.3):
 - Hit-extender overlay element has `getBoundingClientRect()` ≥ 44×44 (`pointer:fine`) or ≥ 48×48 (`pointer:coarse`)
 - **Dark-mode badge contrast**: with `data-theme="dark"` applied, badge's `getComputedStyle().boxShadow` includes the 1px white stroke specified in §4.3
 - **Notable indicator preserved (AC8, inherited from `StackedSilhouetteMarker.test.tsx:183-221`)**: a 1×1 grid for an `isNotable: true` leaf renders an amber `<circle>` ring inside the tile SVG; a non-notable leaf does NOT render the circle; the circle's DOM order precedes the halo path (z-order test)
+- **Empty-catalogue render path**: when `silhouettesById` is empty (catalogue not loaded yet — distinct from "loaded but this family has no art"), the marker MUST NOT render as a 100%-fallback grid (visually indistinguishable from a real coverage gap). Spec choice: introduce a third `AdaptiveTile` variant `{ kind: 'pending'; familyCode; count }` for the catalogue-unloaded case, rendered as a skeleton/shimmer rather than the opacity-0.5 fallback. Test name: `"empty silhouette catalogue: renders skeleton, NOT a 100%-fallback grid"`
 
 ### E2E (`map-adaptive-grid.spec.ts`)
 
