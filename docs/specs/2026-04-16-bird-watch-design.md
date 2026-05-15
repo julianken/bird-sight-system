@@ -40,10 +40,17 @@ Two external dependencies + four internal services.
 
 The Plan-4 SVG-ecoregion renderer was deleted in PR #166 and replaced with a MapLibre real-geographic map delivered by Plan 7. Components below reflect the shipped architecture; see `docs/plans/2026-04-22-plan-7-map-v1.md` for detail.
 
+**Cluster marker:** A single `<AdaptiveGridMarker>` component handles every
+cluster at every zoom level. Shape adapts from 1×1 to 4×4 based on unique-family
+count; clusters exceeding 16 unique families OR 64 observations render as a
+numeric `<ClusterPill>`. See `docs/specs/2026-05-14-adaptive-cluster-grid-design.md`
+for the full design.
+
 | Component | Purpose |
 |---|---|
 | `MapSurface` | Renders a MapLibre GL JS basemap (OpenFreeMap Positron tiles) scoped to Arizona; hosts the clustered observation layer and OSM + OpenFreeMap attribution per ODbL |
 | `ObservationClusterLayer` | GeoJSON source with `cluster: true`; renders circle clusters at low zoom and individual observation points at high zoom, color-keyed by family |
+| `AdaptiveGridMarker` | Single cluster-marker component covering all zoom levels; adaptive 1×1–4×4 grid shape with `ClusterPill` fallback (see Cluster marker note above) |
 | `ClusterInteraction` | Click/keyboard handlers that zoom into clusters via the Promise-based `getClusterExpansionZoom` API (MapLibre 4.x) and open per-point detail |
 | `SpeciesDetailSurface` | Dedicated detail panel (replaced the legacy sidebar in PR #162) for a single species — silhouette, common/sci name, recent-sightings list |
 | `FiltersBar` | Time window · notable-only toggle · species search · family filter |
