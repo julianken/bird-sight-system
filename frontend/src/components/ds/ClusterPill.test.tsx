@@ -1,8 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { ClusterPill } from './ClusterPill.js';
-import { pillDimensions } from './ClusterPill.js';
+import { ClusterPill, pillDimensions } from './ClusterPill.js';
 
 describe('<ClusterPill>', () => {
   // --- Element shape and ARIA ---
@@ -109,5 +108,11 @@ describe('pillDimensions', () => {
   });
   it('ember tier (count ≥ 750) → 4-digit width', () => {
     expect(pillDimensions(1648)).toEqual({ w: 72, h: 33 });
+  });
+  it('sand tier boundary (count = 100)', () => {
+    expect(pillDimensions(100)).toEqual({ w: 53, h: 27 });
+  });
+  it('ember tier boundary (count = 750)', () => {
+    expect(pillDimensions(750)).toEqual({ w: 62, h: 33 });
   });
 });

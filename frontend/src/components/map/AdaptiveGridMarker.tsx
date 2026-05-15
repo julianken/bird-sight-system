@@ -96,7 +96,10 @@ const NOTABLE_AMBER = '#f59e0b';
  *
  * Equals the 1×1 grid width: 1*22 + 0*2 + 2*3 = 28.
  */
-export const MIN_MARKER_PX = 28;
+// Derived from the cell constants: 1 column × CELL_PX + 0 gaps × GRID_GAP_PX
+// + 2 × GRID_PADDING_PX = 22 + 0 + 6 = 28. Keeping the derivation in code
+// ensures the bucket size stays consistent if the cell constants ever shift.
+export const MIN_MARKER_PX = 1 * CELL_PX + 0 * GRID_GAP_PX + 2 * GRID_PADDING_PX;
 
 export function markerDimensions(shape: ResolvedGrid): { w: number; h: number } {
   const w = shape.cols * CELL_PX + (shape.cols - 1) * GRID_GAP_PX + 2 * GRID_PADDING_PX;
