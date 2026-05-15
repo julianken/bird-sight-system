@@ -71,6 +71,27 @@ describe('AdaptiveGridMarker', () => {
 
   // --- 2×2 grid: 4 per-cell badges in descending count order --------------
 
+  it('hides badge for cells with count === 1 even in multi-cell clusters', () => {
+    // Regression for issue #552: per spec §4.3 line 124 the badge is hidden
+    // when `cell.count === 1`, regardless of the cluster's total. The prior
+    // `totalCount > 1 || cellCount > 1` guard caused every count=1 cell in
+    // a multi-cell cluster to render a "1" badge. Fixture uses ties at 1 so
+    // we pin "count=1 → silhouette-only" rather than just descending order.
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_2x2}
+        tiles={[rendered('a', 3), rendered('b', 1), rendered('c', 1), rendered('d', 1)]}
+        totalCount={6}
+        uniqueFamilies={4}
+        ariaLabel="Cluster: 6 observations, 4 families. Activate to zoom in."
+        onClick={noop}
+      />,
+    );
+    const badges = screen.queryAllByTestId('adaptive-grid-marker-badge');
+    expect(badges).toHaveLength(1); // only the count=3 cell gets a badge
+    expect(badges[0].textContent).toBe('3');
+  });
+
   it('renders 2×2 with 4 per-cell badges in descending count order', () => {
     render(
       <AdaptiveGridMarker
