@@ -293,10 +293,17 @@ export function buildUnclusteredPointLayerSpec(): LayerProps {
       // Fade _FALLBACK markers so missing-Phylopic families read as
       // distinct from the rest. The condition uses the literal sentinel
       // value — must stay in sync with FALLBACK_SILHOUETTE_ID above.
+      //
+      // The `hidden` feature-state branch (issue #554 scope expansion
+      // 2026-05-15) hides the canvas-painted silhouette twin whenever
+      // deconflict has displaced it to a <PresentationMarker> overlay.
+      // Reads via promoteId="subId" on the GeoJSON Source so
+      // setFeatureState({id: subId}, {hidden: true}) lands on the
+      // right feature.
       'icon-opacity': [
         'case',
-        ['==', ['get', 'silhouetteId'], FALLBACK_SILHOUETTE_ID],
-        0.5,
+        ['boolean', ['feature-state', 'hidden'], false], 0,
+        ['==', ['get', 'silhouetteId'], FALLBACK_SILHOUETTE_ID], 0.5,
         1.0,
       ],
     },
@@ -330,6 +337,15 @@ export function buildNotableRingLayerSpec(): LayerProps {
       'circle-radius': 14,
       'circle-stroke-width': 2.5,
       'circle-stroke-color': notableColor(),
+      // Hide the ring for silhouettes that deconflict displaced — the
+      // displaced React twin handles its own painting at the offset
+      // lng/lat, and the ring (rendered at the canvas position) would
+      // detach from the body. Issue #554 scope expansion 2026-05-15.
+      'circle-stroke-opacity': [
+        'case',
+        ['boolean', ['feature-state', 'hidden'], false], 0,
+        1,
+      ],
     },
   };
 }

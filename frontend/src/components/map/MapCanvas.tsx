@@ -42,7 +42,13 @@ import {
   MapMarkerHitLayer,
   type HitTargetMarker,
 } from './MapMarkerHitLayer.js';
-import { buildGroups, type DeconflictGroup, type DeconflictInput } from './deconflict.js';
+import {
+  buildGroups,
+  displaceSilhouettes,
+  SILHOUETTE_PX,
+  type DeconflictGroup,
+  type DeconflictInput,
+} from './deconflict.js';
 
 /**
  * Adaptive-grid reconciler memoization (epic #539 spec §5.3).
@@ -112,6 +118,20 @@ export function __resetAdaptiveGridCacheForTesting(): void {
   leafCache.clear();
   warnedRejections.clear();
   cacheGeneration = 0;
+}
+
+/**
+ * Stable string hash for observation subIds (issue #554 silhouette
+ * deconflict). Used to derive a NEGATIVE pseudo-cluster_id so silhouette
+ * inputs can be carried through `buildGroups` alongside real clusters
+ * without collision. djb2-style — same algorithm as the unit tests'
+ * `hashForTest`. The return value is wrapped through `Math.abs` so
+ * negation in the caller produces a deterministic negative id.
+ */
+function hashSubId(s: string): number {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
 }
 
 /**
@@ -336,6 +356,33 @@ export function MapCanvas({
    */
   const [groups, setGroups] = useState<DeconflictGroup[]>([]);
   /**
+   * Per-subId pixel offset for displaced silhouettes (issue #554 scope
+   * expansion 2026-05-15). Populated by `displaceSilhouettes` whenever
+   * the reconciler runs; consumed by the render block to position a
+   * <PresentationMarker> at the shifted lng/lat, and by the feature-state
+   * loop below to hide the canvas-painted twin. Carries lng/lat too so
+   * the render block doesn't re-walk the unclustered feature list.
+   */
+  const [silhouetteOffsets, setSilhouetteOffsets] = useState<
+    Map<string, { dx: number; dy: number; longitude: number; latitude: number }>
+  >(new Map());
+  /**
+   * subIds whose canvas twin was hidden via feature-state on the prior
+   * reconcile pass. Tracked so we can call removeFeatureState when a
+   * silhouette stops being displaced (e.g. cluster pans off-screen or
+   * zoom changes break up the overlap). Without this, an earlier-hidden
+   * silhouette would stay invisible after the displacement clears.
+   */
+  const prevHiddenSubIdsRef = useRef<Set<string>>(new Set());
+  /**
+   * Silhouette data lookup for the displaced-silhouette render path.
+   * `silhouettesById` (below) is keyed by lowercased familyCode for the
+   * symbol layer; we also need a per-subId family/color lookup. Cheap
+   * to derive from the observations + silhouettes inputs.
+   */
+  // (Computed inline below as `silhouetteRenderById` once `silhouettesById`
+  // and `obsLookup` are in scope.)
+  /**
    * Flips `true` after the maplibre map fires its initial `load` event.
    * Drives the mosaic reconciler effect (#248), the auto-spider reconciler
    * effect (#277), and the hit-layer ref binding (#247) — without this gate,
@@ -485,6 +532,28 @@ export function MapCanvas({
     for (const o of observations) lookup[o.subId] = o;
     return lookup;
   }, [observations]);
+
+  /**
+   * Per-subId silhouette-render lookup (issue #554 scope expansion 2026-05-15).
+   * Maps each observation's subId → its rendered silhouette path + color, so
+   * the displaced-silhouette render block can paint an inline SVG that
+   * visually matches the symbol-layer rendering it replaces.
+   * `svgData === null` means the family has no usable Phylopic silhouette —
+   * the displaced marker falls through to the _FALLBACK shape.
+   */
+  const silhouetteRenderById = useMemo(() => {
+    const lookup = new Map<string, { svgData: string | null; color: string }>();
+    for (const o of observations) {
+      const key = o.familyCode?.toLowerCase();
+      const sil = key ? silhouettesById.get(key) : undefined;
+      lookup.set(o.subId, {
+        svgData: sil?.svgData ?? null,
+        color: sil?.color ?? '#555',
+      });
+    }
+    return lookup;
+  // silhouettesById captures the silhouettes prop transitively (see its useMemo above).
+  }, [observations, silhouettesById]);
 
   // Ref keeps the click handler's closure fresh when observations change.
   // `onLoad` only fires once, so a plain closure over `obsLookup` would go
@@ -910,6 +979,55 @@ export function MapCanvas({
         }),
       );
 
+      // ── Silhouette inputs (issue #554 scope expansion 2026-05-15) ────
+      //
+      // Query every visible unclustered-point feature, project its
+      // lng/lat, and push it onto the deconflict input list as a
+      // silhouette variant. The negative pseudo-cluster_id derived from
+      // the subId hash keeps silhouette ids out of the positive cluster
+      // namespace so `min(cluster_id)` tiebreaks behave; `buildGroups`
+      // additionally prefers any non-silhouette over a silhouette as
+      // the anchor (see deconflict.ts buildGroups rule).
+      //
+      // Defensive: the `unclustered-point` symbol layer mounts only
+      // once `spritesReady` flips true, so on a cold reconcile the
+      // layer can be absent — `getLayer` guards against the maplibre
+      // "layer does not exist in the map's style and cannot be queried
+      // for features" error. Subsequent idle reconciles after the
+      // sprite-registration effect settles will pick up the layer.
+      const unclusteredFeats = (
+        map.getLayer && map.getLayer('unclustered-point')
+          ? map.queryRenderedFeatures(undefined, {
+              layers: ['unclustered-point'],
+            })
+          : []
+      ) as Array<{
+        properties?: { subId?: string };
+        geometry?: { type: 'Point'; coordinates: [number, number] };
+        id?: number | string;
+      }>;
+      const silSubIdsSeen = new Set<string>();
+      for (const f of unclusteredFeats) {
+        const subId = f.properties?.subId;
+        if (!subId || silSubIdsSeen.has(subId)) continue;
+        silSubIdsSeen.add(subId);
+        const geom = f.geometry;
+        if (!geom || geom.type !== 'Point') continue;
+        const [longitudeS, latitudeS] = geom.coordinates;
+        const projectedS = map.project([longitudeS, latitudeS]);
+        inputs.push({
+          cluster_id: -hashSubId(subId),
+          px: projectedS.x,
+          py: projectedS.y,
+          rendered: { kind: 'silhouette' },
+          point_count: 1,
+          uniqueFamilies: 1,
+          longitude: longitudeS,
+          latitude: latitudeS,
+          subId,
+        });
+      }
+
       // Spec §5.3 Concern C race-safe commit: if the catalogue refreshed
       // mid-flight, drop this commit — the new effect-registration's
       // reconcile will produce the right tiles.
@@ -917,6 +1035,62 @@ export function MapCanvas({
       // Run deconflict (pure, sync). Output: one group per overlap component.
       const nextGroups = buildGroups(inputs, floorZoom);
       setGroups(nextGroups);
+
+      // Compute per-subId pixel offsets for silhouettes that overlap a
+      // cluster anchor, then unproject the offset to lng/lat for the
+      // render block. The unproject is a tiny per-displaced-silhouette
+      // computation — bounded by silhouette count, typically <20.
+      const pxOffsets = displaceSilhouettes(nextGroups, inputs);
+      const nextOffsets = new Map<
+        string,
+        { dx: number; dy: number; longitude: number; latitude: number }
+      >();
+      // Build a quick subId → input lookup for the projection round-trip.
+      const inputBySubId = new Map<string, DeconflictInput>();
+      for (const inp of inputs) {
+        if (inp.subId) inputBySubId.set(inp.subId, inp);
+      }
+      for (const [subId, off] of pxOffsets) {
+        const inp = inputBySubId.get(subId);
+        if (!inp || inp.longitude === undefined || inp.latitude === undefined) continue;
+        const displacedPx = inp.px + off.dx;
+        const displacedPy = inp.py + off.dy;
+        const ll = map.unproject([displacedPx, displacedPy]);
+        nextOffsets.set(subId, {
+          dx: off.dx,
+          dy: off.dy,
+          longitude: ll.lng,
+          latitude: ll.lat,
+        });
+      }
+      setSilhouetteOffsets(nextOffsets);
+
+      // Feature-state sync: hide the canvas-painted twin for every
+      // displaced silhouette; clear feature-state for silhouettes that
+      // were displaced last pass but aren't now. promoteId="subId" on
+      // the Source ensures setFeatureState({id: subId}) targets the
+      // right feature.
+      const nextHidden = new Set<string>(nextOffsets.keys());
+      const prevHidden = prevHiddenSubIdsRef.current;
+      // Hide newly-displaced silhouettes.
+      for (const subId of nextHidden) {
+        if (!prevHidden.has(subId)) {
+          map.setFeatureState(
+            { source: 'observations', id: subId },
+            { hidden: true },
+          );
+        }
+      }
+      // Clear feature-state for silhouettes that are no longer displaced.
+      for (const subId of prevHidden) {
+        if (!nextHidden.has(subId)) {
+          map.removeFeatureState(
+            { source: 'observations', id: subId },
+            'hidden',
+          );
+        }
+      }
+      prevHiddenSubIdsRef.current = nextHidden;
 
       // End-of-idle eviction (spec §5.3 Concern B): drop cache entries
       // for clusters that no longer appear in the viewport. Bounds
@@ -1105,16 +1279,26 @@ export function MapCanvas({
     if (mapZoom < CLUSTER_MAX_ZOOM) {
       return [];
     }
-    return observations.map((o) => ({
-      subId: o.subId,
-      comName: o.comName,
-      familyCode: o.familyCode,
-      locName: o.locName,
-      obsDt: o.obsDt,
-      isNotable: o.isNotable,
-      lngLat: [o.lng, o.lat] as [number, number],
-    }));
-  }, [observations, mapZoom]);
+    return observations.map((o) => {
+      // If this subId is currently displaced (silhouette deconflict),
+      // anchor the hit target at the displaced lng/lat so clicks land on
+      // where the user actually sees the silhouette, not the canvas-
+      // hidden original position.
+      const displaced = silhouetteOffsets.get(o.subId);
+      const lngLat: [number, number] = displaced
+        ? [displaced.longitude, displaced.latitude]
+        : [o.lng, o.lat];
+      return {
+        subId: o.subId,
+        comName: o.comName,
+        familyCode: o.familyCode,
+        locName: o.locName,
+        obsDt: o.obsDt,
+        isNotable: o.isNotable,
+        lngLat,
+      };
+    });
+  }, [observations, mapZoom, silhouetteOffsets]);
 
   const handleHitSelect = useCallback(
     (subId: string) => {
@@ -1179,6 +1363,12 @@ export function MapCanvas({
           // warning. Required to keep Gate 4 (zero console warnings)
           // green on cold map init.
           maxzoom={24}
+          // promoteId="subId" surfaces the observation subId as the
+          // feature.id, which is what setFeatureState({id, ...}) keys on.
+          // The silhouette-displacement path (issue #554 scope expansion)
+          // uses this to set `hidden: true` on canvas-painted silhouettes
+          // whose displaced React twins are rendered via <PresentationMarker>.
+          promoteId="subId"
         >
           <Layer {...clusterLayer} />
           <Layer {...clusterCountLayer} />
@@ -1233,6 +1423,14 @@ export function MapCanvas({
               </PresentationMarker>
             );
           }
+          if (anchor.rendered.kind === 'silhouette') {
+            // Silhouette-only group (no cluster overlaps this silhouette).
+            // The canvas-painted symbol layer already paints it at the
+            // correct lng/lat — no React marker needed. Returning null
+            // keeps the loop's render output sparse so React doesn't
+            // reconcile an empty marker.
+            return null;
+          }
           return (
             <PresentationMarker
               key={g.key}
@@ -1249,6 +1447,85 @@ export function MapCanvas({
                 isNotable={anchor.isNotable ?? false}
                 onClick={() => handleGroupClick(g)}
               />
+            </PresentationMarker>
+          );
+        })}
+        {/*
+          Displaced silhouettes (issue #554 scope expansion 2026-05-15).
+          Per user direction silhouettes MUST REMAIN VISIBLE; when one
+          would overlap a cluster anchor, deconflict pushes it ≤20px
+          aside (in pixel space, unprojected to lng/lat here). The
+          canvas-painted twin is hidden via feature-state on the
+          unclustered-point symbol layer — see the reconciler loop.
+        */}
+        {Array.from(silhouetteOffsets.entries()).map(([subId, entry]) => {
+          const obs = obsLookup[subId];
+          if (!obs) return null;
+          const sil = silhouetteRenderById.get(subId);
+          const color = sil?.color ?? '#555';
+          const svgData = sil?.svgData ?? null;
+          // Displaced silhouettes are rendered as accessible <button>
+          // wrappers so a click opens the obs popover even though the
+          // canvas-painted twin is hidden. The PresentationMarker outer
+          // div has role="presentation" (see PresentationMarker effect),
+          // so the inner <button> remains the canonical interactive
+          // element with full keyboard + AT support.
+          return (
+            <PresentationMarker
+              key={`displaced-${subId}`}
+              longitude={entry.longitude}
+              latitude={entry.latitude}
+              anchor="center"
+            >
+              <button
+                type="button"
+                data-testid="displaced-silhouette"
+                data-subid={subId}
+                aria-label={`${obs.comName} observation`}
+                onClick={() => setSelectedObs(obs)}
+                style={{
+                  display: 'inline-block',
+                  width: SILHOUETTE_PX,
+                  height: SILHOUETTE_PX,
+                  padding: 0,
+                  margin: 0,
+                  border: 'none',
+                  background: 'transparent',
+                  cursor: 'pointer',
+                }}
+              >
+                {svgData ? (
+                  <svg
+                    viewBox="0 0 24 24"
+                    width={SILHOUETTE_PX}
+                    height={SILHOUETTE_PX}
+                    aria-hidden="true"
+                  >
+                    {/* Halo (white stroke) painted first so the colored
+                        body sits on top, mirroring the SDF symbol layer's
+                        icon-halo-color #ffffff / icon-halo-width 1.5. */}
+                    <path
+                      d={svgData}
+                      fill="none"
+                      stroke="#ffffff"
+                      strokeWidth="2"
+                      strokeLinejoin="round"
+                    />
+                    <path d={svgData} fill={color} />
+                  </svg>
+                ) : (
+                  // Fallback circle when the family has no Phylopic
+                  // silhouette — matches the _FALLBACK opacity tinting.
+                  <svg
+                    viewBox="0 0 24 24"
+                    width={SILHOUETTE_PX}
+                    height={SILHOUETTE_PX}
+                    aria-hidden="true"
+                  >
+                    <circle cx="12" cy="12" r="8" fill={color} opacity="0.5" />
+                  </svg>
+                )}
+              </button>
             </PresentationMarker>
           );
         })}

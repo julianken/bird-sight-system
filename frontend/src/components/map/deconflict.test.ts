@@ -5,6 +5,8 @@ import {
   unionFind,
   bucketKey,
   buildGroups,
+  displaceSilhouettes,
+  SILHOUETTE_PX,
   type DeconflictInput,
 } from './deconflict.js';
 
@@ -180,5 +182,137 @@ describe('deconflict', () => {
 
   it('bucketKey — quantizes by 14px', () => {
     expect(bucketKey(100, 100, 8, 14)).toBe('bucket-7-7-8');  // round(100/14)=7
+  });
+
+  // ---- silhouette-vs-anchor AABB suppression predicate (issue #554 scope expansion 2026-05-15) ----
+  //
+  // These tests exercise the `intersect()` primitive against a fixed-size
+  // silhouette box (28×28, derived from MIN_MARKER_PX symmetry — icon-size 0.85
+  // applied to a 32×32 source SDF lands roughly there, and 28 matches the
+  // smallest grid anchor's AABB so the suppression threshold is symmetric).
+  // The MapCanvas reconciler runs this predicate for every visible
+  // `unclustered-point` feature × every anchor's AABB to decide which
+  // subIds get added to the dynamic filter expression.
+
+  it('silhouette (28×28) at (100,100) intersects 4×4 grid anchor (100×100) at (110,110)', () => {
+    const silhouette = { x: 100 - 14, y: 100 - 14, w: 28, h: 28 };  // centered at (100,100)
+    const anchorBB = aabbForShape(grid4x4, 110, 110);
+    expect(intersect(silhouette, anchorBB, /* margin */ 1)).toBe(true);
+  });
+
+  it('silhouette (28×28) at (200,200) does not intersect 4×4 grid anchor at (100,100)', () => {
+    const silhouette = { x: 200 - 14, y: 200 - 14, w: 28, h: 28 };
+    const anchorBB = aabbForShape(grid4x4, 100, 100);
+    expect(intersect(silhouette, anchorBB, /* margin */ 1)).toBe(false);
+  });
+
+  // ---- silhouette as first-class deconflict input (Strategy H, 2026-05-15) ----
+  //
+  // The unclustered-point symbol layer paints silhouettes; per user direction
+  // they must REMAIN VISIBLE but should not visually overlap cluster anchors.
+  // The deconflict module models silhouettes as a third RenderedShape variant
+  // and `displaceSilhouettes` returns a bounded (≤20px) per-subId pixel
+  // offset for any silhouette in a group with a cluster anchor.
+
+  /** Test helper: build a silhouette input keyed by subId. */
+  function silhouette(
+    subId: string,
+    px: number,
+    py: number,
+  ): DeconflictInput {
+    return {
+      cluster_id: -hashForTest(subId),
+      px,
+      py,
+      rendered: { kind: 'silhouette' },
+      point_count: 1,
+      uniqueFamilies: 1,
+      subId,
+    };
+  }
+  function hashForTest(s: string): number {
+    // Stable test-only hash; matches the production djb2-style helper.
+    let h = 5381;
+    for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+    return Math.abs(h);
+  }
+
+  it('aabbForShape({kind:"silhouette"}) at (100,100) → 28×28 box centered there', () => {
+    expect(aabbForShape({ kind: 'silhouette' }, 100, 100)).toEqual({
+      x: 86,
+      y: 86,
+      w: 28,
+      h: 28,
+    });
+    expect(SILHOUETTE_PX).toBe(28);
+  });
+
+  it('silhouette-only group (no cluster anchor) → displaceSilhouettes returns empty offset map', () => {
+    const s1 = silhouette('OBS1', 100, 100);
+    const s2 = silhouette('OBS2', 110, 100);  // overlaps OBS1
+    const groups = buildGroups([s1, s2], 8);
+    const offsets = displaceSilhouettes(groups, [s1, s2]);
+    expect(offsets.size).toBe(0);
+  });
+
+  it('silhouette + cluster anchor with 10px overlap → silhouette offset along anchor→silhouette vector', () => {
+    // 4×4 grid at (100,100) has AABB [50..150]×[50..150]. Silhouette at (155,100)
+    // overlaps slightly (silhouette AABB [141..169]×[86..114]).
+    const A = cluster(1, 100, 100, grid4x4, 32);
+    const s = silhouette('OBS_E', 155, 100);
+    const groups = buildGroups([A, s], 8);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].anchor.cluster_id).toBe(1);
+    const offsets = displaceSilhouettes(groups, [A, s]);
+    expect(offsets.size).toBe(1);
+    const off = offsets.get('OBS_E')!;
+    // Vector is purely east (vx > 0, vy = 0). Required center distance to
+    // clear: anchorHalfW + silHalf = 50 + 14 = 64. Current dist: 55. So
+    // displacement = 9 along +x.
+    expect(off.dx).toBeCloseTo(9, 5);
+    expect(off.dy).toBeCloseTo(0, 5);
+  });
+
+  it('silhouette deeply embedded in a 4×4 grid → offset capped at 20px (maxOffsetPx)', () => {
+    // Silhouette exactly coincident with the anchor center — would need
+    // 64px to clear (anchor 50 + silhouette 14) but cap is 20.
+    const A = cluster(1, 100, 100, grid4x4);
+    const s = silhouette('OBS_C', 100, 100);
+    const groups = buildGroups([A, s], 8);
+    const offsets = displaceSilhouettes(groups, [A, s]);
+    const off = offsets.get('OBS_C')!;
+    // Magnitude is capped at 20.
+    expect(Math.hypot(off.dx, off.dy)).toBeCloseTo(20, 5);
+  });
+
+  it('anchor prefers cluster over silhouette regardless of cluster_id sign', () => {
+    // Cluster has id=999; silhouette has pseudo-id derived from subId hash
+    // (always negative). Without the kind-priority rule, the silhouette
+    // would win min(cluster_id) and become the anchor — wrong.
+    const C = cluster(999, 100, 100, grid4x4);
+    const s = silhouette('OBS_X', 110, 100);
+    const groups = buildGroups([C, s], 8);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].anchor.cluster_id).toBe(999);
+    expect(groups[0].anchor.rendered.kind).toBe('grid');
+  });
+
+  it('two silhouettes both overlapping the same anchor → both get offsets in different directions', () => {
+    // 4×4 grid at (100,100); two silhouettes flanking east and west.
+    const A = cluster(1, 100, 100, grid4x4);
+    const sE = silhouette('OBS_E', 155, 100);  // east
+    const sW = silhouette('OBS_W', 45, 100);   // west
+    const groups = buildGroups([A, sE, sW], 8);
+    expect(groups).toHaveLength(1);
+    const offsets = displaceSilhouettes(groups, [A, sE, sW]);
+    expect(offsets.size).toBe(2);
+    const offE = offsets.get('OBS_E')!;
+    const offW = offsets.get('OBS_W')!;
+    // East silhouette moves further east (+x); west silhouette moves further west (-x).
+    expect(offE.dx).toBeGreaterThan(0);
+    expect(offW.dx).toBeLessThan(0);
+    // Both clamped ≤ 20.
+    expect(Math.hypot(offE.dx, offE.dy)).toBeLessThanOrEqual(20);
+    expect(Math.hypot(offW.dx, offW.dy)).toBeLessThanOrEqual(20);
   });
 });

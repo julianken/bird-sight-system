@@ -18,7 +18,8 @@ Before opening a PR for this plan, check off each item or cite a deferral doc wi
 
 - [ ] Export `markerDimensions(shape)` and `MIN_MARKER_PX = 28` from `AdaptiveGridMarker.tsx`
 - [ ] Export `pillDimensions(count)` from `ClusterPill.tsx`
-- [ ] Land 12 unit tests in `deconflict.test.ts` (every test in Task 3 below)
+- [ ] Land ~25 unit tests in `deconflict.test.ts` (12 base + 5 primitive + 2 silhouette-AABB + 6 silhouette-displacement)
+- [ ] Implement bounded ≤20px silhouette displacement when silhouette AABB overlaps cluster anchor AABB (Strategy H, scope expansion 2026-05-15)
 - [ ] Land 30 e2e measurements (6 zoom levels × 5 canonical viewports) in `marker-overlap.spec.ts`
 - [ ] Capture 10 design-review screenshots (5 canonical viewports × 2 themes) and pass them through a `ui-design:ui-designer` subagent on `opus`
 - [ ] All canonical viewports: zero rendered-marker pairwise AABB overlap area at every measured zoom
@@ -30,8 +31,8 @@ Before opening a PR for this plan, check off each item or cite a deferral doc wi
 |---|---|---|
 | `frontend/src/components/map/AdaptiveGridMarker.tsx` | Modify | Add `export function markerDimensions(shape: ResolvedGrid)` and `export const MIN_MARKER_PX = 28` |
 | `frontend/src/components/ds/ClusterPill.tsx` | Modify | Add `export function pillDimensions(count: number)` |
-| `frontend/src/components/map/deconflict.ts` | **NEW** | Pure helpers: `aabbForShape`, `intersect`, `unionFind`, `buildGroups` |
-| `frontend/src/components/map/deconflict.test.ts` | **NEW** | 12 unit tests |
+| `frontend/src/components/map/deconflict.ts` | **NEW** | Pure helpers: `aabbForShape`, `intersect`, `unionFind`, `buildGroups`, `displaceSilhouettes` |
+| `frontend/src/components/map/deconflict.test.ts` | **NEW** | ~25 unit tests (12 base + 5 primitive + 2 silhouette-AABB + 6 silhouette-displacement) |
 | `frontend/src/components/map/MapCanvas.tsx` | Modify | Unify grid + pill reconcilers into one effect; insert deconflict step; render `groups` |
 | `frontend/e2e/marker-overlap.spec.ts` | **NEW** | E2E: pairwise overlap area = 0 at 6 zooms × 5 viewports |
 | `knip.ts` | Modify (temp) | Add `deconflict.ts` to ignore list if Task 4 lands in a separate PR from Task 5 (not needed if all tasks ship in one PR) |
@@ -719,11 +720,17 @@ Replace the existing grid reconciler (`MapCanvas.tsx:731-948`) and pill overlay 
 
 1. Queries `clusters-hit` once
 2. Resolves each cluster (Promise.all — exactly as today)
-3. Builds the `DeconflictInput` list (typed-union grid|pill)
+3. Builds the `DeconflictInput` list (typed-union grid|pill|silhouette)
 4. Calls `buildGroups(...)`
 5. Sets a single `groups` state slice
 6. Render block iterates `groups`, dispatches to `<AdaptiveGridMarker>` or `<ClusterPill>` based on anchor's `rendered.kind`
 7. Click handler does click-time-lazy `await Promise.all(memberIds.map(getClusterExpansionZoom))` then `Math.max(...zooms)` for the easeTo zoom
+
+**Scope expansion (2026-05-15) — Strategy H:** Task 4 also extends the deconflict pipeline to include unclustered-point silhouettes as first-class inputs. Per direct user direction, silhouettes MUST REMAIN VISIBLE. When a silhouette would overlap a cluster anchor, `displaceSilhouettes` returns a per-subId pixel offset (≤20px, radial outward from the anchor center). MapCanvas:
+- Pushes a `{ kind: 'silhouette' }` input for every visible unclustered-point feature
+- Hides the canvas-painted twin via `setFeatureState({hidden: true})` (Source uses `promoteId="subId"`)
+- Renders a `<PresentationMarker>` at the displaced lng/lat carrying an inline SVG silhouette + halo
+- Routes `MapMarkerHitLayer` clicks through the displaced position so taps still open the obs popover
 
 **Files:**
 - Modify: `frontend/src/components/map/MapCanvas.tsx`

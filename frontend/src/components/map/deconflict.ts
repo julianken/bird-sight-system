@@ -21,6 +21,13 @@ import { pillDimensions } from '../ds/ClusterPill.js';
 // 1*CELL_PX + 2*GRID_PADDING_PX = 22 + 6 = 28 keeps it even by construction.
 const BUCKET_PX = MIN_MARKER_PX / 2;  // 14
 
+/**
+ * Silhouette AABB extent (issue #554 scope expansion 2026-05-15).
+ * Icon size 0.85 × 32px source SDF ≈ 27.2px, rounded up to MIN_MARKER_PX
+ * symmetry. Halo +1.5 absorbed by the existing margin=1 in `intersect`.
+ */
+export const SILHOUETTE_PX = 28;
+
 /** Axis-aligned bounding box, in screen pixels. */
 export interface AABB {
   /** Pixel x of the top-left corner. */
@@ -37,14 +44,28 @@ export interface AABB {
  * Predicted rendered shape of a cluster, plus its `count` for pill
  * width derivation. The deconflict module uses `markerDimensions` /
  * `pillDimensions` (from Task 1) keyed off this type.
+ *
+ * The `silhouette` variant (issue #554 scope expansion 2026-05-15)
+ * represents the family-silhouette SDF icons painted by the
+ * `unclustered-point` symbol layer. Silhouettes are NEVER suppressed
+ * by deconflict — instead `displaceSilhouettes` returns a bounded
+ * pixel offset so the silhouette renders BESIDE any overlapping
+ * cluster anchor.
  */
 export type RenderedShape =
   | { kind: 'grid'; shape: ResolvedGrid }
-  | { kind: 'pill'; count: number };
+  | { kind: 'pill'; count: number }
+  | { kind: 'silhouette' };
 
 /** A cluster as fed into the deconflict module. */
 export interface DeconflictInput {
-  /** Real supercluster cluster_id (positive integer). */
+  /**
+   * Real supercluster cluster_id (positive integer) for clusters; a
+   * NEGATIVE pseudo-id (e.g. `-hashSubId(subId)`) for silhouettes so
+   * silhouette ids never collide with real cluster ids. Anchor selection
+   * in `buildGroups` checks `rendered.kind` first (cluster wins over
+   * silhouette) before falling back to min(cluster_id) within a kind.
+   */
   cluster_id: number;
   /** Pixel center of the rendered marker (already projected). */
   px: number;
@@ -71,6 +92,12 @@ export interface DeconflictInput {
   tiles?: ReadonlyArray<AdaptiveTile>;
   /** Optional render-only: whether this anchor is a single notable observation. */
   isNotable?: boolean;
+  /**
+   * Observation subId for silhouette inputs (REQUIRED for the silhouette
+   * variant so `displaceSilhouettes` can key its output map). Undefined
+   * for cluster inputs.
+   */
+  subId?: string;
 }
 
 /** A group emitted by `buildGroups`. */
@@ -106,13 +133,25 @@ export function intersect(a: AABB, b: AABB, margin = 0): boolean {
 
 /**
  * Compute the AABB for a rendered shape, centered at the given pixel
- * position. Uses `markerDimensions` (grid) or `pillDimensions` (pill).
+ * position. Uses `markerDimensions` (grid), `pillDimensions` (pill), or
+ * the static `SILHOUETTE_PX` square (silhouette).
  */
 export function aabbForShape(rendered: RenderedShape, px: number, py: number): AABB {
-  const { w, h } = rendered.kind === 'grid'
-    ? markerDimensions(rendered.shape)
-    : pillDimensions(rendered.count);
-  return { x: px - w / 2, y: py - h / 2, w, h };
+  if (rendered.kind === 'grid') {
+    const { w, h } = markerDimensions(rendered.shape);
+    return { x: px - w / 2, y: py - h / 2, w, h };
+  }
+  if (rendered.kind === 'pill') {
+    const { w, h } = pillDimensions(rendered.count);
+    return { x: px - w / 2, y: py - h / 2, w, h };
+  }
+  // silhouette — square AABB of fixed extent
+  return {
+    x: px - SILHOUETTE_PX / 2,
+    y: py - SILHOUETTE_PX / 2,
+    w: SILHOUETTE_PX,
+    h: SILHOUETTE_PX,
+  };
 }
 
 /**
@@ -208,12 +247,25 @@ export function buildGroups(
     componentMembers.get(r)!.push(i);
   }
 
-  // 5. For each component, pick anchor (min cluster_id) + assemble group
+  // 5. For each component, pick anchor + assemble group.
+  //    Rule (issue #554 scope expansion): prefer ANY non-silhouette over a
+  //    silhouette regardless of cluster_id sign — silhouettes are NEVER
+  //    anchors. Within the same kind (silhouette vs silhouette, or
+  //    cluster vs cluster), tiebreak by min(cluster_id) for pan-stability.
+  //    Without this rule, silhouettes (with their negative pseudo-ids)
+  //    would win min(cluster_id) against any cluster, suppressing the
+  //    cluster marker.
   const groups: DeconflictGroup[] = [];
   for (const indices of componentMembers.values()) {
     // noUncheckedIndexedAccess: indices come from a Map we built above, bounds are guaranteed
     const members = indices.map((i) => clusters[i] as DeconflictInput);
-    const anchor = members.reduce((a, b) => (a.cluster_id < b.cluster_id ? a : b)) as DeconflictInput;
+    const anchor = members.reduce((a, b) => {
+      const aIsSil = a.rendered.kind === 'silhouette';
+      const bIsSil = b.rendered.kind === 'silhouette';
+      if (aIsSil && !bIsSil) return b;
+      if (!aIsSil && bIsSil) return a;
+      return a.cluster_id < b.cluster_id ? a : b;
+    }) as DeconflictInput;
     const others = members.filter((m): m is DeconflictInput => m.cluster_id !== anchor.cluster_id);
     const memberIds = members.map((m) => m.cluster_id).sort((a, b) => a - b);
     groups.push({
@@ -225,4 +277,99 @@ export function buildGroups(
   }
 
   return groups;
+}
+
+/**
+ * Displace silhouettes that share a group with a non-silhouette anchor
+ * (issue #554 scope expansion 2026-05-15). Per direct user direction:
+ * silhouettes MUST REMAIN VISIBLE — no suppression, no hiding. Instead,
+ * each overlapping silhouette is shifted radially outward from the anchor
+ * center along the anchor→silhouette vector, just far enough that the
+ * silhouette's AABB sits OUTSIDE the anchor's AABB, capped at
+ * `maxOffsetPx` (default 20px).
+ *
+ * Returns a `Map<subId, { dx, dy }>` where `dx`/`dy` are the pixel-space
+ * displacement to apply at render time. Callers convert the offset to a
+ * lng/lat delta via `map.unproject(map.project([lng,lat]).add([dx,dy]))`.
+ *
+ * Silhouette-only groups (no cluster anchor in the same component) are
+ * left untouched — there's nothing to deconflict against, so the
+ * silhouette stays at its geographic position.
+ */
+export function displaceSilhouettes(
+  groups: ReadonlyArray<DeconflictGroup>,
+  inputs: ReadonlyArray<DeconflictInput>,
+  maxOffsetPx = 20,
+): Map<string, { dx: number; dy: number }> {
+  const offsets = new Map<string, { dx: number; dy: number }>();
+  // Build a quick lookup from cluster_id → input for the silhouette members
+  // (so we can read each silhouette's px/py without re-scanning per group).
+  const byId = new Map<number, DeconflictInput>();
+  for (const inp of inputs) byId.set(inp.cluster_id, inp);
+
+  for (const group of groups) {
+    const anchor = group.anchor;
+    if (anchor.rendered.kind === 'silhouette') continue;
+    // Find silhouette members in this group via memberIds.
+    const silhouettes = group.memberIds
+      .map((id) => byId.get(id))
+      .filter((m): m is DeconflictInput =>
+        m !== undefined && m.rendered.kind === 'silhouette',
+      );
+    if (silhouettes.length === 0) continue;
+
+    const anchorBB = aabbForShape(anchor.rendered, anchor.px, anchor.py);
+    // anchorBB extent half-widths along axes — used to compute the
+    // minimum displacement that puts the silhouette OUTSIDE the anchor.
+    const anchorHalfW = anchorBB.w / 2;
+    const anchorHalfH = anchorBB.h / 2;
+    const silHalf = SILHOUETTE_PX / 2;
+
+    for (const s of silhouettes) {
+      if (s.subId === undefined) {
+        // Type contract says silhouettes carry a subId. Defensive guard
+        // for unit tests / future regressions — skip + warn.
+        // eslint-disable-next-line no-console
+        console.warn('[deconflict] silhouette member missing subId; skipping displacement');
+        continue;
+      }
+      // Vector from anchor center → silhouette center.
+      let vx = s.px - anchor.px;
+      let vy = s.py - anchor.py;
+      // Degenerate: silhouette exactly coincident with anchor center.
+      // Pick an arbitrary direction (east) so the silhouette still moves.
+      if (vx === 0 && vy === 0) {
+        vx = 1;
+        vy = 0;
+      }
+      const mag = Math.hypot(vx, vy);
+      const ux = vx / mag;
+      const uy = vy / mag;
+      // Minkowski-sum approach: the silhouette's CENTER must sit outside
+      // the anchor's AABB inflated by the silhouette's half-extent. For
+      // an axis-aligned box with half-widths (hwExp, hhExp), the ray from
+      // the anchor center in direction (ux, uy) exits the inflated box
+      // at center-distance `t` where `t * |ux| = hwExp` or `t * |uy| =
+      // hhExp` — whichever comes FIRST (min, not max). Axis-aligned rays
+      // (one component zero) pick the corresponding non-zero clearance
+      // directly; the 1e-6 floor only matters as a divide-by-zero guard
+      // and never wins the min.
+      const hwExp = anchorHalfW + silHalf;
+      const hhExp = anchorHalfH + silHalf;
+      const tX = hwExp / Math.max(Math.abs(ux), 1e-6);
+      const tY = hhExp / Math.max(Math.abs(uy), 1e-6);
+      const requiredCenterDist = Math.min(tX, tY);
+      // Need to move the silhouette so its distance from the anchor
+      // center becomes `requiredCenterDist`. The displacement magnitude
+      // is therefore `requiredCenterDist - mag` (positive → outward).
+      // If the silhouette is already outside (mag >= requiredCenterDist),
+      // no displacement is needed.
+      const needed = requiredCenterDist - mag;
+      const displacement = Math.max(0, Math.min(needed, maxOffsetPx));
+      if (displacement === 0) continue;
+      offsets.set(s.subId, { dx: ux * displacement, dy: uy * displacement });
+    }
+  }
+
+  return offsets;
 }
