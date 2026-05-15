@@ -50,3 +50,6 @@ terraform.tfstate.backup
 .claude/*
 .claude/worktrees/
 !.claude/skills/
+
+# Throwaway directory for Phase 0 prototype gating — deleted in Task 0.4.
+prototype/
