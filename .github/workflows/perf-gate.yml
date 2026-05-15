@@ -1,0 +1,80 @@
+name: perf-gate
+
+# Adaptive-grid reconciler perf gate (epic #539, issue #542 Task 2.5).
+#
+# Runs only the @perf-tagged scenarios in frontend/e2e/map-adaptive-grid.spec.ts
+# — the standard `e2e` workflow excludes them via `--grep-invert @perf` so
+# perf measurement doesn't slow down every PR.
+#
+# Soft-launch (Option A per issue #542 Mergify gating decision):
+# `continue-on-error: true` on the perf job for the first 30 days. The
+# check posts results but does NOT block the queue. After at least 30 days of
+# stable green runs with <15% FP rate, flip to `false` AND add
+# `"check-success = perf-gate"` to `.mergify.yml queue_conditions` AND
+# flip the corresponding branch-protection rule (admin op required).
+#
+# Mirrors the orphan-classname-check soft-launch pattern.
+
+on:
+  pull_request:
+    paths:
+      - 'frontend/src/components/map/**'
+      - 'frontend/src/components/ds/ClusterPill.tsx'
+      - 'frontend/e2e/map-adaptive-grid.spec.ts'
+      - '.github/workflows/perf-gate.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/src/components/map/**'
+      - 'frontend/e2e/map-adaptive-grid.spec.ts'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  perf-gate:
+    name: perf-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Soft-launch (Option A) — see workflow header.
+    continue-on-error: true
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_DB: birdwatch
+          POSTGRES_USER: birdwatch
+          POSTGRES_PASSWORD: birdwatch
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U birdwatch -d birdwatch"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://birdwatch:birdwatch@localhost:5432/birdwatch
+      CI_PERF_GATE: 'true'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run build -w @bird-watch/shared-types
+      - run: npm run build -w @bird-watch/db-client
+      - run: npm run db:migrate
+      - name: Install Playwright browsers
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Run perf-tagged adaptive-grid e2e
+        run: npm run test:e2e --workspace @bird-watch/frontend -- --grep @perf map-adaptive-grid
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-gate-report
+          path: frontend/playwright-report/
+          retention-days: 14

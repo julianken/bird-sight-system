@@ -72,6 +72,34 @@ test.describe('axe-core WCAG scans', () => {
       expect(pillLabel).toMatch(/^\d+ sightings$/);
     }
 
+    // Epic #539 cutover: AdaptiveGridMarker exposes the same two-tier ARIA
+    // contract spec §4.6 prescribes — a concise aria-label always, plus an
+    // aria-describedby pointing at a visually-hidden <ul> of family rows
+    // for multi-family grids. The label format varies by marker state:
+    //   - 1×1 count=1: "Single observation: …" (no describedby)
+    //   - 1×1 count=2: "2 coincident observations: <species1> and <species2>…"
+    //   - grid (any size): "Cluster: N observations, M families. Activate to zoom in."
+    // Any grid markers present in the viewport must carry an aria-label
+    // matching one of these patterns; the describedby <ul> (when present)
+    // must live in the DOM so screen readers can read it.
+    const gridMarkers = page.locator('[data-testid=adaptive-grid-marker]');
+    const gridCount = await gridMarkers.count().catch(() => 0);
+    if (gridCount > 0) {
+      const firstLabel = await gridMarkers.first().getAttribute('aria-label');
+      expect(firstLabel, 'AdaptiveGridMarker is missing aria-label').toBeTruthy();
+      // Patterns from spec §4.6. The marker never builds the label string
+      // itself — parent owns it — so this assertion pins the parent's
+      // contract.
+      expect(firstLabel!).toMatch(
+        /^(Single observation|\d+ coincident observations|Cluster: \d+ observations, \d+ (family|families))/,
+      );
+      // describedby target (if set) must exist in the DOM as a <ul>.
+      const describedById = await gridMarkers.first().getAttribute('aria-describedby');
+      if (describedById) {
+        await expect(page.locator(`#${describedById}`)).toHaveCount(1);
+      }
+    }
+
     const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
     if (results.violations.length) {
       await test.info().attach('axe-violations', {

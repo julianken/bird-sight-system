@@ -16,6 +16,12 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   outputDir: '.playwright-out',
+  // Epic #539 / issue #542 Task 2.5: the adaptive-grid perf gate runs as
+  // a separate workflow (`.github/workflows/perf-gate.yml`) which sets
+  // `CI_PERF_GATE=true` and invokes Playwright with `--grep @perf`. The
+  // default e2e workflow (no CI_PERF_GATE) excludes @perf-tagged tests so
+  // it stays fast and uncoupled from perf flakes.
+  ...(process.env.CI_PERF_GATE === 'true' ? {} : { grepInvert: /@perf/ }),
   projects: [
     {
       name: 'dev-server',
