@@ -36,7 +36,7 @@ Before opening a PR for any phase, check off each item or cite a deferral doc wi
 - [ ] `PositiveInt` branded type with `toPositiveInt(n)` constructor that throws on n < 1, n is non-integer
 - [ ] 3-variant `AdaptiveTile` discriminated union: `rendered` | `fallback` | `pending`
 - [ ] All className references in `AdaptiveGridMarker.tsx` have CSS rules in `styles.css` or `ds-primitives.css`
-- [ ] Feature flag `VITE_FF_ADAPTIVE_GRID` declared in `frontend/.env.example` (default off in `.env`)
+- [ ] Feature flag `VITE_FF_ADAPTIVE_GRID` declared in `.env.example` (default off in `.env`)
 - [ ] 20 unit tests pass (`adaptive-grid.test.ts` — pickGridShape rules, boundaries, mobile cap, tile builder edges, memoization concerns)
 - [ ] 12 component tests pass (`AdaptiveGridMarker.test.tsx` — render, badge visibility, aria-label patterns, hit-extender, dark-mode contrast, notable indicator, empty-catalogue)
 - [ ] CI green on PR1 — no swap yet, all legacy code paths intact
@@ -61,7 +61,7 @@ Before opening a PR for any phase, check off each item or cite a deferral doc wi
 
 - [ ] `docs/specs/2026-04-16-bird-watch-design.md §Frontend` updated to reference adaptive-grid design
 - [ ] Epic GitHub issue closed; 3 child issues closed
-- [ ] `frontend/.env.example` flag entry annotated with removal-date comment
+- [ ] `.env.example` flag entry annotated with removal-date comment
 
 ---
 
@@ -96,7 +96,7 @@ Canonical: `docs/specs/2026-05-14-adaptive-cluster-grid-design.md`. Sections ref
 | `frontend/src/components/map/AdaptiveGridMarker.tsx` | 1 | Pure display component |
 | `frontend/src/components/map/AdaptiveGridMarker.test.tsx` | 1 | Component tests |
 | `frontend/src/styles.css` OR `frontend/src/components/ds/ds-primitives.css` | 1 | CSS rules for every className in `AdaptiveGridMarker.tsx` |
-| `frontend/.env.example`, `frontend/.env` | 1 | `VITE_FF_ADAPTIVE_GRID=false` initially |
+| `.env.example`, `frontend/.env` | 1 | `VITE_FF_ADAPTIVE_GRID=false` initially |
 | `frontend/src/components/map/MapCanvas.tsx` | 2 | Wire AdaptiveGridMarker; raise clusterMaxZoom; add 3-layer memo; delete auto-spider block |
 | `frontend/src/components/map/observation-layers.ts` | 2 | Drop CMP=8; bump CLUSTER_MAX_ZOOM; remove inStack plumbing |
 | `frontend/e2e/map-adaptive-grid.spec.ts` | 2 | New e2e suite (replaces map-cluster-mosaic.spec.ts and map-stack-fanout.spec.ts) |
@@ -179,13 +179,43 @@ Title: `phase 3: documentation linkbacks for adaptive cluster grid`. Body: copy 
 
 **Gate rule (from CLAUDE.md):** No Phase 1 task may begin until all four prototype gates pass on a working prototype. Scope: 2–4 hours.
 
-### Task 0.1: Scaffold throwaway prototype directory
+**Branching contract for Phase 0:** Cut `feat/adaptive-cluster-grid` from `main` BEFORE any prototype work. The branch is then used for both (a) the throwaway prototype commits (which get reverted in Task 0.3) AND (b) the persistent learnings note. Reason: `main` has branch protection requiring PR review + 4 CI checks — direct commits will be rejected by the remote. The prototype directory itself is added to `.gitignore` so commits during Phase 0 are limited to the gitignore entry and the learnings note; the directory itself never lands in history.
+
+### Task 0.1: Cut feature branch + gitignore prototype dir
 
 **Files:**
-- Create: `prototype/adaptive-grid/index.html`
-- Create: `prototype/adaptive-grid/main.tsx`
-- Create: `prototype/adaptive-grid/canned-obs.json` (≥ 344 rows)
-- Create: `prototype/adaptive-grid/package.json` (Vite local)
+- Modify: `.gitignore`
+
+- [ ] **Step 1: Cut feature branch from main**
+
+```bash
+git switch main && git pull --ff-only
+git switch -c feat/adaptive-cluster-grid
+```
+
+- [ ] **Step 2: Add prototype dir to `.gitignore`**
+
+Append to `.gitignore`:
+
+```
+# Throwaway directory for Phase 0 prototype gating — deleted in Task 0.3.
+prototype/
+```
+
+- [ ] **Step 3: Commit the gitignore entry**
+
+```bash
+git add .gitignore
+git commit -m "chore(plan): gitignore prototype/ dir for adaptive-grid Phase 0"
+```
+
+### Task 0.2: Scaffold throwaway prototype directory (NOT committed)
+
+**Files (created but uncommitted, blocked by `.gitignore`):**
+- `prototype/adaptive-grid/index.html`
+- `prototype/adaptive-grid/main.tsx`
+- `prototype/adaptive-grid/canned-obs.json` (≥ 344 rows)
+- `prototype/adaptive-grid/package.json` (Vite local)
 
 - [ ] **Step 1: Generate canned data**
 
@@ -198,7 +228,7 @@ curl -s 'https://api.bird-maps.com/api/observations' | jq '.data[0:500]' \
 wc -l prototype/adaptive-grid/canned-obs.json
 ```
 
-Expected: file exists with at least 344 observation objects matching the `Observation` shape from `packages/shared-types/src/index.ts:10-37`.
+Expected: file exists with at least 344 observation objects matching the `Observation` shape from `packages/shared-types/src/index.ts:10-37`. Confirm `git status` does NOT list these files (gitignore working).
 
 - [ ] **Step 2: Build a minimal Vite app that mounts MapCanvas-equivalent**
 
@@ -212,17 +242,10 @@ cd prototype/adaptive-grid && npm install && npm run dev
 
 Expected: dev server at http://localhost:5173 renders the map with grid markers.
 
-- [ ] **Step 4: Commit prototype scaffolding**
-
-```bash
-git add prototype/adaptive-grid/
-git commit -m "plan(adaptive-grid): scaffold prototype validation"
-```
-
-### Task 0.2: Run the 4 prototype gates
+### Task 0.3: Run the 4 prototype gates
 
 **Files:**
-- Modify: `prototype/adaptive-grid/main.tsx` (add `performance.mark` instrumentation)
+- Modify: `prototype/adaptive-grid/main.tsx` (add `performance.mark` instrumentation, uncommitted)
 
 - [ ] **Step 1: Add reconcile-time instrumentation**
 
@@ -242,12 +265,12 @@ For each viewport (390×844, 768×1024, 1024×768, 1440×900, 1920×1080) AND ea
 1. `mcp__plugin_playwright_playwright__browser_navigate` to http://localhost:5173
 2. `mcp__plugin_playwright_playwright__browser_resize` to the viewport
 3. Pinch-zoom z=8 → z=15 via `browser_evaluate` driving `map.setZoom()`
-4. Read `performance.getEntriesByName('mosaic-reconcile').map(e => e.duration)` — compute p99
-5. Count visible markers: `document.querySelectorAll('[data-testid=adaptive-grid-marker], [data-testid=cluster-pill]').length`
-6. Sample 5 markers' `getBoundingClientRect()` — assert `width ≥ 44 && height ≥ 44` (or 48 on coarse-pointer emulation)
-7. `mcp__plugin_playwright_playwright__browser_console_messages` — assert empty array
+4. Read `performance.getEntriesByName('mosaic-reconcile').map(e => e.duration)` — compute p99 (Gate 1 pass: < 16ms at 390×844)
+5. Count visible markers: `document.querySelectorAll('[data-testid=adaptive-grid-marker], [data-testid=cluster-pill]').length` (Gate 2 pass: ≤ 2,500 at every viewport)
+6. Sample 5 markers' `getBoundingClientRect()` — assert `width ≥ 44 && height ≥ 44` (or 48 on coarse-pointer emulation) (Gate 3 pass)
+7. `mcp__plugin_playwright_playwright__browser_console_messages` — assert returned array is empty (Gate 4 pass: 0 errors AND 0 warnings)
 
-Record results in a table.
+Record results in a 10-row × 4-column table (viewport×theme × 4 gates).
 
 - [ ] **Step 3: Write the 5-line learnings note**
 
@@ -260,29 +283,35 @@ git add docs/plans/2026-05-14-adaptive-cluster-grid/prototype-learnings.md
 git commit -m "plan(adaptive-grid): prototype learnings — 4/4 gates PASS"
 ```
 
-- [ ] **Step 5: GATE — all four pass?**
+- [ ] **Step 5: GATE — all four pass at every viewport × theme?**
 
-If ANY gate fails, stop. Open a discussion issue, revisit spec §10, do not proceed to Phase 1. The prototype is the cheap escape hatch.
+If ANY gate fails on ANY of the 10 captures, stop. Open a discussion issue, revisit spec §10, do not proceed to Phase 1. The prototype is the cheap escape hatch.
 
-### Task 0.3: Tear down prototype + scaffold the real feature branch
+### Task 0.4: Tear down prototype directory + open Phase 0 PR
 
-- [ ] **Step 1: Remove prototype directory** (we keep the learnings note in `docs/plans/`):
-
-```bash
-git rm -r prototype/adaptive-grid
-git commit -m "plan(adaptive-grid): tear down prototype (gates passed)"
-```
-
-- [ ] **Step 2: Cut feature branch from main**
+- [ ] **Step 1: Delete the prototype dir from the working tree**
 
 ```bash
-git switch main && git pull
-git switch -c feat/adaptive-cluster-grid
+rm -rf prototype/adaptive-grid
 ```
 
-- [ ] **Step 3: Update Epic issue**
+(Gitignore already prevented commits; no `git rm` needed.)
 
-Check off the Phase 0 box on the Epic; reference the learnings note commit SHA.
+- [ ] **Step 2: Push the branch + open PR**
+
+```bash
+git push -u origin feat/adaptive-cluster-grid
+```
+
+Open a Phase 0 PR via `creating-prs` skill. The PR contains exactly two commits: the gitignore entry (Task 0.1) and the learnings note (Task 0.3). Screenshots `N/A — Phase 0 prototype (gated, not user-facing UI)` referencing the 10-capture results table inline.
+
+- [ ] **Step 3: Bot review + queue**
+
+`julianken-bot` reviews; `@Mergifyio queue` after approval.
+
+- [ ] **Step 4: After Phase 0 PR merges, update Epic**
+
+Check off the Phase 0 box on the Epic; reference the learnings note commit SHA. Phase 1 can now begin.
 
 ---
 
@@ -297,24 +326,26 @@ Check off the Phase 0 box on the Epic; reference the learnings note commit SHA.
 ### Task 1.1: Declare feature flag in env files
 
 **Files:**
-- Modify: `frontend/.env.example`
-- Modify: `frontend/.env` (gitignored locally — also `.env.development` if it exists)
+- Modify: `.env.example` (repo root — this is the project's unified env-example file; `.env.example` does NOT exist and must not be created)
+- Modify: local `.env` (gitignored — parity only, not committed)
 
-- [ ] **Step 1: Add flag line to `.env.example`**
+- [ ] **Step 1: Add flag line to root `.env.example`**
 
-Append at the end of `frontend/.env.example`:
+Append at the end of `/Users/j/repos/bird-watch/.env.example`:
 
 ```
-# Adaptive cluster grid (epic #N) — flip to true for the new marker; default false until Phase 2 swap
+# Adaptive cluster grid (epic #539) — flip to true for the new marker; default false until Phase 2 swap
 VITE_FF_ADAPTIVE_GRID=false
 ```
+
+Vite picks up `VITE_` prefixed vars from the project root `.env` files when the dev server is launched via `npm run dev --workspace @bird-watch/frontend` (the workspace command resolves env relative to the repo root, not the workspace dir).
 
 - [ ] **Step 2: Add to local `.env`** (do NOT commit if `.env` is gitignored; just keep parity)
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add frontend/.env.example
+git add .env.example
 git commit -m "feat(map): add VITE_FF_ADAPTIVE_GRID feature flag (off by default)"
 ```
 
@@ -1058,7 +1089,7 @@ git rm frontend/e2e/map-cluster-mosaic.spec.ts
 
 - [ ] **Step 4: Flip feature flag default to `true`**
 
-In `frontend/.env.example`:
+In `.env.example`:
 
 ```
 VITE_FF_ADAPTIVE_GRID=true  # default-on; flag itself will be removed in a follow-up
@@ -1235,7 +1266,7 @@ git commit -m "docs(spec): cross-reference adaptive-grid design from architectur
 
 ### Task 3.2: Annotate feature flag with removal date
 
-**Files:** modify `frontend/.env.example`.
+**Files:** modify `.env.example`.
 
 - [ ] **Step 1: Add removal-date comment**
 
@@ -1248,7 +1279,7 @@ VITE_FF_ADAPTIVE_GRID=true
 - [ ] **Step 2: Commit + close child issues + close epic**
 
 ```bash
-git add frontend/.env.example
+git add .env.example
 git commit -m "docs(map): annotate adaptive-grid flag with removal date"
 ```
 
