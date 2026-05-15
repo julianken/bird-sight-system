@@ -1236,12 +1236,34 @@ export function MapCanvas({
       };
 
       try {
-        // Click-time-lazy: async expansion-zoom aggregation over ALL
-        // members. Max — not min — so the camera always reaches the zoom
-        // where every member separates. Capped at CLUSTER_MAX_ZOOM (22)
-        // for parity with the prior pill-click behavior.
+        // Click-time-lazy: async expansion-zoom aggregation over cluster
+        // members only. Silhouette pseudo-IDs are negative by construction
+        // (−hashSubId(subId)) and are not registered in supercluster's
+        // index — passing them to getClusterExpansionZoom rejects, causing
+        // the Promise.all to reject and the click to silently no-op.
+        // Bot review #554: filter to positive IDs (real cluster IDs) only.
+        const clusterMemberIds = memberIds.filter((id) => id > 0);
+
+        // Silhouette-only group: anchor is a silhouette, no cluster IDs
+        // remain. Route to single-leaf path (open obs popover).
+        if (clusterMemberIds.length === 0) {
+          const EPS = 1e-6;
+          const obs = observations.find(
+            (o) =>
+              anchor.longitude !== undefined &&
+              anchor.latitude !== undefined &&
+              Math.abs(o.lng - anchor.longitude) < EPS &&
+              Math.abs(o.lat - anchor.latitude) < EPS,
+          );
+          if (obs) setSelectedObs(obs);
+          return;
+        }
+
+        // Max — not min — so the camera always reaches the zoom where every
+        // member separates. Capped at CLUSTER_MAX_ZOOM (22) for parity with
+        // the prior pill-click behavior.
         const zooms = await Promise.all(
-          memberIds.map((id) => src.getClusterExpansionZoom(id)),
+          clusterMemberIds.map((id) => src.getClusterExpansionZoom(id)),
         );
         const targetZoom = Math.min(Math.max(...zooms), CLUSTER_MAX_ZOOM);
         const currentZoom = map.getZoom();

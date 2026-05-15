@@ -632,9 +632,18 @@ function ariaLabelFor(anchor: DeconflictInput, others: DeconflictInput[]): strin
     const familyWord = anchor.uniqueFamilies === 1 ? 'family' : 'families';
     return `Cluster: ${anchor.point_count} observations, ${anchor.uniqueFamilies} ${familyWord}. Activate to zoom in.`;
   }
-  const otherCount = others.reduce((sum, o) => sum + o.point_count, 0);
-  const clusterWord = others.length === 1 ? '1 cluster' : `${others.length} clusters`;
-  return `Cluster: ${anchor.point_count} observations (+${otherCount} nearby in ${clusterWord}). Activate to zoom in.`;
+  // Partition by kind: silhouettes are individual observations, not clusters.
+  // Bot review #554: silhouettes must NOT be counted as clusters in the label.
+  const nearbyClusters = others.filter((o) => o.rendered.kind !== 'silhouette');
+  const nearbySilhouettes = others.filter((o) => o.rendered.kind === 'silhouette');
+  const clusterPart = nearbyClusters.length > 0
+    ? `+${nearbyClusters.reduce((s, o) => s + o.point_count, 0)} nearby in ${nearbyClusters.length === 1 ? '1 cluster' : `${nearbyClusters.length} clusters`}`
+    : null;
+  const silhouettePart = nearbySilhouettes.length > 0
+    ? `+${nearbySilhouettes.length} nearby ${nearbySilhouettes.length === 1 ? 'observation' : 'observations'}`
+    : null;
+  const parts = [clusterPart, silhouettePart].filter(Boolean).join(', ');
+  return `Cluster: ${anchor.point_count} observations (${parts}). Activate to zoom in.`;
 }
 
 export function buildGroups(

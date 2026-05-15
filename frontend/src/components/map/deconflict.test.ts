@@ -321,6 +321,47 @@ describe('deconflict', () => {
     expect(offA!.dx !== offB!.dx || offA!.dy !== offB!.dy).toBe(true);
   });
 
+  // Tests added per bot review of PR #555 (#554):
+  // — partition silhouettes from clusters in the aria-label count
+
+  it('aria-label for cluster anchor + 2 silhouettes uses "nearby observations" wording', () => {
+    const anchor = cluster(1, 100, 100, grid4x4, /* count */ 32, /* uniqueFamilies */ 16);
+    const silA: DeconflictInput = {
+      cluster_id: -100, px: 105, py: 100, rendered: { kind: 'silhouette' },
+      point_count: 1, uniqueFamilies: 1, longitude: 0, latitude: 0, subId: 'OBS-AAA',
+    };
+    const silB: DeconflictInput = { ...silA, cluster_id: -101, px: 110, subId: 'OBS-BBB' };
+    const groups = buildGroups([anchor, silA, silB], 8);
+    expect(groups[0].ariaLabel).toBe(
+      'Cluster: 32 observations (+2 nearby observations). Activate to zoom in.',
+    );
+  });
+
+  it('aria-label for cluster + 1 cluster + 1 silhouette uses mixed wording', () => {
+    const anchor = cluster(1, 100, 100, grid4x4, /* count */ 32, /* uniqueFamilies */ 16);
+    const otherCluster = cluster(2, 110, 100, grid2x2, /* count */ 12, /* uniqueFamilies */ 4);
+    const sil: DeconflictInput = {
+      cluster_id: -100, px: 105, py: 100, rendered: { kind: 'silhouette' },
+      point_count: 1, uniqueFamilies: 1, longitude: 0, latitude: 0, subId: 'OBS-AAA',
+    };
+    const groups = buildGroups([anchor, otherCluster, sil], 8);
+    expect(groups[0].ariaLabel).toBe(
+      'Cluster: 32 observations (+12 nearby in 1 cluster, +1 nearby observation). Activate to zoom in.',
+    );
+  });
+
+  it('aria-label singular vs plural for nearby observations', () => {
+    // single silhouette → "1 nearby observation"
+    const anchor1 = cluster(1, 100, 100, grid4x4, 32, 16);
+    const sil1: DeconflictInput = {
+      cluster_id: -100, px: 105, py: 100, rendered: { kind: 'silhouette' },
+      point_count: 1, uniqueFamilies: 1, longitude: 0, latitude: 0, subId: 'X',
+    };
+    expect(buildGroups([anchor1, sil1], 8)[0].ariaLabel).toBe(
+      'Cluster: 32 observations (+1 nearby observation). Activate to zoom in.',
+    );
+  });
+
   it('two silhouettes both overlapping the same anchor → both get offsets in different directions', () => {
     // 4×4 grid at (100,100); two silhouettes flanking east and west.
     const A = cluster(1, 100, 100, grid4x4);
