@@ -504,3 +504,115 @@
   line-height: 1.4;
   letter-spacing: 0.01em;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   <AdaptiveGridMarker>
+   Cluster-grid marker primitives (epic #539, spec §4.3 badge / §4.4 hit-extender).
+   Layout (grid template + gap) and the hit-extender's per-axis top/bottom/left/right
+   come from inline style on the component — these rules cover paint, animation,
+   and the cross-basemap contrast contract for the per-cell count badge.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.adaptive-grid-marker {
+  /* The outer button. Its width/height come from inline style (driven by
+     the shape's cols/rows). Subtle drop shadow matches MosaicMarker so the
+     marker lifts off the basemap fill. */
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.25));
+}
+
+.adaptive-grid-marker__hit {
+  /* Transparent hit-extender overlay. Sized via inline top/bottom/left/right
+     per the corrected per-axis formula from issue #541 — this rule only
+     re-states the always-true contract so the className isn't orphaned. */
+  background: transparent;
+  pointer-events: auto;
+}
+
+.adaptive-grid-marker__grid {
+  /* display: grid + template + gap come from inline style. This rule
+     reserves the className as rule-backed for the orphan-classname check. */
+  position: relative;
+}
+
+.adaptive-grid-marker__cell {
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 3px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+}
+
+.adaptive-grid-marker__cell--pending {
+  /* Shimmer skeleton for the "catalogue not loaded yet" state — distinct
+     from the per-family fallback's opacity 0.5. */
+  background: linear-gradient(
+    110deg,
+    rgba(0, 0, 0, 0.06) 30%,
+    rgba(255, 255, 255, 0.4) 50%,
+    rgba(0, 0, 0, 0.06) 70%
+  );
+  background-size: 200% 100%;
+  animation: adaptive-grid-pending-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes adaptive-grid-pending-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.adaptive-grid-marker__cell--fallback {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.adaptive-grid-marker__badge {
+  /* Per-cell observation-count badge — bottom-right, 14px tall, tabular
+     digits. The 1px white box-shadow is the WCAG 1.4.11 contrast guarantee
+     against any basemap tile underneath (spec §4.3). The inline style on
+     the React node duplicates this for jsdom test environments. */
+  position: absolute;
+  bottom: -3px;
+  right: -3px;
+  background: #1a1a1a;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9);
+  font-variant-numeric: tabular-nums;
+}
+
+[data-theme='dark'] .adaptive-grid-marker__badge {
+  /* Same dark fill + same white stroke — the stroke remains the contrast
+     guarantee on dark basemaps. */
+  background: #1a1a1a;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9);
+}
+
+.adaptive-grid-marker__overflow {
+  /* "+N more" indicator — overrides the default cell background with a
+     higher-contrast dark fill so it reads as a distinct affordance rather
+     than another silhouette tile. */
+  background: rgba(0, 0, 0, 0.78);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
