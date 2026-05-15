@@ -344,7 +344,6 @@ import {
 // Shared fixtures
 const grid4x4 = { kind: 'grid', shape: { tag: 'grid', cols: 4, rows: 4 } } as const;
 const grid2x2 = { kind: 'grid', shape: { tag: 'grid', cols: 2, rows: 2 } } as const;
-const grid1x1 = { kind: 'grid', shape: { tag: 'grid', cols: 1, rows: 1 } } as const;
 const pillSand = { kind: 'pill', count: 214 } as const;
 
 function cluster(
@@ -448,7 +447,18 @@ describe('deconflict', () => {
     const B = cluster(2, 110, 100, grid2x2, /* count */ 12, /* uniqueFamilies */ 4);
     const groups = buildGroups([A, B], 8);
     expect(groups[0].ariaLabel).toBe(
-      'Cluster: 32 observations (+12 nearby in 1 clusters). Activate to zoom in.',
+      'Cluster: 32 observations (+12 nearby in 1 cluster). Activate to zoom in.',
+    );
+  });
+
+  // Test 10b
+  it('aria-label for 3-member group uses plural "clusters"', () => {
+    const A = cluster(1, 100, 100, grid4x4, /* count */ 32, /* uniqueFamilies */ 16);
+    const B = cluster(2, 110, 100, grid2x2, /* count */ 12, /* uniqueFamilies */ 4);
+    const C = cluster(3, 120, 100, grid2x2, /* count */ 8, /* uniqueFamilies */ 3);
+    const groups = buildGroups([A, B, C], 8);
+    expect(groups[0].ariaLabel).toBe(
+      'Cluster: 32 observations (+20 nearby in 2 clusters). Activate to zoom in.',
     );
   });
 
@@ -612,7 +622,8 @@ function ariaLabelFor(anchor: DeconflictInput, others: DeconflictInput[]): strin
     return `Cluster: ${anchor.point_count} observations, ${anchor.uniqueFamilies} ${familyWord}. Activate to zoom in.`;
   }
   const otherCount = others.reduce((sum, o) => sum + o.point_count, 0);
-  return `Cluster: ${anchor.point_count} observations (+${otherCount} nearby in ${others.length} clusters). Activate to zoom in.`;
+  const clusterWord = others.length === 1 ? '1 cluster' : `${others.length} clusters`;
+  return `Cluster: ${anchor.point_count} observations (+${otherCount} nearby in ${clusterWord}). Activate to zoom in.`;
 }
 
 export function buildGroups(

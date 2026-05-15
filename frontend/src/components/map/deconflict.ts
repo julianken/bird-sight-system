@@ -91,7 +91,15 @@ export function unionFind(n: number, edges: ReadonlyArray<[number, number]>): nu
   throw new Error('not implemented');
 }
 
-/** Spatial-bucket React key — derives from anchor pixel position only. */
+/**
+ * Spatial-bucket React key — derives from anchor pixel position only.
+ *
+ * Quantization uses `Math.round(px / BUCKET_PX)` (banker's-rounding-free —
+ * 0.5 always rounds up under JavaScript semantics). The rounding strategy
+ * is load-bearing: Test 8 (`spatial-bucket key changes when anchor crosses
+ * a 14px bucket boundary`) asserts the exact boundary at px=105 (round
+ * 105/14=7.5 → 8), so implementations using `Math.floor` will fail.
+ */
 export function bucketKey(px: number, py: number, zoom: number, BUCKET_PX: number): string {
   throw new Error('not implemented');
 }
