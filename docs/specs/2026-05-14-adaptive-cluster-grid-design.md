@@ -81,27 +81,29 @@ The brainstorm considered three approaches. **Approach A** was chosen because it
 
 ```ts
 type GridShape =
-  | { tag: 'grid'; cols: number; rows: number; capacity: number }
+  | { tag: 'grid'; cols: number; rows: number; capacity: number; overflow: number }
   | { tag: 'pill' };
 ```
 
+`overflow` is the count of families hidden beyond `capacity` (≥ 0). When `overflow > 0`, the renderer reserves the last cell as an inline "+N more" indicator (see mobile cap below).
+
 Rules (desktop · viewport > 480px):
 
-| Unique families | Shape | Footprint |
-|---|---|---|
-| 1 | 1×1 | 28×28 |
-| 2 | 2×1 | 52×28 |
-| 3–4 | 2×2 | 52×52 |
-| 5–9 | 3×3 | 78×78 |
-| 10–16 | 4×4 | 104×104 |
+| Unique families | Shape | Capacity | Overflow |
+|---|---|---|---|
+| 1 | 1×1 | 1 | 0 |
+| 2 | 2×1 | 2 | 0 |
+| 3–4 | 2×2 | 4 | 0 |
+| 5–9 | 3×3 | 9 | 0 |
+| 10–16 | 4×4 | 16 | 0 |
 
 **Pill fallback** when `uniqueFamilies > 16 OR point_count > 64`. The observation-count cap exists because raising `clusterMaxZoom` to 22 produces dense low-zoom clusters whose DOM cost as 4×4 grids regresses against today's lightweight pills (see §10 Gate 2). The Tucson 1640-obs cluster stays a pill at z = 8; as the user zooms in, smaller fragments emerge with `point_count ≤ 64` and `uniqueFamilies ≤ 16` and become grids.
 
-**Mobile cap** at viewport ≤ 480px: the 4×4 case collapses to 3×3 with the top-8 silhouettes plus an inline "+N more" cell. Prevents adjacent 104×104 markers from overlapping on 390-wide viewports.
+**Mobile cap** at viewport ≤ 480px: the 4×4 case collapses to 3×3 with the top-8 silhouettes plus an inline "+N more" cell driven by `overflow > 0`. Concretely, `pickGridShape(12, /*pointCount*/ 12, /*isMobile*/ true) → {tag:'grid', cols:3, rows:3, capacity:8, overflow:4}`. Prevents adjacent 104×104 markers from overlapping on 390-wide viewports.
 
 ### 4.2 Family ordering
 
-Existing logic in `aggregateClusterFamilies` (`cluster-mosaic.ts:80-95`) is correct: descending by observation count, alphabetical tiebreak on `familyCode`. The new `adaptive-grid.ts` re-exports it.
+Existing logic in `aggregateClusterFamilies` (`cluster-mosaic.ts:80-95`) is correct: descending by observation count, alphabetical tiebreak on `familyCode`. The function moves unchanged into `adaptive-grid.ts` (see §5.2). Behavioral invariants preserved verbatim — including the null-familyCode dropout case from `Observation`'s LEFT-JOIN contract — and explicitly retested (§7).
 
 ### 4.3 Per-cell observation-count badge
 
@@ -116,7 +118,7 @@ Marker visual geometry (28 / 52 / 78 / 104) is independent of the hit zone. A tr
 
 - `pointer:fine` → 44×44 min (WCAG 2.5.5 AAA target size, matching existing `MapMarkerHitLayer.tsx:53` `HIT_SIZE_DESKTOP=40` — proposed raised to 44 to clear AAA).
 - `pointer:coarse` → 48×48 min (matches existing `HIT_SIZE_COARSE=48`).
-- Positioned via `inset: max(0, (44 - markerSize) / -2)` so a 4×4 (104×104) marker's hit zone is its own bounding box (no shrinkage).
+- Positioned via `inset: min(0, (44 - markerSize) / 2)` (a negative value extends the box outward by half the deficit). A 1×1 (28×28) marker gets `inset: -8` → 44×44 hit zone. A 4×4 (104×104) marker gets `inset: 0` → its own bounding box.
 - The overlay is the `<button>`; the visual marker is its child. ARIA attributes live on the overlay.
 
 ### 4.5 Tap behavior — parent routes the click
@@ -207,9 +209,13 @@ export function aggregateClusterFamilies(
 
 `MapCanvas.tsx:704-722` runs the cluster-leaves + family-aggregation chain on every map `idle` (registered at `MapCanvas.tsx:742`). Today this is bounded by `CLUSTER_MOSAIC_MAX_POINTS=8`; the redesign removes that ceiling, so worst-case is 1640 leaves iterated per marker per idle for the Tucson hotspot.
 
-**Mitigation**: a `useRef`-backed cache in `MapCanvas.tsx` keyed on the tuple `(cluster_id, point_count)`. Cache survives pan; busts only when supercluster reports a different cluster id or a different point count. The aggregate result is small (≤ 16 tiles) and pure-function in its inputs — memoization is correct.
+There are **two separable caching concerns** the implementation must address — conflated in earlier brainstorming, separated here:
 
-This is a **functional requirement of the redesign**, not a nice-to-have. The plan body asserts a `performance.mark` p99 bound (§10 Gate 1) that depends on this cache.
+**Concern A — Render-pass stability.** The derived `tiles: AdaptiveTile[]` array passed to `<AdaptiveGridMarker>` should not be a new identity on every render when the inputs haven't changed, or React.memo on the marker is defeated. Solution: `useMemo` keyed on `[cluster_id, point_count]` at the parent. Garbage-collected when the cluster leaves the viewport. Idiomatic React.
+
+**Concern B — Async-call avoidance across idle ticks.** `getClusterLeaves` is an async supercluster call. Running it for every visible cluster on every `idle` event is the actual perf hot path. This caching layer lives *outside* React render — a module-scoped `Map<string, Promise<AdaptiveTile[]>>` keyed on `${cluster_id}:${point_count}` in `MapCanvas.tsx`. Evicted when the corresponding cluster_id leaves the current viewport's feature set (computed once per idle).
+
+Both layers are **functional requirements** — the §10 Gate 1 p99 bound depends on hitting Concern B's cache for unchanged clusters and skipping the leaf iteration entirely. The plan body's first task is to write the failing perf assertion, then add the cache to make it pass.
 
 ## 6. File map
 
@@ -223,14 +229,16 @@ This is a **functional requirement of the redesign**, not a nice-to-have. The pl
 | `frontend/src/components/map/adaptive-grid.test.ts` | Shape-picker rules, tile-builder edges |
 | `frontend/e2e/map-adaptive-grid.spec.ts` | E2E for grid render, pill fallback, zoom progression |
 
-### Deleted (8)
+### Deleted (13)
 
 | File | Reason |
 |---|---|
 | `frontend/src/components/map/MosaicMarker.tsx` | Superseded by `AdaptiveGridMarker` |
 | `frontend/src/components/map/MosaicMarker.test.tsx` | Replaced |
 | `frontend/src/components/map/cluster-mosaic.ts` | Constants and `aggregateClusterFamilies` moved into `adaptive-grid.ts` |
-| `frontend/src/components/map/cluster-mosaic.test.ts` | Replaced |
+| `frontend/src/components/map/cluster-mosaic.test.ts` | Behaviors copied into `adaptive-grid.test.ts` (see §7) |
+| `frontend/src/components/map/StackedSilhouetteMarker.tsx` | Single-purpose marker for auto-spider fan leaves (#277); orphaned by auto-spider deletion |
+| `frontend/src/components/map/StackedSilhouetteMarker.test.tsx` | |
 | `frontend/src/components/map/use-auto-spider.ts` | Auto-spider deleted |
 | `frontend/src/components/map/use-auto-spider.test.ts` | |
 | `frontend/src/components/map/stack-fanout.ts` | |
@@ -239,14 +247,12 @@ This is a **functional requirement of the redesign**, not a nice-to-have. The pl
 | `frontend/src/components/map/fan-layout.test.ts` | |
 | `frontend/e2e/map-stack-fanout.spec.ts` | |
 
-(Net: 5 new, 11 deleted — the "8" cited in the brainstorm collapsed `.ts` + `.test.ts` pairs.)
-
 ### Modified (3)
 
 | File | Changes |
 |---|---|
-| `frontend/src/components/map/MapCanvas.tsx` | Raise `clusterMaxZoom` 14 → 22 (1016-1023). Remove auto-spider block (1073-1100). Swap `<MosaicMarker>` for `<AdaptiveGridMarker>`. Raise `getClusterLeaves` limit (706) from `CLUSTER_MOSAIC_MAX_POINTS` to `point_count`. Add `(cluster_id, point_count)`-keyed memo cache. Audit effect-deps array around line 760 (currently re-registers only on `silhouettes.length`/`mapReady`). |
-| `frontend/src/components/map/observation-layers.ts` | Drop `CLUSTER_MOSAIC_MAX_POINTS = 8` (163). Bump `CLUSTER_MAX_ZOOM` 14 → 22 (152). Remove `inStack` plumbing (42-61, 121-126, 278, 336). |
+| `frontend/src/components/map/MapCanvas.tsx` | Raise `clusterMaxZoom` 14 → 22 (1016-1023). Remove auto-spider block (1073-1100), including `import StackedSilhouetteMarker` at line 43. Swap `<MosaicMarker>` for `<AdaptiveGridMarker>`. Raise `getClusterLeaves` limit (706) from `CLUSTER_MOSAIC_MAX_POINTS` to `point_count`. Add the two memo layers from §5.3. Audit effect-deps array around line 760 (currently re-registers only on `silhouettes.length`/`mapReady`). |
+| `frontend/src/components/map/observation-layers.ts` | Drop `CLUSTER_MOSAIC_MAX_POINTS = 8` (163). Bump `CLUSTER_MAX_ZOOM` 14 → 22 (152). Remove `inStack` plumbing (42-61, 121-126, 278, 336) — both the property declarations in the GeoJSON feature type AND every filter clause that branches on it. This is a public GeoJSON-feature-shape change; cross-check `frontend/src/components/map/**` for any other reader of the `inStack` property. |
 | `frontend/e2e/axe.spec.ts` | Extend `:55` aria-label assertion to cover grid marker labels and the visually-hidden `<ul>` describedby target. |
 
 ### Kept
@@ -261,13 +267,43 @@ This is a **functional requirement of the redesign**, not a nice-to-have. The pl
 
 ### Unit (`adaptive-grid.test.ts`)
 
-- `pickGridShape(1, 1, false) → {tag:'grid', cols:1, rows:1, capacity:1}`
-- `pickGridShape(2, …) → 2×1`; `pickGridShape(3, …) → 2×2`; `pickGridShape(4, …) → 2×2`
+Shape-picker rules (each test name pins one rule):
+
+- `pickGridShape(1, 1, false) → {tag:'grid', cols:1, rows:1, capacity:1, overflow:0}`
+- `pickGridShape(2, …)`, `pickGridShape(3, …) → 2×2`, `pickGridShape(4, …) → 2×2` (and 2 → 2×1 explicitly)
 - `pickGridShape(5..9, …) → 3×3`; `pickGridShape(10..16, …) → 4×4`
-- `pickGridShape(17, 17, false) → {tag:'pill'}`
-- `pickGridShape(5, 65, false) → {tag:'pill'}` (observation-count cap fires)
-- Mobile cap: `pickGridShape(12, 12, true) → 3×3, capacity 8 + overflow`
-- `buildAdaptiveTiles(200 leaves with 20 unique families, capacity=16) → 16 tiles, descending count`
+- **Family-cap fires alone**: `pickGridShape(17, 30, false) → {tag:'pill'}` (uniqueFamilies > 16, pointCount well under 64)
+- **Count-cap fires alone**: `pickGridShape(8, 65, false) → {tag:'pill'}` (family rule alone would give 3×3; pointCount > 64 forces pill)
+- **Boundary**: `pickGridShape(8, 64, false) → {tag:'grid', 3×3}` (count = 64 inclusive, no pill)
+- **Boundary**: `pickGridShape(16, 64, false) → {tag:'grid', 4×4, overflow:0}` (max grid)
+- **Mobile cap**: `pickGridShape(12, 12, true) → {tag:'grid', cols:3, rows:3, capacity:8, overflow:4}`
+
+Tile-builder rules:
+
+- `buildAdaptiveTiles(200 leaves, 20 unique families, capacity=16) → 16 tiles, descending count`
+- **Null-familyCode dropout** (LEFT JOIN miss per `Observation` contract): leaves with `familyCode === null` are silently dropped — copied verbatim from `cluster-mosaic.test.ts` so the invariant is preserved
+- **Under-capacity** when fewer families than capacity: `buildAdaptiveTiles(5 leaves, 2 families, capacity=4) → 2 tiles` (not 4 — caller pads visually)
+- **Fallback by null `svgData`**: leaves with `silhouetteSrc === null` produce tiles with `isFallback === true` — preserved from prior `cluster-mosaic.test.ts`
+
+Memoization (Concern A and B from §5.3):
+
+- `useMemo` reuses tile-array identity when `(cluster_id, point_count)` is unchanged
+- Module-scoped async cache returns the cached `Promise<tiles>` and skips the `getClusterLeaves` call when both keys match
+- Cache invalidates when `point_count` changes for the same `cluster_id`
+- Cache evicts entries whose `cluster_id` is not in the current viewport feature-set
+
+### Component (`AdaptiveGridMarker.test.tsx`)
+
+- Renders 1×1 with NO badge when `totalCount === 1`
+- Renders 1×1 with badge "5" when `totalCount === 5` (single-family cluster)
+- Renders 2×2 with 4 per-cell badges in descending count order
+- Renders fallback tile (opacity 0.5) when `silhouetteSrc === null` — existing behavior preserved
+- Renders "+N more" cell when `shape.overflow > 0` (mobile 3×3 case)
+- aria-label matches the patterns in §4.6
+- aria-describedby target exists for grids and pills, has at most 9 list items (8 families + "and N more")
+- **Hit-extender overlay element has `tabIndex === -1`** (inherits the §4.7 contract — load-bearing, easy to silently break)
+- Hit-extender overlay element has `getBoundingClientRect()` ≥ 44×44 (`pointer:fine`) or ≥ 48×48 (`pointer:coarse`)
+- **Dark-mode badge contrast**: with `data-theme="dark"` applied, badge's `getComputedStyle().boxShadow` includes the 1px white stroke specified in §4.3
 
 ### Component (`AdaptiveGridMarker.test.tsx`)
 
@@ -284,9 +320,11 @@ This is a **functional requirement of the redesign**, not a nice-to-have. The pl
 - AZ overview at z=8: at least one pill visible (Tucson hotspot)
 - Zoom to z=12: at least one 4×4 grid visible
 - Zoom to z=16: at least one 2×1 or 1×1 grid visible
-- Pinch-zoom z=8 → z=15: no `auto-spider-leader-lines-layer` in rendered layer list
+- Pinch-zoom z=8 → z=15: no `auto-spider-leader-lines-layer` in rendered layer list; no `inStack`-keyed DOM attributes anywhere on the page
 - No DOM `[data-fallback="true"]` in a count=1 1×1 (single-observation shouldn't be a fallback)
 - Axe assertions on aria-describedby contents
+- **Perf-budget regression assertion (Gate 1 in CI)**: `performance.measure('mosaic-reconcile')` p99 < 16ms during a scripted pinch-zoom z=8 → z=15 at 390×844 with ≥ 344 seeded rows. Fails CI if exceeded — turns Gate 1 from a one-shot prototype check into a continuous regression guard.
+- **DOM-marker-count regression assertion (Gate 2 in CI)**: visible-marker count via `page.locator('[data-testid=adaptive-grid-marker], [data-testid=cluster-pill]').count()` ≤ 2500 at each canonical viewport. Fails CI if exceeded.
 
 ## 8. Inherited and preserved behavior
 
@@ -306,7 +344,7 @@ The redesign deliberately preserves several pieces of today's UX that the surfac
 | Risk | Resolution |
 |---|---|
 | Per-cell tap targets create AC surface explosion | Whole marker is one tap target |
-| Null-return sentinel from `pickGridShape` | Use discriminated union `{tag:'grid'} | {tag:'pill'}` |
+| Null-return sentinel from `pickGridShape` | Use discriminated union `{tag:'grid'} \| {tag:'pill'}` |
 | Tap-routing logic in display component | Parent (MapCanvas) routes; marker stays pure |
 | WCAG 2.5.5 at 28×28 | Hit-extender overlay at 44/48 |
 | Badge contrast in dark mode | 1px white box-shadow stroke |
@@ -324,7 +362,7 @@ The redesign deliberately preserves several pieces of today's UX that the surfac
 
 ### Tier-2 refactors
 
-These are not blockers for shipping but should land in or near this work:
+*Tier-2* here means: real but not gating the prototype gate or first ship. Land in this work if convenient, otherwise file as follow-ups.
 
 - Add a `useMediaQuery('(pointer: coarse)')` hook if one doesn't exist (the hit-layer already needs it)
 - Add a `useMediaQuery('(max-width: 480px)')` hook for the mobile 3×3 cap
@@ -362,7 +400,10 @@ Instrument `performance.mark` brackets around the `mosaics` state update in `Map
 After all four gates pass on the prototype:
 
 1. The plan body (`docs/plans/<date>-adaptive-cluster-grid.md`) is authored via `superpowers:writing-plans`.
-2. The plan is decomposed into independent PRs at the right level of CI gate granularity (per `feedback_plan_ci_coupling`). Likely structure: PR1 adds `adaptive-grid.ts` + `AdaptiveGridMarker.tsx` behind a feature flag; PR2 wires the parent and deletes auto-spider; PR3 deletes legacy mosaic files; PR4 documentation + spec linkbacks.
+2. The plan is decomposed into independent PRs at the right level of CI gate granularity (per `feedback_plan_ci_coupling`). Likely structure:
+   - **PR1** — Add `adaptive-grid.ts` + `AdaptiveGridMarker.tsx` behind a feature flag (default off). Add the new unit + component tests. No `MapCanvas.tsx` wiring yet. CI green throughout — the new code is unreachable without the flag.
+   - **PR2** — Atomically: flip the flag default to on, wire `AdaptiveGridMarker` into `MapCanvas.tsx`, delete the auto-spider subsystem (use-auto-spider, stack-fanout, fan-layout, leader-lines layer, StackedSilhouetteMarker), AND delete the legacy mosaic files (`MosaicMarker.tsx`, `cluster-mosaic.ts` + their tests, `map-stack-fanout.spec.ts`). Single PR because splitting it leaves an intermediate state where `cluster-mosaic.ts`'s `aggregateClusterFamilies` export is dead — knip fires and blocks the Mergify queue.
+   - **PR3** — Documentation + spec linkbacks. Update `docs/specs/2026-04-16-bird-watch-design.md §Frontend` to reference this design.
 3. Each PR follows the project's PR workflow (`pr-workflow` skill) and passes the canonical 5-viewport × 2-theme screenshot capture (`pr-screenshots-via-user-attachments`).
 4. Bot review via `julianken-bot` subagent before queueing.
 
