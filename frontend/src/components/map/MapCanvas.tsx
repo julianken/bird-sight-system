@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 // Aliasing the react-map-gl/maplibre Map component to MapView so the
 // global ES Map constructor remains available inside this module — otherwise
-// `new Map()` for the mosaic-state Map<number, ClusterMosaicEntry> (#248)
+// `new Map()` for the adaptive-grid state Map<number, AdaptiveGridEntry>
 // resolves to the React component and throws "Map is not a constructor".
 import {
   Map as MapView,
@@ -22,26 +22,96 @@ import {
   buildUnclusteredPointLayerSpec,
   buildNotableRingLayerSpec,
   CLUSTER_MAX_ZOOM,
-  CLUSTER_MOSAIC_MAX_POINTS,
   CLUSTER_RADIUS,
   FALLBACK_SILHOUETTE_ID,
 } from './observation-layers.js';
 import { ObservationPopover } from './ObservationPopover.js';
-import { MosaicMarker } from './MosaicMarker.js';
+import { AdaptiveGridMarker } from './AdaptiveGridMarker.js';
 import { ClusterPill } from '../ds/ClusterPill.js';
 import { isValidSvgPathData } from './silhouette-fallback.js';
 import {
   aggregateClusterFamilies,
-  buildMosaicTiles,
+  buildAdaptiveTiles,
+  pickGridShape,
+  type AdaptiveTile,
   type ClusterLeafFeature,
-  type MosaicTile,
-} from './cluster-mosaic.js';
+  type ResolvedGrid,
+  type SilhouettesById,
+} from './adaptive-grid.js';
 import {
   MapMarkerHitLayer,
   type HitTargetMarker,
 } from './MapMarkerHitLayer.js';
-import { StackedSilhouetteMarker } from './StackedSilhouetteMarker.js';
-import { useAutoSpider } from './use-auto-spider.js';
+
+/**
+ * Adaptive-grid reconciler memoization (epic #539 spec §5.3).
+ *
+ * Three separable caching concerns are addressed by three layers:
+ *
+ *   - Concern A (render-pass identity): `useMemo` at the parent (handled in
+ *     the JSX render path below) keyed on [zoom, cluster_id, point_count,
+ *     silhouettesVersion]. Defeated if `tiles` is a fresh array every render.
+ *
+ *   - Concern B (async-call avoidance): the module-scoped `leafCache` below
+ *     stores Promises for `getClusterLeaves` calls so successive idle ticks
+ *     don't re-query the same cluster. Key format: `${zoom}:${cluster_id}:
+ *     ${point_count}`. The zoom prefix is load-bearing — supercluster's
+ *     integer `cluster_id` values can collide across zoom levels.
+ *
+ *     Rejected-Promise eviction: `.catch()` cleanup at insert time deletes
+ *     the entry in the same microtask, so a transient supercluster failure
+ *     does not poison the cache for the cluster's lifetime. The rejection
+ *     logs once via `warnedRejections` so a persistently-broken cluster
+ *     doesn't spam the console on every idle.
+ *
+ *   - Concern C (catalogue rebuild invalidation): the module-scoped
+ *     `cacheGeneration` counter is incremented + the cache is wholesale
+ *     cleared when the silhouettes-deps effect re-registers. Each
+ *     reconcile pass captures `myGen` at its top and no-ops the commit
+ *     if the generation has advanced — closes the race where an in-flight
+ *     reconcile from the prior catalogue commits stale tiles after a
+ *     refresh.
+ *
+ * These caches survive component remount within a single test process; the
+ * `__resetAdaptiveGridCacheForTesting()` export below is the test-only
+ * escape hatch a `beforeEach` should call to avoid cross-test state leakage.
+ */
+/**
+ * Resolved per-cluster adaptive data — the unit the Concern B cache stores
+ * Promises of. `kind: 'pill'` is the pill-fallback sentinel (uniqueFamilies
+ * > 16 OR pointCount > 64); `kind: 'grid'` carries the shape + tiles.
+ */
+type ResolvedAdaptiveData =
+  | { kind: 'pill'; uniqueFamilies: number }
+  | {
+      kind: 'grid';
+      shape: ResolvedGrid;
+      tiles: ReadonlyArray<AdaptiveTile>;
+      uniqueFamilies: number;
+      isNotablePoint: boolean;
+    };
+
+const leafCache = new Map<string, Promise<ResolvedAdaptiveData>>();
+const warnedRejections = new Set<string>();
+let cacheGeneration = 0;
+
+/**
+ * Test-only escape hatch. Throws unless `NODE_ENV === 'test'` so production
+ * bundles can't accidentally reach it. Call this in `beforeEach` to reset
+ * state across tests.
+ */
+export function __resetAdaptiveGridCacheForTesting(): void {
+  // Vite/esbuild substitutes import.meta.env.MODE at build time; in jsdom
+  // tests Vitest sets MODE='test'. The guard is a runtime safety net, not a
+  // dead-code-elimination tool.
+  const mode = import.meta.env.MODE;
+  if (mode !== 'test') {
+    throw new Error('Test-only API');
+  }
+  leafCache.clear();
+  warnedRejections.clear();
+  cacheGeneration = 0;
+}
 
 /**
  * PresentationMarker — a <Marker> wrapper that removes `role="button"` from
@@ -50,8 +120,8 @@ import { useAutoSpider } from './use-auto-spider.js';
  * Why this is needed (WCAG 4.1.2 / #459 W4-C):
  *   maplibre-gl's Marker.addTo() calls `setAttribute('role', 'button')` on
  *   its container element unless a role is already present. When the Marker
- *   children are themselves interactive elements (<button>: MosaicMarker,
- *   StackedSilhouetteMarker, ClusterPill), the result is a `<div role="button">`
+ *   children are themselves interactive elements (<button>: AdaptiveGridMarker,
+ *   ClusterPill), the result is a `<div role="button">`
  *   wrapping a `<button>` — a nested-interactive WCAG 4.1.2 violation that
  *   axe-core flags on every visible marker (47 violations in the 2026-05-11
  *   audit).
@@ -101,10 +171,9 @@ export interface MapCanvasProps {
    * during `handleLoad`. The `_FALLBACK` row backs every observation
    * whose family has no usable silhouette.
    *
-   * Also drives the cluster-mosaic tiles for clusters with
-   * `point_count <= CLUSTER_MOSAIC_MAX_POINTS` (issue #248). When the
-   * array is empty (cache miss), the reconciler short-circuits and the
-   * existing colored cluster circle takes over.
+   * Also drives the adaptive-grid tiles for every cluster (epic #539).
+   * When the array is empty (cache miss), the reconciler short-circuits
+   * and pill markers carry the cluster signal.
    *
    * Optional + defaults to `[]` so legacy tests / demo harnesses still
    * type-check; with no silhouettes the symbol layer's `icon-image`
@@ -144,17 +213,29 @@ export interface MapCanvasProps {
 }
 
 /**
- * Materialized cluster mosaic state — one entry per visible small cluster.
- * Keyed by cluster_id (supercluster auto-assigns this when no `promoteId`
- * is set on the source). Stored in a Map so reconciler diffs are O(N) and
- * React's reconciler stays focused on key-stable Marker updates.
+ * Materialized adaptive-grid state — one entry per visible cluster that
+ * renders as a grid (1×1 through 4×4; pill clusters render via the
+ * <ClusterPill> path below). Keyed by cluster_id (supercluster auto-assigns
+ * this when no `promoteId` is set on the source). Stored in a Map so
+ * reconciler diffs are O(N) and React's reconciler stays focused on
+ * key-stable Marker updates.
  */
-interface ClusterMosaicEntry {
+interface AdaptiveGridEntry {
   clusterId: number;
   longitude: number;
   latitude: number;
   totalCount: number;
-  tiles: MosaicTile[];
+  uniqueFamilies: number;
+  shape: ResolvedGrid;
+  tiles: ReadonlyArray<AdaptiveTile>;
+  /**
+   * F7 decision (option a): `isNotable: true` is only set when the cluster
+   * is strictly a 1×1 grid with point_count=1 and that single observation
+   * is notable. For multi-family grids the marker-level flag would amber-
+   * ring every tile, which is wrong. Per-tile notability is a future
+   * extension (see Risk section in PR body).
+   */
+  isNotable: boolean;
 }
 
 /** Arizona center — default initial view. */
@@ -245,10 +326,12 @@ async function registerSilhouetteSprite(
  * abstraction doesn't populate `e.features` when layers are added via
  * `<Source>`/`<Layer>` children (prototype learnings #1, #5).
  *
- * Auto-spider (issue #277, Spider v2): on every map idle the auto-spider
- * reconciler detects co-located observations and fans them as
- * `<StackedSilhouetteMarker>` markers — no click required to trigger, no
- * Escape to close. Leader lines are drawn via a transient GeoJSON source.
+ * Adaptive grid (epic #539): on every map idle the reconciler queries
+ * cluster features and materializes one <AdaptiveGridMarker> per grid-
+ * shape cluster (1×1 — 4×4). Clusters with too many families or too many
+ * leaves fall through to <ClusterPill> via the ClusterPillOverlay path.
+ * Coincident observations are disambiguated by the grid's 1×1/2×1 shapes
+ * — no animated fan, no escape to close.
  *
  * Symbol layer (issue #246): the unclustered-point layer is now an SDF
  * symbol layer that paints per-family silhouettes tinted with each
@@ -266,13 +349,13 @@ export function MapCanvas({
   const mapRef = useRef<MapRef>(null);
   const [selectedObs, setSelectedObs] = useState<Observation | null>(null);
   /**
-   * Visible cluster mosaics (#248), reconciled on `load` and `idle`. Stored
-   * in a Map keyed by cluster_id so React renders one stable <Marker> per
-   * cluster across reconciler passes — clusters that disappear (zoom-out,
-   * pan) drop out of the Map and unmount cleanly, no manual cleanup
-   * required.
+   * Visible adaptive-grid markers (epic #539), reconciled on `load` and
+   * `idle`. Stored in a Map keyed by cluster_id so React renders one stable
+   * <Marker> per cluster across reconciler passes — clusters that disappear
+   * (zoom-out, pan) drop out of the Map and unmount cleanly, no manual
+   * cleanup required.
    */
-  const [mosaics, setMosaics] = useState<Map<number, ClusterMosaicEntry>>(
+  const [grids, setGrids] = useState<Map<number, AdaptiveGridEntry>>(
     () => new Map(),
   );
   /**
@@ -331,11 +414,43 @@ export function MapCanvas({
     };
   }, []);
 
-  // The reconciler reads `silhouettes` on every cluster pass. A ref keeps
-  // the closure fresh without re-registering the map listeners (registration
-  // is keyed only on the map instance, NOT on the silhouettes array).
-  const silhouettesRef = useRef(silhouettes);
-  silhouettesRef.current = silhouettes;
+  /**
+   * Monotonic `silhouettesVersion` (spec §5.3 Concern C, point 2). This is
+   * a strict integer counter, NOT `silhouettes.length` — a length-only
+   * proxy misses in-place row replacement (same count, different svgData
+   * — Phylopic refreshes, low-res→hi-res swaps). The counter increments
+   * each time the silhouettes prop changes by reference, which is the same
+   * point where the supercluster catalogue is rebuilt.
+   *
+   * Carried into the per-grid memo key + the cache-generation effect so
+   * an in-place catalogue refresh invalidates render-pass identity and the
+   * Concern B promise cache together.
+   */
+  const silhouettesVersionRef = useRef(0);
+  const prevSilhouettesRef = useRef<typeof silhouettes>(silhouettes);
+  if (prevSilhouettesRef.current !== silhouettes) {
+    silhouettesVersionRef.current += 1;
+    prevSilhouettesRef.current = silhouettes;
+  }
+  const silhouettesVersion = silhouettesVersionRef.current;
+
+  /**
+   * Pure per-family lookup used by `buildAdaptiveTiles` (spec §5.3 Concern
+   * C, point 3). Resolved once per reconcile from the silhouettes prop —
+   * the tile-builder MUST NOT read from a ref, so we thread this
+   * explicitly. An empty map signals "catalogue not loaded yet" and
+   * produces all-`pending` tiles.
+   */
+  const silhouettesById = useMemo<SilhouettesById>(() => {
+    const map = new Map<string, { svgData: string | null; color: string }>();
+    for (const s of silhouettes) {
+      map.set(s.familyCode.toLowerCase(), {
+        svgData: s.svgData,
+        color: s.color,
+      });
+    }
+    return map;
+  }, [silhouettes]);
 
   // Issue #351: ref to the current onViewportChange prop. handleLoad has
   // [] deps (registers listeners exactly once per maplibre instance), so
@@ -357,36 +472,16 @@ export function MapCanvas({
   const [spritesReady, setSpritesReady] = useState(false);
 
   /**
-   * Auto-spider stacks (issue #277, Spider v2 Task 3). Reconciled on every
-   * map `idle` by the `useAutoSpider` hook (extracted from MapCanvas in
-   * #293). Each entry holds one fanned stack: the center lngLat, and the
-   * fanned leaves with their projected marker positions. The hook owns the
-   * effect, internal state, and the leader-line source/layer lifecycle;
-   * MapCanvas just consumes the returned stacks and renders one
-   * `<Marker>+<StackedSilhouetteMarker>` per leaf.
+   * Epic #539: the auto-spider subsystem (use-auto-spider.ts, stack-fanout,
+   * fan-layout, StackedSilhouetteMarker) is retired. Coincident observations
+   * are now disambiguated via the adaptive grid: at z≥CLUSTER_MAX_ZOOM,
+   * supercluster's `cluster_id` already singles them out, and the 2×1 / 1×1
+   * grid shapes carry the family-color signal without an animated fan.
    */
-  const autoSpiderStacks = useAutoSpider({
-    map: mapReady ? mapRef.current?.getMap() ?? null : null,
-    mapReady,
-    spritesReady,
-    silhouettes,
-  });
-
-  // Issue #277 (Spider v2 Task 4): derive the set of subIds that belong to
-  // any active auto-spider stack. These features get inStack: true in the
-  // GeoJSON so the unclustered-point SDF layer filters them out, preventing
-  // double-rendering alongside the StackedSilhouetteMarker fan positions.
-  const stackedSubIds = useMemo<ReadonlySet<string>>(
-    () =>
-      new Set(
-        autoSpiderStacks.flatMap((s) => s.leaves.map((l) => l.subId)),
-      ),
-    [autoSpiderStacks],
-  );
 
   const geojson = useMemo(
-    () => observationsToGeoJson(observations, silhouettes, stackedSubIds),
-    [observations, silhouettes, stackedSubIds],
+    () => observationsToGeoJson(observations, silhouettes),
+    [observations, silhouettes],
   );
 
   // Tracks the map's current zoom for hit-target gating. The hit-layer
@@ -463,9 +558,11 @@ export function MapCanvas({
       }
     });
 
-    // Cluster click — always zoom in. At zoom >= CLUSTER_MAX_ZOOM the auto-
-    // spider reconciler has already fanned overlapping obs on idle, so the
-    // click is a NO-OP (return early without doing anything).
+    // Cluster click — the 'clusters' layer's filter is `['boolean', false]`
+    // (no visible canvas paint; all cluster clicks go through the React
+    // AdaptiveGridMarker / ClusterPill paths). Kept for defensive parity
+    // with the layer being added; if a future change re-enables the paint
+    // layer, this handler still routes the click to expansion zoom.
     map.on('click', 'clusters', (e: MapLayerMouseEvent) => {
       const features = map.queryRenderedFeatures(e.point, {
         layers: ['clusters'],
@@ -477,19 +574,11 @@ export function MapCanvas({
       const source = map.getSource('observations');
       if (clusterId == null || !source) return;
 
-      const currentZoom = map.getZoom();
-      // At max zoom the auto-spider has already fanned — nothing to do.
-      if (currentZoom >= CLUSTER_MAX_ZOOM) return;
-
       const geom = feature.geometry;
       const center: [number, number] | null =
         geom.type === 'Point' ? (geom.coordinates as [number, number]) : null;
 
       if ('getClusterExpansionZoom' in source) {
-        // MapLibre 5.x: `getClusterExpansionZoom` (and `getClusterChildren`,
-        // `getClusterLeaves`) returns a Promise and no longer invokes the
-        // legacy callback argument. Passing a callback silently no-ops —
-        // which is how this regression shipped (see PR #165 / issue #166).
         const src = source as {
           getClusterExpansionZoom: (id: number) => Promise<number>;
         };
@@ -615,14 +704,19 @@ export function MapCanvas({
   }, [mapReady, silhouettes]);
 
   /**
-   * Mosaic reconciler — issue #248. Queries rendered cluster features on
-   * `load` and `idle`, materializes one HTML <Marker> per cluster with
-   * `point_count <= CLUSTER_MOSAIC_MAX_POINTS`, drops markers whose
-   * clusters disappeared from the viewport.
+   * Adaptive-grid reconciler (epic #539). Queries rendered cluster features
+   * on `load` and `idle`, materializes one HTML <Marker> per cluster as an
+   * AdaptiveGridMarker (1×1 — 4×4 grid, sized per family count per spec
+   * §4.1). Clusters with uniqueFamilies > 16 OR point_count > 64 fall back
+   * to <ClusterPill> via the separate ClusterPillOverlay path further down.
    *
-   * Short-circuit: when `silhouettes` is empty (cache miss / API failure),
-   * the reconciler skips registration entirely so the existing colored
-   * cluster circle takes over without rendering a wall of fallback tiles.
+   * The reconciler enforces the three memoization layers (spec §5.3
+   * Concerns A/B/C):
+   *   - Concern A: per-marker useMemo at JSX time.
+   *   - Concern B: module-scoped `leafCache` (Promise cache, zoom-prefixed
+   *     key, rejection-evicting).
+   *   - Concern C: `cacheGeneration` race-safe commit + monotonic
+   *     `silhouettesVersion` invalidation.
    *
    * Bare-event handlers (no layer ID) — `idle` fires after every render
    * settle, NOT once per frame, so this is cheap. The async
@@ -631,13 +725,12 @@ export function MapCanvas({
    *
    * Cluster identity: supercluster auto-assigns `cluster_id` to the
    * feature's `properties.cluster_id` AND `feature.id`. We key on
-   * `properties.cluster_id` (more reliable than `feature.id` per the
-   * issue spec — `feature.id` isn't guaranteed populated for cluster
-   * aggregation features).
+   * `properties.cluster_id` (more reliable than `feature.id` — the latter
+   * isn't guaranteed populated for cluster aggregation features).
    */
   useEffect(() => {
     // Skip the whole reconciler when there are no silhouettes to draw —
-    // the existing circle layer carries the visual already.
+    // tiles would all be `pending` and add visual noise.
     if (silhouettes.length === 0) return undefined;
     // Wait for the map to fire its initial `load` event before grabbing
     // the ref. mapRef.current is null until the maplibre Map child
@@ -646,9 +739,22 @@ export function MapCanvas({
     const map = mapRef.current?.getMap();
     if (!map) return undefined;
 
+    // Spec §5.3 Concern C: bump the generation + wholesale-clear the
+    // promise cache whenever this effect re-registers (silhouettes
+    // change, map remount). In-flight reconciles capture `myGen` and
+    // no-op their setGrids call if the generation has advanced.
+    cacheGeneration += 1;
+    leafCache.clear();
+
     let cancelled = false;
 
     const reconcile = async () => {
+      const myGen = cacheGeneration;
+      const isMobile = map.getContainer
+        ? map.getContainer().getBoundingClientRect().width < 768
+        : false;
+      const floorZoom = Math.floor(map.getZoom());
+      const currentKeys = new Set<string>();
       // queryRenderedFeatures with `undefined` first arg = whole viewport.
       // Query the invisible `clusters-hit` layer (NOT the visible `clusters`
       // layer — that one filters out point_count <= 8, so small clusters
@@ -662,16 +768,17 @@ export function MapCanvas({
         geometry?: unknown;
         id?: number;
       }>;
-      // Filter to small clusters + dedupe by cluster_id (queryRenderedFeatures
-      // can return one feature per tile boundary the cluster crosses; the
-      // dedupe keeps each cluster materialized exactly once).
+      // Dedupe by cluster_id (queryRenderedFeatures can return one
+      // feature per tile boundary the cluster crosses; the dedupe keeps
+      // each cluster materialized exactly once). Pill vs grid decision
+      // is made inside the per-cluster resolution via pickGridShape — no
+      // up-front size filter here.
       const seen = new Set<number>();
       const candidates = features.filter((f) => {
         const id = f.properties?.['cluster_id'];
         if (typeof id !== 'number') return false;
         const pointCount = f.properties?.['point_count'];
         if (typeof pointCount !== 'number') return false;
-        if (pointCount > CLUSTER_MOSAIC_MAX_POINTS) return false;
         if (seen.has(id)) return false;
         seen.add(id);
         return true;
@@ -684,7 +791,7 @@ export function MapCanvas({
         return;
       }
 
-      const next = new Map<number, ClusterMosaicEntry>();
+      const next = new Map<number, AdaptiveGridEntry>();
       // Concurrent per-cluster lookups — each getClusterLeaves call is an
       // independent Promise. Promise.all bounds reconciliation latency at
       // max(per-cluster latency) instead of sum(per-cluster latency).
@@ -700,25 +807,93 @@ export function MapCanvas({
             geom as { coordinates: [number, number] }
           ).coordinates;
 
+          // Concern B cache key — zoom-prefixed per spec §5.3 to prevent
+          // collisions across zoom levels (supercluster's integer
+          // cluster_id values are recycled across zoom strata).
+          const key = `${floorZoom}:${clusterId}:${pointCount}`;
+          currentKeys.add(key);
+
+          // Build (or reuse) the resolved adaptive-data Promise for this
+          // cluster. The cached Promise is the FULL derivation chain —
+          // leaves → aggregates → shape → tiles — so a hit short-circuits
+          // every step.
+          let resolvedPromise: Promise<ResolvedAdaptiveData> | undefined =
+            leafCache.get(key);
+          if (!resolvedPromise) {
+            const fresh: Promise<ResolvedAdaptiveData> = (async () => {
+              const leaves = (await source.getClusterLeaves(
+                clusterId,
+                64, // MAX_OBSERVATIONS — see adaptive-grid.ts spec §4.1
+                0,
+              )) as ClusterLeafFeature[];
+              const aggregates = aggregateClusterFamilies(leaves);
+              const uniqueFamilies = aggregates.length;
+              const shape = pickGridShape(
+                uniqueFamilies,
+                pointCount,
+                isMobile,
+              );
+              if (shape.tag === 'pill') {
+                // Pill markers go through the ClusterPillOverlay path; we
+                // cache the decision so a future idle short-circuits
+                // without re-fetching leaves.
+                return { kind: 'pill', uniqueFamilies };
+              }
+              const tiles = buildAdaptiveTiles(
+                leaves,
+                silhouettesById,
+                shape,
+              );
+              // F7 option (a): only mark the marker isNotable when the
+              // cluster is strictly 1×1 with a single notable observation.
+              // Per-tile isNotable is the future-extension path (option b).
+              const isNotablePoint =
+                pointCount === 1 &&
+                uniqueFamilies === 1 &&
+                Boolean(leaves[0]?.properties['isNotable']);
+              return {
+                kind: 'grid',
+                shape,
+                tiles,
+                uniqueFamilies,
+                isNotablePoint,
+              };
+            })();
+            // Rejected-Promise eviction (spec §5.3 Concern B). The
+            // `.catch()` fires in the same microtask as the rejection,
+            // so a transient failure does not poison the cache.
+            // warnedRejections rate-limits the console.warn to once per
+            // key — persistently-broken clusters don't spam.
+            fresh.catch((err) => {
+              leafCache.delete(key);
+              if (!warnedRejections.has(key)) {
+                console.warn(
+                  '[adaptive-grid] getClusterLeaves rejected',
+                  key,
+                  err,
+                );
+                warnedRejections.add(key);
+              }
+            });
+            leafCache.set(key, fresh);
+            resolvedPromise = fresh;
+          }
+
           try {
-            const leaves = await source.getClusterLeaves(
-              clusterId,
-              CLUSTER_MOSAIC_MAX_POINTS,
-              0,
-            );
-            const aggregates = aggregateClusterFamilies(
-              leaves as ClusterLeafFeature[],
-            );
-            const tiles = buildMosaicTiles(
-              aggregates,
-              silhouettesRef.current,
-            );
+            const resolved = await resolvedPromise;
+            if (resolved.kind === 'pill') {
+              // Pill handled by ClusterPillOverlay; skip grid entry.
+              return;
+            }
             next.set(clusterId, {
               clusterId,
               longitude,
               latitude,
               totalCount: pointCount,
-              tiles,
+              uniqueFamilies: resolved.uniqueFamilies,
+              shape: resolved.shape,
+              tiles: resolved.tiles,
+              isNotable: resolved.isNotablePoint,
             });
           } catch {
             // Cluster could've expired between the queryRenderedFeatures
@@ -728,8 +903,19 @@ export function MapCanvas({
         }),
       );
 
-      if (cancelled) return;
-      setMosaics(next);
+      // Spec §5.3 Concern C race-safe commit: if the catalogue refreshed
+      // mid-flight, drop this commit — the new effect-registration's
+      // reconcile will produce the right tiles.
+      if (cancelled || myGen !== cacheGeneration) return;
+      setGrids(next);
+
+      // End-of-idle eviction (spec §5.3 Concern B): drop cache entries
+      // for clusters that no longer appear in the viewport. Bounds
+      // worst-case memory at O(visible clusters), not O(every cluster
+      // ever seen).
+      for (const k of leafCache.keys()) {
+        if (!currentKeys.has(k)) leafCache.delete(k);
+      }
     };
 
     // Fire-and-forget — React doesn't care about Promise return values
@@ -753,11 +939,13 @@ export function MapCanvas({
       map.off('load', onLoad);
       map.off('idle', onIdle);
     };
-    // Re-register when the silhouettes catalogue transitions empty
-    // ↔ populated, OR when the map first becomes ready. The closure
-    // reads the live silhouettes array via silhouettesRef so per-row
-    // updates don't need a re-registration.
-  }, [silhouettes.length, mapReady]);
+    // Re-register when the silhouettes catalogue OR the resolved
+    // silhouettesById map changes, OR when the map first becomes ready.
+    // silhouettesVersion is included as a dep to surface monotonic
+    // catalogue replacements that don't change array identity (defensive —
+    // useMemo already keys silhouettesById on [silhouettes], so this is
+    // a belt-and-braces guard the spec §5.3 commit-race tests assert).
+  }, [silhouettes, silhouettesById, silhouettesVersion, mapReady]);
 
   // Phase 1: [data-theme] observer — swap basemap when user toggles theme.
   // Registered after mapReady so the map instance is guaranteed to exist.
@@ -812,31 +1000,43 @@ export function MapCanvas({
   }, [mapReady]);
 
   /**
-   * Mosaic-marker click handler:
-   *   currentZoom < CLUSTER_MAX_ZOOM → easeTo (zoom in to break up the cluster).
-   *   currentZoom >= CLUSTER_MAX_ZOOM → NO-OP. The auto-spider reconciler
-   *     (Task 3) has already fanned the leaves on idle; the user sees fanned
-   *     silhouettes and can click each individually.
+   * Parent-routed click for adaptive-grid markers (spec §4.5).
+   *   Single leaf (point_count === 1) → open obs panel directly (replaces
+   *     today's individual-marker UX; no regression).
+   *   Multi-leaf → easeTo the cluster's expansion zoom (zoom in to break it
+   *     up). At any zoom — `clusterMaxZoom` is now 22, so the old "zoom is
+   *     already maxed" branch is effectively unreachable in production.
    *
-   * Defensively `stopPropagation` so the click doesn't bubble to the
-   * basemap.
+   * Defensively `stopPropagation` so the click doesn't bubble to the basemap.
    */
-  const handleMosaicClick = useCallback(
-    (entry: ClusterMosaicEntry) => (e: React.MouseEvent<HTMLButtonElement>) => {
+  const handleGridMarkerClick = useCallback(
+    (entry: AdaptiveGridEntry) => (e: React.MouseEvent<HTMLButtonElement>) => {
       e.stopPropagation();
+      // Single-leaf: parent routes to openObsPanel (spec §4.5). The
+      // cluster's single observation is resolvable via subId from the
+      // cached leaves… but we don't carry the subId on the entry. The
+      // most reliable lookup is by lng/lat against obsLookup.
+      if (entry.totalCount === 1) {
+        // Find the single observation by lng/lat. Within ε to handle
+        // float roundtrip through the GeoJSON source.
+        const EPS = 1e-6;
+        const obs = observations.find(
+          (o) =>
+            Math.abs(o.lng - entry.longitude) < EPS &&
+            Math.abs(o.lat - entry.latitude) < EPS,
+        );
+        if (obs) setSelectedObs(obs);
+        return;
+      }
+
       const map = mapRef.current?.getMap();
       if (!map) return;
-
-      const currentZoom = map.getZoom();
-      // Auto-spider already fanned at max zoom — nothing to do.
-      if (currentZoom >= CLUSTER_MAX_ZOOM) return;
-
       const source = map.getSource('observations');
       if (!source || !('getClusterExpansionZoom' in source)) return;
-
       const src = source as {
         getClusterExpansionZoom: (id: number) => Promise<number>;
       };
+      const currentZoom = map.getZoom();
       const center: [number, number] = [entry.longitude, entry.latitude];
 
       src
@@ -854,7 +1054,7 @@ export function MapCanvas({
           /* matches existing layer-bound err-swallow behavior */
         });
     },
-    [prefersReducedMotion],
+    [observations, prefersReducedMotion],
   );
 
   const handleClosePopover = useCallback(() => setSelectedObs(null), []);
@@ -870,28 +1070,27 @@ export function MapCanvas({
     [onSelectSpecies],
   );
 
-  /* Hit-target layer: render hit targets at zoom >= CLUSTER_MAX_ZOOM for
-     non-stack observations. In-stack obs (stackedSubIds) have their own
-     clickable StackedSilhouetteMarker from the auto-spider reconciler —
-     skip them here to avoid duplicate overlapping hit targets.
-     Below CLUSTER_MAX_ZOOM, observations are in cluster circles; suppress
-     the overlay so cluster-circle clicks reach maplibre's event system. */
+  /* Hit-target layer: render hit targets at zoom >= CLUSTER_MAX_ZOOM
+     (now 22, post-cutover) for individual observations. The adaptive-grid
+     reconciler renders 1×1 grid markers for singletons at this zoom; the
+     hit layer is the wider clickable surface that survives small marker
+     sizes. Below CLUSTER_MAX_ZOOM, observations are clustered, so the
+     overlay is suppressed and cluster-marker clicks (AdaptiveGridMarker /
+     ClusterPill) drive the interaction. */
   const hitMarkers: HitTargetMarker[] = useMemo(() => {
     if (mapZoom < CLUSTER_MAX_ZOOM) {
       return [];
     }
-    return observations
-      .filter((o) => !stackedSubIds.has(o.subId))
-      .map((o) => ({
-        subId: o.subId,
-        comName: o.comName,
-        familyCode: o.familyCode,
-        locName: o.locName,
-        obsDt: o.obsDt,
-        isNotable: o.isNotable,
-        lngLat: [o.lng, o.lat] as [number, number],
-      }));
-  }, [observations, stackedSubIds, mapZoom]);
+    return observations.map((o) => ({
+      subId: o.subId,
+      comName: o.comName,
+      familyCode: o.familyCode,
+      locName: o.locName,
+      obsDt: o.obsDt,
+      isNotable: o.isNotable,
+      lngLat: [o.lng, o.lat] as [number, number],
+    }));
+  }, [observations, mapZoom]);
 
   const handleHitSelect = useCallback(
     (subId: string) => {
@@ -903,8 +1102,13 @@ export function MapCanvas({
 
   const map = mapReady ? mapRef.current?.getMap() ?? null : null;
 
-  // Phase 3: ClusterPillOverlay — reads cluster features on each map idle
-  // and tracks them in state so React can render <ClusterPill> markers.
+  // ClusterPillOverlay — reads cluster features on each map idle and
+  // renders a <ClusterPill> for any cluster that the adaptive-grid
+  // reconciler did NOT materialize as a grid marker. Under the post-cutover
+  // model the grid-vs-pill decision lives in `pickGridShape` (spec §4.1):
+  // any cluster with uniqueFamilies > 16 OR point_count > 64 falls through
+  // to a pill. We don't re-do that decision here — instead we render a pill
+  // for any cluster feature whose cluster_id isn't present in `grids`.
   interface ClusterFeature {
     cluster_id: number;
     point_count: number;
@@ -930,8 +1134,7 @@ export function MapCanvas({
           f.properties.cluster === true &&
           typeof f.properties.cluster_id === 'number' &&
           typeof f.properties.point_count === 'number' &&
-          f.geometry.type === 'Point' &&
-          f.properties.point_count > CLUSTER_MOSAIC_MAX_POINTS
+          f.geometry.type === 'Point'
         ) {
           next.push({
             cluster_id: f.properties.cluster_id,
@@ -1020,6 +1223,13 @@ export function MapCanvas({
           cluster
           clusterMaxZoom={CLUSTER_MAX_ZOOM}
           clusterRadius={CLUSTER_RADIUS}
+          // Phase 0 finding F4: when clusterMaxZoom rises to 22 (epic #539
+          // cutover), maplibre warns that source `maxzoom` (default 18)
+          // must exceed clusterMaxZoom. Setting maxzoom=24 lifts the
+          // source ceiling above the cluster ceiling and silences the
+          // warning. Required to keep Gate 4 (zero console warnings)
+          // green on cold map init.
+          maxzoom={24}
         >
           <Layer {...clusterLayer} />
           <Layer {...clusterCountLayer} />
@@ -1045,67 +1255,48 @@ export function MapCanvas({
           {spritesReady && <Layer {...unclusteredLayer} />}
         </Source>
         {/*
-          Issue #248: HTML <Marker> per small cluster, rendered alongside
-          the cluster source. React keys by cluster_id so panning/zooming
-          unmounts disappearing clusters and mounts new ones in a single
-          reconciler pass — no orphans, no leaks.
+          Epic #539: HTML <Marker>+<AdaptiveGridMarker> per cluster that
+          renders as a grid (1×1 — 4×4). Pill clusters fall through to the
+          ClusterPillOverlay block below. React keys by cluster_id so
+          panning/zooming unmounts disappearing clusters and mounts new
+          ones in a single reconciler pass.
         */}
-        {Array.from(mosaics.values())
-          .map((entry) => (
+        {Array.from(grids.values()).map((entry) => {
+          const ariaLabel =
+            entry.totalCount === 1
+              ? `Single observation. ${entry.tiles[0]?.kind === 'rendered' ? '' : ''}Activate to open.`
+              : `Cluster: ${entry.totalCount} observations, ${entry.uniqueFamilies} ${entry.uniqueFamilies === 1 ? 'family' : 'families'}. Activate to zoom in.`;
+          return (
             <PresentationMarker
               key={entry.clusterId}
               longitude={entry.longitude}
               latitude={entry.latitude}
             >
-              <MosaicMarker
+              <AdaptiveGridMarker
+                shape={entry.shape}
                 tiles={entry.tiles}
                 totalCount={entry.totalCount}
-                onClick={handleMosaicClick(entry)}
+                uniqueFamilies={entry.uniqueFamilies}
+                ariaLabel={ariaLabel}
+                isCoarsePointer={isCoarsePointer}
+                isNotable={entry.isNotable}
+                onClick={handleGridMarkerClick(entry)}
               />
+            </PresentationMarker>
+          );
+        })}
+        {/* <ClusterPill> overlays — one per cluster the adaptive-grid
+            reconciler did NOT promote to a grid (i.e. pill-shape per
+            pickGridShape: uniqueFamilies > 16 OR point_count > 64).
+            Filtered against `grids` to avoid double-rendering. Keyed by
+            cluster_id so panning/zooming reconciles cleanly. */}
+        {clusterFeatures
+          .filter((c) => !grids.has(c.cluster_id))
+          .map((c) => (
+            <PresentationMarker key={c.cluster_id} longitude={c.lng} latitude={c.lat} anchor="center">
+              <ClusterPill count={c.point_count} onClick={() => handleClusterPillClick(c)} />
             </PresentationMarker>
           ))}
-        {/*
-          Issue #277 (Spider v2 Task 3): one <Marker>+<StackedSilhouetteMarker>
-          per auto-spider leaf. Keyed by subId so React reconciles leaf
-          additions/removals cleanly across idle passes. Rendered inside
-          <MapView> so react-map-gl handles lngLat → pixel projection.
-        */}
-        {autoSpiderStacks.flatMap((stack) =>
-          stack.leaves.map((leaf) => (
-            <PresentationMarker
-              key={leaf.subId}
-              longitude={leaf.lngLat[0]}
-              latitude={leaf.lngLat[1]}
-              anchor="bottom"
-            >
-              {/* onClick is an inline arrow — stable pre-built callbacks
-                  would require storing them in AutoSpiderLeaf. Acceptable
-                  trade-off: reconcile fires on idle (every few seconds at
-                  most), not on every MapCanvas render. */}
-              <StackedSilhouetteMarker
-                silhouette={leaf.silhouette}
-                comName={leaf.comName}
-                familyCode={leaf.familyCode}
-                locName={leaf.locName}
-                obsDt={leaf.obsDt}
-                isNotable={leaf.isNotable}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const obs = obsLookupRef.current[leaf.subId];
-                  if (obs) setSelectedObs(obs);
-                }}
-              />
-            </PresentationMarker>
-          )),
-        )}
-        {/* Phase 3: <ClusterPill> overlays — one per large cluster (point_count > 8).
-            The mosaics reconciler handles point_count <= 8; pills cover the rest.
-            Keyed by cluster_id so panning/zooming reconciles cleanly. */}
-        {clusterFeatures.map((c) => (
-          <PresentationMarker key={c.cluster_id} longitude={c.lng} latitude={c.lat} anchor="center">
-            <ClusterPill count={c.point_count} onClick={() => handleClusterPillClick(c)} />
-          </PresentationMarker>
-        ))}
       </MapView>
       {/* Issue #247 (original hit-layer) / #277 (Spider v2 narrowed to auto-spider stacks +
           unclustered): HTML overlay for stacked and unclustered markers, mounted as a sibling
