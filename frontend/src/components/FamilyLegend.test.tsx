@@ -213,8 +213,10 @@ describe('FamilyLegend', () => {
     );
     expect(screen.getAllByTestId('family-legend-entry')).toHaveLength(3);
     await user.click(screen.getByRole('button', { name: /bird families in view/i }));
-    // Once collapsed, no entries are rendered (or at least none visible).
-    expect(screen.queryAllByTestId('family-legend-entry')).toHaveLength(0);
+    const list = screen.getByRole('list', { hidden: true });
+    expect(list).toHaveAttribute('id', 'family-legend-entries');
+    expect(list).toHaveAttribute('hidden');
+    expect(screen.queryByRole('button', { name: /Tyrant Flycatchers/ })).toBeNull();
     // And the toggle button reports collapsed state via aria-expanded=false.
     expect(screen.getByRole('button', { name: /bird families in view/i })).toHaveAttribute('aria-expanded', 'false');
   });
@@ -229,8 +231,12 @@ describe('FamilyLegend', () => {
         defaultExpanded={false}
       />
     );
-    expect(screen.queryAllByTestId('family-legend-entry')).toHaveLength(0);
-    expect(screen.getByRole('button', { name: /bird families in view/i })).toHaveAttribute('aria-expanded', 'false');
+    const toggle = screen.getByRole('button', { name: /bird families in view/i });
+    const list = screen.getByRole('list', { hidden: true });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(toggle).toHaveAttribute('aria-controls', 'family-legend-entries');
+    expect(list).toHaveAttribute('id', 'family-legend-entries');
+    expect(list).toHaveAttribute('hidden');
   });
 
   it('persists collapse state to localStorage (.v2 key)', async () => {
