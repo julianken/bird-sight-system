@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
 import { SpeciesDetailSurface } from './SpeciesDetailSurface.js';
 import { ApiClient } from '../api/client.js';
 import type { SpeciesMeta, FamilySilhouette, Observation } from '@bird-watch/shared-types';
@@ -693,6 +693,44 @@ describe('SpeciesDetailSurface', () => {
       );
       const items = screen.getAllByTestId('observation-item');
       expect(items).toHaveLength(1);
+    });
+  });
+
+  // ─── Phase 3 bbox banner (Task 7, #560) ──────────────────────────────────
+  //
+  // When `bbox` prop is non-null, SpeciesDetailSurface renders a banner
+  // section with role="region" aria-label="Filtered by map area" containing
+  // the filtered count and a "View all observations" button that calls
+  // onClearBbox. When bbox is null/undefined, the banner must not render.
+
+  describe('SpeciesDetailSurface bbox banner (Phase 3, #560)', () => {
+    const rest = {
+      speciesCode: 'vermfly',
+      apiClient: makeClient({
+        getSpecies: vi.fn().mockResolvedValue(VERMFLY),
+        getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
+      } as unknown as Partial<ApiClient>),
+    };
+
+    it('renders the banner with onClearBbox link when bbox is non-null', async () => {
+      const onClearBbox = vi.fn();
+      render(<SpeciesDetailSurface bbox={[-111, 31, -110, 32]} onClearBbox={onClearBbox} {...rest} />);
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeInTheDocument(),
+      );
+      const banner = screen.getByRole('region', { name: /Filtered by map area/i });
+      expect(banner).toBeInTheDocument();
+      const link = within(banner).getByRole('button', { name: /View all observations/i });
+      fireEvent.click(link);
+      expect(onClearBbox).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not render the banner when bbox is null', async () => {
+      render(<SpeciesDetailSurface bbox={null} {...rest} />);
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeInTheDocument(),
+      );
+      expect(screen.queryByRole('region', { name: /Filtered by map area/i })).not.toBeInTheDocument();
     });
   });
 });

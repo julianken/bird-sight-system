@@ -59,7 +59,7 @@ export interface SpeciesDetailSurfaceProps {
  * inside the wrapper's scroll container (modal or sheet), not <main>.
  */
 export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
-  const { speciesCode, apiClient, observations = [], bbox } = props;
+  const { speciesCode, apiClient, observations = [], bbox, onClearBbox } = props;
   const detail = useSpeciesDetail(apiClient, speciesCode);
   const { loading, error, data } = detail;
   // useSilhouettes provides the family-color payload. The data is cached at
@@ -197,6 +197,24 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
         descriptionBody={data.descriptionBody}
         descriptionAttributionUrl={data.descriptionAttributionUrl}
       />
+      {bbox && (
+        <section
+          className="species-detail-bbox-banner"
+          role="region"
+          aria-label="Filtered by map area"
+        >
+          <p className="species-detail-bbox-banner__text">
+            Showing {filteredObservations.length} observations in the selected map area.
+          </p>
+          <button
+            type="button"
+            className="species-detail-bbox-banner__link"
+            onClick={onClearBbox}
+          >
+            View all observations
+          </button>
+        </section>
+      )}
       {filteredObservations.length > 0 && (
         <ul className="species-detail-observations" aria-label="Recent observations">
           {filteredObservations.map((o) => (
