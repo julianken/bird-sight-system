@@ -365,6 +365,90 @@ describe('AdaptiveGridMarker', () => {
     }
   });
 
+  // --- Theme-aware tile fill (Phase 1, #570) ---------------------------------
+
+  describe('theme-aware tile fill (Phase 1, #570)', () => {
+    function findRenderedFill(container: HTMLElement): string | null {
+      const path = container.querySelector(
+        '[data-testid="adaptive-grid-marker-cell-rendered"] svg path:last-child'
+      );
+      return path?.getAttribute('fill') ?? null;
+    }
+
+    it('light theme renders tile.color in the SVG fill', () => {
+      const prior = document.documentElement.getAttribute('data-theme');
+      document.documentElement.setAttribute('data-theme', 'light');
+      try {
+        const { container } = render(
+          <AdaptiveGridMarker
+            shape={SHAPE_1x1}
+            tiles={[rendered('tyrannidae', 5, undefined, '#c3772d', '#C77A2E')]}
+            totalCount={5}
+            uniqueFamilies={1}
+            ariaLabel="..."
+            onClick={noop}
+          />
+        );
+        expect(findRenderedFill(container)).toBe('#c3772d');
+      } finally {
+        if (prior === null) document.documentElement.removeAttribute('data-theme');
+        else document.documentElement.setAttribute('data-theme', prior);
+      }
+    });
+
+    it('dark theme renders tile.colorDark in the SVG fill', () => {
+      const prior = document.documentElement.getAttribute('data-theme');
+      document.documentElement.setAttribute('data-theme', 'dark');
+      try {
+        const { container } = render(
+          <AdaptiveGridMarker
+            shape={SHAPE_1x1}
+            tiles={[rendered('tyrannidae', 5, undefined, '#c3772d', '#C77A2E')]}
+            totalCount={5}
+            uniqueFamilies={1}
+            ariaLabel="..."
+            onClick={noop}
+          />
+        );
+        expect(findRenderedFill(container)).toBe('#C77A2E');
+      } finally {
+        if (prior === null) document.documentElement.removeAttribute('data-theme');
+        else document.documentElement.setAttribute('data-theme', prior);
+      }
+    });
+
+    it('theme attribute change updates the fill via useTheme MutationObserver', async () => {
+      const prior = document.documentElement.getAttribute('data-theme');
+      document.documentElement.setAttribute('data-theme', 'light');
+      try {
+        const { container } = render(
+          <AdaptiveGridMarker
+            shape={SHAPE_1x1}
+            tiles={[rendered('tyrannidae', 5, undefined, '#c3772d', '#C77A2E')]}
+            totalCount={5}
+            uniqueFamilies={1}
+            ariaLabel="..."
+            onClick={noop}
+          />
+        );
+        expect(findRenderedFill(container)).toBe('#c3772d');
+
+        // Trigger theme switch — MutationObserver fires, useTheme re-renders
+        act(() => {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        });
+
+        // Wait one tick for the observer callback + React re-render
+        await new Promise(r => setTimeout(r, 50));
+
+        expect(findRenderedFill(container)).toBe('#C77A2E');
+      } finally {
+        if (prior === null) document.documentElement.removeAttribute('data-theme');
+        else document.documentElement.setAttribute('data-theme', prior);
+      }
+    });
+  });
+
   // --- Notable indicator (AC8 — inherited from StackedSilhouetteMarker) ---
 
   it('notable indicator: isNotable=true renders amber <circle> ring inside SVG, ordered BEFORE halo path', () => {
