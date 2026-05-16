@@ -830,7 +830,10 @@
   margin: 0;
 }
 
-.cluster-list-popover__heading:focus,
+.cluster-list-popover__heading:focus {
+  outline: none;
+}
+
 .cluster-list-popover__heading:focus-visible {
   outline: 2px solid var(--color-text-strong);
   outline-offset: 2px;
@@ -848,11 +851,12 @@
 
 .cluster-list-popover__family-toggle {
   all: unset;
-  display: block;
+  display: flex;
+  align-items: center;
   width: 100%;
   cursor: pointer;
   font-weight: var(--font-weight-medium);
-  padding: var(--space-xxs) 0;
+  min-height: 44px; /* WCAG 2.5.5 — touch target ≥44×44 on coarse pointer. */
   /* The collapsed/expanded chevron is purely a CSS treatment — no extra DOM. */
 }
 
@@ -886,6 +890,9 @@
 }
 
 .cluster-list-popover__row a[role="link"] {
+  display: flex;
+  align-items: center;
+  min-height: 44px; /* WCAG 2.5.5 — touch target ≥44×44 on coarse pointer. */
   cursor: pointer;
   color: var(--color-text-link);
   text-decoration: underline;
