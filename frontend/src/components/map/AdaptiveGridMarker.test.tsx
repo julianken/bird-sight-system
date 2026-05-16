@@ -145,7 +145,7 @@ describe('AdaptiveGridMarker', () => {
     expect(Number(opacity)).toBeCloseTo(0.85, 2);
   });
 
-  it('fallback cell carries the --fallback className for dashed-border affordance (Phase 2: #571)', () => {
+  it('fallback cell has inline color set to tile.color so currentColor resolves for dashed border (Phase 2: #571)', () => {
     render(
       <AdaptiveGridMarker
         shape={SHAPE_2x1}
@@ -157,9 +157,14 @@ describe('AdaptiveGridMarker', () => {
       />,
     );
     const fallbackCell = screen.getByTestId('adaptive-grid-marker-cell-fallback');
-    // The CSS class drives the dashed border (border: 1.5px dashed currentColor in ds-primitives.css).
-    // jsdom does not apply stylesheets so we verify the class presence, not the computed style.
-    expect(fallbackCell.classList.contains('adaptive-grid-marker__cell--fallback')).toBe(true);
+    // The dashed border in ds-primitives.css uses `currentColor`.
+    // For currentColor to resolve to the family tile color (not the body text color),
+    // the parent element must carry `color: tile.color` as an inline style.
+    // jsdom does not apply stylesheets but does reflect inline style, so this is
+    // the jsdom-readable contract for "border will render in tile.color".
+    // The fallback() helper defaults color='#888888' (see fixture at line 21).
+    // jsdom normalizes hex to rgb() when reading back inline style properties.
+    expect(fallbackCell.style.color).toBe('rgb(136, 136, 136)');
   });
 
   // --- Pending skeleton -----------------------------------------------------

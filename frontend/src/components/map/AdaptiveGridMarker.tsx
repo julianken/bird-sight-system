@@ -466,7 +466,7 @@ function TileCell({
           onBlur={onCellBlur}
           onClick={(e) => { e.stopPropagation(); onCellClick?.(); }}
           onKeyDown={onCellKeyDown}
-          style={{ all: 'unset', cursor: 'pointer', display: 'block', opacity: 0.85 }}
+          style={{ background: 'transparent', border: 'none', padding: 0, font: 'inherit', cursor: 'pointer', display: 'block', opacity: 0.85, color: fillColor }}
         >
           <svg
             viewBox="0 0 24 24"
@@ -487,7 +487,7 @@ function TileCell({
       <div
         data-testid="adaptive-grid-marker-cell-fallback"
         className="adaptive-grid-marker__cell adaptive-grid-marker__cell--fallback"
-        style={{ opacity: 0.85 }}
+        style={{ opacity: 0.85, color: fillColor }}
       >
         <svg
           viewBox="0 0 24 24"
