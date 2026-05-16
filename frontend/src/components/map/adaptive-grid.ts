@@ -100,9 +100,22 @@ export function pickGridShape(
  */
 export interface ClusterLeafFeature {
   type: 'Feature';
+  geometry: { type: 'Point'; coordinates: [number, number] };
   properties: {
+    /** Family code. Null when the join in `observationsToGeoJson` doesn't hit. */
     familyCode: string | null;
-  } & Record<string, unknown>;
+    /**
+     * eBird 6-char species code. Threaded onto each feature by
+     * `observationsToGeoJson` (issue #557 / spec §4.11). `null` for
+     * spuh/slash/hybrid taxa where eBird returns no code; preserved
+     * by `aggregateClusterSpecies` as a non-clickable row.
+     */
+    speciesCode: string | null;
+    /** Display common name. Always present per eBird API contract. */
+    comName: string;
+    /** Whether this observation is in eBird's notable list. */
+    isNotable?: boolean;
+  };
 }
 
 export interface FamilyAggregate {
