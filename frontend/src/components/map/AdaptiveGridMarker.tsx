@@ -258,7 +258,6 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
             showBadge={showBadgeFor(tile.count)}
             isNotable={isNotable}
             perCellInteractive={perCellInteractive}
-            cellId={markerId}
             isExpanded={activeCell?.index === i && activeCell.mode === 'popover'}
             {...(perCellInteractive && activeCell?.index === i && previewId ? { previewId } : {})}
             cellRef={(el) => { cellRefs.current[i] = el; }}
@@ -320,7 +319,6 @@ interface TileCellProps {
   showBadge: boolean;
   isNotable: boolean | undefined;
   perCellInteractive: boolean;
-  cellId: string;
   isExpanded: boolean;
   /** Spec §4.8: only the active cell carries aria-describedby. Non-active cells omit it. */
   previewId?: string;
@@ -338,7 +336,6 @@ function TileCell({
   showBadge,
   isNotable,
   perCellInteractive,
-  cellId,
   isExpanded,
   previewId,
   cellRef,
