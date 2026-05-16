@@ -466,7 +466,7 @@ function TileCell({
           onBlur={onCellBlur}
           onClick={(e) => { e.stopPropagation(); onCellClick?.(); }}
           onKeyDown={onCellKeyDown}
-          style={{ background: 'transparent', border: 'none', padding: 0, font: 'inherit', cursor: 'pointer', display: 'block', opacity: 0.85, color: fillColor }}
+          style={{ background: 'transparent', padding: 0, font: 'inherit', cursor: 'pointer', display: 'block', opacity: 0.85, color: fillColor }}
         >
           <svg
             viewBox="0 0 24 24"

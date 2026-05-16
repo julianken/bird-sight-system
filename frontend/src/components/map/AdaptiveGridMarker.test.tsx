@@ -4,6 +4,7 @@ import { AdaptiveGridMarker } from './AdaptiveGridMarker.js';
 import { markerDimensions, MIN_MARKER_PX } from './AdaptiveGridMarker.js';
 import type { AdaptiveTile, ResolvedGrid, PositiveInt, SpeciesAggregate } from './adaptive-grid.js';
 import { toPositiveInt } from './adaptive-grid.js';
+import { setMatchMedia } from '../../test-setup.js';
 
 // Helpers --------------------------------------------------------------------
 
@@ -165,6 +166,34 @@ describe('AdaptiveGridMarker', () => {
     // The fallback() helper defaults color='#888888' (see fixture at line 21).
     // jsdom normalizes hex to rgb() when reading back inline style properties.
     expect(fallbackCell.style.color).toBe('rgb(136, 136, 136)');
+  });
+
+  it('fallback cell (button branch, pointer:fine) has inline color set and no inline border suppression so dashed class rule applies (Phase 2: #571 BLOCKER-1b)', () => {
+    // Simulate a fine-pointer (desktop/mouse) viewport so the button branch fires.
+    setMatchMedia(q => q === '(pointer: fine)');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_2x1}
+        tiles={[rendered('tyrannidae', 5), fallback('mimidae', 3)]}
+        totalCount={8}
+        uniqueFamilies={2}
+        ariaLabel="Cluster: 8 observations, 2 families. Activate to zoom in."
+        onClick={noop}
+      />,
+    );
+    const fallbackCell = screen.getByTestId('adaptive-grid-marker-cell-fallback');
+    // Verify the button branch actually fired (not the div branch).
+    expect(fallbackCell.tagName).toBe('BUTTON');
+    // BLOCKER-1a regression check: color must be wired so currentColor resolves.
+    // jsdom normalizes #888888 → rgb(136, 136, 136) when reading inline style.
+    expect(fallbackCell.style.color).toBe('rgb(136, 136, 136)');
+    // BLOCKER-1b regression check: no inline border suppression.
+    // The dashed border comes from the CSS class rule
+    // `.adaptive-grid-marker__cell--fallback { border: 1.5px dashed currentColor }`.
+    // An inline `border: 'none'` outranks that class rule via specificity.
+    // The contract here: inline style must NOT suppress the border,
+    // i.e. fallbackCell.style.border must be empty string.
+    expect(fallbackCell.style.border).toBe('');
   });
 
   // --- Pending skeleton -----------------------------------------------------
