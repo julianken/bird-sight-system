@@ -258,7 +258,7 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
             // zoom handler. Single-leaf clusters fall through to onClick
             // (preserves the existing tap-to-obs UX per spec §4.10).
             e.preventDefault();
-            setIsClusterListOpen(true);
+            if (!isClusterListOpen) setIsClusterListOpen(true);
             return;
           }
           onClick(e);
