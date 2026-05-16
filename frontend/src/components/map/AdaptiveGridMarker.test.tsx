@@ -762,4 +762,27 @@ describe('AdaptiveGridMarker — VITE_FF_CELL_POPOVER coarse-pointer (Phase 2, #
     expect(onClick).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('dialog')).toBeNull();
   });
+
+  it('flag ON + coarse + single-leaf (totalCount===1): outer-button tap calls onClick (NOT cluster list popover)', async () => {
+    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    const onClick = vi.fn();
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[rendered('hummingbirds', 1, 'M0 0L24 24Z', '#888', [
+          { comName: "Anna's Hummingbird", count: 1, speciesCode: 'annhum' },
+        ])]}
+        totalCount={1}
+        uniqueFamilies={1}
+        ariaLabel="Single observation: Anna's Hummingbird."
+        isCoarsePointer={true}
+        onClick={onClick}
+      />
+    );
+    const outer = screen.getByTestId('adaptive-grid-marker');
+    fireEvent.click(outer);
+    expect(onClick).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
 });
