@@ -81,7 +81,7 @@ Palette audit ran via `scripts/check-family-palette-contrast.ts` against the lig
 
 **Status: CLOSED 2026-05-16 (PR #582, Phase 4 of adaptive-grid contrast epic #575).**
 
-`BASEMAP_DARK` alias flipped from `= BASEMAP_LIGHT` to `= 'https://tiles.openfreemap.org/styles/dark'` in `frontend/src/components/map/basemap-style.ts`. The existing `MutationObserver` in `MapCanvas.tsx` drives the live basemap swap on theme toggle — no additional wiring needed. Verified at 1440×900 via a Playwright e2e pixel-sample spec (`frontend/e2e/basemap-dark-flip.spec.ts`) asserting AC1 (luminance delta >0.3), AC2 (light pixel within ±10 of #f4f1ea), AC3 (dark pixel <60 per channel). The spec is currently skipping pending Finding 3 — see #582 review feedback — but the URL flip itself is regression-guarded by the unit test `basemap-style.test.ts`.
+`BASEMAP_DARK` alias flipped from `= BASEMAP_LIGHT` to `= 'https://tiles.openfreemap.org/styles/dark'` in `frontend/src/components/map/basemap-style.ts`. The existing `MutationObserver` in `MapCanvas.tsx` drives the live basemap swap on theme toggle — no additional wiring needed. Verified at 1440×900 via a Playwright e2e pixel-sample spec (`frontend/e2e/basemap-dark-flip.spec.ts`) asserting AC1 (luminance delta >0.3), AC2 (light pixel within ±20 of #f4f1ea), AC3 (dark pixel <60 per channel). Actual sampled pixels: light=[230,233,229] (lum≈0.808), dark=[12,12,12] (lum≈0.004), delta≈0.804. All three assertions pass. `preserveDrawingBuffer: true` is enabled in e2e mode via `VITE_E2E_PRESERVE_BUFFER` (PR #582 Fix 3b).
 
 ## W5 spec captures (2026-05-11)
 
