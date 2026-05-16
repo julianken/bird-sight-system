@@ -6,8 +6,10 @@ import {
   bucketKey,
   buildGroups,
   displaceSilhouettes,
+  getClusterBbox,
   SILHOUETTE_PX,
   type DeconflictInput,
+  type DeconflictGroup,
 } from './deconflict.js';
 
 // Shared fixtures
@@ -379,5 +381,104 @@ describe('deconflict', () => {
     // Both clamped ≤ 20.
     expect(Math.hypot(offE.dx, offE.dy)).toBeLessThanOrEqual(20);
     expect(Math.hypot(offW.dx, offW.dy)).toBeLessThanOrEqual(20);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getClusterBbox — Phase 3 (#560)
+// ---------------------------------------------------------------------------
+
+function makeGroup(leaves: Array<{ lng: number; lat: number }>): DeconflictGroup {
+  // Construct a minimal DeconflictGroup test fixture. Only the `leaves` field
+  // must be correct for getClusterBbox; other fields are stubs.
+  const anchor: DeconflictInput = {
+    cluster_id: 1,
+    px: 100,
+    py: 100,
+    rendered: { kind: 'grid', shape: { tag: 'grid', cols: 2, rows: 2 } },
+    point_count: leaves.length || 1,
+    uniqueFamilies: 1,
+  };
+  return { anchor, memberIds: [1], key: 'bucket-1-1-8', ariaLabel: '', leaves } as DeconflictGroup;
+}
+
+describe('getClusterBbox (Phase 3, #560)', () => {
+  it('returns correct [lngMin, latMin, lngMax, latMax] for 3 leaves', () => {
+    const group = makeGroup([
+      { lng: -110.88, lat: 31.73 },
+      { lng: -110.85, lat: 31.71 },
+      { lng: -110.87, lat: 31.75 },
+    ]);
+    const bbox = getClusterBbox(group);
+    expect(bbox).toEqual([-110.88, 31.71, -110.85, 31.75]);
+  });
+
+  it('returns degenerate bbox for a single leaf', () => {
+    const group = makeGroup([{ lng: -110.88, lat: 31.73 }]);
+    expect(getClusterBbox(group)).toEqual([-110.88, 31.73, -110.88, 31.73]);
+  });
+
+  it('rounds each coordinate to 6 decimals', () => {
+    const group = makeGroup([
+      { lng: -110.1234567, lat: 31.7345678 },
+      { lng: -110.0987654, lat: 31.7456789 },
+    ]);
+    const bbox = getClusterBbox(group);
+    expect(bbox).toEqual([-110.123457, 31.734568, -110.098765, 31.745679]);
+  });
+
+  it('caches the result — same group queried twice returns reference-equal arrays', () => {
+    const group = makeGroup([{ lng: -110.88, lat: 31.73 }, { lng: -110.85, lat: 31.71 }]);
+    const a = getClusterBbox(group);
+    const b = getClusterBbox(group);
+    expect(a).toBe(b); // reference equality, proving cache hit
+  });
+
+  it('caches per group — two groups with identical leaves return separate arrays', () => {
+    const leaves = [{ lng: -110.88, lat: 31.73 }, { lng: -110.85, lat: 31.71 }];
+    const g1 = makeGroup(leaves);
+    const g2 = makeGroup([...leaves]);
+    expect(getClusterBbox(g1)).not.toBe(getClusterBbox(g2));
+  });
+
+  it('handles arbitrary leaf order — result is sort-independent', () => {
+    const a = getClusterBbox(makeGroup([
+      { lng: -110.88, lat: 31.73 },
+      { lng: -110.85, lat: 31.71 },
+      { lng: -110.87, lat: 31.75 },
+    ]));
+    const b = getClusterBbox(makeGroup([
+      { lng: -110.87, lat: 31.75 },
+      { lng: -110.85, lat: 31.71 },
+      { lng: -110.88, lat: 31.73 },
+    ]));
+    expect(a).toEqual(b);
+  });
+
+  it('handles leaves spanning the antimeridian without wrapping', () => {
+    // Antimeridian: lng = ±180. A cluster straddling the antimeridian
+    // is rare in Arizona but the function should still produce a
+    // mathematically finite bbox; downstream filter logic decides whether
+    // to interpret it as a wrap.
+    const bbox = getClusterBbox(makeGroup([
+      { lng: 179.9, lat: 0 },
+      { lng: -179.9, lat: 0 },
+    ]));
+    expect(bbox).toEqual([-179.9, 0, 179.9, 0]);
+  });
+
+  it('tuple order is [lngMin, latMin, lngMax, latMax] — NOT swap-prone [lat, lng]', () => {
+    const bbox = getClusterBbox(makeGroup([
+      { lng: -110.88, lat: 31.73 },
+      { lng: -110.85, lat: 31.71 },
+    ]));
+    expect(bbox[0]).toBeLessThan(bbox[2]); // lngMin < lngMax
+    expect(bbox[1]).toBeLessThan(bbox[3]); // latMin < latMax
+    expect(Math.abs(bbox[0])).toBeGreaterThan(100); // lng range
+    expect(Math.abs(bbox[1])).toBeLessThan(50); // lat range
+  });
+
+  it('throws on empty leaves (defensive — empty cluster should never reach this code path)', () => {
+    expect(() => getClusterBbox(makeGroup([]))).toThrow(/empty/i);
   });
 });
