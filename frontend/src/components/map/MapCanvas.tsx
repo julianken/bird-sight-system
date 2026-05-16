@@ -1478,6 +1478,7 @@ export function MapCanvas({
                 isCoarsePointer={isCoarsePointer}
                 isNotable={anchor.isNotable ?? false}
                 onClick={() => handleGroupClick(g)}
+                {...(onSelectSpecies ? { onSelectSpecies } : {})}
               />
             </PresentationMarker>
           );
