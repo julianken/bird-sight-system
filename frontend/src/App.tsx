@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LngLatBounds } from 'maplibre-gl';
 import { ApiClient, ApiError } from './api/client.js';
 import { useUrlState } from './state/url-state.js';
-import type { Since } from './state/url-state.js';
+import type { Since, BBox } from './state/url-state.js';
 import { useBirdData } from './data/use-bird-data.js';
 import { useSilhouettes } from './data/use-silhouettes.js';
 import { useSpeciesDetail } from './data/use-species-detail.js';
@@ -216,8 +216,9 @@ export function App() {
   );
 
   const onSelectSpecies = useCallback(
-    (speciesCode: string) => set({ detail: speciesCode, view: 'detail' }),
-    [set]
+    (speciesCode: string, bbox: BBox | null = null) =>
+      set({ detail: speciesCode, view: 'detail', bbox }),
+    [set],
   );
 
   // Close callback for detail modal/sheet wrappers — flips back to feed view.
