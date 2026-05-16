@@ -16,7 +16,7 @@ describe('useSilhouettes', () => {
   it('fetches silhouettes on first mount and exposes them once resolved', async () => {
     const client = makeClient({
       getSilhouettes: vi.fn().mockResolvedValue([
-        { familyCode: 'tyrannidae', color: '#C77A2E', svgData: null, source: null, license: null },
+        { familyCode: 'tyrannidae', color: '#c3772d', colorDark: '#C77A2E', svgData: null, source: null, license: null, svgUrl: null, commonName: null, creator: null },
       ]),
     } as unknown as Partial<ApiClient>);
 
@@ -31,7 +31,7 @@ describe('useSilhouettes', () => {
 
   it('reuses the module-level cache across renders and does not refetch', async () => {
     const getSilhouettes = vi.fn().mockResolvedValue([
-      { familyCode: 'passerellidae', color: '#D4923A', svgData: null, source: null, license: null },
+      { familyCode: 'passerellidae', color: '#bc7d29', colorDark: '#D4923A', svgData: null, source: null, license: null, svgUrl: null, commonName: null, creator: null },
     ]);
     const client = makeClient({ getSilhouettes } as unknown as Partial<ApiClient>);
 
@@ -61,7 +61,7 @@ describe('useSilhouettes', () => {
     // A subsequent mount with a working client must be able to retry — the
     // rejected inflight promise should not be latched into the cache.
     const succeeding = vi.fn().mockResolvedValue([
-      { familyCode: 'anatidae', color: '#3A6B8E', svgData: null, source: null, license: null },
+      { familyCode: 'anatidae', color: '#3A6B8E', colorDark: '#3A6B8E', svgData: null, source: null, license: null, svgUrl: null, commonName: null, creator: null },
     ]);
     const healthyClient = makeClient({
       getSilhouettes: succeeding,

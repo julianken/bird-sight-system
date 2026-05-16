@@ -37,7 +37,7 @@ Plus a **non-bug observation** worth documenting:
 
 Before opening a PR for this plan's execution, check off each item or cite a deferral doc with a lexically-matching subject (per R13 T7, issue #461):
 
-- [ ] **Phase 1: 19+ failing colors re-picked** — every `family_silhouettes.color` value scores ≥ 3:1 against BOTH `positron` light (`#f4f1ea`) AND `dark` (`https://tiles.openfreemap.org/styles/dark`, sample background `#0E1116`) basemaps at full opacity. Tested with an automated WCAG harness (see Phase 1 Task 3).
+- [ ] **Phase 1: 19+ failing colors re-picked** — `family_silhouettes.color` scores ≥ 3:1 against the light basemap (`#f4f1ea`) it is rendered on; `family_silhouettes.color_dark` scores ≥ 3:1 against the dark basemap (`#0E1116`) it is rendered on. Each palette value is validated only against its paired basemap. Tested with an automated WCAG harness (see Phase 1 Task 3).
 - [ ] **Phase 1: 1 SQL migration** under `migrations/` introducing either (a) a `color_dark` column on `family_silhouettes` OR (b) a runtime palette override map exported from `frontend/src/config/family-palette.ts`. Decision lives in Phase 1 Task 2.
 - [ ] **Phase 1: 1 contrast-harness script** under `scripts/check-family-palette-contrast.{ts,sh}` that fails CI if any color value drops below 3:1 against either basemap.
 - [ ] **Phase 2: fallback opacity 0.5 → 0.85** in `AdaptiveGridMarker.tsx:454, 475`.
@@ -83,7 +83,7 @@ Foundational. Re-audit every color against both basemaps. Re-pick failures. Add 
 - Create: `.github/workflows/family-palette-contrast.yml`
 - Create: `migrations/<n>_family_silhouettes_color_audit.sql`
 - Modify: `frontend/src/config/family-palette.ts` (only if runtime override path chosen)
-- Test: `frontend/src/config/family-palette.test.ts` (assert every color is ≥ 3:1 against both basemaps at full opacity, using the same WCAG formula as the script)
+- Test: `packages/db-client/src/family-silhouettes-contrast.test.ts` (assert `color` ≥ 3:1 vs light basemap and `color_dark` ≥ 3:1 vs dark basemap — each value tested only against the basemap it is paired with)
 
 ### Task 1: WCAG contrast harness — script + tests (RED → GREEN)
 

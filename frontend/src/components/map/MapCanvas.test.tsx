@@ -196,8 +196,10 @@ function makeObs(partial: Partial<Observation> = {}): Observation {
 const SILHOUETTES: FamilySilhouette[] = [
   {
     familyCode: 'tyrannidae',
-    color: '#C77A2E',
+    color: '#c3772d',
+    colorDark: '#C77A2E',
     svgData: 'M0 0L1 1Z',
+    svgUrl: null,
     source: 'placeholder',
     license: 'CC0',
     commonName: 'Tyrant Flycatchers',
@@ -205,8 +207,10 @@ const SILHOUETTES: FamilySilhouette[] = [
   },
   {
     familyCode: 'trochilidae',
-    color: '#7B2D8E',
+    color: '#9637ad',
+    colorDark: '#9637ad',
     svgData: 'M2 2L3 3Z',
+    svgUrl: null,
     source: 'placeholder',
     license: 'CC0',
     commonName: 'Hummingbirds',
@@ -215,7 +219,9 @@ const SILHOUETTES: FamilySilhouette[] = [
   {
     familyCode: 'picidae',
     color: '#FF0808',
+    colorDark: '#FF0808',
     svgData: 'M4 4L5 5Z',
+    svgUrl: null,
     source: 'placeholder',
     license: 'CC0',
     commonName: 'Woodpeckers',
@@ -224,7 +230,9 @@ const SILHOUETTES: FamilySilhouette[] = [
   {
     familyCode: 'uncurated',
     color: '#888888',
+    colorDark: '#888888',
     svgData: null,
+    svgUrl: null,
     source: null,
     license: null,
     commonName: null,
@@ -312,8 +320,10 @@ describe('MapCanvas', () => {
       ...SILHOUETTES,
       {
         familyCode: '_FALLBACK',
-        color: '#555555',
+        color: '#626262',
+        colorDark: '#626262',
         svgData: 'M5 5L6 6Z',
+        svgUrl: null,
         source: null,
         license: null,
         commonName: null,
