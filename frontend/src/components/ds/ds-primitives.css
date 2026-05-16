@@ -793,3 +793,173 @@
     /* No animation in v1; reserved for future scale-in/fade-in. */
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   <ClusterListPopover> — Phase 2 (#559)
+   Mobile / coarse-pointer sheet-style popover for the full cluster.
+   Non-modal dialog. Collapsible family sections — initially top 2 expanded.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.cluster-list-popover {
+  position: fixed;
+  /* Slide up from the bottom of the viewport on mobile. On tablet portrait
+     (768×1024), the popover sizes to its content and centers within the
+     bottom 60% of the viewport. */
+  left: var(--space-md);
+  right: var(--space-md);
+  bottom: var(--space-md);
+  z-index: calc(var(--z-panel) + 7);
+  max-height: 70vh;
+  overflow-y: auto;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  padding: var(--space-md);
+  font: var(--text-body-sm);
+  color: var(--color-text-strong);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.cluster-list-popover__header {
+  margin-bottom: var(--space-sm);
+}
+
+.cluster-list-popover__heading {
+  font: var(--text-heading-sm);
+  font-weight: var(--font-weight-medium);
+  margin: 0;
+}
+
+.cluster-list-popover__heading:focus,
+.cluster-list-popover__heading:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.cluster-list-popover__family {
+  border-bottom: 1px solid var(--color-border-subtle);
+  padding: var(--space-xs) 0;
+}
+
+.cluster-list-popover__family:last-of-type {
+  border-bottom: none;
+}
+
+.cluster-list-popover__family-toggle {
+  all: unset;
+  display: block;
+  width: 100%;
+  cursor: pointer;
+  font-weight: var(--font-weight-medium);
+  padding: var(--space-xxs) 0;
+  /* The collapsed/expanded chevron is purely a CSS treatment — no extra DOM. */
+}
+
+.cluster-list-popover__family-toggle:focus,
+.cluster-list-popover__family-toggle:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.cluster-list-popover__family-toggle::before {
+  content: "▶ ";
+  font-size: 10px;
+  display: inline-block;
+  width: 12px;
+  color: var(--color-text-muted);
+}
+
+.cluster-list-popover__family--expanded > .cluster-list-popover__family-toggle::before {
+  content: "▼ ";
+}
+
+.cluster-list-popover__rows {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 var(--space-sm);
+}
+
+.cluster-list-popover__row {
+  padding: 2px 0;
+}
+
+.cluster-list-popover__row a[role="link"] {
+  cursor: pointer;
+  color: var(--color-text-link);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.cluster-list-popover__row a[role="link"]:hover,
+.cluster-list-popover__row a[role="link"]:focus-visible {
+  text-decoration-thickness: 2px;
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.cluster-list-popover__footer {
+  margin-top: var(--space-md);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.cluster-list-popover__done {
+  all: unset;
+  cursor: pointer;
+  padding: var(--space-xs) var(--space-md);
+  border-radius: 4px;
+  background: var(--color-bg-accent);
+  color: var(--color-text-on-accent);
+  font-weight: var(--font-weight-medium);
+  min-height: 44px; /* WCAG 2.5.5 — touch target ≥44×44 on coarse pointer. */
+  min-width: 88px;
+  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cluster-list-popover__done:focus,
+.cluster-list-popover__done:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+}
+
+/* Dark theme override. */
+[data-theme="dark"] .cluster-list-popover {
+  background: var(--color-bg-surface);
+  border-color: var(--color-border-strong);
+  color: var(--color-text-strong);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.6);
+}
+
+/* Forced-colors fallback (matches existing styles.css:1696 pattern). */
+@media (forced-colors: active) {
+  .cluster-list-popover {
+    border: 1px solid ButtonBorder;
+    background: Canvas;
+    color: CanvasText;
+    box-shadow: none;
+  }
+  .cluster-list-popover__row a[role="link"] {
+    color: LinkText;
+  }
+  .cluster-list-popover__done {
+    border: 1px solid ButtonBorder;
+    background: ButtonFace;
+    color: ButtonText;
+  }
+  .cluster-list-popover__family-toggle::before {
+    color: GrayText;
+  }
+}
+
+/* Reduced-motion: no slide-in animation in v1. Reserved for future. */
+@media (prefers-reduced-motion: reduce) {
+  .cluster-list-popover {
+    /* No-op currently; reserved for future slide-in. */
+  }
+}
