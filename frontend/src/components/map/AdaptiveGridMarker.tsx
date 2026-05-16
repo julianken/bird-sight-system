@@ -39,7 +39,7 @@ import { ClusterListPopover } from './ClusterListPopover.js';
  *     halo + colored path. Notable amber ring layers BEFORE the path
  *     (spec AC8, inherited from StackedSilhouetteMarker).
  *   - `fallback`: catalogue loaded, no art for this family → generic
- *     placeholder shape at opacity 0.5.
+ *     placeholder shape at opacity 0.85 + dashed border (Phase 2 #571).
  *   - `pending`: catalogue not loaded yet → animated shimmer skeleton.
  *     Distinct from `fallback` so a cold-load map doesn't look like a
  *     coverage gap (spec §5.1 type comment).
@@ -466,7 +466,7 @@ function TileCell({
           onBlur={onCellBlur}
           onClick={(e) => { e.stopPropagation(); onCellClick?.(); }}
           onKeyDown={onCellKeyDown}
-          style={{ all: 'unset', cursor: 'pointer', display: 'block', opacity: 0.5 }}
+          style={{ background: 'transparent', padding: 0, font: 'inherit', cursor: 'pointer', display: 'block', opacity: 0.85, color: fillColor }}
         >
           <svg
             viewBox="0 0 24 24"
@@ -487,7 +487,7 @@ function TileCell({
       <div
         data-testid="adaptive-grid-marker-cell-fallback"
         className="adaptive-grid-marker__cell adaptive-grid-marker__cell--fallback"
-        style={{ opacity: 0.5 }}
+        style={{ opacity: 0.85, color: fillColor }}
       >
         <svg
           viewBox="0 0 24 24"
