@@ -609,7 +609,7 @@ describe('AdaptiveGridMarker — VITE_FF_CELL_POPOVER (Phase 1, #558)', () => {
     expect(outer.tagName).toBe('BUTTON');
   });
 
-  it('flag ON + pointer:fine → outer is <div role="presentation" data-testid="adaptive-grid-marker"> (no nested buttons)', async () => {
+  it('flag ON + pointer:fine → outer is <div role="group" data-testid="adaptive-grid-marker"> (no nested buttons)', async () => {
     vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
     const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
     render(
@@ -625,19 +625,19 @@ describe('AdaptiveGridMarker — VITE_FF_CELL_POPOVER (Phase 1, #558)', () => {
     );
     const outer = screen.getByTestId('adaptive-grid-marker');
     expect(outer.tagName).toBe('DIV');
-    expect(outer.getAttribute('role')).toBe('presentation');
-    // aria-label must still be present for SR coherence
+    // role="group" is name-allowed (ARIA 1.2) — aria-label is preserved.
+    expect(outer.getAttribute('role')).toBe('group');
+    // aria-label must still be present for SR coherence (name-prohibited regression guard).
     expect(outer.getAttribute('aria-label')).toBe('Cluster: 5 observations.');
   });
 
-  // --- Fix 2: mouseleave timer cleanup on unmount (no late setState) ----------
+  // --- Fix 2: mouseleave timer cleanup on unmount (#558 fix2) ----------
 
-  it('flag ON + pointer:fine: unmounting with pending mouseleave timer fires no warning / late state update', async () => {
+  it('clears pending mouseLeaveTimers on unmount (#558 fix2)', async () => {
     vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
     vi.useFakeTimers();
     const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const { unmount } = render(
+    const { unmount, container } = render(
       <AdaptiveGridMarker
         shape={SHAPE_1x1}
         tiles={[rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', [
@@ -650,20 +650,15 @@ describe('AdaptiveGridMarker — VITE_FF_CELL_POPOVER (Phase 1, #558)', () => {
         onClick={noop}
       />
     );
-    const cell = screen.getByTestId('adaptive-grid-marker-cell-rendered');
-    // Trigger preview so a mouseleave timer will be queued.
+    const cell = container.querySelector('[data-testid="adaptive-grid-marker-cell-rendered"]')!;
+    // Trigger a mouseleave to start a pending 250ms timer.
     fireEvent.mouseEnter(cell);
     fireEvent.mouseLeave(cell);
-    // Unmount BEFORE the 250ms mouseleave delay fires.
+    // At this point one timer should be pending.
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+    // Unmount — cleanup useEffect should clear the timer.
     act(() => { unmount(); });
-    // Advance past the timer — should not fire into the unmounted component.
-    act(() => { vi.advanceTimersByTime(300); });
-    // No "Can't perform a React state update on an unmounted component" warning.
-    const stateWarnings = consoleError.mock.calls.filter((args) =>
-      String(args[0]).includes('unmounted') || String(args[0]).includes('state update')
-    );
-    expect(stateWarnings).toHaveLength(0);
-    consoleError.mockRestore();
+    expect(vi.getTimerCount()).toBe(0);
     vi.useRealTimers();
   });
 

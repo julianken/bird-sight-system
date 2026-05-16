@@ -233,7 +233,7 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
   // ARIA label + describedby stay on the outer container for SR coherence.
   const OuterTag = perCellInteractive ? 'div' : 'button';
   const outerInteractiveProps = perCellInteractive
-    ? ({ role: 'presentation' as const })
+    ? ({ role: 'group' as const })
     : ({
         type: 'button' as const,
         tabIndex: -1,
