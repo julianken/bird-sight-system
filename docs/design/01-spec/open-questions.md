@@ -13,7 +13,7 @@ Eight gates (G1–G8) that don't block design implementation but should be resol
 | G5 | MapLibre easeTo reduced-motion | Closes in Phase 0 | done with Phase 0 | (resolved by Phase 0 itself) |
 | G6 | iOS safe-area | Pending | 30 min | Phase 4 (mobile bottom-sheet ship) |
 | G7 | Family-color × basemap contrast | **Closed 2026-05-16: palette audit + 19-color rebalance (PR #577)** | done | Phase 1 (family-palette commit) |
-| G8 | Dark basemap | **Closed 2026-05-16: BASEMAP_DARK flipped to real dark tile (PR #573)** | done | Phase 4 (this PR) |
+| G8 | Dark basemap | **Closed 2026-05-16: BASEMAP_DARK flipped to real dark tile (PR #582)** | done | Phase 4 (this PR) |
 
 ## Detailed status
 
@@ -79,9 +79,9 @@ Palette audit ran via `scripts/check-family-palette-contrast.ts` against the lig
 
 ### G8 — Dark basemap
 
-**Status: CLOSED 2026-05-16 (PR #573, Phase 4 of adaptive-grid contrast epic #575).**
+**Status: CLOSED 2026-05-16 (PR #582, Phase 4 of adaptive-grid contrast epic #575).**
 
-`BASEMAP_DARK` alias flipped from `= BASEMAP_LIGHT` to `= 'https://tiles.openfreemap.org/styles/dark'` in `frontend/src/components/map/basemap-style.ts`. The existing `MutationObserver` in `MapCanvas.tsx` drives the live basemap swap on theme toggle — no additional wiring needed. Verified at 5 canonical viewports × 2 themes via Playwright MCP pixel-sample assertions (luminance delta > 0.3 between light and dark land-surface pixels).
+`BASEMAP_DARK` alias flipped from `= BASEMAP_LIGHT` to `= 'https://tiles.openfreemap.org/styles/dark'` in `frontend/src/components/map/basemap-style.ts`. The existing `MutationObserver` in `MapCanvas.tsx` drives the live basemap swap on theme toggle — no additional wiring needed. Verified at 1440×900 via a Playwright e2e pixel-sample spec (`frontend/e2e/basemap-dark-flip.spec.ts`) asserting AC1 (luminance delta >0.3), AC2 (light pixel within ±10 of #f4f1ea), AC3 (dark pixel <60 per channel). The spec is currently skipping pending Finding 3 — see #582 review feedback — but the URL flip itself is regression-guarded by the unit test `basemap-style.test.ts`.
 
 ## W5 spec captures (2026-05-11)
 

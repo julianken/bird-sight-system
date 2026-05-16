@@ -1367,6 +1367,16 @@ export function MapCanvas({
         }
         onLoad={handleLoad}
         attributionControl={false}
+        // Fix 3b (PR #582 bot review): preserve the WebGL backbuffer when running
+        // e2e tests so `readCanvasPixel` in basemap-dark-flip.spec.ts can sample
+        // rendered pixels via a 2D-canvas drawImage copy. Without this flag MapLibre
+        // 5.x defaults to `preserveDrawingBuffer: false`, which clears the backbuffer
+        // between frames and causes pixel reads to return [0,0,0,0].
+        // The flag is opt-in via VITE_E2E_PRESERVE_BUFFER so the slight GPU
+        // performance cost only applies during e2e runs — never in production.
+        {...(import.meta.env.VITE_E2E_PRESERVE_BUFFER === 'true'
+          ? { canvasContextAttributes: { preserveDrawingBuffer: true } }
+          : {})}
       >
         {/*
           ODbL compliance: OpenStreetMap data (via OpenFreeMap's positron tiles)

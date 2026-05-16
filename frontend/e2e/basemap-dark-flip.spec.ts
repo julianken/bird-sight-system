@@ -25,15 +25,16 @@ import { AppPage } from './pages/app-page.js';
  *   asserting BASEMAP_DARK !== BASEMAP_LIGHT) is the tautological fallback; the
  *   pixel-sample assertions here are the load-bearing AC1/AC2/AC3 verification.
  *
- * CANVAS PIXEL READING:
- *   MapLibre exposes `map.getCanvas()` which returns the HTMLCanvasElement.
- *   We call `canvas.getContext('2d')` to read pixels — but MapLibre's WebGL canvas
- *   may not have `preserveDrawingBuffer: true`, which means `getContext('2d')`
- *   after a WebGL frame may return a zeroed buffer on some implementations.
- *   To work around this, we read pixels via `getContext('webgl')` or the
- *   `__birdMap.getCanvas()` approach. The coordinate (300, 300) is chosen as a
- *   land-surface region on the Arizona statewide overview — away from label layers
- *   and roads which have different brightness characteristics.
+ * CANVAS PIXEL READING (Fix 3b, PR #582 bot review):
+ *   MapLibre 5.x defaults to `preserveDrawingBuffer: false`, which clears the
+ *   WebGL backbuffer between frames. A 2D-canvas `drawImage(webglCanvas)` copy
+ *   therefore reads [0,0,0,0] and `readCanvasPixel` returns null, causing all
+ *   three tests to skip. Fixed by passing `VITE_E2E_PRESERVE_BUFFER=true` to
+ *   the Vite dev server in `playwright.config.ts`, which makes `MapCanvas.tsx`
+ *   pass `canvasContextAttributes: { preserveDrawingBuffer: true }` to MapLibre.
+ *   The flag is e2e-only — it never reaches the production bundle.
+ *   The coordinate (300, 300) is chosen as a land-surface region on the Arizona
+ *   statewide overview — away from label layers and roads.
  *
  * Route stubs: all /api/* endpoints are stubbed to return empty arrays so the
  * test does not depend on a live database or the read-api service being seeded.

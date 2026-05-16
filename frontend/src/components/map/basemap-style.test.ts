@@ -8,7 +8,7 @@ describe('basemap-style', () => {
 
   it('exports BASEMAP_DARK pointing at OpenFreeMap dark (G8 closed, Phase 4)', () => {
     // G8 (dark basemap palette ratification) closed in Phase 4 of the
-    // adaptive-grid contrast epic (#575, PR #573). BASEMAP_DARK must no longer
+    // adaptive-grid contrast epic (#575, PR #582). BASEMAP_DARK must no longer
     // alias BASEMAP_LIGHT — it must point at the real dark tile URL.
     // This test is the regression guard: if the alias reverts, this fails loudly.
     expect(BASEMAP_DARK).toBe('https://tiles.openfreemap.org/styles/dark');

@@ -11,7 +11,7 @@
  * - G7 (family palette × basemap contrast): closed by Phase 1 PR #577.
  *   Palette audit harness in scripts/check-family-palette-contrast.ts;
  *   19 failing colors re-picked to score ≥ 3:1 against both basemaps.
- * - G8 (dark basemap palette ratification): closed by Phase 4 PR #573.
+ * - G8 (dark basemap palette ratification): closed by Phase 4 PR #582.
  *   BASEMAP_DARK now points at the real OpenFreeMap dark tile URL.
  *   MutationObserver in MapCanvas.tsx drives the live swap on theme toggle.
  *
@@ -25,7 +25,7 @@
  */
 export const BASEMAP_LIGHT: string = 'https://tiles.openfreemap.org/styles/positron';
 
-/** Real dark tile URL — G8 closed 2026-05-16 (Phase 4, issue #573). */
+/** Real dark tile URL — G8 closed 2026-05-16 (Phase 4, PR #582, issue #573). */
 export const BASEMAP_DARK: string = 'https://tiles.openfreemap.org/styles/dark';
 
 /** @deprecated Use BASEMAP_LIGHT — alias preserved for back-compat. */
