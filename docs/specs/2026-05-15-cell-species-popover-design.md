@@ -172,7 +172,7 @@ The original `docs/specs/2026-05-14-adaptive-cluster-grid-design.md` §2 declare
 
 The existing `tabIndex={-1}` on the outer marker button stays (prior spec §4.7 — skip-link → FeedSurface remains the global keyboard path). Per-cell focusability is **opt-in via a dedicated keyboard entry point**:
 
-**Keyboard entry point (CONCRETE)**: A new skip-link inside `MapSurface` — "Explore map markers" — appears immediately after the existing "Skip to species list" skip-link. Activating it sets focus to the FIRST currently-rendered `<TileCell>` (top-left cell of the first marker in the viewport, ordered by `groups[0].anchor.px`). Cells become temporarily focusable (`tabIndex={0}`) for the duration of the keyboard session. The skip-link is visually hidden by default and revealed on focus per the existing skip-link convention in `frontend/src/styles.css`. This is the ONLY new globally Tab-reachable affordance the feature adds.
+**Keyboard entry point (CONCRETE)**: A new skip-link inside `MapSurface` — "Explore map markers" — appears immediately after the existing "Skip to species list" skip-link. Activating it sets focus to the FIRST currently-rendered `<TileCell>` (top-left cell of the first marker in the viewport, ordered by `groups[0].anchor.px`). Cells become temporarily focusable (`tabIndex={0}`) for the duration of the keyboard session. The skip-link is visually hidden by default and revealed on focus per the existing skip-link convention in `frontend/src/styles.css`. This is the ONLY new globally Tab-reachable affordance the feature adds. **Empty-viewport state**: when `groups.length === 0` (zoomed out beyond data, hydrating, error state), the skip-link is suppressed via `aria-hidden="true"` AND removed from tab order (`tabIndex={-1}`) so it cannot be focused into a no-op state.
 
 After the entry point activates, a roving-tabindex pattern applies:
 
@@ -243,7 +243,9 @@ const onSelectSpecies = useCallback(
 
 **Cross-surface invariant**: `onSelectSpecies(code)` invocations WITHOUT a `bbox` argument MUST clear any previously-set `bbox` from URL state. The reducer above does this correctly via `bbox: bbox ?? null` — but the invariant is load-bearing: a user who navigates Map → SpeciesDetail (with bbox), then Back, then Feed → SpeciesDetail (no bbox) must NOT see the stale Map-set bbox bleed into the Feed-originated detail view. Unit-tested in §7 (`useUrlState.test.ts` cross-surface case).
 
-Backward-compat: existing single-arg callsites at `App.tsx:331, 351, 368` (FeedSurface → species; SpeciesSearchSurface → species; FeedCard → species) keep their signatures; the second arg is `undefined`; the reducer writes `null` (clears any stale bbox).
+**URL-hydration policy (shared-link case)**: `useUrlState` initialization reads `bbox` directly from the URL on first mount, regardless of which surface the user navigates FROM. Rationale: **the URL is the source of truth**. A shared link `?view=detail&detail=anhumm&bbox=-110.99,32.20,-110.91,32.27` hydrates with `bbox` set, the SpeciesDetailSurface renders the "Filtered to selected area" banner, and the "View all observations →" link clears the bbox if the recipient wants to break out of the filter. No surface-provenance tracking; the URL alone determines state. This is consistent with how every other URL param on the project hydrates. Unit-tested in §7 (`useUrlState.test.ts` hydration-from-URL case).
+
+Backward-compat: existing single-arg callsites at `App.tsx:331, 351, 368` (FeedSurface → species; SpeciesSearchSurface → species; FeedCard → species) keep their signatures; the second arg is `undefined`; the reducer writes `null` (clears any stale bbox in PROGRAMMATIC navigation; does not affect URL-hydrated bbox).
 
 **`SpeciesDetailSurface` extension**:
 
@@ -252,7 +254,7 @@ Backward-compat: existing single-arg callsites at `App.tsx:331, 351, 368` (FeedS
 - Renders a banner above the species detail: "Filtered to selected area. View all observations →" (link clears the bbox param).
 - Aria-live announcement on first render: "Showing N observations of <species> in selected area."
 
-**Bbox source + caching strategy (CONCRETE)**: computed **lazily on first popover open per cluster**, NOT eagerly in the reconciler. The compute is `[min(lng), min(lat), max(lng), max(lat)]` over the cluster's leaves (≤64 per `MAX_OBSERVATIONS`). Cache: a module-scoped `WeakMap<DeconflictGroup, BBox>` so re-opening the same cluster's popover is O(1); the WeakMap auto-evicts when the group object is garbage-collected (which happens when supercluster rebuilds its index on pan/zoom). Eager computation in the reconciler was rejected — it would burn CPU on every `idle` for clusters never clicked.
+**Bbox source + caching strategy (CONCRETE)**: computed **lazily on first popover open per cluster**, NOT eagerly in the reconciler. The compute is `[min(lng), min(lat), max(lng), max(lat)]` over the cluster's leaves (≤64 per `MAX_OBSERVATIONS`). Cache: a module-scoped `WeakMap<DeconflictGroup, BBox>` for best-effort de-duplication within a single reconcile pass. **Cache scope is realistically per-reconcile-pass**: `MapCanvas.tsx` rebuilds `DeconflictGroup` objects on every `idle` event, so prior cached entries become unreachable as soon as the user pans or zooms. The cache's primary win is double-click + immediate re-open of the same popover (avoids a redundant leaf walk for a single user gesture); not a long-lived memoization. Eager computation in the reconciler was rejected — it would burn CPU on every `idle` for clusters never clicked.
 
 ### 4.10 Single-leaf preservation
 
@@ -440,6 +442,7 @@ New tests for `aggregateClusterSpecies`:
 - Invalid `bbox` format (wrong number of commas, non-decimal, NaN) → null fallback, no exception.
 - Clearing `bbox` (set to null) removes the query param from the URL.
 - **Cross-surface invariant**: Map → SpeciesDetail (sets bbox), Back, then Feed → SpeciesDetail (no bbox arg) — assert the stale Map-set bbox is CLEARED in URL state. Pins §4.9's invariant.
+- **URL-hydration of bbox**: simulate a fresh mount with URL `?view=detail&detail=anhumm&bbox=-110.99,32.20,-110.91,32.27` (no prior in-memory state). Assert `useUrlState()[0].bbox` resolves to the parsed BBox object. Pins §4.9's URL-as-source-of-truth policy.
 
 ### Component (`SpeciesDetailSurface.test.tsx`) — extensions
 
