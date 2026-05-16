@@ -44,6 +44,7 @@ export interface ObservationFeatureCollection {
       // that were on the input feature. Kept null-not-undefined to match the
       // Observation type contract; consumers treat null as "skip this leaf".
       familyCode: string | null;
+      speciesCode: string | null;   // NEW (issue #557)
       /**
        * Sprite identifier for the icon-image lookup (issue #246). Resolves to:
        *   - the observation's `silhouetteId` when the matching family row
@@ -112,6 +113,8 @@ export function observationsToGeoJson(
           howMany: o.howMany,
           isNotable: o.isNotable,
           familyCode: o.familyCode ?? null,
+          // NEW (issue #557):
+          speciesCode: o.speciesCode ?? null,
           silhouetteId,
           color,
         },
