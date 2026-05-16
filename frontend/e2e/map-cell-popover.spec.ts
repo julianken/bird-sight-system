@@ -251,7 +251,21 @@ test('cross-surface stale-bbox clear: detail→feed→detail leaves no bbox', as
   await page.goto('/?view=detail&detail=annhum&bbox=-111.0,31.0,-110.0,32.0');
   await page.waitForLoadState('domcontentloaded');
 
-  // Navigate to feed via the tab bar.
+  // The detail surface modal/sheet is open over the tab bar. Close it via
+  // its Close button so the tab is clickable.
+  const closeBtn = page.getByRole('button', { name: /Close species detail/i });
+  await closeBtn.waitFor({ state: 'visible', timeout: 10_000 });
+  await closeBtn.click();
+
+  // After close, the URL clears `?view=detail` automatically (onClose flips
+  // to feed view per App.tsx onCloseDetail). NOTE: onCloseDetail does NOT
+  // clear bbox (it only sets view:'feed', detail:null) — so bbox is still
+  // present in the URL at this point. Assert view=detail is gone but DO NOT
+  // assert bbox is gone yet (it will be tested after the feed-row click below).
+  await expect(page).not.toHaveURL(/[?&]view=detail/, { timeout: 5_000 });
+
+  // Navigate to feed via the tab bar (may be a no-op if onCloseDetail already
+  // landed us on feed view, but clicking an already-selected tab is harmless).
   const feedTab = page.getByRole('tab', { name: 'Feed view' });
   await feedTab.waitFor({ state: 'visible', timeout: 10_000 });
   await feedTab.click();
