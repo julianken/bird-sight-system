@@ -551,7 +551,7 @@
 
 .adaptive-grid-marker__cell--pending {
   /* Shimmer skeleton for the "catalogue not loaded yet" state — distinct
-     from the per-family fallback's opacity 0.5. */
+     from the per-family fallback's opacity 0.85 + dashed border (Phase 2 #571). */
   background: linear-gradient(
     110deg,
     rgba(0, 0, 0, 0.06) 30%,
@@ -572,7 +572,11 @@
 }
 
 .adaptive-grid-marker__cell--fallback {
+  /* Phase 2 (#571): dashed border encodes "no curated art" affordance via shape
+     rather than dim opacity. currentColor inherits the Phase-1-rebalanced family
+     color from the SVG/CSS chain — AC2 WCAG 3:1 contrast derives from Phase 1. */
   background: rgba(0, 0, 0, 0.03);
+  border: 1.5px dashed currentColor;
 }
 
 .adaptive-grid-marker__badge {

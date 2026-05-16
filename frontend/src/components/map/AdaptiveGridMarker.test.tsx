@@ -4,6 +4,7 @@ import { AdaptiveGridMarker } from './AdaptiveGridMarker.js';
 import { markerDimensions, MIN_MARKER_PX } from './AdaptiveGridMarker.js';
 import type { AdaptiveTile, ResolvedGrid, PositiveInt, SpeciesAggregate } from './adaptive-grid.js';
 import { toPositiveInt } from './adaptive-grid.js';
+import { setMatchMedia } from '../../test-setup.js';
 
 // Helpers --------------------------------------------------------------------
 
@@ -126,9 +127,9 @@ describe('AdaptiveGridMarker', () => {
     expect(badges.map((b) => b.textContent)).toEqual(['10', '7', '4', '2']);
   });
 
-  // --- Fallback tile opacity -----------------------------------------------
+  // --- Fallback tile opacity + border affordance ---------------------------
 
-  it('renders fallback tile at opacity 0.5 for tiles with kind === "fallback"', () => {
+  it('renders fallback tile at opacity 0.85 for tiles with kind === "fallback" (Phase 2: #571)', () => {
     render(
       <AdaptiveGridMarker
         shape={SHAPE_2x1}
@@ -142,12 +143,62 @@ describe('AdaptiveGridMarker', () => {
     const fallbackCell = screen.getByTestId('adaptive-grid-marker-cell-fallback');
     // Inline style or computed opacity — accept either.
     const opacity = fallbackCell.style.opacity || window.getComputedStyle(fallbackCell).opacity;
-    expect(Number(opacity)).toBeCloseTo(0.5, 2);
+    expect(Number(opacity)).toBeCloseTo(0.85, 2);
+  });
+
+  it('fallback cell has inline color set to tile.color so currentColor resolves for dashed border (Phase 2: #571)', () => {
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_2x1}
+        tiles={[rendered('tyrannidae', 5), fallback('mimidae', 3)]}
+        totalCount={8}
+        uniqueFamilies={2}
+        ariaLabel="Cluster: 8 observations, 2 families. Activate to zoom in."
+        onClick={noop}
+      />,
+    );
+    const fallbackCell = screen.getByTestId('adaptive-grid-marker-cell-fallback');
+    // The dashed border in ds-primitives.css uses `currentColor`.
+    // For currentColor to resolve to the family tile color (not the body text color),
+    // the parent element must carry `color: tile.color` as an inline style.
+    // jsdom does not apply stylesheets but does reflect inline style, so this is
+    // the jsdom-readable contract for "border will render in tile.color".
+    // The fallback() helper defaults color='#888888' (see fixture at line 21).
+    // jsdom normalizes hex to rgb() when reading back inline style properties.
+    expect(fallbackCell.style.color).toBe('rgb(136, 136, 136)');
+  });
+
+  it('fallback cell (button branch, pointer:fine) has inline color set and no inline border suppression so dashed class rule applies (Phase 2: #571 BLOCKER-1b)', () => {
+    // Simulate a fine-pointer (desktop/mouse) viewport so the button branch fires.
+    setMatchMedia(q => q === '(pointer: fine)');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_2x1}
+        tiles={[rendered('tyrannidae', 5), fallback('mimidae', 3)]}
+        totalCount={8}
+        uniqueFamilies={2}
+        ariaLabel="Cluster: 8 observations, 2 families. Activate to zoom in."
+        onClick={noop}
+      />,
+    );
+    const fallbackCell = screen.getByTestId('adaptive-grid-marker-cell-fallback');
+    // Verify the button branch actually fired (not the div branch).
+    expect(fallbackCell.tagName).toBe('BUTTON');
+    // BLOCKER-1a regression check: color must be wired so currentColor resolves.
+    // jsdom normalizes #888888 → rgb(136, 136, 136) when reading inline style.
+    expect(fallbackCell.style.color).toBe('rgb(136, 136, 136)');
+    // BLOCKER-1b regression check: no inline border suppression.
+    // The dashed border comes from the CSS class rule
+    // `.adaptive-grid-marker__cell--fallback { border: 1.5px dashed currentColor }`.
+    // An inline `border: 'none'` outranks that class rule via specificity.
+    // The contract here: inline style must NOT suppress the border,
+    // i.e. fallbackCell.style.border must be empty string.
+    expect(fallbackCell.style.border).toBe('');
   });
 
   // --- Pending skeleton -----------------------------------------------------
 
-  it('renders pending skeleton (NOT opacity-0.5 fallback) when ALL tiles kind: "pending"', () => {
+  it('renders pending skeleton (NOT opacity-0.85 fallback) when ALL tiles kind: "pending"', () => {
     render(
       <AdaptiveGridMarker
         shape={SHAPE_2x2}
@@ -162,10 +213,10 @@ describe('AdaptiveGridMarker', () => {
     expect(pendingCells).toHaveLength(4);
     // No fallback cells should have rendered.
     expect(screen.queryByTestId('adaptive-grid-marker-cell-fallback')).toBeNull();
-    // None of the pending cells should be marked opacity 0.5 (skeleton ≠ fallback).
+    // None of the pending cells should carry the fallback opacity (skeleton ≠ fallback).
     for (const cell of pendingCells) {
       const op = cell.style.opacity;
-      expect(op === '' || Number(op) !== 0.5).toBe(true);
+      expect(op === '' || Number(op) !== 0.85).toBe(true);
     }
   });
 
