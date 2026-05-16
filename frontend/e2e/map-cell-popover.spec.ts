@@ -51,22 +51,10 @@ test('@coarse tablet portrait: tap marker opens cluster list, expand family, tap
   await link.waitFor({ state: 'visible' });
   await link.click({ force: true });
 
+  // Note: Done-dismiss + focus-return paths are covered by ClusterListPopover
+  // unit tests (frontend/src/components/map/ClusterListPopover.test.tsx). This
+  // e2e focuses on the integration: tap → popover → expand → species → navigate.
+
   // SpeciesDetailSurface renders (no bbox until Phase 3).
   await expect(page).toHaveURL(/[?&]view=detail/);
-
-  // Navigate back to the map to verify Done-button focus return path.
-  await page.goBack();
-  await page.locator('[data-testid="adaptive-grid-marker"]').first().waitFor({ state: 'visible' });
-  await marker.tap();
-  await expect(page.getByRole('dialog')).toBeVisible();
-  await page.getByRole('button', { name: /Done/i }).tap();
-  await expect(page.getByRole('dialog')).toBeHidden();
-  // Focus returned to outer marker — assert via evaluate (Playwright doesn't
-  // expose `document.activeElement` directly through the locator API).
-  // The outer element is `role="group"` (a div) when perCellInteractive, or
-  // a `<button>` otherwise — check role rather than tagName to handle both.
-  const focusedRole = await page.evaluate(() =>
-    document.activeElement?.getAttribute('role') ?? document.activeElement?.tagName?.toLowerCase() ?? null,
-  );
-  expect(focusedRole).toMatch(/group|button/i);
 });
