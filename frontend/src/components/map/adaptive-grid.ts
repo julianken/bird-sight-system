@@ -252,5 +252,44 @@ export interface SpeciesAggregate {
 export function aggregateClusterSpecies(
   leaves: ClusterLeafFeature[],
 ): Map<string, ReadonlyArray<SpeciesAggregate>> {
-  throw new Error('not implemented');
+  // First pass: group by (familyCode, comName) → { count, speciesCode }.
+  // `speciesCode` value: first non-null wins; null only if every leaf has null.
+  type Bucket = { speciesCode: string | null; count: number };
+  const byFamily = new Map<string, Map<string, Bucket>>();
+
+  for (const leaf of leaves) {
+    const { familyCode, speciesCode, comName } = leaf.properties;
+    if (familyCode === null) continue;
+    let speciesMap = byFamily.get(familyCode);
+    if (!speciesMap) {
+      speciesMap = new Map();
+      byFamily.set(familyCode, speciesMap);
+    }
+    const existing = speciesMap.get(comName);
+    if (existing) {
+      existing.count += 1;
+      // First non-null speciesCode wins (defensive against bad data).
+      if (existing.speciesCode === null && speciesCode !== null) {
+        existing.speciesCode = speciesCode;
+      }
+    } else {
+      speciesMap.set(comName, { speciesCode, count: 1 });
+    }
+  }
+
+  // Second pass: sort each family's species (descending count, ascending comName).
+  const result = new Map<string, ReadonlyArray<SpeciesAggregate>>();
+  for (const [familyCode, speciesMap] of byFamily) {
+    const species: SpeciesAggregate[] = Array.from(speciesMap, ([comName, bucket]) => ({
+      comName,
+      speciesCode: bucket.speciesCode,
+      count: bucket.count,
+    }));
+    species.sort((a, b) => {
+      if (a.count !== b.count) return b.count - a.count;
+      return a.comName.localeCompare(b.comName);
+    });
+    result.set(familyCode, species);
+  }
+  return result;
 }
