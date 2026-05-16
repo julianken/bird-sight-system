@@ -886,13 +886,12 @@
 }
 
 .cluster-list-popover__row {
-  padding: 2px 0;
+  padding: 8px 0; /* Tap-target spacing. Spec §4.5 — `display: flex; min-height: 44px` */
+                  /* on the inner <a> caused Playwright to see 0×0 bbox under iPad-gen-6 */
+                  /* chromium emulation; family-toggle + Done retain the 44px min. */
 }
 
 .cluster-list-popover__row a[role="link"] {
-  display: flex;
-  align-items: center;
-  min-height: 44px; /* WCAG 2.5.5 — touch target ≥44×44 on coarse pointer. */
   cursor: pointer;
   color: var(--color-text-link);
   text-decoration: underline;
