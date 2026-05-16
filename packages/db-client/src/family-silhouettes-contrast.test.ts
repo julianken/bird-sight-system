@@ -64,6 +64,7 @@ function contrastRatio(hexA: string, hexB: string): number {
 
 const LIGHT_BASE = '#f4f1ea'; // OpenFreeMap positron — cream land surface
 const DARK_BASE = '#0E1116';  // OpenFreeMap dark — near-black land surface
+const DARK_LEGEND_CARD = '#131C30'; // FamilyLegend card dark-theme surface (F3 / #578)
 
 // ---------------------------------------------------------------------------
 // Test setup
@@ -129,5 +130,39 @@ describe('family palette WCAG 1.4.11 (3:1 non-text contrast) — dual-palette co
     }
 
     expect(failures, `${failures.length} color_dark value(s) fail against dark basemap`).toEqual([]);
+  });
+
+  it('every family_silhouettes.color_dark is ≥ 3:1 against the dark legend card surface (#131C30) — F3 / #578', async () => {
+    // The FamilyLegend card renders on #131C30 in dark mode (a lighter dark than
+    // the #0E1116 basemap). This is a SEPARATE assertion from the basemap check:
+    // color_dark must pass BOTH surfaces — #0E1116 (basemap) AND #131C30 (legend card).
+    // If this assertion is RED, the migration data is insufficient for the legend
+    // even if it passes the basemap — escalate to the palette maintainer; do NOT
+    // patch the migration here.
+    const { rows } = await db.pool.query<{ family_code: string; color_dark: string }>(
+      'SELECT family_code, color_dark FROM family_silhouettes WHERE color_dark IS NOT NULL ORDER BY family_code'
+    );
+
+    const failures = rows
+      .map((row) => ({
+        familyCode: row.family_code,
+        colorDark: row.color_dark,
+        ratio: Number(contrastRatio(row.color_dark, DARK_LEGEND_CARD).toFixed(2)),
+      }))
+      .filter((r) => r.ratio < 3);
+
+    if (failures.length > 0) {
+      console.error(
+        'DARK LEGEND CARD failures (ratio < 3:1 against #131C30):\n' +
+          failures.map((f) => `  ${f.familyCode}: ${f.colorDark} → ${f.ratio}:1`).join('\n')
+      );
+    }
+
+    expect(
+      failures,
+      `${failures.length} color_dark value(s) fail against dark legend card surface (#131C30). ` +
+        'These colors pass #0E1116 but not #131C30 — the legend card is lighter than the basemap, ' +
+        'requiring brighter swatches. Escalate to palette maintainer; do not patch migration here.',
+    ).toEqual([]);
   });
 });
