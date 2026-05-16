@@ -685,3 +685,81 @@ describe('AdaptiveGridMarker — VITE_FF_CELL_POPOVER (Phase 1, #558)', () => {
     expect(cell.getAttribute('aria-expanded')).toBe('true');
   });
 });
+
+// --- Phase 2 (#559): coarse-pointer cluster list popover ---------------------
+
+describe('AdaptiveGridMarker — VITE_FF_CELL_POPOVER coarse-pointer (Phase 2, #559)', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    // Coarse-pointer matchMedia stub: pointer:coarse = true, pointer:fine = false.
+    window.matchMedia = vi.fn().mockImplementation((q: string) => ({
+      matches: q === '(pointer: coarse)',
+      media: q,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      onchange: null,
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
+  });
+
+  it('flag ON + coarse + multi-leaf: outer-button tap opens <ClusterListPopover> AND suppresses onClick', async () => {
+    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    const onClick = vi.fn();
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_2x2}
+        tiles={[
+          rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', [
+            { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
+          ]),
+          rendered('flycatchers', 12, 'M0 0L24 24Z', '#aaa', [
+            { comName: 'Black Phoebe', count: 12, speciesCode: 'blkpho' },
+          ]),
+        ]}
+        totalCount={17}
+        uniqueFamilies={2}
+        ariaLabel="Cluster: 17 observations, 2 families."
+        isCoarsePointer={true}
+        onClick={onClick}
+      />
+    );
+    const outer = screen.getByTestId('adaptive-grid-marker');
+    expect(outer.tagName).toBe('BUTTON');
+    fireEvent.click(outer);
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByText(/Cluster: 17 observations, 2 families/)).toBeInTheDocument();
+    // onClick (zoom-to-expansion handler) must NOT fire on coarse + flag-ON.
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it('flag OFF + coarse + multi-leaf: outer-button tap STILL invokes onClick (zoom preserved)', async () => {
+    vi.stubEnv('VITE_FF_CELL_POPOVER', 'false');
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    const onClick = vi.fn();
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_2x2}
+        tiles={[
+          rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', [
+            { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
+          ]),
+          rendered('flycatchers', 12, 'M0 0L24 24Z', '#aaa', [
+            { comName: 'Black Phoebe', count: 12, speciesCode: 'blkpho' },
+          ]),
+        ]}
+        totalCount={17}
+        uniqueFamilies={2}
+        ariaLabel="Cluster: 17 observations, 2 families."
+        isCoarsePointer={true}
+        onClick={onClick}
+      />
+    );
+    const outer = screen.getByTestId('adaptive-grid-marker');
+    fireEvent.click(outer);
+    expect(onClick).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+});

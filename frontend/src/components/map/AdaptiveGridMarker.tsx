@@ -7,6 +7,7 @@ import { isCellPopoverEnabled } from '../../feature-flags.js';
 import { useMediaQuery } from '../../hooks/use-media-query.js';
 import { CellHoverPreview } from './CellHoverPreview.js';
 import { CellPopover } from './CellPopover.js';
+import { ClusterListPopover } from './ClusterListPopover.js';
 
 /**
  * `<AdaptiveGridMarker>` — pure display component for the adaptive cluster
@@ -137,6 +138,20 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
   const isPointerFine = useMediaQuery('(pointer: fine)');
   const perCellInteractive = flag && isPointerFine && !isCoarsePointer;
 
+  const clusterListInteractive = flag && isCoarsePointer === true;
+  const [isClusterListOpen, setIsClusterListOpen] = useState<boolean>(false);
+  const outerRef = useRef<HTMLElement | null>(null);
+
+  // Build the FamilyAggregate[] and speciesByFamily Map from tiles (Phase 0
+  // already threads `species` per tile; no re-aggregation needed).
+  const families = tiles.map((t) => ({ familyCode: t.familyCode, count: t.count }));
+  const speciesByFamily = new Map(tiles.map((t) => [t.familyCode, t.species]));
+
+  // Single-leaf preservation (spec §4.10): clusters with totalCount === 1 fall
+  // through to the existing onClick handler (which routes to setSelectedObs in
+  // MapCanvas). The cluster-list popover never opens for single-leaf markers.
+  const isSingleLeaf = props.totalCount === 1;
+
   const markerId = useId();
   const [activeCell, setActiveCell] = useState<{ index: number; mode: 'preview' | 'popover' } | null>(null);
   const cellRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -237,11 +252,23 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
     : ({
         type: 'button' as const,
         tabIndex: -1,
-        onClick,
+        onClick: (e: MouseEvent<HTMLElement>) => {
+          if (clusterListInteractive && !isSingleLeaf) {
+            // Phase 2: open the cluster-list popover instead of the parent's
+            // zoom handler. Single-leaf clusters fall through to onClick
+            // (preserves the existing tap-to-obs UX per spec §4.10).
+            e.preventDefault();
+            setIsClusterListOpen(true);
+            return;
+          }
+          onClick(e);
+        },
       });
 
   return (
     <OuterTag
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ref={(el: any) => { outerRef.current = el; }}
       data-testid="adaptive-grid-marker"
       className="adaptive-grid-marker"
       aria-label={ariaLabel}
@@ -332,6 +359,24 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
             />
           ) : null
         )
+      )}
+      {clusterListInteractive && isClusterListOpen && outerRef.current && (
+        <ClusterListPopover
+          families={families}
+          speciesByFamily={speciesByFamily}
+          totalCount={props.totalCount}
+          uniqueFamilies={props.uniqueFamilies}
+          anchorEl={outerRef.current}
+          onDismiss={() => setIsClusterListOpen(false)}
+          onSelectSpecies={(code: string) => {
+            if (onSelectSpecies) {
+              onSelectSpecies(code);
+            }
+            // Dismiss after navigating so the popover doesn't linger over the new
+            // surface. The species detail route will mount on top.
+            setIsClusterListOpen(false);
+          }}
+        />
       )}
     </OuterTag>
   );
