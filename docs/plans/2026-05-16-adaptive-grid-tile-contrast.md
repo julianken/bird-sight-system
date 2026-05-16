@@ -89,48 +89,65 @@ Foundational. Re-audit every color against both basemaps. Re-pick failures. Add 
 
 - [ ] **Step 1: Write the failing test**
 
-In `frontend/src/config/family-palette.test.ts` (new file):
+Co-locate the test under an integration-test folder (e.g.,
+`frontend/src/data/family-palette.contrast.test.ts` or a new file in
+the read-api workspace if frontend tests can't import `pg`). Per
+`CLAUDE.md` "No DB mocks in tests" — use `@testcontainers/postgresql`,
+run the real migrations programmatically, then query
+`family_silhouettes`. The implementer must NOT parse migration SQL via
+regex (rejected by the plan-review pass — the regex would drift from
+the SQL grammar and silently mis-aggregate seed values).
 
 ```typescript
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import { Pool } from 'pg';
+import migrationRunner from 'node-pg-migrate';
 import { contrastRatio } from '../utils/wcag-contrast.js';
-// Plus: pull the DB silhouette palette via test fixture or a JSON snapshot.
 
 const LIGHT_BASE = '#f4f1ea';
 const DARK_BASE = '#0E1116';
 
-/** Parses INSERT/UPDATE color hex values out of the family_silhouettes
- *  migrations. Single source of truth — the test runs the same parse
- *  pass that the migration runner does at deploy time. */
-function loadPaletteFromMigrations(): Array<{ familyCode: string; color: string }> {
-  const migrationDir = path.resolve(__dirname, '../../../migrations');
-  const files = fs.readdirSync(migrationDir).filter((f) => f.includes('family_silhouettes'));
-  const entries: Array<{ familyCode: string; color: string }> = [];
-  for (const f of files) {
-    const sql = fs.readFileSync(path.join(migrationDir, f), 'utf-8');
-    for (const match of sql.matchAll(/family_code\s*=\s*'([^']+)'[^']*color\s*=\s*'(#[0-9A-Fa-f]{6})'/g)) {
-      entries.push({ familyCode: match[1], color: match[2] });
-    }
-    for (const match of sql.matchAll(/VALUES[^;]*'([^']+)'[^']*'(#[0-9A-Fa-f]{6})'/g)) {
-      entries.push({ familyCode: match[1], color: match[2] });
-    }
-  }
-  // De-duplicate by familyCode, last-write-wins (matches migration apply order).
-  const map = new Map<string, string>();
-  for (const e of entries) map.set(e.familyCode, e.color);
-  return Array.from(map, ([familyCode, color]) => ({ familyCode, color }));
-}
+let container: StartedPostgreSqlContainer;
+let pool: Pool;
+
+beforeAll(async () => {
+  container = await new PostgreSqlContainer('postgis/postgis:16-3.4')
+    .withDatabase('birdwatch').withUsername('birdwatch').withPassword('birdwatch')
+    .start();
+  const databaseUrl = container.getConnectionUri();
+  // Programmatic node-pg-migrate API — same migration code path
+  // production / CI seeds use.
+  await migrationRunner({
+    databaseUrl,
+    dir: 'migrations',
+    migrationsTable: 'pgmigrations',
+    direction: 'up',
+    count: Infinity,
+    log: () => undefined,
+  });
+  pool = new Pool({ connectionString: databaseUrl });
+}, 60_000);
+
+afterAll(async () => {
+  await pool?.end();
+  await container?.stop();
+});
 
 describe('family palette WCAG 1.4.11 (3:1 non-text contrast)', () => {
-  it('every family color is ≥ 3:1 against the light basemap at full opacity', () => {
-    const palette = loadPaletteFromMigrations();
-    const failures = palette.filter((p) => contrastRatio(p.color, LIGHT_BASE) < 3);
+  it('every family_silhouettes.color is ≥ 3:1 against the light basemap', async () => {
+    const { rows } = await pool.query(
+      'SELECT family_code, color FROM family_silhouettes WHERE color IS NOT NULL'
+    );
+    const failures = rows.filter((p) => contrastRatio(p.color, LIGHT_BASE) < 3);
     expect(failures).toEqual([]);
   });
 
-  it('every family color is ≥ 3:1 against the dark basemap at full opacity', () => {
-    const palette = loadPaletteFromMigrations();
-    const failures = palette.filter((p) => contrastRatio(p.color, DARK_BASE) < 3);
+  it('every family_silhouettes.color is ≥ 3:1 against the dark basemap', async () => {
+    const { rows } = await pool.query(
+      'SELECT family_code, color FROM family_silhouettes WHERE color IS NOT NULL'
+    );
+    const failures = rows.filter((p) => contrastRatio(p.color, DARK_BASE) < 3);
     expect(failures).toEqual([]);
   });
 });
@@ -512,15 +529,19 @@ Update the module-level JSDoc to remove the "deferred until G7/G8 close" framing
 
 - [ ] **Step 2: Verify the `MutationObserver` swap works**
 
-Drive Playwright MCP:
-1. Load the map in light mode.
-2. Take a screenshot of the basemap.
-3. Toggle the theme via the theme button.
-4. Wait for the basemap to re-style.
-5. Take a screenshot.
-6. Verify: the two screenshots are visually distinct (light vs dark basemap).
+Drive Playwright MCP at 1440×900, then concretely verify the swap via pixel sampling — NOT eyeball comparison:
 
-If the observer fires but `setStyle` doesn't update the basemap visibly, debug the observer. Cite `MapCanvas.tsx:1152+`.
+1. Set `[data-theme="light"]` via `browser_evaluate`. Wait for `maplibregl-canvas` to settle (poll `map.isStyleLoaded()` via `browser_evaluate` returning true; or wait 2s as a fallback).
+2. `browser_take_screenshot` → save as `phase4-light.png`. Use `browser_evaluate` to read pixel RGB at canvas-relative coordinates `(200, 200)` (a known land-surface region in the AZ map). Record as `lightPixel`.
+3. Set `[data-theme="dark"]`. Wait for restyle.
+4. Take `phase4-dark.png` + read same `(200, 200)` pixel. Record as `darkPixel`.
+5. **Assertion 1**: `relativeLuminance(lightPixel) - relativeLuminance(darkPixel) > 0.3` (the land surface goes from cream `#f4f1ea` lum≈0.92 to a dark surface lum<0.15 → delta>0.7 is the expected case; threshold 0.3 catches the failure mode where the alias didn't actually flip).
+6. **Assertion 2**: light pixel hex within ±10 per channel of `#f4f1ea` (the positron land surface).
+7. **Assertion 3**: dark pixel hex per-channel value all < 60 (any dark basemap will have low-saturation low-luminance land surface).
+
+The luminance utility is the same `relativeLuminance(hex)` exported from `frontend/src/utils/wcag-contrast.ts` introduced in Phase 1 Task 1.
+
+If the observer fires but `setStyle` doesn't update the basemap visibly, debug the observer. Cite `MapCanvas.tsx:1152+`. Common failure modes: (a) `setStyle()` called before `map.isStyleLoaded()` returns true on the prior style (race); (b) `BASEMAP_DARK` import was cached at module load and the swap requires a re-mount; (c) `MutationObserver` configured with wrong `attributeFilter`.
 
 ### Task 2: Close G7 + G8 in open-questions.md
 
