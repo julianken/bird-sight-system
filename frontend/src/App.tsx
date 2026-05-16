@@ -350,6 +350,14 @@ export function App() {
             onSkipToFeed={onSkipToFeed}
             onSelectSpecies={onSelectSpecies}
             onViewportChange={onViewportChange}
+            onExploreMapMarkers={() => {
+              const firstCell = document.querySelector(
+                '[data-testid="adaptive-grid-marker-cell-rendered"], ' +
+                '[data-testid="adaptive-grid-marker-cell-fallback"]'
+              ) as HTMLElement | null;
+              firstCell?.focus();
+            }}
+            hasMarkers={observations.length > 0}
             since={state.since}
             notable={state.notable}
             speciesCode={state.speciesCode}
