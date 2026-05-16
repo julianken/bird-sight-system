@@ -14,7 +14,15 @@ import {
 } from './adaptive-grid';
 
 function leaf(familyCode: string | null): ClusterLeafFeature {
-  return { type: 'Feature', properties: { familyCode } };
+  return {
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [-110, 32] },
+    properties: {
+      familyCode,
+      speciesCode: 'test1',
+      comName: 'Test Species',
+    },
+  };
 }
 
 /** Build `n` leaves cycling through `familyCodes` in round-robin order. */

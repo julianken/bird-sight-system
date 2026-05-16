@@ -143,11 +143,18 @@ export type SilhouettesById = ReadonlyMap<
  *   - `pending`: catalogue not yet loaded for ANY family. Renderer
  *     paints a skeleton/shimmer so a cold-load map is distinguishable
  *     from a real coverage gap (spec §5.1 type comment).
+ *
+ * `species` is the per-species breakdown for this family in the cluster,
+ * threaded onto every variant for Phase 1+ popovers (issue #557, spec §4.1).
+ * Sum invariant: `sum(species[].count) === count`.
  */
 export type AdaptiveTile =
-  | { kind: 'rendered'; familyCode: string; svgData: string; color: string; count: number }
-  | { kind: 'fallback'; familyCode: string; color: string; count: number }
-  | { kind: 'pending'; familyCode: string; count: number };
+  | { kind: 'rendered'; familyCode: string; svgData: string; color: string;
+      count: number; species: ReadonlyArray<SpeciesAggregate> }
+  | { kind: 'fallback'; familyCode: string; color: string;
+      count: number; species: ReadonlyArray<SpeciesAggregate> }
+  | { kind: 'pending'; familyCode: string;
+      count: number; species: ReadonlyArray<SpeciesAggregate> };
 
 /**
  * Reduce the leaves of a single cluster into a sorted
@@ -204,7 +211,7 @@ export function buildAdaptiveTiles(
   const visible = families.slice(0, visibleCapacity(shape));
   return visible.map((fam): AdaptiveTile => {
     if (silhouettesById.size === 0) {
-      return { kind: 'pending', familyCode: fam.familyCode, count: fam.count };
+      return { kind: 'pending', familyCode: fam.familyCode, count: fam.count, species: [] };
     }
     const silhouette = silhouettesById.get(fam.familyCode);
     if (!silhouette || silhouette.svgData === null) {
@@ -213,6 +220,7 @@ export function buildAdaptiveTiles(
         familyCode: fam.familyCode,
         color: silhouette?.color ?? '#888888',
         count: fam.count,
+        species: [],
       };
     }
     return {
@@ -221,6 +229,7 @@ export function buildAdaptiveTiles(
       svgData: silhouette.svgData,
       color: silhouette.color,
       count: fam.count,
+      species: [],
     };
   });
 }

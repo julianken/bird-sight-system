@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { AdaptiveGridMarker } from './AdaptiveGridMarker.js';
 import { markerDimensions, MIN_MARKER_PX } from './AdaptiveGridMarker.js';
-import type { AdaptiveTile, ResolvedGrid, PositiveInt } from './adaptive-grid.js';
+import type { AdaptiveTile, ResolvedGrid, PositiveInt, SpeciesAggregate } from './adaptive-grid.js';
 import { toPositiveInt } from './adaptive-grid.js';
 
 // Helpers --------------------------------------------------------------------
@@ -12,16 +12,26 @@ function rendered(
   count: number,
   svgData = 'M0 0L24 24Z',
   color = '#C77A2E',
+  species: ReadonlyArray<SpeciesAggregate> = [],
 ): AdaptiveTile {
-  return { kind: 'rendered', familyCode, count, svgData, color };
+  return { kind: 'rendered', familyCode, count, svgData, color, species };
 }
 
-function fallback(familyCode: string, count: number, color = '#888888'): AdaptiveTile {
-  return { kind: 'fallback', familyCode, count, color };
+function fallback(
+  familyCode: string,
+  count: number,
+  color = '#888888',
+  species: ReadonlyArray<SpeciesAggregate> = [],
+): AdaptiveTile {
+  return { kind: 'fallback', familyCode, count, color, species };
 }
 
-function pending(familyCode: string, count: number): AdaptiveTile {
-  return { kind: 'pending', familyCode, count };
+function pending(
+  familyCode: string,
+  count: number,
+  species: ReadonlyArray<SpeciesAggregate> = [],
+): AdaptiveTile {
+  return { kind: 'pending', familyCode, count, species };
 }
 
 const SHAPE_1x1: ResolvedGrid = { tag: 'grid', cols: 1, rows: 1 };
