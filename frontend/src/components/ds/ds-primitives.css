@@ -917,8 +917,8 @@
   cursor: pointer;
   padding: var(--space-xs) var(--space-md);
   border-radius: 4px;
-  background: var(--color-bg-accent);
-  color: var(--color-text-on-accent);
+  background: var(--color-accent-notable-bg);
+  color: var(--color-accent-notable-fg);
   font-weight: var(--font-weight-medium);
   min-height: 44px; /* WCAG 2.5.5 — touch target ≥44×44 on coarse pointer. */
   min-width: 88px;
@@ -994,8 +994,8 @@
   margin-bottom: var(--space-md);
   padding: var(--space-sm) var(--space-md);
   border-radius: 4px;
-  background: var(--color-bg-accent);
-  color: var(--color-text-on-accent);
+  background: var(--color-accent-notable-bg);
+  color: var(--color-accent-notable-fg);
   font: var(--text-body-sm);
 }
 
@@ -1025,8 +1025,8 @@
 }
 
 [data-theme="dark"] .species-detail-bbox-banner {
-  background: var(--color-bg-accent);
-  color: var(--color-text-on-accent);
+  background: var(--color-accent-notable-bg);
+  color: var(--color-accent-notable-fg);
 }
 
 @media (forced-colors: active) {
