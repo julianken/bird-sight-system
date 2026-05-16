@@ -45,7 +45,9 @@ const VERMFLY_WITH_PHOTO: SpeciesMeta = {
 const TYRANNIDAE_SILHOUETTE: FamilySilhouette = {
   familyCode: 'songbird',
   color: '#C77A2E',
+  colorDark: '#C77A2E',
   svgData: 'M0 0L1 1Z',
+  svgUrl: null,
   source: 'https://www.phylopic.org/i/x',
   license: 'CC-BY-3.0',
   commonName: 'Tyrant Flycatchers',

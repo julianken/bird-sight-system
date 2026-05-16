@@ -12,18 +12,20 @@ function rendered(
   count: number,
   svgData = 'M0 0L24 24Z',
   color = '#C77A2E',
+  colorDark = '#c3772d',
   species: ReadonlyArray<SpeciesAggregate> = [],
 ): AdaptiveTile {
-  return { kind: 'rendered', familyCode, count, svgData, color, species };
+  return { kind: 'rendered', familyCode, count, svgData, color, colorDark, species };
 }
 
 function fallback(
   familyCode: string,
   count: number,
   color = '#888888',
+  colorDark = '#888888',
   species: ReadonlyArray<SpeciesAggregate> = [],
 ): AdaptiveTile {
-  return { kind: 'fallback', familyCode, count, color, species };
+  return { kind: 'fallback', familyCode, count, color, colorDark, species };
 }
 
 function pending(
@@ -450,7 +452,7 @@ describe('AdaptiveGridMarker — cell popover (Phase 1, #558)', () => {
     render(
       <AdaptiveGridMarker
         shape={SHAPE_1x1}
-        tiles={[rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', [
+        tiles={[rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', '#888', [
           { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
         ])]}
         totalCount={5}
@@ -475,10 +477,10 @@ describe('AdaptiveGridMarker — cell popover (Phase 1, #558)', () => {
       <AdaptiveGridMarker
         shape={SHAPE_2x1}
         tiles={[
-          rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', [
+          rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', '#888', [
             { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
           ]),
-          rendered('accipitridae', 3, 'M0 0L24 24Z', '#C77A2E', [
+          rendered('accipitridae', 3, 'M0 0L24 24Z', '#C77A2E', '#c3772d', [
             { comName: "Cooper's Hawk", count: 3, speciesCode: 'coohaw' },
           ]),
         ]}
@@ -546,7 +548,7 @@ describe('AdaptiveGridMarker — cell popover (Phase 1, #558)', () => {
     render(
       <AdaptiveGridMarker
         shape={SHAPE_1x1}
-        tiles={[rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', [
+        tiles={[rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', '#888', [
           { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
         ])]}
         totalCount={5}
@@ -593,7 +595,7 @@ describe('AdaptiveGridMarker — cell popover (Phase 1, #558)', () => {
     const { unmount, container } = render(
       <AdaptiveGridMarker
         shape={SHAPE_1x1}
-        tiles={[rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', [
+        tiles={[rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', '#888', [
           { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
         ])]}
         totalCount={5}
@@ -620,7 +622,7 @@ describe('AdaptiveGridMarker — cell popover (Phase 1, #558)', () => {
     render(
       <AdaptiveGridMarker
         shape={SHAPE_1x1}
-        tiles={[rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', [
+        tiles={[rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', '#888', [
           { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
         ])]}
         totalCount={5}
@@ -642,7 +644,7 @@ describe('AdaptiveGridMarker — cell popover (Phase 1, #558)', () => {
     render(
       <AdaptiveGridMarker
         shape={SHAPE_1x1}
-        tiles={[rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', [
+        tiles={[rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', '#888', [
           { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
         ])]}
         totalCount={5}
@@ -688,10 +690,10 @@ describe('AdaptiveGridMarker — cell popover coarse-pointer (Phase 2, #559)', (
       <AdaptiveGridMarker
         shape={SHAPE_2x2}
         tiles={[
-          rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', [
+          rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', '#888', [
             { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
           ]),
-          rendered('flycatchers', 12, 'M0 0L24 24Z', '#aaa', [
+          rendered('flycatchers', 12, 'M0 0L24 24Z', '#aaa', '#aaa', [
             { comName: 'Black Phoebe', count: 12, speciesCode: 'blkpho' },
           ]),
         ]}
@@ -717,7 +719,7 @@ describe('AdaptiveGridMarker — cell popover coarse-pointer (Phase 2, #559)', (
     render(
       <AdaptiveGridMarker
         shape={SHAPE_1x1}
-        tiles={[rendered('hummingbirds', 1, 'M0 0L24 24Z', '#888', [
+        tiles={[rendered('hummingbirds', 1, 'M0 0L24 24Z', '#888', '#888', [
           { comName: "Anna's Hummingbird", count: 1, speciesCode: 'annhum' },
         ])]}
         totalCount={1}

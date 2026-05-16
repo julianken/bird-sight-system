@@ -8,7 +8,9 @@ const baseSilhouettes: FamilySilhouette[] = [
   {
     familyCode: 'tyrannidae',
     color: '#C77A2E',
+    colorDark: '#C77A2E',
     svgData: 'M0 0L1 1Z',
+    svgUrl: null,
     source: 'placeholder',
     license: 'CC0',
     commonName: 'Tyrant Flycatchers',
@@ -17,7 +19,9 @@ const baseSilhouettes: FamilySilhouette[] = [
   {
     familyCode: 'trochilidae',
     color: '#7B2D8E',
+    colorDark: '#7B2D8E',
     svgData: 'M0 0L1 1Z',
+    svgUrl: null,
     source: 'placeholder',
     license: 'CC0',
     commonName: 'Hummingbirds',
@@ -26,7 +30,9 @@ const baseSilhouettes: FamilySilhouette[] = [
   {
     familyCode: 'unknownidae',
     color: '#888888',
+    colorDark: '#888888',
     svgData: null,
+    svgUrl: null,
     source: null,
     license: null,
     // Null commonName drives the prettyFamily fallback path.

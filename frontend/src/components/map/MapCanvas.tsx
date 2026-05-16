@@ -475,11 +475,12 @@ export function MapCanvas({
    * produces all-`pending` tiles.
    */
   const silhouettesById = useMemo<SilhouettesById>(() => {
-    const map = new Map<string, { svgData: string | null; color: string }>();
+    const map = new Map<string, { svgData: string | null; color: string; colorDark: string }>();
     for (const s of silhouettes) {
       map.set(s.familyCode.toLowerCase(), {
         svgData: s.svgData,
         color: s.color,
+        colorDark: s.colorDark,
       });
     }
     return map;

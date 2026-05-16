@@ -4,6 +4,7 @@ import type { AdaptiveTile, ResolvedGrid } from './adaptive-grid.js';
 import { visibleCapacity } from './adaptive-grid.js';
 import { FALLBACK_SILHOUETTE_PATH } from './silhouette-fallback.js';
 import { useMediaQuery } from '../../hooks/use-media-query.js';
+import { useTheme } from '../../hooks/use-theme.js';
 import { CellHoverPreview } from './CellHoverPreview.js';
 import { CellPopover } from './CellPopover.js';
 import { ClusterListPopover } from './ClusterListPopover.js';
@@ -135,6 +136,14 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
 
   const isPointerFine = useMediaQuery('(pointer: fine)');
   const perCellInteractive = isPointerFine && !isCoarsePointer;
+
+  // Phase 1 contrast (#570): read [data-theme] so SVG fills use the correct
+  // palette column. In dark mode, tiles render `colorDark` (the original
+  // lighter/brighter hex that passes #0E1116); in light mode they render
+  // `color` (the darkened hex that passes #f4f1ea). The dead code path for
+  // dark mode becomes live once Phase 4 flips the BASEMAP_DARK alias.
+  const theme = useTheme();
+  const isDark = theme === 'dark';
 
   const clusterListInteractive = isCoarsePointer === true;
   const [isClusterListOpen, setIsClusterListOpen] = useState<boolean>(false);
@@ -309,6 +318,7 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
           <TileCell
             key={`${tile.familyCode}-${i}`}
             tile={tile}
+            isDark={isDark}
             showBadge={showBadgeFor(tile.count)}
             isNotable={isNotable}
             perCellInteractive={perCellInteractive}
@@ -390,6 +400,8 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
 
 interface TileCellProps {
   tile: AdaptiveTile;
+  /** When true, render uses `tile.colorDark` instead of `tile.color`. */
+  isDark: boolean;
   showBadge: boolean;
   isNotable: boolean | undefined;
   perCellInteractive: boolean;
@@ -408,6 +420,7 @@ interface TileCellProps {
 
 function TileCell({
   tile,
+  isDark,
   showBadge,
   isNotable,
   perCellInteractive,
@@ -433,6 +446,8 @@ function TileCell({
   }
 
   if (tile.kind === 'fallback') {
+    // Phase 1 contrast (#570): use colorDark in dark mode for correct basemap contrast.
+    const fillColor = isDark ? tile.colorDark : tile.color;
     if (perCellInteractive) {
       return (
         <button
@@ -461,7 +476,7 @@ function TileCell({
             focusable="false"
             preserveAspectRatio="xMidYMid meet"
           >
-            <path d={FALLBACK_SILHOUETTE_PATH} fill={tile.color} />
+            <path d={FALLBACK_SILHOUETTE_PATH} fill={fillColor} />
           </svg>
           {showBadge && <Badge count={tile.count} />}
         </button>
@@ -482,7 +497,7 @@ function TileCell({
           focusable="false"
           preserveAspectRatio="xMidYMid meet"
         >
-          <path d={FALLBACK_SILHOUETTE_PATH} fill={tile.color} />
+          <path d={FALLBACK_SILHOUETTE_PATH} fill={fillColor} />
         </svg>
         {showBadge && <Badge count={tile.count} />}
       </div>
@@ -490,6 +505,8 @@ function TileCell({
   }
 
   // rendered
+  // Phase 1 contrast (#570): use colorDark in dark mode for correct basemap contrast.
+  const fillColor = isDark ? tile.colorDark : tile.color;
   const svgContent = (
     <svg
       viewBox="0 0 24 24"
@@ -522,7 +539,7 @@ function TileCell({
         strokeWidth="2"
         strokeLinejoin="round"
       />
-      <path d={tile.svgData} fill={tile.color} />
+      <path d={tile.svgData} fill={fillColor} />
     </svg>
   );
 
