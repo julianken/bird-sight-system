@@ -285,6 +285,36 @@ describe('buildAdaptiveTiles', () => {
       expect(a.color).not.toBe(b.color);
     }
   });
+
+  it('threads per-family species arrays onto each rendered tile (#557)', () => {
+    const leaves = [
+      speciesLeaf('hummingbirds', "Anna's Hummingbird"),
+      speciesLeaf('hummingbirds', "Anna's Hummingbird"),
+      speciesLeaf('hummingbirds', "Costa's Hummingbird"),
+      speciesLeaf('hawks', "Cooper's Hawk"),
+    ];
+    const silhouettes: SilhouettesById = new Map([
+      ['hummingbirds', { svgData: 'M0 0L1 1Z', color: '#7B2D8E' }],
+      ['hawks', { svgData: 'M0 0L1 1Z', color: '#444' }],
+    ]);
+    const tiles = buildAdaptiveTiles(
+      leaves,
+      silhouettes,
+      { tag: 'grid', cols: 2, rows: 2 },
+    );
+    // First tile = hummingbirds (count 3, descending order)
+    expect(tiles[0]?.species).toEqual([
+      { comName: "Anna's Hummingbird", speciesCode: "anna's1", count: 2 },
+      { comName: "Costa's Hummingbird", speciesCode: "costa'1", count: 1 },
+    ]);
+    // Second tile = hawks
+    expect(tiles[1]?.species).toEqual([
+      { comName: "Cooper's Hawk", speciesCode: "cooper1", count: 1 },
+    ]);
+    // Count invariant
+    expect(tiles[0]?.count).toBe(3);
+    expect(tiles[0]?.species.reduce((s, x) => s + x.count, 0)).toBe(tiles[0]?.count);
+  });
 });
 
 // Test fixture helper — local to aggregateClusterSpecies describe block.

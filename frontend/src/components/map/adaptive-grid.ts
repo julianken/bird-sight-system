@@ -208,10 +208,12 @@ export function buildAdaptiveTiles(
   shape: ResolvedGrid,
 ): ReadonlyArray<AdaptiveTile> {
   const families = aggregateClusterFamilies(leaves);
+  const speciesByFamily = aggregateClusterSpecies(leaves);
   const visible = families.slice(0, visibleCapacity(shape));
   return visible.map((fam): AdaptiveTile => {
+    const species = speciesByFamily.get(fam.familyCode) ?? [];
     if (silhouettesById.size === 0) {
-      return { kind: 'pending', familyCode: fam.familyCode, count: fam.count, species: [] };
+      return { kind: 'pending', familyCode: fam.familyCode, count: fam.count, species };
     }
     const silhouette = silhouettesById.get(fam.familyCode);
     if (!silhouette || silhouette.svgData === null) {
@@ -220,7 +222,7 @@ export function buildAdaptiveTiles(
         familyCode: fam.familyCode,
         color: silhouette?.color ?? '#888888',
         count: fam.count,
-        species: [],
+        species,
       };
     }
     return {
@@ -229,7 +231,7 @@ export function buildAdaptiveTiles(
       svgData: silhouette.svgData,
       color: silhouette.color,
       count: fam.count,
-      species: [],
+      species,
     };
   });
 }
