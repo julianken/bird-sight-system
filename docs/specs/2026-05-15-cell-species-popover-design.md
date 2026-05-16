@@ -241,9 +241,9 @@ const onSelectSpecies = useCallback(
 );
 ```
 
-**Cross-surface invariant**: `onSelectSpecies(code)` invocations WITHOUT a `bbox` argument MUST clear any previously-set `bbox` from URL state. The reducer above does this correctly via `bbox: bbox ?? null` — but the invariant is load-bearing: a user who navigates Map → SpeciesDetail (with bbox), then Back, then Feed → SpeciesDetail (no bbox) must NOT see the stale Map-set bbox bleed into the Feed-originated detail view. Unit-tested in §7 (`useUrlState.test.ts` cross-surface case).
+**Cross-surface invariant**: `onSelectSpecies(code)` invocations WITHOUT a `bbox` argument MUST clear any previously-set `bbox` from URL state. The reducer above does this correctly via `bbox: bbox ?? null` — but the invariant is load-bearing: a user who navigates Map → SpeciesDetail (with bbox), then Back, then Feed → SpeciesDetail (no bbox) must NOT see the stale Map-set bbox bleed into the Feed-originated detail view. Unit-tested in §7 (`url-state.test.ts` cross-surface case).
 
-**URL-hydration policy (shared-link case)**: `useUrlState` initialization reads `bbox` directly from the URL on first mount, regardless of which surface the user navigates FROM. Rationale: **the URL is the source of truth**. A shared link `?view=detail&detail=anhumm&bbox=-110.99,32.20,-110.91,32.27` hydrates with `bbox` set, the SpeciesDetailSurface renders the "Filtered to selected area" banner, and the "View all observations →" link clears the bbox if the recipient wants to break out of the filter. No surface-provenance tracking; the URL alone determines state. This is consistent with how every other URL param on the project hydrates. Unit-tested in §7 (`useUrlState.test.ts` hydration-from-URL case).
+**URL-hydration policy (shared-link case)**: `useUrlState` initialization reads `bbox` directly from the URL on first mount, regardless of which surface the user navigates FROM. Rationale: **the URL is the source of truth**. A shared link `?view=detail&detail=anhumm&bbox=-110.99,32.20,-110.91,32.27` hydrates with `bbox` set, the SpeciesDetailSurface renders the "Filtered to selected area" banner, and the "View all observations →" link clears the bbox if the recipient wants to break out of the filter. No surface-provenance tracking; the URL alone determines state. This is consistent with how every other URL param on the project hydrates. Unit-tested in §7 (`url-state.test.ts` hydration-from-URL case).
 
 Backward-compat: existing single-arg callsites at `App.tsx:331, 351, 368` (FeedSurface → species; SpeciesSearchSurface → species; FeedCard → species) keep their signatures; the second arg is `undefined`; the reducer writes `null` (clears any stale bbox in PROGRAMMATIC navigation; does not affect URL-hydrated bbox).
 
@@ -381,7 +381,7 @@ interface SpeciesDetailSurfaceProps {
 
 | File | Changes |
 |---|---|
-| `frontend/src/state/useUrlState.ts` | Add `bbox: BBox \| null` to state; URL ser/de via `frontend/src/state/bbox.ts`. |
+| `frontend/src/state/url-state.ts` | Add `bbox: BBox \| null` to state; URL ser/de via `frontend/src/state/bbox.ts`. |
 
 ### Kept
 
@@ -436,7 +436,7 @@ New tests for `aggregateClusterSpecies`:
 - **Hit-extender pointer-events on `pointer:fine`**: inspect the rendered hit-overlay's computed `pointer-events` style — must be `'none'`. On `pointer:coarse` must be `'auto'`. Locks the §4.6 reconciliation in code.
 - **ARIA tree snapshot on focused cell**: render the marker, focus a cell, snapshot the rendered DOM tree, assert (1) cell has its own `aria-describedby` (preview id), NOT the outer marker's family-list id; (2) cell has `aria-haspopup="dialog"` and `aria-expanded="false"` initially; (3) outer marker's `aria-describedby` still points at the family-list `<ul>`.
 
-### State (`useUrlState.test.ts`)
+### State (`url-state.test.ts`)
 
 - `bbox` round-trips through URL serialization with 6-decimal rounding (input precision >6 is truncated).
 - Invalid `bbox` format (wrong number of commas, non-decimal, NaN) → null fallback, no exception.
@@ -487,7 +487,7 @@ New tests for `aggregateClusterSpecies`:
 | Risk | Resolution |
 |---|---|
 | Hit-extender overlay swallowing cell clicks on `pointer:fine` | `pointerEvents: 'none'` on the overlay when `isCoarsePointer === false`. Test in `AdaptiveGridMarker.test.tsx` pins it. |
-| `bbox` URL precision | Rounded to 6 decimals (~11 cm). Tested in `useUrlState.test.ts`. |
+| `bbox` URL precision | Rounded to 6 decimals (~11 cm). Tested in `url-state.test.ts`. |
 | Stale `bbox` bleeding across cross-surface navigation | Invariant in §4.9: `onSelectSpecies(code)` without `bbox` clears any stale param. Tested cross-surface. |
 | ARIA describedby composition ambiguity | §4.8 specifies the exact tree on a focused cell; snapshot test pins it. |
 | Mobile breakpoint missing iPad portrait | Partition predicate changed from `viewport ≤ 480 px` to `pointer:coarse`. iPad portrait now correctly gets cluster-list popover. |
