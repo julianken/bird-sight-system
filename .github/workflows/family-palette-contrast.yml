@@ -1,0 +1,39 @@
+name: family-palette-contrast
+
+# Runs the WCAG 3:1 dual-basemap integration test whenever a PR touches the
+# palette data paths: SQL migrations, the family-palette config, the WCAG
+# contrast utility, or the integration test itself.
+#
+# Soft-launch: continue-on-error: true for 7 days (until 2026-05-23).
+# After a kill-threshold review (>=7 days of clean runs, <15% false-positive
+# rate), flip to false and add "check-success = family-palette-contrast" to
+# .mergify.yml queue_conditions (requires branch-protection admin op in
+# parallel -- do not assume load-bearing until the flip lands).
+# Precedent: orphan-classname-check rollout (CLAUDE.md drift detection section).
+on:
+  pull_request:
+    paths:
+      - 'migrations/**'
+      - 'frontend/src/config/family-palette.ts'
+      - 'frontend/src/utils/wcag-contrast.ts'
+      - 'packages/db-client/src/family-silhouettes-contrast.test.ts'
+
+jobs:
+  contrast:
+    name: family-palette-contrast
+    runs-on: ubuntu-latest
+    # 7-day soft launch -- see header comment.
+    continue-on-error: true
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Run WCAG 3:1 dual-basemap contrast integration test
+        run: npm run test --workspace @bird-watch/db-client -- src/family-silhouettes-contrast 2>&1 | tail -5
