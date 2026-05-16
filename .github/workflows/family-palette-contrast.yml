@@ -36,4 +36,4 @@ jobs:
       - run: npm ci
 
       - name: Run WCAG 3:1 dual-basemap contrast integration test
-        run: npm run test --workspace @bird-watch/db-client -- src/family-silhouettes-contrast 2>&1 | tail -5
+        run: npm run test --workspace @bird-watch/db-client -- src/family-silhouettes-contrast

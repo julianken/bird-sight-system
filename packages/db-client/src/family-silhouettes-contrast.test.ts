@@ -1,16 +1,18 @@
 /**
- * Integration test: WCAG 1.4.11 (3:1 non-text contrast) for every color in
- * the family_silhouettes table against both basemaps used by bird-maps.com.
+ * Integration test: WCAG 1.4.11 (3:1 non-text contrast) for the family_silhouettes
+ * dual-palette against the basemap each value is actually rendered on.
  *
  * Phase 1 Task 1 of the adaptive-grid tile contrast epic (#575, sub-issue #570).
  * This test intentionally starts RED — the current DB palette has 19+ colors
- * that fail the 3:1 threshold against one or both basemaps. Task 3 fixes the
+ * that fail the 3:1 threshold against the light basemap. Task 3 fixes the
  * palette via a SQL migration; at that point both assertions turn GREEN.
  *
- * Basemap reference colors:
- *   LIGHT_BASE: OpenFreeMap "positron" land surface (#f4f1ea)
- *   DARK_BASE:  OpenFreeMap "dark" land surface (#0E1116) — used after Phase 4
- *               flips BASEMAP_DARK from the positron alias to the real dark URL.
+ * Dual-palette contract (enforced by these tests):
+ *   `color`      → rendered in light theme on LIGHT_BASE (#f4f1ea). MUST be ≥ 3:1 vs #f4f1ea.
+ *   `color_dark` → rendered in dark theme on DARK_BASE (#0E1116, Phase 3 destination). MUST be ≥ 3:1 vs #0E1116.
+ *
+ * Each value is only tested against the basemap it is paired with — users never
+ * see `color` on the dark basemap, nor `color_dark` on the light basemap.
  *
  * No DB mocks — uses @testcontainers/postgresql + all repo SQL migrations via
  * the shared startTestDb() helper (CLAUDE.md: "No DB mocks in tests").
@@ -81,8 +83,8 @@ afterAll(async () => {
 // Contrast assertions (RED until Task 3 migration lands)
 // ---------------------------------------------------------------------------
 
-describe('family palette WCAG 1.4.11 (3:1 non-text contrast)', () => {
-  it('every family_silhouettes.color is ≥ 3:1 against the light basemap (#f4f1ea)', async () => {
+describe('family palette WCAG 1.4.11 (3:1 non-text contrast) — dual-palette contract', () => {
+  it('every family_silhouettes.color is ≥ 3:1 against the light basemap (#f4f1ea) — the only basemap it is rendered on', async () => {
     const { rows } = await db.pool.query<{ family_code: string; color: string }>(
       'SELECT family_code, color FROM family_silhouettes WHERE color IS NOT NULL ORDER BY family_code'
     );
@@ -106,26 +108,26 @@ describe('family palette WCAG 1.4.11 (3:1 non-text contrast)', () => {
     expect(failures, `${failures.length} color(s) fail against light basemap`).toEqual([]);
   });
 
-  it('every family_silhouettes.color is ≥ 3:1 against the dark basemap (#0E1116)', async () => {
-    const { rows } = await db.pool.query<{ family_code: string; color: string }>(
-      'SELECT family_code, color FROM family_silhouettes WHERE color IS NOT NULL ORDER BY family_code'
+  it('every family_silhouettes.color_dark is ≥ 3:1 against the dark basemap (#0E1116)', async () => {
+    const { rows } = await db.pool.query<{ family_code: string; color_dark: string }>(
+      'SELECT family_code, color_dark FROM family_silhouettes WHERE color_dark IS NOT NULL ORDER BY family_code'
     );
 
     const failures = rows
       .map((row) => ({
         familyCode: row.family_code,
-        color: row.color,
-        ratio: Number(contrastRatio(row.color, DARK_BASE).toFixed(2)),
+        colorDark: row.color_dark,
+        ratio: Number(contrastRatio(row.color_dark, DARK_BASE).toFixed(2)),
       }))
       .filter((r) => r.ratio < 3);
 
     if (failures.length > 0) {
       console.error(
         'DARK BASEMAP failures (ratio < 3:1 against #0E1116):\n' +
-          failures.map((f) => `  ${f.familyCode}: ${f.color} → ${f.ratio}:1`).join('\n')
+          failures.map((f) => `  ${f.familyCode}: ${f.colorDark} → ${f.ratio}:1`).join('\n')
       );
     }
 
-    expect(failures, `${failures.length} color(s) fail against dark basemap`).toEqual([]);
+    expect(failures, `${failures.length} color_dark value(s) fail against dark basemap`).toEqual([]);
   });
 });
