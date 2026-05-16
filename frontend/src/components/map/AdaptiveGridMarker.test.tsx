@@ -636,6 +636,31 @@ describe('AdaptiveGridMarker — cell popover (Phase 1, #558)', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(cell.getAttribute('aria-expanded')).toBe('true');
   });
+
+  it('pointer:fine: mouseEnter → mouseMove → CellHoverPreview has position:fixed at cursor+16/+12', async () => {
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', [
+          { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
+        ])]}
+        totalCount={5}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 5 observations."
+        isCoarsePointer={false}
+        onClick={noop}
+      />
+    );
+    const cell = screen.getByTestId('adaptive-grid-marker-cell-rendered');
+    fireEvent.mouseEnter(cell);
+    fireEvent.mouseMove(cell, { clientX: 300, clientY: 400 });
+
+    const tooltip = screen.getByRole('tooltip');
+    expect(tooltip.style.position).toBe('fixed');
+    expect(tooltip.style.left).toBe('316px');
+    expect(tooltip.style.top).toBe('412px');
+  });
 });
 
 // --- Phase 2 (#559): coarse-pointer cluster list popover ---------------------
