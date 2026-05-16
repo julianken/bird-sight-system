@@ -616,3 +616,180 @@
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   <CellHoverPreview> — Phase 1 (#558)
+   Compact hover preview for adaptive-grid cells. Top 3 species; "Click for
+   more" footer when species.length > 3. Tooltip-styled — no shadow stack,
+   no focus ring.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.cell-hover-preview {
+  position: absolute;
+  z-index: calc(var(--z-panel) + 5);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 4px;
+  padding: var(--space-xs) var(--space-sm);
+  font: var(--text-body-sm);
+  color: var(--color-text-strong);
+  max-width: 240px;
+  pointer-events: none;
+  /* Smart-flip positioning is consumer-supplied via inline style; defaults
+     to below-cell when not specified. Phase 1 uses CSS-only positioning
+     (left/top inline); Phase 3 may add Floating-UI for collision detection. */
+}
+
+.cell-hover-preview__header {
+  font-weight: var(--font-weight-medium);
+  margin-bottom: var(--space-xxs);
+}
+
+.cell-hover-preview__rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cell-hover-preview__row {
+  padding: 1px 0;
+}
+
+.cell-hover-preview__footer {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-top: var(--space-xxs);
+  font-style: italic;
+}
+
+/* Dark theme override — matches the ds-primitives.css dark-mode pattern. */
+[data-theme="dark"] .cell-hover-preview {
+  background: var(--color-bg-surface);
+  border-color: var(--color-border-strong);
+  color: var(--color-text-strong);
+}
+
+/* Forced-colors fallback (Windows High Contrast Mode + browser forced-colors
+   emulation) — matches styles.css:1696 pattern. */
+@media (forced-colors: active) {
+  .cell-hover-preview {
+    border: 1px solid ButtonBorder;
+    background: Canvas;
+    color: CanvasText;
+  }
+  .cell-hover-preview__footer {
+    color: GrayText;
+  }
+}
+
+/* Reduced-motion: no fade animation. The default render is instant;
+   no JS animation lib in use. This block documents the contract for
+   future authors. */
+@media (prefers-reduced-motion: reduce) {
+  .cell-hover-preview {
+    /* No-op currently; reserved for future fade-in. */
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   <CellPopover> — Phase 1 (#558)
+   Non-modal dialog popover for adaptive-grid cells. Top 8 species + footer
+   ("…and N more species" or "Click or tap for full list"). Clickable rows
+   (role=link) when speciesCode !== null.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.cell-popover {
+  position: absolute;
+  z-index: calc(var(--z-panel) + 6);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 6px;
+  padding: var(--space-sm) var(--space-md);
+  font: var(--text-body-sm);
+  color: var(--color-text-strong);
+  min-width: 240px;
+  max-width: 320px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.cell-popover__header {
+  margin-bottom: var(--space-xs);
+}
+
+.cell-popover__heading {
+  font: var(--text-heading-sm);
+  font-weight: var(--font-weight-medium);
+  margin: 0;
+  /* Focus target on popover mount; visible focus is rendered with the
+     standard outline since the heading takes tabIndex=-1 for programmatic
+     focus on open. */
+}
+
+.cell-popover__heading:focus,
+.cell-popover__heading:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.cell-popover__rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cell-popover__row {
+  padding: 2px 0;
+}
+
+.cell-popover__row--clickable a[role="link"] {
+  cursor: pointer;
+  color: var(--color-text-link);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.cell-popover__row--clickable a[role="link"]:hover,
+.cell-popover__row--clickable a[role="link"]:focus-visible {
+  text-decoration-thickness: 2px;
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.cell-popover__footer {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-top: var(--space-xs);
+  font-style: italic;
+}
+
+/* Dark theme override. */
+[data-theme="dark"] .cell-popover {
+  background: var(--color-bg-surface);
+  border-color: var(--color-border-strong);
+  color: var(--color-text-strong);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+/* Forced-colors fallback. */
+@media (forced-colors: active) {
+  .cell-popover {
+    border: 1px solid ButtonBorder;
+    background: Canvas;
+    color: CanvasText;
+    box-shadow: none;
+  }
+  .cell-popover__row--clickable a[role="link"] {
+    color: LinkText;
+  }
+  .cell-popover__footer {
+    color: GrayText;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cell-popover {
+    /* No animation in v1; reserved for future scale-in/fade-in. */
+  }
+}

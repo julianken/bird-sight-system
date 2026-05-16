@@ -7,6 +7,7 @@ import { MapLede, type Freshness } from './MapLede.js';
 import { FilterSentence } from './ds/FilterSentence.js';
 import type { Since } from '../state/url-state.js';
 import { prettyFamily } from '../derived.js';
+import { isCellPopoverEnabled } from '../feature-flags.js';
 
 /**
  * Lazy-loaded MapCanvas. The React.lazy() boundary lives HERE — not inside
@@ -78,6 +79,20 @@ export interface MapSurfaceProps {
    */
   onSelectSpecies?: (speciesCode: string) => void;
   /**
+   * Phase 1 (#558): skip-link handler for the new "Explore map markers"
+   * skip-link. When activated, MapCanvas places focus on the first
+   * <TileCell> of the first marker group. Optional — when absent, the
+   * skip-link is not rendered regardless of the feature flag.
+   */
+  onExploreMapMarkers?: () => void;
+  /**
+   * Phase 1 (#558): whether the map currently has at least one
+   * AdaptiveGrid marker visible. When false, the "Explore map markers"
+   * skip-link is aria-hidden + tabIndex=-1 (cannot focus into a no-op
+   * state per spec §4.7 empty-viewport policy). Defaults to true.
+   */
+  hasMarkers?: boolean;
+  /**
    * Issue #351: passthrough for MapCanvas's onViewportChange callback.
    * App.tsx threads this so it can update its `viewportBounds` state on
    * each map `idle` (camera-change settle). Optional — when absent,
@@ -134,6 +149,8 @@ export function MapSurface({
   onSkipToFeed,
   onSelectSpecies,
   onViewportChange,
+  onExploreMapMarkers,
+  hasMarkers = true,
   since,
   notable,
   speciesCode,
@@ -180,6 +197,20 @@ export function MapSurface({
           onClick={onSkipToFeed}
         >
           Skip to species list
+        </button>
+      )}
+      {onExploreMapMarkers && isCellPopoverEnabled() && (
+        <button
+          type="button"
+          className="skip-link"
+          data-testid="explore-map-markers-skip-link"
+          aria-hidden={!hasMarkers || undefined}
+          tabIndex={hasMarkers ? 0 : -1}
+          onClick={() => {
+            if (hasMarkers) onExploreMapMarkers();
+          }}
+        >
+          Explore map markers
         </button>
       )}
       {/* Phase 3: context strip — lede + filter sentence + freshness meta */}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import type { Observation } from '@bird-watch/shared-types';
 
@@ -266,5 +266,83 @@ describe('Phase 3: context strip', () => {
       '3 species seen across Arizona.',
     );
     expect(screen.getByText('Last updated 9 h ago · Source: eBird')).toBeInTheDocument();
+  });
+});
+
+// --- Phase 1 (#558): second skip-link "Explore map markers" --------------------
+
+describe('MapSurface — VITE_FF_CELL_POPOVER skip-link (Phase 1, #558)', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  it('flag OFF: no "Explore map markers" skip-link rendered (regression guard)', async () => {
+    vi.stubEnv('VITE_FF_CELL_POPOVER', 'false');
+    const { MapSurface } = await import('./MapSurface.js');
+    render(<MapSurface {...baseProps} onSkipToFeed={vi.fn()} onExploreMapMarkers={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: /Explore map markers/i })).toBeNull();
+  });
+
+  it('flag ON: renders "Explore map markers" as a second skip-link', async () => {
+    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+    const { MapSurface } = await import('./MapSurface.js');
+    render(
+      <MapSurface
+        {...baseProps}
+        onSkipToFeed={vi.fn()}
+        onExploreMapMarkers={vi.fn()}
+        hasMarkers={true}
+      />
+    );
+    expect(screen.getByRole('button', { name: /Explore map markers/i })).toBeInTheDocument();
+  });
+
+  it('flag ON: skip-link uses class="skip-link" so global hidden-until-focus style applies', async () => {
+    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+    const { MapSurface } = await import('./MapSurface.js');
+    render(
+      <MapSurface
+        {...baseProps}
+        onSkipToFeed={vi.fn()}
+        onExploreMapMarkers={vi.fn()}
+        hasMarkers={true}
+      />
+    );
+    const link = screen.getByRole('button', { name: /Explore map markers/i });
+    expect(link.className).toContain('skip-link');
+  });
+
+  it('flag ON: clicking the skip-link calls onExploreMapMarkers prop', async () => {
+    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+    const { MapSurface } = await import('./MapSurface.js');
+    const onExplore = vi.fn();
+    render(
+      <MapSurface
+        {...baseProps}
+        onSkipToFeed={vi.fn()}
+        onExploreMapMarkers={onExplore}
+        hasMarkers={true}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Explore map markers/i }));
+    expect(onExplore).toHaveBeenCalledTimes(1);
+  });
+
+  it('flag ON + empty viewport (hasMarkers=false): skip-link is aria-hidden and tabIndex=-1', async () => {
+    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+    const { MapSurface } = await import('./MapSurface.js');
+    render(
+      <MapSurface
+        {...baseProps}
+        onSkipToFeed={vi.fn()}
+        onExploreMapMarkers={vi.fn()}
+        hasMarkers={false}
+      />
+    );
+    // queryByRole skips aria-hidden=true buttons; use a class-based query.
+    const link = document.querySelector('[data-testid="explore-map-markers-skip-link"]') as HTMLElement | null;
+    expect(link).toBeTruthy();
+    expect(link!.getAttribute('aria-hidden')).toBe('true');
+    expect(link!.getAttribute('tabIndex') ?? link!.tabIndex.toString()).toBe('-1');
   });
 });

@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { AdaptiveGridMarker } from './AdaptiveGridMarker.js';
 import { markerDimensions, MIN_MARKER_PX } from './AdaptiveGridMarker.js';
 import type { AdaptiveTile, ResolvedGrid, PositiveInt, SpeciesAggregate } from './adaptive-grid.js';
@@ -424,5 +424,264 @@ describe('markerDimensions', () => {
   });
   it('4×4 grid → 100×100 (the worst-case overlap source per issue #554)', () => {
     expect(markerDimensions({ tag: 'grid', cols: 4, rows: 4 })).toEqual({ w: 100, h: 100 });
+  });
+});
+
+// --- Phase 1 (#558): flag-gated per-cell trigger surface ----------------------
+
+describe('AdaptiveGridMarker — VITE_FF_CELL_POPOVER (Phase 1, #558)', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    // Default matchMedia stub: pointer:fine = true, pointer:coarse = false.
+    window.matchMedia = vi.fn().mockImplementation((q: string) => ({
+      matches: q === '(pointer: fine)',
+      media: q,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      onchange: null,
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
+  });
+
+  it('flag OFF: <TileCell> renders as <div> with no per-cell ARIA (regression guard)', async () => {
+    vi.stubEnv('VITE_FF_CELL_POPOVER', 'false');
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', [
+          { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
+        ])]}
+        totalCount={5}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 5 observations."
+        isCoarsePointer={false}
+        onClick={noop}
+      />
+    );
+    const cell = screen.getByTestId('adaptive-grid-marker-cell-rendered');
+    expect(cell.tagName).toBe('DIV');
+    expect(cell.getAttribute('aria-haspopup')).toBeNull();
+    expect(cell.getAttribute('aria-expanded')).toBeNull();
+  });
+
+  it('flag ON + pointer:fine: <TileCell> renders as <button> with ARIA wiring', async () => {
+    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', [
+          { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
+        ])]}
+        totalCount={5}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 5 observations."
+        isCoarsePointer={false}
+        onClick={noop}
+      />
+    );
+    const cell = screen.getByTestId('adaptive-grid-marker-cell-rendered');
+    expect(cell.tagName).toBe('BUTTON');
+    expect(cell.getAttribute('aria-haspopup')).toBe('dialog');
+    expect(cell.getAttribute('aria-expanded')).toBe('false');
+    // Spec §4.8: aria-describedby is only present on the ACTIVE cell.
+    // Before hover/focus, no cell is active, so it must be absent.
+    expect(cell.getAttribute('aria-describedby')).toBeNull();
+  });
+
+  it('flag ON + pointer:fine: active cell gets aria-describedby, inactive cells do not (spec §4.8)', async () => {
+    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_2x1}
+        tiles={[
+          rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', [
+            { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
+          ]),
+          rendered('accipitridae', 3, 'M0 0L24 24Z', '#C77A2E', [
+            { comName: "Cooper's Hawk", count: 3, speciesCode: 'coohaw' },
+          ]),
+        ]}
+        totalCount={8}
+        uniqueFamilies={2}
+        ariaLabel="Cluster: 8 observations."
+        isCoarsePointer={false}
+        onClick={noop}
+      />
+    );
+    const cells = screen.getAllByTestId('adaptive-grid-marker-cell-rendered');
+    expect(cells).toHaveLength(2);
+
+    // Hover the first cell to make it active.
+    fireEvent.mouseEnter(cells[0]);
+
+    // Active cell (index 0) carries aria-describedby pointing at the preview element.
+    const activeDescribedBy = cells[0].getAttribute('aria-describedby');
+    expect(activeDescribedBy).toMatch(/^cell-.*-preview$/);
+
+    // Inactive cell (index 1) must NOT carry aria-describedby.
+    expect(cells[1].getAttribute('aria-describedby')).toBeNull();
+
+    // The rendered <CellHoverPreview> must have the matching id (both sides wired).
+    const tooltip = screen.getByRole('tooltip');
+    expect(tooltip.id).toBe(activeDescribedBy);
+  });
+
+  it('flag ON + pointer:fine: hit-extender computed pointer-events is "none"', async () => {
+    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[rendered('hummingbirds', 5)]}
+        totalCount={5}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 5 observations."
+        isCoarsePointer={false}
+        onClick={noop}
+      />
+    );
+    const hit = screen.getByTestId('adaptive-grid-marker-hit');
+    expect(hit.style.pointerEvents).toBe('none');
+  });
+
+  it('flag ON + pointer:coarse: hit-extender computed pointer-events is "auto" (mobile preserves whole-marker tap)', async () => {
+    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[rendered('hummingbirds', 5)]}
+        totalCount={5}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 5 observations."
+        isCoarsePointer={true}
+        onClick={noop}
+      />
+    );
+    const hit = screen.getByTestId('adaptive-grid-marker-hit');
+    expect(hit.style.pointerEvents).toBe('auto');
+  });
+
+  it('flag ON + pointer:fine: mouseenter on a cell triggers <CellHoverPreview> render', async () => {
+    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', [
+          { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
+        ])]}
+        totalCount={5}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 5 observations."
+        isCoarsePointer={false}
+        onClick={noop}
+      />
+    );
+    const cell = screen.getByTestId('adaptive-grid-marker-cell-rendered');
+    fireEvent.mouseEnter(cell);
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+    expect(screen.getByText(/Hummingbirds \(5\)/)).toBeInTheDocument();
+  });
+
+  // --- Fix 1: outer element tag per perCellInteractive state (nested-button guard) ---
+
+  it('flag OFF / pointer:coarse → outer is <button data-testid="adaptive-grid-marker">', async () => {
+    vi.stubEnv('VITE_FF_CELL_POPOVER', 'false');
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[rendered('hummingbirds', 5)]}
+        totalCount={5}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 5 observations."
+        isCoarsePointer={true}
+        onClick={noop}
+      />
+    );
+    const outer = screen.getByTestId('adaptive-grid-marker');
+    expect(outer.tagName).toBe('BUTTON');
+  });
+
+  it('flag ON + pointer:fine → outer is <div role="group" data-testid="adaptive-grid-marker"> (no nested buttons)', async () => {
+    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[rendered('hummingbirds', 5)]}
+        totalCount={5}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 5 observations."
+        isCoarsePointer={false}
+        onClick={noop}
+      />
+    );
+    const outer = screen.getByTestId('adaptive-grid-marker');
+    expect(outer.tagName).toBe('DIV');
+    // role="group" is name-allowed (ARIA 1.2) — aria-label is preserved.
+    expect(outer.getAttribute('role')).toBe('group');
+    // aria-label must still be present for SR coherence (name-prohibited regression guard).
+    expect(outer.getAttribute('aria-label')).toBe('Cluster: 5 observations.');
+  });
+
+  // --- Fix 2: mouseleave timer cleanup on unmount (#558 fix2) ----------
+
+  it('clears pending mouseLeaveTimers on unmount (#558 fix2)', async () => {
+    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+    vi.useFakeTimers();
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    const { unmount, container } = render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', [
+          { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
+        ])]}
+        totalCount={5}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 5 observations."
+        isCoarsePointer={false}
+        onClick={noop}
+      />
+    );
+    const cell = container.querySelector('[data-testid="adaptive-grid-marker-cell-rendered"]')!;
+    // Trigger a mouseleave to start a pending 250ms timer.
+    fireEvent.mouseEnter(cell);
+    fireEvent.mouseLeave(cell);
+    // At this point one timer should be pending.
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+    // Unmount — cleanup useEffect should clear the timer.
+    act(() => { unmount(); });
+    expect(vi.getTimerCount()).toBe(0);
+    vi.useRealTimers();
+  });
+
+  it('flag ON + pointer:fine: Enter on a focused cell promotes preview to popover', async () => {
+    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', [
+          { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
+        ])]}
+        totalCount={5}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 5 observations."
+        isCoarsePointer={false}
+        onClick={noop}
+      />
+    );
+    const cell = screen.getByTestId('adaptive-grid-marker-cell-rendered');
+    cell.focus();
+    fireEvent.keyDown(cell, { key: 'Enter' });
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(cell.getAttribute('aria-expanded')).toBe('true');
   });
 });
