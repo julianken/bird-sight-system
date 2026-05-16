@@ -1,4 +1,4 @@
-import { useState, useId, useRef } from 'react';
+import { useState, useId, useRef, useEffect } from 'react';
 import type { MouseEvent, CSSProperties, KeyboardEvent } from 'react';
 import type { AdaptiveTile, ResolvedGrid } from './adaptive-grid.js';
 import { visibleCapacity } from './adaptive-grid.js';
@@ -86,7 +86,7 @@ export interface AdaptiveGridMarkerProps {
   isNotable?: boolean;
   /** Species name for the notable single-obs case (unused today; reserved). */
   notableSpeciesName?: string;
-  onClick: (e: MouseEvent<HTMLButtonElement>) => void;
+  onClick: (e: MouseEvent<HTMLElement>) => void;
   /** Phase 1 (#558): forwarded from per-cell popover row clicks. */
   onSelectSpecies?: (speciesCode: string) => void;
 }
@@ -210,20 +210,42 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
     // Focus return handled inside <CellPopover> via anchorEl.
   }
 
+  // Fix: clear pending mouseleave timers on unmount to prevent late setTimeout
+  // firing into an unmounted component (React warn + memory leak).
+  useEffect(() => {
+    return () => {
+      for (const id of mouseLeaveTimers.current) {
+        if (id !== null) clearTimeout(id);
+      }
+      mouseLeaveTimers.current = [];
+    };
+  }, []);
+
   const activeTile = activeCell !== null ? tiles[activeCell.index] : null;
   const previewId = activeTile
     ? `cell-${markerId}-${activeTile.familyCode}-preview`
     : undefined;
 
+  // Fix: when per-cell interaction is active, the outer element must NOT be a
+  // <button> because each TileCell is already a <button> — nested interactive
+  // elements are invalid HTML (WHATWG §4.10.6). Spec §4.5 explicitly licenses
+  // this: the outer click is a no-op when cells handle their own clicks.
+  // ARIA label + describedby stay on the outer container for SR coherence.
+  const OuterTag = perCellInteractive ? 'div' : 'button';
+  const outerInteractiveProps = perCellInteractive
+    ? ({ role: 'presentation' as const })
+    : ({
+        type: 'button' as const,
+        tabIndex: -1,
+        onClick,
+      });
+
   return (
-    <button
-      type="button"
-      tabIndex={-1}
+    <OuterTag
       data-testid="adaptive-grid-marker"
       className="adaptive-grid-marker"
       aria-label={ariaLabel}
       aria-describedby={describedByListId}
-      onClick={onClick}
       style={{
         position: 'relative',
         padding: 0,
@@ -233,6 +255,7 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
         width: markerWidth,
         height: markerHeight,
       }}
+      {...outerInteractiveProps}
     >
       <span
         data-testid="adaptive-grid-marker-hit"
@@ -310,7 +333,7 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
           ) : null
         )
       )}
-    </button>
+    </OuterTag>
   );
 }
 

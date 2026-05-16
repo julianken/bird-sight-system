@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { AdaptiveGridMarker } from './AdaptiveGridMarker.js';
 import { markerDimensions, MIN_MARKER_PX } from './AdaptiveGridMarker.js';
 import type { AdaptiveTile, ResolvedGrid, PositiveInt, SpeciesAggregate } from './adaptive-grid.js';
@@ -587,6 +587,84 @@ describe('AdaptiveGridMarker — VITE_FF_CELL_POPOVER (Phase 1, #558)', () => {
     fireEvent.mouseEnter(cell);
     expect(screen.getByRole('tooltip')).toBeInTheDocument();
     expect(screen.getByText(/Hummingbirds \(5\)/)).toBeInTheDocument();
+  });
+
+  // --- Fix 1: outer element tag per perCellInteractive state (nested-button guard) ---
+
+  it('flag OFF / pointer:coarse → outer is <button data-testid="adaptive-grid-marker">', async () => {
+    vi.stubEnv('VITE_FF_CELL_POPOVER', 'false');
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[rendered('hummingbirds', 5)]}
+        totalCount={5}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 5 observations."
+        isCoarsePointer={true}
+        onClick={noop}
+      />
+    );
+    const outer = screen.getByTestId('adaptive-grid-marker');
+    expect(outer.tagName).toBe('BUTTON');
+  });
+
+  it('flag ON + pointer:fine → outer is <div role="presentation" data-testid="adaptive-grid-marker"> (no nested buttons)', async () => {
+    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[rendered('hummingbirds', 5)]}
+        totalCount={5}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 5 observations."
+        isCoarsePointer={false}
+        onClick={noop}
+      />
+    );
+    const outer = screen.getByTestId('adaptive-grid-marker');
+    expect(outer.tagName).toBe('DIV');
+    expect(outer.getAttribute('role')).toBe('presentation');
+    // aria-label must still be present for SR coherence
+    expect(outer.getAttribute('aria-label')).toBe('Cluster: 5 observations.');
+  });
+
+  // --- Fix 2: mouseleave timer cleanup on unmount (no late setState) ----------
+
+  it('flag ON + pointer:fine: unmounting with pending mouseleave timer fires no warning / late state update', async () => {
+    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+    vi.useFakeTimers();
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { unmount } = render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', [
+          { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
+        ])]}
+        totalCount={5}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 5 observations."
+        isCoarsePointer={false}
+        onClick={noop}
+      />
+    );
+    const cell = screen.getByTestId('adaptive-grid-marker-cell-rendered');
+    // Trigger preview so a mouseleave timer will be queued.
+    fireEvent.mouseEnter(cell);
+    fireEvent.mouseLeave(cell);
+    // Unmount BEFORE the 250ms mouseleave delay fires.
+    act(() => { unmount(); });
+    // Advance past the timer — should not fire into the unmounted component.
+    act(() => { vi.advanceTimersByTime(300); });
+    // No "Can't perform a React state update on an unmounted component" warning.
+    const stateWarnings = consoleError.mock.calls.filter((args) =>
+      String(args[0]).includes('unmounted') || String(args[0]).includes('state update')
+    );
+    expect(stateWarnings).toHaveLength(0);
+    consoleError.mockRestore();
+    vi.useRealTimers();
   });
 
   it('flag ON + pointer:fine: Enter on a focused cell promotes preview to popover', async () => {
