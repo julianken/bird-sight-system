@@ -514,15 +514,14 @@ New tests for `aggregateClusterSpecies`:
 
 ## 10. Sequencing
 
-This spec gates Issue #556 (per the user's instruction to file an epic after spec approval). The implementation sequence under that epic:
+This spec gates Issue #556 (per the user's instruction to file an epic after spec approval). The implementation sequence under that epic is **4 phases** (parent-spec amend folded into Phase 3 per the 2026-05-15 bot-review pass on #556):
 
-1. **Phase 0** — Data layer: `aggregateClusterSpecies` + `AdaptiveTile.species` thread + unit tests. CI green; no UI changes.
-2. **Phase 1** — `<CellHoverPreview>` + `<CellPopover>` + `<TileCell>` desktop wiring behind a feature flag (`VITE_FF_CELL_POPOVER`). Default off. Existing tests + new component tests all green.
-3. **Phase 2** — `<ClusterListPopover>` + mobile wiring behind the same flag.
-4. **Phase 3** — `SpeciesDetailSurface` bbox extension + `useUrlState` bbox + e2e + flag flip default on.
-5. **Phase 4** — Documentation linkbacks; spec amends to `docs/specs/2026-05-14-adaptive-cluster-grid-design.md` reflecting the §2 reversal.
+1. **Phase 0** — Data layer: `aggregateClusterSpecies` + `AdaptiveTile.species` thread + `speciesCode` propagation through `observationsToGeoJson` and `ClusterLeafFeature` + test-fixture updates + unit tests. CI green; no UI changes.
+2. **Phase 1** — `<CellHoverPreview>` + `<CellPopover>` + `<TileCell>` desktop wiring + minimum-viable "Explore map markers" skip-link behind a feature flag (`VITE_FF_CELL_POPOVER`). Default off. Existing tests + new component tests all green.
+3. **Phase 2** — `<ClusterListPopover>` + mobile wiring behind the same flag. Depends on Phase 1 (shared `AdaptiveGridMarker.tsx` mutations); ships AFTER Phase 1. Playwright config gains a `coarse-pointer` project for `pointer:coarse` media-query emulation.
+4. **Phase 3** — `SpeciesDetailSurface` **client-side** `bbox` filter (Read API has no `bbox` support; server-side bbox is a deferred follow-up if data volume grows) + `useUrlState` bbox + full e2e spec + **atomic** flag flip + cleanup in one PR (matches PR #546's `VITE_FF_ADAPTIVE_GRID` precedent — deletes runtime branching alongside the env-default flip in `.env.example`) + spec amend to `docs/specs/2026-05-14-adaptive-cluster-grid-design.md` §2 reflecting the reversal.
 
-Each phase is its own PR. Phases 0-3 each preserve the prototype-gate convention from `CLAUDE.md` (no UI changes commit without screenshots from the 5 canonical viewports × 2 themes).
+Each phase is its own PR. All 4 phases preserve the prototype-gate convention from `CLAUDE.md` (no UI changes commit without screenshots from the 5 canonical viewports × 2 themes).
 
 ## 11. References
 
