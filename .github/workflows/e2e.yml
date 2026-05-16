@@ -47,7 +47,8 @@ jobs:
             VALUES
               ('vermfly',  'Vermilion Flycatcher', 'Pyrocephalus rubinus',   'tyrannidae',   'Tyrant Flycatchers',  4400),
               ('annhum',   'Anna''s Hummingbird',   'Calypte anna',           'trochilidae',  'Hummingbirds',        840),
-              ('eletro1',  'Elegant Trogon',        'Trogon elegans',         'trogonidae',   'Trogons',             1200)
+              ('eletro1',  'Elegant Trogon',        'Trogon elegans',         'trogonidae',   'Trogons',             1200),
+              ('cacwre',   'Cactus Wren',           'Campylorhynchus brunneicapillus', 'troglodytidae', 'Wrens',    5400)
             ON CONFLICT (species_code) DO NOTHING;
 
             -- 2. Insert observations using actual schema (no com_name/sci_name columns on this table).
@@ -57,7 +58,8 @@ jobs:
               ('S_e2e_1', 'vermfly',  31.73, -110.88, NOW(), 'L_e2e_1', 'Madera Canyon',  1, false),
               ('S_e2e_2', 'vermfly',  31.71, -110.85, NOW(), 'L_e2e_2', 'Madera Canyon',  2, false),
               ('S_e2e_3', 'annhum',   32.22, -110.96, NOW(), 'L_e2e_3', 'Tucson',         1, false),
-              ('S_e2e_4', 'eletro1',  31.75, -110.87, NOW(), 'L_e2e_4', 'Madera Canyon',  1, true)
+              ('S_e2e_4', 'eletro1',  31.75, -110.87, NOW(), 'L_e2e_4', 'Madera Canyon',  1, true),
+              ('S_e2e_5', 'cacwre',   31.74, -110.86, NOW(), 'L_e2e_5', 'Madera Canyon',  1, false)
             ON CONFLICT (sub_id, species_code) DO NOTHING;
 
             -- 3. Stamp silhouette_id (via species_meta → family_silhouettes).
