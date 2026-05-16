@@ -306,8 +306,8 @@ describe('<ClusterListPopover>', () => {
     expect(document.activeElement).toBe(done);
     // Tab forward; container's keydown handler intercepts and wraps focus.
     fireEvent.keyDown(done, { key: 'Tab' });
-    // First interactive after wrap: the family toggle button.
-    expect(document.activeElement?.getAttribute('role') ?? document.activeElement?.tagName).toMatch(/BUTTON|button/);
+    // First interactive after wrap: the family toggle button (identified by name).
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: /Hummingbirds/i }));
     // Reverse: Shift+Tab from family toggle wraps to Done.
     const firstFocusable = document.activeElement as HTMLElement;
     fireEvent.keyDown(firstFocusable, { key: 'Tab', shiftKey: true });
