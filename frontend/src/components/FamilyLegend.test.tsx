@@ -399,6 +399,74 @@ describe('Phase 3: shape-paired swatches', () => {
   });
 });
 
+describe('theme-aware swatch (F3 / #578)', () => {
+  // Fixtures with distinct color vs colorDark so we can assert the correct
+  // one is selected per theme. Distinct from baseSilhouettes where they happen
+  // to be equal.
+  const dualSilhouettes: FamilySilhouette[] = [
+    {
+      familyCode: 'tyrannidae',
+      color: '#C77A2E',         // light-basemap color (darker)
+      colorDark: '#E8983E',     // dark-legend color (lighter)
+      svgData: 'M0 0L1 1Z',
+      svgUrl: null,
+      source: 'placeholder',
+      license: 'CC0',
+      commonName: 'Tyrant Flycatchers',
+      creator: null,
+    },
+  ];
+  const dualObservations: Observation[] = [obs('S1', 'tyrannidae')];
+
+  it('light theme: swatch uses entry.silhouette.color (NOT colorDark)', () => {
+    const prior = document.documentElement.getAttribute('data-theme');
+    document.documentElement.setAttribute('data-theme', 'light');
+    try {
+      render(
+        <FamilyLegend
+          silhouettes={dualSilhouettes}
+          observations={dualObservations}
+          familyCode={null}
+          onFamilyToggle={vi.fn()}
+          defaultExpanded={true}
+        />,
+      );
+      const tyrEntry = screen.getByRole('button', { name: /Tyrant Flycatchers/ });
+      const silhouette = tyrEntry.querySelector('[data-testid="family-silhouette"]') as HTMLElement;
+      expect(silhouette).not.toBeNull();
+      // Light theme must use .color (#C77A2E), NOT .colorDark (#E8983E)
+      expect(silhouette.style.getPropertyValue('--family-fill')).toBe('#C77A2E');
+    } finally {
+      if (prior === null) document.documentElement.removeAttribute('data-theme');
+      else document.documentElement.setAttribute('data-theme', prior);
+    }
+  });
+
+  it('dark theme: swatch uses entry.silhouette.colorDark (NOT color)', () => {
+    const prior = document.documentElement.getAttribute('data-theme');
+    document.documentElement.setAttribute('data-theme', 'dark');
+    try {
+      render(
+        <FamilyLegend
+          silhouettes={dualSilhouettes}
+          observations={dualObservations}
+          familyCode={null}
+          onFamilyToggle={vi.fn()}
+          defaultExpanded={true}
+        />,
+      );
+      const tyrEntry = screen.getByRole('button', { name: /Tyrant Flycatchers/ });
+      const silhouette = tyrEntry.querySelector('[data-testid="family-silhouette"]') as HTMLElement;
+      expect(silhouette).not.toBeNull();
+      // Dark theme must use .colorDark (#E8983E), NOT .color (#C77A2E)
+      expect(silhouette.style.getPropertyValue('--family-fill')).toBe('#E8983E');
+    } finally {
+      if (prior === null) document.documentElement.removeAttribute('data-theme');
+      else document.documentElement.setAttribute('data-theme', prior);
+    }
+  });
+});
+
 describe('DB color binding (NEW-3 fix)', () => {
   it('legend silhouette chips use the DB color from silhouettes[].color, not the grey fallback', () => {
     // The tyrannidae silhouette has color '#C77A2E' in baseSilhouettes.
