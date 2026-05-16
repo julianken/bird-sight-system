@@ -260,6 +260,7 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
             perCellInteractive={perCellInteractive}
             cellId={markerId}
             isExpanded={activeCell?.index === i && activeCell.mode === 'popover'}
+            {...(perCellInteractive && activeCell?.index === i && previewId ? { previewId } : {})}
             cellRef={(el) => { cellRefs.current[i] = el; }}
             onCellMouseEnter={() => onCellMouseEnter(i)}
             onCellMouseLeave={() => onCellMouseLeave(i)}
@@ -291,7 +292,7 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
             familyCode={activeTile.familyCode}
             familyCount={activeTile.count}
             species={activeTile.species}
-            id={`cell-${markerId}-${activeTile.familyCode}-preview`}
+            id={previewId!}
           />
         ) : (
           cellRefs.current[activeCell.index] ? (
@@ -321,6 +322,8 @@ interface TileCellProps {
   perCellInteractive: boolean;
   cellId: string;
   isExpanded: boolean;
+  /** Spec §4.8: only the active cell carries aria-describedby. Non-active cells omit it. */
+  previewId?: string;
   cellRef: (el: HTMLButtonElement | null) => void;
   onCellMouseEnter?: () => void;
   onCellMouseLeave?: () => void;
@@ -337,6 +340,7 @@ function TileCell({
   perCellInteractive,
   cellId,
   isExpanded,
+  previewId,
   cellRef,
   onCellMouseEnter,
   onCellMouseLeave,
@@ -366,7 +370,7 @@ function TileCell({
           className="adaptive-grid-marker__cell adaptive-grid-marker__cell--fallback"
           aria-haspopup="dialog"
           aria-expanded={isExpanded ? 'true' : 'false'}
-          aria-describedby={`cell-${cellId}-${tile.familyCode}-preview`}
+          aria-describedby={previewId}
           onMouseEnter={onCellMouseEnter}
           onMouseLeave={onCellMouseLeave}
           onFocus={onCellFocus}
@@ -458,7 +462,7 @@ function TileCell({
         className="adaptive-grid-marker__cell"
         aria-haspopup="dialog"
         aria-expanded={isExpanded ? 'true' : 'false'}
-        aria-describedby={`cell-${cellId}-${tile.familyCode}-preview`}
+        aria-describedby={previewId}
         onMouseEnter={onCellMouseEnter}
         onMouseLeave={onCellMouseLeave}
         onFocus={onCellFocus}

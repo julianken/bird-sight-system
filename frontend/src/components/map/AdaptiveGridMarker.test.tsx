@@ -487,7 +487,48 @@ describe('AdaptiveGridMarker — VITE_FF_CELL_POPOVER (Phase 1, #558)', () => {
     expect(cell.tagName).toBe('BUTTON');
     expect(cell.getAttribute('aria-haspopup')).toBe('dialog');
     expect(cell.getAttribute('aria-expanded')).toBe('false');
-    expect(cell.getAttribute('aria-describedby')).toMatch(/^cell-.*-preview$/);
+    // Spec §4.8: aria-describedby is only present on the ACTIVE cell.
+    // Before hover/focus, no cell is active, so it must be absent.
+    expect(cell.getAttribute('aria-describedby')).toBeNull();
+  });
+
+  it('flag ON + pointer:fine: active cell gets aria-describedby, inactive cells do not (spec §4.8)', async () => {
+    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_2x1}
+        tiles={[
+          rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', [
+            { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
+          ]),
+          rendered('accipitridae', 3, 'M0 0L24 24Z', '#C77A2E', [
+            { comName: "Cooper's Hawk", count: 3, speciesCode: 'coohaw' },
+          ]),
+        ]}
+        totalCount={8}
+        uniqueFamilies={2}
+        ariaLabel="Cluster: 8 observations."
+        isCoarsePointer={false}
+        onClick={noop}
+      />
+    );
+    const cells = screen.getAllByTestId('adaptive-grid-marker-cell-rendered');
+    expect(cells).toHaveLength(2);
+
+    // Hover the first cell to make it active.
+    fireEvent.mouseEnter(cells[0]);
+
+    // Active cell (index 0) carries aria-describedby pointing at the preview element.
+    const activeDescribedBy = cells[0].getAttribute('aria-describedby');
+    expect(activeDescribedBy).toMatch(/^cell-.*-preview$/);
+
+    // Inactive cell (index 1) must NOT carry aria-describedby.
+    expect(cells[1].getAttribute('aria-describedby')).toBeNull();
+
+    // The rendered <CellHoverPreview> must have the matching id (both sides wired).
+    const tooltip = screen.getByRole('tooltip');
+    expect(tooltip.id).toBe(activeDescribedBy);
   });
 
   it('flag ON + pointer:fine: hit-extender computed pointer-events is "none"', async () => {
