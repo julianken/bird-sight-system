@@ -77,11 +77,7 @@ export default defineConfig({
     },
     {
       // Start Vite dev server on port 5173 (proxies /api → 8787).
-      // VITE_FF_CELL_POPOVER=true enables Phase 1 (cell popover) + Phase 2
-      // (cluster list popover) features during e2e runs. The flag default in
-      // .env is false; this override keeps the dev server flag-ON for tests
-      // without affecting other workspaces.
-      command: 'VITE_FF_CELL_POPOVER=true npm run dev',
+      command: 'npm run dev',
       cwd: __dirname,
       url: 'http://localhost:5173',
       reuseExistingServer: !process.env.CI,

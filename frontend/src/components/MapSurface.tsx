@@ -7,7 +7,6 @@ import { MapLede, type Freshness } from './MapLede.js';
 import { FilterSentence } from './ds/FilterSentence.js';
 import type { Since, BBox } from '../state/url-state.js';
 import { prettyFamily } from '../derived.js';
-import { isCellPopoverEnabled } from '../feature-flags.js';
 
 /**
  * Lazy-loaded MapCanvas. The React.lazy() boundary lives HERE — not inside
@@ -199,7 +198,7 @@ export function MapSurface({
           Skip to species list
         </button>
       )}
-      {onExploreMapMarkers && isCellPopoverEnabled() && (
+      {onExploreMapMarkers && (
         <button
           type="button"
           className="skip-link"

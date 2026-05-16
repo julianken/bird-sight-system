@@ -7,18 +7,7 @@ import { test, expect } from '@playwright/test';
 // project — the default `dev-server` project's grepInvert filters it out.
 
 test('@coarse tablet portrait: tap marker opens cluster list, expand family, tap species', async ({ page }) => {
-  // Hydrate with the feature flag ON via query param. (The build inlines
-  // VITE_FF_CELL_POPOVER at compile time, so runtime override is via a
-  // search-param the app code reads in non-prod. If that mechanism doesn't
-  // exist, this test must run against a build with the flag enabled —
-  // dev-server already inherits the project root's .env which defaults to
-  // the flag OFF, so the test sets VITE_FF_CELL_POPOVER=true in the
-  // webServer env for the coarse-pointer project. See playwright.config.ts
-  // Task 7 amendment.)
-  //
-  // For Phase 2 simplicity, assume the dev-server is launched with
-  // VITE_FF_CELL_POPOVER=true. Reviewers verify by inspecting the running
-  // dev server's index.html for the flag-on conditional render.
+  // Cell popover is default-ON since Phase 3 (#560) — no flag override needed.
 
   await page.goto('/');
   // Wait for the map render to complete (canonical pattern from

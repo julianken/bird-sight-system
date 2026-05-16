@@ -844,9 +844,8 @@ describe('MapCanvas', () => {
 });
 
 // Phase 3 (#560) — popover-originated onSelectSpecies attaches bbox
-// These tests run in a separate describe block that resets modules so
-// VITE_FF_CELL_POPOVER=true takes effect at AdaptiveGridMarker module load,
-// enabling per-cell <button> + CellPopover for pointer:fine.
+// These tests run in a separate describe block that resets modules to
+// pick up the pointer:fine matchMedia stub for AdaptiveGridMarker.
 describe('onSelectSpecies popover-bbox wire (Phase 3, #560)', () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let MapCanvasFresh: any;
@@ -864,7 +863,7 @@ describe('onSelectSpecies popover-bbox wire (Phase 3, #560)', () => {
     document.documentElement.removeAttribute('data-theme');
 
     // Stub matchMedia: pointer:fine = true so AdaptiveGridMarker renders
-    // per-cell <button> elements (perCellInteractive = flag && isPointerFine).
+    // per-cell <button> elements (perCellInteractive = isPointerFine).
     window.matchMedia = vi.fn().mockImplementation((q: string) => ({
       matches: q === '(pointer: fine)',
       media: q,
@@ -876,12 +875,9 @@ describe('onSelectSpecies popover-bbox wire (Phase 3, #560)', () => {
       dispatchEvent: () => false,
     })) as unknown as typeof window.matchMedia;
 
-    // Enable cell popover flag so AdaptiveGridMarker renders per-cell <button>.
-    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
     vi.resetModules();
 
-    // Dynamically import after env is set + modules reset so feature-flags.ts
-    // re-evaluates import.meta.env.VITE_FF_CELL_POPOVER === 'true'.
+    // Dynamically import after modules reset so hooks re-evaluate correctly.
     const mod = await import('./MapCanvas.js');
     MapCanvasFresh = mod.MapCanvas;
     resetCacheFresh = mod.__resetAdaptiveGridCacheForTesting;

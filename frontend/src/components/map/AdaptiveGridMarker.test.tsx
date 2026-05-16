@@ -429,7 +429,7 @@ describe('markerDimensions', () => {
 
 // --- Phase 1 (#558): flag-gated per-cell trigger surface ----------------------
 
-describe('AdaptiveGridMarker — VITE_FF_CELL_POPOVER (Phase 1, #558)', () => {
+describe('AdaptiveGridMarker — cell popover (Phase 1, #558)', () => {
   beforeEach(() => {
     vi.resetModules();
     // Default matchMedia stub: pointer:fine = true, pointer:coarse = false.
@@ -445,30 +445,7 @@ describe('AdaptiveGridMarker — VITE_FF_CELL_POPOVER (Phase 1, #558)', () => {
     })) as unknown as typeof window.matchMedia;
   });
 
-  it('flag OFF: <TileCell> renders as <div> with no per-cell ARIA (regression guard)', async () => {
-    vi.stubEnv('VITE_FF_CELL_POPOVER', 'false');
-    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
-    render(
-      <AdaptiveGridMarker
-        shape={SHAPE_1x1}
-        tiles={[rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', [
-          { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
-        ])]}
-        totalCount={5}
-        uniqueFamilies={1}
-        ariaLabel="Cluster: 5 observations."
-        isCoarsePointer={false}
-        onClick={noop}
-      />
-    );
-    const cell = screen.getByTestId('adaptive-grid-marker-cell-rendered');
-    expect(cell.tagName).toBe('DIV');
-    expect(cell.getAttribute('aria-haspopup')).toBeNull();
-    expect(cell.getAttribute('aria-expanded')).toBeNull();
-  });
-
-  it('flag ON + pointer:fine: <TileCell> renders as <button> with ARIA wiring', async () => {
-    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+  it('pointer:fine: <TileCell> renders as <button> with ARIA wiring', async () => {
     const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
     render(
       <AdaptiveGridMarker
@@ -492,8 +469,7 @@ describe('AdaptiveGridMarker — VITE_FF_CELL_POPOVER (Phase 1, #558)', () => {
     expect(cell.getAttribute('aria-describedby')).toBeNull();
   });
 
-  it('flag ON + pointer:fine: active cell gets aria-describedby, inactive cells do not (spec §4.8)', async () => {
-    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+  it('pointer:fine: active cell gets aria-describedby, inactive cells do not (spec §4.8)', async () => {
     const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
     render(
       <AdaptiveGridMarker
@@ -531,8 +507,7 @@ describe('AdaptiveGridMarker — VITE_FF_CELL_POPOVER (Phase 1, #558)', () => {
     expect(tooltip.id).toBe(activeDescribedBy);
   });
 
-  it('flag ON + pointer:fine: hit-extender computed pointer-events is "none"', async () => {
-    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+  it('pointer:fine: hit-extender computed pointer-events is "none"', async () => {
     const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
     render(
       <AdaptiveGridMarker
@@ -549,8 +524,7 @@ describe('AdaptiveGridMarker — VITE_FF_CELL_POPOVER (Phase 1, #558)', () => {
     expect(hit.style.pointerEvents).toBe('none');
   });
 
-  it('flag ON + pointer:coarse: hit-extender computed pointer-events is "auto" (mobile preserves whole-marker tap)', async () => {
-    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+  it('pointer:coarse: hit-extender computed pointer-events is "auto" (mobile preserves whole-marker tap)', async () => {
     const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
     render(
       <AdaptiveGridMarker
@@ -567,8 +541,7 @@ describe('AdaptiveGridMarker — VITE_FF_CELL_POPOVER (Phase 1, #558)', () => {
     expect(hit.style.pointerEvents).toBe('auto');
   });
 
-  it('flag ON + pointer:fine: mouseenter on a cell triggers <CellHoverPreview> render', async () => {
-    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+  it('pointer:fine: mouseenter on a cell triggers <CellHoverPreview> render', async () => {
     const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
     render(
       <AdaptiveGridMarker
@@ -591,26 +564,7 @@ describe('AdaptiveGridMarker — VITE_FF_CELL_POPOVER (Phase 1, #558)', () => {
 
   // --- Fix 1: outer element tag per perCellInteractive state (nested-button guard) ---
 
-  it('flag OFF / pointer:coarse → outer is <button data-testid="adaptive-grid-marker">', async () => {
-    vi.stubEnv('VITE_FF_CELL_POPOVER', 'false');
-    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
-    render(
-      <AdaptiveGridMarker
-        shape={SHAPE_1x1}
-        tiles={[rendered('hummingbirds', 5)]}
-        totalCount={5}
-        uniqueFamilies={1}
-        ariaLabel="Cluster: 5 observations."
-        isCoarsePointer={true}
-        onClick={noop}
-      />
-    );
-    const outer = screen.getByTestId('adaptive-grid-marker');
-    expect(outer.tagName).toBe('BUTTON');
-  });
-
-  it('flag ON + pointer:fine → outer is <div role="group" data-testid="adaptive-grid-marker"> (no nested buttons)', async () => {
-    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+  it('pointer:fine → outer is <div role="group" data-testid="adaptive-grid-marker"> (no nested buttons)', async () => {
     const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
     render(
       <AdaptiveGridMarker
@@ -634,7 +588,6 @@ describe('AdaptiveGridMarker — VITE_FF_CELL_POPOVER (Phase 1, #558)', () => {
   // --- Fix 2: mouseleave timer cleanup on unmount (#558 fix2) ----------
 
   it('clears pending mouseLeaveTimers on unmount (#558 fix2)', async () => {
-    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
     vi.useFakeTimers();
     const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
     const { unmount, container } = render(
@@ -662,8 +615,7 @@ describe('AdaptiveGridMarker — VITE_FF_CELL_POPOVER (Phase 1, #558)', () => {
     vi.useRealTimers();
   });
 
-  it('flag ON + pointer:fine: Enter on a focused cell promotes preview to popover', async () => {
-    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+  it('pointer:fine: Enter on a focused cell promotes preview to popover', async () => {
     const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
     render(
       <AdaptiveGridMarker
@@ -688,7 +640,7 @@ describe('AdaptiveGridMarker — VITE_FF_CELL_POPOVER (Phase 1, #558)', () => {
 
 // --- Phase 2 (#559): coarse-pointer cluster list popover ---------------------
 
-describe('AdaptiveGridMarker — VITE_FF_CELL_POPOVER coarse-pointer (Phase 2, #559)', () => {
+describe('AdaptiveGridMarker — cell popover coarse-pointer (Phase 2, #559)', () => {
   beforeEach(() => {
     vi.resetModules();
     // Coarse-pointer matchMedia stub: pointer:coarse = true, pointer:fine = false.
@@ -704,8 +656,7 @@ describe('AdaptiveGridMarker — VITE_FF_CELL_POPOVER coarse-pointer (Phase 2, #
     })) as unknown as typeof window.matchMedia;
   });
 
-  it('flag ON + coarse + multi-leaf: outer-button tap opens <ClusterListPopover> AND suppresses onClick', async () => {
-    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+  it('coarse + multi-leaf: outer-button tap opens <ClusterListPopover> AND suppresses onClick', async () => {
     const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
     const onClick = vi.fn();
     render(
@@ -735,36 +686,7 @@ describe('AdaptiveGridMarker — VITE_FF_CELL_POPOVER coarse-pointer (Phase 2, #
     expect(onClick).not.toHaveBeenCalled();
   });
 
-  it('flag OFF + coarse + multi-leaf: outer-button tap STILL invokes onClick (zoom preserved)', async () => {
-    vi.stubEnv('VITE_FF_CELL_POPOVER', 'false');
-    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
-    const onClick = vi.fn();
-    render(
-      <AdaptiveGridMarker
-        shape={SHAPE_2x2}
-        tiles={[
-          rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', [
-            { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
-          ]),
-          rendered('flycatchers', 12, 'M0 0L24 24Z', '#aaa', [
-            { comName: 'Black Phoebe', count: 12, speciesCode: 'blkpho' },
-          ]),
-        ]}
-        totalCount={17}
-        uniqueFamilies={2}
-        ariaLabel="Cluster: 17 observations, 2 families."
-        isCoarsePointer={true}
-        onClick={onClick}
-      />
-    );
-    const outer = screen.getByTestId('adaptive-grid-marker');
-    fireEvent.click(outer);
-    expect(onClick).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole('dialog')).toBeNull();
-  });
-
-  it('flag ON + coarse + single-leaf (totalCount===1): outer-button tap calls onClick (NOT cluster list popover)', async () => {
-    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+  it('coarse + single-leaf (totalCount===1): outer-button tap calls onClick (NOT cluster list popover)', async () => {
     const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
     const onClick = vi.fn();
     render(

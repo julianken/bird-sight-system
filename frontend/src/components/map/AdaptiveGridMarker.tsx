@@ -3,7 +3,6 @@ import type { MouseEvent, CSSProperties, KeyboardEvent } from 'react';
 import type { AdaptiveTile, ResolvedGrid } from './adaptive-grid.js';
 import { visibleCapacity } from './adaptive-grid.js';
 import { FALLBACK_SILHOUETTE_PATH } from './silhouette-fallback.js';
-import { isCellPopoverEnabled } from '../../feature-flags.js';
 import { useMediaQuery } from '../../hooks/use-media-query.js';
 import { CellHoverPreview } from './CellHoverPreview.js';
 import { CellPopover } from './CellPopover.js';
@@ -51,10 +50,10 @@ import { ClusterListPopover } from './ClusterListPopover.js';
  * the §4.6 table.
  *
  * Phase 1 cell popover (spec §4.5, §4.6, §4.7, §4.8, epic #556, issue #558):
- * When `VITE_FF_CELL_POPOVER=true` AND the pointer is fine (not coarse),
- * each `<TileCell>` becomes a `<button>` with per-cell hover/focus/click
- * interaction. The hit-extender overlay's `pointerEvents` toggles to `'none'`
- * in that mode so it doesn't intercept individual cell events.
+ * When the pointer is fine (not coarse), each `<TileCell>` becomes a
+ * `<button>` with per-cell hover/focus/click interaction. The hit-extender
+ * overlay's `pointerEvents` toggles to `'none'` in that mode so it doesn't
+ * intercept individual cell events.
  */
 
 export interface AdaptiveGridMarkerProps {
@@ -134,11 +133,10 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
     onSelectSpecies,
   } = props;
 
-  const flag = isCellPopoverEnabled();
   const isPointerFine = useMediaQuery('(pointer: fine)');
-  const perCellInteractive = flag && isPointerFine && !isCoarsePointer;
+  const perCellInteractive = isPointerFine && !isCoarsePointer;
 
-  const clusterListInteractive = flag && isCoarsePointer === true;
+  const clusterListInteractive = isCoarsePointer === true;
   const [isClusterListOpen, setIsClusterListOpen] = useState<boolean>(false);
   const outerRef = useRef<HTMLElement | null>(null);
 
