@@ -180,6 +180,22 @@ describe('observationsToGeoJson', () => {
     expect(props.familyCode).toBeNull();
   });
 
+  it('threads speciesCode through to feature properties (#557)', () => {
+    const out = observationsToGeoJson(
+      [
+        {
+          subId: 'S1', speciesCode: 'coohaw', comName: "Cooper's Hawk",
+          locName: 'Tucson', obsDt: '2026-05-15', howMany: 1, isNotable: false,
+          familyCode: 'accipitridae', silhouetteId: 'accipitridae',
+          lng: -110, lat: 32,
+          locId: 'L1',
+        } as Observation,
+      ],
+      [],
+    );
+    expect(out.features[0]?.properties.speciesCode).toBe('coohaw');
+  });
+
 });
 
 describe('layer specs', () => {

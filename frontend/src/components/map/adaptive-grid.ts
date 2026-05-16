@@ -100,9 +100,22 @@ export function pickGridShape(
  */
 export interface ClusterLeafFeature {
   type: 'Feature';
+  geometry: { type: 'Point'; coordinates: [number, number] };
   properties: {
+    /** Family code. Null when the join in `observationsToGeoJson` doesn't hit. */
     familyCode: string | null;
-  } & Record<string, unknown>;
+    /**
+     * eBird 6-char species code. Threaded onto each feature by
+     * `observationsToGeoJson` (issue #557 / spec §4.11). `null` for
+     * spuh/slash/hybrid taxa where eBird returns no code; preserved
+     * by `aggregateClusterSpecies` as a non-clickable row.
+     */
+    speciesCode: string | null;
+    /** Display common name. Always present per eBird API contract. */
+    comName: string;
+    /** Whether this observation is in eBird's notable list. */
+    isNotable?: boolean;
+  };
 }
 
 export interface FamilyAggregate {
@@ -130,11 +143,18 @@ export type SilhouettesById = ReadonlyMap<
  *   - `pending`: catalogue not yet loaded for ANY family. Renderer
  *     paints a skeleton/shimmer so a cold-load map is distinguishable
  *     from a real coverage gap (spec §5.1 type comment).
+ *
+ * `species` is the per-species breakdown for this family in the cluster,
+ * threaded onto every variant for Phase 1+ popovers (issue #557, spec §4.1).
+ * Sum invariant: `sum(species[].count) === count`.
  */
 export type AdaptiveTile =
-  | { kind: 'rendered'; familyCode: string; svgData: string; color: string; count: number }
-  | { kind: 'fallback'; familyCode: string; color: string; count: number }
-  | { kind: 'pending'; familyCode: string; count: number };
+  | { kind: 'rendered'; familyCode: string; svgData: string; color: string;
+      count: number; species: ReadonlyArray<SpeciesAggregate> }
+  | { kind: 'fallback'; familyCode: string; color: string;
+      count: number; species: ReadonlyArray<SpeciesAggregate> }
+  | { kind: 'pending'; familyCode: string;
+      count: number; species: ReadonlyArray<SpeciesAggregate> };
 
 /**
  * Reduce the leaves of a single cluster into a sorted
@@ -188,10 +208,12 @@ export function buildAdaptiveTiles(
   shape: ResolvedGrid,
 ): ReadonlyArray<AdaptiveTile> {
   const families = aggregateClusterFamilies(leaves);
+  const speciesByFamily = aggregateClusterSpecies(leaves);
   const visible = families.slice(0, visibleCapacity(shape));
   return visible.map((fam): AdaptiveTile => {
+    const species = speciesByFamily.get(fam.familyCode) ?? [];
     if (silhouettesById.size === 0) {
-      return { kind: 'pending', familyCode: fam.familyCode, count: fam.count };
+      return { kind: 'pending', familyCode: fam.familyCode, count: fam.count, species };
     }
     const silhouette = silhouettesById.get(fam.familyCode);
     if (!silhouette || silhouette.svgData === null) {
@@ -200,6 +222,7 @@ export function buildAdaptiveTiles(
         familyCode: fam.familyCode,
         color: silhouette?.color ?? '#888888',
         count: fam.count,
+        species,
       };
     }
     return {
@@ -208,6 +231,76 @@ export function buildAdaptiveTiles(
       svgData: silhouette.svgData,
       color: silhouette.color,
       count: fam.count,
+      species,
     };
   });
+}
+
+/**
+ * Per-species aggregation within a family. Used by `<CellHoverPreview>`,
+ * `<CellPopover>`, and `<ClusterListPopover>` (epic #556, Phase 1+).
+ *
+ * `comName` is the grouping key (always present per eBird API contract);
+ * `speciesCode` is `null` for spuh/slash/hybrid taxa where eBird returns
+ * no canonical code — the row renders but is not clickable.
+ */
+export interface SpeciesAggregate {
+  comName: string;
+  speciesCode: string | null;
+  count: number;
+}
+
+/**
+ * Group cluster leaves by `comName` within each `familyCode`. Used by
+ * `buildAdaptiveTiles` (issue #557, spec §4.2). Sort: descending count,
+ * ascending `comName`.
+ *
+ * - Leaves with `familyCode === null` drop (cannot bucket).
+ * - Leaves with `speciesCode === null` preserved with `speciesCode: null`.
+ * - Multiple leaves with same `comName` but different `speciesCode` merge
+ *   (first non-null `speciesCode` wins).
+ */
+export function aggregateClusterSpecies(
+  leaves: ClusterLeafFeature[],
+): Map<string, ReadonlyArray<SpeciesAggregate>> {
+  // First pass: group by (familyCode, comName) → { count, speciesCode }.
+  // `speciesCode` value: first non-null wins; null only if every leaf has null.
+  type Bucket = { speciesCode: string | null; count: number };
+  const byFamily = new Map<string, Map<string, Bucket>>();
+
+  for (const leaf of leaves) {
+    const { familyCode, speciesCode, comName } = leaf.properties;
+    if (familyCode === null) continue;
+    let speciesMap = byFamily.get(familyCode);
+    if (!speciesMap) {
+      speciesMap = new Map();
+      byFamily.set(familyCode, speciesMap);
+    }
+    const existing = speciesMap.get(comName);
+    if (existing) {
+      existing.count += 1;
+      // First non-null speciesCode wins (defensive against bad data).
+      if (existing.speciesCode === null && speciesCode !== null) {
+        existing.speciesCode = speciesCode;
+      }
+    } else {
+      speciesMap.set(comName, { speciesCode, count: 1 });
+    }
+  }
+
+  // Second pass: sort each family's species (descending count, ascending comName).
+  const result = new Map<string, ReadonlyArray<SpeciesAggregate>>();
+  for (const [familyCode, speciesMap] of byFamily) {
+    const species: SpeciesAggregate[] = Array.from(speciesMap, ([comName, bucket]) => ({
+      comName,
+      speciesCode: bucket.speciesCode,
+      count: bucket.count,
+    }));
+    species.sort((a, b) => {
+      if (a.count !== b.count) return b.count - a.count;
+      return a.comName.localeCompare(b.comName);
+    });
+    result.set(familyCode, species);
+  }
+  return result;
 }
