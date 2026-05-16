@@ -64,7 +64,6 @@ function contrastRatio(hexA: string, hexB: string): number {
 
 const LIGHT_BASE = '#f4f1ea'; // OpenFreeMap positron — cream land surface
 const DARK_BASE = '#0E1116';  // OpenFreeMap dark — near-black land surface
-const DARK_LEGEND_CARD = '#131C30'; // FamilyLegend card dark-theme surface (F3 / #578)
 
 // ---------------------------------------------------------------------------
 // Test setup
