@@ -1,7 +1,12 @@
-import type { MouseEvent, CSSProperties } from 'react';
+import { useState, useId, useRef } from 'react';
+import type { MouseEvent, CSSProperties, KeyboardEvent } from 'react';
 import type { AdaptiveTile, ResolvedGrid } from './adaptive-grid.js';
 import { visibleCapacity } from './adaptive-grid.js';
 import { FALLBACK_SILHOUETTE_PATH } from './silhouette-fallback.js';
+import { isCellPopoverEnabled } from '../../feature-flags.js';
+import { useMediaQuery } from '../../hooks/use-media-query.js';
+import { CellHoverPreview } from './CellHoverPreview.js';
+import { CellPopover } from './CellPopover.js';
 
 /**
  * `<AdaptiveGridMarker>` — pure display component for the adaptive cluster
@@ -43,6 +48,12 @@ import { FALLBACK_SILHOUETTE_PATH } from './silhouette-fallback.js';
  * `<ul>` of up to 9 family enumerations). The marker never builds the
  * label string itself — the parent owns the per-state label format from
  * the §4.6 table.
+ *
+ * Phase 1 cell popover (spec §4.5, §4.6, §4.7, §4.8, epic #556, issue #558):
+ * When `VITE_FF_CELL_POPOVER=true` AND the pointer is fine (not coarse),
+ * each `<TileCell>` becomes a `<button>` with per-cell hover/focus/click
+ * interaction. The hit-extender overlay's `pointerEvents` toggles to `'none'`
+ * in that mode so it doesn't intercept individual cell events.
  */
 
 export interface AdaptiveGridMarkerProps {
@@ -76,6 +87,8 @@ export interface AdaptiveGridMarkerProps {
   /** Species name for the notable single-obs case (unused today; reserved). */
   notableSpeciesName?: string;
   onClick: (e: MouseEvent<HTMLButtonElement>) => void;
+  /** Phase 1 (#558): forwarded from per-cell popover row clicks. */
+  onSelectSpecies?: (speciesCode: string) => void;
 }
 
 // Layout constants — match MosaicMarker's 22px tile / 2px gap (issue #248).
@@ -117,7 +130,17 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
     isCoarsePointer,
     isNotable,
     onClick,
+    onSelectSpecies,
   } = props;
+
+  const flag = isCellPopoverEnabled();
+  const isPointerFine = useMediaQuery('(pointer: fine)');
+  const perCellInteractive = flag && isPointerFine && !isCoarsePointer;
+
+  const markerId = useId();
+  const [activeCell, setActiveCell] = useState<{ index: number; mode: 'preview' | 'popover' } | null>(null);
+  const cellRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const mouseLeaveTimers = useRef<Array<number | null>>([]);
 
   const visibleN = visibleCapacity(shape);
   const { w: markerWidth, h: markerHeight } = markerDimensions(shape);
@@ -136,7 +159,9 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
     left: -widthDeficit / 2,
     right: -widthDeficit / 2,
     background: 'transparent',
-    pointerEvents: 'auto',
+    // Phase 1 (#558): when per-cell interaction is active, disable pointer
+    // events on the overlay so individual cell buttons receive events directly.
+    pointerEvents: perCellInteractive ? 'none' : 'auto',
   };
 
   // Per spec §4.3 line 124: hidden when cell.count === 1 (regardless of the
@@ -144,6 +169,51 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
   // this collapses to the same outcome as the prior "totalCount > 1" guard
   // because cellCount === totalCount === 1.
   const showBadgeFor = (cellCount: number): boolean => cellCount > 1;
+
+  // Per-cell interaction handlers (Phase 1, #558).
+  function onCellMouseEnter(i: number) {
+    if (mouseLeaveTimers.current[i]) {
+      window.clearTimeout(mouseLeaveTimers.current[i]!);
+      mouseLeaveTimers.current[i] = null;
+    }
+    setActiveCell((prev) => (prev?.mode === 'popover' ? prev : { index: i, mode: 'preview' }));
+  }
+
+  function onCellMouseLeave(i: number) {
+    // Spec §4.5: 250ms delay; skipped when click-promoted to popover.
+    mouseLeaveTimers.current[i] = window.setTimeout(() => {
+      setActiveCell((prev) => (prev?.index === i && prev.mode === 'preview' ? null : prev));
+    }, 250);
+  }
+
+  function onCellFocus(i: number) {
+    setActiveCell((prev) => (prev?.mode === 'popover' ? prev : { index: i, mode: 'preview' }));
+  }
+
+  function onCellBlur(i: number) {
+    setActiveCell((prev) => (prev?.index === i && prev.mode === 'preview' ? null : prev));
+  }
+
+  function onCellClick(i: number) {
+    setActiveCell({ index: i, mode: 'popover' });
+  }
+
+  function onCellKeyDown(e: KeyboardEvent<HTMLButtonElement>, i: number) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      setActiveCell({ index: i, mode: 'popover' });
+    }
+  }
+
+  function onPopoverDismiss() {
+    setActiveCell(null);
+    // Focus return handled inside <CellPopover> via anchorEl.
+  }
+
+  const activeTile = activeCell !== null ? tiles[activeCell.index] : null;
+  const previewId = activeTile
+    ? `cell-${markerId}-${activeTile.familyCode}-preview`
+    : undefined;
 
   return (
     <button
@@ -187,6 +257,16 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
             tile={tile}
             showBadge={showBadgeFor(tile.count)}
             isNotable={isNotable}
+            perCellInteractive={perCellInteractive}
+            cellId={markerId}
+            isExpanded={activeCell?.index === i && activeCell.mode === 'popover'}
+            cellRef={(el) => { cellRefs.current[i] = el; }}
+            onCellMouseEnter={() => onCellMouseEnter(i)}
+            onCellMouseLeave={() => onCellMouseLeave(i)}
+            onCellFocus={() => onCellFocus(i)}
+            onCellBlur={() => onCellBlur(i)}
+            onCellClick={() => onCellClick(i)}
+            onCellKeyDown={(e) => onCellKeyDown(e, i)}
           />
         ))}
         {shape.tag === 'grid-overflow' && (
@@ -205,6 +285,31 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
           ))}
         </ul>
       )}
+      {perCellInteractive && activeCell !== null && activeTile && (
+        activeCell.mode === 'preview' ? (
+          <CellHoverPreview
+            familyCode={activeTile.familyCode}
+            familyCount={activeTile.count}
+            species={activeTile.species}
+            id={`cell-${markerId}-${activeTile.familyCode}-preview`}
+          />
+        ) : (
+          cellRefs.current[activeCell.index] ? (
+            <CellPopover
+              familyCode={activeTile.familyCode}
+              familyCount={activeTile.count}
+              species={activeTile.species}
+              anchorEl={cellRefs.current[activeCell.index]!}
+              onDismiss={onPopoverDismiss}
+              onSelectSpecies={(code: string) => {
+                if (onSelectSpecies) {
+                  onSelectSpecies(code);
+                }
+              }}
+            />
+          ) : null
+        )
+      )}
     </button>
   );
 }
@@ -213,9 +318,33 @@ interface TileCellProps {
   tile: AdaptiveTile;
   showBadge: boolean;
   isNotable: boolean | undefined;
+  perCellInteractive: boolean;
+  cellId: string;
+  isExpanded: boolean;
+  cellRef: (el: HTMLButtonElement | null) => void;
+  onCellMouseEnter?: () => void;
+  onCellMouseLeave?: () => void;
+  onCellFocus?: () => void;
+  onCellBlur?: () => void;
+  onCellClick?: () => void;
+  onCellKeyDown?: (e: KeyboardEvent<HTMLButtonElement>) => void;
 }
 
-function TileCell({ tile, showBadge, isNotable }: TileCellProps) {
+function TileCell({
+  tile,
+  showBadge,
+  isNotable,
+  perCellInteractive,
+  cellId,
+  isExpanded,
+  cellRef,
+  onCellMouseEnter,
+  onCellMouseLeave,
+  onCellFocus,
+  onCellBlur,
+  onCellClick,
+  onCellKeyDown,
+}: TileCellProps) {
   if (tile.kind === 'pending') {
     return (
       <div
@@ -227,6 +356,40 @@ function TileCell({ tile, showBadge, isNotable }: TileCellProps) {
   }
 
   if (tile.kind === 'fallback') {
+    if (perCellInteractive) {
+      return (
+        <button
+          ref={cellRef}
+          type="button"
+          tabIndex={0}
+          data-testid="adaptive-grid-marker-cell-fallback"
+          className="adaptive-grid-marker__cell adaptive-grid-marker__cell--fallback"
+          aria-haspopup="dialog"
+          aria-expanded={isExpanded ? 'true' : 'false'}
+          aria-describedby={`cell-${cellId}-${tile.familyCode}-preview`}
+          onMouseEnter={onCellMouseEnter}
+          onMouseLeave={onCellMouseLeave}
+          onFocus={onCellFocus}
+          onBlur={onCellBlur}
+          onClick={(e) => { e.stopPropagation(); onCellClick?.(); }}
+          onKeyDown={onCellKeyDown}
+          style={{ all: 'unset', cursor: 'pointer', display: 'block', opacity: 0.5 }}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width={CELL_PX}
+            height={CELL_PX}
+            aria-hidden="true"
+            focusable="false"
+            preserveAspectRatio="xMidYMid meet"
+          >
+            <path d={FALLBACK_SILHOUETTE_PATH} fill={tile.color} />
+          </svg>
+          {showBadge && <Badge count={tile.count} />}
+        </button>
+      );
+    }
+
     return (
       <div
         data-testid="adaptive-grid-marker-cell-fallback"
@@ -249,44 +412,73 @@ function TileCell({ tile, showBadge, isNotable }: TileCellProps) {
   }
 
   // rendered
+  const svgContent = (
+    <svg
+      viewBox="0 0 24 24"
+      width={CELL_PX}
+      height={CELL_PX}
+      aria-hidden="true"
+      focusable="false"
+      preserveAspectRatio="xMidYMid meet"
+    >
+      {/*
+        Paint order (back → front), matching StackedSilhouetteMarker:
+          1. Amber notable ring (only if isNotable)
+          2. White halo path (behind silhouette for contrast)
+          3. Colored silhouette path
+      */}
+      {isNotable && (
+        <circle
+          cx="12"
+          cy="12"
+          r="11"
+          fill="none"
+          stroke={NOTABLE_AMBER}
+          strokeWidth="2"
+        />
+      )}
+      <path
+        d={tile.svgData}
+        fill="none"
+        stroke="white"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+      <path d={tile.svgData} fill={tile.color} />
+    </svg>
+  );
+
+  if (perCellInteractive) {
+    return (
+      <button
+        ref={cellRef}
+        type="button"
+        tabIndex={0}
+        data-testid="adaptive-grid-marker-cell-rendered"
+        className="adaptive-grid-marker__cell"
+        aria-haspopup="dialog"
+        aria-expanded={isExpanded ? 'true' : 'false'}
+        aria-describedby={`cell-${cellId}-${tile.familyCode}-preview`}
+        onMouseEnter={onCellMouseEnter}
+        onMouseLeave={onCellMouseLeave}
+        onFocus={onCellFocus}
+        onBlur={onCellBlur}
+        onClick={(e) => { e.stopPropagation(); onCellClick?.(); }}
+        onKeyDown={onCellKeyDown}
+        style={{ all: 'unset', cursor: 'pointer', display: 'block' }}
+      >
+        {svgContent}
+        {showBadge && <Badge count={tile.count} />}
+      </button>
+    );
+  }
+
   return (
     <div
       data-testid="adaptive-grid-marker-cell-rendered"
       className="adaptive-grid-marker__cell"
     >
-      <svg
-        viewBox="0 0 24 24"
-        width={CELL_PX}
-        height={CELL_PX}
-        aria-hidden="true"
-        focusable="false"
-        preserveAspectRatio="xMidYMid meet"
-      >
-        {/*
-          Paint order (back → front), matching StackedSilhouetteMarker:
-            1. Amber notable ring (only if isNotable)
-            2. White halo path (behind silhouette for contrast)
-            3. Colored silhouette path
-        */}
-        {isNotable && (
-          <circle
-            cx="12"
-            cy="12"
-            r="11"
-            fill="none"
-            stroke={NOTABLE_AMBER}
-            strokeWidth="2"
-          />
-        )}
-        <path
-          d={tile.svgData}
-          fill="none"
-          stroke="white"
-          strokeWidth="2"
-          strokeLinejoin="round"
-        />
-        <path d={tile.svgData} fill={tile.color} />
-      </svg>
+      {svgContent}
       {showBadge && <Badge count={tile.count} />}
     </div>
   );

@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { AdaptiveGridMarker } from './AdaptiveGridMarker.js';
 import { markerDimensions, MIN_MARKER_PX } from './AdaptiveGridMarker.js';
 import type { AdaptiveTile, ResolvedGrid, PositiveInt, SpeciesAggregate } from './adaptive-grid.js';
@@ -424,5 +424,150 @@ describe('markerDimensions', () => {
   });
   it('4×4 grid → 100×100 (the worst-case overlap source per issue #554)', () => {
     expect(markerDimensions({ tag: 'grid', cols: 4, rows: 4 })).toEqual({ w: 100, h: 100 });
+  });
+});
+
+// --- Phase 1 (#558): flag-gated per-cell trigger surface ----------------------
+
+describe('AdaptiveGridMarker — VITE_FF_CELL_POPOVER (Phase 1, #558)', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    // Default matchMedia stub: pointer:fine = true, pointer:coarse = false.
+    window.matchMedia = vi.fn().mockImplementation((q: string) => ({
+      matches: q === '(pointer: fine)',
+      media: q,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      onchange: null,
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
+  });
+
+  it('flag OFF: <TileCell> renders as <div> with no per-cell ARIA (regression guard)', async () => {
+    vi.stubEnv('VITE_FF_CELL_POPOVER', 'false');
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', [
+          { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
+        ])]}
+        totalCount={5}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 5 observations."
+        isCoarsePointer={false}
+        onClick={noop}
+      />
+    );
+    const cell = screen.getByTestId('adaptive-grid-marker-cell-rendered');
+    expect(cell.tagName).toBe('DIV');
+    expect(cell.getAttribute('aria-haspopup')).toBeNull();
+    expect(cell.getAttribute('aria-expanded')).toBeNull();
+  });
+
+  it('flag ON + pointer:fine: <TileCell> renders as <button> with ARIA wiring', async () => {
+    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', [
+          { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
+        ])]}
+        totalCount={5}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 5 observations."
+        isCoarsePointer={false}
+        onClick={noop}
+      />
+    );
+    const cell = screen.getByTestId('adaptive-grid-marker-cell-rendered');
+    expect(cell.tagName).toBe('BUTTON');
+    expect(cell.getAttribute('aria-haspopup')).toBe('dialog');
+    expect(cell.getAttribute('aria-expanded')).toBe('false');
+    expect(cell.getAttribute('aria-describedby')).toMatch(/^cell-.*-preview$/);
+  });
+
+  it('flag ON + pointer:fine: hit-extender computed pointer-events is "none"', async () => {
+    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[rendered('hummingbirds', 5)]}
+        totalCount={5}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 5 observations."
+        isCoarsePointer={false}
+        onClick={noop}
+      />
+    );
+    const hit = screen.getByTestId('adaptive-grid-marker-hit');
+    expect(hit.style.pointerEvents).toBe('none');
+  });
+
+  it('flag ON + pointer:coarse: hit-extender computed pointer-events is "auto" (mobile preserves whole-marker tap)', async () => {
+    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[rendered('hummingbirds', 5)]}
+        totalCount={5}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 5 observations."
+        isCoarsePointer={true}
+        onClick={noop}
+      />
+    );
+    const hit = screen.getByTestId('adaptive-grid-marker-hit');
+    expect(hit.style.pointerEvents).toBe('auto');
+  });
+
+  it('flag ON + pointer:fine: mouseenter on a cell triggers <CellHoverPreview> render', async () => {
+    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', [
+          { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
+        ])]}
+        totalCount={5}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 5 observations."
+        isCoarsePointer={false}
+        onClick={noop}
+      />
+    );
+    const cell = screen.getByTestId('adaptive-grid-marker-cell-rendered');
+    fireEvent.mouseEnter(cell);
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+    expect(screen.getByText(/Hummingbirds \(5\)/)).toBeInTheDocument();
+  });
+
+  it('flag ON + pointer:fine: Enter on a focused cell promotes preview to popover', async () => {
+    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', [
+          { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
+        ])]}
+        totalCount={5}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 5 observations."
+        isCoarsePointer={false}
+        onClick={noop}
+      />
+    );
+    const cell = screen.getByTestId('adaptive-grid-marker-cell-rendered');
+    cell.focus();
+    fireEvent.keyDown(cell, { key: 'Enter' });
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(cell.getAttribute('aria-expanded')).toBe('true');
   });
 });
