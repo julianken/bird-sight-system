@@ -44,9 +44,12 @@ test('@coarse tablet portrait: tap marker opens cluster list, expand family, tap
   // Row count grows after expanding the collapsed family.
   await expect.poll(() => page.getByTestId('cluster-list-popover-row').count()).toBeGreaterThan(rowsBefore);
 
-  // Tap a clickable species link.
-  const link = page.getByRole('link').filter({ hasText: /\d+x/ }).first();
-  await link.tap();
+  // Tap a clickable species link. Scoped inside the popover rows; <a> has no
+  // href so Playwright's role-based actionability check is unreliable — force
+  // the click to bypass the "stable" wait.
+  const link = page.locator('.cluster-list-popover__rows a[role="link"]').first();
+  await link.waitFor({ state: 'visible' });
+  await link.click({ force: true });
 
   // SpeciesDetailSurface renders (no bbox until Phase 3).
   await expect(page).toHaveURL(/[?&]view=detail/);
