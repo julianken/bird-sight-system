@@ -221,6 +221,10 @@ export function App() {
     [set],
   );
 
+  const onClearBbox = useCallback(() => {
+    set({ bbox: null });
+  }, [set]);
+
   // Close callback for detail modal/sheet wrappers — flips back to feed view.
   const onCloseDetail = useCallback(
     () => set({ view: 'feed', detail: null }),
@@ -405,6 +409,8 @@ export function App() {
           speciesCode={state.detail}
           apiClient={apiClient}
           onClose={onCloseDetail}
+          bbox={state.bbox}
+          onClearBbox={onClearBbox}
         />
       )}
       {state.view === 'detail' && state.detail && isMobile && (
@@ -414,6 +420,8 @@ export function App() {
           apiClient={apiClient}
           onClose={onCloseDetail}
           mainRef={mainRef}
+          bbox={state.bbox}
+          onClearBbox={onClearBbox}
         />
       )}
       {/*
