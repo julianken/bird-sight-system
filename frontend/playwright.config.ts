@@ -58,6 +58,10 @@ export default defineConfig({
       grep: /@coarse/,
       use: {
         ...devices['iPad (gen 6)'],
+        // iPad (gen 6) defaults to webkit; override to chromium so CI's
+        // `--with-deps chromium` install is sufficient. Chromium honors
+        // isMobile: true (per Playwright docs) so pointer:coarse still triggers.
+        browserName: 'chromium',
         baseURL: 'http://localhost:5173',
       },
     },
