@@ -476,7 +476,7 @@ function TileCell({
             focusable="false"
             preserveAspectRatio="xMidYMid meet"
           >
-            <path d={FALLBACK_SILHOUETTE_PATH} fill={fillColor} />
+            <path d={FALLBACK_SILHOUETTE_PATH} style={{ fill: fillColor, forcedColorAdjust: 'auto' }} />
           </svg>
           {showBadge && <Badge count={tile.count} />}
         </button>
@@ -497,7 +497,7 @@ function TileCell({
           focusable="false"
           preserveAspectRatio="xMidYMid meet"
         >
-          <path d={FALLBACK_SILHOUETTE_PATH} fill={fillColor} />
+          <path d={FALLBACK_SILHOUETTE_PATH} style={{ fill: fillColor, forcedColorAdjust: 'auto' }} />
         </svg>
         {showBadge && <Badge count={tile.count} />}
       </div>
@@ -539,7 +539,7 @@ function TileCell({
         strokeWidth="2"
         strokeLinejoin="round"
       />
-      <path d={tile.svgData} fill={fillColor} />
+      <path d={tile.svgData} style={{ fill: fillColor, forcedColorAdjust: 'auto' }} />
     </svg>
   );
 

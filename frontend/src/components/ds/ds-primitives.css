@@ -617,6 +617,46 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Forced-colors (Windows High Contrast Mode) — Phase 3 (#572).
+ *
+ * By default the UA stylesheet applies `forced-color-adjust: none` to SVG
+ * content, which prevents system-color remapping from engaging. The
+ * `forcedColorAdjust: 'auto'` inline style on each silhouette SVG path
+ * (set in AdaptiveGridMarker.tsx) opts that path back into remapping.
+ *
+ * These CSS overrides ensure cells have explicit borders under WHCM so
+ * they remain visually differentiated regardless of the basemap tile
+ * colour that would otherwise provide contrast in the normal render.
+ *
+ * Token choices:
+ *   - `.adaptive-grid-marker__cell`         → CanvasText border (default cells)
+ *   - `.adaptive-grid-marker__cell--fallback` → ButtonBorder (muted / no-art)
+ *   - `.adaptive-grid-marker__cell--pending`  → GrayText border (skeleton)
+ *
+ * `stroke="white"` on the halo path is intentionally NOT overridden here.
+ * The halo's purpose is local shape contrast against the silhouette fill
+ * (a layout-of-shapes affordance), not system-colour communication.
+ */
+@media (forced-colors: active) {
+  .adaptive-grid-marker__cell {
+    border: 1px solid CanvasText;
+    background: Canvas;
+  }
+
+  .adaptive-grid-marker__cell--fallback {
+    border: 1px solid ButtonBorder;
+    background: Canvas;
+  }
+
+  .adaptive-grid-marker__cell--pending {
+    border: 1px solid GrayText;
+    background: Canvas;
+    /* Collapse the shimmer — animation serves no purpose under WHCM and
+       the forced palette already distinguishes pending from rendered. */
+    animation: none;
+  }
+}
+
 /* ─────────────────────────────────────────────────────────────────────────────
    <CellHoverPreview> — Phase 1 (#558)
    Compact hover preview for adaptive-grid cells. Top 3 species; "Click for

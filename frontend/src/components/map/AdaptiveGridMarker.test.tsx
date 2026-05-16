@@ -368,11 +368,29 @@ describe('AdaptiveGridMarker', () => {
   // --- Theme-aware tile fill (Phase 1, #570) ---------------------------------
 
   describe('theme-aware tile fill (Phase 1, #570)', () => {
+    /**
+     * Reads the fill of the last SVG path in the rendered cell. Phase 3 (#572)
+     * migrated fill from an HTML attribute to an inline style property so that
+     * forcedColorAdjust can be set on the same element. jsdom normalises inline
+     * colour values to rgb(...) — this helper converts back to lowercase hex so
+     * the assertions remain in the original hex form.
+     */
     function findRenderedFill(container: HTMLElement): string | null {
       const path = container.querySelector(
         '[data-testid="adaptive-grid-marker-cell-rendered"] svg path:last-child'
-      );
-      return path?.getAttribute('fill') ?? null;
+      ) as HTMLElement | null;
+      if (!path) return null;
+      // Phase 3: fill is now in inline style; fall back to attribute for
+      // any paths that still carry it as an attribute (e.g. halo path).
+      const raw = path.style.fill || path.getAttribute('fill');
+      if (!raw) return null;
+      // Normalise rgb(r, g, b) → lowercase hex for deterministic assertions.
+      const rgbMatch = raw.match(/^rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$/);
+      if (rgbMatch) {
+        const [, r, g, b] = rgbMatch.map(Number);
+        return '#' + [r, g, b].map(n => n.toString(16).padStart(2, '0')).join('');
+      }
+      return raw.toLowerCase();
     }
 
     it('light theme renders tile.color in the SVG fill', () => {
@@ -410,7 +428,8 @@ describe('AdaptiveGridMarker', () => {
             onClick={noop}
           />
         );
-        expect(findRenderedFill(container)).toBe('#C77A2E');
+        // dark theme uses colorDark = '#C77A2E' → normalised to lowercase hex.
+        expect(findRenderedFill(container)).toBe('#c77a2e');
       } finally {
         if (prior === null) document.documentElement.removeAttribute('data-theme');
         else document.documentElement.setAttribute('data-theme', prior);
@@ -441,7 +460,8 @@ describe('AdaptiveGridMarker', () => {
         // Wait one tick for the observer callback + React re-render
         await new Promise(r => setTimeout(r, 50));
 
-        expect(findRenderedFill(container)).toBe('#C77A2E');
+        // dark theme uses colorDark = '#C77A2E' → normalised to lowercase hex.
+        expect(findRenderedFill(container)).toBe('#c77a2e');
       } finally {
         if (prior === null) document.documentElement.removeAttribute('data-theme');
         else document.documentElement.setAttribute('data-theme', prior);
@@ -491,6 +511,60 @@ describe('AdaptiveGridMarker', () => {
     );
     const circles = document.querySelectorAll('svg circle');
     expect(circles.length).toBe(0);
+  });
+
+  // --- Phase 3 (#572): forced-colors support — forcedColorAdjust: 'auto' on SVG path ---
+
+  it('rendered cell SVG path has forcedColorAdjust: "auto" in inline style (Phase 3, #572)', () => {
+    const { container } = render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[rendered('accipitridae', 1)]}
+        totalCount={1}
+        uniqueFamilies={1}
+        ariaLabel="Single observation: Cooper's Hawk."
+        onClick={noop}
+      />,
+    );
+    // The silhouette path (last <path> in the SVG) must carry forcedColorAdjust: 'auto'
+    // so Windows WHCM system-color remapping engages. jsdom reads inline style
+    // via el.style.forcedColorAdjust or the camelCase property.
+    const paths = container.querySelectorAll(
+      '[data-testid="adaptive-grid-marker-cell-rendered"] svg path',
+    );
+    // The rendered cell has at minimum: halo path + silhouette path.
+    // The silhouette path is the last one.
+    expect(paths.length).toBeGreaterThanOrEqual(1);
+    const silhouettePath = paths[paths.length - 1] as HTMLElement;
+    // forcedColorAdjust is set via React's style prop — readable via el.style.
+    // React may map it as 'forced-color-adjust' or 'forcedColorAdjust' depending
+    // on the React version's camelCase-to-CSS-prop mapping. Check both.
+    const adjustValue =
+      silhouettePath.style.getPropertyValue('forced-color-adjust') ||
+      (silhouettePath.style as unknown as Record<string, string>).forcedColorAdjust;
+    expect(adjustValue).toBe('auto');
+  });
+
+  it('fallback cell SVG path has forcedColorAdjust: "auto" in inline style (Phase 3, #572)', () => {
+    const { container } = render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[fallback('mimidae', 1)]}
+        totalCount={1}
+        uniqueFamilies={1}
+        ariaLabel="Single observation."
+        onClick={noop}
+      />,
+    );
+    const paths = container.querySelectorAll(
+      '[data-testid="adaptive-grid-marker-cell-fallback"] svg path',
+    );
+    expect(paths.length).toBeGreaterThanOrEqual(1);
+    const svgPath = paths[0] as HTMLElement;
+    const adjustValue =
+      svgPath.style.getPropertyValue('forced-color-adjust') ||
+      (svgPath.style as unknown as Record<string, string>).forcedColorAdjust;
+    expect(adjustValue).toBe('auto');
   });
 });
 
