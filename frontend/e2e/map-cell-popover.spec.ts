@@ -63,8 +63,8 @@ test('desktop 1440×900: hover cell → preview → click → popover → specie
     return;
   }
 
-  // Click the first species link in the cluster-list popover.
-  const link = page.locator('.cluster-list-popover__rows a[role="link"]').first();
+  // Click the first species link in the CellPopover (desktop path uses .cell-popover__rows).
+  const link = page.locator('.cell-popover__rows a[role="link"]').first();
   await link.waitFor({ state: 'visible' });
   await link.click({ force: true });
 
