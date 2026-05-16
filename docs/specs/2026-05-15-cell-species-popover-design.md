@@ -46,6 +46,10 @@ From the 2026-05-15 brainstorm session:
 - A "zoom into cluster" affordance inside the popover. Existing MapLibre zoom controls are sufficient.
 - Backward-incompat changes to `onSelectSpecies(speciesCode)`. The new optional `bbox` arg is additive.
 - Deconflict layer changes (issue #554). The popover renders OVER the deconflict-resolved marker positions; no geometry tension.
+- **Telemetry / analytics events on cell hover or click.** Out of scope; the project has no analytics surface today; a separate effort owns that decision.
+- **SSR / no-JS rendering of the popover.** bird-maps.com is statically hosted with JS required for the map; the existing aria-describedby family-list `<ul>` (preserved per §8) remains the JS-off fallback.
+- **RTL script handling for hybrid taxa with non-Latin `comName`.** eBird emits some non-Latin script for international hybrids (rare in AZ-scope data); the spec uses LTR defaults. RTL handling is a future cross-cutting concern, not this feature.
+- **Print / PDF rendering.** The popover is an overlay; it does not survive `window.print()`. Not addressed.
 
 ## 3. Decision summary
 
@@ -126,7 +130,7 @@ The empty-array fallback handles the theoretically-impossible case of "family pr
 | Component | Status | Role |
 |---|---|---|
 | `<CellHoverPreview>` | NEW | Compact `role="tooltip"` element. Top 3 species, no links, footer reads "Click for more". |
-| `<CellPopover>` | NEW | Non-modal `role="dialog"`. Family header + top 8 species + "…and N more" footer + clickable species rows (only when `speciesCode !== null`). |
+| `<CellPopover>` | NEW | Non-modal `role="dialog"`. Family header + top 8 species + "…and N more" footer + clickable species rows (only when `speciesCode !== null`). Footer text reads "Click or tap for full list" — never "Click for more" (tap on hybrid laptops triggers the same popover the click does, so the imperative reads correctly in both input modes). |
 | `<ClusterListPopover>` | NEW | Mobile-only. `role="dialog"`. Collapsible family sections, top 8 species per family, "Done" button bottom. |
 | `<TileCell>` | EXTENDED | Desktop: hover/focus/click handlers + ARIA wiring. Mobile: visual only. |
 | `<AdaptiveGridMarker>` | EXTENDED | Mobile outer-button tap opens `<ClusterListPopover>`. Desktop outer-button click is a no-op (cells handle their own clicks). |
@@ -145,7 +149,10 @@ The empty-array fallback handles the theoretically-impossible case of "family pr
 | `<TileCell>` blur (keyboard) | dismiss | unless click-promoted |
 | Popover ESC / click-outside | dismiss popover | focus returns to triggering `<TileCell>` |
 
-**Mobile (viewport ≤ 480 px, `pointer:coarse`)**:
+**Mobile / coarse-pointer (`pointer:coarse` regardless of viewport width)**:
+
+Partition predicate is `pointer:coarse` ALONE — not viewport width. iPad portrait (768×1024), large Android tablets, and any device whose primary pointer is touch get the cluster-list popover. Hybrid devices that report `pointer:fine` AND `pointer:coarse` use the FIRST listed `(pointer:fine)` matcher (`window.matchMedia('(pointer: fine)').matches === true` → desktop path). This guarantees iPad portrait (a canonical viewport per `CLAUDE.md`) gets the popover that survives WCAG 2.5.5, and no tablet falls into the broken 22×22-tap-target gap.
+
 
 | Surface | Action | UI |
 |---|---|---|
@@ -154,32 +161,61 @@ The empty-array fallback handles the theoretically-impossible case of "family pr
 
 ### 4.6 Spec §2 (per-cell tap targets non-goal) reconciliation
 
-The original `docs/specs/2026-05-14-adaptive-cluster-grid-design.md` §2 declared "Per-cell tap targets" a non-goal. This spec REVERSES that on **desktop only**:
+The original `docs/specs/2026-05-14-adaptive-cluster-grid-design.md` §2 declared "Per-cell tap targets" a non-goal. This spec REVERSES that on **pointer:fine devices only**:
 
-- Desktop pointer:fine: per-cell click/hover/focus targets at 22×22 native. WCAG 2.5.5 (44×44 min) applies to *pointer activation targets* but excludes desktop pointer:fine — confirmed by W3C WCAG 2.2 Understanding doc §2.5.5. Hover and keyboard focus surfaces are not gated by 2.5.5.
-- Mobile pointer:coarse: per-cell tap targets are NOT exposed. The whole-marker tap → cluster list popover preserves the spec §2 non-goal on touch devices.
-- The existing hit-extender overlay (§4.4 of the prior spec) wraps the whole marker for tap purposes. It is preserved on mobile and used as the cluster-list trigger; on desktop it becomes a no-op for cells (cells handle their own pointer events) while still satisfying the global 44×44 outer floor.
+- pointer:fine (mouse, fine touchpad): per-cell click/hover/focus targets at 22×22 native. WCAG 2.5.5 (44×44 min) applies to *pointer activation targets* but excludes pointer:fine — confirmed by W3C WCAG 2.2 Understanding doc §2.5.5. Hover and keyboard focus surfaces are not gated by 2.5.5.
+- pointer:coarse: per-cell tap targets are NOT exposed. The whole-marker tap → cluster list popover preserves the spec §2 non-goal on touch devices.
+
+**Hit-extender overlay change (load-bearing)**: the existing `<span data-testid="adaptive-grid-marker-hit">` at `AdaptiveGridMarker.tsx:154-159` currently sets `pointerEvents: 'auto'` and sits BEFORE the grid `<div>` in DOM order with `position: absolute`. On `pointer:fine` it will intercept every cell click. The fix is mechanical and explicit: when `isCoarsePointer === false`, set the overlay's inline style to `pointerEvents: 'none'`. The overlay stays in place for layout-extending purposes but stops eating events; clicks fall through to the grid, where each cell's own `<button>` is the target. On `pointer:coarse` the overlay keeps `pointerEvents: 'auto'` so the whole-marker tap still resolves to the marker root. This is a one-line ternary inside `hitOverlayStyle`.
 
 ### 4.7 Keyboard model (desktop)
 
-The existing `tabIndex={-1}` on the outer marker button stays (prior spec §4.7 — skip-link → FeedSurface remains the global keyboard path). Per-cell focusability is **opt-in via interaction**:
+The existing `tabIndex={-1}` on the outer marker button stays (prior spec §4.7 — skip-link → FeedSurface remains the global keyboard path). Per-cell focusability is **opt-in via a dedicated keyboard entry point**:
+
+**Keyboard entry point (CONCRETE)**: A new skip-link inside `MapSurface` — "Explore map markers" — appears immediately after the existing "Skip to species list" skip-link. Activating it sets focus to the FIRST currently-rendered `<TileCell>` (top-left cell of the first marker in the viewport, ordered by `groups[0].anchor.px`). Cells become temporarily focusable (`tabIndex={0}`) for the duration of the keyboard session. The skip-link is visually hidden by default and revealed on focus per the existing skip-link convention in `frontend/src/styles.css`. This is the ONLY new globally Tab-reachable affordance the feature adds.
+
+After the entry point activates, a roving-tabindex pattern applies:
 
 - Default: cells `tabIndex={-1}`, marker `tabIndex={-1}`. Global Tab order untouched.
-- On marker `mouseenter` (or marker keyboard activation via the skip-link's "Map view" tab — yet to be designed): cells flip to `tabIndex={0}` via a roving-tabindex pattern. Arrow keys move focus between cells. Each focus shows the preview.
-- On marker `mouseleave` AND 30 s of no cell-focus activity: cells revert to `tabIndex={-1}`.
+- On entry via the new skip-link OR on outer-marker `mouseenter`: cells in the FOCUSED marker flip to `tabIndex={0}` (roving). Arrow keys move focus between cells (arrow-key direction order — row-major vs column-major — deferred to plan body; not load-bearing). Each focus shows the hover preview. Tab moves to the next marker's first cell; Shift+Tab to the previous marker's last cell.
+- On `mouseleave` AND 30 s of no cell-focus activity (BOTH conditions): cells revert to `tabIndex={-1}` and the keyboard session ends.
 - On ESC during preview: dismisses preview but keeps cell focusable. On ESC during popover: dismisses popover, focus returns to the cell, cell remains focusable.
+- On Esc when no preview/popover is open: ends the keyboard session immediately; focus returns to the skip-link.
 
 ### 4.8 ARIA pattern
 
 | | `<CellHoverPreview>` | `<CellPopover>` | `<ClusterListPopover>` |
 |---|---|---|---|
 | `role` | `tooltip` | `dialog` (non-modal) | `dialog` (non-modal) |
-| Trigger wiring | `aria-describedby` on `<TileCell>` → preview id | `aria-haspopup="dialog"` + `aria-expanded={isOpen}` on `<TileCell>` | Same as `<CellPopover>` but on outer `<AdaptiveGridMarker>` button |
-| Labeling | Inherits `<TileCell>` aria-label as context | `aria-labelledby` → popover heading | `aria-labelledby` → popover heading ("Cluster: N obs, M families") |
+| Trigger wiring | `aria-describedby` on `<TileCell>` → preview id (ONLY this id; cells do NOT inherit the outer marker's describedby) | `aria-haspopup="dialog"` + `aria-expanded={isOpen}` on `<TileCell>` (the cell, not the marker) | Same as `<CellPopover>` but on outer `<AdaptiveGridMarker>` button |
+| Labeling | `<TileCell>` `aria-label` is its OWN accessible name (e.g., "Hummingbirds, 8 observations"). The outer marker's `aria-describedby` family-list stays on the OUTER button — cells do not inherit it. | `aria-labelledby` → popover heading | `aria-labelledby` → popover heading ("Cluster: N obs, M families") |
 | Focus management | None (tooltips don't take focus) | Focus moves to popover heading on open; ESC returns to `<TileCell>` | Focus moves to "Done" button on open; ESC / "Done" returns to outer button |
 | WCAG 1.4.13 dismissible | Yes — ESC dismisses preview without moving the pointer | N/A | N/A |
 
 **Preserved (no change)**: the existing `aria-describedby` family-list `<ul>` on the outer marker (prior spec §4.6) is unchanged. Screen-reader users who never engage with a cell still get the family enumeration. The new popover is supplementary per WCAG 1.3.1.
+
+**ARIA tree on focused cell** (concrete — pinned by test in §7):
+
+```
+<button class="adaptive-grid-marker" tabIndex={-1}
+        aria-label="Cluster: 47 observations, 11 families. Activate to zoom in."
+        aria-describedby="marker-{id}-families">       ← outer; existing
+  <ul id="marker-{id}-families" class="sr-only">…</ul> ← family list; existing
+  <div class="adaptive-grid-marker__grid">
+    <button class="adaptive-grid-marker__cell" tabIndex={0}     ← cell; NEW focusability
+            aria-label="Hummingbirds, 8 observations"
+            aria-describedby="cell-{id}-{familyCode}-preview"   ← cell's OWN describedby
+            aria-haspopup="dialog"
+            aria-expanded={isPopoverOpen}>
+      {silhouette + badge}
+    </button>
+    {/* additional cells */}
+  </div>
+</button>
+<div role="tooltip" id="cell-{id}-{familyCode}-preview">…</div>  ← preview; NEW
+```
+
+SR announcement on cell focus: `"Hummingbirds, 8 observations. <preview-content>. Has popup dialog."`. The outer marker's `aria-describedby` does NOT propagate to the cell (cells set their own `aria-describedby` which takes precedence in this scope).
 
 ### 4.9 Routing + URL state
 
@@ -189,7 +225,7 @@ The existing `tabIndex={-1}` on the outer marker button stays (prior spec §4.7 
 ?view=detail&detail=<speciesCode>&bbox=<minLng>,<minLat>,<maxLng>,<maxLat>
 ```
 
-- 4 comma-separated decimals, WGS84, full precision from `map.getBounds()`.
+- 4 comma-separated decimals, WGS84, **rounded to 6 decimal places** (~11 cm geographic precision; plenty for obs filtering, half the URL noise vs raw `map.getBounds()` precision).
 - Optional. Existing callsites of `view=detail&detail=<code>` (FeedCard species link, etc.) work unchanged.
 - Validation in `useUrlState`: parsed to a typed `BBox`. Invalid format → discarded silently, falls back to global view. Matches existing defensive-parsing pattern.
 
@@ -205,7 +241,9 @@ const onSelectSpecies = useCallback(
 );
 ```
 
-Backward-compat: existing single-arg callsites → `bbox` clears.
+**Cross-surface invariant**: `onSelectSpecies(code)` invocations WITHOUT a `bbox` argument MUST clear any previously-set `bbox` from URL state. The reducer above does this correctly via `bbox: bbox ?? null` — but the invariant is load-bearing: a user who navigates Map → SpeciesDetail (with bbox), then Back, then Feed → SpeciesDetail (no bbox) must NOT see the stale Map-set bbox bleed into the Feed-originated detail view. Unit-tested in §7 (`useUrlState.test.ts` cross-surface case).
+
+Backward-compat: existing single-arg callsites at `App.tsx:331, 351, 368` (FeedSurface → species; SpeciesSearchSurface → species; FeedCard → species) keep their signatures; the second arg is `undefined`; the reducer writes `null` (clears any stale bbox).
 
 **`SpeciesDetailSurface` extension**:
 
@@ -214,7 +252,7 @@ Backward-compat: existing single-arg callsites → `bbox` clears.
 - Renders a banner above the species detail: "Filtered to selected area. View all observations →" (link clears the bbox param).
 - Aria-live announcement on first render: "Showing N observations of <species> in selected area."
 
-**Bbox source**: computed once per popover open from the cluster's leaves as `[min(lng), min(lat), max(lng), max(lat)]`. Cached on the `<CellPopover>` props so we don't re-walk leaves on every species-row click.
+**Bbox source + caching strategy (CONCRETE)**: computed **lazily on first popover open per cluster**, NOT eagerly in the reconciler. The compute is `[min(lng), min(lat), max(lng), max(lat)]` over the cluster's leaves (≤64 per `MAX_OBSERVATIONS`). Cache: a module-scoped `WeakMap<DeconflictGroup, BBox>` so re-opening the same cluster's popover is O(1); the WeakMap auto-evicts when the group object is garbage-collected (which happens when supercluster rebuilds its index on pan/zoom). Eager computation in the reconciler was rejected — it would burn CPU on every `idle` for clusters never clicked.
 
 ### 4.10 Single-leaf preservation
 
@@ -223,6 +261,8 @@ When the cluster's `point_count === 1` (1×1 grid, count=1, the single-leaf path
 - Outer-button click bypasses the cell-popover path entirely.
 - Opens the obs popover directly via `setSelectedObs(obs)` (matches existing `handleGroupClick` single-leaf branch at `MapCanvas.tsx:1213-1224`).
 - No regression to the existing one-tap-to-obs UX.
+
+**This path applies equally to anchored AND displaced single-leaf markers.** The silhouette-displacement layer (#554) renders displaced single-observation silhouettes as separate `<PresentationMarker>` floats with inline SVG (`MapCanvas.tsx:~1462`). Those floats inherit the single-leaf path: their click opens the obs popover, not a cell popover. Displaced silhouettes do NOT participate in the per-cell hover/popover affordances introduced by this spec — they have no grid cells to host them.
 
 ### 4.11 Spuh / slash / hybrid handling
 
@@ -389,14 +429,17 @@ New tests for `aggregateClusterSpecies`:
 ### Component (`AdaptiveGridMarker.test.tsx`) — extensions
 
 - Desktop (mocked `matchMedia('(pointer: fine)')` → true): per-cell mouseenter triggers `<CellHoverPreview>` with the expected `species` slice.
-- Mobile (mocked `(pointer: coarse)` → true): outer-button tap opens `<ClusterListPopover>`; per-cell handlers are NOT attached.
+- Mobile/coarse (mocked `(pointer: coarse)` → true): outer-button tap opens `<ClusterListPopover>`; per-cell handlers are NOT attached.
 - Single-leaf cluster (`point_count === 1`): outer-button click opens obs popover (existing path), NOT the cell popover.
+- **Hit-extender pointer-events on `pointer:fine`**: inspect the rendered hit-overlay's computed `pointer-events` style — must be `'none'`. On `pointer:coarse` must be `'auto'`. Locks the §4.6 reconciliation in code.
+- **ARIA tree snapshot on focused cell**: render the marker, focus a cell, snapshot the rendered DOM tree, assert (1) cell has its own `aria-describedby` (preview id), NOT the outer marker's family-list id; (2) cell has `aria-haspopup="dialog"` and `aria-expanded="false"` initially; (3) outer marker's `aria-describedby` still points at the family-list `<ul>`.
 
 ### State (`useUrlState.test.ts`)
 
-- `bbox` round-trips through URL serialization.
+- `bbox` round-trips through URL serialization with 6-decimal rounding (input precision >6 is truncated).
 - Invalid `bbox` format (wrong number of commas, non-decimal, NaN) → null fallback, no exception.
 - Clearing `bbox` (set to null) removes the query param from the URL.
+- **Cross-surface invariant**: Map → SpeciesDetail (sets bbox), Back, then Feed → SpeciesDetail (no bbox arg) — assert the stale Map-set bbox is CLEARED in URL state. Pins §4.9's invariant.
 
 ### Component (`SpeciesDetailSurface.test.tsx`) — extensions
 
@@ -407,8 +450,10 @@ New tests for `aggregateClusterSpecies`:
 ### E2E (`map-cell-popover.spec.ts`)
 
 - **Desktop @ 1440×900**: hover the Tucson Hummingbirds cell → preview shows top 3 species; click promotes to popover; click "Anna's Hummingbird" → URL changes to `?view=detail&detail=anhumm&bbox=…`; SpeciesDetailSurface renders with banner.
-- **Desktop keyboard**: skip-link → marker; Tab into cell; preview appears on focus; Enter opens popover; ESC dismisses; focus returns to cell.
+- **Desktop keyboard**: activate the new "Explore map markers" skip-link → focus lands on the first cell; preview appears on focus; Enter opens popover; ESC dismisses; focus returns to cell. Arrow keys move focus between cells; Tab moves to the next marker's first cell.
+- **Tablet @ 768×1024 (`pointer:coarse`)**: tap marker → cluster list popover slides up (NOT per-cell — confirms the `pointer:coarse` partition).
 - **Mobile @ 390×844**: tap marker → cluster list popover slides up; expand "Tyrant Flycatchers"; tap "Black Phoebe" → SpeciesDetailSurface filtered; tap "Done" returns to map.
+- **Smart-flip positioning at viewport edge**: position a marker so its preview would clip the bottom of the viewport; assert the preview renders ABOVE the cell instead of below. Mirror test for top/left/right.
 - **Popover-vs-marker overlap**: extend the #554 falsifiable test to assert popovers don't overlap any cluster marker when open.
 
 ## 8. Inherited and preserved behavior
@@ -427,19 +472,33 @@ New tests for `aggregateClusterSpecies`:
 
 | Risk | Resolution |
 |---|---|
-| Spec §2 (per-cell tap targets non-goal) | Reversed on desktop only; mobile preserves the non-goal via cluster-list popover. |
-| WCAG 2.5.5 on 22×22 cells | Desktop pointer:fine is excluded from 2.5.5; mobile uses 48×48 whole-marker tap. |
+| Spec §2 (per-cell tap targets non-goal) | Reversed on `pointer:fine` only; `pointer:coarse` preserves the non-goal via cluster-list popover. |
+| WCAG 2.5.5 on 22×22 cells | `pointer:fine` is excluded from 2.5.5; coarse uses 48×48 whole-marker tap. |
 | Spuh/slash observations creating numeric gaps | Render every row; conditional link. Counts reconcile. |
-| Spec §4.7 keyboard skip-link convention | Opt-in roving tabindex on cells; global Tab order untouched by default. |
+| Spec §4.7 keyboard skip-link convention | Dedicated "Explore map markers" skip-link entry point + opt-in roving tabindex on cells. Global Tab order gains exactly one new item. |
 | Hover "gap" between cell and preview | 250 ms mouseleave delay allows mouse-to-popover travel. |
-| Touch-device hover discoverability | Mobile has no hover; cluster-list popover replaces it with a tap-driven flow. |
+| Touch-device hover discoverability | Coarse pointer has no hover; cluster-list popover replaces it with a tap-driven flow. |
+
+### Resolved during 2026-05-15 critique pass
+
+| Risk | Resolution |
+|---|---|
+| Hit-extender overlay swallowing cell clicks on `pointer:fine` | `pointerEvents: 'none'` on the overlay when `isCoarsePointer === false`. Test in `AdaptiveGridMarker.test.tsx` pins it. |
+| `bbox` URL precision | Rounded to 6 decimals (~11 cm). Tested in `useUrlState.test.ts`. |
+| Stale `bbox` bleeding across cross-surface navigation | Invariant in §4.9: `onSelectSpecies(code)` without `bbox` clears any stale param. Tested cross-surface. |
+| ARIA describedby composition ambiguity | §4.8 specifies the exact tree on a focused cell; snapshot test pins it. |
+| Mobile breakpoint missing iPad portrait | Partition predicate changed from `viewport ≤ 480 px` to `pointer:coarse`. iPad portrait now correctly gets cluster-list popover. |
+| Keyboard entry to per-cell focus | Committed: new "Explore map markers" skip-link inside `MapSurface`. |
+| Bbox compute-vs-cache strategy | Lazy + WeakMap-cached per `DeconflictGroup`. Eager rejected. |
+| Displaced-silhouette popover interaction | §4.10 extended: displaced single-leaf silhouettes inherit the single-leaf path (obs popover); no cell popover. |
+| Hover-preview footer copy | Changed from "Click for more" to "Click or tap for full list". |
+| Out-of-scope concerns (telemetry, SSR, RTL, print) | Enumerated as explicit non-goals in §2. |
 
 ### Open — deferred to plan body
 
 | Risk | Where it gets answered |
 |---|---|
 | `bbox` filter on the server side: does the existing `/api/observations` endpoint accept a `bbox` query? If not, client-side filtering is the fallback. | Plan body / Read API check |
-| Cluster bbox computation cost: walking ~64 leaves per click is bounded but adds work on the click path. Memoize on the group? | Plan body |
 | Per-cell positioning math at the edges of the viewport (smart-flip above/below) — Floating-UI dep or hand-rolled? | Plan body — recommend Floating-UI for the maintenance win |
 | `<ClusterListPopover>` collapse-state persistence: do collapsed families stay collapsed across opens, or reset each time? | Plan body |
 | Roving tabindex implementation: arrow-key navigation order (row-major vs column-major)? | Plan body |
@@ -465,6 +524,7 @@ Each phase is its own PR. Phases 0-3 each preserve the prototype-gate convention
 ## 11. References
 
 - User brainstorm session: 2026-05-15, 6 decision points captured at `.superpowers/brainstorm/76416-1778888056/content/`
+- Opus critique pass: 2026-05-15, 10 findings (1 BLOCKER, 4 IMPORTANT, 5 SUGGESTION), all folded into the §4 design or §9 resolved table.
 - Related spec: `docs/specs/2026-05-14-adaptive-cluster-grid-design.md` (parent design)
 - Related issue: #554 (deconflict layer — orthogonal but adjacent)
 - Related PR: #555 (deconflict + silhouette displacement — queued via Mergify at the time of writing)
