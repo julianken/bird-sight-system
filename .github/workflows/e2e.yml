@@ -89,6 +89,11 @@ jobs:
         env:
           DATABASE_URL: postgres://birdwatch:birdwatch@localhost:5432/birdwatch
           CI: "true"
+      - name: Run Playwright E2E (coarse-pointer)
+        run: npm run test:e2e --workspace @bird-watch/frontend -- --project=coarse-pointer
+        env:
+          DATABASE_URL: postgres://birdwatch:birdwatch@localhost:5432/birdwatch
+          CI: "true"
       - uses: actions/upload-artifact@v7
         if: failure()
         with:

@@ -39,9 +39,10 @@ test('@coarse tablet portrait: tap marker opens cluster list, expand family, tap
   const collapsedToggle = page
     .locator('.cluster-list-popover__family:not(.cluster-list-popover__family--expanded) .cluster-list-popover__family-toggle')
     .first();
+  const rowsBefore = await page.getByTestId('cluster-list-popover-row').count();
   await collapsedToggle.tap();
-  // Some species row from a previously-collapsed family is now visible.
-  await expect(page.getByTestId('cluster-list-popover-row').nth(8)).toBeVisible();
+  // Row count grows after expanding the collapsed family.
+  await expect.poll(() => page.getByTestId('cluster-list-popover-row').count()).toBeGreaterThan(rowsBefore);
 
   // Tap a clickable species link.
   const link = page.getByRole('link').filter({ hasText: /\d+x/ }).first();
@@ -59,6 +60,10 @@ test('@coarse tablet portrait: tap marker opens cluster list, expand family, tap
   await expect(page.getByRole('dialog')).toBeHidden();
   // Focus returned to outer marker — assert via evaluate (Playwright doesn't
   // expose `document.activeElement` directly through the locator API).
-  const focusedTag = await page.evaluate(() => document.activeElement?.tagName ?? null);
-  expect(focusedTag).toBe('BUTTON');
+  // The outer element is `role="group"` (a div) when perCellInteractive, or
+  // a `<button>` otherwise — check role rather than tagName to handle both.
+  const focusedRole = await page.evaluate(() =>
+    document.activeElement?.getAttribute('role') ?? document.activeElement?.tagName?.toLowerCase() ?? null,
+  );
+  expect(focusedRole).toMatch(/group|button/i);
 });
