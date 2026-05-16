@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import type { SpeciesAggregate } from './adaptive-grid.js';
 import { prettyFamily } from '../../derived.js';
 
@@ -47,7 +48,7 @@ export function CellHoverPreview(props: CellHoverPreviewProps) {
       }
     : undefined;
 
-  return (
+  const content = (
     <div
       role="tooltip"
       id={id}
@@ -74,4 +75,13 @@ export function CellHoverPreview(props: CellHoverPreviewProps) {
       )}
     </div>
   );
+
+  // Portal to body ONLY when cursor-following is active. Without the portal,
+  // an ancestor's `transform` (e.g., MapLibre marker container) breaks
+  // position: fixed (CSS containing-block quirk — fixed becomes relative
+  // to the transformed ancestor, not the viewport). The portal escapes that.
+  if (cursorPos && typeof document !== 'undefined') {
+    return createPortal(content, document.body);
+  }
+  return content;
 }
