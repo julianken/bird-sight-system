@@ -224,3 +224,33 @@ export function buildAdaptiveTiles(
     };
   });
 }
+
+/**
+ * Per-species aggregation within a family. Used by `<CellHoverPreview>`,
+ * `<CellPopover>`, and `<ClusterListPopover>` (epic #556, Phase 1+).
+ *
+ * `comName` is the grouping key (always present per eBird API contract);
+ * `speciesCode` is `null` for spuh/slash/hybrid taxa where eBird returns
+ * no canonical code — the row renders but is not clickable.
+ */
+export interface SpeciesAggregate {
+  comName: string;
+  speciesCode: string | null;
+  count: number;
+}
+
+/**
+ * Group cluster leaves by `comName` within each `familyCode`. Used by
+ * `buildAdaptiveTiles` (issue #557, spec §4.2). Sort: descending count,
+ * ascending `comName`.
+ *
+ * - Leaves with `familyCode === null` drop (cannot bucket).
+ * - Leaves with `speciesCode === null` preserved with `speciesCode: null`.
+ * - Multiple leaves with same `comName` but different `speciesCode` merge
+ *   (first non-null `speciesCode` wins).
+ */
+export function aggregateClusterSpecies(
+  leaves: ClusterLeafFeature[],
+): Map<string, ReadonlyArray<SpeciesAggregate>> {
+  throw new Error('not implemented');
+}

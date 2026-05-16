@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   aggregateClusterFamilies,
+  aggregateClusterSpecies,
   buildAdaptiveTiles,
   pickGridShape,
   toPositiveInt,
@@ -9,6 +10,7 @@ import {
   type ClusterLeafFeature,
   type ResolvedGrid,
   type SilhouettesById,
+  type SpeciesAggregate,
 } from './adaptive-grid';
 
 function leaf(familyCode: string | null): ClusterLeafFeature {
@@ -274,5 +276,117 @@ describe('buildAdaptiveTiles', () => {
       expect(b.svgData).toBe('M9 9Z');
       expect(a.color).not.toBe(b.color);
     }
+  });
+});
+
+// Test fixture helper — local to aggregateClusterSpecies describe block.
+// Named `speciesLeaf` to avoid collision with the `leaf(familyCode)` helper above.
+function speciesLeaf(
+  familyCode: string | null,
+  comName: string,
+  speciesCode: string | null = `${comName.slice(0, 6).toLowerCase()}1`,
+): ClusterLeafFeature {
+  return {
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [-110, 32] },
+    properties: { familyCode, speciesCode, comName },
+  };
+}
+
+// Suppress unused-import lint for SpeciesAggregate — it's used as a type annotation
+// within the describe block's inline variables; TS erases it at runtime.
+void (undefined as unknown as SpeciesAggregate);
+
+describe('aggregateClusterSpecies', () => {
+  it('groups leaves by comName within familyCode', () => {
+    const out = aggregateClusterSpecies([
+      speciesLeaf('hummingbirds', "Anna's Hummingbird"),
+      speciesLeaf('hummingbirds', "Anna's Hummingbird"),
+      speciesLeaf('hummingbirds', "Costa's Hummingbird"),
+    ]);
+    expect(out.get('hummingbirds')).toEqual([
+      { comName: "Anna's Hummingbird", speciesCode: "anna's1", count: 2 },
+      { comName: "Costa's Hummingbird", speciesCode: "costa'1", count: 1 },
+    ]);
+  });
+
+  it('sorts within family: descending count, ascending comName tiebreak', () => {
+    const out = aggregateClusterSpecies([
+      speciesLeaf('flycatchers', 'Vermilion Flycatcher'),
+      speciesLeaf('flycatchers', 'Black Phoebe'),
+      speciesLeaf('flycatchers', 'Black Phoebe'),
+      speciesLeaf('flycatchers', "Say's Phoebe"),
+    ]);
+    const fams = out.get('flycatchers')!;
+    expect(fams.map((s) => s.comName)).toEqual([
+      'Black Phoebe',         // count 2
+      "Say's Phoebe",         // count 1, S < V
+      'Vermilion Flycatcher', // count 1
+    ]);
+  });
+
+  it('drops leaves with null familyCode', () => {
+    const out = aggregateClusterSpecies([
+      speciesLeaf(null, 'Unknown bird sp.'),
+      speciesLeaf('hummingbirds', "Anna's Hummingbird"),
+    ]);
+    expect(Array.from(out.keys())).toEqual(['hummingbirds']);
+  });
+
+  it('preserves leaves with null speciesCode (spuh/slash/hybrid)', () => {
+    const out = aggregateClusterSpecies([
+      speciesLeaf('sandpipers', 'Sandpiper sp.', null),
+      speciesLeaf('sandpipers', 'Sandpiper sp.', null),
+    ]);
+    expect(out.get('sandpipers')).toEqual([
+      { comName: 'Sandpiper sp.', speciesCode: null, count: 2 },
+    ]);
+  });
+
+  it('merges multiple comName entries — first non-null speciesCode wins', () => {
+    const out = aggregateClusterSpecies([
+      speciesLeaf('hawks', 'Cooper\'s Hawk', null),
+      speciesLeaf('hawks', 'Cooper\'s Hawk', 'coohaw'),
+      speciesLeaf('hawks', 'Cooper\'s Hawk', 'coohaw'),
+    ]);
+    expect(out.get('hawks')).toEqual([
+      { comName: "Cooper's Hawk", speciesCode: 'coohaw', count: 3 },
+    ]);
+  });
+
+  it('count reconciliation: sum of family aggregate equals leaf count', () => {
+    const leaves = [
+      speciesLeaf('hummingbirds', "Anna's Hummingbird"),
+      speciesLeaf('hummingbirds', "Anna's Hummingbird"),
+      speciesLeaf('hummingbirds', "Costa's Hummingbird"),
+      speciesLeaf('hawks', "Cooper's Hawk"),
+    ];
+    const out = aggregateClusterSpecies(leaves);
+    const hummSum = out.get('hummingbirds')!.reduce((s, x) => s + x.count, 0);
+    const hawkSum = out.get('hawks')!.reduce((s, x) => s + x.count, 0);
+    expect(hummSum).toBe(3);
+    expect(hawkSum).toBe(1);
+  });
+
+  it('empty leaves → empty map', () => {
+    expect(aggregateClusterSpecies([])).toEqual(new Map());
+  });
+
+  it('single leaf → single-species single-family entry', () => {
+    const out = aggregateClusterSpecies([speciesLeaf('hummingbirds', "Anna's Hummingbird")]);
+    expect(out.size).toBe(1);
+    expect(out.get('hummingbirds')).toEqual([
+      { comName: "Anna's Hummingbird", speciesCode: "anna's1", count: 1 },
+    ]);
+  });
+
+  it('degenerate: same comName with conflicting speciesCodes — first non-null wins', () => {
+    const out = aggregateClusterSpecies([
+      speciesLeaf('warblers', 'Yellow Warbler', 'yelwar'),
+      speciesLeaf('warblers', 'Yellow Warbler', 'yelwar2'),  // hypothetical bad data
+    ]);
+    expect(out.get('warblers')).toEqual([
+      { comName: 'Yellow Warbler', speciesCode: 'yelwar', count: 2 },
+    ]);
   });
 });
