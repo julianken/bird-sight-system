@@ -48,6 +48,10 @@ Top-10 worst clusters in AZ are well-known hotspots (Portal/Chiricahuas, Ash Can
 
 ## 2. Goals · Non-goals
 
+> **Related:** `docs/specs/2026-05-15-cell-species-popover-design.md`
+> reverses the per-cell tap-target non-goal for `pointer:fine`. The
+> reversal landed in epic #556 (PRs #561–#564 + #PHASE-3-PR).
+
 **Goals**
 
 1. One marker component handles every cluster, at every zoom level, with no UX mode switch.
@@ -58,7 +62,14 @@ Top-10 worst clusters in AZ are well-known hotspots (Portal/Chiricahuas, Ash Can
 
 **Non-goals**
 
-- Per-cell tap targets. The whole marker is one tap target.
+- **Per-cell tap targets — dual-mode (reversed for `pointer:fine` per
+  cell-popover spec `2026-05-15-cell-species-popover-design.md`):**
+  - `pointer:fine` (mouse + trackpad): per-cell tap targets ARE a goal.
+    The `<CellHoverPreview>` and `<CellPopover>` components let users
+    inspect and navigate per-family from each tile cell.
+  - `pointer:coarse` (touch): per-cell tap targets remain a non-goal.
+    WCAG 2.5.5 prohibits 22×22 cells on touch; the whole-marker (48×48)
+    tap surface opens a `<ClusterListPopover>` instead.
 - API changes. Per-family counts already derivable client-side from `getClusterLeaves` + `aggregateClusterFamilies`.
 - Changes to the observation panel, the FeedSurface, or any non-marker map UI.
 - Changes to the basemap, attribution layout, or floating "Bird families in view" component.

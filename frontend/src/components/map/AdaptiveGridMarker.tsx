@@ -1,9 +1,8 @@
 import { useState, useId, useRef, useEffect } from 'react';
-import type { MouseEvent, CSSProperties, KeyboardEvent } from 'react';
+import type { MouseEvent as ReactMouseEvent, CSSProperties, KeyboardEvent } from 'react';
 import type { AdaptiveTile, ResolvedGrid } from './adaptive-grid.js';
 import { visibleCapacity } from './adaptive-grid.js';
 import { FALLBACK_SILHOUETTE_PATH } from './silhouette-fallback.js';
-import { isCellPopoverEnabled } from '../../feature-flags.js';
 import { useMediaQuery } from '../../hooks/use-media-query.js';
 import { CellHoverPreview } from './CellHoverPreview.js';
 import { CellPopover } from './CellPopover.js';
@@ -51,10 +50,10 @@ import { ClusterListPopover } from './ClusterListPopover.js';
  * the §4.6 table.
  *
  * Phase 1 cell popover (spec §4.5, §4.6, §4.7, §4.8, epic #556, issue #558):
- * When `VITE_FF_CELL_POPOVER=true` AND the pointer is fine (not coarse),
- * each `<TileCell>` becomes a `<button>` with per-cell hover/focus/click
- * interaction. The hit-extender overlay's `pointerEvents` toggles to `'none'`
- * in that mode so it doesn't intercept individual cell events.
+ * When the pointer is fine (not coarse), each `<TileCell>` becomes a
+ * `<button>` with per-cell hover/focus/click interaction. The hit-extender
+ * overlay's `pointerEvents` toggles to `'none'` in that mode so it doesn't
+ * intercept individual cell events.
  */
 
 export interface AdaptiveGridMarkerProps {
@@ -87,7 +86,7 @@ export interface AdaptiveGridMarkerProps {
   isNotable?: boolean;
   /** Species name for the notable single-obs case (unused today; reserved). */
   notableSpeciesName?: string;
-  onClick: (e: MouseEvent<HTMLElement>) => void;
+  onClick: (e: ReactMouseEvent<HTMLElement>) => void;
   /** Phase 1 (#558): forwarded from per-cell popover row clicks. */
   onSelectSpecies?: (speciesCode: string) => void;
 }
@@ -134,11 +133,10 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
     onSelectSpecies,
   } = props;
 
-  const flag = isCellPopoverEnabled();
   const isPointerFine = useMediaQuery('(pointer: fine)');
-  const perCellInteractive = flag && isPointerFine && !isCoarsePointer;
+  const perCellInteractive = isPointerFine && !isCoarsePointer;
 
-  const clusterListInteractive = flag && isCoarsePointer === true;
+  const clusterListInteractive = isCoarsePointer === true;
   const [isClusterListOpen, setIsClusterListOpen] = useState<boolean>(false);
   const outerRef = useRef<HTMLElement | null>(null);
 
@@ -154,6 +152,7 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
 
   const markerId = useId();
   const [activeCell, setActiveCell] = useState<{ index: number; mode: 'preview' | 'popover' } | null>(null);
+  const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
   const cellRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const mouseLeaveTimers = useRef<Array<number | null>>([]);
 
@@ -194,7 +193,12 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
     setActiveCell((prev) => (prev?.mode === 'popover' ? prev : { index: i, mode: 'preview' }));
   }
 
+  function onCellMouseMove(e: ReactMouseEvent<HTMLElement>) {
+    setCursorPos({ x: e.clientX, y: e.clientY });
+  }
+
   function onCellMouseLeave(i: number) {
+    setCursorPos(null);
     // Spec §4.5: 250ms delay; skipped when click-promoted to popover.
     mouseLeaveTimers.current[i] = window.setTimeout(() => {
       setActiveCell((prev) => (prev?.index === i && prev.mode === 'preview' ? null : prev));
@@ -252,7 +256,7 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
     : ({
         type: 'button' as const,
         tabIndex: -1,
-        onClick: (e: MouseEvent<HTMLElement>) => {
+        onClick: (e: ReactMouseEvent<HTMLElement>) => {
           if (clusterListInteractive && !isSingleLeaf) {
             // Phase 2: open the cluster-list popover instead of the parent's
             // zoom handler. Single-leaf clusters fall through to onClick
@@ -312,6 +316,7 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
             {...(perCellInteractive && activeCell?.index === i && previewId ? { previewId } : {})}
             cellRef={(el) => { cellRefs.current[i] = el; }}
             onCellMouseEnter={() => onCellMouseEnter(i)}
+            onCellMouseMove={onCellMouseMove}
             onCellMouseLeave={() => onCellMouseLeave(i)}
             onCellFocus={() => onCellFocus(i)}
             onCellBlur={() => onCellBlur(i)}
@@ -342,6 +347,7 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
             familyCount={activeTile.count}
             species={activeTile.species}
             id={previewId!}
+            cursorPos={cursorPos}
           />
         ) : (
           cellRefs.current[activeCell.index] ? (
@@ -392,6 +398,7 @@ interface TileCellProps {
   previewId?: string;
   cellRef: (el: HTMLButtonElement | null) => void;
   onCellMouseEnter?: () => void;
+  onCellMouseMove?: (e: ReactMouseEvent<HTMLElement>) => void;
   onCellMouseLeave?: () => void;
   onCellFocus?: () => void;
   onCellBlur?: () => void;
@@ -408,6 +415,7 @@ function TileCell({
   previewId,
   cellRef,
   onCellMouseEnter,
+  onCellMouseMove,
   onCellMouseLeave,
   onCellFocus,
   onCellBlur,
@@ -437,6 +445,7 @@ function TileCell({
           aria-expanded={isExpanded ? 'true' : 'false'}
           aria-describedby={previewId}
           onMouseEnter={onCellMouseEnter}
+          onMouseMove={onCellMouseMove}
           onMouseLeave={onCellMouseLeave}
           onFocus={onCellFocus}
           onBlur={onCellBlur}
@@ -529,6 +538,7 @@ function TileCell({
         aria-expanded={isExpanded ? 'true' : 'false'}
         aria-describedby={previewId}
         onMouseEnter={onCellMouseEnter}
+        onMouseMove={onCellMouseMove}
         onMouseLeave={onCellMouseLeave}
         onFocus={onCellFocus}
         onBlur={onCellBlur}
