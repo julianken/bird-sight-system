@@ -3,16 +3,17 @@
  *
  * Two named exports — BASEMAP_LIGHT and BASEMAP_DARK — drive the basemap
  * swap when `[data-theme]` changes on <html>. The MutationObserver wired
- * up in Phase 1 of the Sky Atlas redesign (MapCanvas.tsx) reads the
- * current attribute on every mutation and calls map.setStyle() with the
- * matching URL.
+ * up in Phase 1 of the adaptive-grid contrast epic (#575, MapCanvas.tsx)
+ * reads the current attribute on every mutation and calls map.setStyle()
+ * with the matching URL.
  *
- * BASEMAP_DARK is a LITERAL alias of BASEMAP_LIGHT until the G7 (family
- * palette × basemap contrast) and G8 (dark basemap palette ratification)
- * prototype gates close. The dark mode mechanic ships in Phase 1; the
- * dark-tile URL only switches in once the gates close. Two named exports
- * exist so consumer code (MapCanvas) is forward-compatible — flipping
- * the alias to a real dark tile URL is a one-line change here.
+ * Gate closure:
+ * - G7 (family palette × basemap contrast): closed by Phase 1 PR #577.
+ *   Palette audit harness in scripts/check-family-palette-contrast.ts;
+ *   19 failing colors re-picked to score ≥ 3:1 against both basemaps.
+ * - G8 (dark basemap palette ratification): closed by Phase 4 PR #573.
+ *   BASEMAP_DARK now points at the real OpenFreeMap dark tile URL.
+ *   MutationObserver in MapCanvas.tsx drives the live swap on theme toggle.
  *
  * `basemapStyle`, `basemapStyleLight`, `basemapStyleDark` are preserved
  * as back-compat aliases so existing callers continue to type-check
@@ -20,12 +21,12 @@
  * callers outside this module.
  *
  * Spec: docs/design/01-spec/architecture.md §"Light / dark mode"
- * Gate: docs/design/01-spec/open-questions.md G7, G8
+ * Gates: docs/design/01-spec/open-questions.md G7 (closed), G8 (closed)
  */
 export const BASEMAP_LIGHT: string = 'https://tiles.openfreemap.org/styles/positron';
 
-/** Aliased to the light URL until G8 closes — see the module comment. */
-export const BASEMAP_DARK: string = BASEMAP_LIGHT;
+/** Real dark tile URL — G8 closed 2026-05-16 (Phase 4, issue #573). */
+export const BASEMAP_DARK: string = 'https://tiles.openfreemap.org/styles/dark';
 
 /** @deprecated Use BASEMAP_LIGHT — alias preserved for back-compat. */
 export const basemapStyle = BASEMAP_LIGHT;

@@ -44,8 +44,8 @@ Before opening a PR for this plan's execution, check off each item or cite a def
 - [ ] **Phase 2: dashed border on `.adaptive-grid-marker__cell--fallback`** — 1.5px dashed `currentColor` (or SVG stroke-dasharray equivalent at the silhouette path), visible at 22×22px cell size. Preserves the "no curated art" affordance per the original spec's design intent.
 - [ ] **Phase 3: forced-colors block** for `.adaptive-grid-marker__cell` + variants in `ds-primitives.css`. Uses system color tokens (`CanvasText`, `LinkText`, `ButtonBorder`).
 - [ ] **Phase 3: SVG fill migration** — attribute-set `fill={tile.color}` → CSS-property `fill: var(--tile-color)` so `forced-color-adjust: auto` engages.
-- [ ] **Phase 4: `BASEMAP_DARK` alias flipped** from `= BASEMAP_LIGHT` to `= 'https://tiles.openfreemap.org/styles/dark'` in `basemap-style.ts:28`.
-- [ ] **Phase 4: open-questions.md G7 + G8 marked CLOSED** with a sentence each summarizing how the gate closed.
+- [x] **Phase 4: `BASEMAP_DARK` alias flipped** from `= BASEMAP_LIGHT` to `= 'https://tiles.openfreemap.org/styles/dark'` in `basemap-style.ts:28`. (PR #573, 2026-05-16)
+- [x] **Phase 4: open-questions.md G7 + G8 marked CLOSED** with a sentence each summarizing how the gate closed. (PR #573, 2026-05-16)
 - [ ] **Doc addendum**: parent spec `docs/specs/2026-05-14-adaptive-cluster-grid-design.md` §4 sizing table gains a 2–3 sentence note about the deconflict `BUCKET_PX = 14` vs 4×4 desktop grid interaction at low zoom (observation O1).
 - [ ] **All 5 canonical viewports** × 2 themes screenshot-captured and uploaded to each phase's PR body via the `pr-screenshots-via-user-attachments` skill. **10 captures minimum** per phase × 4 phases = 40 captures total across the epic.
 - [ ] **All 4 Mergify-required CI checks** (test, lint, build, e2e) green at HEAD of each PR before posting `@Mergifyio queue`.

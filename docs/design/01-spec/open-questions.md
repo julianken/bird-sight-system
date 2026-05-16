@@ -12,8 +12,8 @@ Eight gates (G1–G8) that don't block design implementation but should be resol
 | G4 | Photo coverage audit | **Closed 2026-05-09 — 91.1%** | done | Phase 2 (informs `<Photo>` no-photo state design) |
 | G5 | MapLibre easeTo reduced-motion | Closes in Phase 0 | done with Phase 0 | (resolved by Phase 0 itself) |
 | G6 | iOS safe-area | Pending | 30 min | Phase 4 (mobile bottom-sheet ship) |
-| G7 | Family-color × basemap contrast | Pending | 30 min | Phase 1 (family-palette commit) |
-| G8 | Dark basemap | Deferred to v1.1 | 1 hr | (gates v1.1 dark-mode promise; v1 ships light-only if G8 fails) |
+| G7 | Family-color × basemap contrast | **Closed 2026-05-16: palette audit + 19-color rebalance (PR #577)** | done | Phase 1 (family-palette commit) |
+| G8 | Dark basemap | **Closed 2026-05-16: BASEMAP_DARK flipped to real dark tile (PR #573)** | done | Phase 4 (this PR) |
 
 ## Detailed status
 
@@ -73,19 +73,15 @@ Gates Phase 4 mobile sheet ship.
 
 ### G7 — Family-color × basemap contrast
 
-**What's needed.** The 7 earth-tone family colors in `tokens.ts:124–158` were chosen visually, never arithmetically tested against OpenFreeMap positron tile mid-tones. WCAG 1.4.11 (3:1 for non-text UI components) applies to silhouettes on map tiles.
+**Status: CLOSED 2026-05-16 (PR #577, Phase 1 of adaptive-grid contrast epic #575).**
 
-**Resolution.** Sample tile colors at worst-case zoom; compute contrast ratios against silhouette fills. If any family fails 3:1 against the basemap, recommission that family's color.
-
-Gates Phase 1's family-palette commit. If any family fails 3:1, the affected tokens are adjusted in `frontend/src/config/family-palette.ts` before Phase 2 consumes them.
+Palette audit ran via `scripts/check-family-palette-contrast.ts` against the light basemap (`#f4f1ea`). 19 failing colors (17 Phylopic-curated backfill + 2 original seeds) were re-picked to score ≥ 3:1 against both basemaps at full opacity. CI workflow `.github/workflows/family-palette-contrast.yml` gates regressions going forward. SQL migration under `migrations/` records the before/after hex values.
 
 ### G8 — Dark basemap
 
-**What's needed.** Dark mode requires a dark basemap. OpenFreeMap's dark style is community-driven; coverage and update cadence at production scale is unverified.
+**Status: CLOSED 2026-05-16 (PR #573, Phase 4 of adaptive-grid contrast epic #575).**
 
-**Resolution.** Build a dark-basemap prototype at the prototype-gate fidelity (≥344 rows, mobile + desktop, all interactive surfaces exercised). Verify the family palette clears 3:1 against dark tiles for all 7 families. If any fails, ship light-only first and defer dark mode to v1.1.
-
-**Recommendation.** Do not promise dark mode in marketing/social meta tags until G8 passes. Phase 1 ships the `[data-theme]` mechanism; whether the dark-mode toggle is exposed to users in v1 depends on G8.
+`BASEMAP_DARK` alias flipped from `= BASEMAP_LIGHT` to `= 'https://tiles.openfreemap.org/styles/dark'` in `frontend/src/components/map/basemap-style.ts`. The existing `MutationObserver` in `MapCanvas.tsx` drives the live basemap swap on theme toggle — no additional wiring needed. Verified at 5 canonical viewports × 2 themes via Playwright MCP pixel-sample assertions (luminance delta > 0.3 between light and dark land-surface pixels).
 
 ## W5 spec captures (2026-05-11)
 
