@@ -84,10 +84,37 @@ describe('rateLimit middleware', () => {
     expect((await app.request('/api/observations', { headers: ipB })).status).toBe(200);
   });
 
-  it('falls back to X-Forwarded-For when CF-Connecting-IP is absent', async () => {
+  // SECURITY (PR #597 review): On the bypass path (direct *.a.run.app hits),
+  // X-Forwarded-For and CF-Connecting-IP are attacker-controlled. The
+  // middleware MUST NOT key buckets off them when an unspoofable connection
+  // remote is available, and MUST NOT trust XFF at all. These two tests
+  // codify that contract.
+  it('never trusts X-Forwarded-For for bucket keying', async () => {
     const app = buildApp({ burst: 1, refillPerSec: 0 });
-    const headers = { 'X-Forwarded-For': '198.51.100.4, 10.0.0.1' };
-    expect((await app.request('/api/observations', { headers })).status).toBe(200);
-    expect((await app.request('/api/observations', { headers })).status).toBe(429);
+    // Two requests with different XFF values but no CF-Connecting-IP and no
+    // connection remote (Hono's in-memory request has no socket). Under the
+    // old code, each spoofed XFF got its own bucket → attacker bypasses the
+    // limit by rotating XFF. Under the fix, both requests fall back to the
+    // same "unknown" key and the second request is rate-limited.
+    const headers1 = { 'X-Forwarded-For': '198.51.100.4' };
+    const headers2 = { 'X-Forwarded-For': '198.51.100.99' };
+    expect((await app.request('/api/observations', { headers: headers1 })).status).toBe(200);
+    expect((await app.request('/api/observations', { headers: headers2 })).status).toBe(429);
+  });
+
+  it('uses connection remote address over spoofable headers when available', async () => {
+    const app = buildApp({ burst: 1, refillPerSec: 0 });
+    // Simulate the bypass path: an attacker hits run.app directly, sets
+    // CF-Connecting-IP to rotate values, but TCP peer address is the same.
+    // We inject the Node-server-style `incoming.socket.remoteAddress` via
+    // Hono's third `env` arg to `app.request`.
+    const env1 = { incoming: { socket: { remoteAddress: '203.0.113.42' } } };
+    const env2 = { incoming: { socket: { remoteAddress: '203.0.113.42' } } };
+    const spoof1 = { 'CF-Connecting-IP': '198.51.100.1' };
+    const spoof2 = { 'CF-Connecting-IP': '198.51.100.2' };
+    expect((await app.request('/api/observations', { headers: spoof1 }, env1)).status).toBe(200);
+    // Same connection remote → same bucket → second request blocked despite
+    // a rotated CF-Connecting-IP value.
+    expect((await app.request('/api/observations', { headers: spoof2 }, env2)).status).toBe(429);
   });
 });

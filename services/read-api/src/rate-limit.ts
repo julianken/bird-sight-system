@@ -1,4 +1,4 @@
-import type { MiddlewareHandler } from 'hono';
+import type { MiddlewareHandler, Context } from 'hono';
 
 /**
  * Token-bucket rate limit (Layer 3 — defense in depth).
@@ -37,19 +37,38 @@ interface Bucket {
 const MAX_BUCKETS = 10_000;
 const EVICTION_AGE_MS = 10 * 60 * 1000;
 
-function extractClientIp(headers: Headers): string {
-  // CF-Connecting-IP is the only header CF guarantees against spoofing for
-  // traffic that actually transited Cloudflare. For bypass traffic (direct
-  // run.app hits) we fall back to X-Forwarded-For's leftmost entry, then to
-  // a constant — better to share a bucket among unknown clients than to
-  // skip rate-limiting entirely.
-  const cf = headers.get('cf-connecting-ip');
-  if (cf) return cf;
-  const xff = headers.get('x-forwarded-for');
-  if (xff) {
-    const first = xff.split(',')[0]?.trim();
-    if (first) return first;
-  }
+function extractClientIp(c: Context): string {
+  // SECURITY (PR #597 review): Layer-3 exists to defend the BYPASS path —
+  // direct hits to *.a.run.app that skip Cloudflare. On that path, no proxy
+  // sets `CF-Connecting-IP` or `X-Forwarded-For`, so any value present in
+  // those headers is attacker-controlled. Keying buckets off them lets a
+  // single host trivially defeat per-IP limits by rotating header values.
+  //
+  // The only unspoofable source of identity on the bypass path is the TCP
+  // peer address (the connection remote). `@hono/node-server` exposes the
+  // Node `IncomingMessage` at `c.env.incoming`, and its `socket.remoteAddress`
+  // is set by the kernel from the SYN packet — an attacker cannot forge it
+  // without also winning a TCP-level race.
+  //
+  // On the CF-fronted path the connection remote will be a Cloudflare egress
+  // IP (so Layer 3 effectively buckets by CF colo from our POV). That's
+  // intentional: on that path Layer 1 (Cloudflare's own rate-limit rule on
+  // /api/* — 60 req/min per `ip.src`) is already enforcing per-end-user
+  // limits at the edge. Layer 3 only needs to prevent a single bypassing
+  // host from saturating Cloud Run autoscale or the DB pool, and the
+  // connection remote is exactly the right granularity for that.
+  //
+  // We deliberately ignore `X-Forwarded-For` entirely — it comes from
+  // untrusted hops on the bypass path. `CF-Connecting-IP` is used only as a
+  // last-resort fallback when no connection remote is available (e.g. in
+  // tests that use Hono's in-memory `app.request()` — there's no socket).
+  // That fallback is acceptable in tests because tests aren't an attack
+  // surface; production always has a real socket.
+  const incoming = (c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)?.incoming;
+  const remote = incoming?.socket?.remoteAddress;
+  if (remote) return remote;
+  const cf = c.req.raw.headers.get('cf-connecting-ip');
+  if (cf) return `cf:${cf}`;
   return 'unknown';
 }
 
@@ -125,7 +144,7 @@ export function rateLimit(options: RateLimitOptions): MiddlewareHandler {
 
     const nowMs = Date.now();
     maybeSweep(nowMs);
-    const key = extractClientIp(c.req.raw.headers);
+    const key = extractClientIp(c);
     const result = take(key, nowMs);
 
     if (result.allowed) return next();

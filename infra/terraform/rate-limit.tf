@@ -34,7 +34,11 @@ resource "cloudflare_ruleset" "read_api_rate_limit" {
     enabled     = true
 
     ratelimit {
-      characteristics     = ["ip.src", "cf.colo.id"]
+      # SECURITY (PR #597 review): characteristics are AND-keyed —
+      # `["ip.src", "cf.colo.id"]` means one bucket per (IP, colo) pair, so
+      # an attacker spreading requests across N Cloudflare colos (trivial via
+      # Anycast) gets N× the effective per-IP ceiling. Keep `ip.src` only.
+      characteristics     = ["ip.src"]
       period              = 60
       requests_per_period = 60
       # Continue blocking the offending IP for 60s after threshold trip.
