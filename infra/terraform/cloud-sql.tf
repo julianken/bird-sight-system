@@ -16,6 +16,11 @@ resource "random_password" "cloudsql_app_user" {
   length  = 32
   special = false # Cloud SQL Postgres tolerates symbols but pg connection strings need URL-encoding;
   # a 32-char alnum is >190 bits of entropy and dodges the encoding hazard entirely.
+  #
+  # Rotation: `terraform apply -replace=random_password.cloudsql_app_user`
+  # then re-apply to push the new value through google_sql_user.app and the
+  # downstream Secret Manager version. (`terraform taint` was deprecated in
+  # Terraform 1.6 — see versions.tf for the pin.)
 }
 
 resource "google_sql_database_instance" "birdwatch" {
@@ -52,7 +57,17 @@ resource "google_sql_database_instance" "birdwatch" {
     }
 
     database_flags {
-      name  = "max_connections"
+      name = "max_connections"
+      # Sized for stage-3 cutover overlap window where both Neon and Cloud Run
+      # generations may be live simultaneously. Budget:
+      #   read-api   max_instance_count=5 × pg Pool max=5  = 25
+      #   admin-api  max_instance_count=2 × pg Pool max=5  = 10
+      #   ingestor   Cloud Run job, ~5 concurrent          =  5
+      #   cutover overlap (double-stack during T3 flip)   ≈ 40
+      #   cloudsqlsuperuser/admin sessions + headroom     ≈ 20
+      # Total ~100. Cloud SQL `db-g1-small` default is 50 (memory-tier based);
+      # 100 is the next reasonable step without bumping tier. If Cloud Run
+      # max-instances or pg Pool `max` ever moves, re-derive this number.
       value = "100"
     }
 
@@ -76,6 +91,41 @@ resource "google_sql_database" "birdwatch" {
   name     = "birdwatch"
   instance = google_sql_database_instance.birdwatch.name
 }
+
+# PostGIS extension enablement.
+#
+# Cloud SQL Postgres does NOT auto-install PostGIS, and there is no
+# `database_flag` that toggles it — extensions are runtime objects, not
+# instance config. We deliberately do NOT use a `null_resource` +
+# `local-exec` to run `gcloud sql connect` here: that path requires
+# temporarily mutating `authorized_networks` with the operator's IP, which
+# conflicts with the Auth-Proxy-only access model declared in
+# `ip_configuration` above (no `authorized_networks` blocks, by design).
+#
+# Therefore PostGIS is an explicit operator step, run ONCE before stage-T3
+# (`pg_restore` Neon → Cloud SQL). The dump references PostGIS types
+# (`geometry`), GiST indexes, and PostGIS functions; without the extension
+# pre-created the restore fails.
+#
+# Operator runbook (run from a host with gcloud auth and project=bird-maps-prod):
+#
+#   # 1. Briefly add operator IP to enable an admin connection.
+#   gcloud sql instances patch birdwatch-pg16 \
+#     --authorized-networks="$(curl -s ifconfig.me)/32"
+#
+#   # 2. Create PostGIS as the `postgres` superuser (auto-created by Cloud SQL).
+#   gcloud sql connect birdwatch-pg16 --user=postgres --database=birdwatch \
+#     --quiet <<'SQL'
+#   CREATE EXTENSION IF NOT EXISTS postgis;
+#   SELECT postgis_full_version();
+#   SQL
+#
+#   # 3. Remove the operator IP — return to Auth-Proxy-only access.
+#   gcloud sql instances patch birdwatch-pg16 --clear-authorized-networks
+#
+# Verification (also runs as plan §4.1 pre-flight): `postgis_full_version()`
+# must return a row before T3 (`pg_dump | pg_restore`) is permitted.
+# Tracked in docs/plans/2026-05-17-cloud-sql-migration.md §T3 prerequisites.
 
 resource "google_sql_user" "app" {
   name     = "birdwatch_app"

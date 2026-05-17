@@ -372,7 +372,7 @@ The sequencing that guarantees no service ever runs against a missing DB:
 3. Verify on each service via `/health` + a representative read.
 4. Only then proceed to remove Neon in the follow-up PR.
 
-**Rotation discipline:** the Cloud SQL app-user password is in Terraform state via `random_password`. To rotate, `terraform taint random_password.cloudsql_app_user && terraform apply` — this regenerates the password, updates `google_sql_user.app`, and pushes a new secret version. Cloud Run picks it up on next restart. RTO ~3 min.
+**Rotation discipline:** the Cloud SQL app-user password is in Terraform state via `random_password`. To rotate, `terraform apply -replace=random_password.cloudsql_app_user` — this regenerates the password, updates `google_sql_user.app`, and pushes a new secret version. Cloud Run picks it up on next restart. RTO ~3 min. (`terraform taint` was deprecated in Terraform 1.6, which `versions.tf` pins as the minimum.)
 
 ## §6 Cutover
 
