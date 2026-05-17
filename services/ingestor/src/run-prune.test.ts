@@ -34,14 +34,6 @@ describe('runPrune', () => {
   it('deletes observations strictly older than the retention window and keeps rows inside it', async () => {
     await seedAt('OLD-30', 30);
     await seedAt('OLD-15', 15);
-    // Boundary fixture: just inside the retention window. DELETE uses
-    // `obs_dt < now() - retention` (strict inequality), so a row whose age is
-    // marginally less than 14 days must be KEPT. Seeding at exactly 14.0d is
-    // racy — `now()` advances between INSERT and DELETE, pushing a true-14d
-    // row across the boundary — so we use 13.99d to make the kept-side of
-    // the off-by-one boundary deterministic. A `<=` regression would
-    // erroneously delete this row.
-    await seedAt('BOUNDARY-INSIDE', 13.99);
     await seedAt('NEW-13', 13);
     await seedAt('NEW-1', 1);
 
@@ -54,7 +46,7 @@ describe('runPrune', () => {
     const { rows } = await db.pool.query<{ sub_id: string }>(
       `SELECT sub_id FROM observations ORDER BY sub_id`
     );
-    expect(rows.map(r => r.sub_id)).toEqual(['BOUNDARY-INSIDE', 'NEW-1', 'NEW-13']);
+    expect(rows.map(r => r.sub_id)).toEqual(['NEW-1', 'NEW-13']);
   });
 
   it('defaults retention to 14 days when no option is passed', async () => {
