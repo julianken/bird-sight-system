@@ -1,0 +1,13 @@
+{
+  "curls": [
+    { "id": 1, "name": "us_back1",             "path": "/v2/data/obs/US/recent?back=1&maxResults=10000",            "mode": "band",  "low":  340, "high": 1400 },
+    { "id": 2, "name": "us_back1_max100",      "path": "/v2/data/obs/US/recent?back=1&maxResults=100",              "mode": "exact", "value": 100 },
+    { "id": 3, "name": "us_az_back1_max5_full","path": "/v2/data/obs/US-AZ/recent?back=1&maxResults=5&detail=full", "mode": "exact", "value": 5 },
+    { "id": 4, "name": "us_ca_back1_max5",     "path": "/v2/data/obs/US-CA/recent?back=1&maxResults=5",             "mode": "exact", "value": 5 },
+    { "id": 5, "name": "us_ca_back1_max10k",   "path": "/v2/data/obs/US-CA/recent?back=1&maxResults=10000",         "mode": "band",  "low":  200, "high":  700 },
+    { "id": 6, "name": "us_az_back1_max10k",   "path": "/v2/data/obs/US-AZ/recent?back=1&maxResults=10000",         "mode": "band",  "low":  150, "high":  550 },
+    { "id": 7, "name": "us_wy_back1_max10k",   "path": "/v2/data/obs/US-WY/recent?back=1&maxResults=10000",         "mode": "band",  "low":   80, "high":  400 },
+    { "id": 8, "name": "us_back14",            "path": "/v2/data/obs/US/recent?back=14&maxResults=10000",           "mode": "band",  "low":  600, "high": 1800 },
+    { "id": 9, "name": "us_az_back14",         "path": "/v2/data/obs/US-AZ/recent?back=14&maxResults=10000",        "mode": "band",  "low":  250, "high":  800 }
+  ]
+}
