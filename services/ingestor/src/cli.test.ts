@@ -271,4 +271,70 @@ describe('runCli', () => {
     const deps = makeDeps();
     await expect(runCli('bogus', deps)).rejects.toThrow(/prune/);
   });
+
+  // ── Heartbeat wiring (S7) ──────────────────────────────────────────────
+  // Plan: docs/plans/2026-05-17-monitoring-and-alerts.md §"Heartbeat strategy".
+  // Heartbeat must fire on success and on partial, and MUST NOT fire on failure
+  // — the absence of a heartbeat is the failure signal Healthchecks.io alerts on.
+
+  it('pings heartbeat on success with HEALTHCHECKS_URL_<KIND> env value', async () => {
+    process.env.HEALTHCHECKS_URL_RECENT = 'https://hc-ping.com/uuid-recent';
+    const successSummary: RunSummary = {
+      status: 'success',
+      regionCode: 'US-AZ',
+      observationsFetched: 0,
+      observationsUpserted: 0,
+      checklistsUpserted: 0,
+      speciesUpserted: 0,
+      notableObservationCount: 0,
+    } as unknown as RunSummary;
+    const pingSpy = vi.fn().mockResolvedValue(undefined);
+    const deps = makeDeps({
+      runIngest: vi.fn().mockResolvedValue(successSummary),
+      pingHeartbeat: pingSpy,
+    });
+
+    await runCli('recent', deps);
+
+    expect(pingSpy).toHaveBeenCalledTimes(1);
+    expect(pingSpy).toHaveBeenCalledWith('https://hc-ping.com/uuid-recent', 'recent');
+    delete process.env.HEALTHCHECKS_URL_RECENT;
+  });
+
+  it('does NOT ping heartbeat on failure', async () => {
+    const failureSummary: RunTaxonomySummary = {
+      status: 'failure',
+      totalFetched: 0,
+      speciesInserted: 0,
+      nonSpeciesFiltered: 0,
+      reconciled: 0,
+      error: 'boom',
+    };
+    const pingSpy = vi.fn().mockResolvedValue(undefined);
+    const deps = makeDeps({
+      runTaxonomy: vi.fn().mockResolvedValue(failureSummary),
+      pingHeartbeat: pingSpy,
+    });
+
+    await runCli('taxonomy', deps);
+
+    expect(pingSpy).not.toHaveBeenCalled();
+  });
+
+  it('uppercases and replaces hyphens in kind when computing env-var name', async () => {
+    process.env.HEALTHCHECKS_URL_BACKFILL_EXTENDED = 'https://hc-ping.com/uuid-bf-ext';
+    const partialSummary = {
+      status: 'partial',
+    } as unknown as Awaited<ReturnType<typeof import('./run-backfill.js').runBackfill>>;
+    const pingSpy = vi.fn().mockResolvedValue(undefined);
+    const deps = makeDeps({
+      runBackfill: vi.fn().mockResolvedValue(partialSummary),
+      pingHeartbeat: pingSpy,
+    });
+
+    await runCli('backfill-extended', deps);
+
+    expect(pingSpy).toHaveBeenCalledWith('https://hc-ping.com/uuid-bf-ext', 'backfill-extended');
+    delete process.env.HEALTHCHECKS_URL_BACKFILL_EXTENDED;
+  });
 });

@@ -32,6 +32,7 @@ import {
 } from './run-prune.js';
 import { fetchWikipediaSummary as realFetchWikipediaSummary } from './wikipedia/client.js';
 import { fetchInatTaxon as realFetchInatTaxon } from './inat/taxon-client.js';
+import { pingHeartbeat as realPingHeartbeat } from './heartbeat.js';
 
 /**
  * Every run summary discriminates on `status`. `RunBackfillSummary` can also be
@@ -64,6 +65,7 @@ export interface CliDeps {
   runPrune: typeof realRunPrune;
   fetchWikipediaSummary: typeof realFetchWikipediaSummary;
   fetchInatTaxon: typeof realFetchInatTaxon;
+  pingHeartbeat?: typeof realPingHeartbeat;
 }
 
 /**
@@ -173,6 +175,13 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
     if (summary.status === 'failure') {
       // Flag the process as failed without killing the loop mid-pool-close.
       process.exitCode = 1;
+    } else {
+      // Success or partial: ping the per-kind heartbeat. Healthchecks.io
+      // (or equivalent) fires alerts on MISSED pings, so we MUST NOT ping
+      // on failure — see docs/plans/2026-05-17-monitoring-and-alerts.md §S7.
+      const envKey = `HEALTHCHECKS_URL_${kind.toUpperCase().replace(/-/g, '_')}`;
+      const ping = deps.pingHeartbeat ?? realPingHeartbeat;
+      await ping(process.env[envKey], kind);
     }
   } finally {
     await deps.closePool(pool);
