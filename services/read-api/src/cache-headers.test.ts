@@ -1,42 +1,49 @@
 import { describe, it, expect } from 'vitest';
-import { cacheControlFor, type Endpoint } from './cache-headers.js';
+import { cacheControlFor } from './cache-headers.js';
 
 describe('cacheControlFor', () => {
-  it('returns 30-min TTL with SWR for /observations', () => {
+  // Issue #586: switch from `max-age` (which both browser + CDN cache) to
+  // `s-maxage` (CDN-only) on the four hot public read endpoints. Cloudflare
+  // zone analytics reported 99.91% cache-miss over 30 days — these endpoints
+  // are structurally cacheable but the responses lacked headers the CDN would
+  // honor. `s-maxage=N, stale-while-revalidate=2N` targets the edge directly
+  // and lets the CDN serve stale-while-revalidate windows without hammering
+  // Cloud Run / Neon. Browsers are not asked to hold stale copies.
+
+  it('returns short s-maxage with 2× SWR for /observations (~5min freshness)', () => {
     expect(cacheControlFor('observations'))
-      .toBe('public, max-age=1800, stale-while-revalidate=600');
+      .toBe('public, s-maxage=300, stale-while-revalidate=600');
   });
-  it('returns 24h TTL with SWR for /hotspots', () => {
+
+  it('returns medium s-maxage with 2× SWR for /hotspots (~10min freshness)', () => {
     expect(cacheControlFor('hotspots'))
-      .toBe('public, max-age=86400, stale-while-revalidate=3600');
+      .toBe('public, s-maxage=600, stale-while-revalidate=1200');
   });
+
   it('returns 7d max-age (revalidatable) for /species', () => {
+    // /api/species/:code is out of scope for #586 (already long-cached on
+    // browser + CDN; not one of the four hot miss-rate offenders). Left as
+    // `max-age=604800` so existing browser caching behavior is unchanged.
     // No `immutable`: photo_url on species_meta is a monthly-refreshed field
-    // (issue #327). The value at this URL CAN change, so `immutable` is
-    // semantically wrong. Browsers re-validate at expiry; CDN may serve
-    // stale species data for up to 7 days after a photo write — acceptable
-    // given monthly refresh cadence. See cache-headers.ts comment.
+    // (#327) so the URL value CAN change.
     expect(cacheControlFor('species'))
       .toBe('public, max-age=604800');
   });
-  it('returns 7d max-age (revalidatable) for /silhouettes', () => {
-    // Family silhouettes legitimately drift between deploys (curation,
-    // Phylopic seed expansion). The 1-week max-age is still aggressive
-    // enough not to hammer the API, but dropping `immutable` lets browsers
-    // re-validate with the CDN at expiry — and a Cloudflare cache-purge
-    // (see scripts/purge-silhouettes-cache.sh) reaches users on the next
-    // request rather than waiting up to 7 days.
+
+  it('returns long s-maxage with 2× SWR for /silhouettes (~1h freshness)', () => {
+    // Family silhouettes drift between deploys (curation, Phylopic seed
+    // expansion). `s-maxage=3600` lets the CDN hold the payload for an hour,
+    // and `purge-silhouettes-cache.sh` still reaches users on next request
+    // after a curation push because it purges the CDN entry directly.
     expect(cacheControlFor('silhouettes'))
-      .toBe('public, max-age=604800');
+      .toBe('public, s-maxage=3600, stale-while-revalidate=7200');
   });
-  it('returns 6h TTL with 1h SWR for /phenology', () => {
-    // Phenology aggregates observations from the last 365 days. The data
-    // shifts daily as the recent-ingest cycle rolls forward, but the per-
-    // species monthly counts only meaningfully change when a fresh
-    // observation lands in a previously-empty month — extremely rare on
-    // any 6h window. 21600s (6h) max-age + 3600s SWR balances a long-lived
-    // CDN entry with same-day refresh after a notable observation.
+
+  it('returns long s-maxage with 2× SWR for /phenology (~1h freshness)', () => {
+    // Phenology aggregates the last 365d observations into 12 monthly counts;
+    // monthly buckets only meaningfully shift when a fresh obs lands in a
+    // previously-empty month — extremely rare on a 1h window.
     expect(cacheControlFor('phenology'))
-      .toBe('public, max-age=21600, stale-while-revalidate=3600');
+      .toBe('public, s-maxage=3600, stale-while-revalidate=7200');
   });
 });
