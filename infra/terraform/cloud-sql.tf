@@ -31,6 +31,7 @@ resource "google_sql_database_instance" "birdwatch" {
   deletion_protection = true
 
   settings {
+    edition               = "ENTERPRISE" # db-g1-small is invalid under ENTERPRISE_PLUS (the GCP default for new instances)
     tier                  = "db-g1-small"
     availability_type     = "ZONAL" # single-zone; flip to REGIONAL later if traffic warrants
     disk_type             = "PD_SSD"
