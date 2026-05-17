@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
 import { SpeciesDetailSurface } from './SpeciesDetailSurface.js';
 import { ApiClient } from '../api/client.js';
-import type { SpeciesMeta, FamilySilhouette } from '@bird-watch/shared-types';
+import type { SpeciesMeta, FamilySilhouette, Observation } from '@bird-watch/shared-types';
 import { __resetSilhouettesCache } from '../data/use-silhouettes.js';
 import { __resetSpeciesDetailCache } from '../data/use-species-detail.js';
 import { analytics } from '../analytics.js';
 import { FAMILY_COLOR_FALLBACK } from '../data/family-color.js';
+import type { BBox } from '../state/url-state.js';
 
 // Mock posthog-js so no network call escapes the test environment, even
 // if a future contributor sets `VITE_POSTHOG_KEY` in their local .env.
@@ -44,7 +45,9 @@ const VERMFLY_WITH_PHOTO: SpeciesMeta = {
 const TYRANNIDAE_SILHOUETTE: FamilySilhouette = {
   familyCode: 'songbird',
   color: '#C77A2E',
+  colorDark: '#C77A2E',
   svgData: 'M0 0L1 1Z',
+  svgUrl: null,
   source: 'https://www.phylopic.org/i/x',
   license: 'CC-BY-3.0',
   commonName: 'Tyrant Flycatchers',
@@ -571,6 +574,165 @@ describe('SpeciesDetailSurface', () => {
           (globalThis as { IntersectionObserver: unknown }).IntersectionObserver = originalIO;
         }
       }
+    });
+  });
+
+  // ─── Phase 3 bbox filter (issue #560) ─────────────────────────────────────
+  //
+  // SpeciesDetailSurface accepts an optional `bbox: BBox | null` prop. When
+  // null/undefined the surface renders all observations (unchanged behavior).
+  // When set, observations are filtered client-side (Read API has no bbox
+  // support; spec §10 line 522). Inclusive bounds on all 4 edges. Memo'd by
+  // [observations, bbox] for stable re-renders. Spec §5.4.
+
+  describe('SpeciesDetailSurface bbox filter (Phase 3, #560)', () => {
+    // Minimal observation factory — only fields the filter needs + locName
+    // for a human-readable assertion target.
+    function makeObs(subId: string, lng: number, lat: number): Observation {
+      return {
+        subId,
+        speciesCode: 'vermfly',
+        comName: 'Vermilion Flycatcher',
+        lat,
+        lng,
+        obsDt: '2026-05-01',
+        locId: `L${subId}`,
+        locName: `Location ${subId}`,
+        howMany: 1,
+        isNotable: false,
+        silhouetteId: null,
+        familyCode: 'songbird',
+      };
+    }
+
+    function makeClientWithObs(): ApiClient {
+      return makeClient({
+        getSpecies: vi.fn().mockResolvedValue(VERMFLY),
+        getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
+      } as unknown as Partial<ApiClient>);
+    }
+
+    const INSIDE = makeObs('inside', -110.5, 31.5);
+    const OUTSIDE = makeObs('outside', -109, 33);
+    const ON_EDGE = makeObs('edge', -110, 31);
+    const BBOX: BBox = [-111, 31, -110, 32];
+
+    it('without bbox prop, renders all observations for the species', async () => {
+      const client = makeClientWithObs();
+      render(
+        <SpeciesDetailSurface
+          speciesCode="vermfly"
+          apiClient={client}
+          observations={[INSIDE, OUTSIDE]}
+        />,
+      );
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeInTheDocument(),
+      );
+      const items = screen.getAllByTestId('observation-item');
+      expect(items).toHaveLength(2);
+    });
+
+    it('with bbox prop, filters observations to those inside the bbox', async () => {
+      const client = makeClientWithObs();
+      render(
+        <SpeciesDetailSurface
+          speciesCode="vermfly"
+          apiClient={client}
+          observations={[INSIDE, OUTSIDE]}
+          bbox={BBOX}
+        />,
+      );
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeInTheDocument(),
+      );
+      const items = screen.getAllByTestId('observation-item');
+      expect(items).toHaveLength(1);
+      expect(items[0]).toHaveTextContent('inside');
+    });
+
+    it('inclusive bounds — observations on the bbox edge are included', async () => {
+      const client = makeClientWithObs();
+      render(
+        <SpeciesDetailSurface
+          speciesCode="vermfly"
+          apiClient={client}
+          observations={[ON_EDGE]}
+          bbox={BBOX}
+        />,
+      );
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeInTheDocument(),
+      );
+      const items = screen.getAllByTestId('observation-item');
+      expect(items).toHaveLength(1);
+    });
+
+    it('filter is stable across re-renders with identical bbox', async () => {
+      const client = makeClientWithObs();
+      const observations = [INSIDE, OUTSIDE];
+      const { rerender } = render(
+        <SpeciesDetailSurface
+          speciesCode="vermfly"
+          apiClient={client}
+          observations={observations}
+          bbox={BBOX}
+        />,
+      );
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeInTheDocument(),
+      );
+      // Re-render with the same bbox reference — memo should not recompute
+      // (the filtered array reference stays stable, which downstream list
+      // rendering relies on to avoid thrashing).
+      rerender(
+        <SpeciesDetailSurface
+          speciesCode="vermfly"
+          apiClient={client}
+          observations={observations}
+          bbox={BBOX}
+        />,
+      );
+      const items = screen.getAllByTestId('observation-item');
+      expect(items).toHaveLength(1);
+    });
+  });
+
+  // ─── Phase 3 bbox banner (Task 7, #560) ──────────────────────────────────
+  //
+  // When `bbox` prop is non-null, SpeciesDetailSurface renders a banner
+  // section with role="region" aria-label="Filtered by map area" containing
+  // the filtered count and a "View all observations" button that calls
+  // onClearBbox. When bbox is null/undefined, the banner must not render.
+
+  describe('SpeciesDetailSurface bbox banner (Phase 3, #560)', () => {
+    const rest = {
+      speciesCode: 'vermfly',
+      apiClient: makeClient({
+        getSpecies: vi.fn().mockResolvedValue(VERMFLY),
+        getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
+      } as unknown as Partial<ApiClient>),
+    };
+
+    it('renders the banner with onClearBbox link when bbox is non-null', async () => {
+      const onClearBbox = vi.fn();
+      render(<SpeciesDetailSurface bbox={[-111, 31, -110, 32]} onClearBbox={onClearBbox} {...rest} />);
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeInTheDocument(),
+      );
+      const banner = screen.getByRole('region', { name: /Filtered by map area/i });
+      expect(banner).toBeInTheDocument();
+      const link = within(banner).getByRole('button', { name: /View all observations/i });
+      fireEvent.click(link);
+      expect(onClearBbox).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not render the banner when bbox is null', async () => {
+      render(<SpeciesDetailSurface bbox={null} {...rest} />);
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeInTheDocument(),
+      );
+      expect(screen.queryByRole('region', { name: /Filtered by map area/i })).not.toBeInTheDocument();
     });
   });
 });

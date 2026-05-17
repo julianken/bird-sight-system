@@ -271,20 +271,12 @@ describe('Phase 3: context strip', () => {
 
 // --- Phase 1 (#558): second skip-link "Explore map markers" --------------------
 
-describe('MapSurface — VITE_FF_CELL_POPOVER skip-link (Phase 1, #558)', () => {
+describe('MapSurface — cell popover skip-link (Phase 1, #558)', () => {
   beforeEach(() => {
     vi.resetModules();
   });
 
-  it('flag OFF: no "Explore map markers" skip-link rendered (regression guard)', async () => {
-    vi.stubEnv('VITE_FF_CELL_POPOVER', 'false');
-    const { MapSurface } = await import('./MapSurface.js');
-    render(<MapSurface {...baseProps} onSkipToFeed={vi.fn()} onExploreMapMarkers={vi.fn()} />);
-    expect(screen.queryByRole('button', { name: /Explore map markers/i })).toBeNull();
-  });
-
-  it('flag ON: renders "Explore map markers" as a second skip-link', async () => {
-    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+  it('renders "Explore map markers" as a second skip-link', async () => {
     const { MapSurface } = await import('./MapSurface.js');
     render(
       <MapSurface
@@ -297,8 +289,7 @@ describe('MapSurface — VITE_FF_CELL_POPOVER skip-link (Phase 1, #558)', () => 
     expect(screen.getByRole('button', { name: /Explore map markers/i })).toBeInTheDocument();
   });
 
-  it('flag ON: skip-link uses class="skip-link" so global hidden-until-focus style applies', async () => {
-    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+  it('skip-link uses class="skip-link" so global hidden-until-focus style applies', async () => {
     const { MapSurface } = await import('./MapSurface.js');
     render(
       <MapSurface
@@ -312,8 +303,7 @@ describe('MapSurface — VITE_FF_CELL_POPOVER skip-link (Phase 1, #558)', () => 
     expect(link.className).toContain('skip-link');
   });
 
-  it('flag ON: clicking the skip-link calls onExploreMapMarkers prop', async () => {
-    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+  it('clicking the skip-link calls onExploreMapMarkers prop', async () => {
     const { MapSurface } = await import('./MapSurface.js');
     const onExplore = vi.fn();
     render(
@@ -328,8 +318,7 @@ describe('MapSurface — VITE_FF_CELL_POPOVER skip-link (Phase 1, #558)', () => 
     expect(onExplore).toHaveBeenCalledTimes(1);
   });
 
-  it('flag ON + empty viewport (hasMarkers=false): skip-link is aria-hidden and tabIndex=-1', async () => {
-    vi.stubEnv('VITE_FF_CELL_POPOVER', 'true');
+  it('empty viewport (hasMarkers=false): skip-link is aria-hidden and tabIndex=-1', async () => {
     const { MapSurface } = await import('./MapSurface.js');
     render(
       <MapSurface

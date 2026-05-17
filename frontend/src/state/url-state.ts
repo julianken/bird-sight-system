@@ -3,6 +3,7 @@ import { analytics } from '../analytics.js';
 
 export type Since = '1d' | '7d' | '14d' | '30d';
 export type View = 'feed' | 'species' | 'map' | 'detail';
+export type BBox = readonly [number, number, number, number];
 
 export interface UrlState {
   speciesCode: string | null;
@@ -11,6 +12,7 @@ export interface UrlState {
   notable: boolean;
   view: View;
   detail: string | null;
+  bbox: BBox | null;
 }
 
 const DEFAULTS: UrlState = {
@@ -20,10 +22,15 @@ const DEFAULTS: UrlState = {
   notable: false,
   view: 'map',
   detail: null,
+  bbox: null, // Phase 3 (#560) — Cluster→SpeciesDetailSurface bbox filter
 };
 
 const VALID_SINCE: ReadonlySet<string> = new Set(['1d', '7d', '14d', '30d']);
 const VALID_VIEW: ReadonlySet<string> = new Set(['feed', 'species', 'map', 'detail']);
+
+function round6(n: number): number {
+  return Math.round(n * 1_000_000) / 1_000_000;
+}
 
 function readUrl(): UrlState {
   const p = new URLSearchParams(window.location.search);
@@ -97,6 +104,31 @@ function readUrl(): UrlState {
     view = DEFAULTS.view;
   }
 
+  // Phase 3 (#560) — bbox URL state for cluster→SpeciesDetailSurface filter.
+  // Format: ?bbox=lngMin,latMin,lngMax,latMax (4 comma-separated, 6 decimals).
+  // Defensive parsing: reject any malformed input as null so a corrupted
+  // shared URL doesn't break rendering. Range checks: lng ∈ [-180, 180],
+  // lat ∈ [-90, 90]. NaN/Infinity are rejected.
+  let bbox: BBox | null = null;
+  const rawBbox = p.get('bbox');
+  if (rawBbox !== null) {
+    const parts = rawBbox.split(',').map(Number);
+    if (parts.length === 4) {
+      const [p0, p1, p2, p3] = parts as [number, number, number, number];
+      if (
+        Number.isFinite(p0) && Number.isFinite(p1) &&
+        Number.isFinite(p2) && Number.isFinite(p3) &&
+        p0 >= -180 && p0 <= 180 &&
+        p2 >= -180 && p2 <= 180 &&
+        p1 >= -90 && p1 <= 90 &&
+        p3 >= -90 && p3 <= 90
+      ) {
+        // Round each to 6 decimals on read so downstream comparisons are stable.
+        bbox = [round6(p0), round6(p1), round6(p2), round6(p3)] as const;
+      }
+    }
+  }
+
   return {
     speciesCode,
     familyCode: p.get('family'),
@@ -104,6 +136,7 @@ function readUrl(): UrlState {
     notable: p.get('notable') === 'true',
     view,
     detail,
+    bbox,
   };
 }
 
@@ -120,6 +153,15 @@ function writeUrl(state: UrlState, push: boolean = false): void {
   // reload/popstate.
   if (state.view !== DEFAULTS.view || state.speciesCode || state.detail) {
     p.set('view', state.view);
+  }
+  if (state.bbox !== null) {
+    const lngMin = round6(state.bbox[0]);
+    const latMin = round6(state.bbox[1]);
+    const lngMax = round6(state.bbox[2]);
+    const latMax = round6(state.bbox[3]);
+    p.set('bbox', `${lngMin},${latMin},${lngMax},${latMax}`);
+  } else {
+    p.delete('bbox');
   }
   const q = p.toString();
   const newUrl = q ? `${window.location.pathname}?${q}` : window.location.pathname;

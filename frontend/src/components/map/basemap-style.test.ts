@@ -6,11 +6,13 @@ describe('basemap-style', () => {
     expect(BASEMAP_LIGHT).toBe('https://tiles.openfreemap.org/styles/positron');
   });
 
-  it('exports BASEMAP_DARK aliasing BASEMAP_LIGHT until G7/G8 close', () => {
-    // Until G7 (family × basemap contrast) and G8 (dark basemap palette)
-    // prototype-gates close, BASEMAP_DARK is a literal alias of
-    // BASEMAP_LIGHT. A real dark tile URL is gated behind those gates.
-    expect(BASEMAP_DARK).toBe(BASEMAP_LIGHT);
+  it('exports BASEMAP_DARK pointing at OpenFreeMap dark (G8 closed, Phase 4)', () => {
+    // G8 (dark basemap palette ratification) closed in Phase 4 of the
+    // adaptive-grid contrast epic (#575, PR #582). BASEMAP_DARK must no longer
+    // alias BASEMAP_LIGHT — it must point at the real dark tile URL.
+    // This test is the regression guard: if the alias reverts, this fails loudly.
+    expect(BASEMAP_DARK).toBe('https://tiles.openfreemap.org/styles/dark');
+    expect(BASEMAP_DARK).not.toBe(BASEMAP_LIGHT);
   });
 
   it('keeps `basemapStyle` as a back-compat alias of BASEMAP_LIGHT', () => {

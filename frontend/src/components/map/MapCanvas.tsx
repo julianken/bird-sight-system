@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { BBox } from '../../state/url-state.js';
 // Aliasing the react-map-gl/maplibre Map component to MapView so the
 // global ES Map constructor remains available inside this module — otherwise
 // `new Map()` inside e.g. `leafCache = new Map<string, Promise<...>>()`
@@ -45,6 +46,7 @@ import {
 import {
   buildGroups,
   displaceSilhouettes,
+  getClusterBbox,
   SILHOUETTE_PX,
   type DeconflictGroup,
   type DeconflictInput,
@@ -208,7 +210,14 @@ export interface MapCanvasProps {
    * `set({ view: 'detail', detail: code })` via `useUrlState`. Optional
    * — when absent, the popover hides the link.
    */
-  onSelectSpecies?: (speciesCode: string) => void;
+  /**
+   * Phase 3 (#560): widened to accept an optional second argument `bbox`
+   * so the MapCanvas wrapper can pass the cluster's geographic bbox to
+   * App.tsx's `onSelectSpecies(code, bbox)`. The popover components
+   * (`CellPopover`, `ClusterListPopover`) keep their single-arg signature;
+   * bbox is attached by the wrapper at the `<AdaptiveGridMarker>` call site.
+   */
+  onSelectSpecies?: (speciesCode: string, bbox: BBox | null) => void;
   /**
    * Issue #351: invoked on every map `idle` (camera-change settle) with
    * the current `map.getBounds()`. App.tsx threads this so the
@@ -466,11 +475,12 @@ export function MapCanvas({
    * produces all-`pending` tiles.
    */
   const silhouettesById = useMemo<SilhouettesById>(() => {
-    const map = new Map<string, { svgData: string | null; color: string }>();
+    const map = new Map<string, { svgData: string | null; color: string; colorDark: string }>();
     for (const s of silhouettes) {
       map.set(s.familyCode.toLowerCase(), {
         svgData: s.svgData,
         color: s.color,
+        colorDark: s.colorDark,
       });
     }
     return map;
@@ -1291,7 +1301,8 @@ export function MapCanvas({
 
   const handlePopoverSelectSpecies = useCallback(
     (speciesCode: string) => {
-      onSelectSpecies?.(speciesCode);
+      // ObservationPopover is for single observations — no cluster bbox.
+      onSelectSpecies?.(speciesCode, null);
       // Close the popover after the navigation — the user has expressed
       // intent to leave the map view; the dialog hanging open during the
       // surface switch is a stale state.
@@ -1356,6 +1367,16 @@ export function MapCanvas({
         }
         onLoad={handleLoad}
         attributionControl={false}
+        // Fix 3b (PR #582 bot review): preserve the WebGL backbuffer when running
+        // e2e tests so `readCanvasPixel` in basemap-dark-flip.spec.ts can sample
+        // rendered pixels via a 2D-canvas drawImage copy. Without this flag MapLibre
+        // 5.x defaults to `preserveDrawingBuffer: false`, which clears the backbuffer
+        // between frames and causes pixel reads to return [0,0,0,0].
+        // The flag is opt-in via VITE_E2E_PRESERVE_BUFFER so the slight GPU
+        // performance cost only applies during e2e runs — never in production.
+        {...(import.meta.env.VITE_E2E_PRESERVE_BUFFER === 'true'
+          ? { canvasContextAttributes: { preserveDrawingBuffer: true } }
+          : {})}
       >
         {/*
           ODbL compliance: OpenStreetMap data (via OpenFreeMap's positron tiles)
@@ -1478,7 +1499,9 @@ export function MapCanvas({
                 isCoarsePointer={isCoarsePointer}
                 isNotable={anchor.isNotable ?? false}
                 onClick={() => handleGroupClick(g)}
-                {...(onSelectSpecies ? { onSelectSpecies } : {})}
+                {...(onSelectSpecies ? {
+                  onSelectSpecies: (code: string) => onSelectSpecies(code, getClusterBbox(g)),
+                } : {})}
               />
             </PresentationMarker>
           );

@@ -19,7 +19,8 @@ describe('getSilhouettes', () => {
     // _FALLBACK row exists with sentinel family_code.
     const fallback = rows.find(r => r.familyCode === '_FALLBACK');
     expect(fallback).toBeDefined();
-    expect(fallback!.color).toBe('#555555');
+    expect(fallback!.color).toBe('#626262');
+    expect(fallback!.colorDark).toBe('#626262');
     expect(typeof fallback!.svgData).toBe('string');
     expect(fallback!.source).toBeNull();
     expect(fallback!.license).toBeNull();
@@ -115,77 +116,80 @@ describe('getSilhouettes', () => {
     // and the migration in the same PR.
     const rows = await getSilhouettes(db.pool);
     const byFamily = Object.fromEntries(rows.map(r => [r.familyCode, r.color]));
+    // Colors reflect migration 1700000046000 (adaptive-grid contrast Phase 1, #570).
+    // 24 light-failing families had their `color` darkened; 22 dark-failing families
+    // had their `color` lightened. The 19 passing families are unchanged.
     expect(byFamily).toEqual({
-      // --- migration 9000 (#55 option-(a)) ---
-      accipitridae: '#222222',
-      anatidae: '#3A6B8E',
-      ardeidae: '#5A6B2A',
-      cathartidae: '#444444',
-      corvidae: '#222244',
-      cuculidae: '#5E4A20',
-      odontophoridae: '#7A5028',
-      passerellidae: '#D4923A',
-      picidae: '#FF0808',
-      scolopacidae: '#9B7B3A',
-      strigidae: '#5A4A2A',
-      trochilidae: '#7B2D8E',
-      troglodytidae: '#7A5028',
-      trogonidae: '#FF0808',
-      tyrannidae: '#C77A2E',
+      // --- migration 9000 (#55 option-(a)) — dark-failing group (lightened by 1700000046000) ---
+      accipitridae: '#626262',  // was #222222
+      anatidae: '#3A6B8E',      // unchanged (passes both)
+      ardeidae: '#5A6B2A',      // unchanged (passes both)
+      cathartidae: '#606060',   // was #444444
+      corvidae: '#5858ac',      // was #222244
+      cuculidae: '#795f29',     // was #5E4A20
+      odontophoridae: '#86582c', // was #7A5028
+      passerellidae: '#bc7d29', // was #D4923A (light-failing, darkened)
+      picidae: '#FF0808',       // unchanged (passes both)
+      scolopacidae: '#9B7B3A', // unchanged (passes both)
+      strigidae: '#725e35',     // was #5A4A2A
+      trochilidae: '#9637ad',   // was #7B2D8E
+      troglodytidae: '#86582c', // was #7A5028
+      trogonidae: '#FF0808',    // unchanged (passes both)
+      tyrannidae: '#c3772d',    // was #C77A2E (light-failing, darkened)
       // --- migration 15000 (issue #244 expansion) ---
-      caprimulgidae: '#3D2E5C',
-      cardinalidae: '#B0231A',
-      columbidae: '#A89880',
-      fringillidae: '#E0A82E',
-      mimidae: '#8E7B5A',
-      paridae: '#4A6FA5',
-      parulidae: '#D4C84A',
-      ptilogonatidae: '#1F1F35',
-      remizidae: '#9AAE8C',
-      threskiornithidae: '#C56B9D',
+      caprimulgidae: '#6c52a3', // was #3D2E5C
+      cardinalidae: '#b9251b',  // was #B0231A
+      columbidae: '#99876b',    // was #A89880 (light-failing, darkened)
+      fringillidae: '#b1821a',  // was #E0A82E (light-failing, darkened)
+      mimidae: '#8E7B5A',       // unchanged (passes both)
+      paridae: '#4A6FA5',       // unchanged (passes both)
+      parulidae: '#958b23',     // was #D4C84A (light-failing, darkened)
+      ptilogonatidae: '#5b5b9c', // was #1F1F35
+      remizidae: '#789166',     // was #9AAE8C (light-failing, darkened)
+      threskiornithidae: '#C56B9D', // unchanged (passes both)
       // --- migration 18000 (issue #246 fallback) ---
-      _FALLBACK: '#555555',
+      _FALLBACK: '#626262',     // was #555555
       // --- migration 33000 (issue #482 icteridae fill) ---
-      icteridae: '#F4B400',
+      icteridae: '#b28300',     // was #F4B400 (light-failing, darkened)
       // --- migration 34000 (issue #495 backfill) ---
-      aegithalidae: '#C2B098',
-      alaudidae: '#B89060',
-      alcedinidae: '#5481A0',
-      apodidae: '#36322E',
-      bombycillidae: '#C9A878',
-      calcariidae: '#E5C28A',
-      certhiidae: '#6B4A30',
-      charadriidae: '#BFA682',
-      cinclidae: '#6E7378',
-      falconidae: '#475360',
-      gaviidae: '#2B3845',
-      gruidae: '#8A8470',
-      hirundinidae: '#5BA0C0',
-      icteriidae: '#F4E04D',
-      laniidae: '#7E848A',
-      laridae: '#8FA7B5',
-      motacillidae: '#7E6440',
-      numididae: '#5A6878',
-      pandionidae: '#4A3520',
-      passeridae: '#8E5B3A',
-      pelecanidae: '#E8D4B8',
-      peucedramidae: '#8A8C66',
-      phalacrocoracidae: '#26302C',
-      phasianidae: '#6E7A48',
-      podicipedidae: '#2F4D4A',
-      polioptilidae: '#A8B5C2',
-      psittacidae: '#3FA850',
-      psittaculidae: '#4FB8B0',
-      ptiliogonatidae: '#1A1418',
-      rallidae: '#403E3A',
-      recurvirostridae: '#E1B8C0',
-      regulidae: '#6FA050',
-      sittidae: '#6B7A8E',
-      sturnidae: '#2D2538',
-      tityridae: '#A88AA0',
-      turdidae: '#A05A3A',
-      tytonidae: '#D6B878',
-      vireonidae: '#7E9B5C',
+      aegithalidae: '#a28662',  // was #C2B098 (light-failing, darkened)
+      alaudidae: '#ac814d',     // was #B89060 (light-failing, darkened)
+      alcedinidae: '#5481A0',   // unchanged (passes both)
+      apodidae: '#686058',      // was #36322E
+      bombycillidae: '#ab8144', // was #C9A878 (light-failing, darkened)
+      calcariidae: '#b78129',   // was #E5C28A (light-failing, darkened)
+      certhiidae: '#805939',    // was #6B4A30
+      charadriidae: '#a58455',  // was #BFA682 (light-failing, darkened)
+      cinclidae: '#6E7378',     // unchanged (passes both)
+      falconidae: '#546272',    // was #475360
+      gaviidae: '#4c637a',      // was #2B3845
+      gruidae: '#8A8470',       // unchanged (passes both)
+      hirundinidae: '#4693b6',  // was #5BA0C0 (light-failing, darkened)
+      icteriidae: '#998809',    // was #F4E04D (light-failing, darkened)
+      laniidae: '#7E848A',      // unchanged (passes both)
+      laridae: '#708fa1',       // was #8FA7B5 (light-failing, darkened)
+      motacillidae: '#7E6440',  // unchanged (passes both)
+      numididae: '#5A6878',     // unchanged (passes both)
+      pandionidae: '#7c5936',   // was #4A3520
+      passeridae: '#8E5B3A',    // unchanged (passes both)
+      pelecanidae: '#b3813a',   // was #E8D4B8 (light-failing, darkened)
+      peucedramidae: '#8A8C66', // unchanged (passes both)
+      phalacrocoracidae: '#51665e', // was #26302C
+      phasianidae: '#6E7A48',   // unchanged (passes both)
+      podicipedidae: '#406a65', // was #2F4D4A
+      polioptilidae: '#788ca0', // was #A8B5C2 (light-failing, darkened)
+      psittacidae: '#3b9d4b',   // was #3FA850 (light-failing, darkened)
+      psittaculidae: '#3d9790', // was #4FB8B0 (light-failing, darkened)
+      ptiliogonatidae: '#73596a', // was #1A1418
+      rallidae: '#63605a',      // was #403E3A
+      recurvirostridae: '#c47484', // was #E1B8C0 (light-failing, darkened)
+      regulidae: '#68964b',     // was #6FA050 (light-failing, darkened)
+      sittidae: '#6B7A8E',      // unchanged (passes both)
+      sturnidae: '#6b5885',     // was #2D2538
+      tityridae: '#a18199',     // was #A88AA0 (light-failing, darkened)
+      turdidae: '#A05A3A',      // unchanged (passes both)
+      tytonidae: '#aa8434',     // was #D6B878 (light-failing, darkened)
+      vireonidae: '#769156',    // was #7E9B5C (light-failing, darkened)
     });
   });
 
