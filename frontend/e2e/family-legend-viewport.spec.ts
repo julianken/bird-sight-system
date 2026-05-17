@@ -87,14 +87,38 @@ async function driveMapTo(
   lat: number,
   zoom: number,
 ): Promise<boolean> {
-  return page.evaluate(
+  const dispatched = await page.evaluate(
     ([lng, lat, zoom]: [number, number, number]) => {
       try {
-        const map = (
-          window as { __birdMap?: { flyTo: (opts: object) => void } }
-        ).__birdMap;
-        if (!map || typeof map.flyTo !== 'function') return false;
-        map.flyTo({ center: [lng, lat], zoom, duration: 0 });
+        const w = window as {
+          __birdMap?: {
+            jumpTo?: (opts: object) => void;
+            flyTo?: (opts: object) => void;
+            once: (ev: string, cb: () => void) => void;
+          };
+          __birdMapIdleSince?: number;
+        };
+        const map = w.__birdMap;
+        if (!map) return false;
+        // Install a one-shot idle latch so the test can wait for the
+        // *next* `idle` after this camera change (rather than racing on
+        // an idle that fired before the jump). Cleared each invocation.
+        w.__birdMapIdleSince = 0;
+        map.once('idle', () => {
+          (window as { __birdMapIdleSince?: number }).__birdMapIdleSince =
+            Date.now();
+        });
+        // Prefer jumpTo (synchronous moveend; no animation interpolation)
+        // over flyTo({ duration: 0 }) — under CI load, flyTo's
+        // duration-0 path could race with the cold-load initial `idle`,
+        // leaving viewportBounds pinned at CONUS rather than the target.
+        if (typeof map.jumpTo === 'function') {
+          map.jumpTo({ center: [lng, lat], zoom });
+        } else if (typeof map.flyTo === 'function') {
+          map.flyTo({ center: [lng, lat], zoom, duration: 0 });
+        } else {
+          return false;
+        }
         return true;
       } catch {
         return false;
@@ -102,6 +126,23 @@ async function driveMapTo(
     },
     [lng, lat, zoom] as [number, number, number],
   );
+  if (!dispatched) return false;
+  // Wait for the post-jump `idle` to fire (the latch flips to a non-zero
+  // timestamp). That `idle` is the same event MapCanvas's onViewportChange
+  // listens to, so by the time we proceed the App's viewportBounds has
+  // been updated to the new camera's bounds.
+  await page
+    .waitForFunction(
+      () => {
+        const since = (window as { __birdMapIdleSince?: number })
+          .__birdMapIdleSince;
+        return typeof since === 'number' && since > 0;
+      },
+      undefined,
+      { timeout: 5_000 },
+    )
+    .catch(() => undefined);
+  return true;
 }
 
 /**
@@ -213,8 +254,9 @@ test.describe('FamilyLegend viewport-aware counts (desktop, #351)', () => {
     if (await skipIfMapHookAbsent(page, test)) return;
 
     // ---------------------------------------------------------------
-    // Initial state: full statewide view at zoom 6 (MapCanvas default).
-    // All four families have observations; all four entries render.
+    // Initial state: CONUS view at zoom 3/4 (MapCanvas default; PR #612).
+    // Bounds enclose all of AZ, so all four families have observations
+    // in view and all four entries render.
     // ---------------------------------------------------------------
     // First wait for the legend to materialize at all. The fixture has
     // 25 observations across 4 families, so we expect 4 entries.
