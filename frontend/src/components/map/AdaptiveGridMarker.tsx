@@ -466,7 +466,7 @@ function TileCell({
           onBlur={onCellBlur}
           onClick={(e) => { e.stopPropagation(); onCellClick?.(); }}
           onKeyDown={onCellKeyDown}
-          style={{ background: 'transparent', padding: 0, font: 'inherit', cursor: 'pointer', display: 'block', opacity: 0.85, color: fillColor }}
+          style={{ cursor: 'pointer', display: 'block', opacity: 0.85, color: fillColor }}
         >
           <svg
             viewBox="0 0 24 24"
@@ -561,7 +561,7 @@ function TileCell({
         onBlur={onCellBlur}
         onClick={(e) => { e.stopPropagation(); onCellClick?.(); }}
         onKeyDown={onCellKeyDown}
-        style={{ all: 'unset', cursor: 'pointer', display: 'block' }}
+        style={{ cursor: 'pointer', display: 'block' }}
       >
         {svgContent}
         {showBadge && <Badge count={tile.count} />}

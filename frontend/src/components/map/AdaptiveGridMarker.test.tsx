@@ -944,3 +944,70 @@ describe('AdaptiveGridMarker — cell popover coarse-pointer (Phase 2, #559)', (
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// cell button chrome-reset cascade (badge-anchor bugfix)
+// ---------------------------------------------------------------------------
+// Verifies that neither the rendered-branch button nor the fallback-branch
+// button carries an inline `all: unset` declaration. `all: unset` resets
+// `position` to `static`, which overrides the class-level `position: relative`
+// and causes the absolutely-positioned badge to escape to the nearest
+// grid-level positioned ancestor — the user-visible bug: every badge in a
+// multi-cell cluster stacks at the same grid corner.
+//
+// We do NOT use getBoundingClientRect here because jsdom returns {0,0,0,0}
+// for all rects (no layout engine). The contract is tested directly: if no
+// inline `all:` declaration is present, the class-level `position: relative`
+// survives, and badge anchoring is correct. The real-browser layout assertion
+// is covered by badge-anchor.spec.ts (Playwright e2e).
+// ---------------------------------------------------------------------------
+
+describe('cell button chrome-reset cascade (badge-anchor bugfix)', () => {
+  it('rendered cell (button branch, pointer:fine) does NOT carry inline `all: unset` so class `position: relative` survives for badge anchoring', () => {
+    setMatchMedia(q => q === '(pointer: fine)');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_2x2}
+        tiles={[
+          rendered('tyrannidae', 5),
+          rendered('trochilidae', 3),
+          rendered('picidae', 2),
+          rendered('corvidae', 1),
+        ]}
+        totalCount={11}
+        uniqueFamilies={4}
+        ariaLabel="Cluster: 11 observations, 4 families. Activate to zoom in."
+        onClick={() => {}}
+      />,
+    );
+    const cell = screen.getAllByTestId('adaptive-grid-marker-cell-rendered')[0];
+    expect(cell.tagName).toBe('BUTTON');
+    // The bug: `all: unset` inline overrides class's `position: relative`,
+    // so the badge (position: absolute) escapes to the grid's positioned
+    // ancestor instead of anchoring to the cell. Direct test of the contract:
+    // no inline `all:` declaration of any kind.
+    expect(cell.getAttribute('style') ?? '').not.toMatch(/\ball\s*:/);
+  });
+
+  it('fallback cell (button branch, pointer:fine) does NOT carry inline `all: unset` (regression pin from PR #579)', () => {
+    setMatchMedia(q => q === '(pointer: fine)');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_2x2}
+        tiles={[
+          fallback('mimidae', 5),
+          fallback('turdidae', 3),
+          fallback('parulidae', 2),
+          fallback('cardinalidae', 1),
+        ]}
+        totalCount={11}
+        uniqueFamilies={4}
+        ariaLabel="Cluster: 11 observations, 4 families. Activate to zoom in."
+        onClick={() => {}}
+      />,
+    );
+    const cell = screen.getAllByTestId('adaptive-grid-marker-cell-fallback')[0];
+    expect(cell.tagName).toBe('BUTTON');
+    expect(cell.getAttribute('style') ?? '').not.toMatch(/\ball\s*:/);
+  });
+});
