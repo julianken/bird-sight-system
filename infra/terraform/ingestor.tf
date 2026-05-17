@@ -129,6 +129,21 @@ resource "google_cloud_run_v2_job" "ingestor" {
             }
           }
         }
+
+        # Cloud SQL Auth Proxy socket mount — Stage 2 of the Neon→Cloud SQL
+        # migration (docs/plans/2026-05-17-cloud-sql-migration.md §3.2).
+        # Additive: DATABASE_URL still points at Neon until Stage 3.
+        volume_mounts {
+          name       = "cloudsql"
+          mount_path = "/cloudsql"
+        }
+      }
+
+      volumes {
+        name = "cloudsql"
+        cloud_sql_instance {
+          instances = [google_sql_database_instance.birdwatch.connection_name]
+        }
       }
     }
   }
@@ -359,6 +374,20 @@ resource "google_cloud_run_v2_job" "ingestor_photos" {
             }
           }
         }
+
+        # Cloud SQL Auth Proxy socket mount — Stage 2 of the Neon→Cloud SQL
+        # migration. Additive; DATABASE_URL still points at Neon.
+        volume_mounts {
+          name       = "cloudsql"
+          mount_path = "/cloudsql"
+        }
+      }
+
+      volumes {
+        name = "cloudsql"
+        cloud_sql_instance {
+          instances = [google_sql_database_instance.birdwatch.connection_name]
+        }
       }
     }
   }
@@ -545,6 +574,20 @@ resource "google_cloud_run_v2_job" "ingestor_descriptions" {
           name  = "DESCRIPTIONS_PURGE_CACHE"
           value = "1"
         }
+
+        # Cloud SQL Auth Proxy socket mount — Stage 2 of the Neon→Cloud SQL
+        # migration. Additive; DATABASE_URL still points at Neon.
+        volume_mounts {
+          name       = "cloudsql"
+          mount_path = "/cloudsql"
+        }
+      }
+
+      volumes {
+        name = "cloudsql"
+        cloud_sql_instance {
+          instances = [google_sql_database_instance.birdwatch.connection_name]
+        }
       }
     }
   }
@@ -678,6 +721,20 @@ resource "google_cloud_run_v2_job" "ingestor_prune" {
               version = "latest"
             }
           }
+        }
+
+        # Cloud SQL Auth Proxy socket mount — Stage 2 of the Neon→Cloud SQL
+        # migration. Additive; DATABASE_URL still points at Neon.
+        volume_mounts {
+          name       = "cloudsql"
+          mount_path = "/cloudsql"
+        }
+      }
+
+      volumes {
+        name = "cloudsql"
+        cloud_sql_instance {
+          instances = [google_sql_database_instance.birdwatch.connection_name]
         }
       }
     }
