@@ -12,13 +12,13 @@
   "dependencies": {
     "@bird-watch/db-client": "*",
     "@bird-watch/shared-types": "*",
-    "@hono/node-server": "^2.0.1",
-    "hono": "^4.12.16"
+    "@hono/node-server": "^2.0.2",
+    "hono": "^4.12.19"
   },
   "devDependencies": {
     "@testcontainers/postgresql": "^10.7.0",
     "testcontainers": "^11.14.0",
-    "tsx": "^4.7.0",
-    "vitest": "^4.1.5"
+    "tsx": "^4.22.1",
+    "vitest": "^4.1.6"
   }
 }
