@@ -242,11 +242,36 @@ export interface MapCanvasProps {
   onViewportChange?: (bounds: import('maplibre-gl').LngLatBounds) => void;
 }
 
-/** Arizona center — default initial view. */
+/**
+ * CONUS center — default initial view.
+ *
+ * Frames the continental United States. Per the "going national" umbrella
+ * plan (`docs/plans/2026-05-17-going-national.md` §5.1), the map default
+ * shifts from Arizona-centered (lng -111.0937, lat 34.0489, zoom 6) to the
+ * geographic center of CONUS. Zoom is viewport-responsive: zoom 3 on
+ * narrow screens (<700px) frames the full lower-48 on a phone in portrait;
+ * zoom 4 frames CONUS comfortably on desktop without wasting margin.
+ *
+ * At AZ-only ingest this briefly shows a sparser map outside Arizona; that
+ * intermediate state is acceptable and resolves once the ingestor flips.
+ */
+const CONUS_LONGITUDE = -98.5795;
+const CONUS_LATITUDE = 39.8283;
+const CONUS_ZOOM_NARROW = 3;
+const CONUS_ZOOM_WIDE = 4;
+const CONUS_NARROW_BREAKPOINT_PX = 700;
+
+function pickInitialZoom(): number {
+  if (typeof window === 'undefined') return CONUS_ZOOM_WIDE;
+  return window.innerWidth < CONUS_NARROW_BREAKPOINT_PX
+    ? CONUS_ZOOM_NARROW
+    : CONUS_ZOOM_WIDE;
+}
+
 const INITIAL_VIEW = {
-  longitude: -111.0937,
-  latitude: 34.0489,
-  zoom: 6,
+  longitude: CONUS_LONGITUDE,
+  latitude: CONUS_LATITUDE,
+  zoom: pickInitialZoom(),
 } as const;
 
 /**
