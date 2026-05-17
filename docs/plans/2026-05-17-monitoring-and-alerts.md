@@ -39,8 +39,8 @@ Recommendation 0A in the analysis report scores this as the highest-ROI move ava
 | # | Signal | Source | Threshold | Rationale |
 |---|---|---|---|---|
 | S1 | Ingest job non-zero exit | `run.googleapis.com/job/completed_execution_count` filtered by `result="failed"` | ≥1 failed execution in rolling 1h | The ingestor's failure mode is per-execution. One failure is recoverable (transient eBird 5xx), two-in-a-row is the start of the 42-execution silence. 1h window matches the `*/30` cron — anything ≤1h is below sampling resolution. |
-| S2 | Data-staleness | Log-based metric extracted from a new `/internal/meta` periodic poll, OR direct probe (see Task 5) | `freshestObservationAt` older than 6h | Recent-ingest fires every 30min; eBird observations land within ~5-15min of submission; AZ is a high-volume region with sub-hour gaps. 6h staleness means at least 12 consecutive recent-ingest runs failed to make forward progress. Below 6h is noise (legitimate quiet hours); above 12h is too late (a full overnight outage). |
-| S3 | Read-API 5xx rate | `run.googleapis.com/request_count` filtered by `response_code_class="5xx"` | >1% of requests in rolling 5min, min 20 requests | 1% is the standard "bad day" threshold for a public API. The 20-request minimum prevents a single 5xx during a low-traffic minute from firing (1/1 = 100%). 5min window catches a real incident within one cron interval. |
+| S2 | Data-staleness | Log-based metric extracted from a structured-log line emitted by the `/api/observations` handler (the endpoint that already returns `meta.freshestObservationAt`) | `freshestObservationAt` older than 6h | Recent-ingest fires every 30min; eBird observations land within ~5-15min of submission; AZ is a high-volume region with sub-hour gaps. 6h staleness means at least 12 consecutive recent-ingest runs failed to make forward progress. Below 6h is noise (legitimate quiet hours); above 12h is too late (a full overnight outage). |
+| S3 | Read-API 5xx rate | `run.googleapis.com/request_count` filtered by `response_code_class="5xx"` | >1% of requests in rolling 5min **AND** request_count ≥ 100 over the same window | 1% is the standard "bad day" threshold for a public API. The 100-request floor (≈20 req/min sustained) prevents a single 5xx during a low-traffic minute from firing (1/1 = 100%, or 1/50 = 2%) — exactly the alert-fatigue failure mode the audit warned about. At HN-scale launch traffic the floor is invisibly satisfied; at idle 03:00 traffic the alert is correctly silent. 5min window catches a real incident within one cron interval. |
 | S4 | Read-API p95 latency | `run.googleapis.com/request_latencies` distribution, percentile 95 | >2000ms over rolling 10min | Current p95 is ~150-300ms (per phase-4 report). 2000ms is the "user notices and tabs away" threshold. 10min window smooths over cold-start spikes (Cloud Run scale-to-zero) without missing a real degradation. |
 | S5 | Cloud Run instance crash / OOM | Log-based metric on `severity>=ERROR` matching `Container terminated` OR `out of memory` in `bird-read-api` OR `bird-ingestor*` logs | ≥1 in rolling 1h | Crashes are always notable — they're either an OOM (need to bump memory) or an unhandled exception (need to fix code). 1h batches transient flaps into one notification. |
 | S6 | Neon connection failure | Log-based metric on log entries matching `getaddrinfo ENOTFOUND` OR `ECONNREFUSED` OR `Connection terminated unexpectedly` against `bird-*` services | ≥3 in rolling 10min | Single transient connection drops happen on serverless-Postgres (Neon free tier suspends idle endpoints). Three in 10min means the pool is genuinely broken, not just suspending. Threshold tightens to ≥1 once Cloud SQL migration lands (sibling plan; Cloud SQL doesn't suspend, so a single ENOTFOUND is a real incident). |
@@ -353,16 +353,14 @@ resource "google_monitoring_alert_policy" "ingest_job_failure" {
 # recent-ingest runs made zero forward progress on observation timestamps.
 # Below 6h is noise (legitimate quiet hours mid-day); above 12h is too late.
 #
-# The metric source is a log-based metric extracted from the /api/meta
-# endpoint's structured-log line emitted once per request. The read-api
-# already logs `meta_freshness_seconds` on every /api/meta hit (sky-atlas
-# phase-3 added this). The log-based metric pulls the value out as a
-# distribution; the alert fires when the max over a 30min window exceeds
-# 21600s (6h).
-#
-# If /api/meta logs are missing the field, FILE A BLOCKER on this task
-# before applying — falling back to a Cloud Run Job that probes the DB
-# directly is doable but doubles the surface.
+# The metric source is a log-based metric extracted from a structured-log
+# line emitted by the `/api/observations` handler — the endpoint that
+# actually computes and returns `meta.freshestObservationAt`
+# (services/read-api/src/app.ts:98,105). There is no `/api/meta` route;
+# adding one purely for monitoring would double the surface. Task 5 lands
+# the emit on the existing `/api/observations` handler, the log-based
+# metric below pulls the value out as a distribution, and the alert fires
+# when the p95 over a 30min window exceeds 21600s (6h).
 
 resource "google_logging_metric" "meta_freshness_seconds" {
   name   = "bird-meta-freshness-seconds"
@@ -403,20 +401,27 @@ resource "google_monitoring_alert_policy" "data_staleness" {
   }
 }
 
-# ── S3: Read-API 5xx rate > 1% over 5min ─────────────────────────────────
+# ── S3: Read-API 5xx rate > 1% over 5min, gated by ≥100 req/window ───────
 #
-# Threshold: >1% with a minimum of 20 requests over the window. Rationale:
-# 1% is the canonical "bad day" threshold; the 20-request floor prevents a
-# single 5xx in a low-traffic minute (1/1=100%) from firing. 5min window
-# catches a real incident within a cron interval.
+# Threshold: >1% AND request_count ≥ 100 over the 5min window.
+# Rationale: 1% is the canonical "bad day" threshold; on its own it fires
+# constantly during low-traffic hours (1 error in 50 requests = 2%, fires).
+# The 100-request floor (~20 req/min sustained over 5min) is the
+# alert-fatigue gate. `denominator_filter` by itself produces a ratio but
+# does NOT impose a minimum-volume floor on that ratio — to gate the
+# alert on absolute traffic we combine TWO conditions via combiner = "AND":
+#   (a) 5xx_rate > 1%  AND  (b) total_request_count > 100 over the window.
+# Both conditions use the same 300s alignment, so the AND-combiner evaluates
+# them coherently. At HN-scale launch traffic condition (b) is invisible;
+# at 03:00 idle traffic it correctly suppresses the alert.
 
 resource "google_monitoring_alert_policy" "read_api_5xx" {
   display_name          = "Read API 5xx rate > 1% (S3)"
-  combiner              = "OR"
+  combiner              = "AND"
   notification_channels = [google_monitoring_notification_channel.email_julian.id]
 
   conditions {
-    display_name = "5xx rate >1% over 5min (min 20 req)"
+    display_name = "5xx rate >1% over 5min"
     condition_threshold {
       filter          = "metric.type=\"run.googleapis.com/request_count\" AND resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"bird-read-api\" AND metric.label.response_code_class=\"5xx\""
       comparison      = "COMPARISON_GT"
@@ -427,9 +432,29 @@ resource "google_monitoring_alert_policy" "read_api_5xx" {
         per_series_aligner   = "ALIGN_RATE"
         cross_series_reducer = "REDUCE_SUM"
       }
-      # The ratio + minimum-volume gate is expressed via denominator_filter:
+      # Ratio numerator/denominator. The denominator_filter expresses the
+      # ratio; it does NOT impose a min-volume floor on its own — that's
+      # the second condition below.
       denominator_filter = "metric.type=\"run.googleapis.com/request_count\" AND resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"bird-read-api\""
       denominator_aggregations {
+        alignment_period     = "300s"
+        per_series_aligner   = "ALIGN_RATE"
+        cross_series_reducer = "REDUCE_SUM"
+      }
+    }
+  }
+
+  # Minimum-volume gate. Combined with the ratio condition via
+  # combiner = "AND" above. Threshold is 100 requests over the 5min window,
+  # expressed as a rate threshold: 100 req / 300s = 0.333 req/s.
+  conditions {
+    display_name = "request count ≥ 100 over 5min (min-volume floor)"
+    condition_threshold {
+      filter          = "metric.type=\"run.googleapis.com/request_count\" AND resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"bird-read-api\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 0.333 # 100 req / 300s
+      duration        = "300s"
+      aggregations {
         alignment_period     = "300s"
         per_series_aligner   = "ALIGN_RATE"
         cross_series_reducer = "REDUCE_SUM"
@@ -614,18 +639,35 @@ read-api. Thresholds documented inline with rationale per
 docs/plans/2026-05-17-monitoring-and-alerts.md §"Threshold rationale".
 ```
 
-### Task 5 — `feat(read-api): log meta_freshness_seconds on /api/meta` (gated)
+### Task 5 — `feat(read-api): log meta_freshness_seconds on /api/observations`
 
-> Gate: if `/api/meta` already emits `meta_freshness_seconds` in a structured log line, SKIP this task and note it in the PR body. If not, this task lands BEFORE Task 4's apply, because the S2 log-based metric depends on the field existing.
+> Precondition (verify, do not gate): `meta_freshness_seconds` is NOT currently emitted anywhere in `services/read-api/src/`. The freshness value lives only as a JSON response field (`meta.freshestObservationAt` on `/api/observations`, computed in `services/read-api/src/app.ts:98,105`). This task lands BEFORE Task 4's `terraform apply`, because the S2 log-based metric depends on the structured-log line existing.
 
-- [ ] `grep -rn 'meta_freshness_seconds\|freshestObservationAt' services/read-api/src/` to verify.
-- [ ] If missing, edit `services/read-api/src/routes/meta.ts` (or equivalent — confirm the path) to add `console.log(JSON.stringify({ severity: 'INFO', meta_freshness_seconds: Math.floor((Date.now() - freshestObservationAt.getTime()) / 1000), ... }))` at handler entry/exit. TDD per the repo convention.
+- [ ] `grep -rn 'meta_freshness_seconds\|freshestObservationAt' services/read-api/src/` to confirm the current state matches the precondition above. If `meta_freshness_seconds` already appears in a `console.log(JSON.stringify(...))` call, SKIP the implementation step and proceed to Task 4.
+- [ ] Edit `services/read-api/src/app.ts` — in the `/api/observations` handler, after `freshestObservationAt` is computed (around line 98), add a structured-log emit:
+
+```ts
+const freshnessSeconds = freshestObservationAt
+  ? Math.floor((Date.now() - new Date(freshestObservationAt).getTime()) / 1000)
+  : null;
+if (freshnessSeconds !== null) {
+  console.log(JSON.stringify({
+    severity: 'INFO',
+    message: 'meta_freshness',
+    meta_freshness_seconds: freshnessSeconds,
+  }));
+}
+```
+
+The `null` case is deliberately not emitted — an empty observations table is a different failure class than stale data, and the S2 alert filter (`jsonPayload.meta_freshness_seconds!=NULL_VALUE`) would already exclude it. TDD per the repo convention: write a vitest assertion against a captured `console.log` spy first, confirm fail, then add the implementation.
+
 - [ ] **Commit:**
 
 ```
 feat(read-api): emit meta_freshness_seconds structured log
 
-Adds a structured-log emit on each /api/meta hit. Required by the S2
+Adds a structured-log emit on each /api/observations hit (the endpoint
+that already computes meta.freshestObservationAt). Required by the S2
 data-staleness alert (docs/plans/2026-05-17-monitoring-and-alerts.md)
 which pulls the value via a Cloud Logging log-based metric.
 ```
@@ -699,7 +741,7 @@ Healthchecks.io (S7).
 
 ### Task 7 — `docs(runbook): monitoring runbook + alert-fire smoke test`
 
-- [ ] **Create** `docs/runbooks/monitoring.md` — copy the threshold-rationale table from this plan verbatim, add a triage section ("If S1 fires: check the latest execution at `gcloud run jobs executions list --job=bird-ingestor --region=us-west1`; if S2 fires: curl `/api/meta` and confirm `freshestObservationAt` is actually old before assuming alert is real"), and document the snooze workflow.
+- [ ] **Create** `docs/runbooks/monitoring.md` — copy the threshold-rationale table from this plan verbatim, add a triage section ("If S1 fires: check the latest execution at `gcloud run jobs executions list --job=bird-ingestor --region=us-west1`; if S2 fires: `curl https://api.bird-maps.com/api/observations?since=1d | jq .meta.freshestObservationAt` and confirm the timestamp is actually older than 6h before assuming alert is real; if S7 fires: that means the cron *did not run at all* — distinct from S2's 'cron ran but didn't make progress' lane; check Cloud Scheduler job status before assuming the job binary itself crashed"), and document the snooze workflow.
 - [ ] **Smoke test each alert end-to-end** — temporarily lower the threshold, force the condition, confirm email arrives at `julian.kennon.d@gmail.com`, restore threshold. Document the procedure for each in the runbook. Example for S1:
 
 ```
@@ -730,7 +772,7 @@ mirrored verbatim from docs/plans/2026-05-17-monitoring-and-alerts.md.
 |---|---|---|
 | S1 | `gcloud run jobs execute bird-ingestor --args=unknown-kind --wait` (throws → exit 1). | None — alert auto-closes in 7d. Acknowledge in UI. |
 | S2 | Pause the `bird-ingest-recent` Scheduler job; wait 6h or temporarily edit the alert threshold down to 600s and `terraform apply`. | Resume scheduler; restore HCL threshold; apply. |
-| S3 | Hit a non-existent route on the read-api in a tight loop (`for i in $(seq 30); do curl -s https://api.bird-maps.com/api/forcefail; done`). If 404 is the result, edit cli briefly to force a 500 on a test path. | None — synthetic load stops, rate drops naturally. |
+| S3 | Drive ≥100 requests over a 5min window so the min-volume floor is satisfied, with >1% forced 5xx. Easiest path: `hey -z 6m -c 5 -q 4 https://api.bird-maps.com/api/observations?since=1d` (≈1200 req total) alongside a parallel loop hitting a deliberately-500ing test path. If no real 500 path exists, edit cli briefly to force a 500 on `/api/_smoke500`. | Stop both loads — both the rate and the volume drop naturally. |
 | S4 | Synthetic load via `hey -z 11m -c 50 https://api.bird-maps.com/api/observations` against a deliberately-large bbox. | Stop load. |
 | S5 | Lower the memory limit on `bird-read-api` to `64Mi` temporarily and apply; the next request OOMs. | Restore `256Mi` and apply. |
 | S6 | Suspend the Neon endpoint via the Neon console; the read-api's next pool checkout fails. | Resume endpoint. |
@@ -745,7 +787,7 @@ Each smoke test is a one-time validation; document the date verified in the runb
 
 Cloud Monitoring free tier (per GCP docs, current at plan authoring):
 
-- **150 MiB/month of log-based metric chargeable data**, free. Our 3 log-based metrics emit a handful of entries per minute (4 ingest jobs × 1/hr × 1 line + a handful of /api/meta hits per minute) — well under 150 MiB/mo.
+- **150 MiB/month of log-based metric chargeable data**, free. Our 3 log-based metrics emit a handful of entries per minute (4 ingest jobs × 1/hr × 1 line + a handful of `/api/observations` hits per minute) — well under 150 MiB/mo.
 - **Alert policies: unlimited and free.** Cloud Monitoring charges only for chargeable metric data ingestion, not for the policies themselves.
 - **Uptime checks: 1 million check executions/month free.** 1 check × 60s × ~5 regions = ~216k checks/mo. Free.
 - **Notification channels: free.** Email is the cheapest channel; SMS and webhook are also within free tier at our volume.
