@@ -17,6 +17,7 @@ function makeDeps(overrides: Partial<CliDeps> = {}): CliDeps {
     runTaxonomy: vi.fn(),
     runPhotos: vi.fn(),
     runDescriptions: vi.fn(),
+    runPrune: vi.fn(),
     fetchWikipediaSummary: vi.fn(),
     fetchInatTaxon: vi.fn(),
     ...overrides,
@@ -229,5 +230,45 @@ describe('runCli', () => {
   it("Unknown-kind error string includes 'descriptions' so operators see the new kind", async () => {
     const deps = makeDeps();
     await expect(runCli('bogus', deps)).rejects.toThrow(/descriptions/);
+  });
+
+  it("'prune' kind dispatches to runPrune with the pool and default retention", async () => {
+    delete process.env.OBSERVATIONS_RETENTION_DAYS;
+    const successSummary = {
+      status: 'success' as const, deleted: 0, retentionDays: 14,
+    };
+    const runPruneSpy = vi.fn().mockResolvedValue(successSummary);
+    const deps = makeDeps({ runPrune: runPruneSpy });
+
+    await runCli('prune', deps);
+
+    expect(runPruneSpy).toHaveBeenCalledTimes(1);
+    expect(runPruneSpy).toHaveBeenCalledWith({ pool: POOL_SENTINEL });
+    expect(deps.closePool).toHaveBeenCalledWith(POOL_SENTINEL);
+  });
+
+  it("'prune' kind forwards OBSERVATIONS_RETENTION_DAYS as a parsed integer", async () => {
+    process.env.OBSERVATIONS_RETENTION_DAYS = '30';
+    const runPruneSpy = vi.fn().mockResolvedValue({
+      status: 'success' as const, deleted: 0, retentionDays: 30,
+    });
+    const deps = makeDeps({ runPrune: runPruneSpy });
+
+    await runCli('prune', deps);
+
+    expect(runPruneSpy).toHaveBeenCalledWith({
+      pool: POOL_SENTINEL, retentionDays: 30,
+    });
+  });
+
+  it("'prune' rejects a non-positive OBSERVATIONS_RETENTION_DAYS value", async () => {
+    process.env.OBSERVATIONS_RETENTION_DAYS = '0';
+    const deps = makeDeps();
+    await expect(runCli('prune', deps)).rejects.toThrow(/positive integer/);
+  });
+
+  it("Unknown-kind error string includes 'prune' so operators see the new kind", async () => {
+    const deps = makeDeps();
+    await expect(runCli('bogus', deps)).rejects.toThrow(/prune/);
   });
 });
