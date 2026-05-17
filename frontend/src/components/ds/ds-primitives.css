@@ -549,6 +549,30 @@
   height: 22px;
 }
 
+/*
+ * Chrome resets for cells rendered as <button> (perCellInteractive desktop branch
+ * — cell-popover Phase 1, PR #563). Specificity (0,1,1) — type + class. Applies
+ * ONLY to button elements so the touch-pointer <div> branch is unaffected.
+ *
+ * Critical: `background: transparent` shields button cells from the base class's
+ * `background: rgba(0, 0, 0, 0.05)` tint. That tint was added in commit 8583f64a
+ * (2026-05-14) when all cell consumers were <div>; the button branch was added
+ * the next day in commit 0a54c40 (2026-05-15) with `all: 'unset'` masking the
+ * tint from buttons. Removing `all: 'unset'` (this fix) would otherwise newly
+ * paint buttons with a tint they were never validated against.
+ *
+ * Critical: `position: relative` is NOT in this rule. The base class declares
+ * `position: relative`; once `all: 'unset'` is removed from inline style, the
+ * base class's value applies and the badge anchors to the cell. The point of
+ * this fix is to STOP overriding `position`, not to re-declare it.
+ */
+button.adaptive-grid-marker__cell {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font: inherit;
+}
+
 .adaptive-grid-marker__cell--pending {
   /* Shimmer skeleton for the "catalogue not loaded yet" state — distinct
      from the per-family fallback's opacity 0.85 + dashed border (Phase 2 #571). */
