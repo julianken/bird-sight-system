@@ -712,17 +712,17 @@ locals {
   job_run_url_prune = "https://run.googleapis.com/v2/projects/${var.gcp_project_id}/locations/${var.gcp_region}/jobs/${google_cloud_run_v2_job.ingestor_prune.name}:run"
 }
 
-# Nightly prune at 03:00 MST (10:00 UTC). Arizona does not observe DST so
+# Nightly prune at 03:05 MST (10:05 UTC). Arizona does not observe DST so
 # MST is UTC-7 year-round — no spring-forward / fall-back drift to plan
-# against. The 03:00 slot sits AFTER the 02:30 UTC recent-ingest tick
-# (the */30 minute cron has a 02:30, 03:00, 03:30… cadence) so a failing
-# recent-ingest job doesn't cascade into a prune that hides the failure
-# — operators see the recent failure in the prior Cloud Run execution log
-# before the prune starts.
+# against. The 03:05 slot is offset 5 minutes after the 10:00 UTC recent-
+# ingest tick so the two jobs never start in the same minute; a failing
+# recent-ingest job thus completes (or fails) before the prune begins,
+# and operators see the recent failure in the prior Cloud Run execution
+# log before the prune starts rather than racing it at the same minute.
 resource "google_cloud_scheduler_job" "ingest_prune" {
   name      = "bird-ingest-prune"
   region    = var.gcp_region
-  schedule  = "0 10 * * *"
+  schedule  = "5 10 * * *"
   time_zone = "Etc/UTC"
 
   http_target {
