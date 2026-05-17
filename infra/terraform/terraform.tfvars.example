@@ -8,3 +8,9 @@ cloudflare_zone_id    = "REPLACE_ME"
 ebird_api_key         = "REPLACE_ME"
 domain                = "birdwatch.example.com"
 frontend_origins      = "https://bird-maps.com,https://www.bird-maps.com"
+
+# Monitoring & alerts (Plan 2026-05-17). alert_email defaults to
+# julian.kennon.d@gmail.com — uncomment to override. Healthchecks.io URLs are
+# NOT set here; they live in Secret Manager (bird-watch-healthchecks-<kind>)
+# populated out-of-band post-`terraform apply` via `gcloud secrets versions add`.
+# alert_email           = "julian.kennon.d@gmail.com"
