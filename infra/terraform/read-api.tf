@@ -71,6 +71,25 @@ resource "google_cloud_run_v2_service" "read_api" {
         name  = "RATE_LIMIT_ENABLED"
         value = "true"
       }
+
+      # Cloud SQL Auth Proxy socket mount — Stage 2 of the Neon→Cloud SQL
+      # migration (docs/plans/2026-05-17-cloud-sql-migration.md §3.2). The
+      # mount is purely additive: DATABASE_URL still points at Neon, so the
+      # socket sits unused at /cloudsql/<connection_name>/.s.PGSQL.5432 until
+      # Stage 3 flips the secret. This unblocks the cutover without a code
+      # or image change — a Stage-3 Secret Manager version bump is all it
+      # takes to switch traffic.
+      volume_mounts {
+        name       = "cloudsql"
+        mount_path = "/cloudsql"
+      }
+    }
+
+    volumes {
+      name = "cloudsql"
+      cloud_sql_instance {
+        instances = [google_sql_database_instance.birdwatch.connection_name]
+      }
     }
   }
 
