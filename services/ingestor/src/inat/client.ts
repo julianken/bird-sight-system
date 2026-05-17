@@ -11,31 +11,50 @@ import type {
 // identity — iNat's per-UA throttle bucketing depends on it.
 export const INAT_USER_AGENT = 'bird-maps.com/1.0 (https://bird-maps.com)';
 
-// place_id=40 is iNaturalist's canonical "Arizona" Place. Confirmed via
-// `GET https://api.inaturalist.org/v1/places/40` returning `name='Arizona'`,
-// `place_type=8` (state), `admin_level=10`. Source of truth — do not change
-// without re-verifying. Other AZ-shaped places (county, NWR, etc.) have
-// different IDs and would silently narrow or skew the photo pool.
-const ARIZONA_PLACE_ID = '40';
+// Tier 1 place_id defaults to '40' (iNaturalist's canonical "Arizona" Place,
+// confirmed via `GET https://api.inaturalist.org/v1/places/40` →
+// `name='Arizona'`, `place_type=8`, `admin_level=10`). This default preserves
+// AZ-launch production behavior — changing it without re-verifying other
+// AZ-shaped places (county, NWR, etc.) would silently narrow or skew the
+// photo pool.
+//
+// `INAT_PLACE_ID` env var overrides Tier 1 for non-AZ deployments. Set to a
+// different iNat Place ID (e.g. '14' for California) to narrow Tier 1 to a
+// different region. Set to empty string (`INAT_PLACE_ID=`) to drop Tier 1
+// entirely — the cascade then starts at Tier 2 (US). National expansion
+// (umbrella plan Phase 2) sets this to '' so we don't penalize species
+// photographed outside AZ.
+const DEFAULT_TIER1_PLACE_ID = '40';
 
 // place_id=1 is iNaturalist's canonical "United States" Place. Confirmed via
 // `GET https://api.inaturalist.org/v1/places/1` returning `name='United States'`,
 // `place_type=12` (country), `admin_level=0`. Used as Tier 2 in the photo
-// fallback cascade for AZ-rare/vagrant species (e.g. Cave Swallow, Glossy
-// Ibis) that have plenty of US research-grade observations elsewhere but no
-// AZ hits.
+// fallback cascade for region-rare/vagrant species (e.g. Cave Swallow,
+// Glossy Ibis) that have plenty of US research-grade observations elsewhere
+// but no Tier-1 hits.
 const UNITED_STATES_PLACE_ID = '1';
 
-// Tier cascade for the photo lookup. Tier 1 is the historical AZ-only filter;
-// Tier 2 widens to the US; Tier 3 drops the place filter entirely. Each tier
-// keeps the same quality_grade/license/order_by constraints — only the
-// geographic filter relaxes.
-type Tier = { label: 'az' | 'us' | 'global'; placeId: string | null };
-const TIERS: readonly Tier[] = [
-  { label: 'az', placeId: ARIZONA_PLACE_ID },
-  { label: 'us', placeId: UNITED_STATES_PLACE_ID },
-  { label: 'global', placeId: null },
-];
+// Tier cascade for the photo lookup. Tier 1 is the region-narrowed filter
+// (configurable via INAT_PLACE_ID); Tier 2 widens to the US; Tier 3 drops the
+// place filter entirely. Each tier keeps the same
+// quality_grade/license/order_by constraints — only the geographic filter
+// relaxes.
+export type Tier = { label: 'region' | 'us' | 'global'; placeId: string | null };
+
+function buildTiers(): readonly Tier[] {
+  // env read at module init time is correct here: ingestor process lifetime
+  // is short (single backfill / cron tick), and tests opt-in via the
+  // `opts.tiers` override below rather than mutating process.env mid-run.
+  const envVal = process.env.INAT_PLACE_ID;
+  const tier1 = envVal === undefined ? DEFAULT_TIER1_PLACE_ID : envVal;
+  const tiers: Tier[] = [];
+  if (tier1 !== '') {
+    tiers.push({ label: 'region', placeId: tier1 });
+  }
+  tiers.push({ label: 'us', placeId: UNITED_STATES_PLACE_ID });
+  tiers.push({ label: 'global', placeId: null });
+  return tiers;
+}
 
 // CC license codes accepted by `photo_license`. CC-BY-NC* variants are
 // excluded because they forbid commercial use; while bird-maps.com is
@@ -51,6 +70,13 @@ export interface FetchInatPhotoOptions {
   maxRetries?: number;
   retryBaseMs?: number;
   requestTimeoutMs?: number;
+  /**
+   * Test-only override of the tier cascade. Production callers pass nothing —
+   * the cascade is built from `INAT_PLACE_ID` at call time. Tests use this to
+   * pin a deterministic tier list without touching process.env (which can
+   * leak between vitest workers).
+   */
+  tiers?: readonly Tier[];
 }
 
 /**
@@ -72,7 +98,8 @@ export async function fetchInatPhoto(
   const retryBaseMs = opts.retryBaseMs ?? 250;
   const requestTimeoutMs = opts.requestTimeoutMs ?? 30_000;
 
-  for (const tier of TIERS) {
+  const tiers = opts.tiers ?? buildTiers();
+  for (const tier of tiers) {
     const url = new URL(`${baseUrl}/observations`);
     url.searchParams.set('taxon_name', taxonName);
     if (tier.placeId !== null) {
@@ -114,8 +141,9 @@ export async function fetchInatPhoto(
 
     // Surface the tier on Tier 2/3 hits so a future "why is this photo
     // showing a Maine bird?" investigation can grep the logs. Silent on
-    // Tier 1 (the common case — most species are AZ-photographed).
-    if (tier.label !== 'az') {
+    // Tier 1 (the common case — most species photographed within the
+    // configured region).
+    if (tier.label !== 'region') {
       // eslint-disable-next-line no-console
       console.log(
         `[fetchInatPhoto] ${taxonName}: matched at tier=${tier.label}`
