@@ -1,0 +1,132 @@
+name: shape-2-rollup-probe
+
+# Weekly probe of the /data/obs/{region}/recent species-rollup contract.
+# See docs/plans/2026-05-17-shape-2-rollup-probe.md and
+# docs/runbooks/shape-2-rollup-probe.md.
+#
+# This workflow is NOT in the Mergify queue gate (it runs on a schedule, not on
+# PRs). A red probe blocks no PRs; it emails the repo admin and files a
+# drift:automated issue.
+#
+# Security note: only constant github.* context (server_url, repository,
+# run_id, ref_name) is substituted into run blocks. No user-controlled event
+# data (issue titles, PR bodies, commit messages, head_ref) is referenced --
+# this workflow is not exposed to any pull_request or issue trigger.
+
+on:
+  schedule:
+    # Every Monday 14:00 UTC. Weekly through fall migration (Sep-Oct 2026);
+    # cadence drops to quarterly in 2027 per the plan re-tuning task.
+    - cron: '0 14 * * 1'
+  workflow_dispatch:
+    inputs:
+      skip_alert_during_maintenance:
+        description: 'If true, do not file an issue on band miss this run.'
+        type: boolean
+        default: false
+
+concurrency:
+  group: shape-2-rollup-probe
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # append the CSV
+  issues:  write    # file the alert issue on fail
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run probe
+        id: probe
+        env:
+          # Repo secret is named EBIRD_API_KEY (already provisioned for ingestor/terraform);
+          # script reads it as EBIRD_KEY.
+          EBIRD_KEY: ${{ secrets.EBIRD_API_KEY }}
+        run: ./scripts/shape-2-probe.sh
+        continue-on-error: true
+
+      - name: Commit probe-history CSV
+        if: always()
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add docs/analyses/2026-05-14-process-scale-options/o2-probe-history.csv
+          if git diff --cached --quiet; then
+            echo "No CSV change to commit."
+            exit 0
+          fi
+          git commit -m "chore(probe): o2 probe run $(date -u +%Y-%m-%d)"
+          # Rebase onto latest ref in case a concurrent commit landed while
+          # the probe was running. The retry guards against transient
+          # fast-forward rejections.
+          for attempt in 1 2 3; do
+            if git pull --rebase origin "$REF_NAME"; then
+              if git push origin "HEAD:$REF_NAME"; then
+                exit 0
+              fi
+            fi
+            echo "Push attempt $attempt failed; retrying after 5s."
+            sleep 5
+          done
+          echo "::warning::CSV commit could not be pushed after 3 attempts; row is in workflow log."
+          exit 0
+
+      - name: File issue on band miss
+        if: steps.probe.outcome == 'failure' && inputs.skip_alert_during_maintenance != true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          today="$(date -u +%Y-%m-%d)"
+          # Build the issue body in a file. Unquoted heredoc so the exported
+          # env vars ($RUN_URL, $REPO) expand; backticks are escaped because
+          # they are literal markdown, not shell.
+          body_file="$(mktemp)"
+          cat > "$body_file" <<EOF
+          ## Shape 2 rollup-probe band miss
+
+          The weekly probe of \`/data/obs/{region}/recent\` returned at least one
+          row count outside its expected band. See
+          [the workflow run]($RUN_URL) for per-curl details and
+          [the probe-history CSV](https://github.com/$REPO/blob/main/docs/analyses/2026-05-14-process-scale-options/o2-probe-history.csv)
+          for trend data.
+
+          ## Playbook
+
+          1. **Re-run manually.** Click "Re-run failed jobs" on the workflow.
+             If it passes, close this issue with \`false-positive (retry green)\`.
+          2. **If retry fails:** check eBird's API changelog
+             (https://documenter.getpostman.com/view/664302/S1ENwy59) and the
+             eBird forum (https://groups.io/g/ebird-api) for \`/recent\` behavior
+             changes in the last 7 days.
+          3. **If no announcement:** post to the eBird forum (subject:
+             "Behavior change on /data/obs/{region}/recent — single-row-per-species
+             vs all observations?"). Include per-curl counts.
+          4. **If forum confirms a deliberate change OR counts stay off:** Shape
+             2 is dead. File a follow-up plan to re-cost the 50-state path under
+             Shape 1. See
+             \`docs/plans/2026-05-17-shape-2-rollup-probe.md\` §"Playbook" steps
+             4–5.
+
+          Close with: \`false-positive (retry green)\`, \`eBird-announced contract change\`, \`forum-confirmed silent change\`, or \`shape-2-deprecated\`.
+          EOF
+          gh issue create \
+            --repo "$REPO" \
+            --title "drift(o2-probe): Shape 2 rollup contract band miss $today" \
+            --label "drift:automated" \
+            --label "area:ingestor" \
+            --label "o2-probe" \
+            --body-file "$body_file"
+
+      - name: Fail job if probe failed and not in maintenance mode
+        if: steps.probe.outcome == 'failure' && inputs.skip_alert_during_maintenance != true
+        run: exit 1
