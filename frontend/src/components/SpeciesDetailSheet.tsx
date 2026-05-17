@@ -8,6 +8,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import type { ApiClient } from '../api/client.js';
+import type { BBox } from '../state/url-state.js';
 import { SpeciesDetailSurface } from './SpeciesDetailSurface.js';
 import { useSpeciesDetail } from '../data/use-species-detail.js';
 
@@ -34,6 +35,10 @@ export interface SpeciesDetailSheetProps {
   speciesCode: string;
   apiClient: ApiClient;
   onClose: () => void;
+  /** Cluster bbox to pass through to SpeciesDetailSurface (Phase 3 / #560). */
+  bbox?: BBox | null;
+  /** Clears the bbox URL param — passed through to SpeciesDetailSurface. */
+  onClearBbox?: () => void;
   /** Ref to <main id="main-surface"> — receives `inert` at full snap. */
   mainRef: RefObject<HTMLElement | null>;
 }
@@ -66,7 +71,7 @@ export interface SpeciesDetailSheetProps {
  *   - .species-detail-body: touch-action: pan-y (browser owns scroll)
  */
 export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
-  const { speciesCode, apiClient, onClose, mainRef } = props;
+  const { speciesCode, apiClient, onClose, mainRef, bbox, onClearBbox } = props;
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const handleRef = useRef<HTMLButtonElement | null>(null);
   const [snap, setSnap] = useState<SnapState>('peek');
@@ -295,7 +300,12 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
           adds it to the tab order. Mirrors the same fix on #main-surface
           in App.tsx. */}
       <div className="sheet-scroll" tabIndex={0}>
-        <SpeciesDetailSurface speciesCode={speciesCode} apiClient={apiClient} />
+        <SpeciesDetailSurface
+          speciesCode={speciesCode}
+          apiClient={apiClient}
+          {...(bbox !== undefined ? { bbox } : {})}
+          {...(onClearBbox !== undefined ? { onClearBbox } : {})}
+        />
       </div>
     </div>
   );

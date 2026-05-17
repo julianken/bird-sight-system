@@ -105,6 +105,14 @@ export interface FamilySilhouette {
   // creator field. AttributionModal (#250) renders "<creator>, <license>"
   // when both are non-null.
   creator: string | null;
+  // Dark-mode color for the family silhouette tile — added by migration
+  // 1700000046000 (adaptive-grid contrast Phase 1, #570). Equals `color`
+  // for families that already pass 3:1 against both basemaps; differs for
+  // the 24 light-failing families (where `color` was darkened and
+  // `colorDark` holds the original lighter hex that passes #0E1116) and
+  // the 22 dark-failing families (where both columns hold the lightened
+  // replacement hex). AdaptiveGridMarker reads `colorDark` in dark mode.
+  colorDark: string;
 }
 
 /**

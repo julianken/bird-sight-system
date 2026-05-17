@@ -14,6 +14,7 @@ describe('useUrlState', () => {
       speciesCode: null, familyCode: null,
       view: 'map',
       detail: null,
+      bbox: null,
     });
   });
 
@@ -359,6 +360,69 @@ describe('useUrlState', () => {
       // step (matches Wikipedia article-to-article navigation).
       expect(window.history.length).toBe(startLen + 1);
       expect(window.location.search).toContain('detail=gilwoo');
+    });
+  });
+
+  // --- bbox URL state (Phase 3, #560) ---
+
+  describe('bbox URL state (Phase 3, #560)', () => {
+    beforeEach(() => {
+      window.history.replaceState({}, '', '/');
+    });
+
+    it('reads ?bbox=lngMin,latMin,lngMax,latMax as a 4-tuple', () => {
+      window.history.replaceState({}, '', '/?bbox=-111.0,31.6,-110.2,33.5');
+      const { result } = renderHook(() => useUrlState());
+      expect(result.current.state.bbox).toEqual([-111.0, 31.6, -110.2, 33.5]);
+    });
+
+    it('rounds bbox values to 6 decimals on read', () => {
+      window.history.replaceState({}, '', '/?bbox=-111.1234567,31.6,-110.2,33.5');
+      const { result } = renderHook(() => useUrlState());
+      // -111.1234567 rounds to -111.123457 (standard Math.round)
+      expect(result.current.state.bbox?.[0]).toBe(-111.123457);
+    });
+
+    it('emits ?bbox= when state.bbox is non-null', () => {
+      const { result } = renderHook(() => useUrlState());
+      act(() => result.current.set({ bbox: [-111.0, 31.6, -110.2, 33.5] }));
+      expect(window.location.search).toContain('bbox=-111%2C31.6%2C-110.2%2C33.5');
+      // Decoded: ?bbox=-111,31.6,-110.2,33.5
+    });
+
+    it('clears ?bbox= when state.bbox is set to null', () => {
+      window.history.replaceState({}, '', '/?bbox=-111.0,31.6,-110.2,33.5');
+      const { result } = renderHook(() => useUrlState());
+      act(() => result.current.set({ bbox: null }));
+      expect(window.location.search).not.toContain('bbox=');
+    });
+
+    it('rejects 3-number input as null (defensive against malformed URLs)', () => {
+      window.history.replaceState({}, '', '/?bbox=-111.0,31.6,-110.2');
+      const { result } = renderHook(() => useUrlState());
+      expect(result.current.state.bbox).toBe(null);
+    });
+
+    it('rejects 5-number input as null', () => {
+      window.history.replaceState({}, '', '/?bbox=-111.0,31.6,-110.2,33.5,99.9');
+      const { result } = renderHook(() => useUrlState());
+      expect(result.current.state.bbox).toBe(null);
+    });
+
+    it('rejects non-finite numbers as null', () => {
+      window.history.replaceState({}, '', '/?bbox=NaN,31.6,-110.2,33.5');
+      const { result } = renderHook(() => useUrlState());
+      expect(result.current.state.bbox).toBe(null);
+    });
+
+    it('rejects out-of-range lng/lat as null', () => {
+      window.history.replaceState({}, '', '/?bbox=-200,31.6,-110.2,33.5');
+      const { result: r1 } = renderHook(() => useUrlState());
+      expect(r1.current.state.bbox).toBe(null);
+
+      window.history.replaceState({}, '', '/?bbox=-111.0,99.6,-110.2,33.5');
+      const { result: r2 } = renderHook(() => useUrlState());
+      expect(r2.current.state.bbox).toBe(null);
     });
   });
 });

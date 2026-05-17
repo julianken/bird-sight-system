@@ -111,8 +111,9 @@ describe('migration 1700000038000_backfill_species_meta_x00013 — Up', () => {
     );
     expect(rows).toHaveLength(1);
     expect(rows[0]?.silhouette_id).toBe('icteridae');
-    // #F4B400 is the icteridae color set by migration 1700000033000.
-    expect(rows[0]?.color).toBe('#F4B400');
+    // Migration 1700000046000 (contrast Phase 1, #570) darkened the icteridae
+    // color from #F4B400 (light-failing) to #b28300 for WCAG 3:1 compliance.
+    expect(rows[0]?.color).toBe('#b28300');
   });
 
   it('is idempotent — re-running Up does not duplicate the row', async () => {

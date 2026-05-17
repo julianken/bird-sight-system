@@ -5,9 +5,8 @@ import { ErrorBoundary } from './ErrorBoundary.js';
 import { FamilyLegend } from './FamilyLegend.js';
 import { MapLede, type Freshness } from './MapLede.js';
 import { FilterSentence } from './ds/FilterSentence.js';
-import type { Since } from '../state/url-state.js';
+import type { Since, BBox } from '../state/url-state.js';
 import { prettyFamily } from '../derived.js';
-import { isCellPopoverEnabled } from '../feature-flags.js';
 
 /**
  * Lazy-loaded MapCanvas. The React.lazy() boundary lives HERE — not inside
@@ -77,7 +76,7 @@ export interface MapSurfaceProps {
    * (already exposed for the FeedSurface row clicks). Optional — when
    * absent, the popover hides the "See species details" link.
    */
-  onSelectSpecies?: (speciesCode: string) => void;
+  onSelectSpecies?: (speciesCode: string, bbox: BBox | null) => void;
   /**
    * Phase 1 (#558): skip-link handler for the new "Explore map markers"
    * skip-link. When activated, MapCanvas places focus on the first
@@ -199,7 +198,7 @@ export function MapSurface({
           Skip to species list
         </button>
       )}
-      {onExploreMapMarkers && isCellPopoverEnabled() && (
+      {onExploreMapMarkers && (
         <button
           type="button"
           className="skip-link"

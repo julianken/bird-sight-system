@@ -6,9 +6,9 @@ const TYRANNIDAE_PATH = 'M5 13 C5 9 9 8 13 9 L17 7 L17 10 L15 11 L15 14 L13 15 L
 const TROCHILIDAE_PATH = 'M3 13 L8 11 L13 12 L18 9 L22 11 L18 13 L13 14 L8 14 L3 15 Z';
 
 const sampleSilhouettes: FamilySilhouette[] = [
-  { familyCode: 'tyrannidae',   color: '#C77A2E', svgData: TYRANNIDAE_PATH, source: 'placeholder', license: 'CC0', commonName: null, creator: null },
-  { familyCode: 'trochilidae',  color: '#7B2D8E', svgData: TROCHILIDAE_PATH, source: 'placeholder', license: 'CC0', commonName: null, creator: null },
-  { familyCode: 'picidae',      color: '#FF0808', svgData: null, source: null, license: null, commonName: null, creator: null },
+  { familyCode: 'tyrannidae',   color: '#C77A2E', colorDark: '#C77A2E', svgData: TYRANNIDAE_PATH, svgUrl: null, source: 'placeholder', license: 'CC0', commonName: null, creator: null },
+  { familyCode: 'trochilidae',  color: '#7B2D8E', colorDark: '#7B2D8E', svgData: TROCHILIDAE_PATH, svgUrl: null, source: 'placeholder', license: 'CC0', commonName: null, creator: null },
+  { familyCode: 'picidae',      color: '#FF0808', colorDark: '#FF0808', svgData: null, svgUrl: null, source: null, license: null, commonName: null, creator: null },
 ];
 
 describe('buildFamilyColorResolver', () => {

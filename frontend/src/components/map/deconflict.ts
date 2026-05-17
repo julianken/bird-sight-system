@@ -1,6 +1,7 @@
 import type { AdaptiveTile, ResolvedGrid } from './adaptive-grid.js';
 import { markerDimensions, MIN_MARKER_PX } from './AdaptiveGridMarker.js';
 import { pillDimensions } from '../ds/ClusterPill.js';
+import type { BBox } from '../../state/url-state.js';
 
 /**
  * Pure post-clustering deconflict layer (issue #554). Resolves visible
@@ -110,6 +111,15 @@ export interface DeconflictGroup {
   key: string;
   /** ARIA label per spec §4.6 (plus issue #554's "+N nearby" variant). */
   ariaLabel: string;
+  /**
+   * Geographic positions of all group members, used by `getClusterBbox`.
+   * Each entry is `{ lng, lat }` derived from the corresponding
+   * `DeconflictInput.longitude` / `.latitude` fields. Members without
+   * coordinates (where production callers always set both) are omitted.
+   *
+   * Phase 3 (#560) — spec §9.5 "Bbox compute-vs-cache strategy".
+   */
+  leaves: ReadonlyArray<{ lng: number; lat: number }>;
 }
 
 /**
@@ -291,11 +301,15 @@ export function buildGroups(
     }) as DeconflictInput;
     const others = members.filter((m): m is DeconflictInput => m.cluster_id !== anchor.cluster_id);
     const memberIds = members.map((m) => m.cluster_id).sort((a, b) => a - b);
+    const leaves = members
+      .filter((m) => m.longitude !== undefined && m.latitude !== undefined)
+      .map((m) => ({ lng: m.longitude as number, lat: m.latitude as number }));
     groups.push({
       anchor,
       memberIds,
       key: bucketKey(anchor.px, anchor.py, zoom, BUCKET_PX),
       ariaLabel: ariaLabelFor(anchor, others),
+      leaves,
     });
   }
 
@@ -401,4 +415,63 @@ export function displaceSilhouettes(
   }
 
   return offsets;
+}
+
+// ---------------------------------------------------------------------------
+// getClusterBbox — Phase 3 (#560)
+// ---------------------------------------------------------------------------
+
+// Module-scoped cache — WeakMap entries auto-clear when the DeconflictGroup
+// is garbage-collected (i.e., when the cluster is unmounted). No manual
+// invalidation needed.
+const bboxCache = new WeakMap<DeconflictGroup, BBox>();
+
+function round6(n: number): number {
+  return Math.round(n * 1_000_000) / 1_000_000;
+}
+
+/**
+ * Compute the geographic bounding box of a `DeconflictGroup`'s leaves.
+ * Lazy + WeakMap-cached: first call per group computes; subsequent calls
+ * return the cached tuple. The cache is per-group identity (not leaf
+ * shape) — two groups with structurally-identical leaves get separate
+ * cache entries. This is intentional: cache scope matches the group's
+ * lifetime in the cluster layer.
+ *
+ * Output format: `[lngMin, latMin, lngMax, latMax]` — matches the URL
+ * serialization order. Each coordinate is rounded to 6 decimals (~11 cm
+ * precision) so the returned tuple matches what the URL would re-parse,
+ * preserving stability across cluster→URL→re-parse round-trips.
+ *
+ * Phase 3 (#560) of cell-species-popover (#556); see spec §9.5
+ * "Bbox compute-vs-cache strategy" — "Lazy + WeakMap-cached per
+ * DeconflictGroup. Eager rejected."
+ */
+export function getClusterBbox(group: DeconflictGroup): BBox {
+  const cached = bboxCache.get(group);
+  if (cached) return cached;
+
+  if (group.leaves.length === 0) {
+    throw new Error('getClusterBbox: empty leaves (empty cluster should not reach this code path)');
+  }
+
+  let lngMin = Infinity;
+  let latMin = Infinity;
+  let lngMax = -Infinity;
+  let latMax = -Infinity;
+  for (const leaf of group.leaves) {
+    if (leaf.lng < lngMin) lngMin = leaf.lng;
+    if (leaf.lng > lngMax) lngMax = leaf.lng;
+    if (leaf.lat < latMin) latMin = leaf.lat;
+    if (leaf.lat > latMax) latMax = leaf.lat;
+  }
+
+  const bbox: BBox = [
+    round6(lngMin),
+    round6(latMin),
+    round6(lngMax),
+    round6(latMax),
+  ];
+  bboxCache.set(group, bbox);
+  return bbox;
 }
