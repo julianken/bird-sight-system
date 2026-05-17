@@ -610,3 +610,134 @@ resource "google_cloud_scheduler_job" "ingest_descriptions" {
 
   depends_on = [google_project_service.scheduler]
 }
+
+# ── Observations prune job (issue #587) ─────────────────────────────────────
+#
+# Nightly Cloud Run Job that deletes observations older than the rolling
+# retention window (default 14 days, overridable via OBSERVATIONS_RETENTION_DAYS)
+# then runs VACUUM (ANALYZE) observations to recover GIST/B-tree dead-tuple
+# bloat. Without this the observations table grows unbounded; at national
+# scale that flips Neon Launch (10 GB) within months. With a 14-day window
+# the hot DB sits at a steady-state ~3 GB and stays inside Launch tier
+# indefinitely (see docs/analyses/2026-05-14-process-scale-options/
+# phase-4/analysis-report.md Finding 8 / Recommendation 2A-lean).
+#
+# Separate Cloud Run Job (not a reused arg on the shared `bird-ingestor`
+# job) so operator-visible execution history stays clean — a failing
+# `bird-ingestor` recent-ingest must not mask a separately-failing prune,
+# and vice versa. Mirrors the photos/descriptions job shape (image,
+# secret-env, lifecycle.ignore_changes) so deploy-ingestor.yml's image-tag
+# rollout reaches it from a single Artifact Registry push.
+resource "google_cloud_run_v2_job" "ingestor_prune" {
+  name     = "bird-ingestor-prune"
+  location = var.gcp_region
+
+  template {
+    template {
+      service_account = google_service_account.ingestor.email
+      # DELETE + VACUUM ANALYZE on a 14-day rolling window at steady state
+      # finishes in seconds against Neon Launch. 300s is the same defensive
+      # ceiling the shared job carried pre-#506; we don't need the 900s
+      # headroom the shared job got (no growing stamp UPDATE here). A
+      # genuinely-stuck prune (Neon connection-pool exhaustion, GIST index
+      # corruption) surfaces inside one cron interval.
+      timeout     = "300s"
+      max_retries = 1
+
+      containers {
+        image = "${google_artifact_registry_repository.birdwatch.location}-docker.pkg.dev/${var.gcp_project_id}/${google_artifact_registry_repository.birdwatch.repository_id}/ingestor:latest"
+
+        # CLI takes the kind as positional arg; Scheduler override below sets
+        # it to "prune", but the baked-in default keeps a manual
+        # `gcloud run jobs execute bird-ingestor-prune` working without
+        # overrides.
+        args = ["prune"]
+
+        resources {
+          limits = { cpu = "1", memory = "512Mi" }
+        }
+
+        env {
+          name = "DATABASE_URL"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.db_url.secret_id
+              version = "latest"
+            }
+          }
+        }
+        # EBIRD_API_KEY is not required for prune itself, but cli.ts enforces
+        # a uniform env contract across all DB-bound kinds — wiring the same
+        # secret here keeps the Job spec consistent with the shared image's
+        # entry-guard. See cli.ts:101.
+        env {
+          name = "EBIRD_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.ebird_key.secret_id
+              version = "latest"
+            }
+          }
+        }
+      }
+    }
+  }
+
+  # Same rationale as `.ingestor`: deploy-ingestor.yml rolls the image tag,
+  # Terraform must not reconcile it back to :latest on every apply.
+  lifecycle {
+    ignore_changes = [template[0].template[0].containers[0].image]
+  }
+
+  depends_on = [
+    google_project_service.run,
+    google_secret_manager_secret_iam_member.ingestor_db,
+    google_secret_manager_secret_iam_member.ingestor_ebird,
+  ]
+}
+
+# Scheduler invoke binding mirrors `.scheduler_invoke` — Scheduler uses
+# containerOverrides to set args=["prune"] (matches the bake-in default but
+# is explicit at the cron-call site), which routes through runWithOverrides.
+resource "google_cloud_run_v2_job_iam_member" "scheduler_invoke_prune" {
+  name     = google_cloud_run_v2_job.ingestor_prune.name
+  location = google_cloud_run_v2_job.ingestor_prune.location
+  role     = "roles/run.jobsExecutorWithOverrides"
+  member   = "serviceAccount:${google_service_account.scheduler.email}"
+}
+
+locals {
+  # v2 endpoint for the prune-only job — separate URL because the path
+  # includes the job name, not the project + location alone.
+  job_run_url_prune = "https://run.googleapis.com/v2/projects/${var.gcp_project_id}/locations/${var.gcp_region}/jobs/${google_cloud_run_v2_job.ingestor_prune.name}:run"
+}
+
+# Nightly prune at 03:05 MST (10:05 UTC). Arizona does not observe DST so
+# MST is UTC-7 year-round — no spring-forward / fall-back drift to plan
+# against. The 03:05 slot is offset 5 minutes after the 10:00 UTC recent-
+# ingest tick so the two jobs never start in the same minute; a failing
+# recent-ingest job thus completes (or fails) before the prune begins,
+# and operators see the recent failure in the prior Cloud Run execution
+# log before the prune starts rather than racing it at the same minute.
+resource "google_cloud_scheduler_job" "ingest_prune" {
+  name      = "bird-ingest-prune"
+  region    = var.gcp_region
+  schedule  = "5 10 * * *"
+  time_zone = "Etc/UTC"
+
+  http_target {
+    uri         = local.job_run_url_prune
+    http_method = "POST"
+    headers     = { "Content-Type" = "application/json" }
+    body = base64encode(jsonencode({
+      overrides = {
+        containerOverrides = [{ args = ["prune"] }]
+      }
+    }))
+    oauth_token {
+      service_account_email = google_service_account.scheduler.email
+    }
+  }
+
+  depends_on = [google_project_service.scheduler]
+}

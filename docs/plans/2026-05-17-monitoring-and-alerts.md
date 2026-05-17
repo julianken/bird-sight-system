@@ -74,11 +74,7 @@ The phase-4 report's Open Question O2 calls for a recurring re-sample of the spe
 2. **Different infra surface.** Cloud Monitoring's alerts live in `infra/terraform/`; an HTTP-probe-with-JSON-shape-assertion lives more naturally in `.github/workflows/` as a scheduled workflow (the eBird API key is already a CI secret, the assertion logic is plain TypeScript or jq). Folding it into Terraform would require either a custom Cloud Run Job (overkill) or a synthetic Cloud Monitoring uptime check (can't express shape assertions, only response-code/keyword match).
 3. **Independent execution.** The Shape 2 probe can ship before or after this plan with zero dependency.
 
-The sibling plan stub:
-
-- **File:** `docs/plans/2026-05-17-shape-2-rollup-probe.md` (write this as a separate plan; outside this plan's scope).
-- **Shape:** GitHub Actions workflow, `cron: '0 14 * * 1'` (every Monday 14:00 UTC). 9 curls against `/data/obs/{US-AZ,US-TX,US-CA,US-NY,US-FL,US-WA,US-MA,US-IL,US-CO}/recent` (the 9-region sample matches the O2 spec). Asserts on row-count parity with the per-species rollup endpoint. Single boolean + per-region counts to job output; fails the workflow (and therefore emails) on falsy.
-- **Cost:** $0 (GitHub Actions free tier covers it; 1 workflow × 4 runs/mo × <1min wallclock).
+Implemented in `docs/plans/2026-05-17-shape-2-rollup-probe.md` (workflow file: `.github/workflows/shape-2-rollup-probe.yml`; probe script: `scripts/shape-2-probe.sh`; runbook: `docs/runbooks/shape-2-rollup-probe.md`).
 
 This plan does not block on the sibling plan landing.
 

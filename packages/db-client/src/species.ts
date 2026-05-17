@@ -247,19 +247,24 @@ export async function getSpeciesMeta(
  * returns 404 for unknown codes; this matches the species-meta route's
  * 404 precedent and keeps the SQL focused on aggregation.
  *
- * Timezone note: `EXTRACT(MONTH FROM obs_dt)` uses the database server's
- * timezone for the month boundary. Arizona observations are reported in
- * MST (UTC-7) which is non-DST, so a Dec 31 23:59 MST observation extracts
- * to month 12 regardless of server timezone (the obs_dt value carries its
- * own offset). When/if we expand beyond AZ-only data, revisit with
- * `obs_dt AT TIME ZONE 'America/Phoenix'`.
+ * Timezone: month is extracted in UTC via `obs_dt AT TIME ZONE 'UTC'`. This
+ * is the simplest stable choice for national-scale data — observations span
+ * 4 US timezones, and pinning the extraction zone removes the dependency on
+ * the DB session timezone (PG defaults to the server's TZ env, which differs
+ * between Cloud Run and local). UTC was chosen over per-observation
+ * local-timezone (lat/lng → IANA tz lookup) because the phenology chart
+ * surfaces month-scale seasonal trends, not calendar-day boundaries — the
+ * <12h shift between UTC and any US zone is invisible at month granularity.
+ * The previous AZ-only implementation relied on MST being non-DST; that
+ * accident does not generalize to other regions, so we make the choice
+ * explicit instead.
  */
 export async function getSpeciesPhenology(
   pool: Pool,
   speciesCode: string
 ): Promise<Array<{ month: number; count: number }>> {
   const { rows } = await pool.query<{ month: number; count: number }>(
-    `SELECT EXTRACT(MONTH FROM obs_dt)::int AS month,
+    `SELECT EXTRACT(MONTH FROM obs_dt AT TIME ZONE 'UTC')::int AS month,
             COUNT(*)::int AS count
        FROM observations
       WHERE species_code = $1

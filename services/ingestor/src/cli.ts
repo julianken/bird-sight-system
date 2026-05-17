@@ -26,8 +26,13 @@ import {
   runDescriptions as realRunDescriptions,
   type RunDescriptionsSummary,
 } from './run-descriptions.js';
+import {
+  runPrune as realRunPrune,
+  type RunPruneSummary,
+} from './run-prune.js';
 import { fetchWikipediaSummary as realFetchWikipediaSummary } from './wikipedia/client.js';
 import { fetchInatTaxon as realFetchInatTaxon } from './inat/taxon-client.js';
+import { pingHeartbeat as realPingHeartbeat } from './heartbeat.js';
 
 /**
  * Every run summary discriminates on `status`. `RunBackfillSummary` can also be
@@ -40,7 +45,8 @@ type AnyRunSummary =
   | RunBackfillSummary
   | RunTaxonomySummary
   | RunPhotosSummary
-  | RunDescriptionsSummary;
+  | RunDescriptionsSummary
+  | RunPruneSummary;
 
 /**
  * Injectable dependencies for `runCli`. In production `cli.ts`'s IIFE passes
@@ -56,8 +62,10 @@ export interface CliDeps {
   runTaxonomy: typeof realRunTaxonomy;
   runPhotos: typeof realRunPhotos;
   runDescriptions: typeof realRunDescriptions;
+  runPrune: typeof realRunPrune;
   fetchWikipediaSummary: typeof realFetchWikipediaSummary;
   fetchInatTaxon: typeof realFetchInatTaxon;
+  pingHeartbeat?: typeof realPingHeartbeat;
 }
 
 /**
@@ -100,6 +108,12 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
 
   const apiKey = process.env.EBIRD_API_KEY;
   const dbUrl = process.env.DATABASE_URL;
+  // `prune` and `photos`/`descriptions` style DB-only kinds don't strictly
+  // require EBIRD_API_KEY, but keeping a single env contract for the shared
+  // image keeps Cloud Run Job configuration uniform — secrets are wired once
+  // on the `bird-ingestor-*` jobs and reused across kinds. Only DATABASE_URL
+  // is genuinely required for prune; EBIRD_API_KEY is enforced uniformly to
+  // catch a misconfigured job before the runner discovers it.
   if (!apiKey) throw new Error('EBIRD_API_KEY not set');
   if (!dbUrl) throw new Error('DATABASE_URL not set');
 
@@ -142,13 +156,32 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
       summary = await deps.runPhotos({ pool });
     } else if (kind === 'descriptions') {
       summary = await deps.runDescriptions({ pool });
+    } else if (kind === 'prune') {
+      // 14-day rolling retention by default; OBSERVATIONS_RETENTION_DAYS
+      // overrides at the job level (set via Cloud Run Job env in Terraform
+      // when the operator needs a different window without a redeploy).
+      const raw = process.env.OBSERVATIONS_RETENTION_DAYS;
+      const parsed = raw === undefined ? undefined : Number.parseInt(raw, 10);
+      if (parsed !== undefined && (!Number.isFinite(parsed) || parsed <= 0)) {
+        throw new Error(`OBSERVATIONS_RETENTION_DAYS must be a positive integer; got ${raw}`);
+      }
+      summary = await deps.runPrune(
+        parsed === undefined ? { pool } : { pool, retentionDays: parsed }
+      );
     } else {
-      throw new Error(`Unknown kind: ${kind}. Try recent | hotspots | backfill | backfill-extended | taxonomy | photos | descriptions | probe-taxon | probe-wiki`);
+      throw new Error(`Unknown kind: ${kind}. Try recent | hotspots | backfill | backfill-extended | taxonomy | photos | descriptions | prune | probe-taxon | probe-wiki`);
     }
     console.log(JSON.stringify(summary, null, 2));
     if (summary.status === 'failure') {
       // Flag the process as failed without killing the loop mid-pool-close.
       process.exitCode = 1;
+    } else {
+      // Success or partial: ping the per-kind heartbeat. Healthchecks.io
+      // (or equivalent) fires alerts on MISSED pings, so we MUST NOT ping
+      // on failure — see docs/plans/2026-05-17-monitoring-and-alerts.md §S7.
+      const envKey = `HEALTHCHECKS_URL_${kind.toUpperCase().replace(/-/g, '_')}`;
+      const ping = deps.pingHeartbeat ?? realPingHeartbeat;
+      await ping(process.env[envKey], kind);
     }
   } finally {
     await deps.closePool(pool);
@@ -181,6 +214,7 @@ if (isEntrypoint) {
     runTaxonomy: realRunTaxonomy,
     runPhotos: realRunPhotos,
     runDescriptions: realRunDescriptions,
+    runPrune: realRunPrune,
     fetchWikipediaSummary: realFetchWikipediaSummary,
     fetchInatTaxon: realFetchInatTaxon,
   }).catch(err => {

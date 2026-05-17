@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { startTestDb, type TestDb } from '@bird-watch/db-client/dist/test-helpers.js';
 import {
   upsertHotspots,
@@ -143,6 +143,63 @@ describe('GET /api/observations', () => {
     const app = createApp({ pool: db.pool });
     const res = await app.request('/api/observations?since=banana');
     expect(res.status).toBe(400);
+  });
+
+  // Plan 2026-05-17, Task 5 / S2 alert source. The data-staleness alert
+  // (google_logging_metric.meta_freshness_seconds) pulls
+  // jsonPayload.meta_freshness_seconds out of the read-api's stdout — this
+  // test pins the exact log shape Cloud Logging's value_extractor expects.
+  it('emits a structured meta_freshness log line on /api/observations', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const app = createApp({ pool: db.pool });
+      const res = await app.request('/api/observations?since=30d');
+      expect(res.status).toBe(200);
+      const matches = logSpy.mock.calls
+        .map(args => args[0])
+        .filter((arg): arg is string => typeof arg === 'string')
+        .map(line => {
+          try { return JSON.parse(line) as Record<string, unknown>; } catch { return null; }
+        })
+        .filter((parsed): parsed is Record<string, unknown> =>
+          !!parsed && parsed.message === 'meta_freshness');
+      expect(matches).toHaveLength(1);
+      const entry = matches[0]!;
+      expect(entry.severity).toBe('INFO');
+      expect(typeof entry.meta_freshness_seconds).toBe('number');
+      expect(entry.meta_freshness_seconds as number).toBeGreaterThanOrEqual(0);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  // When the observations table is empty, freshestObservationAt is null and
+  // we deliberately do NOT emit the log (S2's value_extractor filter excludes
+  // null entries; emitting noise would just inflate log-based-metric volume).
+  it('does NOT emit meta_freshness log when observations table is empty', async () => {
+    await db.pool.query('TRUNCATE observations');
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const app = createApp({ pool: db.pool });
+      const res = await app.request('/api/observations');
+      expect(res.status).toBe(200);
+      const matches = logSpy.mock.calls
+        .map(args => args[0])
+        .filter((arg): arg is string => typeof arg === 'string')
+        .filter(line => line.includes('meta_freshness'));
+      expect(matches).toHaveLength(0);
+    } finally {
+      logSpy.mockRestore();
+      // Re-seed so subsequent tests in this describe pass
+      await upsertObservations(db.pool, [
+        { subId: 'S1', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+          lat: 31.72, lng: -110.88, obsDt: new Date(Date.now() - 5*86400_000).toISOString(),
+          locId: 'L1', locName: 'X', howMany: 1, isNotable: false },
+        { subId: 'S2', speciesCode: 'annhum', comName: "Anna's Hummingbird",
+          lat: 32.30, lng: -110.99, obsDt: new Date(Date.now() - 20*86400_000).toISOString(),
+          locId: 'L2', locName: 'Y', howMany: 1, isNotable: true },
+      ]);
+    }
   });
 });
 

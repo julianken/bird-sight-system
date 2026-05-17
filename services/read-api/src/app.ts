@@ -109,6 +109,28 @@ export function createApp(deps: AppDeps): Hono {
       getFreshestObservationAt(deps.pool),
     ]);
     c.header('Cache-Control', cacheControlFor('observations'));
+
+    // Structured-log emit for the S2 data-staleness alert
+    // (docs/plans/2026-05-17-monitoring-and-alerts.md). Cloud Logging's
+    // log-based metric `bird-meta-freshness-seconds` extracts
+    // jsonPayload.meta_freshness_seconds from this line; the alert fires
+    // when the p95 over a 30min window exceeds 21600s (6h).
+    //
+    // Null is deliberately not emitted — an empty observations table is a
+    // different failure class than stale data, and the metric's value_extractor
+    // filter excludes null entries anyway. Emitting null would only inflate
+    // log-based-metric volume against the free-tier ceiling.
+    if (freshestObservationAt !== null) {
+      const freshnessSeconds = Math.floor(
+        (Date.now() - new Date(freshestObservationAt).getTime()) / 1000
+      );
+      console.log(JSON.stringify({
+        severity: 'INFO',
+        message: 'meta_freshness',
+        meta_freshness_seconds: freshnessSeconds,
+      }));
+    }
+
     const body: ObservationsResponse = {
       data: rows,
       meta: { freshestObservationAt },
