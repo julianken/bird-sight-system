@@ -211,6 +211,90 @@ describe('fetchInatPhoto', () => {
     expect(photo?.license).toBe('cc0');
   });
 
+  it('INAT_PLACE_ID overrides Tier 1 place_id (e.g. national deployment uses different region)', async () => {
+    // Per the umbrella-plan Phase 2 going-national work: callers can pass a
+    // custom tier list (production reads INAT_PLACE_ID at module-init time
+    // via buildTiers; tests opt-in via the `tiers` option to avoid
+    // process.env mutation leaking between workers).
+    const placeIds: (string | null)[] = [];
+    server.use(
+      http.get(INAT_OBSERVATIONS_URL, ({ request }) => {
+        const url = new URL(request.url);
+        placeIds.push(url.searchParams.get('place_id'));
+        return HttpResponse.json({
+          total_results: 1,
+          page: 1,
+          per_page: 1,
+          results: [
+            {
+              photos: [
+                {
+                  url: 'https://example.org/photos/ca/square.jpg',
+                  attribution: '(c) CA Photographer, CC BY',
+                  license_code: 'cc-by',
+                },
+              ],
+            },
+          ],
+        });
+      })
+    );
+
+    const photo = await fetchInatPhoto('Pyrocephalus rubinus', {
+      tiers: [
+        { label: 'region', placeId: '14' }, // iNat place_id for California
+        { label: 'us', placeId: '1' },
+        { label: 'global', placeId: null },
+      ],
+    });
+
+    // Tier 1 was hit with the overridden place_id, not the AZ default.
+    expect(placeIds).toEqual(['14']);
+    expect(photo?.url).toBe('https://example.org/photos/ca/medium.jpg');
+  });
+
+  it('empty Tier 1 (INAT_PLACE_ID="") drops region filter; cascade starts at US', async () => {
+    // National deployment: INAT_PLACE_ID='' means no region narrowing.
+    // Cascade collapses to 2 tiers (US → global) and the first iNat call
+    // already carries place_id=1.
+    let calls = 0;
+    const placeIds: (string | null)[] = [];
+    server.use(
+      http.get(INAT_OBSERVATIONS_URL, ({ request }) => {
+        calls++;
+        const url = new URL(request.url);
+        placeIds.push(url.searchParams.get('place_id'));
+        return HttpResponse.json({
+          total_results: 1,
+          page: 1,
+          per_page: 1,
+          results: [
+            {
+              photos: [
+                {
+                  url: 'https://example.org/photos/us/square.jpg',
+                  attribution: '(c) US Photographer, CC0',
+                  license_code: 'cc0',
+                },
+              ],
+            },
+          ],
+        });
+      })
+    );
+
+    const photo = await fetchInatPhoto('Pyrocephalus rubinus', {
+      tiers: [
+        { label: 'us', placeId: '1' },
+        { label: 'global', placeId: null },
+      ],
+    });
+
+    expect(calls).toBe(1);
+    expect(placeIds).toEqual(['1']);
+    expect(photo?.url).toBe('https://example.org/photos/us/medium.jpg');
+  });
+
   it('fetchBestPhoto retries once on 429', async () => {
     let calls = 0;
     server.use(
