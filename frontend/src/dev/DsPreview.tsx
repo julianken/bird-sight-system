@@ -99,6 +99,7 @@ function makeFilters(overrides: Partial<UrlState> = {}): UrlState {
     notable: false,
     view: 'map',
     detail: null,
+    bbox: null,
     ...overrides,
   };
 }

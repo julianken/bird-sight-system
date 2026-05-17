@@ -587,7 +587,9 @@ describe('FeedSurface — DB color threading (NEW-3 fix)', () => {
     {
       familyCode: 'tyrannidae',
       color: '#C77A2E',
+      colorDark: '#C77A2E',
       svgData: null,
+      svgUrl: null,
       source: null,
       license: null,
       commonName: 'Tyrant Flycatchers',

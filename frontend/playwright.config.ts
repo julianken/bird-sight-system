@@ -1,4 +1,4 @@
-import { defineConfig } from '@playwright/test';
+import { defineConfig, devices } from '@playwright/test';
 import { fileURLToPath } from 'url';
 import path from 'path';
 
@@ -25,7 +25,12 @@ export default defineConfig({
   projects: [
     {
       name: 'dev-server',
+      // Exclude both preview-only specs AND coarse-pointer-only specs from
+      // the default dev-server project — Phase 2 tags coarse tests with
+      // `@coarse` and limits them to the new project below. The default
+      // project must NOT inherit touch emulation.
       testIgnore: /.*\.preview\.spec\.ts$/,
+      grepInvert: /@coarse/,
       use: {
         baseURL: 'http://localhost:5173',
       },
@@ -35,6 +40,29 @@ export default defineConfig({
       testMatch: /.*\.preview\.spec\.ts$/,
       use: {
         baseURL: 'http://localhost:4173',
+      },
+    },
+    {
+      // Phase 2 (#559): pointer:coarse media-query state is set at context
+      // creation time, so per-test emulation via page.context().route(...) is
+      // insufficient — the only reliable way is a device profile that sets
+      // `hasTouch: true` AND `isMobile: true`. `iPad (gen 6)` is 768×1024
+      // (matches CLAUDE.md canonical viewport for `iPad portrait (tablet)`).
+      // `iPad (gen 7)` is 810×1080 and does NOT match a canonical viewport,
+      // so it is explicitly NOT used here.
+      //
+      // Targets specs tagged `@coarse`. Currently scoped to
+      // map-cell-popover.spec.ts.
+      name: 'coarse-pointer',
+      testIgnore: /.*\.preview\.spec\.ts$/,
+      grep: /@coarse/,
+      use: {
+        ...devices['iPad (gen 6)'],
+        // iPad (gen 6) defaults to webkit; override to chromium so CI's
+        // `--with-deps chromium` install is sufficient. Chromium honors
+        // isMobile: true (per Playwright docs) so pointer:coarse still triggers.
+        browserName: 'chromium',
+        baseURL: 'http://localhost:5173',
       },
     },
   ],
@@ -48,8 +76,12 @@ export default defineConfig({
       timeout: 30_000,
     },
     {
-      // Start Vite dev server on port 5173 (proxies /api → 8787)
-      command: 'npm run dev',
+      // Start Vite dev server on port 5173 (proxies /api → 8787).
+      // VITE_E2E_PRESERVE_BUFFER=true tells MapCanvas to pass
+      // `preserveDrawingBuffer: true` to the MapLibre WebGL context so that
+      // pixel-sample e2e specs (e.g. basemap-dark-flip.spec.ts) can read
+      // rendered canvas pixels via a 2D-canvas drawImage copy. See PR #582.
+      command: 'VITE_E2E_PRESERVE_BUFFER=true npm run dev',
       cwd: __dirname,
       url: 'http://localhost:5173',
       reuseExistingServer: !process.env.CI,

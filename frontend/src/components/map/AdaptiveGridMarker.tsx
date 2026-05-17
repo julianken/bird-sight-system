@@ -1,12 +1,13 @@
 import { useState, useId, useRef, useEffect } from 'react';
-import type { MouseEvent, CSSProperties, KeyboardEvent } from 'react';
+import type { MouseEvent as ReactMouseEvent, CSSProperties, KeyboardEvent } from 'react';
 import type { AdaptiveTile, ResolvedGrid } from './adaptive-grid.js';
 import { visibleCapacity } from './adaptive-grid.js';
 import { FALLBACK_SILHOUETTE_PATH } from './silhouette-fallback.js';
-import { isCellPopoverEnabled } from '../../feature-flags.js';
 import { useMediaQuery } from '../../hooks/use-media-query.js';
+import { useTheme } from '../../hooks/use-theme.js';
 import { CellHoverPreview } from './CellHoverPreview.js';
 import { CellPopover } from './CellPopover.js';
+import { ClusterListPopover } from './ClusterListPopover.js';
 
 /**
  * `<AdaptiveGridMarker>` — pure display component for the adaptive cluster
@@ -38,7 +39,7 @@ import { CellPopover } from './CellPopover.js';
  *     halo + colored path. Notable amber ring layers BEFORE the path
  *     (spec AC8, inherited from StackedSilhouetteMarker).
  *   - `fallback`: catalogue loaded, no art for this family → generic
- *     placeholder shape at opacity 0.5.
+ *     placeholder shape at opacity 0.85 + dashed border (Phase 2 #571).
  *   - `pending`: catalogue not loaded yet → animated shimmer skeleton.
  *     Distinct from `fallback` so a cold-load map doesn't look like a
  *     coverage gap (spec §5.1 type comment).
@@ -50,10 +51,10 @@ import { CellPopover } from './CellPopover.js';
  * the §4.6 table.
  *
  * Phase 1 cell popover (spec §4.5, §4.6, §4.7, §4.8, epic #556, issue #558):
- * When `VITE_FF_CELL_POPOVER=true` AND the pointer is fine (not coarse),
- * each `<TileCell>` becomes a `<button>` with per-cell hover/focus/click
- * interaction. The hit-extender overlay's `pointerEvents` toggles to `'none'`
- * in that mode so it doesn't intercept individual cell events.
+ * When the pointer is fine (not coarse), each `<TileCell>` becomes a
+ * `<button>` with per-cell hover/focus/click interaction. The hit-extender
+ * overlay's `pointerEvents` toggles to `'none'` in that mode so it doesn't
+ * intercept individual cell events.
  */
 
 export interface AdaptiveGridMarkerProps {
@@ -86,7 +87,7 @@ export interface AdaptiveGridMarkerProps {
   isNotable?: boolean;
   /** Species name for the notable single-obs case (unused today; reserved). */
   notableSpeciesName?: string;
-  onClick: (e: MouseEvent<HTMLElement>) => void;
+  onClick: (e: ReactMouseEvent<HTMLElement>) => void;
   /** Phase 1 (#558): forwarded from per-cell popover row clicks. */
   onSelectSpecies?: (speciesCode: string) => void;
 }
@@ -133,12 +134,34 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
     onSelectSpecies,
   } = props;
 
-  const flag = isCellPopoverEnabled();
   const isPointerFine = useMediaQuery('(pointer: fine)');
-  const perCellInteractive = flag && isPointerFine && !isCoarsePointer;
+  const perCellInteractive = isPointerFine && !isCoarsePointer;
+
+  // Phase 1 contrast (#570): read [data-theme] so SVG fills use the correct
+  // palette column. In dark mode, tiles render `colorDark` (the original
+  // lighter/brighter hex that passes #0E1116); in light mode they render
+  // `color` (the darkened hex that passes #f4f1ea). The dead code path for
+  // dark mode becomes live once Phase 4 flips the BASEMAP_DARK alias.
+  const theme = useTheme();
+  const isDark = theme === 'dark';
+
+  const clusterListInteractive = isCoarsePointer === true;
+  const [isClusterListOpen, setIsClusterListOpen] = useState<boolean>(false);
+  const outerRef = useRef<HTMLElement | null>(null);
+
+  // Build the FamilyAggregate[] and speciesByFamily Map from tiles (Phase 0
+  // already threads `species` per tile; no re-aggregation needed).
+  const families = tiles.map((t) => ({ familyCode: t.familyCode, count: t.count }));
+  const speciesByFamily = new Map(tiles.map((t) => [t.familyCode, t.species]));
+
+  // Single-leaf preservation (spec §4.10): clusters with totalCount === 1 fall
+  // through to the existing onClick handler (which routes to setSelectedObs in
+  // MapCanvas). The cluster-list popover never opens for single-leaf markers.
+  const isSingleLeaf = props.totalCount === 1;
 
   const markerId = useId();
   const [activeCell, setActiveCell] = useState<{ index: number; mode: 'preview' | 'popover' } | null>(null);
+  const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
   const cellRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const mouseLeaveTimers = useRef<Array<number | null>>([]);
 
@@ -179,7 +202,12 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
     setActiveCell((prev) => (prev?.mode === 'popover' ? prev : { index: i, mode: 'preview' }));
   }
 
+  function onCellMouseMove(e: ReactMouseEvent<HTMLElement>) {
+    setCursorPos({ x: e.clientX, y: e.clientY });
+  }
+
   function onCellMouseLeave(i: number) {
+    setCursorPos(null);
     // Spec §4.5: 250ms delay; skipped when click-promoted to popover.
     mouseLeaveTimers.current[i] = window.setTimeout(() => {
       setActiveCell((prev) => (prev?.index === i && prev.mode === 'preview' ? null : prev));
@@ -237,11 +265,23 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
     : ({
         type: 'button' as const,
         tabIndex: -1,
-        onClick,
+        onClick: (e: ReactMouseEvent<HTMLElement>) => {
+          if (clusterListInteractive && !isSingleLeaf) {
+            // Phase 2: open the cluster-list popover instead of the parent's
+            // zoom handler. Single-leaf clusters fall through to onClick
+            // (preserves the existing tap-to-obs UX per spec §4.10).
+            e.preventDefault();
+            if (!isClusterListOpen) setIsClusterListOpen(true);
+            return;
+          }
+          onClick(e);
+        },
       });
 
   return (
     <OuterTag
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ref={(el: any) => { outerRef.current = el; }}
       data-testid="adaptive-grid-marker"
       className="adaptive-grid-marker"
       aria-label={ariaLabel}
@@ -278,6 +318,7 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
           <TileCell
             key={`${tile.familyCode}-${i}`}
             tile={tile}
+            isDark={isDark}
             showBadge={showBadgeFor(tile.count)}
             isNotable={isNotable}
             perCellInteractive={perCellInteractive}
@@ -285,6 +326,7 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
             {...(perCellInteractive && activeCell?.index === i && previewId ? { previewId } : {})}
             cellRef={(el) => { cellRefs.current[i] = el; }}
             onCellMouseEnter={() => onCellMouseEnter(i)}
+            onCellMouseMove={onCellMouseMove}
             onCellMouseLeave={() => onCellMouseLeave(i)}
             onCellFocus={() => onCellFocus(i)}
             onCellBlur={() => onCellBlur(i)}
@@ -315,6 +357,7 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
             familyCount={activeTile.count}
             species={activeTile.species}
             id={previewId!}
+            cursorPos={cursorPos}
           />
         ) : (
           cellRefs.current[activeCell.index] ? (
@@ -333,12 +376,32 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
           ) : null
         )
       )}
+      {clusterListInteractive && isClusterListOpen && outerRef.current && (
+        <ClusterListPopover
+          families={families}
+          speciesByFamily={speciesByFamily}
+          totalCount={props.totalCount}
+          uniqueFamilies={props.uniqueFamilies}
+          anchorEl={outerRef.current}
+          onDismiss={() => setIsClusterListOpen(false)}
+          onSelectSpecies={(code: string) => {
+            if (onSelectSpecies) {
+              onSelectSpecies(code);
+            }
+            // Dismiss after navigating so the popover doesn't linger over the new
+            // surface. The species detail route will mount on top.
+            setIsClusterListOpen(false);
+          }}
+        />
+      )}
     </OuterTag>
   );
 }
 
 interface TileCellProps {
   tile: AdaptiveTile;
+  /** When true, render uses `tile.colorDark` instead of `tile.color`. */
+  isDark: boolean;
   showBadge: boolean;
   isNotable: boolean | undefined;
   perCellInteractive: boolean;
@@ -347,6 +410,7 @@ interface TileCellProps {
   previewId?: string;
   cellRef: (el: HTMLButtonElement | null) => void;
   onCellMouseEnter?: () => void;
+  onCellMouseMove?: (e: ReactMouseEvent<HTMLElement>) => void;
   onCellMouseLeave?: () => void;
   onCellFocus?: () => void;
   onCellBlur?: () => void;
@@ -356,6 +420,7 @@ interface TileCellProps {
 
 function TileCell({
   tile,
+  isDark,
   showBadge,
   isNotable,
   perCellInteractive,
@@ -363,6 +428,7 @@ function TileCell({
   previewId,
   cellRef,
   onCellMouseEnter,
+  onCellMouseMove,
   onCellMouseLeave,
   onCellFocus,
   onCellBlur,
@@ -380,6 +446,8 @@ function TileCell({
   }
 
   if (tile.kind === 'fallback') {
+    // Phase 1 contrast (#570): use colorDark in dark mode for correct basemap contrast.
+    const fillColor = isDark ? tile.colorDark : tile.color;
     if (perCellInteractive) {
       return (
         <button
@@ -392,12 +460,13 @@ function TileCell({
           aria-expanded={isExpanded ? 'true' : 'false'}
           aria-describedby={previewId}
           onMouseEnter={onCellMouseEnter}
+          onMouseMove={onCellMouseMove}
           onMouseLeave={onCellMouseLeave}
           onFocus={onCellFocus}
           onBlur={onCellBlur}
           onClick={(e) => { e.stopPropagation(); onCellClick?.(); }}
           onKeyDown={onCellKeyDown}
-          style={{ all: 'unset', cursor: 'pointer', display: 'block', opacity: 0.5 }}
+          style={{ cursor: 'pointer', display: 'block', opacity: 0.85, color: fillColor }}
         >
           <svg
             viewBox="0 0 24 24"
@@ -407,7 +476,7 @@ function TileCell({
             focusable="false"
             preserveAspectRatio="xMidYMid meet"
           >
-            <path d={FALLBACK_SILHOUETTE_PATH} fill={tile.color} />
+            <path d={FALLBACK_SILHOUETTE_PATH} style={{ fill: fillColor, forcedColorAdjust: 'auto' }} />
           </svg>
           {showBadge && <Badge count={tile.count} />}
         </button>
@@ -418,7 +487,7 @@ function TileCell({
       <div
         data-testid="adaptive-grid-marker-cell-fallback"
         className="adaptive-grid-marker__cell adaptive-grid-marker__cell--fallback"
-        style={{ opacity: 0.5 }}
+        style={{ opacity: 0.85, color: fillColor }}
       >
         <svg
           viewBox="0 0 24 24"
@@ -428,7 +497,7 @@ function TileCell({
           focusable="false"
           preserveAspectRatio="xMidYMid meet"
         >
-          <path d={FALLBACK_SILHOUETTE_PATH} fill={tile.color} />
+          <path d={FALLBACK_SILHOUETTE_PATH} style={{ fill: fillColor, forcedColorAdjust: 'auto' }} />
         </svg>
         {showBadge && <Badge count={tile.count} />}
       </div>
@@ -436,6 +505,8 @@ function TileCell({
   }
 
   // rendered
+  // Phase 1 contrast (#570): use colorDark in dark mode for correct basemap contrast.
+  const fillColor = isDark ? tile.colorDark : tile.color;
   const svgContent = (
     <svg
       viewBox="0 0 24 24"
@@ -468,7 +539,7 @@ function TileCell({
         strokeWidth="2"
         strokeLinejoin="round"
       />
-      <path d={tile.svgData} fill={tile.color} />
+      <path d={tile.svgData} style={{ fill: fillColor, forcedColorAdjust: 'auto' }} />
     </svg>
   );
 
@@ -484,12 +555,13 @@ function TileCell({
         aria-expanded={isExpanded ? 'true' : 'false'}
         aria-describedby={previewId}
         onMouseEnter={onCellMouseEnter}
+        onMouseMove={onCellMouseMove}
         onMouseLeave={onCellMouseLeave}
         onFocus={onCellFocus}
         onBlur={onCellBlur}
         onClick={(e) => { e.stopPropagation(); onCellClick?.(); }}
         onKeyDown={onCellKeyDown}
-        style={{ all: 'unset', cursor: 'pointer', display: 'block' }}
+        style={{ cursor: 'pointer', display: 'block' }}
       >
         {svgContent}
         {showBadge && <Badge count={tile.count} />}

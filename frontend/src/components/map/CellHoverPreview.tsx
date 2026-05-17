@@ -1,3 +1,5 @@
+import type { CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import type { SpeciesAggregate } from './adaptive-grid.js';
 import { prettyFamily } from '../../derived.js';
 
@@ -20,21 +22,39 @@ export interface CellHoverPreviewProps {
   species: ReadonlyArray<SpeciesAggregate>;
   /** Required id used by the trigger's `aria-describedby`. */
   id: string;
+  /**
+   * Cursor position in viewport coordinates. When provided, the preview
+   * is rendered at `position: fixed` with translate-based offset from
+   * the cursor (16px right, 12px below). When null/undefined, the
+   * preview falls back to its CSS-anchored position (legacy / test).
+   */
+  cursorPos?: { x: number; y: number } | null;
 }
 
 const PREVIEW_CAP = 3;
 
 export function CellHoverPreview(props: CellHoverPreviewProps) {
-  const { familyCode, familyCount, species, id } = props;
+  const { familyCode, familyCount, species, id, cursorPos } = props;
   const visible = species.slice(0, PREVIEW_CAP);
   const hasMore = species.length > PREVIEW_CAP;
 
-  return (
+  const positionStyle: CSSProperties | undefined = cursorPos
+    ? {
+        position: 'fixed',
+        left: cursorPos.x + 16,
+        top: cursorPos.y + 12,
+        pointerEvents: 'none',
+        zIndex: 1000,
+      }
+    : undefined;
+
+  const content = (
     <div
       role="tooltip"
       id={id}
       className="cell-hover-preview"
       data-testid="cell-hover-preview"
+      style={positionStyle}
     >
       <div className="cell-hover-preview__header">
         {prettyFamily(familyCode)} ({familyCount})
@@ -55,4 +75,13 @@ export function CellHoverPreview(props: CellHoverPreviewProps) {
       )}
     </div>
   );
+
+  // Portal to body ONLY when cursor-following is active. Without the portal,
+  // an ancestor's `transform` (e.g., MapLibre marker container) breaks
+  // position: fixed (CSS containing-block quirk — fixed becomes relative
+  // to the transformed ancestor, not the viewport). The portal escapes that.
+  if (cursorPos && typeof document !== 'undefined') {
+    return createPortal(content, document.body);
+  }
+  return content;
 }
