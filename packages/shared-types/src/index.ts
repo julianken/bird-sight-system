@@ -120,7 +120,7 @@ export type NotableObservation = Observation & { isNotable: true };
 
 export interface IngestRun {
   id: number;
-  kind: 'recent' | 'notable' | 'backfill' | 'hotspots' | 'taxonomy' | 'photos';
+  kind: 'recent' | 'notable' | 'backfill' | 'hotspots' | 'taxonomy' | 'photos' | 'prune';
   startedAt: string;
   finishedAt: string | null;
   obsFetched: number | null;
