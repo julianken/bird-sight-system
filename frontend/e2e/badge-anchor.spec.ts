@@ -165,7 +165,7 @@ const OBSERVATIONS_STUB = [
 
 async function waitForMapReady(page: import('@playwright/test').Page) {
   await page.locator('[data-testid=map-canvas]').waitFor({ state: 'visible', timeout: 15_000 });
-  return page.evaluate(() => Boolean((window as Record<string, unknown>).__birdMap));
+  return page.evaluate(() => Boolean((window as unknown as Record<string, unknown>).__birdMap));
 }
 
 async function flyTo(
@@ -176,7 +176,7 @@ async function flyTo(
 ) {
   await page.evaluate(
     ([lng, lat, zoom]: [number, number, number]) => {
-      const map = (window as Record<string, { flyTo?: (opts: object) => void }>).__birdMap as
+      const map = (window as unknown as Record<string, { flyTo?: (opts: object) => void }>).__birdMap as
         | { flyTo: (opts: object) => void }
         | undefined;
       if (map?.flyTo) map.flyTo({ center: [lng, lat], zoom, duration: 0 });
