@@ -9,6 +9,7 @@ import {
 } from '@bird-watch/db-client';
 import type { ObservationsResponse } from '@bird-watch/shared-types';
 import { cacheControlFor } from './cache-headers.js';
+import { rateLimitFromEnv } from './rate-limit.js';
 
 export interface AppDeps {
   pool: Pool;
@@ -64,6 +65,14 @@ export function createApp(deps: AppDeps): Hono {
     await next();
     c.header('Vary', 'Accept-Encoding', { append: true });
   });
+
+  // Layer 3 of the audience-protection rate-limit (see services/read-api/README.md):
+  // an in-memory token bucket per Cloud Run instance, scoped to /api/* and
+  // explicitly skipping /health (uptime probes) and /api/admin/* (separate auth).
+  // The Cloudflare rate-limit rule provisioned in infra/terraform/rate-limit.tf is
+  // the actual ceiling; this middleware is defense-in-depth for traffic that
+  // bypasses Cloudflare (direct *.a.run.app hits).
+  app.use('*', rateLimitFromEnv());
 
   app.get('/health', c => c.json({ ok: true }));
 
