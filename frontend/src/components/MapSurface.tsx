@@ -18,11 +18,23 @@ const MapCanvas = React.lazy(() =>
 );
 
 /**
- * Default-expanded breakpoint for FamilyLegend (issue #249). Mirrors the
- * `@media (max-width: 760px)` query in styles.css so the JS-side initial
- * state matches the CSS responsive default. Both knobs move together.
+ * Default-expanded breakpoint for FamilyLegend (issue #249).
+ *
+ * Originally mirrored the global `(max-width: 760px)` mobile breakpoint, but
+ * the CONUS default viewport (PR #612) puts the AZ-only data cluster in the
+ * lower-left of the map — directly under the bottom-left FamilyLegend
+ * overlay. At 768×1024 (iPad portrait) the expanded legend covers the only
+ * visible marker on first paint, intercepting taps and breaking the
+ * primary discovery flow on tablet-portrait.
+ *
+ * Lift the JS threshold to 1024 so tablet-portrait (and narrower) start
+ * collapsed; tablet-landscape and desktop still default expanded. This is
+ * intentionally decoupled from the global 760px mobile breakpoint — the
+ * legend's overlay footprint is the constraint here, not the
+ * mobile-layout heuristics elsewhere. localStorage `family-legend-
+ * expanded.v2` still overrides the default once the user toggles.
  */
-const LEGEND_EXPAND_MIN_WIDTH = 760;
+const LEGEND_EXPAND_MIN_WIDTH = 1024;
 
 function readLegendDefaultExpanded(): boolean {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
