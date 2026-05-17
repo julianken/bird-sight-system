@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import type { ApiClient } from '../api/client.js';
+import type { BBox } from '../state/url-state.js';
 import { SpeciesDetailSurface } from './SpeciesDetailSurface.js';
 
 export interface SpeciesDetailModalProps {
@@ -22,6 +23,10 @@ export interface SpeciesDetailModalProps {
    * the caller returns to a different view (e.g. `#surface-tab-map`).
    */
   fallbackFocusSelector?: string;
+  /** Cluster bbox to pass through to SpeciesDetailSurface (Phase 3 / #560). */
+  bbox?: BBox | null;
+  /** Clears the bbox URL param — passed through to SpeciesDetailSurface. */
+  onClearBbox?: () => void;
 }
 
 /**
@@ -48,6 +53,8 @@ export function SpeciesDetailModal(props: SpeciesDetailModalProps) {
     onClose,
     triggerRef,
     fallbackFocusSelector = '#surface-tab-feed',
+    bbox,
+    onClearBbox,
   } = props;
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
@@ -177,7 +184,12 @@ export function SpeciesDetailModal(props: SpeciesDetailModalProps) {
       >
         ×
       </button>
-      <SpeciesDetailSurface speciesCode={speciesCode} apiClient={apiClient} />
+      <SpeciesDetailSurface
+        speciesCode={speciesCode}
+        apiClient={apiClient}
+        {...(bbox !== undefined ? { bbox } : {})}
+        {...(onClearBbox !== undefined ? { onClearBbox } : {})}
+      />
     </dialog>
   );
 }

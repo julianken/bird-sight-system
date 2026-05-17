@@ -21,6 +21,7 @@ export async function getSilhouettes(pool: Pool): Promise<FamilySilhouette[]> {
   const { rows } = await pool.query<{
     family_code: string;
     color: string;
+    color_dark: string;
     svg_data: string | null;
     svg_url: string | null;
     source: string | null;
@@ -28,13 +29,14 @@ export async function getSilhouettes(pool: Pool): Promise<FamilySilhouette[]> {
     common_name: string | null;
     creator: string | null;
   }>(
-    `SELECT family_code, color, svg_data, svg_url, source, license, common_name, creator
+    `SELECT family_code, color, color_dark, svg_data, svg_url, source, license, common_name, creator
      FROM family_silhouettes
      ORDER BY family_code`
   );
   return rows.map(r => ({
     familyCode: r.family_code,
     color: r.color,
+    colorDark: r.color_dark,
     svgData: r.svg_data,
     svgUrl: r.svg_url,
     source: r.source,

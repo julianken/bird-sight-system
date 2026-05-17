@@ -65,10 +65,14 @@ describe('Down(14000→17000) rollback chain', () => {
   it('runs Down(17000) without leaving any NULL svg_data on the 25 seeded families', async () => {
     const migrationsDir = resolve(process.cwd(), '../../migrations');
 
-    // Roll down from 19700 → 14000 in reverse numeric order.
+    // Roll down from 46000 → 14000 in reverse numeric order.
+    // Migration 46000 (contrast Phase 1, #570) adds color_dark NOT NULL —
+    // must be rolled down first so that Up re-application of 15000 (which
+    // INSERTs without color_dark) does not violate the NOT NULL constraint.
     // We only need to go back as far as 14000 to exercise the bug; rolling
     // all the way keeps the test realistic (matches `node-pg-migrate down`).
     const downSequence = [
+      '1700000046000_family_silhouettes_dual_palette.sql',
       '1700000019700_seed_fallback_common_name.sql',
       '1700000019500_seed_family_common_names.sql',
       '1700000019000_add_common_name_to_family_silhouettes.sql',
@@ -180,10 +184,13 @@ describe('Down(14000→17000) rollback chain', () => {
     // 34000 references the `common_name` column added by migration 19000
     // (and the _FALLBACK sentinel from 18000), so re-apply 18000 and 19000
     // first (they were rolled back by the test 1 downSequence).
+    // Migration 46000 (contrast Phase 1, #570) is also re-applied last to
+    // restore the color_dark NOT NULL column after the round-trip.
     for (const filename of [
       '1700000018000_seed_family_silhouettes_fallback.sql',
       '1700000019000_add_common_name_to_family_silhouettes.sql',
       '1700000034000_backfill_observed_family_silhouettes.sql',
+      '1700000046000_family_silhouettes_dual_palette.sql',
     ]) {
       const { up } = parseMigration(join(migrationsDir, filename));
       if (up) {

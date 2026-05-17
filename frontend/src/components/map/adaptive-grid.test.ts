@@ -185,10 +185,13 @@ describe('aggregateClusterFamilies', () => {
 describe('buildAdaptiveTiles', () => {
   // 20 unique families, full svgData coverage. Reused across several tests.
   const FULL_CATALOGUE: SilhouettesById = new Map(
-    Array.from({ length: 20 }, (_, i) => [
-      `fam-${String(i).padStart(2, '0')}`,
-      { svgData: `M${i} ${i}Z`, color: `#${i.toString(16).padStart(2, '0').repeat(3)}` },
-    ]),
+    Array.from({ length: 20 }, (_, i) => {
+      const color = `#${i.toString(16).padStart(2, '0').repeat(3)}`;
+      return [
+        `fam-${String(i).padStart(2, '0')}`,
+        { svgData: `M${i} ${i}Z`, color, colorDark: color },
+      ];
+    }),
   );
 
   it('200 leaves with 20 families, capacity=16 → 16 tiles in descending count', () => {
@@ -240,8 +243,8 @@ describe('buildAdaptiveTiles', () => {
 
   it('null svgData → kind: "fallback" (preserves cluster-mosaic fallback behaviour)', () => {
     const partial: SilhouettesById = new Map([
-      ['fam-00', { svgData: 'M0 0Z', color: '#111' }],
-      ['fam-01', { svgData: null, color: '#222' }], // catalogue row exists, art missing
+      ['fam-00', { svgData: 'M0 0Z', color: '#111', colorDark: '#111' }],
+      ['fam-01', { svgData: null, color: '#222', colorDark: '#222' }], // catalogue row exists, art missing
     ]);
     const leaves = [leaf('fam-00'), leaf('fam-01')];
     const tiles = buildAdaptiveTiles(leaves, partial, SHAPE_2x2);
@@ -269,10 +272,10 @@ describe('buildAdaptiveTiles', () => {
     // any module-scoped ref. Two catalogues with the same family but
     // different svgData must produce differently-resolved tiles.
     const catalogueA: SilhouettesById = new Map([
-      ['fam-00', { svgData: 'M0 0Z', color: '#A0A0A0' }],
+      ['fam-00', { svgData: 'M0 0Z', color: '#A0A0A0', colorDark: '#A0A0A0' }],
     ]);
     const catalogueB: SilhouettesById = new Map([
-      ['fam-00', { svgData: 'M9 9Z', color: '#B0B0B0' }],
+      ['fam-00', { svgData: 'M9 9Z', color: '#B0B0B0', colorDark: '#B0B0B0' }],
     ]);
     const leaves = [leaf('fam-00')];
     const a = buildAdaptiveTiles(leaves, catalogueA, SHAPE_2x2)[0];
@@ -294,8 +297,8 @@ describe('buildAdaptiveTiles', () => {
       speciesLeaf('hawks', "Cooper's Hawk"),
     ];
     const silhouettes: SilhouettesById = new Map([
-      ['hummingbirds', { svgData: 'M0 0L1 1Z', color: '#7B2D8E' }],
-      ['hawks', { svgData: 'M0 0L1 1Z', color: '#444' }],
+      ['hummingbirds', { svgData: 'M0 0L1 1Z', color: '#7B2D8E', colorDark: '#9637ad' }],
+      ['hawks', { svgData: 'M0 0L1 1Z', color: '#444', colorDark: '#626262' }],
     ]);
     const tiles = buildAdaptiveTiles(
       leaves,

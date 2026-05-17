@@ -182,4 +182,34 @@ describe('<CellHoverPreview>', () => {
     const rows = screen.getAllByTestId('cell-hover-preview-row');
     expect(rows[0]?.className).toContain('cell-hover-preview__row');
   });
+
+  it('with cursorPos, root element has position:fixed and correct left/top offset (+16/+12)', () => {
+    render(
+      <CellHoverPreview
+        familyCode="hummingbirds"
+        familyCount={5}
+        species={[species("Anna's Hummingbird", 5)]}
+        id="x"
+        cursorPos={{ x: 100, y: 200 }}
+      />
+    );
+    const tooltip = screen.getByRole('tooltip');
+    expect(tooltip.style.position).toBe('fixed');
+    expect(tooltip.style.left).toBe('116px');
+    expect(tooltip.style.top).toBe('212px');
+  });
+
+  it('with cursorPos=null, root element has no inline position (falls back to CSS)', () => {
+    render(
+      <CellHoverPreview
+        familyCode="hummingbirds"
+        familyCount={5}
+        species={[species("Anna's Hummingbird", 5)]}
+        id="x"
+        cursorPos={null}
+      />
+    );
+    const tooltip = screen.getByRole('tooltip');
+    expect(tooltip.style.position).toBe('');
+  });
 });

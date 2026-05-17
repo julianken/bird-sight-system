@@ -46,7 +46,9 @@ const SILHOUETTES: FamilySilhouette[] = [
   {
     familyCode: 'tyrannidae',
     color: '#C77A2E',
+    colorDark: '#C77A2E',
     svgData: 'M0 0L1 1Z',
+    svgUrl: null,
     source: 'https://www.phylopic.org/images/abc-123/tyrannus',
     license: 'CC0-1.0',
     commonName: 'Tyrant Flycatchers',
@@ -55,7 +57,9 @@ const SILHOUETTES: FamilySilhouette[] = [
   {
     familyCode: 'ardeidae',
     color: '#3F6E8C',
+    colorDark: '#3F6E8C',
     svgData: 'M0 0L1 1Z',
+    svgUrl: null,
     source: 'https://www.phylopic.org/images/def-456/ardea',
     license: 'CC-BY-SA-3.0',
     commonName: 'Herons',
@@ -64,7 +68,9 @@ const SILHOUETTES: FamilySilhouette[] = [
   {
     familyCode: 'cuculidae',
     color: '#5B7F4A',
+    colorDark: '#5B7F4A',
     svgData: 'M0 0L1 1Z',
+    svgUrl: null,
     source: 'https://www.phylopic.org/images/ghi-789/coccyzus',
     license: 'CC-BY-3.0',
     commonName: 'Cuckoos',
@@ -293,7 +299,9 @@ describe('AttributionModal', () => {
       {
         familyCode: 'fallback',
         color: '#888',
+        colorDark: '#888',
         svgData: null,
+        svgUrl: null,
         source: null,
         license: null,
         commonName: null,
@@ -331,7 +339,9 @@ describe('AttributionModal', () => {
       {
         familyCode: 'fallback-a',
         color: '#777',
+        colorDark: '#777',
         svgData: null,
+        svgUrl: null,
         source: null,
         license: null,
         commonName: null,
@@ -340,7 +350,9 @@ describe('AttributionModal', () => {
       {
         familyCode: 'fallback-b',
         color: '#888',
+        colorDark: '#888',
         svgData: null,
+        svgUrl: null,
         source: null,
         license: null,
         commonName: null,
@@ -435,7 +447,9 @@ describe('AttributionModal', () => {
       {
         familyCode: 'corvidae',
         color: '#222',
+        colorDark: '#222',
         svgData: 'M0 0Z',
+        svgUrl: null,
         source: 'https://www.phylopic.org/images/jkl-000/corvus',
         license: 'CC-BY-7.0', // does not exist in LICENSE_URLS
         commonName: 'Crows',
@@ -528,7 +542,9 @@ describe('AttributionModal', () => {
       {
         familyCode: 'foobar',
         color: '#444',
+        colorDark: '#444',
         svgData: null,
+        svgUrl: null,
         source: null, // ← the bug: previously rendered <a href="#">
         license: 'CC-BY-3.0',
         commonName: 'Foo Birds',

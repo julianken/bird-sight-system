@@ -48,6 +48,10 @@ Top-10 worst clusters in AZ are well-known hotspots (Portal/Chiricahuas, Ash Can
 
 ## 2. Goals · Non-goals
 
+> **Related:** `docs/specs/2026-05-15-cell-species-popover-design.md`
+> reverses the per-cell tap-target non-goal for `pointer:fine`. The
+> reversal landed in epic #556 (PRs #561–#564 + #PHASE-3-PR).
+
 **Goals**
 
 1. One marker component handles every cluster, at every zoom level, with no UX mode switch.
@@ -58,7 +62,14 @@ Top-10 worst clusters in AZ are well-known hotspots (Portal/Chiricahuas, Ash Can
 
 **Non-goals**
 
-- Per-cell tap targets. The whole marker is one tap target.
+- **Per-cell tap targets — dual-mode (reversed for `pointer:fine` per
+  cell-popover spec `2026-05-15-cell-species-popover-design.md`):**
+  - `pointer:fine` (mouse + trackpad): per-cell tap targets ARE a goal.
+    The `<CellHoverPreview>` and `<CellPopover>` components let users
+    inspect and navigate per-family from each tile cell.
+  - `pointer:coarse` (touch): per-cell tap targets remain a non-goal.
+    WCAG 2.5.5 prohibits 22×22 cells on touch; the whole-marker (48×48)
+    tap surface opens a `<ClusterListPopover>` instead.
 - API changes. Per-family counts already derivable client-side from `getClusterLeaves` + `aggregateClusterFamilies`.
 - Changes to the observation panel, the FeedSurface, or any non-marker map UI.
 - Changes to the basemap, attribution layout, or floating "Bird families in view" component.
@@ -112,6 +123,8 @@ Rules (desktop · viewport > 480px):
 **Pill fallback** when `uniqueFamilies > 16 OR point_count > 64`. The observation-count cap exists because raising `clusterMaxZoom` to 22 produces dense low-zoom clusters whose DOM cost as 4×4 grids regresses against today's lightweight pills (see §10 Gate 2). The Tucson 1640-obs cluster stays a pill at z = 8; as the user zooms in, smaller fragments emerge with `point_count ≤ 64` and `uniqueFamilies ≤ 16` and become grids.
 
 **Mobile cap** at viewport ≤ 480px: the 4×4 case collapses to `{tag:'grid-overflow', cols:3, rows:3, hiddenCount: uniqueFamilies - 8}`. Concretely, `pickGridShape(12, /*pointCount*/ 12, /*isMobile*/ true) → {tag:'grid-overflow', cols:3, rows:3, hiddenCount: 4}`. Visible capacity is 8 (the 9th cell is the "+N more" indicator). Prevents adjacent 104×104 markers from overlapping on 390-wide viewports.
+
+> **Note — deconflict-bucket × 4×4 grid interaction.** The deconflict module (`frontend/src/components/map/deconflict.ts`) uses `BUCKET_PX = 14`, which was sized for the 1×1 single-cell case (28 px marker, half-width bucket). A 4×4 desktop grid (`pickGridShape` in `frontend/src/components/map/adaptive-grid.ts`) produces a 104×104 px footprint, so at low zoom two adjacent 4×4 markers whose anchor centroids fall in neighbouring 14 px buckets may visually overlap even though the deconflict pass treats their anchors as sufficiently separated. This is an observational finding, not a bug — the pill fallback (`point_count > 64`) already prevents the heaviest clusters from reaching 4×4 at the zoom levels where overlap is most likely. If overlap becomes user-visible, two mitigations are available: (a) re-tune `BUCKET_PX` upward for the multi-cell case, or (b) raise the cluster threshold so 4×4 grids only emerge at zoom levels where natural tile spacing exceeds the marker footprint; no recommendation is made here.
 
 ### 4.2 Family ordering
 

@@ -132,7 +132,7 @@ export interface FamilyAggregate {
  */
 export type SilhouettesById = ReadonlyMap<
   string,
-  { svgData: string | null; color: string }
+  { svgData: string | null; color: string; colorDark: string }
 >;
 
 /**
@@ -149,9 +149,9 @@ export type SilhouettesById = ReadonlyMap<
  * Sum invariant: `sum(species[].count) === count`.
  */
 export type AdaptiveTile =
-  | { kind: 'rendered'; familyCode: string; svgData: string; color: string;
+  | { kind: 'rendered'; familyCode: string; svgData: string; color: string; colorDark: string;
       count: number; species: ReadonlyArray<SpeciesAggregate> }
-  | { kind: 'fallback'; familyCode: string; color: string;
+  | { kind: 'fallback'; familyCode: string; color: string; colorDark: string;
       count: number; species: ReadonlyArray<SpeciesAggregate> }
   | { kind: 'pending'; familyCode: string;
       count: number; species: ReadonlyArray<SpeciesAggregate> };
@@ -217,10 +217,13 @@ export function buildAdaptiveTiles(
     }
     const silhouette = silhouettesById.get(fam.familyCode);
     if (!silhouette || silhouette.svgData === null) {
+      const fallbackColor = silhouette?.color ?? '#888888';
+      const fallbackColorDark = silhouette?.colorDark ?? fallbackColor;
       return {
         kind: 'fallback',
         familyCode: fam.familyCode,
-        color: silhouette?.color ?? '#888888',
+        color: fallbackColor,
+        colorDark: fallbackColorDark,
         count: fam.count,
         species,
       };
@@ -230,6 +233,7 @@ export function buildAdaptiveTiles(
       familyCode: fam.familyCode,
       svgData: silhouette.svgData,
       color: silhouette.color,
+      colorDark: silhouette.colorDark,
       count: fam.count,
       species,
     };
