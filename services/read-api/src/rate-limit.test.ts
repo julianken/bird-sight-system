@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Hono } from 'hono';
-import { rateLimit, type RateLimitOptions } from './rate-limit.js';
+import { rateLimit, rateLimitFromEnv, type RateLimitOptions } from './rate-limit.js';
 
 // Wire the middleware the way `app.ts` does: applied broadly with internal
 // path-prefix gating that limits `/api/*` and explicitly skips `/health` and
@@ -116,5 +116,66 @@ describe('rateLimit middleware', () => {
     // Same connection remote → same bucket → second request blocked despite
     // a rotated CF-Connecting-IP value.
     expect((await app.request('/api/observations', { headers: spoof2 }, env2)).status).toBe(429);
+  });
+});
+
+describe('rateLimitFromEnv non-production bypass', () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalEnabled = process.env.RATE_LIMIT_ENABLED;
+  const originalBurst = process.env.READ_API_RATE_BURST;
+  const originalRefill = process.env.READ_API_RATE_REFILL_PER_SEC;
+
+  afterEach(() => {
+    process.env.NODE_ENV = originalNodeEnv;
+    if (originalEnabled === undefined) delete process.env.RATE_LIMIT_ENABLED;
+    else process.env.RATE_LIMIT_ENABLED = originalEnabled;
+    if (originalBurst === undefined) delete process.env.READ_API_RATE_BURST;
+    else process.env.READ_API_RATE_BURST = originalBurst;
+    if (originalRefill === undefined) delete process.env.READ_API_RATE_REFILL_PER_SEC;
+    else process.env.READ_API_RATE_REFILL_PER_SEC = originalRefill;
+  });
+
+  it('passes through unlimited requests when NODE_ENV !== production and RATE_LIMIT_ENABLED unset', async () => {
+    process.env.NODE_ENV = 'test';
+    delete process.env.RATE_LIMIT_ENABLED;
+    process.env.READ_API_RATE_BURST = '2';
+    process.env.READ_API_RATE_REFILL_PER_SEC = '0';
+    const app = new Hono();
+    app.use('*', rateLimitFromEnv());
+    app.get('/api/observations', c => c.json({ ok: true }));
+    // Burst of 2 with no refill would 429 the 3rd request if enabled; bypass
+    // means all 5 succeed.
+    for (let i = 0; i < 5; i++) {
+      const res = await app.request('/api/observations', { headers: { 'CF-Connecting-IP': '203.0.113.7' } });
+      expect(res.status).toBe(200);
+    }
+  });
+
+  it('enforces the limit when RATE_LIMIT_ENABLED=true even outside production', async () => {
+    process.env.NODE_ENV = 'test';
+    process.env.RATE_LIMIT_ENABLED = 'true';
+    process.env.READ_API_RATE_BURST = '2';
+    process.env.READ_API_RATE_REFILL_PER_SEC = '0';
+    const app = new Hono();
+    app.use('*', rateLimitFromEnv());
+    app.get('/api/observations', c => c.json({ ok: true }));
+    const headers = { 'CF-Connecting-IP': '203.0.113.7' };
+    expect((await app.request('/api/observations', { headers })).status).toBe(200);
+    expect((await app.request('/api/observations', { headers })).status).toBe(200);
+    expect((await app.request('/api/observations', { headers })).status).toBe(429);
+  });
+
+  it('enforces the limit when NODE_ENV=production regardless of RATE_LIMIT_ENABLED', async () => {
+    process.env.NODE_ENV = 'production';
+    delete process.env.RATE_LIMIT_ENABLED;
+    process.env.READ_API_RATE_BURST = '2';
+    process.env.READ_API_RATE_REFILL_PER_SEC = '0';
+    const app = new Hono();
+    app.use('*', rateLimitFromEnv());
+    app.get('/api/observations', c => c.json({ ok: true }));
+    const headers = { 'CF-Connecting-IP': '203.0.113.7' };
+    expect((await app.request('/api/observations', { headers })).status).toBe(200);
+    expect((await app.request('/api/observations', { headers })).status).toBe(200);
+    expect((await app.request('/api/observations', { headers })).status).toBe(429);
   });
 });

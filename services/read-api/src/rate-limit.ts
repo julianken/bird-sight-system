@@ -154,8 +154,27 @@ export function rateLimit(options: RateLimitOptions): MiddlewareHandler {
   };
 }
 
-/** Read burst/refill from env with the defaults documented in CLAUDE.md. */
+/**
+ * Read burst/refill from env with the defaults documented in CLAUDE.md.
+ *
+ * Non-production bypass: the middleware is inert unless either
+ *   - `NODE_ENV === 'production'`, OR
+ *   - `RATE_LIMIT_ENABLED === 'true'`.
+ *
+ * Motivation: the e2e suite boots the read-api locally and drives it from
+ * Playwright workers all originating at `127.0.0.1`. The default 60-burst /
+ * 1-refill bucket is exhausted within seconds across ~50 specs × 2 workers,
+ * which surfaced as widespread `locator.waitFor` timeouts on PR #597. We keep
+ * Layer 1 (Cloudflare) and Layer 2 (WAF) intact in prod, and explicitly
+ * opt-in Layer 3 from Terraform via `RATE_LIMIT_ENABLED=true` on Cloud Run.
+ */
 export function rateLimitFromEnv(): MiddlewareHandler {
+  const enabled =
+    process.env.NODE_ENV === 'production' || process.env.RATE_LIMIT_ENABLED === 'true';
+  if (!enabled) {
+    const passthrough: MiddlewareHandler = async (_c, next) => next();
+    return passthrough;
+  }
   const burst = Number(process.env.READ_API_RATE_BURST ?? '60');
   const refillPerSec = Number(process.env.READ_API_RATE_REFILL_PER_SEC ?? '1');
   return rateLimit({ burst, refillPerSec });
