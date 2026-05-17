@@ -49,7 +49,7 @@ Decisions taken in the 2026-05-14 → 2026-05-17 window, with citation:
 | D10 | Cloud SQL launches **zonal, no HA**. Flip to REGIONAL is a single Terraform commit later. | `2026-05-17-cloud-sql-migration.md` §2 sizing |
 | D11 | EBD data-request form (Recommendation 1D) and Cornell ToS outreach (O3) **are owed by the user**; the plan does not block on them but documents them as timing risks. | `analysis-report.md` §I |
 | D12 | Phenology endpoint **stays** (Option 2C drop is off the table for v1). | Frontend grep shows phenology consumed by `SpeciesDetailSurface`; product call |
-| D13 | Region-table treatment: **drop entirely** (region-removal audit PR sequence). | `docs/analyses/2026-05-14-region-removal-audit/00-synthesis.md` |
+| D13 | Region-table treatment: **dropped entirely** — issue #532 closed; PR-1 (#534), PR-2 (#535), PR-3 (#536), PR-4 (#537) all merged. RR-1..RR-4 are complete; only RR-5b (Arizona branding sweep, #533) remains and is tracked as a separate row. | issue #532; migrations 1700000039000–1700000045000 on `main` |
 | D14 | "Arizona" branding sweep: **wider scope (#533)** lands with or shortly after the flip; not a hard block. | Issue #533; §6 below |
 | D15 | No dual-write / no logical-replication during DB cutover; **30-min ingest pause** is acceptable per the "within an hour" freshness SLO. | `2026-05-17-cloud-sql-migration.md` §6 |
 
@@ -71,7 +71,7 @@ Each row names the issue / PR, current status as of 2026-05-17, and what remains
 | Shape-2 probe **implementation** | #593 | #599 | **queued** | merge; verify first weekly run lands green |
 | Audience-protection rate-limit | #596 | #597 | **queued** | merge; smoke against `hey` synthetic load |
 | Alarming follow-up (Rec 0B legacy issue) | #528 | — | open | likely closes when monitoring Tasks 3–7 ship; verify on merge |
-| Region-table cleanup (5–6 PR sequence) | — (audit) | not opened | **not started** | open the 5-PR sequence per `docs/analyses/2026-05-14-region-removal-audit/00-synthesis.md` |
+| Region-table cleanup (RR-1..RR-4) | #532 | #534, #535, #536, #537 | **merged** | nothing; regions table + `region_id` columns gone from `main`. RR-5b (branding sweep #533) tracked separately below. |
 | "Arizona" branding sweep | #533 | not opened | **not started** | wider-scope frontend PR; can interleave |
 | Silhouette coverage extension (US-only families) | — | — | **not started** | audit `/api/silhouettes` for null families that appear in national data (Alcidae, Gaviidae, etc.); curate via `curating-fallback-silhouettes` skill |
 | Frontend default viewport (CONUS) | — | — | **not started** | edit `INITIAL_VIEW` in `frontend/src/components/map/MapCanvas.tsx:246` from AZ center to CONUS center + zoom 4 |
@@ -114,7 +114,7 @@ Before this PR opens:
 - [ ] Frontend default viewport changed to CONUS (separate PR, can ship beforehand without ingestor changes — at AZ ingest, a CONUS map just shows no markers outside AZ; that's acceptable as a brief intermediate state).
 - [ ] Silhouette coverage audit run: `/api/silhouettes` null-rate computed against the species set returned by a live `GET /v2/data/obs/US/recent?back=14&maxResults=10000` (~860 species); any high-prevalence family with null silhouette is curated before the flip.
 - [ ] Cost alerts set on the GCP project (see §10).
-- [ ] Region-table cleanup PR-1 merged (ingest path stopped writing `region_id`). PR-2 and PR-3 of the cleanup can ship after the flip without coupling.
+- [x] Region-table cleanup complete (#532 PR-1..PR-4 all merged: #534, #535, #536, #537). Ingest path no longer writes `region_id`; columns and `regions` table are dropped from `main`.
 
 ### §4.2 The PR itself
 
@@ -220,29 +220,36 @@ National hotspot count is on the order of 100k vs AZ's ~3k. The map's existing c
 
 ## §6 Region-table treatment
 
-**Decision (D13): drop entirely** per `docs/analyses/2026-05-14-region-removal-audit/00-synthesis.md`.
+**Decision (D13): dropped entirely.** Status as of 2026-05-17: **complete on `main`.** The 2026-05-14 region-removal audit referenced by earlier drafts of this plan was never authored as a standalone document — the work shipped directly under issue #532 in four sequential PRs, matching the RR-1..RR-4 breakdown below.
 
-Rationale:
+Rationale (preserved for posterity):
 - 9-region AZ-only ecoregion shape doesn't carry to 50 states without re-curation.
 - Drop deletes the unfixed `upsertHotspots` O(table) UPDATE (Rec 0C of the analysis report) as an incidental win.
 - 458 unstamped observations + 65 unstamped hotspots become moot — they disappear with the column.
-- Spatial substrate (PostGIS `geom` columns + GIST indexes) is **kept** per the audit's PostGIS verdict; future 50-state spatial queries (bbox, radius, nearest) use them.
+- Spatial substrate (PostGIS `geom` columns + GIST indexes) is **kept**; future 50-state spatial queries (bbox, radius, nearest) use them.
 
-### §6.1 PR sequence (from the audit, mandatory order PR 1 → PR 2)
+### §6.1 PR sequence (shipped, not pending)
 
-| # | Title | Files | Done = |
+| # | Title | PR | Status |
 |---|---|---|---|
-| RR-1 | Stop writing `region_id` (ingest path) | `packages/db-client/src/observations.ts`, `packages/db-client/src/hotspots.ts` | One ingest cycle elapses with `SELECT MAX(ingested_at) FROM observations WHERE region_id IS NOT NULL` not advancing |
-| RR-2 | Drop `regionId` from the wire shape | `packages/shared-types/`, `db-client/observations.ts`, `frontend/src/dev/DsPreview.tsx`, e2e fixtures | `curl .../api/observations \| jq '.data[0] \| has("regionId")'` returns false |
-| RR-3 | Drop schema (7 migrations) | `migrations/1700000039000`–`1700000045000`, `.github/workflows/e2e.yml` seed SQL | `\d observations` shows no `region_id` |
-| RR-4 | Spec + CLAUDE.md + README + PR template | docs only | grep returns zero hits |
-| RR-5b | (optional, may interleave) Drop "Arizona" branding (issue #533) | `frontend/src/config/region.ts`, `AppHeader`, `MapLede`, `FeedSurface`, `styles.css`, `tokens.ts` | grep `Arizona` in `frontend/src/` returns zero |
+| RR-1 | Stop writing `region_id` (ingest path) | #534 | merged |
+| RR-2 | Drop `regionId` from the wire shape | #535 | merged |
+| RR-3 | Drop schema (migrations 1700000039000–1700000045000) | #536 | merged |
+| RR-4 | Spec + CLAUDE.md + README + PR template cleanup | #537 | merged |
+| RR-5b | (optional, may interleave) Drop "Arizona" branding (issue #533) | not opened | **not started** — tracked separately below and in §3 |
+
+Verification (run 2026-05-17 against `main`):
+
+```
+$ grep -rEn "region_id|regionId" services/ packages/ frontend/src/ \
+    | grep -v node_modules | grep -v ".test." \
+    | grep -vE ":[0-9]+:\s*(//|\*|--)"
+# (no output — zero non-comment references remain)
+```
 
 ### §6.2 Sequencing relative to the flip
 
-- RR-1 should land **before** the literal flip — it removes write-side dependence on region polygons, which only cover AZ today and would otherwise leave national observations unstamped.
-- RR-2, RR-3, RR-4 can ship before or after the flip with no coupling.
-- RR-5b (branding sweep, #533) can ship any time; recommend before the flip so the live site doesn't claim "Arizona" while serving national data.
+RR-1..RR-4 are all merged ahead of the literal flip, which satisfies the original "RR-1 must land before the flip" ordering constraint by a wide margin. The remaining branding sweep (RR-5b / #533) is tracked in §3 and Phase 0 (P0.i); it can ship any time and is recommended before the flip so the live site doesn't claim "Arizona" while serving national data.
 
 ---
 
@@ -260,7 +267,7 @@ These all land while the site is still serving AZ-only. Multiple can ship in par
 - [ ] P0.d — Monitoring Tasks 3–7 (Terraform + secrets + runbook + smoke; not started)
 - [ ] P0.e — Audience rate-limit (#597, queued)
 - [ ] P0.f — Shape-2 probe live (#599, queued; ≥1 green run required)
-- [ ] P0.g — Region cleanup RR-1 (not started)
+- [x] P0.g — Region cleanup RR-1..RR-4 (#532 closed; #534, #535, #536, #537 merged)
 - [ ] P0.h — Frontend CONUS viewport (not started; can ship with AZ ingest, will just show empty outside AZ briefly)
 - [ ] P0.i — Branding sweep #533 (not started; recommended pre-flip)
 - [ ] P0.j — Silhouette coverage curation (not started)
@@ -323,7 +330,7 @@ Per-phase reversibility:
 **Asymmetric reversal points (be deliberate):**
 
 1. **T5 (Neon removal).** Hold ≥48h after T4. Once T5 lands, Neon is gone; rollback requires re-provisioning from scratch. Take a safety `pg_dump` of Cloud SQL to local disk on the day T5 merges, retain 30 days.
-2. **RR-3 (schema drop of `region_id`).** Once columns are dropped, restoring them costs a backfill (data lost). Order RR-1 → RR-2 → RR-3 deliberately; do not skip the wait.
+2. **RR-3 (schema drop of `region_id`).** Already shipped (#536); recorded here as a historical asymmetric point. The RR-1 → RR-2 → RR-3 ordering was honored. Restoring the columns now would cost a backfill (data lost); no rollback is planned.
 3. **Cornell ToS email.** Once sent, cannot be unsent. Send from a project-appropriate email address with a clear scope of use.
 
 ---
@@ -394,7 +401,7 @@ Most of this work is split across other plans. This section points at them rathe
 | 0 | Shape-2 probe | `docs/plans/2026-05-17-shape-2-rollup-probe.md` + PR #599 | merge PR #599; verify first green run |
 | 0 | Prune | PR #595 | merge |
 | 0 | Rate-limit | PR #597 | merge; smoke under synthetic load |
-| 0 | Region-removal RR-1 | `docs/analyses/2026-05-14-region-removal-audit/00-synthesis.md` PR 1 | new subagent dispatch; ~1 PR |
+| 0 | Region-removal RR-1..RR-4 | issue #532 (closed); PRs #534, #535, #536, #537 | done — no dispatch needed |
 | 0 | Branding sweep #533 | issue #533 + audit PR 5b | new subagent dispatch; frontend PR with full canonical viewport screenshot set |
 | 0 | CONUS viewport | this plan §5.1 | small PR; bundle with branding sweep if convenient |
 | 0 | Silhouette curation | `curating-fallback-silhouettes` skill | iterative operator session; no PR per family |
@@ -419,4 +426,4 @@ Most of this work is split across other plans. This section points at them rathe
 
 ## Methodology
 
-Plan produced by a single-pass agentic write-up off five inputs: (1) the 2026-05-14 analysis funnel report at `docs/analyses/2026-05-14-process-scale-options/phase-4/analysis-report.md`; (2) the 2026-05-17 Cloudflare cache-hit measurement at `cache-hit-ratio.md`; (3) the three sibling plans dated 2026-05-17 (Cloud SQL migration, monitoring, Shape-2 probe); (4) the 2026-05-14 region-removal audit at `docs/analyses/2026-05-14-region-removal-audit/00-synthesis.md`; (5) a fresh grep of `services/ingestor/src/` and `frontend/src/` for hard-coded `US-AZ` / `Arizona` references at writing time. No multi-pass critic loop; recommend one pre-Phase-3.
+Plan produced by a single-pass agentic write-up off five inputs: (1) the 2026-05-14 analysis funnel report at `docs/analyses/2026-05-14-process-scale-options/phase-4/analysis-report.md`; (2) the 2026-05-17 Cloudflare cache-hit measurement at `cache-hit-ratio.md`; (3) the three sibling plans dated 2026-05-17 (Cloud SQL migration, monitoring, Shape-2 probe); (4) the region-removal work tracked under issue #532 (the standalone audit doc at `docs/analyses/2026-05-14-region-removal-audit/` was never authored; the four-PR sequence shipped directly — see §6); (5) a fresh grep of `services/ingestor/src/` and `frontend/src/` for hard-coded `US-AZ` / `Arizona` references at writing time. No multi-pass critic loop; recommend one pre-Phase-3.

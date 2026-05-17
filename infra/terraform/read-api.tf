@@ -61,6 +61,16 @@ resource "google_cloud_run_v2_service" "read_api" {
         name  = "FRONTEND_ORIGINS"
         value = var.frontend_origins
       }
+
+      # Layer-3 (Hono token-bucket) rate limit is opt-in via env so the e2e
+      # suite (which boots the read-api locally and hammers it from a single
+      # 127.0.0.1 worker pool) is not throttled. Cloud Run sets it true; local
+      # dev and CI leave it unset. NODE_ENV=production also enables it as a
+      # safety net.
+      env {
+        name  = "RATE_LIMIT_ENABLED"
+        value = "true"
+      }
     }
   }
 
