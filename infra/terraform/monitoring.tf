@@ -177,7 +177,7 @@ resource "google_monitoring_alert_policy" "read_api_5xx" {
     condition_threshold {
       filter          = "metric.type=\"run.googleapis.com/request_count\" AND resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"bird-read-api\""
       comparison      = "COMPARISON_GT"
-      threshold_value = 0.333 # 100 req / 300s
+      threshold_value = 0.33 # 100 req / 300s — use 0.33 (not 0.333) so a window with exactly 100 evenly-spaced requests is unambiguously >= floor; GT 0.333 only passes 100/300s by 3.3e-5
       duration        = "300s"
       aggregations {
         alignment_period     = "300s"
@@ -287,7 +287,7 @@ resource "google_monitoring_alert_policy" "neon_conn_fail" {
     condition_threshold {
       filter          = "metric.type=\"logging.googleapis.com/user/bird-neon-conn-fail\" AND resource.type=\"cloud_run_revision\""
       comparison      = "COMPARISON_GT"
-      threshold_value = 3
+      threshold_value = 2 # GT 2 ⇒ fires at ≥3, matching plan spec "≥3 in rolling 10min" (house style: "GT (N-1)" as in S1/S5)
       duration        = "0s"
       aggregations {
         alignment_period     = "600s"
@@ -335,9 +335,14 @@ resource "google_monitoring_alert_policy" "read_api_uptime" {
   conditions {
     display_name = "uptime check failures over 3 consecutive checks"
     condition_threshold {
-      filter          = "metric.type=\"monitoring.googleapis.com/uptime_check/check_passed\" AND resource.type=\"uptime_url\" AND metric.label.check_id=\"${google_monitoring_uptime_check_config.read_api.uptime_check_id}\""
-      comparison      = "COMPARISON_LT"
-      threshold_value = 1
+      filter = "metric.type=\"monitoring.googleapis.com/uptime_check/check_passed\" AND resource.type=\"uptime_url\" AND metric.label.check_id=\"${google_monitoring_uptime_check_config.read_api.uptime_check_id}\""
+      # Intent: fire when the uptime check FAILS. REDUCE_COUNT_FALSE collapses
+      # per-region check_passed=false values into a count of failing regions.
+      # COMPARISON_GT against threshold 0 => fires when ≥1 region is failing.
+      # (Previously COMPARISON_LT 1 against the same count meant "fire when
+      # ZERO regions are failing" — inverted intent.)
+      comparison      = "COMPARISON_GT"
+      threshold_value = 0
       duration        = "180s"
       aggregations {
         alignment_period     = "60s"
