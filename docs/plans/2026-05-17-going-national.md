@@ -105,7 +105,7 @@ services/ingestor/src/handler.ts
 
 Before this PR opens:
 
-- [ ] Cloud SQL execution complete: T1–T4 of `2026-05-17-cloud-sql-migration.md` merged; T5 (Neon removal) optional pre-flip, mandatory within 7 days post-flip.
+- [ ] Cloud SQL execution complete: T1–T5 of `2026-05-17-cloud-sql-migration.md` merged. **T5 (Neon removal) is required pre-flip** — this matches Phase 1's exit gate (§7) and avoids operator confusion at cutover. Reconciled 2026-05-17: the earlier "optional pre-flip" wording contradicted Phase 1's gate; the stricter rule wins.
 - [ ] Monitoring Tasks 1–7 all merged; smoke tests pass for each S1–S7 alert (operator-verified, runbook dated).
 - [ ] Healthchecks.io heartbeat green on `bird-ingest-recent` for ≥48h.
 - [ ] Audience rate-limit (#597) merged and proven against synthetic load (~5× baseline RPS sustained, no false-positive 429s).
@@ -265,8 +265,10 @@ These all land while the site is still serving AZ-only. Multiple can ship in par
 - [ ] P0.i — Branding sweep #533 (not started; recommended pre-flip)
 - [ ] P0.j — Silhouette coverage curation (not started)
 - [ ] P0.k — Cost budget alerts (§10)
+- [ ] P0.l — **Cloudflare Pages request-count tripwire.** Configure CF analytics/notification alerts on the Pages project at **80k requests/day (warning)** and **95k requests/day (critical)** — the free-tier cap is 100k/day (§11 Q6). Wire into the same notification channel as the monitoring plan's S1–S7 (email `julian.kennon.d@gmail.com`). Rationale: at 200× HN tail the cap is reachable in ~4h of viral attention; the tripwire gives ~20% headroom to decide whether to enable paid tier before degradation.
+- [ ] P0.m — **Frontend 100k-marker load test.** Drive the canonical viewport set against a synthetic 100k-hotspot dataset (local data dump per §5.5). Acceptance: zero console errors, **FCP < 3s on 1440×900**, ≥30 FPS interaction on mid-range mobile profile. Threshold rationale: 1440×900 is the canonical desktop viewport; FCP<3s matches Lighthouse "Good" for slow-4G class connections, which is the realistic HN-tail viewer profile. This is the highest-risk frontend item (§5.5) and gates the flip explicitly.
 
-**Phase 0 exit gate:** every checkbox above ticked; monitoring smoke-test runbook is dated within the last 7 days; Shape-2 probe has at least 1 green run on file.
+**Phase 0 exit gate:** every checkbox above ticked; monitoring smoke-test runbook is dated within the last 7 days; Shape-2 probe has at least 1 green run on file; CF Pages tripwire (P0.l) verified by a synthetic alert fire; frontend 100k-marker load test (P0.m) passes on all 5 canonical viewports with no console errors and FCP<3s on 1440×900.
 
 ### Phase 1 — Cloud SQL cutover (~45 min operator session)
 
