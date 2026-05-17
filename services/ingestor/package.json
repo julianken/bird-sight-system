@@ -13,7 +13,7 @@
     "@aws-sdk/client-s3": "^3.1041.0",
     "@bird-watch/db-client": "*",
     "@bird-watch/shared-types": "*",
-    "isomorphic-dompurify": "^2.30.0"
+    "isomorphic-dompurify": "^3.13.0"
   },
   "devDependencies": {
     "@testcontainers/postgresql": "^10.7.0",
