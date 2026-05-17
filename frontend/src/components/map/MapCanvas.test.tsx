@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { forwardRef, useEffect, useImperativeHandle } from 'react';
 import type { FamilySilhouette, Observation } from '@bird-watch/shared-types';
 
@@ -196,8 +196,10 @@ function makeObs(partial: Partial<Observation> = {}): Observation {
 const SILHOUETTES: FamilySilhouette[] = [
   {
     familyCode: 'tyrannidae',
-    color: '#C77A2E',
+    color: '#c3772d',
+    colorDark: '#C77A2E',
     svgData: 'M0 0L1 1Z',
+    svgUrl: null,
     source: 'placeholder',
     license: 'CC0',
     commonName: 'Tyrant Flycatchers',
@@ -205,8 +207,10 @@ const SILHOUETTES: FamilySilhouette[] = [
   },
   {
     familyCode: 'trochilidae',
-    color: '#7B2D8E',
+    color: '#9637ad',
+    colorDark: '#9637ad',
     svgData: 'M2 2L3 3Z',
+    svgUrl: null,
     source: 'placeholder',
     license: 'CC0',
     commonName: 'Hummingbirds',
@@ -215,7 +219,9 @@ const SILHOUETTES: FamilySilhouette[] = [
   {
     familyCode: 'picidae',
     color: '#FF0808',
+    colorDark: '#FF0808',
     svgData: 'M4 4L5 5Z',
+    svgUrl: null,
     source: 'placeholder',
     license: 'CC0',
     commonName: 'Woodpeckers',
@@ -224,7 +230,9 @@ const SILHOUETTES: FamilySilhouette[] = [
   {
     familyCode: 'uncurated',
     color: '#888888',
+    colorDark: '#888888',
     svgData: null,
+    svgUrl: null,
     source: null,
     license: null,
     commonName: null,
@@ -312,8 +320,10 @@ describe('MapCanvas', () => {
       ...SILHOUETTES,
       {
         familyCode: '_FALLBACK',
-        color: '#555555',
+        color: '#626262',
+        colorDark: '#626262',
         svgData: 'M5 5L6 6Z',
+        svgUrl: null,
         source: null,
         license: null,
         commonName: null,
@@ -840,5 +850,254 @@ describe('MapCanvas', () => {
       expect(pills).toHaveLength(1);
       expect(pills[0]).toHaveAttribute('aria-label', '100 sightings');
     });
+  });
+});
+
+// Phase 3 (#560) — popover-originated onSelectSpecies attaches bbox
+// These tests run in a separate describe block that resets modules to
+// pick up the pointer:fine matchMedia stub for AdaptiveGridMarker.
+describe('onSelectSpecies popover-bbox wire (Phase 3, #560)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let MapCanvasFresh: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let resetCacheFresh: any;
+
+  beforeEach(async () => {
+    capturedSourceProps = {};
+    capturedAttributionProps = {};
+    capturedLayerFilters = {};
+    registeredHandlers = {};
+    bareHandlers = {};
+    bareHandlersAll = {};
+    fakeMap = makeFakeMap();
+    document.documentElement.removeAttribute('data-theme');
+
+    // Stub matchMedia: pointer:fine = true so AdaptiveGridMarker renders
+    // per-cell <button> elements (perCellInteractive = isPointerFine).
+    window.matchMedia = vi.fn().mockImplementation((q: string) => ({
+      matches: q === '(pointer: fine)',
+      media: q,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      onchange: null,
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
+
+    vi.resetModules();
+
+    // Dynamically import after modules reset so hooks re-evaluate correctly.
+    const mod = await import('./MapCanvas.js');
+    MapCanvasFresh = mod.MapCanvas;
+    resetCacheFresh = mod.__resetAdaptiveGridCacheForTesting;
+    resetCacheFresh();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it('calls set with bbox derived from cluster coordinates when a species row is clicked', async () => {
+    // Cluster at known coordinates — getClusterBbox will return
+    // [lng, lat, lng, lat] (degenerate bbox for a single-member group).
+    const clusterLng = -110.9;
+    const clusterLat = 32.2;
+    const cluster = {
+      id: 1,
+      properties: { cluster_id: 1, point_count: 3 },
+      geometry: { type: 'Point', coordinates: [clusterLng, clusterLat] },
+    };
+    fakeMap.queryRenderedFeatures.mockImplementation(
+      (_: unknown, opts?: { layers?: string[] }) =>
+        opts?.layers?.includes('clusters-hit') ? [cluster] : [],
+    );
+    fakeMap.getSource.mockReturnValue({
+      getClusterLeaves: vi.fn().mockResolvedValue([
+        {
+          type: 'Feature',
+          properties: {
+            familyCode: 'trochilidae',
+            speciesCode: 'annhum',
+            comName: "Anna's Hummingbird",
+          },
+        },
+      ]),
+      getClusterExpansionZoom: vi.fn().mockResolvedValue(12),
+    });
+
+    const onSelectSpecies = vi.fn();
+    render(
+      <MapCanvasFresh
+        observations={[makeObs()]}
+        silhouettes={SILHOUETTES}
+        onSelectSpecies={onSelectSpecies}
+        isCoarsePointer={false}
+      />,
+    );
+    await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+    await act(async () => { await bareHandlers['idle']?.(); });
+    await act(async () => { await Promise.resolve(); });
+
+    // Wait for the AdaptiveGridMarker cell to render as a <button>.
+    await waitFor(() => {
+      const cells = screen.queryAllByTestId('adaptive-grid-marker-cell-rendered');
+      expect(cells.length).toBeGreaterThan(0);
+    });
+
+    const cell = screen.getByTestId('adaptive-grid-marker-cell-rendered');
+    // Hover → open CellHoverPreview, then click → open CellPopover.
+    fireEvent.mouseEnter(cell);
+    fireEvent.click(cell);
+
+    // Species row in the CellPopover.
+    await waitFor(() => {
+      expect(screen.getByTestId('cell-popover')).toBeInTheDocument();
+    });
+    const speciesRow = screen.getByTestId('cell-popover-row');
+    fireEvent.click(speciesRow);
+
+    // The wrapper must have called onSelectSpecies with the bbox from
+    // getClusterBbox(group). For a single-member group whose anchor is at
+    // (clusterLng, clusterLat), the bbox is the degenerate tuple
+    // [lngMin, latMin, lngMax, latMax] = [clusterLng, clusterLat, clusterLng, clusterLat]
+    // (rounded to 6 decimals).
+    expect(onSelectSpecies).toHaveBeenCalledOnce();
+    const [code, bbox] = onSelectSpecies.mock.calls[0];
+    expect(code).toBe('annhum');
+    expect(Array.isArray(bbox)).toBe(true);
+    expect(bbox).toHaveLength(4);
+    // All four values are the cluster's center coordinates (degenerate single-leaf bbox).
+    expect(bbox[0]).toBeCloseTo(clusterLng, 5);
+    expect(bbox[1]).toBeCloseTo(clusterLat, 5);
+    expect(bbox[2]).toBeCloseTo(clusterLng, 5);
+    expect(bbox[3]).toBeCloseTo(clusterLat, 5);
+  });
+
+  it('bbox matches THIS cluster leaves, not a neighboring cluster', async () => {
+    // Two clusters at distinct coordinates. Click the first → bbox must
+    // match the first cluster, not the second.
+    const clusterA = {
+      id: 1,
+      properties: { cluster_id: 1, point_count: 2 },
+      geometry: { type: 'Point', coordinates: [-110.0, 32.0] },
+    };
+    const clusterB = {
+      id: 2,
+      properties: { cluster_id: 2, point_count: 2 },
+      geometry: { type: 'Point', coordinates: [-112.0, 34.0] },
+    };
+    fakeMap.queryRenderedFeatures.mockImplementation(
+      (_: unknown, opts?: { layers?: string[] }) =>
+        opts?.layers?.includes('clusters-hit') ? [clusterA, clusterB] : [],
+    );
+    fakeMap.getSource.mockReturnValue({
+      getClusterLeaves: vi.fn().mockResolvedValue([
+        {
+          type: 'Feature',
+          properties: {
+            familyCode: 'trochilidae',
+            speciesCode: 'annhum',
+            comName: "Anna's Hummingbird",
+          },
+        },
+      ]),
+      getClusterExpansionZoom: vi.fn().mockResolvedValue(12),
+    });
+
+    const onSelectSpecies = vi.fn();
+    render(
+      <MapCanvasFresh
+        observations={[makeObs()]}
+        silhouettes={SILHOUETTES}
+        onSelectSpecies={onSelectSpecies}
+        isCoarsePointer={false}
+      />,
+    );
+    await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+    await act(async () => { await bareHandlers['idle']?.(); });
+    await act(async () => { await Promise.resolve(); });
+
+    await waitFor(() => {
+      const markers = screen.queryAllByTestId('adaptive-grid-marker');
+      expect(markers.length).toBeGreaterThanOrEqual(2);
+    });
+
+    // Click the first rendered cell (corresponds to clusterA at lng=-110, lat=32).
+    const cells = screen.queryAllByTestId('adaptive-grid-marker-cell-rendered');
+    expect(cells.length).toBeGreaterThanOrEqual(1);
+    fireEvent.mouseEnter(cells[0]);
+    fireEvent.click(cells[0]);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('cell-popover')).toBeInTheDocument();
+    });
+    const speciesRows = screen.queryAllByTestId('cell-popover-row');
+    expect(speciesRows.length).toBeGreaterThan(0);
+    fireEvent.click(speciesRows[0]);
+
+    expect(onSelectSpecies).toHaveBeenCalledOnce();
+    const [code, bbox] = onSelectSpecies.mock.calls[0];
+    expect(code).toBe('annhum');
+    // bbox must NOT be the second cluster's coordinates.
+    expect(bbox[0]).not.toBeCloseTo(-112.0, 1);
+    // bbox must be within the range of valid coordinates (finite, bounded).
+    expect(Number.isFinite(bbox[0])).toBe(true);
+    expect(Number.isFinite(bbox[1])).toBe(true);
+  });
+
+  it('onSelectSpecies is NOT called when no species row is clicked (defensive)', async () => {
+    const cluster = {
+      id: 1,
+      properties: { cluster_id: 1, point_count: 3 },
+      geometry: { type: 'Point', coordinates: [-110.9, 32.2] },
+    };
+    fakeMap.queryRenderedFeatures.mockImplementation(
+      (_: unknown, opts?: { layers?: string[] }) =>
+        opts?.layers?.includes('clusters-hit') ? [cluster] : [],
+    );
+    fakeMap.getSource.mockReturnValue({
+      getClusterLeaves: vi.fn().mockResolvedValue([
+        {
+          type: 'Feature',
+          properties: {
+            familyCode: 'trochilidae',
+            speciesCode: 'annhum',
+            comName: "Anna's Hummingbird",
+          },
+        },
+      ]),
+      getClusterExpansionZoom: vi.fn().mockResolvedValue(12),
+    });
+
+    const onSelectSpecies = vi.fn();
+    render(
+      <MapCanvasFresh
+        observations={[makeObs()]}
+        silhouettes={SILHOUETTES}
+        onSelectSpecies={onSelectSpecies}
+        isCoarsePointer={false}
+      />,
+    );
+    await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+    await act(async () => { await bareHandlers['idle']?.(); });
+    await act(async () => { await Promise.resolve(); });
+
+    await waitFor(() => {
+      expect(screen.queryAllByTestId('adaptive-grid-marker-cell-rendered').length).toBeGreaterThan(0);
+    });
+
+    // Click the cell to open the popover, but do NOT click a species row.
+    const cell = screen.getByTestId('adaptive-grid-marker-cell-rendered');
+    fireEvent.mouseEnter(cell);
+    fireEvent.click(cell);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('cell-popover')).toBeInTheDocument();
+    });
+
+    // No species row clicked — onSelectSpecies must NOT have been called.
+    expect(onSelectSpecies).not.toHaveBeenCalled();
   });
 });

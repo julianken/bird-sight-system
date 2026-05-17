@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LngLatBounds } from 'maplibre-gl';
 import { ApiClient, ApiError } from './api/client.js';
 import { useUrlState } from './state/url-state.js';
-import type { Since } from './state/url-state.js';
+import type { Since, BBox } from './state/url-state.js';
 import { useBirdData } from './data/use-bird-data.js';
 import { useSilhouettes } from './data/use-silhouettes.js';
 import { useSpeciesDetail } from './data/use-species-detail.js';
@@ -216,9 +216,14 @@ export function App() {
   );
 
   const onSelectSpecies = useCallback(
-    (speciesCode: string) => set({ detail: speciesCode, view: 'detail' }),
-    [set]
+    (speciesCode: string, bbox: BBox | null = null) =>
+      set({ detail: speciesCode, view: 'detail', bbox }),
+    [set],
   );
+
+  const onClearBbox = useCallback(() => {
+    set({ bbox: null });
+  }, [set]);
 
   // Close callback for detail modal/sheet wrappers — flips back to feed view.
   const onCloseDetail = useCallback(
@@ -404,6 +409,8 @@ export function App() {
           speciesCode={state.detail}
           apiClient={apiClient}
           onClose={onCloseDetail}
+          bbox={state.bbox}
+          onClearBbox={onClearBbox}
         />
       )}
       {state.view === 'detail' && state.detail && isMobile && (
@@ -413,6 +420,8 @@ export function App() {
           apiClient={apiClient}
           onClose={onCloseDetail}
           mainRef={mainRef}
+          bbox={state.bbox}
+          onClearBbox={onClearBbox}
         />
       )}
       {/*

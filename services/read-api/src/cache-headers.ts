@@ -1,28 +1,46 @@
 export type Endpoint = 'observations' | 'hotspots' | 'species' | 'silhouettes' | 'phenology';
 
+// Cache-Control TTL table for public read endpoints.
+//
+// Issue #586: Cloudflare zone analytics for bird-maps.com reported a 99.91%
+// cache-miss rate over 30 days because the hot read paths returned no
+// directives the CDN would honor. The four public list/aggregate endpoints
+// below now emit `s-maxage` (CDN-only) + a 2× `stale-while-revalidate` window,
+// so Cloudflare can serve cached + SWR responses while origin (Cloud Run +
+// Neon) sees only post-TTL refreshes. Browsers are intentionally NOT asked to
+// hold stale copies — `s-maxage` does not apply to private caches, so a hard
+// reload always hits the CDN.
+//
+// /api/species/:code is out of scope for #586 — it is per-species, hit
+// rarely, and was already long-cached on both browser + CDN via `max-age`.
 const TABLE: Record<Endpoint, string> = {
-  observations: 'public, max-age=1800, stale-while-revalidate=600',
-  hotspots:     'public, max-age=86400, stale-while-revalidate=3600',
-  // Phenology aggregates the last-365d observations into 12 monthly counts.
+  // Freshest surface — observation rows roll forward every ingest cycle
+  // (~hourly). 5min CDN window + 10min SWR keeps the cache useful for
+  // burst-y page-loads without delaying ingest visibility beyond ~15min.
+  observations: 'public, s-maxage=300, stale-while-revalidate=600',
+  // Hotspot list shifts only on backfill — a 10min CDN window with 20min
+  // SWR is conservative; the data is effectively static between rebuilds.
+  hotspots:     'public, s-maxage=600, stale-while-revalidate=1200',
+  // Phenology aggregates the last 365d observations into 12 monthly counts.
   // Per-species rows shift only when a fresh obs lands in a previously-empty
-  // month — exceedingly rare on a 6h window. 21600s (6h) max-age + 3600s SWR
-  // is a long-lived CDN entry with same-day refresh.
-  phenology:    'public, max-age=21600, stale-while-revalidate=3600',
+  // month — exceedingly rare on a 1h window. 1h s-maxage + 2h SWR is a
+  // long-lived edge entry with same-day refresh.
+  phenology:    'public, s-maxage=3600, stale-while-revalidate=7200',
   // `immutable` was correct when species_meta was append-only taxonomy data;
   // once photo_url becomes a monthly-refreshed field (issue #327), `immutable`
   // is semantically wrong because the value at this URL CAN change. Keeping
   // the 1-week max-age means the CDN may serve stale species data for up to
   // 7 days after a photo write — acceptable given monthly refresh cadence.
   // Browsers re-validate at expiry rather than treating the response as
-  // never-changing.
+  // never-changing. Not migrated to `s-maxage` under #586 because per-species
+  // GETs were not in the high-miss-rate set.
   species:      'public, max-age=604800',
-  // Family-color/silhouette payload genuinely drifts between deploys
-  // (curation, Phylopic seed expansion), so we keep the 1-week max-age
-  // (cheap on the read path) but DROP `immutable` — browsers will
-  // re-validate at expiry, and an out-of-band Cloudflare cache purge
-  // (scripts/purge-silhouettes-cache.sh) reaches users on the next
-  // request rather than waiting up to 7 days.
-  silhouettes:  'public, max-age=604800',
+  // Family silhouette payload drifts between deploys (curation, Phylopic
+  // seed expansion). `s-maxage=3600` keeps a 1h CDN window — short enough
+  // that curation pushes reach users quickly without scripts/purge-...sh,
+  // long enough to absorb the load of repeat page-loads. SWR adds a 2h
+  // grace window so the origin never gets a thundering refresh.
+  silhouettes:  'public, s-maxage=3600, stale-while-revalidate=7200',
 };
 
 export function cacheControlFor(endpoint: Endpoint): string {

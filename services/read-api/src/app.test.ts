@@ -23,7 +23,7 @@ describe('GET /api/hotspots', () => {
     const res = await app.request('/api/hotspots');
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control'))
-      .toBe('public, max-age=86400, stale-while-revalidate=3600');
+      .toBe('public, s-maxage=600, stale-while-revalidate=1200');
     const body = await res.json() as Array<{ locId: string; locName: string }>;
     expect(body[0]?.locId).toBe('L207118');
     expect(body[0]?.locName).toBe('Sweetwater Wetlands');
@@ -62,7 +62,7 @@ describe('GET /api/observations', () => {
     const res = await app.request('/api/observations?since=30d');
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control'))
-      .toBe('public, max-age=1800, stale-while-revalidate=600');
+      .toBe('public, s-maxage=300, stale-while-revalidate=600');
     const body = await res.json() as ObsEnvelope;
     expect(body.data).toHaveLength(2);
   });
@@ -241,9 +241,9 @@ describe('GET /api/silhouettes', () => {
     // No `immutable` directive: silhouette payload drifts between deploys
     // (curation, Phylopic seed expansion); see cache-headers.ts comment.
     expect(res.headers.get('cache-control'))
-      .toBe('public, max-age=604800');
+      .toBe('public, s-maxage=3600, stale-while-revalidate=7200');
     const body = await res.json() as Array<{
-      familyCode: string; color: string; svgData: string | null;
+      familyCode: string; color: string; colorDark: string; svgData: string | null;
       source: string | null; license: string | null;
       commonName: string | null; creator: string | null;
     }>;
@@ -257,9 +257,13 @@ describe('GET /api/silhouettes', () => {
     // so the frontend's symbol-layer fallback path can rely on it.
     const fallback = body.find(r => r.familyCode === '_FALLBACK');
     expect(fallback).toBeDefined();
-    expect(fallback!.color).toBe('#555555');
+    // Migration 1700000046000 lightened dark-failing colors; _FALLBACK was #555555.
+    expect(fallback!.color).toBe('#626262');
+    expect(fallback!.colorDark).toBe('#626262');
     const tyrannidae = body.find(r => r.familyCode === 'tyrannidae');
-    expect(tyrannidae?.color).toBe('#C77A2E');
+    // Migration 1700000046000 darkened light-failing colors; tyrannidae was #C77A2E.
+    expect(tyrannidae?.color).toBe('#c3772d');
+    expect(tyrannidae?.colorDark).toBe('#C77A2E');
     // commonName round-trips through Hono response (issue #249). Field
     // populated by migration 1700000019500.
     expect(tyrannidae?.commonName).toBe('Tyrant Flycatchers');
@@ -280,8 +284,9 @@ describe('GET /api/silhouettes', () => {
     const res = await app.request('/api/silhouettes');
     const body = await res.json() as Array<{ familyCode: string; color: string }>;
     const byFamily = Object.fromEntries(body.map(r => [r.familyCode, r.color]));
-    expect(byFamily['tyrannidae']).toBe('#C77A2E');
-    expect(byFamily['trochilidae']).toBe('#7B2D8E');
+    // Migration 1700000046000 updated both colors for contrast compliance.
+    expect(byFamily['tyrannidae']).toBe('#c3772d');  // was #C77A2E (light-failing, darkened)
+    expect(byFamily['trochilidae']).toBe('#9637ad'); // was #7B2D8E (dark-failing, lightened)
   });
 });
 
@@ -434,7 +439,7 @@ describe('GET /api/species/:code/phenology', () => {
     const res = await app.request('/api/species/phenfly/phenology');
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control'))
-      .toBe('public, max-age=21600, stale-while-revalidate=3600');
+      .toBe('public, s-maxage=3600, stale-while-revalidate=7200');
   });
 
   it('returns 200 [] for a known species with no observations', async () => {
