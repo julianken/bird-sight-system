@@ -23,7 +23,7 @@ describe('GET /api/hotspots', () => {
     const res = await app.request('/api/hotspots');
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control'))
-      .toBe('public, max-age=86400, stale-while-revalidate=3600');
+      .toBe('public, s-maxage=600, stale-while-revalidate=1200');
     const body = await res.json() as Array<{ locId: string; locName: string }>;
     expect(body[0]?.locId).toBe('L207118');
     expect(body[0]?.locName).toBe('Sweetwater Wetlands');
@@ -62,7 +62,7 @@ describe('GET /api/observations', () => {
     const res = await app.request('/api/observations?since=30d');
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control'))
-      .toBe('public, max-age=1800, stale-while-revalidate=600');
+      .toBe('public, s-maxage=300, stale-while-revalidate=600');
     const body = await res.json() as ObsEnvelope;
     expect(body.data).toHaveLength(2);
   });
@@ -241,7 +241,7 @@ describe('GET /api/silhouettes', () => {
     // No `immutable` directive: silhouette payload drifts between deploys
     // (curation, Phylopic seed expansion); see cache-headers.ts comment.
     expect(res.headers.get('cache-control'))
-      .toBe('public, max-age=604800');
+      .toBe('public, s-maxage=3600, stale-while-revalidate=7200');
     const body = await res.json() as Array<{
       familyCode: string; color: string; colorDark: string; svgData: string | null;
       source: string | null; license: string | null;
@@ -439,7 +439,7 @@ describe('GET /api/species/:code/phenology', () => {
     const res = await app.request('/api/species/phenfly/phenology');
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control'))
-      .toBe('public, max-age=21600, stale-while-revalidate=3600');
+      .toBe('public, s-maxage=3600, stale-while-revalidate=7200');
   });
 
   it('returns 200 [] for a known species with no observations', async () => {
