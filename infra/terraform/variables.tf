@@ -48,6 +48,19 @@ variable "domain" {
   description = "Domain you control on Cloudflare, e.g. birdwatch.example.com"
 }
 
+variable "alert_email" {
+  description = "Email address to receive monitoring alerts. v1: single subscriber; team channel routing is a future iteration."
+  type        = string
+  default     = "julian.kennon.d@gmail.com"
+}
+
+# Healthchecks.io ping URLs — one per cron job. Provisioned out-of-band via
+# the Healthchecks.io web UI (free tier: 20 checks), then stored in Secret
+# Manager via `gcloud secrets versions add bird-watch-healthchecks-<kind>
+# --data-file=-`. Plan: docs/plans/2026-05-17-monitoring-and-alerts.md §S7.
+# These vars are NOT referenced by HCL — they document the secret-id contract
+# only. The secrets themselves are declared in infra/terraform/monitoring.tf.
+
 variable "frontend_origins" {
   type        = string
   default     = "https://bird-maps.com,https://www.bird-maps.com"
