@@ -11,6 +11,7 @@ import { FilterSentence } from './ds/FilterSentence.js';
 import { SortLabel } from './ds/SortLabel.js';
 import type { Freshness } from './MapLede.js';
 import { buildFamilyColorResolver, buildFamilyPathResolver } from '../data/family-color.js';
+import { REGION_LABEL } from '../config/region.js';
 
 export interface FeedSurfaceFilters {
   notable: boolean;
@@ -213,7 +214,7 @@ export function FeedSurface(props: FeedSurfaceProps) {
     onSelectSpecies,
     speciesIndex,
     observationCount,
-    regionLabel = 'Arizona',
+    regionLabel = REGION_LABEL,
     period = '14 days',
     speciesName,
     familyName,
