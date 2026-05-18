@@ -3,7 +3,6 @@ import { pathToFileURL } from 'node:url';
 import {
   createPool as realCreatePool,
   closePool as realClosePool,
-  createDualWritePool as realCreateDualWritePool,
   type Pool,
 } from '@bird-watch/db-client';
 import { runIngest as realRunIngest, type RunSummary } from './run-ingest.js';
@@ -57,13 +56,6 @@ type AnyRunSummary =
 export interface CliDeps {
   createPool: (opts: { databaseUrl: string }) => Pool;
   closePool: (pool: Pool) => Promise<void>;
-  /**
-   * Wraps a primary + secondary Pool into a fan-out Pool. Optional dep so
-   * tests that don't exercise dual-write can omit it; when omitted at
-   * runtime, dual-write simply doesn't engage even if SECONDARY_DATABASE_URL
-   * is set. The IIFE at the bottom always injects the real implementation.
-   */
-  createDualWritePool?: (opts: { primary: Pool; secondary: Pool; kind?: string }) => Pool;
   runIngest: typeof realRunIngest;
   runHotspotIngest: typeof realRunHotspotIngest;
   runBackfill: typeof realRunBackfill;
@@ -125,27 +117,7 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
   if (!apiKey) throw new Error('EBIRD_API_KEY not set');
   if (!dbUrl) throw new Error('DATABASE_URL not set');
 
-  // Dual-write to a secondary database (Neon→Cloud SQL migration, T3→T4).
-  // When SECONDARY_DATABASE_URL is unset the behavior is unchanged: writes
-  // go only to the primary DATABASE_URL. When set, every INSERT/UPDATE/
-  // DELETE/TRUNCATE/MERGE is fanned out to the secondary; failures on the
-  // secondary are logged with `dual_write_secondary_failed` and swallowed
-  // (the next scheduled tick self-heals via idempotent upserts).
-  // See packages/db-client/src/dual-write-pool.ts for the contract.
-  const secondaryDbUrl = process.env.SECONDARY_DATABASE_URL;
-  const primaryPool = deps.createPool({ databaseUrl: dbUrl });
-  let secondaryPool: Pool | undefined;
-  let pool: Pool;
-  if (secondaryDbUrl && deps.createDualWritePool) {
-    secondaryPool = deps.createPool({ databaseUrl: secondaryDbUrl });
-    pool = deps.createDualWritePool({
-      primary: primaryPool,
-      secondary: secondaryPool,
-      kind,
-    });
-  } else {
-    pool = primaryPool;
-  }
+  const pool = deps.createPool({ databaseUrl: dbUrl });
   try {
     let summary: AnyRunSummary;
     if (kind === 'recent') {
@@ -212,22 +184,7 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
       await ping(process.env[envKey], kind);
     }
   } finally {
-    // Close the underlying primary pool (the dual-write wrapper does not
-    // own additional sockets — it delegates .end to both underlying pools,
-    // but we only handed `closePool` the primary in the non-dual path, so
-    // we close primary + secondary explicitly here to keep the lifecycle
-    // explicit regardless of wrapping).
-    await deps.closePool(primaryPool);
-    if (secondaryPool) {
-      try {
-        await deps.closePool(secondaryPool);
-      } catch (err) {
-        // Mirror the dual_write_secondary_failed treatment: secondary
-        // lifecycle errors must not mask the primary outcome.
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error(`dual_write_secondary_failed kind=${kind} stage=closePool err=${msg}`);
-      }
-    }
+    await deps.closePool(pool);
   }
 }
 
@@ -251,7 +208,6 @@ if (isEntrypoint) {
   runCli(KIND, {
     createPool: realCreatePool,
     closePool: realClosePool,
-    createDualWritePool: realCreateDualWritePool,
     runIngest: realRunIngest,
     runHotspotIngest: realRunHotspotIngest,
     runBackfill: realRunBackfill,
