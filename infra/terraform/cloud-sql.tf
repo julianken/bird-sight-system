@@ -153,3 +153,24 @@ output "cloudsql_db_url" {
   value     = local.cloudsql_pooled_url
   sensitive = true
 }
+
+# ── Cloud SQL connection-string secret ────────────────────────────────────
+#
+# Wraps `local.cloudsql_pooled_url` in Secret Manager so services running on
+# Cloud Run can mount it as `SECONDARY_DATABASE_URL` (the dual-write env var
+# the admin-api and ingestor read during Stage 2 of the Neon→Cloud SQL
+# migration). The same secret is referenced from `admin-api.tf` and
+# `ingestor.tf`; the parallel ingestor PR may create this resource first —
+# whichever PR lands second should drop this block in rebase.
+resource "google_secret_manager_secret" "cloudsql_db_url" {
+  secret_id = "bird-watch-cloudsql-db-url"
+  replication {
+    auto {}
+  }
+  depends_on = [google_project_service.secretmanager]
+}
+
+resource "google_secret_manager_secret_version" "cloudsql_db_url" {
+  secret      = google_secret_manager_secret.cloudsql_db_url.id
+  secret_data = local.cloudsql_pooled_url
+}

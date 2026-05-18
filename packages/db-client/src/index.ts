@@ -1,5 +1,7 @@
 export { createPool, closePool } from './pool.js';
 export type { Pool, PoolOptions } from './pool.js';
+export { createDualWritePool, isWriteSql } from './dual-write-pool.js';
+export type { DualWritePoolOptions } from './dual-write-pool.js';
 export { getHotspots, upsertHotspots, type HotspotInput } from './hotspots.js';
 export {
   getObservations, getObservationsAggregated, upsertObservations,
