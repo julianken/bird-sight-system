@@ -256,48 +256,6 @@ resource "google_monitoring_alert_policy" "container_crash" {
   }
 }
 
-# ── S6: Neon connection failures ─────────────────────────────────────────
-#
-# Threshold: ≥3 in rolling 10min. Rationale: Neon free tier suspends idle
-# endpoints; single ENOTFOUND/ECONNREFUSED is normal cold-wake. Three in
-# 10min means the pool is genuinely broken. TIGHTEN to ≥1 once the Cloud
-# SQL migration lands (sibling plan) — Cloud SQL doesn't suspend, so any
-# connection failure is a real incident.
-
-resource "google_logging_metric" "neon_conn_fail" {
-  name   = "bird-neon-conn-fail"
-  filter = <<-EOT
-    resource.type="cloud_run_revision" AND
-    (resource.labels.service_name=~"bird-(read-api|ingestor.*)") AND
-    (textPayload=~"getaddrinfo ENOTFOUND" OR textPayload=~"ECONNREFUSED" OR textPayload=~"Connection terminated unexpectedly")
-  EOT
-  metric_descriptor {
-    metric_kind = "DELTA"
-    value_type  = "INT64"
-  }
-}
-
-resource "google_monitoring_alert_policy" "neon_conn_fail" {
-  display_name          = "Neon connection failures >=3 in 10min (S6)"
-  combiner              = "OR"
-  notification_channels = [google_monitoring_notification_channel.email_julian.id]
-
-  conditions {
-    display_name = ">=3 conn failures in 10min"
-    condition_threshold {
-      filter          = "metric.type=\"logging.googleapis.com/user/bird-neon-conn-fail\" AND resource.type=\"cloud_run_revision\""
-      comparison      = "COMPARISON_GT"
-      threshold_value = 2 # GT 2 ⇒ fires at ≥3, matching plan spec "≥3 in rolling 10min" (house style: "GT (N-1)" as in S1/S5)
-      duration        = "0s"
-      aggregations {
-        alignment_period     = "600s"
-        per_series_aligner   = "ALIGN_SUM"
-        cross_series_reducer = "REDUCE_SUM"
-      }
-    }
-  }
-}
-
 # ── Uptime check on the public read-api ─────────────────────────────────
 #
 # Synthetic monitoring: GCP regions ping /api/regions every 60s. Alert

@@ -9,21 +9,6 @@ variable "gcp_region" {
   description = "Cloud Run + Artifact Registry region. us-west1 keeps latency to AZ users low."
 }
 
-# Retained for the Neon-destroy apply only. The neon provider block in main.tf
-# still requires this value to plan destroys of remaining `neon_project` /
-# `neon_database` state entries. Follow-up PR removes both this variable and
-# the provider block once destroy is confirmed clean.
-variable "neon_api_key" {
-  type        = string
-  sensitive   = true
-  description = "Neon API key (Neon dashboard → Settings → API keys). Decommission-only."
-}
-
-variable "neon_org_id" {
-  type        = string
-  description = "Neon organization ID. Decommission-only; no resources reference it after this PR."
-}
-
 variable "cloudflare_account_id" {
   type        = string
   description = "Cloudflare account ID (used for Pages + DNS only)."

@@ -10,12 +10,6 @@ terraform {
       source  = "hashicorp/google"
       version = "~> 7.30"
     }
-    # Retained only to plan/apply the destroy of remaining neon_* resources
-    # in state. Removed in a follow-up PR after destroy is confirmed clean.
-    neon = {
-      source  = "kislerdm/neon"
-      version = "~> 0.7"
-    }
     cloudflare = {
       source  = "cloudflare/cloudflare"
       version = "~> 4.20"
