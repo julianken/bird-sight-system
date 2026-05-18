@@ -73,13 +73,30 @@ export function App() {
     (state.notable ? 1 : 0) +
     (state.speciesCode ? 1 : 0) +
     (state.familyCode ? 1 : 0);
+  // CONUS bbox [west, south, east, north] — initial-mount default for
+  // /api/observations. Matches MapCanvas's CONUS_LONGITUDE/CONUS_LATITUDE
+  // initial view (zoom 3–4 framing); the map fires `idle` shortly after
+  // mount with the actual fitted bounds, which then drives the bbox state
+  // via `onViewportChange` below.
+  const DEFAULT_BBOX_CONUS: [number, number, number, number] = [-125, 24, -66, 50];
+  const [debouncedBbox, setDebouncedBbox] = useState<[number, number, number, number]>(DEFAULT_BBOX_CONUS);
+
   // hotspots intentionally fetched but unused — cheap insurance for v2
   // hotspot-marker layer (Plan 7 decision 5, docs/plans/2026-04-22-plan-7-map-v1.md).
+  // Phase 2 going-national pre-condition: viewport bbox is a hard input
+  // to /api/observations so the frontend stops pulling the full CONUS
+  // observation set on every map load. The bbox is held in a debounced
+  // state (250ms) below; the value passed here is the debounced one so
+  // continuous panning doesn't hammer the API. Initial value frames CONUS
+  // (`DEFAULT_BBOX_CONUS`) rather than `undefined` — passing `undefined`
+  // would degrade to a full-region fetch on first paint, exactly the
+  // failure mode this wiring exists to prevent.
   const { loading, error, observations, freshestObservationAt } = useBirdData(apiClient, {
     since: state.since,
     notable: state.notable,
     ...(state.speciesCode ? { speciesCode: state.speciesCode } : {}),
     ...(state.familyCode ? { familyCode: state.familyCode } : {}),
+    bbox: debouncedBbox,
   });
 
   const families = useMemo(() => deriveFamilies(observations), [observations]);
@@ -133,8 +150,45 @@ export function App() {
         : observations,
     [observations, viewportBounds, state.view],
   );
+  // Debounced bbox derivation: MapLibre's `idle` event already fires once
+  // per camera settle (not per-frame), but we add a 250ms trailing-edge
+  // debounce on top so rapid pan→zoom→pan sequences only trigger a single
+  // /api/observations fetch. See `useBirdData` which receives `debouncedBbox`
+  // via the filters object.
+  const bboxDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (bboxDebounceRef.current !== null) clearTimeout(bboxDebounceRef.current);
+    },
+    []
+  );
   const onViewportChange = useCallback((bounds: LngLatBounds) => {
     setViewportBounds(bounds);
+    const next: [number, number, number, number] = [
+      bounds.getWest(),
+      bounds.getSouth(),
+      bounds.getEast(),
+      bounds.getNorth(),
+    ];
+    if (bboxDebounceRef.current !== null) clearTimeout(bboxDebounceRef.current);
+    bboxDebounceRef.current = setTimeout(() => {
+      setDebouncedBbox(prev => {
+        // No-op guard: skip the state update (and the consequent refetch)
+        // if the bbox hasn't moved meaningfully. ~1e-4 degrees ≈ 10m at
+        // mid-latitudes — well below user-visible pan, well above
+        // floating-point jitter from repeated getBounds() calls.
+        const epsilon = 1e-4;
+        if (
+          Math.abs(prev[0] - next[0]) < epsilon &&
+          Math.abs(prev[1] - next[1]) < epsilon &&
+          Math.abs(prev[2] - next[2]) < epsilon &&
+          Math.abs(prev[3] - next[3]) < epsilon
+        ) {
+          return prev;
+        }
+        return next;
+      });
+    }, 250);
   }, []);
 
   // Family color + silhouette SOT (issue #55 option (a)): colors and
