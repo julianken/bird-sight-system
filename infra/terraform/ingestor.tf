@@ -22,19 +22,10 @@ resource "google_secret_manager_secret_iam_member" "ingestor_db" {
 # This is purely additive. To decommission dual-write later (post-cutover),
 # remove the four env { name = "SECONDARY_DATABASE_URL" ... } blocks below
 # and delete this secret.
-resource "google_secret_manager_secret" "cloudsql_db_url" {
-  secret_id = "bird-watch-cloudsql-db-url"
-  replication {
-    auto {}
-  }
-  depends_on = [google_project_service.secretmanager]
-}
-
-resource "google_secret_manager_secret_version" "cloudsql_db_url" {
-  secret      = google_secret_manager_secret.cloudsql_db_url.id
-  secret_data = local.cloudsql_pooled_url
-}
-
+#
+# The secret resource itself (google_secret_manager_secret.cloudsql_db_url) is
+# defined in cloud-sql.tf alongside the Cloud SQL instance that produces its
+# value. This file only grants the ingester service account access.
 resource "google_secret_manager_secret_iam_member" "ingestor_cloudsql_db" {
   secret_id = google_secret_manager_secret.cloudsql_db_url.id
   role      = "roles/secretmanager.secretAccessor"
