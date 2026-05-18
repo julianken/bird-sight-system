@@ -7,12 +7,10 @@ resource "google_secret_manager_secret" "db_url" {
   depends_on = [google_project_service.secretmanager]
 }
 
-# T4 cutover 2026-05-18: flipped read path from Neon to Cloud SQL.
-# Writes continue going to both DBs via the dual-write fanout in the ingester
-# (#632) and admin-api (#631); Neon stays alive as warm rollback. To roll back
-# this cutover, change `local.cloudsql_pooled_url` back to `local.neon_pooled_url`,
-# `terraform apply`, and the next read-api revision picks up the reverted secret.
-# T5 (Neon teardown + dropping SECONDARY_DATABASE_URL) is tracked separately.
+# Read path runs against Cloud SQL via the pooled URL exposed in cloud-sql.tf.
+# T4 (2026-05-18) flipped read-api from Neon → Cloud SQL; T5 (this change)
+# decommissions Neon entirely, dropping SECONDARY_DATABASE_URL fan-out and the
+# Neon provider.
 resource "google_secret_manager_secret_version" "db_url" {
   secret      = google_secret_manager_secret.db_url.id
   secret_data = local.cloudsql_pooled_url

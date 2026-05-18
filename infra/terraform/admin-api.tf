@@ -74,15 +74,6 @@ resource "google_secret_manager_secret_iam_member" "admin_api_cloudflare_api_tok
   member    = "serviceAccount:${google_service_account.admin_api.email}"
 }
 
-# Stage-2 Neon→Cloud SQL dual-write: grant the admin-api SA read access to
-# the Cloud SQL connection string secret. Mounted on the Cloud Run service
-# below as SECONDARY_DATABASE_URL.
-resource "google_secret_manager_secret_iam_member" "admin_api_cloudsql_db_url" {
-  secret_id = google_secret_manager_secret.cloudsql_db_url.id
-  role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_service_account.admin_api.email}"
-}
-
 # ── Cloud Run service ───────────────────────────────────────────────────
 resource "google_cloud_run_v2_service" "admin_api" {
   name     = "bird-admin-api"
@@ -112,21 +103,6 @@ resource "google_cloud_run_v2_service" "admin_api" {
         value_source {
           secret_key_ref {
             secret  = google_secret_manager_secret.db_url.secret_id
-            version = "latest"
-          }
-        }
-      }
-
-      # Stage-2 dual-write (docs/plans/2026-05-17-cloud-sql-migration.md §3.2).
-      # When set, the admin-api fans every write to Cloud SQL in addition to
-      # Neon. When the secret is unset/absent, behaviour is unchanged
-      # (single-write to DATABASE_URL only) — opt-in by virtue of the secret
-      # existing in Secret Manager.
-      env {
-        name = "SECONDARY_DATABASE_URL"
-        value_source {
-          secret_key_ref {
-            secret  = google_secret_manager_secret.cloudsql_db_url.secret_id
             version = "latest"
           }
         }
@@ -246,7 +222,6 @@ resource "google_cloud_run_v2_service" "admin_api" {
     google_secret_manager_secret_iam_member.admin_api_r2_secret_access_key,
     google_secret_manager_secret_iam_member.admin_api_cloudflare_zone_id,
     google_secret_manager_secret_iam_member.admin_api_cloudflare_api_token,
-    google_secret_manager_secret_iam_member.admin_api_cloudsql_db_url,
   ]
 }
 
