@@ -192,18 +192,7 @@ export type ObservationsResponse =
   | {
       mode: 'observations';
       data: Observation[];
-      meta: {
-        freshestObservationAt: string | null;
-        /**
-         * #647 — capped feed signal. `truncated` is true when the
-         * underlying query matched more than the per-observation feed
-         * limit (500) and the response was sliced. `totalCount` reports
-         * the unfiltered-by-LIMIT match count so the frontend can render
-         * "Showing 500 of {totalCount}" without an extra round-trip.
-         */
-        truncated: boolean;
-        totalCount: number;
-      };
+      meta: { freshestObservationAt: string | null };
     }
   | {
       mode: 'aggregated';

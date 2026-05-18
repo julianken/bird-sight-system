@@ -1468,24 +1468,6 @@ dialog.species-detail-modal .species-detail-modal-close {
   line-height: 1.4;
 }
 
-/* ── Feed cap-hit banner (.feed-truncated-banner) ───────────────────────────
-   #647 — single-line banner above the feed list when the API capped the
-   response at 500 rows. role="status" / aria-live="polite" so it announces
-   on filter changes. Visual treatment matches .feed-freshness for consistency
-   in the surface's meta-line stack, but uses the warn accent so it reads as
-   actionable (the user can narrow filters or zoom in). */
-.feed-truncated-banner {
-  margin: var(--space-2) 0;
-  padding: var(--space-2) var(--space-3);
-  font-size: var(--type-sm);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-emphasis, var(--color-text));
-  background: var(--color-bg-tint);
-  border-left: 3px solid var(--color-accent, var(--color-text));
-  border-radius: var(--radius-sm, 4px);
-  line-height: 1.4;
-}
-
 /* ── Map loading skeleton (.map-loading-skeleton) ───────────────────────────
    Loading-state placeholder while the map data fetches (MapSurface.tsx:191).
    Without a rule the bare <div> collapses to zero height and the loading state

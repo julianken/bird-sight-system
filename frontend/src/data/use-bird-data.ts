@@ -58,15 +58,6 @@ export interface BirdDataState {
    * meta.freshestObservationAt in the ObservationsResponse envelope (#456 W3-A).
    */
   freshestObservationAt: string | null;
-  /**
-   * #647 — feed-cap signals from the per-observation envelope. When the
-   * underlying query matched more than the server-side limit (500), the
-   * API returns `truncated=true` and `totalCount` reports the unfiltered
-   * match count. The aggregated branch (zoom < 6) never truncates → these
-   * default to `truncated=false, totalCount=observations.length`.
-   */
-  truncated: boolean;
-  totalCount: number;
 }
 
 export function useBirdData(
@@ -76,8 +67,6 @@ export function useBirdData(
   const [hotspots, setHotspots] = useState<Hotspot[]>([]);
   const [observations, setObservations] = useState<Observation[]>([]);
   const [freshestObservationAt, setFreshestObservationAt] = useState<string | null>(null);
-  const [truncated, setTruncated] = useState(false);
-  const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
@@ -102,17 +91,9 @@ export function useBirdData(
       .then(envelope => {
         if (cancelled) return;
         if (envelope.mode === 'aggregated') {
-          const synth = expandBucketsToSyntheticObservations(envelope.buckets);
-          setObservations(synth);
-          // Aggregated mode never truncates — it's already a server-side
-          // summary, not a row slice. Surface (false, synth.length) so the
-          // banner stays hidden at low zoom.
-          setTruncated(false);
-          setTotalCount(synth.length);
+          setObservations(expandBucketsToSyntheticObservations(envelope.buckets));
         } else {
           setObservations(envelope.data);
-          setTruncated(envelope.meta.truncated);
-          setTotalCount(envelope.meta.totalCount);
         }
         setFreshestObservationAt(envelope.meta.freshestObservationAt);
       })
@@ -132,5 +113,5 @@ export function useBirdData(
     filters.zoom,
   ]);
 
-  return { loading, error, hotspots, observations, freshestObservationAt, truncated, totalCount };
+  return { loading, error, hotspots, observations, freshestObservationAt };
 }

@@ -72,19 +72,6 @@ export interface FeedSurfaceProps {
    * backward-compat — when absent, rows fall back to the null-family grey.
    */
   silhouettes?: FamilySilhouette[];
-  /**
-   * #647 — feed-cap signal. When `truncated === true`, the FeedSurface
-   * renders a single-line aria-live banner above the list: "Showing 500
-   * of {totalCount} observations — narrow your filters or zoom in to see
-   * more". Hidden when false. Default false → existing call sites that
-   * have not been updated render unchanged.
-   */
-  truncated?: boolean;
-  /**
-   * #647 — unfiltered match count from the server. Read only when
-   * `truncated === true`. Default 0 (banner stays hidden).
-   */
-  totalCount?: number;
 }
 
 /**
@@ -234,8 +221,6 @@ export function FeedSurface(props: FeedSurfaceProps) {
     freshness = 'fresh',
     freshnessLabel,
     silhouettes,
-    truncated = false,
-    totalCount = 0,
   } = props;
 
   // Build the familyCode → color resolver once per silhouettes identity change.
@@ -419,23 +404,6 @@ export function FeedSurface(props: FeedSurfaceProps) {
       {/* Freshness meta line — 4-state machine per voice-and-content.md (#456 W3-A) */}
       {freshnessLabel && (
         <p className="feed-freshness">{freshnessLabel}</p>
-      )}
-
-      {/*
-        #647 — feed-cap banner. Renders only when the API reported a
-        truncated response (totalCount > 500). aria-live="polite" so screen
-        readers announce the cap on filter changes without interrupting.
-        Single-line element — no layout shift versus the un-truncated case.
-      */}
-      {truncated && (
-        <p
-          className="feed-truncated-banner"
-          role="status"
-          aria-live="polite"
-          data-testid="feed-truncated-banner"
-        >
-          Showing 500 of {totalCount.toLocaleString()} observations — narrow your filters or zoom in to see more
-        </p>
       )}
 
       {/* Context strip: SortLabel sibling ABOVE FilterSentence.

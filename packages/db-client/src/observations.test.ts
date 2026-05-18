@@ -2,9 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { startTestDb, type TestDb } from './test-helpers.js';
 import {
   upsertObservations, getObservations, getObservationsAggregated,
-  getObservationsFeed,
   runReconcileStamping,
-  OBSERVATIONS_FEED_LIMIT,
   type ObservationInput,
 } from './observations.js';
 
@@ -322,75 +320,6 @@ describe('runReconcileStamping', () => {
     expect(after[0]).not.toHaveProperty('regionId');
   });
 
-  it.skip('placeholder anchor preserved', () => {});
-});
-
-// ── getObservationsFeed (#647 — capped feed with COUNT(*) OVER ()) ────────
-describe('getObservationsFeed (#647)', () => {
-  beforeEach(async () => {
-    await db.pool.query('TRUNCATE observations');
-  });
-
-  /** Seed N observations spread across a small AZ-shaped bbox. */
-  async function seedN(n: number): Promise<void> {
-    const inputs: ObservationInput[] = [];
-    for (let i = 0; i < n; i++) {
-      inputs.push({
-        subId: `SF-${i}`,
-        speciesCode: i % 2 === 0 ? 'vermfly' : 'annhum',
-        comName: 'x',
-        lat: 32.0 + (i % 50) * 0.01,
-        lng: -111.0 + (i % 50) * 0.01,
-        // Spread obsDt so ORDER BY is meaningful; newest = highest i.
-        obsDt: new Date(Date.now() - (n - i) * 1000).toISOString(),
-        locId: `LF-${i}`,
-        locName: null,
-        howMany: 1,
-        isNotable: false,
-      });
-    }
-    // Insert in batches of 200 — single VALUES list of 600 rows trips the
-    // parameter count comfortably below the 65k pg limit, but keep batched
-    // for stability across pg-client versions.
-    for (let off = 0; off < inputs.length; off += 200) {
-      await upsertObservations(db.pool, inputs.slice(off, off + 200));
-    }
-  }
-
-  it('caps the result at OBSERVATIONS_FEED_LIMIT when total > limit and reports truncated=true with totalCount', async () => {
-    await seedN(600);
-    const result = await getObservationsFeed(db.pool, {
-      bbox: [-115, 31, -109, 37], // AZ-shaped envelope
-    });
-    expect(result.rows.length).toBe(OBSERVATIONS_FEED_LIMIT);
-    expect(result.rows.length).toBe(500);
-    expect(result.totalCount).toBe(600);
-    expect(result.truncated).toBe(true);
-  }, 60_000);
-
-  it('returns all rows when total <= limit and reports truncated=false', async () => {
-    await seedN(100);
-    const result = await getObservationsFeed(db.pool, {
-      bbox: [-115, 31, -109, 37],
-    });
-    expect(result.rows.length).toBe(100);
-    expect(result.totalCount).toBe(100);
-    expect(result.truncated).toBe(false);
-  }, 60_000);
-
-  it('returns empty result with totalCount=0 and truncated=false when no rows match', async () => {
-    await seedN(10);
-    // bbox outside the seeded AZ envelope → no matches
-    const result = await getObservationsFeed(db.pool, {
-      bbox: [-80, 25, -79, 26],
-    });
-    expect(result.rows).toEqual([]);
-    expect(result.totalCount).toBe(0);
-    expect(result.truncated).toBe(false);
-  }, 60_000);
-});
-
-describe('runReconcileStamping (anchor)', () => {
   it('is idempotent — a second run touches no rows', async () => {
     await db.pool.query(
       `INSERT INTO species_meta (species_code, com_name, sci_name, family_code, family_name)

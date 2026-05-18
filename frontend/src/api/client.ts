@@ -37,33 +37,15 @@ export class ApiClient {
     // (post-#456, pre-#627), and (c) the discriminated union (#627).
     // Normalize all three to the discriminated union so callers can switch
     // on `mode` unconditionally.
-    type LegacyEnvelope = {
-      data: Observation[];
-      meta: { freshestObservationAt: string | null; truncated?: boolean; totalCount?: number };
-    };
+    type LegacyEnvelope = { data: Observation[]; meta: { freshestObservationAt: string | null } };
     const raw = await this.get<ObservationsResponse | LegacyEnvelope | Observation[]>(
       url.pathname + url.search,
     );
     if (Array.isArray(raw)) {
-      return {
-        mode: 'observations',
-        data: raw,
-        meta: { freshestObservationAt: null, truncated: false, totalCount: raw.length },
-      };
+      return { mode: 'observations', data: raw, meta: { freshestObservationAt: null } };
     }
     if (!('mode' in raw)) {
-      return {
-        mode: 'observations',
-        data: raw.data,
-        meta: {
-          freshestObservationAt: raw.meta.freshestObservationAt,
-          // #647 — legacy envelopes (pre-#647) don't carry truncated/totalCount.
-          // Default to "not truncated" with totalCount = data.length so the
-          // banner stays hidden during the rollout window.
-          truncated: raw.meta.truncated ?? false,
-          totalCount: raw.meta.totalCount ?? raw.data.length,
-        },
-      };
+      return { mode: 'observations', data: raw.data, meta: raw.meta };
     }
     return raw;
   }
