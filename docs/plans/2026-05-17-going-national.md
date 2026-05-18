@@ -25,6 +25,7 @@ Source: dashboard-critic agent pass against the 2026-05-17 draft plus 5 structur
 - **Stage naming:** Phase 1 stages normalized to T1–T5 (drop the mixed "Stage N / T-N" naming).
 - **Phase 0 exit gates P0.k / P0.l / P0.m** confirmed explicit in §7 with exit-gate semantics (already named in draft; verified discoverable, not buried).
 - **§11 product-question wording** clarified: PR #609 landed the *plumbing* for iNat `place_id` and phenology-timezone parameterization; the product *choice* (global vs configurable; UTC vs per-observation-tz) remains open.
+- **Phase 3 / Phase 3.5 boundary** clarified: Phase 3 remains the phase boundary that names the flip itself (Step A → Step B over ≥24h), and Phase 3.5 is an **overlapping sibling** that runs concurrent with Phase 3/4 stability monitoring rather than a successor phase. The Phase 3 heading is kept as-is — "flip window" framing lives in §4 + §7 prose, not in the heading.
 
 ---
 
@@ -33,7 +34,7 @@ Source: dashboard-critic agent pass against the 2026-05-17 draft plus 5 structur
 ### Goal — what "going national" means concretely
 
 1. **Ingest expands from `US-AZ` to `US`.** The recent-lane recent-ingest cron flips from `regionCode: 'US-AZ'` to `regionCode: 'US'` and starts pulling **Shape 2** species-rollup data for the entire continental US (~683 species/day, ~2 eBird calls/day for the rollup — see Finding 5 of the analysis report). Per-state Shape 3 backfill remains state-scoped because `/historic` is not species-rolled up.
-2. **Cloud SQL replaces Neon.** Per `docs/plans/2026-05-17-cloud-sql-migration.md`, the database moves from Neon (AWS us-west-2) to Cloud SQL Postgres 16 (GCP us-west1, `db-g1-small`, zonal). Justification is dominated by the ~$230/mo cross-cloud egress delta at HN-scale traffic with 100% cache-miss on `/api/*`. Migration is a one-time `pg_dump | pg_restore` + secret-version flip.
+2. **Cloud SQL provisioned-and-dormant pre-flip; cutover deferred to Phase 4 (R1, 2026-05-18).** Per `docs/plans/2026-05-17-cloud-sql-migration.md`, the database will move from Neon (AWS us-west-2) to Cloud SQL Postgres 16 (GCP us-west1, `db-g1-small`, zonal) — but only T1+T2 (provisioning + Auth Proxy mount, both shipped) run pre-flip. T3/T4/T5 (dump+restore, secret-version flip, Neon teardown) are deferred to Phase 4 and **triggered**, not pre-conditioned, by sustained expansion-scale traffic (≥7d at 50-state-equivalent audience) that materializes the ~$230/mo cross-cloud egress delta at 100% cache-miss on `/api/*`. The egress arbitrage is the cutover trigger, not the launch precondition; Neon Launch remains primary through the flip. Migration when triggered is a one-time `pg_dump | pg_restore` + secret-version flip; reversible at ~15min RTO (§8).
 3. **14-day rolling retention.** The prune job (PR #595, queued at writeup time) deletes observations older than 14 days. National scale at AZ-shape retention would 50× the row count; the 14-day window holds total rows around the same ~17k-rows-per-state × 50 ≈ 850k order, well under any DB-tier ceiling.
 4. **HN-scale audience.** The Tier-1 audience-protection moves (rate limit PR #597, TTL caching PR #592 merged, monitoring PRs #591/#598) all ship before the flip. Capacity target: survive a 200× spike without paging Cornell and without exceeding Cloud Run's per-region scale guards.
 5. **Monitoring + heartbeat live.** The "deaf system" finding is closed: every signal has a subscriber before the flip lands. Healthchecks.io heartbeat catches cron-no-shows; Cloud Monitoring alert policies S1–S6 + uptime check fire on `julian.kennon.d@gmail.com`.
@@ -58,7 +59,7 @@ Decisions taken in the 2026-05-14 → 2026-05-17 window, with citation:
 | D1 | Commit to going national. | This session; user direction |
 | D2 | Audience multiplier assumption: **200×** (HN-scale tail), not 25× median. | Open Question O5 / Tension 2 of `analysis-report.md` |
 | D3 | Architecture: **Shape 2** national rollup + per-state Shape 3 backfill. | Recommendation 2A/2B; Finding 5 (species-rollup) |
-| D4 | DB platform: **Cloud SQL collocated in GCP us-west1**, not Neon Launch. | Recommendation 2B; `cache-hit-ratio.md` (99.91% miss, 17× break-even) |
+| D4 | DB platform: **Cloud SQL collocated in GCP us-west1** is the committed target; cutover deferred to Phase 4 per R1 (2026-05-18). Provision-and-mount (T1+T2) complete; cutover trigger = sustained expansion-scale traffic ≥7d. Neon Launch remains primary through the flip. | Recommendation 2B; `cache-hit-ratio.md` (99.91% miss, 17× break-even); R1 amendment §0 |
 | D5 | **14-day rolling retention** via the prune job (issue #587 / PR #595). | Recommendation 2C-adjacent (lean storage) + national row-count math |
 | D6 | Heartbeat strategy: **Healthchecks.io** (free tier), not Cloud Monitoring custom-metric absent-for. | `2026-05-17-monitoring-and-alerts.md` §"Heartbeat strategy" + D2 decision |
 | D7 | Audience protection: Tier-1 **rate limit ships before the flip** (PR #597). | Tension 2; Recommendation 1E |
@@ -419,21 +420,22 @@ Numbers sourced from `analysis-report.md` Tables A–B + `2026-05-17-cloud-sql-m
 | Phase | Compute | DB | Egress | Storage | Total |
 |---|---|---|---|---|---|
 | AZ today | <$1 | $0 (Neon Free) | <$1 | $0 | **<$5** |
-| AZ + monitoring + rate-limit + prune (Phase 0 complete, pre-Cloud SQL) | <$1 | $0 | <$1 | $0 | **<$5** |
-| AZ on Cloud SQL (Phase 1, pre-flip) | <$1 | ~$25 | <$1 | <$1 | **~$27** |
-| **National launch (Phase 3 complete, 25× audience baseline)** | ~$5 | ~$25 | <$1 (intra-region) | ~$1 | **~$32** |
-| **National steady-state (200× audience tail, HN spike absorbed)** | ~$15–30 | ~$25–45 (one tier up) | <$1 | ~$2 | **~$45–80** |
+| AZ + monitoring + rate-limit + prune (Phase 0 complete) | <$1 | $0 (Neon Free) | <$1 | $0 | **<$5** |
+| Cloud SQL provisioned-and-dormant (T1+T2 shipped, idle alongside Neon) | <$1 | ~$25 idle | <$1 | <$1 | **~$27** |
+| **National launch (Phase 3 complete, 25× audience baseline) — Neon Launch primary, Cloud SQL still dormant** | ~$5 | ~$19 (Neon Launch) + ~$25 (Cloud SQL idle) | <$1 (intra-region for cached traffic) | ~$1 | **~$50** |
+| **National steady-state (200× audience tail, HN spike absorbed) — Neon Launch primary** | ~$15–30 | ~$19–35 (Neon Launch + ~$25 Cloud SQL idle) | varies with miss-rate | ~$2 | **~$60–90** |
+| **Phase 4 conditional optimization — post-cutover (R1 trigger fired): Cloud SQL primary, Neon torn down** | ~$15–30 | ~$25–45 (Cloud SQL one tier up) | <$1 (intra-region) | ~$2 | **~$45–80** |
 
-Cost band reconciles with `analysis-report.md` 50-state Table B Shape 2 + Cloud SQL row (~$80/mo upper bound).
+The Cloud SQL row appears in two places by design: as a ~$25 idle line item pre-cutover (paying for provisioned-and-dormant readiness, R1) and as the primary-DB cost post-cutover. Under R1 the cutover is a *conditional post-flip optimization* triggered by sustained expansion-scale traffic (≥7d), not a pre-flip step. Until that trigger fires, the ~$230/mo egress arbitrage is theoretical and Neon Launch carries the workload. Cost band reconciles with `analysis-report.md` 50-state Table B Shape 2 + Cloud SQL row (~$80/mo upper bound, applies post-cutover).
 
 **Budget alerts (set during Phase 0):**
 
 - GCP project `bird-maps-prod` budget alert at $50/mo (50% of upper-band) and $100/mo (hard ceiling).
 - Cloudflare account dashboard: enable Workers paid-tier opt-in disabled (stay on free tier; runaway Worker bills $5/10M requests once paid is enabled — keep off until needed).
 - Healthchecks.io: free-tier covers v1 (20 checks vs ~6 used).
-- Neon: removed in T5; budget alert no longer relevant.
+- Neon: remains primary through the flip per R1; keep the existing Neon budget alert in place until T5 (Phase 4) lands. Remove alert only after Cloud SQL cutover fires and Neon is torn down.
 
-**Egress sanity:** at 99.91% miss × 200× audience the projected egress is dominated by GCP→Cloudflare PoP (free for our pattern, intra-region us-west1 → Cloudflare). The pre-Cloud SQL number ($230/mo Neon-side at HN-scale) is the avoided cost, not a planned cost.
+**Egress sanity:** at 99.91% miss × 200× audience the *post-cutover* projected egress is dominated by GCP→Cloudflare PoP (free for our pattern, intra-region us-west1 → Cloudflare). The ~$230/mo Neon-side cross-cloud egress number is the **avoided cost that defines the R1 cutover trigger**, not a planned line item — pre-cutover the egress is paid against Neon's AWS-side allowance and stays inside free-tier bounds at AZ + early national scale. When sustained expansion-scale traffic (≥7d) makes that egress real, the R1 trigger fires and Phase 4 P4.a executes the cutover.
 
 ---
 
@@ -443,7 +445,7 @@ Cost band reconciles with `analysis-report.md` 50-state Table B Shape 2 + Cloud 
 2. **iNaturalist `place_id` photo lookup — product choice still open.** PR #609 landed the *plumbing* (parameterized `place_id` instead of hard-coded 40). The *product choice* — global default vs configurable per-deploy default — is still open. National species not yet observed in AZ will have no `place_id=40` photo; the fallback path works but introduces a UX asymmetry. Switching the default to global is one config change; needs a one-shot product call.
 3. **Phenology month-boundary timezone — product choice still open.** PR #609 landed the *plumbing* (parameterized timezone instead of hard-coded `America/Phoenix`). The *product choice* — UTC for all observations vs per-observation timezone derived from `geom` — is still open. UTC is simpler and matches eBird's own convention; per-observation-tz is more faithful to the observer's local season but requires a TZ lookup per row. **Files as an open question** for a v1.1 follow-up.
 4. **Hotspot density at 100k markers.** The cluster + adaptive-grid layers haven't been load-tested at national scale. Browser-side smoke at the canonical viewport set is the highest-risk pre-flip frontend item.
-5. **Cloud SQL HA at scale.** Currently zonal; if HN-scale traffic surfaces a single-zone availability incident in the first 30 days, flip to REGIONAL ($25 → $50/mo). Document the trigger as "any availability incident attributable to zone failure in the first 30 days".
+5. **Cloud SQL cutover timing — *when*, not *whether* (R1, 2026-05-18).** The migration is committed (D4); only timing is open. R1 defers T3+T4 (the actual cutover) to Phase 4, triggered by sustained expansion-scale traffic ≥7d at 50-state-equivalent audience such that the ~$230/mo cross-cloud egress delta is materially worth the operator cost. Open sub-question: precise quantitative threshold for "sustained expansion-scale" — current draft is calendar-time (≥7d) crossed with audience-size (50-state-equivalent), but a request-rate or cache-miss-rate threshold may be more falsifiable. Secondary sub-question (post-cutover): **Cloud SQL HA at scale.** Launches zonal; if post-cutover HN-scale traffic surfaces a single-zone availability incident in the first 30 days after T4, flip to REGIONAL ($25 → $50/mo). Document the trigger as "any availability incident attributable to zone failure in the first 30 days post-cutover".
 6. **Cloudflare Pages request-count caps.** Phase 0 of the analysis brief flagged this as a suspected unknown. The free tier has a 100k requests/day cap; at 200× HN spike that's 4 hours of viral attention before paid tier kicks in. **Decision: keep Pages on free tier**; if the cap fires, the static frontend serves 1000-class errors briefly. Acceptable degradation; revisit if it happens.
 
 ---
