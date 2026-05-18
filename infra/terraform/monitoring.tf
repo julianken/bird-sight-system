@@ -314,3 +314,130 @@ resource "google_monitoring_alert_policy" "read_api_uptime" {
     }
   }
 }
+
+# ── Per-kind ingest completion counter ────────────────────────────────────
+#
+# Counter log-based metric extracted from the compact structured emit at
+# services/ingestor/src/cli.ts:174 (`bird_ingest_run_completed`). Powers the
+# Row 2.1 widget on the bird-watch overview dashboard
+# (infra/terraform/monitoring-dashboard.tf).
+#
+# Emit-shape contract (must remain stable — see docs/runbooks/monitoring.md):
+#   { message: "bird_ingest_run_completed", kind, status, duration_seconds }
+# The two `!=NULL_VALUE` clauses drop malformed entries during a future
+# emit-shape regression rather than landing garbage into the metric stream.
+
+resource "google_logging_metric" "ingest_run_completed" {
+  name = "bird-ingest-run-completed"
+  filter = join(" AND ", [
+    "resource.type=\"cloud_run_job\"",
+    "resource.labels.job_name=~\"^bird-ingestor\"",
+    "jsonPayload.message=\"bird_ingest_run_completed\"",
+    "jsonPayload.kind!=NULL_VALUE",
+    "jsonPayload.status!=NULL_VALUE",
+  ])
+  metric_descriptor {
+    metric_kind  = "DELTA"
+    value_type   = "INT64"
+    unit         = "1"
+    display_name = "Ingest run completions by kind+status"
+    labels {
+      key         = "kind"
+      value_type  = "STRING"
+      description = "Ingest kind"
+    }
+    labels {
+      key         = "status"
+      value_type  = "STRING"
+      description = "Terminal status"
+    }
+  }
+  label_extractors = {
+    "kind"   = "EXTRACT(jsonPayload.kind)"
+    "status" = "EXTRACT(jsonPayload.status)"
+  }
+}
+
+# ── Per-kind ingest duration distribution ─────────────────────────────────
+#
+# Distribution metric extracting `duration_seconds` from the same emit.
+# Powers the Row 2.2 widget (p95 duration by kind). Bucket layout:
+# exponential(scale=1, growth=2, finite=32) covers 1s..~4×10^9 s — comfortably
+# spans the slowest ingest kind (`backfill-extended`, multi-hour) without
+# wasting bucket density at the fast end.
+
+resource "google_logging_metric" "ingest_run_duration_seconds" {
+  name = "bird-ingest-run-duration-seconds"
+  filter = join(" AND ", [
+    "resource.type=\"cloud_run_job\"",
+    "resource.labels.job_name=~\"^bird-ingestor\"",
+    "jsonPayload.message=\"bird_ingest_run_completed\"",
+    "jsonPayload.kind!=NULL_VALUE",
+    "jsonPayload.duration_seconds!=NULL_VALUE",
+  ])
+  metric_descriptor {
+    metric_kind  = "DELTA"
+    value_type   = "DISTRIBUTION"
+    unit         = "s"
+    display_name = "Ingest run duration by kind"
+    labels {
+      key         = "kind"
+      value_type  = "STRING"
+      description = "Ingest kind"
+    }
+  }
+  value_extractor = "EXTRACT(jsonPayload.duration_seconds)"
+  label_extractors = {
+    "kind" = "EXTRACT(jsonPayload.kind)"
+  }
+  bucket_options {
+    exponential_buckets {
+      num_finite_buckets = 32
+      growth_factor      = 2
+      scale              = 1
+    }
+  }
+}
+
+# ── Dashboard-opens audit (for 30-day stickiness review) ──────────────────
+#
+# Counts `monitoring.dashboards.get` audit-log calls; powers the audit
+# follow-up that decides at T+30d whether the dashboard is being used (and
+# at T+90d whether to kill it if quarterly opens ≤ 1). The filter currently
+# matches dashboard opens project-wide — after the first Apply, narrow to
+# our specific dashboard ID by uncommenting the `resourceName=~...` clause
+# below (the dashboard ID is not known until after Apply).
+
+resource "google_logging_metric" "bird_watch_dashboard_opened" {
+  name = "bird-watch-dashboard-opened"
+  filter = join(" AND ", [
+    "logName=~\"cloudaudit.googleapis.com\"",
+    "protoPayload.methodName=\"monitoring.dashboards.get\"",
+    # Filter to OUR dashboard only; uncomment after first Apply once the
+    # dashboard ID is known:
+    # "protoPayload.resourceName=~\"projects/.+/dashboards/<DASHBOARD_ID>\"",
+  ])
+  metric_descriptor {
+    metric_kind  = "DELTA"
+    value_type   = "INT64"
+    unit         = "1"
+    display_name = "Bird-watch dashboard opens (Cloud Audit)"
+  }
+}
+
+# ── Enable Data Access audit logs for Cloud Monitoring ────────────────────
+#
+# Required for `monitoring.dashboards.get` to land in audit logs (Data Access
+# audit logs are off by default for all GCP services). Marginal cost is ~$0
+# against current monitoring traffic — dashboard reads are low-volume and
+# count against the same audit-log ingest quota that admin-activity logs use.
+# This must be paired with `google_logging_metric.bird_watch_dashboard_opened`
+# above; the metric extracts events that this resource enables.
+
+resource "google_project_iam_audit_config" "monitoring_data_read" {
+  project = var.gcp_project_id
+  service = "monitoring.googleapis.com"
+  audit_log_config {
+    log_type = "DATA_READ"
+  }
+}
