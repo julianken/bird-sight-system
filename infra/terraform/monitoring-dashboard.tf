@@ -8,20 +8,20 @@
 #
 # Landmines (per docs/analyses/2026-05-18-monitoring-dashboard-issue-638
 # /phase-4/analysis-report.md §F4 / Iterator 2):
-#   L1: `terraform validate` does NOT validate dashboard_json content.
-#       Invented widget types pass validate but fail at Apply. Cross-check
-#       widget structs against the live Google Monitoring v3 schema (or copy
-#       a known-good widget from an existing dashboard) before adding new
-#       tile shapes.
+#   L1: `dashboard_json` diff-suppression silently drops remove-only edits.
+#       To remove a widget cleanly, pair the removal with a non-removal
+#       change (touch a title or description in the same Apply) — otherwise
+#       Terraform reports a clean diff but the widget remains.
 #   L6: `mosaicLayout.columns` is INTEGER (12), not string. `gridLayout
 #       .columns` IS a string — different schemas. This dashboard uses
 #       mosaicLayout exclusively; mixing the two produces a low-quality
 #       server-side 400 at Apply.
 #
-# Diff-suppression caveat: legitimate remove-only edits to `dashboard_json`
-# are silently dropped by the provider unless paired with a non-removal
-# change. To remove a widget cleanly, touch a title or description in the
-# same Apply so the provider sees a non-empty diff.
+# Also: `terraform validate` does NOT validate the contents of
+# `dashboard_json`. Invented widget types pass validate but fail at Apply.
+# Cross-check widget structs against the live Google Monitoring v3 schema
+# (or copy a known-good widget from an existing dashboard) before adding
+# new tile shapes.
 
 resource "google_monitoring_dashboard" "bird_watch_overview" {
   project = var.gcp_project_id
