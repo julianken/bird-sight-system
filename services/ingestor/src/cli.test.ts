@@ -334,10 +334,12 @@ describe('runCli', () => {
     await runCli('recent', deps);
 
     const emitted = logSpy.mock.calls
-      .map((args: unknown[]) => {
+      .map((args: unknown[]): unknown => {
         try { return JSON.parse(args[0] as string); } catch { return null; }
       })
-      .filter((o): o is Record<string, unknown> => o?.message === 'bird_ingest_run_completed');
+      .filter((o: unknown): o is Record<string, unknown> =>
+        typeof o === 'object' && o !== null && (o as Record<string, unknown>).message === 'bird_ingest_run_completed'
+      );
     expect(emitted).toHaveLength(1);
     expect(emitted[0]).toMatchObject({
       severity: 'INFO',
@@ -372,10 +374,12 @@ describe('runCli', () => {
     await runCli('taxonomy', deps);
 
     const emitted = logSpy.mock.calls
-      .map((args: unknown[]) => {
+      .map((args: unknown[]): unknown => {
         try { return JSON.parse(args[0] as string); } catch { return null; }
       })
-      .filter((o): o is Record<string, unknown> => o?.message === 'bird_ingest_run_completed');
+      .filter((o: unknown): o is Record<string, unknown> =>
+        typeof o === 'object' && o !== null && (o as Record<string, unknown>).message === 'bird_ingest_run_completed'
+      );
     expect(emitted).toHaveLength(1);
     expect(emitted[0]).toMatchObject({
       severity: 'ERROR',
