@@ -1,4 +1,4 @@
-import { test, expect, VERMFLY, VERMFLY_WITH_PHOTO } from './fixtures.js';
+import { test, expect, VERMFLY, VERMFLY_OBS, VERMFLY_WITH_PHOTO } from './fixtures.js';
 import { AppPage } from './pages/app-page.js';
 
 /**
@@ -57,7 +57,12 @@ test.describe('species detail surface (#151)', () => {
     expect(speciesParam).toBeNull();
   });
 
-  test('FiltersBar species commit narrows feed without opening detail', async ({ page }) => {
+  test('FiltersBar species commit narrows feed without opening detail', async ({ page, apiStub }) => {
+    // /api/observations now (#627) returns aggregated buckets at low zoom;
+    // synthetic obs carry family names as comName, so the species typeahead
+    // needs a real-species observation stubbed in to resolve
+    // "Vermilion Flycatcher" → "vermfly".
+    await apiStub.stubObservations(VERMFLY_OBS);
     const app = new AppPage(page);
     await app.goto('view=feed');
     await app.waitForAppReady();
