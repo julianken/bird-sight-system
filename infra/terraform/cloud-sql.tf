@@ -174,3 +174,27 @@ resource "google_secret_manager_secret_version" "cloudsql_db_url" {
   secret      = google_secret_manager_secret.cloudsql_db_url.id
   secret_data = local.cloudsql_pooled_url
 }
+
+# Grant Cloud SQL client role to the service accounts whose Cloud Run workloads
+# mount the Cloud SQL Auth Proxy sidecar. Without this, the proxy fails with
+# `boss::NOT_AUTHORIZED ... missing permission cloudsql.instances.get` and the
+# downstream connection sees `connect ENOENT /cloudsql/<conn>/.s.PGSQL.5432`.
+# Surfaced 2026-05-18 when ingestor dual-write went live: T2 (#615) mounted the
+# Auth Proxy volume on every workload but the IAM grant was missed.
+resource "google_project_iam_member" "cloudsql_client_admin_api" {
+  project = var.gcp_project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:${google_service_account.admin_api.email}"
+}
+
+resource "google_project_iam_member" "cloudsql_client_ingestor" {
+  project = var.gcp_project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:${google_service_account.ingestor.email}"
+}
+
+resource "google_project_iam_member" "cloudsql_client_read_api" {
+  project = var.gcp_project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:${google_service_account.read_api.email}"
+}
