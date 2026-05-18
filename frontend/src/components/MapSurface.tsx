@@ -110,7 +110,7 @@ export interface MapSurfaceProps {
    * MapCanvas registers no viewport-change listener and the FamilyLegend
    * keeps showing full-set counts.
    */
-  onViewportChange?: (bounds: LngLatBounds) => void;
+  onViewportChange?: (bounds: LngLatBounds, zoom: number) => void;
   // --- Phase 3: context strip ---
   /** Time-window filter (mirrors UrlState.since). */
   since: Since;

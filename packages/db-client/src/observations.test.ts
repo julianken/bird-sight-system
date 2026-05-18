@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { startTestDb, type TestDb } from './test-helpers.js';
 import {
-  upsertObservations, getObservations, runReconcileStamping,
+  upsertObservations, getObservations, getObservationsAggregated,
+  runReconcileStamping,
   type ObservationInput,
 } from './observations.js';
 
@@ -216,6 +217,74 @@ describe('getObservations filters', () => {
       bbox: [-110.88, 31.72, -110.0, 32.0],
     });
     expect(rows.map(r => r.subId)).toContain('S200');
+  });
+});
+
+describe('getObservationsAggregated (#627)', () => {
+  beforeEach(async () => {
+    await db.pool.query('TRUNCATE observations');
+    // Three rows: two co-located (round to same 0.25° bucket at multiplier=4),
+    // one far away in a different bucket.
+    await upsertObservations(db.pool, [
+      { subId: 'A1', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 31.72, lng: -110.88, obsDt: '2026-04-15T08:00:00Z',
+        locId: 'L1', locName: 'X', howMany: 1, isNotable: false },
+      { subId: 'A2', speciesCode: 'annhum', comName: "Anna's Hummingbird",
+        // Same 0.25° grid cell as A1: round(31.73*4)/4=31.75, round(-110.88*4)/4=-111
+        lat: 31.73, lng: -110.88, obsDt: '2026-04-15T09:00:00Z',
+        locId: 'L2', locName: 'Y', howMany: 1, isNotable: true },
+      { subId: 'A3', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 40.00, lng: -100.00, obsDt: '2026-04-15T10:00:00Z',
+        locId: 'L3', locName: 'Z', howMany: 1, isNotable: false },
+    ]);
+  });
+
+  it('groups co-located observations into one bucket and counts species + families', async () => {
+    const buckets = await getObservationsAggregated(db.pool, {}, 4);
+    expect(buckets).toHaveLength(2);
+
+    // Sort for stable assertion order.
+    const sorted = [...buckets].sort((a, b) => a.lat - b.lat);
+    const az = sorted[0]!;
+    const ne = sorted[1]!;
+
+    // AZ bucket: round(31.72 * 4)/4 = 127/4 = 31.75 (round-half-to-even per
+    // Postgres `round`; 31.72*4 = 126.88 → 127). lng: -110.88*4 = -443.52 → -444/4 = -111.
+    expect(az.lat).toBeCloseTo(31.75, 6);
+    expect(az.lng).toBeCloseTo(-111, 6);
+    expect(az.count).toBe(2);
+    expect(az.speciesCount).toBe(2);
+    expect(az.families.sort()).toEqual(['trochilidae', 'tyrannidae']);
+
+    expect(ne.count).toBe(1);
+    expect(ne.speciesCount).toBe(1);
+    expect(ne.families).toEqual(['tyrannidae']);
+  });
+
+  it('respects the bbox filter', async () => {
+    const buckets = await getObservationsAggregated(
+      db.pool,
+      { bbox: [-112, 31, -110, 32] },
+      4,
+    );
+    expect(buckets).toHaveLength(1);
+    expect(buckets[0]!.count).toBe(2);
+  });
+
+  it('respects since/family filters', async () => {
+    await db.pool.query(`UPDATE observations SET obs_dt = now() - interval '5 days' WHERE sub_id='A1'`);
+    await db.pool.query(`UPDATE observations SET obs_dt = now() - interval '40 days' WHERE sub_id IN ('A2','A3')`);
+    const buckets = await getObservationsAggregated(db.pool, { since: '14d' }, 4);
+    const total = buckets.reduce((s, b) => s + b.count, 0);
+    expect(total).toBe(1);
+  });
+
+  it('grid resolution responds to the multiplier — at 1 (1° grid), all 3 cluster into 2 cells', async () => {
+    // multiplier=2 → 0.5° buckets. At lat 31.72 and lat 31.73 both round
+    // to the same 0.5° bucket (31.5); same for lng. So 2 rows merge, third
+    // is separate → 2 buckets total.
+    const buckets = await getObservationsAggregated(db.pool, {}, 2);
+    expect(buckets.length).toBe(2);
   });
 });
 

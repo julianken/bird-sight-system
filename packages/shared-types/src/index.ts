@@ -153,20 +153,49 @@ export type ObservationFilters = {
    * Serialized as `?bbox=west,south,east,north` on the wire.
    */
   bbox?: [number, number, number, number];
+  /**
+   * Map zoom level. When `bbox` is set and `zoom < 6` the read-api returns
+   * a coarse-grid aggregated bucket payload instead of per-observation rows
+   * to keep the CONUS-view payload below the Phase 2 <2 MB gate. Issue #627.
+   */
+  zoom?: number;
 };
 
 /**
- * Envelope returned by GET /api/observations.
- * The meta.freshestObservationAt field is the ISO string of the most
- * recently inserted observation (MAX(inserted_at) from the DB).
- * Null when the observations table is empty.
- *
- * Spec: docs/design/01-spec/voice-and-content.md §Freshness label state machine
- * Issue: #456 W3-A
+ * One coarse-grid bucket returned by the aggregated /api/observations mode
+ * (zoom < 6). The bucket lat/lng is the grid center; `count` is the total
+ * observations in the cell; `families` is the de-duplicated list of family
+ * codes (may include nulls collapsed out, per the SQL `FILTER (WHERE family IS NOT NULL)`).
+ * Issue #627.
  */
-export interface ObservationsResponse {
-  data: Observation[];
-  meta: {
-    freshestObservationAt: string | null;
-  };
+export interface AggregatedBucket {
+  lat: number;
+  lng: number;
+  count: number;
+  speciesCount: number;
+  families: string[];
 }
+
+/**
+ * Discriminated-union response from GET /api/observations.
+ *
+ * - `mode === 'observations'` (default; also when zoom >= 6 with bbox):
+ *   per-observation rows as before. Spec: docs/design/01-spec/voice-and-content.md
+ *   §Freshness label state machine. Issue #456 W3-A.
+ * - `mode === 'aggregated'` (issue #627): coarse-grid aggregation buckets.
+ *   Triggered server-side when `bbox` is present and `zoom < 6`.
+ *
+ * `meta.freshestObservationAt` carries the same MAX(ingested_at) signal in
+ * both modes so the frontend's freshness state machine stays consumer-agnostic.
+ */
+export type ObservationsResponse =
+  | {
+      mode: 'observations';
+      data: Observation[];
+      meta: { freshestObservationAt: string | null };
+    }
+  | {
+      mode: 'aggregated';
+      buckets: AggregatedBucket[];
+      meta: { freshestObservationAt: string | null };
+    };

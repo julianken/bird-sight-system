@@ -32,6 +32,42 @@ describe('ApiClient', () => {
     expect(url).toMatch(/bbox=-125(?:%2C|,)24(?:%2C|,)-66(?:%2C|,)50/);
   });
 
+  it('serializes zoom as ?zoom=N on /api/observations (#627)', async () => {
+    const envelope = JSON.stringify({
+      mode: 'observations', data: [], meta: { freshestObservationAt: null },
+    });
+    vi.spyOn(global, 'fetch').mockResolvedValue(new Response(envelope, { status: 200 }));
+    const client = new ApiClient({ baseUrl: '' });
+    await client.getObservations({ bbox: [-125, 24, -66, 50], zoom: 4 });
+    const call = (fetch as unknown as { mock: { calls: [string, unknown][] } }).mock.calls[0]!;
+    expect(call[0]).toMatch(/zoom=4/);
+  });
+
+  it('normalizes legacy envelope (no `mode` field) into mode=observations (#627)', async () => {
+    const legacy = JSON.stringify({ data: [], meta: { freshestObservationAt: null } });
+    vi.spyOn(global, 'fetch').mockResolvedValue(new Response(legacy, { status: 200 }));
+    const client = new ApiClient({ baseUrl: '' });
+    const res = await client.getObservations({});
+    expect(res.mode).toBe('observations');
+    if (res.mode === 'observations') expect(res.data).toEqual([]);
+  });
+
+  it('passes through aggregated envelope unchanged (#627)', async () => {
+    const agg = JSON.stringify({
+      mode: 'aggregated',
+      buckets: [{ lat: 31.75, lng: -111, count: 5, speciesCount: 2, families: ['tyrannidae'] }],
+      meta: { freshestObservationAt: null },
+    });
+    vi.spyOn(global, 'fetch').mockResolvedValue(new Response(agg, { status: 200 }));
+    const client = new ApiClient({ baseUrl: '' });
+    const res = await client.getObservations({ bbox: [-125, 24, -66, 50], zoom: 3 });
+    expect(res.mode).toBe('aggregated');
+    if (res.mode === 'aggregated') {
+      expect(res.buckets).toHaveLength(1);
+      expect(res.buckets[0]?.count).toBe(5);
+    }
+  });
+
   it('throws on non-2xx response', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValue(new Response('boom', { status: 500 }));
     const client = new ApiClient({ baseUrl: '' });
