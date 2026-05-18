@@ -1,12 +1,13 @@
 import { useEffect } from 'react';
 import type { View } from '../state/url-state.js';
+import { REGION_LABEL } from '../config/region.js';
 
 interface SurfaceTitleSyncProps {
   view: View;
   speciesCommonName: string | null;
 }
 
-const SITE_SUFFIX = 'Bird Maps · Arizona';
+const SITE_SUFFIX = `Bird Maps · ${REGION_LABEL}`;
 
 function buildTitle(view: View, speciesCommonName: string | null): string {
   switch (view) {
