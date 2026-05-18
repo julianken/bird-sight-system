@@ -263,18 +263,18 @@ resource "google_monitoring_alert_policy" "container_crash" {
 
 # ── Uptime check on the public read-api ─────────────────────────────────
 #
-# Synthetic monitoring: GCP regions ping /api/regions every 60s. Alert
+# Synthetic monitoring: GCP regions ping /health every 60s. Alert
 # fires if regions fail for consecutive checks. Catches DNS / TLS /
 # Cloud Run cold-fail issues that the request_count metric can't see
 # (because by definition there are no requests landing).
 
 resource "google_monitoring_uptime_check_config" "read_api" {
-  display_name = "read-api /api/regions"
+  display_name = "read-api /health"
   timeout      = "10s"
   period       = "60s"
 
   http_check {
-    path           = "/api/regions"
+    path           = "/health"
     port           = 443
     use_ssl        = true
     validate_ssl   = true
