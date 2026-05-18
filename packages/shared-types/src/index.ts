@@ -145,6 +145,17 @@ export type ObservationFilters = {
   notable?: boolean;
   speciesCode?: string;
   familyCode?: string;
+  /**
+   * Viewport bounding box [minLon, minLat, maxLon, maxLat] in EPSG:4326.
+   * When present, the result is narrowed via PostGIS
+   * `geom && ST_MakeEnvelope(...) AND ST_Intersects(geom, ST_MakeEnvelope(...))`
+   * — the `&&` predicate is index-friendly (uses obs_geom_idx GIST) and
+   * `ST_Intersects` removes false-positives at the envelope boundary.
+   * Added 2026-05-17 (#619) as a Phase 2 pre-condition for the going-national
+   * flip — without it, the national observation set ships ~24 MB JSON per
+   * map load.
+   */
+  bbox?: [number, number, number, number];
 };
 
 /**
