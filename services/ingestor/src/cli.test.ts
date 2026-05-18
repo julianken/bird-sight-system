@@ -337,4 +337,119 @@ describe('runCli', () => {
     expect(pingSpy).toHaveBeenCalledWith('https://hc-ping.com/uuid-bf-ext', 'backfill-extended');
     delete process.env.HEALTHCHECKS_URL_BACKFILL_EXTENDED;
   });
+
+  describe('dual-write wiring (SECONDARY_DATABASE_URL)', () => {
+    // The dual-write wrapper itself is unit-tested in
+    // packages/db-client/src/dual-write-pool.test.ts. These CLI-level tests
+    // verify the wiring: that runCli builds the wrapper when SECONDARY_DATABASE_URL
+    // is set, that both pools are closed, and that the behavior degrades to
+    // single-write when the env var is absent.
+
+    it('does NOT engage dual-write when SECONDARY_DATABASE_URL is unset', async () => {
+      delete process.env.SECONDARY_DATABASE_URL;
+      const createDualSpy = vi.fn();
+      const successSummary: RunSummary = { status: 'success', fetched: 0, upserted: 0 };
+      const deps = makeDeps({
+        runIngest: vi.fn().mockResolvedValue(successSummary),
+        createDualWritePool: createDualSpy,
+      });
+
+      await runCli('recent', deps);
+
+      expect(createDualSpy).not.toHaveBeenCalled();
+      expect(deps.createPool).toHaveBeenCalledTimes(1);
+      expect(deps.closePool).toHaveBeenCalledTimes(1);
+    });
+
+    it('engages dual-write when SECONDARY_DATABASE_URL is set; both pools created and closed', async () => {
+      process.env.SECONDARY_DATABASE_URL = 'postgres://secondary';
+      const PRIMARY = Symbol('primary') as unknown as import('@bird-watch/db-client').Pool;
+      const SECONDARY = Symbol('secondary') as unknown as import('@bird-watch/db-client').Pool;
+      const WRAPPED = Symbol('wrapped') as unknown as import('@bird-watch/db-client').Pool;
+
+      // createPool is called twice — once per URL — and returns distinct pool
+      // sentinels so we can assert closePool was called on each.
+      const createPool = vi.fn()
+        .mockReturnValueOnce(PRIMARY)
+        .mockReturnValueOnce(SECONDARY);
+      const createDualWritePool = vi.fn().mockReturnValue(WRAPPED);
+      const closePool = vi.fn().mockResolvedValue(undefined);
+
+      const successSummary: RunSummary = { status: 'success', fetched: 5, upserted: 5 };
+      const runIngest = vi.fn().mockResolvedValue(successSummary);
+
+      const deps: CliDeps = {
+        createPool,
+        closePool,
+        createDualWritePool,
+        runIngest,
+        runHotspotIngest: vi.fn(),
+        runBackfill: vi.fn(),
+        runTaxonomy: vi.fn(),
+        runPhotos: vi.fn(),
+        runDescriptions: vi.fn(),
+        runPrune: vi.fn(),
+        fetchWikipediaSummary: vi.fn(),
+        fetchInatTaxon: vi.fn(),
+      };
+
+      await runCli('recent', deps);
+
+      expect(createPool).toHaveBeenNthCalledWith(1, { databaseUrl: 'postgres://x' });
+      expect(createPool).toHaveBeenNthCalledWith(2, { databaseUrl: 'postgres://secondary' });
+      expect(createDualWritePool).toHaveBeenCalledWith({
+        primary: PRIMARY,
+        secondary: SECONDARY,
+        kind: 'recent',
+      });
+      // The runner receives the WRAPPED pool (so writes fan out).
+      expect(runIngest).toHaveBeenCalledWith(expect.objectContaining({ pool: WRAPPED }));
+      // Both underlying pools get closed.
+      expect(closePool).toHaveBeenCalledWith(PRIMARY);
+      expect(closePool).toHaveBeenCalledWith(SECONDARY);
+
+      delete process.env.SECONDARY_DATABASE_URL;
+    });
+
+    it('swallows + logs when secondary closePool fails (does not mask primary outcome)', async () => {
+      process.env.SECONDARY_DATABASE_URL = 'postgres://secondary';
+      const PRIMARY = Symbol('primary') as unknown as import('@bird-watch/db-client').Pool;
+      const SECONDARY = Symbol('secondary') as unknown as import('@bird-watch/db-client').Pool;
+      const WRAPPED = Symbol('wrapped') as unknown as import('@bird-watch/db-client').Pool;
+
+      const createPool = vi.fn()
+        .mockReturnValueOnce(PRIMARY)
+        .mockReturnValueOnce(SECONDARY);
+      const closePool = vi.fn(async (p: unknown) => {
+        if (p === SECONDARY) throw new Error('secondary close blew up');
+      });
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const successSummary: RunSummary = { status: 'success', fetched: 0, upserted: 0 };
+      const deps: CliDeps = {
+        createPool,
+        closePool,
+        createDualWritePool: vi.fn().mockReturnValue(WRAPPED),
+        runIngest: vi.fn().mockResolvedValue(successSummary),
+        runHotspotIngest: vi.fn(),
+        runBackfill: vi.fn(),
+        runTaxonomy: vi.fn(),
+        runPhotos: vi.fn(),
+        runDescriptions: vi.fn(),
+        runPrune: vi.fn(),
+        fetchWikipediaSummary: vi.fn(),
+        fetchInatTaxon: vi.fn(),
+      };
+
+      // Should NOT throw — secondary lifecycle errors must not mask the
+      // primary run's success.
+      await expect(runCli('recent', deps)).resolves.toBeUndefined();
+      expect(errSpy).toHaveBeenCalledWith(
+        expect.stringContaining('dual_write_secondary_failed')
+      );
+
+      errSpy.mockRestore();
+      delete process.env.SECONDARY_DATABASE_URL;
+    });
+  });
 });

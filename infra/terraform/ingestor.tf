@@ -9,6 +9,29 @@ resource "google_secret_manager_secret_iam_member" "ingestor_db" {
   member    = "serviceAccount:${google_service_account.ingestor.email}"
 }
 
+# ── Cloud SQL secondary URL (Neon→Cloud SQL migration, T3→T4) ───────────
+#
+# Stores the Cloud SQL pooled URL (libpq unix-socket form) so the ingester
+# can dual-write to it via SECONDARY_DATABASE_URL. While this secret is
+# populated, the ingester's dual-write wrapper fans out every INSERT/UPDATE/
+# DELETE/TRUNCATE/MERGE to Cloud SQL in addition to the primary Neon write.
+# Secondary failures self-heal via idempotent upserts on the next tick.
+# See packages/db-client/src/dual-write-pool.ts and
+# docs/plans/2026-05-17-cloud-sql-migration.md.
+#
+# This is purely additive. To decommission dual-write later (post-cutover),
+# remove the four env { name = "SECONDARY_DATABASE_URL" ... } blocks below
+# and delete this secret.
+#
+# The secret resource itself (google_secret_manager_secret.cloudsql_db_url) is
+# defined in cloud-sql.tf alongside the Cloud SQL instance that produces its
+# value. This file only grants the ingester service account access.
+resource "google_secret_manager_secret_iam_member" "ingestor_cloudsql_db" {
+  secret_id = google_secret_manager_secret.cloudsql_db_url.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.ingestor.email}"
+}
+
 resource "google_secret_manager_secret" "ebird_key" {
   secret_id = "bird-watch-ebird-key"
   replication {
@@ -120,6 +143,22 @@ resource "google_cloud_run_v2_job" "ingestor" {
             }
           }
         }
+        # SECONDARY_DATABASE_URL — Cloud SQL fan-out for the Neon→Cloud SQL
+        # migration (Stage 3, dual-write). When set, the ingester's dual-write
+        # pool fans every INSERT/UPDATE/DELETE/TRUNCATE/MERGE to this URL in
+        # addition to DATABASE_URL. Secondary failures are logged
+        # (`dual_write_secondary_failed`) and swallowed; the next tick
+        # self-heals via idempotent upserts. Remove this block (and the
+        # cloudsql_db_url secret) post-cutover to decommission Neon.
+        env {
+          name = "SECONDARY_DATABASE_URL"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.cloudsql_db_url.secret_id
+              version = "latest"
+            }
+          }
+        }
         env {
           name = "EBIRD_API_KEY"
           value_source {
@@ -198,6 +237,7 @@ resource "google_cloud_run_v2_job" "ingestor" {
   depends_on = [
     google_project_service.run,
     google_secret_manager_secret_iam_member.ingestor_db,
+    google_secret_manager_secret_iam_member.ingestor_cloudsql_db,
     google_secret_manager_secret_iam_member.ingestor_ebird,
     google_secret_manager_secret_iam_member.ingestor_healthchecks,
   ]
@@ -378,6 +418,22 @@ resource "google_cloud_run_v2_job" "ingestor_photos" {
             }
           }
         }
+        # SECONDARY_DATABASE_URL — Cloud SQL fan-out for the Neon→Cloud SQL
+        # migration (Stage 3, dual-write). When set, the ingester's dual-write
+        # pool fans every INSERT/UPDATE/DELETE/TRUNCATE/MERGE to this URL in
+        # addition to DATABASE_URL. Secondary failures are logged
+        # (`dual_write_secondary_failed`) and swallowed; the next tick
+        # self-heals via idempotent upserts. Remove this block (and the
+        # cloudsql_db_url secret) post-cutover to decommission Neon.
+        env {
+          name = "SECONDARY_DATABASE_URL"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.cloudsql_db_url.secret_id
+              version = "latest"
+            }
+          }
+        }
         env {
           name = "EBIRD_API_KEY"
           value_source {
@@ -451,6 +507,7 @@ resource "google_cloud_run_v2_job" "ingestor_photos" {
   depends_on = [
     google_project_service.run,
     google_secret_manager_secret_iam_member.ingestor_db,
+    google_secret_manager_secret_iam_member.ingestor_cloudsql_db,
     google_secret_manager_secret_iam_member.ingestor_ebird,
     google_secret_manager_secret_iam_member.ingestor_r2_endpoint,
     google_secret_manager_secret_iam_member.ingestor_r2_access_key_id,
@@ -590,6 +647,22 @@ resource "google_cloud_run_v2_job" "ingestor_descriptions" {
             }
           }
         }
+        # SECONDARY_DATABASE_URL — Cloud SQL fan-out for the Neon→Cloud SQL
+        # migration (Stage 3, dual-write). When set, the ingester's dual-write
+        # pool fans every INSERT/UPDATE/DELETE/TRUNCATE/MERGE to this URL in
+        # addition to DATABASE_URL. Secondary failures are logged
+        # (`dual_write_secondary_failed`) and swallowed; the next tick
+        # self-heals via idempotent upserts. Remove this block (and the
+        # cloudsql_db_url secret) post-cutover to decommission Neon.
+        env {
+          name = "SECONDARY_DATABASE_URL"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.cloudsql_db_url.secret_id
+              version = "latest"
+            }
+          }
+        }
         env {
           name = "EBIRD_API_KEY"
           value_source {
@@ -662,6 +735,7 @@ resource "google_cloud_run_v2_job" "ingestor_descriptions" {
   depends_on = [
     google_project_service.run,
     google_secret_manager_secret_iam_member.ingestor_db,
+    google_secret_manager_secret_iam_member.ingestor_cloudsql_db,
     google_secret_manager_secret_iam_member.ingestor_ebird,
     google_secret_manager_secret_iam_member.ingestor_cloudflare_zone_id,
     google_secret_manager_secret_iam_member.ingestor_cloudflare_api_token,
@@ -771,6 +845,22 @@ resource "google_cloud_run_v2_job" "ingestor_prune" {
             }
           }
         }
+        # SECONDARY_DATABASE_URL — Cloud SQL fan-out for the Neon→Cloud SQL
+        # migration (Stage 3, dual-write). When set, the ingester's dual-write
+        # pool fans every INSERT/UPDATE/DELETE/TRUNCATE/MERGE to this URL in
+        # addition to DATABASE_URL. Secondary failures are logged
+        # (`dual_write_secondary_failed`) and swallowed; the next tick
+        # self-heals via idempotent upserts. Remove this block (and the
+        # cloudsql_db_url secret) post-cutover to decommission Neon.
+        env {
+          name = "SECONDARY_DATABASE_URL"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.cloudsql_db_url.secret_id
+              version = "latest"
+            }
+          }
+        }
         # EBIRD_API_KEY is not required for prune itself, but cli.ts enforces
         # a uniform env contract across all DB-bound kinds — wiring the same
         # secret here keeps the Job spec consistent with the shared image's
@@ -821,6 +911,7 @@ resource "google_cloud_run_v2_job" "ingestor_prune" {
   depends_on = [
     google_project_service.run,
     google_secret_manager_secret_iam_member.ingestor_db,
+    google_secret_manager_secret_iam_member.ingestor_cloudsql_db,
     google_secret_manager_secret_iam_member.ingestor_ebird,
     google_secret_manager_secret_iam_member.ingestor_healthchecks,
   ]
