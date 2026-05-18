@@ -1,6 +1,11 @@
 provider "google" {
   project = var.gcp_project_id
   region  = var.gcp_region
+
+  # Required for google_billing_budget and other API-key-quota'd resources.
+  # See https://cloud.google.com/docs/authentication/adc-troubleshooting/user-creds
+  billing_project       = var.gcp_project_id
+  user_project_override = true
 }
 
 provider "neon" {
