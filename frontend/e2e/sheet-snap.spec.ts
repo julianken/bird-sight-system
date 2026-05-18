@@ -59,10 +59,16 @@ test.describe('SpeciesDetailSheet snap behavior', () => {
     await page.mouse.move(startX, startY + 200, { steps: 20 });
     await page.mouse.up();
 
-    // URL must flip away from detail. Issue #662: onCloseDetail returns
-    // to the Map surface ('map' is DEFAULTS.view so writeUrl omits ?view).
+    // URL must flip away from detail. Per #662 + #663: onCloseDetail
+    // resets ?detail= and (when the user opened via the legacy
+    // ?view=detail deep-link) restores view to 'map'. Since 'map' is
+    // the default view, the canonical post-close URL drops both
+    // ?view= and ?detail= entirely.
     await expect(page).not.toHaveURL(/view=detail/);
-    await expect(page).not.toHaveURL(/detail=/);
+    await expect.poll(
+      () => new URL(page.url()).searchParams.get('detail'),
+      { timeout: 5_000 },
+    ).toBeNull();
     await expect(page.locator('[data-testid=species-detail-sheet]')).toHaveCount(0);
   });
 });

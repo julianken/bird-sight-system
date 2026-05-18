@@ -1263,28 +1263,31 @@ body {
 }
 
 /* ==========================================================================
-   Sky Atlas Phase 4 — desktop detail modal.
-   Reuses AttributionModal's positioning model (centered, max-w cap,
-   border-radius, surface-bg). The close button is top-right with a 32px
-   tap target (chrome density tier).
+   #663 — in-place species detail rail (≥1200px viewports).
+   Renders as <aside role="complementary"> on the right edge of the
+   viewport, coexisting with a still-mounted Map to the left. Width is
+   capped at 560px (issue #663 Addendum A); the Map keeps the remaining
+   width and stays interactive (no inert backdrop).
+
+   z-index sits above the map controls (var(--z-panel) = 40) but below
+   floating toasts/notifications. We pick (--z-panel) + 5 to mirror the
+   existing convention used by .filters-panel etc.
    ========================================================================== */
-dialog.species-detail-modal {
-  width: min(720px, 90vw);
-  max-height: 85vh;
-  padding: 0;
-  border: none;
-  border-radius: var(--radius-lg, 12px);
+aside.species-detail-rail {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(560px, 100vw);
   background: var(--color-bg-surface);
   color: var(--color-text);
-  box-shadow: var(--shadow-modal, 0 8px 32px rgba(0, 0, 0, 0.18));
+  border-left: 1px solid var(--color-border, rgba(0, 0, 0, 0.08));
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.12);
   overflow: auto;
+  z-index: calc(var(--z-panel) + 5);
 }
 
-dialog.species-detail-modal::backdrop {
-  background: rgba(0, 0, 0, 0.45);
-}
-
-dialog.species-detail-modal .species-detail-modal-close {
+aside.species-detail-rail .species-detail-rail-close {
   position: sticky;
   top: 8px;
   margin-left: auto;

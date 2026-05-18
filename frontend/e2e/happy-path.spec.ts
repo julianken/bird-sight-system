@@ -97,10 +97,13 @@ test.describe('Path A happy path', () => {
     await expect(page.locator('.feed-row').first()).toBeVisible({ timeout: 10_000 });
     await page.locator('.feed-row').first().click();
 
-    // Should land on the detail surface.
-    await expect.poll(() => app.getUrlParams().get('view'), { timeout: 5_000 })
-      .toBe('detail');
+    // Should open the detail rail/sheet in place. Per #663, new click
+    // handlers write ONLY ?detail=<code>; ?view= reflects the underlying
+    // surface (in this case 'feed' from app.goto above) — it is NOT
+    // flipped to 'detail'. The rail/sheet renders whenever ?detail= is
+    // set, irrespective of view.
     await expect.poll(() => app.getUrlParams().get('detail'), { timeout: 5_000 })
       .toBeTruthy();
+    expect(app.getUrlParams().get('view')).not.toBe('detail');
   });
 });

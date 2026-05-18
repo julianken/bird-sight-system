@@ -147,11 +147,16 @@ function writeUrl(state: UrlState, push: boolean = false): void {
   if (state.since !== DEFAULTS.since) p.set('since', state.since);
   if (state.notable) p.set('notable', 'true');
   if (state.detail) p.set('detail', state.detail);
-  // Emit ?view= when non-default, OR when ?species= or ?detail= is set and
-  // view is the default — otherwise the sniff in readUrl silently reverts the
-  // user's explicit default-view choice back to 'species'/'detail' on
-  // reload/popstate.
-  if (state.view !== DEFAULTS.view || state.speciesCode || state.detail) {
+  // Emit ?view= when non-default, OR when ?species= is set and view is the
+  // default — otherwise the sniff in readUrl silently reverts the user's
+  // explicit default-view choice back to 'species' on reload/popstate.
+  //
+  // We deliberately DO NOT emit ?view=map when only ?detail= is set: the new
+  // in-place detail rail keeps view=map as the underlying surface, and the
+  // readUrl sniff already promotes ?detail=X (no ?view=) to view='detail' for
+  // backward compat with shared deep-links. Emitting view=map here would also
+  // bypass the #511 guard on every fresh ?detail= write.
+  if (state.view !== DEFAULTS.view || state.speciesCode) {
     p.set('view', state.view);
   }
   if (state.bbox !== null) {

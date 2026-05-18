@@ -1,16 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useIsMobile } from './use-is-mobile.js';
+import { useIsCompact } from './use-is-compact.js';
 
-describe('useIsMobile', () => {
+describe('useIsCompact', () => {
   let listeners: Array<(e: MediaQueryListEvent) => void>;
   let mql: MediaQueryList;
+  let capturedQuery: string | null;
 
   beforeEach(() => {
     listeners = [];
+    capturedQuery = null;
     mql = {
       matches: false,
-      media: '(max-width: 760px)',
+      media: '(max-width: 1199px)',
       onchange: null,
       addEventListener: vi.fn((type: string, listener: EventListener) => {
         if (type === 'change') listeners.push(listener as (e: MediaQueryListEvent) => void);
@@ -23,22 +25,30 @@ describe('useIsMobile', () => {
       addListener: vi.fn(),
       removeListener: vi.fn(),
     } as unknown as MediaQueryList;
-    window.matchMedia = vi.fn().mockReturnValue(mql);
+    window.matchMedia = vi.fn((q: string) => {
+      capturedQuery = q;
+      return mql;
+    });
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
+  it('queries the 1199px breakpoint (#663 Addendum B)', () => {
+    renderHook(() => useIsCompact());
+    expect(capturedQuery).toBe('(max-width: 1199px)');
+  });
+
   it('returns matchMedia.matches as initial value', () => {
     (mql as { matches: boolean }).matches = true;
-    const { result } = renderHook(() => useIsMobile());
+    const { result } = renderHook(() => useIsCompact());
     expect(result.current).toBe(true);
   });
 
   it('updates when the media query changes', () => {
     (mql as { matches: boolean }).matches = false;
-    const { result } = renderHook(() => useIsMobile());
+    const { result } = renderHook(() => useIsCompact());
     expect(result.current).toBe(false);
 
     act(() => {
@@ -49,7 +59,7 @@ describe('useIsMobile', () => {
   });
 
   it('removes the listener on unmount', () => {
-    const { unmount } = renderHook(() => useIsMobile());
+    const { unmount } = renderHook(() => useIsCompact());
     expect(mql.addEventListener).toHaveBeenCalledWith('change', expect.any(Function));
     unmount();
     expect(mql.removeEventListener).toHaveBeenCalledWith('change', expect.any(Function));

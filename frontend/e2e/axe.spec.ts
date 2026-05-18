@@ -200,13 +200,13 @@ test.describe('axe-core WCAG scans', () => {
     expect(results.violations).toEqual([]);
   });
 
-  // Sky Atlas Phase 4 — detail dialog accessibility contract.
-  // The detail surface is no longer in-flow; on desktop it renders as a
-  // native <dialog> with aria-labelledby="detail-title", initial focus
-  // on the heading (NOT the close button), and focus restoration to the
-  // trigger on close. axe asserts on the rendered DOM at the moment the
-  // dialog is open with a real photo loaded.
-  test('species detail dialog (desktop) — aria-labelledby resolves; activeElement is heading', async ({ page, apiStub }) => {
+  // #663 — detail rail accessibility contract.
+  // On desktop (≥1200px) the detail surface renders as
+  // `<aside role="complementary">` (NOT a <dialog>), with
+  // aria-labelledby="detail-title" and initial focus on the close button.
+  // Focus restores to the trigger on close. axe asserts on the rendered
+  // DOM at the moment the rail is open with a real photo loaded.
+  test('species detail rail (desktop) — aria-labelledby resolves; activeElement is close button', async ({ page, apiStub }) => {
     await apiStub.stubEmpty();
     await apiStub.stubSpecies('vermfly', VERMFLY_WITH_PHOTO);
     await apiStub.stubPhotoImage();
@@ -214,20 +214,22 @@ test.describe('axe-core WCAG scans', () => {
     await app.goto('detail=vermfly&view=detail');
     await app.waitForAppReady();
 
-    // Wait for the dialog [open] attribute commit (mirrors the
-    // AttributionModal pattern at AttributionModal.tsx:206-214 — visibility
-    // alone races the open-attribute commit in headless Chromium).
-    const dialog = page.locator('dialog.species-detail-modal');
-    await expect(dialog).toHaveAttribute('open', '');
+    // The rail is an <aside role="complementary">, not a <dialog>.
+    const rail = page.locator('aside.species-detail-rail');
+    await expect(rail).toBeVisible();
+    await expect(rail).toHaveAttribute('role', 'complementary');
+    await expect(rail).toHaveAttribute('aria-labelledby', 'detail-title');
 
-    // The dialog must reference a non-empty heading via aria-labelledby.
-    await expect(dialog).toHaveAttribute('aria-labelledby', 'detail-title');
+    // The heading referenced by aria-labelledby must resolve.
     const heading = page.locator('#detail-title');
     await expect(heading).toHaveText(/vermilion flycatcher/i);
 
-    // Initial focus targets the heading, not the close button.
-    const focusedId = await page.evaluate(() => document.activeElement?.id);
-    expect(focusedId).toBe('detail-title');
+    // Initial focus targets the close button (so screen-reader users
+    // land somewhere meaningful and Tab order starts predictable).
+    const focusedAriaLabel = await page.evaluate(
+      () => document.activeElement?.getAttribute('aria-label'),
+    );
+    expect(focusedAriaLabel).toMatch(/close species detail/i);
 
     // No WCAG violations under axe.
     const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();

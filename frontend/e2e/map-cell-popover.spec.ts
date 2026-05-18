@@ -59,7 +59,7 @@ test('desktop 1440×900: hover cell → preview → click → popover → specie
     // Phase 3 cells may not produce a cluster-list; if WebGL painted but
     // the cell click opened SpeciesDetailSurface directly (single-species
     // cell path), assert URL instead.
-    await expect(page).toHaveURL(/[?&]view=detail/, { timeout: 5_000 });
+    await expect(page).toHaveURL(/[?&]detail=/, { timeout: 5_000 });
     return;
   }
 
@@ -68,8 +68,9 @@ test('desktop 1440×900: hover cell → preview → click → popover → specie
   await link.waitFor({ state: 'visible' });
   await link.click({ force: true });
 
-  // URL should contain bbox (cluster→detail routing from §4.9).
-  await expect(page).toHaveURL(/[?&]view=detail/, { timeout: 8_000 });
+  // #663: new click flow writes ?detail=<code> only; ?view=detail is NOT
+  // written. The rail/sheet renders in place over the still-mounted map.
+  await expect(page).toHaveURL(/[?&]detail=/, { timeout: 8_000 });
 });
 
 // ─── Scenario 2: Desktop keyboard skip-link → cell → preview → Enter → popover → ESC ─
@@ -116,8 +117,9 @@ test('desktop 1440×900: keyboard skip-link → cell → Enter → popover → E
   const dialog = page.getByRole('dialog');
   const dialogVisible = await dialog.waitFor({ state: 'visible', timeout: 8_000 }).then(() => true).catch(() => false);
   if (!dialogVisible) {
-    // Single-species cell may navigate directly to detail instead.
-    await expect(page).toHaveURL(/[?&]view=detail/, { timeout: 5_000 });
+    // Single-species cell may open detail directly. #663: post-click URL
+    // carries ?detail=<code>, not ?view=detail.
+    await expect(page).toHaveURL(/[?&]detail=/, { timeout: 5_000 });
     return;
   }
 
@@ -132,8 +134,8 @@ test('desktop 1440×900: keyboard skip-link → cell → Enter → popover → E
   });
   expect(focusedAfterEsc).toMatch(/^adaptive-grid-marker-cell/);
 
-  // Verify: ESC did NOT navigate to a new URL.
-  await expect(page).not.toHaveURL(/[?&]view=detail/);
+  // Verify: ESC did NOT navigate to a new URL (no detail opened).
+  await expect(page).not.toHaveURL(/[?&]detail=/);
 });
 
 // ─── Scenario 3: Tablet tap → cluster-list → species → bbox-URL (@coarse) ─
@@ -160,8 +162,8 @@ test('@coarse tablet 768×1024: tap marker → cluster-list popover → tap spec
   await link.waitFor({ state: 'visible' });
   await link.click({ force: true });
 
-  // URL should include bbox (cluster→detail routing, §4.9).
-  await expect(page).toHaveURL(/[?&]view=detail/, { timeout: 8_000 });
+  // #663: cluster→detail routing writes ?detail= (not ?view=detail).
+  await expect(page).toHaveURL(/[?&]detail=/, { timeout: 8_000 });
 });
 
 // ─── Scenario 4: Mobile tap → cluster-list → expand-family → species → filtered ─
@@ -207,7 +209,8 @@ test.skip('@coarse mobile 390×844: tap marker → cluster-list → expand-famil
   await link.click({ force: true });
 
   // SpeciesDetailSurface renders (bbox banner present when bbox in URL).
-  await expect(page).toHaveURL(/[?&]view=detail/, { timeout: 8_000 });
+  // #663: new clicks write ?detail=, not ?view=detail.
+  await expect(page).toHaveURL(/[?&]detail=/, { timeout: 8_000 });
 });
 
 // ─── Scenario 5: Banner "View all observations" clears bbox URL param ─
@@ -290,6 +293,7 @@ test('cross-surface stale-bbox clear: detail→feed→detail leaves no bbox', as
 
   // Detail surface must open WITHOUT bbox param (§4.9 cross-surface invariant:
   // onSelectSpecies() without bbox clears any stale bbox from URL state).
-  await expect(page).toHaveURL(/[?&]view=detail/, { timeout: 8_000 });
+  // #663: new clicks write ?detail=, not ?view=detail.
+  await expect(page).toHaveURL(/[?&]detail=/, { timeout: 8_000 });
   await expect(page).not.toHaveURL(/[?&]bbox=/);
 });
