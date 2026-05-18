@@ -10,14 +10,14 @@ import { FiltersBar } from './components/FiltersBar.js';
 import { FeedSurface } from './components/FeedSurface.js';
 import { MapSurface } from './components/MapSurface.js';
 import { SpeciesSearchSurface } from './components/SpeciesSearchSurface.js';
-import { SpeciesDetailModal } from './components/SpeciesDetailModal.js';
+import { SpeciesDetailRail } from './components/SpeciesDetailRail.js';
 import { SpeciesDetailSheet } from './components/SpeciesDetailSheet.js';
 import { AppHeader } from './components/AppHeader.js';
 // SurfaceNav import retained — component still exists; App no longer mounts
 // it directly (moved to AppHeader). Defer deletion to a follow-up sweep once
 // confirmed no other consumer uses it. (Phase 3)
 import { SurfaceNav as _SurfaceNav } from './components/SurfaceNav.js';
-import { useIsMobile } from './lib/use-is-mobile.js';
+import { useIsCompact } from './lib/use-is-compact.js';
 import { AttributionModal } from './components/AttributionModal.js';
 import { deriveFamilies, deriveSpeciesIndex } from './derived.js';
 import { filterObservationsByBounds } from './lib/viewport-filter.js';
@@ -62,7 +62,7 @@ function craftedFromError(error: Error): string {
 
 export function App() {
   const { state, set } = useUrlState();
-  const isMobile = useIsMobile();
+  const isCompact = useIsCompact();
   // Phase 3: filters panel state + badge count.
   const [filtersOpen, setFiltersOpen] = useState(false);
   // Active-filter count: every non-default URL-state field counts as 1.
@@ -149,12 +149,15 @@ export function App() {
   // therefore harmless; an explicit reset effect would race the memo on
   // re-entry and is unnecessary.
   const [viewportBounds, setViewportBounds] = useState<LngLatBounds | null>(null);
+  // #663: the Map stays mounted on view === 'map' OR 'detail' (rail/sheet
+  // coexist over it). The viewport-bounds filter applies in both cases.
+  const mapVisible = state.view === 'map' || state.view === 'detail';
   const viewportObservations = useMemo(
     () =>
-      state.view === 'map' && viewportBounds
+      mapVisible && viewportBounds
         ? filterObservationsByBounds(observations, viewportBounds)
         : observations,
-    [observations, viewportBounds, state.view],
+    [observations, viewportBounds, mapVisible],
   );
   // Debounced bbox derivation: MapLibre's `idle` event already fires once
   // per camera settle (not per-frame), but we add a 250ms trailing-edge
@@ -222,8 +225,9 @@ export function App() {
   // network round-trip in practice. The threading exists to feed the
   // photo credit into AttributionModal's Photos section without forcing
   // a refactor of either the hook or SpeciesDetailSurface.
-  const activeDetailCode =
-    state.view === 'detail' && state.detail ? state.detail : null;
+  // #663: detail is now an overlay, decoupled from view. Fetch species meta
+  // whenever a detail code is set, regardless of view (map+detail coexist).
+  const activeDetailCode = state.detail ? state.detail : null;
   const { data: activeSpeciesMeta } = useSpeciesDetail(apiClient, activeDetailCode);
 
   // FamilyLegend toggle: clear when the active family is clicked again,
@@ -276,9 +280,14 @@ export function App() {
     [freshestObservationAt, now],
   );
 
+  // #663: clicking a species in a popover opens the detail overlay
+  // IN PLACE — the map stays mounted. New click flow writes only
+  // `?detail=` (+ bbox); it does NOT write `?view=detail`. Old shared
+  // URLs that include `?view=detail` continue to work via url-state's
+  // backward-compat handling — see state/url-state.ts.
   const onSelectSpecies = useCallback(
     (speciesCode: string, bbox: BBox | null = null) =>
-      set({ detail: speciesCode, view: 'detail', bbox }),
+      set({ detail: speciesCode, bbox }),
     [set],
   );
 
@@ -286,13 +295,15 @@ export function App() {
     set({ bbox: null });
   }, [set]);
 
-  // Close callback for detail modal/sheet wrappers — returns to the Map
-  // surface (the default route). Issue #662 removed Feed as a user-visible
-  // surface, so the previous `view: 'feed'` redirect would dump users onto
-  // a hidden surface; Map is now the consistent landing point.
+  // Close callback for detail rail/sheet wrappers (#663). The overlay
+  // closes IN PLACE — return to whatever view was underneath (typically
+  // 'map'). If the user landed via the legacy ?view=detail deep-link
+  // (backward compat), reset to 'map' so they don't end up on a stale
+  // detail-view shell with no detail code. Note: #662 removed Feed as a
+  // user-visible surface, so we never land on 'feed' here.
   const onCloseDetail = useCallback(
-    () => set({ view: 'map', detail: null }),
-    [set],
+    () => set({ view: state.view === 'detail' ? 'map' : state.view, detail: null }),
+    [set, state.view],
   );
 
   // Log raw error details for debugging; show only a friendly message in UI.
@@ -382,7 +393,7 @@ export function App() {
             {...(familyName !== undefined ? { familyName } : {})}
           />
         )}
-        {state.view === 'map' && (
+        {mapVisible && (
           <MapSurface
             observations={observations}
             legendObservations={viewportObservations}
@@ -428,19 +439,17 @@ export function App() {
           />
         )}
         {/*
-          Sky Atlas Phase 4 — detail surface routing. The body component
+          #663 — detail surface routing. The body component
           (SpeciesDetailSurface) renders inside one of two wrappers:
-          a native <dialog> on desktop, a bottom-sheet on mobile.
-          Selection drives off useIsMobile (max-width: 760px) — same
-          breakpoint the rest of styles.css uses.
-          The wrappers render OUTSIDE <main>: the modal portals via the
-          top-layer (native <dialog>); the sheet sits as a sibling of
-          <main> so `inert` can be applied to <main> without affecting
-          the sheet. Both paths are mounted inside the .app shell.
+          a side rail (<aside>) on ≥1200px viewports, a bottom-sheet
+          on ≤1199px. Selection drives off useIsCompact.
+          The wrappers render OUTSIDE <main>: both sit as siblings of
+          <main> so the Map stays mounted and interactive underneath
+          (no inert backdrop, no top-layer takeover).
         */}
       </main>
-      {state.view === 'detail' && state.detail && !isMobile && (
-        <SpeciesDetailModal
+      {state.detail && !isCompact && (
+        <SpeciesDetailRail
           key={state.detail}
           speciesCode={state.detail}
           apiClient={apiClient}
@@ -449,7 +458,7 @@ export function App() {
           onClearBbox={onClearBbox}
         />
       )}
-      {state.view === 'detail' && state.detail && isMobile && (
+      {state.detail && isCompact && (
         <SpeciesDetailSheet
           key={state.detail}
           speciesCode={state.detail}

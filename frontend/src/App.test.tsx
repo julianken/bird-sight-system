@@ -2,9 +2,10 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-// Phase 4: useIsMobile calls window.matchMedia. JSDOM does not implement
-// it — polyfill with a stub that returns non-mobile (desktop) by default
-// so App renders SpeciesDetailModal rather than the sheet on view=detail.
+// Phase 4 / #663: useIsCompact calls window.matchMedia. JSDOM does not
+// implement it — polyfill with a stub that returns non-compact (wide
+// desktop) by default so App renders SpeciesDetailRail rather than the
+// sheet when state.detail is set.
 // Using vi.stubGlobal so the mock persists across the test file and is
 // properly restored after each test via vi.restoreAllMocks().
 vi.stubGlobal('matchMedia', (query: string) => ({
@@ -602,7 +603,11 @@ describe('App.tsx onSelectSpecies bbox-clear invariant (#560)', () => {
     const calls = mockUrlState.set.mock.calls;
     expect(calls.length).toBeGreaterThanOrEqual(1);
     const lastCall = calls[calls.length - 1][0];
-    expect(lastCall).toMatchObject({ detail: 'vermfly', view: 'detail', bbox: null });
+    // #663: onSelectSpecies writes detail + bbox only. The view param is
+    // no longer forced to 'detail' — the rail/sheet renders in place over
+    // whatever view (typically 'map' or 'feed') the user was on.
+    expect(lastCall).toMatchObject({ detail: 'vermfly', bbox: null });
+    expect(lastCall.view).toBeUndefined();
   });
 
   it('sets bbox when onSelectSpecies called with second bbox argument', async () => {
@@ -629,7 +634,8 @@ describe('App.tsx onSelectSpecies bbox-clear invariant (#560)', () => {
     // Default (no bbox arg) → bbox: null
     expect(lastCall.bbox).toBeNull();
     expect(lastCall.detail).toBe('vermfly');
-    expect(lastCall.view).toBe('detail');
+    // #663: no view: 'detail' write; overlay coexists with current view.
+    expect(lastCall.view).toBeUndefined();
   });
 
   it('cross-surface navigation: feed → detail does not leak a pre-existing bbox param', async () => {

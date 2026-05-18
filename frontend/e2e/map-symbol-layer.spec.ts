@@ -132,7 +132,7 @@ test.describe('Map symbol layer + popover detail link', () => {
     await expect(page.locator('.error-screen')).toHaveCount(0);
   });
 
-  test('hit-layer button → popover → detail link → ?view=detail&detail=<code>', async ({ page }) => {
+  test('hit-layer button → popover → detail link → ?detail=<code> (in-place over map)', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     const app = new AppPage(page);
     await app.goto('view=map');
@@ -175,10 +175,11 @@ test.describe('Map symbol layer + popover detail link', () => {
 
     await detailLink.click();
 
-    // URL switches to ?view=detail&detail=vermfly. The SpeciesDetailSurface
-    // mounts in place of the map.
-    await expect.poll(() => app.getUrlParams().get('view'), { timeout: 5_000 }).toBe('detail');
+    // #663: URL switches to ?detail=vermfly only (view stays 'map'). The
+    // SpeciesDetailRail mounts over the still-rendered map; the map canvas
+    // must REMAIN in the DOM.
     await expect.poll(() => app.getUrlParams().get('detail'), { timeout: 5_000 }).toBe('vermfly');
-    await expect(page.locator('[data-testid=map-canvas]')).toHaveCount(0);
+    await expect.poll(() => app.getUrlParams().get('view'), { timeout: 5_000 }).toBeNull();
+    await expect(page.locator('[data-testid=map-canvas]')).toBeVisible();
   });
 });

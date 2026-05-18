@@ -46,11 +46,13 @@ test.describe('species detail surface (#151)', () => {
     await expect(page.locator('.feed-row').first()).toBeVisible({ timeout: 10_000 });
     await page.locator('.feed-row').first().click();
 
-    // Should navigate to detail surface.
-    await expect.poll(() => new URL(page.url()).searchParams.get('view'), { timeout: 5_000 })
-      .toBe('detail');
+    // Should open the detail overlay. #663: new clicks write ?detail=
+    // only — they do NOT set ?view=detail. The overlay renders over the
+    // surface the user was on (here, feed).
     await expect.poll(() => new URL(page.url()).searchParams.get('detail'), { timeout: 5_000 })
       .toBeTruthy();
+    await expect.poll(() => new URL(page.url()).searchParams.get('view'), { timeout: 5_000 })
+      .toBe('feed');
 
     // species= filter param should NOT be set by a row click.
     const speciesParam = new URL(page.url()).searchParams.get('species');
@@ -112,31 +114,34 @@ test.describe('species detail surface (#151)', () => {
     // the bottom-sheet on mobile (at full snap) or dismisses it at peek/half.
     await page.keyboard.press('Escape');
 
-    // Issue #662: onCloseDetail now returns to the Map surface (the
-    // default route) rather than Feed, which was removed from the header.
-    // 'map' is the DEFAULTS.view value so writeUrl omits ?view=map from
-    // the URL — assert by reading url-state via the absence of the param.
+    // #662 + #663: ESC dismisses the overlay. onCloseDetail resets view
+    // to 'map' (DEFAULTS.view, so writeUrl OMITS ?view=) and clears the
+    // detail param. Both params absent in the URL afterward.
     await expect.poll(() => new URL(page.url()).searchParams.get('view'), { timeout: 5_000 })
+      .toBeNull();
+    await expect.poll(() => new URL(page.url()).searchParams.get('detail'), { timeout: 5_000 })
       .toBeNull();
     await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' })).toHaveCount(0);
     await expect(page.getByRole('tab', { name: 'Map view' })).toHaveAttribute('aria-selected', 'true');
   });
 
-  test('detail surface has no legacy complementary landmark or overlay', async ({ page, apiStub }) => {
+  test('detail surface renders as <aside role="complementary"> on desktop (#663)', async ({ page, apiStub }) => {
     await apiStub.stubEmpty();
     await apiStub.stubSpecies('vermfly', VERMFLY);
     const app = new AppPage(page);
+    // Set viewport ≥1200px so useIsCompact returns false and the rail mounts.
+    await page.setViewportSize({ width: 1440, height: 900 });
     await app.goto('detail=vermfly&view=detail');
     await app.waitForAppReady();
     await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeVisible({ timeout: 10_000 });
 
-    // No legacy complementary landmark (old SpeciesPanel was aside role=complementary).
-    await expect(page.getByRole('complementary')).toHaveCount(0);
-    // No legacy overlay class.
+    // #663 Addendum A: the rail is an <aside role="complementary">,
+    // NOT a <dialog>. The complementary landmark must be present.
+    await expect(page.getByRole('complementary')).toHaveCount(1);
+    // Close button exists with accessible label.
+    await expect(page.getByRole('button', { name: /close species detail/i })).toBeVisible();
+    // The legacy position:fixed overlay class is still absent.
     await expect(page.locator('.species-panel-overlay')).toHaveCount(0);
-    // Phase 4: close button exists — the <dialog> has a ×/Close button.
-    // The old test asserted zero; Phase 4 adds a close button in the header.
-    await expect(page.getByRole('button', { name: /close/i })).toBeVisible();
   });
 });
 
