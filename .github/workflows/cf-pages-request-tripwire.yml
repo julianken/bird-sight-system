@@ -1,0 +1,106 @@
+name: cf-pages-request-tripwire
+
+# P0.l — Cloudflare Pages request-count tripwire. Phase 0 finisher for the
+# going-national plan §7.
+#
+# Approach B (chosen): scheduled GitHub Actions job that queries the
+# Cloudflare GraphQL Analytics API for yesterday's request count against
+# the bird-maps.com zone. Emits a workflow annotation at 80k/day and fails
+# the job at 95k/day. Workflow failure triggers GitHub's default
+# workflow-failure email to the repo owner — same human as the GCP email
+# channel without extra plumbing.
+#
+# GraphQL node: httpRequestsAdaptiveGroups (zone-level). We measure total
+# zone HTTP requests for bird-maps.com — this includes Pages static asset
+# hits AND Pages Functions invocations. At HN-scale the 80k/95k thresholds
+# are the right granularity because static asset traffic is the bottleneck
+# against Cloudflare's free-tier 100k req/day Pages cap; the Functions-only
+# node (pagesFunctionsInvocationsAdaptiveGroups) would miss static hits and
+# under-count. An earlier revision of this workflow referenced a fabricated
+# `pagesProjectRequestsAdaptiveGroups` node that does not exist in CF's
+# schema; this version corrects that.
+#
+# Why not Approach A (cloudflare_notification_policy)? The v4 provider's
+# alert_type enum does not expose a per-zone request-count threshold.
+# billing_usage_alert is account-level; pages_event_alert fires on
+# deployment events. A custom GH Actions check is the only path that
+# meets the §7 exit-gate criteria on the current provider.
+#
+# Free Cloudflare Pages quota: 100k requests/day. Warn at 80% (80k),
+# critical at 95% (95k).
+#
+# Required GitHub Actions secrets (operator step — not created by this
+# workflow):
+#   - CLOUDFLARE_API_TOKEN   API token with Zone:Analytics:Read on bird-maps.com
+#   - CLOUDFLARE_ZONE_ID     Zone ID for bird-maps.com (mirrors the value
+#                            stored in Secret Manager as
+#                            `bird-watch-cloudflare-zone-id`)
+#
+# Security: no untrusted github.event.* fields reach run: blocks. All
+# external values flow through env: vars (recommended pattern). Token is
+# only ever passed via curl Authorization header, never echoed.
+
+on:
+  schedule:
+    # 12:00 UTC = 04:00 America/Phoenix. Runs an hour after the GCP
+    # drift-check so the morning triage batch is contiguous.
+    - cron: '0 12 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  check-pages-requests:
+    runs-on: ubuntu-latest
+    env:
+      CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+      WARN_THRESHOLD: '80000'
+      CRIT_THRESHOLD: '95000'
+    steps:
+      - name: Query yesterday's zone request count
+        run: |
+          set -euo pipefail
+          start=$(date -u -d 'yesterday' +%Y-%m-%dT00:00:00Z)
+          end=$(date -u -d 'yesterday' +%Y-%m-%dT23:59:59Z)
+
+          # Round-2 bot finding (PR #620): httpRequestsAdaptiveGroups exposes
+          # the request total at the top-level `count` field, NOT under
+          # `sum.requests`. The `sum` sub-selection holds visits /
+          # edgeResponseBytes / etc. — selecting `sum { requests }` would be a
+          # GraphQL error or silently 0 under the `// 0` jq default, masking
+          # the tripwire. Source: Cloudflare GraphQL Analytics API schema
+          # (johnspurlock-skymethod/cloudflare-graphql-mirror) and CF docs at
+          # developers.cloudflare.com/analytics/graphql-api/features/data-sets.
+          query='query ($zoneTag: string!, $start: Time!, $end: Time!) { viewer { zones(filter: {zoneTag: $zoneTag}) { httpRequestsAdaptiveGroups(filter: {datetime_geq: $start, datetime_leq: $end}, limit: 1) { count } } } }'
+
+          payload=$(jq -n \
+            --arg query "$query" \
+            --arg zoneTag "$CF_ZONE_ID" \
+            --arg start "$start" \
+            --arg end "$end" \
+            '{query: $query, variables: {zoneTag: $zoneTag, start: $start, end: $end}}')
+
+          resp=$(curl -sS -X POST https://api.cloudflare.com/client/v4/graphql \
+            -H "Authorization: Bearer $CF_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data "$payload")
+
+          if echo "$resp" | jq -e '.errors' >/dev/null 2>&1; then
+            echo "::error::Cloudflare GraphQL returned errors:"
+            echo "$resp" | jq '.errors'
+            exit 1
+          fi
+
+          count=$(echo "$resp" | jq -r '(.data.viewer.zones[0].httpRequestsAdaptiveGroups[0].count // 0)')
+
+          echo "Zone requests for bird-maps.com on ${start%T*}: $count"
+          echo "warn threshold: $WARN_THRESHOLD  critical threshold: $CRIT_THRESHOLD"
+
+          if [ "$count" -ge "$CRIT_THRESHOLD" ]; then
+            echo "::error::Zone requests ($count) crossed CRITICAL threshold ($CRIT_THRESHOLD/day). Free-tier Pages cap is 100k/day."
+            exit 1
+          elif [ "$count" -ge "$WARN_THRESHOLD" ]; then
+            echo "::warning::Zone requests ($count) crossed WARN threshold ($WARN_THRESHOLD/day). Free-tier Pages cap is 100k/day; investigate."
+          fi
