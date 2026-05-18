@@ -5,19 +5,36 @@ name: cf-pages-request-tripwire
 #
 # Approach B (chosen): scheduled GitHub Actions job that queries the
 # Cloudflare GraphQL Analytics API for yesterday's request count against
-# the Pages project. Emits a workflow annotation at 80k/day and fails the
-# job at 95k/day. Workflow failure triggers GitHub's default
+# the bird-maps.com zone. Emits a workflow annotation at 80k/day and fails
+# the job at 95k/day. Workflow failure triggers GitHub's default
 # workflow-failure email to the repo owner — same human as the GCP email
 # channel without extra plumbing.
 #
+# GraphQL node: httpRequestsAdaptiveGroups (zone-level). We measure total
+# zone HTTP requests for bird-maps.com — this includes Pages static asset
+# hits AND Pages Functions invocations. At HN-scale the 80k/95k thresholds
+# are the right granularity because static asset traffic is the bottleneck
+# against Cloudflare's free-tier 100k req/day Pages cap; the Functions-only
+# node (pagesFunctionsInvocationsAdaptiveGroups) would miss static hits and
+# under-count. An earlier revision of this workflow referenced a fabricated
+# `pagesProjectRequestsAdaptiveGroups` node that does not exist in CF's
+# schema; this version corrects that.
+#
 # Why not Approach A (cloudflare_notification_policy)? The v4 provider's
-# alert_type enum does not expose a per-Pages-project request-count
-# threshold. billing_usage_alert is account-level; pages_event_alert fires
-# on deployment events. A custom GH Actions check is the only path that
+# alert_type enum does not expose a per-zone request-count threshold.
+# billing_usage_alert is account-level; pages_event_alert fires on
+# deployment events. A custom GH Actions check is the only path that
 # meets the §7 exit-gate criteria on the current provider.
 #
 # Free Cloudflare Pages quota: 100k requests/day. Warn at 80% (80k),
 # critical at 95% (95k).
+#
+# Required GitHub Actions secrets (operator step — not created by this
+# workflow):
+#   - CLOUDFLARE_API_TOKEN   API token with Zone:Analytics:Read on bird-maps.com
+#   - CLOUDFLARE_ZONE_ID     Zone ID for bird-maps.com (mirrors the value
+#                            stored in Secret Manager as
+#                            `bird-watch-cloudflare-zone-id`)
 #
 # Security: no untrusted github.event.* fields reach run: blocks. All
 # external values flow through env: vars (recommended pattern). Token is
@@ -38,28 +55,24 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      # Pages project name. The deploy-frontend workflow targets the same
-      # project; if that changes, update both.
-      CF_PAGES_PROJECT: bird-watch-frontend
+      CF_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
       WARN_THRESHOLD: '80000'
       CRIT_THRESHOLD: '95000'
     steps:
-      - name: Query yesterday's Pages request count
+      - name: Query yesterday's zone request count
         run: |
           set -euo pipefail
           start=$(date -u -d 'yesterday' +%Y-%m-%dT00:00:00Z)
           end=$(date -u -d 'yesterday' +%Y-%m-%dT23:59:59Z)
 
-          query='query ($accountTag: string!, $project: string!, $start: Time!, $end: Time!) { viewer { accounts(filter: {accountTag: $accountTag}) { pagesProjectRequestsAdaptiveGroups(filter: {projectName: $project, datetime_geq: $start, datetime_leq: $end}, limit: 1) { sum { requests } } } } }'
+          query='query ($zoneTag: string!, $start: Time!, $end: Time!) { viewer { zones(filter: {zoneTag: $zoneTag}) { httpRequestsAdaptiveGroups(filter: {datetime_geq: $start, datetime_leq: $end}, limit: 1) { sum { requests } } } } }'
 
           payload=$(jq -n \
             --arg query "$query" \
-            --arg accountTag "$CF_ACCOUNT_ID" \
-            --arg project "$CF_PAGES_PROJECT" \
+            --arg zoneTag "$CF_ZONE_ID" \
             --arg start "$start" \
             --arg end "$end" \
-            '{query: $query, variables: {accountTag: $accountTag, project: $project, start: $start, end: $end}}')
+            '{query: $query, variables: {zoneTag: $zoneTag, start: $start, end: $end}}')
 
           resp=$(curl -sS -X POST https://api.cloudflare.com/client/v4/graphql \
             -H "Authorization: Bearer $CF_API_TOKEN" \
@@ -72,14 +85,14 @@ jobs:
             exit 1
           fi
 
-          count=$(echo "$resp" | jq -r '(.data.viewer.accounts[0].pagesProjectRequestsAdaptiveGroups[0].sum.requests // 0)')
+          count=$(echo "$resp" | jq -r '(.data.viewer.zones[0].httpRequestsAdaptiveGroups[0].sum.requests // 0)')
 
-          echo "Pages requests for ${CF_PAGES_PROJECT} on ${start%T*}: $count"
+          echo "Zone requests for bird-maps.com on ${start%T*}: $count"
           echo "warn threshold: $WARN_THRESHOLD  critical threshold: $CRIT_THRESHOLD"
 
           if [ "$count" -ge "$CRIT_THRESHOLD" ]; then
-            echo "::error::Pages requests ($count) crossed CRITICAL threshold ($CRIT_THRESHOLD/day). Free-tier cap is 100k/day."
+            echo "::error::Zone requests ($count) crossed CRITICAL threshold ($CRIT_THRESHOLD/day). Free-tier Pages cap is 100k/day."
             exit 1
           elif [ "$count" -ge "$WARN_THRESHOLD" ]; then
-            echo "::warning::Pages requests ($count) crossed WARN threshold ($WARN_THRESHOLD/day). Free-tier cap is 100k/day; investigate."
+            echo "::warning::Zone requests ($count) crossed WARN threshold ($WARN_THRESHOLD/day). Free-tier Pages cap is 100k/day; investigate."
           fi
