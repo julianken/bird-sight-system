@@ -117,6 +117,38 @@ describe('useBirdData', () => {
     expect(result.current.freshestObservationAt).toBe('2026-05-17T00:00:00.000Z');
   });
 
+  it('synthesises unique speciesCodes across buckets sharing a family (#630 fix)', async () => {
+    // Two distinct buckets both contain family `tyrannidae` with speciesCount=3.
+    // Before fix: both buckets emit `agg-tyrannidae-1`/`agg-tyrannidae-2` codes
+    // and any DISTINCT-species count across the viewport undercounts.
+    const getObservations = vi.fn().mockResolvedValue({
+      mode: 'aggregated',
+      buckets: [
+        { lat: 31.75, lng: -111, count: 3, speciesCount: 3, families: ['tyrannidae'] },
+        { lat: 40, lng: -100, count: 3, speciesCount: 3, families: ['tyrannidae'] },
+      ],
+      meta: { freshestObservationAt: null },
+    });
+    const client = makeClient({
+      getHotspots: vi.fn().mockResolvedValue([]),
+      getObservations,
+    } as unknown as Partial<ApiClient>);
+
+    const { result } = renderHook(() =>
+      useBirdData(client, { since: '14d', notable: false, zoom: 3 }));
+    await waitFor(() => expect(result.current.observations.length).toBe(6));
+
+    // Distinct speciesCodes across the two buckets must be 6 (3 per bucket),
+    // not 3 (collapsed by collision). Also assert the index `0` slot is
+    // actually emitted (regression for the `i % n || 1` fallthrough bug).
+    const distinctCodes = new Set(result.current.observations.map(o => o.speciesCode));
+    expect(distinctCodes.size).toBe(6);
+    const firstBucketCodes = result.current.observations
+      .filter(o => o.subId.startsWith('agg:0:'))
+      .map(o => o.speciesCode);
+    expect(firstBucketCodes).toContain('agg-0-tyrannidae-0');
+  });
+
   it('exposes error state when a fetch fails', async () => {
     const client = makeClient({
       getHotspots: vi.fn().mockRejectedValue(new Error('boom')),

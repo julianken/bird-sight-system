@@ -28,7 +28,9 @@ export function expandBucketsToSyntheticObservations(
       const family = families[i % families.length] ?? null;
       out.push({
         subId: `agg:${bi}:${i}`,
-        speciesCode: family ? `agg-${family}-${i % b.speciesCount || 1}` : `agg-${bi}-${i}`,
+        speciesCode: family
+          ? `agg-${bi}-${family}-${i % Math.max(b.speciesCount, 1)}`
+          : `agg-${bi}-${i}`,
         comName: family ?? 'Aggregated observation',
         lat: b.lat,
         lng: b.lng,
