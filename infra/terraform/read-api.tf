@@ -1,4 +1,4 @@
-# Store the Neon pooled URL in Secret Manager so we don't ship it in plain env.
+# Store the read-api DATABASE_URL in Secret Manager so we don't ship it in plain env.
 resource "google_secret_manager_secret" "db_url" {
   secret_id = "bird-watch-db-url"
   replication {
@@ -7,9 +7,15 @@ resource "google_secret_manager_secret" "db_url" {
   depends_on = [google_project_service.secretmanager]
 }
 
+# T4 cutover 2026-05-18: flipped read path from Neon to Cloud SQL.
+# Writes continue going to both DBs via the dual-write fanout in the ingester
+# (#632) and admin-api (#631); Neon stays alive as warm rollback. To roll back
+# this cutover, change `local.cloudsql_pooled_url` back to `local.neon_pooled_url`,
+# `terraform apply`, and the next read-api revision picks up the reverted secret.
+# T5 (Neon teardown + dropping SECONDARY_DATABASE_URL) is tracked separately.
 resource "google_secret_manager_secret_version" "db_url" {
   secret      = google_secret_manager_secret.db_url.id
-  secret_data = local.neon_pooled_url
+  secret_data = local.cloudsql_pooled_url
 }
 
 # Service account the Read API runs as.
