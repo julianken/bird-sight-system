@@ -146,14 +146,11 @@ export type ObservationFilters = {
   speciesCode?: string;
   familyCode?: string;
   /**
-   * Viewport bounding box [minLon, minLat, maxLon, maxLat] in EPSG:4326.
-   * When present, the result is narrowed via PostGIS
-   * `geom && ST_MakeEnvelope(...) AND ST_Intersects(geom, ST_MakeEnvelope(...))`
-   * — the `&&` predicate is index-friendly (uses obs_geom_idx GIST) and
-   * `ST_Intersects` removes false-positives at the envelope boundary.
-   * Added 2026-05-17 (#619) as a Phase 2 pre-condition for the going-national
-   * flip — without it, the national observation set ships ~24 MB JSON per
-   * map load.
+   * Viewport bounding box as `[west, south, east, north]` (lng,lat,lng,lat).
+   * Wired by `MapCanvas` viewport changes to constrain the observations
+   * payload to the visible region — the Phase 2 going-national pre-condition
+   * that prevents pulling the full CONUS observation set on every map load.
+   * Serialized as `?bbox=west,south,east,north` on the wire.
    */
   bbox?: [number, number, number, number];
 };
