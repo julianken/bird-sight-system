@@ -129,6 +129,45 @@ resource "google_cloud_run_v2_job" "ingestor" {
             }
           }
         }
+        # Healthchecks.io ping URLs for the four kinds this shared job runs.
+        # cli.ts reads `HEALTHCHECKS_URL_<KIND>` and pings start/success/fail
+        # around each run; without these the heartbeat silently skips.
+        env {
+          name = "HEALTHCHECKS_URL_RECENT"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.healthchecks_url["recent"].secret_id
+              version = "latest"
+            }
+          }
+        }
+        env {
+          name = "HEALTHCHECKS_URL_HOTSPOTS"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.healthchecks_url["hotspots"].secret_id
+              version = "latest"
+            }
+          }
+        }
+        env {
+          name = "HEALTHCHECKS_URL_BACKFILL"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.healthchecks_url["backfill"].secret_id
+              version = "latest"
+            }
+          }
+        }
+        env {
+          name = "HEALTHCHECKS_URL_TAXONOMY"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.healthchecks_url["taxonomy"].secret_id
+              version = "latest"
+            }
+          }
+        }
 
         # Cloud SQL Auth Proxy socket mount — Stage 2 of the Neon→Cloud SQL
         # migration (docs/plans/2026-05-17-cloud-sql-migration.md §3.2).
@@ -160,6 +199,7 @@ resource "google_cloud_run_v2_job" "ingestor" {
     google_project_service.run,
     google_secret_manager_secret_iam_member.ingestor_db,
     google_secret_manager_secret_iam_member.ingestor_ebird,
+    google_secret_manager_secret_iam_member.ingestor_healthchecks,
   ]
 }
 
@@ -374,6 +414,16 @@ resource "google_cloud_run_v2_job" "ingestor_photos" {
             }
           }
         }
+        # Healthchecks.io ping URL for the photos kind. See cli.ts:182.
+        env {
+          name = "HEALTHCHECKS_URL_PHOTOS"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.healthchecks_url["photos"].secret_id
+              version = "latest"
+            }
+          }
+        }
 
         # Cloud SQL Auth Proxy socket mount — Stage 2 of the Neon→Cloud SQL
         # migration. Additive; DATABASE_URL still points at Neon.
@@ -405,6 +455,7 @@ resource "google_cloud_run_v2_job" "ingestor_photos" {
     google_secret_manager_secret_iam_member.ingestor_r2_endpoint,
     google_secret_manager_secret_iam_member.ingestor_r2_access_key_id,
     google_secret_manager_secret_iam_member.ingestor_r2_secret_access_key,
+    google_secret_manager_secret_iam_member.ingestor_healthchecks,
   ]
 }
 
@@ -574,6 +625,16 @@ resource "google_cloud_run_v2_job" "ingestor_descriptions" {
           name  = "DESCRIPTIONS_PURGE_CACHE"
           value = "1"
         }
+        # Healthchecks.io ping URL for the descriptions kind. See cli.ts:182.
+        env {
+          name = "HEALTHCHECKS_URL_DESCRIPTIONS"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.healthchecks_url["descriptions"].secret_id
+              version = "latest"
+            }
+          }
+        }
 
         # Cloud SQL Auth Proxy socket mount — Stage 2 of the Neon→Cloud SQL
         # migration. Additive; DATABASE_URL still points at Neon.
@@ -604,6 +665,7 @@ resource "google_cloud_run_v2_job" "ingestor_descriptions" {
     google_secret_manager_secret_iam_member.ingestor_ebird,
     google_secret_manager_secret_iam_member.ingestor_cloudflare_zone_id,
     google_secret_manager_secret_iam_member.ingestor_cloudflare_api_token,
+    google_secret_manager_secret_iam_member.ingestor_healthchecks,
   ]
 }
 
@@ -722,6 +784,16 @@ resource "google_cloud_run_v2_job" "ingestor_prune" {
             }
           }
         }
+        # Healthchecks.io ping URL for the prune kind. See cli.ts:182.
+        env {
+          name = "HEALTHCHECKS_URL_PRUNE"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.healthchecks_url["prune"].secret_id
+              version = "latest"
+            }
+          }
+        }
 
         # Cloud SQL Auth Proxy socket mount — Stage 2 of the Neon→Cloud SQL
         # migration. Additive; DATABASE_URL still points at Neon.
@@ -750,6 +822,7 @@ resource "google_cloud_run_v2_job" "ingestor_prune" {
     google_project_service.run,
     google_secret_manager_secret_iam_member.ingestor_db,
     google_secret_manager_secret_iam_member.ingestor_ebird,
+    google_secret_manager_secret_iam_member.ingestor_healthchecks,
   ]
 }
 
