@@ -21,6 +21,17 @@ describe('ApiClient', () => {
     expect(url).toContain('species=vermfly');
   });
 
+  it('serializes bbox as comma-separated west,south,east,north on /api/observations', async () => {
+    const envelope = JSON.stringify({ data: [], meta: { freshestObservationAt: null } });
+    vi.spyOn(global, 'fetch').mockResolvedValue(new Response(envelope, { status: 200 }));
+    const client = new ApiClient({ baseUrl: '' });
+    await client.getObservations({ bbox: [-125, 24, -66, 50] });
+    const call = (fetch as unknown as { mock: { calls: [string, unknown][] } }).mock.calls[0]!;
+    const url = call[0];
+    // URLSearchParams encodes "," as "%2C"; either form is acceptable.
+    expect(url).toMatch(/bbox=-125(?:%2C|,)24(?:%2C|,)-66(?:%2C|,)50/);
+  });
+
   it('throws on non-2xx response', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValue(new Response('boom', { status: 500 }));
     const client = new ApiClient({ baseUrl: '' });

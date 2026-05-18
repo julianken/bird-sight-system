@@ -183,6 +183,40 @@ describe('getObservations filters', () => {
     const rows = await getObservations(db.pool, { familyCode: 'trochilidae' });
     expect(rows.map(r => r.subId)).toEqual(['S201']);
   });
+
+  // #619 — server-side bbox filtering (Phase 2 going-national pre-condition).
+  // Fixture lat/lng:
+  //   S200 = (31.72, -110.88)
+  //   S201 = (32.30, -110.99)
+  //   S202 = (32.30, -110.99)
+  it('filters by bbox: narrow envelope around S200 returns only S200', async () => {
+    const rows = await getObservations(db.pool, {
+      bbox: [-111.0, 31.5, -110.8, 31.9],
+    });
+    expect(rows.map(r => r.subId)).toEqual(['S200']);
+  });
+
+  it('filters by bbox: wide envelope returns all in-bounds', async () => {
+    const rows = await getObservations(db.pool, {
+      bbox: [-112.0, 31.0, -110.0, 33.0],
+    });
+    expect(rows.map(r => r.subId).sort()).toEqual(['S200', 'S201', 'S202']);
+  });
+
+  it('filters by bbox: envelope outside fixture returns empty', async () => {
+    const rows = await getObservations(db.pool, {
+      bbox: [-80.0, 25.0, -79.0, 26.0],
+    });
+    expect(rows).toEqual([]);
+  });
+
+  it('filters by bbox: boundary point is inclusive', async () => {
+    // S200 at exactly (31.72, -110.88) — envelope edge passes through it.
+    const rows = await getObservations(db.pool, {
+      bbox: [-110.88, 31.72, -110.0, 32.0],
+    });
+    expect(rows.map(r => r.subId)).toContain('S200');
+  });
 });
 
 describe('runReconcileStamping', () => {

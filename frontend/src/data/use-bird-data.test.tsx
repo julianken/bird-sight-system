@@ -47,6 +47,29 @@ describe('useBirdData', () => {
     expect(getObservations.mock.calls[1][0]).toMatchObject({ since: '7d', notable: true });
   });
 
+  it('refetches observations when bbox changes (viewport pan/zoom)', async () => {
+    const getObservations = vi.fn().mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
+    const client = makeClient({
+      getHotspots: vi.fn().mockResolvedValue([]),
+      getObservations,
+    } as unknown as Partial<ApiClient>);
+
+    const initialBbox: [number, number, number, number] = [-125, 24, -66, 50];
+    const nextBbox: [number, number, number, number] = [-120, 30, -100, 45];
+
+    const { rerender } = renderHook(
+      ({ filters }: { filters: import('@bird-watch/shared-types').ObservationFilters }) =>
+        useBirdData(client, filters),
+      { initialProps: { filters: { since: '14d', notable: false, bbox: initialBbox } } }
+    );
+    await waitFor(() => expect(getObservations).toHaveBeenCalledTimes(1));
+    expect(getObservations.mock.calls[0][0]).toMatchObject({ bbox: initialBbox });
+
+    rerender({ filters: { since: '14d', notable: false, bbox: nextBbox } });
+    await waitFor(() => expect(getObservations).toHaveBeenCalledTimes(2));
+    expect(getObservations.mock.calls[1][0]).toMatchObject({ bbox: nextBbox });
+  });
+
   it('exposes error state when a fetch fails', async () => {
     const client = makeClient({
       getHotspots: vi.fn().mockRejectedValue(new Error('boom')),

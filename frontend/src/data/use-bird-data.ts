@@ -53,7 +53,17 @@ export function useBirdData(
       .catch(err => { if (!cancelled) setError(err as Error); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [client, filters.since, filters.notable, filters.speciesCode, filters.familyCode]);
+    // bbox is an array — serialize to a stable string for the dep list so
+    // React re-runs the effect on value-change, not array-identity-change.
+    // (App.tsx debounces the bbox upstream; this hook trusts the value.)
+  }, [
+    client,
+    filters.since,
+    filters.notable,
+    filters.speciesCode,
+    filters.familyCode,
+    filters.bbox?.join(','),
+  ]);
 
   return { loading, error, hotspots, observations, freshestObservationAt };
 }
