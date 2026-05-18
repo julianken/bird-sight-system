@@ -8,6 +8,11 @@ provider "google" {
   user_project_override = true
 }
 
+# Neon provider — retained ONLY to allow terraform to plan/apply the destroy
+# of the remaining `neon_project` / `neon_database` resources still in state
+# from PRs prior to this Neon decommission. A follow-up PR removes this block
+# (and the corresponding entries in versions.tf / variables.tf) once
+# `terraform apply` confirms the state is clean.
 provider "neon" {
   api_key = var.neon_api_key
 }

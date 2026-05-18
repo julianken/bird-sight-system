@@ -2,6 +2,7 @@ gcp_project_id        = "REPLACE_ME"
 gcp_region            = "us-west1"
 # Find with `gcloud beta billing accounts list`. Required by budget.tf.
 gcp_billing_account_id = "REPLACE_ME"
+# Retained for the Neon-destroy apply only; removed in follow-up PR.
 neon_api_key          = "REPLACE_ME"
 neon_org_id           = "REPLACE_ME"
 cloudflare_account_id = "REPLACE_ME"
