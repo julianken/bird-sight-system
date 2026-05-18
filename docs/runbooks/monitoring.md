@@ -208,3 +208,38 @@ Temporarily set the check `path` to `/does-not-exist` in HCL; `terraform apply`.
 | Uptime | — | — | Pending. |
 
 Smoke tests are deliberate, opt-in operator work — do not run them on autopilot. Each one perturbs prod briefly; coordinate before firing.
+
+## Dashboard
+
+URL: `https://console.cloud.google.com/monitoring/dashboards/custom/<id>?project=bird-maps-prod` (the `dashboard_url` output from `terraform apply` shows the exact path).
+
+Single-pane operator view: open incidents, ingest health, read-api latency, Cloud SQL, system signals. Designed for un-paged triage — when an operator opens it during a routine check, they should resolve "is anything currently on fire", "did everything that was supposed to run, run", and "is anything trending toward unhealthy" in under 30 seconds. If they cannot, the dashboard is the wrong shape and we should re-cut it; the 30-day audit (below) is the falsifier.
+
+### Maintenance landmines
+
+- **L1 — `dashboard_json` diff-suppression silently drops remove-only edits.** Pair any remove with a trivial concomitant change (rename a title, etc.) so the provider sees a non-empty diff. Source: F4 in the analysis report; `phase-2/iterator-2-hcl-schema-validation.md:148-194`.
+- **L6 — `mosaicLayout.columns` is an INTEGER** (not a string like `gridLayout.columns`). Type mismatch yields a low-quality server-side 400 at Apply. Source: F4; `iterator-2:188`.
+
+Also: `terraform validate` does NOT validate the contents of `dashboard_json`. Invented widget types pass validate but fail at Apply. Cross-check new widget structs against the Google Monitoring v3 schema (or copy a known-good widget from an existing dashboard) before adding new tile shapes.
+
+### Emit-shape contract
+
+The dashboard's per-kind ingest widgets (Row 2.1 + 2.2) consume the new log-based metrics `bird-ingest-run-completed` (counter) and `bird-ingest-run-duration-seconds` (distribution). Both extract fields from a structured log emitted by `services/ingestor/src/cli.ts:174`. The emit shape is a contract:
+
+```json
+{
+  "severity": "INFO" | "ERROR",
+  "message": "bird_ingest_run_completed",
+  "kind": "recent" | "backfill" | "hotspots" | "taxonomy" | "photos" | "descriptions" | "prune" | "backfill-extended",
+  "status": "success" | "partial" | "failure",
+  "duration_seconds": <number>
+}
+```
+
+Future refactors of `cli.ts:174` must preserve this shape. Field renames break the dashboard silently — the metric filters look for `jsonPayload.message="bird_ingest_run_completed"` and extract `kind`, `status`, `duration_seconds` by name. The `!=NULL_VALUE` guards in the metric filters drop malformed entries rather than landing garbage in the metric stream, so a partial regression shows as "zero entries" not "wrong entries".
+
+### Audit hook (`monitoring.dashboards.get`)
+
+Data Access audit logs for `monitoring.googleapis.com` are enabled via `google_project_iam_audit_config.monitoring_data_read` (PR #642). The log-based metric `bird-watch-dashboard-opened` counts opens; the 30-day audit follow-up issue (filed at PR-2 merge time per Contract C4 of the analysis report) reviews engagement and decides whether the dashboard earns its place. At T+90d, the same audit kills the dashboard if quarterly opens ≤ 1.
+
+After the first Apply, narrow the metric filter to this dashboard by uncommenting the `protoPayload.resourceName=~"projects/.+/dashboards/<DASHBOARD_ID>"` clause in `monitoring.tf` (the dashboard ID isn't known until after Apply).
