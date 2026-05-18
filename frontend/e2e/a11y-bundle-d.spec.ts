@@ -47,9 +47,17 @@ test.describe('A11Y-3 — one <h1> per surface', () => {
   });
 
   // Regression guard: SpeciesDetailSurface already has an <h1> — ensure
-  // a detail view still has exactly one (no accidental duplication from
-  // surfaces that linger in the DOM behind dialogs/sheets).
-  test('detail view has exactly one <h1> (SpeciesDetailSurface)', async ({ page, apiStub }) => {
+  // the detail rail still has exactly one (no accidental duplication
+  // within the rail itself).
+  //
+  // Post-#663 the rail coexists with a still-mounted MapSurface
+  // (mapVisible = view==='map' || view==='detail'), and MapSurface
+  // contributes its own <h1> via MapLede. The two h1s live in different
+  // landmarks (<main> for the map lede, <aside role="complementary">
+  // for the rail) and each landmark has exactly one h1 — which is the
+  // semantic property A11Y-3 is guarding against. The assertion is
+  // scoped to the rail accordingly.
+  test('detail view has exactly one <h1> in the rail (SpeciesDetailSurface)', async ({ page, apiStub }) => {
     await apiStub.stubEmpty();
     await apiStub.stubSpecies('vermfly', {
       speciesCode: 'vermfly',
@@ -65,10 +73,10 @@ test.describe('A11Y-3 — one <h1> per surface', () => {
     await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' }))
       .toBeVisible({ timeout: 10_000 });
 
-    const h1Count = await page.evaluate(
-      () => document.querySelectorAll('h1').length,
-    );
-    expect(h1Count, 'detail view must have exactly 1 <h1>').toBe(1);
+    await expect(
+      page.getByRole('complementary').getByRole('heading', { level: 1 }),
+      'detail rail must have exactly 1 <h1>',
+    ).toHaveCount(1);
   });
 
   // Mobile viewport — same assertions at 390×844 to confirm no mobile path
