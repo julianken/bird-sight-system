@@ -198,6 +198,9 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
   if (!dbUrl) throw new Error('DATABASE_URL not set');
 
   const pool = deps.createPool({ databaseUrl: dbUrl });
+  // Capture wall-clock start AFTER probe early-returns and env-guard checks so
+  // `duration_seconds` measures only real run work — not setup or probe paths.
+  const startedAt = Date.now();
   try {
     let summary: AnyRunSummary;
     if (kind === 'recent') {
@@ -251,7 +254,21 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
     } else {
       throw new Error(`Unknown kind: ${kind}. Try recent | hotspots | backfill | backfill-extended | taxonomy | photos | descriptions | prune | digest | probe-taxon | probe-wiki`);
     }
-    console.log(JSON.stringify(summary, null, 2));
+    // Cloud Run / Cloud Logging splits stdout on newlines and treats each
+    // resulting line as its own `textPayload` entry — pretty-printed JSON
+    // therefore shreds into N rows with zero `jsonPayload.*` coverage, and
+    // any log-based metric that depends on `jsonPayload.message` is silently
+    // empty. Emit a single compact line carrying the fields the dashboard's
+    // log-based metrics extract (see issue #641 + epic #638, PR-2 in #642).
+    // Sibling pattern: `services/read-api/src/app.ts:161` (meta_freshness).
+    const durationSeconds = Math.round((Date.now() - startedAt) / 1000);
+    console.log(JSON.stringify({
+      severity: summary.status === 'failure' ? 'ERROR' : 'INFO',
+      message: 'bird_ingest_run_completed',
+      kind,
+      status: summary.status,
+      duration_seconds: durationSeconds,
+    }));
     if (summary.status === 'failure') {
       // Flag the process as failed without killing the loop mid-pool-close.
       process.exitCode = 1;
