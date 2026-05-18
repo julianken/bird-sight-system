@@ -145,6 +145,56 @@ describe('GET /api/observations', () => {
     expect(res.status).toBe(400);
   });
 
+  // #619 — server-side bbox filtering, Phase 2 going-national pre-condition.
+  describe('bbox filtering', () => {
+    it('with NO bbox returns the full set (backward-compatible)', async () => {
+      const app = createApp({ pool: db.pool });
+      const res = await app.request('/api/observations?since=30d');
+      expect(res.status).toBe(200);
+      const body = await res.json() as ObsEnvelope;
+      expect(body.data).toHaveLength(2);
+    });
+
+    it('with a valid bbox narrows to in-bounds observations', async () => {
+      const app = createApp({ pool: db.pool });
+      // Envelope contains only S1 (31.72, -110.88); excludes S2 (32.30, -110.99)
+      const res = await app.request(
+        '/api/observations?since=30d&bbox=-111,31.5,-110.85,31.9'
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json() as ObsEnvelope;
+      expect(body.data.map(o => o.subId)).toEqual(['S1']);
+    });
+
+    it('with a malformed bbox (too few values) returns 400', async () => {
+      const app = createApp({ pool: db.pool });
+      const res = await app.request('/api/observations?bbox=1,2,3');
+      expect(res.status).toBe(400);
+    });
+
+    it('with a non-numeric bbox returns 400', async () => {
+      const app = createApp({ pool: db.pool });
+      const res = await app.request('/api/observations?bbox=a,b,c,d');
+      expect(res.status).toBe(400);
+    });
+
+    it('with out-of-range lat/lon returns 400', async () => {
+      const app = createApp({ pool: db.pool });
+      const res = await app.request('/api/observations?bbox=-200,-100,200,100');
+      expect(res.status).toBe(400);
+    });
+
+    it('preserves the s-maxage=300 cache header when bbox present', async () => {
+      const app = createApp({ pool: db.pool });
+      const res = await app.request(
+        '/api/observations?bbox=-112,31,-110,33'
+      );
+      expect(res.status).toBe(200);
+      expect(res.headers.get('cache-control'))
+        .toBe('public, s-maxage=300, stale-while-revalidate=600');
+    });
+  });
+
   // Plan 2026-05-17, Task 5 / S2 alert source. The data-staleness alert
   // (google_logging_metric.meta_freshness_seconds) pulls
   // jsonPayload.meta_freshness_seconds out of the read-api's stdout — this

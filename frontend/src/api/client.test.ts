@@ -21,6 +21,27 @@ describe('ApiClient', () => {
     expect(url).toContain('species=vermfly');
   });
 
+  // #619 — server-side bbox filtering, viewport-driven from MapCanvas.
+  it('encodes bbox as a single comma-separated query param', async () => {
+    const envelope = JSON.stringify({ data: [], meta: { freshestObservationAt: null } });
+    vi.spyOn(global, 'fetch').mockResolvedValue(new Response(envelope, { status: 200 }));
+    const client = new ApiClient({ baseUrl: '' });
+    await client.getObservations({ bbox: [-112, 31, -110, 33] });
+    const call = (fetch as unknown as { mock: { calls: [string, unknown][] } }).mock.calls[0]!;
+    const url = call[0];
+    // URL-encoded comma is %2C; assert against either form for robustness
+    expect(url).toMatch(/bbox=-112(%2C|,)31(%2C|,)-110(%2C|,)33/);
+  });
+
+  it('omits bbox when not provided (backward-compatible)', async () => {
+    const envelope = JSON.stringify({ data: [], meta: { freshestObservationAt: null } });
+    vi.spyOn(global, 'fetch').mockResolvedValue(new Response(envelope, { status: 200 }));
+    const client = new ApiClient({ baseUrl: '' });
+    await client.getObservations({ since: '14d' });
+    const call = (fetch as unknown as { mock: { calls: [string, unknown][] } }).mock.calls[0]!;
+    expect(String(call[0])).not.toContain('bbox=');
+  });
+
   it('throws on non-2xx response', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValue(new Response('boom', { status: 500 }));
     const client = new ApiClient({ baseUrl: '' });
