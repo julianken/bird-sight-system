@@ -43,58 +43,12 @@ test.describe('Path A happy path', () => {
     await expect(page.locator('[data-testid=map-canvas]')).toBeVisible({ timeout: 10_000 });
   });
 
-  test('feed surface loads when navigating to ?view=feed', async ({ page }) => {
-    const app = new AppPage(page);
-    await app.goto('view=feed');
-    await app.waitForAppReady();
-
-    // At least one observation row is present. The seeded dev DB has 11
-    // observations, and `.feed-row` is set on <a> inside each
-    // ObservationFeedRow — see components/ObservationFeedRow.tsx.
-    await expect(page.locator('.feed-row').first()).toBeVisible({ timeout: 10_000 });
-    const rowCount = await page.locator('.feed-row').count();
-    expect(rowCount).toBeGreaterThanOrEqual(1);
-
-    // Feed tab is the selected SurfaceNav item. The accessible name is
-    // "Feed view" to avoid collision with the FiltersBar labels.
-    const feedTab = page.getByRole('tab', { name: 'Feed view' });
-    await expect(feedTab).toHaveAttribute('aria-selected', 'true');
-  });
-
-  test('filters narrow the feed', async ({ page }) => {
-    const app = new AppPage(page);
-    await app.goto('view=feed');
-    await app.waitForAppReady();
-
-    await expect(page.locator('.feed-row').first()).toBeVisible({ timeout: 10_000 });
-    const baselineCount = await page.locator('.feed-row').count();
-
-    // Phase 3: FiltersBar is inside a panel triggered from AppHeader.
-    await app.openFilters();
-    await app.filters.toggleNotable(true);
-    await expect
-      .poll(() => app.getUrlParams().get('notable'), { timeout: 5_000 })
-      .toBe('true');
-    // Wait for data refetch + re-render before measuring again.
-    await app.waitForAppReady();
-
-    const filteredCount = await page.locator('.feed-row').count();
-
-    // Expected: filteredCount < baselineCount. Log & continue on equality
-    // so an all-notable seed does not flake this test — the narrow-by-
-    // filter contract is asserted by the URL write above and by
-    // frontend/e2e/filters.spec.ts.
-    if (filteredCount === baselineCount) {
-      // eslint-disable-next-line no-console
-      console.log(
-        `[happy-path] notable filter kept all ${baselineCount} rows — ` +
-          `fixture is all-notable, asserting filteredCount <= baselineCount only.`,
-      );
-      expect(filteredCount).toBeLessThanOrEqual(baselineCount);
-    } else {
-      expect(filteredCount).toBeLessThan(baselineCount);
-    }
-  });
+  // Issue #662: Feed removed as a user-visible surface. The legacy
+  // ?view=feed URL handling is preserved (so old bookmarks still load),
+  // but the Feed tab is gone from the header and there is no longer a
+  // tab to assert as selected. The feed-row click flow is still covered
+  // by the "feed row click opens detail surface" test below, which uses
+  // ?view=feed to reach the dead-code feed branch.
 
   test('species deep link cold-loads to search surface with filter active', async ({ page }) => {
     const app = new AppPage(page);
@@ -126,11 +80,10 @@ test.describe('Path A happy path', () => {
     // Phase 4: detail surface renders in a dialog/sheet outside <main>.
     await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeVisible({ timeout: 10_000 });
 
-    // No SurfaceNav tab is selected (detail is nav-hidden).
-    const feedTab = page.getByRole('tab', { name: 'Feed view' });
+    // No SurfaceNav tab is selected (detail is nav-hidden). Feed tab
+    // removed in #662.
     const speciesTab = page.getByRole('tab', { name: 'Species view' });
     const mapTab = page.getByRole('tab', { name: 'Map view' });
-    await expect(feedTab).toHaveAttribute('aria-selected', 'false');
     await expect(speciesTab).toHaveAttribute('aria-selected', 'false');
     await expect(mapTab).toHaveAttribute('aria-selected', 'false');
   });

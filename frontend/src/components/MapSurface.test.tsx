@@ -75,46 +75,14 @@ const baseProps = {
   freshnessLabel: 'Updated just now · Source: eBird',
 };
 
-describe('MapSurface skip-link', () => {
-  it('renders a "Skip to species list" button as the first interactive element', () => {
-    render(<MapSurface {...baseProps} onSkipToFeed={vi.fn()} />);
-    const skip = screen.getByRole('button', { name: /Skip to species list/i });
-    expect(skip).toBeInTheDocument();
-    expect(skip.tagName).toBe('BUTTON');
-  });
-
-  it('uses class="skip-link" so the global stylesheet rule applies', () => {
-    render(<MapSurface {...baseProps} onSkipToFeed={vi.fn()} />);
-    const skip = screen.getByRole('button', { name: /Skip to species list/i });
-    expect(skip.className).toContain('skip-link');
-  });
-
-  it('is a <button> (not an <a href="#feed-surface">) — App.tsx mounts surfaces mutually-exclusive so anchors do not exist', () => {
-    render(<MapSurface {...baseProps} onSkipToFeed={vi.fn()} />);
-    // No <a href="#feed-surface"> anywhere in this surface.
-    expect(screen.queryByRole('link', { name: /Skip to species list/i })).toBeNull();
-  });
-
-  it('invokes onSkipToFeed when activated (the URL-state setter is wired by App.tsx)', () => {
-    const onSkip = vi.fn();
-    render(<MapSurface {...baseProps} onSkipToFeed={onSkip} />);
-    const skip = screen.getByRole('button', { name: /Skip to species list/i });
-    fireEvent.click(skip);
-    expect(onSkip).toHaveBeenCalledTimes(1);
-  });
-
-  it('also fires onSkipToFeed via Enter / Space (native <button> default)', () => {
-    const onSkip = vi.fn();
-    render(<MapSurface {...baseProps} onSkipToFeed={onSkip} />);
-    const skip = screen.getByRole('button', { name: /Skip to species list/i });
-    skip.focus();
-    fireEvent.keyDown(skip, { key: 'Enter' });
-    // jsdom does not synthesise a click on Enter for <button>, so explicitly
-    // simulate the click that the browser default would dispatch. The point
-    // of this test is to confirm the handler is wired to the click event,
-    // which `fireEvent.click` exercises.
-    fireEvent.click(skip);
-    expect(onSkip).toHaveBeenCalled();
+// Issue #662: the "Skip to species list" skip-link + its `onSkipToFeed`
+// prop were removed with the Feed view. The "Explore map markers"
+// skip-link below (covered in its own describe block) is now the sole
+// keyboard-bypass entry point on the map surface.
+describe('MapSurface — no Feed skip-link (issue #662)', () => {
+  it('does not render a "Skip to species list" button', () => {
+    render(<MapSurface {...baseProps} />);
+    expect(screen.queryByRole('button', { name: /Skip to species list/i })).toBeNull();
   });
 });
 
@@ -281,7 +249,6 @@ describe('MapSurface — cell popover skip-link (Phase 1, #558)', () => {
     render(
       <MapSurface
         {...baseProps}
-        onSkipToFeed={vi.fn()}
         onExploreMapMarkers={vi.fn()}
         hasMarkers={true}
       />
@@ -294,7 +261,6 @@ describe('MapSurface — cell popover skip-link (Phase 1, #558)', () => {
     render(
       <MapSurface
         {...baseProps}
-        onSkipToFeed={vi.fn()}
         onExploreMapMarkers={vi.fn()}
         hasMarkers={true}
       />
@@ -309,7 +275,6 @@ describe('MapSurface — cell popover skip-link (Phase 1, #558)', () => {
     render(
       <MapSurface
         {...baseProps}
-        onSkipToFeed={vi.fn()}
         onExploreMapMarkers={onExplore}
         hasMarkers={true}
       />
@@ -323,7 +288,6 @@ describe('MapSurface — cell popover skip-link (Phase 1, #558)', () => {
     render(
       <MapSurface
         {...baseProps}
-        onSkipToFeed={vi.fn()}
         onExploreMapMarkers={vi.fn()}
         hasMarkers={false}
       />

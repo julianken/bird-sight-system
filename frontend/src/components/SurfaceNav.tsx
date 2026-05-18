@@ -22,7 +22,6 @@ interface TabDef {
 const TABS: readonly TabDef[] = [
   { value: 'map', label: 'Map', accessibleName: 'Map view' },
   { value: 'species', label: 'Species', accessibleName: 'Species view' },
-  { value: 'feed', label: 'Feed', accessibleName: 'Feed view' },
 ];
 
 export function SurfaceNav(props: SurfaceNavProps) {

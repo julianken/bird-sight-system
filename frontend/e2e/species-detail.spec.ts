@@ -80,15 +80,16 @@ test.describe('species detail surface (#151)', () => {
     // species= should be set (filter narrowing).
     await expect.poll(() => app.getUrlParams().get('species'), { timeout: 5_000 }).toBe('vermfly');
 
-    // detail= should NOT be set. View should stay on feed.
-    // Phase 0: DEFAULTS.view is now 'map', so 'feed' is a non-default view
-    // and writeUrl WILL emit ?view=feed in the URL.
+    // detail= should NOT be set. View should stay on the feed dead-code
+    // branch (preserved per #662 for legacy bookmark compatibility).
     expect(app.getUrlParams().get('detail')).toBeNull();
     expect(app.getUrlParams().get('view')).toBe('feed');
 
-    // Feed tab remains selected.
-    const feedTab = page.getByRole('tab', { name: 'Feed view' });
-    await expect(feedTab).toHaveAttribute('aria-selected', 'true');
+    // Feed tab no longer exists in the header (issue #662), but the
+    // ?view=feed URL state is preserved and no other tab is selected.
+    await expect(page.getByRole('tab', { name: 'Feed view' })).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: 'Map view' })).toHaveAttribute('aria-selected', 'false');
+    await expect(page.getByRole('tab', { name: 'Species view' })).toHaveAttribute('aria-selected', 'false');
   });
 
   test('network failure shows inline error on detail surface', async ({ page, apiStub }) => {
@@ -99,7 +100,7 @@ test.describe('species detail surface (#151)', () => {
     await expect(page.getByText('Could not load species details')).toBeVisible({ timeout: 10_000 });
   });
 
-  test('ESC closes the detail dialog/sheet and returns to feed', async ({ page, apiStub }) => {
+  test('ESC closes the detail dialog/sheet and returns to map (#662)', async ({ page, apiStub }) => {
     await apiStub.stubEmpty();
     await apiStub.stubSpecies('vermfly', VERMFLY);
     const app = new AppPage(page);
@@ -111,11 +112,14 @@ test.describe('species detail surface (#151)', () => {
     // the bottom-sheet on mobile (at full snap) or dismisses it at peek/half.
     await page.keyboard.press('Escape');
 
-    // After ESC from a fresh open (peek state on mobile, open on desktop),
-    // view flips back to feed and the detail surface is gone.
+    // Issue #662: onCloseDetail now returns to the Map surface (the
+    // default route) rather than Feed, which was removed from the header.
+    // 'map' is the DEFAULTS.view value so writeUrl omits ?view=map from
+    // the URL — assert by reading url-state via the absence of the param.
     await expect.poll(() => new URL(page.url()).searchParams.get('view'), { timeout: 5_000 })
-      .toBe('feed');
+      .toBeNull();
     await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' })).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: 'Map view' })).toHaveAttribute('aria-selected', 'true');
   });
 
   test('detail surface has no legacy complementary landmark or overlay', async ({ page, apiStub }) => {

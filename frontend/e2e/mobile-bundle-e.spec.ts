@@ -136,16 +136,16 @@ test.describe('MOB-4 — AppHeader buttons ≥ 44×44pt', () => {
     expect(box!.width, 'Attribution button width must be ≥ 44px').toBeGreaterThanOrEqual(44);
   });
 
-  test('Feed tab button is ≥ 44px tall', async ({ page, apiStub }) => {
+  test('Species tab button is ≥ 44px tall (Feed tab removed in #662)', async ({ page, apiStub }) => {
     await apiStub.stubEmpty();
     const app = new AppPage(page);
-    await app.goto('view=feed');
+    await app.goto('view=species');
     await app.waitForAppReady();
 
-    const tab = page.getByRole('tab', { name: 'Feed view' });
+    const tab = page.getByRole('tab', { name: 'Species view' });
     const box = await tab.boundingBox();
-    expect(box, 'Feed tab bounding box must exist').not.toBeNull();
-    expect(box!.height, 'Feed tab height must be ≥ 44px').toBeGreaterThanOrEqual(44);
+    expect(box, 'Species tab bounding box must exist').not.toBeNull();
+    expect(box!.height, 'Species tab height must be ≥ 44px').toBeGreaterThanOrEqual(44);
   });
 
   // Regression guard: round-1 fix used font-size:0 which produced empty

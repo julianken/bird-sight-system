@@ -19,11 +19,16 @@ describe('<AppHeader>', () => {
     expect(link).toHaveTextContent(/Bird Maps · Arizona/);
   });
 
-  it('renders three tabs in stable order: Feed, Species, Map', () => {
+  it('renders two tabs in stable order: Species, Map (Feed removed per #662)', () => {
     render(<AppHeader {...baseProps} />);
     const tablist = screen.getByRole('tablist', { name: /Surface/i });
     const tabs = within(tablist).getAllByRole('tab');
-    expect(tabs.map(t => t.textContent)).toEqual(['Feed', 'Species', 'Map']);
+    expect(tabs.map(t => t.textContent)).toEqual(['Species', 'Map']);
+  });
+
+  it('does not render a Feed tab (issue #662)', () => {
+    render(<AppHeader {...baseProps} />);
+    expect(screen.queryByRole('tab', { name: /Feed view/i })).toBeNull();
   });
 
   it('marks the active tab via aria-selected and is-active class', () => {
@@ -36,17 +41,17 @@ describe('<AppHeader>', () => {
   it('clicking an inactive tab calls onSelectView with that view', async () => {
     const onSelectView = vi.fn();
     render(<AppHeader {...baseProps} onSelectView={onSelectView} activeView="map" />);
-    await userEvent.click(screen.getByRole('tab', { name: /Feed view/i }));
-    expect(onSelectView).toHaveBeenCalledWith('feed');
+    await userEvent.click(screen.getByRole('tab', { name: /Species view/i }));
+    expect(onSelectView).toHaveBeenCalledWith('species');
   });
 
   it('ArrowRight on a focused tab moves focus + activation to the next tab', async () => {
     const onSelectView = vi.fn();
-    render(<AppHeader {...baseProps} onSelectView={onSelectView} activeView="feed" />);
-    const feedTab = screen.getByRole('tab', { name: /Feed view/i });
-    feedTab.focus();
+    render(<AppHeader {...baseProps} onSelectView={onSelectView} activeView="species" />);
+    const speciesTab = screen.getByRole('tab', { name: /Species view/i });
+    speciesTab.focus();
     await userEvent.keyboard('{ArrowRight}');
-    expect(onSelectView).toHaveBeenCalledWith('species');
+    expect(onSelectView).toHaveBeenCalledWith('map');
   });
 
   it('renders Filters trigger without badge when filterCount === 0', () => {

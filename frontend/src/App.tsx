@@ -286,38 +286,14 @@ export function App() {
     set({ bbox: null });
   }, [set]);
 
-  // Close callback for detail modal/sheet wrappers — flips back to feed view.
+  // Close callback for detail modal/sheet wrappers — returns to the Map
+  // surface (the default route). Issue #662 removed Feed as a user-visible
+  // surface, so the previous `view: 'feed'` redirect would dump users onto
+  // a hidden surface; Map is now the consistent landing point.
   const onCloseDetail = useCallback(
-    () => set({ view: 'feed', detail: null }),
+    () => set({ view: 'map', detail: null }),
     [set],
   );
-
-  /**
-   * Skip-link handler (issue #247): switch to the feed view AND move
-   * keyboard focus to the FeedSurface `<ol class="feed">` landmark so
-   * (a) sighted-keyboard users see a clear focus jump, and (b) screen-
-   * reader users get a landmark announcement. The setTimeout(_, 0)
-   * defers the focus call past the next React commit, when the FeedSurface
-   * `<ol>` has actually mounted. Using `requestAnimationFrame` would also
-   * work; a 0ms timeout is the more portable signal across React 18 +
-   * jsdom test environments.
-   */
-  const onSkipToFeed = useCallback(() => {
-    set({ view: 'feed' });
-    setTimeout(() => {
-      const feedList = document.querySelector(
-        'ol.feed[aria-label="Observations"]',
-      );
-      if (feedList instanceof HTMLElement) {
-        // Lists are not focusable by default — set tabIndex first so the
-        // browser actually moves focus and emits a focus event.
-        if (!feedList.hasAttribute('tabindex')) {
-          feedList.setAttribute('tabindex', '-1');
-        }
-        feedList.focus({ preventScroll: false });
-      }
-    }, 0);
-  }, [set]);
 
   // Log raw error details for debugging; show only a friendly message in UI.
   useEffect(() => {
@@ -413,7 +389,6 @@ export function App() {
             silhouettes={silhouettes}
             familyCode={state.familyCode}
             onFamilyToggle={onFamilyToggle}
-            onSkipToFeed={onSkipToFeed}
             onSelectSpecies={onSelectSpecies}
             onViewportChange={onViewportChange}
             onExploreMapMarkers={() => {
