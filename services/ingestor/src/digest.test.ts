@@ -161,6 +161,58 @@ describe('runDigest', () => {
     expect(result.error).toBe('SPF fail');
   });
 
+  it('still ships the digest with null monitoring placeholders when fetchMonitoringSignals rejects', async () => {
+    // Failure policy: fetchMonitoringSignals is SOFT — a Cloud Monitoring API
+    // blip (rate limit, IAM transient, future-#642 client wiring drift) must
+    // NOT take down the digest. The headline ingest_runs section is the
+    // operator-critical payload; the monitoring auxiliaries degrade to
+    // "unavailable" exactly as the null renderer path already handles.
+    // Caller still receives a delivered SendResult and the heartbeat fires.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const sendEmail = vi
+      .fn<(s: string, b: string) => Promise<SendResult>>()
+      .mockResolvedValue({ status: 'delivered', providerMessageId: 'sg-msg-2' });
+    const pool = makePool([
+      { kind: 'recent', status: 'success', count: '12' },
+    ]);
+    const fetchMonitoringSignals = vi
+      .fn<() => Promise<MonitoringSignals>>()
+      .mockRejectedValue(new Error('cloud monitoring 503'));
+
+    const result = await runDigest({
+      pool,
+      emailRecipient: 'julian.kennon.d@gmail.com',
+      sendEmail,
+      fetchMonitoringSignals,
+      now: () => FIXED_NOW_DATE,
+    });
+
+    // Delivery path stays intact.
+    expect(result.status).toBe('delivered');
+    expect(result.providerMessageId).toBe('sg-msg-2');
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+
+    // Failure was logged exactly once — operator-visible signal that the
+    // monitoring auxiliaries degraded without taking down the whole job.
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0]?.[0]).toContain('fetchMonitoringSignals failed');
+
+    // Rendered body contains the headline ingest data AND the unavailable
+    // markers for the three null monitoring signals.
+    const [, body] = sendEmail.mock.calls[0]!;
+    expect(body).toContain('12 success');
+    expect(body.match(/unavailable/g)?.length).toBe(3);
+    // Top-errors section degrades to "none" when the list is empty.
+    expect(body).toMatch(/Top 3 errors[\s\S]*?none/);
+
+    // The caller's heartbeat-gate sees a delivered result and pings.
+    const ping = vi.fn();
+    if (result.status === 'delivered') ping();
+    expect(ping).toHaveBeenCalledTimes(1);
+
+    warnSpy.mockRestore();
+  });
+
   it('queries ingest_runs filtered to the 5 covered kinds (photos/descriptions excluded at SQL)', async () => {
     const sendEmail = vi
       .fn<(s: string, b: string) => Promise<SendResult>>()

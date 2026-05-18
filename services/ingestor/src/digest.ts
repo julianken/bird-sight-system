@@ -203,18 +203,44 @@ export function renderDigestBody(data: DigestData, nowIso: string): string {
  * (cli.ts) can gate the Healthchecks.io heartbeat on delivery confirmation,
  * not function success.
  *
- * Errors during composition (DB query failure, fetchMonitoringSignals
- * throwing) propagate to the caller — those are not "delivery failed",
- * they're function failed, and the caller treats them as such (no heartbeat
- * ping, exit code 1).
+ * Failure policy is asymmetric on purpose:
+ *
+ * - `fetchIngestRuns24h` is a HARD requirement. The per-kind ingest_runs
+ *   counts are the headline signal in the digest (analysis report §F9);
+ *   without them the digest is useless. A DB query failure propagates to
+ *   the caller, which treats it as function-failed (no heartbeat ping,
+ *   exit 1).
+ * - `fetchMonitoringSignals` is a SOFT requirement. It returns auxiliary
+ *   metrics (read-api p95, Cloud SQL CPU, freshness, top errors) that the
+ *   renderer already handles as `null` -> "unavailable". A monitoring-API
+ *   transient (rate limit, IAM blip, future-#642 client wiring drift) MUST
+ *   NOT take down the whole digest; the digest still ships with the headline
+ *   ingest_runs section plus null-fallback auxiliaries, and the operator sees
+ *   "unavailable" exactly as designed. Previously these were combined in a
+ *   single `Promise.all`, so a monitoring fetch rejection rejected the whole
+ *   `Promise.all` and the digest failed to send.
  */
 export async function runDigest(opts: RunDigestOptions): Promise<SendResult> {
   const now = opts.now ? opts.now() : new Date();
   const nowIso = now.toISOString();
-  const [ingestRuns24h, monitoring] = await Promise.all([
-    fetchIngestRuns24h(opts.pool),
-    opts.fetchMonitoringSignals(),
-  ]);
+  // Hard requirement — propagate on failure.
+  const ingestRuns24h = await fetchIngestRuns24h(opts.pool);
+  // Soft requirement — degrade to null placeholders so the digest still ships.
+  let monitoring: MonitoringSignals;
+  try {
+    monitoring = await opts.fetchMonitoringSignals();
+  } catch (err) {
+    console.warn(
+      'fetchMonitoringSignals failed; digest will mark monitoring signals unavailable',
+      err
+    );
+    monitoring = {
+      readApiP95Ms: null,
+      cloudSqlCpuPct: null,
+      freshnessMaxSeconds: null,
+      topErrors: [],
+    };
+  }
   const data: DigestData = { ingestRuns24h, ...monitoring };
   const body = renderDigestBody(data, nowIso);
   const subject = `bird-watch daily health digest — ${nowIso.slice(0, 10)}`;
