@@ -32,6 +32,7 @@ jobs:
       - name: Build frontend
         env:
           VITE_API_BASE_URL: https://api.bird-maps.com
+          VITE_CLARITY_PROJECT_ID: ${{ secrets.CLARITY_PROJECT_ID }}
         run: npm run build -w @bird-watch/frontend
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
