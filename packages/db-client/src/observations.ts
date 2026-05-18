@@ -1,5 +1,7 @@
 import type { Pool } from './pool.js';
-import type { Observation, ObservationFilters } from '@bird-watch/shared-types';
+import type {
+  Observation, ObservationFilters, AggregatedBucket,
+} from '@bird-watch/shared-types';
 
 export interface ObservationInput {
   subId: string;
@@ -208,6 +210,97 @@ export async function getObservations(
     isNotable: r.is_notable,
     silhouetteId: r.silhouette_id,
     familyCode: r.family_code,
+  }));
+}
+
+/**
+ * Coarse-grid aggregation for low-zoom views (#627). Buckets observations
+ * onto a `round(coord * gridMultiplier) / gridMultiplier` lat/lng grid and
+ * returns count/species-count/families per cell. Used when the read-api
+ * sees `zoom < 6` to keep CONUS-view payload below the Phase 2 <2 MB gate.
+ *
+ * `gridMultiplier` controls bucket size — higher = finer grid:
+ *   2  → 0.5°   (~55 km @ AZ latitude) — zoom 3
+ *   4  → 0.25°  (~28 km)               — zoom 4
+ *   8  → 0.125° (~14 km)               — zoom 5
+ *
+ * Filters mirror getObservations (since / notable / species / family / bbox).
+ */
+export async function getObservationsAggregated(
+  pool: Pool,
+  f: ObservationFilters,
+  gridMultiplier: number,
+): Promise<AggregatedBucket[]> {
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+
+  if (f.since) {
+    const days = parseInt(f.since.replace('d', ''), 10);
+    conditions.push(`obs_dt >= now() - ($${params.length + 1}::int * interval '1 day')`);
+    params.push(days);
+  }
+  if (f.notable === true) {
+    conditions.push('is_notable = true');
+  }
+  if (f.speciesCode) {
+    conditions.push(`o.species_code = $${params.length + 1}`);
+    params.push(f.speciesCode);
+  }
+  if (f.familyCode) {
+    conditions.push(
+      `o.species_code IN (SELECT species_code FROM species_meta WHERE family_code = $${params.length + 1})`
+    );
+    params.push(f.familyCode);
+  }
+  if (f.bbox) {
+    const i1 = params.length + 1;
+    const i2 = params.length + 2;
+    const i3 = params.length + 3;
+    const i4 = params.length + 4;
+    conditions.push(
+      `geom && ST_MakeEnvelope($${i1}, $${i2}, $${i3}, $${i4}, 4326)`
+    );
+    conditions.push(
+      `ST_Intersects(geom, ST_MakeEnvelope($${i1}, $${i2}, $${i3}, $${i4}, 4326))`
+    );
+    params.push(f.bbox[0], f.bbox[1], f.bbox[2], f.bbox[3]);
+  }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const gIdx = params.length + 1;
+  params.push(gridMultiplier);
+
+  // The grid multiplier is parameterised, not interpolated, so callers can't
+  // inject SQL via gridMultiplier. The read-api validates zoom → multiplier
+  // through a closed switch (2/4/8) so even an upstream tamper attempt lands
+  // on a numeric value.
+  const sql = `
+    SELECT
+      round(ST_X(geom) * $${gIdx}) / $${gIdx} AS lng_bucket,
+      round(ST_Y(geom) * $${gIdx}) / $${gIdx} AS lat_bucket,
+      count(*)::int AS observation_count,
+      count(DISTINCT o.species_code)::int AS species_count,
+      array_remove(array_agg(DISTINCT sm.family_code), NULL) AS families
+    FROM observations o
+    LEFT JOIN species_meta sm ON sm.species_code = o.species_code
+    ${where}
+    GROUP BY 1, 2
+  `;
+
+  const { rows } = await pool.query<{
+    lng_bucket: number;
+    lat_bucket: number;
+    observation_count: number;
+    species_count: number;
+    families: string[] | null;
+  }>(sql, params);
+
+  return rows.map(r => ({
+    lng: Number(r.lng_bucket),
+    lat: Number(r.lat_bucket),
+    count: r.observation_count,
+    speciesCount: r.species_count,
+    families: r.families ?? [],
   }));
 }
 

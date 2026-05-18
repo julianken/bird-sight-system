@@ -765,7 +765,9 @@ describe('MapCanvas', () => {
     );
     await act(async () => { await fireAllIdleHandlers(); });
 
-    expect(onViewportChange).toHaveBeenCalledWith(stubBounds);
+    // #627 — onViewportChange now also forwards the integer floor of the
+    // current zoom so App.tsx can pass it to /api/observations.
+    expect(onViewportChange).toHaveBeenCalledWith(stubBounds, expect.any(Number));
   });
 
   /* ── [data-theme] MutationObserver (preserved) ──────────────────── */

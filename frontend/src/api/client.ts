@@ -31,12 +31,21 @@ export class ApiClient {
     if (f.speciesCode) url.searchParams.set('species', f.speciesCode);
     if (f.familyCode) url.searchParams.set('family', f.familyCode);
     if (f.bbox) url.searchParams.set('bbox', f.bbox.join(','));
-    // Defensive: the server may still return a bare Observation[] array during
-    // the deployment window before the read-api is updated. Auto-wrap to the
-    // ObservationsResponse envelope so the frontend never crashes on old responses.
-    const raw = await this.get<ObservationsResponse | Observation[]>(url.pathname + url.search);
+    if (f.zoom !== undefined) url.searchParams.set('zoom', String(f.zoom));
+    // Defensive: tolerate three legacy shapes during the rollout window —
+    // (a) bare Observation[] (pre-#456), (b) { data, meta } without `mode`
+    // (post-#456, pre-#627), and (c) the discriminated union (#627).
+    // Normalize all three to the discriminated union so callers can switch
+    // on `mode` unconditionally.
+    type LegacyEnvelope = { data: Observation[]; meta: { freshestObservationAt: string | null } };
+    const raw = await this.get<ObservationsResponse | LegacyEnvelope | Observation[]>(
+      url.pathname + url.search,
+    );
     if (Array.isArray(raw)) {
-      return { data: raw, meta: { freshestObservationAt: null } };
+      return { mode: 'observations', data: raw, meta: { freshestObservationAt: null } };
+    }
+    if (!('mode' in raw)) {
+      return { mode: 'observations', data: raw.data, meta: raw.meta };
     }
     return raw;
   }

@@ -184,6 +184,69 @@ describe('GET /api/observations', () => {
       expect(res.status).toBe(400);
     });
 
+    it('aggregates buckets at zoom=4 (bbox + zoom<6 → mode=aggregated, #627)', async () => {
+      const app = createApp({ pool: db.pool });
+      const res = await app.request(
+        '/api/observations?bbox=-112,31,-110,33&zoom=4'
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json() as {
+        mode: string;
+        buckets?: Array<{ count: number; speciesCount: number; families: string[] }>;
+        data?: unknown;
+        meta: { freshestObservationAt: string | null };
+      };
+      expect(body.mode).toBe('aggregated');
+      expect(Array.isArray(body.buckets)).toBe(true);
+      expect(body.data).toBeUndefined();
+      // Two seeded observations both fall in the CONUS bbox; both share the
+      // same lat band (31-32) so they may land in the same or different
+      // 0.25° buckets — either way, the total count across buckets is 2.
+      const total = body.buckets!.reduce((s, b) => s + b.count, 0);
+      expect(total).toBe(2);
+      expect(body.meta.freshestObservationAt).not.toBeNull();
+    });
+
+    it('returns per-observation mode at zoom=6 (boundary, #627)', async () => {
+      const app = createApp({ pool: db.pool });
+      const res = await app.request(
+        '/api/observations?bbox=-112,31,-110,33&zoom=6'
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json() as { mode: string; data?: unknown[] };
+      expect(body.mode).toBe('observations');
+      expect(Array.isArray(body.data)).toBe(true);
+    });
+
+    it('bbox without zoom keeps per-observation mode (backward-compatible)', async () => {
+      const app = createApp({ pool: db.pool });
+      const res = await app.request('/api/observations?bbox=-112,31,-110,33');
+      expect(res.status).toBe(200);
+      const body = await res.json() as { mode: string; data?: unknown[] };
+      expect(body.mode).toBe('observations');
+      expect(Array.isArray(body.data)).toBe(true);
+    });
+
+    it('zoom without bbox keeps per-observation mode', async () => {
+      const app = createApp({ pool: db.pool });
+      const res = await app.request('/api/observations?zoom=3');
+      expect(res.status).toBe(200);
+      const body = await res.json() as { mode: string };
+      expect(body.mode).toBe('observations');
+    });
+
+    it('rejects non-integer zoom with 400', async () => {
+      const app = createApp({ pool: db.pool });
+      const res = await app.request('/api/observations?zoom=3.5');
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects out-of-range zoom with 400', async () => {
+      const app = createApp({ pool: db.pool });
+      const res = await app.request('/api/observations?zoom=99');
+      expect(res.status).toBe(400);
+    });
+
     it('preserves the s-maxage=300 cache header when bbox present', async () => {
       const app = createApp({ pool: db.pool });
       const res = await app.request(

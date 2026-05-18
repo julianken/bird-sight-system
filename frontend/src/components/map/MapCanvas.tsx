@@ -239,7 +239,13 @@ export interface MapCanvasProps {
    * callers that don't pass it — `MapSurface` callers without the
    * viewport-aware path, unit tests with skeletal props — keep working.
    */
-  onViewportChange?: (bounds: import('maplibre-gl').LngLatBounds) => void;
+  /**
+   * Fired on every camera-settle `idle` event with the current bounds and
+   * integer floor of the map zoom. Zoom was added in #627 so App.tsx can
+   * forward it to /api/observations and trigger server-side aggregation at
+   * low zoom (<6).
+   */
+  onViewportChange?: (bounds: import('maplibre-gl').LngLatBounds, zoom: number) => void;
 }
 
 /**
@@ -721,7 +727,7 @@ export function MapCanvas({
     map.on('idle', () => {
       const cb = onViewportChangeRef.current;
       if (!cb) return;
-      cb(map.getBounds());
+      cb(map.getBounds(), Math.floor(map.getZoom()));
     });
 
     // Change cursor on hover.

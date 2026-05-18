@@ -73,6 +73,37 @@ export const VERMFLY_WITH_PHOTO: SpeciesMeta = {
 };
 
 /**
+ * Vermilion Flycatcher Observation fixture — used by tests that exercise
+ * the FiltersBar species typeahead. The datalist + speciesIndex are derived
+ * from `useBirdData` observations; the typeahead can only resolve
+ * "Vermilion Flycatcher" → "vermfly" if an observation with that
+ * (comName, speciesCode) pair is in the list.
+ *
+ * Required because /api/observations now (#627) returns aggregated buckets
+ * at low zoom — the default cold-start fetch (CONUS bbox + zoom=3) hits
+ * aggregated mode, and the synthetic observations expanded from buckets
+ * carry family-name strings as `comName`, not real species names. Tests
+ * that rely on real-species typeahead must stub observations explicitly.
+ */
+export const VERMFLY_OBS: Observation[] = [
+  {
+    subId: 'OBS-VERMFLY-1',
+    speciesCode: 'vermfly',
+    comName: 'Vermilion Flycatcher',
+    lat: 32.2226,
+    lng: -110.9747,
+    obsDt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+    locId: 'L99999',
+    locName: 'Tucson, AZ',
+    howMany: 1,
+    isNotable: false,
+    silhouetteId: 'tyrannidae',
+    familyCode: 'tyrannidae',
+    taxonOrder: 4400,
+  },
+];
+
+/**
  * 1×1 transparent PNG (67 bytes, base64) used by `stubPhotoImage` to satisfy
  * the browser's `<img>` request for `photoUrl`. Returning a real binary keeps
  * the network stack happy: we never load a real photo across the wire from the

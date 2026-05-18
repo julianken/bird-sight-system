@@ -80,6 +80,11 @@ export function App() {
   // via `onViewportChange` below.
   const DEFAULT_BBOX_CONUS: [number, number, number, number] = [-125, 24, -66, 50];
   const [debouncedBbox, setDebouncedBbox] = useState<[number, number, number, number]>(DEFAULT_BBOX_CONUS);
+  // Initial zoom mirrors MapCanvas's CONUS framing (zoom 3 narrow / 4 desktop).
+  // The actual map reports a real value on first `idle`; meanwhile we send
+  // 3 so the very first /api/observations call hits aggregated mode and never
+  // pulls the full CONUS observation set on cold start. Issue #627.
+  const [debouncedZoom, setDebouncedZoom] = useState<number>(3);
 
   // hotspots intentionally fetched but unused — cheap insurance for v2
   // hotspot-marker layer (Plan 7 decision 5, docs/plans/2026-04-22-plan-7-map-v1.md).
@@ -97,6 +102,7 @@ export function App() {
     ...(state.speciesCode ? { speciesCode: state.speciesCode } : {}),
     ...(state.familyCode ? { familyCode: state.familyCode } : {}),
     bbox: debouncedBbox,
+    zoom: debouncedZoom,
   });
 
   const families = useMemo(() => deriveFamilies(observations), [observations]);
@@ -162,8 +168,9 @@ export function App() {
     },
     []
   );
-  const onViewportChange = useCallback((bounds: LngLatBounds) => {
+  const onViewportChange = useCallback((bounds: LngLatBounds, zoom: number) => {
     setViewportBounds(bounds);
+    setDebouncedZoom(zoom);
     const next: [number, number, number, number] = [
       bounds.getWest(),
       bounds.getSouth(),

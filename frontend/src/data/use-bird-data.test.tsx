@@ -70,6 +70,85 @@ describe('useBirdData', () => {
     expect(getObservations.mock.calls[1][0]).toMatchObject({ bbox: nextBbox });
   });
 
+  it('refetches when zoom changes (#627)', async () => {
+    const getObservations = vi.fn().mockResolvedValue({
+      mode: 'observations', data: [], meta: { freshestObservationAt: null },
+    });
+    const client = makeClient({
+      getHotspots: vi.fn().mockResolvedValue([]),
+      getObservations,
+    } as unknown as Partial<ApiClient>);
+
+    const { rerender } = renderHook(
+      ({ filters }: { filters: import('@bird-watch/shared-types').ObservationFilters }) =>
+        useBirdData(client, filters),
+      { initialProps: { filters: { since: '14d', notable: false, zoom: 3 } } }
+    );
+    await waitFor(() => expect(getObservations).toHaveBeenCalledTimes(1));
+    rerender({ filters: { since: '14d', notable: false, zoom: 8 } });
+    await waitFor(() => expect(getObservations).toHaveBeenCalledTimes(2));
+    expect(getObservations.mock.calls[1][0]).toMatchObject({ zoom: 8 });
+  });
+
+  it('expands aggregated buckets to synthetic observations (#627)', async () => {
+    const getObservations = vi.fn().mockResolvedValue({
+      mode: 'aggregated',
+      buckets: [
+        { lat: 31.75, lng: -111, count: 3, speciesCount: 1, families: ['tyrannidae'] },
+        { lat: 40, lng: -100, count: 2, speciesCount: 1, families: ['trochilidae'] },
+      ],
+      meta: { freshestObservationAt: '2026-05-17T00:00:00.000Z' },
+    });
+    const client = makeClient({
+      getHotspots: vi.fn().mockResolvedValue([]),
+      getObservations,
+    } as unknown as Partial<ApiClient>);
+
+    const { result } = renderHook(() =>
+      useBirdData(client, { since: '14d', notable: false, zoom: 3 }));
+    await waitFor(() => expect(result.current.observations.length).toBe(5));
+    const byFamily = result.current.observations.reduce<Record<string, number>>((acc, o) => {
+      const k = o.familyCode ?? 'null';
+      acc[k] = (acc[k] ?? 0) + 1;
+      return acc;
+    }, {});
+    expect(byFamily['tyrannidae']).toBe(3);
+    expect(byFamily['trochilidae']).toBe(2);
+    expect(result.current.freshestObservationAt).toBe('2026-05-17T00:00:00.000Z');
+  });
+
+  it('synthesises unique speciesCodes across buckets sharing a family (#630 fix)', async () => {
+    // Two distinct buckets both contain family `tyrannidae` with speciesCount=3.
+    // Before fix: both buckets emit `agg-tyrannidae-1`/`agg-tyrannidae-2` codes
+    // and any DISTINCT-species count across the viewport undercounts.
+    const getObservations = vi.fn().mockResolvedValue({
+      mode: 'aggregated',
+      buckets: [
+        { lat: 31.75, lng: -111, count: 3, speciesCount: 3, families: ['tyrannidae'] },
+        { lat: 40, lng: -100, count: 3, speciesCount: 3, families: ['tyrannidae'] },
+      ],
+      meta: { freshestObservationAt: null },
+    });
+    const client = makeClient({
+      getHotspots: vi.fn().mockResolvedValue([]),
+      getObservations,
+    } as unknown as Partial<ApiClient>);
+
+    const { result } = renderHook(() =>
+      useBirdData(client, { since: '14d', notable: false, zoom: 3 }));
+    await waitFor(() => expect(result.current.observations.length).toBe(6));
+
+    // Distinct speciesCodes across the two buckets must be 6 (3 per bucket),
+    // not 3 (collapsed by collision). Also assert the index `0` slot is
+    // actually emitted (regression for the `i % n || 1` fallthrough bug).
+    const distinctCodes = new Set(result.current.observations.map(o => o.speciesCode));
+    expect(distinctCodes.size).toBe(6);
+    const firstBucketCodes = result.current.observations
+      .filter(o => o.subId.startsWith('agg:0:'))
+      .map(o => o.speciesCode);
+    expect(firstBucketCodes).toContain('agg-0-tyrannidae-0');
+  });
+
   it('exposes error state when a fetch fails', async () => {
     const client = makeClient({
       getHotspots: vi.fn().mockRejectedValue(new Error('boom')),

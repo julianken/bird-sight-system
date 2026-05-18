@@ -3,7 +3,8 @@ import { compress } from 'hono/compress';
 import { cors } from 'hono/cors';
 import type { Pool } from '@bird-watch/db-client';
 import {
-  getHotspots, getObservations, getFreshestObservationAt,
+  getHotspots, getObservations, getObservationsAggregated,
+  getFreshestObservationAt,
   getSpeciesMeta, getSilhouettes,
   getSpeciesPhenology,
 } from '@bird-watch/db-client';
@@ -122,12 +123,54 @@ export function createApp(deps: AppDeps): Hono {
       bbox = [minLon, minLat, maxLon, maxLat];
     }
 
+    // #627 — optional zoom hint. Triggers server-side aggregation when bbox
+    // is also present AND zoom < 6 (CONUS/regional view). At higher zooms
+    // the per-observation path stays unchanged.
+    const zoomRaw = c.req.query('zoom');
+    let zoom: number | undefined;
+    if (zoomRaw !== undefined) {
+      const z = Number(zoomRaw);
+      if (!Number.isFinite(z) || !Number.isInteger(z) || z < 0 || z > 22) {
+        return c.json({ error: 'invalid zoom: expected integer in [0,22]' }, 400);
+      }
+      zoom = z;
+    }
+
     const filters: Parameters<typeof getObservations>[1] = {};
     if (since !== undefined) filters.since = since;
     if (notableParam === 'true') filters.notable = true;
     if (speciesCode !== undefined) filters.speciesCode = speciesCode;
     if (familyCode !== undefined) filters.familyCode = familyCode;
     if (bbox !== undefined) filters.bbox = bbox;
+
+    // Aggregated path: bbox present AND zoom < 6. Grid multiplier is a closed
+    // switch — any zoom <= 3 collapses to the coarsest grid (multiplier 2) so
+    // a deep zoom-out can never bypass aggregation. Zooms 4 and 5 get finer
+    // grids. Multiplier choice rationale lives in getObservationsAggregated.
+    if (bbox !== undefined && zoom !== undefined && zoom < 6) {
+      const gridMultiplier = zoom <= 3 ? 2 : zoom === 4 ? 4 : 8;
+      const [buckets, freshestObservationAt] = await Promise.all([
+        getObservationsAggregated(deps.pool, filters, gridMultiplier),
+        getFreshestObservationAt(deps.pool),
+      ]);
+      c.header('Cache-Control', cacheControlFor('observations'));
+      if (freshestObservationAt !== null) {
+        const freshnessSeconds = Math.floor(
+          (Date.now() - new Date(freshestObservationAt).getTime()) / 1000
+        );
+        console.log(JSON.stringify({
+          severity: 'INFO',
+          message: 'meta_freshness',
+          meta_freshness_seconds: freshnessSeconds,
+        }));
+      }
+      const body: ObservationsResponse = {
+        mode: 'aggregated',
+        buckets,
+        meta: { freshestObservationAt },
+      };
+      return c.json(body);
+    }
 
     // Run both queries in parallel — getObservations fetches the filtered rows;
     // getFreshestObservationAt provides MAX(ingested_at) for the freshness
@@ -162,6 +205,7 @@ export function createApp(deps: AppDeps): Hono {
     }
 
     const body: ObservationsResponse = {
+      mode: 'observations',
       data: rows,
       meta: { freshestObservationAt },
     };

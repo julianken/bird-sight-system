@@ -79,6 +79,7 @@ const _obs: Observation = {
   silhouetteId: null, familyCode: 'tyrannidae',
 };
 const _freshResponse: ObservationsResponse = {
+  mode: 'observations',
   data: [_obs],
   meta: { freshestObservationAt: '2026-05-11T10:00:00.000Z' },
 };
@@ -86,6 +87,7 @@ void _freshResponse;
 
 // Case 6: null freshestObservationAt (empty table)
 const _emptyResponse: ObservationsResponse = {
+  mode: 'observations',
   data: [],
   meta: { freshestObservationAt: null },
 };
@@ -97,8 +99,28 @@ void _ts;
 
 // Case 8: non-null meta.freshestObservationAt must be string
 const _badEnvelope: ObservationsResponse = {
+  mode: 'observations',
   data: [],
   // @ts-expect-error — freshestObservationAt must be string | null, not number
   meta: { freshestObservationAt: 12345 },
 };
 void _badEnvelope;
+
+// Case 9 (#627): aggregated branch
+const _aggregated: ObservationsResponse = {
+  mode: 'aggregated',
+  buckets: [
+    { lat: 34.0, lng: -111.0, count: 42, speciesCount: 7, families: ['tyrannidae'] },
+  ],
+  meta: { freshestObservationAt: '2026-05-17T00:00:00.000Z' },
+};
+void _aggregated;
+
+// Case 10: discriminator narrows the union — accessing `data` on the
+// aggregated branch is a type error.
+if (_aggregated.mode === 'aggregated') {
+  const _buckets = _aggregated.buckets;
+  void _buckets;
+  // @ts-expect-error — `data` does not exist on the aggregated branch
+  void _aggregated.data;
+}

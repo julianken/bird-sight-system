@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, VERMFLY_OBS } from './fixtures.js';
 import { AppPage } from './pages/app-page.js';
 
 // `exact: true` mandatory on every getByLabel filter locator — see
@@ -32,16 +32,18 @@ test.describe('deep-link restore', () => {
     // writeUrl only fires inside set(), never on mount — do NOT assert URL normalization here.
   });
 
-  test('species param shows common name in input', async ({ page }) => {
+  test('species param shows common name in input', async ({ page, apiStub }) => {
+    // /api/observations now (#627) returns aggregated buckets at low zoom —
+    // the default cold-start fetch (CONUS bbox + zoom=3) hits aggregated
+    // mode, whose synthetic observations carry family-name strings as
+    // comName, not real species names. Stub a real observation so the
+    // speciesIndex contains "Vermilion Flycatcher" → "vermfly".
+    await apiStub.stubObservations(VERMFLY_OBS);
     const app = new AppPage(page);
     await app.goto('species=vermfly');
     await app.waitForAppReady();
     // Phase 3: open panel so FiltersBar is in the DOM.
     await app.openFilters();
-    // Skip if dev DB has no observations (speciesIndex will be empty).
-    const familySel = page.getByLabel('Family', { exact: true });
-    const familyOptionCount = await familySel.locator('option').count();
-    test.skip(familyOptionCount <= 1, 'species_meta is empty — no observations to drive speciesIndex, skipping species deep-link test');
     // speciesDraft is derived from speciesIndex on mount — only populated AFTER
     // observations come back and the effect in FiltersBar re-runs.
     await expect(page.getByLabel('Species', { exact: true })).toHaveValue('Vermilion Flycatcher', { timeout: 10_000 });

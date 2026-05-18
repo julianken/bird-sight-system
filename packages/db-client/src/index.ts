@@ -4,8 +4,8 @@ export { createDualWritePool, isWriteSql } from './dual-write-pool.js';
 export type { DualWritePoolOptions } from './dual-write-pool.js';
 export { getHotspots, upsertHotspots, type HotspotInput } from './hotspots.js';
 export {
-  getObservations, upsertObservations, runReconcileStamping,
-  getFreshestObservationAt,
+  getObservations, getObservationsAggregated, upsertObservations,
+  runReconcileStamping, getFreshestObservationAt,
   type ObservationInput,
 } from './observations.js';
 export {

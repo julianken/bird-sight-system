@@ -1,8 +1,51 @@
 import { useEffect, useState } from 'react';
 import type { ApiClient } from '../api/client.js';
 import type {
-  Hotspot, Observation, ObservationFilters,
+  Hotspot, Observation, ObservationFilters, AggregatedBucket,
 } from '@bird-watch/shared-types';
+
+/**
+ * Expand each aggregated bucket (#627) into `count` synthetic Observation
+ * rows sharing the same lat/lng, so the existing supercluster/adaptive-grid
+ * render path stays unchanged. The wire payload is the optimization target —
+ * a few thousand synthetic objects in memory is cheap; serializing them
+ * across the wire is what wasn't.
+ *
+ * The synthetic `speciesCode` rotates through `bucket.families` so the
+ * cluster pill's species/family counts approximate the truth at zoom levels
+ * where the user can't drill down anyway. Drilling in past zoom 6 swaps to
+ * `mode === 'observations'` and shows real rows.
+ */
+export function expandBucketsToSyntheticObservations(
+  buckets: AggregatedBucket[],
+): Observation[] {
+  const out: Observation[] = [];
+  const nowIso = new Date().toISOString();
+  for (let bi = 0; bi < buckets.length; bi++) {
+    const b = buckets[bi]!;
+    const families = b.families.length > 0 ? b.families : [null];
+    for (let i = 0; i < b.count; i++) {
+      const family = families[i % families.length] ?? null;
+      out.push({
+        subId: `agg:${bi}:${i}`,
+        speciesCode: family
+          ? `agg-${bi}-${family}-${i % Math.max(b.speciesCount, 1)}`
+          : `agg-${bi}-${i}`,
+        comName: family ?? 'Aggregated observation',
+        lat: b.lat,
+        lng: b.lng,
+        obsDt: nowIso,
+        locId: `agg-loc-${bi}`,
+        locName: null,
+        howMany: null,
+        isNotable: false,
+        silhouetteId: family,
+        familyCode: family,
+      });
+    }
+  }
+  return out;
+}
 
 export interface BirdDataState {
   loading: boolean;
@@ -47,7 +90,11 @@ export function useBirdData(
     client.getObservations(filters)
       .then(envelope => {
         if (cancelled) return;
-        setObservations(envelope.data);
+        if (envelope.mode === 'aggregated') {
+          setObservations(expandBucketsToSyntheticObservations(envelope.buckets));
+        } else {
+          setObservations(envelope.data);
+        }
         setFreshestObservationAt(envelope.meta.freshestObservationAt);
       })
       .catch(err => { if (!cancelled) setError(err as Error); })
@@ -63,6 +110,7 @@ export function useBirdData(
     filters.speciesCode,
     filters.familyCode,
     filters.bbox?.join(','),
+    filters.zoom,
   ]);
 
   return { loading, error, hotspots, observations, freshestObservationAt };

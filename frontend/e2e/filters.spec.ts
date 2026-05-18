@@ -1,10 +1,15 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, VERMFLY_OBS } from './fixtures.js';
 import { AppPage } from './pages/app-page.js';
 
 test.describe('filter flows', () => {
   let app: AppPage;
 
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page, apiStub }) => {
+    // /api/observations now (#627) returns aggregated buckets at low zoom,
+    // whose synthetic obs carry family-name strings as comName. The species
+    // typeahead requires a real-species observation to resolve
+    // "Vermilion Flycatcher" → "vermfly", so stub before navigation.
+    await apiStub.stubObservations(VERMFLY_OBS);
     app = new AppPage(page);
     await app.goto();
     await app.waitForAppReady();
