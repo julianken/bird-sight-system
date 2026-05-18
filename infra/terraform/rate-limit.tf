@@ -29,23 +29,34 @@ resource "cloudflare_ruleset" "read_api_rate_limit" {
 
   rules {
     description = "Rate limit /api/* at 60 req/min/IP"
-    expression  = "(http.request.uri.path matches \"^/api/\" and not http.request.uri.path matches \"^/api/admin/\")"
-    action      = "block"
-    enabled     = true
+    # Free-tier expression operators: only simple comparisons (no `matches`
+    # regex). starts_with is sufficient — /api/ prefix excludes /api/admin/.
+    expression = "(starts_with(http.request.uri.path, \"/api/\") and not starts_with(http.request.uri.path, \"/api/admin/\"))"
+    action     = "block"
+    enabled    = true
 
     ratelimit {
-      # SECURITY (PR #597 review): characteristics are AND-keyed —
-      # `["ip.src", "cf.colo.id"]` means one bucket per (IP, colo) pair, so
-      # an attacker spreading requests across N Cloudflare colos (trivial via
-      # Anycast) gets N× the effective per-IP ceiling. Keep `ip.src` only.
-      characteristics     = ["ip.src"]
-      period              = 60
-      requests_per_period = 60
-      # Continue blocking the offending IP for 60s after threshold trip.
-      # Matches the period so a steady-state attacker stays blocked but a
-      # bursty-legit client gets a fresh window quickly. Setting this far
-      # higher than the period would punish legit users behind shared NAT.
-      mitigation_timeout = 60
+      # Cloudflare API REQUIRES `cf.colo.id` in characteristics — rate limiting
+      # is enforced at the colocation level and the API rejects characteristics
+      # without it (error 20155: "characteristics field is missing 'cf.colo.id'").
+      # The PR #597 round-2 SUGGESTION to remove cf.colo.id was unenforceable;
+      # the bucket key is effectively (IP, colo). At ~300 active CF colos, the
+      # theoretical per-IP ceiling becomes ~300× the per-colo limit for an
+      # attacker who can route across all colos — mitigated in practice by
+      # Anycast typically pinning a client to one colo. Layer 3 (Hono
+      # token-bucket on the origin) is the real per-IP cap and is unaffected.
+      characteristics = ["ip.src", "cf.colo.id"]
+      # Free-tier Cloudflare only permits `period = 10` (seconds). The intent
+      # is 60 req/min/IP, so requests_per_period=10 over period=10 gives
+      # 1 req/sec sustained = 60 req/min — same effective ceiling, different
+      # granularity (slightly more bursty: an IP that pauses can still spike
+      # to 10 in a single second). Acceptable for a hobby map app.
+      period              = 10
+      requests_per_period = 10
+      # Free-tier Cloudflare locks mitigation_timeout to 10s (must equal period).
+      # An offending IP that trips the limit is blocked for 10s, then can spike
+      # again. Layer 3 (Hono middleware) provides the sustained-attack cap.
+      mitigation_timeout = 10
     }
 
     action_parameters {
