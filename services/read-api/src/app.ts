@@ -93,11 +93,41 @@ export function createApp(deps: AppDeps): Hono {
     const speciesCode = c.req.query('species');
     const familyCode = c.req.query('family');
 
+    // #619 — optional viewport-bbox filter, Phase 2 going-national
+    // pre-condition. Format: bbox=minLon,minLat,maxLon,maxLat (EPSG:4326).
+    // Backward-compatible: no bbox param → full set unchanged. The bbox
+    // becomes part of the canonical URL so Cloudflare caches per-bbox under
+    // the existing s-maxage=300.
+    const bboxRaw = c.req.query('bbox');
+    let bbox: [number, number, number, number] | undefined;
+    if (bboxRaw !== undefined) {
+      const parts = bboxRaw.split(',');
+      if (parts.length !== 4) {
+        return c.json({ error: 'invalid bbox: expected 4 comma-separated floats' }, 400);
+      }
+      const nums = parts.map(p => Number(p));
+      if (nums.some(n => !Number.isFinite(n))) {
+        return c.json({ error: 'invalid bbox: non-numeric value' }, 400);
+      }
+      const [minLon, minLat, maxLon, maxLat] = nums as [number, number, number, number];
+      if (
+        minLon < -180 || minLon > 180 || maxLon < -180 || maxLon > 180 ||
+        minLat < -90  || minLat > 90  || maxLat < -90  || maxLat > 90
+      ) {
+        return c.json({ error: 'invalid bbox: out of range (lon ∈ [-180,180], lat ∈ [-90,90])' }, 400);
+      }
+      if (minLon > maxLon || minLat > maxLat) {
+        return c.json({ error: 'invalid bbox: min must be <= max on each axis' }, 400);
+      }
+      bbox = [minLon, minLat, maxLon, maxLat];
+    }
+
     const filters: Parameters<typeof getObservations>[1] = {};
     if (since !== undefined) filters.since = since;
     if (notableParam === 'true') filters.notable = true;
     if (speciesCode !== undefined) filters.speciesCode = speciesCode;
     if (familyCode !== undefined) filters.familyCode = familyCode;
+    if (bbox !== undefined) filters.bbox = bbox;
 
     // Run both queries in parallel — getObservations fetches the filtered rows;
     // getFreshestObservationAt provides MAX(ingested_at) for the freshness
