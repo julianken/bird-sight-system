@@ -48,6 +48,11 @@ variable "domain" {
   description = "Domain you control on Cloudflare, e.g. birdwatch.example.com"
 }
 
+variable "gcp_billing_account_id" {
+  type        = string
+  description = "GCP billing account ID linked to gcp_project_id (shape: 0XXXXX-0XXXXX-0XXXXX). Find via `gcloud beta billing accounts list`; confirm linkage via `gcloud beta billing projects describe <project>`. Used only by the billing budget in budget.tf (Phase 0 finisher, going-national plan §7)."
+}
+
 variable "alert_email" {
   description = "Email address to receive monitoring alerts. v1: single subscriber; team channel routing is a future iteration."
   type        = string

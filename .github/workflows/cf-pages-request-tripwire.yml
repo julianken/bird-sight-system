@@ -1,0 +1,85 @@
+name: cf-pages-request-tripwire
+
+# P0.l — Cloudflare Pages request-count tripwire. Phase 0 finisher for the
+# going-national plan §7.
+#
+# Approach B (chosen): scheduled GitHub Actions job that queries the
+# Cloudflare GraphQL Analytics API for yesterday's request count against
+# the Pages project. Emits a workflow annotation at 80k/day and fails the
+# job at 95k/day. Workflow failure triggers GitHub's default
+# workflow-failure email to the repo owner — same human as the GCP email
+# channel without extra plumbing.
+#
+# Why not Approach A (cloudflare_notification_policy)? The v4 provider's
+# alert_type enum does not expose a per-Pages-project request-count
+# threshold. billing_usage_alert is account-level; pages_event_alert fires
+# on deployment events. A custom GH Actions check is the only path that
+# meets the §7 exit-gate criteria on the current provider.
+#
+# Free Cloudflare Pages quota: 100k requests/day. Warn at 80% (80k),
+# critical at 95% (95k).
+#
+# Security: no untrusted github.event.* fields reach run: blocks. All
+# external values flow through env: vars (recommended pattern). Token is
+# only ever passed via curl Authorization header, never echoed.
+
+on:
+  schedule:
+    # 12:00 UTC = 04:00 America/Phoenix. Runs an hour after the GCP
+    # drift-check so the morning triage batch is contiguous.
+    - cron: '0 12 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  check-pages-requests:
+    runs-on: ubuntu-latest
+    env:
+      CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      # Pages project name. The deploy-frontend workflow targets the same
+      # project; if that changes, update both.
+      CF_PAGES_PROJECT: bird-watch-frontend
+      WARN_THRESHOLD: '80000'
+      CRIT_THRESHOLD: '95000'
+    steps:
+      - name: Query yesterday's Pages request count
+        run: |
+          set -euo pipefail
+          start=$(date -u -d 'yesterday' +%Y-%m-%dT00:00:00Z)
+          end=$(date -u -d 'yesterday' +%Y-%m-%dT23:59:59Z)
+
+          query='query ($accountTag: string!, $project: string!, $start: Time!, $end: Time!) { viewer { accounts(filter: {accountTag: $accountTag}) { pagesProjectRequestsAdaptiveGroups(filter: {projectName: $project, datetime_geq: $start, datetime_leq: $end}, limit: 1) { sum { requests } } } } }'
+
+          payload=$(jq -n \
+            --arg query "$query" \
+            --arg accountTag "$CF_ACCOUNT_ID" \
+            --arg project "$CF_PAGES_PROJECT" \
+            --arg start "$start" \
+            --arg end "$end" \
+            '{query: $query, variables: {accountTag: $accountTag, project: $project, start: $start, end: $end}}')
+
+          resp=$(curl -sS -X POST https://api.cloudflare.com/client/v4/graphql \
+            -H "Authorization: Bearer $CF_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data "$payload")
+
+          if echo "$resp" | jq -e '.errors' >/dev/null 2>&1; then
+            echo "::error::Cloudflare GraphQL returned errors:"
+            echo "$resp" | jq '.errors'
+            exit 1
+          fi
+
+          count=$(echo "$resp" | jq -r '(.data.viewer.accounts[0].pagesProjectRequestsAdaptiveGroups[0].sum.requests // 0)')
+
+          echo "Pages requests for ${CF_PAGES_PROJECT} on ${start%T*}: $count"
+          echo "warn threshold: $WARN_THRESHOLD  critical threshold: $CRIT_THRESHOLD"
+
+          if [ "$count" -ge "$CRIT_THRESHOLD" ]; then
+            echo "::error::Pages requests ($count) crossed CRITICAL threshold ($CRIT_THRESHOLD/day). Free-tier cap is 100k/day."
+            exit 1
+          elif [ "$count" -ge "$WARN_THRESHOLD" ]; then
+            echo "::warning::Pages requests ($count) crossed WARN threshold ($WARN_THRESHOLD/day). Free-tier cap is 100k/day; investigate."
+          fi
