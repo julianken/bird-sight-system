@@ -408,19 +408,17 @@ resource "google_logging_metric" "ingest_run_duration_seconds" {
 #
 # Counts `monitoring.dashboards.get` audit-log calls; powers the audit
 # follow-up that decides at T+30d whether the dashboard is being used (and
-# at T+90d whether to kill it if quarterly opens ≤ 1). The filter currently
-# matches dashboard opens project-wide — after the first Apply, narrow to
-# our specific dashboard ID by uncommenting the `resourceName=~...` clause
-# below (the dashboard ID is not known until after Apply).
+# at T+90d whether to kill it if quarterly opens ≤ 1). The resourceName
+# clause narrows the count to OUR dashboard only — project-wide audit calls
+# on other dashboards (alert-policy debugging, ad-hoc chart exploration) do
+# not inflate the stickiness signal.
 
 resource "google_logging_metric" "bird_watch_dashboard_opened" {
   name = "bird-watch-dashboard-opened"
   filter = join(" AND ", [
     "logName=~\"cloudaudit.googleapis.com\"",
     "protoPayload.methodName=\"monitoring.dashboards.get\"",
-    # Filter to OUR dashboard only; uncomment after first Apply once the
-    # dashboard ID is known:
-    # "protoPayload.resourceName=~\"projects/.+/dashboards/<DASHBOARD_ID>\"",
+    "protoPayload.resourceName=~\"projects/.+/dashboards/a6aa8bcb-2849-4e8e-85ba-1ef38648947d\"",
   ])
   metric_descriptor {
     metric_kind  = "DELTA"
