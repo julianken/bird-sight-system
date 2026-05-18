@@ -65,7 +65,15 @@ jobs:
           start=$(date -u -d 'yesterday' +%Y-%m-%dT00:00:00Z)
           end=$(date -u -d 'yesterday' +%Y-%m-%dT23:59:59Z)
 
-          query='query ($zoneTag: string!, $start: Time!, $end: Time!) { viewer { zones(filter: {zoneTag: $zoneTag}) { httpRequestsAdaptiveGroups(filter: {datetime_geq: $start, datetime_leq: $end}, limit: 1) { sum { requests } } } } }'
+          # Round-2 bot finding (PR #620): httpRequestsAdaptiveGroups exposes
+          # the request total at the top-level `count` field, NOT under
+          # `sum.requests`. The `sum` sub-selection holds visits /
+          # edgeResponseBytes / etc. — selecting `sum { requests }` would be a
+          # GraphQL error or silently 0 under the `// 0` jq default, masking
+          # the tripwire. Source: Cloudflare GraphQL Analytics API schema
+          # (johnspurlock-skymethod/cloudflare-graphql-mirror) and CF docs at
+          # developers.cloudflare.com/analytics/graphql-api/features/data-sets.
+          query='query ($zoneTag: string!, $start: Time!, $end: Time!) { viewer { zones(filter: {zoneTag: $zoneTag}) { httpRequestsAdaptiveGroups(filter: {datetime_geq: $start, datetime_leq: $end}, limit: 1) { count } } } }'
 
           payload=$(jq -n \
             --arg query "$query" \
@@ -85,7 +93,7 @@ jobs:
             exit 1
           fi
 
-          count=$(echo "$resp" | jq -r '(.data.viewer.zones[0].httpRequestsAdaptiveGroups[0].sum.requests // 0)')
+          count=$(echo "$resp" | jq -r '(.data.viewer.zones[0].httpRequestsAdaptiveGroups[0].count // 0)')
 
           echo "Zone requests for bird-maps.com on ${start%T*}: $count"
           echo "warn threshold: $WARN_THRESHOLD  critical threshold: $CRIT_THRESHOLD"
