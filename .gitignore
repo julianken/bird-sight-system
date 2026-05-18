@@ -53,3 +53,7 @@ terraform.tfstate.backup
 
 # Throwaway directory for Phase 0 prototype gating — deleted in Task 0.4.
 prototype/
+
+# national-dashboard local tool
+tools/national-dashboard/node_modules/
+tools/national-dashboard/package-lock.json

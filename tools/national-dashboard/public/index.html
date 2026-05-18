@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>going-national status</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header>
+    <h1>going-national status</h1>
+    <div class="meta">
+      Last updated: <strong id="last-updated">—</strong>
+      &nbsp;·&nbsp; Next poll: <strong id="next-poll">—</strong>
+      &nbsp;·&nbsp; Server poll: <strong id="poll-ms">—</strong>
+    </div>
+    <div class="health-pills" id="health-pills"></div>
+  </header>
+  <main>
+    <div id="error-bar"></div>
+    <div id="phases" class="loading">Loading…</div>
+  </main>
+
+  <script>
+    // All rendering uses DOM APIs (createElement / textContent) — no innerHTML
+    // with server-derived data. The dashboard is local-only and the server
+    // controls all data, but defense in depth is cheap here.
+
+    const STATUS_ORDER = ["done", "in-flight", "user-action", "not-started", "blocked"];
+
+    function el(tag, opts = {}, children = []) {
+      const node = document.createElement(tag);
+      if (opts.className) node.className = opts.className;
+      if (opts.text != null) node.textContent = String(opts.text);
+      if (opts.href) { node.href = opts.href; node.target = "_blank"; node.rel = "noopener"; }
+      for (const c of children) if (c != null) node.appendChild(c);
+      return node;
+    }
+
+    function pill(status, label) {
+      const s = STATUS_ORDER.includes(status) ? status : "not-started";
+      return el("span", { className: `pill ${s}`, text: label || s });
+    }
+
+    function fmtTime(iso) {
+      if (!iso) return "—";
+      const d = new Date(iso);
+      const now = Date.now();
+      const diff = Math.round((d.getTime() - now) / 1000);
+      const hhmm = d.toLocaleTimeString();
+      if (Math.abs(diff) < 90) {
+        if (diff <= 0) return `${hhmm} (${-diff}s ago)`;
+        return `${hhmm} (in ${diff}s)`;
+      }
+      return hhmm;
+    }
+
+    function renderHealth(container, health) {
+      container.replaceChildren();
+      if (!health) return;
+      for (const [k, v] of Object.entries(health)) {
+        container.appendChild(pill(v.status, `${k}: ${v.status}`));
+      }
+    }
+
+    function renderSubItems(sub) {
+      if (!sub || !sub.length) return null;
+      const div = el("div", { className: "sub" });
+      for (const s of sub) {
+        const ok = s.status === "done";
+        div.appendChild(el("span", {
+          className: ok ? "ok" : "bad",
+          text: `${ok ? "✓" : "✗"} ${s.name}`,
+        }));
+      }
+      return div;
+    }
+
+    function renderPhase(phase) {
+      const counts = {};
+      for (const it of phase.items) counts[it.status] = (counts[it.status] || 0) + 1;
+      const summary = STATUS_ORDER
+        .filter(s => counts[s])
+        .map(s => `${counts[s]} ${s}`).join(" · ");
+
+      const h2 = el("h2", {}, [
+        el("span", { text: phase.title }),
+        el("span", { className: "meta", text: summary }),
+      ]);
+
+      const table = el("table");
+      for (const it of phase.items) {
+        const statusTd = el("td", { className: "status" }, [pill(it.status)]);
+        const nameNode = it.url
+          ? el("a", { href: it.url, text: it.name })
+          : el("span", { text: it.name });
+        const nameTd = el("td", { className: "name" }, [nameNode, renderSubItems(it.sub)]);
+        const detailTd = el("td", { className: "detail", text: it.detail || "" });
+        table.appendChild(el("tr", {}, [statusTd, nameTd, detailTd]));
+      }
+
+      return el("section", {}, [h2, table]);
+    }
+
+    async function refresh() {
+      try {
+        const res = await fetch("/api/status");
+        const data = await res.json();
+        document.getElementById("last-updated").textContent = fmtTime(data.lastUpdated);
+        document.getElementById("next-poll").textContent = fmtTime(data.nextPollAt);
+        document.getElementById("poll-ms").textContent = data.pollMs ? `${data.pollMs}ms` : "—";
+        renderHealth(document.getElementById("health-pills"), data.health);
+
+        const phases = document.getElementById("phases");
+        phases.classList.remove("loading");
+        phases.replaceChildren();
+        if (!data.phases || !data.phases.length) {
+          phases.appendChild(el("p", { text: "Waiting for first poll to complete…" }));
+        } else {
+          for (const p of data.phases) phases.appendChild(renderPhase(p));
+        }
+
+        const errBar = document.getElementById("error-bar");
+        errBar.replaceChildren();
+        if (data.lastError) {
+          errBar.appendChild(el("div", { className: "error", text: `Poll error: ${data.lastError}` }));
+        }
+      } catch (e) {
+        const errBar = document.getElementById("error-bar");
+        errBar.replaceChildren(el("div", { className: "error", text: `Fetch failed: ${e.message}` }));
+      }
+    }
+
+    refresh();
+    setInterval(refresh, 5_000);
+  </script>
+</body>
+</html>

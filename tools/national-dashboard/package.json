@@ -1,0 +1,13 @@
+{
+  "name": "@bird-watch/national-dashboard",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Local read-only dashboard for the going-national project rollout.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
