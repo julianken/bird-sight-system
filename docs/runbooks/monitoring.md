@@ -2,7 +2,7 @@
 
 Operator runbook for the alerts provisioned by Plan
 [`2026-05-17-monitoring-and-alerts`](../plans/2026-05-17-monitoring-and-alerts.md).
-Lives at `infra/terraform/monitoring.tf` (six alert policies, three log-based
+Lives at `infra/terraform/monitoring.tf` (five alert policies, two log-based
 metrics, one uptime check, one notification channel). The S7 heartbeat layer
 is hosted at Healthchecks.io; the read-api `meta_freshness` log emit is in
 `services/read-api/src/app.ts`.
@@ -20,7 +20,6 @@ alert lands in one inbox.
 | S3 | Read-API 5xx rate | `run.googleapis.com/request_count` filtered by `response_code_class="5xx"` | >1% over rolling 5min **AND** request_count ≥ 100 over the same window | 1% is the canonical "bad day" threshold; the 100-req floor (~20 req/min) prevents single-error fires at idle traffic. At HN-scale traffic the floor is invisible. |
 | S4 | Read-API p95 latency | `run.googleapis.com/request_latencies` distribution, p95 | >2000ms over rolling 10min | Current p95 is 150-300ms. 2000ms is "user tabs away". 10min smooths cold-start spikes (scale-to-zero) without missing real degradation. |
 | S5 | Cloud Run instance crash / OOM | Log-based metric `bird-container-crash` on `severity>=ERROR` matching `Container terminated` OR `out of memory` | ≥1 in rolling 1h | Crashes are always notable. 1h batches transient flaps into one notification. |
-| S6 | Neon connection failure | Log-based metric `bird-neon-conn-fail` on `getaddrinfo ENOTFOUND` OR `ECONNREFUSED` OR `Connection terminated unexpectedly` | ≥3 in rolling 10min | Neon free tier suspends idle endpoints; one ENOTFOUND is normal cold-wake. Three in 10min means the pool is genuinely broken. Tighten to ≥1 once Cloud SQL lands. |
 | S7 | Heartbeat miss — ingest cron didn't fire | Healthchecks.io check per cron | No ping in 40min (cron 30min + 10min grace) | Cloud Monitoring cannot detect "scheduled invocation that never happened" — Healthchecks.io is the inverse trigger. |
 | Uptime | Public read-api unreachable | Uptime check on `https://api.bird-maps.com/api/regions` | failures across regions for ≥3 consecutive checks (~3min) | Catches DNS / TLS / Cloud Run cold-fail issues invisible to `request_count` (no requests landing = no metric). |
 
@@ -54,7 +53,6 @@ gcloud logging read \
 
 Common causes:
 - Transient eBird 5xx (single execution recovers on the next `*/30` cron — acknowledge and wait).
-- Neon endpoint suspended at job start (S6 likely co-fires; resume in Neon console).
 - A bad migration. Check the latest commit to `migrations/` against the failing execution start time.
 
 ### S2: Data staleness > 6h
@@ -87,7 +85,7 @@ gcloud logging read \
 ```
 
 Common causes:
-- Pool exhaustion (S6 likely co-fires). Check `bird-read-api` revision concurrency settings.
+- Pool exhaustion. Check `bird-read-api` revision concurrency settings.
 - Bad SQL from a recent migration / db-client change.
 - Cloud Run revision serving without a fresh image (look for ECONNREFUSED in startup probes).
 
@@ -95,7 +93,7 @@ Common causes:
 
 What it means: p95 latency exceeded 2000ms for 10min.
 
-Common causes: missing index after a query change, Neon endpoint cold-waking under load, CDN bypass on a hot route.
+Common causes: missing index after a query change, CDN bypass on a hot route, slow SQL after a query change.
 
 ```sh
 # p95 by route in last hour, via metric explorer or:
@@ -111,16 +109,6 @@ What it means: a Cloud Run container hit `Container terminated` or `out of memor
 If OOM: bump `resources.limits.memory` on the affected service/job (currently
 `512Mi` for ingestor, `256Mi` for read-api). If unhandled exception: read
 the preceding stack trace from the same log entry; fix the code.
-
-### S6: Neon connection failures ≥3 in 10min
-
-What it means: three or more `ENOTFOUND` / `ECONNREFUSED` / `Connection terminated unexpectedly` log lines in the last 10min.
-
-First moves: Neon console → endpoints → check status. If suspended, resume.
-If consistently up but errors persist, rotate the pooler / inspect Neon's
-status page.
-
-When the Cloud SQL migration lands, tighten this threshold to ≥1.
 
 ### S7: Heartbeat miss (Healthchecks.io)
 
@@ -153,7 +141,7 @@ dig api.bird-maps.com
 
 ## Muting / snoozing during planned maintenance
 
-- **Cloud Monitoring policies (S1..S6, uptime):** Cloud Monitoring console → Alerting → Policies → select the policy → "Snooze". Pick a duration. Snoozes are click-ops; record the rationale in the policy's notes field for audit.
+- **Cloud Monitoring policies (S1..S5, uptime):** Cloud Monitoring console → Alerting → Policies → select the policy → "Snooze". Pick a duration. Snoozes are click-ops; record the rationale in the policy's notes field for audit.
 - **Healthchecks.io (S7):** healthchecks.io dashboard → select the check → "Pause". Resume manually when work completes (a paused check never fires regardless of ping cadence).
 
 Never disable a policy permanently as a workaround. If a policy is too noisy, file a follow-up to retune the threshold per the plan's kill-threshold metric (60-day window, < 40% fixed-rate triggers retro at `docs/analyses/<date>-alert-fatigue-retrospective.md`).
@@ -199,10 +187,6 @@ hey -z 11m -c 50 https://api.bird-maps.com/api/observations?since=30d
 
 Temporarily lower `resources.limits.memory` on `bird-read-api` to `64Mi` in HCL; `terraform apply`; trigger a normal request; container OOMs and the kill phrase lands in logs. Restore `256Mi` and reapply immediately.
 
-### S6 — force Neon disconnect
-
-Suspend the Neon endpoint via the Neon console; the next read-api pool checkout fails with `ECONNREFUSED`. Repeat three times within 10min by tail-curling a route that exercises the pool, then resume the endpoint.
-
 ### S7 — force heartbeat miss
 
 Pause `bird-ingest-recent` in Cloud Scheduler. After 40min (30min cadence + 10min grace) Healthchecks.io emails. Resume the scheduler.
@@ -220,7 +204,6 @@ Temporarily set the check `path` to `/does-not-exist` in HCL; `terraform apply`.
 | S3 | — | — | Pending. |
 | S4 | — | — | Pending. |
 | S5 | — | — | Pending. |
-| S6 | — | — | Pending. |
 | S7 | — | — | Pending — depends on Task 6 secret population + env-wiring. |
 | Uptime | — | — | Pending. |
 
