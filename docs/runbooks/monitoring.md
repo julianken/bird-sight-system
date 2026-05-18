@@ -206,5 +206,117 @@ Temporarily set the check `path` to `/does-not-exist` in HCL; `terraform apply`.
 | S5 | — | — | Pending. |
 | S7 | — | — | Pending — depends on Task 6 secret population + env-wiring. |
 | Uptime | — | — | Pending. |
+| Digest | — | — | Pending — verify post first `terraform apply` of #643 + manual invoke. |
 
 Smoke tests are deliberate, opt-in operator work — do not run them on autopilot. Each one perturbs prod briefly; coordinate before firing.
+
+## Digest
+
+Daily 09:00 UTC health digest delivered to `julian.kennon.d@gmail.com` via
+SendGrid. The Cloud Run Job composes a 5-signal summary
+(`docs/analyses/2026-05-18-monitoring-dashboard-issue-638/phase-4/analysis-report.md`
+§H Contract C3) and pings the `digest` Healthchecks.io URL on delivery
+confirmation — NOT on function-success. The runtime-vs-delivery distinction
+matters because SendGrid will accept and 2xx a message that Gmail then rejects
+at the SMTP layer for sender-domain misalignment (SPF/DKIM/DMARC drift —
+analysis report §F7); pinging on function-success would mark the digest
+"alive" on Healthchecks.io when it never actually landed in the inbox,
+destroying the negative-space surveillance.
+
+Coverage note: the digest body enumerates 5 of the 7 ingest kinds
+(`recent`, `backfill`, `hotspots`, `taxonomy`, `prune`). `photos` and
+`descriptions` are deliberately excluded because they do not yet write
+to the `ingest_runs` table (see analysis report §F9). The retrofit is
+tracked as a follow-up at PR-2 (#642) merge time per Contract C4. Until
+then, the digest's explicit enumeration of the 5 covered kinds keeps the
+absence operator-visible.
+
+### Heartbeat check + secrets
+
+- **Healthchecks.io check name**: `bird-watch-digest` (create at
+  healthchecks.io with schedule `0 9 * * *` UTC + grace 10min).
+- **Healthchecks.io URL secret**: `bird-watch-healthchecks-digest` —
+  populated out-of-band:
+  ```sh
+  gcloud secrets versions add bird-watch-healthchecks-digest \
+    --project=bird-maps-prod --data-file=- <<< "https://hc-ping.com/<uuid-from-HC>"
+  ```
+- **SendGrid API key secret**: `bird-watch-sendgrid-api-key` — populated
+  out-of-band:
+  ```sh
+  gcloud secrets versions add bird-watch-sendgrid-api-key \
+    --project=bird-maps-prod --data-file=- <<< "SG.xxxxxxxx"
+  ```
+
+### Manual invoke
+
+```sh
+gcloud run jobs execute bird-digest-daily \
+  --region=us-west1 --project=bird-maps-prod --wait
+```
+
+The job exits 0 on `delivered` or `queued` (heartbeat fires only on
+`delivered`) and exit 1 on `failed`. The Cloud Logging payload includes a
+single-line `bird_digest_sent` entry carrying `status`, `providerMessageId`,
+and (on failure) `error`.
+
+### Sender authentication (DNS records on `bird-maps.com`)
+
+SendGrid requires three DNS records before Gmail will accept the inbound
+message. Records are managed in Cloudflare; verify with the `dig` commands
+below.
+
+| Record | Type | Value | Verify |
+|---|---|---|---|
+| `@` (apex) | TXT | `v=spf1 include:sendgrid.net ~all` | `dig +short TXT bird-maps.com` |
+| `s1._domainkey` | CNAME | `s1.domainkey.uXXXX.wlYYY.sendgrid.net` (UUIDs minted in SendGrid sender-auth UI) | `dig +short CNAME s1._domainkey.bird-maps.com` |
+| `s2._domainkey` | CNAME | `s2.domainkey.uXXXX.wlYYY.sendgrid.net` | `dig +short CNAME s2._domainkey.bird-maps.com` |
+| `_dmarc` | TXT | `v=DMARC1; p=none; rua=mailto:julian.kennon.d@gmail.com` (start permissive; tighten to `p=quarantine` after 30 days of clean reports) | `dig +short TXT _dmarc.bird-maps.com` |
+
+After populating those records, click "Verify" in the SendGrid sender-auth UI;
+the verification call queries DNS once and caches the result.
+
+### Digest on-fire runbook
+
+The S7-shape alert fires when Healthchecks.io stops receiving the daily ping
+inside its grace window (40min after the scheduled 09:00 UTC fire). Triage:
+
+1. **Did Cloud Scheduler fire?**
+   ```sh
+   gcloud scheduler jobs describe bird-ingest-digest \
+     --location=us-west1 --project=bird-maps-prod
+   ```
+   Check `state` (should be `ENABLED`) and `lastAttemptTime`.
+
+2. **Did the Cloud Run Job execute?**
+   ```sh
+   gcloud run jobs executions list --job=bird-digest-daily \
+     --region=us-west1 --project=bird-maps-prod --limit=5
+   gcloud logging read \
+     'resource.type=cloud_run_job AND resource.labels.job_name=bird-digest-daily' \
+     --project=bird-maps-prod --limit=50 --order=desc --freshness=2h
+   ```
+   Look for the `bird_digest_sent` structured-log line — `status` reveals
+   whether the function reached the SendGrid call at all.
+
+3. **Did SendGrid accept the message?** Open the SendGrid Activity Feed
+   for the day. A 2xx with no bounce event means the function-success
+   half is healthy; a 4xx points to API-key rotation drift or sender-auth
+   misconfig. A bounce event means Gmail rejected the message — re-check
+   DNS records with the `dig` commands above.
+
+4. **Did Healthchecks.io receive the ping?** Open the `bird-watch-digest`
+   check in the HC dashboard. If the check shows `late` but the
+   `bird_digest_sent` log line shows `status: delivered`, the network
+   egress from Cloud Run to HC failed — check the HC URL secret value
+   (`gcloud secrets versions list bird-watch-healthchecks-digest`).
+
+5. **Resolution checklist before closing the incident**:
+   - SendGrid Activity Feed shows the day's send as delivered.
+   - Gmail inbox confirms receipt of the digest.
+   - Healthchecks.io shows the ping as on-time for the next scheduled fire.
+
+Distinct from S2/S7: S2 = "ingest cron ran but didn't make forward
+progress"; S7 = "ingest cron didn't run at all"; Digest miss = "the
+operator-visible daily summary stopped arriving — A+H surveillance gap
+has reopened".

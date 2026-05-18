@@ -21,7 +21,12 @@ resource "google_monitoring_notification_channel" "email_julian" {
 # in tfvars or state. Mirrors the R2-credentials pattern in ingestor.tf.
 
 locals {
-  healthchecks_kinds = ["recent", "backfill", "hotspots", "taxonomy", "photos", "descriptions", "prune"]
+  # "digest" is the daily health-digest cron (issue #643) — single send at
+  # 09:00 UTC, heartbeat fires when the digest is NOT delivered. Gated on
+  # SendGrid 2xx (analysis report §F7); a sender-auth misconfig that lets
+  # SendGrid accept but Gmail reject will still trip the heartbeat eventually
+  # (no ping = HC alarms), but a tighter delivery-webhook gate is a follow-up.
+  healthchecks_kinds = ["recent", "backfill", "hotspots", "taxonomy", "photos", "descriptions", "prune", "digest"]
 }
 
 resource "google_secret_manager_secret" "healthchecks_url" {

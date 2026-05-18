@@ -30,6 +30,11 @@ import {
   runPrune as realRunPrune,
   type RunPruneSummary,
 } from './run-prune.js';
+import { runDigest as realRunDigest, type SendResult } from './digest.js';
+import {
+  makeSendGridSender,
+  makeNullMonitoringSignalsFetcher,
+} from './digest-providers.js';
 import { fetchWikipediaSummary as realFetchWikipediaSummary } from './wikipedia/client.js';
 import { fetchInatTaxon as realFetchInatTaxon } from './inat/taxon-client.js';
 import { pingHeartbeat as realPingHeartbeat } from './heartbeat.js';
@@ -63,9 +68,29 @@ export interface CliDeps {
   runPhotos: typeof realRunPhotos;
   runDescriptions: typeof realRunDescriptions;
   runPrune: typeof realRunPrune;
+  runDigest?: typeof realRunDigest;
   fetchWikipediaSummary: typeof realFetchWikipediaSummary;
   fetchInatTaxon: typeof realFetchInatTaxon;
   pingHeartbeat?: typeof realPingHeartbeat;
+  /**
+   * Email sender for the `digest` kind. Production wires SendGrid via the
+   * SENDGRID_API_KEY secret; tests inject a stub returning a canned
+   * SendResult. Optional because every non-digest kind ignores it.
+   *
+   * `| undefined` is explicit because tsconfig's
+   * `exactOptionalPropertyTypes: true` requires opt-in for the
+   * "key present, value undefined" shape that the cli.ts IIFE uses when
+   * SENDGRID_API_KEY isn't set (non-digest invocations).
+   */
+  sendDigestEmail?: ((subject: string, body: string) => Promise<SendResult>) | undefined;
+  /**
+   * Monitoring signals fetcher for the `digest` kind. Production wires the
+   * real Cloud Monitoring + Cloud Logging clients; tests inject canned
+   * MonitoringSignals. Optional because every non-digest kind ignores it.
+   */
+  fetchMonitoringSignals?: (() => Promise<
+    import('./digest.js').MonitoringSignals
+  >) | undefined;
 }
 
 /**
@@ -104,6 +129,61 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
     const taxon = await deps.fetchInatTaxon(sciName);
     console.log(JSON.stringify(taxon, null, 2));
     return;
+  }
+
+  // digest: daily 09:00 UTC health digest (issue #643). Distinct shape from
+  // the ingest kinds — composes a 5-signal summary email and returns a
+  // SendResult. Heartbeat is gated on result.status === 'delivered' per
+  // analysis report §F7: SendGrid/SMTP can reject for SPF/DKIM/DMARC drift
+  // even when the function returns 200, and the negative-space surveillance
+  // requires the heartbeat to confirm delivery, not function-success.
+  //
+  // Branches BEFORE the EBIRD_API_KEY guard because the digest talks to
+  // Postgres + Cloud Monitoring + SendGrid only — no eBird. DATABASE_URL is
+  // still required (it queries ingest_runs for signal 1) so we re-check below.
+  if (kind === 'digest') {
+    const dbUrl = process.env.DATABASE_URL;
+    if (!dbUrl) throw new Error('DATABASE_URL not set');
+    const recipient = process.env.DIGEST_EMAIL_RECIPIENT;
+    if (!recipient) throw new Error('DIGEST_EMAIL_RECIPIENT not set');
+    if (!deps.sendDigestEmail) throw new Error('sendDigestEmail dep not provided');
+    if (!deps.fetchMonitoringSignals) {
+      throw new Error('fetchMonitoringSignals dep not provided');
+    }
+    const pool = deps.createPool({ databaseUrl: dbUrl });
+    const runDigest = deps.runDigest ?? realRunDigest;
+    try {
+      const result = await runDigest({
+        pool,
+        emailRecipient: recipient,
+        sendEmail: deps.sendDigestEmail,
+        fetchMonitoringSignals: deps.fetchMonitoringSignals,
+      });
+      // Structured single-line log for the bird_digest_sent observability hook
+      // referenced in the issue body. Keep this on stdout so Cloud Logging
+      // captures it; downstream log-based metrics can filter on the message.
+      console.log(JSON.stringify({
+        message: 'bird_digest_sent',
+        status: result.status,
+        providerMessageId: result.providerMessageId ?? null,
+        error: result.error ?? null,
+      }));
+      if (result.status === 'failed') {
+        process.exitCode = 1;
+        return;
+      }
+      // ONLY `delivered` triggers the heartbeat. `queued` defers to a
+      // follow-up delivery-confirmation webhook caller (if/when that's
+      // wired) — the function exits 0 but does NOT mark itself "alive" on
+      // Healthchecks.io.
+      if (result.status === 'delivered') {
+        const ping = deps.pingHeartbeat ?? realPingHeartbeat;
+        await ping(process.env.HEALTHCHECKS_URL_DIGEST, 'digest');
+      }
+      return;
+    } finally {
+      await deps.closePool(pool);
+    }
   }
 
   const apiKey = process.env.EBIRD_API_KEY;
@@ -169,7 +249,7 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
         parsed === undefined ? { pool } : { pool, retentionDays: parsed }
       );
     } else {
-      throw new Error(`Unknown kind: ${kind}. Try recent | hotspots | backfill | backfill-extended | taxonomy | photos | descriptions | prune | probe-taxon | probe-wiki`);
+      throw new Error(`Unknown kind: ${kind}. Try recent | hotspots | backfill | backfill-extended | taxonomy | photos | descriptions | prune | digest | probe-taxon | probe-wiki`);
     }
     console.log(JSON.stringify(summary, null, 2));
     if (summary.status === 'failure') {
@@ -205,6 +285,19 @@ const isEntrypoint = (() => {
 
 if (isEntrypoint) {
   const KIND = process.argv[2] ?? 'recent';
+  // SendGrid sender is constructed lazily only for the digest kind — the
+  // SENDGRID_API_KEY secret is wired only on the bird-digest-daily Cloud Run
+  // Job, and a missing key on a non-digest invocation must NOT throw at
+  // module-load time. The factory returns a sender that itself throws on
+  // first call, so non-digest kinds never even construct it.
+  const sendDigestEmail: CliDeps['sendDigestEmail'] =
+    process.env.SENDGRID_API_KEY && process.env.DIGEST_EMAIL_RECIPIENT
+      ? makeSendGridSender({
+          apiKey: process.env.SENDGRID_API_KEY,
+          recipient: process.env.DIGEST_EMAIL_RECIPIENT,
+          from: process.env.DIGEST_FROM_ADDRESS ?? 'digest@bird-maps.com',
+        })
+      : undefined;
   runCli(KIND, {
     createPool: realCreatePool,
     closePool: realClosePool,
@@ -215,6 +308,9 @@ if (isEntrypoint) {
     runPhotos: realRunPhotos,
     runDescriptions: realRunDescriptions,
     runPrune: realRunPrune,
+    runDigest: realRunDigest,
+    sendDigestEmail,
+    fetchMonitoringSignals: makeNullMonitoringSignalsFetcher(),
     fetchWikipediaSummary: realFetchWikipediaSummary,
     fetchInatTaxon: realFetchInatTaxon,
   }).catch(err => {
