@@ -2,11 +2,30 @@
 
 > **For agentic workers:** This is an **umbrella** plan, not an executable one. Component PRs and execution-grade plans live in sibling files (see §3 status matrix). This document sequences them, names the literal flip, and records what was decided in the 2026-05-14 → 2026-05-17 working window. Use `superpowers:subagent-driven-development` against the component plans, not this one.
 
-**Date:** 2026-05-17
+**Date:** 2026-05-17 (original); **Amended:** 2026-05-18
 **Author:** Julian (orchestrated)
 **Triggering analysis:** `docs/analyses/2026-05-14-process-scale-options/phase-4/analysis-report.md` (17-agent funnel, the funnel that produced this commitment).
 **Triggering measurement:** `docs/analyses/2026-05-14-process-scale-options/cache-hit-ratio.md` — 99.91% (30d) cache-miss on `bird-maps.com`, ~17× the egress break-even.
 **Decision:** going national at **200× audience multiplier** (HN-front-page tail, per Tension 2 / Open Question O5 of the analysis report).
+
+---
+
+## §0 Amendment log
+
+### 2026-05-18 — execution-window decisions baked in
+
+Source: dashboard-critic agent pass against the 2026-05-17 draft plus 5 structural reorderings approved by Julian during execution. Summary:
+
+- **Cornell ToS moves pre-flip → post-flip.** §9 and §11 risk-wording were drafted assuming pre-flip negotiation. Updated: send the email **after** Phase 3 with the real call profile (~120 calls/day verified per Shape-2 probe + Finding 8 of the funnel) in hand. Rationale: post-flip evidence is stronger leverage than pre-flip projection, and the actual call volume is well inside Cornell's tolerance — so the HN-spike-revocation risk is the price we accept for evidence-based outreach.
+- **R1 — Cloud SQL migration deferred from Phase 1 (hard pre-flip gate) → Phase 4 (post-flip optimization).** Stages T1+T2 (provisioning + Auth Proxy mount) shipped pre-flip as completed prep work and stay where they are; T3/T4/T5 move into Phase 4. Rationale: financially only pays off at expansion scale (per analysis report cache-miss math); Neon Launch handles AZ + early national; migration is reversible with ~15min RTO (per migration plan §6); deferring removes a pre-flip blocker.
+- **R2 — Per-state backfill fan-out moves from Phase 4 (T+30d) → Phase 3.5, staged-with-flip.** Concurrent with flip stability monitoring; backfill staggers over days, not hours, so the umbrella stays solvent if it slips. Rationale: "flip → 30d wait → backfill" leaves national history sparse for a month inside the 14d prune window.
+- **R3 — Silhouette coverage curation demoted from Phase 0 hard pre-condition → Phase 4 polish.** Flip ships with `_FALLBACK` SVG; Alcidae, Gaviidae, Sulidae etc. curated post-flip. Note: this is distinct from the `colorDark` test+type fix (#604/#610), which was not coverage work.
+- **R4 — Server-side bbox filtering added as a Phase 2 hard pre-condition.** Source: `docs/analyses/2026-05-17-hotspot-density-100k-viability/report.md` — at national scale `/api/observations` returns ~24 MB without bbox; that's a real UX gate. Tracked under §5.6 below. Distinct from #608 (frontend 100k-marker load test) and #568 (SpeciesDetailSurface client-side bbox follow-up); a new server-side tracking issue is owed.
+- **R5 — The flip is staged in two steps: (a) recent first, monitor 24h, (b) hotspots after recent stable.** Rationale: recent is higher-traffic, isolating it surfaces problems faster; hotspots is lower-volume and lower-risk. Reduces total surface area in any single rollback window.
+- **Stage naming:** Phase 1 stages normalized to T1–T5 (drop the mixed "Stage N / T-N" naming).
+- **Phase 0 exit gates P0.k / P0.l / P0.m** confirmed explicit in §7 with exit-gate semantics (already named in draft; verified discoverable, not buried).
+- **§11 product-question wording** clarified: PR #609 landed the *plumbing* for iNat `place_id` and phenology-timezone parameterization; the product *choice* (global vs configurable; UTC vs per-observation-tz) remains open.
+- **Phase 3 / Phase 3.5 boundary** clarified: Phase 3 remains the phase boundary that names the flip itself (Step A → Step B over ≥24h), and Phase 3.5 is an **overlapping sibling** that runs concurrent with Phase 3/4 stability monitoring rather than a successor phase. The Phase 3 heading is kept as-is — "flip window" framing lives in §4 + §7 prose, not in the heading.
 
 ---
 
@@ -15,7 +34,7 @@
 ### Goal — what "going national" means concretely
 
 1. **Ingest expands from `US-AZ` to `US`.** The recent-lane recent-ingest cron flips from `regionCode: 'US-AZ'` to `regionCode: 'US'` and starts pulling **Shape 2** species-rollup data for the entire continental US (~683 species/day, ~2 eBird calls/day for the rollup — see Finding 5 of the analysis report). Per-state Shape 3 backfill remains state-scoped because `/historic` is not species-rolled up.
-2. **Cloud SQL replaces Neon.** Per `docs/plans/2026-05-17-cloud-sql-migration.md`, the database moves from Neon (AWS us-west-2) to Cloud SQL Postgres 16 (GCP us-west1, `db-g1-small`, zonal). Justification is dominated by the ~$230/mo cross-cloud egress delta at HN-scale traffic with 100% cache-miss on `/api/*`. Migration is a one-time `pg_dump | pg_restore` + secret-version flip.
+2. **Cloud SQL provisioned-and-dormant pre-flip; cutover deferred to Phase 4 (R1, 2026-05-18).** Per `docs/plans/2026-05-17-cloud-sql-migration.md`, the database will move from Neon (AWS us-west-2) to Cloud SQL Postgres 16 (GCP us-west1, `db-g1-small`, zonal) — but only T1+T2 (provisioning + Auth Proxy mount, both shipped) run pre-flip. T3/T4/T5 (dump+restore, secret-version flip, Neon teardown) are deferred to Phase 4 and **triggered**, not pre-conditioned, by sustained expansion-scale traffic (≥7d at 50-state-equivalent audience) that materializes the ~$230/mo cross-cloud egress delta at 100% cache-miss on `/api/*`. The egress arbitrage is the cutover trigger, not the launch precondition; Neon Launch remains primary through the flip. Migration when triggered is a one-time `pg_dump | pg_restore` + secret-version flip; reversible at ~15min RTO (§8).
 3. **14-day rolling retention.** The prune job (PR #595, queued at writeup time) deletes observations older than 14 days. National scale at AZ-shape retention would 50× the row count; the 14-day window holds total rows around the same ~17k-rows-per-state × 50 ≈ 850k order, well under any DB-tier ceiling.
 4. **HN-scale audience.** The Tier-1 audience-protection moves (rate limit PR #597, TTL caching PR #592 merged, monitoring PRs #591/#598) all ship before the flip. Capacity target: survive a 200× spike without paging Cornell and without exceeding Cloud Run's per-region scale guards.
 5. **Monitoring + heartbeat live.** The "deaf system" finding is closed: every signal has a subscriber before the flip lands. Healthchecks.io heartbeat catches cron-no-shows; Cloud Monitoring alert policies S1–S6 + uptime check fire on `julian.kennon.d@gmail.com`.
@@ -40,7 +59,7 @@ Decisions taken in the 2026-05-14 → 2026-05-17 window, with citation:
 | D1 | Commit to going national. | This session; user direction |
 | D2 | Audience multiplier assumption: **200×** (HN-scale tail), not 25× median. | Open Question O5 / Tension 2 of `analysis-report.md` |
 | D3 | Architecture: **Shape 2** national rollup + per-state Shape 3 backfill. | Recommendation 2A/2B; Finding 5 (species-rollup) |
-| D4 | DB platform: **Cloud SQL collocated in GCP us-west1**, not Neon Launch. | Recommendation 2B; `cache-hit-ratio.md` (99.91% miss, 17× break-even) |
+| D4 | DB platform: **Cloud SQL collocated in GCP us-west1** is the committed target; cutover deferred to Phase 4 per R1 (2026-05-18). Provision-and-mount (T1+T2) complete; cutover trigger = sustained expansion-scale traffic ≥7d. Neon Launch remains primary through the flip. | Recommendation 2B; `cache-hit-ratio.md` (99.91% miss, 17× break-even); R1 amendment §0 |
 | D5 | **14-day rolling retention** via the prune job (issue #587 / PR #595). | Recommendation 2C-adjacent (lean storage) + national row-count math |
 | D6 | Heartbeat strategy: **Healthchecks.io** (free tier), not Cloud Monitoring custom-metric absent-for. | `2026-05-17-monitoring-and-alerts.md` §"Heartbeat strategy" + D2 decision |
 | D7 | Audience protection: Tier-1 **rate limit ships before the flip** (PR #597). | Tension 2; Recommendation 1E |
@@ -76,15 +95,16 @@ Each row names the issue / PR, current status as of 2026-05-17, and what remains
 | Silhouette coverage extension (US-only families) | — | — | **not started** | audit `/api/silhouettes` for null families that appear in national data (Alcidae, Gaviidae, etc.); curate via `curating-fallback-silhouettes` skill |
 | Frontend default viewport (CONUS) | — | — | **not started** | edit `INITIAL_VIEW` in `frontend/src/components/map/MapCanvas.tsx:246` from AZ center to CONUS center + zoom 4 |
 | The literal flip | — | — | **not started** | edit `regionCode: 'US-AZ'` → `'US'` in `services/ingestor/src/cli.ts` (3 sites) + `services/ingestor/src/handler.ts` (3 sites) |
-| Cloud SQL execution (T1–T5) | — | not opened | **not started** | per `2026-05-17-cloud-sql-migration.md`; 5 PRs, ~30–40h |
-| Cornell ToS outreach (O3) | — | — | **user owes** | email `ebird@cornell.edu` from a project address; pre-monetization is the strongest negotiating moment |
+| Cloud SQL execution T1+T2 (prep) | — | shipped | **shipped** | provisioning + Auth Proxy mount; dormant pre-flip |
+| Cloud SQL execution T3/T4/T5 (cutover) | — | not opened | **deferred to Phase 4 per R1 (2026-05-18)** | per `2026-05-17-cloud-sql-migration.md`; ~30–40h; trigger = expansion-scale traffic sustained ≥7d |
+| Cornell ToS outreach (O3) | — | — | **user owes — post-flip per R-Cornell (2026-05-18)** | email `ebird@cornell.edu` post-flip (Phase 4 P4.b) with real call-profile evidence (~120/day verified) in hand |
 | EBD data-request form (Rec 1D) | — | — | **user owes** | 1 form, 7-day approval lag; preserves Option 2D as a later layer |
 
 ---
 
 ## §4 The literal flip
 
-The flip is **one diff across two files**. After it lands, the recent-ingest cron pulls US-wide species-rollup data. All other phases of this plan exist to make this single PR safe to ship.
+The flip is **staged across two PRs** (R5, 2026-05-18) targeting two files. After Step A lands, the recent-ingest cron pulls US-wide species-rollup data; Step B lands ≥24h later if recent is stable. All other phases of this plan exist to make these PRs safe to ship.
 
 **Files:**
 
@@ -105,14 +125,14 @@ services/ingestor/src/handler.ts
 
 Before this PR opens:
 
-- [ ] Cloud SQL execution complete: T1–T5 of `2026-05-17-cloud-sql-migration.md` merged. **T5 (Neon removal) is required pre-flip** — this matches Phase 1's exit gate (§7) and avoids operator confusion at cutover. Reconciled 2026-05-17: the earlier "optional pre-flip" wording contradicted Phase 1's gate; the stricter rule wins.
+- [x] Cloud SQL prep T1+T2 (provisioning + Auth Proxy mount) shipped as pre-flip plumbing. **T3/T4/T5 (dump+restore, secret flip, Neon teardown) move to Phase 4 per R1 (2026-05-18 amendment).** Neon Launch remains primary DB through the flip; Cloud SQL migration runs as a post-flip optimization once expansion-scale traffic justifies the egress arbitrage.
 - [ ] Monitoring Tasks 1–7 all merged; smoke tests pass for each S1–S7 alert (operator-verified, runbook dated).
 - [ ] Healthchecks.io heartbeat green on `bird-ingest-recent` for ≥48h.
 - [ ] Audience rate-limit (#597) merged and proven against synthetic load (~5× baseline RPS sustained, no false-positive 429s).
 - [ ] Prune job (#595) merged; at least one nightly run completed; row count steady within 14-day window.
 - [ ] Shape-2 probe (#599) merged; **at least one green workflow run** posted to `o2-probe-history.csv`. If the probe fires on the day of the flip PR, defer the flip.
 - [ ] Frontend default viewport changed to CONUS (separate PR, can ship beforehand without ingestor changes — at AZ ingest, a CONUS map just shows no markers outside AZ; that's acceptable as a brief intermediate state).
-- [ ] Silhouette coverage audit run: `/api/silhouettes` null-rate computed against the species set returned by a live `GET /v2/data/obs/US/recent?back=14&maxResults=10000` (~860 species); any high-prevalence family with null silhouette is curated before the flip.
+- [ ] **Server-side bbox filtering on `/api/observations` shipped** (Phase 2 hard pre-condition — see §5.6). Without this, national `/api/observations` returns ~24 MB; this is the next bottleneck per `docs/analyses/2026-05-17-hotspot-density-100k-viability/report.md`.
 - [ ] Cost alerts set on the GCP project (see §10).
 - [x] Region-table cleanup complete (#532 PR-1..PR-4 all merged: #534, #535, #536, #537). Ingest path no longer writes `region_id`; columns and `regions` table are dropped from `main`.
 
@@ -138,21 +158,27 @@ Within 24h:
 - [ ] Row count grows in proportion to the species-rollup expectation, not the per-observation expectation. If the table grew by ≥10× the AZ baseline, the Shape-2 contract is in question — escalate to the Shape-2 probe rerun procedure.
 - [ ] GCP billing dashboard shows no anomalous spike on `network-egress-from-us-west1-to-internet`.
 
-### §4.4 Sub-decision: do `hotspots` and `backfill` also flip?
+### §4.4 Sub-decision: flip staging (R5, 2026-05-18 amendment)
 
-**Yes for `hotspots` and `backfill`, with caveats:**
+The flip ships in **two PRs**, not one. Recent and hotspots are decoupled.
 
-- `hotspots` (`/data/ref/hotspot/{region}`) returns one record per hotspot. US-wide returns the full national set (~tens of thousands). The hotspot ingest already runs weekly; one week of US-wide is acceptable load. Flip in the same PR.
-- `backfill` calls `/data/obs/{region}/historic/YYYY/MM/DD` — **this is NOT species-rolled up**. A US-wide `/historic` call returns one record per observation, which is hundreds of thousands per day. **The backfill flip must be paired with the per-state Shape 3 fan-out**, which is a separate refactor — not in the same PR. Hold `backfill` and `backfill-extended` at `'US-AZ'` for the initial flip and file a follow-up issue for the per-state backfill fan-out.
-
-**Corrected diff scope for the literal flip:**
+**Step A — flip `recent` only.** Higher-traffic surface; isolating it surfaces problems faster. Monitor ≥24h post-merge against §4.3 verification checklist before progressing.
 
 ```
-services/ingestor/src/cli.ts      Line 122 (recent), Line 124 (hotspots)
-services/ingestor/src/handler.ts  Line 42 (recent), Line 44 (hotspots)
+services/ingestor/src/cli.ts      Line 122 (recent)
+services/ingestor/src/handler.ts  Line 42 (recent)
 ```
 
-Backfill stays at `'US-AZ'` until the fan-out PR lands.
+**Step B — flip `hotspots` after recent is stable.** Lower volume, lower risk. Decoupling reduces total surface area in any single rollback window: if recent destabilizes, hotspots is untouched; if hotspots destabilizes after step A landed, we already know recent is healthy.
+
+```
+services/ingestor/src/cli.ts      Line 124 (hotspots)
+services/ingestor/src/handler.ts  Line 44 (hotspots)
+```
+
+`hotspots` (`/data/ref/hotspot/{region}`) returns one record per hotspot. US-wide returns ~100k records; the hotspot ingest already runs weekly so one week of US-wide is acceptable load.
+
+**Backfill (`cli.ts:126`, `cli.ts:149`, `handler.ts:47`)** is **not** part of the literal flip — `/historic` is not species-rolled up and a US-wide call returns hundreds of thousands of rows per day. Per R2 (2026-05-18) the per-state Shape 3 fan-out is opened as **Phase 3.5**, concurrent with flip stability monitoring. Backfill calls stay at `'US-AZ'` until the fan-out lands (see §7 Phase 3.5).
 
 ---
 
@@ -201,9 +227,11 @@ Identified by grep:
 | `services/ingestor/src/run-photos.ts:75-77`, `inat/client.ts:14-15` | iNaturalist `place_id=40` (Arizona) for photo lookup | **Discussed inline; not a blocker.** The fallback path still works: photo lookup falls through to a global search when the place_id query returns nothing. National species not yet in AZ will work; the photo coverage for AZ species is unchanged. File a follow-up to switch `place_id=40 → undefined` (global) for cleaner UX. |
 | `packages/db-client/src/species.ts:251` | "Arizona timezone" comment for phenology month-boundary | Comment-only; the math uses `America/Phoenix` which is fine for AZ data. National data spans timezones — file a follow-up to switch to UTC month boundaries. Not a blocker. |
 
-### §5.4 Silhouette coverage
+### §5.4 Silhouette coverage (Phase 4 polish — demoted per R3, 2026-05-18)
 
-National data introduces families not present in AZ. Audit procedure (run before the flip, repeat 24h after):
+**No longer a pre-flip gate.** The flip ships with the existing `_FALLBACK` SVG covering any uncurated family; users see a generic silhouette for new national families until curation lands as Phase 4 polish. Distinct from PR #604/#610 (silhouette `colorDark` test+type fix), which was not coverage work.
+
+National data introduces families not present in AZ. Audit procedure (run post-flip, drives Phase 4 curation queue):
 
 ```sh
 curl -s 'https://api.bird-maps.com/api/silhouettes' \
@@ -214,7 +242,22 @@ Cross-reference with families appearing in `GET /v2/data/obs/US/recent?back=14&m
 
 ### §5.5 Hotspot density
 
-National hotspot count is on the order of 100k vs AZ's ~3k. The map's existing cluster + adaptive-grid logic (PR #553 + ancestors) handles this in principle but has not been load-tested. Browser-side smoke at 100k hotspots is the highest-risk frontend item; verify with a local data dump and the Lighthouse-style harness already in use for canonical viewports. If FPS degrades below 30 on the mid-range mobile profile, file a follow-up for a hotspot-density LOD pass before the flip.
+National hotspot count is on the order of 100k vs AZ's ~3k. The map's existing cluster + adaptive-grid logic (PR #553 + ancestors) handles this in principle but has not been load-tested. Browser-side smoke at 100k hotspots is the highest-risk frontend item; verify with a local data dump and the Lighthouse-style harness already in use for canonical viewports. Tracked as Phase 0 exit gate P0.m (issue #608). If FPS degrades below 30 on the mid-range mobile profile, file a follow-up for a hotspot-density LOD pass before the flip.
+
+### §5.6 Server-side bbox filtering on `/api/observations` (R4 — Phase 2 hard pre-condition, 2026-05-18)
+
+**Added by 2026-05-18 amendment.** Source: `docs/analyses/2026-05-17-hotspot-density-100k-viability/report.md` — at national scale `/api/observations` returns approximately **24 MB** without bbox constraint. That payload size is the next bottleneck after rendering: it dominates TTFB on slow-4G HN-tail connections, defeats Cloudflare cache (objects too large for some PoP tiers), and makes mobile cold-load unworkable.
+
+**Requirement:** `/api/observations` must accept and enforce a `bbox` query parameter (west,south,east,north). The frontend always sends the current viewport bbox on map-load and after pan/zoom (debounced). Server queries become `WHERE ST_Intersects(geom, ST_MakeEnvelope(...))` against the existing PostGIS GIST index — no new index needed.
+
+**Distinct from existing tracking:**
+- **#608** = frontend 100k-hotspot load test (Phase 0 exit gate, render-side).
+- **#568** = `SpeciesDetailSurface` client-side bbox follow-up for species detail observations threading.
+- **This** = `/api/observations` *server-side* bbox enforcement at the read-API tier.
+
+**Tracking issue: not yet opened.** Open during Phase 2 planning; reference this section and the viability report.
+
+**Acceptance:** at national scale, `GET /api/observations?bbox=<viewport>` returns payload ≤ ~500 KB at 1440×900 zoom 4 (CONUS-wide). Verify under the synthetic 100k-hotspot harness from P0.m before Phase 3.
 
 ---
 
@@ -255,7 +298,7 @@ RR-1..RR-4 are all merged ahead of the literal flip, which satisfies the origina
 
 ## §7 Cutover sequence
 
-Linear phases. Each phase names what can ship pre-national-in-production and what is the cutover itself.
+Linear phases as restructured by the 2026-05-18 amendment (R1, R2, R3, R5). Each phase names what can ship pre-national-in-production and what is the cutover itself.
 
 ### Phase 0 — pre-conditions (ship now; AZ remains live)
 
@@ -270,48 +313,62 @@ These all land while the site is still serving AZ-only. Multiple can ship in par
 - [x] P0.g — Region cleanup RR-1..RR-4 (#532 closed; #534, #535, #536, #537 merged)
 - [ ] P0.h — Frontend CONUS viewport (not started; can ship with AZ ingest, will just show empty outside AZ briefly)
 - [ ] P0.i — Branding sweep #533 (not started; recommended pre-flip)
-- [ ] P0.j — Silhouette coverage curation (not started)
+- [ ] ~~P0.j — Silhouette coverage curation~~ **Demoted to Phase 4 polish per R3 (2026-05-18); flip ships with `_FALLBACK` SVG.**
 - [ ] P0.k — Cost budget alerts (§10)
-- [ ] P0.l — **Cloudflare Pages request-count tripwire.** Configure CF analytics/notification alerts on the Pages project at **80k requests/day (warning)** and **95k requests/day (critical)** — the free-tier cap is 100k/day (§11 Q6). Wire into the same notification channel as the monitoring plan's S1–S7 (email `julian.kennon.d@gmail.com`). Rationale: at 200× HN tail the cap is reachable in ~4h of viral attention; the tripwire gives ~20% headroom to decide whether to enable paid tier before degradation.
-- [ ] P0.m — **Frontend 100k-marker load test.** Drive the canonical viewport set against a synthetic 100k-hotspot dataset (local data dump per §5.5). Acceptance: zero console errors, **FCP < 3s on 1440×900**, ≥30 FPS interaction on mid-range mobile profile. Threshold rationale: 1440×900 is the canonical desktop viewport; FCP<3s matches Lighthouse "Good" for slow-4G class connections, which is the realistic HN-tail viewer profile. This is the highest-risk frontend item (§5.5) and gates the flip explicitly.
+- [ ] P0.l — **Cloudflare Pages request-count tripwire.** Configure CF analytics/notification alerts on the Pages project at **80k requests/day (warning)** and **95k requests/day (critical)** — the free-tier cap is 100k/day (§11 Q6). Wire into the same notification channel as the monitoring plan's S1–S7 (email `julian.kennon.d@gmail.com`). Rationale: at 200× HN tail the cap is reachable in ~4h of viral attention; the tripwire gives ~20% headroom to decide whether to enable paid tier before degradation. **Phase 0 exit-gate semantics: required.**
+- [ ] P0.m — **Frontend 100k-marker load test (issue #608).** Drive the canonical viewport set against a synthetic 100k-hotspot dataset (local data dump per §5.5). Acceptance: zero console errors, **FCP < 3s on 1440×900**, ≥30 FPS interaction on mid-range mobile profile. Threshold rationale: 1440×900 is the canonical desktop viewport; FCP<3s matches Lighthouse "Good" for slow-4G class connections, which is the realistic HN-tail viewer profile. This is the highest-risk frontend item (§5.5) and gates the flip explicitly. **Phase 0 exit-gate semantics: required.**
 
-**Phase 0 exit gate:** every checkbox above ticked; monitoring smoke-test runbook is dated within the last 7 days; Shape-2 probe has at least 1 green run on file; CF Pages tripwire (P0.l) verified by a synthetic alert fire; frontend 100k-marker load test (P0.m) passes on all 5 canonical viewports with no console errors and FCP<3s on 1440×900.
+**Phase 0 exit gate:** every unticked checkbox above ticked (P0.j demoted, not required); monitoring smoke-test runbook is dated within the last 7 days; Shape-2 probe has at least 1 green run on file; CF Pages tripwire (P0.l) verified by a synthetic alert fire; frontend 100k-marker load test (P0.m) passes on all 5 canonical viewports with no console errors and FCP<3s on 1440×900.
 
-### Phase 1 — Cloud SQL cutover (~45 min operator session)
+### Phase 1 — Cloud SQL prep only (R1, 2026-05-18 amendment)
 
-Per `2026-05-17-cloud-sql-migration.md` §6. **Site is still AZ-only during this phase.** Order:
+**Per R1, full Cloud SQL migration is deferred to Phase 4.** Only T1+T2 — already shipped — count as Phase 1. T3/T4/T5 (dump+restore, secret flip, Neon teardown) move to Phase 4. Phase 1 stages use a consistent T1–T5 taxonomy (no "Stage N" alias).
 
-1. P1.a — T1: provision Cloud SQL alongside Neon (`infra/terraform/cloud-sql.tf`).
-2. P1.b — T2: mount Cloud SQL socket on read-api / admin-api / ingestor.
-3. P1.c — T3: dump Neon → restore Cloud SQL (operator session, no PR).
-4. P1.d — T4: cutover commit (Secret Manager version flip + service restart + ingestor resume).
-5. P1.e — observe for ≥48h.
-6. P1.f — T5: remove Neon (≥48h after T4).
+- [x] T1 — provision Cloud SQL alongside Neon (`infra/terraform/cloud-sql.tf`). **Shipped.**
+- [x] T2 — mount Cloud SQL Auth Proxy on read-api / admin-api / ingestor (dormant). **Shipped.**
+- [ ] T3 / T4 / T5 — **deferred to Phase 4** per R1.
 
-**Phase 1 exit gate:** 48h of clean Cloud SQL operation; T5 merged; cost dashboard shows expected DB line item.
+**Phase 1 exit gate (revised):** T1+T2 live and dormant; Neon Launch remains primary DB through the flip.
 
-### Phase 2 — frontend pre-flip polish
+### Phase 2 — frontend + read-API pre-flip polish
 
-These can interleave with Phase 0 / Phase 1 but should be all-green before Phase 3.
+These can interleave with Phase 0 but should be all-green before Phase 3.
 
 1. P2.a — Branding sweep (#533).
-2. P2.b — CONUS viewport.
-3. P2.c — Silhouette curation for high-prevalence US families.
+2. P2.b — CONUS viewport (§5.1).
+3. P2.c — **Server-side bbox filtering on `/api/observations`** (§5.6, R4, 2026-05-18). **Hard pre-condition for Phase 3.** Open a tracking issue; ship as a read-API PR.
 4. P2.d — Smoke at all 5 canonical viewports × 2 themes (canonical PR-screenshot procedure).
 
-### Phase 3 — the flip (one PR)
+**Phase 2 exit gate:** P2.c verified against the synthetic 100k-hotspot harness — `/api/observations?bbox=<viewport>` returns ≤ ~500 KB at 1440×900 zoom 4.
 
-Per §4 above. Recent + hotspots flip to `'US'`; backfill stays at `'US-AZ'` pending per-state fan-out.
+### Phase 3 — the flip (two PRs, staged per R5)
 
-**Phase 3 exit gate:** §4.3 post-flip verification all-pass within the first 24h.
+Per §4 above. Two-step staging (2026-05-18):
 
-### Phase 4 — post-flip monitoring + cost review
+- **Phase 3 Step A — flip `recent` only** (`cli.ts:122`, `handler.ts:42`). Monitor §4.3 verification ≥24h.
+- **Phase 3 Step B — flip `hotspots`** (`cli.ts:124`, `handler.ts:44`) after recent stable.
 
-- T+7d cost review: GCP + Cloudflare + Healthchecks.io + Neon (residual until P1.f). Compare against §10 budget.
+Backfill stays at `'US-AZ'` pending Phase 3.5 fan-out.
+
+**Phase 3 exit gate:** §4.3 post-flip verification all-pass within the first 24h of Step A; Step B verification clean within 24h of Step B merge.
+
+### Phase 3.5 — per-state backfill fan-out (R2, 2026-05-18, staged-with-flip)
+
+**Concurrent with Phase 3 / 4 stability monitoring, not a T+30d follow-up.** Opens the per-state Shape 3 backfill so national history fills into the 14d prune window the same week the flip lands, instead of leaving a month-long sparse history.
+
+- Phase 3.5 is **not** a single PR; per-state Shape 3 calls stagger over days (not hours) to stay inside eBird tolerance and Cloud Run scale guards.
+- The umbrella stays solvent if Phase 3.5 slips — Phase 3 verification does not depend on backfill completion. Step A / Step B monitoring continues against the §4.3 checklist regardless.
+- See §11 Q1 for the open architecture question on fan-out shape (Cloud Workflow with 50 parallel state backfills + per-state pacing is the likely shape).
+
+### Phase 4 — post-flip optimization, monitoring, polish
+
+- **P4.a — Cloud SQL migration T3/T4/T5** per `2026-05-17-cloud-sql-migration.md` (R1, 2026-05-18). Trigger: expansion-scale traffic sustained ≥7d such that the cross-cloud egress delta is materially worth the operator cost. Reversible at ~15min RTO (§8).
+- **P4.b — Cornell ToS outreach** with real call-profile evidence (Shape-2 probe assertions + ingest logs) in hand. See §9 (R-Cornell, 2026-05-18).
+- **P4.c — Silhouette coverage curation** (R3, 2026-05-18) for Alcidae, Gaviidae, Sulidae, etc. Iterative via `curating-fallback-silhouettes` skill; not a single PR.
+- T+7d cost review: GCP + Cloudflare + Healthchecks.io + Neon. Compare against §10 budget.
 - T+7d behavior review: rate-limit fire count, S1–S7 alert fire count, Shape-2 probe assertions still green.
 - T+30d cost review: full month bill; if outside the §10 band by more than 50%, file an investigation.
-- T+30d: open per-state backfill fan-out plan.
-- T+30d: open Cornell ToS conversation closure (assuming the user sent the email at Phase 0).
+- T+30d: Cornell response review; revisit posture if needed.
 
 ---
 
@@ -337,14 +394,15 @@ Per-phase reversibility:
 
 ## §9 External dependencies (timing risks the plan can't control)
 
-### O3 — Cornell ToS conversation
+### O3 — Cornell ToS conversation (R-Cornell, 2026-05-18: post-flip)
 
-Per Open Question O3 of the analysis report. User owes an email to `ebird@cornell.edu` naming `bird-maps.com`, the use case (public hobby map), the call profile (~100/day under Shape 2), and asking for a posture conversation.
+Per Open Question O3 of the analysis report. User owes an email to `ebird@cornell.edu` naming `bird-maps.com`, the use case (public hobby map), the **real measured call profile (~120/day under Shape 2, per the Shape-2 probe + Finding 8 of the funnel)**, and asking for a posture conversation.
 
-- **Pre-flip posture:** strongest negotiating moment (no monetization, no embed, no press, pre-HN). Send before Phase 3.
+**Revised timing (2026-05-18):** send **post-flip** (Phase 4, P4.b), not pre-flip. The pivot reason: post-flip evidence is stronger negotiating leverage than pre-flip projection. With ~120 calls/day verified — well inside Cornell's published tolerance for hobby projects per Finding 8 — the conversation opens with "here's what we're actually doing" instead of "here's what we project we'll do." Cornell's reviewers respond better to measurement than to plans.
+
 - **Response SLA:** none published. Cornell can take days to weeks.
-- **Plan does not block on Cornell's response.** A non-response is not a blocker; an explicit "no" or "stop" is.
-- **Risk if skipped:** Cornell's first signal could be a key revocation during an HN spike, with no appeal process. The email is unidirectional cheap insurance.
+- **Plan does not block on Cornell's response.** A non-response is not a blocker; an explicit "no" or "stop" is, and triggers a §8 Phase-3-style rollback (revert recent → `'US-AZ'`).
+- **Risk we accept:** Cornell's first signal could be a key revocation during an HN spike, with no appeal process. **We accept this risk** because Shape 2's actual call volume (~120/day verified, per Finding 8 of the funnel) is well inside Cornell's tolerance — the probability of an unprompted revocation at this call profile is low, and the value of evidence-based outreach is high. Pre-flip projection-based outreach was the original plan; the 2026-05-18 amendment swaps to post-flip evidence-based.
 
 ### Rec 1D — EBD data-request form
 
@@ -362,31 +420,32 @@ Numbers sourced from `analysis-report.md` Tables A–B + `2026-05-17-cloud-sql-m
 | Phase | Compute | DB | Egress | Storage | Total |
 |---|---|---|---|---|---|
 | AZ today | <$1 | $0 (Neon Free) | <$1 | $0 | **<$5** |
-| AZ + monitoring + rate-limit + prune (Phase 0 complete, pre-Cloud SQL) | <$1 | $0 | <$1 | $0 | **<$5** |
-| AZ on Cloud SQL (Phase 1, pre-flip) | <$1 | ~$25 | <$1 | <$1 | **~$27** |
-| **National launch (Phase 3 complete, 25× audience baseline)** | ~$5 | ~$25 | <$1 (intra-region) | ~$1 | **~$32** |
-| **National steady-state (200× audience tail, HN spike absorbed)** | ~$15–30 | ~$25–45 (one tier up) | <$1 | ~$2 | **~$45–80** |
+| AZ + monitoring + rate-limit + prune (Phase 0 complete) | <$1 | $0 (Neon Free) | <$1 | $0 | **<$5** |
+| Cloud SQL provisioned-and-dormant (T1+T2 shipped, idle alongside Neon) | <$1 | ~$25 idle | <$1 | <$1 | **~$27** |
+| **National launch (Phase 3 complete, 25× audience baseline) — Neon Launch primary, Cloud SQL still dormant** | ~$5 | ~$19 (Neon Launch) + ~$25 (Cloud SQL idle) | <$1 (intra-region for cached traffic) | ~$1 | **~$50** |
+| **National steady-state (200× audience tail, HN spike absorbed) — Neon Launch primary** | ~$15–30 | ~$19–35 (Neon Launch + ~$25 Cloud SQL idle) | varies with miss-rate | ~$2 | **~$60–90** |
+| **Phase 4 conditional optimization — post-cutover (R1 trigger fired): Cloud SQL primary, Neon torn down** | ~$15–30 | ~$25–45 (Cloud SQL one tier up) | <$1 (intra-region) | ~$2 | **~$45–80** |
 
-Cost band reconciles with `analysis-report.md` 50-state Table B Shape 2 + Cloud SQL row (~$80/mo upper bound).
+The Cloud SQL row appears in two places by design: as a ~$25 idle line item pre-cutover (paying for provisioned-and-dormant readiness, R1) and as the primary-DB cost post-cutover. Under R1 the cutover is a *conditional post-flip optimization* triggered by sustained expansion-scale traffic (≥7d), not a pre-flip step. Until that trigger fires, the ~$230/mo egress arbitrage is theoretical and Neon Launch carries the workload. Cost band reconciles with `analysis-report.md` 50-state Table B Shape 2 + Cloud SQL row (~$80/mo upper bound, applies post-cutover).
 
 **Budget alerts (set during Phase 0):**
 
 - GCP project `bird-maps-prod` budget alert at $50/mo (50% of upper-band) and $100/mo (hard ceiling).
 - Cloudflare account dashboard: enable Workers paid-tier opt-in disabled (stay on free tier; runaway Worker bills $5/10M requests once paid is enabled — keep off until needed).
 - Healthchecks.io: free-tier covers v1 (20 checks vs ~6 used).
-- Neon: removed in T5; budget alert no longer relevant.
+- Neon: remains primary through the flip per R1; keep the existing Neon budget alert in place until T5 (Phase 4) lands. Remove alert only after Cloud SQL cutover fires and Neon is torn down.
 
-**Egress sanity:** at 99.91% miss × 200× audience the projected egress is dominated by GCP→Cloudflare PoP (free for our pattern, intra-region us-west1 → Cloudflare). The pre-Cloud SQL number ($230/mo Neon-side at HN-scale) is the avoided cost, not a planned cost.
+**Egress sanity:** at 99.91% miss × 200× audience the *post-cutover* projected egress is dominated by GCP→Cloudflare PoP (free for our pattern, intra-region us-west1 → Cloudflare). The ~$230/mo Neon-side cross-cloud egress number is the **avoided cost that defines the R1 cutover trigger**, not a planned line item — pre-cutover the egress is paid against Neon's AWS-side allowance and stays inside free-tier bounds at AZ + early national scale. When sustained expansion-scale traffic (≥7d) makes that egress real, the R1 trigger fires and Phase 4 P4.a executes the cutover.
 
 ---
 
 ## §11 Open questions surfaced during this planning exercise
 
 1. **Per-state backfill fan-out scope.** Backfill stays at `US-AZ` in the literal flip per §4.4. The per-state fan-out is its own architecture decision: 50 sequential calls per day × 19 days = 950 calls/day (well inside eBird's tolerance) but the wall-clock cost is non-trivial (current AZ backfill p50 is 645s; 50× sequential is unviable). Likely shape: a Cloud Workflow that fans out 50 parallel state backfills with per-state pacing. **Files as an open question.**
-2. **iNaturalist `place_id=40` photo lookup.** National species not yet observed in AZ will have no `place_id=40` photo; the fallback path works but introduces a UX asymmetry (AZ species get higher-quality place-scoped photos). Switching to global lookup is one line but changes AZ photo quality. Not a blocker; needs a one-shot product call.
-3. **Phenology month-boundary timezone.** `packages/db-client/src/species.ts:251` uses `America/Phoenix` for phenology month boundaries. National data spans timezones; the right answer is probably UTC, but it changes existing data. **Files as an open question** for a v1.1 follow-up.
+2. **iNaturalist `place_id` photo lookup — product choice still open.** PR #609 landed the *plumbing* (parameterized `place_id` instead of hard-coded 40). The *product choice* — global default vs configurable per-deploy default — is still open. National species not yet observed in AZ will have no `place_id=40` photo; the fallback path works but introduces a UX asymmetry. Switching the default to global is one config change; needs a one-shot product call.
+3. **Phenology month-boundary timezone — product choice still open.** PR #609 landed the *plumbing* (parameterized timezone instead of hard-coded `America/Phoenix`). The *product choice* — UTC for all observations vs per-observation timezone derived from `geom` — is still open. UTC is simpler and matches eBird's own convention; per-observation-tz is more faithful to the observer's local season but requires a TZ lookup per row. **Files as an open question** for a v1.1 follow-up.
 4. **Hotspot density at 100k markers.** The cluster + adaptive-grid layers haven't been load-tested at national scale. Browser-side smoke at the canonical viewport set is the highest-risk pre-flip frontend item.
-5. **Cloud SQL HA at scale.** Currently zonal; if HN-scale traffic surfaces a single-zone availability incident in the first 30 days, flip to REGIONAL ($25 → $50/mo). Document the trigger as "any availability incident attributable to zone failure in the first 30 days".
+5. **Cloud SQL cutover timing — *when*, not *whether* (R1, 2026-05-18).** The migration is committed (D4); only timing is open. R1 defers T3+T4 (the actual cutover) to Phase 4, triggered by sustained expansion-scale traffic ≥7d at 50-state-equivalent audience such that the ~$230/mo cross-cloud egress delta is materially worth the operator cost. Open sub-question: precise quantitative threshold for "sustained expansion-scale" — current draft is calendar-time (≥7d) crossed with audience-size (50-state-equivalent), but a request-rate or cache-miss-rate threshold may be more falsifiable. Secondary sub-question (post-cutover): **Cloud SQL HA at scale.** Launches zonal; if post-cutover HN-scale traffic surfaces a single-zone availability incident in the first 30 days after T4, flip to REGIONAL ($25 → $50/mo). Document the trigger as "any availability incident attributable to zone failure in the first 30 days post-cutover".
 6. **Cloudflare Pages request-count caps.** Phase 0 of the analysis brief flagged this as a suspected unknown. The free tier has a 100k requests/day cap; at 200× HN spike that's 4 hours of viral attention before paid tier kicks in. **Decision: keep Pages on free tier**; if the cap fires, the static frontend serves 1000-class errors briefly. Acceptable degradation; revisit if it happens.
 
 ---
@@ -404,13 +463,17 @@ Most of this work is split across other plans. This section points at them rathe
 | 0 | Region-removal RR-1..RR-4 | issue #532 (closed); PRs #534, #535, #536, #537 | done — no dispatch needed |
 | 0 | Branding sweep #533 | issue #533 + audit PR 5b | new subagent dispatch; frontend PR with full canonical viewport screenshot set |
 | 0 | CONUS viewport | this plan §5.1 | small PR; bundle with branding sweep if convenient |
-| 0 | Silhouette curation | `curating-fallback-silhouettes` skill | iterative operator session; no PR per family |
 | 0 | Budget alerts | this plan §10 | small infra PR; one Terraform commit |
-| 1 | Cloud SQL execution | `docs/plans/2026-05-17-cloud-sql-migration.md` T1–T5 | sequential subagent dispatch per task; operator session for T3/T4 |
-| 2 | Frontend polish | bundled in P0.h / P0.i / P0.j | (no new dispatch) |
-| 3 | The flip | this plan §4 | small subagent dispatch; ~1 PR; all preconditions verified |
+| 1 | Cloud SQL T1+T2 prep | `docs/plans/2026-05-17-cloud-sql-migration.md` T1+T2 | shipped |
+| 2 | Frontend polish | bundled in P0.h / P0.i | (no new dispatch) |
+| 2 | `/api/observations` bbox filter (R4) | this plan §5.6 | new tracking issue + read-API PR; hard pre-condition for Phase 3 |
+| 3 | The flip — Step A (recent) | this plan §4.4 | small subagent dispatch; ~1 PR; all preconditions verified |
+| 3 | The flip — Step B (hotspots) | this plan §4.4 | small subagent dispatch; ≥24h after Step A stable |
+| 3.5 | Per-state backfill fan-out (R2) | new plan (not yet written) | concurrent with Phase 3/4; not blocking |
+| 4 | Cloud SQL T3/T4/T5 cutover (R1) | `docs/plans/2026-05-17-cloud-sql-migration.md` T3–T5 | sequential subagent dispatch per task; operator session for T3/T4 |
+| 4 | Cornell ToS outreach (R-Cornell) | §9 P4.b | user-owed email with verified call profile |
+| 4 | Silhouette curation (R3) | `curating-fallback-silhouettes` skill | iterative operator session; no PR per family |
 | 4 | Post-flip review | this plan §7 Phase 4 | operator-driven, not a code PR |
-| 4 | Per-state backfill fan-out | new plan (not yet written) | T+30d follow-up |
 
 ---
 
