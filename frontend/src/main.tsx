@@ -6,6 +6,11 @@ import { App } from './App.js';
 // key is empty, the import is a strict no-op — posthog.init is never
 // called and no console warnings are emitted (issue #357 task 2).
 import './analytics.js';
+// Importing for the side effect: `clarity.ts` reads `VITE_CLARITY_PROJECT_ID`
+// and (in production builds only) calls `Clarity.init` once at app
+// startup. When the env var is empty OR the build is non-production, the
+// import is a strict no-op (issue #657).
+import './clarity.js';
 import './styles/tokens.css';
 import './styles.css';
 import './styles/motion.css';
