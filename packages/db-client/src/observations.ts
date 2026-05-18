@@ -141,6 +141,27 @@ export async function getObservations(
     );
     params.push(f.familyCode);
   }
+  if (f.bbox) {
+    // PostGIS spatial filter (#619). The `&&` operator uses the obs_geom_idx
+    // GIST index for fast bbox-overlap; ST_Intersects is then layered on top
+    // to remove false-positives at the envelope boundary (the `&&` shortcut
+    // is a bounding-box test, not a true geometric intersect, so on its own
+    // it can include features that touch the envelope MBR but not its
+    // interior). For axis-aligned POINTs the two predicates collapse to the
+    // same set, but the planner still uses the GIST index via `&&` — keep
+    // both to stay correct if/when non-point geometries land.
+    const i1 = params.length + 1;
+    const i2 = params.length + 2;
+    const i3 = params.length + 3;
+    const i4 = params.length + 4;
+    conditions.push(
+      `geom && ST_MakeEnvelope($${i1}, $${i2}, $${i3}, $${i4}, 4326)`
+    );
+    conditions.push(
+      `ST_Intersects(geom, ST_MakeEnvelope($${i1}, $${i2}, $${i3}, $${i4}, 4326))`
+    );
+    params.push(f.bbox[0], f.bbox[1], f.bbox[2], f.bbox[3]);
+  }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
