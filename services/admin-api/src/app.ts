@@ -1,22 +1,12 @@
 import { Hono } from 'hono';
+import type { Pool } from '@bird-watch/db-client';
 import { bearerAuth } from './auth.js';
 import { validateSvg, ValidationError } from './validate.js';
 import type { Storage } from './storage.js';
 import { purgeSilhouettesJson } from './purge.js';
 
-/**
- * The app only uses `.query<R>(sql, params)` on its pool. Both the raw
- * pg.Pool from @bird-watch/db-client AND the DualPool wrapper in
- * `./dual-pool.js` satisfy this shape, so we accept either —
- * `local.ts` decides which one to construct based on whether
- * SECONDARY_DATABASE_URL is set.
- */
-export interface AppPool {
-  query<R = unknown>(sql: string, params?: readonly unknown[]): Promise<{ rows: R[]; rowCount: number }>;
-}
-
 export interface AppDeps {
-  pool: AppPool;
+  pool: Pool;
   storage: Storage;
   token: string;
 }
