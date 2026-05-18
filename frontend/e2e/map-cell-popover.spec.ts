@@ -264,18 +264,18 @@ test('cross-surface stale-bbox clear: detail→feed→detail leaves no bbox', as
   await closeBtn.waitFor({ state: 'visible', timeout: 10_000 });
   await closeBtn.click();
 
-  // After close, the URL clears `?view=detail` automatically (onClose flips
-  // to feed view per App.tsx onCloseDetail). NOTE: onCloseDetail does NOT
-  // clear bbox (it only sets view:'feed', detail:null) — so bbox is still
-  // present in the URL at this point. Assert view=detail is gone but DO NOT
-  // assert bbox is gone yet (it will be tested after the feed-row click below).
+  // After close, the URL clears `?view=detail` automatically (onClose
+  // returns to map per App.tsx onCloseDetail, #662). bbox is preserved
+  // — it is only cleared by the subsequent feed-row onSelectSpecies()
+  // call without bbox.
   await expect(page).not.toHaveURL(/[?&]view=detail/, { timeout: 5_000 });
 
-  // Navigate to feed via the tab bar (may be a no-op if onCloseDetail already
-  // landed us on feed view, but clicking an already-selected tab is harmless).
-  const feedTab = page.getByRole('tab', { name: 'Feed view' });
-  await feedTab.waitFor({ state: 'visible', timeout: 10_000 });
-  await feedTab.click();
+  // Issue #662: the Feed tab no longer exists in the header. Navigate
+  // directly to the legacy feed URL to reach the dead-code feed branch
+  // (preserved for bookmark compat per the same issue) so we can click
+  // a feed row.
+  await page.goto('/?view=feed');
+  await page.waitForLoadState('domcontentloaded');
 
   // Wait for feed surface to load and show at least one row.
   const feedRow = page.locator('.feed-row').first();

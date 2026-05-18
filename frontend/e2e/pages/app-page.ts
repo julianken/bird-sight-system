@@ -7,7 +7,7 @@ export class AppPage {
   readonly errorScreen: Locator;
   /** Persistent header chrome — wordmark, tablist, action buttons. */
   readonly appHeader: Locator;
-  /** The three surface tabs inside appHeader (Map, Species, Feed). */
+  /** Surface tabs inside appHeader (Species, Map). Feed removed in #662. */
   readonly appHeaderTabs: Locator;
   /** Filters trigger button in appHeader (badge shows active-filter count). */
   readonly filtersTrigger: Locator;
@@ -51,9 +51,9 @@ export class AppPage {
     }
   }
 
-  /** Navigate to a surface by tab name. */
-  async selectView(view: 'feed' | 'species' | 'map'): Promise<void> {
-    const labelMap = { feed: 'Feed view', species: 'Species view', map: 'Map view' };
+  /** Navigate to a surface by tab name. Feed removed from header in #662. */
+  async selectView(view: 'species' | 'map'): Promise<void> {
+    const labelMap = { species: 'Species view', map: 'Map view' };
     await this.appHeader.getByRole('tab', { name: labelMap[view] }).click();
   }
 

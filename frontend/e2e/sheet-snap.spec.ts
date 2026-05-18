@@ -59,8 +59,10 @@ test.describe('SpeciesDetailSheet snap behavior', () => {
     await page.mouse.move(startX, startY + 200, { steps: 20 });
     await page.mouse.up();
 
-    // URL must flip away from detail
-    await expect(page).toHaveURL(/view=feed/);
+    // URL must flip away from detail. Issue #662: onCloseDetail returns
+    // to the Map surface ('map' is DEFAULTS.view so writeUrl omits ?view).
+    await expect(page).not.toHaveURL(/view=detail/);
+    await expect(page).not.toHaveURL(/detail=/);
     await expect(page.locator('[data-testid=species-detail-sheet]')).toHaveCount(0);
   });
 });
