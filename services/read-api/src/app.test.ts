@@ -54,7 +54,7 @@ describe('GET /api/observations', () => {
   // Helper type matching the new ObservationsResponse envelope
   type ObsEnvelope = {
     data: Array<{ subId: string; familyCode?: string | null; [k: string]: unknown }>;
-    meta: { freshestObservationAt: string | null };
+    meta: { freshestObservationAt: string | null; truncated: boolean; totalCount: number };
   };
 
   it('returns observations with correct cache header', async () => {
@@ -65,6 +65,16 @@ describe('GET /api/observations', () => {
       .toBe('public, s-maxage=300, stale-while-revalidate=600');
     const body = await res.json() as ObsEnvelope;
     expect(body.data).toHaveLength(2);
+  });
+
+  it('returns meta.truncated and meta.totalCount on the per-observation envelope (#647)', async () => {
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/observations?since=30d');
+    expect(res.status).toBe(200);
+    const body = await res.json() as ObsEnvelope;
+    // Two seeded rows, well under the 500 cap → truncated=false, count=2.
+    expect(body.meta.truncated).toBe(false);
+    expect(body.meta.totalCount).toBe(2);
   });
 
   it('returns meta.freshestObservationAt as an ISO string (#456 W3-A)', async () => {
