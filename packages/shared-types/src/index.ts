@@ -145,6 +145,14 @@ export type ObservationFilters = {
   notable?: boolean;
   speciesCode?: string;
   familyCode?: string;
+  /**
+   * Viewport bounding box as `[west, south, east, north]` (lng,lat,lng,lat).
+   * Wired by `MapCanvas` viewport changes to constrain the observations
+   * payload to the visible region — the Phase 2 going-national pre-condition
+   * that prevents pulling the full CONUS observation set on every map load.
+   * Serialized as `?bbox=west,south,east,north` on the wire.
+   */
+  bbox?: [number, number, number, number];
 };
 
 /**

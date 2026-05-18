@@ -30,6 +30,7 @@ export class ApiClient {
     if (f.notable === true) url.searchParams.set('notable', 'true');
     if (f.speciesCode) url.searchParams.set('species', f.speciesCode);
     if (f.familyCode) url.searchParams.set('family', f.familyCode);
+    if (f.bbox) url.searchParams.set('bbox', f.bbox.join(','));
     // Defensive: the server may still return a bare Observation[] array during
     // the deployment window before the read-api is updated. Auto-wrap to the
     // ObservationsResponse envelope so the frontend never crashes on old responses.
