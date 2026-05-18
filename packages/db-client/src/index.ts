@@ -2,12 +2,9 @@ export { createPool, closePool } from './pool.js';
 export type { Pool, PoolOptions } from './pool.js';
 export { getHotspots, upsertHotspots, type HotspotInput } from './hotspots.js';
 export {
-  getObservations, getObservationsAggregated, getObservationsFeed,
-  upsertObservations,
+  getObservations, getObservationsAggregated, upsertObservations,
   runReconcileStamping, getFreshestObservationAt,
-  OBSERVATIONS_FEED_LIMIT,
   type ObservationInput,
-  type ObservationsFeedResult,
 } from './observations.js';
 export {
   getSpeciesMeta,

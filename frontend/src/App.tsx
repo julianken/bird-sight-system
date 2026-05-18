@@ -96,7 +96,7 @@ export function App() {
   // (`DEFAULT_BBOX_CONUS`) rather than `undefined` — passing `undefined`
   // would degrade to a full-region fetch on first paint, exactly the
   // failure mode this wiring exists to prevent.
-  const { loading, error, observations, freshestObservationAt, truncated, totalCount } = useBirdData(apiClient, {
+  const { loading, error, observations, freshestObservationAt } = useBirdData(apiClient, {
     since: state.since,
     notable: state.notable,
     ...(state.speciesCode ? { speciesCode: state.speciesCode } : {}),
@@ -402,8 +402,6 @@ export function App() {
             freshness={freshnessState}
             freshnessLabel={freshnessLabel}
             silhouettes={silhouettes}
-            truncated={truncated}
-            totalCount={totalCount}
             {...(speciesName !== undefined ? { speciesName } : {})}
             {...(familyName !== undefined ? { familyName } : {})}
           />

@@ -4,7 +4,6 @@ import { cors } from 'hono/cors';
 import type { Pool } from '@bird-watch/db-client';
 import {
   getHotspots, getObservations, getObservationsAggregated,
-  getObservationsFeed,
   getFreshestObservationAt,
   getSpeciesMeta, getSilhouettes,
   getSpeciesPhenology,
@@ -178,15 +177,10 @@ export function createApp(deps: AppDeps): Hono {
     // state machine on the frontend. The aggregate query is cheap (single
     // table scan for the max timestamp) and does not vary by filter params —
     // it reflects the age of our entire dataset, not the filtered slice.
-    // #647 — capped per-observation feed (LIMIT 500 + COUNT(*) OVER ()).
-    // getObservationsFeed returns { rows, totalCount, truncated } so the
-    // response envelope can surface a "Showing 500 of N" banner to the
-    // user without a second round-trip.
-    const [feed, freshestObservationAt] = await Promise.all([
-      getObservationsFeed(deps.pool, filters),
+    const [rows, freshestObservationAt] = await Promise.all([
+      getObservations(deps.pool, filters),
       getFreshestObservationAt(deps.pool),
     ]);
-    const { rows, totalCount, truncated } = feed;
     c.header('Cache-Control', cacheControlFor('observations'));
 
     // Structured-log emit for the S2 data-staleness alert
@@ -210,26 +204,10 @@ export function createApp(deps: AppDeps): Hono {
       }));
     }
 
-    // #647 — structured cap-hit log line. Mirrors the meta_freshness shape
-    // above so a future log-based metric (Cloud Logging metric-extractor)
-    // can pivot on `message === 'observations_feed_cap_hit'` without a
-    // schema change. Emitted only when the cap was actually hit; under-cap
-    // requests stay quiet to keep log volume bounded.
-    if (truncated) {
-      console.log(JSON.stringify({
-        severity: 'INFO',
-        message: 'observations_feed_cap_hit',
-        total_count: totalCount,
-        bbox: filters.bbox ?? null,
-        since: filters.since ?? null,
-        returned: rows.length,
-      }));
-    }
-
     const body: ObservationsResponse = {
       mode: 'observations',
       data: rows,
-      meta: { freshestObservationAt, truncated, totalCount },
+      meta: { freshestObservationAt },
     };
     return c.json(body);
   });
