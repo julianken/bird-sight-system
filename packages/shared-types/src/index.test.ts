@@ -81,7 +81,7 @@ const _obs: Observation = {
 const _freshResponse: ObservationsResponse = {
   mode: 'observations',
   data: [_obs],
-  meta: { freshestObservationAt: '2026-05-11T10:00:00.000Z' },
+  meta: { freshestObservationAt: '2026-05-11T10:00:00.000Z', truncated: false, totalCount: 1 },
 };
 void _freshResponse;
 
@@ -89,7 +89,7 @@ void _freshResponse;
 const _emptyResponse: ObservationsResponse = {
   mode: 'observations',
   data: [],
-  meta: { freshestObservationAt: null },
+  meta: { freshestObservationAt: null, truncated: false, totalCount: 0 },
 };
 void _emptyResponse;
 
@@ -102,7 +102,7 @@ const _badEnvelope: ObservationsResponse = {
   mode: 'observations',
   data: [],
   // @ts-expect-error — freshestObservationAt must be string | null, not number
-  meta: { freshestObservationAt: 12345 },
+  meta: { freshestObservationAt: 12345, truncated: false, totalCount: 0 },
 };
 void _badEnvelope;
 
