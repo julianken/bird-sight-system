@@ -321,6 +321,75 @@ describe('runCli', () => {
     expect(pingSpy).not.toHaveBeenCalled();
   });
 
+  // ── Structured emit shape (issue #641, epic #638 PR-2) ────────────────
+  // The main-path emit at cli.ts:174 must be a single compact JSON line — not
+  // pretty-printed — so Cloud Logging's `jsonPayload.*` extraction picks up
+  // the fields the dashboard's log-based metrics depend on. Snapshotting the
+  // payload directly would flap on `duration_seconds` (computed from
+  // Date.now()); parse-then-toMatchObject + expect.any(Number) is stable.
+  it('emits compact structured JSON with bird_ingest_run_completed message on success', async () => {
+    const successSummary: RunSummary = { status: 'success', fetched: 1, upserted: 1 };
+    const deps = makeDeps({ runIngest: vi.fn().mockResolvedValue(successSummary) });
+
+    await runCli('recent', deps);
+
+    const emitted = logSpy.mock.calls
+      .map((args: unknown[]): unknown => {
+        try { return JSON.parse(args[0] as string); } catch { return null; }
+      })
+      .filter((o: unknown): o is Record<string, unknown> =>
+        typeof o === 'object' && o !== null && (o as Record<string, unknown>).message === 'bird_ingest_run_completed'
+      );
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]).toMatchObject({
+      severity: 'INFO',
+      message: 'bird_ingest_run_completed',
+      kind: 'recent',
+      status: 'success',
+      duration_seconds: expect.any(Number),
+    });
+    // Single-line emit: the stringified payload must not contain a newline,
+    // otherwise Cloud Logging will split it back into separate textPayload
+    // entries — which is exactly what this PR fixes.
+    const rawLine = logSpy.mock.calls.find(
+      (args: unknown[]) =>
+        typeof args[0] === 'string' && args[0].includes('bird_ingest_run_completed')
+    )?.[0] as string;
+    expect(rawLine).not.toContain('\n');
+  });
+
+  it('emits severity=ERROR in the structured line when summary.status === "failure"', async () => {
+    const failureSummary: RunTaxonomySummary = {
+      status: 'failure',
+      totalFetched: 0,
+      speciesInserted: 0,
+      nonSpeciesFiltered: 0,
+      reconciled: 0,
+      error: 'boom',
+    };
+    const deps = makeDeps({
+      runTaxonomy: vi.fn().mockResolvedValue(failureSummary),
+    });
+
+    await runCli('taxonomy', deps);
+
+    const emitted = logSpy.mock.calls
+      .map((args: unknown[]): unknown => {
+        try { return JSON.parse(args[0] as string); } catch { return null; }
+      })
+      .filter((o: unknown): o is Record<string, unknown> =>
+        typeof o === 'object' && o !== null && (o as Record<string, unknown>).message === 'bird_ingest_run_completed'
+      );
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]).toMatchObject({
+      severity: 'ERROR',
+      message: 'bird_ingest_run_completed',
+      kind: 'taxonomy',
+      status: 'failure',
+      duration_seconds: expect.any(Number),
+    });
+  });
+
   it('uppercases and replaces hyphens in kind when computing env-var name', async () => {
     process.env.HEALTHCHECKS_URL_BACKFILL_EXTENDED = 'https://hc-ping.com/uuid-bf-ext';
     const partialSummary = {
