@@ -212,7 +212,7 @@ Smoke tests are deliberate, opt-in operator work — do not run them on autopilo
 
 ## Dashboard
 
-URL: `https://console.cloud.google.com/monitoring/dashboards/custom/<id>?project=bird-maps-prod` (the `dashboard_url` output from `terraform apply` shows the exact path).
+URL: `https://console.cloud.google.com/monitoring/dashboards/custom/a6aa8bcb-2849-4e8e-85ba-1ef38648947d?project=bird-maps-prod` (the `dashboard_url` output from `terraform apply` echoes this path).
 
 Single-pane operator view: open incidents, ingest health, read-api latency, Cloud SQL, system signals. Designed for un-paged triage — when an operator opens it during a routine check, they should resolve "is anything currently on fire", "did everything that was supposed to run, run", and "is anything trending toward unhealthy" in under 30 seconds. If they cannot, the dashboard is the wrong shape and we should re-cut it; the 30-day audit (below) is the falsifier.
 
@@ -241,9 +241,7 @@ Future refactors of `cli.ts:174` must preserve this shape. Field renames break t
 
 ### Audit hook (`monitoring.dashboards.get`)
 
-Data Access audit logs for `monitoring.googleapis.com` are enabled via `google_project_iam_audit_config.monitoring_data_read` (PR #642). The log-based metric `bird-watch-dashboard-opened` counts opens; the 30-day audit follow-up issue (filed at PR-2 merge time per Contract C4 of the analysis report) reviews engagement and decides whether the dashboard earns its place. At T+90d, the same audit kills the dashboard if quarterly opens ≤ 1.
-
-After the first Apply, narrow the metric filter to this dashboard by uncommenting the `protoPayload.resourceName=~"projects/.+/dashboards/<DASHBOARD_ID>"` clause in `monitoring.tf` (the dashboard ID isn't known until after Apply).
+Data Access audit logs for `monitoring.googleapis.com` are enabled via `google_project_iam_audit_config.monitoring_data_read` (PR #642). The log-based metric `bird-watch-dashboard-opened` counts opens against the specific dashboard ID `a6aa8bcb-2849-4e8e-85ba-1ef38648947d` (see the `resourceName` clause in `monitoring.tf`); the 30-day audit follow-up issue (filed at PR-2 merge time per Contract C4 of the analysis report) reviews engagement and decides whether the dashboard earns its place. At T+90d, the same audit kills the dashboard if quarterly opens ≤ 1.
 
 ## Digest
 

@@ -324,5 +324,6 @@ resource "google_monitoring_dashboard" "bird_watch_overview" {
 }
 
 output "dashboard_url" {
-  value = "https://console.cloud.google.com/monitoring/dashboards/custom/${trimprefix(google_monitoring_dashboard.bird_watch_overview.id, "projects/${var.gcp_project_id}/dashboards/")}?project=${var.gcp_project_id}"
+  description = "Console URL for the bird-watch overview dashboard"
+  value       = "https://console.cloud.google.com/monitoring/dashboards/custom/${reverse(split("/", google_monitoring_dashboard.bird_watch_overview.id))[0]}?project=${var.gcp_project_id}"
 }
