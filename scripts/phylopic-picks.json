@@ -1,10 +1,10 @@
 {
-  "generatedAt": "2026-05-19T03:22:38.217Z",
+  "generatedAt": "2026-05-19T03:30:28.289Z",
   "phylopicBuild": "538",
   "autoPickHeuristic": "license-preference (CC0 > CC-BY-3.0 > CC-BY-4.0 > CC-BY-SA-3.0), then creator-name asc, then uuid asc",
   "skipFamilies": [],
   "_skipFamilies_deprecation_note": "skipFamilies is deprecated as of issue #498. Empty by convention; the script's NULL-emission path handles genuine API absences. Do not re-introduce entries — if a family is unrescueable, let it land as NULL with a SQL-comment-recorded reason.",
-  "_national_coverage_note": "Phase 3a national flip (2026-05-18): 32 INSERT + 8 UPDATE families curated in a single mixed migration (47000) after /recent flipped from US-AZ to US-wide.",
+  "_national_coverage_note": "Phase 3a national flip (2026-05-18): 32 INSERT + 8 UPDATE families curated in a single mixed migration (48000) after /recent flipped from US-AZ to US-wide.",
   "families": [
     {
       "family": "acrocephalidae",

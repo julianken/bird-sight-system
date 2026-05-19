@@ -96,7 +96,8 @@ describe('emitMigrationSql mode=national', () => {
     expect(sql).toContain('INSERT INTO family_silhouettes');
     // procellariidae color + common_name come from the NATIONAL_* tables.
     expect(sql).toContain("'procellariidae', 'procellariidae'");
-    expect(sql).toContain(NATIONAL_COLOR_BY_FAMILY.procellariidae);
+    expect(sql).toContain(NATIONAL_COLOR_BY_FAMILY.procellariidae.color);
+    expect(sql).toContain(NATIONAL_COLOR_BY_FAMILY.procellariidae.color_dark);
     expect(sql).toContain(NATIONAL_COMMON_NAME_BY_FAMILY.procellariidae);
     expect(sql).toContain("'Test Creator'");
     expect(sql).toContain('CC0-1.0');
@@ -107,8 +108,12 @@ describe('emitMigrationSql mode=national', () => {
     // The row is still inserted with svg_data=NULL so the _FALLBACK shape
     // can render with the right color/common_name.
     expect(sql).toContain("'leiothrichidae', 'leiothrichidae', NULL");
-    expect(sql).toContain(NATIONAL_COLOR_BY_FAMILY.leiothrichidae);
+    expect(sql).toContain(NATIONAL_COLOR_BY_FAMILY.leiothrichidae.color);
     expect(sql).toContain(NATIONAL_COMMON_NAME_BY_FAMILY.leiothrichidae);
+  });
+
+  it('uses the dual-palette INSERT column shape (color + color_dark)', () => {
+    expect(sql).toContain('INSERT INTO family_silhouettes (id, family_code, svg_data, color, color_dark, source, license, creator, common_name)');
   });
 
   it('emits an UPDATE statement for the picked UPDATE family', () => {
@@ -151,9 +156,12 @@ describe('emitMigrationSql mode=national', () => {
 });
 
 describe('NATIONAL_* constants are well-formed', () => {
-  it('NATIONAL_INSERT_FAMILIES has matching color + common_name for every entry', () => {
+  it('NATIONAL_INSERT_FAMILIES has matching color tuple + common_name for every entry', () => {
     for (const family of NATIONAL_INSERT_FAMILIES) {
-      expect(NATIONAL_COLOR_BY_FAMILY[family], `missing color for ${family}`).toMatch(/^#[0-9a-fA-F]{6}$/);
+      const c = NATIONAL_COLOR_BY_FAMILY[family];
+      expect(c, `missing color tuple for ${family}`).toBeTruthy();
+      expect(c.color, `missing color for ${family}`).toMatch(/^#[0-9a-fA-F]{6}$/);
+      expect(c.color_dark, `missing color_dark for ${family}`).toMatch(/^#[0-9a-fA-F]{6}$/);
       expect(NATIONAL_COMMON_NAME_BY_FAMILY[family], `missing common_name for ${family}`).toBeTruthy();
     }
   });
@@ -175,9 +183,31 @@ describe('NATIONAL_* constants are well-formed', () => {
     expect(set.size).toBe(NATIONAL_UPDATE_FAMILIES.length);
   });
 
-  it('NATIONAL colors are unique within the table', () => {
-    const colors = Object.values(NATIONAL_COLOR_BY_FAMILY).map(c => c.toLowerCase());
-    const set = new Set(colors);
-    expect(set.size).toBe(colors.length);
+  it('every NATIONAL color (color + color_dark) passes WCAG 1.4.11 ≥3:1 against the appropriate basemap', () => {
+    // Mirror of packages/db-client/src/family-silhouettes-contrast.test.ts
+    // formulas. We enforce the same contract at the constant-table level so
+    // a regression here surfaces before the migration lands rather than at CI
+    // integration-test time.
+    const LIGHT_BASE = '#f4f1ea';
+    const DARK_BASE  = '#0E1116';
+    const hexToSRGB = (hex) => {
+      const h = hex.replace('#', '');
+      return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+    };
+    const lum = (hex) => {
+      const [r, g, b] = hexToSRGB(hex).map(c => {
+        const v = c / 255;
+        return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+      });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const ratio = (a, b) => {
+      const la = lum(a), lb = lum(b);
+      return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+    };
+    for (const [family, { color, color_dark }] of Object.entries(NATIONAL_COLOR_BY_FAMILY)) {
+      expect(ratio(color, LIGHT_BASE), `${family} color ${color} vs LIGHT_BASE fails 3:1`).toBeGreaterThanOrEqual(3);
+      expect(ratio(color_dark, DARK_BASE), `${family} color_dark ${color_dark} vs DARK_BASE fails 3:1`).toBeGreaterThanOrEqual(3);
+    }
   });
 });

@@ -76,9 +76,10 @@
  *   node scripts/curate-phylopic.mjs --recurate-nulls      # 14 NULL-svg families; UPDATE-mode (migration 35000, issue #498)
  *   node scripts/curate-phylopic.mjs --rescue-via-species  # 14 NULL-svg families, species/genus cascade; UPDATE-mode (migration 36000, issue #500)
  *   node scripts/curate-phylopic.mjs --national-coverage   # Phase 3a US-wide flip: 32 INSERT + 8 UPDATE families in a single
- *                                                          # mixed migration 47000. INSERTs add brand-new rows for families
+ *                                                          # mixed migration 48000. INSERTs add brand-new rows for families
  *                                                          # observed for the first time post-flip; UPDATEs target NULL rows
  *                                                          # whose families were previously unrescuable at the family-node.
+ *                                                          # (Slot 47000 is reserved for #583's palette-data follow-up.)
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
@@ -91,7 +92,11 @@ const PICKS_PATH = resolve(__dirname, 'phylopic-picks.json');
 const MIGRATION_PATH = resolve(
   REPO_ROOT,
   process.argv.includes('--national-coverage')
-    ? 'migrations/1700000047000_national_coverage_silhouettes.sql'
+    // Slot 47000 is reserved for issue #583's palette-data follow-up
+    // (color_dark ≥ 3:1 vs the legend card surface #131C30 — see the
+    // it.todo block in packages/db-client/src/family-silhouettes-contrast.test.ts).
+    // This migration uses 48000 to leave 47000 free for that planned work.
+    ? 'migrations/1700000048000_national_coverage_silhouettes.sql'
     : process.argv.includes('--rescue-via-species')
       ? 'migrations/1700000036000_rescue_null_silhouettes_via_species.sql'
       : process.argv.includes('--recurate-nulls')
@@ -118,7 +123,7 @@ const RESCUE_VIA_SPECIES = process.argv.includes('--rescue-via-species');
 // silhouettes (migrations 9000/15000/17000/34000/35000/36000), 40 didn't.
 // This mode runs INSERT-mode for the 32 brand-new families and UPDATE-mode
 // for the 8 known-NULL rows in a single Phylopic crawl, emitting one mixed
-// migration (1700000047000_national_coverage_silhouettes.sql) that handles
+// migration (1700000048000_national_coverage_silhouettes.sql) that handles
 // both shapes — INSERTs first, then UPDATEs.
 const NATIONAL_COVERAGE = process.argv.includes('--national-coverage');
 
@@ -173,7 +178,9 @@ const RECURATE_FAMILIES = [
 // Context: on 2026-05-18 the /recent ingestor flipped from US-AZ to US-wide
 // (Phase 3a). Cloud SQL `observations` now records 95 distinct families;
 // 65 already have rows in `family_silhouettes` from prior curation passes,
-// 40 don't. This PR closes that gap in a single mixed migration (47000).
+// 40 don't. This PR closes that gap in a single mixed migration (48000).
+// (Slot 47000 is reserved for #583's palette-data follow-up — see
+// packages/db-client/src/family-silhouettes-contrast.test.ts:152.)
 //
 // Audit query (Cloud SQL, 2026-05-18 evening):
 //
@@ -1209,13 +1216,29 @@ function emitMigrationSql(picks, skipFamilies, mode = 'update', colorByFamily = 
     lines.push('');
 
     // --- INSERTs first ---
-    // color_dark schema note: migration 46000 introduced family_silhouettes.color_dark
-    // as NOT NULL. For new rows we initialize color_dark = color (the "passes both
-    // basemaps" default in migration 46000's audit). A future dual-palette pass
-    // can re-tune any row whose color fails the dark-basemap >=3:1 contrast bar.
+    // Dual-palette schema (migration 46000): each row carries `color` (paired
+    // with the LIGHT basemap #f4f1ea, must pass WCAG 1.4.11 ≥3:1) and
+    // `color_dark` (paired with the DARK basemap #0E1116, same threshold).
+    // NATIONAL_COLOR_BY_FAMILY values are objects {color, color_dark} where
+    // both fields are independently verified — see the table-level comment in
+    // scripts/curate-phylopic.mjs. The integration test
+    // packages/db-client/src/family-silhouettes-contrast.test.ts asserts this
+    // contract against the live DB.
+    const colorRow = (family) => {
+      const c = colorByFamily[family];
+      if (!c) throw new Error(`color tuple missing for INSERT family ${family}`);
+      // Backward compatibility: if colorByFamily values are plain strings (as
+      // in BACKFILL mode's COLOR_BY_FAMILY), fall back to single-color shape.
+      // National-coverage mode always supplies {color, color_dark} objects.
+      if (typeof c === 'string') return { color: c, color_dark: c };
+      if (!c.color || !c.color_dark) throw new Error(`incomplete color tuple for INSERT family ${family}: ${JSON.stringify(c)}`);
+      return c;
+    };
     if (insertSuccess.length > 0) {
       lines.push('-- INSERT bucket: new rows with svg_data + provenance.');
-      lines.push('-- color_dark = color (post-46000 schema; see comment in scripts/curate-phylopic.mjs).');
+      lines.push('-- Dual-palette: color paired with light basemap #f4f1ea (≥3:1),');
+      lines.push('-- color_dark paired with dark basemap #0E1116 (≥3:1). See migration');
+      lines.push('-- 46000 and the contrast test in packages/db-client.');
       lines.push('INSERT INTO family_silhouettes (id, family_code, svg_data, color, color_dark, source, license, creator, common_name) VALUES');
       const rows = insertSuccess.map((pick, idx) => {
         const p = pick.picked;
@@ -1223,12 +1246,11 @@ function emitMigrationSql(picks, skipFamilies, mode = 'update', colorByFamily = 
         const src = escapeSqlString(p.imagePageUrl);
         const lic = escapeSqlString(p.licenseId);
         const cre = p.creatorName ? `'${escapeSqlString(p.creatorName)}'` : 'NULL';
-        const color = colorByFamily[pick.family];
+        const { color, color_dark } = colorRow(pick.family);
         const cn = commonNameByFamily[pick.family];
-        if (!color) throw new Error(`color missing for INSERT family ${pick.family}`);
         if (!cn) throw new Error(`common_name missing for INSERT family ${pick.family}`);
         const comma = idx < insertSuccess.length - 1 ? ',' : '';
-        return `  ('${pick.family}', '${pick.family}', '${d}', '${color}', '${color}', '${src}', '${lic}', ${cre}, '${escapeSqlString(cn)}')${comma}`;
+        return `  ('${pick.family}', '${pick.family}', '${d}', '${color}', '${color_dark}', '${src}', '${lic}', ${cre}, '${escapeSqlString(cn)}')${comma}`;
       });
       lines.push(...rows);
       lines.push('ON CONFLICT (id) DO NOTHING;');
@@ -1239,15 +1261,14 @@ function emitMigrationSql(picks, skipFamilies, mode = 'update', colorByFamily = 
       lines.push('-- inserted with svg_data=NULL so the _FALLBACK consumer (#246) renders');
       lines.push('-- the generic shape tinted with the assigned family color. color +');
       lines.push('-- common_name are still useful for the legend chip.');
-      lines.push('-- color_dark = color (post-46000 schema; see comment above).');
+      lines.push('-- Dual-palette: same color / color_dark contract as the picked rows above.');
       lines.push('INSERT INTO family_silhouettes (id, family_code, svg_data, color, color_dark, source, license, creator, common_name) VALUES');
       const rows = insertFail.map((pick, idx) => {
-        const color = colorByFamily[pick.family];
+        const { color, color_dark } = colorRow(pick.family);
         const cn = commonNameByFamily[pick.family];
-        if (!color) throw new Error(`color missing for skipped INSERT family ${pick.family}`);
         if (!cn) throw new Error(`common_name missing for skipped INSERT family ${pick.family}`);
         const comma = idx < insertFail.length - 1 ? ',' : '';
-        return `  ('${pick.family}', '${pick.family}', NULL, '${color}', '${color}', NULL, NULL, NULL, '${escapeSqlString(cn)}')${comma}`;
+        return `  ('${pick.family}', '${pick.family}', NULL, '${color}', '${color_dark}', NULL, NULL, NULL, '${escapeSqlString(cn)}')${comma}`;
       });
       lines.push(...rows);
       lines.push('ON CONFLICT (id) DO NOTHING;');
@@ -1789,51 +1810,68 @@ const COMMON_NAME_BY_FAMILY = {
   vireonidae:          'Vireos',
 };
 
-// --- Phase 3a national flip: per-family color + common-name tables ---------
-// Same conventions as COLOR_BY_FAMILY / COMMON_NAME_BY_FAMILY: each color is
-// a 7-char hex distinct from every prior seed/backfill row across migrations
-// 9000/15000/17000/18000/33000/34000/46000 AND from every other entry in this
-// object. Where a family's most-iconic US species has a strong field-mark
-// color, the value echoes it. Common names follow the eBird taxonomy v2024
-// convention used by migration 19500. Keys match NATIONAL_INSERT_FAMILIES.
+// --- Phase 3a national flip: per-family dual-palette + common-name tables --
+// Same conventions as COLOR_BY_FAMILY / COMMON_NAME_BY_FAMILY but split into
+// the dual-palette shape introduced by migration 46000:
+//   `color`      — rendered against the LIGHT basemap (#f4f1ea); MUST pass
+//                  WCAG 1.4.11 ≥3:1.
+//   `color_dark` — rendered against the DARK basemap (#0E1116); MUST pass
+//                  WCAG 1.4.11 ≥3:1.
 //
-// Audit note: migration 46000 introduced a `color_dark` column so each row
-// gets darkened/lightened automatically for dark-mode contrast — we set
-// `color` only here; the dual-palette UPDATE in 46000 handles color_dark
-// after this row lands. (color_dark = color is the default in the schema.)
+// Methodology (mirrors migration 46000 Task 1):
+//   1. Start from a field-mark inspired hex per family.
+//   2. If contrastRatio(hex, #f4f1ea) >= 3, color = hex; else darken via 1%
+//      HSL-L steps until ≥3:1. This is `color`.
+//   3. If contrastRatio(hex, #0E1116) >= 3, color_dark = hex; else lighten
+//      via 1% HSL-L steps until ≥3:1. This is `color_dark`.
+//   4. Verify color != color_dark when the field-mark hex fails both basemaps
+//      (a single shared hex isn't possible — that's precisely why 46000 split
+//      into two columns).
+// Each chosen color is distinct from every prior palette entry across
+// migrations 9000/15000/17000/18000/33000/34000/46000 AND from every other
+// entry in this table.
+//
+// The integration test packages/db-client/src/family-silhouettes-contrast.test.ts
+// asserts this contract over the live family_silhouettes table and will fail
+// loudly if a future row regresses on either axis.
+//
+// Hex values verified via a one-off node script (commit message documents
+// the script); see also the migration comment header for the verification
+// summary that ships with the rows.
 const NATIONAL_COLOR_BY_FAMILY = {
-  acrocephalidae:    '#7b6a3c', // Reed-Warblers — drab olive-brown
-  alcidae:           '#1d2b3a', // Auks — black-and-white seabirds, dark mantle
-  anhingidae:        '#2b231d', // Anhingas — glossy black-bronze plumage
-  aramidae:          '#5a3c2a', // Limpkins — chocolate brown with white streaks
-  bucerotidae:       '#3a2515', // Hornbills — dark brown with bright bill
-  cacatuidae:        '#f0e6c2', // Cockatoos — white plumage / sulphur crest
-  casuariidae:       '#4a2333', // Cassowaries — black plumage with blue/red neck
-  cettiidae:         '#9c7a4a', // Bush-Warblers — warm rufous-brown
-  ciconiidae:        '#d8d2c2', // Storks — pale white with black flight feathers
-  cracidae:          '#382a1c', // Curassows — black with white crest
-  diomedeidae:       '#c8cdd2', // Albatrosses — pale grey-white seabird
-  estrildidae:       '#c25a4a', // Waxbills — red bill / Strawberry Finch
-  fregatidae:        '#171a1f', // Frigatebirds — black with crimson gular pouch
-  haematopodidae:    '#e84a30', // Oystercatchers — bright orange-red bill
-  hydrobatidae:      '#3d3a36', // Storm-Petrels — sooty grey-black with white rump
-  leiothrichidae:    '#6f6045', // Laughingthrushes — warm earth tones
-  monarchidae:       '#4a5d6e', // Monarch Flycatchers — blue-grey upperparts
-  muscicapidae:      '#695a4d', // Old World Flycatchers — warm muted brown
-  oceanitidae:       '#2c2926', // Southern Storm-Petrels — dark sooty
-  paradoxornithidae: '#8d6e4a', // Parrotbills — warm tawny brown
-  phaethontidae:     '#f5ede2', // Tropicbirds — white plumage with golden wash
-  phoenicopteridae:  '#f08aa6', // Flamingos — iconic pink
-  ploceidae:         '#e0b033', // Weavers — bright yellow body (Village Weaver)
-  procellariidae:    '#5e6a76', // Shearwaters & Petrels — neutral slate-gray
-  pteroclidae:       '#a8895c', // Sandgrouse — sandy buff cryptic plumage
-  pycnonotidae:      '#544038', // Bulbuls — dark chocolate-brown crested
-  ramphastidae:      '#ff8a1a', // Toucans — vivid orange bill
-  stercorariidae:    '#3f342a', // Skuas & Jaegers — dark chocolate-brown raptorial
-  sulidae:           '#e8e3d8', // Boobies — white with black wingtips
-  thraupidae:        '#cf2b3a', // Tanagers — Scarlet Tanager bright red
-  viduidae:          '#1a1414', // Indigobirds & Whydahs — glossy black males
-  zosteropidae:      '#809458', // White-eyes — olive-green with prominent white eye-ring
+  // Field-mark intent (color = light basemap, color_dark = dark basemap):
+  acrocephalidae:    { color: '#7b6a3c', color_dark: '#7b6a3c' }, // Reed-Warblers — olive-brown (passes both)
+  alcidae:           { color: '#1d2b3a', color_dark: '#446588' }, // Auks — slate; light-only dark blue
+  anhingidae:        { color: '#2b231d', color_dark: '#715c4c' }, // Anhingas — black-bronze; lightened for dark
+  aramidae:          { color: '#5a3c2a', color_dark: '#84583d' }, // Limpkins — chocolate brown
+  bucerotidae:       { color: '#3a2515', color_dark: '#855530' }, // Hornbills — dark brown
+  cacatuidae:        { color: '#a48928', color_dark: '#f0e6c2' }, // Cockatoos — sulphur on light, cream on dark
+  casuariidae:       { color: '#4a2333', color_dark: '#964767' }, // Cassowaries — burgundy / neck colors
+  cettiidae:         { color: '#9c7a4a', color_dark: '#9c7a4a' }, // Bush-Warblers — rufous-brown (passes both)
+  ciconiidae:        { color: '#978860', color_dark: '#d8d2c2' }, // Storks — tan on light, pale on dark
+  cracidae:          { color: '#382a1c', color_dark: '#795a3c' }, // Curassows — dark brown
+  diomedeidae:       { color: '#7f8b96', color_dark: '#c8cdd2' }, // Albatrosses — gray seabird
+  estrildidae:       { color: '#c25a4a', color_dark: '#c25a4a' }, // Waxbills — red bill (passes both)
+  fregatidae:        { color: '#171a1f', color_dark: '#566174' }, // Frigatebirds — near-black
+  haematopodidae:    { color: '#e84a30', color_dark: '#e84a30' }, // Oystercatchers — orange-red bill (passes both)
+  hydrobatidae:      { color: '#3d3a36', color_dark: '#66615a' }, // Storm-Petrels — sooty grey
+  leiothrichidae:    { color: '#6f6045', color_dark: '#6f6045' }, // Laughingthrushes — earth tones (passes both)
+  monarchidae:       { color: '#4a5d6e', color_dark: '#506577' }, // Monarch Flycatchers — blue-grey
+  muscicapidae:      { color: '#695a4d', color_dark: '#6f5f51' }, // Old World Flycatchers — muted brown
+  oceanitidae:       { color: '#2c2926', color_dark: '#68615a' }, // Southern Storm-Petrels — dark sooty
+  paradoxornithidae: { color: '#8d6e4a', color_dark: '#8d6e4a' }, // Parrotbills — tawny brown (passes both)
+  phaethontidae:     { color: '#b4823e', color_dark: '#f5ede2' }, // Tropicbirds — golden / white
+  phoenicopteridae:  { color: '#e9547d', color_dark: '#f08aa6' }, // Flamingos — pink
+  ploceidae:         { color: '#ac841a', color_dark: '#e0b033' }, // Weavers — yellow
+  procellariidae:    { color: '#5e6a76', color_dark: '#5e6a76' }, // Shearwaters & Petrels — slate (passes both)
+  pteroclidae:       { color: '#a38457', color_dark: '#a8895c' }, // Sandgrouse — sandy buff
+  pycnonotidae:      { color: '#544038', color_dark: '#765a4e' }, // Bulbuls — chocolate-brown
+  ramphastidae:      { color: '#dc6c00', color_dark: '#ff8a1a' }, // Toucans — vivid orange
+  stercorariidae:    { color: '#3f342a', color_dark: '#735f4d' }, // Skuas & Jaegers — dark brown
+  sulidae:           { color: '#9d895c', color_dark: '#e8e3d8' }, // Boobies — tan / white
+  thraupidae:        { color: '#cf2b3a', color_dark: '#cf2b3a' }, // Tanagers — bright red (passes both)
+  viduidae:          { color: '#1a1414', color_dark: '#765b5b' }, // Indigobirds — glossy black
+  zosteropidae:      { color: '#7d9156', color_dark: '#809458' }, // White-eyes — olive-green
 };
 
 const NATIONAL_COMMON_NAME_BY_FAMILY = {
@@ -1885,7 +1923,7 @@ async function main() {
     console.log('Mode: --rescue-via-species (family → species → genus cascade per SPECIES_OVERRIDES)');
   }
   if (NATIONAL_COVERAGE) {
-    console.log(`Mode: --national-coverage (${NATIONAL_INSERT_FAMILIES.length} INSERT + ${NATIONAL_UPDATE_FAMILIES.length} UPDATE; mixed migration 47000)`);
+    console.log(`Mode: --national-coverage (${NATIONAL_INSERT_FAMILIES.length} INSERT + ${NATIONAL_UPDATE_FAMILIES.length} UPDATE; mixed migration 48000)`);
   }
   if (skipSet.size > 0) {
     console.log(`Skipping (operator-flagged absent): ${[...skipSet].sort().join(', ')}`);
@@ -1986,7 +2024,7 @@ async function main() {
       skipFamilies: config.skipFamilies,
       _skipFamilies_deprecation_note: 'skipFamilies is deprecated as of issue #498. Empty by convention; the script\'s NULL-emission path handles genuine API absences. Do not re-introduce entries — if a family is unrescueable, let it land as NULL with a SQL-comment-recorded reason.',
       ...(RESCUE_VIA_SPECIES ? { _rescue_via_species_note: 'Rescue mode (issue #500) cascades family → species → genus lookups for the 14 RECURATE_FAMILIES. Each rescued entry carries `resolutionPath` + `attempts[]` so a reader can see which lookup path produced the pick.' } : {}),
-      ...(NATIONAL_COVERAGE ? { _national_coverage_note: `Phase 3a national flip (2026-05-18): ${NATIONAL_INSERT_FAMILIES.length} INSERT + ${NATIONAL_UPDATE_FAMILIES.length} UPDATE families curated in a single mixed migration (47000) after /recent flipped from US-AZ to US-wide.` } : {}),
+      ...(NATIONAL_COVERAGE ? { _national_coverage_note: `Phase 3a national flip (2026-05-18): ${NATIONAL_INSERT_FAMILIES.length} INSERT + ${NATIONAL_UPDATE_FAMILIES.length} UPDATE families curated in a single mixed migration (48000) after /recent flipped from US-AZ to US-wide.` } : {}),
       families: merged,
     };
   } else {
