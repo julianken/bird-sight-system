@@ -149,16 +149,24 @@ export function parseFamily(
  * Per-axis bbox cap, applied only when `zoom >= 6` (per-observation mode).
  * At lower zooms the server uses aggregated mode so unbounded bboxes are fine.
  *
- * Caps: `maxLng - minLng <= 30` AND `maxLat - minLat <= 15`.
+ * Caps: `maxLng - minLng <= 45` AND `maxLat - minLat <= 25`.
+ *
+ * Sizing matches the largest natural viewport at the per-obs zoom boundary.
+ * Web mercator: degrees-per-pixel at z=6 = 360 / (256 * 2^6) = 0.02197°/px.
+ * 1920×1080 (largest canonical viewport, see frontend/CLAUDE.md) at z=6 is
+ * 42.2° lng × 23.7° lat. 45° × 25° clears that with a small safety margin
+ * yet is still load-bearing: CONUS is 60° wide, so one request can only
+ * grab ~75% of east-west extent; per-axis cap prevents combining axes
+ * into a whole-country scrape.
  *
  * Reject body is descriptive so the frontend can render an affordance:
- *   { error: 'bbox too large', maxLngSpan: 30, maxLatSpan: 15,
+ *   { error: 'bbox too large', maxLngSpan: 45, maxLatSpan: 25,
  *     hint: 'zoom out for aggregated view' }
  */
 export interface BboxTooLargeBody {
   error: 'bbox too large';
-  maxLngSpan: 30;
-  maxLatSpan: 15;
+  maxLngSpan: 45;
+  maxLatSpan: 25;
   hint: 'zoom out for aggregated view';
 }
 
@@ -172,13 +180,13 @@ export function assertBboxAreaCap(
   const [minLng, minLat, maxLng, maxLat] = bbox;
   const lngSpan = maxLng - minLng;
   const latSpan = maxLat - minLat;
-  if (lngSpan <= 30 && latSpan <= 15) return { ok: true };
+  if (lngSpan <= 45 && latSpan <= 25) return { ok: true };
   return {
     ok: false,
     body: {
       error: 'bbox too large',
-      maxLngSpan: 30,
-      maxLatSpan: 15,
+      maxLngSpan: 45,
+      maxLatSpan: 25,
       hint: 'zoom out for aggregated view',
     },
     log: {
