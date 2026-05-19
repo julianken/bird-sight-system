@@ -117,7 +117,6 @@ export function App() {
     '1d': '1 day',
     '7d': '7 days',
     '14d': '14 days',
-    '30d': '30 days',
   };
   const period = PERIOD_LABELS[state.since];
 

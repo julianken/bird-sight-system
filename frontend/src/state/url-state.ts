@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { analytics } from '../analytics.js';
 
-export type Since = '1d' | '7d' | '14d' | '30d';
+// #667 — `'30d'` removed from Since. The server still soft-accepts it for one
+// release window (coerced to 14d + Deprecation header), but the frontend no
+// longer emits it. Bookmarked `?since=30d` URLs fall back to default `'14d'`
+// via the existing `VALID_SINCE.has(...)` check below.
+export type Since = '1d' | '7d' | '14d';
 export type View = 'feed' | 'species' | 'map' | 'detail';
 export type BBox = readonly [number, number, number, number];
 
@@ -25,7 +29,7 @@ const DEFAULTS: UrlState = {
   bbox: null, // Phase 3 (#560) — Cluster→SpeciesDetailSurface bbox filter
 };
 
-const VALID_SINCE: ReadonlySet<string> = new Set(['1d', '7d', '14d', '30d']);
+const VALID_SINCE: ReadonlySet<string> = new Set(['1d', '7d', '14d']);
 const VALID_VIEW: ReadonlySet<string> = new Set(['feed', 'species', 'map', 'detail']);
 
 function round6(n: number): number {

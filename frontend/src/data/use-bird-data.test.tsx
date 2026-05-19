@@ -37,7 +37,7 @@ describe('useBirdData', () => {
     } as unknown as Partial<ApiClient>);
 
     const { rerender } = renderHook(
-      ({ filters }: { filters: { since: '1d' | '7d' | '14d' | '30d'; notable: boolean } }) =>
+      ({ filters }: { filters: { since: '1d' | '7d' | '14d'; notable: boolean } }) =>
         useBirdData(client, filters),
       { initialProps: { filters: { since: '14d', notable: false } } }
     );

@@ -74,7 +74,6 @@ function buildSentence(
   if (terms.length === 0) return null;
   const period = filters.since === '1d' ? '1 day'
     : filters.since === '7d' ? '7 days'
-    : filters.since === '30d' ? '30 days'
     : '14 days';
   return `Showing ${terms.join(', ')} from the last ${period}.`;
 }
@@ -129,7 +128,6 @@ export function FilterSentence({ filters, familyName, speciesName }: FilterSente
           from the last{' '}
           {filters.since === '1d' ? '1 day'
             : filters.since === '7d' ? '7 days'
-            : filters.since === '30d' ? '30 days'
             : '14 days'}.
         </p>
       )}
