@@ -288,6 +288,75 @@ resource "google_cloud_scheduler_job" "ingest_backfill" {
   depends_on = [google_project_service.scheduler]
 }
 
+# ── Phase 3.5 per-state backfill fan-out (one-shot national 14-day backfill) ──
+#
+# Plan: ~/.claude/plans/are-we-ready-to-starry-dove.md Phase 3.5.
+#
+# 50 USPS state codes — DC and territories deliberately excluded per Julian's
+# scope call. Each Cloud Scheduler job invokes the SHARED `bird-ingestor`
+# Cloud Run Job via containerOverrides with args=["backfill", "--state=US-XX",
+# "--back=14"], matching the existing scheduler→job pattern in this file
+# (no separate per-state Cloud Run Job — there's only one shared image).
+#
+# Staggering: 50 jobs across 180 minutes ≈ 216s spacing. Cron-minute resolution
+# forces us to round to 4-minute intervals (4 min × 50 = 200 min ≤ 180 min
+# budget when packed). We compute (idx * 4) minute offsets relative to a
+# base_hour anchored at 08 UTC (≈ 00:00 PT — low traffic for eBird and Cloud
+# SQL alike). Result: index 0 fires at 08:00 UTC; index 14 at 08:56; index 15
+# at 09:00; index 49 at 11:16. Whole window: 08:00–11:16 UTC.
+#
+# All jobs ship `paused = true`. Operator unpauses manually for the one-shot,
+# then either re-pauses or removes via a follow-up PR. See plan for the unpause
+# runbook.
+locals {
+  us_states = [
+    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
+    "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
+    "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
+    "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
+    "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
+  ]
+  backfill_per_state_base_hour = 8
+}
+
+resource "google_cloud_scheduler_job" "backfill_per_state" {
+  for_each = toset(local.us_states)
+
+  name      = "bird-ingestor-backfill-${lower(each.value)}"
+  region    = var.gcp_region
+  time_zone = "Etc/UTC"
+
+  # idx * 4 minutes from 08:00 UTC. Floor division pushes minute past 59 into
+  # the next hour (state 15 → 09:00 UTC, state 30 → 10:00 UTC, etc).
+  schedule = format(
+    "%d %d * * *",
+    (index(local.us_states, each.value) * 4) % 60,
+    local.backfill_per_state_base_hour + floor(index(local.us_states, each.value) * 4 / 60),
+  )
+
+  # Ship paused; operator unpauses for the one-shot national backfill, then
+  # either re-pauses or removes the resource via a follow-up PR.
+  paused = true
+
+  http_target {
+    uri         = local.job_run_url
+    http_method = "POST"
+    headers     = { "Content-Type" = "application/json" }
+    body = base64encode(jsonencode({
+      overrides = {
+        containerOverrides = [{
+          args = ["backfill", "--state=US-${each.value}", "--back=14"]
+        }]
+      }
+    }))
+    oauth_token {
+      service_account_email = google_service_account.scheduler.email
+    }
+  }
+
+  depends_on = [google_project_service.scheduler]
+}
+
 resource "google_cloud_scheduler_job" "ingest_hotspots" {
   name      = "bird-ingest-hotspots"
   region    = var.gcp_region
