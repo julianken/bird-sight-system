@@ -218,6 +218,66 @@ describe('getObservations filters', () => {
     });
     expect(rows.map(r => r.subId)).toContain('S200');
   });
+
+  // #667 Scope C.1 — defense-in-depth LIMIT 5000 on species-filtered queries.
+  // The frontend's species-deep-link (?species=<code>) fetches before
+  // MapCanvas mounts → no bbox in flight. A handful of species nationally
+  // approach ~5K observations in 14d (House Sparrow); cap there is a balance
+  // between "real users see the full slice" and "scraper can't drain the DB
+  // via species iteration".
+  it('applies LIMIT 5000 when speciesCode is set (#667 Scope C.1)', async () => {
+    // Seed 6K observations for a single species to cross the cap. Skip the
+    // upsertObservations helper's per-row stamping path (slow for 6K rows)
+    // and INSERT directly; the query under test only reads obs_dt/species_code/
+    // bbox columns, none of which depend on silhouette_id.
+    await db.pool.query('TRUNCATE observations');
+    await db.pool.query(`
+      INSERT INTO species_meta (species_code, com_name, sci_name, family_code, family_name, taxon_order)
+      VALUES ('hossp1', 'House Sparrow', 'Passer domesticus', 'passeridae', 'Old World Sparrows', 999999)
+      ON CONFLICT (species_code) DO NOTHING
+    `);
+    // Bulk insert via generate_series — fast vs row-by-row JS.
+    await db.pool.query(`
+      INSERT INTO observations
+        (sub_id, species_code, lat, lng, obs_dt, loc_id, loc_name, how_many, is_notable)
+      SELECT
+        'S-cap-' || g::text,
+        'hossp1',
+        31.72 + (g * 0.0001),
+        -110.88 - (g * 0.0001),
+        now() - (g * interval '1 second'),
+        'L-cap',
+        'Cap Test Loc',
+        1,
+        false
+      FROM generate_series(1, 6000) g
+    `);
+    const rows = await getObservations(db.pool, { speciesCode: 'hossp1' });
+    expect(rows).toHaveLength(5000);
+  });
+
+  it('does NOT apply LIMIT 5000 when speciesCode is absent', async () => {
+    // Sanity counterpart: same seed, query without speciesCode → no cap.
+    // (The future LIMIT 10000 for the bbox path lands in PR 2.)
+    await db.pool.query('TRUNCATE observations');
+    await db.pool.query(`
+      INSERT INTO species_meta (species_code, com_name, sci_name, family_code, family_name, taxon_order)
+      VALUES ('hossp1', 'House Sparrow', 'Passer domesticus', 'passeridae', 'Old World Sparrows', 999999)
+      ON CONFLICT (species_code) DO NOTHING
+    `);
+    await db.pool.query(`
+      INSERT INTO observations
+        (sub_id, species_code, lat, lng, obs_dt, loc_id, loc_name, how_many, is_notable)
+      SELECT
+        'S-uncap-' || g::text, 'hossp1',
+        31.72 + (g * 0.0001), -110.88 - (g * 0.0001),
+        now() - (g * interval '1 second'),
+        'L-uncap', 'Uncap Test Loc', 1, false
+      FROM generate_series(1, 5500) g
+    `);
+    const rows = await getObservations(db.pool, {});
+    expect(rows.length).toBeGreaterThan(5000);
+  });
 });
 
 describe('getObservationsAggregated (#627)', () => {
