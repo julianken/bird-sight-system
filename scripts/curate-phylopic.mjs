@@ -70,11 +70,15 @@
  * fronted by CloudFront with `max-age=300, stale-while-revalidate=86400`).
  *
  * Usage:
- *   node scripts/curate-phylopic.mjs                   # 25-family seed; UPDATE-mode (migration 17000)
- *   node scripts/curate-phylopic.mjs --refresh         # bypass cache, re-fetch all
- *   node scripts/curate-phylopic.mjs --backfill        # 38-family backfill; INSERT-mode (migration 34000)
- *   node scripts/curate-phylopic.mjs --recurate-nulls  # 14 NULL-svg families; UPDATE-mode (migration 35000, issue #498)
+ *   node scripts/curate-phylopic.mjs                       # 25-family seed; UPDATE-mode (migration 17000)
+ *   node scripts/curate-phylopic.mjs --refresh             # bypass cache, re-fetch all
+ *   node scripts/curate-phylopic.mjs --backfill            # 38-family backfill; INSERT-mode (migration 34000)
+ *   node scripts/curate-phylopic.mjs --recurate-nulls      # 14 NULL-svg families; UPDATE-mode (migration 35000, issue #498)
  *   node scripts/curate-phylopic.mjs --rescue-via-species  # 14 NULL-svg families, species/genus cascade; UPDATE-mode (migration 36000, issue #500)
+ *   node scripts/curate-phylopic.mjs --national-coverage   # Phase 3a US-wide flip: 32 INSERT + 8 UPDATE families in a single
+ *                                                          # mixed migration 47000. INSERTs add brand-new rows for families
+ *                                                          # observed for the first time post-flip; UPDATEs target NULL rows
+ *                                                          # whose families were previously unrescuable at the family-node.
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
@@ -86,13 +90,15 @@ const CACHE_DIR = resolve(__dirname, '.phylopic-cache');
 const PICKS_PATH = resolve(__dirname, 'phylopic-picks.json');
 const MIGRATION_PATH = resolve(
   REPO_ROOT,
-  process.argv.includes('--rescue-via-species')
-    ? 'migrations/1700000036000_rescue_null_silhouettes_via_species.sql'
-    : process.argv.includes('--recurate-nulls')
-      ? 'migrations/1700000035000_recurate_null_silhouettes.sql'
-      : process.argv.includes('--backfill')
-        ? 'migrations/1700000034000_backfill_observed_family_silhouettes.sql'
-        : 'migrations/1700000017000_seed_family_silhouettes_phylopic.sql',
+  process.argv.includes('--national-coverage')
+    ? 'migrations/1700000047000_national_coverage_silhouettes.sql'
+    : process.argv.includes('--rescue-via-species')
+      ? 'migrations/1700000036000_rescue_null_silhouettes_via_species.sql'
+      : process.argv.includes('--recurate-nulls')
+        ? 'migrations/1700000035000_recurate_null_silhouettes.sql'
+        : process.argv.includes('--backfill')
+          ? 'migrations/1700000034000_backfill_observed_family_silhouettes.sql'
+          : 'migrations/1700000017000_seed_family_silhouettes_phylopic.sql',
 );
 
 const PHYLOPIC_API = 'https://api.phylopic.org';
@@ -107,6 +113,14 @@ const RECURATE_NULLS = process.argv.includes('--recurate-nulls');
 // override. Composes with --recurate-nulls or stands alone; either way it
 // targets the 14 RECURATE_FAMILIES list. Emits migration 36000.
 const RESCUE_VIA_SPECIES = process.argv.includes('--rescue-via-species');
+// Phase 3a US-wide flip (2026-05-18). After /recent flipped from US-AZ to
+// US, the production DB observed 95 distinct families; 65 already had
+// silhouettes (migrations 9000/15000/17000/34000/35000/36000), 40 didn't.
+// This mode runs INSERT-mode for the 32 brand-new families and UPDATE-mode
+// for the 8 known-NULL rows in a single Phylopic crawl, emitting one mixed
+// migration (1700000047000_national_coverage_silhouettes.sql) that handles
+// both shapes — INSERTs first, then UPDATEs.
+const NATIONAL_COVERAGE = process.argv.includes('--national-coverage');
 
 // All 25 families seeded across migrations 9000 + 15000. Preserve exact
 // family_code casing from the seed migrations — Phylopic's filter_name is
@@ -153,6 +167,91 @@ const RECURATE_FAMILIES = [
   'calcariidae', 'cuculidae', 'gaviidae', 'icteriidae', 'numididae',
   'peucedramidae', 'phasianidae', 'polioptilidae', 'ptiliogonatidae',
   'ptilogonatidae', 'remizidae', 'tityridae', 'tytonidae', 'vireonidae',
+];
+
+// --- Phase 3a national flip ------------------------------------------------
+// Context: on 2026-05-18 the /recent ingestor flipped from US-AZ to US-wide
+// (Phase 3a). Cloud SQL `observations` now records 95 distinct families;
+// 65 already have rows in `family_silhouettes` from prior curation passes,
+// 40 don't. This PR closes that gap in a single mixed migration (47000).
+//
+// Audit query (Cloud SQL, 2026-05-18 evening):
+//
+//   -- Families OBSERVED but NOT in family_silhouettes (INSERT bucket):
+//   SELECT family_code, COUNT(*) AS obs_count
+//   FROM observations
+//   WHERE family_code IS NOT NULL
+//     AND family_code NOT IN (SELECT family_code FROM family_silhouettes)
+//   GROUP BY family_code
+//   ORDER BY obs_count DESC, family_code ASC;
+//
+//   -- Families with rows but NULL svg_data AND NULL svg_url (UPDATE bucket):
+//   SELECT fs.family_code, COUNT(o.*) AS obs_count
+//   FROM family_silhouettes fs
+//   LEFT JOIN observations o ON o.family_code = fs.family_code
+//   WHERE fs.svg_data IS NULL AND fs.svg_url IS NULL
+//   GROUP BY fs.family_code
+//   ORDER BY obs_count DESC NULLS LAST, fs.family_code ASC;
+//
+// See PR: feat(silhouettes): national-coverage Phylopic backfill (40 families).
+//
+// INSERT bucket — 32 family_codes that have NO row in family_silhouettes
+// (observation count from the audit in parentheses). Each gets a brand-new
+// row with color + common_name from NATIONAL_COLOR_BY_FAMILY +
+// NATIONAL_COMMON_NAME_BY_FAMILY below. The hand-list above totals 32
+// (the task brief listed "31" but enumerated 32 — verified by `wc -l`
+// when this constant was authored).
+const NATIONAL_INSERT_FAMILIES = [
+  'acrocephalidae',    // (1)  Reed-Warblers — Eurasian vagrants
+  'alcidae',           // (17) Auks, Murres & Puffins
+  'anhingidae',        // (1)  Anhingas
+  'aramidae',          // (1)  Limpkins — monotypic family
+  'bucerotidae',       // (1)  Hornbills — escapees / zoos
+  'cacatuidae',        // (4)  Cockatoos — escapees
+  'casuariidae',       // (1)  Cassowaries — escapees / zoos
+  'cettiidae',         // (1)  Cettia Bush-Warblers — Eurasian vagrants
+  'ciconiidae',        // (2)  Storks
+  'cracidae',          // (1)  Curassows & Guans
+  'diomedeidae',       // (4)  Albatrosses
+  'estrildidae',       // (8)  Waxbills & Allies — escapees / introduced
+  'fregatidae',        // (2)  Frigatebirds
+  'haematopodidae',    // (3)  Oystercatchers
+  'hydrobatidae',      // (6)  Northern Storm-Petrels
+  'leiothrichidae',    // (3)  Laughingthrushes & Allies — escapees
+  'monarchidae',       // (3)  Monarch Flycatchers
+  'muscicapidae',      // (2)  Old World Flycatchers
+  'oceanitidae',       // (1)  Southern Storm-Petrels
+  'paradoxornithidae', // (1)  Parrotbills & Allies
+  'phaethontidae',     // (2)  Tropicbirds
+  'phoenicopteridae',  // (2)  Flamingos
+  'ploceidae',         // (1)  Weavers & Allies
+  'procellariidae',    // (21) Shearwaters & Petrels — most-observed gap
+  'pteroclidae',       // (1)  Sandgrouse
+  'pycnonotidae',      // (2)  Bulbuls
+  'ramphastidae',      // (1)  Toucans
+  'stercorariidae',    // (3)  Skuas & Jaegers
+  'sulidae',           // (6)  Boobies & Gannets
+  'thraupidae',        // (4)  Tanagers & Allies
+  'viduidae',          // (1)  Indigobirds & Whydahs
+  'zosteropidae',      // (2)  White-eyes & Yuhinas
+];
+
+// UPDATE bucket — 8 family_codes that HAVE a row in family_silhouettes but
+// svg_data IS NULL AND svg_url IS NULL. The task brief noted "there may be
+// 1 more non-observed null_svg row in the table"; this script does not have
+// Cloud SQL credentials in the curation run environment, so we limit to the
+// 8 explicitly enumerated observed-null families. Any 9th non-observed null
+// row is left to a follow-up curation pass once it surfaces in an observed-
+// gap query.
+const NATIONAL_UPDATE_FAMILIES = [
+  'calcariidae',     // (5)
+  'icteriidae',      // (43)
+  'peucedramidae',   // (31)
+  'polioptilidae',   // (97)
+  'ptiliogonatidae', // (43)
+  'remizidae',       // (44)
+  'tityridae',       // (8)
+  'vireonidae',      // (237)
 ];
 
 // Issue #500. Hand-picked iconic AZ species (or representative genus) for each
@@ -1019,14 +1118,203 @@ async function rescueFamilyViaSpecies(family) {
  *     VALUES (...), (...), ... ON CONFLICT (id) DO NOTHING — for adding
  *     rows that don't exist yet. Carries the extra columns (`id`, `color`,
  *     `common_name`) that UPDATE mode doesn't touch.
+ *   - 'national' (Phase 3a national flip, 2026-05-18): mixed INSERT + UPDATE
+ *     in a single migration. INSERTs first (using NATIONAL_INSERT_FAMILIES,
+ *     same shape as 'backfill'), then UPDATEs (using NATIONAL_UPDATE_FAMILIES,
+ *     same shape as 'update'). `insertSet` parameter identifies which family
+ *     codes go in which bucket.
  *
- * `colorByFamily` and `commonNameByFamily` (both Record<string, string>)
- * are only consumed in 'backfill' mode and are looked up by family code.
+ * `colorByFamily` and `commonNameByFamily` (both Record<string, string>) are
+ * consumed in 'backfill' and 'national' modes and are looked up by family
+ * code for INSERTed rows. `insertSet` (Set<string>) partitions the picks
+ * in 'national' mode; ignored elsewhere.
  */
-function emitMigrationSql(picks, skipFamilies, mode = 'update', colorByFamily = {}, commonNameByFamily = {}) {
+function emitMigrationSql(picks, skipFamilies, mode = 'update', colorByFamily = {}, commonNameByFamily = {}, insertSet = null) {
   const today = todayUtc();
   const lines = [];
   lines.push('-- Up Migration');
+  if (mode === 'national') {
+    // Partition picks into INSERT bucket and UPDATE bucket using insertSet.
+    // INSERT picks include both successes (real svg_data) and failures (NULL
+    // row); UPDATE picks likewise include both. Sort each bucket alphabetically.
+    const sortedPicks = [...picks].sort((a, b) => a.family.localeCompare(b.family));
+    const insertPicks = sortedPicks.filter(p => insertSet.has(p.family));
+    const updatePicks = sortedPicks.filter(p => !insertSet.has(p.family));
+    const insertSuccess = insertPicks.filter(p => p.picked);
+    const insertFail    = insertPicks.filter(p => !p.picked);
+    const updateSuccess = updatePicks.filter(p => p.picked);
+    const updateFail    = updatePicks.filter(p => !p.picked);
+    const totalSuccess = insertSuccess.length + updateSuccess.length;
+    const totalAttempted = picks.length;
+
+    lines.push('-- Phase 3a national flip (2026-05-18). After the /recent ingestor');
+    lines.push('-- flipped from US-AZ to US-wide, the Cloud SQL `observations` table');
+    lines.push('-- recorded 95 distinct families; 65 already had `family_silhouettes`');
+    lines.push('-- rows from prior curation passes (migrations 9000/15000/17000/');
+    lines.push('-- 34000/35000/36000). The remaining 40 fell into two buckets:');
+    lines.push(`--   INSERT (${insertPicks.length}): family_codes with NO row at all in family_silhouettes`);
+    lines.push(`--   UPDATE (${updatePicks.length}): rows EXIST but svg_data IS NULL AND svg_url IS NULL`);
+    lines.push('-- This migration closes both gaps in a single Phylopic crawl.');
+    lines.push('--');
+    lines.push(`-- Generated by scripts/curate-phylopic.mjs --national-coverage on ${today}`);
+    lines.push('-- using the Phylopic API two-step recipe (/nodes?filter_name →');
+    lines.push('-- /images?filter_node) and the auto-pick heuristic (license preference');
+    lines.push('-- CC0 > CC-BY-3.0 > CC-BY-4.0 > CC-BY-SA-3.0, then alphabetic creator,');
+    lines.push('-- then UUID). Quality gates: real CC license, non-empty creator, valid');
+    lines.push('-- imagePageUrl, svgPathD ≥100 chars + ≥20 path commands.');
+    lines.push('--');
+    lines.push(`-- Resolved: ${totalSuccess}/${totalAttempted} families now carry a real Phylopic silhouette.`);
+    lines.push(`--   INSERTed with svg_data: ${insertSuccess.length}/${insertPicks.length}`);
+    lines.push(`--   UPDATEd from NULL → real: ${updateSuccess.length}/${updatePicks.length}`);
+    lines.push('--');
+    lines.push('-- INSERT bucket (new rows in family_silhouettes):');
+    if (insertSuccess.length > 0) {
+      for (const r of insertSuccess) {
+        lines.push(`--   ${r.family} — ${r.picked.licenseId}, creator: ${r.picked.creatorName ?? '(unknown)'}, ${r.picked.imagePageUrl}`);
+      }
+    }
+    if (insertFail.length > 0) {
+      lines.push('--   (with svg_data=NULL, _FALLBACK shape rendered):');
+      for (const r of insertFail) {
+        lines.push(`--     ${r.family} (${r.reason})`);
+      }
+    }
+    lines.push('--');
+    lines.push('-- UPDATE bucket (flipped from NULL → real path-d, or stayed NULL):');
+    if (updateSuccess.length > 0) {
+      for (const r of updateSuccess) {
+        lines.push(`--   ${r.family} — ${r.picked.licenseId}, creator: ${r.picked.creatorName ?? '(unknown)'}, ${r.picked.imagePageUrl}`);
+      }
+    }
+    if (updateFail.length > 0) {
+      lines.push('--   (still NULL after build 538):');
+      for (const r of updateFail) {
+        lines.push(`--     ${r.family} (${r.reason})`);
+      }
+    }
+    lines.push('--');
+    lines.push('-- Note on UPDATE bucket: the task brief flagged that one further row');
+    lines.push('-- in family_silhouettes may have svg_data=NULL AND svg_url=NULL without');
+    lines.push('-- observed entries. That row is out of scope for this curation pass —');
+    lines.push('-- if it surfaces in a future observed-gap audit it will be picked up by');
+    lines.push('-- a follow-up --recurate-nulls run.');
+    lines.push('--');
+    lines.push('-- The full audit trail (every candidate the heuristic considered, per');
+    lines.push('-- family) lives at scripts/phylopic-picks.json under the new + updated');
+    lines.push('-- entries.');
+    lines.push('--');
+    lines.push('-- After this migration lands in main, the operator runs');
+    lines.push('-- scripts/purge-silhouettes-cache.sh (#252) as part of the production');
+    lines.push('-- deploy runbook to purge the CDN cache for /api/silhouettes.');
+    lines.push('');
+
+    // --- INSERTs first ---
+    // color_dark schema note: migration 46000 introduced family_silhouettes.color_dark
+    // as NOT NULL. For new rows we initialize color_dark = color (the "passes both
+    // basemaps" default in migration 46000's audit). A future dual-palette pass
+    // can re-tune any row whose color fails the dark-basemap >=3:1 contrast bar.
+    if (insertSuccess.length > 0) {
+      lines.push('-- INSERT bucket: new rows with svg_data + provenance.');
+      lines.push('-- color_dark = color (post-46000 schema; see comment in scripts/curate-phylopic.mjs).');
+      lines.push('INSERT INTO family_silhouettes (id, family_code, svg_data, color, color_dark, source, license, creator, common_name) VALUES');
+      const rows = insertSuccess.map((pick, idx) => {
+        const p = pick.picked;
+        const d = escapeSqlString(p.svgPathD);
+        const src = escapeSqlString(p.imagePageUrl);
+        const lic = escapeSqlString(p.licenseId);
+        const cre = p.creatorName ? `'${escapeSqlString(p.creatorName)}'` : 'NULL';
+        const color = colorByFamily[pick.family];
+        const cn = commonNameByFamily[pick.family];
+        if (!color) throw new Error(`color missing for INSERT family ${pick.family}`);
+        if (!cn) throw new Error(`common_name missing for INSERT family ${pick.family}`);
+        const comma = idx < insertSuccess.length - 1 ? ',' : '';
+        return `  ('${pick.family}', '${pick.family}', '${d}', '${color}', '${color}', '${src}', '${lic}', ${cre}, '${escapeSqlString(cn)}')${comma}`;
+      });
+      lines.push(...rows);
+      lines.push('ON CONFLICT (id) DO NOTHING;');
+      lines.push('');
+    }
+    if (insertFail.length > 0) {
+      lines.push('-- INSERT bucket: families with no usable Phylopic candidate. Row');
+      lines.push('-- inserted with svg_data=NULL so the _FALLBACK consumer (#246) renders');
+      lines.push('-- the generic shape tinted with the assigned family color. color +');
+      lines.push('-- common_name are still useful for the legend chip.');
+      lines.push('-- color_dark = color (post-46000 schema; see comment above).');
+      lines.push('INSERT INTO family_silhouettes (id, family_code, svg_data, color, color_dark, source, license, creator, common_name) VALUES');
+      const rows = insertFail.map((pick, idx) => {
+        const color = colorByFamily[pick.family];
+        const cn = commonNameByFamily[pick.family];
+        if (!color) throw new Error(`color missing for skipped INSERT family ${pick.family}`);
+        if (!cn) throw new Error(`common_name missing for skipped INSERT family ${pick.family}`);
+        const comma = idx < insertFail.length - 1 ? ',' : '';
+        return `  ('${pick.family}', '${pick.family}', NULL, '${color}', '${color}', NULL, NULL, NULL, '${escapeSqlString(cn)}')${comma}`;
+      });
+      lines.push(...rows);
+      lines.push('ON CONFLICT (id) DO NOTHING;');
+      lines.push('');
+    }
+
+    // --- UPDATEs second ---
+    if (updateSuccess.length > 0) {
+      lines.push('-- UPDATE bucket: NULL rows flipped to real path-d + provenance.');
+      for (const pick of updateSuccess) {
+        const p = pick.picked;
+        const d = escapeSqlString(p.svgPathD);
+        const src = escapeSqlString(p.imagePageUrl);
+        const lic = escapeSqlString(p.licenseId);
+        const cre = p.creatorName ? `'${escapeSqlString(p.creatorName)}'` : 'NULL';
+        lines.push(`-- ${pick.family} — ${p.licenseId}, creator: ${p.creatorName ?? '(unknown)'}`);
+        lines.push(`UPDATE family_silhouettes SET`);
+        lines.push(`  svg_data = '${d}',`);
+        lines.push(`  source = '${src}',`);
+        lines.push(`  license = '${lic}',`);
+        lines.push(`  creator = ${cre}`);
+        lines.push(`WHERE family_code = '${pick.family}';`);
+        lines.push('');
+      }
+    }
+    if (updateFail.length > 0) {
+      lines.push('-- UPDATE bucket: families that stayed NULL after build 538 lookup');
+      lines.push('-- (Phylopic returned 404 or all candidates failed quality gates).');
+      lines.push('-- The _FALLBACK consumer (#246) continues to render these. A future');
+      lines.push('-- --rescue-via-species pass may rescue some via species/genus cascade.');
+      const codes = updateFail.map(f => `'${f.family}'`).join(', ');
+      lines.push(`UPDATE family_silhouettes SET svg_data = NULL, source = NULL, license = NULL, creator = NULL`);
+      lines.push(`WHERE family_code IN (${codes});`);
+      lines.push('');
+    }
+
+    // Edge case: nothing landed in either bucket as a real UPDATE/INSERT.
+    // (Unlikely — 40 families × Phylopic API is rarely a total bust — but
+    // guard against the empty migration case.)
+    if (insertSuccess.length === 0 && insertFail.length === 0 && updateSuccess.length === 0 && updateFail.length === 0) {
+      lines.push('-- No families to process. Audit record only.');
+      lines.push('SELECT 1;');
+      lines.push('');
+    }
+
+    // --- Down Migration ---
+    lines.push('-- Down Migration');
+    lines.push('-- Two-phase revert mirrors the Up structure:');
+    lines.push('--   1) DELETE the rows added by the INSERT bucket (matched by family_code list).');
+    lines.push('--   2) UPDATE the UPDATE-bucket rows back to NULL (matched by family_code list).');
+    if (insertPicks.length > 0) {
+      lines.push('DELETE FROM family_silhouettes WHERE family_code IN (');
+      lines.push('  ' + insertPicks.map(p => `'${p.family}'`).join(', '));
+      lines.push(');');
+    }
+    if (updatePicks.length > 0) {
+      const codes = updatePicks.map(p => `'${p.family}'`).join(', ');
+      lines.push(`UPDATE family_silhouettes SET svg_data = NULL, source = NULL, license = NULL, creator = NULL`);
+      lines.push(`WHERE family_code IN (${codes});`);
+    }
+    if (insertPicks.length === 0 && updatePicks.length === 0) {
+      lines.push('-- No-op: nothing inserted or updated, so nothing to revert.');
+      lines.push('SELECT 1;');
+    }
+    lines.push('');
+    return lines.join('\n');
+  }
   if (mode === 'rescue') {
     const sortedPicks = [...picks].sort((a, b) => a.family.localeCompare(b.family));
     const rescued = sortedPicks.filter(p => p.picked);
@@ -1501,16 +1789,103 @@ const COMMON_NAME_BY_FAMILY = {
   vireonidae:          'Vireos',
 };
 
+// --- Phase 3a national flip: per-family color + common-name tables ---------
+// Same conventions as COLOR_BY_FAMILY / COMMON_NAME_BY_FAMILY: each color is
+// a 7-char hex distinct from every prior seed/backfill row across migrations
+// 9000/15000/17000/18000/33000/34000/46000 AND from every other entry in this
+// object. Where a family's most-iconic US species has a strong field-mark
+// color, the value echoes it. Common names follow the eBird taxonomy v2024
+// convention used by migration 19500. Keys match NATIONAL_INSERT_FAMILIES.
+//
+// Audit note: migration 46000 introduced a `color_dark` column so each row
+// gets darkened/lightened automatically for dark-mode contrast — we set
+// `color` only here; the dual-palette UPDATE in 46000 handles color_dark
+// after this row lands. (color_dark = color is the default in the schema.)
+const NATIONAL_COLOR_BY_FAMILY = {
+  acrocephalidae:    '#7b6a3c', // Reed-Warblers — drab olive-brown
+  alcidae:           '#1d2b3a', // Auks — black-and-white seabirds, dark mantle
+  anhingidae:        '#2b231d', // Anhingas — glossy black-bronze plumage
+  aramidae:          '#5a3c2a', // Limpkins — chocolate brown with white streaks
+  bucerotidae:       '#3a2515', // Hornbills — dark brown with bright bill
+  cacatuidae:        '#f0e6c2', // Cockatoos — white plumage / sulphur crest
+  casuariidae:       '#4a2333', // Cassowaries — black plumage with blue/red neck
+  cettiidae:         '#9c7a4a', // Bush-Warblers — warm rufous-brown
+  ciconiidae:        '#d8d2c2', // Storks — pale white with black flight feathers
+  cracidae:          '#382a1c', // Curassows — black with white crest
+  diomedeidae:       '#c8cdd2', // Albatrosses — pale grey-white seabird
+  estrildidae:       '#c25a4a', // Waxbills — red bill / Strawberry Finch
+  fregatidae:        '#171a1f', // Frigatebirds — black with crimson gular pouch
+  haematopodidae:    '#e84a30', // Oystercatchers — bright orange-red bill
+  hydrobatidae:      '#3d3a36', // Storm-Petrels — sooty grey-black with white rump
+  leiothrichidae:    '#6f6045', // Laughingthrushes — warm earth tones
+  monarchidae:       '#4a5d6e', // Monarch Flycatchers — blue-grey upperparts
+  muscicapidae:      '#695a4d', // Old World Flycatchers — warm muted brown
+  oceanitidae:       '#2c2926', // Southern Storm-Petrels — dark sooty
+  paradoxornithidae: '#8d6e4a', // Parrotbills — warm tawny brown
+  phaethontidae:     '#f5ede2', // Tropicbirds — white plumage with golden wash
+  phoenicopteridae:  '#f08aa6', // Flamingos — iconic pink
+  ploceidae:         '#e0b033', // Weavers — bright yellow body (Village Weaver)
+  procellariidae:    '#5e6a76', // Shearwaters & Petrels — neutral slate-gray
+  pteroclidae:       '#a8895c', // Sandgrouse — sandy buff cryptic plumage
+  pycnonotidae:      '#544038', // Bulbuls — dark chocolate-brown crested
+  ramphastidae:      '#ff8a1a', // Toucans — vivid orange bill
+  stercorariidae:    '#3f342a', // Skuas & Jaegers — dark chocolate-brown raptorial
+  sulidae:           '#e8e3d8', // Boobies — white with black wingtips
+  thraupidae:        '#cf2b3a', // Tanagers — Scarlet Tanager bright red
+  viduidae:          '#1a1414', // Indigobirds & Whydahs — glossy black males
+  zosteropidae:      '#809458', // White-eyes — olive-green with prominent white eye-ring
+};
+
+const NATIONAL_COMMON_NAME_BY_FAMILY = {
+  acrocephalidae:    'Reed-Warblers & Allies',
+  alcidae:           'Auks, Murres & Puffins',
+  anhingidae:        'Anhingas',
+  aramidae:          'Limpkin',
+  bucerotidae:       'Hornbills',
+  cacatuidae:        'Cockatoos',
+  casuariidae:       'Cassowaries',
+  cettiidae:         'Bush Warblers & Allies',
+  ciconiidae:        'Storks',
+  cracidae:          'Guans, Chachalacas & Curassows',
+  diomedeidae:       'Albatrosses',
+  estrildidae:       'Waxbills & Allies',
+  fregatidae:        'Frigatebirds',
+  haematopodidae:    'Oystercatchers',
+  hydrobatidae:      'Northern Storm-Petrels',
+  leiothrichidae:    'Laughingthrushes & Allies',
+  monarchidae:       'Monarch Flycatchers',
+  muscicapidae:      'Old World Flycatchers',
+  oceanitidae:       'Southern Storm-Petrels',
+  paradoxornithidae: 'Parrotbills & Allies',
+  phaethontidae:     'Tropicbirds',
+  phoenicopteridae:  'Flamingos',
+  ploceidae:         'Weavers & Allies',
+  procellariidae:    'Shearwaters & Petrels',
+  pteroclidae:       'Sandgrouse',
+  pycnonotidae:      'Bulbuls',
+  ramphastidae:      'Toucans',
+  stercorariidae:    'Skuas & Jaegers',
+  sulidae:           'Boobies & Gannets',
+  thraupidae:        'Tanagers & Allies',
+  viduidae:          'Indigobirds & Whydahs',
+  zosteropidae:      'White-eyes & Yuhinas',
+};
+
 async function main() {
   const config = loadPicksConfig();
   const skipSet = new Set(config.skipFamilies);
-  const targetFamilies = (RESCUE_VIA_SPECIES || RECURATE_NULLS)
-    ? RECURATE_FAMILIES
-    : BACKFILL ? BACKFILL_FAMILIES : FAMILIES;
+  const targetFamilies = NATIONAL_COVERAGE
+    ? [...NATIONAL_INSERT_FAMILIES, ...NATIONAL_UPDATE_FAMILIES]
+    : (RESCUE_VIA_SPECIES || RECURATE_NULLS)
+      ? RECURATE_FAMILIES
+      : BACKFILL ? BACKFILL_FAMILIES : FAMILIES;
   console.log(`Curating ${targetFamilies.length} families against Phylopic API (build=${PHYLOPIC_BUILD})`);
   console.log(`Cache: ${CACHE_DIR}${REFRESH ? ' (REFRESH mode — bypassing)' : ''}`);
   if (RESCUE_VIA_SPECIES) {
     console.log('Mode: --rescue-via-species (family → species → genus cascade per SPECIES_OVERRIDES)');
+  }
+  if (NATIONAL_COVERAGE) {
+    console.log(`Mode: --national-coverage (${NATIONAL_INSERT_FAMILIES.length} INSERT + ${NATIONAL_UPDATE_FAMILIES.length} UPDATE; mixed migration 47000)`);
   }
   if (skipSet.size > 0) {
     console.log(`Skipping (operator-flagged absent): ${[...skipSet].sort().join(', ')}`);
@@ -1588,9 +1963,10 @@ async function main() {
   }));
 
   let summary;
-  if (RESCUE_VIA_SPECIES || RECURATE_NULLS) {
+  if (RESCUE_VIA_SPECIES || RECURATE_NULLS || NATIONAL_COVERAGE) {
     // Load existing picks file and merge: replace entries for the target
-    // families, keep the other 24 as-is.
+    // families, keep the rest as-is. picks.json is the cumulative audit
+    // trail across all runs.
     let existing = null;
     if (existsSync(PICKS_PATH)) {
       try {
@@ -1610,6 +1986,7 @@ async function main() {
       skipFamilies: config.skipFamilies,
       _skipFamilies_deprecation_note: 'skipFamilies is deprecated as of issue #498. Empty by convention; the script\'s NULL-emission path handles genuine API absences. Do not re-introduce entries — if a family is unrescueable, let it land as NULL with a SQL-comment-recorded reason.',
       ...(RESCUE_VIA_SPECIES ? { _rescue_via_species_note: 'Rescue mode (issue #500) cascades family → species → genus lookups for the 14 RECURATE_FAMILIES. Each rescued entry carries `resolutionPath` + `attempts[]` so a reader can see which lookup path produced the pick.' } : {}),
+      ...(NATIONAL_COVERAGE ? { _national_coverage_note: `Phase 3a national flip (2026-05-18): ${NATIONAL_INSERT_FAMILIES.length} INSERT + ${NATIONAL_UPDATE_FAMILIES.length} UPDATE families curated in a single mixed migration (47000) after /recent flipped from US-AZ to US-wide.` } : {}),
       families: merged,
     };
   } else {
@@ -1627,9 +2004,18 @@ async function main() {
   const sql = emitMigrationSql(
     picks,
     config.skipFamilies,
-    RESCUE_VIA_SPECIES ? 'rescue' : RECURATE_NULLS ? 'recurate' : BACKFILL ? 'backfill' : 'update',
-    BACKFILL ? COLOR_BY_FAMILY : {},
-    BACKFILL ? COMMON_NAME_BY_FAMILY : {},
+    NATIONAL_COVERAGE ? 'national'
+      : RESCUE_VIA_SPECIES ? 'rescue'
+      : RECURATE_NULLS ? 'recurate'
+      : BACKFILL ? 'backfill'
+      : 'update',
+    NATIONAL_COVERAGE ? NATIONAL_COLOR_BY_FAMILY
+      : BACKFILL ? COLOR_BY_FAMILY
+      : {},
+    NATIONAL_COVERAGE ? NATIONAL_COMMON_NAME_BY_FAMILY
+      : BACKFILL ? COMMON_NAME_BY_FAMILY
+      : {},
+    NATIONAL_COVERAGE ? new Set(NATIONAL_INSERT_FAMILIES) : null,
   );
   writeFileSync(MIGRATION_PATH, sql);
   console.log(`Wrote ${MIGRATION_PATH}`);
@@ -1639,7 +2025,18 @@ async function main() {
   console.log(`\nSummary: ${ok} picked, ${skipped} NULL (${skipped > 0 ? picks.filter(p => !p.picked).map(p => p.family).join(', ') : 'none'})`);
 }
 
-main().catch(err => {
-  console.error(err);
-  process.exit(1);
-});
+// Run when invoked as a script (not when imported by tests). Mirrors the
+// pattern in scripts/silhouette.mjs so a test file can import this module
+// (e.g. to assert on emitMigrationSql output) without kicking off a live
+// Phylopic crawl.
+const isMain = import.meta.url === `file://${process.argv[1]}`;
+if (isMain) {
+  main().catch(err => {
+    console.error(err);
+    process.exit(1);
+  });
+}
+
+// Exports for testability. The default invocation still runs main() via the
+// isMain guard above — these exports do not change the CLI behavior.
+export { emitMigrationSql, escapeSqlString, todayUtc, NATIONAL_INSERT_FAMILIES, NATIONAL_UPDATE_FAMILIES, NATIONAL_COLOR_BY_FAMILY, NATIONAL_COMMON_NAME_BY_FAMILY };
