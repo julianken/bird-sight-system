@@ -149,16 +149,16 @@ export function parseFamily(
  * Per-axis bbox cap, applied only when `zoom >= 6` (per-observation mode).
  * At lower zooms the server uses aggregated mode so unbounded bboxes are fine.
  *
- * Caps: `maxLng - minLng <= 15` AND `maxLat - minLat <= 10`.
+ * Caps: `maxLng - minLng <= 30` AND `maxLat - minLat <= 15`.
  *
  * Reject body is descriptive so the frontend can render an affordance:
- *   { error: 'bbox too large', maxLngSpan: 15, maxLatSpan: 10,
+ *   { error: 'bbox too large', maxLngSpan: 30, maxLatSpan: 15,
  *     hint: 'zoom out for aggregated view' }
  */
 export interface BboxTooLargeBody {
   error: 'bbox too large';
-  maxLngSpan: 15;
-  maxLatSpan: 10;
+  maxLngSpan: 30;
+  maxLatSpan: 15;
   hint: 'zoom out for aggregated view';
 }
 
@@ -172,13 +172,13 @@ export function assertBboxAreaCap(
   const [minLng, minLat, maxLng, maxLat] = bbox;
   const lngSpan = maxLng - minLng;
   const latSpan = maxLat - minLat;
-  if (lngSpan <= 15 && latSpan <= 10) return { ok: true };
+  if (lngSpan <= 30 && latSpan <= 15) return { ok: true };
   return {
     ok: false,
     body: {
       error: 'bbox too large',
-      maxLngSpan: 15,
-      maxLatSpan: 10,
+      maxLngSpan: 30,
+      maxLatSpan: 15,
       hint: 'zoom out for aggregated view',
     },
     log: {

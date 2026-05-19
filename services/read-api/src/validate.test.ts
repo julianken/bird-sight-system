@@ -138,17 +138,17 @@ describe('assertBboxAreaCap', () => {
   });
 
   it('rejects too-wide lng span at zoom >= 6', () => {
-    const r = assertBboxAreaCap([-130, 30, -110, 40], 6); // 20° × 10° — lng > 15
+    const r = assertBboxAreaCap([-140, 30, -100, 40], 6); // 40° × 10° — lng > 30
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.body.error).toBe('bbox too large');
-      expect(r.body.maxLngSpan).toBe(15);
+      expect(r.body.maxLngSpan).toBe(30);
       expect(r.log.reason).toBe('too_large');
     }
   });
 
   it('rejects too-tall lat span at zoom >= 6', () => {
-    const r = assertBboxAreaCap([-115, 25, -105, 40], 7); // 10° × 15° — lat > 10
+    const r = assertBboxAreaCap([-115, 20, -105, 45], 7); // 10° × 25° — lat > 15
     expect(r.ok).toBe(false);
   });
 
