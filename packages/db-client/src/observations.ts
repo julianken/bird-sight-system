@@ -167,6 +167,14 @@ export async function getObservations(
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
+  // #667 — defense-in-depth row cap on species-filtered queries. No real
+  // species has >5K observations in 14d nationally; this cap is an emergency
+  // brake for `?species=<code>` deep links that fetch before MapCanvas mounts
+  // (no bbox + no zoom in flight). The broader LIMIT 10000 emergency brake
+  // for all per-observation queries ships in PR 2 (with a truncation banner
+  // and meta.truncated signal — see issue #667 Addendum §3).
+  const limit = f.speciesCode ? 'LIMIT 5000' : '';
+
   const sql = `
     SELECT
       o.sub_id, o.species_code, sm.com_name, sm.family_code,
@@ -176,6 +184,7 @@ export async function getObservations(
     LEFT JOIN species_meta sm ON sm.species_code = o.species_code
     ${where}
     ORDER BY o.obs_dt DESC
+    ${limit}
   `;
 
   const { rows } = await pool.query<{

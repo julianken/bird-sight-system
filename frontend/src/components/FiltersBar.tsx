@@ -73,7 +73,6 @@ export function FiltersBar(props: FiltersBarProps) {
           <option value="1d">Today</option>
           <option value="7d">7 days</option>
           <option value="14d">14 days</option>
-          <option value="30d">30 days</option>
         </select>
       </label>
       <label>

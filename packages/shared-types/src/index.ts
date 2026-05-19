@@ -141,7 +141,7 @@ export interface IngestRun {
 export type IngestRunTerminalStatus = Exclude<IngestRun['status'], 'running'>;
 
 export type ObservationFilters = {
-  since?: '1d' | '7d' | '14d' | '30d';
+  since?: '1d' | '7d' | '14d';
   notable?: boolean;
   speciesCode?: string;
   familyCode?: string;
