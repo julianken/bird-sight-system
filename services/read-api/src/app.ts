@@ -16,6 +16,13 @@ import {
   assertBboxAreaCap, assertBboxOrSpecies,
 } from './validate.js';
 
+// Fixed sunset date for the `?since=30d` soft-deprecation window. Anchoring
+// to a concrete UTC date (rather than `now() + 14d`) means the deprecation
+// window is a real deadline that approaches, not a perpetually-rolling 14
+// days. PR 3 in the rollout flips `since=30d` to hard 400 on/before this
+// date. See issue #667 Addendum §5 and PR #668 review feedback.
+const SINCE_30D_SUNSET_DATE = new Date('2026-06-01T00:00:00Z').toUTCString();
+
 export interface AppDeps {
   pool: Pool;
 }
@@ -102,10 +109,9 @@ export function createApp(deps: AppDeps): Hono {
     // plus a NOTICE log so dashboards can grep for live consumers. The next
     // release flips to hard 400. See issue #667 Addendum §5.
     if (sinceResult.deprecated) {
-      // Sunset date: 14 days from now, ISO-date precision (HTTP date acceptable).
-      const sunset = new Date(Date.now() + 14 * 86400_000).toISOString();
+      // Sunset date: fixed UTC date (2026-06-01) — see SINCE_30D_SUNSET_DATE.
       c.header('Deprecation', 'true');
-      c.header('Sunset', sunset);
+      c.header('Sunset', SINCE_30D_SUNSET_DATE);
       c.header(
         'Warning',
         '299 - "since=30d is deprecated; use since=14d (or omit since)"',

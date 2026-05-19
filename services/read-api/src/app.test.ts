@@ -237,9 +237,9 @@ describe('GET /api/observations', () => {
       const res = await app.request(`/api/observations?since=30d&bbox=${BBOX_AZ}`);
       expect(res.status).toBe(200);
       expect(res.headers.get('deprecation')).toBe('true');
-      expect(res.headers.get('sunset')).toBeTruthy();
-      // ISO date is acceptable for Sunset header.
-      expect(res.headers.get('sunset')).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      // Sunset header is anchored to a fixed UTC date (2026-06-01) rather
+      // than `now() + 14d`, so the deprecation window is a real deadline.
+      expect(res.headers.get('sunset')).toBe(new Date('2026-06-01T00:00:00Z').toUTCString());
       const warning = res.headers.get('warning') ?? '';
       expect(warning).toContain('299');
       expect(warning).toContain('since=30d');
