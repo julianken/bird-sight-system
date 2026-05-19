@@ -7,15 +7,16 @@ beforeAll(async () => { db = await startTestDb(); }, 90_000);
 afterAll(async () => { await db?.stop(); });
 
 describe('getSilhouettes', () => {
-  it('returns all 65 seeded families (64 real + _FALLBACK)', async () => {
+  it('returns all 97 seeded families (96 real + _FALLBACK)', async () => {
     // 15 from migration 9000 + 10 AZ-family expansion from migration 15000
     // (#244) + the `_FALLBACK` row from migration 18000 (#246) + icteridae
     // from migration 33000 (#482) + 38 observed-family backfill from
-    // migration 34000 (#495). The _FALLBACK row backs the SDF symbol
+    // migration 34000 (#495) + 32 national-coverage rows from migration
+    // 48000 (Phase 3a US-wide flip). The _FALLBACK row backs the SDF symbol
     // layer's fallback rendering for observations whose family has no
     // usable Phylopic silhouette.
     const rows = await getSilhouettes(db.pool);
-    expect(rows).toHaveLength(65);
+    expect(rows).toHaveLength(97);
     // _FALLBACK row exists with sentinel family_code.
     const fallback = rows.find(r => r.familyCode === '_FALLBACK');
     expect(fallback).toBeDefined();
@@ -101,17 +102,21 @@ describe('getSilhouettes', () => {
   });
 
   it('colors match the legacy FAMILY_TO_COLOR snapshot (parity with deleted hardcoded map)', async () => {
-    // This snapshot covers three cohorts of seeded family colors:
+    // This snapshot covers four cohorts of seeded family colors:
     //   (i) the 15 #55 option-(a) rows from migration 9000 (the original
     //       FAMILY_TO_COLOR parity snapshot — required so that the DB
     //       continues to report the same 15 colors that shipped on
     //       2026-04-19 after the hardcoded map was deleted),
     //   (ii) the 10 expansion rows added by migration 15000 (issue #244)
     //        so ingest stamping no longer NULLs silhouette_id for the most
-    //        common AZ families, and
+    //        common AZ families,
     //   (iii) the `_FALLBACK` row added by migration 18000 (issue #246) —
     //        the sentinel sprite the SDF symbol layer falls back to for
-    //        observations whose family has no usable Phylopic silhouette.
+    //        observations whose family has no usable Phylopic silhouette,
+    //        and
+    //   (iv) the 32 national-coverage rows from migration 48000 (Phase 3a
+    //        US-wide flip) — dual-palette `{color, color_dark}` per
+    //        NATIONAL_COLOR_BY_FAMILY in scripts/curate-phylopic.mjs.
     // If a future seed migration edits a color, update BOTH this snapshot
     // and the migration in the same PR.
     const rows = await getSilhouettes(db.pool);
@@ -190,6 +195,42 @@ describe('getSilhouettes', () => {
       turdidae: '#A05A3A',      // unchanged (passes both)
       tytonidae: '#aa8434',     // was #D6B878 (light-failing, darkened)
       vireonidae: '#769156',    // was #7E9B5C (light-failing, darkened)
+      // --- migration 48000 (Phase 3a national-coverage flip) ---
+      // 32 new families: 17 INSERTed with svg_data, 15 INSERTed with NULL
+      // svg_data. Colors are dual-palette (color paired with light basemap;
+      // color_dark paired with dark basemap, see migration 46000 contract).
+      acrocephalidae: '#7b6a3c',
+      alcidae: '#1d2b3a',
+      anhingidae: '#2b231d',
+      aramidae: '#5a3c2a',
+      bucerotidae: '#3a2515',
+      cacatuidae: '#a48928',
+      casuariidae: '#4a2333',
+      cettiidae: '#9c7a4a',
+      ciconiidae: '#978860',
+      cracidae: '#382a1c',
+      diomedeidae: '#7f8b96',
+      estrildidae: '#c25a4a',
+      fregatidae: '#171a1f',
+      haematopodidae: '#e84a30',
+      hydrobatidae: '#3d3a36',
+      leiothrichidae: '#6f6045',
+      monarchidae: '#4a5d6e',
+      muscicapidae: '#695a4d',
+      oceanitidae: '#2c2926',
+      paradoxornithidae: '#8d6e4a',
+      phaethontidae: '#b4823e',
+      phoenicopteridae: '#e9547d',
+      ploceidae: '#ac841a',
+      procellariidae: '#5e6a76',
+      pteroclidae: '#a38457',
+      pycnonotidae: '#544038',
+      ramphastidae: '#dc6c00',
+      stercorariidae: '#3f342a',
+      sulidae: '#9d895c',
+      thraupidae: '#cf2b3a',
+      viduidae: '#1a1414',
+      zosteropidae: '#7d9156',
     });
   });
 
@@ -205,9 +246,12 @@ describe('getSilhouettes', () => {
     expect(nullCommon).toEqual([]);
   });
 
-  it('common-name snapshot for all 65 seeded families (incl. _FALLBACK)', async () => {
-    // Curated English common names per migration 1700000019500. Update both
-    // sides together if the seed text changes.
+  it('common-name snapshot for all 97 seeded families (incl. _FALLBACK)', async () => {
+    // Curated English common names per migration 1700000019500 (original 27
+    // families) plus migration 1700000034000 (38 backfill families per
+    // issue #495) plus migration 1700000048000 (32 national-coverage
+    // families, Phase 3a US-wide flip). Update both sides together if the
+    // seed text changes.
     const rows = await getSilhouettes(db.pool);
     const byFamily = Object.fromEntries(rows.map(r => [r.familyCode, r.commonName]));
     expect(byFamily).toEqual({
@@ -284,6 +328,39 @@ describe('getSilhouettes', () => {
       turdidae: 'Thrushes',
       tytonidae: 'Barn-Owls',
       vireonidae: 'Vireos',
+      // --- migration 48000 (Phase 3a national-coverage flip) ---
+      acrocephalidae: 'Reed-Warblers & Allies',
+      alcidae: 'Auks, Murres & Puffins',
+      anhingidae: 'Anhingas',
+      aramidae: 'Limpkin',
+      bucerotidae: 'Hornbills',
+      cacatuidae: 'Cockatoos',
+      casuariidae: 'Cassowaries',
+      cettiidae: 'Bush Warblers & Allies',
+      ciconiidae: 'Storks',
+      cracidae: 'Guans, Chachalacas & Curassows',
+      diomedeidae: 'Albatrosses',
+      estrildidae: 'Waxbills & Allies',
+      fregatidae: 'Frigatebirds',
+      haematopodidae: 'Oystercatchers',
+      hydrobatidae: 'Northern Storm-Petrels',
+      leiothrichidae: 'Laughingthrushes & Allies',
+      monarchidae: 'Monarch Flycatchers',
+      muscicapidae: 'Old World Flycatchers',
+      oceanitidae: 'Southern Storm-Petrels',
+      paradoxornithidae: 'Parrotbills & Allies',
+      phaethontidae: 'Tropicbirds',
+      phoenicopteridae: 'Flamingos',
+      ploceidae: 'Weavers & Allies',
+      procellariidae: 'Shearwaters & Petrels',
+      pteroclidae: 'Sandgrouse',
+      pycnonotidae: 'Bulbuls',
+      ramphastidae: 'Toucans',
+      stercorariidae: 'Skuas & Jaegers',
+      sulidae: 'Boobies & Gannets',
+      thraupidae: 'Tanagers & Allies',
+      viduidae: 'Indigobirds & Whydahs',
+      zosteropidae: 'White-eyes & Yuhinas',
     });
   });
 });

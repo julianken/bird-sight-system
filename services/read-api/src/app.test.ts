@@ -590,7 +590,7 @@ describe('error handling', () => {
 });
 
 describe('GET /api/silhouettes', () => {
-  it('returns all 25 seeded family silhouettes with the silhouettes cache header', async () => {
+  it('returns all 97 seeded family silhouettes with the silhouettes cache header', async () => {
     const app = createApp({ pool: db.pool });
     const res = await app.request('/api/silhouettes');
     expect(res.status).toBe(200);
@@ -610,8 +610,9 @@ describe('GET /api/silhouettes', () => {
     // migration 15000 (issue #244) + the `_FALLBACK` row from migration
     // 18000 (issue #246) + icteridae row from migration 33000 (issue #482)
     // + 38 observed-family backfill rows from migration 34000 (issue #495)
-    // → 65 total.
-    expect(body).toHaveLength(65);
+    // + 32 national-coverage rows from migration 48000 (Phase 3a US-wide
+    // flip — 17 with svg_data, 15 with NULL svg_data) → 97 total.
+    expect(body).toHaveLength(97);
     // Spot-check the _FALLBACK row round-trips through the Hono response
     // so the frontend's symbol-layer fallback path can rely on it.
     const fallback = body.find(r => r.familyCode === '_FALLBACK');
