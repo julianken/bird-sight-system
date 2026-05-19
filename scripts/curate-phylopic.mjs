@@ -1295,13 +1295,25 @@ function emitMigrationSql(picks, skipFamilies, mode = 'update', colorByFamily = 
       }
     }
     if (updateFail.length > 0) {
+      // The UPDATE-bucket-fail rows already have svg_data/source/license/
+      // creator all NULL (the row exists at all only because a prior
+      // backfill migration inserted it with NULL svg_data when Phylopic
+      // had no usable candidate). A SQL UPDATE setting NULL to NULL is a
+      // literal no-op — intentionally omit it. The audit-comment header
+      // at the top of the migration is the curation record, and the
+      // per-row attempts[] cascade lives in scripts/phylopic-picks.json.
       lines.push('-- UPDATE bucket: families that stayed NULL after build 538 lookup');
-      lines.push('-- (Phylopic returned 404 or all candidates failed quality gates).');
-      lines.push('-- The _FALLBACK consumer (#246) continues to render these. A future');
-      lines.push('-- --rescue-via-species pass may rescue some via species/genus cascade.');
+      lines.push('-- (Phylopic returned 404 or all candidates failed quality gates):');
       const codes = updateFail.map(f => `'${f.family}'`).join(', ');
-      lines.push(`UPDATE family_silhouettes SET svg_data = NULL, source = NULL, license = NULL, creator = NULL`);
-      lines.push(`WHERE family_code IN (${codes});`);
+      lines.push(`--   ${codes}.`);
+      lines.push('-- Their svg_data/source/license/creator columns are already NULL');
+      lines.push('-- (a prior backfill migration set them so when Phylopic returned no');
+      lines.push('-- usable candidate). A SQL UPDATE setting NULL to NULL would be a');
+      lines.push('-- literal no-op; intentionally omitted. The audit-comment header at');
+      lines.push('-- the top of this migration is the curation record, and the per-row');
+      lines.push('-- attempts[] cascade lives in scripts/phylopic-picks.json. A future');
+      lines.push('-- --rescue-via-species pass may rescue some via species/genus cascade;');
+      lines.push('-- the _FALLBACK consumer (#246) continues to render these.');
       lines.push('');
     }
 
@@ -1315,22 +1327,32 @@ function emitMigrationSql(picks, skipFamilies, mode = 'update', colorByFamily = 
     }
 
     // --- Down Migration ---
+    // The Down mirrors only the rows that the Up actually wrote SQL for.
+    // - INSERT bucket (success + fail): DELETE by family_code.
+    // - UPDATE bucket success (NULL → real): UPDATE back to NULL by
+    //   family_code.
+    // - UPDATE bucket fail (NULL → NULL no-op): emitted no Up SQL, so the
+    //   Down emits no SQL either.
     lines.push('-- Down Migration');
-    lines.push('-- Two-phase revert mirrors the Up structure:');
-    lines.push('--   1) DELETE the rows added by the INSERT bucket (matched by family_code list).');
-    lines.push('--   2) UPDATE the UPDATE-bucket rows back to NULL (matched by family_code list).');
+    lines.push('-- Revert mirrors the Up structure:');
+    if (insertPicks.length > 0) {
+      lines.push('--   1) DELETE the rows added by the INSERT bucket (matched by family_code list).');
+    }
+    if (updateSuccess.length > 0) {
+      lines.push('--   2) UPDATE the rescued UPDATE-bucket rows back to NULL.');
+    }
     if (insertPicks.length > 0) {
       lines.push('DELETE FROM family_silhouettes WHERE family_code IN (');
       lines.push('  ' + insertPicks.map(p => `'${p.family}'`).join(', '));
       lines.push(');');
     }
-    if (updatePicks.length > 0) {
-      const codes = updatePicks.map(p => `'${p.family}'`).join(', ');
+    if (updateSuccess.length > 0) {
+      const codes = updateSuccess.map(p => `'${p.family}'`).join(', ');
       lines.push(`UPDATE family_silhouettes SET svg_data = NULL, source = NULL, license = NULL, creator = NULL`);
       lines.push(`WHERE family_code IN (${codes});`);
     }
-    if (insertPicks.length === 0 && updatePicks.length === 0) {
-      lines.push('-- No-op: nothing inserted or updated, so nothing to revert.');
+    if (insertPicks.length === 0 && updateSuccess.length === 0) {
+      lines.push('-- No-op: nothing inserted or rescued, so nothing to revert.');
       lines.push('SELECT 1;');
     }
     lines.push('');
@@ -2016,7 +2038,32 @@ async function main() {
     const existingFamilies = Array.isArray(existing?.families) ? existing.families : [];
     const targetSet = new Set(targetFamilies);
     const preserved = existingFamilies.filter(f => !targetSet.has(f.family));
-    const merged = [...preserved, ...familyEntries].sort((a, b) => a.family.localeCompare(b.family));
+    // For the target families: a prior --rescue-via-species (#500) run
+    // wrote rich `attempts[]` cascade records (family / species / genus
+    // each with `slug`/`label`/`kind`/`reason`). A subsequent mode that
+    // does only a family-level lookup (--national-coverage or
+    // --recurate-nulls when species lookup is not part of the path) would
+    // emit a single-shot entry with no `attempts[]` for the same family,
+    // which is strictly less information. Skip-replace those entries so
+    // picks.json remains the cumulative audit trail across all runs.
+    // The fresh entry replaces the existing one only when the fresh entry
+    // either has a usable pick (picked != null) or carries at least as
+    // many `attempts[]` records as the existing one.
+    const existingByFamily = new Map(existingFamilies.map(f => [f.family, f]));
+    const mergedTargets = familyEntries.map(fresh => {
+      const prior = existingByFamily.get(fresh.family);
+      if (!prior) return fresh;
+      const freshAttempts = Array.isArray(fresh.attempts) ? fresh.attempts.length : 0;
+      const priorAttempts = Array.isArray(prior.attempts) ? prior.attempts.length : 0;
+      const freshPicked = fresh.picked != null;
+      if (freshPicked) return fresh;
+      if (freshAttempts >= priorAttempts) return fresh;
+      // Prior had richer cascade and the fresh run did not improve on it
+      // (no new pick, no new attempts). Preserve the prior entry as-is so
+      // a future reader still has the family/species/genus cascade record.
+      return prior;
+    });
+    const merged = [...preserved, ...mergedTargets].sort((a, b) => a.family.localeCompare(b.family));
     summary = {
       generatedAt: new Date().toISOString(),
       phylopicBuild: PHYLOPIC_BUILD,

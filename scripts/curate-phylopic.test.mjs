@@ -123,10 +123,16 @@ describe('emitMigrationSql mode=national', () => {
     expect(sql).toContain("'Another Creator'");
   });
 
-  it('emits a NULL-reset UPDATE for the failed UPDATE family', () => {
-    // calcariidae stays NULL; the script writes a defensive
-    // UPDATE ... svg_data = NULL ... that names it.
-    expect(sql).toContain("WHERE family_code IN ('calcariidae')");
+  it('omits the no-op NULL-reset UPDATE for the failed UPDATE family', () => {
+    // calcariidae stays NULL because the prior backfill migration already
+    // left it NULL. A SQL UPDATE setting NULL to NULL would be a literal
+    // no-op (the row's svg_data/source/license/creator are already all
+    // NULL). The emit path documents the family in a SQL comment instead
+    // and skips the redundant UPDATE write — the per-row attempts[]
+    // cascade in scripts/phylopic-picks.json is the audit trail.
+    expect(sql).not.toContain("WHERE family_code IN ('calcariidae')");
+    // But the family is still mentioned in the audit comment block.
+    expect(sql).toMatch(/-- UPDATE bucket: families that stayed NULL[\s\S]*calcariidae/);
   });
 
   it('orders sections: comments → INSERTs → UPDATEs → Down', () => {
@@ -138,14 +144,20 @@ describe('emitMigrationSql mode=national', () => {
     expect(downIdx).toBeGreaterThan(updateIdx);
   });
 
-  it('Down section DELETEs INSERTed rows and UPDATEs UPDATEd rows back to NULL', () => {
+  it('Down section DELETEs INSERTed rows and UPDATEs only rescued UPDATEd rows back to NULL', () => {
     const downSection = sql.slice(sql.indexOf('-- Down Migration'));
+    // INSERT bucket (success + fail) both get deleted on Down — the rows
+    // exist in the DB after Up, regardless of whether svg_data is set.
     expect(downSection).toContain('DELETE FROM family_silhouettes WHERE family_code IN');
     expect(downSection).toContain("'leiothrichidae'");
     expect(downSection).toContain("'procellariidae'");
+    // UPDATE bucket success (NULL → real) gets reverted back to NULL on
+    // Down. Only vireonidae was rescued in this test fixture.
     expect(downSection).toContain('UPDATE family_silhouettes SET svg_data = NULL');
     expect(downSection).toContain("'vireonidae'");
-    expect(downSection).toContain("'calcariidae'");
+    // UPDATE bucket fail (calcariidae) emitted no Up SQL (it would have
+    // been a NULL → NULL no-op), so the Down mirrors that with no SQL.
+    expect(downSection).not.toContain("'calcariidae'");
   });
 
   it('reports the resolution counts in the comment header', () => {

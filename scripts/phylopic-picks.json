@@ -267,7 +267,28 @@
     {
       "family": "calcariidae",
       "picked": null,
-      "reason": "http-404-on-nodes",
+      "resolutionPath": null,
+      "attempts": [
+        {
+          "slug": "calcariidae",
+          "label": "family",
+          "kind": "absent",
+          "reason": "http-404-on-nodes"
+        },
+        {
+          "slug": "Calcarius ornatus",
+          "label": "species",
+          "kind": "absent",
+          "reason": "http-404-on-nodes"
+        },
+        {
+          "slug": "Calcarius",
+          "label": "genus",
+          "kind": "absent",
+          "reason": "http-404-on-nodes"
+        }
+      ],
+      "reason": "cascade-exhausted: family=http-404-on-nodes, species=http-404-on-nodes, genus=http-404-on-nodes",
       "candidateCount": 0,
       "considered": []
     },
@@ -1006,7 +1027,28 @@
     {
       "family": "icteriidae",
       "picked": null,
-      "reason": "http-404-on-nodes",
+      "resolutionPath": null,
+      "attempts": [
+        {
+          "slug": "icteriidae",
+          "label": "family",
+          "kind": "absent",
+          "reason": "http-404-on-nodes"
+        },
+        {
+          "slug": "Icteria virens",
+          "label": "species",
+          "kind": "absent",
+          "reason": "http-404-on-nodes"
+        },
+        {
+          "slug": "Icteria",
+          "label": "genus",
+          "kind": "absent",
+          "reason": "http-404-on-nodes"
+        }
+      ],
+      "reason": "cascade-exhausted: family=http-404-on-nodes, species=http-404-on-nodes, genus=http-404-on-nodes",
       "candidateCount": 0,
       "considered": []
     },
@@ -1368,7 +1410,28 @@
     {
       "family": "peucedramidae",
       "picked": null,
-      "reason": "http-404-on-nodes",
+      "resolutionPath": null,
+      "attempts": [
+        {
+          "slug": "peucedramidae",
+          "label": "family",
+          "kind": "absent",
+          "reason": "http-404-on-nodes"
+        },
+        {
+          "slug": "Peucedramus taeniatus",
+          "label": "species",
+          "kind": "absent",
+          "reason": "http-404-on-nodes"
+        },
+        {
+          "slug": "Peucedramus",
+          "label": "genus",
+          "kind": "absent",
+          "reason": "http-404-on-nodes"
+        }
+      ],
+      "reason": "cascade-exhausted: family=http-404-on-nodes, species=http-404-on-nodes, genus=http-404-on-nodes",
       "candidateCount": 0,
       "considered": []
     },
@@ -1636,7 +1699,28 @@
     {
       "family": "polioptilidae",
       "picked": null,
-      "reason": "http-404-on-nodes",
+      "resolutionPath": null,
+      "attempts": [
+        {
+          "slug": "polioptilidae",
+          "label": "family",
+          "kind": "absent",
+          "reason": "http-404-on-nodes"
+        },
+        {
+          "slug": "Polioptila caerulea",
+          "label": "species",
+          "kind": "absent",
+          "reason": "http-404-on-nodes"
+        },
+        {
+          "slug": "Polioptila",
+          "label": "genus",
+          "kind": "absent",
+          "reason": "http-404-on-nodes"
+        }
+      ],
+      "reason": "cascade-exhausted: family=http-404-on-nodes, species=http-404-on-nodes, genus=http-404-on-nodes",
       "candidateCount": 0,
       "considered": []
     },
@@ -1902,7 +1986,28 @@
     {
       "family": "ptiliogonatidae",
       "picked": null,
-      "reason": "http-404-on-nodes",
+      "resolutionPath": null,
+      "attempts": [
+        {
+          "slug": "ptiliogonatidae",
+          "label": "family",
+          "kind": "absent",
+          "reason": "http-404-on-nodes"
+        },
+        {
+          "slug": "Phainopepla nitens",
+          "label": "species",
+          "kind": "absent",
+          "reason": "http-404-on-nodes"
+        },
+        {
+          "slug": "Phainopepla",
+          "label": "genus",
+          "kind": "absent",
+          "reason": "http-404-on-nodes"
+        }
+      ],
+      "reason": "cascade-exhausted: family=http-404-on-nodes, species=http-404-on-nodes, genus=http-404-on-nodes",
       "candidateCount": 0,
       "considered": []
     },
@@ -2076,7 +2181,28 @@
     {
       "family": "remizidae",
       "picked": null,
-      "reason": "http-404-on-nodes",
+      "resolutionPath": null,
+      "attempts": [
+        {
+          "slug": "remizidae",
+          "label": "family",
+          "kind": "absent",
+          "reason": "http-404-on-nodes"
+        },
+        {
+          "slug": "Auriparus flaviceps",
+          "label": "species",
+          "kind": "absent",
+          "reason": "http-404-on-nodes"
+        },
+        {
+          "slug": "Auriparus",
+          "label": "genus",
+          "kind": "absent",
+          "reason": "http-404-on-nodes"
+        }
+      ],
+      "reason": "cascade-exhausted: family=http-404-on-nodes, species=http-404-on-nodes, genus=http-404-on-nodes",
       "candidateCount": 0,
       "considered": []
     },
@@ -2329,7 +2455,28 @@
     {
       "family": "tityridae",
       "picked": null,
-      "reason": "http-404-on-nodes",
+      "resolutionPath": null,
+      "attempts": [
+        {
+          "slug": "tityridae",
+          "label": "family",
+          "kind": "absent",
+          "reason": "http-404-on-nodes"
+        },
+        {
+          "slug": "Pachyramphus aglaiae",
+          "label": "species",
+          "kind": "absent",
+          "reason": "http-404-on-nodes"
+        },
+        {
+          "slug": "Pachyramphus",
+          "label": "genus",
+          "kind": "absent",
+          "reason": "http-404-on-nodes"
+        }
+      ],
+      "reason": "cascade-exhausted: family=http-404-on-nodes, species=http-404-on-nodes, genus=http-404-on-nodes",
       "candidateCount": 0,
       "considered": []
     },
@@ -2491,7 +2638,28 @@
     {
       "family": "vireonidae",
       "picked": null,
-      "reason": "http-404-on-images",
+      "resolutionPath": null,
+      "attempts": [
+        {
+          "slug": "vireonidae",
+          "label": "family",
+          "kind": "absent",
+          "reason": "http-404-on-images"
+        },
+        {
+          "slug": "Vireo plumbeus",
+          "label": "species",
+          "kind": "absent",
+          "reason": "http-404-on-nodes"
+        },
+        {
+          "slug": "Vireo",
+          "label": "genus",
+          "kind": "absent",
+          "reason": "http-404-on-images"
+        }
+      ],
+      "reason": "cascade-exhausted: family=http-404-on-images, species=http-404-on-nodes, genus=http-404-on-images",
       "candidateCount": 0,
       "considered": []
     },

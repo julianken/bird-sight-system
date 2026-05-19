@@ -127,18 +127,23 @@ INSERT INTO family_silhouettes (id, family_code, svg_data, color, color_dark, so
 ON CONFLICT (id) DO NOTHING;
 
 -- UPDATE bucket: families that stayed NULL after build 538 lookup
--- (Phylopic returned 404 or all candidates failed quality gates).
--- The _FALLBACK consumer (#246) continues to render these. A future
--- --rescue-via-species pass may rescue some via species/genus cascade.
-UPDATE family_silhouettes SET svg_data = NULL, source = NULL, license = NULL, creator = NULL
-WHERE family_code IN ('calcariidae', 'icteriidae', 'peucedramidae', 'polioptilidae', 'ptiliogonatidae', 'remizidae', 'tityridae', 'vireonidae');
+-- (Phylopic returned 404 or all candidates failed quality gates):
+--   calcariidae, icteriidae, peucedramidae, polioptilidae,
+--   ptiliogonatidae, remizidae, tityridae, vireonidae.
+-- Their svg_data/source/license/creator columns are already NULL (the
+-- prior curation runs in migrations 34000/35000/36000 either left them
+-- NULL or explicitly set them so). A SQL UPDATE setting NULL to NULL
+-- would be a literal no-op; intentionally omitted. The audit-comment
+-- header at the top of this migration is the curation record, and the
+-- per-row attempts[] cascade lives in scripts/phylopic-picks.json. A
+-- future --rescue-via-species pass may rescue some via species/genus
+-- cascade; the _FALLBACK consumer (#246) continues to render these.
 
 -- Down Migration
--- Two-phase revert mirrors the Up structure:
---   1) DELETE the rows added by the INSERT bucket (matched by family_code list).
---   2) UPDATE the UPDATE-bucket rows back to NULL (matched by family_code list).
+-- Single-phase revert mirrors the Up: DELETE the 32 rows added by the
+-- INSERT bucket (matched by family_code list). The UPDATE bucket above
+-- emits no SQL on the Up side (no-op), so the Down side mirrors that
+-- with no SQL.
 DELETE FROM family_silhouettes WHERE family_code IN (
   'acrocephalidae', 'alcidae', 'anhingidae', 'aramidae', 'bucerotidae', 'cacatuidae', 'casuariidae', 'cettiidae', 'ciconiidae', 'cracidae', 'diomedeidae', 'estrildidae', 'fregatidae', 'haematopodidae', 'hydrobatidae', 'leiothrichidae', 'monarchidae', 'muscicapidae', 'oceanitidae', 'paradoxornithidae', 'phaethontidae', 'phoenicopteridae', 'ploceidae', 'procellariidae', 'pteroclidae', 'pycnonotidae', 'ramphastidae', 'stercorariidae', 'sulidae', 'thraupidae', 'viduidae', 'zosteropidae'
 );
-UPDATE family_silhouettes SET svg_data = NULL, source = NULL, license = NULL, creator = NULL
-WHERE family_code IN ('calcariidae', 'icteriidae', 'peucedramidae', 'polioptilidae', 'ptiliogonatidae', 'remizidae', 'tityridae', 'vireonidae');

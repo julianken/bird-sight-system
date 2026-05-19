@@ -65,13 +65,19 @@ describe('Down(14000→17000) rollback chain', () => {
   it('runs Down(17000) without leaving any NULL svg_data on the 25 seeded families', async () => {
     const migrationsDir = resolve(process.cwd(), '../../migrations');
 
-    // Roll down from 46000 → 14000 in reverse numeric order.
+    // Roll down from 48000 → 14000 in reverse numeric order.
+    // Migration 48000 (Phase 3a national-coverage flip) inserts 32 rows,
+    // 15 of them with svg_data=NULL — must be rolled down first or its
+    // NULL rows would (a) inflate test 1's NULL count past the 7 the
+    // Down(17000) contract guards, and (b) survive into test 3's
+    // Down(14000) SET NOT NULL re-application.
     // Migration 46000 (contrast Phase 1, #570) adds color_dark NOT NULL —
-    // must be rolled down first so that Up re-application of 15000 (which
+    // must be rolled down next so that Up re-application of 15000 (which
     // INSERTs without color_dark) does not violate the NOT NULL constraint.
     // We only need to go back as far as 14000 to exercise the bug; rolling
     // all the way keeps the test realistic (matches `node-pg-migrate down`).
     const downSequence = [
+      '1700000048000_national_coverage_silhouettes.sql',
       '1700000046000_family_silhouettes_dual_palette.sql',
       '1700000019700_seed_fallback_common_name.sql',
       '1700000019500_seed_family_common_names.sql',
