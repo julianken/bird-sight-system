@@ -39,7 +39,7 @@ export async function handleScheduled(
   try {
     switch (kind) {
       case 'recent':
-        return await runIngest({ pool, apiKey: env.EBIRD_API_KEY, regionCode: 'US-AZ' });
+        return await runIngest({ pool, apiKey: env.EBIRD_API_KEY, regionCode: 'US' });
       case 'hotspots':
         return await runHotspotIngest({ pool, apiKey: env.EBIRD_API_KEY, regionCode: 'US-AZ' });
       case 'backfill':
