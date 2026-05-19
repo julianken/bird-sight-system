@@ -62,3 +62,12 @@ variable "frontend_origins" {
   # Production-only origins. Local dev relies on the hardcoded fallback in
   # services/read-api/src/app.ts; dev origins must NOT be added here.
 }
+
+variable "deployer_service_account_email" {
+  type        = string
+  description = "Email of the GCP service account impersonated by GitHub Actions deploy-* workflows via Workload Identity Federation. Stored in the GHA `GCP_DEPLOY_SA_EMAIL` secret. Used by `infra/terraform/cloud-sql.tf` to grant `roles/cloudsql.client` so the deployer can connect through the Cloud SQL Auth Proxy from CI. The SA itself is provisioned out-of-band (predates Terraform-managed IAM here)."
+  # Out-of-band today. If we ever pull SA provisioning under Terraform, add the
+  # `google_service_account` resource alongside the existing service-account
+  # blocks in read-api.tf / admin-api.tf / ingestor.tf and reference its
+  # `.email` attribute here.
+}

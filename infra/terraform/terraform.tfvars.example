@@ -9,6 +9,12 @@ ebird_api_key         = "REPLACE_ME"
 domain                = "birdwatch.example.com"
 frontend_origins      = "https://bird-maps.com,https://www.bird-maps.com"
 
+# Email of the GHA WIF-impersonated deployer SA. Matches the value stored in
+# the `GCP_DEPLOY_SA_EMAIL` repository secret. Used by cloud-sql.tf to grant
+# `roles/cloudsql.client` so the deploy-migrations workflow can connect via
+# the Cloud SQL Auth Proxy.
+deployer_service_account_email = "REPLACE_ME@REPLACE_ME.iam.gserviceaccount.com"
+
 # Monitoring & alerts (Plan 2026-05-17). alert_email defaults to
 # julian.kennon.d@gmail.com — uncomment to override. Healthchecks.io URLs are
 # NOT set here; they live in Secret Manager (bird-watch-healthchecks-<kind>)

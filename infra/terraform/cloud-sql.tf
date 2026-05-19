@@ -177,3 +177,18 @@ resource "google_project_iam_member" "cloudsql_client_read_api" {
   role    = "roles/cloudsql.client"
   member  = "serviceAccount:${google_service_account.read_api.email}"
 }
+
+# The fourth grant covers the GHA deploy-* workflows' identity, not a Cloud
+# Run runtime SA. The `deploy-migrations` workflow starts the Cloud SQL Auth
+# Proxy in-job and connects to it via TCP 127.0.0.1:5432 to run
+# `node-pg-migrate up`. Without `cloudsql.client`, the proxy fails before it
+# can accept connections (`boss::NOT_AUTHORIZED ... missing permission
+# cloudsql.instances.get`) and pg_isready times out. Surfaced 2026-05-18 when
+# the post-cutover deploy-migrations workflow exit-2'd on every push to main
+# — the previous Neon-direct workflow needed no GCP IAM, so this grant had no
+# parallel until cutover.
+resource "google_project_iam_member" "cloudsql_client_deployer" {
+  project = var.gcp_project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:${var.deployer_service_account_email}"
+}
