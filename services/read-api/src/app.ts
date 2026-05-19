@@ -11,6 +11,10 @@ import {
 import type { ObservationsResponse } from '@bird-watch/shared-types';
 import { cacheControlFor } from './cache-headers.js';
 import { rateLimitFromEnv } from './rate-limit.js';
+import {
+  parseSince, parseNotable, parseSpecies, parseFamily,
+  assertBboxAreaCap, assertBboxOrSpecies,
+} from './validate.js';
 
 export interface AppDeps {
   pool: Pool;
@@ -84,15 +88,55 @@ export function createApp(deps: AppDeps): Hono {
   });
 
   app.get('/api/observations', async c => {
-    const sinceRaw = c.req.query('since');
-    const validSince = ['1d', '7d', '14d', '30d'] as const;
-    if (sinceRaw !== undefined && !(validSince as readonly string[]).includes(sinceRaw)) {
-      return c.json({ error: 'invalid since' }, 400);
+    // #667 — strict allowlist validation across all filter params, with
+    // structured 400 telemetry. See services/read-api/src/validate.ts.
+
+    const sinceResult = parseSince(c.req.query('since'));
+    if (!sinceResult.ok) {
+      console.log(JSON.stringify(sinceResult.log));
+      return c.json({ error: sinceResult.error }, 400);
     }
-    const since = sinceRaw as '1d' | '7d' | '14d' | '30d' | undefined;
-    const notableParam = c.req.query('notable');
-    const speciesCode = c.req.query('species');
-    const familyCode = c.req.query('family');
+    const since = sinceResult.value;
+    // Soft-deprecation: `?since=30d` is coerced to `14d` server-side for a
+    // single release window, and we emit Deprecation/Sunset/Warning headers
+    // plus a NOTICE log so dashboards can grep for live consumers. The next
+    // release flips to hard 400. See issue #667 Addendum §5.
+    if (sinceResult.deprecated) {
+      // Sunset date: 14 days from now, ISO-date precision (HTTP date acceptable).
+      const sunset = new Date(Date.now() + 14 * 86400_000).toISOString();
+      c.header('Deprecation', 'true');
+      c.header('Sunset', sunset);
+      c.header(
+        'Warning',
+        '299 - "since=30d is deprecated; use since=14d (or omit since)"',
+      );
+      console.log(JSON.stringify({
+        severity: 'NOTICE',
+        message: 'deprecated_since_30d',
+        user_agent: c.req.header('user-agent') ?? null,
+      }));
+    }
+
+    const notableResult = parseNotable(c.req.query('notable'));
+    if (!notableResult.ok) {
+      console.log(JSON.stringify(notableResult.log));
+      return c.json({ error: notableResult.error }, 400);
+    }
+    const notable = notableResult.value;
+
+    const speciesResult = parseSpecies(c.req.query('species'));
+    if (!speciesResult.ok) {
+      console.log(JSON.stringify(speciesResult.log));
+      return c.json({ error: speciesResult.error }, 400);
+    }
+    const speciesCode = speciesResult.value;
+
+    const familyResult = parseFamily(c.req.query('family'));
+    if (!familyResult.ok) {
+      console.log(JSON.stringify(familyResult.log));
+      return c.json({ error: familyResult.error }, 400);
+    }
+    const familyCode = familyResult.value;
 
     // #619 — optional viewport-bbox filter, Phase 2 going-national
     // pre-condition. Format: bbox=minLon,minLat,maxLon,maxLat (EPSG:4326).
@@ -138,7 +182,7 @@ export function createApp(deps: AppDeps): Hono {
 
     const filters: Parameters<typeof getObservations>[1] = {};
     if (since !== undefined) filters.since = since;
-    if (notableParam === 'true') filters.notable = true;
+    if (notable === true) filters.notable = true;
     if (speciesCode !== undefined) filters.speciesCode = speciesCode;
     if (familyCode !== undefined) filters.familyCode = familyCode;
     if (bbox !== undefined) filters.bbox = bbox;
@@ -170,6 +214,28 @@ export function createApp(deps: AppDeps): Hono {
         meta: { freshestObservationAt },
       };
       return c.json(body);
+    }
+
+    // #667 Scope C.1 — per-observation path requires EITHER bbox OR species.
+    // Family-only (no bbox, no species) is the scrape vector for "all of
+    // family X nationally"; reject before hitting the DB. Aggregated mode
+    // above already returned, so this check only fires on the heavier path.
+    const guard = assertBboxOrSpecies({ bbox, speciesCode });
+    if (!guard.ok) {
+      console.log(JSON.stringify(guard.log));
+      return c.json({ error: guard.error }, 400);
+    }
+
+    // #667 Scope C.2 — per-axis bbox cap on the per-observation path.
+    // `zoom < 6` (aggregated) already returned; here `zoom` may be >=6 or
+    // undefined (deep links before MapCanvas mounts). The cap only fires
+    // when zoom >= 6.
+    if (bbox !== undefined) {
+      const cap = assertBboxAreaCap(bbox, zoom);
+      if (!cap.ok) {
+        console.log(JSON.stringify(cap.log));
+        return c.json(cap.body, 400);
+      }
     }
 
     // Run both queries in parallel — getObservations fetches the filtered rows;

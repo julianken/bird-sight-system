@@ -57,19 +57,25 @@ describe('GET /api/observations', () => {
     meta: { freshestObservationAt: string | null };
   };
 
+  // Default bbox covering both seeded observations (lat 31.72/32.30, lng
+  // -110.88/-110.99). #667 Scope C.1 requires bbox OR species on every
+  // per-observation request, so seed-dependent tests pin a known-good bbox.
+  const BBOX_AZ = '-112,31,-110,33';
+
   it('returns observations with correct cache header', async () => {
     const app = createApp({ pool: db.pool });
-    const res = await app.request('/api/observations?since=30d');
+    const res = await app.request(`/api/observations?since=14d&bbox=${BBOX_AZ}`);
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control'))
       .toBe('public, s-maxage=300, stale-while-revalidate=600');
     const body = await res.json() as ObsEnvelope;
-    expect(body.data).toHaveLength(2);
+    // Only S1 falls within 14d (S2 is 20d old).
+    expect(body.data).toHaveLength(1);
   });
 
   it('returns meta.freshestObservationAt as an ISO string (#456 W3-A)', async () => {
     const app = createApp({ pool: db.pool });
-    const res = await app.request('/api/observations?since=30d');
+    const res = await app.request(`/api/observations?since=14d&bbox=${BBOX_AZ}`);
     expect(res.status).toBe(200);
     const body = await res.json() as ObsEnvelope;
     // freshestObservationAt must be a non-null ISO string — the table has rows
@@ -86,7 +92,7 @@ describe('GET /api/observations', () => {
     // beforeAll re-seeds for future tests in this suite.
     await db.pool.query('TRUNCATE observations');
     const app = createApp({ pool: db.pool });
-    const res = await app.request('/api/observations');
+    const res = await app.request(`/api/observations?bbox=${BBOX_AZ}`);
     expect(res.status).toBe(200);
     const body = await res.json() as ObsEnvelope;
     expect(body.meta.freshestObservationAt).toBeNull();
@@ -103,7 +109,8 @@ describe('GET /api/observations', () => {
 
   it('projects familyCode from species_meta onto each observation (#57)', async () => {
     const app = createApp({ pool: db.pool });
-    const res = await app.request('/api/observations?since=30d');
+    // No since filter → both rows returned.
+    const res = await app.request(`/api/observations?bbox=${BBOX_AZ}`);
     expect(res.status).toBe(200);
     const body = await res.json() as ObsEnvelope;
     const byId = Object.fromEntries(body.data.map(o => [o.subId, o.familyCode]));
@@ -113,28 +120,29 @@ describe('GET /api/observations', () => {
 
   it('filters by since=14d', async () => {
     const app = createApp({ pool: db.pool });
-    const res = await app.request('/api/observations?since=14d');
+    const res = await app.request(`/api/observations?since=14d&bbox=${BBOX_AZ}`);
     const body = await res.json() as ObsEnvelope;
     expect(body.data.map(o => o.subId)).toEqual(['S1']);
   });
 
   it('filters by notable=true', async () => {
     const app = createApp({ pool: db.pool });
-    const res = await app.request('/api/observations?since=30d&notable=true');
+    const res = await app.request(`/api/observations?bbox=${BBOX_AZ}&notable=true`);
     const body = await res.json() as ObsEnvelope;
     expect(body.data.map(o => o.subId)).toEqual(['S2']);
   });
 
   it('filters by species code', async () => {
     const app = createApp({ pool: db.pool });
-    const res = await app.request('/api/observations?since=30d&species=vermfly');
+    // Species-filtered request needs no bbox per #667 Scope C.1.
+    const res = await app.request('/api/observations?species=vermfly');
     const body = await res.json() as ObsEnvelope;
     expect(body.data.map(o => o.subId)).toEqual(['S1']);
   });
 
-  it('filters by family code', async () => {
+  it('filters by family code (with bbox per #667 Scope C.1)', async () => {
     const app = createApp({ pool: db.pool });
-    const res = await app.request('/api/observations?since=30d&family=trochilidae');
+    const res = await app.request(`/api/observations?bbox=${BBOX_AZ}&family=trochilidae`);
     const body = await res.json() as ObsEnvelope;
     expect(body.data.map(o => o.subId)).toEqual(['S2']);
   });
@@ -145,21 +153,202 @@ describe('GET /api/observations', () => {
     expect(res.status).toBe(400);
   });
 
-  // #619 — server-side bbox filtering, Phase 2 going-national pre-condition.
-  describe('bbox filtering', () => {
-    it('with NO bbox returns the full set (backward-compatible)', async () => {
-      const app = createApp({ pool: db.pool });
-      const res = await app.request('/api/observations?since=30d');
-      expect(res.status).toBe(200);
-      const body = await res.json() as ObsEnvelope;
-      expect(body.data).toHaveLength(2);
+  // #667 — strict validation of notable / species / family. Each rejection
+  // emits a single structured 'validation_400' log line (Addendum §7).
+  describe('strict allowlist validation (#667)', () => {
+    it('rejects ?notable=banana with 400 + structured log', async () => {
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      try {
+        const app = createApp({ pool: db.pool });
+        const res = await app.request('/api/observations?notable=banana');
+        expect(res.status).toBe(400);
+        const body = await res.json() as { error: string };
+        expect(body.error).toBe('invalid notable');
+        const log = logSpy.mock.calls
+          .map(args => args[0])
+          .filter((a): a is string => typeof a === 'string')
+          .map(s => { try { return JSON.parse(s); } catch { return null; } })
+          .find((p): p is Record<string, unknown> =>
+            !!p && p.message === 'validation_400' && p.param === 'notable');
+        expect(log).toBeDefined();
+        expect(log!.reason).toBe('not_in_allowlist');
+        // Hash, not raw value — guard against PII / scraper payload leak.
+        expect(log!.received_hash).toMatch(/^[a-f0-9]{8}$/);
+        expect(JSON.stringify(log)).not.toContain('banana');
+      } finally {
+        logSpy.mockRestore();
+      }
     });
 
+    it.each([
+      ['species', '%',                  'regex_mismatch'],
+      ['species', "' OR 1=1 --",        'regex_mismatch'],
+      ['species', 'GAMQUA',             'regex_mismatch'],
+      ['family',  '%',                  'regex_mismatch'],
+      ['family',  'TYRANNIDAE',         'regex_mismatch'],
+    ])('rejects ?%s=%s with 400 (reason=%s)', async (param, value, reason) => {
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      try {
+        const app = createApp({ pool: db.pool });
+        const res = await app.request(
+          `/api/observations?${param}=${encodeURIComponent(value)}`,
+        );
+        expect(res.status).toBe(400);
+        const log = logSpy.mock.calls
+          .map(args => args[0])
+          .filter((a): a is string => typeof a === 'string')
+          .map(s => { try { return JSON.parse(s); } catch { return null; } })
+          .find((p): p is Record<string, unknown> =>
+            !!p && p.message === 'validation_400' && p.param === param);
+        expect(log).toBeDefined();
+        expect(log!.reason).toBe(reason);
+      } finally {
+        logSpy.mockRestore();
+      }
+    });
+
+    it.each(['accipi1', 'tyrann1', 'x00013', 'gamqua', 'cardin1'])(
+      'accepts real eBird code %s without 400',
+      async (code) => {
+        const app = createApp({ pool: db.pool });
+        const res = await app.request(`/api/observations?species=${code}`);
+        // 200 with empty data (no seeded rows for these codes) — the
+        // validation layer is what we're asserting, not the data shape.
+        expect(res.status).toBe(200);
+      },
+    );
+
+    it('does NOT echo received value or leak allowlist in 400 body', async () => {
+      const app = createApp({ pool: db.pool });
+      const res = await app.request("/api/observations?species=' OR 1=1 --");
+      expect(res.status).toBe(400);
+      const text = await res.text();
+      expect(text).not.toContain("OR 1=1");
+      expect(text).not.toContain('allowlist');
+    });
+  });
+
+  // #667 Addendum §5 — soft-deprecation window for ?since=30d. Accepts the
+  // value, coerces to 14d internally, emits Deprecation/Sunset/Warning
+  // headers plus a NOTICE log. Next PR (≥14d post-deploy) flips to hard 400.
+  describe('?since=30d soft-deprecation (#667 Addendum §5)', () => {
+    it('returns 200 + Deprecation: true + Sunset + Warning: 299', async () => {
+      const app = createApp({ pool: db.pool });
+      const res = await app.request(`/api/observations?since=30d&bbox=${BBOX_AZ}`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('deprecation')).toBe('true');
+      expect(res.headers.get('sunset')).toBeTruthy();
+      // ISO date is acceptable for Sunset header.
+      expect(res.headers.get('sunset')).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      const warning = res.headers.get('warning') ?? '';
+      expect(warning).toContain('299');
+      expect(warning).toContain('since=30d');
+    });
+
+    it('coerces to 14d internally (S2 at 20d is excluded)', async () => {
+      const app = createApp({ pool: db.pool });
+      const res = await app.request(`/api/observations?since=30d&bbox=${BBOX_AZ}`);
+      const body = await res.json() as ObsEnvelope;
+      expect(body.data.map(o => o.subId)).toEqual(['S1']);
+    });
+
+    it('emits a NOTICE log line with user_agent', async () => {
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      try {
+        const app = createApp({ pool: db.pool });
+        const res = await app.request(`/api/observations?since=30d&bbox=${BBOX_AZ}`, {
+          headers: { 'user-agent': 'curl/8.0' },
+        });
+        expect(res.status).toBe(200);
+        const log = logSpy.mock.calls
+          .map(args => args[0])
+          .filter((a): a is string => typeof a === 'string')
+          .map(s => { try { return JSON.parse(s); } catch { return null; } })
+          .find((p): p is Record<string, unknown> =>
+            !!p && p.message === 'deprecated_since_30d');
+        expect(log).toBeDefined();
+        expect(log!.severity).toBe('NOTICE');
+        expect(log!.user_agent).toBe('curl/8.0');
+      } finally {
+        logSpy.mockRestore();
+      }
+    });
+  });
+
+  // #667 Scope C.1 — guard on the per-observation path: bbox OR species.
+  describe('bbox-or-species guard (#667 Scope C.1)', () => {
+    it('rejects bare /api/observations with 400 (no bbox, no species)', async () => {
+      const app = createApp({ pool: db.pool });
+      const res = await app.request('/api/observations?since=14d');
+      expect(res.status).toBe(400);
+      const body = await res.json() as { error: string };
+      expect(body.error).toBe('specify bbox or species');
+    });
+
+    it('rejects ?family=X without bbox or species (Addendum §4 scrape vector)', async () => {
+      const app = createApp({ pool: db.pool });
+      const res = await app.request('/api/observations?family=trochilidae');
+      expect(res.status).toBe(400);
+    });
+
+    it('accepts ?species=X with no bbox (deep-link before MapCanvas mounts)', async () => {
+      const app = createApp({ pool: db.pool });
+      const res = await app.request('/api/observations?species=vermfly');
+      expect(res.status).toBe(200);
+    });
+
+    it('accepts bbox with no species', async () => {
+      const app = createApp({ pool: db.pool });
+      const res = await app.request(`/api/observations?bbox=${BBOX_AZ}`);
+      expect(res.status).toBe(200);
+    });
+  });
+
+  // #667 Scope C.2 — per-axis bbox cap on the per-observation path. zoom < 6
+  // hits aggregated mode (no cap); zoom >= 6 enforces 15° lng × 10° lat.
+  describe('per-axis bbox cap (#667 Scope C.2)', () => {
+    it('rejects too-wide lng span at zoom=8 with descriptive body', async () => {
+      const app = createApp({ pool: db.pool });
+      const res = await app.request(
+        '/api/observations?bbox=-130,30,-110,40&zoom=8',
+      );
+      expect(res.status).toBe(400);
+      const body = await res.json() as {
+        error: string; maxLngSpan: number; maxLatSpan: number; hint: string;
+      };
+      expect(body.error).toBe('bbox too large');
+      expect(body.maxLngSpan).toBe(15);
+      expect(body.maxLatSpan).toBe(10);
+      expect(body.hint).toContain('zoom out');
+    });
+
+    it('accepts state-level bbox (6° × 5°) at zoom=8', async () => {
+      const app = createApp({ pool: db.pool });
+      const res = await app.request(
+        '/api/observations?bbox=-115,32,-109,37&zoom=8',
+      );
+      expect(res.status).toBe(200);
+    });
+
+    it('does NOT cap at zoom=4 (aggregated mode handles unbounded bbox)', async () => {
+      const app = createApp({ pool: db.pool });
+      const res = await app.request(
+        '/api/observations?bbox=-180,-90,180,90&zoom=4',
+      );
+      expect(res.status).toBe(200);
+    });
+  });
+
+  // #619 — server-side bbox filtering, Phase 2 going-national pre-condition.
+  // Note: #667 Scope C.1 made bbox-or-species required on the per-observation
+  // path, so the prior "no bbox returns full set" test was deleted as
+  // contradictory.
+  describe('bbox filtering', () => {
     it('with a valid bbox narrows to in-bounds observations', async () => {
       const app = createApp({ pool: db.pool });
       // Envelope contains only S1 (31.72, -110.88); excludes S2 (32.30, -110.99)
       const res = await app.request(
-        '/api/observations?since=30d&bbox=-111,31.5,-110.85,31.9'
+        `/api/observations?bbox=-111,31.5,-110.85,31.9`
       );
       expect(res.status).toBe(200);
       const body = await res.json() as ObsEnvelope;
@@ -227,12 +416,12 @@ describe('GET /api/observations', () => {
       expect(Array.isArray(body.data)).toBe(true);
     });
 
-    it('zoom without bbox keeps per-observation mode', async () => {
+    it('zoom without bbox or species now returns 400 (#667 Scope C.1)', async () => {
+      // Pre-#667 this kept per-observation mode. The bbox-or-species guard
+      // now rejects before the aggregation branch fires.
       const app = createApp({ pool: db.pool });
       const res = await app.request('/api/observations?zoom=3');
-      expect(res.status).toBe(200);
-      const body = await res.json() as { mode: string };
-      expect(body.mode).toBe('observations');
+      expect(res.status).toBe(400);
     });
 
     it('rejects non-integer zoom with 400', async () => {
@@ -266,7 +455,7 @@ describe('GET /api/observations', () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     try {
       const app = createApp({ pool: db.pool });
-      const res = await app.request('/api/observations?since=30d');
+      const res = await app.request(`/api/observations?bbox=${BBOX_AZ}`);
       expect(res.status).toBe(200);
       const matches = logSpy.mock.calls
         .map(args => args[0])
@@ -294,7 +483,7 @@ describe('GET /api/observations', () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     try {
       const app = createApp({ pool: db.pool });
-      const res = await app.request('/api/observations');
+      const res = await app.request(`/api/observations?bbox=${BBOX_AZ}`);
       expect(res.status).toBe(200);
       const matches = logSpy.mock.calls
         .map(args => args[0])
@@ -370,7 +559,7 @@ describe('species_meta backfill for eBird hybrid/spuh codes (#484)', () => {
     })));
 
     const app = createApp({ pool: db.pool });
-    const obsRes = await app.request('/api/observations?since=30d');
+    const obsRes = await app.request('/api/observations?bbox=-112,31,-110,33');
     expect(obsRes.status).toBe(200);
     const obsBody = await obsRes.json() as {
       data: Array<{ speciesCode: string }>;
@@ -657,7 +846,7 @@ describe('gzip compression middleware', () => {
 
   it('returns content-encoding: gzip when client accepts gzip', async () => {
     const app = createApp({ pool: db.pool });
-    const res = await app.request('/api/observations?since=30d', {
+    const res = await app.request('/api/observations?species=vermfly', {
       headers: { 'Accept-Encoding': 'gzip' },
     });
     expect(res.status).toBe(200);
@@ -666,7 +855,7 @@ describe('gzip compression middleware', () => {
 
   it('omits content-encoding when client does not advertise gzip', async () => {
     const app = createApp({ pool: db.pool });
-    const res = await app.request('/api/observations?since=30d');
+    const res = await app.request('/api/observations?species=vermfly');
     expect(res.status).toBe(200);
     expect(res.headers.get('content-encoding')).toBeNull();
   });
@@ -676,7 +865,7 @@ describe('gzip compression middleware', () => {
     // by Accept-Encoding so they never serve a gzip body to a client that
     // didn't negotiate it.  See #143.
     const app = createApp({ pool: db.pool });
-    const res = await app.request('/api/observations?since=30d', {
+    const res = await app.request('/api/observations?species=vermfly', {
       headers: { 'Accept-Encoding': 'gzip' },
     });
     expect(res.status).toBe(200);
