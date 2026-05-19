@@ -277,6 +277,24 @@ const CONUS_ZOOM_NARROW = 3;
 const CONUS_ZOOM_WIDE = 4;
 const CONUS_NARROW_BREAKPOINT_PX = 700;
 
+/**
+ * Pan/zoom bounds for the map. Kept consistent with the server-side bbox cap
+ * in `services/read-api/src/validate.ts` (45° lng × 25° lat at z>=6 / per-obs
+ * mode) so the natural viewport at z=6 stays under the cap on any canonical
+ * viewport (1920×1080 → 42.2° × 23.7°).
+ *
+ * - `MIN_ZOOM = 3` matches `CONUS_ZOOM_NARROW`: users can't zoom out past the
+ *   mobile-default CONUS view. At z<6 the API is in aggregated mode anyway,
+ *   so unbounded bboxes don't matter; this bound is purely a UX floor.
+ * - `MAX_BOUNDS` keeps pan inside CONUS + a margin for coastal/border obs.
+ *   AK and HI are out of frame for Phase 3a; revisit when ingest expands.
+ */
+const MIN_ZOOM = CONUS_ZOOM_NARROW;
+const MAX_BOUNDS: [[number, number], [number, number]] = [
+  [-130, 20],
+  [-65, 52],
+];
+
 function pickInitialZoom(): number {
   if (typeof window === 'undefined') return CONUS_ZOOM_WIDE;
   return window.innerWidth < CONUS_NARROW_BREAKPOINT_PX
@@ -1399,6 +1417,8 @@ export function MapCanvas({
       <MapView
         ref={mapRef}
         initialViewState={INITIAL_VIEW}
+        minZoom={MIN_ZOOM}
+        maxBounds={MAX_BOUNDS}
         style={{ width: '100%', height: '100%' }}
         mapStyle={
           typeof document !== 'undefined' &&
