@@ -204,7 +204,7 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
   try {
     let summary: AnyRunSummary;
     if (kind === 'recent') {
-      summary = await deps.runIngest({ pool, apiKey, regionCode: 'US-AZ' });
+      summary = await deps.runIngest({ pool, apiKey, regionCode: 'US' });
     } else if (kind === 'hotspots') {
       summary = await deps.runHotspotIngest({ pool, apiKey, regionCode: 'US-AZ' });
     } else if (kind === 'backfill') {

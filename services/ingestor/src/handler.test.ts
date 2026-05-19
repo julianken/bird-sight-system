@@ -73,7 +73,7 @@ describe('handleScheduled', () => {
     expect(runIngestMock).toHaveBeenCalledWith({
       pool: POOL_SENTINEL,
       apiKey: 'test-key',
-      regionCode: 'US-AZ',
+      regionCode: 'US',
     });
     expect(result).toBe(summary);
     expect(closePoolMock).toHaveBeenCalledWith(POOL_SENTINEL);
