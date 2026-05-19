@@ -305,20 +305,20 @@ describe('GET /api/observations', () => {
   });
 
   // #667 Scope C.2 — per-axis bbox cap on the per-observation path. zoom < 6
-  // hits aggregated mode (no cap); zoom >= 6 enforces 30° lng × 15° lat.
+  // hits aggregated mode (no cap); zoom >= 6 enforces 45° lng × 25° lat.
   describe('per-axis bbox cap (#667 Scope C.2)', () => {
     it('rejects too-wide lng span at zoom=8 with descriptive body', async () => {
       const app = createApp({ pool: db.pool });
       const res = await app.request(
-        '/api/observations?bbox=-140,30,-100,40&zoom=8',
+        '/api/observations?bbox=-140,30,-90,40&zoom=8',
       );
       expect(res.status).toBe(400);
       const body = await res.json() as {
         error: string; maxLngSpan: number; maxLatSpan: number; hint: string;
       };
       expect(body.error).toBe('bbox too large');
-      expect(body.maxLngSpan).toBe(30);
-      expect(body.maxLatSpan).toBe(15);
+      expect(body.maxLngSpan).toBe(45);
+      expect(body.maxLatSpan).toBe(25);
       expect(body.hint).toContain('zoom out');
     });
 

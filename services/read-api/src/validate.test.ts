@@ -131,24 +131,30 @@ describe('assertBboxAreaCap', () => {
   });
 
   it('passes for a within-cap bbox at zoom >= 6', () => {
-    // Texas-ish: 13° lng × 11° lat — within 15/10 cap (actually 11 > 10 fails).
-    // Pick something within the cap.
     const r = assertBboxAreaCap([-115, 32, -109, 37], 8); // 6° × 5°
     expect(r.ok).toBe(true);
   });
 
+  it('passes for natural 1920x1080 viewport at z=6 (~42.2° × 23.7°)', () => {
+    // Largest canonical viewport at the per-obs zoom boundary. The cap is
+    // sized to allow this exact case — if you bump 1920×1080 out of the
+    // canonical set, you can shrink the cap.
+    const r = assertBboxAreaCap([-119.7, 27.9, -77.5, 51.6], 6);
+    expect(r.ok).toBe(true);
+  });
+
   it('rejects too-wide lng span at zoom >= 6', () => {
-    const r = assertBboxAreaCap([-140, 30, -100, 40], 6); // 40° × 10° — lng > 30
+    const r = assertBboxAreaCap([-140, 30, -90, 40], 6); // 50° × 10° — lng > 45
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.body.error).toBe('bbox too large');
-      expect(r.body.maxLngSpan).toBe(30);
+      expect(r.body.maxLngSpan).toBe(45);
       expect(r.log.reason).toBe('too_large');
     }
   });
 
   it('rejects too-tall lat span at zoom >= 6', () => {
-    const r = assertBboxAreaCap([-115, 20, -105, 45], 7); // 10° × 25° — lat > 15
+    const r = assertBboxAreaCap([-115, 15, -105, 45], 7); // 10° × 30° — lat > 25
     expect(r.ok).toBe(false);
   });
 
