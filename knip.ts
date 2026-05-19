@@ -62,6 +62,17 @@ const config: KnipConfig = {
     //             2026-07-27 by confirming scripts/silhouette.mjs still exists
     //             and its test is invoked by an npm script.
     'scripts/silhouette.test.mjs',
+
+    // 2026-05-18: scripts/curate-phylopic.test.mjs is the test sibling of
+    //             scripts/curate-phylopic.mjs (the --national-coverage mode
+    //             added for Phase 3a). Same orphan profile as
+    //             silhouette.test.mjs — no static test-runner config picks
+    //             it up; it's operator-run via `vitest run` from the repo
+    //             root when validating mode='national' emit-output changes.
+    //             Risk: masks a genuine orphan if scripts/curate-phylopic.mjs
+    //             is ever deleted without also removing the test. Re-audit
+    //             2026-07-27 alongside silhouette.test.mjs.
+    'scripts/curate-phylopic.test.mjs',
   ],
 
   // 2026-04-27: React component Props interfaces and other exports used only
