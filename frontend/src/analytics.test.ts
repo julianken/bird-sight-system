@@ -1,76 +1,86 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 /**
- * Tests for the analytics module.  Verifies the empty-key guard semantics
- * documented in issue #357 task 2:
+ * Tests for the Clarity-backed analytics module (PR #659 follow-up).
  *
- *   - `posthog.init` is NEVER called when `VITE_POSTHOG_KEY` is unset/empty.
- *     This is load-bearing for CI: posthog-js emits a console warning on an
- *     empty key, which would fail the existing console-cleanliness assertions
- *     in every e2e spec (species-detail.spec.ts, map-symbol-layer.spec.ts).
- *   - When the key is empty, `analytics.capture(...)` is a no-op stub.
- *   - When the key is present, `analytics.capture(...)` is the real posthog
- *     module's capture, and `posthog.init` was called once with the key and
- *     the privacy-respecting options (`autocapture: false`,
- *     `capture_pageview: false`, `respect_dnt: true`).
+ * The PostHog→Clarity migration kept the public `analytics.capture()` API
+ * unchanged (4 existing call sites stay verbatim — see analytics.ts
+ * docstring) but swapped the underlying transport.
  *
- * The module is imported dynamically per-test so each test sees a freshly
- * evaluated module body — top-level `import.meta.env` reads happen at module
- * evaluation, so `vi.stubEnv` must be called before the dynamic import.
+ *   - `capture(name)` → calls `Clarity.event(name)`. No `setTag` calls.
+ *   - `capture(name, props)` → calls `Clarity.event(name)` AND
+ *     `Clarity.setTag(key, String(value))` for every prop key/value pair.
+ *     This preserves the event-with-dimensions intent of the old PostHog
+ *     payload shape under Clarity's split API.
+ *   - `setView(view)` → calls `Clarity.setTag('view', view)`. The 'view'
+ *     dimension lets dashboards filter Clarity sessions by surface
+ *     (feed | map | species | detail).
+ *
+ * The wrapper guards on `window.clarity` being a function — Clarity's
+ * injected script wires that during `init`, and direct calls to
+ * `Clarity.event/setTag` throw `TypeError: window.clarity is not a function`
+ * before init runs. The guard makes the module safe to call from any test
+ * (call sites in SpeciesDetailSurface.test, e2e specs) without leaking that
+ * SDK internal. These tests stub `window.clarity` so the guard passes and
+ * the mocked `Clarity` methods are observed.
+ *
+ * Module is imported dynamically per-test so each test starts from a fresh
+ * module evaluation.
  */
 
-const initMock = vi.fn();
-const captureMock = vi.fn();
+const eventMock = vi.fn();
+const setTagMock = vi.fn();
 
-vi.mock('posthog-js', () => ({
-  default: {
-    init: initMock,
-    capture: captureMock,
-  },
+vi.mock('@microsoft/clarity', () => ({
+  default: { event: eventMock, setTag: setTagMock, init: vi.fn() },
 }));
 
 describe('analytics module', () => {
   beforeEach(() => {
     vi.resetModules();
-    initMock.mockReset();
-    captureMock.mockReset();
+    eventMock.mockReset();
+    setTagMock.mockReset();
+    (window as unknown as { clarity: (...args: unknown[]) => void }).clarity =
+      () => {};
   });
 
   afterEach(() => {
-    vi.unstubAllEnvs();
+    delete (window as unknown as { clarity?: unknown }).clarity;
   });
 
-  it('does NOT call posthog.init when VITE_POSTHOG_KEY is unset', async () => {
-    // Default: env var unset / empty.  This mirrors CI + local dev.
-    vi.stubEnv('VITE_POSTHOG_KEY', '');
-    await import('./analytics.js');
-    expect(initMock).not.toHaveBeenCalled();
-  });
-
-  it('exports a capture-stub no-op when VITE_POSTHOG_KEY is unset', async () => {
-    vi.stubEnv('VITE_POSTHOG_KEY', '');
+  it('capture(name) calls Clarity.event with the name', async () => {
     const { analytics } = await import('./analytics.js');
-    // Must not throw, must not delegate to posthog.capture.
-    expect(() => analytics.capture('panel_opened', { species_code: 'x' })).not.toThrow();
-    expect(captureMock).not.toHaveBeenCalled();
+    analytics.capture('panel_opened');
+    expect(eventMock).toHaveBeenCalledWith('panel_opened');
+    expect(setTagMock).not.toHaveBeenCalled();
   });
 
-  it('calls posthog.init with privacy-respecting options when key is present', async () => {
-    vi.stubEnv('VITE_POSTHOG_KEY', 'phc_test_key');
-    await import('./analytics.js');
-    expect(initMock).toHaveBeenCalledTimes(1);
-    expect(initMock).toHaveBeenCalledWith('phc_test_key', {
-      api_host: 'https://us.i.posthog.com',
-      autocapture: false,
-      capture_pageview: false,
-      respect_dnt: true,
-    });
-  });
-
-  it('exports posthog as analytics when key is present', async () => {
-    vi.stubEnv('VITE_POSTHOG_KEY', 'phc_test_key');
+  it('capture(name, props) calls Clarity.event then setTag for each prop', async () => {
     const { analytics } = await import('./analytics.js');
-    analytics.capture('panel_opened', { species_code: 'x' });
-    expect(captureMock).toHaveBeenCalledWith('panel_opened', { species_code: 'x' });
+    analytics.capture('panel_opened', { species_code: 'haxwo', source: 'feed' });
+    expect(eventMock).toHaveBeenCalledWith('panel_opened');
+    expect(setTagMock).toHaveBeenCalledWith('species_code', 'haxwo');
+    expect(setTagMock).toHaveBeenCalledWith('source', 'feed');
+  });
+
+  it('setView(view) calls Clarity.setTag with key "view"', async () => {
+    const { analytics } = await import('./analytics.js');
+    analytics.setView('species');
+    expect(setTagMock).toHaveBeenCalledWith('view', 'species');
+  });
+
+  it('capture is a no-op when window.clarity has not been wired', async () => {
+    delete (window as unknown as { clarity?: unknown }).clarity;
+    const { analytics } = await import('./analytics.js');
+    expect(() => analytics.capture('panel_opened', { x: 1 })).not.toThrow();
+    expect(eventMock).not.toHaveBeenCalled();
+    expect(setTagMock).not.toHaveBeenCalled();
+  });
+
+  it('setView is a no-op when window.clarity has not been wired', async () => {
+    delete (window as unknown as { clarity?: unknown }).clarity;
+    const { analytics } = await import('./analytics.js');
+    expect(() => analytics.setView('map')).not.toThrow();
+    expect(setTagMock).not.toHaveBeenCalled();
   });
 });

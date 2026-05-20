@@ -1,52 +1,53 @@
-import posthog from 'posthog-js';
+import Clarity from '@microsoft/clarity';
 
 /**
- * PostHog analytics module (issue #357).
+ * Analytics wrapper, Clarity-backed (PR #659 follow-up to issue #357).
  *
- * Reads `VITE_POSTHOG_KEY` at module-evaluation time (which happens once
- * during app startup via the import in `main.tsx`).  When the key is unset
- * or empty:
+ * The previous PostHog wiring never actually shipped — `VITE_POSTHOG_KEY`
+ * was never injected by the deploy workflow, so every `analytics.capture`
+ * call was a silent no-op in prod. This module replaces the dead transport
+ * with Microsoft Clarity (the SDK that PR #659 already initializes via
+ * `clarity.ts`) WITHOUT touching the four existing call sites
+ * (`url-state.ts` + `SpeciesDetailSurface.tsx`). The public
+ * `analytics.capture(name, props)` shape is preserved on purpose.
  *
- *   1. `posthog.init` is NEVER called.  posthog-js emits a console warning
- *      on `posthog.init('')`, which would fail every e2e spec's
- *      console-cleanliness assertion (species-detail.spec.ts,
- *      map-symbol-layer.spec.ts).
- *   2. `analytics` is a tiny no-op stub exposing only `capture`.  All
- *      component-level call sites (`analytics.capture('panel_opened', ...)`)
- *      execute as a no-op without touching posthog-js.
+ * Clarity's API splits what PostHog folded together:
+ *   - `Clarity.event(name)` takes a name only (no payload).
+ *   - `Clarity.setTag(key, value)` attaches a string dimension to the
+ *     current session.
+ * So we fan a single PostHog-style `capture(name, props)` call out to one
+ * `event` and N `setTag` calls — the *intent* (event + its dimensions)
+ * survives, just split across two SDK methods.
  *
- * When the key is present (i.e. only in the production Cloudflare Pages
- * deploy where `VITE_POSTHOG_KEY` is set as a build-time env var):
- *
- *   1. `posthog.init` is called once with privacy-respecting options:
- *      - `autocapture: false` — no auto-instrumented click/scroll events.
- *      - `capture_pageview: false` — we capture our own panel events.
- *      - `respect_dnt: true` — honor browser Do-Not-Track headers.
- *      (No session recordings, no GDPR banner, no autocapture — see the
- *      "Out of scope" section of issue #357.)
- *   2. `analytics` IS the posthog-js default export.  All `analytics.capture`
- *      calls flow straight through.
- *
- * The narrow `Analytics` interface keeps consumer call-sites loose-coupled
- * to the underlying library; the no-op stub only needs to implement
- * `capture`.  If we add `identify` or `reset` later, extend this interface
- * and the stub in lockstep.
+ * No env-var gate here: `clarity.ts` is the gate (PROD + project ID).
+ * The runtime guard below (`window.clarity` exists) only fires before the
+ * injected script has wired its queue function — i.e. in dev, in tests,
+ * and on prod builds where the env gate suppressed init. This avoids
+ * leaking SDK internals (`TypeError: window.clarity is not a function`)
+ * into call-site test environments.
  */
 interface Analytics {
   capture(eventName: string, properties?: Record<string, unknown>): void;
+  setView(view: string): void;
 }
 
-const key = import.meta.env.VITE_POSTHOG_KEY ?? '';
-
-if (key) {
-  posthog.init(key, {
-    api_host: 'https://us.i.posthog.com',
-    autocapture: false,
-    capture_pageview: false,
-    respect_dnt: true,
-  });
+function clarityReady(): boolean {
+  return typeof window !== 'undefined' &&
+    typeof (window as unknown as { clarity?: unknown }).clarity === 'function';
 }
 
-export const analytics: Analytics = key
-  ? posthog
-  : { capture: () => {} };
+export const analytics: Analytics = {
+  capture(eventName, properties) {
+    if (!clarityReady()) return;
+    Clarity.event(eventName);
+    if (properties) {
+      for (const [key, value] of Object.entries(properties)) {
+        Clarity.setTag(key, String(value));
+      }
+    }
+  },
+  setView(view) {
+    if (!clarityReady()) return;
+    Clarity.setTag('view', view);
+  },
+};
