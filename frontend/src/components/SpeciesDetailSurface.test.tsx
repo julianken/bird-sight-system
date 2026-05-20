@@ -9,19 +9,6 @@ import { analytics } from '../analytics.js';
 import { FAMILY_COLOR_FALLBACK } from '../data/family-color.js';
 import type { BBox } from '../state/url-state.js';
 
-// Mock posthog-js so no network call escapes the test environment, even
-// if a future contributor sets `VITE_POSTHOG_KEY` in their local .env.
-// Tests run with the env unset by default — `analytics` is the no-op stub
-// from analytics.ts — so the assertions below spy directly on the stub's
-// `capture` method.  Keeping `vi.mock('posthog-js')` matches the explicit
-// guidance in issue #357 task 6.
-vi.mock('posthog-js', () => ({
-  default: {
-    init: vi.fn(),
-    capture: vi.fn(),
-  },
-}));
-
 const VERMFLY: SpeciesMeta = {
   speciesCode: 'vermfly',
   comName: 'Vermilion Flycatcher',
@@ -376,16 +363,16 @@ describe('SpeciesDetailSurface', () => {
 
   // ─── Analytics instrumentation (issue #357 tasks 3, 4) ─────────────────
   //
-  // The detail surface fires three PostHog events once per active species:
+  // The detail surface fires three analytics events once per active species:
   //
   //   - `panel_opened` on mount (after the species detail resolves).
   //   - `panel_dwell_ms` on unmount with `dwell_ms = Date.now() - t0`.
   //   - `panel_scrolled_to_bottom` on first IntersectionObserver hit on
   //     the bottom sentinel.
   //
-  // Tests run with `VITE_POSTHOG_KEY` unset, so `analytics` is the no-op
-  // stub from `analytics.ts` (posthog.init is never called — that's the
-  // load-bearing CI-cleanliness guarantee).  We spy on `analytics.capture`
+  // `analytics.capture` flows through `safeClarity.event` + `setTag` from
+  // `clarity.ts`. In jsdom, `window.clarity` is undefined so the wrapper
+  // no-ops — no console noise, no SDK throws. We spy on `analytics.capture`
   // directly to verify the events fire with the right payload.
 
   describe('analytics instrumentation', () => {

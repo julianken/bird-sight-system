@@ -523,20 +523,19 @@ export function AttributionModal({
             </p>
           </section>
           {/*
-            Privacy disclosure (issue #357 task 7).  PostHog instrumentation
-            on the species detail surface fires a small set of panel-scoped
-            events (`panel_opened`, `panel_dwell_ms`,
-            `panel_scrolled_to_bottom`) so we can evaluate the panel-thinness
-            hypothesis after >=14 days of data.  The disclosure is verbatim
-            from the issue body and covers (a) vendor, (b) DNT compliance
-            (`respect_dnt: true` in analytics.ts), and (c) explicit absence
-            of session recordings + personal-data capture (autocapture is
-            off, capture_pageview is off — see analytics.ts).  Privacy is
-            the new final section after Map Tiles.
+            Privacy disclosure (issue #357 task 7; updated 2026-05-20 when
+            Microsoft Clarity replaced PostHog).  Clarity collects session
+            recordings, heatmaps, and custom event tags (`panel_opened`,
+            `panel_dwell_ms`, `panel_scrolled_to_bottom`) so we can evaluate
+            the panel-thinness hypothesis after >=14 days of data.  Clarity
+            defaults to masking text content and form fields; first-party
+            cookies are `_clck` and `_clsk` (see clarity.ts).  We don't claim
+            DNT support — the Clarity SDK doesn't expose that knob.  Privacy
+            is the final section after Map Tiles.
           */}
           <section className="attribution-modal-section">
             <h3>Privacy</h3>
-            <p>Usage analytics via PostHog. Respects Do Not Track. No session recordings or personal data collected.</p>
+            <p>Usage analytics via Microsoft Clarity, including session replay and heatmaps. Sensitive content (form fields, text) is masked by default.</p>
           </section>
         </div>
       </dialog>

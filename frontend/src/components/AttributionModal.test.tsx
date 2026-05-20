@@ -189,7 +189,7 @@ describe('AttributionModal', () => {
     expect(descriptionsIdx).toBeLessThan(mapIdx);
   });
 
-  it('renders a Privacy section disclosing PostHog analytics + DNT respect', async () => {
+  it('renders a Privacy section disclosing Clarity analytics + default masking', async () => {
     const user = userEvent.setup();
     render(<AttributionModal silhouettes={SILHOUETTES} />);
     await user.click(screen.getByRole('button', { name: /credits/i }));
@@ -198,16 +198,17 @@ describe('AttributionModal', () => {
     // new final section.
     const heading = screen.getByRole('heading', { level: 3, name: /privacy/i });
     expect(heading).toBeInTheDocument();
-    // Verbatim copy from the issue: discloses PostHog as the analytics
-    // vendor + DNT compliance + no session recordings / personal data.
+    // Disclosure names Microsoft Clarity as the analytics vendor, calls
+    // out session replay + heatmaps (Clarity's default product), and
+    // states the default-mask posture for sensitive content.
     expect(
-      screen.getByText(/usage analytics via posthog/i),
+      screen.getByText(/usage analytics via microsoft clarity/i),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/respects do not track/i),
+      screen.getByText(/session replay and heatmaps/i),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/no session recordings or personal data collected/i),
+      screen.getByText(/sensitive content.*masked by default/i),
     ).toBeInTheDocument();
   });
 
