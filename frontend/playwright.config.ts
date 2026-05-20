@@ -81,7 +81,7 @@ export default defineConfig({
       // `preserveDrawingBuffer: true` to the MapLibre WebGL context so that
       // pixel-sample e2e specs (e.g. basemap-dark-flip.spec.ts) can read
       // rendered canvas pixels via a 2D-canvas drawImage copy. See PR #582.
-      command: 'VITE_E2E_PRESERVE_BUFFER=true npm run dev',
+      command: 'VITE_E2E_PRESERVE_BUFFER=true VITE_REGION_CODE=US npm run dev',
       cwd: __dirname,
       url: 'http://localhost:5173',
       reuseExistingServer: !process.env.CI,

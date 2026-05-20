@@ -152,12 +152,17 @@ export function parseFamily(
  * Caps: `maxLng - minLng <= 45` AND `maxLat - minLat <= 25`.
  *
  * Sizing matches the largest natural viewport at the per-obs zoom boundary.
- * Web mercator: degrees-per-pixel at z=6 = 360 / (256 * 2^6) = 0.02197°/px.
- * 1920×1080 (largest canonical viewport, see frontend/CLAUDE.md) at z=6 is
- * 42.2° lng × 23.7° lat. 45° × 25° clears that with a small safety margin
- * yet is still load-bearing: CONUS is 60° wide, so one request can only
- * grab ~75% of east-west extent; per-axis cap prevents combining axes
- * into a whole-country scrape.
+ * Web mercator: degrees-per-pixel at z=6 = 360 / (256 * 2^6) = 0.02197°/px
+ * along the equator. 1920px wide at z=6 → 42.2° lng span (latitude-invariant
+ * in mercator-x). Latitude is trickier: mercator-y is non-uniform, so a 25°
+ * lat *span* near the CONUS top (~50°N) projects to roughly 25° × sec(50°)
+ * ≈ 39° of *visual* (mercator-pixel) extent. The 25° cap is therefore a
+ * numeric-degree cap, not a visual-pixel cap; the 1080px viewport at z=6
+ * resolves only ~23.7° of numeric latitude even when centered high in
+ * CONUS, so the cap clears the worst case with margin. 45° × 25° is still
+ * load-bearing: CONUS is 60° wide, so one request can only grab ~75% of
+ * east-west extent; per-axis cap prevents combining axes into a
+ * whole-country scrape.
  *
  * Reject body is descriptive so the frontend can render an affordance:
  *   { error: 'bbox too large', maxLngSpan: 45, maxLatSpan: 25,
