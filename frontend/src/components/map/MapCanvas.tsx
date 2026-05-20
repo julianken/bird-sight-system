@@ -287,7 +287,12 @@ const CONUS_NARROW_BREAKPOINT_PX = 700;
  *   mobile-default CONUS view. At z<6 the API is in aggregated mode anyway,
  *   so unbounded bboxes don't matter; this bound is purely a UX floor.
  * - `MAX_BOUNDS` keeps pan inside CONUS + a margin for coastal/border obs.
- *   AK and HI are out of frame for Phase 3a; revisit when ingest expands.
+ *   This is the client-side enforcement of the server's bbox cap: if the
+ *   server cap in `services/read-api/src/validate.ts` (see cap derivation)
+ *   changes, this constant must change too — they're a linked pair.
+ *   AK and HI are out of frame because of these map bounds (ingest already
+ *   pulls `/recent/US` per PR #669); widening bounds to include them is
+ *   the unblock, not an ingest change.
  */
 const MIN_ZOOM = CONUS_ZOOM_NARROW;
 const MAX_BOUNDS: [[number, number], [number, number]] = [
