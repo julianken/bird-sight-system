@@ -315,4 +315,56 @@ describe('runBackfill', () => {
     const runs = await getRecentIngestRuns(db.pool, 10);
     expect(runs[0]?.status).toBe('failure');
   });
+
+  it('default-constructs EbirdClient with requestTimeoutMs=120000 when o.client is omitted', async () => {
+    // The /historic endpoint regularly exceeds the 30s default on high-density
+    // states (CA/FL/TX/NY) — entire CA backfill runs failed reproducibly with
+    // `eBird server error 0: Request timed out after 30000ms` across all 14
+    // days. Scoping the 120s timeout to backfill (rather than the EbirdClient
+    // global default) preserves /recent and /hotspots failure detection at
+    // 30s. This test pins that contract so a future refactor can't silently
+    // drop the override.
+    //
+    // TS `private` is a compile-time fiction; the field is reachable at
+    // runtime. We do a behavioral run-through (runBackfill with no o.client)
+    // so the constructor path actually executes, then assert the field on
+    // the client run-backfill built. To get a handle on that client without
+    // refactoring run-backfill to expose it, intercept via a Proxy on the
+    // imported class. ESM namespace objects are mutable under vitest's
+    // loader, so re-binding the export propagates to run-backfill's
+    // `EbirdClient` reference for the duration of this test.
+    const ebirdModule = await import('./ebird/client.js');
+    const Real = ebirdModule.EbirdClient;
+    let constructed: { requestTimeoutMs: number } | undefined;
+    const Proxied = new Proxy(Real, {
+      construct(target, args) {
+        const instance = Reflect.construct(target, args);
+        constructed = instance as unknown as { requestTimeoutMs: number };
+        return instance;
+      },
+    });
+    Object.defineProperty(ebirdModule, 'EbirdClient', {
+      value: Proxied, configurable: true, writable: true,
+    });
+
+    try {
+      server.use(
+        http.get('https://api.ebird.org/v2/data/obs/US-AZ/recent/notable',
+          () => HttpResponse.json([])),
+        http.get('https://api.ebird.org/v2/data/obs/US-AZ/historic/:y/:m/:d',
+          () => HttpResponse.json([])),
+      );
+      const today = new Date('2026-04-16T00:00:00Z');
+      await runBackfill({
+        pool: db.pool, apiKey: 'k', regionCode: 'US-AZ', days: 1, today,
+      });
+    } finally {
+      Object.defineProperty(ebirdModule, 'EbirdClient', {
+        value: Real, configurable: true, writable: true,
+      });
+    }
+
+    expect(constructed).toBeDefined();
+    expect(constructed!.requestTimeoutMs).toBe(120_000);
+  });
 });

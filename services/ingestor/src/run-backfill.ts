@@ -29,7 +29,12 @@ export interface RunBackfillSummary {
 }
 
 export async function runBackfill(o: RunBackfillOptions): Promise<RunBackfillSummary> {
-  const client = o.client ?? new EbirdClient({ apiKey: o.apiKey });
+  // 120s (not the 30s default) accommodates /historic slowness on high-density
+  // states (CA/FL/TX/NY) where per-day responses regularly exceed 30s. The
+  // /historic endpoint's only paging knob — maxResults — is already at the
+  // 10000 API ceiling, so client-side timeout is the remaining lever. Scoped
+  // to backfill so /recent and /hotspots keep their 30s failure-detection.
+  const client = o.client ?? new EbirdClient({ apiKey: o.apiKey, requestTimeoutMs: 120_000 });
   const runId = await startIngestRun(o.pool, 'backfill');
   const today = o.today ?? new Date();
 
