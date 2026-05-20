@@ -6,7 +6,7 @@ import { analytics } from '../analytics.js';
 // longer emits it. Bookmarked `?since=30d` URLs fall back to default `'14d'`
 // via the existing `VALID_SINCE.has(...)` check below.
 export type Since = '1d' | '7d' | '14d';
-export type View = 'feed' | 'species' | 'map' | 'detail';
+export type View = 'feed' | 'map' | 'detail';
 export type BBox = readonly [number, number, number, number];
 
 export interface UrlState {
@@ -30,7 +30,7 @@ const DEFAULTS: UrlState = {
 };
 
 const VALID_SINCE: ReadonlySet<string> = new Set(['1d', '7d', '14d']);
-const VALID_VIEW: ReadonlySet<string> = new Set(['feed', 'species', 'map', 'detail']);
+const VALID_VIEW: ReadonlySet<string> = new Set(['feed', 'map', 'detail']);
 
 function round6(n: number): number {
   return Math.round(n * 1_000_000) / 1_000_000;
@@ -45,10 +45,11 @@ function readUrl(): UrlState {
 
   // View resolution:
   //  - explicit, valid ?view= wins — EXCEPT the #511 guard below.
-  //  - absent ?view= AND ?species= set (without ?detail=) → sniff to
-  //    'species' so bookmarked species-filter URLs land on the search
-  //    surface with the filter active, NOT the detail surface.
   //  - absent ?view= AND ?detail= set → sniff to 'detail'.
+  //  - absent ?view= AND ?species= set (without ?detail=) → default 'map'
+  //    with the species filter active. (Pre-#688 sniffed to 'species'; the
+  //    Species tab is gone — bookmarked ?species= URLs now land on the map
+  //    surface with the FiltersBar species combobox carrying the value.)
   //  - otherwise default (DEFAULTS.view — currently 'map').
   //
   // #511 guard: if ?detail= is set and the resolved view is the default
@@ -62,9 +63,13 @@ function readUrl(): UrlState {
   // detail→map via the tab strip will have ?detail= cleared by onCloseDetail
   // or their URL entry won't carry ?detail= at all).
   let view: View;
-  if (rawView === 'hotspots') {
-    // Compatibility shim: old bookmarks with ?view=hotspots silently redirect
-    // to ?view=map. The URL bar updates so future shares carry the new value.
+  if (rawView === 'hotspots' || rawView === 'species') {
+    // Compatibility shim: old bookmarks with ?view=hotspots OR ?view=species
+    // silently redirect to ?view=map. The URL bar updates so future shares
+    // carry the new value; any sibling ?species=<code> is preserved so the
+    // FiltersBar species combobox stays active. The Species surface was
+    // removed in #688 — its filter UX folds into the FiltersBar combobox,
+    // and the navigation UX folds into clicking a feed row / map marker.
     view = 'map';
     const redirect = new URLSearchParams(window.location.search);
     redirect.set('view', 'map');
@@ -102,9 +107,12 @@ function readUrl(): UrlState {
     }
   } else if (!rawView && detail) {
     view = 'detail';
-  } else if (!rawView && speciesCode) {
-    view = 'species';
   } else {
+    // Pre-#688: ?species= without ?view= sniffed to view='species'. With the
+    // Species surface gone, the species filter is part of FiltersBar which
+    // narrows whatever surface the user is on — fall through to DEFAULTS.view
+    // ('map') so bookmarked ?species= URLs cold-load to the map with the
+    // filter active.
     view = DEFAULTS.view;
   }
 
@@ -151,16 +159,17 @@ function writeUrl(state: UrlState, push: boolean = false): void {
   if (state.since !== DEFAULTS.since) p.set('since', state.since);
   if (state.notable) p.set('notable', 'true');
   if (state.detail) p.set('detail', state.detail);
-  // Emit ?view= when non-default, OR when ?species= is set and view is the
-  // default — otherwise the sniff in readUrl silently reverts the user's
-  // explicit default-view choice back to 'species' on reload/popstate.
+  // Emit ?view= only when non-default. The Species surface was removed in
+  // #688, so the historical "emit ?view= when ?species= set on default view"
+  // branch is no longer needed — there is no sniff in readUrl that could
+  // silently flip ?view= to a non-default value based on ?species= alone.
   //
-  // We deliberately DO NOT emit ?view=map when only ?detail= is set: the new
+  // We deliberately DO NOT emit ?view=map when only ?detail= is set: the
   // in-place detail rail keeps view=map as the underlying surface, and the
   // readUrl sniff already promotes ?detail=X (no ?view=) to view='detail' for
   // backward compat with shared deep-links. Emitting view=map here would also
   // bypass the #511 guard on every fresh ?detail= write.
-  if (state.view !== DEFAULTS.view || state.speciesCode) {
+  if (state.view !== DEFAULTS.view) {
     p.set('view', state.view);
   }
   if (state.bbox !== null) {
@@ -205,8 +214,8 @@ export function useUrlState(): {
       // surface, OR navigating between two different species details.
       // Both cases are user-meaningful "I clicked into a thing" moves
       // that the browser back button should undo. Filter changes and
-      // surface switches (feed/species/map) keep replaceState so the
-      // history stack doesn't grow on every chip toggle.
+      // surface switches (feed/map) keep replaceState so the history
+      // stack doesn't grow on every chip toggle.
       const push =
         // Entering detail from a non-detail surface
         (next.view === 'detail' && prev.view !== 'detail') ||
