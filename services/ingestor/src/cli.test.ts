@@ -111,6 +111,95 @@ describe('runCli', () => {
     expect(deps.closePool).toHaveBeenCalledWith(POOL_SENTINEL);
   });
 
+  // ── Phase 3.5 per-state backfill flags ────────────────────────────────────
+  // CLI accepts --state=US-XX and --back=N for the `backfill` kind so the
+  // Terraform fan-out can target one state per scheduler job. Defaults preserve
+  // the legacy no-flag prod scheduler (regionCode=US-AZ, days=19).
+  describe('backfill flag parsing (Phase 3.5)', () => {
+    it('default no-flag invocation preserves regionCode=US-AZ, days=19', async () => {
+      process.argv = ['node', 'cli.ts', 'backfill'];
+      const runBackfillSpy = vi.fn().mockResolvedValue({
+        status: 'success' as const, fetched: 0, upserted: 0, daysProcessed: 19,
+      });
+      const deps = makeDeps({ runBackfill: runBackfillSpy });
+      await runCli('backfill', deps);
+      expect(runBackfillSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ regionCode: 'US-AZ', days: 19 })
+      );
+    });
+
+    it('accepts --state=US-CA', async () => {
+      process.argv = ['node', 'cli.ts', 'backfill', '--state=US-CA', '--back=14'];
+      const runBackfillSpy = vi.fn().mockResolvedValue({
+        status: 'success' as const, fetched: 0, upserted: 0, daysProcessed: 14,
+      });
+      const deps = makeDeps({ runBackfill: runBackfillSpy });
+      await runCli('backfill', deps);
+      expect(runBackfillSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ regionCode: 'US-CA', days: 14 })
+      );
+    });
+
+    it('rejects --state=US-ZZ-style malformed regions', async () => {
+      // Non-existent USPS code; regex enforces /^US-[A-Z]{2}$/ shape but does
+      // not enumerate. ZZ is intentionally shape-valid here for parity with the
+      // simpler rejection path — we use a clearly malformed value instead.
+      process.argv = ['node', 'cli.ts', 'backfill', '--state=US-ZZZ'];
+      const runBackfillSpy = vi.fn();
+      const deps = makeDeps({ runBackfill: runBackfillSpy });
+      await runCli('backfill', deps);
+      expect(process.exitCode).toBe(1);
+      expect(runBackfillSpy).not.toHaveBeenCalled();
+    });
+
+    it('accepts --back=14', async () => {
+      process.argv = ['node', 'cli.ts', 'backfill', '--back=14'];
+      const runBackfillSpy = vi.fn().mockResolvedValue({
+        status: 'success' as const, fetched: 0, upserted: 0, daysProcessed: 14,
+      });
+      const deps = makeDeps({ runBackfill: runBackfillSpy });
+      await runCli('backfill', deps);
+      expect(runBackfillSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ regionCode: 'US-AZ', days: 14 })
+      );
+    });
+
+    it('emits structured `state` field on the run-completion log for per-state backfill', async () => {
+      // Phase 3.5: scripts/verify-backfill.sh and Cloud Logging dashboards
+      // partition by jsonPayload.state. The summary line must carry `state`
+      // as a top-level field, not embedded in a message string.
+      process.argv = ['node', 'cli.ts', 'backfill', '--state=US-CA', '--back=14'];
+      const runBackfillSpy = vi.fn().mockResolvedValue({
+        status: 'success' as const, fetched: 0, upserted: 0, daysProcessed: 14,
+      });
+      const deps = makeDeps({ runBackfill: runBackfillSpy });
+      await runCli('backfill', deps);
+      const emitted = logSpy.mock.calls
+        .map((args: unknown[]): unknown => {
+          try { return JSON.parse(args[0] as string); } catch { return null; }
+        })
+        .filter((o: unknown): o is Record<string, unknown> =>
+          typeof o === 'object' && o !== null && (o as Record<string, unknown>).message === 'bird_ingest_run_completed'
+        );
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0]).toMatchObject({
+        message: 'bird_ingest_run_completed',
+        kind: 'backfill',
+        status: 'success',
+        state: 'US-CA',
+      });
+    });
+
+    it('rejects --back=31 (above eBird /recent 30-day cap)', async () => {
+      process.argv = ['node', 'cli.ts', 'backfill', '--back=31'];
+      const runBackfillSpy = vi.fn();
+      const deps = makeDeps({ runBackfill: runBackfillSpy });
+      await runCli('backfill', deps);
+      expect(process.exitCode).toBe(1);
+      expect(runBackfillSpy).not.toHaveBeenCalled();
+    });
+  });
+
   it('throws if EBIRD_API_KEY is not set', async () => {
     delete process.env.EBIRD_API_KEY;
     const deps = makeDeps();
