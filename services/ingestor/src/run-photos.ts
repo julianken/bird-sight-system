@@ -71,14 +71,25 @@ export async function runPhotos(args: RunPhotosArgs): Promise<RunPhotosSummary> 
   // LEFT JOIN. One round-trip beats N queries for the per-row "do you
   // already have a photo?" check.
   //
-  // The EXISTS filter narrows the iteration to species we have actually
-  // observed in Arizona. The taxonomy ingest writes the *full* eBird
-  // taxonomy (~24k species) to species_meta, but the iNat client filters
-  // photo lookups by place_id=40 (Arizona) — so for species never observed
-  // in AZ, every iteration would be a no-op iNat round-trip that returns
-  // null. With the filter, the photos job iterates only the ~344 species
-  // actually present in `observations`, fitting comfortably inside the
-  // 600s Cloud Run job timeout.
+  // The EXISTS filter narrows the iteration to species actually observed in
+  // the ingest region. The taxonomy ingest writes the *full* eBird taxonomy
+  // (~24k species) to species_meta, but only ~715 of those have rows in
+  // `observations` under national (CONUS) ingest as of 2026-05 (was ~344 in
+  // the AZ-only era pre-flip). Without the filter, every iteration of an
+  // unobserved species would be a no-op iNat round-trip — the filter caps
+  // wall-clock at the observed cohort.
+  //
+  // PR #679 (2026-05-20) set `INAT_PLACE_ID=''` on the Cloud Run Job, so the
+  // iNat cascade in `inat/client.ts` now starts at Tier 2 (US) rather than
+  // Tier 1 (region=AZ). Combined with the Wikipedia lead-image fallback
+  // (#483), the post-backfill coverage is 708/715 = 99.0% — the 7 residuals
+  // are all named hybrids that neither source tracks under the combined
+  // binomial, and the family-silhouette fallback renders for them.
+  //
+  // Wall-clock budget: ~715 species × ~1.2s/species (US-tier hit + 1s pace +
+  // R2 upload) ≈ 858s worst-case cold-cache. The Cloud Run Job timeout is
+  // 900s (`infra/terraform/ingestor.tf`), bumped from 600s after the first
+  // post-flip backfill timed out mid-cascade and relied on max_retries=1.
   //
   // `inat_taxon_id` is projected so the Wikipedia lead-image fallback (added
   // in #483) can re-use the cached taxon id when present — saving one iNat
