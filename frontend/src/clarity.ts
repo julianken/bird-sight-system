@@ -23,9 +23,9 @@ import Clarity from '@microsoft/clarity';
  * No masking config: Clarity's default-mask is ON, which is correct for
  * bird-maps.com (public bird sighting data; no PII rendered).
  *
- * No consent gate: bird-watch has no consent banner today (matches the
- * existing PostHog wiring). EEA traffic is near-zero given the current
- * US-AZ region lock — tracked for revisit in #658.
+ * No consent gate: bird-watch has no consent banner today. EEA traffic
+ * is near-zero given the current US-AZ region lock — tracked for
+ * revisit in #658.
  */
 const projectId = import.meta.env.VITE_CLARITY_PROJECT_ID ?? '';
 
