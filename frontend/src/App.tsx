@@ -181,7 +181,6 @@ export function App() {
   );
   const onViewportChange = useCallback((bounds: LngLatBounds, zoom: number) => {
     setViewportBounds(bounds);
-    setDebouncedZoom(zoom);
     const next: [number, number, number, number] = [
       bounds.getWest(),
       bounds.getSouth(),
@@ -190,6 +189,17 @@ export function App() {
     ];
     if (bboxDebounceRef.current !== null) clearTimeout(bboxDebounceRef.current);
     bboxDebounceRef.current = setTimeout(() => {
+      // Issue #690: setDebouncedZoom MUST fire inside the same task as
+      // setDebouncedBbox so {bbox, zoom} stays paired in the useBirdData
+      // filters. Firing the zoom setter synchronously above (outside the
+      // timeout) decoupled the pair — during the 250ms window the effect
+      // would re-run with {bbox: STALE_previous_viewport, zoom: NEW_zoom},
+      // which trips the server's bbox-area cap (services/read-api/src/
+      // validate.ts assertBboxAreaCap: zoom ≥ 6 && lngSpan > 45 → 400
+      // "bbox too large") on any zoom-in across the < 6 → ≥ 6 boundary.
+      // React 18 automatic batching coalesces both setters into a single
+      // render so useBirdData re-fires exactly once with a consistent pair.
+      setDebouncedZoom(zoom);
       setDebouncedBbox(prev => {
         // No-op guard: skip the state update (and the consequent refetch)
         // if the bbox hasn't moved meaningfully. ~1e-4 degrees ≈ 10m at
