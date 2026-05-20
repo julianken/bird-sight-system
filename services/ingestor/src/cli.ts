@@ -203,6 +203,12 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
   const startedAt = Date.now();
   try {
     let summary: AnyRunSummary;
+    // For the per-state backfill fan-out, capture the resolved regionCode so
+    // the run-completion summary log carries `state` as a structured
+    // jsonPayload field. Cloud Logging queries like
+    // `jsonPayload.state="US-CA"` then partition per-state runs cleanly —
+    // see scripts/verify-backfill.sh.
+    let backfillState: string | undefined;
     if (kind === 'recent') {
       summary = await deps.runIngest({ pool, apiKey, regionCode: 'US' });
     } else if (kind === 'hotspots') {
@@ -258,6 +264,7 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
           return;
         }
       }
+      backfillState = regionCode;
       summary = await deps.runBackfill({ pool, apiKey, regionCode, days });
     } else if (kind === 'backfill-extended') {
       // 'backfill-extended': one-shot 365-day backfill at 1 rps; this is NOT
@@ -318,6 +325,10 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
       kind,
       status: summary.status,
       duration_seconds: durationSeconds,
+      // Per-state backfill (Phase 3.5): emit `state` as a top-level jsonPayload
+      // field so Cloud Logging can filter by `jsonPayload.state="US-CA"`.
+      // Omitted for non-backfill kinds to keep the structured shape minimal.
+      ...(backfillState !== undefined && { state: backfillState }),
     }));
     if (summary.status === 'failure') {
       // Flag the process as failed without killing the loop mid-pool-close.

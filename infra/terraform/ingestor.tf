@@ -354,6 +354,25 @@ resource "google_cloud_scheduler_job" "backfill_per_state" {
     }
   }
 
+  # Three attempts with exponential backoff. Handles transient HTTP 5xx from
+  # the Cloud Run Jobs control plane without the per-state scheduler giving
+  # up on the first hiccup. Bounds: 30s → 300s keeps the retry window inside
+  # the 4-minute staggering gap between schedulers.
+  retry_config {
+    retry_count          = 3
+    min_backoff_duration = "30s"
+    max_backoff_duration = "300s"
+  }
+
+  # Operator unpauses these manually for the one-shot national backfill (see
+  # `paused = true` above and the runbook in the plan). Once unpaused, an
+  # unrelated `terraform apply` mid-run would otherwise reconcile `paused`
+  # back to `true` and silently halt the fan-out. Ignore drift on this field
+  # so the operator's unpause is durable across applies.
+  lifecycle {
+    ignore_changes = [paused]
+  }
+
   depends_on = [google_project_service.scheduler]
 }
 
