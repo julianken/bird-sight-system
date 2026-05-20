@@ -512,6 +512,20 @@ resource "google_cloud_run_v2_job" "ingestor_photos" {
             }
           }
         }
+        # Drop iNat Tier 1 (Arizona place_id=40) — the photo cascade starts at
+        # US (Tier 2). Per `docs/plans/2026-05-17-going-national.md` §11 Q2:
+        # after the national flip, ~half the observed species universe has no
+        # AZ-photographed observations, so Tier 1 is a no-op round-trip for
+        # them. Starting at US gives every species a US-quality CC-licensed
+        # photo on the first hit, saves ~500ms per non-AZ species in the
+        # monthly backfill, and removes the AZ-vs-elsewhere provenance
+        # asymmetry. Plumbing landed in PR #609 (env-var read at module init
+        # in `services/ingestor/src/inat/client.ts:48`); this is the deploy
+        # decision the plan flagged as open.
+        env {
+          name  = "INAT_PLACE_ID"
+          value = ""
+        }
 
         # Cloud SQL Auth Proxy socket mount — Stage 2 of the Neon→Cloud SQL
         # migration. Additive; DATABASE_URL still points at Neon.
