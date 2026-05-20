@@ -35,7 +35,7 @@ const {
       notable: false,
       speciesCode: null as string | null,
       familyCode: null as string | null,
-      view: 'feed' as 'feed' | 'species' | 'map',
+      view: 'feed' as 'feed' | 'map',
     },
     set: vi.fn(),
   },
@@ -214,7 +214,7 @@ describe('Phase 6: Footer removal + Attribution via AppHeader (issue #250 → Ph
   // Attribution trigger reachable from every view, meeting eBird ToU §3
   // and CC BY-SA §4(b/c). The footer's role="contentinfo" landmark is no
   // longer needed — banner + main are sufficient per ARIA spec.
-  it.each(['feed', 'species', 'map', 'detail'] as const)(
+  it.each(['feed', 'map', 'detail'] as const)(
     'no app-footer element on view=%s (footer removed in Phase 6)',
     async view => {
       mockUrlState.state = {
@@ -226,7 +226,7 @@ describe('Phase 6: Footer removal + Attribution via AppHeader (issue #250 → Ph
     },
   );
 
-  it.each(['feed', 'species', 'map', 'detail'] as const)(
+  it.each(['feed', 'map', 'detail'] as const)(
     'Attribution trigger is reachable from AppHeader on view=%s',
     async view => {
       mockUrlState.state = {
@@ -272,19 +272,6 @@ describe('Phase 3: AppHeader + Filters panel', () => {
     // Wait for initial bird data fetch resolution
     await screen.findByRole('banner');
     expect(screen.getByRole('banner')).toHaveClass('app-header');
-  });
-
-  it('does NOT mount <SurfaceNav> directly anymore (its tablist is now inside <AppHeader>)', async () => {
-    mockUrlState.state = {
-      since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
-    };
-    render(<App />);
-    await screen.findByRole('banner');
-    // There should be exactly one tablist with aria-label "Surface" — the
-    // one inside <AppHeader>. The legacy <SurfaceNav> mount is removed.
-    const lists = screen.getAllByRole('tablist', { name: /Surface/i });
-    expect(lists).toHaveLength(1);
-    expect(lists[0].closest('header.app-header')).not.toBeNull();
   });
 
   it('Filters trigger opens a panel containing <FiltersBar>; closing hides it', async () => {
@@ -523,62 +510,6 @@ describe('L3: nowTick advances on visibilitychange (tab return)', () => {
     // (we can't easily assert exact time, but we verify no error is thrown
     // and the lede is still rendered).
     expect(screen.getByText(/species seen across Arizona/i)).toBeInTheDocument();
-  });
-});
-
-describe('Phase 5: SpeciesSearchSurface activeFilters wiring (App → SpeciesSearchSurface)', () => {
-  beforeEach(() => {
-    __resetSilhouettesCache();
-    mockGetHotspots.mockResolvedValue([]);
-    mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
-    mockGetSilhouettes.mockResolvedValue([]);
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it('renders FilterSentence live region on the species surface', async () => {
-    // FilterSentence always mounts an aria-live="polite" region regardless
-    // of filter state — verify it is present when view=species.
-    mockUrlState.state = {
-      since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'species',
-    };
-    const { container } = render(<App />);
-    await screen.findByRole('banner');
-    const liveRegion = container.querySelector('[aria-live="polite"]');
-    expect(liveRegion).not.toBeNull();
-  });
-
-  it('FilterSentence visible sentence surfaces active filters on the species surface', async () => {
-    // With notable=true, FilterSentence renders a visible .filter-sentence__visible
-    // paragraph (synchronous — no debounce on the visible element, only the live
-    // region). This confirms activeFilters is actually wired through from App.
-    mockUrlState.state = {
-      since: '14d', notable: true, speciesCode: null, familyCode: null, view: 'species',
-    };
-    render(<App />);
-    await screen.findByRole('banner');
-    // The visible paragraph is synchronously rendered when filters are active.
-    const visible = document.querySelector('.filter-sentence__visible');
-    expect(visible).not.toBeNull();
-    expect(visible?.textContent?.toLowerCase()).toMatch(/notable/);
-  });
-
-  it('FilterSentence visible sentence renders on the species surface when speciesCode is set without notable', async () => {
-    // Regression: view=species with speciesCode='annhum' (and notable=false)
-    // must render .filter-sentence__visible. buildFilterTerms pushes speciesCode
-    // when truthy — so the sentence should NOT collapse to null.
-    // Prior to fix, this path was untested and a mount regression left the
-    // visible element absent on the species surface (closes #442).
-    mockUrlState.state = {
-      since: '14d', notable: false, speciesCode: 'annhum', familyCode: null, view: 'species',
-    };
-    const { container } = render(<App />);
-    await screen.findByRole('banner');
-    const visible = container.querySelector('.filter-sentence__visible');
-    expect(visible).not.toBeNull();
-    expect(visible?.textContent).toMatch(/annhum/i);
   });
 });
 

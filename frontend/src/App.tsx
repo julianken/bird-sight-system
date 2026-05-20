@@ -10,14 +10,9 @@ import { useSpeciesDetail } from './data/use-species-detail.js';
 import { FiltersBar } from './components/FiltersBar.js';
 import { FeedSurface } from './components/FeedSurface.js';
 import { MapSurface } from './components/MapSurface.js';
-import { SpeciesSearchSurface } from './components/SpeciesSearchSurface.js';
 import { SpeciesDetailRail } from './components/SpeciesDetailRail.js';
 import { SpeciesDetailSheet } from './components/SpeciesDetailSheet.js';
 import { AppHeader } from './components/AppHeader.js';
-// SurfaceNav import retained — component still exists; App no longer mounts
-// it directly (moved to AppHeader). Defer deletion to a follow-up sweep once
-// confirmed no other consumer uses it. (Phase 3)
-import { SurfaceNav as _SurfaceNav } from './components/SurfaceNav.js';
 import { useIsCompact } from './lib/use-is-compact.js';
 import { AttributionModal } from './components/AttributionModal.js';
 import { deriveFamilies, deriveSpeciesIndex } from './derived.js';
@@ -65,10 +60,9 @@ export function App() {
   const { state, set } = useUrlState();
   const isCompact = useIsCompact();
   // Tag the current Clarity session with the active view so dashboards can
-  // filter sessions by surface (feed | map | species | detail). Fires on
-  // initial mount and on every view change; analytics.setView no-ops safely
-  // when Clarity isn't initialized (dev/test/missing project ID). PR #659
-  // follow-up.
+  // filter sessions by surface (feed | map | detail). Fires on initial mount
+  // and on every view change; analytics.setView no-ops safely when Clarity
+  // isn't initialized (dev/test/missing project ID). PR #659 follow-up.
   useEffect(() => {
     analytics.setView(state.view);
   }, [state.view]);
@@ -153,9 +147,9 @@ export function App() {
   // No reset effect on view transitions: the `viewportBounds` value is
   // never read directly — only through the `viewportObservations` memo
   // below, which is gated on `state.view === 'map'`. Stale bounds left
-  // in state when the user switches to feed/species/detail views are
-  // therefore harmless; an explicit reset effect would race the memo on
-  // re-entry and is unnecessary.
+  // in state when the user switches to feed/detail views are therefore
+  // harmless; an explicit reset effect would race the memo on re-entry
+  // and is unnecessary.
   const [viewportBounds, setViewportBounds] = useState<LngLatBounds | null>(null);
   // #663: the Map stays mounted on view === 'map' OR 'detail' (rail/sheet
   // coexist over it). The viewport-bounds filter applies in both cases.
@@ -384,7 +378,7 @@ export function App() {
         ref={mainRef}
         id="main-surface"
         data-render-complete={renderComplete}
-        aria-busy={loading && (state.view === 'feed' || state.view === 'species')}
+        aria-busy={loading && state.view === 'feed'}
         // axe `scrollable-region-focusable` (WCAG 2.1.1): #main-surface
         // has `overflow: auto` so it can scroll when its content (e.g.
         // species detail with photo + phenology chart) exceeds the
@@ -436,26 +430,6 @@ export function App() {
             freshnessLabel={freshnessLabel}
           />
         )}
-        {state.view === 'species' && (
-          <SpeciesSearchSurface
-            loading={loading}
-            speciesCode={state.speciesCode}
-            observations={observations}
-            speciesIndex={speciesIndex}
-            now={now}
-            onSelectSpecies={onSelectSpecies}
-            freshness={freshnessState}
-            freshnessLabel={freshnessLabel}
-            activeFilters={{
-              notable: state.notable,
-              since: state.since,
-              speciesCode: state.speciesCode,
-              familyCode: state.familyCode,
-            }}
-            {...(speciesName !== undefined ? { speciesName } : {})}
-            {...(familyName !== undefined ? { familyName } : {})}
-          />
-        )}
         {/*
           #663 — detail surface routing. The body component
           (SpeciesDetailSurface) renders inside one of two wrappers:
@@ -489,9 +463,8 @@ export function App() {
       )}
       {/*
         Phase 6: Footer removed. The Attribution trigger moved to <AppHeader>
-        in Phase 3 — reachable from every view (map|feed|species|detail),
-        meeting the eBird ToU §3 and CC BY-SA §4(b/c) prominence requirement
-        without abusing SurfaceNav's role="tablist" semantics.
+        in Phase 3 — reachable from every view (map|feed|detail), meeting
+        the eBird ToU §3 and CC BY-SA §4(b/c) prominence requirement.
 
         <AttributionModal> is mounted here (outside any landmark container)
         so it remains in the DOM on all surfaces. The AppHeader "Attribution"
