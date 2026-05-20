@@ -3,7 +3,6 @@
 interface ImportMetaEnv {
   readonly VITE_API_BASE_URL?: string;
   readonly VITE_CLARITY_PROJECT_ID?: string;
-  readonly VITE_POSTHOG_KEY?: string;
 }
 
 interface ImportMeta {
