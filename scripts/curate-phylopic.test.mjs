@@ -5,6 +5,8 @@ import {
   NATIONAL_UPDATE_FAMILIES,
   NATIONAL_COLOR_BY_FAMILY,
   NATIONAL_COMMON_NAME_BY_FAMILY,
+  NATIONAL_RESIDUAL_FAMILIES,
+  PHYLOPIC_BUILD,
 } from './curate-phylopic.mjs';
 
 /**
@@ -220,6 +222,208 @@ describe('NATIONAL_* constants are well-formed', () => {
     for (const [family, { color, color_dark }] of Object.entries(NATIONAL_COLOR_BY_FAMILY)) {
       expect(ratio(color, LIGHT_BASE), `${family} color ${color} vs LIGHT_BASE fails 3:1`).toBeGreaterThanOrEqual(3);
       expect(ratio(color_dark, DARK_BASE), `${family} color_dark ${color_dark} vs DARK_BASE fails 3:1`).toBeGreaterThanOrEqual(3);
+    }
+  });
+});
+
+/**
+ * Snapshot test for the --rescue-national-residual emit path (PR #678).
+ *
+ * Mirrors the mode='national' fixture above: feeds a representative
+ * picks[] (4 rescued + 19 still-NULL — the production shape from
+ * migration 1700000049000) into emitMigrationSql with mode='national-residual'
+ * and asserts on the UPDATE-only shape, attribution threading, and Down
+ * reversal.
+ *
+ * The 4 rescued families match the live migration:
+ *   acrocephalidae (genus, CC-BY-4.0), fregatidae (species, CC0-1.0),
+ *   phaethontidae (genus, CC-BY-3.0),  viduidae (species, CC-BY-3.0).
+ *
+ * 3 of the 4 are CC-BY-* and require creator citation; 1 (fregatidae) is
+ * CC0 and does not require citation (but the emitter still emits the
+ * creator column when known — the test only enforces that CC0 picks with
+ * no creator emit `creator = NULL`, matching the emitter's `p.creatorName`
+ * ternary at scripts/curate-phylopic.mjs:1466).
+ */
+describe('emitMigrationSql mode=national-residual', () => {
+  const today = '2026-05-20';
+  // 4 rescued — three CC-BY-* with real creators, one CC0 with NO creator
+  // so we can assert the `creator = NULL` branch.
+  const rescued = [
+    {
+      kind: 'picked',
+      family: 'acrocephalidae',
+      resolutionPath: 'genus',
+      picked: {
+        licenseId: 'CC-BY-4.0',
+        creatorName: 'Yves Hoebeke',
+        imagePageUrl: 'https://www.phylopic.org/images/e1d2cf2f-76cd-4c19-ba5b-c1f5abd841b8',
+        uuid: 'e1d2cf2f-76cd-4c19-ba5b-c1f5abd841b8',
+        svgPathD: 'M0 0 L24 0 L24 24 L0 24 Z',
+        resolvedSlug: 'Acrocephalus',
+      },
+      reason: 'picked-by-license-CC-BY-4.0',
+      considered: [],
+    },
+    {
+      kind: 'picked',
+      family: 'fregatidae',
+      resolutionPath: 'species',
+      picked: {
+        licenseId: 'CC0-1.0',
+        creatorName: null, // CC0 — no attribution required
+        imagePageUrl: 'https://www.phylopic.org/images/44dcfdfc-6879-42ef-ae02-8df23a174efd',
+        uuid: '44dcfdfc-6879-42ef-ae02-8df23a174efd',
+        svgPathD: 'M1 1 L23 1 L23 23 L1 23 Z',
+        resolvedSlug: 'Fregata magnificens',
+      },
+      reason: 'picked-by-license-CC0-1.0',
+      considered: [],
+    },
+    {
+      kind: 'picked',
+      family: 'phaethontidae',
+      resolutionPath: 'genus',
+      picked: {
+        licenseId: 'CC-BY-3.0',
+        creatorName: 'Paul Baker (photo), T. Michael Keesey',
+        imagePageUrl: 'https://www.phylopic.org/images/9171cd2b-3afc-46f4-9ee1-c6515de0378c',
+        uuid: '9171cd2b-3afc-46f4-9ee1-c6515de0378c',
+        svgPathD: 'M2 2 L22 2 L22 22 L2 22 Z',
+        resolvedSlug: 'Phaethon',
+      },
+      reason: 'picked-by-license-CC-BY-3.0',
+      considered: [],
+    },
+    {
+      kind: 'picked',
+      family: 'viduidae',
+      resolutionPath: 'species',
+      picked: {
+        licenseId: 'CC-BY-3.0',
+        creatorName: 'Alan Manson (photo), T. Michael Keesey',
+        imagePageUrl: 'https://www.phylopic.org/images/5ced2df2-b9fd-4e15-8685-759c0c69e331',
+        uuid: '5ced2df2-b9fd-4e15-8685-759c0c69e331',
+        svgPathD: 'M3 3 L21 3 L21 21 L3 21 Z',
+        resolvedSlug: 'Vidua macroura',
+      },
+      reason: 'picked-by-license-CC-BY-3.0',
+      considered: [],
+    },
+  ];
+  // 19 still-NULL — production shape from migration 49000.
+  const stillNullFamilies = [
+    'alcidae', 'aramidae', 'calcariidae', 'cettiidae', 'cracidae',
+    'diomedeidae', 'hydrobatidae', 'icteriidae', 'leiothrichidae',
+    'monarchidae', 'paradoxornithidae', 'peucedramidae', 'ploceidae',
+    'polioptilidae', 'ptiliogonatidae', 'pycnonotidae', 'remizidae',
+    'tityridae', 'vireonidae',
+  ];
+  const stillNull = stillNullFamilies.map(family => ({
+    kind: 'absent',
+    family,
+    picked: null,
+    reason: 'cascade-exhausted: family=http-404-on-nodes, species=http-404-on-nodes, genus=http-404-on-nodes',
+    considered: [],
+  }));
+  const picks = [...rescued, ...stillNull];
+
+  const sql = emitMigrationSql(
+    picks,
+    [],
+    'national-residual',
+    {},
+    {},
+    null,
+  );
+
+  it('starts with Up Migration marker and contains Down Migration marker', () => {
+    expect(sql.startsWith('-- Up Migration\n')).toBe(true);
+    expect(sql).toContain('-- Down Migration');
+  });
+
+  it('emits UPDATE-only SQL (no INSERT, no DELETE in Up section)', () => {
+    const upSection = sql.slice(0, sql.indexOf('-- Down Migration'));
+    expect(upSection).not.toMatch(/^\s*INSERT\b/m);
+    expect(upSection).not.toMatch(/^\s*DELETE\b/m);
+    // And at least one UPDATE statement exists.
+    expect(upSection).toMatch(/^UPDATE family_silhouettes SET$/m);
+  });
+
+  it('emits exactly 4 UPDATE statements in the Up section (one per rescued family)', () => {
+    const upSection = sql.slice(0, sql.indexOf('-- Down Migration'));
+    const updateMatches = upSection.match(/^UPDATE family_silhouettes SET$/gm) ?? [];
+    expect(updateMatches).toHaveLength(4);
+  });
+
+  it('emits a WHERE family_code clause for each of the 4 rescued families', () => {
+    for (const r of rescued) {
+      expect(sql).toContain(`WHERE family_code = '${r.family}';`);
+    }
+  });
+
+  it('threads license + creator + source columns through correctly', () => {
+    // CC-BY-* picks carry creator citation (3 of 4).
+    expect(sql).toContain("license = 'CC-BY-4.0'");
+    expect(sql).toContain("creator = 'Yves Hoebeke'");
+    expect(sql).toContain("license = 'CC-BY-3.0'");
+    expect(sql).toContain("creator = 'Paul Baker (photo), T. Michael Keesey'");
+    expect(sql).toContain("creator = 'Alan Manson (photo), T. Michael Keesey'");
+    // CC0 pick with null creatorName → emits creator = NULL (no quotes).
+    expect(sql).toContain("license = 'CC0-1.0'");
+    expect(sql).toMatch(/creator = NULL\n\s*WHERE family_code = 'fregatidae'/);
+    // Source URLs thread through.
+    expect(sql).toContain("source = 'https://www.phylopic.org/images/44dcfdfc-6879-42ef-ae02-8df23a174efd'");
+  });
+
+  it('does NOT emit UPDATEs for any of the 19 still-NULL families (no spurious writes)', () => {
+    const upSection = sql.slice(0, sql.indexOf('-- Down Migration'));
+    for (const family of stillNullFamilies) {
+      expect(upSection, `${family} should not appear in an UPDATE … WHERE clause`)
+        .not.toMatch(new RegExp(`WHERE family_code = '${family}';`));
+    }
+  });
+
+  it('lists the still-NULL families in the audit comment block (not in SQL)', () => {
+    // They appear in the "Still NULL after cascade" comment section.
+    for (const family of stillNullFamilies) {
+      expect(sql).toContain(`--   ${family} (`);
+    }
+  });
+
+  it('Down section reverts ONLY the 4 rescued rows back to NULL (reverse-UPDATE shape)', () => {
+    const downSection = sql.slice(sql.indexOf('-- Down Migration'));
+    // No DELETEs (mode is UPDATE-only).
+    expect(downSection).not.toMatch(/\bDELETE\b/);
+    // Single UPDATE … IN (…) statement re-NULLing the 4 rescued families.
+    expect(downSection).toContain('UPDATE family_silhouettes SET svg_data = NULL, source = NULL, license = NULL, creator = NULL');
+    for (const r of rescued) {
+      expect(downSection).toContain(`'${r.family}'`);
+    }
+    // None of the still-NULL families touched on Down.
+    for (const family of stillNullFamilies) {
+      expect(downSection, `${family} should not appear in Down section`).not.toContain(`'${family}'`);
+    }
+  });
+
+  it('uses the PHYLOPIC_BUILD constant (not a hardcoded build number) in the header comment', () => {
+    expect(sql).toContain(`Phylopic build ${PHYLOPIC_BUILD}`);
+  });
+
+  it('references migration 48000 + the rescue-national-residual context', () => {
+    expect(sql).toContain('Phase 3a national residual rescue');
+    expect(sql).toContain('migration 48000');
+    expect(sql).toContain('--rescue-national-residual');
+  });
+
+  it('NATIONAL_RESIDUAL_FAMILIES covers the 23 families targeted by migration 49000', () => {
+    expect(NATIONAL_RESIDUAL_FAMILIES).toHaveLength(23);
+    // The 4 rescued + 19 still-NULL must all appear in the residual set.
+    for (const r of rescued) {
+      expect(NATIONAL_RESIDUAL_FAMILIES).toContain(r.family);
+    }
+    for (const family of stillNullFamilies) {
+      expect(NATIONAL_RESIDUAL_FAMILIES).toContain(family);
     }
   });
 });
