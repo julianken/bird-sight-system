@@ -442,8 +442,18 @@ resource "google_cloud_run_v2_job" "ingestor_photos" {
   template {
     template {
       service_account = google_service_account.ingestor.email
-      timeout         = "600s"
-      max_retries     = 1
+      # 900s (Cloud Run Jobs hard cap is 86400s but the practical sizing is
+      # set by the photos-cohort wall-clock). Bumped from 600s (2026-05-20)
+      # after PR #679 dropped INAT_PLACE_ID to '' for national coverage: the
+      # post-flip cohort is ~715 observed species (vs. ~344 in AZ-only era),
+      # and the first national run timed out at 600s mid-cascade. With 1s
+      # pacing between species, 715 × ~1.2s = ~858s worst-case for a
+      # cold-cache run; 900s leaves a small headroom margin. Subsequent runs
+      # skip species with a row in `species_photos`, so steady-state finishes
+      # in seconds — the 900s budget only matters for cold starts or after a
+      # large taxonomy expansion.
+      timeout     = "900s"
+      max_retries = 1
 
       containers {
         image = "${google_artifact_registry_repository.birdwatch.location}-docker.pkg.dev/${var.gcp_project_id}/${google_artifact_registry_repository.birdwatch.repository_id}/ingestor:latest"
