@@ -203,12 +203,69 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
   const startedAt = Date.now();
   try {
     let summary: AnyRunSummary;
+    // For the per-state backfill fan-out, capture the resolved regionCode so
+    // the run-completion summary log carries `state` as a structured
+    // jsonPayload field. Cloud Logging queries like
+    // `jsonPayload.state="US-CA"` then partition per-state runs cleanly —
+    // see scripts/verify-backfill.sh.
+    let backfillState: string | undefined;
     if (kind === 'recent') {
       summary = await deps.runIngest({ pool, apiKey, regionCode: 'US' });
     } else if (kind === 'hotspots') {
       summary = await deps.runHotspotIngest({ pool, apiKey, regionCode: 'US-AZ' });
     } else if (kind === 'backfill') {
-      summary = await deps.runBackfill({ pool, apiKey, regionCode: 'US-AZ', days: 19 });
+      // Phase 3.5 per-state fan-out (plan: ~/.claude/plans/are-we-ready-to-starry-dove.md).
+      // Optional CLI flags --state=US-XX (default US-AZ to preserve the
+      // existing prod scheduler's no-flag invocation) and --back=N (default
+      // 19 with no flags, so the legacy daily backfill keeps its current
+      // window; new per-state schedulers pass --back=14 explicitly).
+      // argv shape: ["node", "cli.ts", "backfill", "--state=US-CA", "--back=14"].
+      const flags = process.argv.slice(3);
+      let regionCode = 'US-AZ';
+      let days = 19;
+      for (const f of flags) {
+        if (f.startsWith('--state=')) {
+          const v = f.slice('--state='.length);
+          if (!/^US-[A-Z]{2}$/.test(v)) {
+            console.log(JSON.stringify({
+              severity: 'ERROR',
+              message: 'bird_ingest_invalid_flag',
+              flag: '--state',
+              value: v,
+              expected: 'US-XX (USPS two-letter state code)',
+            }));
+            process.exitCode = 1;
+            return;
+          }
+          regionCode = v;
+        } else if (f.startsWith('--back=')) {
+          const raw = f.slice('--back='.length);
+          const n = Number.parseInt(raw, 10);
+          if (!Number.isInteger(n) || n < 1 || n > 30 || String(n) !== raw) {
+            console.log(JSON.stringify({
+              severity: 'ERROR',
+              message: 'bird_ingest_invalid_flag',
+              flag: '--back',
+              value: raw,
+              expected: 'integer 1-30 (eBird /data/obs/{region}/recent cap)',
+            }));
+            process.exitCode = 1;
+            return;
+          }
+          days = n;
+        } else {
+          console.log(JSON.stringify({
+            severity: 'ERROR',
+            message: 'bird_ingest_invalid_flag',
+            flag: f,
+            expected: '--state=US-XX or --back=N',
+          }));
+          process.exitCode = 1;
+          return;
+        }
+      }
+      backfillState = regionCode;
+      summary = await deps.runBackfill({ pool, apiKey, regionCode, days });
     } else if (kind === 'backfill-extended') {
       // 'backfill-extended': one-shot 365-day backfill at 1 rps; this is NOT
       // scheduled — it's an operator-triggered one-shot to populate historical
@@ -268,6 +325,10 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
       kind,
       status: summary.status,
       duration_seconds: durationSeconds,
+      // Per-state backfill (Phase 3.5): emit `state` as a top-level jsonPayload
+      // field so Cloud Logging can filter by `jsonPayload.state="US-CA"`.
+      // Omitted for non-backfill kinds to keep the structured shape minimal.
+      ...(backfillState !== undefined && { state: backfillState }),
     }));
     if (summary.status === 'failure') {
       // Flag the process as failed without killing the loop mid-pool-close.
