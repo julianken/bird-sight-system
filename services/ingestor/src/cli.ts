@@ -329,6 +329,11 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
       // field so Cloud Logging can filter by `jsonPayload.state="US-CA"`.
       // Omitted for non-backfill kinds to keep the structured shape minimal.
       ...(backfillState !== undefined && { state: backfillState }),
+      // Surface the first per-day error (or fatal pre-loop error) in the
+      // run-completed summary so Cloud Logging triage doesn't require
+      // joining against the per-day bird_ingest_day_failed lines.
+      ...(summary.status !== 'success' && 'error' in summary && typeof summary.error === 'string'
+        && { firstError: summary.error.slice(0, 500) }),
     }));
     if (summary.status === 'failure') {
       // Flag the process as failed without killing the loop mid-pool-close.

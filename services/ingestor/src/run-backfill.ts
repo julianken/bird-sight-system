@@ -52,20 +52,65 @@ export async function runBackfill(o: RunBackfillOptions): Promise<RunBackfillSum
       const y = date.getUTCFullYear();
       const m = date.getUTCMonth() + 1;
       const d = date.getUTCDate();
+      const dateStr = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      // Pace successive eBird calls. Skip the wait before the first call;
+      // otherwise a 365-day run sits idle for paceMs * 365 when paceMs *
+      // (365 - 1) would do. Mirrors run-photos.ts:113-116.
+      if (!firstCall && (o.paceMs ?? 0) > 0) await sleep(o.paceMs!);
+      firstCall = false;
+
+      // Per-day diagnostic logging (issue #TBD): the prior single-catch
+      // block hid which phase failed (fetch vs upsert) and produced no
+      // per-day visibility — a long backfill that died early left only
+      // `daysProcessed=0` in the run-completed summary. Split phases and
+      // emit one compact structured line per day.
+      let obs;
       try {
-        // Pace successive eBird calls. Skip the wait before the first call;
-        // otherwise a 365-day run sits idle for paceMs * 365 when paceMs *
-        // (365 - 1) would do. Mirrors run-photos.ts:113-116.
-        if (!firstCall && (o.paceMs ?? 0) > 0) await sleep(o.paceMs!);
-        firstCall = false;
-        const obs = await client.fetchHistoric(o.regionCode, y, m, d);
+        obs = await client.fetchHistoric(o.regionCode, y, m, d);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(JSON.stringify({
+          severity: 'WARNING',
+          kind: 'backfill',
+          message: 'bird_ingest_day_failed',
+          state: o.regionCode,
+          dayOffset: i,
+          date: dateStr,
+          phase: 'fetch',
+          error: msg.slice(0, 500),
+        }));
+        if (!firstError) firstError = msg;
+        continue;
+      }
+      try {
         const inputs = obs.map(eb => toObservationInput(eb, notableKeys));
         const upserted = await upsertObservations(o.pool, inputs);
         totalFetched += obs.length;
         totalUpserted += upserted;
         daysProcessed++;
+        console.log(JSON.stringify({
+          severity: 'INFO',
+          kind: 'backfill',
+          message: 'bird_ingest_day_succeeded',
+          state: o.regionCode,
+          dayOffset: i,
+          date: dateStr,
+          fetched: obs.length,
+          upserted,
+        }));
       } catch (err) {
-        if (!firstError) firstError = err instanceof Error ? err.message : String(err);
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(JSON.stringify({
+          severity: 'WARNING',
+          kind: 'backfill',
+          message: 'bird_ingest_day_failed',
+          state: o.regionCode,
+          dayOffset: i,
+          date: dateStr,
+          phase: 'upsert',
+          error: msg.slice(0, 500),
+        }));
+        if (!firstError) firstError = msg;
       }
     }
 
