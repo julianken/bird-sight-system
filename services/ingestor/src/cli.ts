@@ -219,20 +219,26 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
       // existing prod scheduler's no-flag invocation) and --back=N (default
       // 19 with no flags, so the legacy daily backfill keeps its current
       // window; new per-state schedulers pass --back=14 explicitly).
-      // argv shape: ["node", "cli.ts", "backfill", "--state=US-CA", "--back=14"].
+      // --state also accepts eBird subnational2 (county) codes of the form
+      // US-XX-NNN or US-XX-AAA — needed because a per-day full-state
+      // /historic call can blow past eBird's response-size limit (HTTP 500
+      // on large states like CA), and the mitigation is to fan out per
+      // county.
+      // argv shape: ["node", "cli.ts", "backfill", "--state=US-CA", "--back=14"]
+      //         or: ["node", "cli.ts", "backfill", "--state=US-CA-001", "--back=14"].
       const flags = process.argv.slice(3);
       let regionCode = 'US-AZ';
       let days = 19;
       for (const f of flags) {
         if (f.startsWith('--state=')) {
           const v = f.slice('--state='.length);
-          if (!/^US-[A-Z]{2}$/.test(v)) {
+          if (!/^US-[A-Z]{2}(-[A-Z0-9]+)?$/.test(v)) {
             console.log(JSON.stringify({
               severity: 'ERROR',
               message: 'bird_ingest_invalid_flag',
               flag: '--state',
               value: v,
-              expected: 'US-XX (USPS two-letter state code)',
+              expected: 'US-XX (state) or US-XX-NNN (county/subnational2)',
             }));
             process.exitCode = 1;
             return;
@@ -258,7 +264,7 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
             severity: 'ERROR',
             message: 'bird_ingest_invalid_flag',
             flag: f,
-            expected: '--state=US-XX or --back=N',
+            expected: '--state=US-XX[-NNN] or --back=N',
           }));
           process.exitCode = 1;
           return;

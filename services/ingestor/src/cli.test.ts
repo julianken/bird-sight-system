@@ -198,6 +198,55 @@ describe('runCli', () => {
       expect(process.exitCode).toBe(1);
       expect(runBackfillSpy).not.toHaveBeenCalled();
     });
+
+    // ── County (subnational2) codes ──────────────────────────────────────
+    // A per-day full-state /historic call can blow past eBird's response-size
+    // limit (observed: HTTP 500 on CA backfill), and the mitigation is to fan
+    // out per county. The --state flag must accept the subnational2 shape
+    // US-XX-NNN (numeric FIPS) and US-XX-AAA (alpha sub-codes) without
+    // dropping rejection on truly malformed values.
+
+    it('accepts --state=US-CA-001 (numeric county FIPS subnational2 code)', async () => {
+      process.argv = ['node', 'cli.ts', 'backfill', '--state=US-CA-001', '--back=14'];
+      const runBackfillSpy = vi.fn().mockResolvedValue({
+        status: 'success' as const, fetched: 0, upserted: 0, daysProcessed: 14,
+      });
+      const deps = makeDeps({ runBackfill: runBackfillSpy });
+      await runCli('backfill', deps);
+      expect(runBackfillSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ regionCode: 'US-CA-001', days: 14 })
+      );
+    });
+
+    it('accepts --state=US-CA-LAS (alphabetic subnational2 sub-code)', async () => {
+      process.argv = ['node', 'cli.ts', 'backfill', '--state=US-CA-LAS', '--back=14'];
+      const runBackfillSpy = vi.fn().mockResolvedValue({
+        status: 'success' as const, fetched: 0, upserted: 0, daysProcessed: 14,
+      });
+      const deps = makeDeps({ runBackfill: runBackfillSpy });
+      await runCli('backfill', deps);
+      expect(runBackfillSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ regionCode: 'US-CA-LAS', days: 14 })
+      );
+    });
+
+    it('rejects --state=US-CA- (trailing hyphen, empty subnational2 segment)', async () => {
+      process.argv = ['node', 'cli.ts', 'backfill', '--state=US-CA-'];
+      const runBackfillSpy = vi.fn();
+      const deps = makeDeps({ runBackfill: runBackfillSpy });
+      await runCli('backfill', deps);
+      expect(process.exitCode).toBe(1);
+      expect(runBackfillSpy).not.toHaveBeenCalled();
+    });
+
+    it('rejects --state=US-CA-001-x (more than one subnational segment)', async () => {
+      process.argv = ['node', 'cli.ts', 'backfill', '--state=US-CA-001-x'];
+      const runBackfillSpy = vi.fn();
+      const deps = makeDeps({ runBackfill: runBackfillSpy });
+      await runCli('backfill', deps);
+      expect(process.exitCode).toBe(1);
+      expect(runBackfillSpy).not.toHaveBeenCalled();
+    });
   });
 
   it('throws if EBIRD_API_KEY is not set', async () => {
