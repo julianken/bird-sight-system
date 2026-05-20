@@ -657,3 +657,26 @@ describe('App.tsx onSelectSpecies bbox-clear invariant (#560)', () => {
     expect(selectCall![0].bbox).toBeNull();
   });
 });
+
+describe('Clarity view tagging (#657-followup)', () => {
+  beforeEach(() => {
+    __resetSilhouettesCache();
+    mockGetHotspots.mockResolvedValue([]);
+    mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
+    mockGetSilhouettes.mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('calls analytics.setView with the active view on mount', async () => {
+    const { analytics } = await import('./analytics.js');
+    const setViewSpy = vi.spyOn(analytics, 'setView');
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
+    };
+    render(<App />);
+    expect(setViewSpy).toHaveBeenCalledWith('feed');
+  });
+});

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LngLatBounds } from 'maplibre-gl';
+import { analytics } from './analytics.js';
 import { ApiClient, ApiError } from './api/client.js';
 import { useUrlState } from './state/url-state.js';
 import type { Since, BBox } from './state/url-state.js';
@@ -63,6 +64,14 @@ function craftedFromError(error: Error): string {
 export function App() {
   const { state, set } = useUrlState();
   const isCompact = useIsCompact();
+  // Tag the current Clarity session with the active view so dashboards can
+  // filter sessions by surface (feed | map | species | detail). Fires on
+  // initial mount and on every view change; analytics.setView no-ops safely
+  // when Clarity isn't initialized (dev/test/missing project ID). PR #659
+  // follow-up.
+  useEffect(() => {
+    analytics.setView(state.view);
+  }, [state.view]);
   // Phase 3: filters panel state + badge count.
   const [filtersOpen, setFiltersOpen] = useState(false);
   // Active-filter count: every non-default URL-state field counts as 1.
