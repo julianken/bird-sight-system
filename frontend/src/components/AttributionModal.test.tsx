@@ -114,7 +114,7 @@ describe('AttributionModal', () => {
     await user.click(screen.getByRole('button', { name: /credits/i }));
     // eBird, Family Silhouettes (Phylopic), Species descriptions
     // (Wikipedia — #373), Map Tiles (OSM/OpenFreeMap), Privacy
-    // (PostHog disclosure — issue #357 task 7). Photos is optional and
+    // (Clarity disclosure — issue #657). Photos is optional and
     // not rendered without photoAttribution + photoLicense.
     expect(screen.getByRole('heading', { level: 3, name: /bird sightings data/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 3, name: /family silhouettes/i })).toBeInTheDocument();
