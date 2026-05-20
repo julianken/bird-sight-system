@@ -1,4 +1,4 @@
-import Clarity from '@microsoft/clarity';
+import { safeClarity } from './clarity.js';
 
 /**
  * Analytics wrapper, Clarity-backed (PR #659 follow-up to issue #357).
@@ -19,35 +19,31 @@ import Clarity from '@microsoft/clarity';
  * `event` and N `setTag` calls — the *intent* (event + its dimensions)
  * survives, just split across two SDK methods.
  *
- * No env-var gate here: `clarity.ts` is the gate (PROD + project ID).
- * The runtime guard below (`window.clarity` exists) only fires before the
- * injected script has wired its queue function — i.e. in dev, in tests,
- * and on prod builds where the env gate suppressed init. This avoids
- * leaking SDK internals (`TypeError: window.clarity is not a function`)
- * into call-site test environments.
+ * The Clarity SDK itself is accessed via `safeClarity` from `./clarity.js`,
+ * not imported here directly. `clarity.ts` is the single canonical entry
+ * point to the SDK: it owns init (the env gate: PROD + project ID) AND the
+ * runtime guard (`window.clarity` exists), so pre-init calls in dev/test/
+ * un-gated-prod become safe no-ops without leaking the SDK internal
+ * (`TypeError: window.clarity is not a function`) into call-site test
+ * environments. Future Clarity callers (consent banner #658, identify,
+ * upgrade) should import `safeClarity` here too — never
+ * `@microsoft/clarity` directly.
  */
 interface Analytics {
   capture(eventName: string, properties?: Record<string, unknown>): void;
   setView(view: string): void;
 }
 
-function clarityReady(): boolean {
-  return typeof window !== 'undefined' &&
-    typeof (window as unknown as { clarity?: unknown }).clarity === 'function';
-}
-
 export const analytics: Analytics = {
   capture(eventName, properties) {
-    if (!clarityReady()) return;
-    Clarity.event(eventName);
+    safeClarity.event(eventName);
     if (properties) {
       for (const [key, value] of Object.entries(properties)) {
-        Clarity.setTag(key, String(value));
+        safeClarity.setTag(key, String(value));
       }
     }
   },
   setView(view) {
-    if (!clarityReady()) return;
-    Clarity.setTag('view', view);
+    safeClarity.setTag('view', view);
   },
 };

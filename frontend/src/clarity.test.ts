@@ -20,7 +20,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const initMock = vi.fn();
 
 vi.mock('@microsoft/clarity', () => ({
-  default: { init: initMock },
+  default: { init: initMock, event: vi.fn(), setTag: vi.fn() },
 }));
 
 describe('clarity module', () => {
@@ -53,5 +53,49 @@ describe('clarity module', () => {
     await import('./clarity.js');
     expect(initMock).toHaveBeenCalledTimes(1);
     expect(initMock).toHaveBeenCalledWith('abc123xyz');
+  });
+});
+
+describe('safeClarity guarded wrapper', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    // Ensure window.clarity is undefined to simulate pre-init / non-prod.
+    delete (window as unknown as { clarity?: unknown }).clarity;
+  });
+
+  afterEach(() => {
+    delete (window as unknown as { clarity?: unknown }).clarity;
+  });
+
+  it('safeClarity.event is a no-op when window.clarity is undefined', async () => {
+    const { safeClarity } = await import('./clarity.js');
+    expect(() => safeClarity.event('panel_opened')).not.toThrow();
+  });
+
+  it('safeClarity.setTag is a no-op when window.clarity is undefined', async () => {
+    const { safeClarity } = await import('./clarity.js');
+    expect(() => safeClarity.setTag('view', 'feed')).not.toThrow();
+  });
+
+  it('safeClarity.event forwards to Clarity.event when window.clarity is a function', async () => {
+    (window as unknown as { clarity: () => void }).clarity = vi.fn();
+    const eventSpy = vi.fn();
+    vi.doMock('@microsoft/clarity', () => ({
+      default: { init: vi.fn(), event: eventSpy, setTag: vi.fn() },
+    }));
+    const { safeClarity } = await import('./clarity.js');
+    safeClarity.event('panel_opened');
+    expect(eventSpy).toHaveBeenCalledWith('panel_opened');
+  });
+
+  it('safeClarity.setTag forwards to Clarity.setTag when window.clarity is a function', async () => {
+    (window as unknown as { clarity: () => void }).clarity = vi.fn();
+    const setTagSpy = vi.fn();
+    vi.doMock('@microsoft/clarity', () => ({
+      default: { init: vi.fn(), event: vi.fn(), setTag: setTagSpy },
+    }));
+    const { safeClarity } = await import('./clarity.js');
+    safeClarity.setTag('view', 'feed');
+    expect(setTagSpy).toHaveBeenCalledWith('view', 'feed');
   });
 });
