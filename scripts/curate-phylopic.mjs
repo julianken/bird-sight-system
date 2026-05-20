@@ -97,6 +97,8 @@ const MIGRATION_PATH = resolve(
     // it.todo block in packages/db-client/src/family-silhouettes-contrast.test.ts).
     // This migration uses 48000 to leave 47000 free for that planned work.
     ? 'migrations/1700000048000_national_coverage_silhouettes.sql'
+    : process.argv.includes('--rescue-national-residual')
+      ? 'migrations/1700000049000_rescue_national_residual_silhouettes.sql'
     : process.argv.includes('--rescue-via-species')
       ? 'migrations/1700000036000_rescue_null_silhouettes_via_species.sql'
       : process.argv.includes('--recurate-nulls')
@@ -126,6 +128,18 @@ const RESCUE_VIA_SPECIES = process.argv.includes('--rescue-via-species');
 // migration (1700000048000_national_coverage_silhouettes.sql) that handles
 // both shapes — INSERTs first, then UPDATEs.
 const NATIONAL_COVERAGE = process.argv.includes('--national-coverage');
+// Phase 3a national residual rescue (follow-up to #673 / migration 48000).
+// After --national-coverage landed, 23 families remained svg_data=NULL:
+//   - 8 UPDATE-bucket families (had NULL rows pre-48000, still NULL)
+//   - 15 INSERT-bucket families (got NEW NULL rows from 48000 with color +
+//     common_name populated, but Phylopic family-node lookup gate-rejected
+//     every candidate or 404'd)
+// This mode runs the family → species → genus cascade (same as
+// --rescue-via-species) over all 23, using SPECIES_OVERRIDES entries
+// for the 15 INSERT families that were added alongside this flag.
+// Emits migration 1700000049000_rescue_national_residual_silhouettes.sql
+// as a pure UPDATE-shaped migration — all 23 rows already exist after 48000.
+const RESCUE_NATIONAL_RESIDUAL = process.argv.includes('--rescue-national-residual');
 
 // All 25 families seeded across migrations 9000 + 15000. Preserve exact
 // family_code casing from the seed migrations — Phylopic's filter_name is
@@ -261,6 +275,23 @@ const NATIONAL_UPDATE_FAMILIES = [
   'vireonidae',      // (237)
 ];
 
+// Phase 3a national residual rescue. The 23 families that remained
+// svg_data=NULL after migration 48000 (--national-coverage). Composed of
+// the 8 NATIONAL_UPDATE_FAMILIES (which 48000 attempted family-node
+// lookup on and gate-rejected) plus the 15 NATIONAL_INSERT_FAMILIES that
+// landed as NULL rows. All 23 now have rows in family_silhouettes after
+// 48000, so this rescue emits a pure UPDATE migration (slot 49000).
+const NATIONAL_RESIDUAL_FAMILIES = [
+  // UPDATE bucket from 48000 (8 — still NULL after family-node lookup)
+  'calcariidae', 'icteriidae', 'peucedramidae', 'polioptilidae',
+  'ptiliogonatidae', 'remizidae', 'tityridae', 'vireonidae',
+  // INSERT bucket from 48000 (15 — rows exist with color + common_name, svg_data NULL)
+  'acrocephalidae', 'alcidae', 'aramidae', 'cettiidae', 'cracidae',
+  'diomedeidae', 'fregatidae', 'hydrobatidae', 'leiothrichidae',
+  'monarchidae', 'paradoxornithidae', 'phaethontidae', 'ploceidae',
+  'pycnonotidae', 'viduidae',
+];
+
 // Issue #500. Hand-picked iconic AZ species (or representative genus) for each
 // of the 14 NULL family_silhouettes. Used by the --rescue-via-species fallback
 // path: when a family's own node returns 404 or all candidates are gate-rejected,
@@ -290,6 +321,26 @@ const SPECIES_OVERRIDES = {
   tityridae:        'Pachyramphus aglaiae',      // Rose-throated Becard (rare AZ specialty)
   tytonidae:        'Tyto alba',                 // Barn Owl (common AZ)
   vireonidae:       'Vireo plumbeus',            // Plumbeous Vireo (common AZ)
+  // Phase 3a national residual (issue follow-up to #673). The 15 INSERT-bucket
+  // families that landed as NULL rows in migration 48000 — every family-node
+  // lookup either 404'd or all candidates failed quality gates. Iconic-species
+  // overrides below target the type genus or the most US-relevant species so a
+  // future Phylopic build (or species-node coverage) can rescue them.
+  acrocephalidae:    'Acrocephalus scirpaceus',  // Common Reed Warbler (genus type)
+  alcidae:           'Fratercula arctica',       // Atlantic Puffin (most-illustrated alcid)
+  aramidae:          'Aramus guarauna',          // Limpkin (monotypic family)
+  cettiidae:         'Cettia cetti',             // Cetti's Warbler (genus type)
+  cracidae:          'Ortalis vetula',           // Plain Chachalaca (AZ/TX-relevant cracid)
+  diomedeidae:       'Phoebastria nigripes',     // Black-footed Albatross (US Pacific coast)
+  fregatidae:        'Fregata magnificens',      // Magnificent Frigatebird (most US frigatebird)
+  hydrobatidae:      'Hydrobates pelagicus',     // European Storm-Petrel (genus type)
+  leiothrichidae:    'Leiothrix lutea',          // Red-billed Leiothrix (introduced HI)
+  monarchidae:       'Monarcha melanopsis',      // Black-faced Monarch (genus type)
+  paradoxornithidae: 'Sinosuthora webbiana',     // Vinous-throated Parrotbill (introduced CA)
+  phaethontidae:     'Phaethon aethereus',       // Red-billed Tropicbird (genus type, regular US)
+  ploceidae:         'Ploceus cucullatus',       // Village Weaver (well-illustrated weaver)
+  pycnonotidae:      'Pycnonotus jocosus',       // Red-whiskered Bulbul (introduced FL)
+  viduidae:          'Vidua macroura',           // Pin-tailed Whydah (introduced CA)
 };
 
 // Short identifier mapping per the Phylopic license URL convention. Phylopic
@@ -1358,6 +1409,88 @@ function emitMigrationSql(picks, skipFamilies, mode = 'update', colorByFamily = 
     lines.push('');
     return lines.join('\n');
   }
+  if (mode === 'national-residual') {
+    const sortedPicks = [...picks].sort((a, b) => a.family.localeCompare(b.family));
+    const rescued = sortedPicks.filter(p => p.picked);
+    const stillNull = sortedPicks.filter(p => !p.picked);
+    lines.push('-- Phase 3a national residual rescue (follow-up to migration 48000).');
+    lines.push('-- 23 families remained svg_data=NULL after --national-coverage:');
+    lines.push('--   - 8 UPDATE-bucket families (pre-existing NULL rows, family-node');
+    lines.push('--     lookup gate-rejected every candidate)');
+    lines.push('--   - 15 INSERT-bucket families (new rows from 48000 with color +');
+    lines.push('--     common_name populated, svg_data NULL)');
+    lines.push('--');
+    lines.push(`-- Generated by scripts/curate-phylopic.mjs --rescue-national-residual on ${today}`);
+    lines.push('-- using the family → species → genus cascade against Phylopic build 538.');
+    lines.push('-- SPECIES_OVERRIDES carries one iconic representative species per family');
+    lines.push('-- (see scripts/curate-phylopic.mjs); each rescued entry carries');
+    lines.push('-- `resolutionPath: "family"|"species"|"genus"` + `attempts[]` in');
+    lines.push('-- scripts/phylopic-picks.json so a reader can see which lookup path');
+    lines.push('-- produced the pick.');
+    lines.push('--');
+    lines.push('-- Rescued (svg_data flipped from NULL → real path-d via family/species/genus):');
+    if (rescued.length === 0) {
+      lines.push('--   (none — cascade produced no usable picks for the 23 residual families)');
+    } else {
+      for (const r of rescued) {
+        const path = r.resolutionPath ?? 'species';
+        const slug = r.picked.resolvedSlug ?? '(unknown slug)';
+        lines.push(`--   ${r.family} — via ${path} "${slug}" — ${r.picked.licenseId}, creator: ${r.picked.creatorName ?? '(unknown)'}, ${r.picked.imagePageUrl}`);
+      }
+    }
+    lines.push('--');
+    lines.push('-- Still NULL after cascade (rejection reason in parentheses):');
+    if (stillNull.length === 0) {
+      lines.push(`--   (none — all 23 rescued)`);
+    } else {
+      for (const r of stillNull) {
+        lines.push(`--   ${r.family} (${r.reason})`);
+      }
+    }
+    lines.push('--');
+    lines.push('-- Families still NULL after this pass need hand-curation per the');
+    lines.push('-- curating-fallback-silhouettes skill (Wikimedia/SVG Repo/iNaturalist');
+    lines.push('-- CC sources + admin-api upload). _FALLBACK shape continues to tint');
+    lines.push('-- them in the meantime.');
+    lines.push('');
+    if (rescued.length === 0) {
+      lines.push('-- No UPDATEs: cascade produced zero usable picks.');
+      lines.push('SELECT 1;');
+      lines.push('');
+    } else {
+      for (const pick of rescued) {
+        const p = pick.picked;
+        const d = escapeSqlString(p.svgPathD);
+        const src = escapeSqlString(p.imagePageUrl);
+        const lic = escapeSqlString(p.licenseId);
+        const cre = p.creatorName ? `'${escapeSqlString(p.creatorName)}'` : 'NULL';
+        const path = pick.resolutionPath ?? 'species';
+        const slug = p.resolvedSlug ?? '(unknown slug)';
+        lines.push(`-- ${pick.family} — via ${path} "${slug}" — ${p.licenseId}, creator: ${p.creatorName ?? '(unknown)'}`);
+        lines.push(`-- page: ${p.imagePageUrl}`);
+        lines.push(`UPDATE family_silhouettes SET`);
+        lines.push(`  svg_data = '${d}',`);
+        lines.push(`  source = '${src}',`);
+        lines.push(`  license = '${lic}',`);
+        lines.push(`  creator = ${cre}`);
+        lines.push(`WHERE family_code = '${pick.family}';`);
+        lines.push('');
+      }
+    }
+    lines.push('-- Down Migration');
+    lines.push('-- Revert ONLY the rescued rows back to NULL. Families that were not');
+    lines.push('-- rescued in this migration are unchanged.');
+    if (rescued.length === 0) {
+      lines.push('-- No-op: nothing was rescued, so nothing to revert.');
+      lines.push('SELECT 1;');
+    } else {
+      const codes = rescued.map(p => `'${p.family}'`).join(', ');
+      lines.push(`UPDATE family_silhouettes SET svg_data = NULL, source = NULL, license = NULL, creator = NULL`);
+      lines.push(`WHERE family_code IN (${codes});`);
+    }
+    lines.push('');
+    return lines.join('\n');
+  }
   if (mode === 'rescue') {
     const sortedPicks = [...picks].sort((a, b) => a.family.localeCompare(b.family));
     const rescued = sortedPicks.filter(p => p.picked);
@@ -1936,9 +2069,11 @@ async function main() {
   const skipSet = new Set(config.skipFamilies);
   const targetFamilies = NATIONAL_COVERAGE
     ? [...NATIONAL_INSERT_FAMILIES, ...NATIONAL_UPDATE_FAMILIES]
-    : (RESCUE_VIA_SPECIES || RECURATE_NULLS)
-      ? RECURATE_FAMILIES
-      : BACKFILL ? BACKFILL_FAMILIES : FAMILIES;
+    : RESCUE_NATIONAL_RESIDUAL
+      ? NATIONAL_RESIDUAL_FAMILIES
+      : (RESCUE_VIA_SPECIES || RECURATE_NULLS)
+        ? RECURATE_FAMILIES
+        : BACKFILL ? BACKFILL_FAMILIES : FAMILIES;
   console.log(`Curating ${targetFamilies.length} families against Phylopic API (build=${PHYLOPIC_BUILD})`);
   console.log(`Cache: ${CACHE_DIR}${REFRESH ? ' (REFRESH mode — bypassing)' : ''}`);
   if (RESCUE_VIA_SPECIES) {
@@ -1946,6 +2081,9 @@ async function main() {
   }
   if (NATIONAL_COVERAGE) {
     console.log(`Mode: --national-coverage (${NATIONAL_INSERT_FAMILIES.length} INSERT + ${NATIONAL_UPDATE_FAMILIES.length} UPDATE; mixed migration 48000)`);
+  }
+  if (RESCUE_NATIONAL_RESIDUAL) {
+    console.log(`Mode: --rescue-national-residual (${NATIONAL_RESIDUAL_FAMILIES.length} residual families from 48000; family → species → genus cascade; UPDATE-only migration 49000)`);
   }
   if (skipSet.size > 0) {
     console.log(`Skipping (operator-flagged absent): ${[...skipSet].sort().join(', ')}`);
@@ -1964,7 +2102,7 @@ async function main() {
       });
       continue;
     }
-    const result = RESCUE_VIA_SPECIES
+    const result = (RESCUE_VIA_SPECIES || RESCUE_NATIONAL_RESIDUAL)
       ? await rescueFamilyViaSpecies(family)
       : await curateFamily(family);
     picks.push(result);
@@ -2023,7 +2161,7 @@ async function main() {
   }));
 
   let summary;
-  if (RESCUE_VIA_SPECIES || RECURATE_NULLS || NATIONAL_COVERAGE) {
+  if (RESCUE_VIA_SPECIES || RECURATE_NULLS || NATIONAL_COVERAGE || RESCUE_NATIONAL_RESIDUAL) {
     // Load existing picks file and merge: replace entries for the target
     // families, keep the rest as-is. picks.json is the cumulative audit
     // trail across all runs.
@@ -2090,6 +2228,7 @@ async function main() {
     picks,
     config.skipFamilies,
     NATIONAL_COVERAGE ? 'national'
+      : RESCUE_NATIONAL_RESIDUAL ? 'national-residual'
       : RESCUE_VIA_SPECIES ? 'rescue'
       : RECURATE_NULLS ? 'recurate'
       : BACKFILL ? 'backfill'
