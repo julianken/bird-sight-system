@@ -195,6 +195,110 @@ describe('runBackfill', () => {
     setTimeoutSpy.mockRestore();
   });
 
+  it('emits bird_ingest_day_failed with phase=fetch when a day\'s fetch errors', async () => {
+    server.use(
+      http.get('https://api.ebird.org/v2/data/obs/US-AZ/recent/notable', () => HttpResponse.json([])),
+      http.get('https://api.ebird.org/v2/data/obs/US-AZ/historic/:y/:m/:d', ({ params }) => {
+        const day = Number(params['d']);
+        if (day === 14) return new HttpResponse('eBird exploded', { status: 500 });
+        return HttpResponse.json([
+          { speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+            sciName: 'Pyrocephalus rubinus', locId: `LF${day}`, locName: 'X',
+            obsDt: `2026-04-${String(day).padStart(2, '0')} 08:00`,
+            howMany: 1, lat: 31.72, lng: -110.88,
+            obsValid: true, obsReviewed: false, locationPrivate: false,
+            subId: `SF${day}` },
+        ]);
+      }),
+    );
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const today = new Date('2026-04-16T00:00:00Z');
+    const client = new EbirdClient({ apiKey: 'k', maxRetries: 0 });
+    const summary = await runBackfill({
+      pool: db.pool, apiKey: 'k', regionCode: 'US-AZ',
+      days: 3, today, client,
+    });
+    expect(summary.status).toBe('partial');
+
+    const warnObjs = warnSpy.mock.calls
+      .map(([a]) => { try { return JSON.parse(String(a)); } catch { return null; } })
+      .filter((o): o is Record<string, unknown> => !!o && (o as Record<string, unknown>).message === 'bird_ingest_day_failed');
+    expect(warnObjs).toHaveLength(1);
+    expect(warnObjs[0]).toMatchObject({
+      kind: 'backfill', message: 'bird_ingest_day_failed',
+      state: 'US-AZ', phase: 'fetch', dayOffset: 2, date: '2026-04-14',
+    });
+    expect(String(warnObjs[0]?.['error'])).toMatch(/500|server|exploded/i);
+
+    const okObjs = logSpy.mock.calls
+      .map(([a]) => { try { return JSON.parse(String(a)); } catch { return null; } })
+      .filter((o): o is Record<string, unknown> => !!o && (o as Record<string, unknown>).message === 'bird_ingest_day_succeeded');
+    expect(okObjs).toHaveLength(2);
+    expect(okObjs[0]).toMatchObject({
+      kind: 'backfill', message: 'bird_ingest_day_succeeded',
+      state: 'US-AZ', fetched: 1,
+    });
+
+    warnSpy.mockRestore();
+    logSpy.mockRestore();
+  });
+
+  it('emits bird_ingest_day_failed with phase=upsert when upsertObservations throws mid-loop', async () => {
+    server.use(
+      http.get('https://api.ebird.org/v2/data/obs/US-AZ/recent/notable', () => HttpResponse.json([])),
+      http.get('https://api.ebird.org/v2/data/obs/US-AZ/historic/:y/:m/:d', () =>
+        HttpResponse.json([
+          { speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+            sciName: 'Pyrocephalus rubinus', locId: 'LU2', locName: 'X',
+            obsDt: '2026-04-15 08:00', howMany: 1, lat: 31.72, lng: -110.88,
+            obsValid: true, obsReviewed: false, locationPrivate: false,
+            subId: 'SU2' },
+        ])
+      ),
+    );
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // Wrap real pool: pass through startIngestRun/finishIngestRun (which use
+    // INSERT/UPDATE on ingest_runs) but throw on the observations multi-row INSERT.
+    const realQuery = db.pool.query.bind(db.pool);
+    const wrappedPool = new Proxy(db.pool, {
+      get(target, prop) {
+        if (prop === 'query') {
+          return (text: string, params?: unknown[]) => {
+            const sql = typeof text === 'string' ? text : (text as { text?: string }).text ?? '';
+            if (sql.includes('observations') && /INSERT/i.test(sql)) {
+              return Promise.reject(new Error('synthetic upsert failure'));
+            }
+            return realQuery(text as never, params as never);
+          };
+        }
+        return (target as unknown as Record<string | symbol, unknown>)[prop as string];
+      },
+    });
+
+    const today = new Date('2026-04-16T00:00:00Z');
+    const summary = await runBackfill({
+      pool: wrappedPool, apiKey: 'k', regionCode: 'US-AZ',
+      days: 1, today,
+    });
+    expect(summary.status).toBe('failure');
+    expect(summary.error).toMatch(/synthetic upsert failure/);
+
+    const warnObjs = warnSpy.mock.calls
+      .map(([a]) => { try { return JSON.parse(String(a)); } catch { return null; } })
+      .filter((o): o is Record<string, unknown> => !!o && (o as Record<string, unknown>).message === 'bird_ingest_day_failed');
+    expect(warnObjs).toHaveLength(1);
+    expect(warnObjs[0]).toMatchObject({
+      kind: 'backfill', message: 'bird_ingest_day_failed',
+      state: 'US-AZ', phase: 'upsert', dayOffset: 1,
+    });
+    expect(String(warnObjs[0]?.['error'])).toMatch(/synthetic upsert failure/);
+
+    warnSpy.mockRestore();
+  });
+
   it('records failure when pre-loop fetchNotable throws exhausted retries', async () => {
     server.use(
       http.get('https://api.ebird.org/v2/data/obs/US-AZ/recent/notable', () =>
