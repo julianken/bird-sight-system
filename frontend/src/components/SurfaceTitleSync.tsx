@@ -13,8 +13,6 @@ function buildTitle(view: View, speciesCommonName: string | null): string {
   switch (view) {
     case 'feed':
       return `Feed — ${SITE_SUFFIX}`;
-    case 'species':
-      return `Species — ${SITE_SUFFIX}`;
     case 'detail':
       return speciesCommonName ? `${speciesCommonName} — ${SITE_SUFFIX}` : SITE_SUFFIX;
     case 'map':

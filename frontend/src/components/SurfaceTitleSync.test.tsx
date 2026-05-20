@@ -18,11 +18,6 @@ describe('SurfaceTitleSync', () => {
     expect(document.title).toBe('Feed — Bird Maps · Arizona');
   });
 
-  it('sets title to "Species — Bird Maps · Arizona" on species surface', () => {
-    render(<SurfaceTitleSync view="species" speciesCommonName={null} />);
-    expect(document.title).toBe('Species — Bird Maps · Arizona');
-  });
-
   it('sets title to "{commonName} — Bird Maps · Arizona" on detail surface with species', () => {
     render(<SurfaceTitleSync view="detail" speciesCommonName="Gila Woodpecker" />);
     expect(document.title).toBe('Gila Woodpecker — Bird Maps · Arizona');
