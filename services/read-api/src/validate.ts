@@ -158,8 +158,9 @@ export function parseFamily(
  * lat *span* near the CONUS top (~50°N) projects to roughly 25° × sec(50°)
  * ≈ 39° of *visual* (mercator-pixel) extent. The 25° cap is therefore a
  * numeric-degree cap, not a visual-pixel cap; the 1080px viewport at z=6
- * resolves only ~23.7° of numeric latitude even when centered high in
- * CONUS, so the cap clears the worst case with margin. 45° × 25° is still
+ * resolves ≤23.7° of numeric latitude (less at higher latitudes due to
+ * the same mercator-y stretch), so the cap clears the worst case with
+ * margin. 45° × 25° is still
  * load-bearing: CONUS is 60° wide, so one request can only grab ~75% of
  * east-west extent; per-axis cap prevents combining axes into a
  * whole-country scrape.
