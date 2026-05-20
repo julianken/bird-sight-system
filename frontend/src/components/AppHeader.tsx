@@ -18,13 +18,19 @@ interface TabDef {
   value: View;
   label: string;
   // Accessible name diverges from visible text to avoid colliding with
-  // <FiltersBar>'s "Species" and "Family" input labels — same divergence
-  // <SurfaceNav> used pre-Phase 3 (preserved verbatim).
+  // <FiltersBar>'s "Species" and "Family" input labels. Preserved verbatim
+  // from the pre-#688 two-tab tablist for compatibility with e2e selectors
+  // that target `getByRole('tab', { name: 'Map view' })`.
   accessibleName: string;
 }
 
+// One-tab tablist post-#688 (Species surface removed). ARIA APG explicitly
+// allows single-tab tablists — the role + aria-selected contract still
+// expresses the surface state and the structure tolerates future additions
+// without churning the markup. The visible "Map" label is suppressed in CSS
+// to avoid a "lone Map word" wordmark-adjacent treatment; the accessible
+// name is preserved so SR users still hear "Map view, selected".
 const TABS: readonly TabDef[] = [
-  { value: 'species', label: 'Species', accessibleName: 'Species view' },
   { value: 'map', label: 'Map', accessibleName: 'Map view' },
 ];
 

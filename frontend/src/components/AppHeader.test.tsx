@@ -19,11 +19,12 @@ describe('<AppHeader>', () => {
     expect(link).toHaveTextContent(/Bird Maps · Arizona/);
   });
 
-  it('renders two tabs in stable order: Species, Map (Feed removed per #662)', () => {
+  it('renders a single Map tab (Species + Feed removed per #688 / #662)', () => {
     render(<AppHeader {...baseProps} />);
     const tablist = screen.getByRole('tablist', { name: /Surface/i });
     const tabs = within(tablist).getAllByRole('tab');
-    expect(tabs.map(t => t.textContent)).toEqual(['Species', 'Map']);
+    expect(tabs).toHaveLength(1);
+    expect(tabs[0].textContent).toBe('Map');
   });
 
   it('does not render a Feed tab (issue #662)', () => {
@@ -31,27 +32,16 @@ describe('<AppHeader>', () => {
     expect(screen.queryByRole('tab', { name: /Feed view/i })).toBeNull();
   });
 
-  it('marks the active tab via aria-selected and is-active class', () => {
+  it('does not render a Species tab (issue #688)', () => {
+    render(<AppHeader {...baseProps} />);
+    expect(screen.queryByRole('tab', { name: /Species view/i })).toBeNull();
+  });
+
+  it('marks the Map tab as selected via aria-selected and is-active class', () => {
     render(<AppHeader {...baseProps} activeView="map" />);
     const mapTab = screen.getByRole('tab', { name: /Map view/i });
     expect(mapTab).toHaveAttribute('aria-selected', 'true');
     expect(mapTab).toHaveClass('app-header-tab', 'is-active');
-  });
-
-  it('clicking an inactive tab calls onSelectView with that view', async () => {
-    const onSelectView = vi.fn();
-    render(<AppHeader {...baseProps} onSelectView={onSelectView} activeView="map" />);
-    await userEvent.click(screen.getByRole('tab', { name: /Species view/i }));
-    expect(onSelectView).toHaveBeenCalledWith('species');
-  });
-
-  it('ArrowRight on a focused tab moves focus + activation to the next tab', async () => {
-    const onSelectView = vi.fn();
-    render(<AppHeader {...baseProps} onSelectView={onSelectView} activeView="species" />);
-    const speciesTab = screen.getByRole('tab', { name: /Species view/i });
-    speciesTab.focus();
-    await userEvent.keyboard('{ArrowRight}');
-    expect(onSelectView).toHaveBeenCalledWith('map');
   });
 
   it('renders Filters trigger without badge when filterCount === 0', () => {
