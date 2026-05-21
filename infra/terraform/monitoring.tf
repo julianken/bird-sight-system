@@ -444,3 +444,101 @@ resource "google_project_iam_audit_config" "monitoring_data_read" {
     log_type = "DATA_READ"
   }
 }
+
+# ── T8: Observations archive — log-based metrics ────────────────────────
+#
+# Three metrics extracted from the `bird_ingest_archived` structured-log
+# line emitted by services/ingestor/src/run-prune.ts (T2). One emit per
+# archived day per nightly run, shape:
+#   {
+#     message: "bird_ingest_archived",
+#     date: "YYYY-MM-DD",
+#     rowCount: <int>,         // rows written to Parquet
+#     deletedCount: <int>,     // rows actually DELETEd (parity invariant)
+#     gcsPath: "gs://...",
+#     bytesUploaded: <int>
+#   }
+#
+# These power Row 5 of the bird-watch overview dashboard
+# (infra/terraform/monitoring-dashboard.tf). The two `!=NULL_VALUE` clauses
+# in each filter drop malformed entries during a future emit-shape
+# regression rather than landing garbage into the metric stream — matches
+# the pattern in `bird-ingest-run-completed` above.
+
+resource "google_logging_metric" "archived_row_count" {
+  name = "bird-ingest-archived-row-count"
+  filter = join(" AND ", [
+    "resource.type=\"cloud_run_job\"",
+    "resource.labels.job_name=\"bird-ingestor-prune\"",
+    "jsonPayload.message=\"bird_ingest_archived\"",
+    "jsonPayload.rowCount!=NULL_VALUE",
+  ])
+  metric_descriptor {
+    metric_kind  = "DELTA"
+    value_type   = "DISTRIBUTION"
+    unit         = "1"
+    display_name = "Observations archived per day (rowCount)"
+  }
+  value_extractor = "EXTRACT(jsonPayload.rowCount)"
+  bucket_options {
+    exponential_buckets {
+      num_finite_buckets = 32
+      growth_factor      = 2
+      scale              = 1000 # row counts span 1k (AZ-only) → ~5M (national)
+    }
+  }
+}
+
+resource "google_logging_metric" "archived_bytes_uploaded" {
+  name = "bird-ingest-archived-bytes-uploaded"
+  filter = join(" AND ", [
+    "resource.type=\"cloud_run_job\"",
+    "resource.labels.job_name=\"bird-ingestor-prune\"",
+    "jsonPayload.message=\"bird_ingest_archived\"",
+    "jsonPayload.bytesUploaded!=NULL_VALUE",
+  ])
+  metric_descriptor {
+    metric_kind  = "DELTA"
+    value_type   = "DISTRIBUTION"
+    unit         = "By"
+    display_name = "Parquet bytes uploaded to GCS per day"
+  }
+  value_extractor = "EXTRACT(jsonPayload.bytesUploaded)"
+  bucket_options {
+    exponential_buckets {
+      num_finite_buckets = 32
+      growth_factor      = 2
+      scale              = 100000 # ~100 KB scale spans 100 KB (AZ tiny day) → ~400 MB (national daily peak)
+    }
+  }
+}
+
+# Parity-check metric. The T2 invariant: archive-then-delete is atomic per
+# day — if archive D succeeds, delete D runs against the same row set. The
+# dashboard tile (T8 Tile 5.3 below) renders rowCount and deletedCount as
+# two lines on one widget; for healthy nights the lines are co-incident.
+# Divergence is a visual smell — root-cause via the runbook §Failure
+# response.
+resource "google_logging_metric" "archived_deleted_count" {
+  name = "bird-ingest-archived-deleted-count"
+  filter = join(" AND ", [
+    "resource.type=\"cloud_run_job\"",
+    "resource.labels.job_name=\"bird-ingestor-prune\"",
+    "jsonPayload.message=\"bird_ingest_archived\"",
+    "jsonPayload.deletedCount!=NULL_VALUE",
+  ])
+  metric_descriptor {
+    metric_kind  = "DELTA"
+    value_type   = "DISTRIBUTION"
+    unit         = "1"
+    display_name = "Observations deleted per day post-archive (deletedCount)"
+  }
+  value_extractor = "EXTRACT(jsonPayload.deletedCount)"
+  bucket_options {
+    exponential_buckets {
+      num_finite_buckets = 32
+      growth_factor      = 2
+      scale              = 1000
+    }
+  }
+}
