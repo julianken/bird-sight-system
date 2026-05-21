@@ -52,8 +52,12 @@ export interface ArchiveAndUploadResult {
  * The temp key includes a UUID so two concurrent runs (e.g. an operator
  * triggered a manual run while the scheduled one is mid-flight) cannot
  * collide on the temp key. Orphaned `_tmp/<uuid>` objects from a crashed
- * run are cleaned by a separate lifecycle rule (optional follow-up — the
- * write volume is low enough that orphans don't materially impact cost).
+ * run are mopped up by the `observations/_tmp/`-scoped 1-day lifecycle
+ * rule on the bucket (see `infra/terraform/observations-archive.tf`).
+ * That is belt-and-suspenders defense — the primary cleanup is the
+ * post-copy `delete()` below, whose failure is now propagated (issue
+ * #698) so a silent half-success can't strand orphans AND let the
+ * caller DELETE the source rows.
  */
 export async function archiveAndUpload(
   o: ArchiveAndUploadOptions
@@ -84,11 +88,19 @@ export async function archiveAndUpload(
 
   // Atomic rename via copy + delete. GCS does not have a server-side
   // move; copy is server-side (no bytes traverse the client) and
-  // delete is a single op.
+  // delete is a single op. The delete failure is propagated (issue
+  // #698) so runPrune marks the run as failed and skips the source-
+  // row DELETE; the bucket's `observations/_tmp/` 1-day lifecycle
+  // rule will mop up the orphan on the next sweep.
   await tmpFile.copy(o.bucket.file(finalKey));
-  await tmpFile.delete().catch(() => {
-    // Non-fatal: the final write succeeded; orphan _tmp objects are
-    // cleaned by a separate lifecycle rule (optional follow-up).
+  await tmpFile.delete().catch((err: unknown) => {
+    console.warn(JSON.stringify({
+      severity: 'WARNING',
+      message: 'archive_temp_cleanup_failed',
+      tempPath: tmpKey,
+      error: err instanceof Error ? err.message : String(err),
+    }));
+    throw err;
   });
 
   return {

@@ -128,4 +128,66 @@ describe('archiveAndUpload', () => {
     expect(finalCopy).not.toHaveBeenCalled();
     expect(tempDelete).toHaveBeenCalled();
   });
+
+  it('logs warn + propagates when temp-delete fails after a successful copy (issue #698)', async () => {
+    // Regression for #698 — `.catch(() => {})` on the post-copy delete
+    // swallowed the error silently, leaving orphan _tmp/<uuid>.parquet
+    // objects in the bucket AND letting runPrune proceed to DELETE the
+    // observation rows even though the cleanup half of the archive
+    // pipeline silently failed. The fix is to log the failure with a
+    // structured `archive_temp_cleanup_failed` entry and re-throw so the
+    // caller (runPrune) marks the run as failed and skips the DB DELETE.
+    const tempDeleteErr = new Error('GCS 503 temp-delete');
+    const tempDelete = vi.fn(async () => { throw tempDeleteErr; });
+    const finalCopy = vi.fn(async () => {});
+    const bucket = {
+      file: (name: string) => {
+        if (name.startsWith('observations/_tmp/')) {
+          return {
+            save: vi.fn(async (buf: Buffer, opts?: { metadata?: { md5Hash?: string } }) => {
+              // Stash the md5 on the closure so getMetadata can echo it
+              // back, mirroring the happy-path stub above.
+              (bucket as unknown as { _md5?: string })._md5 = opts?.metadata?.md5Hash;
+              void buf;
+            }),
+            getMetadata: vi.fn(async () => [
+              { md5Hash: (bucket as unknown as { _md5?: string })._md5, size: '1' },
+            ]),
+            delete: tempDelete,
+            copy: finalCopy,
+            name,
+          };
+        }
+        return {
+          save: vi.fn(),
+          getMetadata: vi.fn(),
+          delete: vi.fn(),
+          copy: vi.fn(),
+          name,
+        };
+      },
+    };
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await expect(archiveAndUpload({
+        bucket: bucket as never,
+        bucketName: 'bird-maps-prod-obs-archive',
+        utcDate: '2026-05-01',
+        rows: [fakeRow],
+      })).rejects.toThrow(/GCS 503 temp-delete/);
+      expect(finalCopy).toHaveBeenCalled();
+      expect(tempDelete).toHaveBeenCalled();
+      // Exactly one structured warn was emitted with the expected fields.
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const arg = warnSpy.mock.calls[0]?.[0];
+      expect(typeof arg).toBe('string');
+      const parsed = JSON.parse(arg as string) as Record<string, unknown>;
+      expect(parsed.severity).toBe('WARNING');
+      expect(parsed.message).toBe('archive_temp_cleanup_failed');
+      expect(parsed.tempPath).toMatch(/^observations\/_tmp\//);
+      expect(parsed.error).toBe('GCS 503 temp-delete');
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
 });
