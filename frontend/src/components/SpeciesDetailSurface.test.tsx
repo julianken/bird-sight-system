@@ -395,7 +395,7 @@ describe('SpeciesDetailSurface', () => {
 
     // Issue #373 task 6: stratify the panel-thinness analysis post-hoc by
     // tagging `panel_opened` with `has_description: !!data.descriptionBody`.
-    // The dwell event shape stays unchanged (PostHog's UI lets the analyst
+    // The dwell event shape stays unchanged (Clarity's UI lets the analyst
     // group on the open-event property at query time).
     it('fires panel_opened with has_description=true when descriptionBody is present', async () => {
       const captureSpy = vi.spyOn(analytics, 'capture');

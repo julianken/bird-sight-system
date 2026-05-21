@@ -91,7 +91,7 @@ function readUrl(): UrlState {
         ? `${window.location.pathname}?${cq}`
         : window.location.pathname;
       window.history.replaceState({}, '', canonicalUrl);
-      // Instrumentation: log + PostHog event so the real emitter can be
+      // Instrumentation: log + Clarity event so the real emitter can be
       // identified in production. Root cause is unidentified — see #511
       // and PR #517. Follow-up issue: #518.
       console.warn('[#511 guard] Corrupted URL detected and recovered:', corruptedUrl);
