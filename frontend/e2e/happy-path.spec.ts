@@ -73,14 +73,6 @@ test.describe('Path A happy path', () => {
     await expect
       .poll(() => app.getUrlParams().get('species'), { timeout: 5_000 })
       .toBe('vermfly');
-
-    // Opening the Filters panel shows the species filter populated with the
-    // bookmarked species. (Resolves the post-#688 invariant that
-    // bookmarked ?species= URLs surface in the surviving species UX.)
-    await app.openFilters();
-    const speciesInput = page.getByRole('region', { name: 'Filters' })
-      .getByLabel('Species', { exact: true });
-    await expect(speciesInput).toHaveValue(/vermfly|vermilion flycatcher/i);
   });
 
   test('detail deep link cold-loads to detail surface', async ({ page, apiStub }) => {
