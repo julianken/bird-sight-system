@@ -37,6 +37,27 @@ resource "google_storage_bucket" "obs_archive" {
       storage_class = "ARCHIVE"
     }
   }
+
+  # Belt-and-suspenders mop-up for orphaned temp objects (issue #698).
+  # archiveAndUpload writes Parquet to `observations/_tmp/<uuid>.parquet`
+  # then server-side-copies to the final partition key and deletes the
+  # temp. The application-level cleanup now propagates delete failures
+  # (so runPrune skips the source-row DELETE on failure), but a process
+  # crash between copy and delete still strands a temp object. This rule
+  # guarantees those orphans never accumulate: anything under
+  # `observations/_tmp/` older than 1 day is auto-deleted. The 1-day
+  # window is generous — temps live for milliseconds in the happy path —
+  # and avoids racing a long-running run that has already passed the
+  # md5 check but is still mid-copy.
+  lifecycle_rule {
+    condition {
+      age            = 1
+      matches_prefix = ["observations/_tmp/"]
+    }
+    action {
+      type = "Delete"
+    }
+  }
 }
 
 # Ingestor SA writes nightly Parquet exports. Object-level role; no admin
