@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
 import { startTestDb, type TestDb } from '@bird-watch/db-client/dist/test-helpers.js';
 import { getRecentIngestRuns } from '@bird-watch/db-client';
 import { runPrune, DEFAULT_RETENTION_DAYS } from './run-prune.js';
@@ -165,6 +165,47 @@ describe('runPrune', () => {
     expect(summary.status).toBe('success');
     expect(summary.archived).toBe(0);
     expect(summary.deleted).toBe(0);
+  });
+
+  it('emits a bird_ingest_archived log line per archived day with the T8-coupled fields', async () => {
+    // T8's archive-vs-delete parity dashboard widget depends on the
+    // shape of this log entry: rowCount and deletedCount MUST appear
+    // in the SAME entry (so a divergent run is one query, not a join),
+    // and gcsPath + bytesUploaded MUST be present (so the bytes-uploaded
+    // and rows-archived widgets extract from the same source). If a
+    // future refactor renames `bird_ingest_archived` or drops a field,
+    // this test fails before the dashboard silently goes blank.
+    await seedAt('OLD-1', 30);
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const archiveDay = async () => ({
+        gcsPath: 'gs://bird-maps-prod-obs-archive/observations/year=2026/month=04/day=21.parquet',
+        bytes: 4242,
+      });
+      await runPrune({ pool: db.pool, retentionDays: 14, archiveDay });
+
+      const lines = logSpy.mock.calls
+        .map(c => c[0])
+        .filter((s): s is string => typeof s === 'string')
+        .map(s => { try { return JSON.parse(s); } catch { return null; } })
+        .filter((p: unknown): p is Record<string, unknown> => !!p && typeof p === 'object');
+
+      const archived = lines.filter(l => l.message === 'bird_ingest_archived');
+      expect(archived).toHaveLength(1);
+      const entry = archived[0]!;
+      expect(entry).toMatchObject({
+        severity: 'INFO',
+        message: 'bird_ingest_archived',
+        rowCount: 1,
+        deletedCount: 1,
+        gcsPath: 'gs://bird-maps-prod-obs-archive/observations/year=2026/month=04/day=21.parquet',
+        bytesUploaded: 4242,
+      });
+      expect(typeof entry.date).toBe('string');
+      expect(entry.date as string).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 
   it('skips the partial-overlap UTC day at the retention cutoff', async () => {
