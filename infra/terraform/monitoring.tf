@@ -464,15 +464,6 @@ resource "google_project_iam_audit_config" "monitoring_data_read" {
 # in each filter drop malformed entries during a future emit-shape
 # regression rather than landing garbage into the metric stream — matches
 # the pattern in `bird-ingest-run-completed` above.
-#
-# Type choice: DELTA INT64 (not DISTRIBUTION) so the dashboard's per-day
-# ALIGN_SUM aggregation works. Sums of distributions are undefined in GCP
-# Monitoring — DISTRIBUTION-typed metrics under ALIGN_SUM render "0 time
-# series" on xyChart widgets. INT64/DELTA matches `bird-container-crash`
-# and `bird-watch-dashboard-opened` above; the value_extractor pulls the
-# scalar emit field straight onto the time series. The PR-697 bot review
-# flagged this exact concern as a narrow non-blocking risk; this PR
-# realizes the follow-up.
 
 resource "google_logging_metric" "archived_row_count" {
   name = "bird-ingest-archived-row-count"
@@ -484,11 +475,18 @@ resource "google_logging_metric" "archived_row_count" {
   ])
   metric_descriptor {
     metric_kind  = "DELTA"
-    value_type   = "INT64"
+    value_type   = "DISTRIBUTION"
     unit         = "1"
     display_name = "Observations archived per day (rowCount)"
   }
   value_extractor = "EXTRACT(jsonPayload.rowCount)"
+  bucket_options {
+    exponential_buckets {
+      num_finite_buckets = 32
+      growth_factor      = 2
+      scale              = 1000 # row counts span 1k (AZ-only) → ~5M (national)
+    }
+  }
 }
 
 resource "google_logging_metric" "archived_bytes_uploaded" {
@@ -501,11 +499,18 @@ resource "google_logging_metric" "archived_bytes_uploaded" {
   ])
   metric_descriptor {
     metric_kind  = "DELTA"
-    value_type   = "INT64"
+    value_type   = "DISTRIBUTION"
     unit         = "By"
     display_name = "Parquet bytes uploaded to GCS per day"
   }
   value_extractor = "EXTRACT(jsonPayload.bytesUploaded)"
+  bucket_options {
+    exponential_buckets {
+      num_finite_buckets = 32
+      growth_factor      = 2
+      scale              = 100000 # ~100 KB scale spans 100 KB (AZ tiny day) → ~400 MB (national daily peak)
+    }
+  }
 }
 
 # Parity-check metric. The T2 invariant: archive-then-delete is atomic per
@@ -524,9 +529,16 @@ resource "google_logging_metric" "archived_deleted_count" {
   ])
   metric_descriptor {
     metric_kind  = "DELTA"
-    value_type   = "INT64"
+    value_type   = "DISTRIBUTION"
     unit         = "1"
     display_name = "Observations deleted per day post-archive (deletedCount)"
   }
   value_extractor = "EXTRACT(jsonPayload.deletedCount)"
+  bucket_options {
+    exponential_buckets {
+      num_finite_buckets = 32
+      growth_factor      = 2
+      scale              = 1000
+    }
+  }
 }
