@@ -52,7 +52,7 @@ The retention window is sized to Cloud SQL's storage tier (see `services/ingesto
 
 - **Format:** Parquet, gzip-compressed (Snappy works too; the writer choice in T3 decides).
 - **Granularity:** one file per UTC date — i.e. one nightly write per partition.
-- **Naming:** `day=DD.parquet` (the file *is* the partition, no further sharding).
+- **Naming:** `day=DD/data.parquet` — `day=DD` is a DIRECTORY segment with a stable `data.parquet` filename, so BigQuery's Hive AUTO partition planner picks up `[year, month, day]` as queryable partition columns (#699). One file per UTC date today; the stable filename leaves room to shard a day across multiple files later.
 
 **Why Parquet, not CSV or JSON or raw SQL?**
 
@@ -74,11 +74,14 @@ gs://bird-maps-prod-obs-archive/
   observations/
     year=2026/
       month=05/
-        day=20.parquet
-        day=21.parquet
+        day=20/
+          data.parquet
+        day=21/
+          data.parquet
         ...
       month=06/
-        day=01.parquet
+        day=01/
+          data.parquet
 ```
 
 **Why Hive-style (`key=value`) partitioning, not flat date prefixes?** Both BigQuery external tables and DuckDB's `read_parquet('gs://...', hive_partitioning=1)` parse `year=YYYY/month=MM/day=DD` automatically and expose them as virtual columns the planner uses to prune at scan time. A query `WHERE year=2026 AND month=5` reads exactly 31 files; a flat layout would force a list-and-filter on every read. The cost difference at BigQuery's per-byte-scanned billing is the difference between $0.005 and $5 for a typical month-of-data query.
@@ -1379,7 +1382,7 @@ Fallback if `parquetjs-lite` rejects in CI (Node compat surprise, WASM build iss
   gcloud storage du gs://bird-maps-prod-obs-archive/
   ```
 
-  Expected: one `day=DD.parquet` per archived day; total size matches `bytesUploaded` summed across log lines.
+  Expected: one `day=DD/data.parquet` per archived day; total size matches `bytesUploaded` summed across log lines. (Layout shipped as `day=DD.parquet` filename in the original plan; #699 restructured to `day=DD/` directory segment so BigQuery's Hive AUTO planner picks up `day` as a partition column.)
 
 - [ ] **Step 4: Smoke-test via BigQuery**
 

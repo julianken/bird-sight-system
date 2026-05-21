@@ -34,7 +34,7 @@ export interface ArchiveAndUploadOptions {
 }
 
 export interface ArchiveAndUploadResult {
-  /** Final `gs://bucket/observations/year=.../month=.../day=...parquet` path. */
+  /** Final `gs://bucket/observations/year=YYYY/month=MM/day=DD/data.parquet` path. */
   gcsPath: string;
   /** Compressed Parquet size in bytes. */
   bytes: number;
@@ -63,7 +63,13 @@ export async function archiveAndUpload(
   const md5Base64 = Buffer.from(md5, 'hex').toString('base64');
 
   const [year, month, day] = o.utcDate.split('-');
-  const finalKey = `observations/year=${year}/month=${month}/day=${day}.parquet`;
+  // Hive-partitioned layout: `day=DD` is a DIRECTORY segment with a stable
+  // `data.parquet` filename. Encoding `day` in the filename suffix
+  // (`day=DD.parquet`) hides it from BigQuery's Hive AUTO partition
+  // detection — the planner only treats `key=value` directory segments as
+  // partition columns, so every monthly query would open all ~30 files
+  // instead of pruning to one. See issue #699.
+  const finalKey = `observations/year=${year}/month=${month}/day=${day}/data.parquet`;
   const tmpKey = `observations/_tmp/${randomUUID()}.parquet`;
 
   const tmpFile = o.bucket.file(tmpKey);

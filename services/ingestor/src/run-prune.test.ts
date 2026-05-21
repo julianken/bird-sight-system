@@ -42,7 +42,7 @@ function makeStubArchive() {
   const archiveDay = async (utcDate: string, rows: ArchivableRow[]) => {
     calls.push({ utcDate, rowCount: rows.length });
     return {
-      gcsPath: `gs://test/observations/year=2026/month=05/day=${utcDate.slice(8)}.parquet`,
+      gcsPath: `gs://test/observations/year=2026/month=05/day=${utcDate.slice(8)}/data.parquet`,
       bytes: 1,
     };
   };
@@ -179,7 +179,7 @@ describe('runPrune', () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     try {
       const archiveDay = async () => ({
-        gcsPath: 'gs://bird-maps-prod-obs-archive/observations/year=2026/month=04/day=21.parquet',
+        gcsPath: 'gs://bird-maps-prod-obs-archive/observations/year=2026/month=04/day=21/data.parquet',
         bytes: 4242,
       });
       await runPrune({ pool: db.pool, retentionDays: 14, archiveDay });
@@ -198,7 +198,7 @@ describe('runPrune', () => {
         message: 'bird_ingest_archived',
         rowCount: 1,
         deletedCount: 1,
-        gcsPath: 'gs://bird-maps-prod-obs-archive/observations/year=2026/month=04/day=21.parquet',
+        gcsPath: 'gs://bird-maps-prod-obs-archive/observations/year=2026/month=04/day=21/data.parquet',
         bytesUploaded: 4242,
       });
       expect(typeof entry.date).toBe('string');
