@@ -131,6 +131,102 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
     return;
   }
 
+  // list-subregions is an operator helper that prints the eBird-canonical
+  // subnational2 (county) list for a given state. Used to seed per-county
+  // backfill fanout for big states whose state-level /historic returns
+  // HTTP 500 (CA, FL, TX, etc. — see /tmp/backfill-fanout.log lineage).
+  //
+  // No DB writes; needs EBIRD_API_KEY only. Early-returns ahead of the
+  // DATABASE_URL guard so an operator can run it from a Cloud Run job that
+  // doesn't have DATABASE_URL wired — but the eBird key IS required, so
+  // re-check inline.
+  //
+  // Output: one structured INFO log per county (subregionCode +
+  // subregionName), plus a summary log with the count. Operator fetches the
+  // codes from Cloud Logging via:
+  //   gcloud logging read 'jsonPayload.message="list-subregions" AND
+  //     jsonPayload.state="US-XX" AND jsonPayload.subregionCode:*'
+  if (kind === 'list-subregions') {
+    const flags = process.argv.slice(3);
+    let state: string | undefined;
+    for (const f of flags) {
+      if (f.startsWith('--state=')) {
+        const v = f.slice('--state='.length);
+        // State codes only — county codes (US-XX-NNN) make no sense here
+        // because the eBird /ref/region/list/subnational2 endpoint takes
+        // a state and returns its counties.
+        if (!/^US-[A-Z]{2}$/.test(v)) {
+          console.log(JSON.stringify({
+            severity: 'ERROR',
+            message: 'bird_ingest_invalid_flag',
+            flag: '--state',
+            value: v,
+            expected: 'US-XX (state code only; counties are the output)',
+          }));
+          process.exitCode = 1;
+          return;
+        }
+        state = v;
+      } else {
+        console.log(JSON.stringify({
+          severity: 'ERROR',
+          message: 'bird_ingest_invalid_flag',
+          flag: f,
+          expected: '--state=US-XX',
+        }));
+        process.exitCode = 1;
+        return;
+      }
+    }
+    if (!state) {
+      console.log(JSON.stringify({
+        severity: 'ERROR',
+        message: 'bird_ingest_invalid_flag',
+        flag: '--state',
+        expected: '--state=US-XX is required',
+      }));
+      process.exitCode = 1;
+      return;
+    }
+    const apiKey = process.env.EBIRD_API_KEY;
+    if (!apiKey) throw new Error('EBIRD_API_KEY not set');
+    const url = `https://api.ebird.org/v2/ref/region/list/subnational2/${state}`;
+    const res = await fetch(url, {
+      headers: { 'x-ebirdapitoken': apiKey, accept: 'application/json' },
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      console.log(JSON.stringify({
+        severity: 'ERROR',
+        message: 'list-subregions',
+        state,
+        httpStatus: res.status,
+        error: body.slice(0, 500),
+      }));
+      process.exitCode = 1;
+      return;
+    }
+    const counties = (await res.json()) as Array<{ code: string; name: string }>;
+    for (const c of counties) {
+      console.log(JSON.stringify({
+        severity: 'INFO',
+        message: 'list-subregions',
+        kind: 'list-subregions',
+        state,
+        subregionCode: c.code,
+        subregionName: c.name,
+      }));
+    }
+    console.log(JSON.stringify({
+      severity: 'INFO',
+      message: 'list-subregions',
+      kind: 'list-subregions',
+      state,
+      count: counties.length,
+    }));
+    return;
+  }
+
   // digest: daily 09:00 UTC health digest (issue #643). Distinct shape from
   // the ingest kinds — composes a 5-signal summary email and returns a
   // SendResult. Heartbeat is gated on result.status === 'delivered' per
@@ -315,7 +411,7 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
         parsed === undefined ? { pool } : { pool, retentionDays: parsed }
       );
     } else {
-      throw new Error(`Unknown kind: ${kind}. Try recent | hotspots | backfill | backfill-extended | taxonomy | photos | descriptions | prune | digest | probe-taxon | probe-wiki`);
+      throw new Error(`Unknown kind: ${kind}. Try recent | hotspots | backfill | backfill-extended | taxonomy | photos | descriptions | prune | digest | probe-taxon | probe-wiki | list-subregions`);
     }
     // Cloud Run / Cloud Logging splits stdout on newlines and treats each
     // resulting line as its own `textPayload` entry — pretty-printed JSON

@@ -528,6 +528,130 @@ describe('runCli', () => {
     });
   });
 
+  // ── list-subregions kind ──────────────────────────────────────────────
+  // Operator helper that prints the eBird-canonical subnational2 county
+  // list for a given state. Used to seed per-county backfill fanout for
+  // big states whose state-level /historic returns HTTP 500. No DB writes,
+  // no DATABASE_URL required; EBIRD_API_KEY is required.
+  describe('list-subregions kind', () => {
+    let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      // Stub global fetch — the kind hits eBird's /ref/region/list/subnational2
+      // endpoint directly (read-only, no shared client needed).
+      fetchSpy = vi.spyOn(globalThis, 'fetch');
+    });
+
+    afterEach(() => {
+      fetchSpy.mockRestore();
+    });
+
+    it('emits one INFO log per county plus a summary count', async () => {
+      process.argv = ['node', 'cli.ts', 'list-subregions', '--state=US-CO'];
+      delete process.env.DATABASE_URL; // proves no DB needed
+      const counties = [
+        { code: 'US-CO-001', name: 'Adams' },
+        { code: 'US-CO-003', name: 'Alamosa' },
+        { code: 'US-CO-014', name: 'Broomfield' },
+      ];
+      fetchSpy.mockResolvedValueOnce(
+        new Response(JSON.stringify(counties), { status: 200 })
+      );
+      const deps = makeDeps();
+
+      await runCli('list-subregions', deps);
+
+      const emitted = logSpy.mock.calls
+        .map((args: unknown[]): unknown => {
+          try { return JSON.parse(args[0] as string); } catch { return null; }
+        })
+        .filter((o: unknown): o is Record<string, unknown> =>
+          typeof o === 'object' && o !== null && (o as Record<string, unknown>).message === 'list-subregions'
+        );
+      // 3 per-county lines + 1 summary line = 4 emits
+      expect(emitted).toHaveLength(4);
+      expect(emitted[0]).toMatchObject({
+        message: 'list-subregions',
+        kind: 'list-subregions',
+        state: 'US-CO',
+        subregionCode: 'US-CO-001',
+        subregionName: 'Adams',
+      });
+      expect(emitted[2]).toMatchObject({
+        subregionCode: 'US-CO-014',
+        subregionName: 'Broomfield',
+      });
+      expect(emitted[3]).toMatchObject({
+        message: 'list-subregions',
+        state: 'US-CO',
+        count: 3,
+      });
+      // No DB pool was created — early-return path.
+      expect(deps.createPool).not.toHaveBeenCalled();
+    });
+
+    it('passes X-eBirdApiToken header to the eBird ref endpoint', async () => {
+      process.env.EBIRD_API_KEY = 'fake-key-123';
+      process.argv = ['node', 'cli.ts', 'list-subregions', '--state=US-FL'];
+      fetchSpy.mockResolvedValueOnce(new Response('[]', { status: 200 }));
+      const deps = makeDeps();
+
+      await runCli('list-subregions', deps);
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'https://api.ebird.org/v2/ref/region/list/subnational2/US-FL',
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'x-ebirdapitoken': 'fake-key-123',
+          }),
+        })
+      );
+    });
+
+    it('rejects --state=US-CA-001 (county code is invalid input here)', async () => {
+      process.argv = ['node', 'cli.ts', 'list-subregions', '--state=US-CA-001'];
+      const deps = makeDeps();
+
+      await runCli('list-subregions', deps);
+
+      expect(process.exitCode).toBe(1);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('rejects missing --state flag', async () => {
+      process.argv = ['node', 'cli.ts', 'list-subregions'];
+      const deps = makeDeps();
+
+      await runCli('list-subregions', deps);
+
+      expect(process.exitCode).toBe(1);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('sets exitCode=1 on eBird HTTP error', async () => {
+      process.argv = ['node', 'cli.ts', 'list-subregions', '--state=US-TX'];
+      fetchSpy.mockResolvedValueOnce(new Response('upstream barfed', { status: 500 }));
+      const deps = makeDeps();
+
+      await runCli('list-subregions', deps);
+
+      expect(process.exitCode).toBe(1);
+    });
+
+    it('throws if EBIRD_API_KEY is not set', async () => {
+      delete process.env.EBIRD_API_KEY;
+      process.argv = ['node', 'cli.ts', 'list-subregions', '--state=US-NY'];
+      const deps = makeDeps();
+
+      await expect(runCli('list-subregions', deps)).rejects.toThrow(/EBIRD_API_KEY/);
+    });
+  });
+
+  it("Unknown-kind error string includes 'list-subregions' so operators see the new kind", async () => {
+    const deps = makeDeps();
+    await expect(runCli('bogus', deps)).rejects.toThrow(/list-subregions/);
+  });
+
   it('uppercases and replaces hyphens in kind when computing env-var name', async () => {
     process.env.HEALTHCHECKS_URL_BACKFILL_EXTENDED = 'https://hc-ping.com/uuid-bf-ext';
     const partialSummary = {
