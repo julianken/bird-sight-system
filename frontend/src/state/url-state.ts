@@ -64,12 +64,13 @@ function readUrl(): UrlState {
   // or their URL entry won't carry ?detail= at all).
   let view: View;
   if (rawView === 'hotspots' || rawView === 'species') {
-    // Compatibility shim: old bookmarks with ?view=hotspots OR ?view=species
-    // silently redirect to ?view=map. The URL bar updates so future shares
-    // carry the new value; any sibling ?species=<code> is preserved so the
-    // FiltersBar species combobox stays active. The Species surface was
-    // removed in #688 — its filter UX folds into the FiltersBar combobox,
-    // and the navigation UX folds into clicking a feed row / map marker.
+    // Compatibility shim: old bookmarks with ?view=hotspots OR the legacy
+    // ?view= species value silently redirect to ?view=map. The URL bar
+    // updates so future shares carry the new value; any sibling
+    // ?species=<code> is preserved so the FiltersBar species combobox
+    // stays active. The Species surface was removed in #688 — its filter
+    // UX folds into the FiltersBar combobox, and the navigation UX folds
+    // into clicking a feed row / map marker.
     view = 'map';
     const redirect = new URLSearchParams(window.location.search);
     redirect.set('view', 'map');

@@ -77,14 +77,14 @@ Subtractive. Orange (light, `--color-decision-point: #f5853b`) / cyan (dark, `--
 
 | # | Site | Element | Notes |
 |---|---|---|---|
-| 1 | Active SurfaceNav tab indicator | `::after` underline on `.surface-nav-tab.active` | desktop only |
+| 1 | Active AppHeader tab indicator | `::after` underline on `.app-header-tab.is-active` | desktop only |
 | 2 | Filter badge background | `.filter-badge` | the count circle next to "Filters" |
 | 3 | Focus halo outline | every focused interactive element via `:focus-visible` | brand flourish via WCAG 2.4.11 |
 | 4 | Active phenology bars | `.phen-bar.active` | the months when the species is most active |
 | 5 | NOTABLE meta-label | `.feed-card-meta` for top notable card-row | uses `--color-accent-notable-fg`, NOT `--color-decision-point` |
 | 6 | Primary CTA | "Show on map", "Open detail", and similar | rare; if added |
 | 7 | Filter-sentence emphasis | `.filter-bullet` inside `<FilterSentence>` | reader-action-confirming, narrative surface |
-| 8 | Active mobile bottom-tab | `.mobile-tab.active` color | replaces SurfaceNav underline on mobile |
+| 8 | Active mobile bottom-tab | `.mobile-tab.active` color | replaces AppHeader-tab underline on mobile |
 
 ### Explicit exclusion
 
@@ -137,10 +137,10 @@ For Phase 6's voice-pass rewrites, the existing 14 strings to update or preserve
 | "No notable sightings in this window. Try widening the time window or turning off Notable only." | `FeedSurface.tsx:104` | preserve |
 | "No observations reported today. Try expanding the time window." | `FeedSurface.tsx:106` | preserve |
 | "No observations to show." | `FeedSurface.tsx:108` | preserve |
-| "Start typing a species name to explore its recent sightings." | `SpeciesSearchSurface.tsx:54` | preserve |
-| "Start typing a species…" | `SpeciesAutocomplete.tsx:279` | preserve |
-| "Loading observations…" | `SpeciesSearchSurface.tsx:60` | preserve |
-| "No recent sightings for this species in the current window." | `SpeciesSearchSurface.tsx:66` | preserve |
+| ~~"Start typing a species name to explore its recent sightings."~~ | ~~deleted with the Species surface in #688~~ | n/a |
+| ~~"Start typing a species…"~~ | ~~deleted with the Species autocomplete in #688~~ | n/a |
+| ~~"Loading observations…" (species surface)~~ | ~~deleted with the Species surface in #688~~ | n/a |
+| ~~"No recent sightings for this species in the current window."~~ | ~~deleted with the Species surface in #688~~ | n/a |
 | "Loading species details…" | `SpeciesDetailSurface.tsx:201` | preserve |
 | "Could not load species details" | `SpeciesDetailSurface.tsx:207` | preserve |
 | "Couldn't load bird data" + raw `error.message` | `App.tsx:146–148` | **rewrite** — replace raw `error.message` with crafted copy |

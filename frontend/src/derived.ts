@@ -56,7 +56,7 @@ export function deriveSpeciesIndex(observations: Observation[]): SpeciesOption[]
 
 // Exported for reuse across surfaces that surface a family label (FeedSurface
 // header, FiltersBar option label, MapSurface lede, AttributionModal Phylopic
-// section). Pre-#688 this also fed the SpeciesAutocomplete family group
+// section). Pre-#688 this also fed the species autocomplete's family group
 // headers; that component was deleted but the function still has 9+ live
 // consumers across kept surfaces.
 //

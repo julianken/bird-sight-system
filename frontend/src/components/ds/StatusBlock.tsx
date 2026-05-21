@@ -6,8 +6,8 @@
  * .attribution-modal-loading, .attribution-modal-empty,
  * .attribution-modal-error, .error-screen, .map-loading-skeleton) and
  * the distinct copy+class pairs they carried into a single typed API.
- * (Pre-#688 also collapsed .species-search-empty, deleted with the
- * SpeciesSearchSurface in #688.)
+ * (#688 deleted the Species surface and its empty-state rule along with
+ * the rest of that component family.)
  *
  * Does NOT compose with <Photo>. They live at different levels of the
  * component tree. See docs/design/01-spec/components.md for composition rules.

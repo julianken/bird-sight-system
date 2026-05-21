@@ -12,9 +12,9 @@ The existing implementation has months of accessibility work that the visual red
 
 ### 2. WAI-ARIA tablist
 
-`SurfaceNav` (`frontend/src/components/SurfaceNav.tsx:79–108`) implements the full tablist contract: `role="tablist"`, `aria-label="Surface"`, three `role="tab"` buttons with `aria-selected`, `aria-controls="main-surface"`, roving `tabIndex`, Arrow / Home / End keyboard navigation, automatic-activation pattern.
+`AppHeader` (`frontend/src/components/AppHeader.tsx`) implements the full tablist contract: `role="tablist"`, `aria-label="Surface"`, `role="tab"` buttons with `aria-selected`, `aria-controls="main-surface"`, roving `tabIndex`, Arrow / Home / End keyboard navigation, automatic-activation pattern. Post-#688 the tablist holds a single Map tab; the contract still expresses surface state and tolerates future additions without churning the markup. (Pre-#688 the same contract was carried by a separate component which has since been deleted.)
 
-**Pattern A (mobile bottom-tab) preserves this.** The bottom-tab bar is the same `<SurfaceNav>` component re-styled via CSS — its DOM order, role attributes, and keyboard contract are unchanged. Visual position (top vs bottom) is decoupled from DOM order. CSS `position: fixed; bottom: 0` does not move the element in the DOM tree.
+**Pattern A (mobile bottom-tab) preserves this.** The bottom-tab bar is the same AppHeader-mounted tablist re-styled via CSS — its DOM order, role attributes, and keyboard contract are unchanged. Visual position (top vs bottom) is decoupled from DOM order. CSS `position: fixed; bottom: 0` does not move the element in the DOM tree.
 
 ### 3. Native `<dialog>` modal pattern
 
@@ -146,21 +146,19 @@ The notable affordance is preserved as a CARD layout + label text. Color (`--col
 
 ## Existing axe coverage matrix
 
-`frontend/e2e/axe.spec.ts` covers 13 surface×viewport×state combinations:
+`frontend/e2e/axe.spec.ts` covers surface×viewport×state combinations (the Species view + autocomplete pair was removed in #688 with the Species surface itself):
 
 1. Initial load
 2. Map view, desktop
 3. Map view, mobile 390×844
-4. Species view + autocomplete OPEN, desktop
-5. Species view + autocomplete OPEN, mobile
-6. Error screen
-7. Species detail, no photo, desktop
-8. Species detail, no photo, mobile
-9. Species detail with photo, desktop
-10. Species detail with photo, mobile
-11. Feed view
-12. Attribution modal OPEN, desktop
-13. Attribution modal OPEN, mobile
+4. Error screen
+5. Species detail, no photo, desktop
+6. Species detail, no photo, mobile
+7. Species detail with photo, desktop
+8. Species detail with photo, mobile
+9. Feed view
+10. Attribution modal OPEN, desktop
+11. Attribution modal OPEN, mobile
 
 ## Redesign extensions to axe coverage
 
@@ -184,7 +182,7 @@ These are added when their producing component lands.
 Before Phase 6 ships:
 
 - [ ] VoiceOver pass on filter changes (announcements settle correctly with 500ms debounce)
-- [ ] VoiceOver pass on view changes (SurfaceNav tab activation announces the new surface)
+- [ ] VoiceOver pass on view changes (AppHeader tab activation announces the new surface)
 - [ ] DevTools "emulate prefers-reduced-motion: reduce" — confirm no transitions or animations on every surface
 - [ ] DevTools "emulate prefers-color-scheme: dark" — confirm initial default works (and that user-explicit toggle persists across reloads)
 - [ ] Color-blindness simulator pass on family legend (all 7 families distinguishable in deuteranopia, protanopia, tritanopia)

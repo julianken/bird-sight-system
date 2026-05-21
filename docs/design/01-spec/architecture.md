@@ -8,19 +8,18 @@ The redesign sits on top of three layers, ordered bottom-up:
 
 1. **Token layer** (CSS custom properties) — primitive → semantic → component, with `[data-theme]` for light/dark. See [`tokens.md`](./tokens.md).
 2. **Primitive layer** (5 React components) — `<StatusBlock>`, `<Photo>`, `<FamilySilhouette>`, `<ClusterPill>`, `<FilterSentence>`. See [`components.md`](./components.md).
-3. **Surface layer** (4 screens) — feed, map, species, detail. Composes primitives.
+3. **Surface layer** (3 screens) — feed, map, detail. Composes primitives. (Pre-#688 also carried a `species` search surface; that screen was removed because its filter UX duplicated FiltersBar's species combobox.)
 
 Persistent chrome wraps the surface layer: header (wordmark + nav + filter trigger + attribution + theme toggle) on top, optional bottom-tab bar on mobile, no footer.
 
 ## Surface system
 
-Four surfaces share the persistent chrome:
+Three surfaces share the persistent chrome:
 
 | Surface | URL | Default | Composition |
 |---|---|---|---|
 | `map` | `/?view=map` (also `/`) | **home route** | Header, context strip (lede + filter sentence + freshness meta), full-bleed MapLibre canvas, `<FamilyLegend>` overlay (collapsed mobile by default), bottom-tab on mobile |
 | `feed` | `/?view=feed` | — | Header, context strip, top-notable card-row, flat list of species rows |
-| `species` | `/?view=species` | — | Header, context strip, hero `<SpeciesAutocomplete>`, results list |
 | `detail` | `/?view=detail&detail=<code>` | overlay | Modal `<dialog>` desktop / bottom-sheet mobile; photo masthead, `<h1 id="detail-title">`, family label, phenology, Wikipedia prose |
 
 Map is the home route — `DEFAULTS.view: 'map'` per [`url-state.md`](./url-state.md).
@@ -29,10 +28,10 @@ Map is the home route — `DEFAULTS.view: 'map'` per [`url-state.md`](./url-stat
 
 Top header (both viewports):
 - Left: wordmark `Bird Maps · Arizona` (no brand mark)
-- Center (desktop only): `[Feed | Species | Map]` nav with active-tab accent underline
+- Center (desktop only): `[Map]` tab with active-tab accent underline (single-tab tablist post-#688; pre-#688 also carried Feed + Species)
 - Right: `[Attribution]` link → existing `<AttributionModal>`, `[Filters {n}]` trigger with badge, `[Theme toggle]` (☀ / ☾)
 
-Mobile bottom tab bar: 3 tabs (`Feed / Species / Map`). No `Credits` tab — attribution moves to the header.
+Mobile bottom tab bar: single `Map` tab. No `Credits` tab — attribution moves to the header.
 
 No footer in chrome. The existing `<footer role="contentinfo">` containing the Credits link is removed in Phase 6; the header `[Attribution]` button satisfies CC BY 3.0 §4(c) prominence.
 

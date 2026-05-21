@@ -16,7 +16,7 @@ The existing codebase has zero component primitives between tokens and surfaces.
 
 ## `<StatusBlock>`
 
-Page-level status primitive. Replaces 9 distinct ad-hoc CSS classes (`.feed-empty`, `.species-search-empty`, `.species-detail-loading`, `.species-detail-error`, `.attribution-modal-loading`, `.attribution-modal-empty`, `.attribution-modal-error`, `.error-screen`, `.map-loading-skeleton`) and 14 distinct copy+class pairs.
+Page-level status primitive. Replaces ad-hoc CSS classes (`.feed-empty`, `.species-detail-loading`, `.species-detail-error`, `.attribution-modal-loading`, `.attribution-modal-empty`, `.attribution-modal-error`, `.error-screen`, `.map-loading-skeleton`) and the distinct copy+class pairs they carried. (#688 deleted the Species surface and its empty-state rule along with it.)
 
 ```ts
 type StatusBlockProps = {

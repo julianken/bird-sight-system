@@ -1425,8 +1425,8 @@ aside.species-detail-rail .species-detail-rail-close {
    Generic visually-hidden class for content that must be in the accessibility
    tree but should not be visible on screen. Pattern matches .filter-sentence-live
    and the WebAIM "clip pattern" recommendation (https://webaim.org/techniques/css/invisiblecontent/).
-   Used by SpeciesSearchSurface to provide an <h1> landmark for assistive
-   technology (WCAG 1.3.1 Info and Relationships / WCAG 2.4.6 Headings and Labels)
+   Used across surfaces to mount <h1> landmarks for assistive technology
+   (WCAG 1.3.1 Info and Relationships / WCAG 2.4.6 Headings and Labels)
    without disrupting the visual design. */
 .sr-only {
   position: absolute;
@@ -1481,25 +1481,6 @@ aside.species-detail-rail .species-detail-rail-close {
 .attribution-modal-photographer {
   font-weight: var(--font-weight-medium);
   color: var(--color-text-strong);
-}
-
-/* ── Autocomplete group header (.autocomplete-group-header) ─────────────────
-   SpeciesAutocomplete.tsx:310. Flat-sentinel list item used as a visual group
-   heading inside the ARIA listbox (role="presentation" — not role="option").
-   Without a rule the <li> inherits listbox padding and appears identical to
-   option rows. The rule reproduces the visual treatment called for in the
-   navigation-spec: small-caps label, muted color, horizontal separator. */
-.autocomplete-group-header {
-  padding: var(--space-xs) var(--space-md);
-  font-size: var(--type-xs);
-  font-weight: var(--font-weight-medium);
-  font-variant: small-caps;
-  letter-spacing: 0.04em;
-  color: var(--color-text-muted);
-  border-bottom: 1px solid var(--color-border-subtle);
-  list-style: none;
-  pointer-events: none;
-  user-select: none;
 }
 
 /* ── SpeciesDescription section (.species-detail-description,
