@@ -311,9 +311,34 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
       if (parsed !== undefined && (!Number.isFinite(parsed) || parsed <= 0)) {
         throw new Error(`OBSERVATIONS_RETENTION_DAYS must be a positive integer; got ${raw}`);
       }
-      summary = await deps.runPrune(
-        parsed === undefined ? { pool } : { pool, retentionDays: parsed }
-      );
+
+      // GCS archive wiring. The bucket name is fixed by infra (T1) — single
+      // tenant, no env override surface needed. ADC inside Cloud Run reaches
+      // GCS via the ingestor SA's bucket bindings (T1 IAM members:
+      // roles/storage.objectCreator + roles/storage.objectViewer).
+      //
+      // Dynamic import: keeps the @google-cloud/storage SDK (heavy ESM init,
+      // ~118 transitive packages) out of the cold path for every non-prune
+      // kind. The prune Cloud Run Job pays the import cost once per run.
+      const ARCHIVE_BUCKET = 'bird-maps-prod-obs-archive';
+      const { Storage } = await import('@google-cloud/storage');
+      const storage = new Storage();
+      const bucket = storage.bucket(ARCHIVE_BUCKET);
+      const { archiveAndUpload } = await import('./archive/index.js');
+
+      summary = await deps.runPrune({
+        pool,
+        ...(parsed === undefined ? {} : { retentionDays: parsed }),
+        archiveDay: async (utcDate, rows) => {
+          const r = await archiveAndUpload({
+            bucket,
+            bucketName: ARCHIVE_BUCKET,
+            utcDate,
+            rows,
+          });
+          return { gcsPath: r.gcsPath, bytes: r.bytes };
+        },
+      });
     } else {
       throw new Error(`Unknown kind: ${kind}. Try recent | hotspots | backfill | backfill-extended | taxonomy | photos | descriptions | prune | digest | probe-taxon | probe-wiki`);
     }
