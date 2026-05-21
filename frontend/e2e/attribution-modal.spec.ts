@@ -32,7 +32,8 @@ test.describe('AttributionModal — reachability from AppHeader (desktop)', () =
   // Phase 6: footer removed. Credits trigger is AttributionModal's own button
   // (.attribution-trigger). The AppHeader "Attribution" button programmatically
   // clicks it. Tests assert on the trigger directly — no footer required.
-  for (const view of ['feed', 'species', 'map'] as const) {
+  // 'species' removed from iteration in #688 (Species surface deleted).
+  for (const view of ['feed', 'map'] as const) {
     test(`Credits trigger reachable on view=${view}`, async ({ page }) => {
       const app = new AppPage(page);
       await app.goto(`view=${view}`);

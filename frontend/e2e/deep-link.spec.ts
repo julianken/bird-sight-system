@@ -2,8 +2,8 @@ import { test, expect, VERMFLY_OBS } from './fixtures.js';
 import { AppPage } from './pages/app-page.js';
 
 // `exact: true` mandatory on every getByLabel filter locator — see
-// pages/filters-bar.ts for rationale (FiltersBar datalist + SurfaceNav
-// tabs share substrings with "Species" and "Family" labels).
+// pages/filters-bar.ts for rationale (FiltersBar datalist + header tabs
+// share substrings with "Species" and "Family" labels).
 //
 // Phase 3: FiltersBar is rendered inside a slide-in panel triggered from
 // AppHeader. Every test that needs to assert filter control values must

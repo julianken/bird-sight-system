@@ -87,11 +87,12 @@ test.describe('species detail surface (#151)', () => {
     expect(app.getUrlParams().get('detail')).toBeNull();
     expect(app.getUrlParams().get('view')).toBe('feed');
 
-    // Feed tab no longer exists in the header (issue #662), but the
-    // ?view=feed URL state is preserved and no other tab is selected.
+    // Feed tab removed in #662 and Species tab removed in #688. Only the
+    // Map tab remains in the header; the ?view=feed URL state is preserved
+    // for legacy bookmarks but no tab is selected on that surface.
     await expect(page.getByRole('tab', { name: 'Feed view' })).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: 'Species view' })).toHaveCount(0);
     await expect(page.getByRole('tab', { name: 'Map view' })).toHaveAttribute('aria-selected', 'false');
-    await expect(page.getByRole('tab', { name: 'Species view' })).toHaveAttribute('aria-selected', 'false');
   });
 
   test('network failure shows inline error on detail surface', async ({ page, apiStub }) => {

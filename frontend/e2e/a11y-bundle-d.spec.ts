@@ -2,7 +2,7 @@
  * A11y Bundle D (issue #513) — semantic structure assertions.
  *
  * Covers:
- *   A11Y-3  — Each surface has exactly one <h1> (FeedSurface, SpeciesSearchSurface).
+ *   A11Y-3  — Each surface has exactly one <h1> (FeedSurface).
  *   A11Y-5  — Exactly one <header role="banner"> in the document.
  *   A11Y-10 — <main> tabindex decision (retained as WCAG 2.1.1 scrollable-region-focusable fix).
  *
@@ -35,16 +35,6 @@ test.describe('A11Y-3 — one <h1> per surface', () => {
     expect(h1Count, 'feed view must have exactly 1 <h1>').toBe(1);
   });
 
-  test('species view has exactly one <h1>', async ({ page }) => {
-    const app = new AppPage(page);
-    await app.goto('view=species');
-    await app.waitForAppReady();
-
-    const h1Count = await page.evaluate(
-      () => document.querySelectorAll('h1').length,
-    );
-    expect(h1Count, 'species view must have exactly 1 <h1>').toBe(1);
-  });
 
   // Regression guard: SpeciesDetailSurface already has an <h1> — ensure
   // the detail rail still has exactly one (no accidental duplication
@@ -95,16 +85,6 @@ test.describe('A11Y-3 — one <h1> per surface', () => {
       expect(h1Count, 'feed view must have exactly 1 <h1> at mobile').toBe(1);
     });
 
-    test('species view has exactly one <h1> (mobile)', async ({ page }) => {
-      const app = new AppPage(page);
-      await app.goto('view=species');
-      await app.waitForAppReady();
-
-      const h1Count = await page.evaluate(
-        () => document.querySelectorAll('h1').length,
-      );
-      expect(h1Count, 'species view must have exactly 1 <h1> at mobile').toBe(1);
-    });
   });
 
   // Axe-core passes on feed and species surfaces after h1 fix.
@@ -122,19 +102,6 @@ test.describe('A11Y-3 — one <h1> per surface', () => {
     expect(results.violations).toEqual([]);
   });
 
-  test('species view has no WCAG 2/2.1 A/AA violations after h1 fix', async ({ page }) => {
-    const app = new AppPage(page);
-    await app.goto('view=species');
-    await app.waitForAppReady();
-    const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
-    if (results.violations.length) {
-      await test.info().attach('axe-violations-species-a11y-d', {
-        body: JSON.stringify(results.violations, null, 2),
-        contentType: 'application/json',
-      });
-    }
-    expect(results.violations).toEqual([]);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -166,8 +133,9 @@ test.describe('A11Y-5 — single banner landmark', () => {
     expect(bannerClass).toContain('app-header');
   });
 
-  // Verify across all three primary views — banner count must not change.
-  for (const view of ['feed', 'species', 'map'] as const) {
+  // Verify across all primary views — banner count must not change.
+  // (Pre-#688 included 'species'; that surface was removed in #688.)
+  for (const view of ['feed', 'map'] as const) {
     test(`banner count stays 1 on ${view} view`, async ({ page }) => {
       const app = new AppPage(page);
       await app.goto(`view=${view}`);

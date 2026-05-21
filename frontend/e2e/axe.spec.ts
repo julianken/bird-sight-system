@@ -110,28 +110,6 @@ test.describe('axe-core WCAG scans', () => {
     expect(results.violations).toEqual([]);
   });
 
-  // #118 species surface — the autocomplete carries a WAI-ARIA 1.2 combobox
-  // contract (role + aria-autocomplete + aria-expanded + aria-controls),
-  // and the listbox + options use proper `role="option"` inside `role="listbox"`.
-  // Axe will flag the combobox if any ARIA attribute is missing or mis-paired.
-  test('species surface has no WCAG 2/2.1 A/AA violations with autocomplete open', async ({ page }) => {
-    const app = new AppPage(page);
-    await app.goto('view=species');
-    await app.waitForAppReady();
-    // Type into the autocomplete to open the listbox; axe runs against the
-    // open-combobox DOM (listbox + option rows, aria-activedescendant, etc.).
-    await page.getByRole('combobox', { name: 'Search species' }).fill('e');
-    await page.keyboard.press('ArrowDown');
-    const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
-    if (results.violations.length) {
-      await test.info().attach('axe-violations', {
-        body: JSON.stringify(results.violations, null, 2),
-        contentType: 'application/json',
-      });
-    }
-    expect(results.violations).toEqual([]);
-  });
-
   test('error screen has no WCAG 2/2.1 A/AA violations', async ({ page, apiStub }) => {
     await apiStub.stubApiAbort('observations');
     await page.goto('/');
@@ -287,24 +265,6 @@ test.describe('axe-core WCAG scans', () => {
       expect(results.violations).toEqual([]);
     });
 
-    // #118 mobile — same autocomplete contract but at the release-1 mobile
-    // viewport. Covers the flipped-dropdown rendering path too.
-    test('species surface has no WCAG 2/2.1 A/AA violations with autocomplete open', async ({ page }) => {
-      const app = new AppPage(page);
-      await app.goto('view=species');
-      await app.waitForAppReady();
-      await page.getByRole('combobox', { name: 'Search species' }).fill('e');
-      await page.keyboard.press('ArrowDown');
-      const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
-      if (results.violations.length) {
-        await test.info().attach('axe-violations', {
-          body: JSON.stringify(results.violations, null, 2),
-          contentType: 'application/json',
-        });
-      }
-      expect(results.violations).toEqual([]);
-    });
-
     // Sky Atlas Phase 4 — bottom-sheet at full snap accessibility contract.
     // The sheet is NOT a <dialog> at peek/half (map underneath stays
     // interactive); it flips to role="dialog" aria-modal="true" only at
@@ -381,13 +341,6 @@ test.describe('axe-core WCAG scans', () => {
       await expect(page.locator('button.attribution-trigger')).toBeAttached();
     });
 
-    test('species view exposes a Credits trigger in the DOM', async ({ page }) => {
-      const app = new AppPage(page);
-      await app.goto('view=species');
-      await app.waitForAppReady();
-      await expect(page.locator('button.attribution-trigger')).toBeAttached();
-    });
-
     test('detail view exposes a Credits trigger in the DOM', async ({ page, apiStub }) => {
       await apiStub.stubEmpty();
       await apiStub.stubSpecies('vermfly', VERMFLY);
@@ -411,7 +364,7 @@ test.describe('axe-core WCAG scans', () => {
     // Phase 6: app-footer removed — assert no app-footer element in DOM.
     test('no app-footer element renders (footer removed Phase 6)', async ({ page }) => {
       const app = new AppPage(page);
-      for (const view of ['feed', 'species', 'map'] as const) {
+      for (const view of ['feed', 'map'] as const) {
         await app.goto(`view=${view}`);
         await app.waitForAppReady();
         await expect(page.locator('footer.app-footer')).toHaveCount(0);
@@ -421,7 +374,7 @@ test.describe('axe-core WCAG scans', () => {
     // SurfaceFooter retired in #250 — assert no leftover surface-level footers.
     test('no per-surface footer.surface-footer renders anywhere', async ({ page }) => {
       const app = new AppPage(page);
-      for (const view of ['feed', 'species', 'map'] as const) {
+      for (const view of ['feed', 'map'] as const) {
         await app.goto(`view=${view}`);
         await app.waitForAppReady();
         await expect(page.locator('footer.surface-footer')).toHaveCount(0);
