@@ -370,10 +370,11 @@ describe('runCli', () => {
     await expect(runCli('bogus', deps)).rejects.toThrow(/descriptions/);
   });
 
-  it("'prune' kind dispatches to runPrune with the pool and default retention", async () => {
+  it("'prune' kind dispatches to runPrune with the pool, default retention, and an archiveDay callback", async () => {
     delete process.env.OBSERVATIONS_RETENTION_DAYS;
     const successSummary = {
-      status: 'success' as const, deleted: 0, retentionDays: 14,
+      status: 'success' as const, deleted: 0, archived: 0,
+      archivedDays: 0, gcsPaths: [], retentionDays: 14,
     };
     const runPruneSpy = vi.fn().mockResolvedValue(successSummary);
     const deps = makeDeps({ runPrune: runPruneSpy });
@@ -381,22 +382,30 @@ describe('runCli', () => {
     await runCli('prune', deps);
 
     expect(runPruneSpy).toHaveBeenCalledTimes(1);
-    expect(runPruneSpy).toHaveBeenCalledWith({ pool: POOL_SENTINEL });
+    // After T2/T4 the runPrune call carries an archiveDay callback wired
+    // to archiveAndUpload over @google-cloud/storage. We assert on the
+    // pool + callback presence; the callback's internal wiring is
+    // exercised by archive/gcs-uploader.test.ts.
+    const call = runPruneSpy.mock.calls[0]?.[0];
+    expect(call?.pool).toBe(POOL_SENTINEL);
+    expect(typeof call?.archiveDay).toBe('function');
     expect(deps.closePool).toHaveBeenCalledWith(POOL_SENTINEL);
   });
 
   it("'prune' kind forwards OBSERVATIONS_RETENTION_DAYS as a parsed integer", async () => {
     process.env.OBSERVATIONS_RETENTION_DAYS = '30';
     const runPruneSpy = vi.fn().mockResolvedValue({
-      status: 'success' as const, deleted: 0, retentionDays: 30,
+      status: 'success' as const, deleted: 0, archived: 0,
+      archivedDays: 0, gcsPaths: [], retentionDays: 30,
     });
     const deps = makeDeps({ runPrune: runPruneSpy });
 
     await runCli('prune', deps);
 
-    expect(runPruneSpy).toHaveBeenCalledWith({
-      pool: POOL_SENTINEL, retentionDays: 30,
-    });
+    const call = runPruneSpy.mock.calls[0]?.[0];
+    expect(call?.pool).toBe(POOL_SENTINEL);
+    expect(call?.retentionDays).toBe(30);
+    expect(typeof call?.archiveDay).toBe('function');
   });
 
   it("'prune' rejects a non-positive OBSERVATIONS_RETENTION_DAYS value", async () => {
