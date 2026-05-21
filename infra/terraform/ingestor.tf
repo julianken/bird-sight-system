@@ -830,6 +830,11 @@ resource "google_cloud_scheduler_job" "ingest_descriptions" {
 
 # ── Observations prune job (issue #587) ─────────────────────────────────────
 #
+# See also infra/terraform/observations-archive.tf — the archive bucket and
+# IAM bindings the prune job writes to before deleting. The prune job's SA
+# gains storage.objectCreator/Viewer on the bucket via the observations-
+# archive.tf bindings.
+#
 # Nightly Cloud Run Job that deletes observations older than the rolling
 # retention window (default 14 days, overridable via OBSERVATIONS_RETENTION_DAYS)
 # then runs VACUUM (ANALYZE) observations to recover GIST/B-tree dead-tuple
@@ -871,7 +876,13 @@ resource "google_cloud_run_v2_job" "ingestor_prune" {
         args = ["prune"]
 
         resources {
-          limits = { cpu = "1", memory = "512Mi" }
+          # Bumped from "512Mi" in PR for issue #689: the archive-then-delete prune
+          # holds the day's ArchivableRow[] in JS heap (~600 MB at national scale)
+          # + parquetjs-lite column buffers + the post-write Buffer round-trip.
+          # See R9 in docs/plans/2026-05-20-observations-cold-storage.md. Revisit
+          # if the streaming writer mitigation (R9) ships and removes the
+          # double-buffering.
+          limits = { cpu = "1", memory = "2Gi" }
         }
 
         env {
