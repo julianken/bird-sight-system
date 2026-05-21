@@ -54,9 +54,14 @@ export function deriveSpeciesIndex(observations: Observation[]): SpeciesOption[]
   return Array.from(byCode.values()).sort((a, b) => a.comName.localeCompare(b.comName));
 }
 
-// Exported for reuse in SpeciesAutocomplete family group headers.
-// Note: we only capitalize the family code — we have no vernacular dictionary
-// to map codes like "Tyrannidae" → "Tyrant Flycatchers". A future enhancement
+// Exported for reuse across surfaces that surface a family label (FeedSurface
+// header, FiltersBar option label, MapSurface lede, AttributionModal Phylopic
+// section). Pre-#688 this also fed the SpeciesAutocomplete family group
+// headers; that component was deleted but the function still has 9+ live
+// consumers across kept surfaces.
+//
+// We only capitalize the family code — we have no vernacular dictionary to
+// map codes like "Tyrannidae" → "Tyrant Flycatchers". A future enhancement
 // could add a static map if the display name matters more than simplicity.
 export function prettyFamily(code: string): string {
   return code.charAt(0).toUpperCase() + code.slice(1);

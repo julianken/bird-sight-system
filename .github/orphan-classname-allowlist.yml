@@ -75,6 +75,5 @@
 #   String concat: `'family-legend-entry' + (active ? ' is-active' : '')`
 #   The script extracts string-concat branch literals. No entry needed.
 
-# species-autocomplete-option{is-highlighted}  (SpeciesAutocomplete.tsx)
-#   Template: `species-autocomplete-option${selected ? ' is-highlighted' : ''}`
-#   Extracted statically. No entry needed.
+# (Pre-#688 also documented species-autocomplete-option{is-highlighted}
+# from SpeciesAutocomplete.tsx — that component was deleted in #688.)
