@@ -318,6 +318,157 @@ resource "google_monitoring_dashboard" "bird_watch_overview" {
             }
           }
         },
+        # ── Row 5: Observations archive pipeline (T8 of issue #689) ─────
+        #
+        # Visibility into the nightly prune's archive-then-delete pipeline.
+        # The 14-day live retention window means raw row counts on the
+        # observations table do NOT carry archive throughput — these tiles
+        # are the only way to see the cold-storage data flow without
+        # tailing Cloud Logging by hand.
+        # Tile 5.1 — Rows archived per night
+        {
+          xPos   = 0
+          yPos   = 16
+          width  = 3
+          height = 4
+          widget = {
+            title = "Archive throughput — rows per night (last 30d)"
+            xyChart = {
+              dataSets = [{
+                timeSeriesQuery = {
+                  timeSeriesFilter = {
+                    filter = "metric.type=\"logging.googleapis.com/user/bird-ingest-archived-row-count\" AND resource.type=\"cloud_run_job\""
+                    aggregation = {
+                      alignmentPeriod    = "86400s" # daily buckets
+                      perSeriesAligner   = "ALIGN_SUM"
+                      crossSeriesReducer = "REDUCE_SUM"
+                    }
+                  }
+                }
+                plotType = "LINE"
+              }]
+              yAxis = {
+                label = "rows"
+                scale = "LINEAR"
+              }
+            }
+          }
+        },
+        # Tile 5.2 — Bytes uploaded per night
+        {
+          xPos   = 3
+          yPos   = 16
+          width  = 3
+          height = 4
+          widget = {
+            title = "GCS bytes uploaded per night (last 30d)"
+            xyChart = {
+              dataSets = [{
+                timeSeriesQuery = {
+                  timeSeriesFilter = {
+                    filter = "metric.type=\"logging.googleapis.com/user/bird-ingest-archived-bytes-uploaded\" AND resource.type=\"cloud_run_job\""
+                    aggregation = {
+                      alignmentPeriod    = "86400s"
+                      perSeriesAligner   = "ALIGN_SUM"
+                      crossSeriesReducer = "REDUCE_SUM"
+                    }
+                  }
+                }
+                plotType = "LINE"
+              }]
+              yAxis = {
+                label = "bytes"
+                scale = "LINEAR"
+              }
+            }
+          }
+        },
+        # Tile 5.3 — Archive vs Delete parity check
+        # Two lines on one widget. For healthy nights the lines overlay
+        # exactly (rowCount == deletedCount per the T2 atomic-per-day
+        # invariant). Divergence is a visual smell — triage via the
+        # runbook §Failure response.
+        {
+          xPos   = 6
+          yPos   = 16
+          width  = 3
+          height = 4
+          widget = {
+            title = "Archive vs Delete parity (per-day)"
+            xyChart = {
+              dataSets = [
+                {
+                  timeSeriesQuery = {
+                    timeSeriesFilter = {
+                      filter = "metric.type=\"logging.googleapis.com/user/bird-ingest-archived-row-count\" AND resource.type=\"cloud_run_job\""
+                      aggregation = {
+                        alignmentPeriod    = "86400s"
+                        perSeriesAligner   = "ALIGN_SUM"
+                        crossSeriesReducer = "REDUCE_SUM"
+                      }
+                    }
+                  }
+                  plotType       = "LINE"
+                  legendTemplate = "archived (rowCount)"
+                },
+                {
+                  timeSeriesQuery = {
+                    timeSeriesFilter = {
+                      filter = "metric.type=\"logging.googleapis.com/user/bird-ingest-archived-deleted-count\" AND resource.type=\"cloud_run_job\""
+                      aggregation = {
+                        alignmentPeriod    = "86400s"
+                        perSeriesAligner   = "ALIGN_SUM"
+                        crossSeriesReducer = "REDUCE_SUM"
+                      }
+                    }
+                  }
+                  plotType       = "LINE"
+                  legendTemplate = "deleted (deletedCount)"
+                },
+              ]
+              yAxis = {
+                label = "rows"
+                scale = "LINEAR"
+              }
+            }
+          }
+        },
+        # Tile 5.4 — GCS bucket size growth (90d, with lifecycle annotation)
+        # GCP-native metric — no log-based metric needed. The 90-day window
+        # is chosen so the Nearline → Archive transition (which fires at
+        # age=90d per T1's lifecycle_rule) is visible: bucket size growth-
+        # rate inflects when old partitions transition out of Nearline
+        # storage class — useful visual sanity check on the lifecycle rule.
+        {
+          xPos   = 9
+          yPos   = 16
+          width  = 3
+          height = 4
+          widget = {
+            title = "GCS archive bucket size — 90d (Nearline → Archive transition visible)"
+            xyChart = {
+              dataSets = [{
+                timeSeriesQuery = {
+                  timeSeriesFilter = {
+                    filter = "metric.type=\"storage.googleapis.com/storage/total_bytes\" AND resource.type=\"gcs_bucket\" AND resource.label.bucket_name=\"bird-maps-prod-obs-archive\""
+                    aggregation = {
+                      alignmentPeriod    = "86400s"
+                      perSeriesAligner   = "ALIGN_MEAN"
+                      crossSeriesReducer = "REDUCE_SUM"
+                      groupByFields      = ["resource.label.storage_class"]
+                    }
+                  }
+                }
+                plotType       = "STACKED_AREA"
+                legendTemplate = "$${resource.labels.storage_class}"
+              }]
+              yAxis = {
+                label = "bytes"
+                scale = "LINEAR"
+              }
+            }
+          }
+        },
       ]
     }
   })
