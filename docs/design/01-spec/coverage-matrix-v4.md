@@ -68,7 +68,7 @@
 | Focus halo (2px outline + 2px outline-offset gap) | agent-3 idea 5; v3 chip-focus-demo `sky-atlas-v3.html:261-264` | `CAPTURED` | `accessibility.md:46-58` | `color-mix` for 3:1 |
 | 44px content tap targets, 32px chrome allowed | Existing baseline | `CAPTURED` | `accessibility.md:42` | Preserved |
 | `<dialog>` native modal pattern for detail | agent-4 idea 6; v3 detail-d mock | `CAPTURED` | `accessibility.md:20-23`; `architecture.md:41` | — |
-| Active SurfaceNav tab as underline (not filled chip) | v3 nav `sky-atlas-v3.html:227-236` (`::after` 2px underline with accent) | `CAPTURED` | `voice-and-content.md:81` | Accent site #1 |
+| Active AppHeader tab as underline (not filled chip) | v3 nav `sky-atlas-v3.html:227-236` (`::after` 2px underline with accent) | `CAPTURED` | `voice-and-content.md:81` | Accent site #1 |
 | Mobile bottom-tab uses accent for active state | v3 mobile `sky-atlas-v3.html:672`; v4 `sky-atlas-v4.html:243` | `CAPTURED` | `voice-and-content.md:88` | Accent site #8 |
 | `[Attribution]` link in header (replaces mobile Credits tab) | v4 visual delta 1 `sky-atlas-v4.html:403-489` | `CAPTURED` | `architecture.md:33-37` | Explicit removal of footer + Credits tab |
 | Inline blocking script for FOUC-prevention on theme | agent-2 idea 5; v4 implied | `CAPTURED` | `tokens.md:166-176` | Verbatim snippet specified |

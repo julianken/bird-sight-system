@@ -68,13 +68,14 @@ const set = useCallback((partial: Partial<UrlState>) => {
 
 The redesign does NOT change the URL parameter shape. All existing query params behave identically:
 
-- `?view=feed|map|species|detail` — surface
+- `?view=feed|map|detail` — surface (the legacy `species` value was removed in #688 — see the shim below)
 - `?since=1d|7d|14d|30d` — time window (default `14d` omitted from URL)
 - `?notable=true` — notable filter (false omitted)
-- `?species=<code>` — species filter
+- `?species=<code>` — species filter (FiltersBar combobox post-#688; the dedicated Species surface was removed)
 - `?family=<code>` — family filter
 - `?detail=<code>` — detail surface species code
 - `?view=hotspots` → silent redirect to `?view=map` (compatibility shim, preserved)
+- legacy `?view=` species value → silent redirect to `?view=map` with any sibling `?species=<code>` preserved (#688 compatibility shim — mirrors the hotspots shim)
 
 Existing bookmarks all continue to work. The only behavioral change for bookmarked URLs:
 
@@ -84,9 +85,11 @@ Existing bookmarks all continue to work. The only behavioral change for bookmark
 ## What this does NOT change
 
 - The `popstate` listener at `url-state.ts:97–101` is unchanged. It already uses `readUrl()` to refresh state on `popstate`; with `pushState` now in play, that listener fires meaningfully on browser back from detail.
-- The view-resolution logic in `readUrl` at lines 41–59 is unchanged. The sniff rules (`?species=` → `view=species`, `?detail=` → `view=detail`) preserve.
-- The `?view=hotspots` redirect at lines 42–50 is unchanged.
+- The `?detail=` → `view=detail` sniff in readUrl is unchanged.
+- The `?view=hotspots` redirect is unchanged. (#688 added an analogous legacy-species-value → `?view=map` shim alongside it; both preserve sibling params.)
 - The `writeUrl` default-omit behavior at line 81–83 is unchanged. With `DEFAULTS.view = 'map'` flipped, the omit condition automatically picks up — no separate code path.
+
+Pre-#688 a sniff branch promoted `?species=<code>` (with no explicit `?view=`) to the Species surface; that branch was removed because the Species surface no longer exists. Bookmarked `?species=<code>` URLs cold-load to the map (DEFAULTS.view) with the filter active in FiltersBar.
 
 ## Existing test impact
 

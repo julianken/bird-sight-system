@@ -11,12 +11,12 @@ export class FiltersBar {
     // Phase 3: FiltersBar is rendered inside a filters panel
     // (`<div class="filters-panel" role="region" aria-label="Filters">`)
     // that is only mounted when the user opens the Filters drawer via the
-    // AppHeader trigger. Scope every locator to that panel so:
-    //   (a) locators resolve only when the panel is open, giving a clear
-    //       "element not attached" error if a test forgets openFilters(), and
-    //   (b) `exact: true` is preserved — SurfaceNav tab accessible names
-    //       ("Species view", "Family view") still share substrings with
-    //       filter labels; the panel scope adds a second layer of protection.
+    // AppHeader trigger. Scope every locator to that panel so locators
+    // resolve only when the panel is open, giving a clear "element not
+    // attached" error if a test forgets openFilters(). `exact: true` on
+    // every getByLabel call is preserved as a belt-and-braces precaution
+    // against ambient label collisions (header buttons, modal contents,
+    // future tablist entries).
     const panel = page.getByRole('region', { name: 'Filters' });
     this.timeWindow = panel.getByLabel('Time window', { exact: true });
     this.notableOnly = panel.getByLabel('Notable only', { exact: true });

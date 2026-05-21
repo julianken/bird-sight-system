@@ -1,13 +1,15 @@
 /**
- * Mobile Bundle E (issue #514) — six mobile residuals from the v2.2 Tier-5 audit.
+ * Mobile Bundle E (issue #514) — mobile residuals from the v2.2 Tier-5 audit.
  *
  * MOB-1  (BLOCKER)  — AppHeader overflows 390px; body.scrollWidth must be ≤ 390px.
- * MOB-3  (IMPORTANT)— iOS auto-zoom: .species-autocomplete-input font-size must be ≥ 16px.
- * MOB-4  (IMPORTANT)— Header buttons sub-44pt touch target.
  * MOB-5  (IMPORTANT)— Sheet safe-area-top: env(safe-area-inset-top) must appear in CSS.
  * MOB-6  (IMPORTANT)— Drag slop: DISMISS_THRESHOLD_PX tuned for thumb reach.
  * MOB-7  (IMPORTANT)— Sheet handle 24→44pt drag target.
  * MOB-N1 (IMPORTANT)— .filters-panel-close 24×22 unstyled; must be ≥ 44×44pt.
+ *
+ * MOB-3 (iOS auto-zoom on the species autocomplete input) + MOB-4 (Species
+ * tab touch target) were both removed in #688 — the components they targeted
+ * were deleted with the Species surface.
  *
  * All touch-target tests run at 390×844 (iPhone 14 Pro) — the canonical mobile
  * viewport from the release-1 exit criteria.
@@ -65,53 +67,14 @@ test.describe('MOB-1 — AppHeader no horizontal overflow at 390px', () => {
   });
 });
 
-// ── MOB-3: iOS auto-zoom guard — font-size ≥ 16px ──────────────────────────
-// Covers iPhone 14 Pro (390px), iPhone 14 Pro Max (428px), iPhone 15 Pro Max
-// (430px) — all are affected by iOS Safari's auto-zoom on inputs < 16px.
+// ── AppHeader touch-target regressions (formerly MOB-4 subset) ─────────────
+// Pre-#688: MOB-4 covered Filters / Attribution / Species-tab touch targets.
+// The Species tab was deleted in #688; the Filters + Attribution targets
+// remain regression-worthy since both buttons are touched by the same
+// app-header rules. The SVG-icon-presence guards (round-1 font-size:0 fix)
+// stay too — they're regression-only.
 
-test.describe('MOB-3 — species-autocomplete-input font-size ≥ 16px', () => {
-  test('autocomplete input font-size ≥ 16px on species view at 390px (prevents iOS auto-zoom)', async ({
-    page,
-    apiStub,
-  }) => {
-    await apiStub.stubEmpty();
-    const app = new AppPage(page);
-    await app.goto('view=species');
-    await app.waitForAppReady();
-
-    const fontSize = await page.evaluate(() => {
-      const el = document.querySelector<HTMLElement>('.species-autocomplete-input');
-      if (!el) return 0;
-      return parseFloat(window.getComputedStyle(el).fontSize);
-    });
-    expect(fontSize, 'autocomplete input font-size must be ≥ 16px to prevent iOS auto-zoom').toBeGreaterThanOrEqual(16);
-  });
-
-  test('autocomplete input font-size ≥ 16px on species view at 428px (iPhone Pro Max — prevents iOS auto-zoom)', async ({
-    page,
-    apiStub,
-  }) => {
-    // iPhone Pro Max viewports (428/430px) are wider than the old 414px guard
-    // and were previously excluded from the 16px override. The rule is now
-    // unconditional so this viewport inherits it automatically.
-    await page.setViewportSize({ width: 428, height: 926 });
-    await apiStub.stubEmpty();
-    const app = new AppPage(page);
-    await app.goto('view=species');
-    await app.waitForAppReady();
-
-    const fontSize = await page.evaluate(() => {
-      const el = document.querySelector<HTMLElement>('.species-autocomplete-input');
-      if (!el) return 0;
-      return parseFloat(window.getComputedStyle(el).fontSize);
-    });
-    expect(fontSize, 'autocomplete input font-size must be ≥ 16px at 428px (iPhone Pro Max)').toBeGreaterThanOrEqual(16);
-  });
-});
-
-// ── MOB-4: Header button touch targets ≥ 44×44pt ───────────────────────────
-
-test.describe('MOB-4 — AppHeader buttons ≥ 44×44pt', () => {
+test.describe('AppHeader buttons ≥ 44×44pt', () => {
   test('Filters button is ≥ 44px tall', async ({ page, apiStub }) => {
     await apiStub.stubEmpty();
     const app = new AppPage(page);
@@ -134,18 +97,6 @@ test.describe('MOB-4 — AppHeader buttons ≥ 44×44pt', () => {
     expect(box, 'Attribution button bounding box must exist').not.toBeNull();
     expect(box!.height, 'Attribution button height must be ≥ 44px').toBeGreaterThanOrEqual(44);
     expect(box!.width, 'Attribution button width must be ≥ 44px').toBeGreaterThanOrEqual(44);
-  });
-
-  test('Species tab button is ≥ 44px tall (Feed tab removed in #662)', async ({ page, apiStub }) => {
-    await apiStub.stubEmpty();
-    const app = new AppPage(page);
-    await app.goto('view=species');
-    await app.waitForAppReady();
-
-    const tab = page.getByRole('tab', { name: 'Species view' });
-    const box = await tab.boundingBox();
-    expect(box, 'Species tab bounding box must exist').not.toBeNull();
-    expect(box!.height, 'Species tab height must be ≥ 44px').toBeGreaterThanOrEqual(44);
   });
 
   // Regression guard: round-1 fix used font-size:0 which produced empty

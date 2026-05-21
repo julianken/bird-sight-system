@@ -1,11 +1,13 @@
 /**
  * <StatusBlock>
  *
- * Page-level status primitive. Collapses 9 ad-hoc CSS classes
- * (.feed-empty, .species-search-empty, .species-detail-loading,
- * .species-detail-error, .attribution-modal-loading, .attribution-modal-empty,
+ * Page-level status primitive. Collapses ad-hoc CSS classes
+ * (.feed-empty, .species-detail-loading, .species-detail-error,
+ * .attribution-modal-loading, .attribution-modal-empty,
  * .attribution-modal-error, .error-screen, .map-loading-skeleton) and
- * 14 distinct copy+class pairs into a single typed API.
+ * the distinct copy+class pairs they carried into a single typed API.
+ * (#688 deleted the Species surface and its empty-state rule along with
+ * the rest of that component family.)
  *
  * Does NOT compose with <Photo>. They live at different levels of the
  * component tree. See docs/design/01-spec/components.md for composition rules.

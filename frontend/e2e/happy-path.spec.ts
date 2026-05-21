@@ -35,7 +35,7 @@ test.describe('Path A happy path', () => {
     await app.waitForAppReady();
 
     // Phase 0: bare '/' now loads the map surface (DEFAULTS.view='map').
-    // The Map tab is the selected SurfaceNav item on a cold load.
+    // The Map tab is the selected AppHeader tab on a cold load.
     const mapTab = page.getByRole('tab', { name: 'Map view' });
     await expect(mapTab).toHaveAttribute('aria-selected', 'true');
 
@@ -50,21 +50,26 @@ test.describe('Path A happy path', () => {
   // by the "feed row click opens detail surface" test below, which uses
   // ?view=feed to reach the dead-code feed branch.
 
-  test('species deep link cold-loads to search surface with filter active', async ({ page }) => {
+  test('species deep link cold-loads to map surface with filter active in FiltersBar (#688)', async ({ page }) => {
     const app = new AppPage(page);
     await app.goto('species=vermfly');
     await app.waitForAppReady();
 
-    // readUrl() sniffs `?species=` (no explicit `?view=`) to `view=species`
-    // — see state/url-state.ts. Bookmark compat: lands on species surface
-    // with the filter active, NOT the detail surface.
-    const speciesTab = page.getByRole('tab', { name: 'Species view' });
-    await expect(speciesTab).toHaveAttribute('aria-selected', 'true');
+    // Pre-#688: ?species= without ?view= sniffed to view='species'. With the
+    // Species surface removed (#688), bookmarked species URLs cold-load to
+    // the map (DEFAULTS.view) with the species filter active in FiltersBar.
+    const mapTab = page.getByRole('tab', { name: 'Map view' });
+    await expect(mapTab).toHaveAttribute('aria-selected', 'true');
 
-    // No complementary landmark (SpeciesPanel is deleted).
+    // No Species tab exists post-#688.
+    await expect(page.getByRole('tab', { name: 'Species view' })).toHaveCount(0);
+
+    // No complementary landmark (SpeciesPanel is deleted; the detail rail
+    // mounts only on ?detail=).
     await expect(page.getByRole('complementary')).toHaveCount(0);
 
-    // URL still carries ?species=vermfly (mount effect must not strip it).
+    // URL still carries ?species=vermfly (mount effect must not strip it) —
+    // the filter is now driven through the FiltersBar combobox.
     await expect
       .poll(() => app.getUrlParams().get('species'), { timeout: 5_000 })
       .toBe('vermfly');
@@ -80,11 +85,10 @@ test.describe('Path A happy path', () => {
     // Phase 4: detail surface renders in a dialog/sheet outside <main>.
     await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeVisible({ timeout: 10_000 });
 
-    // No SurfaceNav tab is selected (detail is nav-hidden). Feed tab
-    // removed in #662.
-    const speciesTab = page.getByRole('tab', { name: 'Species view' });
+    // Feed tab removed in #662 and Species tab removed in #688. The Map
+    // tab exists but is NOT selected on view=detail.
     const mapTab = page.getByRole('tab', { name: 'Map view' });
-    await expect(speciesTab).toHaveAttribute('aria-selected', 'false');
+    await expect(page.getByRole('tab', { name: 'Species view' })).toHaveCount(0);
     await expect(mapTab).toHaveAttribute('aria-selected', 'false');
   });
 

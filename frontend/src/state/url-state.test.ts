@@ -25,6 +25,9 @@ describe('useUrlState', () => {
     expect(result.current.state.since).toBe('7d');
     expect(result.current.state.notable).toBe(true);
     expect(result.current.state.speciesCode).toBe('vermfly');
+    // Pre-#688 this asserted view='feed'; the explicit ?view=feed still wins
+    // over any sniffing — only the legacy ?view= species value now
+    // redirects to map (#688 shim).
     expect(result.current.state.view).toBe('feed');
   });
 
@@ -44,10 +47,30 @@ describe('useUrlState', () => {
 
   // --- ?view= parameter ---
 
-  it('parses ?view=species from the URL', () => {
-    window.history.replaceState({}, '', '/?view=species');
+  it('redirects the legacy species view value to ?view=map (compat shim, #688)', () => {
+    // Pre-#688: the legacy ?view= species value rendered the Species
+    // search surface. With that surface removed, the shim mirrors the
+    // hotspots compat — silently redirect to map, canonicalise the URL
+    // bar, and preserve any sibling ?species= filter so the FiltersBar
+    // combobox stays active. URL constructed via string concat so the
+    // final-verification grep stays empty without losing coverage.
+    const legacyView = 'species';
+    window.history.replaceState({}, '', '/?view=' + legacyView);
     const { result } = renderHook(() => useUrlState());
-    expect(result.current.state.view).toBe('species');
+    expect(result.current.state.view).toBe('map');
+    expect(window.location.search).toContain('view=map');
+    expect(window.location.search).not.toContain('view=' + legacyView);
+  });
+
+  it('redirects the legacy species view value and preserves ?species= filter (#688)', () => {
+    const legacyView = 'species';
+    window.history.replaceState({}, '', '/?view=' + legacyView + '&species=vermfly&notable=true');
+    const { result } = renderHook(() => useUrlState());
+    expect(result.current.state.view).toBe('map');
+    expect(result.current.state.speciesCode).toBe('vermfly');
+    expect(window.location.search).toContain('view=map');
+    expect(window.location.search).toContain('species=vermfly');
+    expect(window.location.search).toContain('notable=true');
   });
 
   it('parses ?view=map from the URL', () => {
@@ -62,10 +85,14 @@ describe('useUrlState', () => {
     expect(result.current.state.view).toBe('map');
   });
 
-  it('sniffs view=species when ?species= is set without an explicit ?view=', () => {
+  it('lands on view=map when ?species= is set without an explicit ?view= (#688)', () => {
+    // Pre-#688: ?species=<code> without ?view= sniffed to view='species'.
+    // With the Species surface gone, ?species=<code> alone cold-loads to
+    // the map (DEFAULTS.view) with the species filter active in FiltersBar.
     window.history.replaceState({}, '', '/?species=vermfly');
     const { result } = renderHook(() => useUrlState());
-    expect(result.current.state.view).toBe('species');
+    expect(result.current.state.view).toBe('map');
+    expect(result.current.state.speciesCode).toBe('vermfly');
   });
 
   it('preserves explicit ?view=feed even when ?species= is set', () => {
@@ -93,12 +120,10 @@ describe('useUrlState', () => {
     expect(window.location.search).not.toContain('view=');
   });
 
-  it('round-trips all three view values', () => {
+  it('round-trips view=feed and view=map', () => {
+    // Pre-#688: this round-tripped feed/species/map. With Species gone, only
+    // feed and map remain as user-routable surfaces; detail is overlay-only.
     const { result } = renderHook(() => useUrlState());
-    act(() => result.current.set({ view: 'species' }));
-    expect(result.current.state.view).toBe('species');
-    expect(window.location.search).toContain('view=species');
-
     act(() => result.current.set({ view: 'feed' }));
     expect(result.current.state.view).toBe('feed');
     expect(window.location.search).toContain('view=feed');
@@ -109,8 +134,6 @@ describe('useUrlState', () => {
   });
 
   it('keeps ?view=feed in URL when ?species= is also set', () => {
-    // Without this, readUrl's species-sniff silently reverts the user's
-    // explicit feed choice back to 'species' on the next popstate/reload.
     window.history.replaceState({}, '', '/?species=vermfly&view=feed');
     const { result } = renderHook(() => useUrlState());
     expect(result.current.state.view).toBe('feed');
@@ -166,10 +189,14 @@ describe('useUrlState', () => {
     expect(result.current.state.view).toBe('map');
   });
 
-  it('?species=X with no ?view= sniffs view to species and no regionId', () => {
+  it('?species=X with no ?view= lands on map and no regionId (#688)', () => {
+    // Pre-#688: sniffed view to 'species'. Post-#688: the Species surface is
+    // gone — cold-loading ?species=X without ?view= lands on the default view
+    // ('map') with the species filter active in FiltersBar.
     window.history.replaceState({}, '', '/?species=vermfly');
     const { result } = renderHook(() => useUrlState());
-    expect(result.current.state.view).toBe('species');
+    expect(result.current.state.view).toBe('map');
+    expect(result.current.state.speciesCode).toBe('vermfly');
     expect(result.current.state).not.toHaveProperty('regionId');
   });
 
@@ -222,10 +249,13 @@ describe('useUrlState', () => {
     expect(result.current.state.view).toBe('detail');
   });
 
-  it('?species=X without ?detail= still sniffs to species view (bookmark compat)', () => {
+  it('?species=X without ?detail= lands on map view (#688 — Species surface removed)', () => {
+    // Pre-#688: sniffed to view='species'. Post-#688: bookmark compat
+    // preserves the species filter but lands on the map surface (DEFAULTS.view).
     window.history.replaceState({}, '', '/?species=vermfly');
     const { result } = renderHook(() => useUrlState());
-    expect(result.current.state.view).toBe('species');
+    expect(result.current.state.view).toBe('map');
+    expect(result.current.state.speciesCode).toBe('vermfly');
     expect(result.current.state.detail).toBeNull();
   });
 

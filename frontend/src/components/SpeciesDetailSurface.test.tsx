@@ -104,7 +104,7 @@ describe('SpeciesDetailSurface', () => {
     );
     // No complementary landmark — this is an in-flow surface, not a sidebar.
     expect(screen.queryByRole('complementary')).toBeNull();
-    // No close button — user navigates away via back button or SurfaceNav.
+    // No close button — user navigates away via the browser back button.
     expect(screen.queryByRole('button', { name: 'Close species details' })).toBeNull();
   });
 

@@ -134,12 +134,4 @@ test.describe('FamilyLegend (other views)', () => {
     await expect(page.getByRole('button', { name: /bird families/i }))
       .toHaveCount(0);
   });
-
-  test('does NOT render on view=species', async ({ page }) => {
-    const app = new AppPage(page);
-    await app.goto('view=species');
-    await app.waitForAppReady();
-    await expect(page.getByRole('button', { name: /bird families/i }))
-      .toHaveCount(0);
-  });
 });

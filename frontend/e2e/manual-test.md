@@ -91,34 +91,6 @@ observations are notable).
 
 ---
 
-## Flow 3 — Species deep link cold-loads to search surface with panel open
-
-**What the automated test asserts:** navigating to `?species=<code>` without
-an explicit `?view=` lands on the Species tab and opens the SpeciesPanel.
-
-### Steps
-
-1. Navigate with a species code (use any code seeded in `species_meta`; e.g. `vermfly`):
-   - Tool: `browser_navigate` → `http://localhost:5173?species=vermfly`
-
-2. Wait for render completion.
-
-3. Verify the Species tab is selected:
-   - Tool: `browser_evaluate`
-   - Script: `document.querySelector('[role="tab"][aria-label="Species view"]')?.getAttribute('aria-selected')`
-   - **Pass:** `"true"`
-
-4. Verify the SpeciesPanel (`<aside role="complementary">`) is visible:
-   - Tool: `browser_evaluate`
-   - Script: `document.querySelector('aside[role="complementary"]') !== null`
-   - **Pass:** `true`
-
-5. Verify `?species=vermfly` is still in the URL (mount effect must not strip it):
-   - Tool: `browser_evaluate` → `new URLSearchParams(window.location.search).get('species')`
-   - **Pass:** `"vermfly"`
-
----
-
 ## Flow 4 — SpeciesPanel opens as drawer on mobile; tap overlay dismisses
 
 **What the automated test asserts:** at 390×844, the panel has
@@ -215,7 +187,6 @@ After completing all flows, summarise findings:
 ```
 Flow 1 — Feed surface default load:           PASS / FAIL
 Flow 2 — Notable filter narrows + URL:        PASS / FAIL
-Flow 3 — Species deep link → search surface:  PASS / FAIL
 Flow 4 — Mobile drawer + overlay dismiss:     PASS / FAIL
 Flow 5 — Desktop sidebar + ESC dismiss:       PASS / FAIL
 Flow 6 — Time window param (optional):        PASS / FAIL

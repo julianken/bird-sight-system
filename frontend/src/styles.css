@@ -150,10 +150,9 @@ body {
 }
 
 /* ── AppHeader chrome bar (#437) ────────────────────────────────────────────
-   Phase 3 renamed SurfaceNav → AppHeader and introduced these class names.
-   The CSS rules were never written (only the .brand-region span landed in
-   Phase 6). Rules below restore the visual contract that .surface-nav /
-   .surface-nav-tab carried, mapped onto the new selector surface.
+   Phase 3 introduced the .app-header-* class names. Rules below provide
+   the visual contract for the header chrome (tablist, action buttons,
+   wordmark).
 
    Token contract: all tokens resolve identically in light and dark modes
    for these semantic roles — see tokens.css dark-mode comment at line ~115.
@@ -161,7 +160,7 @@ body {
 
 /* Top-level chrome bar — stretches full width, pins to top of the
    flex-column .app layout. Sticky so it stays in view when #main-surface
-   overflows. gap + padding mirror the surface-nav spacing contract. */
+   overflows. */
 .app-header {
   display: flex;
   align-items: center;
@@ -206,8 +205,6 @@ body {
 }
 
 /* Tab buttons — full UA reset, then design-token styling.
-   Visual contract mirrors the former .surface-nav-tab exactly:
-   same padding, border-radius, font-size, hover / focus / active states.
    min-height is applied inside the ≤480px media query (MOB-4) to keep the
    desktop header height unchanged. */
 .app-header-tab {
@@ -595,128 +592,6 @@ body {
   margin-inline: auto;
 }
 
-/* Species search surface (#118). Navigation-style autocomplete at the top
-   + client-side filtered recent-sightings list below. Distinct from the
-   FiltersBar species input (which narrows the feed in place); this one
-   sets ?detail= + ?view=detail and opens the SpeciesDetailSurface. */
-.species-search-surface {
-  max-width: 760px;
-  margin-inline: auto;
-}
-
-/* Hero autocomplete wrapper — fixes #441 (SVG filled the entire viewport
-   because .species-search-hero had zero CSS rules).
-
-   Design role: the SVG is a LEADING INPUT ICON (not a hero decoration),
-   rendered as a 20 × 20 px search glyph to the left of the combobox.
-   The icon slot is aria-hidden (ARIA contract lives on the combobox, not
-   the decoration). Width/height on the SVG itself constrains the element
-   to its intended size; without this the inline SVG inherits the parent's
-   block width and renders at viewport dimensions.
-
-   Light/dark parity: all values use existing semantic tokens — no new
-   tokens needed. --color-text-muted provides appropriate contrast against
-   --color-bg-surface in both themes (≥4.5:1). */
-.species-search-hero {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  max-width: 760px;
-  padding: var(--space-lg) 0 0;
-  margin-inline: auto;
-}
-.species-search-hero-icon {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-  color: var(--color-text-muted);
-}
-/* Explicit 20 × 20 px bound prevents the inline SVG from inheriting
-   container block-size and ballooning to viewport dimensions (#441).
-   20px matches the 20×20 viewBox — no scaling needed. */
-.species-search-hero-icon svg {
-  width: 20px;
-  height: 20px;
-  display: block;
-}
-
-.species-autocomplete {
-  position: relative;
-  margin: 0 0 var(--space-lg) 0;
-}
-.species-autocomplete-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 10px 14px;
-  font-size: var(--type-base);
-  border: 1px solid var(--color-border-ui);
-  border-radius: 6px;
-  background: var(--color-bg-surface);
-  color: var(--color-text-strong);
-  appearance: none;
-}
-.species-autocomplete-input:focus-visible {
-  outline: 2px solid var(--color-text-strong);
-  outline-offset: -2px;
-}
-/* Listbox is absolutely positioned relative to the wrapper. Default sits
-   below the input; data-position="above" flips the anchor so the list
-   grows upward instead — prevents viewport-bottom overflow on mobile. */
-.species-autocomplete-listbox {
-  list-style: none;
-  margin: 0;
-  padding: 4px 0;
-  position: absolute;
-  left: 0;
-  right: 0;
-  background: var(--color-bg-surface);
-  border: 1px solid var(--color-border-ui);
-  border-radius: 6px;
-  box-shadow: var(--shadow-listbox);
-  max-height: 280px;
-  overflow-y: auto;
-  z-index: var(--z-panel);
-}
-.species-autocomplete[data-position='below'] .species-autocomplete-listbox {
-  top: calc(100% + 4px);
-  bottom: auto;
-}
-.species-autocomplete[data-position='above'] .species-autocomplete-listbox {
-  bottom: calc(100% + 4px);
-  top: auto;
-}
-.species-autocomplete-option {
-  padding: 8px 14px;
-  font-size: var(--type-sm);
-  color: var(--color-text-strong);
-  cursor: pointer;
-  line-height: 1.3;
-}
-.species-autocomplete-option.is-highlighted,
-.species-autocomplete-option:hover {
-  background: var(--color-bg-tint);
-}
-.species-autocomplete-no-matches {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: calc(100% + 4px);
-  padding: 10px 14px;
-  background: var(--color-bg-surface);
-  border: 1px solid var(--color-border-ui);
-  border-radius: 6px;
-  color: var(--color-text-muted);
-  font-size: var(--type-sm);
-}
-.species-search-prompt,
-.species-search-empty {
-  padding: var(--space-xl) var(--space-lg);
-  text-align: center;
-  color: var(--color-text-muted);
-  font-size: var(--type-sm);
-  margin: 0;
-}
-
 .filters-bar {
   display: flex;
   gap: var(--space-lg);
@@ -879,10 +754,10 @@ body {
    Responsive convention. The @media (max-width: 760px) rule below is
    the project's first responsive breakpoint. Default state for everything
    else is desktop-first (the codebase's content caps — .feed, .feed-sort,
-   .species-search-surface, .species-detail-surface — all use
-   max-width: 760px). The 760px legend breakpoint is chosen to align
-   numerically with those caps for visual coherence; downstream responsive
-   styles should reuse this token when their behavior aligns. */
+   .species-detail-surface — all use max-width: 760px). The 760px legend
+   breakpoint is chosen to align numerically with those caps for visual
+   coherence; downstream responsive styles should reuse this token when
+   their behavior aligns. */
 .map-surface {
   position: relative;
   width: 100%;
@@ -1443,25 +1318,13 @@ aside.species-detail-rail .species-detail-rail-close {
   line-height: 1.4;
 }
 
-/* ── Surface freshness meta lines (.feed-freshness, .species-freshness) ─────
-   Metadata paragraphs showing data-freshness state on FeedSurface and
-   SpeciesSearchSurface (FeedSurface.tsx:207, SpeciesSearchSurface.tsx:116).
-   Without rules these render as bare <p> elements at 1em/16px with UA margins.
-   Spec voice-and-content.md "freshness contract" calls for muted small-caps
-   meta text — identical visual treatment to .map-freshness (PR #471 W2).
-   Two standalone rules that mirror .map-freshness exactly so a future
-   grouped-selector refactor is trivially safe. */
+/* ── Surface freshness meta line (.feed-freshness) ──────────────────────────
+   Metadata paragraph showing data-freshness state on FeedSurface
+   (FeedSurface.tsx:207). Without rules this would render as a bare <p> at
+   1em/16px with UA margins. Spec voice-and-content.md "freshness contract"
+   calls for muted small-caps meta text — identical visual treatment to
+   .map-freshness (PR #471 W2). */
 .feed-freshness {
-  margin: 0;
-  font-size: var(--type-xs);
-  font-weight: var(--font-weight-medium);
-  font-variant: small-caps;
-  letter-spacing: 0.05em;
-  color: var(--color-text-muted);
-  line-height: 1.4;
-}
-
-.species-freshness {
   margin: 0;
   font-size: var(--type-xs);
   font-weight: var(--font-weight-medium);
@@ -1562,8 +1425,8 @@ aside.species-detail-rail .species-detail-rail-close {
    Generic visually-hidden class for content that must be in the accessibility
    tree but should not be visible on screen. Pattern matches .filter-sentence-live
    and the WebAIM "clip pattern" recommendation (https://webaim.org/techniques/css/invisiblecontent/).
-   Used by SpeciesSearchSurface to provide an <h1> landmark for assistive
-   technology (WCAG 1.3.1 Info and Relationships / WCAG 2.4.6 Headings and Labels)
+   Used across surfaces to mount <h1> landmarks for assistive technology
+   (WCAG 1.3.1 Info and Relationships / WCAG 2.4.6 Headings and Labels)
    without disrupting the visual design. */
 .sr-only {
   position: absolute;
@@ -1618,25 +1481,6 @@ aside.species-detail-rail .species-detail-rail-close {
 .attribution-modal-photographer {
   font-weight: var(--font-weight-medium);
   color: var(--color-text-strong);
-}
-
-/* ── Autocomplete group header (.autocomplete-group-header) ─────────────────
-   SpeciesAutocomplete.tsx:310. Flat-sentinel list item used as a visual group
-   heading inside the ARIA listbox (role="presentation" — not role="option").
-   Without a rule the <li> inherits listbox padding and appears identical to
-   option rows. The rule reproduces the visual treatment called for in the
-   navigation-spec: small-caps label, muted color, horizontal separator. */
-.autocomplete-group-header {
-  padding: var(--space-xs) var(--space-md);
-  font-size: var(--type-xs);
-  font-weight: var(--font-weight-medium);
-  font-variant: small-caps;
-  letter-spacing: 0.04em;
-  color: var(--color-text-muted);
-  border-bottom: 1px solid var(--color-border-subtle);
-  list-style: none;
-  pointer-events: none;
-  user-select: none;
 }
 
 /* ── SpeciesDescription section (.species-detail-description,
@@ -1738,11 +1582,10 @@ aside.species-detail-rail .species-detail-rail-close {
     border: 1px solid ButtonText;
   }
 
-  /* Theme toggle and other icon-only buttons: ensure the SVG icon inherits
-     ButtonText (forced-colors UA remapping handles this automatically for
-     SVG `fill: currentColor`, but make the dependency explicit). */
-  .theme-toggle svg,
-  .species-search-hero-icon svg {
+  /* Theme toggle icon: ensure the SVG icon inherits ButtonText (forced-
+     colors UA remapping handles this automatically for SVG `fill:
+     currentColor`, but make the dependency explicit). */
+  .theme-toggle svg {
     fill: ButtonText;
   }
 
@@ -1880,17 +1723,6 @@ aside.species-detail-rail .species-detail-rail-close {
     min-width: 44px;
     padding: 0 6px;
   }
-}
-
-/* ── MOB-3: iOS auto-zoom guard ─────────────────────────────────────────────
-   iOS Safari auto-zooms the page when a focused input has font-size < 16px.
-   This affects ALL iPhone models regardless of viewport width — including
-   iPhone 12/14/15 Pro Max (428/430px) which were missed by the original
-   max-width: 414px scope. The rule is pulled out of the media query entirely:
-   16px on an autocomplete input is visually neutral at desktop and eliminates
-   the maintenance liability of tracking new iPhone widths. */
-.species-autocomplete-input {
-  font-size: 16px;
 }
 
 /* ── MOB-N1: .filters-panel-close touch target ─────────────────────────────

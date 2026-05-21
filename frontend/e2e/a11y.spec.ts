@@ -35,14 +35,14 @@ test.describe('accessibility', () => {
     // be reachable by Tab; it does NOT require a specific ordering relative
     // to navigation elements.
     //
-    // Phase 3 architectural note: AppHeader (containing surface-nav tabs) is
+    // Phase 3 architectural note: AppHeader (containing the surface tabs) is
     // rendered before the Filters panel in DOM order. The pre-Phase-3
-    // "all filters before any SurfaceNav tab" ordering assertion was a
-    // consequence of the old FiltersBar/SurfaceNav DOM structure — it was
-    // never a WCAG requirement. Under Phase 3's AppHeader-first layout the
-    // tabs naturally precede the filter panel and that is intentional UX
-    // (navigate to a surface, then open filters). Reachability is preserved;
-    // ordering is not asserted.
+    // "all filters before any surface tab" ordering assertion was a
+    // consequence of the legacy header DOM structure — it was never a WCAG
+    // requirement. Under Phase 3's AppHeader-first layout the tabs naturally
+    // precede the filter panel and that is intentional UX (navigate to a
+    // surface, then open filters). Reachability is preserved; ordering is
+    // not asserted.
     const FILTER_SIGNATURES = ['Time window', 'Notable only', 'Family', 'Species'];
     const timeWindowIdx = visited.findIndex(s => s.includes('Time window'));
     const notableIdx = visited.findIndex(s => s.includes('Notable only'));
