@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { LngLatBounds } from 'maplibre-gl';
 
 // Phase 4 / #663: useIsCompact calls window.matchMedia. JSDOM does not
 // implement it — polyfill with a stub that returns non-compact (wide
@@ -18,7 +19,13 @@ vi.stubGlobal('matchMedia', (query: string) => ({
 }));
 
 // Hoist mock fns so they exist before any module-level code runs.
-const { mockGetHotspots, mockGetObservations, mockGetSilhouettes, mockUrlState } = vi.hoisted(() => ({
+const {
+  mockGetHotspots,
+  mockGetObservations,
+  mockGetSilhouettes,
+  mockUrlState,
+  mapSurfaceRef,
+} = vi.hoisted(() => ({
   mockGetHotspots: vi.fn(),
   mockGetObservations: vi.fn(),
   mockGetSilhouettes: vi.fn(),
@@ -32,6 +39,15 @@ const { mockGetHotspots, mockGetObservations, mockGetSilhouettes, mockUrlState }
     },
     set: vi.fn(),
   },
+  // Capture handle for the zoom/bbox state-race regression (issue #690).
+  // The MapSurface stub assigns the latest `onViewportChange` prop here on
+  // every render so the test can drive App.tsx's viewport callback the same
+  // way MapCanvas's `idle` event would.
+  mapSurfaceRef: {
+    onViewportChange: null as
+      | ((bounds: unknown, zoom: number) => void)
+      | null,
+  },
 }));
 
 // Stub url-state before App imports it.
@@ -44,10 +60,20 @@ vi.mock('./state/url-state.js', () => ({
 // color-SOT wiring added a silhouettes fetch that runs concurrently with
 // App's initial render, the 'map' view aria-busy test is now reliably hot
 // enough to trigger MapSurface's maplibre import — which fails in jsdom
-// because `window.URL.createObjectURL` isn't polyfilled. The test only
-// cares about the `<main aria-busy>` attribute, not the map itself.
+// because `window.URL.createObjectURL` isn't polyfilled. Most tests in this
+// file only care about the `<main aria-busy>` attribute, not the map itself.
+//
+// Issue #690: the stub additionally captures the latest `onViewportChange`
+// prop into `mapSurfaceRef.onViewportChange` so the zoom/bbox state-race
+// regression test can invoke it directly. Mirrors the `MapSurface.test.tsx`
+// pattern at lines 18–29.
 vi.mock('./components/MapSurface.js', () => ({
-  MapSurface: () => null,
+  MapSurface: (props: {
+    onViewportChange?: (bounds: unknown, zoom: number) => void;
+  }) => {
+    mapSurfaceRef.onViewportChange = props.onViewportChange ?? null;
+    return null;
+  },
 }));
 
 // Stub the ApiClient constructor so useBirdData receives a controllable mock.
@@ -678,5 +704,114 @@ describe('Clarity view tagging (#657-followup)', () => {
     };
     render(<App />);
     expect(setViewSpy).toHaveBeenCalledWith('feed');
+  });
+});
+
+describe('Zoom/bbox state-race regression (#690)', () => {
+  // Build a duck-typed LngLatBounds for the onViewportChange callback. App.tsx
+  // only ever calls .getWest/.getSouth/.getEast/.getNorth on the value, so a
+  // plain object with those methods is sufficient and lets us avoid pulling in
+  // maplibre-gl in jsdom (the same constraint that drives the MapSurface stub
+  // above).
+  function makeBounds(
+    west: number, south: number, east: number, north: number,
+  ): LngLatBounds {
+    return {
+      getWest: () => west,
+      getSouth: () => south,
+      getEast: () => east,
+      getNorth: () => north,
+    } as unknown as LngLatBounds;
+  }
+
+  // CONUS framing (≈61.9° lng × 23.7° lat) — the bbox MapCanvas reports on
+  // the initial `idle` from the default zoom-4 view. Span exceeds the server's
+  // 45° lng / 25° lat cap, so any /api/observations call carrying this bbox
+  // with zoom ≥ 6 is the bad combination this regression guards against.
+  const CONUS_BOUNDS = makeBounds(-125, 24, -66, 50);
+  // San Jose framing (≈7.8° lng × 3.1° lat) — well inside the cap at any zoom.
+  const SJ_BOUNDS = makeBounds(-125.8, 35.8, -118.0, 38.9);
+
+  beforeEach(() => {
+    __resetSilhouettesCache();
+    mockGetHotspots.mockResolvedValue([]);
+    mockGetObservations.mockResolvedValue({
+      data: [], meta: { freshestObservationAt: null },
+    });
+    mockGetSilhouettes.mockResolvedValue([]);
+    mapSurfaceRef.onViewportChange = null;
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map',
+    };
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('never emits a {bbox: CONUS, zoom: ≥6} fetch when zooming from CONUS into San Jose', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    render(<App />);
+
+    // Wait for App to finish mounting and render <MapSurface>. The stub
+    // captures onViewportChange on each render; we poll until the handle is
+    // populated so the rest of the test can drive viewport changes.
+    await waitFor(() => {
+      expect(mapSurfaceRef.onViewportChange).not.toBeNull();
+    });
+    const onViewportChange = mapSurfaceRef.onViewportChange!;
+
+    // Step 1: simulate the initial CONUS settle at zoom 4. App schedules the
+    // 250ms bbox debounce; setDebouncedZoom fires immediately.
+    await act(async () => {
+      onViewportChange(CONUS_BOUNDS, 4);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+    });
+
+    // Step 2: simulate jumpTo({center: SJ, zoom: 7}) — MapCanvas emits a
+    // single onViewportChange(SJ, 7) on the next idle.
+    await act(async () => {
+      onViewportChange(SJ_BOUNDS, 7);
+    });
+    // The bug — if present — fires a synchronous re-render with
+    // {bbox: CONUS, zoom: 7} BEFORE the 250ms timeout drains. Drain any
+    // microtasks so useBirdData's effect runs against the current state.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    // Step 3: drain the bbox debounce — App now commits {bbox: SJ, zoom: 7},
+    // which is a consistent pairing under the cap.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+    });
+
+    // Assert every fetch carries a consistent {bbox, zoom} pair: either the
+    // span fits the server's 45° lng cap, or the zoom is below the gating
+    // threshold (cap at services/read-api/src/validate.ts only fires when
+    // zoom ≥ 6). The pre-fix race produces a call with lngSpan ≈ 59 AND
+    // zoom = 7 — violating both halves of the predicate.
+    const calls = mockGetObservations.mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    for (const [filters] of calls) {
+      const { bbox, zoom } = filters as {
+        bbox?: [number, number, number, number];
+        zoom?: number;
+      };
+      // The initial mount call may omit bbox/zoom; the assertion only applies
+      // once a viewport-derived pair has been threaded through.
+      if (!bbox || zoom === undefined) continue;
+      const lngSpan = bbox[2] - bbox[0];
+      const consistent = lngSpan <= 45 || zoom < 6;
+      expect(
+        consistent,
+        `inconsistent fetch: bbox=${bbox.join(',')} (lngSpan=${lngSpan.toFixed(2)}), zoom=${zoom}`,
+      ).toBe(true);
+    }
   });
 });
