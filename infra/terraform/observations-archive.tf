@@ -1,9 +1,12 @@
 # Observations cold storage — see docs/plans/2026-05-20-observations-cold-storage.md.
 #
 # GCS Nearline bucket holding nightly Parquet exports of pruned observations.
-# Hive-partitioned: observations/year=YYYY/month=MM/day=DD.parquet. BigQuery
-# external table sits over the bucket for ad-hoc SQL; DuckDB and Polars
-# consume the same files locally for ML.
+# Hive-partitioned: observations/year=YYYY/month=MM/day=DD/data.parquet —
+# `day=DD` is a directory segment so BigQuery's Hive AUTO partition planner
+# picks up `[year, month, day]` as queryable partition columns (#699). The
+# stable `data.parquet` filename leaves room for future sharding if a single
+# day ever outgrows one file. BigQuery external table sits over the bucket
+# for ad-hoc SQL; DuckDB and Polars consume the same files locally for ML.
 
 resource "google_storage_bucket" "obs_archive" {
   name                        = "bird-maps-prod-obs-archive"

@@ -48,7 +48,7 @@ describe('archiveAndUpload', () => {
       rows: [fakeRow],
     });
     expect(result.gcsPath).toBe(
-      'gs://bird-maps-prod-obs-archive/observations/year=2026/month=05/day=01.parquet'
+      'gs://bird-maps-prod-obs-archive/observations/year=2026/month=05/day=01/data.parquet'
     );
     // Temp key written before the final partition key
     expect(stub.saved.map(s => s.name)).toEqual([
@@ -57,7 +57,15 @@ describe('archiveAndUpload', () => {
     // Then the temp key was copied into the final partitioned key
     expect(stub.copies).toHaveLength(1);
     expect(stub.copies[0]?.from).toMatch(/^observations\/_tmp\//);
-    expect(stub.copies[0]?.to).toBe('observations/year=2026/month=05/day=01.parquet');
+    expect(stub.copies[0]?.to).toBe('observations/year=2026/month=05/day=01/data.parquet');
+    // Regression: the final key MUST have `day=DD` as a directory component
+    // (with a stable `data.parquet` filename), not `day=DD.parquet` as a
+    // filename. BigQuery's Hive AUTO partition detection only treats
+    // `key=value` directory segments as partition columns; encoding `day`
+    // in the filename hides it from the planner and forces every monthly
+    // query to open all ~30 files. See issue #699.
+    expect(stub.copies[0]?.to).toMatch(/\/year=\d{4}\/month=\d{2}\/day=\d{2}\/data\.parquet$/);
+    expect(result.gcsPath).toMatch(/\/year=\d{4}\/month=\d{2}\/day=\d{2}\/data\.parquet$/);
     // bytes returned matches the saved buffer length
     expect(result.bytes).toBe(stub.saved[0]?.bytes);
     expect(result.md5).toMatch(/^[a-f0-9]{32}$/);
