@@ -30,14 +30,18 @@ resource "cloudflare_record" "root" {
 # Cloud Run rejects requests whose Host header is not a registered domain
 # mapping, so pointing straight at the run.app URL returns 404. The canonical
 # path is a CNAME to ghs.googlehosted.com plus a google_cloud_run_domain_mapping
-# below; proxied MUST be false so Cloud Run's own Let's Encrypt cert serves
-# (proxying through Cloudflare breaks the SSL handshake).
+# below. `proxied = true` was enabled 2026-05-22 (issue #707) after verifying
+# the zone's SSL mode is `full` (not Full(strict)) — Full skips origin cert
+# chain validation, so Cloud Run's Let's Encrypt cert for api.bird-maps.com
+# is accepted. With proxied=true, CF rate-limit and cache-rule rulesets now
+# apply to /api/* traffic; previously they were no-ops because traffic
+# bypassed CF entirely.
 resource "cloudflare_record" "api" {
   zone_id = var.cloudflare_zone_id
   name    = "api"
   type    = "CNAME"
   content = "ghs.googlehosted.com"
-  proxied = false
+  proxied = true
   ttl     = 1
 }
 
