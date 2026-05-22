@@ -60,22 +60,25 @@ resource "google_storage_bucket" "obs_archive" {
   }
 }
 
-# Ingestor SA writes nightly Parquet exports. Object-level role; no admin
-# or bucket-level binding (the ingestor never lists or deletes archive
-# objects).
-resource "google_storage_bucket_iam_member" "ingestor_archive_writer" {
+# Ingestor SA needs create + get + delete on this bucket's objects.
+# The atomic-rename uploader (services/ingestor/src/archive/gcs-uploader.ts)
+# does four object-level operations:
+#   1. PUT  observations/_tmp/<uuid>.parquet  (storage.objects.create)
+#   2. HEAD temp object for md5 verify        (storage.objects.get)
+#   3. Server-side COPY to final partition    (storage.objects.create)
+#   4. DELETE the temp object                 (storage.objects.delete) ← was
+#      missing from the prior objectCreator + objectViewer split; caused the
+#      2026-05-22 prune-job failure (#709).
+#
+# roles/storage.objectUser covers all four operations (create, get, list,
+# update, delete) at object scope with no bucket-level or IAM-level powers.
+# A narrower IAM condition scoping delete to observations/_tmp/* was
+# considered and rejected as overkill: the lifecycle rule already bounds
+# _tmp/ retention to 1 day, and conditions add operational drag with no
+# real security gain given the bucket's private-only, single-SA access model.
+resource "google_storage_bucket_iam_member" "ingestor_archive_user" {
   bucket = google_storage_bucket.obs_archive.name
-  role   = "roles/storage.objectCreator"
-  member = "serviceAccount:${google_service_account.ingestor.email}"
-}
-
-# Ingestor SA also reads — needed for the temp-object → atomic-rename
-# uploader pattern (T2): we PUT to a temp key, verify the md5, then
-# rewrite to the final partition key. The objectCreator role does not
-# include read.
-resource "google_storage_bucket_iam_member" "ingestor_archive_reader" {
-  bucket = google_storage_bucket.obs_archive.name
-  role   = "roles/storage.objectViewer"
+  role   = "roles/storage.objectUser"
   member = "serviceAccount:${google_service_account.ingestor.email}"
 }
 
