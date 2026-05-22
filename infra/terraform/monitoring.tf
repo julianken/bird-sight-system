@@ -26,7 +26,7 @@ locals {
   # SendGrid 2xx (analysis report §F7); a sender-auth misconfig that lets
   # SendGrid accept but Gmail reject will still trip the heartbeat eventually
   # (no ping = HC alarms), but a tighter delivery-webhook gate is a follow-up.
-  healthchecks_kinds = ["recent", "backfill", "hotspots", "taxonomy", "photos", "descriptions", "prune", "digest"]
+  healthchecks_kinds = ["recent", "backfill", "hotspots", "taxonomy", "photos", "descriptions", "prune", "digest", "cache-warm"]
 }
 
 resource "google_secret_manager_secret" "healthchecks_url" {

@@ -168,6 +168,21 @@ resource "google_cloud_run_v2_job" "ingestor" {
             }
           }
         }
+        # cache-warm kind (issue #711) — post-ingestion CF cache pre-fetch
+        # runs on this shared `bird-ingestor` Job. The kind opens no DB pool
+        # and makes no eBird API calls, but binding the heartbeat env keeps
+        # the per-kind monitor coverage uniform with the other kinds on this
+        # job. cli.ts derives `HEALTHCHECKS_URL_CACHE_WARM` from the kind name
+        # at runtime, so the env var name must match exactly.
+        env {
+          name = "HEALTHCHECKS_URL_CACHE_WARM"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.healthchecks_url["cache-warm"].secret_id
+              version = "latest"
+            }
+          }
+        }
 
         # Cloud SQL Auth Proxy socket mount — Stage 2 of the Neon→Cloud SQL
         # migration (docs/plans/2026-05-17-cloud-sql-migration.md §3.2).
@@ -260,6 +275,52 @@ resource "google_cloud_scheduler_job" "ingest_recent" {
     oauth_token {
       service_account_email = google_service_account.scheduler.email
     }
+  }
+
+  depends_on = [google_project_service.scheduler]
+}
+
+# ── Post-ingestion Cloudflare cache-warm (issue #711) ────────────────────
+#
+# Fires 2 minutes after each `:00` and `:30` recent-ingest tick so the warm
+# job runs *after* the cache-invalidating ingest completes. Walks ~77 popular
+# bbox URLs sequentially (concurrency=1 + 200ms sleep) and pre-fetches them
+# through Cloudflare's edge cache. Next real user pan into the same area is
+# then a HIT instead of a MISS.
+#
+# Concurrent execution safety: Cloud Run Jobs run independent executions of
+# the same job in parallel — if `recent` exceeds the +2 min offset, the
+# `:02` / `:32` cache-warm execution starts on the same job as a second
+# concurrent execution. This is safe because cache-warm opens no DB pool
+# (pure HTTP, no eBird API calls), so there is zero connection-pool
+# contention with other `bird-ingestor` kinds running concurrently.
+resource "google_cloud_scheduler_job" "cache_warm" {
+  name      = "bird-cache-warm"
+  region    = var.gcp_region
+  schedule  = "2,32 * * * *"
+  time_zone = "Etc/UTC"
+
+  http_target {
+    uri         = local.job_run_url
+    http_method = "POST"
+    headers     = { "Content-Type" = "application/json" }
+    body = base64encode(jsonencode({
+      overrides = {
+        containerOverrides = [{ args = ["cache-warm"] }]
+      }
+    }))
+    oauth_token {
+      service_account_email = google_service_account.scheduler.email
+    }
+  }
+
+  # One retry is enough — the warm job is best-effort. Each cycle is
+  # independent, so a missed run silently falls through to the next 30-min
+  # tick. The retry mainly absorbs transient HTTP 5xx from the Cloud Run
+  # Jobs control plane (matches the per-state backfill retry shape).
+  retry_config {
+    retry_count          = 1
+    min_backoff_duration = "30s"
   }
 
   depends_on = [google_project_service.scheduler]
