@@ -30,6 +30,7 @@ import {
   runPrune as realRunPrune,
   type RunPruneSummary,
 } from './run-prune.js';
+import { runCacheWarm as realRunCacheWarm } from './run-cache-warm.js';
 import { runDigest as realRunDigest, type SendResult } from './digest.js';
 import {
   makeSendGridSender,
@@ -68,6 +69,7 @@ export interface CliDeps {
   runPhotos: typeof realRunPhotos;
   runDescriptions: typeof realRunDescriptions;
   runPrune: typeof realRunPrune;
+  runCacheWarm: typeof realRunCacheWarm;
   runDigest?: typeof realRunDigest;
   fetchWikipediaSummary: typeof realFetchWikipediaSummary;
   fetchInatTaxon: typeof realFetchInatTaxon;
@@ -128,6 +130,30 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
     if (!sciName) throw new Error('probe-taxon requires a binomial argument');
     const taxon = await deps.fetchInatTaxon(sciName);
     console.log(JSON.stringify(taxon, null, 2));
+    return;
+  }
+
+  // cache-warm: post-ingestion Cloudflare cache-warm (issue #711). Pure HTTP
+  // — no DB pool, no eBird API. Early-returns ahead of the EBIRD_API_KEY /
+  // DATABASE_URL guards so a `gcloud run jobs execute bird-ingestor
+  // --args=cache-warm` invocation does not require eBird/DB secrets to be
+  // resolvable; the shared job ships both for parity, but skipping the
+  // createPool() call here keeps cold-start fast and avoids holding a Cloud
+  // SQL connection for the duration of the 77-URL walk.
+  //
+  // Heartbeat on completion (no failure path — the runner records per-URL
+  // fetch failures into `summary.error` but does not throw, matching the
+  // Healthchecks-on-success semantics every other kind follows).
+  if (kind === 'cache-warm') {
+    const baseUrl = process.env.CACHE_WARM_BASE_URL ?? 'https://api.bird-maps.com';
+    const summary = await deps.runCacheWarm({ baseUrl });
+    // Reuse the shared HEALTHCHECKS_URL_<KIND> env-var derivation pattern so
+    // Terraform's existing for_each on local.healthchecks_kinds auto-wires
+    // the env binding when "cache-warm" is added to the list.
+    const envKey = `HEALTHCHECKS_URL_${kind.toUpperCase().replace(/-/g, '_')}`;
+    const ping = deps.pingHeartbeat ?? realPingHeartbeat;
+    await ping(process.env[envKey], kind);
+    void summary; // returned for future log-line plumbing; not used here yet
     return;
   }
 
@@ -340,7 +366,7 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
         },
       });
     } else {
-      throw new Error(`Unknown kind: ${kind}. Try recent | hotspots | backfill | backfill-extended | taxonomy | photos | descriptions | prune | digest | probe-taxon | probe-wiki`);
+      throw new Error(`Unknown kind: ${kind}. Try recent | hotspots | backfill | backfill-extended | taxonomy | photos | descriptions | prune | cache-warm | digest | probe-taxon | probe-wiki`);
     }
     // Cloud Run / Cloud Logging splits stdout on newlines and treats each
     // resulting line as its own `textPayload` entry — pretty-printed JSON
@@ -422,6 +448,7 @@ if (isEntrypoint) {
     runPhotos: realRunPhotos,
     runDescriptions: realRunDescriptions,
     runPrune: realRunPrune,
+    runCacheWarm: realRunCacheWarm,
     runDigest: realRunDigest,
     sendDigestEmail,
     fetchMonitoringSignals: makeNullMonitoringSignalsFetcher(),

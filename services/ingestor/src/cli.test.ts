@@ -18,6 +18,7 @@ function makeDeps(overrides: Partial<CliDeps> = {}): CliDeps {
     runPhotos: vi.fn(),
     runDescriptions: vi.fn(),
     runPrune: vi.fn(),
+    runCacheWarm: vi.fn(),
     fetchWikipediaSummary: vi.fn(),
     fetchInatTaxon: vi.fn(),
     ...overrides,
@@ -417,6 +418,85 @@ describe('runCli', () => {
   it("Unknown-kind error string includes 'prune' so operators see the new kind", async () => {
     const deps = makeDeps();
     await expect(runCli('bogus', deps)).rejects.toThrow(/prune/);
+  });
+
+  // ── cache-warm kind (issue #711) ──────────────────────────────────────
+  // The cache-warm kind is pure HTTP — no DB pool, no eBird API. Its early
+  // return must precede the EBIRD_API_KEY / DATABASE_URL guards so a manual
+  // `gcloud run jobs execute bird-ingestor --args=cache-warm` works on a job
+  // execution where those env vars are unset (or being rotated).
+
+  it("'cache-warm' kind dispatches to runCacheWarm without creating a DB pool", async () => {
+    const runCacheWarmSpy = vi.fn().mockResolvedValue({
+      total: 77, miss: 0, hit: 77, expired: 0, dynamic: 0, other: 0, error: 0,
+      p50ms: 50, p95ms: 100,
+    });
+    const deps = makeDeps({ runCacheWarm: runCacheWarmSpy });
+
+    await runCli('cache-warm', deps);
+
+    expect(runCacheWarmSpy).toHaveBeenCalledTimes(1);
+    expect(runCacheWarmSpy).toHaveBeenCalledWith({
+      baseUrl: 'https://api.bird-maps.com',
+    });
+    // Pure HTTP — no createPool / closePool.
+    expect(deps.createPool).not.toHaveBeenCalled();
+    expect(deps.closePool).not.toHaveBeenCalled();
+  });
+
+  it("'cache-warm' kind early-returns ahead of the EBIRD_API_KEY / DATABASE_URL guards", async () => {
+    // Same shape as the probe-* kinds: the operator must be able to invoke
+    // `--args=cache-warm` without standing up eBird/DB secrets in their
+    // shell. Pre-fix the EBIRD_API_KEY guard would have fired first.
+    delete process.env.EBIRD_API_KEY;
+    delete process.env.DATABASE_URL;
+    const runCacheWarmSpy = vi.fn().mockResolvedValue({
+      total: 77, miss: 77, hit: 0, expired: 0, dynamic: 0, other: 0, error: 0,
+      p50ms: 1000, p95ms: 1500,
+    });
+    const deps = makeDeps({ runCacheWarm: runCacheWarmSpy });
+
+    await runCli('cache-warm', deps);
+
+    expect(runCacheWarmSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("'cache-warm' kind pings HEALTHCHECKS_URL_CACHE_WARM on completion", async () => {
+    // Validates the env-var name derivation: kind 'cache-warm' →
+    // HEALTHCHECKS_URL_CACHE_WARM (upper-cased, hyphen → underscore).
+    process.env.HEALTHCHECKS_URL_CACHE_WARM = 'https://hc-ping.com/uuid-cw';
+    const pingSpy = vi.fn().mockResolvedValue(undefined);
+    const runCacheWarmSpy = vi.fn().mockResolvedValue({
+      total: 77, miss: 0, hit: 77, expired: 0, dynamic: 0, other: 0, error: 0,
+      p50ms: 50, p95ms: 100,
+    });
+    const deps = makeDeps({ runCacheWarm: runCacheWarmSpy, pingHeartbeat: pingSpy });
+
+    await runCli('cache-warm', deps);
+
+    expect(pingSpy).toHaveBeenCalledTimes(1);
+    expect(pingSpy).toHaveBeenCalledWith('https://hc-ping.com/uuid-cw', 'cache-warm');
+    delete process.env.HEALTHCHECKS_URL_CACHE_WARM;
+  });
+
+  it("'cache-warm' kind respects CACHE_WARM_BASE_URL env override", async () => {
+    process.env.CACHE_WARM_BASE_URL = 'http://localhost:8080';
+    const runCacheWarmSpy = vi.fn().mockResolvedValue({
+      total: 77, miss: 77, hit: 0, expired: 0, dynamic: 0, other: 0, error: 0,
+      p50ms: 0, p95ms: 0,
+    });
+    const deps = makeDeps({ runCacheWarm: runCacheWarmSpy });
+    try {
+      await runCli('cache-warm', deps);
+      expect(runCacheWarmSpy).toHaveBeenCalledWith({ baseUrl: 'http://localhost:8080' });
+    } finally {
+      delete process.env.CACHE_WARM_BASE_URL;
+    }
+  });
+
+  it("Unknown-kind error string includes 'cache-warm' so operators see the new kind", async () => {
+    const deps = makeDeps();
+    await expect(runCli('bogus', deps)).rejects.toThrow(/cache-warm/);
   });
 
   // ── Heartbeat wiring (S7) ──────────────────────────────────────────────
