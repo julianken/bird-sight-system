@@ -14,7 +14,7 @@ Replace the current in-flow detail surface with a modal `<dialog>` on desktop an
 |---|---|
 | `<SpeciesDetailModal>` — desktop `<dialog>` wrapper | `frontend/src/components/SpeciesDetailModal.tsx` (new) |
 | `<SpeciesDetailSheet>` — mobile bottom-sheet with snap-state machine | `frontend/src/components/SpeciesDetailSheet.tsx` (new) |
-| `<SpeciesDetailSurface>` rewrite to consume `<Photo>`, `<h1>` heading, family label, phenology, prose | `frontend/src/components/SpeciesDetailSurface.tsx` |
+| `<SpeciesDetailSurface>` rewrite to consume `<Photo>`, `<h1>` heading, family label, prose | `frontend/src/components/SpeciesDetailSurface.tsx` |
 | App-level routing of detail to modal / sheet based on viewport | `frontend/src/App.tsx` |
 | iOS safe-area: `viewport-fit=cover` + `env(safe-area-inset-bottom)` | `frontend/index.html` + sheet CSS |
 | `<Photo priority={true}>` masthead with `loading="eager" fetchpriority="high"` | `<SpeciesDetailModal>` and `<SpeciesDetailSheet>` |

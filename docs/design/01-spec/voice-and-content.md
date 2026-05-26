@@ -80,11 +80,10 @@ Subtractive. Orange (light, `--color-decision-point: #f5853b`) / cyan (dark, `--
 | 1 | Active AppHeader tab indicator | `::after` underline on `.app-header-tab.is-active` | desktop only |
 | 2 | Filter badge background | `.filter-badge` | the count circle next to "Filters" |
 | 3 | Focus halo outline | every focused interactive element via `:focus-visible` | brand flourish via WCAG 2.4.11 |
-| 4 | Active phenology bars | `.phen-bar.active` | the months when the species is most active |
-| 5 | NOTABLE meta-label | `.feed-card-meta` for top notable card-row | uses `--color-accent-notable-fg`, NOT `--color-decision-point` |
-| 6 | Primary CTA | "Show on map", "Open detail", and similar | rare; if added |
-| 7 | Filter-sentence emphasis | `.filter-bullet` inside `<FilterSentence>` | reader-action-confirming, narrative surface |
-| 8 | Active mobile bottom-tab | `.mobile-tab.active` color | replaces AppHeader-tab underline on mobile |
+| 4 | NOTABLE meta-label | `.feed-card-meta` for top notable card-row | uses `--color-accent-notable-fg`, NOT `--color-decision-point` |
+| 5 | Primary CTA | "Show on map", "Open detail", and similar | rare; if added |
+| 6 | Filter-sentence emphasis | `.filter-bullet` inside `<FilterSentence>` | reader-action-confirming, narrative surface |
+| 7 | Active mobile bottom-tab | `.mobile-tab.active` color | replaces AppHeader-tab underline on mobile |
 
 ### Explicit exclusion
 
