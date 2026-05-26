@@ -1257,3 +1257,172 @@ describe('onSelectSpecies popover-bbox wire (Phase 3, #560)', () => {
     expect(onSelectSpecies).not.toHaveBeenCalled();
   });
 });
+
+// Issue #718 — displaced silhouette popover projection contract.
+//
+// The displaced-silhouette button at the bottom of MapCanvas
+// (silhouetteOffsets.entries() render block) MUST project the popover
+// from `entry.longitude/entry.latitude` (the DISPLACED visual position),
+// NOT from `obs.lng/obs.lat` (the canvas-hidden original survey point).
+//
+// Without this contract the popover would land next to the invisible
+// original — defeating the entire fix at this site.
+describe('ObservationPopover anchoring — displaced silhouette regression (#718)', () => {
+  beforeEach(() => {
+    capturedSourceProps = {};
+    capturedAttributionProps = {};
+    capturedLayerFilters = {};
+    registeredHandlers = {};
+    bareHandlers = {};
+    bareHandlersAll = {};
+    fakeMap = makeFakeMap();
+    document.documentElement.removeAttribute('data-theme');
+    __resetAdaptiveGridCacheForTesting();
+  });
+
+  it('projects from entry.longitude/entry.latitude (NOT obs.lng/obs.lat) when the silhouette is displaced', async () => {
+    // Cluster anchor at one position; unclustered point at a near-by
+    // position so the silhouette AABB overlaps the cluster anchor AABB
+    // and `displaceSilhouettes` shifts the silhouette outward. The
+    // shift produces an `entry.longitude/entry.latitude` that differs
+    // from the obs's original lng/lat — this divergence is what the
+    // bug at line 1607 would project from the wrong side of.
+    const obsLng = -110.9;
+    const obsLat = 32.2;
+    const clusterLng = -110.9; // co-located → forces displacement
+    const clusterLat = 32.2;
+    const obs = makeObs({
+      subId: 'S-DISPLACED',
+      lng: obsLng,
+      lat: obsLat,
+      familyCode: 'tyrannidae',
+    });
+
+    fakeMap.queryRenderedFeatures.mockImplementation(
+      (_: unknown, opts?: { layers?: string[] }) => {
+        if (opts?.layers?.includes('clusters-hit')) {
+          return [
+            {
+              id: 7,
+              properties: { cluster_id: 7, point_count: 4, cluster: true },
+              geometry: { type: 'Point', coordinates: [clusterLng, clusterLat] },
+            },
+          ];
+        }
+        if (opts?.layers?.includes('unclustered-point')) {
+          return [
+            {
+              properties: { subId: obs.subId },
+              geometry: { type: 'Point', coordinates: [obsLng, obsLat] },
+              id: 1,
+            },
+          ];
+        }
+        return [];
+      },
+    );
+    fakeMap.getLayer.mockReturnValue({ id: 'unclustered-point' });
+    fakeMap.getSource.mockReturnValue({
+      getClusterLeaves: vi.fn().mockResolvedValue([
+        { type: 'Feature', properties: { familyCode: 'tyrannidae' } },
+      ]),
+      getClusterExpansionZoom: vi.fn().mockResolvedValue(12),
+    });
+
+    // setFeatureState / removeFeatureState are invoked by the displaced-
+    // silhouette reconcile path to hide the canvas-painted twin. The
+    // default fakeMap doesn't ship these stubs (they're not used by any
+    // other test); add them inline so the test's reconcile doesn't
+    // produce an unhandled-rejection warning.
+    fakeMap.setFeatureState = vi.fn();
+    fakeMap.removeFeatureState = vi.fn();
+
+    // unproject mock derives a lng/lat from the projected pixel —
+    // displaceSilhouettes calls map.unproject([displacedPx, displacedPy])
+    // to produce the entry.longitude/entry.latitude. The default
+    // fakeMap.unproject returns a constant; override here so the
+    // displaced lng/lat depends on the input pixel and is observably
+    // different from the obs's original lng/lat.
+    fakeMap.unproject.mockImplementation((px: [number, number]) => {
+      const [x, y] = px;
+      // Inverse of the project mock: lng = x / 1000 - 180; lat = 90 - y / 1000.
+      return { lng: x / 1000 - 180, lat: 90 - y / 1000 } as unknown as [number, number];
+    });
+
+    render(
+      <MapCanvas observations={[obs]} silhouettes={SILHOUETTES} />,
+    );
+    await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+    await act(async () => { await fireAllIdleHandlers(); });
+    // Let async per-cluster lookups settle before the next reconcile commit.
+    await act(async () => { await Promise.resolve(); });
+
+    const displaced = await screen.findByTestId('displaced-silhouette');
+    expect(displaced).toHaveAttribute('data-subid', obs.subId);
+
+    // Read the displaced lng/lat off the PresentationMarker wrapper that
+    // sits on the displaced position. The mock react-map-gl Marker
+    // exposes data-lng / data-lat so we can read what the render block
+    // used as the displaced coords.
+    const markerWrapper = displaced.closest('[data-testid="mock-marker"]');
+    expect(markerWrapper).not.toBeNull();
+    const entryLng = parseFloat(
+      markerWrapper!.getAttribute('data-lng') as string,
+    );
+    const entryLat = parseFloat(
+      markerWrapper!.getAttribute('data-lat') as string,
+    );
+
+    // Sanity — displacement MUST have moved the silhouette off the
+    // obs's original lng/lat. If this fails, the setup didn't trigger
+    // `displaceSilhouettes` and the regression assertion below has no
+    // signal.
+    expect(entryLng !== obsLng || entryLat !== obsLat).toBe(true);
+
+    // Click the displaced silhouette button. The popover should render
+    // with inline left/top derived from project([entryLng, entryLat]),
+    // NOT project([obsLng, obsLat]).
+    fireEvent.click(displaced);
+
+    const popover = await screen.findByRole('dialog');
+    const left = parseFloat(popover.style.left);
+    const top = parseFloat(popover.style.top);
+
+    // Expected projection: project mock yields x = (lng + 180) * 1000;
+    // y = (90 - lat) * 1000. Plus the popover OFFSET of 12 (default
+    // branch — viewport innerWidth/innerHeight in jsdom are 1024×768,
+    // so the click at projected entry coords ≈ (lng+180)*1000 stays
+    // within the right edge as long as the displaced position is in
+    // jsdom's viewport).
+    const expectedProjectedX = (entryLng + 180) * 1000;
+    const expectedProjectedY = (90 - entryLat) * 1000;
+    const wrongProjectedX = (obsLng + 180) * 1000;
+    const wrongProjectedY = (90 - obsLat) * 1000;
+
+    // The popover's left/top is `projected + OFFSET` in the no-flip
+    // case OR `projected - OFFSET - POPOVER_W/H` in the flipped case.
+    // Either way the BASE projected pixel must come from entry, not obs.
+    // Test the invariant: |left - expectedX| < |left - wrongX| (the
+    // rendered position is closer to the entry projection than to the
+    // obs projection).
+    const distToEntry = Math.min(
+      Math.abs(left - (expectedProjectedX + 12)),
+      Math.abs(left - (expectedProjectedX - 12 - 280)),
+    );
+    const distToWrong = Math.min(
+      Math.abs(left - (wrongProjectedX + 12)),
+      Math.abs(left - (wrongProjectedX - 12 - 280)),
+    );
+    expect(distToEntry).toBeLessThan(distToWrong);
+
+    const distToEntryY = Math.min(
+      Math.abs(top - (expectedProjectedY + 12)),
+      Math.abs(top - (expectedProjectedY - 12 - 180)),
+    );
+    const distToWrongY = Math.min(
+      Math.abs(top - (wrongProjectedY + 12)),
+      Math.abs(top - (wrongProjectedY - 12 - 180)),
+    );
+    expect(distToEntryY).toBeLessThan(distToWrongY);
+  });
+});
