@@ -31,12 +31,18 @@
  * Spec: docs/design/01-spec/components.md#clusterpill
  *       docs/design/01-spec/accessibility.md (cluster pill ARIA)
  */
-import type { ReactNode } from 'react';
+import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react';
 import { clusterTier } from '../../config/cluster.js';
 
 export interface ClusterPillProps {
   count: number;
-  onClick: () => void;
+  /**
+   * Receives the synthetic click event. Callers use `e.currentTarget` as the
+   * anchor element for popover positioning + focus return — `currentTarget`
+   * is guaranteed to be this button at event time, race-free relative to
+   * ref-callback scheduling (#717).
+   */
+  onClick: (e: ReactMouseEvent<HTMLButtonElement>) => void;
 }
 
 export function ClusterPill({ count, onClick }: ClusterPillProps): ReactNode {
