@@ -2,6 +2,7 @@ import { useEffect, useId, useRef } from 'react';
 import type { KeyboardEvent } from 'react';
 import type { SpeciesAggregate } from './adaptive-grid.js';
 import { prettyFamily } from '../../derived.js';
+import { isSyntheticCode } from '../../data/use-bird-data.js';
 
 /**
  * `<CellPopover>` — full popover for an adaptive-grid cell (epic #556
@@ -97,7 +98,10 @@ export function CellPopover(props: CellPopoverProps) {
       </header>
       <ul className="cell-popover__rows">
         {visible.map((s) => {
-          const clickable = s.speciesCode !== null;
+          // #715: synthetic `agg-*` codes (aggregated z<6 buckets) are
+          // non-resolvable by /api/species/:code and must render as static
+          // spans, identical to spuh/slash/hybrid rows with a null code.
+          const clickable = s.speciesCode !== null && !isSyntheticCode(s.speciesCode);
           const code = s.speciesCode;
           if (clickable && code !== null) {
             return (
