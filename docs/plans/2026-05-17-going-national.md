@@ -71,7 +71,7 @@ Decisions taken in the 2026-05-14 → 2026-05-17 window, with citation:
 | D9 | Shape-2 contract probe ships **as a sibling**, not folded into monitoring. | `2026-05-17-monitoring-and-alerts.md` §"Shape 2 re-sample" + `2026-05-17-shape-2-rollup-probe.md` |
 | D10 | Cloud SQL launches **zonal, no HA**. Flip to REGIONAL is a single Terraform commit later. | `2026-05-17-cloud-sql-migration.md` §2 sizing |
 | D11 | EBD data-request form (Recommendation 1D) and Cornell ToS outreach (O3) **are owed by the user**; the plan does not block on them but documents them as timing risks. | `analysis-report.md` §I |
-| D12 | Phenology endpoint **stays** (Option 2C drop is off the table for v1). | Frontend grep shows phenology consumed by `SpeciesDetailSurface`; product call |
+| D12 | Phenology endpoint **stays** (Option 2C drop is off the table for v1). | Frontend consumer (`SpeciesDetailSurface`) removed in #719; endpoint retained per D12 — backend-only decision, not frontend-coupled. Product call. |
 | D13 | Region-table treatment: **dropped entirely** — issue #532 closed; PR-1 (#534), PR-2 (#535), PR-3 (#536), PR-4 (#537) all merged. RR-1..RR-4 are complete; only RR-5b (Arizona branding sweep, #533) remains and is tracked as a separate row. | issue #532; migrations 1700000039000–1700000045000 on `main` |
 | D14 | "Arizona" branding sweep: **wider scope (#533)** lands with or shortly after the flip; not a hard block. | Issue #533; §6 below |
 | D15 | No dual-write / no logical-replication during DB cutover; **30-min ingest pause** is acceptable per the "within an hour" freshness SLO. | `2026-05-17-cloud-sql-migration.md` §6 |

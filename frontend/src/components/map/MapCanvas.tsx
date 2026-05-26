@@ -28,16 +28,20 @@ import {
 } from './observation-layers.js';
 import { ObservationPopover } from './ObservationPopover.js';
 import { AdaptiveGridMarker } from './AdaptiveGridMarker.js';
+import { ClusterListPopover } from './ClusterListPopover.js';
 import { ClusterPill } from '../ds/ClusterPill.js';
 import { isValidSvgPathData } from './silhouette-fallback.js';
 import {
   aggregateClusterFamilies,
+  aggregateClusterSpecies,
   buildAdaptiveTiles,
   pickGridShape,
   type AdaptiveTile,
   type ClusterLeafFeature,
+  type FamilyAggregate,
   type ResolvedGrid,
   type SilhouettesById,
+  type SpeciesAggregate,
 } from './adaptive-grid.js';
 import {
   MapMarkerHitLayer,
@@ -440,6 +444,23 @@ export function MapCanvas({
    * top-left of the map surface (the legacy #246 placeholder behavior).
    */
   const [selectedObs, setSelectedObs] = useState<SelectedObsState | null>(null);
+  /**
+   * Mount state for the `<ClusterListPopover>` opened by `<ClusterPill>` when
+   * a pill click would land at max-zoom (or supercluster returns a useless
+   * expansion target). Mirrors the coarse-pointer `AdaptiveGridMarker` outer-
+   * tap path. `anchorEl` is captured from the click's `e.currentTarget`
+   * (race-free; see #717 / ClusterPill.tsx onClick contract). When null,
+   * the popover is closed; when populated, it mounts in the render tree at
+   * the bottom of the function.
+   */
+  const [clusterList, setClusterList] = useState<{
+    group: DeconflictGroup;
+    families: FamilyAggregate[];
+    speciesByFamily: ReadonlyMap<string, ReadonlyArray<SpeciesAggregate>>;
+    totalCount: number;
+    uniqueFamilies: number;
+    anchorEl: HTMLElement;
+  } | null>(null);
   /**
    * Unified deconflict output (issue #554). One entry per overlap-component
    * — each carries an anchor cluster (whose marker actually paints) and the
@@ -1338,8 +1359,64 @@ export function MapCanvas({
    *     so the user always sees real expansion. Matches the click-time-lazy
    *     pattern from the prior `handleClusterPillClick`.
    */
+  /**
+   * Mount `<ClusterListPopover>` from a DeconflictGroup whose pill click
+   * couldn't escalate the camera (already at max zoom or NaN expansion).
+   * Mirrors the coarse-pointer `AdaptiveGridMarker` outer-tap behavior so
+   * the user always has a way to drill into a stuck cluster by species
+   * (#717). `anchorEl` comes from the click's `e.currentTarget` and is the
+   * focus-return target on dismiss.
+   */
+  const openClusterListFromGroup = useCallback(
+    async (group: DeconflictGroup, anchorEl: HTMLElement) => {
+      const map = mapRef.current?.getMap();
+      if (!map) return;
+      const source = map.getSource('observations') as
+        | {
+            getClusterLeaves?: (
+              id: number,
+              limit: number,
+              offset: number,
+            ) => Promise<unknown[]>;
+          }
+        | undefined;
+      if (!source?.getClusterLeaves) return;
+
+      // Silhouettes have negative pseudo-IDs and are not registered in
+      // supercluster — filter them out before requesting leaves.
+      const realIds = group.memberIds.filter((id) => id > 0);
+      if (realIds.length === 0) return;
+
+      try {
+        const leafBatches = await Promise.all(
+          realIds.map(
+            (id) =>
+              source.getClusterLeaves!(id, 64, 0) as Promise<ClusterLeafFeature[]>,
+          ),
+        );
+        const leaves = leafBatches.flat();
+        if (leaves.length === 0) return;
+        const families = aggregateClusterFamilies(leaves);
+        const speciesByFamily = aggregateClusterSpecies(leaves);
+        setClusterList({
+          group,
+          families,
+          speciesByFamily,
+          totalCount: group.anchor.point_count,
+          uniqueFamilies: group.anchor.uniqueFamilies,
+          anchorEl,
+        });
+      } catch {
+        // getClusterLeaves can reject for recycled cluster_ids — match the
+        // err-swallow pattern from the easeTo branch below. Silent: the
+        // alternative is a console-warn spam on every fast pan.
+      }
+    },
+    [],
+  );
+
   const handleGroupClick = useCallback(
-    async (group: DeconflictGroup) => {
+    async (group: DeconflictGroup, anchorEl?: HTMLElement | null) => {
       const { anchor, memberIds } = group;
 
       // Singleton: open the obs popover directly. The cluster's single
@@ -1398,16 +1475,29 @@ export function MapCanvas({
         );
         const targetZoom = Math.min(Math.max(...zooms), CLUSTER_MAX_ZOOM);
         const currentZoom = map.getZoom();
-        if (
+        // `Number.isFinite` rejects NaN (library-error guard, #717): if any
+        // member's expansion zoom resolved to NaN, Math.max(NaN) === NaN,
+        // and `NaN > x` is false, which would otherwise silently no-op. The
+        // explicit isFinite check routes those clicks through the else
+        // branch below so the user gets the species list.
+        const shouldEase =
+          Number.isFinite(targetZoom) &&
           targetZoom > currentZoom &&
           anchor.longitude !== undefined &&
-          anchor.latitude !== undefined
-        ) {
+          anchor.latitude !== undefined;
+        if (shouldEase) {
           map.easeTo({
-            center: [anchor.longitude, anchor.latitude],
+            center: [anchor.longitude!, anchor.latitude!],
             zoom: targetZoom,
             ...(prefersReducedMotion ? { duration: 0 } : {}),
           });
+        } else if (anchorEl) {
+          // Camera already at the zoom where this cluster bottoms out
+          // (targetZoom <= currentZoom) — or supercluster returned NaN.
+          // Open `<ClusterListPopover>` so the user can still drill in by
+          // species. Mirrors the coarse-pointer `AdaptiveGridMarker` outer-
+          // tap path; the new mount lives at the bottom of this component.
+          await openClusterListFromGroup(group, anchorEl);
         }
       } catch {
         // getClusterExpansionZoom may reject for recycled cluster_ids
@@ -1415,7 +1505,7 @@ export function MapCanvas({
         // the prior err-swallow pattern.
       }
     },
-    [observations, prefersReducedMotion],
+    [observations, prefersReducedMotion, openClusterListFromGroup],
   );
 
   const handleClosePopover = useCallback(() => setSelectedObs(null), []);
@@ -1612,7 +1702,7 @@ export function MapCanvas({
               >
                 <ClusterPill
                   count={anchor.point_count}
-                  onClick={() => handleGroupClick(g)}
+                  onClick={(e) => handleGroupClick(g, e.currentTarget)}
                 />
               </PresentationMarker>
             );
@@ -1752,6 +1842,27 @@ export function MapCanvas({
         onClose={handleClosePopover}
         {...(onSelectSpecies ? { onSelectSpecies: handlePopoverSelectSpecies } : {})}
       />
+      {/* `<ClusterListPopover>` mount point for `<ClusterPill>` clicks that
+          can't escalate the camera (#717). The coarse-pointer
+          `<AdaptiveGridMarker>` outer-tap path opens its OWN internal
+          ClusterListPopover instance and is unaffected — this mount only
+          fires when `handleGroupClick`'s else branch ran. */}
+      {clusterList && (
+        <ClusterListPopover
+          families={clusterList.families}
+          speciesByFamily={clusterList.speciesByFamily}
+          totalCount={clusterList.totalCount}
+          uniqueFamilies={clusterList.uniqueFamilies}
+          anchorEl={clusterList.anchorEl}
+          onDismiss={() => setClusterList(null)}
+          onSelectSpecies={(code) => {
+            if (onSelectSpecies) {
+              onSelectSpecies(code, getClusterBbox(clusterList.group));
+            }
+            setClusterList(null);
+          }}
+        />
+      )}
     </div>
   );
 }

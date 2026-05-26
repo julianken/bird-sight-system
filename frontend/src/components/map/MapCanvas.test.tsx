@@ -852,6 +852,160 @@ describe('MapCanvas', () => {
       expect(pills).toHaveLength(1);
       expect(pills[0]).toHaveAttribute('aria-label', '100 sightings');
     });
+
+    /* ── #717: max-zoom pill click opens ClusterListPopover ─────────── */
+
+    /**
+     * Sets up a single pill-shape cluster (uniqueFamilies > 16) at known
+     * coordinates and returns a settled render where the pill is in the DOM.
+     * The fakeMap is wired so getClusterExpansionZoom resolves to `expZoom`
+     * and the current map zoom is `currentZoom`.
+     */
+    async function renderPillAtMaxZoom(opts: {
+      currentZoom: number;
+      expansionZoom: number | typeof NaN;
+    }) {
+      const big = {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [-110.95, 32.25] },
+        properties: { cluster: true, cluster_id: 77, point_count: 50 },
+      };
+      fakeMap.queryRenderedFeatures.mockReturnValue([big]);
+
+      // 20 unique families → pill fallback (uniqueFamilies > 16). Three of
+      // them have full species data so the popover aggregator has rows to
+      // group + render.
+      const leaves = [
+        {
+          type: 'Feature',
+          properties: {
+            familyCode: 'tyrannidae',
+            speciesCode: 'wewp',
+            comName: 'Western Wood-Pewee',
+          },
+        },
+        {
+          type: 'Feature',
+          properties: {
+            familyCode: 'tyrannidae',
+            speciesCode: 'sayphoebe',
+            comName: "Say's Phoebe",
+          },
+        },
+        {
+          type: 'Feature',
+          properties: {
+            familyCode: 'trochilidae',
+            speciesCode: 'annhum',
+            comName: "Anna's Hummingbird",
+          },
+        },
+      ];
+      for (let i = 0; i < 17; i++) {
+        leaves.push({
+          type: 'Feature',
+          properties: {
+            familyCode: `fam${i}`,
+            speciesCode: `sp${i}`,
+            comName: `Species ${i}`,
+          },
+        });
+      }
+
+      const getClusterLeaves = vi.fn().mockResolvedValue(leaves);
+      const getClusterExpansionZoom = vi
+        .fn()
+        .mockResolvedValue(opts.expansionZoom);
+      fakeMap.getSource.mockReturnValue({
+        getClusterLeaves,
+        getClusterExpansionZoom,
+      });
+      fakeMap.getZoom.mockReturnValue(opts.currentZoom);
+
+      render(<MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />);
+      await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+      await act(async () => { await bareHandlers['idle']?.(); });
+      await act(async () => { await Promise.resolve(); });
+
+      const pill = await waitFor(() => {
+        const found = screen
+          .queryAllByRole('button', { name: /sightings$/ })
+          .find((p) => p.classList.contains('cluster-pill'));
+        if (!found) throw new Error('cluster-pill not rendered');
+        return found;
+      });
+
+      return { pill, getClusterExpansionZoom, getClusterLeaves };
+    }
+
+    it('#717 — max-zoom pill click opens ClusterListPopover (targetZoom <= currentZoom)', async () => {
+      // Camera at CLUSTER_MAX_ZOOM (22); supercluster has exhausted its
+      // expansion budget → returns 22 as well. The old code would silently
+      // no-op here.
+      const { pill, getClusterExpansionZoom } = await renderPillAtMaxZoom({
+        currentZoom: 22,
+        expansionZoom: 22,
+      });
+
+      await act(async () => {
+        fireEvent.click(pill);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(getClusterExpansionZoom).toHaveBeenCalled();
+      // The popover is mounted by MapCanvas at the new mount point — same
+      // data-testid as the AdaptiveGridMarker-internal mount.
+      await waitFor(() => {
+        expect(screen.getByTestId('cluster-list-popover')).toBeInTheDocument();
+      });
+      // The camera must NOT have moved — the pill is already at max zoom.
+      expect(fakeMap.easeTo).not.toHaveBeenCalled();
+    });
+
+    it('#717 — easeTo still fires when targetZoom > currentZoom (regression guard)', async () => {
+      // Camera at zoom 8; supercluster says break at 12 → easeTo fires.
+      // ClusterListPopover must NOT mount in this case (camera is moving).
+      const { pill } = await renderPillAtMaxZoom({
+        currentZoom: 8,
+        expansionZoom: 12,
+      });
+
+      await act(async () => {
+        fireEvent.click(pill);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(fakeMap.easeTo).toHaveBeenCalledWith(
+        expect.objectContaining({
+          zoom: 12,
+          center: [-110.95, 32.25],
+        }),
+      );
+      expect(screen.queryByTestId('cluster-list-popover')).toBeNull();
+    });
+
+    it('#717 — library-error guard: getClusterExpansionZoom resolves to NaN → popover opens', async () => {
+      // Library/state error: supercluster/maplibre returns NaN. Without
+      // Number.isFinite guard, Math.max(NaN) === NaN, the > comparison
+      // is false, and the click silently no-ops. Treat as "open popover".
+      const { pill } = await renderPillAtMaxZoom({
+        currentZoom: 10,
+        expansionZoom: NaN,
+      });
+
+      await act(async () => {
+        fireEvent.click(pill);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('cluster-list-popover')).toBeInTheDocument();
+      });
+      expect(fakeMap.easeTo).not.toHaveBeenCalled();
+    });
   });
 });
 
