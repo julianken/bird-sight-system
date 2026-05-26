@@ -1057,14 +1057,19 @@ body {
   }
 }
 
-/* Observation popover (#246). Anchored top-left of .map-surface, above
-   the FamilyLegend's z-index so a click on a marker covers the legend
-   while open. The popover is keyboard-reachable via the MapMarkerHitLayer
-   (which gives every observation marker a real tabindex). */
+/* Observation popover (#246, repositioned in #718). Anchored to the
+   clicked marker's screen coordinates via inline `left`/`top` styles set
+   by <ObservationPopover>. This rule provides only the visual chrome
+   (background, border, shadow, padding, max-width) and the z-index that
+   keeps the popover above FamilyLegend. The popover is keyboard-
+   reachable via the MapMarkerHitLayer (which gives every observation
+   marker a real tabindex).
+
+   max-width: 280px is duplicated as POPOVER_W in ObservationPopover.tsx
+   so the viewport-edge flipX decision can be made without forcing a
+   layout read on the popover DOM. Change both together. */
 .observation-popover {
   position: absolute;
-  top: var(--space-md);
-  left: var(--space-md);
   z-index: calc(var(--z-panel) + 1);
   background: var(--color-bg-surface);
   border: 1px solid var(--color-border-ui);

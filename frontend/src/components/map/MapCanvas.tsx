@@ -408,6 +408,23 @@ async function registerSilhouetteSprite(
  * an amber halo behind notable observations without tinting the body —
  * preserves the family-color signal in the silhouette.
  */
+/**
+ * Issue #718: ObservationPopover state. Pairs the observation with the
+ * projected screen position (px, relative to the .map-canvas wrapper)
+ * computed at click time from the marker's lng/lat via map.project().
+ *
+ * The displaced-silhouette path (silhouetteOffsets.entries() render at
+ * the bottom of MapCanvas) MUST pass `entry.longitude/entry.latitude`
+ * (the displaced visual position) into openPopoverAt rather than the
+ * obs's original survey point — otherwise the popover would project
+ * from the hidden canvas-painted twin and appear offset from the
+ * visible silhouette the user actually clicked.
+ */
+interface SelectedObsState {
+  obs: Observation;
+  pos: { x: number; y: number };
+}
+
 export function MapCanvas({
   observations,
   silhouettes = [],
@@ -415,7 +432,14 @@ export function MapCanvas({
   onViewportChange,
 }: MapCanvasProps) {
   const mapRef = useRef<MapRef>(null);
-  const [selectedObs, setSelectedObs] = useState<Observation | null>(null);
+  /**
+   * Issue #718: ObservationPopover anchors to the clicked marker's screen
+   * coordinates. The state carries both the observation and the
+   * projected screen position (relative to the .map-canvas wrapper) so
+   * the popover can render adjacent to the click rather than at the
+   * top-left of the map surface (the legacy #246 placeholder behavior).
+   */
+  const [selectedObs, setSelectedObs] = useState<SelectedObsState | null>(null);
   /**
    * Unified deconflict output (issue #554). One entry per overlap-component
    * — each carries an anchor cluster (whose marker actually paints) and the
@@ -637,6 +661,39 @@ export function MapCanvas({
   obsLookupRef.current = obsLookup;
 
   /**
+   * Issue #718: open the ObservationPopover at the screen position
+   * derived from an explicit lngLat. Use this directly when the visual
+   * click position differs from the obs's survey coordinate — most
+   * notably at the displaced-silhouette site (silhouetteOffsets.entries()
+   * render below), where `entry.longitude/entry.latitude` is the visible
+   * shifted position. Using obs.lng/obs.lat there would project from the
+   * canvas-hidden original survey point and defeat the fix.
+   */
+  const openPopoverAt = useCallback(
+    (obs: Observation, lngLat: [number, number]) => {
+      const m = mapRef.current?.getMap();
+      if (!m) {
+        setSelectedObs(null);
+        return;
+      }
+      const { x, y } = m.project(lngLat);
+      setSelectedObs({ obs, pos: { x, y } });
+    },
+    [],
+  );
+
+  /**
+   * Issue #718: convenience wrapper for sites where the obs coordinate
+   * IS the visual position (hit-layer + cluster-leaf paths). Do NOT use
+   * this at the displaced-silhouette site — the displaced visual position
+   * is not the obs's survey lng/lat.
+   */
+  const openPopover = useCallback(
+    (obs: Observation) => openPopoverAt(obs, [obs.lng, obs.lat]),
+    [openPopoverAt],
+  );
+
+  /**
    * Wire click handling through the raw MapLibre instance. This avoids the
    * react-map-gl `e.features` bug (see prototype learnings #1).
    */
@@ -684,7 +741,7 @@ export function MapCanvas({
       const subId = feature.properties?.subId as string | undefined;
       if (subId) {
         const obs = obsLookupRef.current[subId];
-        if (obs) setSelectedObs(obs);
+        if (obs) openPopover(obs);
       }
     });
 
@@ -1297,7 +1354,7 @@ export function MapCanvas({
             Math.abs(o.lng - anchor.longitude) < EPS &&
             Math.abs(o.lat - anchor.latitude) < EPS,
         );
-        if (obs) setSelectedObs(obs);
+        if (obs) openPopover(obs);
         return;
       }
 
@@ -1329,7 +1386,7 @@ export function MapCanvas({
               Math.abs(o.lng - anchor.longitude) < EPS &&
               Math.abs(o.lat - anchor.latitude) < EPS,
           );
-          if (obs) setSelectedObs(obs);
+          if (obs) openPopover(obs);
           return;
         }
 
@@ -1362,6 +1419,24 @@ export function MapCanvas({
   );
 
   const handleClosePopover = useCallback(() => setSelectedObs(null), []);
+
+  /**
+   * Issue #718: close the popover when the map starts moving (pan / zoom
+   * / fly). Matches the dismiss-on-background-interaction pattern users
+   * expect from every popover on the web. Cheaper than re-projecting on
+   * every move event and avoids the popover drifting away from its
+   * trigger as the map slides.
+   */
+  useEffect(() => {
+    if (!selectedObs) return;
+    const m = mapRef.current?.getMap();
+    if (!m) return;
+    const close = () => setSelectedObs(null);
+    m.on('movestart', close);
+    return () => {
+      m.off('movestart', close);
+    };
+  }, [selectedObs]);
 
   const handlePopoverSelectSpecies = useCallback(
     (speciesCode: string) => {
@@ -1410,9 +1485,9 @@ export function MapCanvas({
   const handleHitSelect = useCallback(
     (subId: string) => {
       const obs = obsLookupRef.current[subId];
-      if (obs) setSelectedObs(obs);
+      if (obs) openPopover(obs);
     },
-    [],
+    [openPopover],
   );
 
   const map = mapReady ? mapRef.current?.getMap() ?? null : null;
@@ -1604,7 +1679,14 @@ export function MapCanvas({
                 data-testid="displaced-silhouette"
                 data-subid={subId}
                 aria-label={`${obs.comName} observation`}
-                onClick={() => setSelectedObs(obs)}
+                // Issue #718: project the popover from `entry.longitude/
+                // entry.latitude` — the DISPLACED visual position — not
+                // from `obs.lng/obs.lat`. The obs survey point is hidden
+                // beneath the canvas-painted twin; projecting from it
+                // would land the popover next to the invisible original
+                // instead of the silhouette the user actually clicked,
+                // defeating the fix at this site.
+                onClick={() => openPopoverAt(obs, [entry.longitude, entry.latitude])}
                 style={{
                   display: 'inline-block',
                   width: SILHOUETTE_PX,
@@ -1665,7 +1747,8 @@ export function MapCanvas({
         />
       )}
       <ObservationPopover
-        observation={selectedObs}
+        observation={selectedObs?.obs ?? null}
+        position={selectedObs?.pos ?? null}
         onClose={handleClosePopover}
         {...(onSelectSpecies ? { onSelectSpecies: handlePopoverSelectSpecies } : {})}
       />
