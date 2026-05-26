@@ -5,7 +5,6 @@ import { useSpeciesDetail } from '../data/use-species-detail.js';
 import { useSilhouettes } from '../data/use-silhouettes.js';
 import { buildFamilyColorResolver, buildFamilyPathResolver, buildFamilyImgUrlResolver } from '../data/family-color.js';
 import { analytics } from '../analytics.js';
-import { PhenologyChart } from './PhenologyChart.js';
 import { SpeciesDescription } from './SpeciesDescription.js';
 import { Photo } from './ds/Photo.js';
 import { StatusBlock } from './ds/StatusBlock.js';
@@ -192,7 +191,6 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
       </h1>
       <p className="species-detail-sci-name"><em>{data.sciName}</em></p>
       <p className="species-detail-family">{data.familyName}</p>
-      <PhenologyChart speciesCode={speciesCode} apiClient={apiClient} />
       <SpeciesDescription
         descriptionBody={data.descriptionBody}
         descriptionAttributionUrl={data.descriptionAttributionUrl}
@@ -226,7 +224,7 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
       )}
       <div
         ref={sentinelRef}
-        data-testid="phenology-bottom-sentinel"
+        data-testid="detail-bottom-sentinel"
         aria-hidden="true"
       />
     </div>

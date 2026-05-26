@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import type { FamilyAggregate, SpeciesAggregate } from './adaptive-grid.js';
 import { prettyFamily } from '../../derived.js';
+import { isSyntheticCode } from '../../data/use-bird-data.js';
 
 /**
  * `<ClusterListPopover>` — mobile / coarse-pointer sheet-style popover for
@@ -187,7 +188,11 @@ export function ClusterListPopover(props: ClusterListPopoverProps) {
               {isExpanded && (
                 <ul className="cluster-list-popover__rows">
                   {visibleSpecies.map((s) => {
-                    const clickable = s.speciesCode !== null;
+                    // #715: synthetic `agg-*` codes (aggregated z<6 buckets)
+                    // are non-resolvable by /api/species/:code and must render
+                    // as static spans — second of two entry points to the
+                    // same broken chain that CellPopover guards.
+                    const clickable = s.speciesCode !== null && !isSyntheticCode(s.speciesCode);
                     const code = s.speciesCode;
                     if (clickable && code !== null) {
                       return (

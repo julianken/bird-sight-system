@@ -93,7 +93,6 @@ test.describe('detail deep-link URL stickiness (#511)', () => {
     }) => {
       await apiStub.stubEmpty();
       await apiStub.stubSpecies('annhum', ANNHUM);
-      await apiStub.stubPhenology('annhum', []);
 
       const app = new AppPage(page);
       await app.goto('view=detail&detail=annhum');
@@ -163,7 +162,6 @@ test.describe('detail deep-link URL stickiness (#511)', () => {
     }) => {
       await apiStub.stubEmpty();
       await apiStub.stubSpecies('annhum', ANNHUM);
-      await apiStub.stubPhenology('annhum', []);
 
       const app = new AppPage(page);
       await app.goto('view=detail&detail=annhum');
@@ -190,7 +188,6 @@ test.describe('detail deep-link URL stickiness (#511)', () => {
       // to view=detail rather than landing on the map surface.
       await apiStub.stubEmpty();
       await apiStub.stubSpecies('annhum', ANNHUM);
-      await apiStub.stubPhenology('annhum', []);
 
       const app = new AppPage(page);
       // Navigate to the corrupted URL form — ?detail before ?view, view=map.

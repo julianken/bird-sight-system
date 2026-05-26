@@ -16,6 +16,22 @@ import type {
  * where the user can't drill down anyway. Drilling in past zoom 6 swaps to
  * `mode === 'observations'` and shows real rows.
  */
+/**
+ * True when `code` is one of the synthetic `agg-…` species codes fabricated
+ * by `expandBucketsToSyntheticObservations` at aggregated (z < 6) zoom (#715).
+ *
+ * Synthetic codes are non-resolvable by `/api/species/:code` — passing one to
+ * `useSpeciesDetail` produces a 404 and the SpeciesDetailSurface renders only
+ * the error StatusBlock with no body content. Callers that route a `speciesCode`
+ * into the detail panel (cluster popovers, deep-link hydration) must gate on
+ * this helper to avoid the broken-detail-render UX.
+ *
+ * Real eBird species codes are 6–8 lowercase letters and never start with
+ * `agg-`; the prefix-match contract is exact.
+ */
+export const isSyntheticCode = (code: string | null): boolean =>
+  code !== null && code.startsWith('agg-');
+
 export function expandBucketsToSyntheticObservations(
   buckets: AggregatedBucket[],
 ): Observation[] {

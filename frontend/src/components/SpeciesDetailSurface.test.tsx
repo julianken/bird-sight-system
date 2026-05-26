@@ -177,31 +177,6 @@ describe('SpeciesDetailSurface', () => {
     expect(photo.tagName).toBe('IMG');
   });
 
-  // ─── Phenology chart (issue #356) ──────────────────────────────────────
-  //
-  // PhenologyChart mounts inside the `data &&` block so it only attempts a
-  // /phenology fetch once the species itself has resolved. The chart
-  // component handles its own loading/error/empty states; the surface just
-  // mounts it.
-
-  it('mounts PhenologyChart inside the data block when species resolves', async () => {
-    const phenology = Array.from({ length: 12 }, (_, i) => ({ month: i + 1, count: i + 1 }));
-    const client = makeClient({
-      getSpecies: vi.fn().mockResolvedValue(VERMFLY),
-      getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
-      getPhenology: vi.fn().mockResolvedValue(phenology),
-    } as unknown as Partial<ApiClient>);
-    const { container } = render(
-      <SpeciesDetailSurface speciesCode="vermfly" apiClient={client} />
-    );
-    await waitFor(() =>
-      expect(screen.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeInTheDocument()
-    );
-    await waitFor(() => {
-      expect(container.querySelector('svg.phenology-chart')).not.toBeNull();
-    });
-  });
-
   // ─── Species description mount (issue #373 / epic #368) ──────────────
   //
   // SpeciesDescription renders the per-species Wikipedia summary HTML when
@@ -209,9 +184,8 @@ describe('SpeciesDetailSurface', () => {
   // returns `null` when the field is absent so the surface gracefully
   // degrades on CDN-stale responses predating the field.
   //
-  // The mount sits BETWEEN PhenologyChart and the bottom-sentinel — the
-  // sentinel must remain the LAST child of `.species-detail-body` for the
-  // IntersectionObserver to fire only after the user scrolls past every
+  // The sentinel must remain the LAST child of `.species-detail-body` for
+  // the IntersectionObserver to fire only after the user scrolls past every
   // descendant content node.
 
   it('mounts SpeciesDescription when descriptionBody is present and the credit links to the article', async () => {
@@ -270,7 +244,7 @@ describe('SpeciesDetailSurface', () => {
       getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
     } as unknown as Partial<ApiClient>);
     render(<SpeciesDetailSurface speciesCode="vermfly" apiClient={client} />);
-    const sentinel = await screen.findByTestId('phenology-bottom-sentinel');
+    const sentinel = await screen.findByTestId('detail-bottom-sentinel');
     const body = sentinel.closest('.species-detail-body');
     expect(body).not.toBeNull();
     // The IntersectionObserver fires on FIRST intersection then disconnects.
@@ -278,21 +252,6 @@ describe('SpeciesDetailSurface', () => {
     // the final child of the body container regardless of which optional
     // sub-components mount above it.
     expect(body!.lastElementChild).toBe(sentinel);
-  });
-
-  it('does not mount PhenologyChart while species is still loading', () => {
-    const getPhenology = vi.fn();
-    const client = makeClient({
-      // Pending species fetch — PhenologyChart should NOT have mounted yet.
-      getSpecies: vi.fn().mockReturnValue(new Promise(() => {})),
-      getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
-      getPhenology,
-    } as unknown as Partial<ApiClient>);
-    render(<SpeciesDetailSurface speciesCode="vermfly" apiClient={client} />);
-    // Loading state is visible.
-    expect(screen.getByText('Loading species details…')).toBeInTheDocument();
-    // PhenologyChart never made the call because it never mounted.
-    expect(getPhenology).not.toHaveBeenCalled();
   });
 
   // ─── Phase 4 heading + Photo contracts ──────────────────────────────────
@@ -473,7 +432,7 @@ describe('SpeciesDetailSurface', () => {
         getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
       } as unknown as Partial<ApiClient>);
       render(<SpeciesDetailSurface speciesCode="vermfly" apiClient={client} />);
-      const sentinel = await screen.findByTestId('phenology-bottom-sentinel');
+      const sentinel = await screen.findByTestId('detail-bottom-sentinel');
       expect(sentinel).toBeInTheDocument();
       // aria-hidden so SR users don't perceive an empty element at the end.
       expect(sentinel).toHaveAttribute('aria-hidden', 'true');
@@ -520,7 +479,7 @@ describe('SpeciesDetailSurface', () => {
           getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
         } as unknown as Partial<ApiClient>);
         render(<SpeciesDetailSurface speciesCode="vermfly" apiClient={client} />);
-        const sentinel = await screen.findByTestId('phenology-bottom-sentinel');
+        const sentinel = await screen.findByTestId('detail-bottom-sentinel');
         expect(observers.length).toBeGreaterThan(0);
         // Find the observer that was wired to the sentinel — the component
         // calls observer.observe(sentinelRef.current) once.

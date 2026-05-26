@@ -285,6 +285,50 @@ describe('<ClusterListPopover>', () => {
     expect(onSelectSpecies).not.toHaveBeenCalled();
   });
 
+  it('species row with synthetic agg-* speciesCode renders as <span> (no link, no callback) — #715', () => {
+    const anchor = makeAnchor();
+    const onSelectSpecies = vi.fn();
+    render(
+      <ClusterListPopover
+        families={[family('anatidae', 53)]}
+        speciesByFamily={speciesByFamily([
+          ['anatidae', [species('anatidae', 53, 'agg-3-anatidae-2')]],
+        ])}
+        totalCount={53}
+        uniqueFamilies={1}
+        anchorEl={anchor}
+        onDismiss={vi.fn()}
+        onSelectSpecies={onSelectSpecies}
+      />
+    );
+    expect(screen.getByText(/53x anatidae/)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /anatidae/ })).toBeNull();
+    fireEvent.click(screen.getByText(/53x anatidae/));
+    expect(onSelectSpecies).not.toHaveBeenCalled();
+  });
+
+  it('synthetic-code rows ignore Enter / Space activation (#715)', () => {
+    const anchor = makeAnchor();
+    const onSelectSpecies = vi.fn();
+    render(
+      <ClusterListPopover
+        families={[family('anatidae', 53)]}
+        speciesByFamily={speciesByFamily([
+          ['anatidae', [species('anatidae', 53, 'agg-3-anatidae-2')]],
+        ])}
+        totalCount={53}
+        uniqueFamilies={1}
+        anchorEl={anchor}
+        onDismiss={vi.fn()}
+        onSelectSpecies={onSelectSpecies}
+      />
+    );
+    const row = screen.getByText(/53x anatidae/);
+    fireEvent.keyDown(row, { key: 'Enter' });
+    fireEvent.keyDown(row, { key: ' ' });
+    expect(onSelectSpecies).not.toHaveBeenCalled();
+  });
+
   it('focus trap: Tab from last focusable inside popover wraps to first', () => {
     const anchor = makeAnchor();
     render(
