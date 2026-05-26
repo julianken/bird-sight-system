@@ -18,11 +18,17 @@ export interface MapLedeProps {
   /**
    * Issue #716: when true, suppress Template 1 — counts are 0 because the
    * initial fetch hasn't resolved yet, not because filters narrowed to empty.
-   * Re-fetches don't reset `observations` to `[]` (see use-bird-data.ts:87-101),
+   * Re-fetches don't reset `observations` to `[]` (see use-bird-data.ts),
    * so this flag only matters on first paint. The freshness meta-line is
    * already empty during loading (deriveFreshness(null) → label ''), so the
    * context strip collapses to nothing — matching FeedSurface's own loading
-   * branch (FeedSurface.tsx:353-358).
+   * branch.
+   *
+   * Issue #720: this must be driven by useBirdData's `observationsLoading`
+   * — NOT the combined `loading` — because under typical network conditions
+   * the hotspots fetch resolves before observations, and the combined flag
+   * would clear during a window where observations is still empty (the
+   * exact race that #716 set out to suppress).
    */
   loading: boolean;
 }

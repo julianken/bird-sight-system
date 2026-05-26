@@ -48,7 +48,31 @@ export function expandBucketsToSyntheticObservations(
 }
 
 export interface BirdDataState {
+  /**
+   * Combined loading flag — true while EITHER hotspots OR observations is in
+   * flight. Preserved for legacy consumers (e.g. `<main aria-busy>`) that
+   * want a single signal. New code should prefer the specific flags below.
+   *
+   * Issue #720: this used to be the sole flag, which produced a race —
+   * whichever effect resolved first flipped the shared flag to false while
+   * the other was still in flight. MapLede's cold-load guard requires the
+   * observations-specific signal; consume `observationsLoading` there.
+   */
   loading: boolean;
+  /**
+   * True while the initial /api/observations request (or a filter-driven
+   * refetch) is in flight. This is the correct flag for "are observations
+   * still loading?" — used by MapLede's #716 cold-load guard and by
+   * FeedSurface's loading placeholder, both of which narrate observation
+   * data specifically.
+   */
+  observationsLoading: boolean;
+  /**
+   * True while the one-time /api/hotspots request is in flight. Separate
+   * from `observationsLoading` so consumers that only care about
+   * observations can ignore hotspot timing.
+   */
+  hotspotsLoading: boolean;
   error: Error | null;
   hotspots: Hotspot[];
   observations: Observation[];
@@ -67,7 +91,8 @@ export function useBirdData(
   const [hotspots, setHotspots] = useState<Hotspot[]>([]);
   const [observations, setObservations] = useState<Observation[]>([]);
   const [freshestObservationAt, setFreshestObservationAt] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [hotspotsLoading, setHotspotsLoading] = useState(true);
+  const [observationsLoading, setObservationsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
   // One-time load
@@ -79,14 +104,14 @@ export function useBirdData(
         setHotspots(h);
       })
       .catch(err => { if (!cancelled) setError(err as Error); })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .finally(() => { if (!cancelled) setHotspotsLoading(false); });
     return () => { cancelled = true; };
   }, [client]);
 
   // Observation refetch on filter change — unwrap the ObservationsResponse envelope
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    setObservationsLoading(true);
     client.getObservations(filters)
       .then(envelope => {
         if (cancelled) return;
@@ -98,7 +123,7 @@ export function useBirdData(
         setFreshestObservationAt(envelope.meta.freshestObservationAt);
       })
       .catch(err => { if (!cancelled) setError(err as Error); })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .finally(() => { if (!cancelled) setObservationsLoading(false); });
     return () => { cancelled = true; };
     // bbox is an array — serialize to a stable string for the dep list so
     // React re-runs the effect on value-change, not array-identity-change.
@@ -113,5 +138,15 @@ export function useBirdData(
     filters.zoom,
   ]);
 
-  return { loading, error, hotspots, observations, freshestObservationAt };
+  const loading = hotspotsLoading || observationsLoading;
+
+  return {
+    loading,
+    observationsLoading,
+    hotspotsLoading,
+    error,
+    hotspots,
+    observations,
+    freshestObservationAt,
+  };
 }

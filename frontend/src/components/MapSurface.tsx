@@ -123,12 +123,14 @@ export interface MapSurfaceProps {
   /** Pre-formatted freshness meta string (e.g. "Updated 11 min ago · Source: eBird"). */
   freshnessLabel: string;
   /**
-   * Issue #716: cold-load gate forwarded to <MapLede>. While the initial
-   * /api/observations fetch is in flight, useBirdData's seeded empty
-   * `observations: []` would otherwise drive MapLede into Template 1
+   * Issue #716/#720: cold-load gate forwarded to <MapLede>. While the
+   * initial /api/observations fetch is in flight, useBirdData's seeded
+   * empty `observations: []` would otherwise drive MapLede into Template 1
    * ("No sightings match your current filters."), which is misleading
-   * before the user has applied any filters. Forward `loading` so MapLede
-   * can suppress itself on first paint.
+   * before the user has applied any filters. App.tsx threads
+   * `observationsLoading` (NOT the combined `loading`) into this prop
+   * so the suppression survives the common case where `/api/hotspots`
+   * resolves before `/api/observations`.
    */
   loading: boolean;
 }
