@@ -134,6 +134,15 @@ describe('useSpeciesDetail', () => {
     expect(result2.current.error).toBeNull();
   });
 
+  it('does not fetch when speciesCode is a synthetic agg-* code (#715)', () => {
+    const getSpecies = vi.fn();
+    const client = makeClient({ getSpecies } as unknown as Partial<ApiClient>);
+
+    const { result } = renderHook(() => useSpeciesDetail(client, 'agg-3-anatidae-2'));
+    expect(result.current).toEqual({ loading: false, error: null, data: null });
+    expect(getSpecies).not.toHaveBeenCalled();
+  });
+
   it('surfaces error state and does not cache failures', async () => {
     const getSpecies = vi.fn()
       .mockRejectedValueOnce(new Error('boom'))

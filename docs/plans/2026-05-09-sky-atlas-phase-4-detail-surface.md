@@ -1,5 +1,7 @@
 # Sky Atlas — Phase 4 Detail-Surface Engineering Implementation Plan
 
+> **Superseded by #719: phenology removed** — the phenology chart that this plan shipped into the detail surface was deleted in PR #719. The rest of this plan (modal, sheet, photo masthead, heading, family label, prose) is still current.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the in-flow `<SpeciesDetailSurface>` with two viewport-routed presentations that share one body component: a desktop `<dialog>` modal (Apple "Look Up" idiom — focus capture, ESC, backdrop) and a mobile bottom-sheet with three snap points (peek 96px / half 60% / full 100%−8px) whose ARIA `role` flips from `region` to `dialog` only at the full snap. Resolves the IA seam called out in the analysis report — detail had no close affordance, no back navigation, and no separation between map context and species reading.

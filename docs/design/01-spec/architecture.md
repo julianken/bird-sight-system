@@ -20,7 +20,7 @@ Three surfaces share the persistent chrome:
 |---|---|---|---|
 | `map` | `/?view=map` (also `/`) | **home route** | Header, context strip (lede + filter sentence + freshness meta), full-bleed MapLibre canvas, `<FamilyLegend>` overlay (collapsed mobile by default), bottom-tab on mobile |
 | `feed` | `/?view=feed` | — | Header, context strip, top-notable card-row, flat list of species rows |
-| `detail` | `/?view=detail&detail=<code>` | overlay | Modal `<dialog>` desktop / bottom-sheet mobile; photo masthead, `<h1 id="detail-title">`, family label, phenology, Wikipedia prose |
+| `detail` | `/?view=detail&detail=<code>` | overlay | Modal `<dialog>` desktop / bottom-sheet mobile; photo masthead, `<h1 id="detail-title">`, family label, Wikipedia prose |
 
 Map is the home route — `DEFAULTS.view: 'map'` per [`url-state.md`](./url-state.md).
 
@@ -42,7 +42,7 @@ Desktop: native `<dialog>` modal, photo-anchor masthead, ESC closes, `aria-label
 Mobile: bottom sheet with three snap points (peek/half/full):
 
 - Peek (~96px): handle + photo thumb + species name + 1-line stat. Map remains live + interactive underneath. Sheet has `role="region"`.
-- Half (60% of content area): adds family + phenology. Map still interactive.
+- Half (60% of content area): adds family. Map still interactive.
 - Full (≈100% − 8px): adds Wikipedia prose. Map gets `pointer-events: none` and `inert`. Sheet flips to `role="dialog" aria-modal="true"`.
 
 The sheet is NOT a `<dialog>` element — `<dialog>` is modal-only by definition; the peek/half states require a non-modal contract that lets the map underneath stay interactive. See [`accessibility.md`](./accessibility.md) for full role-switching details.

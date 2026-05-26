@@ -28,16 +28,20 @@ import {
 } from './observation-layers.js';
 import { ObservationPopover } from './ObservationPopover.js';
 import { AdaptiveGridMarker } from './AdaptiveGridMarker.js';
+import { ClusterListPopover } from './ClusterListPopover.js';
 import { ClusterPill } from '../ds/ClusterPill.js';
 import { isValidSvgPathData } from './silhouette-fallback.js';
 import {
   aggregateClusterFamilies,
+  aggregateClusterSpecies,
   buildAdaptiveTiles,
   pickGridShape,
   type AdaptiveTile,
   type ClusterLeafFeature,
+  type FamilyAggregate,
   type ResolvedGrid,
   type SilhouettesById,
+  type SpeciesAggregate,
 } from './adaptive-grid.js';
 import {
   MapMarkerHitLayer,
@@ -408,6 +412,23 @@ async function registerSilhouetteSprite(
  * an amber halo behind notable observations without tinting the body —
  * preserves the family-color signal in the silhouette.
  */
+/**
+ * Issue #718: ObservationPopover state. Pairs the observation with the
+ * projected screen position (px, relative to the .map-canvas wrapper)
+ * computed at click time from the marker's lng/lat via map.project().
+ *
+ * The displaced-silhouette path (silhouetteOffsets.entries() render at
+ * the bottom of MapCanvas) MUST pass `entry.longitude/entry.latitude`
+ * (the displaced visual position) into openPopoverAt rather than the
+ * obs's original survey point — otherwise the popover would project
+ * from the hidden canvas-painted twin and appear offset from the
+ * visible silhouette the user actually clicked.
+ */
+interface SelectedObsState {
+  obs: Observation;
+  pos: { x: number; y: number };
+}
+
 export function MapCanvas({
   observations,
   silhouettes = [],
@@ -415,7 +436,31 @@ export function MapCanvas({
   onViewportChange,
 }: MapCanvasProps) {
   const mapRef = useRef<MapRef>(null);
-  const [selectedObs, setSelectedObs] = useState<Observation | null>(null);
+  /**
+   * Issue #718: ObservationPopover anchors to the clicked marker's screen
+   * coordinates. The state carries both the observation and the
+   * projected screen position (relative to the .map-canvas wrapper) so
+   * the popover can render adjacent to the click rather than at the
+   * top-left of the map surface (the legacy #246 placeholder behavior).
+   */
+  const [selectedObs, setSelectedObs] = useState<SelectedObsState | null>(null);
+  /**
+   * Mount state for the `<ClusterListPopover>` opened by `<ClusterPill>` when
+   * a pill click would land at max-zoom (or supercluster returns a useless
+   * expansion target). Mirrors the coarse-pointer `AdaptiveGridMarker` outer-
+   * tap path. `anchorEl` is captured from the click's `e.currentTarget`
+   * (race-free; see #717 / ClusterPill.tsx onClick contract). When null,
+   * the popover is closed; when populated, it mounts in the render tree at
+   * the bottom of the function.
+   */
+  const [clusterList, setClusterList] = useState<{
+    group: DeconflictGroup;
+    families: FamilyAggregate[];
+    speciesByFamily: ReadonlyMap<string, ReadonlyArray<SpeciesAggregate>>;
+    totalCount: number;
+    uniqueFamilies: number;
+    anchorEl: HTMLElement;
+  } | null>(null);
   /**
    * Unified deconflict output (issue #554). One entry per overlap-component
    * — each carries an anchor cluster (whose marker actually paints) and the
@@ -637,6 +682,39 @@ export function MapCanvas({
   obsLookupRef.current = obsLookup;
 
   /**
+   * Issue #718: open the ObservationPopover at the screen position
+   * derived from an explicit lngLat. Use this directly when the visual
+   * click position differs from the obs's survey coordinate — most
+   * notably at the displaced-silhouette site (silhouetteOffsets.entries()
+   * render below), where `entry.longitude/entry.latitude` is the visible
+   * shifted position. Using obs.lng/obs.lat there would project from the
+   * canvas-hidden original survey point and defeat the fix.
+   */
+  const openPopoverAt = useCallback(
+    (obs: Observation, lngLat: [number, number]) => {
+      const m = mapRef.current?.getMap();
+      if (!m) {
+        setSelectedObs(null);
+        return;
+      }
+      const { x, y } = m.project(lngLat);
+      setSelectedObs({ obs, pos: { x, y } });
+    },
+    [],
+  );
+
+  /**
+   * Issue #718: convenience wrapper for sites where the obs coordinate
+   * IS the visual position (hit-layer + cluster-leaf paths). Do NOT use
+   * this at the displaced-silhouette site — the displaced visual position
+   * is not the obs's survey lng/lat.
+   */
+  const openPopover = useCallback(
+    (obs: Observation) => openPopoverAt(obs, [obs.lng, obs.lat]),
+    [openPopoverAt],
+  );
+
+  /**
    * Wire click handling through the raw MapLibre instance. This avoids the
    * react-map-gl `e.features` bug (see prototype learnings #1).
    */
@@ -684,7 +762,7 @@ export function MapCanvas({
       const subId = feature.properties?.subId as string | undefined;
       if (subId) {
         const obs = obsLookupRef.current[subId];
-        if (obs) setSelectedObs(obs);
+        if (obs) openPopover(obs);
       }
     });
 
@@ -1281,8 +1359,64 @@ export function MapCanvas({
    *     so the user always sees real expansion. Matches the click-time-lazy
    *     pattern from the prior `handleClusterPillClick`.
    */
+  /**
+   * Mount `<ClusterListPopover>` from a DeconflictGroup whose pill click
+   * couldn't escalate the camera (already at max zoom or NaN expansion).
+   * Mirrors the coarse-pointer `AdaptiveGridMarker` outer-tap behavior so
+   * the user always has a way to drill into a stuck cluster by species
+   * (#717). `anchorEl` comes from the click's `e.currentTarget` and is the
+   * focus-return target on dismiss.
+   */
+  const openClusterListFromGroup = useCallback(
+    async (group: DeconflictGroup, anchorEl: HTMLElement) => {
+      const map = mapRef.current?.getMap();
+      if (!map) return;
+      const source = map.getSource('observations') as
+        | {
+            getClusterLeaves?: (
+              id: number,
+              limit: number,
+              offset: number,
+            ) => Promise<unknown[]>;
+          }
+        | undefined;
+      if (!source?.getClusterLeaves) return;
+
+      // Silhouettes have negative pseudo-IDs and are not registered in
+      // supercluster — filter them out before requesting leaves.
+      const realIds = group.memberIds.filter((id) => id > 0);
+      if (realIds.length === 0) return;
+
+      try {
+        const leafBatches = await Promise.all(
+          realIds.map(
+            (id) =>
+              source.getClusterLeaves!(id, 64, 0) as Promise<ClusterLeafFeature[]>,
+          ),
+        );
+        const leaves = leafBatches.flat();
+        if (leaves.length === 0) return;
+        const families = aggregateClusterFamilies(leaves);
+        const speciesByFamily = aggregateClusterSpecies(leaves);
+        setClusterList({
+          group,
+          families,
+          speciesByFamily,
+          totalCount: group.anchor.point_count,
+          uniqueFamilies: group.anchor.uniqueFamilies,
+          anchorEl,
+        });
+      } catch {
+        // getClusterLeaves can reject for recycled cluster_ids — match the
+        // err-swallow pattern from the easeTo branch below. Silent: the
+        // alternative is a console-warn spam on every fast pan.
+      }
+    },
+    [],
+  );
+
   const handleGroupClick = useCallback(
-    async (group: DeconflictGroup) => {
+    async (group: DeconflictGroup, anchorEl?: HTMLElement | null) => {
       const { anchor, memberIds } = group;
 
       // Singleton: open the obs popover directly. The cluster's single
@@ -1297,7 +1431,7 @@ export function MapCanvas({
             Math.abs(o.lng - anchor.longitude) < EPS &&
             Math.abs(o.lat - anchor.latitude) < EPS,
         );
-        if (obs) setSelectedObs(obs);
+        if (obs) openPopover(obs);
         return;
       }
 
@@ -1329,7 +1463,7 @@ export function MapCanvas({
               Math.abs(o.lng - anchor.longitude) < EPS &&
               Math.abs(o.lat - anchor.latitude) < EPS,
           );
-          if (obs) setSelectedObs(obs);
+          if (obs) openPopover(obs);
           return;
         }
 
@@ -1341,16 +1475,29 @@ export function MapCanvas({
         );
         const targetZoom = Math.min(Math.max(...zooms), CLUSTER_MAX_ZOOM);
         const currentZoom = map.getZoom();
-        if (
+        // `Number.isFinite` rejects NaN (library-error guard, #717): if any
+        // member's expansion zoom resolved to NaN, Math.max(NaN) === NaN,
+        // and `NaN > x` is false, which would otherwise silently no-op. The
+        // explicit isFinite check routes those clicks through the else
+        // branch below so the user gets the species list.
+        const shouldEase =
+          Number.isFinite(targetZoom) &&
           targetZoom > currentZoom &&
           anchor.longitude !== undefined &&
-          anchor.latitude !== undefined
-        ) {
+          anchor.latitude !== undefined;
+        if (shouldEase) {
           map.easeTo({
-            center: [anchor.longitude, anchor.latitude],
+            center: [anchor.longitude!, anchor.latitude!],
             zoom: targetZoom,
             ...(prefersReducedMotion ? { duration: 0 } : {}),
           });
+        } else if (anchorEl) {
+          // Camera already at the zoom where this cluster bottoms out
+          // (targetZoom <= currentZoom) — or supercluster returned NaN.
+          // Open `<ClusterListPopover>` so the user can still drill in by
+          // species. Mirrors the coarse-pointer `AdaptiveGridMarker` outer-
+          // tap path; the new mount lives at the bottom of this component.
+          await openClusterListFromGroup(group, anchorEl);
         }
       } catch {
         // getClusterExpansionZoom may reject for recycled cluster_ids
@@ -1358,10 +1505,28 @@ export function MapCanvas({
         // the prior err-swallow pattern.
       }
     },
-    [observations, prefersReducedMotion],
+    [observations, prefersReducedMotion, openClusterListFromGroup],
   );
 
   const handleClosePopover = useCallback(() => setSelectedObs(null), []);
+
+  /**
+   * Issue #718: close the popover when the map starts moving (pan / zoom
+   * / fly). Matches the dismiss-on-background-interaction pattern users
+   * expect from every popover on the web. Cheaper than re-projecting on
+   * every move event and avoids the popover drifting away from its
+   * trigger as the map slides.
+   */
+  useEffect(() => {
+    if (!selectedObs) return;
+    const m = mapRef.current?.getMap();
+    if (!m) return;
+    const close = () => setSelectedObs(null);
+    m.on('movestart', close);
+    return () => {
+      m.off('movestart', close);
+    };
+  }, [selectedObs]);
 
   const handlePopoverSelectSpecies = useCallback(
     (speciesCode: string) => {
@@ -1410,9 +1575,9 @@ export function MapCanvas({
   const handleHitSelect = useCallback(
     (subId: string) => {
       const obs = obsLookupRef.current[subId];
-      if (obs) setSelectedObs(obs);
+      if (obs) openPopover(obs);
     },
-    [],
+    [openPopover],
   );
 
   const map = mapReady ? mapRef.current?.getMap() ?? null : null;
@@ -1537,7 +1702,7 @@ export function MapCanvas({
               >
                 <ClusterPill
                   count={anchor.point_count}
-                  onClick={() => handleGroupClick(g)}
+                  onClick={(e) => handleGroupClick(g, e.currentTarget)}
                 />
               </PresentationMarker>
             );
@@ -1604,7 +1769,14 @@ export function MapCanvas({
                 data-testid="displaced-silhouette"
                 data-subid={subId}
                 aria-label={`${obs.comName} observation`}
-                onClick={() => setSelectedObs(obs)}
+                // Issue #718: project the popover from `entry.longitude/
+                // entry.latitude` — the DISPLACED visual position — not
+                // from `obs.lng/obs.lat`. The obs survey point is hidden
+                // beneath the canvas-painted twin; projecting from it
+                // would land the popover next to the invisible original
+                // instead of the silhouette the user actually clicked,
+                // defeating the fix at this site.
+                onClick={() => openPopoverAt(obs, [entry.longitude, entry.latitude])}
                 style={{
                   display: 'inline-block',
                   width: SILHOUETTE_PX,
@@ -1665,10 +1837,32 @@ export function MapCanvas({
         />
       )}
       <ObservationPopover
-        observation={selectedObs}
+        observation={selectedObs?.obs ?? null}
+        position={selectedObs?.pos ?? null}
         onClose={handleClosePopover}
         {...(onSelectSpecies ? { onSelectSpecies: handlePopoverSelectSpecies } : {})}
       />
+      {/* `<ClusterListPopover>` mount point for `<ClusterPill>` clicks that
+          can't escalate the camera (#717). The coarse-pointer
+          `<AdaptiveGridMarker>` outer-tap path opens its OWN internal
+          ClusterListPopover instance and is unaffected — this mount only
+          fires when `handleGroupClick`'s else branch ran. */}
+      {clusterList && (
+        <ClusterListPopover
+          families={clusterList.families}
+          speciesByFamily={clusterList.speciesByFamily}
+          totalCount={clusterList.totalCount}
+          uniqueFamilies={clusterList.uniqueFamilies}
+          anchorEl={clusterList.anchorEl}
+          onDismiss={() => setClusterList(null)}
+          onSelectSpecies={(code) => {
+            if (onSelectSpecies) {
+              onSelectSpecies(code, getClusterBbox(clusterList.group));
+            }
+            setClusterList(null);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -1,7 +1,31 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
-import { useBirdData } from './use-bird-data.js';
+import { useBirdData, isSyntheticCode } from './use-bird-data.js';
 import { ApiClient } from '../api/client.js';
+
+describe('isSyntheticCode', () => {
+  it('returns true for codes produced by expandBucketsToSyntheticObservations (#715)', () => {
+    // Family-bearing buckets emit `agg-${bucketIndex}-${family}-${speciesIndex}`.
+    expect(isSyntheticCode('agg-0-tyrannidae-0')).toBe(true);
+    expect(isSyntheticCode('agg-3-anatidae-2')).toBe(true);
+    // Family-less buckets emit `agg-${bucketIndex}-${rowIndex}`.
+    expect(isSyntheticCode('agg-7-12')).toBe(true);
+  });
+
+  it('returns false for real eBird species codes', () => {
+    expect(isSyntheticCode('norcar')).toBe(false);
+    expect(isSyntheticCode('vermfly')).toBe(false);
+    expect(isSyntheticCode('wlsfly')).toBe(false);
+    // Real codes that happen to contain "agg" anywhere but at the start
+    // (defensive — eBird codes are 6–8 lowercase letters, so this should
+    // never occur in practice, but the prefix-match contract is explicit).
+    expect(isSyntheticCode('zagger')).toBe(false);
+  });
+
+  it('returns false for null', () => {
+    expect(isSyntheticCode(null)).toBe(false);
+  });
+});
 
 function makeClient(overrides: Partial<ApiClient>): ApiClient {
   return Object.assign(new ApiClient(), overrides);
