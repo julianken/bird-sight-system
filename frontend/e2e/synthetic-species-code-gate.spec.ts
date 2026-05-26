@@ -126,9 +126,14 @@ test.describe('synthetic agg-* species code gate (#715)', () => {
       ).toHaveCount(0);
       expect(aggSpeciesRequests).toBe(0);
 
-      // Sheet still mounts on mobile — close affordance reachable.
+      // Sheet still mounts on mobile in its peek (collapsed) state — the
+      // sheet handle is the unambiguous affordance available regardless of
+      // expand/collapse state (the close `×` button only exists on desktop
+      // rail). With `data === null` post-guard, SpeciesDetailSurface returns
+      // null and the sheet body is empty — but the sheet itself remains
+      // mounted (state.detail truthy → branch in App.tsx fires).
       await expect(
-        page.getByRole('button', { name: /Close species detail/i }),
+        page.getByTestId('species-detail-sheet'),
       ).toBeVisible({ timeout: 5_000 });
     });
   });
