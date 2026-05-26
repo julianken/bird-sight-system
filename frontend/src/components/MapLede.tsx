@@ -15,6 +15,16 @@ export interface MapLedeProps {
   period: string;
   /** Freshness state from voice-and-content spec; "stale" drops the period clause. */
   freshness: Freshness;
+  /**
+   * Issue #716: when true, suppress Template 1 — counts are 0 because the
+   * initial fetch hasn't resolved yet, not because filters narrowed to empty.
+   * Re-fetches don't reset `observations` to `[]` (see use-bird-data.ts:87-101),
+   * so this flag only matters on first paint. The freshness meta-line is
+   * already empty during loading (deriveFreshness(null) → label ''), so the
+   * context strip collapses to nothing — matching FeedSurface's own loading
+   * branch (FeedSurface.tsx:353-358).
+   */
+  loading: boolean;
 }
 
 /**
@@ -29,7 +39,18 @@ export function MapLede({
   familyName,
   period,
   freshness,
+  loading,
 }: MapLedeProps) {
+  // Issue #716: suppress the lede during the cold-load window. Without this
+  // guard, the empty seed `observations: []` from useBirdData causes Template 1
+  // ("No sightings match your current filters.") to fire — misleading because
+  // the user hasn't applied any filters yet. Suppressing the lede entirely
+  // (rather than swapping in "Loading sightings…") avoids a transient string
+  // that would flash and get replaced ~1s later.
+  if (loading && observationCount === 0 && speciesCount === 0) {
+    return null;
+  }
+
   const periodClause = freshness === 'stale' ? '' : ` in the last ${period}`;
 
   let text: string;

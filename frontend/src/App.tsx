@@ -428,6 +428,7 @@ export function App() {
             {...(speciesName !== undefined ? { speciesName } : {})}
             freshness={freshnessState}
             freshnessLabel={freshnessLabel}
+            loading={loading}
           />
         )}
         {/*

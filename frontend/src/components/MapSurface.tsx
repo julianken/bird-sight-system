@@ -122,6 +122,15 @@ export interface MapSurfaceProps {
   freshness: Freshness;
   /** Pre-formatted freshness meta string (e.g. "Updated 11 min ago · Source: eBird"). */
   freshnessLabel: string;
+  /**
+   * Issue #716: cold-load gate forwarded to <MapLede>. While the initial
+   * /api/observations fetch is in flight, useBirdData's seeded empty
+   * `observations: []` would otherwise drive MapLede into Template 1
+   * ("No sightings match your current filters."), which is misleading
+   * before the user has applied any filters. Forward `loading` so MapLede
+   * can suppress itself on first paint.
+   */
+  loading: boolean;
 }
 
 /**
@@ -153,6 +162,7 @@ export function MapSurface({
   speciesName,
   freshness,
   freshnessLabel,
+  loading,
 }: MapSurfaceProps) {
   // Compute the expand-by-default once at mount. The component itself
   // (FamilyLegend) handles localStorage precedence + manual toggle.
@@ -208,6 +218,7 @@ export function MapSurface({
           familyName={familyName}
           period={period}
           freshness={freshness}
+          loading={loading}
         />
         <FilterSentence
           filters={{ since, notable, speciesCode, familyCode }}
