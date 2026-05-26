@@ -184,8 +184,12 @@ describe('useBirdData', () => {
     expect(result.current.error).toBeTruthy();
   });
 
-  it('hotspots rejection flips loading to false even when observations never resolve', async () => {
-    // Observations hang forever — only the hotspots effect can clear loading.
+  it('hotspots rejection surfaces error, observations stays loading (#720)', async () => {
+    // Observations hang forever; hotspots rejects. After the rejection,
+    // hotspotsLoading flips to false but observationsLoading remains true —
+    // and `loading` (the combined OR) stays true until observations also
+    // settles. This is the #720 fix: a shared flag was previously cleared
+    // by whichever effect settled first, which is the race that drove #716.
     const client = makeClient({
       getHotspots: vi.fn().mockRejectedValue(new Error('network error')),
       getObservations: vi.fn().mockReturnValue(new Promise(() => {})),
@@ -193,8 +197,48 @@ describe('useBirdData', () => {
 
     const { result } = renderHook(() => useBirdData(client, { since: '14d', notable: false }));
     expect(result.current.loading).toBe(true);
-    // Loading should still become false because the hotspots effect cleans up
-    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.hotspotsLoading).toBe(true);
+    expect(result.current.observationsLoading).toBe(true);
+
+    // hotspots effect settles → hotspotsLoading flips false; observations
+    // is still in flight so observationsLoading + combined loading stay true.
+    await waitFor(() => expect(result.current.hotspotsLoading).toBe(false));
+    expect(result.current.observationsLoading).toBe(true);
+    expect(result.current.loading).toBe(true);
     expect(result.current.error?.message).toBe('network error');
+  });
+
+  it('observationsLoading stays true while hotspots resolves first (#720 race)', async () => {
+    // The exact #716 production failure mode: hotspots resolves instantly
+    // (e.g. CDN cache hit), observations is in flight. With the old shared
+    // `loading` flag, hotspots' `.finally` flipped it to false while
+    // observations was still loading — and MapLede saw `loading=false +
+    // observations=[]` and rendered the misleading Template 1.
+    //
+    // After the split, observationsLoading is the source of truth for
+    // "have observations resolved yet?". This test pins that contract.
+    let releaseObservations: ((envelope: unknown) => void) | undefined;
+    const observationsPromise = new Promise<unknown>(resolve => {
+      releaseObservations = resolve;
+    });
+
+    const client = makeClient({
+      getHotspots: vi.fn().mockResolvedValue([{ locId: 'h1' }]),
+      getObservations: vi.fn().mockReturnValue(observationsPromise),
+    } as unknown as Partial<ApiClient>);
+
+    const { result } = renderHook(() => useBirdData(client, { since: '14d', notable: false }));
+
+    // hotspots resolves first; observations still in flight.
+    await waitFor(() => expect(result.current.hotspotsLoading).toBe(false));
+    expect(result.current.observationsLoading).toBe(true);
+    expect(result.current.loading).toBe(true);
+    expect(result.current.observations).toEqual([]);
+
+    // Release observations — both flags now clear.
+    releaseObservations?.({ data: [{ subId: 's1' }], meta: { freshestObservationAt: null } });
+    await waitFor(() => expect(result.current.observationsLoading).toBe(false));
+    expect(result.current.loading).toBe(false);
+    expect(result.current.observations).toHaveLength(1);
   });
 });

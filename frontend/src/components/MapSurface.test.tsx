@@ -71,8 +71,13 @@ const baseProps = {
   // Phase 3 required props — use defaults for pre-existing tests.
   since: '14d' as const,
   notable: false,
+  speciesCode: null as string | null,
   freshness: 'fresh' as const,
   freshnessLabel: 'Updated just now · Source: eBird',
+  // Issue #716: loading is the cold-load gate forwarded to MapLede. Default
+  // to false so pre-existing tests assert the post-load surface; the
+  // loading=true behavior is covered in MapLede.test.tsx.
+  loading: false,
 };
 
 // Issue #662: the "Skip to species list" skip-link + its `onSkipToFeed`

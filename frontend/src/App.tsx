@@ -99,7 +99,16 @@ export function App() {
   // (`DEFAULT_BBOX_CONUS`) rather than `undefined` — passing `undefined`
   // would degrade to a full-region fetch on first paint, exactly the
   // failure mode this wiring exists to prevent.
-  const { loading, error, observations, freshestObservationAt } = useBirdData(apiClient, {
+  // Issue #720: split loading into hotspots- vs observations-specific flags
+  // because the cold-load lede guard (MapLede #716) must key off the
+  // observation fetch specifically — under typical network conditions
+  // hotspots resolves first, flipping a shared `loading` flag to false
+  // while observations is still in flight and triggering the very
+  // Template-1 misfire #716 set out to suppress. FeedSurface and the
+  // <main aria-busy> attribute narrate observation data, so they switch
+  // to `observationsLoading` too. `loading` (combined) is retained for
+  // `data-render-complete`, which tracks the whole tree being ready.
+  const { loading, observationsLoading, error, observations, freshestObservationAt } = useBirdData(apiClient, {
     since: state.since,
     notable: state.notable,
     ...(state.speciesCode ? { speciesCode: state.speciesCode } : {}),
@@ -378,7 +387,7 @@ export function App() {
         ref={mainRef}
         id="main-surface"
         data-render-complete={renderComplete}
-        aria-busy={loading && state.view === 'feed'}
+        aria-busy={observationsLoading && state.view === 'feed'}
         // axe `scrollable-region-focusable` (WCAG 2.1.1): #main-surface
         // has `overflow: auto` so it can scroll when its content (e.g.
         // species detail with photo) exceeds the viewport. Keyboard users
@@ -389,7 +398,7 @@ export function App() {
       >
         {state.view === 'feed' && (
           <FeedSurface
-            loading={loading}
+            loading={observationsLoading}
             observations={observations}
             now={now}
             filters={{ notable: state.notable, since: state.since, speciesCode: state.speciesCode, familyCode: state.familyCode }}
@@ -428,6 +437,7 @@ export function App() {
             {...(speciesName !== undefined ? { speciesName } : {})}
             freshness={freshnessState}
             freshnessLabel={freshnessLabel}
+            loading={observationsLoading}
           />
         )}
         {/*

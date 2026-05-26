@@ -50,7 +50,15 @@ test.describe('Path A happy path', () => {
   // by the "feed row click opens detail surface" test below, which uses
   // ?view=feed to reach the dead-code feed branch.
 
-  test('species deep link cold-loads to map surface with filter active in FiltersBar (#688)', async ({ page }) => {
+  test('species deep link cold-loads to map surface with filter active in FiltersBar (#688)', async ({ page, apiStub }) => {
+    // Stub the three list endpoints to eliminate real-API timing dependency.
+    // Without this, the test's `/api/observations` fetch races against
+    // adjacent specs holding workers (e.g. map-cold-load.spec.ts test 2 sits
+    // on a 800ms `waitForTimeout`), and under CI's `workers: 2` concurrency
+    // the unstubbed request can drift past `waitForAppReady`'s budget. The
+    // assertions below are about URL + tab state, not observation data —
+    // empty stubs cover the surface without changing the behavior under test.
+    await apiStub.stubEmpty();
     const app = new AppPage(page);
     await app.goto('species=vermfly');
     await app.waitForAppReady();
