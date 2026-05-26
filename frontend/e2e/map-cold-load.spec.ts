@@ -14,9 +14,51 @@ import { AppPage } from './pages/app-page.js';
  * "post-load with stable data".
  */
 test.describe('Map cold load — issue #716', () => {
-  test('lede is suppressed until /api/observations resolves', async ({ page, apiStub }) => {
+  /**
+   * Observations payload used by both tests below. Two distinct species so
+   * post-load Template 4 ("N species seen across …") fires instead of the
+   * single-species-by-name form.
+   */
+  const observationsPayload = {
+    data: [
+      {
+        speciesCode: 'vermfly',
+        comName: 'Vermilion Flycatcher',
+        lat: 32.2,
+        lng: -110.9,
+        obsDt: '2026-05-26T12:00:00Z',
+        locId: 'L1',
+        locName: 'Tucson',
+        howMany: 1,
+        isNotable: false,
+        silhouetteId: null,
+        familyCode: 'tyrannidae',
+        subId: 'S1',
+      },
+      {
+        speciesCode: 'gilwoo',
+        comName: 'Gila Woodpecker',
+        lat: 32.3,
+        lng: -111.0,
+        obsDt: '2026-05-26T12:30:00Z',
+        locId: 'L2',
+        locName: 'Saguaro NP',
+        howMany: 2,
+        isNotable: false,
+        silhouetteId: null,
+        familyCode: 'picidae',
+        subId: 'S2',
+      },
+    ],
+    meta: {
+      freshestObservationAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+    },
+  };
+
+  test('lede is suppressed until /api/observations resolves (both endpoints held)', async ({ page, apiStub }) => {
     // Other endpoints resolve immediately so the rest of the app can boot;
-    // only `/api/observations` is held open to expose the cold-load window.
+    // hotspots and observations are both held so the cold-load window stays
+    // open until we release them. This case validates the basic suppression.
     await apiStub.stubEmpty();
 
     let releaseObservations: (() => void) | undefined;
@@ -24,13 +66,6 @@ test.describe('Map cold load — issue #716', () => {
       releaseObservations = resolve;
     });
 
-    // useBirdData has TWO independent effects: hotspots (one-time) and
-    // observations (refires on filter change). The shared `loading` flag
-    // is set true synchronously by the observations effect on mount, then
-    // ANY effect's `.finally(() => setLoading(false))` flips it. So if
-    // hotspots resolves before observations, `loading` flips to false even
-    // though observations is still in flight. Hold hotspots in parallel so
-    // the cold-load window stays open until WE release it.
     await page.route('**/api/hotspots', async route => {
       await observationsHeld;
       await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
@@ -43,75 +78,94 @@ test.describe('Map cold load — issue #716', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          data: [
-            // Two distinct species so post-load Template 4 fires
-            // ("2 species seen across …") instead of Template 2's
-            // single-species-by-name form.
-            {
-              speciesCode: 'vermfly',
-              comName: 'Vermilion Flycatcher',
-              lat: 32.2,
-              lng: -110.9,
-              obsDt: '2026-05-26T12:00:00Z',
-              locId: 'L1',
-              locName: 'Tucson',
-              howMany: 1,
-              isNotable: false,
-              silhouetteId: null,
-              familyCode: 'tyrannidae',
-              subId: 'S1',
-            },
-            {
-              speciesCode: 'gilwoo',
-              comName: 'Gila Woodpecker',
-              lat: 32.3,
-              lng: -111.0,
-              obsDt: '2026-05-26T12:30:00Z',
-              locId: 'L2',
-              locName: 'Saguaro NP',
-              howMany: 2,
-              isNotable: false,
-              silhouetteId: null,
-              familyCode: 'picidae',
-              subId: 'S2',
-            },
-          ],
-          meta: {
-            freshestObservationAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
-          },
-        }),
+        body: JSON.stringify(observationsPayload),
       });
     });
 
     const app = new AppPage(page);
     await app.goto();
 
-    // First, wait for <main> to be attached so we know the React tree mounted.
     // <main data-render-complete="false"> is the loading-state marker —
-    // App.tsx flips it to "true" only when useBirdData's `loading` settles.
+    // App.tsx flips it to "true" only when useBirdData's combined `loading`
+    // settles. We wait for it to confirm React mounted.
     await page
       .locator('main[data-render-complete="false"]')
       .waitFor({ state: 'attached', timeout: 5_000 });
 
-    // During the cold-load window — `data-render-complete="false"` ⇒
-    // `loading === true` — the MapLede must not exist in the DOM. The fix
-    // returns `null` rather than rendering Template 1.
     const lede = page.locator('.map-lede');
     await expect(lede).toHaveCount(0);
 
-    // Sanity check: the misleading Template 1 string must not be present
-    // anywhere on the page during the loading window.
     await expect(
       page.getByRole('heading', { name: 'No sightings match your current filters.' }),
     ).toHaveCount(0);
 
-    // Release the held responses; loading settles; the real template renders.
     releaseObservations?.();
 
     await expect(lede).toBeVisible({ timeout: 10_000 });
     await expect(lede).not.toHaveText('No sightings match your current filters.');
-    // Template 4 form: "{N} species seen across {REGION} in the last {period}."
+    await expect(lede).toHaveText(/\d+ species seen across .+ in the last .+\./);
+  });
+
+  /**
+   * The actual #716 production failure mode (and the gap #720 closed): on a
+   * normal network, `/api/hotspots` resolves before `/api/observations`. With
+   * the old shared `loading` flag, hotspots' `.finally(setLoading(false))`
+   * cleared the flag while observations was still in flight — and MapLede
+   * saw `loading=false + observations=[]`, firing Template 1.
+   *
+   * This test reproduces that race by letting hotspots resolve immediately
+   * while holding only `/api/observations`. The lede must STILL be suppressed
+   * during the observations-only loading window. Before the #720 split this
+   * test would fail; after the split (App.tsx threads `observationsLoading`
+   * to MapSurface/MapLede) it passes.
+   */
+  test('lede stays suppressed when only /api/observations is in flight (#720 race)', async ({ page, apiStub }) => {
+    await apiStub.stubEmpty();
+
+    let releaseObservations: (() => void) | undefined;
+    const observationsHeld = new Promise<void>(resolve => {
+      releaseObservations = resolve;
+    });
+
+    // Hotspots resolves IMMEDIATELY — this is the network condition that
+    // breaks the shared-loading-flag implementation.
+    await page.route('**/api/hotspots', async route => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    });
+
+    // Only observations is held.
+    await page.route('**/api/observations**', async route => {
+      await observationsHeld;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(observationsPayload),
+      });
+    });
+
+    const app = new AppPage(page);
+    await app.goto();
+
+    // Wait for the React tree to mount.
+    await page.locator('main').waitFor({ state: 'attached', timeout: 5_000 });
+
+    // The cold-load window: hotspots has resolved, observations has not.
+    // The lede MUST NOT render — neither the misleading Template 1 nor any
+    // other variant — because observationCount + speciesCount are still 0
+    // pre-resolution. Hold the assertion for ~1s to make sure we're not just
+    // catching a transient null-render between two render passes.
+    const lede = page.locator('.map-lede');
+    await expect(lede).toHaveCount(0);
+    await page.waitForTimeout(800);
+    await expect(lede).toHaveCount(0);
+
+    await expect(
+      page.getByRole('heading', { name: 'No sightings match your current filters.' }),
+    ).toHaveCount(0);
+
+    // Release observations; the real lede now renders.
+    releaseObservations?.();
+    await expect(lede).toBeVisible({ timeout: 10_000 });
     await expect(lede).toHaveText(/\d+ species seen across .+ in the last .+\./);
   });
 });
