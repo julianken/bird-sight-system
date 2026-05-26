@@ -76,8 +76,10 @@ test('desktop 1440×900: hover cell → preview → click → popover → specie
   if (!linkVisible) {
     // All rows are non-clickable (every row's code is synthetic, #715) — verify
     // the static-row branch IS rendered (rows exist as <span>s) and the URL
-    // did NOT change to ?detail=. This is the intended z<6 behaviour.
-    await expect(page.locator('[data-testid="cell-popover-row"]').first()).toBeVisible();
+    // did NOT change to ?detail=. This is the intended z<6 behaviour. Use
+    // `attached` rather than `visible` — rows below the fold of a scrollable
+    // popover are still real DOM nodes.
+    await expect(page.locator('[data-testid="cell-popover-row"]').first()).toBeAttached();
     await expect(page).not.toHaveURL(/[?&]detail=/);
     return;
   }
@@ -176,10 +178,12 @@ test('@coarse tablet 768×1024: tap marker → cluster-list popover → tap spec
   // #715: at default zoom (aggregated mode) every code is synthetic and the
   // popover renders rows as static <span>s, not links. Fall back to verifying
   // the static-row branch in that case (rows exist + URL did not change).
+  // Rows may be off-screen in a scrollable popover container on smaller
+  // viewports — use `attached` rather than `visible` for the existence check.
   const link = page.locator('.cluster-list-popover__rows a[role="link"]').first();
   const linkVisible = await link.waitFor({ state: 'visible', timeout: 5_000 }).then(() => true).catch(() => false);
   if (!linkVisible) {
-    await expect(page.locator('[data-testid="cluster-list-popover-row"]').first()).toBeVisible();
+    await expect(page.locator('[data-testid="cluster-list-popover-row"]').first()).toBeAttached();
     await expect(page).not.toHaveURL(/[?&]detail=/);
     return;
   }
