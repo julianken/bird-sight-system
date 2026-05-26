@@ -24,3 +24,4 @@ required on that PR.
 
 | PR | Date | R13 fired? | Tier | Finding summary | FP? (Y/N) |
 |----|------|------------|------|-----------------|-----------|
+| #723 | 2026-05-26 | YES | T4 | Stale PhenologyChart+phenology-bottom-sentinel code block in superseded plan doc; banner present but code block not updated | N |
