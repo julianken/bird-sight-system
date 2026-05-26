@@ -214,6 +214,59 @@ describe('<CellPopover>', () => {
     expect(onSelectSpecies).not.toHaveBeenCalled();
   });
 
+  it('renders rows as <span> with NO link role when speciesCode is synthetic (#715 — agg-*)', () => {
+    const anchor = makeAnchor();
+    render(
+      <CellPopover
+        familyCode="anatidae"
+        familyCount={53}
+        species={[species('anatidae', 53, 'agg-3-anatidae-2')]}
+        anchorEl={anchor}
+        onDismiss={vi.fn()}
+        onSelectSpecies={vi.fn()}
+      />
+    );
+    expect(screen.getByText(/53x anatidae/)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /anatidae/ })).toBeNull();
+  });
+
+  it('does NOT call onSelectSpecies when a synthetic-code row is clicked (#715)', () => {
+    const anchor = makeAnchor();
+    const onSelectSpecies = vi.fn();
+    render(
+      <CellPopover
+        familyCode="anatidae"
+        familyCount={53}
+        species={[species('anatidae', 53, 'agg-3-anatidae-2')]}
+        anchorEl={anchor}
+        onDismiss={vi.fn()}
+        onSelectSpecies={onSelectSpecies}
+      />
+    );
+    fireEvent.click(screen.getByText(/53x anatidae/));
+    expect(onSelectSpecies).not.toHaveBeenCalled();
+  });
+
+  it('does NOT call onSelectSpecies on Enter for a synthetic-code row (#715)', () => {
+    const anchor = makeAnchor();
+    const onSelectSpecies = vi.fn();
+    render(
+      <CellPopover
+        familyCode="anatidae"
+        familyCount={53}
+        species={[species('anatidae', 53, 'agg-3-anatidae-2')]}
+        anchorEl={anchor}
+        onDismiss={vi.fn()}
+        onSelectSpecies={onSelectSpecies}
+      />
+    );
+    // Synthetic rows render as <span> not <a>; there is nothing keyboard-
+    // focusable to receive Enter, and an Enter on the static span is a no-op.
+    const row = screen.getByText(/53x anatidae/);
+    fireEvent.keyDown(row, { key: 'Enter' });
+    expect(onSelectSpecies).not.toHaveBeenCalled();
+  });
+
   it('calls onDismiss + returns focus to anchorEl when Escape is pressed', () => {
     const anchor = makeAnchor();
     const onDismiss = vi.fn();
