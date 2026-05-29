@@ -164,6 +164,22 @@ export async function getObservations(
     );
     params.push(f.bbox[0], f.bbox[1], f.bbox[2], f.bbox[3]);
   }
+  if (f.stateCode) {
+    // #733 — hard server-side state clip (`?state=US-XX`). Two predicates back
+    // one param (mirrors the bbox i1..i4 single-push pattern). The `&&`
+    // envelope-overlap uses the obs_geom_idx GIST index to prune to the
+    // state's bounding box; ST_Intersects then does the exact polygon test.
+    // ST_Intersects (NOT ST_Contains) is the inclusive idiom: a point on a
+    // simplified shared border resolves into a state rather than vanishing.
+    // ARG ORDER: polygon FIRST — `ST_Intersects(polygon, point)`. This is the
+    // REVERSE of the bbox block above (`ST_Intersects(geom, envelope)`); the
+    // order is intentional and is not a bug to "correct". Appending here AND-s
+    // the clip with since/notable/species/family/bbox automatically.
+    const si = params.length + 1;
+    conditions.push(`o.geom && (SELECT geom FROM state_boundaries WHERE state_code = $${si})`);
+    conditions.push(`ST_Intersects((SELECT geom FROM state_boundaries WHERE state_code = $${si}), o.geom)`);
+    params.push(f.stateCode);
+  }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -273,6 +289,17 @@ export async function getObservationsAggregated(
       `ST_Intersects(geom, ST_MakeEnvelope($${i1}, $${i2}, $${i3}, $${i4}, 4326))`
     );
     params.push(f.bbox[0], f.bbox[1], f.bbox[2], f.bbox[3]);
+  }
+  if (f.stateCode) {
+    // #733 — identical state clip to getObservations (the aggregated path
+    // must clip too, so a low-zoom state view never aggregates out-of-state
+    // observations). ARG ORDER: polygon FIRST — `ST_Intersects(polygon, point)`,
+    // the reverse of the bbox block above; intentional, not a bug. One param
+    // backs both `$si` references.
+    const si = params.length + 1;
+    conditions.push(`o.geom && (SELECT geom FROM state_boundaries WHERE state_code = $${si})`);
+    conditions.push(`ST_Intersects((SELECT geom FROM state_boundaries WHERE state_code = $${si}), o.geom)`);
+    params.push(f.stateCode);
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
