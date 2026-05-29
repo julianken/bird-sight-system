@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve as resolvePath } from 'node:path';
 import {
   resolveStateForPoint,
+  assertStateCodeSorted,
   type StatePolygonCollection,
 } from './state-polygons.ts';
 
@@ -134,12 +135,27 @@ function main(): void {
     readFileSync(polyPath, 'utf8'),
   ) as StatePolygonCollection;
 
+  // Guard the load-bearing invariant: resolveStateForPoint's first-match border
+  // tie-break only mirrors the server's ORDER BY state_code ASC while features
+  // stay sorted. Fail the build loudly if #728's generator ever re-orders them.
+  assertStateCodeSorted(collection);
+
   const rows = parseGazetteer(gazText);
   const { index, dropped, inputCount } = buildZipIndex(rows, collection);
 
-  // Stable key order: sort ZIPs ascending so the artifact is reproducible.
+  // Deterministic (git-diff-stable) key order. NOTE: we cannot guarantee a
+  // lexicographically-sorted *serialized* object — JSON.stringify follows the
+  // ECMAScript own-property order, which emits canonical integer-index keys
+  // ("10001") in ascending NUMERIC order ahead of any leading-zero key
+  // ("08904"), regardless of insertion order. So a plain `.sort()` here would
+  // be a no-op for the all-numeric ZIP keys. Insertion order below is
+  // numeric-ascending purely so the build is reproducible; the artifact's
+  // serialized order is the V8 integer-key order, not a flat ascending run.
+  // This is harmless for the D3 keyed lookup (`zips[zip]`) — order never
+  // matters to a hash-map read — and the order is fully deterministic, so the
+  // committed file is git-diff stable across rebuilds.
   const sortedZips: Record<string, [number, number, number]> = {};
-  for (const zip of Object.keys(index.zips).sort()) {
+  for (const zip of Object.keys(index.zips).sort((a, b) => Number(a) - Number(b))) {
     sortedZips[zip] = index.zips[zip];
   }
   const sortedIndex: ZipIndex = { ...index, zips: sortedZips };

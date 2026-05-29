@@ -49,3 +49,28 @@ export function resolveStateForPoint(
   }
   return null;
 }
+
+/**
+ * Throw unless `collection.features` is in ascending `state_code` order.
+ *
+ * `resolveStateForPoint` returns the FIRST containing polygon, so its
+ * border-tie-break only matches the server accessor's `ORDER BY state_code ASC`
+ * while the canonical GeoJSON stays `state_code`-sorted. Nothing in the source
+ * geometry enforces that, so the ETL's `main()` calls this as a build-time guard:
+ * if #728's generator ever re-orders features, the build fails loudly here
+ * rather than silently letting the offline PIP and the server clip disagree on
+ * a border centroid.
+ */
+export function assertStateCodeSorted(collection: StatePolygonCollection): void {
+  const codes = collection.features.map((f) => f.properties.state_code);
+  for (let i = 1; i < codes.length; i++) {
+    if (codes[i] < codes[i - 1]) {
+      throw new Error(
+        `state-polygons.geojson is not state_code-sorted: "${codes[i]}" follows ` +
+          `"${codes[i - 1]}" at feature ${i}. resolveStateForPoint's first-match ` +
+          `border tie-break only mirrors the server's ORDER BY state_code ASC ` +
+          `while features stay sorted — re-sort the generator output (#728).`,
+      );
+    }
+  }
+}

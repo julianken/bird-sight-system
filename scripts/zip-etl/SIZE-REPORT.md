@@ -61,15 +61,29 @@ fallback by design.
 Columnar, not array-of-objects:
 
 ```json
-{ "v": 1, "states": ["US-AL", ...], "zips": { "01001": [42.06237, -72.62575, 1], ... } }
+{ "v": 1, "states": ["US-MA", "US-RI", ...], "zips": { "10001": [40.75064, -73.99718, ...], ... } }
 ```
 
-- `states[]` — deduped palette of `US-XX` codes; `zips[zip][2]` indexes into it
-  (saves repeating the 5-char code on every one of 32,551 rows).
+(Head of the real committed artifact: `states[0]` is `US-MA` because the palette
+is in **first-encounter** order — the first kept ZCTA centroid resolves to MA —
+not alphabetical; and the first serialized `zips` key is `10001`, see the
+ordering note below.)
+
+- `states[]` — deduped palette of `US-XX` codes in first-encounter order;
+  `zips[zip][2]` indexes into it (saves repeating the 5-char code on every one
+  of 32,551 rows).
 - `zips[zip]` — `[lat, lng, stateIdx]`, coordinates rounded to **5 decimals**
   (~1.1 m), matching the polygon coordinate precision so the two artifacts stay
   numerically aligned.
-- `zips` keys are emitted in ascending ZIP order for a reproducible artifact.
+- `zips` keys are inserted in numeric-ascending order at build time, so the file
+  is **deterministic / git-diff-stable** across rebuilds. The *serialized* order
+  is NOT a flat ascending run, though: `JSON.stringify` follows ECMAScript
+  own-property order, which emits canonical integer-index keys (`10001`) in
+  ascending numeric order ahead of leading-zero keys (`08904`). The committed
+  file therefore runs `10001…99999` first, then the 0xxxx (Northeast) block last
+  (`01001` at ~row 30,170, `08904` last). Order is irrelevant to the D3 keyed
+  lookup (`zips[zip]`), so this is harmless — it's documented only so the file
+  head isn't mistaken for a bug.
 
 ## Regenerating
 

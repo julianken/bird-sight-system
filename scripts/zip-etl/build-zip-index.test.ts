@@ -18,7 +18,11 @@ import {
   buildZipIndex,
   ZIP_INDEX_VERSION,
 } from './build-zip-index.ts';
-import type { StatePolygonCollection } from './state-polygons.ts';
+import {
+  assertStateCodeSorted,
+  type StatePolygonCollection,
+  type StatePolygonFeature,
+} from './state-polygons.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const polyPath = resolvePath(here, '..', '..', 'data', 'us-state-polygons.geojson');
@@ -70,6 +74,36 @@ describe('parseGazetteerLine', () => {
     expect(parseGazetteerLine('85701\t1\t0')).toBeNull();
     expect(parseGazetteerLine('ABCDE\t1\t0\t0\t0\t32.2\t-110.9')).toBeNull();
     expect(parseGazetteerLine('85701\t1\t0\t0\t0\tNaN\t-110.9')).toBeNull();
+  });
+});
+
+describe('assertStateCodeSorted', () => {
+  /** Minimal feature carrying only the `state_code` the guard inspects. */
+  const feat = (state_code: string): StatePolygonFeature =>
+    ({
+      type: 'Feature',
+      geometry: { type: 'Polygon', coordinates: [] },
+      properties: { state_code, name: state_code, bbox: [0, 0, 0, 0] },
+    }) as StatePolygonFeature;
+
+  it('passes for the committed canonical polygon collection', () => {
+    expect(() => assertStateCodeSorted(collection)).not.toThrow();
+  });
+
+  it('passes for an ascending-by-state_code collection', () => {
+    const c: StatePolygonCollection = {
+      type: 'FeatureCollection',
+      features: [feat('US-AL'), feat('US-AZ'), feat('US-CA')],
+    };
+    expect(() => assertStateCodeSorted(c)).not.toThrow();
+  });
+
+  it('throws when features are out of state_code order', () => {
+    const c: StatePolygonCollection = {
+      type: 'FeatureCollection',
+      features: [feat('US-AZ'), feat('US-AL'), feat('US-CA')],
+    };
+    expect(() => assertStateCodeSorted(c)).toThrow(/not state_code-sorted/);
   });
 });
 
