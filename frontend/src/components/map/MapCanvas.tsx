@@ -668,6 +668,13 @@ export function MapCanvas({
   );
   const maskPolygonRef = useRef<MultiPolygon | null>(maskPolygon ?? null);
   maskPolygonRef.current = maskPolygon ?? null;
+  // `styleEpoch` bumps once per `style.load` (i.e. per theme `setStyle` swap).
+  // It is a dep of the float/sink effect so that effect RE-RUNS after the new
+  // style finishes loading — by which time react-map-gl's reconcile has re-added
+  // `state-mask-fill`, so the guard passes and the float layers (which `setStyle`
+  // dropped) are restored. Without this, a theme swap left the artboard with NO
+  // halo/outline until the next unrelated render.
+  const [styleEpoch, setStyleEpoch] = useState(0);
   /* Coarse-pointer detection (#247, mobile; also used by auto-spider hit
      targets in #277). matchMedia is the canonical way; we read it on mount
      and listen for changes. */
@@ -833,8 +840,12 @@ export function MapCanvas({
     const map = mapRef.current?.getMap();
     if (!map) return;
 
-    const reapplyIsolation = () => {
+    const onStyleLoad = () => {
       const poly = maskPolygonRef.current;
+      // Bump the epoch unconditionally so the float/sink effect re-runs after
+      // EVERY style reload (it re-adds the floats `setStyle` dropped, once the
+      // reconcile has re-added `state-mask-fill`).
+      setStyleEpoch((n) => n + 1);
       if (!poly) return; // no state scope → no isolation (us/chooser untouched)
       try {
         // The within test uses the OUTWARD-BUFFERED polygon (so near-border
@@ -848,9 +859,9 @@ export function MapCanvas({
       }
     };
 
-    map.on('style.load', reapplyIsolation);
+    map.on('style.load', onStyleLoad);
     return () => {
-      map.off('style.load', reapplyIsolation);
+      map.off('style.load', onStyleLoad);
     };
     // mapReady-only: the handler reads maskPolygon from a ref, so it must NOT
     // re-register on every prop change (that would leak listeners).
@@ -911,7 +922,9 @@ export function MapCanvas({
     } catch {
       /* defensive — layer/style churn after a swap */
     }
-  }, [mapReady, maskPolygon, maskTheme]);
+    // `styleEpoch` re-runs this AFTER a theme `setStyle`+`style.load` so the
+    // floats `setStyle` dropped are re-added once `state-mask-fill` is back.
+  }, [mapReady, maskPolygon, maskTheme, styleEpoch]);
 
   // (3b-teardown) Restore label filters + remove float layers when the mask
   // unmounts (scope → us/chooser) OR the component unmounts. Keyed ONLY on

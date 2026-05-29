@@ -11,6 +11,7 @@ import {
   MASK_LAYER_ID,
   ARTBOARD_HALO_ID,
   ARTBOARD_OUTLINE_ID,
+  ARTBOARD_LINE_SOURCE_ID,
   isIsolatableSymbolLayer,
 } from './artboard-layers.js';
 
@@ -73,6 +74,7 @@ function makeStyleLayers() {
 function makeMockMap(layers = makeStyleLayers()) {
   const layersById: Record<string, { id: string; type: string; filter?: unknown }> =
     Object.fromEntries(layers.map((l) => [l.id, l]));
+  const sources: Record<string, unknown> = {};
   return {
     layers,
     layersById,
@@ -82,6 +84,13 @@ function makeMockMap(layers = makeStyleLayers()) {
       if (layersById[id]) layersById[id].filter = filter;
     }),
     getLayer: vi.fn((id: string) => layersById[id]),
+    getSource: vi.fn((id: string) => sources[id]),
+    addSource: vi.fn((id: string, src: unknown) => {
+      sources[id] = src;
+    }),
+    removeSource: vi.fn((id: string) => {
+      delete sources[id];
+    }),
     moveLayer: vi.fn(),
     addLayer: vi.fn(),
     removeLayer: vi.fn(),
@@ -345,6 +354,19 @@ describe('addFloatLayers / removeFloatLayers', () => {
     expect(haloColor(lightMap)).not.toEqual(haloColor(darkMap));
   });
 
+  it('adds ONE explicit named source shared by both layers (no per-layer inline source → no orphan on setStyle)', () => {
+    const map = makeMockMap();
+    addFloatLayers(map as never, AZ_POLYGON, MASK_LAYER_ID, 'light');
+    expect(map.addSource).toHaveBeenCalledWith(
+      ARTBOARD_LINE_SOURCE_ID,
+      expect.objectContaining({ type: 'geojson' }),
+    );
+    // Both layers reference the named source by id (string), not an inline object.
+    const added = map.addLayer.mock.calls.map((c) => c[0] as { id: string; source: unknown });
+    expect(added.find((l) => l.id === ARTBOARD_HALO_ID)?.source).toBe(ARTBOARD_LINE_SOURCE_ID);
+    expect(added.find((l) => l.id === ARTBOARD_OUTLINE_ID)?.source).toBe(ARTBOARD_LINE_SOURCE_ID);
+  });
+
   it('is idempotent — guarded removal of an already-present layer before re-add', () => {
     const map = makeMockMap();
     // Float layers already present in the style (post theme-swap re-apply).
@@ -354,17 +376,22 @@ describe('addFloatLayers / removeFloatLayers', () => {
     expect(map.removeLayer).toHaveBeenCalledWith(ARTBOARD_OUTLINE_ID);
   });
 
-  it('removeFloatLayers removes both float layers idempotently (guarded, no throw if absent)', () => {
+  it('removeFloatLayers removes both float layers AND the shared source (guarded, no throw if absent)', () => {
     const layers = makeStyleLayers().filter(
       (l) => l.id !== ARTBOARD_HALO_ID && l.id !== ARTBOARD_OUTLINE_ID,
     );
     const map = makeMockMap(layers);
     expect(() => removeFloatLayers(map as never)).not.toThrow();
 
+    // A map where the floats + source ARE present: remove both layers + source.
     const present = makeMockMap();
+    addFloatLayers(present as never, AZ_POLYGON, MASK_LAYER_ID, 'light');
+    present.removeLayer.mockClear();
+    present.removeSource.mockClear();
     removeFloatLayers(present as never);
     expect(present.removeLayer).toHaveBeenCalledWith(ARTBOARD_HALO_ID);
     expect(present.removeLayer).toHaveBeenCalledWith(ARTBOARD_OUTLINE_ID);
+    expect(present.removeSource).toHaveBeenCalledWith(ARTBOARD_LINE_SOURCE_ID);
   });
 });
 

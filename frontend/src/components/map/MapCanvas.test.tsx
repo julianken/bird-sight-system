@@ -2249,7 +2249,7 @@ describe('MapCanvas state-artboard mask (#762)', () => {
     warnSpy.mockRestore();
   });
 
-  it('[reconcile split] a style.load reload re-invokes setFilter, NOT moveLayer, in the style.load handler', async () => {
+  it('[reconcile split] the style.load HANDLER re-invokes setFilter only — never moveLayer (the stray-sink lives in the post-reconcile maskPolygon effect)', async () => {
     render(
       <MapCanvas
         observations={[]}
@@ -2267,21 +2267,57 @@ describe('MapCanvas state-artboard mask (#762)', () => {
     fakeMap.setFilter.mockClear();
     fakeMap.moveLayer.mockClear();
 
-    // Fire the style.load handler in ISOLATION (a style reload — e.g. the
-    // setStyle the [data-theme] MutationObserver triggers). This is the exact
-    // moment the AC targets: the style.load HANDLER must re-apply label
-    // isolation only, never the moveLayer stray-sink (which lives in the
-    // maskPolygon effect that runs AFTER react-map-gl re-adds state-mask-fill).
+    // Simulate the reconcile WINDOW: react-map-gl has not re-added the mask
+    // layer yet (getLayer('state-mask-fill') → undefined). Now fire style.load.
+    // The handler re-applies LABEL isolation (setFilter); the styleEpoch bump it
+    // emits re-runs the (3b) effect, which — because the mask is still absent —
+    // warn-and-returns WITHOUT moveLayer. So across the whole flush, the ONLY
+    // imperative op is setFilter: the handler never sinks, proving the split.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     await act(async () => {
-      fakeMap.__resetStyleLayers();
+      fakeMap.__setMaskLayerPresent(false);
+      (bareHandlersAll['style.load'] ?? []).forEach((cb) => cb());
+      await Promise.resolve();
+    });
+    expect(fakeMap.setFilter).toHaveBeenCalled(); // label isolation re-applied
+    expect(fakeMap.moveLayer).not.toHaveBeenCalled(); // never from the handler
+    warnSpy.mockRestore();
+  });
+
+  it('[theme swap] float layers are RE-ADDED after a style.load (styleEpoch re-fires the float effect once the mask is back)', async () => {
+    render(
+      <MapCanvas
+        observations={[]}
+        silhouettes={SILHOUETTES}
+        bounds={AZ_BOUNDS}
+        boundsKey="US-AZ"
+        maskPolygon={AZ_POLYGON}
+        clampPad={ARTBOARD_PAD}
+      />,
+    );
+    await waitFor(() => {
+      const ids = (fakeMap.addLayer.mock.calls as Array<[{ id?: string }]>).map((c) => c[0]?.id);
+      expect(ids).toContain('state-artboard-halo');
+    });
+    fakeMap.addLayer.mockClear();
+    fakeMap.moveLayer.mockClear();
+
+    // A style.load reload (the mask layer IS present, mirroring react-map-gl
+    // having reconciled it by the time the styleEpoch effect re-runs).
+    await act(async () => {
+      fakeMap.__resetStyleLayers(); // mask present
       (bareHandlersAll['style.load'] ?? []).forEach((cb) => cb());
       await Promise.resolve();
     });
 
-    // The style.load handler re-applied LABEL isolation only…
-    expect(fakeMap.setFilter).toHaveBeenCalled();
-    // …and did NOT call moveLayer.
-    expect(fakeMap.moveLayer).not.toHaveBeenCalled();
+    // The styleEpoch bump re-ran the float/sink effect: floats re-added + sunk.
+    const reAdded = (fakeMap.addLayer.mock.calls as Array<[{ id?: string }]>)
+      .map((c) => c[0]?.id)
+      .filter((id): id is string => id === 'state-artboard-halo' || id === 'state-artboard-outline');
+    expect(reAdded).toEqual(
+      expect.arrayContaining(['state-artboard-halo', 'state-artboard-outline']),
+    );
+    expect(fakeMap.moveLayer).toHaveBeenCalled();
   });
 
   it('teardown (state→us): restores captured original filters and removes float layers', async () => {

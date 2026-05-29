@@ -39,6 +39,16 @@ export const MASK_LAYER_ID = 'state-mask-fill';
 /** Stable, app-owned float-layer ids so re-apply can guard + remove idempotently. */
 export const ARTBOARD_HALO_ID = 'state-artboard-halo';
 export const ARTBOARD_OUTLINE_ID = 'state-artboard-outline';
+/**
+ * Stable, app-owned source id shared by BOTH float layers. Using one EXPLICIT
+ * named source (rather than an inline `source` object per layer) is load-bearing
+ * for theme swaps: an inline source is auto-named and is NOT removed by
+ * `removeLayer`, so each `setStyle` swap orphaned two anonymous sources. The
+ * orphans surfaced as a maplibre render-time `coalesceChanges` TypeError
+ * ("Cannot convert undefined or null to object") under rapid swaps. A named
+ * source we add/remove explicitly avoids the orphan entirely.
+ */
+export const ARTBOARD_LINE_SOURCE_ID = 'state-artboard-line';
 
 /**
  * Float-layer paint tokens.
@@ -83,6 +93,9 @@ export interface ArtboardMap {
   getFilter: (layerId: string) => unknown;
   setFilter: (layerId: string, filter: unknown) => void;
   getLayer: (layerId: string) => unknown;
+  getSource: (sourceId: string) => unknown;
+  addSource: (sourceId: string, source: Record<string, unknown>) => void;
+  removeSource: (sourceId: string) => void;
   moveLayer: (layerId: string, beforeId?: string) => void;
   addLayer: (layer: Record<string, unknown>, beforeId?: string) => void;
   removeLayer: (layerId: string) => void;
@@ -346,12 +359,15 @@ export function addFloatLayers(
   }
 
   // A line feature tracing every exterior ring of the state. (MapLibre draws a
-  // `line` layer from a Polygon/MultiPolygon by stroking each ring.)
+  // `line` layer from a Polygon/MultiPolygon by stroking each ring.) Both float
+  // layers share ONE explicit named source (see ARTBOARD_LINE_SOURCE_ID) so the
+  // source is removable on teardown and never orphans across a setStyle swap.
   const outlineFeature: Feature<MultiPolygon> = {
     type: 'Feature',
     properties: {},
     geometry: maskPolygon,
   };
+  map.addSource(ARTBOARD_LINE_SOURCE_ID, { type: 'geojson', data: outlineFeature });
 
   // Halo added first, then the crisp outline — so the outline paints ON TOP of
   // the halo (both below `aboveMaskAnchor`, i.e. just above the mask fill).
@@ -359,7 +375,7 @@ export function addFloatLayers(
     {
       id: ARTBOARD_HALO_ID,
       type: 'line',
-      source: { type: 'geojson', data: outlineFeature },
+      source: ARTBOARD_LINE_SOURCE_ID,
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
         'line-color': haloColor,
@@ -374,7 +390,7 @@ export function addFloatLayers(
     {
       id: ARTBOARD_OUTLINE_ID,
       type: 'line',
-      source: { type: 'geojson', data: outlineFeature },
+      source: ARTBOARD_LINE_SOURCE_ID,
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
         'line-color': outlineColor,
@@ -385,7 +401,11 @@ export function addFloatLayers(
   );
 }
 
-/** Idempotent, guarded removal of both float layers (no throw if absent). */
+/**
+ * Idempotent, guarded removal of both float layers AND their shared source (no
+ * throw if absent). The source is removed LAST — maplibre errors if a source is
+ * removed while a layer still references it.
+ */
 export function removeFloatLayers(map: ArtboardMap): void {
   for (const id of [ARTBOARD_OUTLINE_ID, ARTBOARD_HALO_ID]) {
     try {
@@ -393,6 +413,13 @@ export function removeFloatLayers(map: ArtboardMap): void {
     } catch {
       /* defensive — layer/style gone after a swap or disposal */
     }
+  }
+  try {
+    if (map.getSource(ARTBOARD_LINE_SOURCE_ID) != null) {
+      map.removeSource(ARTBOARD_LINE_SOURCE_ID);
+    }
+  } catch {
+    /* defensive — source gone after a swap or disposal */
   }
 }
 
