@@ -31,6 +31,14 @@ import {
   MASK_FILL_DARK,
 } from './mask.js';
 import {
+  applyLabelIsolation,
+  restoreLabelIsolation,
+  bufferIsolationPolygon,
+  applyArtboardFidelity,
+  removeFloatLayers,
+  MASK_LAYER_ID,
+} from './artboard-layers.js';
+import {
   observationsToGeoJson,
   buildClusterLayerSpec,
   buildClusterCountLayerSpec,
@@ -645,6 +653,21 @@ export function MapCanvas({
       ? 'dark'
       : 'light',
   );
+
+  // #763 — artboard FIDELITY imperative state.
+  //
+  // `savedFiltersRef` holds the basemap symbol layers' ORIGINAL filters captured
+  // when `applyLabelIsolation` ran, so `restoreLabelIsolation` can undo the
+  // `['within', …]` merge exactly when the mask unmounts (scope → us/chooser).
+  //
+  // `maskPolygonRef` mirrors the current prop so the ONCE-registered
+  // `style.load` handler (which would otherwise close over a stale value) reads
+  // the live polygon at swap time. Updated synchronously on render.
+  const savedFiltersRef = useRef<ReturnType<typeof applyLabelIsolation> | null>(
+    null,
+  );
+  const maskPolygonRef = useRef<MultiPolygon | null>(maskPolygon ?? null);
+  maskPolygonRef.current = maskPolygon ?? null;
   /* Coarse-pointer detection (#247, mobile; also used by auto-spider hit
      targets in #277). matchMedia is the canonical way; we read it on mount
      and listen for changes. */
@@ -767,6 +790,150 @@ export function MapCanvas({
     map.on('moveend', apply);
     return () => {
       map.off('moveend', apply);
+    };
+  }, [mapReady, maskPolygon]);
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // #763 — artboard FIDELITY: label isolation + clean exterior + float layers.
+  //
+  // ⚠ RECONCILE-SEQUENCING SPLIT (do NOT collapse this into one effect/handler).
+  //
+  // `map.setStyle()` (fired by the [data-theme] MutationObserver below) clears
+  // and asynchronously reloads ALL layers — dropping both the merged label
+  // filters AND the float layers — so everything must be re-applied after each
+  // swap. But the two halves have DIFFERENT timing requirements:
+  //
+  //   (3a) Label-filter isolation re-applies in `style.load`. Basemap symbol
+  //        layers exist immediately on style load and `applyLabelIsolation`
+  //        needs NO reference to `state-mask-fill`, so it is safe there.
+  //
+  //   (3b) The float `addLayer` + the `moveLayer` stray-sink re-apply from the
+  //        SEPARATE `maskPolygon`-watching effect below — NOT from `style.load`.
+  //        react-map-gl re-adds its managed declarative layers (including
+  //        `state-mask-fill`) on the NEXT React reconcile, which has NOT
+  //        happened yet when `style.load` fires. `moveLayer(x, 'state-mask-fill')`
+  //        or an `addLayer(..., 'state-mask-fill')` inside `style.load` therefore
+  //        throws `Cannot move layer before non-existing layer`. The effect
+  //        below re-fires on the next render (after the reconcile), so the
+  //        reference layer exists — and it still GUARDS on
+  //        `getLayer('state-mask-fill')` (warn-and-return, never call through).
+  //
+  // Collapsing (3b) back into the `style.load` handler reintroduces that throw.
+  // ───────────────────────────────────────────────────────────────────────────
+
+  // (3a-i) Label isolation re-apply on THEME SWAP. Registered ONCE after
+  // `mapReady` as a `style.load` listener (which fires after each
+  // MutationObserver `setStyle`); the handler reads the live `maskPolygon` from
+  // a ref so it needs no re-registration on prop change. Basemap symbol layers
+  // exist immediately on `style.load`, and `applyLabelIsolation` needs no
+  // reference to `state-mask-fill`, so this is safe here (unlike the float/sink
+  // half — see the sequencing comment above).
+  useEffect(() => {
+    if (!mapReady) return;
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+
+    const reapplyIsolation = () => {
+      const poly = maskPolygonRef.current;
+      if (!poly) return; // no state scope → no isolation (us/chooser untouched)
+      try {
+        // The within test uses the OUTWARD-BUFFERED polygon (so near-border
+        // interior labels survive); the #762 mask FILL keeps the EXACT polygon.
+        savedFiltersRef.current = applyLabelIsolation(
+          map,
+          bufferIsolationPolygon(poly),
+        );
+      } catch {
+        /* defensive — style churn after a swap; QA detects un-isolated labels */
+      }
+    };
+
+    map.on('style.load', reapplyIsolation);
+    return () => {
+      map.off('style.load', reapplyIsolation);
+    };
+    // mapReady-only: the handler reads maskPolygon from a ref, so it must NOT
+    // re-register on every prop change (that would leak listeners).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapReady]);
+
+  // (3a-ii) Label isolation re-apply on MASK CHANGE (initial mount, chooser/us →
+  // state, state → state in-place). Distinct from the `style.load` listener:
+  // those transitions do NOT swap the style, so no `style.load` fires. On a
+  // state → state change the OLD isolation must be restored before the NEW one
+  // is captured+applied (else the new `applyLabelIsolation` would capture the
+  // already-merged `['all', original, within]` filter as the "original").
+  useEffect(() => {
+    if (!mapReady) return;
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+    if (!maskPolygon) return; // us/chooser: teardown effect restores originals
+    try {
+      if (savedFiltersRef.current) {
+        restoreLabelIsolation(map, savedFiltersRef.current);
+        savedFiltersRef.current = null;
+      }
+      savedFiltersRef.current = applyLabelIsolation(
+        map,
+        bufferIsolationPolygon(maskPolygon),
+      );
+    } catch {
+      /* defensive — style churn; QA detects un-isolated labels */
+    }
+  }, [mapReady, maskPolygon]);
+
+  // (3b) Float layers + stray-sink — runs from a `maskPolygon`-watching,
+  // `mapReady`-gated effect (also keyed on `maskTheme` so the float re-tints on
+  // a theme swap). It fires AFTER react-map-gl's reconcile has (re-)added
+  // `state-mask-fill`, and `addFloatLayers` is idempotent (removes any prior
+  // instance before re-adding), so re-running it on a theme change re-tints
+  // cleanly without thrashing the LABEL filters (which are owned by the (3a)
+  // `style.load` handler and the separate teardown effect below).
+  useEffect(() => {
+    if (!mapReady) return;
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+    if (!maskPolygon) return;
+
+    // Guard: state-mask-fill MUST exist before any moveLayer/insert anchored to
+    // it. If react-map-gl has not re-added it yet, warn and return — the effect
+    // re-fires on the next render once the reconcile lands it. Calling through
+    // is the exact `Cannot move layer before non-existing layer` throw the
+    // 3a/3b split exists to avoid.
+    if (map.getLayer(MASK_LAYER_ID) == null) {
+      console.warn(
+        '[artboard] state-mask-fill not yet reconciled; deferring float/sink',
+      );
+      return;
+    }
+    try {
+      applyArtboardFidelity(map, maskPolygon, maskTheme);
+    } catch {
+      /* defensive — layer/style churn after a swap */
+    }
+  }, [mapReady, maskPolygon, maskTheme]);
+
+  // (3b-teardown) Restore label filters + remove float layers when the mask
+  // unmounts (scope → us/chooser) OR the component unmounts. Keyed ONLY on
+  // `maskPolygon` (NOT `maskTheme`) so a theme swap — which re-applies isolation
+  // via (3a) `style.load` against the NEW style — does not trigger a stale
+  // restore against filters the `setStyle` already cleared. Guarded against a
+  // disposed map / missing layers (the helpers wrap their MapLibre calls).
+  useEffect(() => {
+    if (!mapReady) return;
+    if (!maskPolygon) return; // only arm teardown while a mask is active
+    return () => {
+      const liveMap = mapRef.current?.getMap();
+      if (!liveMap) return;
+      try {
+        if (savedFiltersRef.current) {
+          restoreLabelIsolation(liveMap, savedFiltersRef.current);
+          savedFiltersRef.current = null;
+        }
+        removeFloatLayers(liveMap);
+      } catch {
+        /* defensive — map gone after a swap or unmount */
+      }
     };
   }, [mapReady, maskPolygon]);
 
