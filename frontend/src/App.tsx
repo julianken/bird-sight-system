@@ -8,7 +8,12 @@ import type { ScopeResolution } from './state/scope-types.js';
 import { useBirdData } from './data/use-bird-data.js';
 import { useSilhouettes } from './data/use-silhouettes.js';
 import { useStates } from './data/use-states.js';
+import { useStatePolygon } from './data/state-polygons.js';
 import { useSpeciesDetail } from './data/use-species-detail.js';
+// ARTBOARD_PAD lives in the map's mask util but mask.ts imports only `geojson`
+// *types* (erased at build), so this does NOT pull the lazy maplibre chunk into
+// the entry bundle — App owns the scope→clampPad derivation (#760/#762).
+import { ARTBOARD_PAD } from './components/map/mask.js';
 import { FiltersBar } from './components/FiltersBar.js';
 import { FeedSurface } from './components/FeedSurface.js';
 import { MapSurface } from './components/MapSurface.js';
@@ -228,6 +233,20 @@ export function App() {
     // unscoped — no scope camera (the chooser is shown, the map is unmounted).
     return { scopeBounds: undefined, boundsKey: undefined };
   }, [state.scope, states]);
+
+  // #760/#762 — state-artboard mask. A `?state=US-XX` scope (and the state a ZIP
+  // resolves into, which is also a `state` scope) gets the inverse mask: the
+  // exterior is painted flat opaque gray and the camera can zoom out onto that
+  // gray field (clamp padded by ARTBOARD_PAD). `?scope=us` and the chooser get
+  // no mask (and `renderWorldCopies` stays unforced). `useStatePolygon`
+  // lazy-fetches the render-only polygon from the static `/state-polygons.json`
+  // asset (module-cached, single fetch per tab); it returns `null` for a null
+  // code, an unknown code, or while loading — in which case MapCanvas simply
+  // renders no mask (degrades to the plain view).
+  const isStateScope = state.scope.kind === 'state';
+  const statePolygon = useStatePolygon(
+    state.scope.kind === 'state' ? state.scope.stateCode : null,
+  );
 
   // #740 (C6) — a transient ZIP `flyTo` staged by `onResolve`. NOT URL state
   // (`?zip=` is never persisted, locked decision #5) — it lives in component
@@ -674,6 +693,8 @@ export function App() {
               {...(scopeBounds ? { scopeBounds } : {})}
               {...(boundsKey !== undefined ? { boundsKey } : {})}
               {...(flyTo ? { flyTo } : {})}
+              {...(statePolygon != null ? { maskPolygon: statePolygon } : {})}
+              {...(isStateScope ? { clampPad: ARTBOARD_PAD } : {})}
             />
           </>
         )}

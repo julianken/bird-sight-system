@@ -19,8 +19,17 @@ import {
 } from 'react-map-gl/maplibre';
 import type { MapLayerMouseEvent, MapRef } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
+// GeoJSON structural types come from `geojson` (@types/geojson), NOT maplibre-gl
+// (5.x does not re-export them). `import type`, erased at build — see mask.ts.
+import type { MultiPolygon } from 'geojson';
 import type { FamilySilhouette, Observation } from '@bird-watch/shared-types';
 import { BASEMAP_LIGHT, BASEMAP_DARK } from './basemap-style.js';
+import {
+  buildMaskFeature,
+  padBounds,
+  MASK_FILL_LIGHT,
+  MASK_FILL_DARK,
+} from './mask.js';
 import {
   observationsToGeoJson,
   buildClusterLayerSpec,
@@ -283,6 +292,27 @@ export interface MapCanvasProps {
    * `key` changes per ZIP entry to re-trigger the move.
    */
   flyTo?: { center: [number, number]; zoom: number; key: string } | undefined;
+  /**
+   * State-artboard mask (#760/#762). The selected state's render-only
+   * MultiPolygon (from `useStatePolygon` → `/state-polygons.json`). When set,
+   * MapCanvas paints a single inverse-mask fill — flat opaque theme-aware gray
+   * everywhere EXCEPT this polygon — above the basemap and below the
+   * observation/cluster layers, so the scope reads as a Sketch-style artboard.
+   * `null`/absent (`?scope=us`, the chooser, or while the asset loads) renders
+   * no mask AND leaves `renderWorldCopies` unforced (world copies stay on).
+   */
+  maskPolygon?: MultiPolygon | null;
+  /**
+   * State-artboard clamp padding (#760/#762). When present (state scope only),
+   * the reactive `maxBounds` clamp is `padBounds(bounds, clampPad)` — the tight
+   * state envelope expanded outward by `clampPad`× per side — so the user can
+   * zoom OUT until the state shrinks on the gray field, bounded by the padded
+   * artboard margin (not an infinite void). This is the single authoritative
+   * zoom-out gate. The `fitBounds` ENTRY framing stays tight on the raw `bounds`
+   * regardless. Absent (`?scope=us`, legacy callers) ⇒ the clamp stays the raw
+   * `bounds ?? CONUS_BOUNDS` (unchanged behavior).
+   */
+  clampPad?: number;
 }
 
 /**
@@ -320,9 +350,15 @@ const CONUS_NARROW_BREAKPOINT_PX = 700;
  * mode) so the natural viewport at z=6 stays under the cap on any canonical
  * viewport (1920×1080 → 42.2° × 23.7°).
  *
- * - `MIN_ZOOM = 3` matches `CONUS_ZOOM_NARROW`: users can't zoom out past the
- *   mobile-default CONUS view. At z<6 the API is in aggregated mode anyway,
- *   so unbounded bboxes don't matter; this bound is purely a UX floor.
+ * - `MIN_ZOOM = 2` is the zoom-out backstop (#760/#762 state-artboard mask). The
+ *   real zoom-out limit for a state scope is the PADDED `maxBounds` clamp
+ *   (`padBounds(bounds, clampPad)`), which stops the camera once the state has
+ *   shrunk to ~1/3 of the viewport on the gray artboard field. The floor was
+ *   lowered from `CONUS_ZOOM_NARROW` (3) so a small state (e.g. DC, RI) can
+ *   still be zoomed out far enough to read as an artboard. At z<6 the API is in
+ *   aggregated mode anyway, so unbounded bboxes don't matter; this bound is
+ *   purely a UX backstop. `CONUS_ZOOM_NARROW` (3) is unchanged for the
+ *   CONUS-default framing math below.
  * - `CONUS_BOUNDS` keeps pan inside CONUS + a margin for coastal/border obs.
  *   This is the client-side enforcement of the server's bbox cap: if the
  *   server cap in `services/read-api/src/validate.ts` (see cap derivation)
@@ -339,7 +375,7 @@ const CONUS_NARROW_BREAKPOINT_PX = 700;
  * to make the CONUS-fallback role explicit; the validate.ts linked-pair tie
  * above is unchanged.
  */
-const MIN_ZOOM = CONUS_ZOOM_NARROW;
+const MIN_ZOOM = 2;
 const CONUS_BOUNDS: [[number, number], [number, number]] = [
   [-130, 20],
   [-65, 52],
@@ -478,17 +514,33 @@ export function MapCanvas({
   bounds,
   boundsKey,
   flyTo,
+  maskPolygon,
+  clampPad,
 }: MapCanvasProps) {
   const mapRef = useRef<MapRef>(null);
   /**
-   * Scope-selector camera (#736). `activeBounds` is the envelope the camera
-   * frames + clamps to: the scope `bounds` prop when present, else the CONUS
-   * fallback. Passed straight to `<MapView maxBounds={activeBounds}>` — a
-   * REACTIVE prop; react-map-gl re-applies a changed `maxBounds` with no
-   * `<Map>` remount (finding (a) / C1 ctx7 §1). We never call
-   * `map.setMaxBounds()` imperatively.
+   * Scope-selector camera (#736). `activeBounds` is the FIT TARGET — the
+   * envelope the camera frames on entry (`fitBounds` + the mount
+   * `initialViewState`): the scope `bounds` prop when present, else the CONUS
+   * fallback. This stays TIGHT on the state (never padded) so entry framing
+   * lands you on the state (#760 AC: "entry still frames tightly"). The
+   * reactive `maxBounds` CLAMP is `clampBounds` below — a distinct value.
    */
   const activeBounds = bounds ?? CONUS_BOUNDS;
+  /**
+   * Scope-selector clamp (#736 finding (a) + #760/#762 artboard). `clampBounds`
+   * is the REACTIVE `maxBounds` prop — distinct from the fit target above. For a
+   * state scope with `clampPad`, it is the state envelope PADDED outward by
+   * `clampPad`× per side (the single authoritative zoom-out gate), so the user
+   * can zoom out and watch the state shrink on the gray artboard before the
+   * clamp halts the move. For `?scope=us` and legacy callers (no `clampPad`) it
+   * stays the raw `bounds ?? CONUS_BOUNDS` — unchanged behavior. Passed straight
+   * to `<MapView maxBounds={clampBounds}>`; react-map-gl re-applies a changed
+   * `maxBounds` with no `<Map>` remount. We never call `map.setMaxBounds()`
+   * imperatively (the existing finding-(a) test guards this).
+   */
+  const clampBounds =
+    bounds && clampPad ? padBounds(bounds, clampPad) : activeBounds;
   /**
    * First-paint frame (#736, contract item 2). When a scope `bounds` is
    * present AT MOUNT, frame the first paint to those bounds (uncontrolled
@@ -580,6 +632,19 @@ export function MapCanvas({
    * can fire before the ref is live).
    */
   const [mapReady, setMapReady] = useState(false);
+  /**
+   * Reactive theme for the state-artboard mask fill (#760/#762). Seeded from the
+   * current `[data-theme]` attribute and flipped by the SAME MutationObserver
+   * that swaps the basemap (below) — so the gray mask re-paints in lockstep with
+   * the basemap on a light/dark toggle. react-map-gl diffs the `<Layer>` `paint`
+   * prop, so updating this state re-paints the fill with no remount.
+   */
+  const [maskTheme, setMaskTheme] = useState<'light' | 'dark'>(() =>
+    typeof document !== 'undefined' &&
+    document.documentElement.getAttribute('data-theme') === 'dark'
+      ? 'dark'
+      : 'light',
+  );
   /* Coarse-pointer detection (#247, mobile; also used by auto-spider hit
      targets in #277). matchMedia is the canonical way; we read it on mount
      and listen for changes. */
@@ -669,6 +734,41 @@ export function MapCanvas({
     // (prototype documents this exact disable). prefersReducedMotion is mount-
     // stable (useMemo []).
   }, [mapReady, boundsKey, flyTo?.key, prefersReducedMotion]);
+
+  // #762/#765 — `renderWorldCopies` reassertion across an IN-PLACE scope change.
+  //
+  // The declarative `renderWorldCopies={maskPolygon == null}` prop above is
+  // necessary (react-map-gl/maplibre does NOT reset an ABSENT setting to its
+  // default — it retains the last value, so the prop must always carry an
+  // explicit value), but it is not sufficient on the `state → us` transition.
+  // That transition also changes `boundsKey`, which re-fires the camera effect
+  // and starts a `fitBounds` animation. maplibre's animation captures a CLONE
+  // of the current transform (with the OLD `renderWorldCopies: false`) and
+  // re-`apply`s it every animation frame — clobbering the `true` that
+  // react-map-gl set declaratively. The net live result was world copies stuck
+  // OFF after leaving a state scope for `?scope=us` (PR #765 bot review,
+  // reproduced live: `getRenderWorldCopies()` stayed `false`).
+  //
+  // Reassert imperatively on `maskPolygon` change AND on `moveend` (when the
+  // clobbering animation has finished) so the explicit value wins the race.
+  // Idempotent: a no-op when the map already matches the desired value.
+  useEffect(() => {
+    if (!mapReady) return;
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+    const desired = maskPolygon == null;
+    const apply = () => {
+      if (map.getRenderWorldCopies() !== desired) {
+        map.setRenderWorldCopies(desired);
+      }
+    };
+    apply();
+    // Win the race against an in-flight fitBounds/flyTo transform-clone replay.
+    map.on('moveend', apply);
+    return () => {
+      map.off('moveend', apply);
+    };
+  }, [mapReady, maskPolygon]);
 
   // Unmount cleanup for the `window.__birdMap` test hook (#291). The hook is
   // assigned in `handleLoad` (which fires once per mount); without an unmount
@@ -1464,6 +1564,10 @@ export function MapCanvas({
           prevThemeRef.current = next;
           const style = next === 'dark' ? BASEMAP_DARK : BASEMAP_LIGHT;
           map.setStyle(style);
+          // #760/#762: re-paint the state-artboard mask fill in lockstep with
+          // the basemap swap. The mask <Layer> reads `maskTheme`; react-map-gl
+          // diffs `paint` so this re-tints the gray with no remount.
+          setMaskTheme(next);
         }
       }
     });
@@ -1720,10 +1824,24 @@ export function MapCanvas({
         ref={mapRef}
         initialViewState={initialViewStateRef.current}
         minZoom={MIN_ZOOM}
-        // Reactive scope clamp (#736 finding (a)): `activeBounds` is the scope
-        // envelope when a scope is active, else `CONUS_BOUNDS`. react-map-gl
-        // re-applies a changed `maxBounds` with no remount — never imperative.
-        maxBounds={activeBounds}
+        // Reactive scope clamp (#736 finding (a) + #760/#762 artboard):
+        // `clampBounds` is the state envelope PADDED by `clampPad` (state scope)
+        // so the user can zoom out onto the gray field, else the raw scope
+        // envelope / `CONUS_BOUNDS`. react-map-gl re-applies a changed
+        // `maxBounds` with no remount — never imperative.
+        maxBounds={clampBounds}
+        // #760/#762: disable world copies ONLY when a mask is active, so the
+        // world ring does not repeat horizontally on a wide viewport zoomed all
+        // the way out (preserving the artboard illusion). `state→us` is an
+        // in-place prop update (no remount). This MUST be an explicit prop on
+        // both branches (not a spread-conditional): react-map-gl/maplibre does
+        // NOT reset `renderWorldCopies` to its default when the prop is absent —
+        // it retains the last applied value. A spread that REMOVES the prop on
+        // `state→us` would therefore leave world copies stuck off for `?scope=us`.
+        // `maskPolygon == null` → world copies ON (us scope); a mask → OFF
+        // (state/ZIP artboard). The rerender unit assertion pins this so the
+        // invariant survives #761's always-mounted lifecycle without a remount.
+        renderWorldCopies={maskPolygon == null}
         style={{ width: '100%', height: '100%' }}
         mapStyle={
           typeof document !== 'undefined' &&
@@ -1768,6 +1886,34 @@ export function MapCanvas({
             'Bird data: <a href="https://ebird.org" target="_blank" rel="noopener">eBird</a> (Cornell Lab of Ornithology)',
           ]}
         />
+        {/*
+          State-artboard inverse mask (#760/#762). A single fill of the world
+          ring with the selected state punched out as a hole — paints flat opaque
+          theme-aware gray EVERYWHERE except the state. Rendered BEFORE the
+          observations <Source> so it sits above the basemap (part of the
+          mapStyle, painted first) and below every cluster/observation layer — so
+          birds still render inside the state on top of the basemap. Mounts only
+          when `maskPolygon` is set (state/ZIP scope); `?scope=us`, the chooser,
+          and the asset-loading window pass null → no <Source> (the empty-source
+          guard).
+        */}
+        {maskPolygon && (
+          <Source
+            id="state-mask"
+            type="geojson"
+            data={buildMaskFeature(maskPolygon)}
+          >
+            <Layer
+              id="state-mask-fill"
+              type="fill"
+              paint={{
+                'fill-color':
+                  maskTheme === 'dark' ? MASK_FILL_DARK : MASK_FILL_LIGHT,
+                'fill-opacity': 1,
+              }}
+            />
+          </Source>
+        )}
         <Source
           id="observations"
           type="geojson"
