@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add an always-visible map Scope control — Whole US (today's CONUS map) · a single CONUS state · a ZIP inside its state — that renders **only** the selected scope's observation data.
+**Goal:** Make the map tab open on a **scope chooser** — enter a **ZIP** or pick a **state** (co-primary), with **Whole US** as a de-emphasized escape hatch — then render **only** the chosen scope's observation data. Picking a state (or a ZIP, which resolves to its state and zooms within it) yields a state view; the full CONUS map is a niche, explicit choice.
 
-**Architecture:** `?state=US-XX` is a **hard server-side data boundary** (a PostGIS `ST_Intersects` clip against a new `state_boundaries` polygon table); `bbox`+`zoom` keep their existing roles as the viewport / level-of-detail *within* that boundary; **Whole US = absence of `?state=`** = byte-for-byte today's behavior. One set of ~49 simplified Census state MULTIPOLYGONs does triple duty: the data clip, ZIP→state point-in-polygon resolution, and the bounding-envelope that drives camera `fitBounds` + `MAX_BOUNDS`.
+**Architecture:** `?state=US-XX` is a **hard server-side data boundary** (a PostGIS `ST_Intersects` clip against a new `state_boundaries` polygon table); `bbox`+`zoom` keep their existing roles as the viewport / level-of-detail *within* that boundary. **Data-layer invariant (unchanged): no `?state=` ⇒ unclipped national query.** **Landing model: the default (no scope chosen) renders the chooser, and the map + its eager cold-load `/api/observations` fetch are gated until a scope is chosen;** explicit Whole-US is a niche `?scope=us` selection that still sends no `?state=` (so the backend is untouched). One set of ~49 simplified Census state MULTIPOLYGONs does triple duty: the data clip, ZIP→state point-in-polygon resolution, and the bounding-envelope that drives camera `fitBounds` + `MAX_BOUNDS`.
 
 **Tech Stack:** PostgreSQL 16 + PostGIS (Cloud SQL), `node-pg-migrate` plain-SQL migrations, `@testcontainers/postgresql` integration tests, Hono read-api, React 18 + `react-map-gl`/`maplibre-gl` 5.x, Vite, `@playwright/test` e2e. Data: US Census cartographic boundary shapefiles + 2020 ZCTA Gazetteer (both public domain).
 
@@ -17,7 +17,8 @@
 1. **Strict state-polygon clipping** via `ST_Intersects` (NOT a bounding box, NOT `ST_Contains`). `ST_Intersects` is the inclusive idiom the existing bbox filter uses; `ST_Contains` would *drop* an observation sitting exactly on a simplified shared border (it would vanish from both states). A border-point test asserts an obs lands in exactly one clip, not zero.
 2. **ZIP entry ships in v1** (not deferred).
 3. **CONUS only — 48 states + DC (49 codes).** No Alaska/Hawaii/territories: no antimeridian math, no data expansion. AK/HI are also outside the map's current `MAX_BOUNDS`.
-4. **Request model:** `?state=US-XX` = hard data boundary; `bbox`+`zoom` = viewport within it; they `AND` together in SQL. Whole-US = absence of `?state=`.
+4. **Request model (data layer):** `?state=US-XX` = hard data boundary; `bbox`+`zoom` = viewport within it; they `AND` together in SQL. **Data invariant: no `?state=` ⇒ unclipped query** — a chooser-emitted or `?scope=us` URL satisfies this byte-for-byte, so the backend is untouched.
+4b. **Landing model (frontend, revised 2026-05-29):** the map tab opens on a **scope chooser** when no scope is chosen; the map render AND the eager cold-load CONUS `/api/observations` fetch are **gated** until a scope is selected. Three landing states: **bare URL → chooser**; **`?scope=us` → Whole-US CONUS map (de-emphasized niche escape hatch)**; **`?state=US-XX` → state view** (ZIP entry resolves to a `?state=US-XX` + camera-within-state). Whole-US is NOT the default and NOT primary.
 5. **`?zip=` is NOT persisted in the URL in v1.** A ZIP resolves to a scope (`?state=`) + a camera move; `?state=` is the shareable unit.
 6. **One source of truth per artifact:** the 49-code allowlist lives once in `@bird-watch/shared-types`; the state polygons live once in `state_boundaries` (server) with a committed `data/us-state-polygons.geojson` that the ZIP ETL consumes — the clip and the ZIP→state precompute must never diverge.
 7. **`/api/states`** (not a bundled JSON) is the frontend's source for state name+bbox — single source of truth with the clip, ~4 KB, CDN-cached. The polygon `geom` never leaves the server.
@@ -50,7 +51,8 @@
 | `frontend/src/components/ZipInput.tsx` | ZIP input + "not recognized" UX | D |
 | `frontend/src/state/url-state.ts` | `?state=` URL state (+ precedence) | C |
 | `frontend/src/components/map/MapCanvas.tsx` | controllable camera: `fitBounds` + dynamic `MAX_BOUNDS` | C |
-| `frontend/src/components/ScopeControl.tsx` | on-map StateSelector + Whole-US + ZIP | C |
+| `frontend/src/components/ScopeChooser.tsx` | landing chooser (ZIP/state co-primary, whole-US niche) gating map render | C |
+| `frontend/src/components/ScopeControl.tsx` | **in-state** on-map StateSelector + ZIP + small exit affordance | C |
 | `frontend/src/config/region.ts` (+ 5 consumers) | runtime `regionLabelFor(scope)` | C |
 | `frontend/src/components/MapLede.tsx`, `ds/FilterSentence.tsx` | sparse/empty-region narration | C |
 | `frontend/e2e/{zip-scope,state-scope}.spec.ts` + POM | e2e + screenshots + design review | C/D |
@@ -314,15 +316,15 @@ A user types a 5-digit ZIP → the map clips to the ZIP's CONUS state (via `?sta
 
 # Stream C — Frontend Scope Core ⚠️ GATED on the C0 prototype
 
-**Prototype gate (CLAUDE.md):** No Stream-C plan body (tasks C2–C9: task lists, acceptance criteria) may be finalized until the C0 render prototype is built and `prototype-learnings.md` is committed. C0 and C1 are authored in full below; **C2–C9 are task shells** — their detailed steps/AC are authored in a plan amendment committed *alongside* the learnings note. This is a deliberate gate, not a placeholder omission.
+**Prototype gate (CLAUDE.md):** No Stream-C plan body (tasks C2–C9 + the new C2a chooser: task lists, acceptance criteria) may be finalized until the C0 render prototype is built and `prototype-learnings.md` is committed. C0 and C1 are authored in full below; **C2–C9 + C2a are task shells** — their detailed steps/AC are authored in a plan amendment committed *alongside* the learnings note. This is a deliberate gate, not a placeholder omission.
 
 ### Task C0: PROTOTYPE GATE — scoped-state render at production volume
 
 **Files:** Create `frontend/prototypes/scope-prototype/{index.html,main.tsx,canned-az-scoped.json}`, `docs/plans/2026-05-28-state-scope-selector/prototype-learnings.md`
 
 - [ ] **Step 1:** Local Vite entry rendering `MapCanvas` + a proposed `StateSelector` + a `fitBounds`-on-scope-change effect, against **≥344** canned AZ-clipped observations (full production `Observation` shape). Mock camera handle calls `map.fitBounds(stateBbox,{padding:48,duration:600})` on scope change and sets `maxBounds` to the state bbox.
-- [ ] **Step 2:** Drive via Playwright MCP at **390×844** and **1440×900**. Exercise: select state (reframe + clip), reset to Whole US (camera + `maxBounds` back to CONUS `[[-130,20],[-65,52]]`), ZIP→point-inside-state. `browser_console_messages` must be **zero errors AND zero warnings**.
-- [ ] **Step 3:** Commit `prototype-learnings.md` (5 findings): (a) does react-map-gl 5.x honor a changing `maxBounds` prop without remount? (b) does `fitBounds` conflict with `initialViewState` in the uncontrolled-camera lifecycle? (c) padding that keeps a state framed at both viewports; (d) does the bbox-debounce refetch loop fight the `fitBounds` animation? (e) any sprite/SDF console noise at 344 rows. **This note must land before the C2–C9 amendment.**
+- [ ] **Step 2:** Drive via Playwright MCP at **390×844** and **1440×900**. Exercise the **chooser-first landing**: bare load → the scope chooser is shown and the map render + cold-load fetch are suppressed; choosing a state/ZIP transitions to the scoped map; choosing "whole US" (`?scope=us`) transitions to the CONUS map. Then within a state view: select state (reframe + clip), `?scope=us` reset (camera + `maxBounds` back to CONUS `[[-130,20],[-65,52]]`), ZIP→point-inside-state. `browser_console_messages` must be **zero errors AND zero warnings**.
+- [ ] **Step 3:** Commit `prototype-learnings.md` (6 findings): (a) does react-map-gl 5.x honor a changing `maxBounds` prop without remount? (b) does `fitBounds` conflict with `initialViewState` in the uncontrolled-camera lifecycle? (c) padding that keeps a state framed at both viewports; (d) does the bbox-debounce refetch loop fight the `fitBounds` animation? (e) any sprite/SDF console noise at 344 rows; (f) does gating the map behind the chooser cause mount/remount jank on the chooser→map transition? **This note must land before the C2–C9 + C2a amendment.**
 
 ### Task C1: context7 — maplibre-gl/react-map-gl 5.x camera
 
@@ -330,20 +332,21 @@ A user types a 5-digit ZIP → the map clips to the ZIP's CONUS state (via `?sta
 
 - [ ] Per CLAUDE.md's context7 rule (maplibre-gl is drift-flagged, 5.x since PR #199), query context7 for: (1) is `maxBounds` reactive on `<Map>` post-mount or does it need imperative `map.setMaxBounds()` in a `useEffect`? (2) `MapRef.getMap().fitBounds(bounds, options)` signature in 5.x — padding object vs number, and whether `essential:true` is needed to bypass reduced-motion auto-cancellation; (3) `initialViewState` (uncontrolled) vs post-mount imperative `fitBounds` interaction. Feeds C3. Runs parallel to C0.
 
-### Tasks C2–C9 (shells — bodies authored post-C0)
+### Tasks C2–C9 + C2a (shells — bodies authored post-C0)
 
 Each is one PR. **Mandatory per project writing-plans skill:** every task touching `frontend/src/components/**` carries an explicit CSS sub-task (exhaustive className list + the `grep -cE` verification), and C9 carries the 5-viewport × 2-theme design-review dispatch.
 
 | Task | Title | Files | Deps | Gates |
 |---|---|---|---|---|
-| **C2** | `state`+`zip` in `UrlState`/`DEFAULTS`/`readUrl`/`writeUrl` + validation + precedence (deep-link `?state`+`?zip` disagree → state wins, zip dropped; whole-US = absence of `?state`) | `url-state.ts`, `url-state.test.ts`, `api/client.ts` (`?state=` mapping) | — | — |
-| **C3** | Controllable `MapCanvas` camera: scope-change `fitBounds` + dynamic `MAX_BOUNDS` (CONUS when whole-US) | `MapCanvas.tsx`, test | C0, C1 | reduced-motion `duration:0` |
-| **C4** | On-map `ScopeControl`: native `<select>` StateSelector + Whole-US + `<ZipInput>` (D5) | `ScopeControl.tsx`, `styles.css`, test | C2 | **CSS sub-task**; a11y |
-| **C5** | Runtime `regionLabelFor(scope)` replacing build-time `REGION_LABEL` across **5** consumers (AppHeader, MapLede, SurfaceTitleSync, FeedSurface, App.tsx); update `region.test.ts` | `region.ts` + 5 consumers | C2 | — |
-| **C6** | Wire scope end-to-end in `App.tsx`: `?state`→clip filter, `scopeBounds`→camera, ZIP `onResolve`→scope+flyTo | `App.tsx` | C2,C3,C4,C5,D5 | one refetch per change |
-| **C7** | Distinct sparse/empty-region `MapLede` template + `FilterSentence` scope narration (data-availability ≠ filter-narrowing; "no filters" must include `since === DEFAULTS.since`; C2 exports `DEFAULTS` from `url-state.ts`, which is module-private today) | `MapLede.tsx`, `ds/FilterSentence.tsx`, tests | C5 | **CSS sub-task** if new classes |
-| **C8** | CSS for `ScopeControl` + scope surfaces; orphan-classname + knip clean | `styles.css`, `ds-primitives.css` | C4,C7 | orphan-classname |
-| **C9** | e2e (state-select, whole-US reset, empty-state) + POM + **5×2 screenshots + `ui-design:ui-designer` design review** | `state-scope.spec.ts`, POM | C6,C8 | ≥10 attachments + ui-design PASS |
+| **C2** | `state`+`zip`+`scope` in `UrlState`/`DEFAULTS`/`readUrl`/`writeUrl` + validation + precedence. **Three landing states: bare URL → unscoped (chooser); `?scope=us` → explicit Whole-US; `?state=US-XX` → state.** `DEFAULTS` resolves to **UNSCOPED** (not whole-US). Deep-link `?state`+`?zip` disagree → state wins, zip dropped. Export `DEFAULTS`. Data invariant: unscoped AND `?scope=us` both send no `?state=`. | `url-state.ts`, `url-state.test.ts`, `api/client.ts` (`?state=` mapping) | — | — |
+| **C2a** ⭐NEW | **Landing scope chooser** — the pre-map surface: ZIP input + state `<select>` (co-primary) + a de-emphasized "Explore the whole US map" (→ `?scope=us`). **Owns gating the map render + eager fetch** until a scope is chosen. NOT the on-map bar (that is C4). | `ScopeChooser.tsx`, `styles.css`, test | C2, D5, #732 (`/api/states`), C0 | **CSS sub-task**; a11y; render-gating |
+| **C3** | Controllable `MapCanvas` camera: scope-change `fitBounds` + dynamic `MAX_BOUNDS` (CONUS only when `?scope=us`) | `MapCanvas.tsx`, test | C0, C1 | reduced-motion `duration:0` |
+| **C4** | **In-state** on-map `ScopeControl`: native `<select>` StateSelector + `<ZipInput>` (D5) + a small de-emphasized exit affordance (→ `?scope=us` / chooser). Rendered only in a state/whole-US view, NOT on the chooser. | `ScopeControl.tsx`, `styles.css`, test | C2 | **CSS sub-task**; a11y |
+| **C5** | Runtime `regionLabelFor(scope)` replacing build-time `REGION_LABEL` across **5** consumers (AppHeader, MapLede, SurfaceTitleSync, FeedSurface, App.tsx). **Three cases: unscoped/chooser (no region claim), `?scope=us` → "USA", state → name.** Update `region.test.ts`. | `region.ts` + 5 consumers | C2 | — |
+| **C6** | Wire scope end-to-end in `App.tsx`: **render the chooser (C2a) when unscoped and SUPPRESS the cold-load CONUS `/api/observations` fetch + map render until a scope is chosen**; `?state`→clip filter, `scopeBounds`→camera, ZIP `onResolve`→scope+flyTo, `?scope=us`→CONUS map. | `App.tsx` | C2, C2a, C3, C4, C5, D5 | gated fetch; one refetch per change |
+| **C7** | Distinct sparse/empty-region `MapLede` template + `FilterSentence` scope narration (data-availability ≠ filter-narrowing; "no filters" must include `since === DEFAULTS.since`; C2 exports `DEFAULTS`). **Plus the unscoped case: MapLede does not render — the chooser is shown instead.** | `MapLede.tsx`, `ds/FilterSentence.tsx`, tests | C5 | **CSS sub-task** if new classes |
+| **C8** | CSS for `ScopeControl` + `ScopeChooser` + scope surfaces; orphan-classname + knip clean | `styles.css`, `ds-primitives.css` | C4, C2a, C7 | orphan-classname |
+| **C9** | e2e: **chooser-landing (bare URL → chooser, map+fetch suppressed)**, state-select, ZIP, `?scope=us`→CONUS, **whole-US-reset → returns to chooser** (not CONUS home), empty-state + POM + **5×2 screenshots (incl. the chooser) + `ui-design:ui-designer` design review** | `state-scope.spec.ts`, POM | C6, C8 | ≥10 attachments + ui-design PASS |
 
 ---
 
