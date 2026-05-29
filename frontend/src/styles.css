@@ -1875,3 +1875,115 @@ aside.species-detail-rail .species-detail-rail-close {
   outline: 2px solid var(--color-text-strong);
   outline-offset: 2px;
 }
+
+/* ── ScopeControl (#737) — in-state on-map re-scope bar (C4) ────────────────
+   Rendered ONLY in a scoped view (`?state=US-XX` or `?scope=us`), NEVER on the
+   chooser landing (that is .scope-chooser above). Unlike the C0 prototype's
+   .scope-app__bar — a non-overlapping flex row that sat ABOVE the map — the
+   production control FLOATS over the canvas: absolutely positioned, anchored
+   top-center, layered above the basemap via the same `--z-panel` token the
+   other map overlays (.family-legend, .observation-popover) use. Because it
+   floats, #736/C3's `fitBounds` top-padding is ASYMMETRIC (top ≈ this bar's
+   height) so the framed state isn't occluded.
+
+   Surface visual contract mirrors the other map overlays (white surface,
+   --color-border-ui edge, --shadow-listbox). All color/spacing/type/weight
+   comes from semantic tokens (no raw hex — ds-primitives.css convention); the
+   semantic tokens swap under [data-theme="dark"], and the float gets an
+   explicit dark surface override below (mirroring the prototype's
+   .scope-app__bar dark block) for contrast against the dark basemap. Every
+   className the TSX renders has a matching rule here (orphan-classname gate). */
+.scope-control {
+  position: absolute;
+  inset-block-start: var(--space-md);
+  inset-inline: var(--space-md);
+  z-index: var(--z-panel);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-md);
+  margin-inline: auto;
+  inline-size: fit-content;
+  max-inline-size: calc(100% - 2 * var(--space-md));
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-ui);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: var(--shadow-listbox);
+}
+[data-theme="dark"] .scope-control {
+  /* Explicit dark surface for contrast against the dark basemap — mirrors the
+     prototype's [data-theme] .scope-app__bar treatment. The semantic
+     --color-bg-surface / --color-border-ui already swap, so this block only
+     re-asserts them as the documented dark surface anchor. */
+  background: var(--color-bg-surface);
+  border-color: var(--color-border-ui);
+}
+.scope-control__select {
+  flex: 0 1 auto;
+  min-inline-size: 0;
+  padding: var(--space-sm) var(--space-md);
+  font-size: var(--type-sm);
+  color: var(--color-text-strong);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-ui);
+  border-radius: 4px;
+}
+.scope-control__select:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+}
+.scope-control__zip {
+  flex: 0 1 auto;
+}
+/* Exit/whole-US affordances are grouped and pushed to the trailing edge so the
+   state + ZIP inputs read as the primary actions and the exit controls as
+   subordinate. */
+.scope-control__exit-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-inline-start: auto;
+}
+/* De-emphasized affordances: visually subordinate (no primary fill, lighter
+   weight, smaller, link-like) but real, operable, focusable native buttons. */
+.scope-control__wholeus,
+.scope-control__exit {
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--type-sm);
+  font-weight: var(--font-weight-regular);
+  color: var(--color-text-muted);
+  background: none;
+  border: none;
+  border-radius: 4px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.scope-control__wholeus:hover,
+.scope-control__exit:hover {
+  color: var(--color-text-strong);
+}
+.scope-control__wholeus:focus-visible,
+.scope-control__exit:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+}
+
+/* Mobile (≤ 480px): the float spans the canvas width and the exit group wraps
+   below the inputs rather than crowding them on one short row. Matches the
+   codebase responsive convention (the ≤480px MOB breakpoint at styles.css). */
+@media (max-width: 480px) {
+  .scope-control {
+    inline-size: auto;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+  }
+  .scope-control__select {
+    flex: 1 1 100%;
+  }
+  .scope-control__exit-group {
+    flex: 1 1 100%;
+    margin-inline-start: 0;
+    justify-content: flex-end;
+  }
+}

@@ -24,6 +24,8 @@
  *   filter-notable        → <FilterSentence> with notable=true
  *   filter-notable-family → <FilterSentence> with notable=true + familyCode
  *   feed-card             → <FeedCard> elevated card with canned notable observation
+ *   scope-control         → <ScopeControl> in a state view (US-AZ), floated over a map-ish backdrop
+ *   scope-control-us      → <ScopeControl> in the whole-US view (no "Whole US" self-link)
  */
 import { useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
@@ -36,6 +38,7 @@ import { FeedCard } from '../components/FeedCard.js';
 import { FeedRow } from '../components/FeedRow.js';
 import { ZipInput } from '../components/ZipInput.js';
 import { ScopeChooser } from '../components/ScopeChooser.js';
+import { ScopeControl } from '../components/ScopeControl.js';
 import type { NotableObservation, Observation, StateSummary } from '@bird-watch/shared-types';
 import type { FamilyCode } from '../config/family-palette.js';
 import type { UrlState } from '../state/url-state.js';
@@ -297,10 +300,54 @@ export function DsPreview(): ReactNode {
     );
   }
 
+  // ScopeControl previews (#737). The in-state on-map re-scope bar, floated
+  // over a representative map-tinted backdrop so the overlay treatment reads
+  // correctly: `scope-control` = a state view (US-AZ selected, "Whole US" +
+  // "Change scope" exits visible); `scope-control-us` = the whole-US view
+  // (neutral placeholder, no "Whole US" self-link).
+  if (key.startsWith('scope-control')) {
+    return (
+      <ScopeControlPreview variant={key} />
+    );
+  }
+
   // Unknown key: show a helpful error
   return (
     <div style={{ ...PREVIEW_STYLES, color: 'red' }}>
       <p>Unknown ds-preview key: <code>{key}</code></p>
+    </div>
+  );
+}
+
+/**
+ * ScopeControl dev harness (#737). The control FLOATS over the map canvas via
+ * `position:absolute` + `--z-panel`, so isolating it requires a
+ * `position:relative` backdrop that stands in for `.map-surface`. A muted
+ * map-ish fill makes the overlay chrome (surface, border, shadow) legible at
+ * screenshot time without mounting the real MapLibre canvas. Dev-only — never
+ * ships (DsPreview is gated behind import.meta.env.DEV in main.tsx).
+ */
+function ScopeControlPreview({ variant }: { variant: string }): ReactNode {
+  const isUs = variant === 'scope-control-us';
+  return (
+    <div
+      style={{
+        position: 'relative',
+        minHeight: '100vh',
+        // A neutral map-ish backdrop (token-derived tint) so the floating
+        // overlay's surface/border/shadow are visible in both themes.
+        background:
+          'repeating-linear-gradient(45deg, var(--color-bg-tint) 0 16px, var(--color-bg-page) 16px 32px)',
+      }}
+    >
+      <ScopeControl
+        scope={isUs ? { kind: 'us' } : { kind: 'state', stateCode: 'US-AZ' }}
+        states={CANNED_STATES}
+        onPickState={() => {}}
+        onPickWholeUs={() => {}}
+        onExit={() => {}}
+        onResolve={() => {}}
+      />
     </div>
   );
 }
