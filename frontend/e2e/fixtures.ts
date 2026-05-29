@@ -1,8 +1,13 @@
 import { test as base } from '@playwright/test';
-import type { Observation, SpeciesMeta } from '@bird-watch/shared-types';
+import type { Observation, SpeciesMeta, StateSummary } from '@bird-watch/shared-types';
 
-/** Read API endpoints that can be stubbed. Keep in sync with services/read-api/src/app.ts. */
-export type StubbableEndpoint = 'hotspots' | 'observations' | 'species' | 'silhouettes';
+/**
+ * Read API endpoints that can be stubbed. Keep in sync with
+ * services/read-api/src/app.ts. `'states'` is the A4/#732 endpoint
+ * (`GET /api/states`) — adding it here makes `stubApiFailure('states', …)` /
+ * `stubApiAbort('states')` typecheck for the #741 fetch-error case.
+ */
+export type StubbableEndpoint = 'hotspots' | 'observations' | 'species' | 'silhouettes' | 'states';
 
 /**
  * Canonical Vermilion Flycatcher SpeciesMeta fixture (NO photoUrl) — exercises
@@ -65,6 +70,53 @@ export const VERMFLY_OBS: Observation[] = [
 ];
 
 /**
+ * Minimal name-sorted `StateSummary[]` for the scope chooser/control `<select>`
+ * (#741). Three CONUS states with real `bbox:[w,s,e,n]` envelopes so the
+ * `?state=US-XX` camera `fitBounds`/`maxBounds` derivation in App.tsx has a
+ * non-degenerate envelope to frame. Both `<ScopeChooser>` (#742) and the
+ * in-state `<ScopeControl>` (#737) fetch `GET /api/states` on mount, so EVERY
+ * scope spec must register `stubStates()` — an unstubbed route (the local
+ * read-api has no seed in e2e) renders a perpetually-loading / disabled
+ * selector. Name-sorted (Arizona < Florida < New York) to mirror the endpoint
+ * contract (#732 returns rows name-sorted).
+ */
+export const STATES_FIXTURE: StateSummary[] = [
+  { stateCode: 'US-AZ', name: 'Arizona', bbox: [-114.82, 31.33, -109.04, 37.0] },
+  { stateCode: 'US-FL', name: 'Florida', bbox: [-87.63, 24.52, -80.03, 31.0] },
+  { stateCode: 'US-NY', name: 'New York', bbox: [-79.76, 40.5, -71.86, 45.02] },
+];
+
+/** Columnar on-disk shape of `public/zip-index.json` (D2), mirrored from
+ *  `frontend/src/data/zip-lookup.ts::ZipIndex`. */
+export interface ZipIndexFixture {
+  v: number;
+  states: string[];
+  zips: Record<string, [number, number, number]>;
+}
+
+/**
+ * Small canned columnar ZIP index matching the production on-disk shape
+ * (`{ v, states, zips }`, D2) consumed by `frontend/src/data/zip-lookup.ts`.
+ * `zips` maps ZIP5 → `[lat, lng, stateIdx]` ([lat, lng], NOT MapLibre order —
+ * `lookupZip` swaps to `[lng, lat]` on decode). Two entries:
+ *   - `85701` → US-AZ (Tucson). After columnar decode → center `[-110.974,
+ *     32.222]` ([lng, lat]) inside the Arizona envelope.
+ *   - `10001` → US-NY (Manhattan). Lands inside New York — used by the
+ *     empty-region case (NY is empty on the AZ-only observation seed).
+ * `10002` is deliberately ABSENT so a well-formed-but-unknown ZIP exercises the
+ * "ZIP not recognized" path. Never serve the real ~1 MB asset in e2e.
+ */
+export const ZIP_INDEX_FIXTURE: ZipIndexFixture = {
+  v: 1,
+  states: ['US-AZ', 'US-NY'],
+  zips: {
+    // [lat, lng, stateIdx] — lookupZip decodes to center [lng, lat].
+    '85701': [32.222, -110.974, 0], // Tucson, AZ
+    '10001': [40.7506, -73.9971, 1], // Manhattan, NY
+  },
+};
+
+/**
  * 1×1 transparent PNG (67 bytes, base64) used by `stubPhotoImage` to satisfy
  * the browser's `<img>` request for `photoUrl`. Returning a real binary keeps
  * the network stack happy: we never load a real photo across the wire from the
@@ -89,6 +141,21 @@ export interface ApiStub {
   stubEmpty(): Promise<void>;
   /** Stubs `/api/observations` to return `200` with the provided list. */
   stubObservations(obs: Observation[]): Promise<void>;
+  /**
+   * Stubs `**\/api/states**` to return `200` with the provided name-sorted
+   * `StateSummary[]` (default `STATES_FIXTURE`). Both `<ScopeChooser>` (#742)
+   * and the in-state `<ScopeControl>` (#737) fetch this on mount, so every
+   * scope spec must register it — without it the local read-api (unseeded in
+   * e2e) yields an empty/flaky selector.
+   */
+  stubStates(states?: StateSummary[]): Promise<void>;
+  /**
+   * Stubs `**\/zip-index.json*` (the trailing `*` matches the
+   * `?v=<datasetVersion>` cache-bust suffix `zip-lookup.ts` appends) to return
+   * `200` with a small canned columnar index (default `ZIP_INDEX_FIXTURE`).
+   * Never serves the real ~1 MB `public/zip-index.json`.
+   */
+  stubZipIndex(index?: ZipIndexFixture): Promise<void>;
   /**
    * Stubs `**\/api/species/{code}` to return `200` with the provided
    * SpeciesMeta. The glob captures the exact code as a path suffix so
@@ -150,6 +217,24 @@ export const test = base.extend<{ apiStub: ApiStub }>({
               data: obs,
               meta: { freshestObservationAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() },
             }),
+          });
+        });
+      },
+      async stubStates(states = STATES_FIXTURE) {
+        await page.route('**/api/states**', async route => {
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(states),
+          });
+        });
+      },
+      async stubZipIndex(index = ZIP_INDEX_FIXTURE) {
+        await page.route('**/zip-index.json*', async route => {
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(index),
           });
         });
       },
