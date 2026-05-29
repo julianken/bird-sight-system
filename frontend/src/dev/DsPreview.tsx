@@ -34,7 +34,9 @@ import { ClusterPill } from '../components/ds/ClusterPill.js';
 import { FilterSentence } from '../components/ds/FilterSentence.js';
 import { FeedCard } from '../components/FeedCard.js';
 import { FeedRow } from '../components/FeedRow.js';
-import type { NotableObservation, Observation } from '@bird-watch/shared-types';
+import { ZipInput } from '../components/ZipInput.js';
+import { ScopeChooser } from '../components/ScopeChooser.js';
+import type { NotableObservation, Observation, StateSummary } from '@bird-watch/shared-types';
 import type { FamilyCode } from '../config/family-palette.js';
 import type { UrlState } from '../state/url-state.js';
 
@@ -78,6 +80,17 @@ const CANNED_FLAT: Observation[] = [
     locId: 'L004', locName: 'Phoenix Zoo', howMany: 2, isNotable: false,
     silhouetteId: null, familyCode: 'trochilidae', taxonOrder: 1600,
   },
+];
+
+// Canned state list for the ScopeChooser preview (#742). A small name-sorted
+// slice — the real list comes from GET /api/states (#732) at runtime.
+const CANNED_STATES: StateSummary[] = [
+  { stateCode: 'US-AZ', name: 'Arizona', bbox: [-114.8, 31.3, -109.0, 37.0] },
+  { stateCode: 'US-CA', name: 'California', bbox: [-124.4, 32.5, -114.1, 42.0] },
+  { stateCode: 'US-CO', name: 'Colorado', bbox: [-109.1, 37.0, -102.0, 41.0] },
+  { stateCode: 'US-NM', name: 'New Mexico', bbox: [-109.1, 31.3, -103.0, 37.0] },
+  { stateCode: 'US-NY', name: 'New York', bbox: [-79.8, 40.5, -71.8, 45.0] },
+  { stateCode: 'US-TX', name: 'Texas', bbox: [-106.7, 25.8, -93.5, 36.5] },
 ];
 
 // Minimal placeholder 1×1 transparent PNG data URI used as a stable
@@ -262,10 +275,64 @@ export function DsPreview(): ReactNode {
     );
   }
 
+  // ZipInput previews (#739). The component warms the real ~1 MB index on
+  // focus from the dev server's public/zip-index.json; the error key forces a
+  // fetch failure so the role=alert fallback renders deterministically.
+  if (key.startsWith('zip-input')) {
+    return <ZipInputPreview variant={key} />;
+  }
+
+  // ScopeChooser previews (#742). The landing chooser in isolation across its
+  // states: `scope-chooser` = populated selector; `scope-chooser-loading` =
+  // statesLoading (selector disabled, ZIP path still usable).
+  if (key.startsWith('scope-chooser')) {
+    return (
+      <ScopeChooser
+        states={CANNED_STATES}
+        statesLoading={key === 'scope-chooser-loading'}
+        onPickState={() => {}}
+        onPickWholeUs={() => {}}
+        onResolve={() => {}}
+      />
+    );
+  }
+
   // Unknown key: show a helpful error
   return (
     <div style={{ ...PREVIEW_STYLES, color: 'red' }}>
       <p>Unknown ds-preview key: <code>{key}</code></p>
+    </div>
+  );
+}
+
+/**
+ * ZipInput dev harness. Renders the component in isolation for screenshot
+ * capture across the four submit outcomes. `zip-input` shows the idle field;
+ * the `-error` variant monkeypatches `fetch` to reject so the role=alert
+ * state is reproducible without a flaky network condition. Dev-only — never
+ * ships (DsPreview is gated behind import.meta.env.DEV in main.tsx).
+ */
+function ZipInputPreview({ variant }: { variant: string }): ReactNode {
+  const [resolved, setResolved] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (variant !== 'zip-input-error') return;
+    const original = window.fetch;
+    window.fetch = (() =>
+      Promise.reject(new Error('forced zip-index failure'))) as typeof window.fetch;
+    return () => {
+      window.fetch = original;
+    };
+  }, [variant]);
+
+  return (
+    <div style={{ ...PREVIEW_STYLES, maxWidth: '360px' }}>
+      <ZipInput onResolve={(scope) => setResolved(JSON.stringify(scope))} />
+      {resolved && (
+        <p style={{ marginTop: '12px', fontSize: '14px', color: 'var(--color-text-muted)' }}>
+          Resolved scope: <code>{resolved}</code>
+        </p>
+      )}
     </div>
   );
 }

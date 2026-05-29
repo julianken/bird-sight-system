@@ -1,5 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { BBox } from '../../state/url-state.js';
+// ZIP_FLYTO_ZOOM is the single shared metro-framing zoom (= 10) owned by
+// Stream D's scope-types. The ZIP `flyTo` move carries its own `zoom` in the
+// prop (App.tsx builds it via `zipResolutionToScope`), but importing the
+// constant here keeps the contract single-sourced — `MapCanvas` never
+// re-literals 10 and asserts the incoming flyTo zoom against the shared value.
+import { ZIP_FLYTO_ZOOM } from '../../state/scope-types.js';
 // Aliasing the react-map-gl/maplibre Map component to MapView so the
 // global ES Map constructor remains available inside this module — otherwise
 // `new Map()` inside e.g. `leafCache = new Map<string, Promise<...>>()`
@@ -250,6 +256,33 @@ export interface MapCanvasProps {
    * low zoom (<6).
    */
   onViewportChange?: (bounds: import('maplibre-gl').LngLatBounds, zoom: number) => void;
+  /**
+   * Scope selector (#736 — Task C3). The `[[w,s],[e,n]]` envelope the camera
+   * should both FRAME (`fitBounds`) and CLAMP (`maxBounds`). For a state scope
+   * this is the state envelope (from `GET /api/states` `StateSummary.bbox`,
+   * converted to `[[w,s],[e,n]]` order by App.tsx); for `?scope=us` it is the
+   * CONUS envelope `[[-130,20],[-65,52]]`. When omitted (legacy callers —
+   * MapSurface without scope wiring, skeletal unit tests) the camera keeps its
+   * legacy uncontrolled CONUS `initialViewState` and clamps to `CONUS_BOUNDS`;
+   * no scope reframe fires. Owned/passed by App.tsx (#740); the prop shape
+   * mirrors the proven `ScopedMapProps` from the C0 prototype.
+   */
+  bounds?: [[number, number], [number, number]];
+  /**
+   * Changes on every scope change (e.g. the state code, or `'us'`). The single
+   * `fitBounds` re-trigger key — it drives the camera effect without re-firing
+   * on `bounds` array-reference churn. Pair with `bounds`.
+   */
+  boundsKey?: string;
+  /**
+   * Present on a ZIP scope: fly to this point at `ZIP_FLYTO_ZOOM` instead of
+   * fitting the whole-state envelope. PREFERRED over `fitBounds` when both are
+   * pending on the same (mount/ready) cycle — a ZIP is a "point inside the
+   * state" intent that must win over the whole-state framing (finding (f)).
+   * `center` is `[lng, lat]` (MapLibre order); `zoom` is `ZIP_FLYTO_ZOOM`;
+   * `key` changes per ZIP entry to re-trigger the move.
+   */
+  flyTo?: { center: [number, number]; zoom: number; key: string } | undefined;
 }
 
 /**
@@ -290,16 +323,24 @@ const CONUS_NARROW_BREAKPOINT_PX = 700;
  * - `MIN_ZOOM = 3` matches `CONUS_ZOOM_NARROW`: users can't zoom out past the
  *   mobile-default CONUS view. At z<6 the API is in aggregated mode anyway,
  *   so unbounded bboxes don't matter; this bound is purely a UX floor.
- * - `MAX_BOUNDS` keeps pan inside CONUS + a margin for coastal/border obs.
+ * - `CONUS_BOUNDS` keeps pan inside CONUS + a margin for coastal/border obs.
  *   This is the client-side enforcement of the server's bbox cap: if the
  *   server cap in `services/read-api/src/validate.ts` (see cap derivation)
  *   changes, this constant must change too — they're a linked pair.
  *   AK and HI are out of frame because of these map bounds (ingest already
  *   pulls `/recent/US` per PR #669); widening bounds to include them is
  *   the unblock, not an ingest change.
+ *
+ * Scope selector (#736): `CONUS_BOUNDS` is the FALLBACK clamp — used when no
+ * scope `bounds` prop is supplied (legacy callers / `?scope=us`). When a state
+ * scope is active, App.tsx (#740) passes that state's envelope as the `bounds`
+ * prop and the reactive `maxBounds` re-clamps to it (finding (a) — never an
+ * imperative `map.setMaxBounds()`). The constant was renamed from `MAX_BOUNDS`
+ * to make the CONUS-fallback role explicit; the validate.ts linked-pair tie
+ * above is unchanged.
  */
 const MIN_ZOOM = CONUS_ZOOM_NARROW;
-const MAX_BOUNDS: [[number, number], [number, number]] = [
+const CONUS_BOUNDS: [[number, number], [number, number]] = [
   [-130, 20],
   [-65, 52],
 ];
@@ -434,8 +475,37 @@ export function MapCanvas({
   silhouettes = [],
   onSelectSpecies,
   onViewportChange,
+  bounds,
+  boundsKey,
+  flyTo,
 }: MapCanvasProps) {
   const mapRef = useRef<MapRef>(null);
+  /**
+   * Scope-selector camera (#736). `activeBounds` is the envelope the camera
+   * frames + clamps to: the scope `bounds` prop when present, else the CONUS
+   * fallback. Passed straight to `<MapView maxBounds={activeBounds}>` — a
+   * REACTIVE prop; react-map-gl re-applies a changed `maxBounds` with no
+   * `<Map>` remount (finding (a) / C1 ctx7 §1). We never call
+   * `map.setMaxBounds()` imperatively.
+   */
+  const activeBounds = bounds ?? CONUS_BOUNDS;
+  /**
+   * First-paint frame (#736, contract item 2). When a scope `bounds` is
+   * present AT MOUNT, frame the first paint to those bounds (uncontrolled
+   * `{ bounds, fitBoundsOptions }`) so there is no flash of the CONUS overview
+   * before the load-gated `fitBounds` effect runs — mirrors the C0 prototype.
+   * Otherwise keep the legacy CONUS `{ longitude, latitude, zoom }`. Read once
+   * at mount via a ref so a later `bounds` prop change re-frames through the
+   * imperative effect (the single camera model), not by mutating
+   * `initialViewState` (which is construction-only and would not re-apply
+   * anyway). The camera model stays UNCONTROLLED + imperative — no controlled
+   * longitude/latitude/zoom props are added (ctx7 §4).
+   */
+  const initialViewStateRef = useRef(
+    bounds
+      ? { bounds, fitBoundsOptions: { padding: 48, maxZoom: 12 } }
+      : INITIAL_VIEW,
+  );
   /**
    * Issue #718: ObservationPopover anchors to the clicked marker's screen
    * coordinates. The state carries both the observation and the
@@ -537,6 +607,68 @@ export function MapCanvas({
         : false,
     [],
   );
+
+  /**
+   * SINGLE scope-driven camera-intent effect (#736 — Task C3), ported verbatim
+   * from the C0 prototype's `ScopedMap` (frontend/prototypes/scope-prototype/
+   * ScopedMap.tsx). Keyed on `[mapReady, boundsKey, flyTo?.key]` (+ the
+   * reduced-motion value). Load-bearing properties:
+   *
+   *  - Gated on `mapReady` (the maplibre `load` event), NOT on
+   *    `mapRef.current` being non-null. The chooser-first model (#740)
+   *    remounts the `<Map>` on every scope pick, so an imperative call on the
+   *    first commit races GL init — `mapRef.current` exists but `load` hasn't
+   *    fired and the call is dropped or overridden by `initialViewState`
+   *    (findings (b)/(f), ctx7 §4 mount-timing caveat).
+   *  - PREFERS `flyTo` over `fitBounds`: a ZIP entry is a "point inside the
+   *    state" intent and must win over the whole-state framing on the same
+   *    chooser→map mount. The naive two-effect version let the state
+   *    `fitBounds` clobber the metro-zoom ZIP `flyTo` (finding (f)).
+   *  - `essential: true` is the reduced-motion bypass (ctx7 §3): the scope
+   *    reframe changes what data the user sees, so the move must always LAND;
+   *    we pass `duration: 0` under reduced motion to make the instant landing
+   *    deterministic rather than relying on MapLibre's implicit zeroing.
+   *
+   * Legacy callers (no `boundsKey` AND no `flyTo`) get no scope reframe — the
+   * uncontrolled `initialViewState` keeps the legacy CONUS framing.
+   */
+  useEffect(() => {
+    if (!mapReady) return;
+    if (boundsKey === undefined && flyTo === undefined) return;
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+    if (flyTo) {
+      // The incoming `flyTo.zoom` is built from the shared `ZIP_FLYTO_ZOOM`
+      // by App.tsx (`zipResolutionToScope`); we pass it through rather than
+      // re-literaling 10. The void reference below keeps the import live as
+      // the documented single-source contract even though the value rides in
+      // on the prop.
+      void ZIP_FLYTO_ZOOM;
+      map.flyTo({
+        center: flyTo.center,
+        zoom: flyTo.zoom,
+        essential: true,
+        duration: prefersReducedMotion ? 0 : 800,
+      });
+      return;
+    }
+    map.fitBounds(activeBounds, {
+      // TODO(#737): asymmetric top padding == ScopeControl bar height — the
+      // in-state on-map ScopeControl floats over the canvas, so uniform 48
+      // would let the bar occlude the top of the framed state. Land uniform
+      // 48 until #737 fixes the bar height, then switch to
+      // `{ top: <barHeightPx>, bottom: 48, left: 48, right: 48 }`.
+      padding: 48,
+      maxZoom: 12,
+      essential: true,
+      duration: prefersReducedMotion ? 0 : 600,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- boundsKey +
+    // flyTo?.key are the intentional triggers; `activeBounds` identity derives
+    // from boundsKey and re-running on its reference churn is undesirable
+    // (prototype documents this exact disable). prefersReducedMotion is mount-
+    // stable (useMemo []).
+  }, [mapReady, boundsKey, flyTo?.key, prefersReducedMotion]);
 
   // Unmount cleanup for the `window.__birdMap` test hook (#291). The hook is
   // assigned in `handleLoad` (which fires once per mount); without an unmount
@@ -1586,9 +1718,12 @@ export function MapCanvas({
     <div data-testid="map-canvas" style={{ width: '100%', height: '100%', position: 'relative' }}>
       <MapView
         ref={mapRef}
-        initialViewState={INITIAL_VIEW}
+        initialViewState={initialViewStateRef.current}
         minZoom={MIN_ZOOM}
-        maxBounds={MAX_BOUNDS}
+        // Reactive scope clamp (#736 finding (a)): `activeBounds` is the scope
+        // envelope when a scope is active, else `CONUS_BOUNDS`. react-map-gl
+        // re-applies a changed `maxBounds` with no remount — never imperative.
+        maxBounds={activeBounds}
         style={{ width: '100%', height: '100%' }}
         mapStyle={
           typeof document !== 'undefined' &&
