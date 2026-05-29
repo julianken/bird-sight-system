@@ -210,6 +210,12 @@ export function parseState(
  * Reject body is descriptive so the frontend can render an affordance:
  *   { error: 'bbox too large', maxLngSpan: 45, maxLatSpan: 25,
  *     hint: 'zoom out for aggregated view' }
+ *
+ * #734 B4 — the state-only scope (`?state=US-XX` with no bbox) NEVER reaches
+ * this cap: `app.ts` calls `assertBboxAreaCap` only inside `if (bbox !==
+ * undefined)`, and a state-only request has no bbox. The state polygon's
+ * `ST_Intersects` clip is the bound on that path instead. No code change to
+ * the area cap is required to support state scope.
  */
 export interface BboxTooLargeBody {
   error: 'bbox too large';
@@ -248,20 +254,34 @@ export function assertBboxAreaCap(
 }
 
 /**
- * Per-observation requests must specify EITHER a bbox OR a species code.
- * Family-only (no bbox, no species) is the scrape vector for "all of family X
- * nationally" — reject with 400.
+ * Per-observation requests must specify a BOUNDED scope: a bbox, a species
+ * code, OR a state code. Family-only with no bound (no bbox, no species, no
+ * state) is the scrape vector for "all of family X nationally" — reject 400.
+ *
+ * `?state=US-XX` (#734 B4) is a bounded scope: the data layer clips it to the
+ * state polygon via `ST_Intersects` against `state_boundaries`, so a
+ * state-only request can never pull the unbounded national set. It is
+ * therefore accepted on the per-observation path alongside bbox and species.
+ *
+ * The error string `'specify bbox or species'` is deliberately UNCHANGED by
+ * the state widening — `app.test.ts` and the frontend both string-match it.
  *
  * This guard applies only when the request will hit the per-observation path:
- * aggregated mode (bbox present + zoom < 6) is already cheap.
+ * aggregated mode (bbox present + zoom < 6) is already cheap and returns
+ * before the guard runs.
  */
 export function assertBboxOrSpecies(args: {
   bbox: [number, number, number, number] | undefined;
   speciesCode: string | undefined;
+  stateCode?: string | undefined;
 }):
   | { ok: true }
   | { ok: false; error: string; log: ValidationLog } {
-  if (args.bbox !== undefined || args.speciesCode !== undefined) return { ok: true };
+  if (
+    args.bbox !== undefined ||
+    args.speciesCode !== undefined ||
+    args.stateCode !== undefined
+  ) return { ok: true };
   return {
     ok: false,
     error: 'specify bbox or species',
