@@ -83,7 +83,11 @@ test.describe('Map cold load — issue #716', () => {
     });
 
     const app = new AppPage(page);
-    await app.goto();
+    // #738 — DEFAULTS.scope is now `unscoped`, so a bare URL renders the
+    // chooser and MapLede returns null (region=null). This suite asserts the
+    // cold-load → lede behaviour, which only exists on a scoped surface, so
+    // land on the whole-US escape hatch (`?scope=us` → region "USA").
+    await app.goto('scope=us');
 
     // <main data-render-complete="false"> is the loading-state marker —
     // App.tsx flips it to "true" only when useBirdData's combined `loading`
@@ -144,7 +148,11 @@ test.describe('Map cold load — issue #716', () => {
     });
 
     const app = new AppPage(page);
-    await app.goto();
+    // #738 — DEFAULTS.scope is now `unscoped`, so a bare URL renders the
+    // chooser and MapLede returns null (region=null). This suite asserts the
+    // cold-load → lede behaviour, which only exists on a scoped surface, so
+    // land on the whole-US escape hatch (`?scope=us` → region "USA").
+    await app.goto('scope=us');
 
     // Wait for the React tree to mount.
     await page.locator('main').waitFor({ state: 'attached', timeout: 5_000 });

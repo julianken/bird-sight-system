@@ -81,7 +81,10 @@ test.describe('.map-lede CLS regression — #510', () => {
     await page.setViewportSize(MOBILE);
     await injectLsObserver(page);
 
-    await page.goto('/');
+    // #738 — bare URL now lands unscoped (chooser, no `.map-lede`). The
+    // critical-CSS/CLS contract this spec guards only applies to a scoped
+    // map surface, so navigate to the whole-US escape hatch.
+    await page.goto('/?scope=us');
     await page.waitForLoadState('networkidle');
 
     // .map-lede must be visible and sized correctly
@@ -104,7 +107,8 @@ test.describe('.map-lede CLS regression — #510', () => {
     await page.setViewportSize(DESKTOP);
     await injectLsObserver(page);
 
-    await page.goto('/');
+    // #738 — see mobile case: scope to whole-US so the `.map-lede` renders.
+    await page.goto('/?scope=us');
     await page.waitForLoadState('networkidle');
 
     const lede = page.locator('h1.map-lede');
