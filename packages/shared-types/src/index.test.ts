@@ -1,4 +1,12 @@
-import type { SpeciesMeta, ObservationsResponse, Observation } from './index.js';
+import type {
+  SpeciesMeta,
+  ObservationsResponse,
+  Observation,
+  StateCode,
+  ObservationFilters,
+  StateSummary,
+} from './index.js';
+import { CONUS_STATE_CODES } from './index.js';
 
 // Compile-time-only tests for the optional photo projection fields added
 // to SpeciesMeta in issue #327, task-3. These fields are derived at read
@@ -124,3 +132,119 @@ if (_aggregated.mode === 'aggregated') {
   // @ts-expect-error — `data` does not exist on the aggregated branch
   void _aggregated.data;
 }
+
+// ── State scope type-level tests (#727 / plan tasks B1 + A3) ───────────────
+
+// Case 11: CONUS_STATE_CODES is the single-source 49-code allowlist (48
+// contiguous states + DC, excluding US-AK and US-HI). It must be a runtime
+// value (imported above as a value, not a type) so parseState/the ZIP
+// contract/the selector can build a Set from it.
+const _codeCount: number = CONUS_STATE_CODES.length;
+if (_codeCount !== 49) {
+  throw new Error(`CONUS_STATE_CODES must have 49 entries, got ${_codeCount}`);
+}
+// Alaska + Hawaii are deliberately absent (out of the CONUS scope).
+if (
+  (CONUS_STATE_CODES as readonly string[]).includes('US-AK') ||
+  (CONUS_STATE_CODES as readonly string[]).includes('US-HI')
+) {
+  throw new Error('CONUS_STATE_CODES must exclude US-AK and US-HI');
+}
+// DC and a representative state are present.
+if (
+  !(CONUS_STATE_CODES as readonly string[]).includes('US-DC') ||
+  !(CONUS_STATE_CODES as readonly string[]).includes('US-AZ')
+) {
+  throw new Error('CONUS_STATE_CODES must include US-DC and US-AZ');
+}
+
+// Case 12: StateCode is the union of the literal members of CONUS_STATE_CODES.
+// A member literal assigns; an off-list literal does not.
+const _okState: StateCode = 'US-AZ';
+void _okState;
+const _dc: StateCode = 'US-DC';
+void _dc;
+// @ts-expect-error — US-AK is not a CONUS code
+const _ak: StateCode = 'US-AK';
+void _ak;
+// @ts-expect-error — bare 'AZ' is not a StateCode (codes are eBird 'US-XX')
+const _bare: StateCode = 'AZ';
+void _bare;
+
+// Case 13: StateCode flows back through the const-array element type.
+const _firstCode: StateCode = CONUS_STATE_CODES[0];
+void _firstCode;
+
+// Case 14: ObservationFilters.stateCode is an optional string — a hard
+// server-side data boundary that ANDs with bbox. Omitting it = whole-US.
+const _noScope: ObservationFilters = { since: '7d' };
+void _noScope;
+const _scoped: ObservationFilters = { stateCode: 'US-AZ', bbox: [-111, 31.5, -110.85, 31.9] };
+void _scoped;
+const _scopeAccess: string | undefined = _scoped.stateCode;
+void _scopeAccess;
+const _badScope: ObservationFilters = {
+  // @ts-expect-error — stateCode must be a string when set
+  stateCode: 123,
+};
+void _badScope;
+
+// Case 15: meta.truncated is OPTIONAL on the per-observation branch (stale
+// CDN bodies predating the field deserialize cleanly). Both present and
+// omitted are well-formed.
+const _truncated: ObservationsResponse = {
+  mode: 'observations',
+  data: [_obs],
+  meta: { freshestObservationAt: '2026-05-28T00:00:00.000Z', truncated: true },
+};
+void _truncated;
+const _notTruncated: ObservationsResponse = {
+  mode: 'observations',
+  data: [_obs],
+  // truncated omitted — must still compile
+  meta: { freshestObservationAt: '2026-05-28T00:00:00.000Z' },
+};
+void _notTruncated;
+if (_truncated.mode === 'observations') {
+  const _t: boolean | undefined = _truncated.meta.truncated;
+  void _t;
+}
+const _badTruncated: ObservationsResponse = {
+  mode: 'observations',
+  data: [],
+  // @ts-expect-error — truncated must be a boolean when set
+  meta: { freshestObservationAt: null, truncated: 'yes' },
+};
+void _badTruncated;
+
+// Case 16: meta.truncated is OPTIONAL on the aggregated branch too (the
+// aggregated path omits it; the field must still be accepted for parity).
+const _aggTruncated: ObservationsResponse = {
+  mode: 'aggregated',
+  buckets: [],
+  meta: { freshestObservationAt: null, truncated: true },
+};
+void _aggTruncated;
+if (_aggTruncated.mode === 'aggregated') {
+  const _t: boolean | undefined = _aggTruncated.meta.truncated;
+  void _t;
+}
+
+// Case 17: StateSummary — { stateCode; name; bbox:[w,s,e,n] }. The bbox is a
+// 4-number tuple in the same [west,south,east,north] order as
+// ObservationFilters.bbox. `geom` never appears (it stays server-side).
+const _summary: StateSummary = {
+  stateCode: 'US-AZ',
+  name: 'Arizona',
+  bbox: [-114.82, 31.33, -109.05, 37.0],
+};
+void _summary;
+const _summaryBbox: [number, number, number, number] = _summary.bbox;
+void _summaryBbox;
+const _badSummary: StateSummary = {
+  stateCode: 'US-AZ',
+  name: 'Arizona',
+  // @ts-expect-error — bbox must be a 4-tuple of numbers
+  bbox: [-114.82, 31.33, -109.05],
+};
+void _badSummary;
