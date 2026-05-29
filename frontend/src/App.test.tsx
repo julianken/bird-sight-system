@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { render, screen, waitFor, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { LngLatBounds } from 'maplibre-gl';
 
@@ -948,6 +948,32 @@ describe('#740 (C6): scope wiring end-to-end', () => {
     });
     expect(mockGetObservations).not.toHaveBeenCalled();
     expect(mockGetHotspots).not.toHaveBeenCalled();
+  });
+
+  // SUGGESTION (PR #758): a terminal /api/states outage must not strand the
+  // chooser <select> on "Loading states…" forever. statesLoading flips false,
+  // states stays [], error is non-null — App threads error into ScopeChooser,
+  // which swaps the placeholder to an honest "Couldn't load states" copy. The
+  // ZIP path + whole-US escape hatch remain usable.
+  it('terminal /api/states outage shows honest "Couldn\'t load states" copy in the chooser, not "Loading states"', async () => {
+    mockGetStates.mockRejectedValue(new Error('Failed to fetch'));
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'unscoped' },
+    };
+    render(<App />);
+    await screen.findByRole('region', { name: /Choose where to look at birds/i });
+    // After the fetch settles, the placeholder must read the honest copy.
+    const select = await screen.findByRole('combobox', { name: /state/i });
+    await waitFor(() => {
+      const placeholder = within(select).getAllByRole('option')[0];
+      expect(placeholder).toHaveTextContent(/couldn.t load states/i);
+    });
+    const placeholder = within(select).getAllByRole('option')[0];
+    expect(placeholder).not.toHaveTextContent(/loading/i);
+    // Whole-US escape hatch remains usable.
+    await userEvent.click(screen.getByRole('button', { name: /Explore the whole US map/i }));
+    expect(mockUrlState.set).toHaveBeenCalledWith({ scope: { kind: 'us' } });
   });
 
   // AC 1 (callbacks): chooser pick-state writes ?state=US-XX.

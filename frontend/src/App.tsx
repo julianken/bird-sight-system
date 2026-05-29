@@ -154,7 +154,11 @@ export function App() {
   // chooser/control `<select>` display names AND the per-state camera
   // `fitBounds`/`maxBounds` envelope. Cached for the tab lifetime (see
   // useStates). Threaded into regionLabelFor (state name) below.
-  const { states, loading: statesLoading } = useStates(apiClient);
+  // #758: `error` is threaded into <ScopeChooser> so a terminal /api/states
+  // outage shows an honest "Couldn't load states" placeholder instead of a
+  // perpetual "Loading states…" — on failure `statesLoading` flips false but
+  // `states` stays empty, so the loading copy would otherwise stick forever.
+  const { states, loading: statesLoading, error: statesError } = useStates(apiClient);
 
   const families = useMemo(() => deriveFamilies(observations), [observations]);
   const speciesIndex = useMemo(() => deriveSpeciesIndex(observations), [observations]);
@@ -539,6 +543,7 @@ export function App() {
       <ScopeChooser
         states={states}
         statesLoading={statesLoading}
+        statesError={statesError}
         onPickState={onPickState}
         onPickWholeUs={onPickWholeUs}
         onResolve={onResolveZip}

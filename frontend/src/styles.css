@@ -1853,6 +1853,13 @@ aside.species-detail-rail .species-detail-rail-close {
   border-color: var(--color-border-ui);
   cursor: not-allowed;
 }
+/* #758: terminal /api/states outage note under the disabled <select>. Names the
+   still-usable ZIP + whole-US paths so the disabled selector isn't a dead end. */
+.scope-chooser__states-error {
+  margin: 0;
+  font-size: var(--type-sm);
+  color: var(--color-error-text);
+}
 /* De-emphasized escape hatch: visually subordinate (no primary fill, lighter
    weight, smaller, link-like) but a real, operable, focusable native button. */
 .scope-chooser__wholeus {
