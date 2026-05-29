@@ -25,6 +25,12 @@ tmp/
 # migration file is the committed output.
 scripts/.phylopic-cache/
 
+# Census state-boundary source shapefile (issue #728). `scripts/generate-state-
+# boundaries.mjs` downloads + unzips cb_2023_us_state_500k here. Local-only —
+# the committed outputs are migrations/1700000050000_state_boundaries.sql and
+# data/us-state-polygons.geojson; provenance is scripts/README-state-boundaries.md.
+.cache-census/
+
 # Playwright output (screenshots, traces from local runs)
 frontend/.playwright-out/
 frontend/.playwright-out-snapshot-gen/

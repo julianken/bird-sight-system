@@ -87,6 +87,22 @@ const config: KnipConfig = {
     //             is ever deleted without also removing the test. Re-audit
     //             2026-07-27 alongside silhouette.test.mjs.
     'scripts/curate-phylopic.test.mjs',
+
+    // 2026-05-28: scripts/generate-state-boundaries.mjs is the run-once
+    //             offline generator (Task A1, #728) that emits both
+    //             migrations/1700000050000_state_boundaries.sql's INSERT block
+    //             and data/us-state-polygons.geojson from the Census state
+    //             shapefile. It is statically unreferenced by design — an
+    //             operator runs it by hand when regenerating the boundaries
+    //             (see scripts/README-state-boundaries.md). It depends on
+    //             mapshaper, which is installed transiently with `npm install
+    //             --no-save` (NOT a committed dependency), so knip would also
+    //             flag mapshaper — the script is excluded entirely instead.
+    //             Risk: masks a genuine orphan if the seed migration is ever
+    //             regenerated differently or the script is abandoned. Re-audit
+    //             2026-07-27 by confirming the seed migration's header still
+    //             cites this script as the provenance of its INSERT rows.
+    'scripts/generate-state-boundaries.mjs',
   ],
 
   // 2026-04-27: React component Props interfaces and other exports used only
