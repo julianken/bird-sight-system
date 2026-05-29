@@ -58,7 +58,7 @@ test.describe('accessibility', () => {
   });
 
   test('aria-busy flips from true to false when data loads', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?scope=us');
     // Race: the mount effect kicks off a fetch, and we may miss the `true` state
     // if the network is very fast. Accept either ordering, but we MUST end on 'false'.
     await expect.poll(

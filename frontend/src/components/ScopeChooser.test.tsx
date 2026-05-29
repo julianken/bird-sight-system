@@ -150,6 +150,27 @@ describe('<ScopeChooser>', () => {
     expect(screen.getByRole('textbox', { name: /ZIP code/i })).toBeEnabled();
   });
 
+  it('statesError (terminal /api/states outage) → placeholder reads "Couldn\'t load states", NOT "Loading states", and ZIP path stays usable', async () => {
+    // Reproduces the SUGGESTION on PR #758: on a terminal outage statesLoading
+    // is false but states is [] and error is non-null. Without the error prop
+    // the placeholder showed "Loading states…" forever — a copy that lies.
+    renderChooser({ states: [], statesLoading: false, statesError: new Error('Failed to fetch') });
+    const select = screen.getByRole('combobox', { name: /state/i });
+    expect(select).toBeDisabled();
+    const placeholder = within(select).getAllByRole('option')[0];
+    // Honest copy: not the "Loading…" lie.
+    expect(placeholder).toHaveTextContent(/couldn.t load states/i);
+    expect(placeholder).not.toHaveTextContent(/loading/i);
+    // The user is told the ZIP path still works.
+    const region = screen.getByRole('region', { name: /scope|where|look/i });
+    expect(within(region).getByText(/use a zip code/i)).toBeInTheDocument();
+    // ZIP path stays fully usable.
+    const input = screen.getByRole('textbox', { name: /ZIP code/i });
+    expect(input).toBeEnabled();
+    await userEvent.click(input);
+    expect(mockLoadZipIndex).toHaveBeenCalledTimes(1);
+  });
+
   it('a11y: region, ZIP input, and state select are reachable by accessible name', () => {
     renderChooser();
     expect(screen.getByRole('region', { name: /scope|where|look/i })).toBeInTheDocument();

@@ -102,18 +102,35 @@ export interface BirdDataState {
 
 export function useBirdData(
   client: ApiClient,
-  filters: ObservationFilters
+  filters: ObservationFilters,
+  // #740 (C6) — scope-gate. When `false` (the unscoped/chooser landing) the
+  // hook fires NEITHER the observations NOR the hotspots fetch, and reports
+  // both loading flags as false so the app isn't stuck in a loading shell while
+  // the chooser is shown. This is the production analogue of the C0 prototype's
+  // gated fetch (`if (scope.kind === 'unscoped') return;`) — net
+  // /api/observations requests on the chooser landing = 0 (AC 1). Defaults to
+  // `true` so every existing caller (no scope concept) is unchanged.
+  enabled: boolean = true,
 ): BirdDataState {
   const [hotspots, setHotspots] = useState<Hotspot[]>([]);
   const [observations, setObservations] = useState<Observation[]>([]);
   const [freshestObservationAt, setFreshestObservationAt] = useState<string | null>(null);
-  const [hotspotsLoading, setHotspotsLoading] = useState(true);
-  const [observationsLoading, setObservationsLoading] = useState(true);
+  // Seed loading from `enabled`: a disabled hook is not loading (nothing is in
+  // flight), so the chooser landing never paints a loading shell.
+  const [hotspotsLoading, setHotspotsLoading] = useState(enabled);
+  const [observationsLoading, setObservationsLoading] = useState(enabled);
   const [error, setError] = useState<Error | null>(null);
 
-  // One-time load
+  // One-time load (gated — no hotspots fetch while unscoped)
   useEffect(() => {
+    if (!enabled) {
+      // Re-entering the disabled state (scope cleared → back to chooser):
+      // ensure we are not reporting a stale loading=true.
+      setHotspotsLoading(false);
+      return;
+    }
     let cancelled = false;
+    setHotspotsLoading(true);
     client.getHotspots()
       .then(h => {
         if (cancelled) return;
@@ -122,10 +139,20 @@ export function useBirdData(
       .catch(err => { if (!cancelled) setError(err as Error); })
       .finally(() => { if (!cancelled) setHotspotsLoading(false); });
     return () => { cancelled = true; };
-  }, [client]);
+  }, [client, enabled]);
 
-  // Observation refetch on filter change — unwrap the ObservationsResponse envelope
+  // Observation refetch on filter change — unwrap the ObservationsResponse
+  // envelope. Gated on `enabled`: while unscoped this effect short-circuits
+  // BEFORE `client.getObservations`, so the cold-load CONUS fetch never fires.
   useEffect(() => {
+    if (!enabled) {
+      // Clear any in-flight loading flag and drop stale rows so a return to the
+      // chooser (scope cleared) doesn't keep the prior scope's observations
+      // mounted underneath it.
+      setObservationsLoading(false);
+      setObservations([]);
+      return;
+    }
     let cancelled = false;
     setObservationsLoading(true);
     client.getObservations(filters)
@@ -146,10 +173,12 @@ export function useBirdData(
     // (App.tsx debounces the bbox upstream; this hook trusts the value.)
   }, [
     client,
+    enabled,
     filters.since,
     filters.notable,
     filters.speciesCode,
     filters.familyCode,
+    filters.stateCode,
     filters.bbox?.join(','),
     filters.zoom,
   ]);

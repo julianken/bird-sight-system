@@ -112,7 +112,7 @@ test.describe('axe-core WCAG scans', () => {
 
   test('error screen has no WCAG 2/2.1 A/AA violations', async ({ page, apiStub }) => {
     await apiStub.stubApiAbort('observations');
-    await page.goto('/');
+    await page.goto('/?scope=us');
     // Phase 6: error screen uses <StatusBlock state="error"> — .error-screen gone.
     await expect(page.locator('[role="status"] .status-block__title'))
       .toHaveText("Couldn't load bird data", { timeout: 10_000 });

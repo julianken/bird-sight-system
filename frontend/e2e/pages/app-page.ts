@@ -60,7 +60,31 @@ export class AppPage {
     await this.appHeader.getByRole('tab', { name: labelMap[view] }).click();
   }
 
+  /**
+   * Navigate to the app. #740 (C6) gated the map render behind a scope: a bare
+   * URL (no `?state=`/`?scope=`) now lands on the <ScopeChooser>, NOT the map.
+   * Pre-C6 these specs assumed a bare URL cold-loaded the CONUS national map —
+   * which is now exactly the `?scope=us` whole-US view. To preserve what every
+   * legacy feed/map/detail spec actually tests, default to `scope=us` when the
+   * caller passes no explicit scope. Specs that DO exercise the chooser / a
+   * specific scope (e.g. `goto('scope=us')`, `goto('state=US-AZ')`, or the
+   * dedicated unscoped-chooser spec via `gotoRaw`) pass their own scope and are
+   * untouched. This keeps the e2e suite green on the C6 PR without each map
+   * spec having to thread `scope=us` (the C9/#741 scope specs own the chooser
+   * + scope-transition coverage explicitly).
+   */
   async goto(query = '') {
+    const hasScope = /(^|&)(scope|state)=/.test(query);
+    const effective = hasScope ? query : query ? `${query}&scope=us` : 'scope=us';
+    await this.page.goto(`/?${effective}`);
+  }
+
+  /**
+   * Navigate to a literal URL with NO default-scope injection — for specs that
+   * deliberately land on the unscoped chooser (C9/#741) or assert raw URL
+   * handling. `goto('')` would inject `scope=us`; `gotoRaw('')` does not.
+   */
+  async gotoRaw(query = '') {
     await this.page.goto(`/${query ? '?' + query : ''}`);
   }
 

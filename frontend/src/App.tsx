@@ -3,13 +3,17 @@ import type { LngLatBounds } from 'maplibre-gl';
 import { analytics } from './analytics.js';
 import { ApiClient, ApiError } from './api/client.js';
 import { useUrlState, DEFAULTS } from './state/url-state.js';
-import type { Since, BBox } from './state/url-state.js';
+import type { Since, BBox, Scope } from './state/url-state.js';
+import type { ScopeResolution } from './state/scope-types.js';
 import { useBirdData } from './data/use-bird-data.js';
 import { useSilhouettes } from './data/use-silhouettes.js';
+import { useStates } from './data/use-states.js';
 import { useSpeciesDetail } from './data/use-species-detail.js';
 import { FiltersBar } from './components/FiltersBar.js';
 import { FeedSurface } from './components/FeedSurface.js';
 import { MapSurface } from './components/MapSurface.js';
+import { ScopeChooser } from './components/ScopeChooser.js';
+import { ScopeControl } from './components/ScopeControl.js';
 import { SpeciesDetailRail } from './components/SpeciesDetailRail.js';
 import { SpeciesDetailSheet } from './components/SpeciesDetailSheet.js';
 import { AppHeader } from './components/AppHeader.js';
@@ -23,6 +27,19 @@ import { StatusBlock } from './components/ds/StatusBlock.js';
 import { deriveFreshness } from './lib/freshness.js';
 
 const apiClient = new ApiClient({ baseUrl: import.meta.env.VITE_API_BASE_URL ?? '' });
+
+/**
+ * #740 (C6) — the whole-US (`?scope=us`) camera envelope, in MapLibre
+ * `[[w,s],[e,n]]` order. This is the SAME production constant the C0 prototype
+ * verified (`CONUS_BOUNDS` in `frontend/prototypes/scope-prototype/states.ts`)
+ * and the MapCanvas `CONUS_BOUNDS` fallback (`frontend/src/components/map/
+ * MapCanvas.tsx`). The camera both FRAMES (`fitBounds`) and CLAMPS
+ * (`maxBounds`) to it for the whole-US view. Kept here (not imported from
+ * MapCanvas) because MapCanvas's copy is the lazy-loaded map chunk's private
+ * fallback; App owns the scope→bounds derivation and must not pull the map
+ * chunk into the entry bundle just to read a constant.
+ */
+const CONUS_BOUNDS: [[number, number], [number, number]] = [[-130, 20], [-65, 52]];
 
 /**
  * Maps an Error to a user-facing body string for the top-level error screen.
@@ -108,14 +125,40 @@ export function App() {
   // <main aria-busy> attribute narrate observation data, so they switch
   // to `observationsLoading` too. `loading` (combined) is retained for
   // `data-render-complete`, which tracks the whole tree being ready.
-  const { loading, observationsLoading, error, observations, freshestObservationAt } = useBirdData(apiClient, {
-    since: state.since,
-    notable: state.notable,
-    ...(state.speciesCode ? { speciesCode: state.speciesCode } : {}),
-    ...(state.familyCode ? { familyCode: state.familyCode } : {}),
-    bbox: debouncedBbox,
-    zoom: debouncedZoom,
-  });
+  // #740 (C6) — the scope gate. The observations (+ hotspots) fetch fires ONLY
+  // once a scope exists; on the unscoped/chooser landing the cold-load CONUS
+  // fetch is SUPPRESSED entirely (AC 1 — net /api/observations requests = 0).
+  // The early `<ScopeChooser>` return below also unmounts the data-driven map,
+  // but the fetch gate is the load-bearing half: it keeps the network panel
+  // empty even though the hooks above this return are always evaluated.
+  const scopeActive = state.scope.kind !== 'unscoped';
+  // #740 (C6) — only a `?state=US-XX` scope sends `?state=` to the API (the
+  // server clips via ST_Intersects). UNSCOPED and `?scope=us` both leave
+  // `stateCode` unset, so the backend stays untouched (data invariant, #735).
+  const scopeStateCode = state.scope.kind === 'state' ? state.scope.stateCode : undefined;
+  const { loading, observationsLoading, error, observations, freshestObservationAt } = useBirdData(
+    apiClient,
+    {
+      since: state.since,
+      notable: state.notable,
+      ...(state.speciesCode ? { speciesCode: state.speciesCode } : {}),
+      ...(state.familyCode ? { familyCode: state.familyCode } : {}),
+      ...(scopeStateCode ? { stateCode: scopeStateCode } : {}),
+      bbox: debouncedBbox,
+      zoom: debouncedZoom,
+    },
+    scopeActive,
+  );
+
+  // #740 (C6) — the CONUS state name + envelope table (#732/#748). Drives the
+  // chooser/control `<select>` display names AND the per-state camera
+  // `fitBounds`/`maxBounds` envelope. Cached for the tab lifetime (see
+  // useStates). Threaded into regionLabelFor (state name) below.
+  // #758: `error` is threaded into <ScopeChooser> so a terminal /api/states
+  // outage shows an honest "Couldn't load states" placeholder instead of a
+  // perpetual "Loading states…" — on failure `statesLoading` flips false but
+  // `states` stays empty, so the loading copy would otherwise stick forever.
+  const { states, loading: statesLoading, error: statesError } = useStates(apiClient);
 
   const families = useMemo(() => deriveFamilies(observations), [observations]);
   const speciesIndex = useMemo(() => deriveSpeciesIndex(observations), [observations]);
@@ -134,10 +177,10 @@ export function App() {
 
   // #738/C5: runtime region label for the active scope (#735). `null` ⟺
   // unscoped (the chooser landing) — every consumer degrades to no region
-  // claim. The `/api/states` name table (#732) is threaded by #740's wiring;
-  // until then a `?state=US-XX` scope falls back to the bare code (the
-  // documented `?? scope.stateCode` fallback in regionLabelFor).
-  const region = regionLabelFor(state.scope);
+  // claim. #740 threads the `/api/states` name table (#732) so a `?state=US-XX`
+  // scope resolves to the state name (e.g. "Arizona"); regionLabelFor falls
+  // back to the bare `stateCode` while the table is still loading.
+  const region = regionLabelFor(state.scope, states);
 
   // #738/C7: "no filters active" — the data-availability vs filter-narrowing
   // split (MapLede) keys off this. A request is unfiltered ONLY when no
@@ -150,6 +193,52 @@ export function App() {
     state.familyCode === null &&
     state.notable === false &&
     state.since === DEFAULTS.since;
+
+  // #740 (C6) — scope-derived camera intent, threaded MapSurface → MapCanvas
+  // (#736 owns the imperative `fitBounds`/`flyTo`/reactive `maxBounds`). Two
+  // values:
+  //   - `scopeBounds` — the `[[w,s],[e,n]]` envelope the camera frames + clamps
+  //     to. For `?scope=us` it is the CONUS production constant; for a
+  //     `?state=US-XX` scope it is the state envelope from `/api/states`
+  //     (`StateSummary.bbox` is `[w,s,e,n]`, converted to `[[w,s],[e,n]]`).
+  //     `undefined` while unscoped (the map is unmounted then anyway).
+  //   - `boundsKey`   — the single `fitBounds` re-trigger key: it changes once
+  //     per scope change (the state code, or `'us'`) so MapCanvas's
+  //     camera-intent effect (keyed on `boundsKey`) fires EXACTLY once per
+  //     scope change, not on `scopeBounds` array-reference churn (gotcha 1/4).
+  const { scopeBounds, boundsKey } = useMemo<{
+    scopeBounds: [[number, number], [number, number]] | undefined;
+    boundsKey: string | undefined;
+  }>(() => {
+    if (state.scope.kind === 'us') {
+      return { scopeBounds: CONUS_BOUNDS, boundsKey: 'us' };
+    }
+    if (state.scope.kind === 'state') {
+      const { stateCode } = state.scope;
+      const summary = states.find(s => s.stateCode === stateCode);
+      if (summary) {
+        const [w, s, e, n] = summary.bbox;
+        return { scopeBounds: [[w, s], [e, n]], boundsKey: stateCode };
+      }
+      // States table not loaded yet — frame CONUS as a holding pattern and key
+      // on the state code so the camera re-frames once the envelope arrives
+      // (boundsKey already carries the code, so the effect re-runs).
+      return { scopeBounds: CONUS_BOUNDS, boundsKey: stateCode };
+    }
+    // unscoped — no scope camera (the chooser is shown, the map is unmounted).
+    return { scopeBounds: undefined, boundsKey: undefined };
+  }, [state.scope, states]);
+
+  // #740 (C6) — a transient ZIP `flyTo` staged by `onResolve`. NOT URL state
+  // (`?zip=` is never persisted, locked decision #5) — it lives in component
+  // state and is re-triggered by its `key`. PREFERRED over the whole-state
+  // `fitBounds` when both are pending on the same chooser→map mount (gotcha 2 /
+  // finding (f)): a ZIP is a "point inside the state" intent that must win over
+  // the whole-state framing. The MapCanvas camera-intent effect (keyed on
+  // `flyTo?.key`) implements the preference; App just stages it.
+  const [flyTo, setFlyTo] = useState<
+    { center: [number, number]; zoom: number; key: string } | undefined
+  >(undefined);
 
   // Resolve human-readable species name when a speciesCode filter is active.
   // Derived from speciesIndex — same source the FiltersBar autocomplete uses.
@@ -201,8 +290,44 @@ export function App() {
     },
     []
   );
+  // #740 (C6) gotcha 4 — "one refetch per scope change". A `?state`/scope
+  // change is a DISCRETE URL-state transition, NOT a viewport event, so the
+  // 250ms `bboxDebounceRef` (keyed on map pan/zoom `idle`) does NOT coalesce
+  // it. The scope change itself is the single refetch trigger (via the
+  // `stateCode`/`enabled` deps of useBirdData). The programmatic
+  // `fitBounds`/`flyTo` that follows then settles and fires ONE `idle` →
+  // `onViewportChange`; without a guard, that settle-frame would write a new
+  // bbox/zoom and trigger a SECOND, mid-animation refetch for the same scope.
+  //
+  // The guard: `scopeMoveUntilRef` holds a timestamp through which idle-driven
+  // bbox refetches are suppressed. It is set on every scope-framing change (the
+  // boundsKey/flyTo effect below) to `now + SCOPE_MOVE_SETTLE_MS`, a window that
+  // covers the whole programmatic camera animation (the ZIP `flyTo` is the
+  // longest at 800ms; `fitBounds` is 600ms) PLUS the 250ms idle debounce
+  // headroom — a one-shot counter is too fragile because a single
+  // `fitBounds`/`flyTo` can emit MORE than one settle `idle` (the uncontrolled
+  // `initialViewState` frame AND the imperative move each settle). Within the
+  // window the settle idles still update `viewportBounds` (so the legend stays
+  // correct) but do NOT schedule a bbox/zoom refetch — the scope change itself
+  // is the single fetch trigger (via the `stateCode`/`enabled` deps of
+  // useBirdData). After the window, genuine user pan/zoom within the scope
+  // refetches normally. Unscoped (`boundsKey === undefined`) needs no
+  // suppression — the map is unmounted and no idle fires.
+  const SCOPE_MOVE_SETTLE_MS = 1000;
+  const scopeMoveUntilRef = useRef(0);
+  useEffect(() => {
+    if (boundsKey !== undefined) {
+      scopeMoveUntilRef.current = Date.now() + SCOPE_MOVE_SETTLE_MS;
+    }
+  }, [boundsKey, flyTo?.key]);
   const onViewportChange = useCallback((bounds: LngLatBounds, zoom: number) => {
     setViewportBounds(bounds);
+    // Swallow the scope-change settle window: keep the legend's bounds fresh
+    // (set above) but skip the bbox/zoom refetch while the programmatic camera
+    // move is in flight (gotcha 4 — one refetch per scope change).
+    if (Date.now() < scopeMoveUntilRef.current) {
+      return;
+    }
     const next: [number, number, number, number] = [
       bounds.getWest(),
       bounds.getSouth(),
@@ -281,6 +406,50 @@ export function App() {
     [set, state.familyCode],
   );
 
+  // #740 (C6) — scope-selection callbacks shared by <ScopeChooser> (the landing
+  // surface) and <ScopeControl> (the in-state on-map bar). Each emits ONE clean
+  // URL-state transition; the components are purely presentational and never
+  // touch the URL/map themselves.
+  //
+  // pick-state → `?state=US-XX`; pick-whole-US → `?scope=us`; ZIP onResolve →
+  // `?state=US-XX` (NOT `?zip=`, locked decision #5) + a staged `flyTo` at
+  // `ZIP_FLYTO_ZOOM`; clear-scope → `unscoped` (back to the CHOOSER, not a CONUS
+  // home — AC "whole-US reset returns to the chooser", #741 e2e contract).
+  const onPickState = useCallback(
+    (stateCode: string) => {
+      setFlyTo(undefined);
+      set({ scope: { kind: 'state', stateCode } as Scope });
+    },
+    [set],
+  );
+
+  const onPickWholeUs = useCallback(() => {
+    setFlyTo(undefined);
+    set({ scope: { kind: 'us' } });
+  }, [set]);
+
+  const onResolveZip = useCallback(
+    (resolution: ScopeResolution) => {
+      // Set the state scope first (so `?state=` + the clip fetch land), then
+      // stage the transient metro `flyTo`. MapCanvas's camera-intent effect
+      // prefers the `flyTo` over the whole-state `fitBounds` on the same mount
+      // (gotcha 2 / finding (f)). `key` is unique per resolution so re-entering
+      // the same ZIP re-triggers the move.
+      set({ scope: { kind: 'state', stateCode: resolution.stateCode } as Scope });
+      setFlyTo({
+        center: resolution.center,
+        zoom: resolution.zoom,
+        key: `${resolution.stateCode}:${resolution.center.join(',')}:${Date.now()}`,
+      });
+    },
+    [set],
+  );
+
+  const onExitScope = useCallback(() => {
+    setFlyTo(undefined);
+    set({ scope: { kind: 'unscoped' } });
+  }, [set]);
+
   // Phase 3: Attribution modal trigger — AppHeader's "Attribution" button
   // dispatches a click into the existing AttributionModal trigger inside the
   // footer (which remains rendered but visually de-emphasized). Phase 6 will
@@ -355,6 +524,32 @@ export function App() {
       console.error(error);
     }
   }, [error]);
+
+  // #740 (C6) — chooser-first landing (locked decision 4b). When unscoped,
+  // render <ScopeChooser> IN PLACE OF the map surface; picking a scope mounts
+  // the map fresh (the validated chooser-gated REMOUNT model, finding (f)).
+  // This return is placed BEFORE the error guard so it takes precedence:
+  //   - The cold-load fetch is already suppressed (scopeActive === false), so
+  //     the chooser landing makes zero /api/observations requests (AC 1).
+  //   - Clearing the scope (the ScopeControl exit, AC "whole-US reset returns
+  //     to the chooser") routes here even if a prior scoped session left a
+  //     sticky `error` in useBirdData — the chooser is the destination, not the
+  //     error screen.
+  //   - A `?detail=` that somehow rides an unscoped URL does NOT constitute a
+  //     scope (AC "detail overlay does not by itself constitute a scope") — the
+  //     chooser still wins.
+  if (state.scope.kind === 'unscoped') {
+    return (
+      <ScopeChooser
+        states={states}
+        statesLoading={statesLoading}
+        statesError={statesError}
+        onPickState={onPickState}
+        onPickWholeUs={onPickWholeUs}
+        onResolve={onResolveZip}
+      />
+    );
+  }
 
   if (error) {
     return (
@@ -436,32 +631,51 @@ export function App() {
           />
         )}
         {mapVisible && (
-          <MapSurface
-            observations={observations}
-            legendObservations={viewportObservations}
-            silhouettes={silhouettes}
-            familyCode={state.familyCode}
-            onFamilyToggle={onFamilyToggle}
-            onSelectSpecies={onSelectSpecies}
-            onViewportChange={onViewportChange}
-            onExploreMapMarkers={() => {
-              const firstCell = document.querySelector(
-                '[data-testid="adaptive-grid-marker-cell-rendered"], ' +
-                '[data-testid="adaptive-grid-marker-cell-fallback"]'
-              ) as HTMLElement | null;
-              firstCell?.focus();
-            }}
-            hasMarkers={observations.length > 0}
-            since={state.since}
-            notable={state.notable}
-            speciesCode={state.speciesCode}
-            {...(speciesName !== undefined ? { speciesName } : {})}
-            freshness={freshnessState}
-            freshnessLabel={freshnessLabel}
-            loading={observationsLoading}
-            region={region}
-            noFiltersActive={noFiltersActive}
-          />
+          <>
+            {/* #740 (C6) — the in-state on-map re-scope bar (#737). Rendered
+                ONLY in a scoped view (guaranteed here: the unscoped early-return
+                above shows the chooser instead). Floats over the canvas; emits
+                one clean scope intent per action and never touches the map.
+                `state.scope` is narrowed to a ScopedView since unscoped already
+                returned. */}
+            <ScopeControl
+              scope={state.scope}
+              states={states}
+              onPickState={onPickState}
+              onPickWholeUs={onPickWholeUs}
+              onExit={onExitScope}
+              onResolve={onResolveZip}
+            />
+            <MapSurface
+              observations={observations}
+              legendObservations={viewportObservations}
+              silhouettes={silhouettes}
+              familyCode={state.familyCode}
+              onFamilyToggle={onFamilyToggle}
+              onSelectSpecies={onSelectSpecies}
+              onViewportChange={onViewportChange}
+              onExploreMapMarkers={() => {
+                const firstCell = document.querySelector(
+                  '[data-testid="adaptive-grid-marker-cell-rendered"], ' +
+                  '[data-testid="adaptive-grid-marker-cell-fallback"]'
+                ) as HTMLElement | null;
+                firstCell?.focus();
+              }}
+              hasMarkers={observations.length > 0}
+              since={state.since}
+              notable={state.notable}
+              speciesCode={state.speciesCode}
+              {...(speciesName !== undefined ? { speciesName } : {})}
+              freshness={freshnessState}
+              freshnessLabel={freshnessLabel}
+              loading={observationsLoading}
+              region={region}
+              noFiltersActive={noFiltersActive}
+              {...(scopeBounds ? { scopeBounds } : {})}
+              {...(boundsKey !== undefined ? { boundsKey } : {})}
+              {...(flyTo ? { flyTo } : {})}
+            />
+          </>
         )}
         {/*
           #663 — detail surface routing. The body component

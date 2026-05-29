@@ -1,6 +1,6 @@
 import type {
   Hotspot, Observation, ObservationsResponse, SpeciesMeta, ObservationFilters,
-  FamilySilhouette,
+  FamilySilhouette, StateSummary,
 } from '@bird-watch/shared-types';
 
 export interface ApiClientOptions {
@@ -61,6 +61,15 @@ export class ApiClient {
 
   getSilhouettes(): Promise<FamilySilhouette[]> {
     return this.get<FamilySilhouette[]>('/api/silhouettes');
+  }
+
+  // #740 (C6) — the CONUS state name + envelope table backing the scope
+  // chooser/control `<select>` and the state-scope camera `fitBounds`. One row
+  // per `CONUS_STATE_CODES` entry, name-sorted server-side (#732/#748). The
+  // payload is build-time-stable (seed-driven) and served with a 7d immutable
+  // Cache-Control, so `useStates` caches it for the tab lifetime.
+  getStates(): Promise<StateSummary[]> {
+    return this.get<StateSummary[]>('/api/states');
   }
 
   private async get<T>(path: string): Promise<T> {

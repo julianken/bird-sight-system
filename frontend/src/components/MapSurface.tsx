@@ -146,6 +146,22 @@ export interface MapSurfaceProps {
    * filter-narrowing.
    */
   noFiltersActive: boolean;
+  /**
+   * #740/C6 — scope camera props, forwarded VERBATIM to <MapCanvas> (#736 owns
+   * the `fitBounds`/`maxBounds`/`flyTo` mechanics). App.tsx derives these from
+   * `state.scope` + the `/api/states` envelope table:
+   *   - `scopeBounds` — the `[[w,s],[e,n]]` envelope the camera frames + clamps
+   *     to (the state envelope for a `?state=` scope; CONUS for `?scope=us`).
+   *   - `boundsKey`   — changes once per scope change (the state code, or 'us');
+   *     the single `fitBounds` re-trigger key.
+   *   - `flyTo`       — a transient ZIP `flyTo` at `ZIP_FLYTO_ZOOM`; preferred
+   *     over `fitBounds` when both are pending on the same mount (finding (f)).
+   * All optional — legacy/test callers that omit them keep the legacy CONUS
+   * uncontrolled framing (MapSurface is a thin pass-through here).
+   */
+  scopeBounds?: [[number, number], [number, number]];
+  boundsKey?: string;
+  flyTo?: { center: [number, number]; zoom: number; key: string } | undefined;
 }
 
 /**
@@ -180,6 +196,9 @@ export function MapSurface({
   loading,
   region,
   noFiltersActive,
+  scopeBounds,
+  boundsKey,
+  flyTo,
 }: MapSurfaceProps) {
   // Compute the expand-by-default once at mount. The component itself
   // (FamilyLegend) handles localStorage precedence + manual toggle.
@@ -271,6 +290,9 @@ export function MapSurface({
             silhouettes={silhouettes}
             {...(onSelectSpecies ? { onSelectSpecies } : {})}
             {...(onViewportChange ? { onViewportChange } : {})}
+            {...(scopeBounds ? { bounds: scopeBounds } : {})}
+            {...(boundsKey !== undefined ? { boundsKey } : {})}
+            {...(flyTo ? { flyTo } : {})}
           />
         </React.Suspense>
         <FamilyLegend

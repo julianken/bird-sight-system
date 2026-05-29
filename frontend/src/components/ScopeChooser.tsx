@@ -44,6 +44,12 @@ export interface ScopeChooserProps {
   /** Loading/empty affordance while the caller's `/api/states` request is in
    *  flight or returned empty (selector disabled, ZIP still usable). */
   statesLoading?: boolean;
+  /** Terminal `/api/states` failure (#758). When set, the selector placeholder
+   *  reads an honest "Couldn't load states" instead of the perpetual "Loading
+   *  states…" lie — on a real outage `statesLoading` flips false but `states`
+   *  stays empty, so the loading copy would otherwise stick forever. The ZIP
+   *  path + whole-US escape hatch remain usable; this only corrects the copy. */
+  statesError?: Error | null;
 }
 
 export function ScopeChooser({
@@ -52,6 +58,7 @@ export function ScopeChooser({
   onPickWholeUs,
   onResolve,
   statesLoading = false,
+  statesError = null,
 }: ScopeChooserProps): React.JSX.Element {
   const [stateCode, setStateCode] = useState('');
   const selectId = useId();
@@ -60,6 +67,16 @@ export function ScopeChooser({
   // selector — the ZIP path must stay fully usable (C0 contract: ZIP resolves to
   // a state independent of the selector).
   const selectorDisabled = statesLoading || states.length === 0;
+  // #758: distinguish "still loading" from "terminally failed". On a real
+  // outage `statesLoading` flips false but `states` stays empty, so a copy keyed
+  // only on `selectorDisabled` would say "Loading states…" forever. When the
+  // fetch has settled (not loading) with no rows AND an error, say so honestly.
+  const statesFailed = !statesLoading && states.length === 0 && statesError != null;
+  const placeholderLabel = statesFailed
+    ? "Couldn't load states"
+    : selectorDisabled
+      ? 'Loading states…'
+      : 'Choose a state…';
 
   function handleStateSubmit(e: FormEvent): void {
     e.preventDefault();
@@ -102,9 +119,7 @@ export function ScopeChooser({
               disabled={selectorDisabled}
               onChange={(e) => setStateCode(e.target.value)}
             >
-              <option value="">
-                {selectorDisabled ? 'Loading states…' : 'Choose a state…'}
-              </option>
+              <option value="">{placeholderLabel}</option>
               {states.map((s) => (
                 <option key={s.stateCode} value={s.stateCode}>
                   {s.name}
@@ -119,6 +134,15 @@ export function ScopeChooser({
               Go
             </button>
           </div>
+          {/* #758: terminal /api/states outage — name the still-usable paths so
+              the disabled <select> isn't a dead end. role="status" announces it
+              without stealing focus. */}
+          {statesFailed && (
+            <p className="scope-chooser__states-error" role="status">
+              Couldn&apos;t load the state list. Use a ZIP code above, or explore
+              the whole US map below.
+            </p>
+          )}
         </form>
 
         <button

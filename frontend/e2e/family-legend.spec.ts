@@ -114,7 +114,7 @@ test.describe('FamilyLegend (mobile)', () => {
     await page.addInitScript(() => {
       window.localStorage.clear();
     });
-    await page.goto('/?view=map');
+    await page.goto('/?view=map&scope=us');
     await page.locator('main[data-render-complete="true"]').waitFor({ state: 'attached', timeout: 15_000 });
     await expect(page.locator('[data-testid=map-canvas]')).toBeVisible({ timeout: 15_000 });
 
