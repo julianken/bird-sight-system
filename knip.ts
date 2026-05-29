@@ -89,6 +89,25 @@ const config: KnipConfig = {
     //             2026-07-27 by confirming the seed migration's header still
     //             cites this script as the provenance of its INSERT rows.
     'scripts/generate-state-boundaries.mjs',
+
+    // 2026-05-28: scripts/zip-etl/* (Task D2, #730) is the offline ZIP ETL —
+    //             build-zip-index.ts reads the sha256-pinned ZCTA gazetteer
+    //             (fetched by fetch-zcta-gazetteer.sh) and emits
+    //             frontend/public/zip-index.json, with state precomputed by
+    //             point-in-polygon (state-polygons.ts) against
+    //             data/us-state-polygons.geojson. Like generate-state-
+    //             boundaries.mjs it is a run-once operator tool, statically
+    //             unreferenced by any workspace; the test is operator-run via
+    //             `npx vitest run` (mirrors scripts/silhouette.test.mjs — no
+    //             static test-runner config knip can trace).
+    //             Risk: masks a genuine orphan if zip-index.json regeneration
+    //             is abandoned. Re-audit 2026-07-27 by confirming
+    //             scripts/zip-etl/SIZE-REPORT.md still documents the live
+    //             frontend/public/zip-index.json and the frontend zip-lookup
+    //             module (D3) still fetches it.
+    'scripts/zip-etl/build-zip-index.ts',
+    'scripts/zip-etl/build-zip-index.test.ts',
+    'scripts/zip-etl/state-polygons.ts',
   ],
 
   // 2026-04-27: React component Props interfaces and other exports used only
@@ -129,6 +148,16 @@ const config: KnipConfig = {
     //             frontend/package.json. Re-audit 2026-07-27 by confirming
     //             react-window is still in frontend/package.json dependencies.
     '@types/react-window',
+
+    // 2026-05-28: @turf/boolean-point-in-polygon is used ONLY by the run-once
+    //             ZIP ETL (scripts/zip-etl/state-polygons.ts, Task D2 #730),
+    //             whose files are themselves knip-ignored above. Knip therefore
+    //             reports the devDependency as unused. It is a genuine
+    //             build-time dependency of the offline precompute.
+    //             Risk: masks a genuine unused-dep if the ZIP ETL is deleted
+    //             without also removing this entry. Re-audit 2026-07-27
+    //             alongside the scripts/zip-etl/* ignore.
+    '@turf/boolean-point-in-polygon',
   ],
 
   workspaces: {
