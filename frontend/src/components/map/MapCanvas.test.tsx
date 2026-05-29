@@ -17,6 +17,12 @@ let registeredHandlers: Record<string, (e: { point: [number, number] }) => void>
 let fakeMap: any = null;
 let bareHandlers: Record<string, () => void | Promise<void>> = {};
 let bareHandlersAll: Record<string, Array<() => void | Promise<void>>> = {};
+// When true, MockMap does NOT auto-fire `onLoad` on mount — a test captures
+// the callback in `deferredOnLoad` and fires it manually to drive the
+// `mapReady` load-gate (#736 load-gating test). Defaults false so the 30
+// existing tests keep their synchronous-load behavior.
+let deferMapLoad = false;
+let deferredOnLoad: (() => void) | null = null;
 
 function makeFakeMap() {
   const canvas = { style: { cursor: '' }, clientWidth: 1440, clientHeight: 900 };
@@ -62,6 +68,12 @@ function makeFakeMap() {
     getCanvas: vi.fn(() => canvas),
     getContainer: vi.fn(() => container),
     easeTo: vi.fn(),
+    // Camera-contract spies (#736). fitBounds/flyTo are the scope-driven
+    // imperative moves; setMaxBounds is asserted to be NEVER called (maxBounds
+    // is a reactive prop, finding (a)).
+    fitBounds: vi.fn(),
+    flyTo: vi.fn(),
+    setMaxBounds: vi.fn(),
     getZoom: vi.fn(() => 6),
     getBounds: vi.fn(() => ({
       getWest: () => -112,
@@ -107,7 +119,14 @@ const MockMap = forwardRef(function MockMap(
 ) {
   useImperativeHandle(ref, () => ({ getMap: () => fakeMap }), []);
   useEffect(() => {
-    if (onLoad) onLoad();
+    if (!onLoad) return;
+    if (deferMapLoad) {
+      // Hold the load callback so a test can fire it after asserting the
+      // pre-`load` (gated) state.
+      deferredOnLoad = onLoad;
+      return;
+    }
+    onLoad();
   }, [onLoad]);
   return (
     <div data-testid="mock-map" data-props={JSON.stringify(rest)}>
@@ -263,6 +282,8 @@ describe('MapCanvas', () => {
     registeredHandlers = {};
     bareHandlers = {};
     bareHandlersAll = {};
+    deferMapLoad = false;
+    deferredOnLoad = null;
     fakeMap = makeFakeMap();
     document.documentElement.removeAttribute('data-theme');
     __resetAdaptiveGridCacheForTesting();
@@ -1424,5 +1445,226 @@ describe('ObservationPopover anchoring — displaced silhouette regression (#718
       Math.abs(top - (wrongProjectedY - 12 - 180)),
     );
     expect(distToEntryY).toBeLessThan(distToWrongY);
+  });
+});
+
+/* ── Controllable camera (#736 — C3) ─────────────────────────────────────
+   The scope-driven camera contract proven by the C0 prototype
+   (frontend/prototypes/scope-prototype/ScopedMap.tsx) + the C1 maplibre-5.x
+   ctx7 notes. Exercises:
+     (1) reduced-motion duration:0 (+ essential:true)   — plan P3 gate
+     (2) flyTo-preference over fitBounds on the same cycle — finding (f)
+     (3) load-gating (no camera move before the `load` event)
+     (4) maxBounds reactivity (prop, never imperative setMaxBounds) — finding (a)
+     (5) ?scope=us bounds resolve to CONUS [[-130,20],[-65,52]]
+   The map is accessed via getMap() (same as every other MapCanvas camera
+   call, e.g. the cluster-click easeTo); fitBounds/flyTo/setMaxBounds are
+   spies on `fakeMap`. */
+
+const AZ_BOUNDS: [[number, number], [number, number]] = [
+  [-114.815, 31.332],
+  [-109.045, 37.004],
+];
+const CA_BOUNDS: [[number, number], [number, number]] = [
+  [-124.482, 32.529],
+  [-114.131, 42.009],
+];
+const CONUS_PROD_BOUNDS: [[number, number], [number, number]] = [
+  [-130, 20],
+  [-65, 52],
+];
+
+/** Stub window.matchMedia so a given query matches (the rest don't). */
+function stubMatchMedia(matchingQuery: string | null) {
+  window.matchMedia = vi.fn().mockImplementation((q: string) => ({
+    matches: matchingQuery !== null && q === matchingQuery,
+    media: q,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    onchange: null,
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia;
+}
+
+describe('MapCanvas controllable camera (#736)', () => {
+  const origMatchMedia = window.matchMedia;
+
+  beforeEach(() => {
+    capturedSourceProps = {};
+    capturedAttributionProps = {};
+    capturedLayerFilters = {};
+    registeredHandlers = {};
+    bareHandlers = {};
+    bareHandlersAll = {};
+    deferMapLoad = false;
+    deferredOnLoad = null;
+    fakeMap = makeFakeMap();
+    document.documentElement.removeAttribute('data-theme');
+    // Default: nothing matches (no reduced motion, fine pointer path is fine).
+    stubMatchMedia(null);
+    __resetAdaptiveGridCacheForTesting();
+  });
+
+  afterEach(() => {
+    window.matchMedia = origMatchMedia;
+  });
+
+  it('fitBounds(state) on scope change uses padding 48 + maxZoom 12 + essential:true + duration 600 (no reduced motion)', async () => {
+    stubMatchMedia(null); // prefers-reduced-motion: reduce → false
+    render(
+      <MapCanvas observations={[]} bounds={AZ_BOUNDS} boundsKey="US-AZ" />,
+    );
+    await waitFor(() => expect(fakeMap.fitBounds).toHaveBeenCalled());
+    const [bounds, opts] = fakeMap.fitBounds.mock.calls.at(-1);
+    expect(bounds).toEqual(AZ_BOUNDS);
+    expect(opts.padding).toBe(48);
+    expect(opts.maxZoom).toBe(12);
+    expect(opts.essential).toBe(true);
+    expect(opts.duration).toBe(600);
+    expect(fakeMap.flyTo).not.toHaveBeenCalled();
+  });
+
+  it('fitBounds duration is 0 (still essential:true) under prefers-reduced-motion (plan P3 gate)', async () => {
+    stubMatchMedia('(prefers-reduced-motion: reduce)');
+    render(
+      <MapCanvas observations={[]} bounds={AZ_BOUNDS} boundsKey="US-AZ" />,
+    );
+    await waitFor(() => expect(fakeMap.fitBounds).toHaveBeenCalled());
+    const [, opts] = fakeMap.fitBounds.mock.calls.at(-1);
+    expect(opts.duration).toBe(0);
+    expect(opts.essential).toBe(true);
+  });
+
+  it('prefers flyTo over fitBounds when both a state bounds AND a ZIP flyTo are present on the same cycle (finding f)', async () => {
+    stubMatchMedia(null);
+    render(
+      <MapCanvas
+        observations={[]}
+        bounds={AZ_BOUNDS}
+        boundsKey="US-AZ"
+        flyTo={{ center: [-110.974, 32.222], zoom: 10, key: 'zip:85701' }}
+      />,
+    );
+    await waitFor(() => expect(fakeMap.flyTo).toHaveBeenCalled());
+    expect(fakeMap.fitBounds).not.toHaveBeenCalled();
+    const [opts] = fakeMap.flyTo.mock.calls.at(-1);
+    expect(opts.center).toEqual([-110.974, 32.222]);
+    expect(opts.zoom).toBe(10); // ZIP_FLYTO_ZOOM
+    expect(opts.essential).toBe(true);
+    expect(opts.duration).toBe(800);
+  });
+
+  it('ZIP flyTo duration is 0 under prefers-reduced-motion', async () => {
+    stubMatchMedia('(prefers-reduced-motion: reduce)');
+    render(
+      <MapCanvas
+        observations={[]}
+        bounds={AZ_BOUNDS}
+        boundsKey="US-AZ"
+        flyTo={{ center: [-110.974, 32.222], zoom: 10, key: 'zip:85701' }}
+      />,
+    );
+    await waitFor(() => expect(fakeMap.flyTo).toHaveBeenCalled());
+    const [opts] = fakeMap.flyTo.mock.calls.at(-1);
+    expect(opts.duration).toBe(0);
+    expect(opts.essential).toBe(true);
+  });
+
+  it('does NOT move the camera before the maplibre `load` event; fires the pending move after load (load-gating)', async () => {
+    stubMatchMedia(null);
+    deferMapLoad = true; // hold onLoad so mapReady stays false
+    render(
+      <MapCanvas observations={[]} bounds={AZ_BOUNDS} boundsKey="US-AZ" />,
+    );
+    // The ref is live (mapRef.current non-null) but `load` hasn't fired.
+    await waitFor(() => expect(deferredOnLoad).toBeTypeOf('function'));
+    expect(fakeMap.fitBounds).not.toHaveBeenCalled();
+
+    // Fire the load event → mapReady flips true → the gated move runs.
+    act(() => {
+      deferredOnLoad!();
+    });
+    await waitFor(() => expect(fakeMap.fitBounds).toHaveBeenCalled());
+    expect(fakeMap.fitBounds.mock.calls.at(-1)[0]).toEqual(AZ_BOUNDS);
+  });
+
+  it('passes maxBounds as a reactive prop and NEVER calls setMaxBounds imperatively (finding a)', async () => {
+    stubMatchMedia(null);
+    const { rerender } = render(
+      <MapCanvas observations={[]} bounds={AZ_BOUNDS} boundsKey="US-AZ" />,
+    );
+    const readMaxBounds = () => {
+      const el = screen.getByTestId('mock-map');
+      const props = JSON.parse(el.getAttribute('data-props') ?? '{}');
+      return props.maxBounds;
+    };
+    expect(readMaxBounds()).toEqual(AZ_BOUNDS);
+
+    // Change scope AZ→CA: the rendered maxBounds prop must update with no
+    // imperative setMaxBounds call.
+    rerender(
+      <MapCanvas observations={[]} bounds={CA_BOUNDS} boundsKey="US-CA" />,
+    );
+    await waitFor(() => expect(readMaxBounds()).toEqual(CA_BOUNDS));
+    expect(fakeMap.setMaxBounds).not.toHaveBeenCalled();
+  });
+
+  it('?scope=us bounds resolve to CONUS [[-130,20],[-65,52]] for both maxBounds and fitBounds', async () => {
+    stubMatchMedia(null);
+    render(
+      <MapCanvas observations={[]} bounds={CONUS_PROD_BOUNDS} boundsKey="us" />,
+    );
+    const el = screen.getByTestId('mock-map');
+    const props = JSON.parse(el.getAttribute('data-props') ?? '{}');
+    expect(props.maxBounds).toEqual(CONUS_PROD_BOUNDS);
+    await waitFor(() => expect(fakeMap.fitBounds).toHaveBeenCalled());
+    expect(fakeMap.fitBounds.mock.calls.at(-1)[0]).toEqual(CONUS_PROD_BOUNDS);
+  });
+
+  it('defaults to the legacy CONUS view when no bounds prop is supplied (no-regression for existing callers)', () => {
+    stubMatchMedia(null);
+    // Existing callers (MapSurface, demo harnesses) pass no scope props.
+    render(<MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />);
+    expect(screen.getByTestId('map-canvas')).toBeInTheDocument();
+    // No scope bounds → no imperative scope reframe (legacy initialViewState
+    // frames CONUS). And maxBounds falls back to the CONUS constant.
+    expect(fakeMap.fitBounds).not.toHaveBeenCalled();
+    expect(fakeMap.flyTo).not.toHaveBeenCalled();
+    const el = screen.getByTestId('mock-map');
+    const props = JSON.parse(el.getAttribute('data-props') ?? '{}');
+    expect(props.maxBounds).toEqual(CONUS_PROD_BOUNDS);
+  });
+
+  it('cluster-click easeTo is unchanged by the scope-camera layer', async () => {
+    stubMatchMedia(null);
+    render(
+      <MapCanvas
+        observations={[makeObs()]}
+        silhouettes={SILHOUETTES}
+        bounds={AZ_BOUNDS}
+        boundsKey="US-AZ"
+      />,
+    );
+    await waitFor(() =>
+      expect(registeredHandlers['click:clusters']).toBeTypeOf('function'),
+    );
+    const getClusterExpansionZoom = vi.fn().mockResolvedValue(12);
+    fakeMap.getSource.mockReturnValue({ getClusterExpansionZoom });
+    fakeMap.queryRenderedFeatures.mockReturnValue([
+      {
+        properties: { cluster_id: 1 },
+        geometry: { type: 'Point', coordinates: [-111, 34] },
+      },
+    ]);
+    await act(async () => {
+      registeredHandlers['click:clusters']({ point: [10, 10] } as never);
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(fakeMap.easeTo).toHaveBeenCalled());
+    const [easeOpts] = fakeMap.easeTo.mock.calls.at(-1);
+    expect(easeOpts.center).toEqual([-111, 34]);
+    expect(easeOpts.zoom).toBe(12);
   });
 });
