@@ -121,7 +121,7 @@ export async function runReconcileStamping(pool: Pool): Promise<number> {
 export async function getObservations(
   pool: Pool,
   f: ObservationFilters
-): Promise<Observation[]> {
+): Promise<{ data: Observation[]; truncated: boolean }> {
   const conditions: string[] = [];
   const params: unknown[] = [];
 
@@ -164,16 +164,35 @@ export async function getObservations(
     );
     params.push(f.bbox[0], f.bbox[1], f.bbox[2], f.bbox[3]);
   }
+  if (f.stateCode) {
+    // #733 — hard server-side state clip (`?state=US-XX`). Two predicates back
+    // one param (mirrors the bbox i1..i4 single-push pattern). The `&&`
+    // envelope-overlap uses the obs_geom_idx GIST index to prune to the
+    // state's bounding box; ST_Intersects then does the exact polygon test.
+    // ST_Intersects (NOT ST_Contains) is the inclusive idiom: a point on a
+    // simplified shared border resolves into a state rather than vanishing.
+    // ARG ORDER: polygon FIRST — `ST_Intersects(polygon, point)`. This is the
+    // REVERSE of the bbox block above (`ST_Intersects(geom, envelope)`); the
+    // order is intentional and is not a bug to "correct". Appending here AND-s
+    // the clip with since/notable/species/family/bbox automatically.
+    const si = params.length + 1;
+    conditions.push(`o.geom && (SELECT geom FROM state_boundaries WHERE state_code = $${si})`);
+    conditions.push(`ST_Intersects((SELECT geom FROM state_boundaries WHERE state_code = $${si}), o.geom)`);
+    params.push(f.stateCode);
+  }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-  // #667 — defense-in-depth row cap on species-filtered queries. No real
-  // species has >5K observations in 14d nationally; this cap is an emergency
-  // brake for `?species=<code>` deep links that fetch before MapCanvas mounts
-  // (no bbox + no zoom in flight). The broader LIMIT 10000 emergency brake
-  // for all per-observation queries ships in PR 2 (with a truncation banner
-  // and meta.truncated signal — see issue #667 Addendum §3).
-  const limit = f.speciesCode ? 'LIMIT 5000' : '';
+  // #733 (#667 Addendum §3) — per-observation row brake, now SHIPPED. Every
+  // per-observation query is capped: a species-filtered query at 5000 (no real
+  // species has >5K obs in 14d nationally — the cap is an emergency brake for
+  // `?species=<code>` deep links that fetch before MapCanvas mounts, with no
+  // bbox/zoom in flight), every other per-observation query at 10000. We
+  // always `LIMIT cap + 1` and probe whether the extra row came back: if it
+  // did, the result is truncated and we slice back to `cap`. The caller
+  // surfaces this as `meta.truncated` so the frontend can show a partial-data
+  // banner. The aggregated path (getObservationsAggregated) never truncates.
+  const cap = f.speciesCode ? 5000 : 10000;
 
   const sql = `
     SELECT
@@ -184,7 +203,7 @@ export async function getObservations(
     LEFT JOIN species_meta sm ON sm.species_code = o.species_code
     ${where}
     ORDER BY o.obs_dt DESC
-    ${limit}
+    LIMIT ${cap + 1}
   `;
 
   const { rows } = await pool.query<{
@@ -202,11 +221,16 @@ export async function getObservations(
     silhouette_id: string | null;
   }>(sql, params);
 
+  // `cap + 1` came back ⇒ there is at least one more row than the cap allows,
+  // so the body is a partial set. Slice back to the cap and flag truncation.
+  const truncated = rows.length > cap;
+  const capped = truncated ? rows.slice(0, cap) : rows;
+
   // NOTE: family_code is passed through as-is, WITHOUT a `?? ''` fallback.
   // The NULL is meaningful signal to the frontend (skip in deriveFamilies,
   // fall back to silhouette-only rendering). The upstream fix is the
   // ingestor seeding species_meta, not the DB parser papering over the gap.
-  return rows.map(r => ({
+  const data = capped.map(r => ({
     subId: r.sub_id,
     speciesCode: r.species_code,
     comName: r.com_name ?? r.species_code,
@@ -220,6 +244,8 @@ export async function getObservations(
     silhouetteId: r.silhouette_id,
     familyCode: r.family_code,
   }));
+
+  return { data, truncated };
 }
 
 /**
@@ -273,6 +299,17 @@ export async function getObservationsAggregated(
       `ST_Intersects(geom, ST_MakeEnvelope($${i1}, $${i2}, $${i3}, $${i4}, 4326))`
     );
     params.push(f.bbox[0], f.bbox[1], f.bbox[2], f.bbox[3]);
+  }
+  if (f.stateCode) {
+    // #733 — identical state clip to getObservations (the aggregated path
+    // must clip too, so a low-zoom state view never aggregates out-of-state
+    // observations). ARG ORDER: polygon FIRST — `ST_Intersects(polygon, point)`,
+    // the reverse of the bbox block above; intentional, not a bug. One param
+    // backs both `$si` references.
+    const si = params.length + 1;
+    conditions.push(`o.geom && (SELECT geom FROM state_boundaries WHERE state_code = $${si})`);
+    conditions.push(`ST_Intersects((SELECT geom FROM state_boundaries WHERE state_code = $${si}), o.geom)`);
+    params.push(f.stateCode);
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';

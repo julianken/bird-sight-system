@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
+import { CONUS_STATE_CODES } from '@bird-watch/shared-types';
 import {
   parseSince,
   parseNotable,
   parseSpecies,
   parseFamily,
+  parseState,
   assertBboxAreaCap,
   assertBboxOrSpecies,
 } from './validate.js';
@@ -124,6 +126,62 @@ describe('parseFamily', () => {
   );
 });
 
+describe('parseState', () => {
+  it('accepts undefined → ok with undefined value', () => {
+    const r = parseState(undefined);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value).toBeUndefined();
+  });
+
+  it.each([
+    ['AZ', 'US-AZ'],
+    ['US-AZ', 'US-AZ'],
+    ['US-CA', 'US-CA'],
+    ['az', 'US-AZ'],
+    ['us-ca', 'US-CA'],
+    ['DC', 'US-DC'],
+  ])('normalizes %p → %p', (raw, expected) => {
+    const r = parseState(raw);
+    expect(r.ok, `expected ${raw} to pass`).toBe(true);
+    if (r.ok) expect(r.value).toBe(expected);
+  });
+
+  it.each([
+    'AK',
+    'HI',
+    'PR',
+    'XX',
+    '',
+    '%',
+    "' OR 1=1 --",
+    'US-',
+    'ARIZONA',
+    '1',
+  ])('rejects %p with structured allowlist log', (v) => {
+    const r = parseState(v);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.log.param).toBe('state');
+      expect(r.log.reason).toBe('not_in_allowlist');
+      expect(r.log.received_hash).toMatch(/^[a-f0-9]{8}$/);
+    }
+  });
+
+  it('never logs the raw value (only its sha256 prefix)', () => {
+    const raw = "' OR 1=1 --";
+    const r = parseState(raw);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.log.received_hash).not.toContain(raw);
+      expect(JSON.stringify(r.log)).not.toContain(raw);
+    }
+  });
+
+  it('allowlist size === 49', () => {
+    expect(CONUS_STATE_CODES.length).toBe(49);
+  });
+});
+
 describe('assertBboxAreaCap', () => {
   it('passes for any bbox at zoom < 6 (aggregated mode covers it)', () => {
     const r = assertBboxAreaCap([-180, -90, 180, 90], 4);
@@ -179,10 +237,27 @@ describe('assertBboxOrSpecies', () => {
     }).ok).toBe(true);
   });
 
-  it('rejects when neither bbox nor species is present', () => {
-    const r = assertBboxOrSpecies({ bbox: undefined, speciesCode: undefined });
+  it('passes when stateCode is present (state is a bounded scope — #734 B4)', () => {
+    // A `?state=US-XX` request is bounded by the state polygon (ST_Intersects
+    // clip), so it is NOT the unbounded family-scrape vector the guard exists
+    // to reject. State-only must be accepted on the per-observation path.
+    expect(assertBboxOrSpecies({
+      bbox: undefined,
+      speciesCode: undefined,
+      stateCode: 'US-AZ',
+    }).ok).toBe(true);
+  });
+
+  it('rejects when none of bbox, species, or state is present', () => {
+    const r = assertBboxOrSpecies({
+      bbox: undefined,
+      speciesCode: undefined,
+      stateCode: undefined,
+    });
     expect(r.ok).toBe(false);
     if (!r.ok) {
+      // Error string is UNCHANGED by the state widening — app.test.ts and the
+      // frontend both string-match `'specify bbox or species'`.
       expect(r.error).toBe('specify bbox or species');
       expect(r.log.param).toBe('bbox_required');
       expect(r.log.reason).toBe('missing_required');

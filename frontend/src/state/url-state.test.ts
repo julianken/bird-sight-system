@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useUrlState } from './url-state.js';
+import { useUrlState, DEFAULTS } from './url-state.js';
 
 describe('useUrlState', () => {
   beforeEach(() => {
@@ -15,6 +15,7 @@ describe('useUrlState', () => {
       view: 'map',
       detail: null,
       bbox: null,
+      scope: { kind: 'unscoped' },
     });
   });
 
@@ -453,6 +454,159 @@ describe('useUrlState', () => {
       window.history.replaceState({}, '', '/?bbox=-111.0,99.6,-110.2,33.5');
       const { result: r2 } = renderHook(() => useUrlState());
       expect(r2.current.state.bbox).toBe(null);
+    });
+  });
+
+  // --- scope URL state (state / scope / zip), C2 / #735 ---
+  // Three landing states the C0 prototype validated:
+  //   bare URL → { kind: 'unscoped' } (the chooser, #742)
+  //   ?scope=us → { kind: 'us' } (de-emphasized whole-US escape hatch)
+  //   ?state=US-XX → { kind: 'state', stateCode } (a fenced state view)
+  // ?state= wins over ?scope=; ?zip= is transient and ignored entirely here.
+
+  describe('scope URL state (#735)', () => {
+    beforeEach(() => {
+      window.history.replaceState({}, '', '/');
+    });
+
+    it('DEFAULTS is importable and defaults to unscoped', () => {
+      // #738 (C7) consumes DEFAULTS.since to define "no filters active"; this
+      // task only requires DEFAULTS to be exported. Assert both shape facts.
+      expect(DEFAULTS.scope).toEqual({ kind: 'unscoped' });
+      expect(DEFAULTS.since).toBe('14d');
+    });
+
+    it('bare URL → unscoped (the chooser landing, not whole-US)', () => {
+      const { result } = renderHook(() => useUrlState());
+      expect(result.current.state.scope).toEqual({ kind: 'unscoped' });
+    });
+
+    it('?state=US-AZ → { kind: state, stateCode: US-AZ }', () => {
+      window.history.replaceState({}, '', '/?state=US-AZ');
+      const { result } = renderHook(() => useUrlState());
+      expect(result.current.state.scope).toEqual({ kind: 'state', stateCode: 'US-AZ' });
+    });
+
+    it('?state=US-AK (non-CONUS) → unscoped (invalid falls through to chooser)', () => {
+      // US-AK and US-HI are deliberately excluded from CONUS_STATE_CODES; an
+      // out-of-allowlist state must not render a blank/invalid map.
+      window.history.replaceState({}, '', '/?state=US-AK');
+      const { result } = renderHook(() => useUrlState());
+      expect(result.current.state.scope).toEqual({ kind: 'unscoped' });
+    });
+
+    it('?state=banana (malformed) → unscoped', () => {
+      window.history.replaceState({}, '', '/?state=banana');
+      const { result } = renderHook(() => useUrlState());
+      expect(result.current.state.scope).toEqual({ kind: 'unscoped' });
+    });
+
+    it('?state=US- (malformed) → unscoped', () => {
+      window.history.replaceState({}, '', '/?state=US-');
+      const { result } = renderHook(() => useUrlState());
+      expect(result.current.state.scope).toEqual({ kind: 'unscoped' });
+    });
+
+    it('?scope=us → { kind: us }', () => {
+      window.history.replaceState({}, '', '/?scope=us');
+      const { result } = renderHook(() => useUrlState());
+      expect(result.current.state.scope).toEqual({ kind: 'us' });
+    });
+
+    it('?scope=garbage (anything but the literal "us") → unscoped', () => {
+      window.history.replaceState({}, '', '/?scope=garbage');
+      const { result } = renderHook(() => useUrlState());
+      expect(result.current.state.scope).toEqual({ kind: 'unscoped' });
+    });
+
+    it('precedence: ?state=US-AZ&scope=us → state (state wins over scope)', () => {
+      window.history.replaceState({}, '', '/?state=US-AZ&scope=us');
+      const { result } = renderHook(() => useUrlState());
+      expect(result.current.state.scope).toEqual({ kind: 'state', stateCode: 'US-AZ' });
+    });
+
+    it('?zip=85701 alone → unscoped (zip is transient, never resolves here)', () => {
+      // ZIP resolution is #739's layer; url-state.ts must NOT read/resolve zip.
+      window.history.replaceState({}, '', '/?zip=85701');
+      const { result } = renderHook(() => useUrlState());
+      expect(result.current.state.scope).toEqual({ kind: 'unscoped' });
+    });
+
+    it('deep-link conflict ?state=US-AZ&zip=10001 → state wins, zip dropped', () => {
+      // Falls out of the "zip ignored" rule but asserted explicitly to
+      // document the intended deep-link conflict resolution.
+      window.history.replaceState({}, '', '/?state=US-AZ&zip=10001');
+      const { result } = renderHook(() => useUrlState());
+      expect(result.current.state.scope).toEqual({ kind: 'state', stateCode: 'US-AZ' });
+    });
+
+    it('writeUrl: unscoped emits neither ?state nor ?scope (bare)', () => {
+      window.history.replaceState({}, '', '/?state=US-AZ');
+      const { result } = renderHook(() => useUrlState());
+      act(() => result.current.set({ scope: { kind: 'unscoped' } }));
+      expect(window.location.search).not.toContain('state=');
+      expect(window.location.search).not.toContain('scope=');
+    });
+
+    it('writeUrl: { kind: us } emits ?scope=us and no ?state', () => {
+      const { result } = renderHook(() => useUrlState());
+      act(() => result.current.set({ scope: { kind: 'us' } }));
+      expect(window.location.search).toContain('scope=us');
+      expect(window.location.search).not.toContain('state=');
+    });
+
+    it('writeUrl: { kind: state } emits ?state=US-XX and no ?scope', () => {
+      const { result } = renderHook(() => useUrlState());
+      act(() => result.current.set({ scope: { kind: 'state', stateCode: 'US-CA' } }));
+      expect(window.location.search).toContain('state=US-CA');
+      expect(window.location.search).not.toContain('scope=');
+    });
+
+    it('writeUrl: never emits ?zip=', () => {
+      const { result } = renderHook(() => useUrlState());
+      act(() => result.current.set({ scope: { kind: 'state', stateCode: 'US-CA' } }));
+      expect(window.location.search).not.toContain('zip=');
+      act(() => result.current.set({ scope: { kind: 'us' } }));
+      expect(window.location.search).not.toContain('zip=');
+    });
+
+    it('scope changes use replaceState (history does not grow)', () => {
+      window.history.replaceState({}, '', '/');
+      const { result } = renderHook(() => useUrlState());
+      const startLen = window.history.length;
+      act(() => result.current.set({ scope: { kind: 'us' } }));
+      act(() => result.current.set({ scope: { kind: 'state', stateCode: 'US-AZ' } }));
+      expect(window.history.length).toBe(startLen);
+    });
+
+    it('round-trips unscoped (readUrl(writeUrl(s)) === s)', () => {
+      const { result } = renderHook(() => useUrlState());
+      act(() => result.current.set({ scope: { kind: 'unscoped' } }));
+      const { result: reread } = renderHook(() => useUrlState());
+      expect(reread.current.state.scope).toEqual({ kind: 'unscoped' });
+    });
+
+    it('round-trips { kind: us }', () => {
+      const { result } = renderHook(() => useUrlState());
+      act(() => result.current.set({ scope: { kind: 'us' } }));
+      const { result: reread } = renderHook(() => useUrlState());
+      expect(reread.current.state.scope).toEqual({ kind: 'us' });
+    });
+
+    it('round-trips { kind: state, stateCode }', () => {
+      const { result } = renderHook(() => useUrlState());
+      act(() => result.current.set({ scope: { kind: 'state', stateCode: 'US-TX' } }));
+      const { result: reread } = renderHook(() => useUrlState());
+      expect(reread.current.state.scope).toEqual({ kind: 'state', stateCode: 'US-TX' });
+    });
+
+    it('scope does not disturb existing view/since/bbox resolution', () => {
+      window.history.replaceState({}, '', '/?state=US-AZ&view=feed&since=7d&bbox=-111.0,31.6,-110.2,33.5');
+      const { result } = renderHook(() => useUrlState());
+      expect(result.current.state.scope).toEqual({ kind: 'state', stateCode: 'US-AZ' });
+      expect(result.current.state.view).toBe('feed');
+      expect(result.current.state.since).toBe('7d');
+      expect(result.current.state.bbox).toEqual([-111.0, 31.6, -110.2, 33.5]);
     });
   });
 });

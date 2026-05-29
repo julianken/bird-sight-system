@@ -65,7 +65,7 @@ describe('runIngest', () => {
     expect(summary.upserted).toBe(2);
     expect(summary.status).toBe('success');
 
-    const obs = await getObservations(db.pool, {});
+    const { data: obs } = await getObservations(db.pool, {});
     expect(obs).toHaveLength(2);
     const verm = obs.find(o => o.subId === 'S100')!;
     // regionId removed from wire shape by PR-2 of #532; column dropped in PR-3.
@@ -89,7 +89,7 @@ describe('runIngest', () => {
     );
     await runIngest({ pool: db.pool, apiKey: 'k', regionCode: 'US-AZ' });
     await runIngest({ pool: db.pool, apiKey: 'k', regionCode: 'US-AZ' });
-    const obs = await getObservations(db.pool, {});
+    const { data: obs } = await getObservations(db.pool, {});
     expect(obs).toHaveLength(2);
   });
 
@@ -147,7 +147,7 @@ describe('runIngest', () => {
     // No observations may have been inserted — the invariant runs BEFORE
     // upsert, so a leak fails the whole batch rather than corrupting the
     // read path.
-    const obs = await getObservations(db.pool, {});
+    const { data: obs } = await getObservations(db.pool, {});
     expect(obs).toHaveLength(0);
     // Failure must be recorded in ingest_runs for the freshness monitor.
     const runs = await getRecentIngestRuns(db.pool, 5);

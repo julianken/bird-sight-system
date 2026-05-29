@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
+import { CONUS_STATE_CODES } from '@bird-watch/shared-types';
+import type { StateCode } from '@bird-watch/shared-types';
 import { analytics } from '../analytics.js';
 
 // #667 — `'30d'` removed from Since. The server still soft-accepts it for one
@@ -9,6 +11,21 @@ export type Since = '1d' | '7d' | '14d';
 export type View = 'feed' | 'map' | 'detail';
 export type BBox = readonly [number, number, number, number];
 
+// #735 — the three-landing-state scope model the C0 prototype validated
+// (`frontend/prototypes/scope-prototype/App.tsx`). A discriminated union so
+// the three states stay mutually exclusive and invalid combinations are
+// unrepresentable:
+//   - `unscoped` — bare URL; the chooser (#742). DEFAULT landing (locked
+//     decision #4b) — NOT whole-US.
+//   - `us`       — explicit whole-US CONUS escape hatch (`?scope=us`); still
+//     sends no `?state=`, so the backend is untouched (locked decision #4).
+//   - `state`    — a fenced state view (`?state=US-XX`); the only shareable
+//     scope unit. `?zip=` is transient and never persisted (locked decision #5).
+export type Scope =
+  | { kind: 'unscoped' }
+  | { kind: 'us' }
+  | { kind: 'state'; stateCode: StateCode };
+
 export interface UrlState {
   speciesCode: string | null;
   familyCode: string | null;
@@ -17,9 +34,13 @@ export interface UrlState {
   view: View;
   detail: string | null;
   bbox: BBox | null;
+  scope: Scope;
 }
 
-const DEFAULTS: UrlState = {
+// Exported (#735) — #738 (C7) consumes `DEFAULTS.since` to define "no filters
+// active". The internal `DEFAULTS.x` member accesses below are unaffected by
+// the export.
+export const DEFAULTS: UrlState = {
   speciesCode: null,
   familyCode: null,
   since: '14d',
@@ -27,10 +48,16 @@ const DEFAULTS: UrlState = {
   view: 'map',
   detail: null,
   bbox: null, // Phase 3 (#560) — Cluster→SpeciesDetailSurface bbox filter
+  scope: { kind: 'unscoped' }, // #735 — bare URL lands on the chooser, not whole-US.
 };
 
 const VALID_SINCE: ReadonlySet<string> = new Set(['1d', '7d', '14d']);
 const VALID_VIEW: ReadonlySet<string> = new Set(['feed', 'map', 'detail']);
+
+// #735 — single-source CONUS allowlist (locked decision #6). `as const`'d to
+// a Set<string> so the `.has()` narrows cleanly; the cast back to `StateCode`
+// is sound because membership was just verified against `CONUS_STATE_CODES`.
+const VALID_STATE_CODES: ReadonlySet<string> = new Set(CONUS_STATE_CODES);
 
 function round6(n: number): number {
   return Math.round(n * 1_000_000) / 1_000_000;
@@ -142,6 +169,25 @@ function readUrl(): UrlState {
     }
   }
 
+  // #735 — scope resolution (three landing states + precedence). Parsed
+  // independently of the view/detail/bbox logic above. Ports the prototype's
+  // `readScopeFromUrl` exactly:
+  //   1. `?state=US-XX` (validated against the CONUS allowlist) wins — an
+  //      unknown / non-CONUS / malformed state falls through to the chooser
+  //      rather than rendering a blank or invalid map.
+  //   2. `?scope=us` (literal) → the whole-US escape hatch.
+  //   3. otherwise → unscoped (the chooser).
+  // `?zip=` is NEVER read here: ZIP is transient and re-prompted by the
+  // chooser (#739/#742 own resolution). url-state.ts does not import or call
+  // any ZIP-lookup logic.
+  let scope: Scope = { kind: 'unscoped' };
+  const rawState = p.get('state');
+  if (rawState !== null && VALID_STATE_CODES.has(rawState)) {
+    scope = { kind: 'state', stateCode: rawState as StateCode };
+  } else if (p.get('scope') === 'us') {
+    scope = { kind: 'us' };
+  }
+
   return {
     speciesCode,
     familyCode: p.get('family'),
@@ -150,6 +196,7 @@ function readUrl(): UrlState {
     view,
     detail,
     bbox,
+    scope,
   };
 }
 
@@ -181,6 +228,18 @@ function writeUrl(state: UrlState, push: boolean = false): void {
     p.set('bbox', `${lngMin},${latMin},${lngMax},${latMax}`);
   } else {
     p.delete('bbox');
+  }
+  // #735 — emit only the active scope and drop the rest. Mirrors the
+  // prototype's `writeScopeToUrl`:
+  //   - `unscoped` → emit neither `?state` nor `?scope` (bare).
+  //   - `us`       → `?scope=us`, no `?state`.
+  //   - `state`    → `?state=US-XX`, no `?scope`.
+  // We never emit `?zip=` — `?state=` is the shareable unit (locked decision
+  // #5). `p` is freshly constructed above, so there is nothing to delete.
+  if (state.scope.kind === 'state') {
+    p.set('state', state.scope.stateCode);
+  } else if (state.scope.kind === 'us') {
+    p.set('scope', 'us');
   }
   const q = p.toString();
   const newUrl = q ? `${window.location.pathname}?${q}` : window.location.pathname;

@@ -19,6 +19,8 @@
 
 import { createHash } from 'node:crypto';
 
+import { CONUS_STATE_CODES } from '@bird-watch/shared-types';
+
 export type Since = '1d' | '7d' | '14d';
 
 export interface ValidationLog {
@@ -145,6 +147,46 @@ export function parseFamily(
   };
 }
 
+// The CONUS allowlist (48 contiguous states + DC = 49 codes) lives once in
+// `@bird-watch/shared-types` (locked decision #6 — the single source the
+// validator, the ZIP→state contract, and the frontend selector all import).
+// Build the lookup `Set` from it here; never re-list the codes in this file.
+const CONUS_CODE_SET = new Set<string>(CONUS_STATE_CODES);
+
+/**
+ * Parses `?state=` against the CONUS allowlist, normalizing to eBird `US-XX`.
+ *
+ * `?state=US-XX` is the hard server-side data boundary (a PostGIS
+ * `ST_Intersects` clip against `state_boundaries`). Absence means an unclipped
+ * national query — so `undefined` passes through as `undefined`, not an error.
+ *
+ * Accepts a bare USPS code (`'AZ'`) OR the eBird form (`'US-AZ'`), in any case
+ * (`'az'`, `'us-ca'`), and normalizes to `'US-XX'`. Anything outside the 49
+ * CONUS codes — AK/HI/territories (`'AK'`, `'PR'`), garbage (`'XX'`, `'%'`),
+ * SQLi probes, the bare prefix `'US-'`, or full names (`'ARIZONA'`) — is
+ * rejected with a structured `not_in_allowlist` log. The raw value is never
+ * logged; only its sha256 prefix is.
+ */
+export function parseState(
+  raw: string | undefined,
+): Result<string | undefined> {
+  if (raw === undefined) return { ok: true, value: undefined };
+  const code = raw.toUpperCase().replace(/^US-/, '');
+  const full = `US-${code}`;
+  if (CONUS_CODE_SET.has(full)) return { ok: true, value: full };
+  return {
+    ok: false,
+    error: 'invalid state',
+    log: {
+      severity: 'INFO',
+      message: 'validation_400',
+      param: 'state',
+      received_hash: hash(raw),
+      reason: 'not_in_allowlist',
+    },
+  };
+}
+
 /**
  * Per-axis bbox cap, applied only when `zoom >= 6` (per-observation mode).
  * At lower zooms the server uses aggregated mode so unbounded bboxes are fine.
@@ -168,6 +210,12 @@ export function parseFamily(
  * Reject body is descriptive so the frontend can render an affordance:
  *   { error: 'bbox too large', maxLngSpan: 45, maxLatSpan: 25,
  *     hint: 'zoom out for aggregated view' }
+ *
+ * #734 B4 — the state-only scope (`?state=US-XX` with no bbox) NEVER reaches
+ * this cap: `app.ts` calls `assertBboxAreaCap` only inside `if (bbox !==
+ * undefined)`, and a state-only request has no bbox. The state polygon's
+ * `ST_Intersects` clip is the bound on that path instead. No code change to
+ * the area cap is required to support state scope.
  */
 export interface BboxTooLargeBody {
   error: 'bbox too large';
@@ -206,20 +254,34 @@ export function assertBboxAreaCap(
 }
 
 /**
- * Per-observation requests must specify EITHER a bbox OR a species code.
- * Family-only (no bbox, no species) is the scrape vector for "all of family X
- * nationally" — reject with 400.
+ * Per-observation requests must specify a BOUNDED scope: a bbox, a species
+ * code, OR a state code. Family-only with no bound (no bbox, no species, no
+ * state) is the scrape vector for "all of family X nationally" — reject 400.
+ *
+ * `?state=US-XX` (#734 B4) is a bounded scope: the data layer clips it to the
+ * state polygon via `ST_Intersects` against `state_boundaries`, so a
+ * state-only request can never pull the unbounded national set. It is
+ * therefore accepted on the per-observation path alongside bbox and species.
+ *
+ * The error string `'specify bbox or species'` is deliberately UNCHANGED by
+ * the state widening — `app.test.ts` and the frontend both string-match it.
  *
  * This guard applies only when the request will hit the per-observation path:
- * aggregated mode (bbox present + zoom < 6) is already cheap.
+ * aggregated mode (bbox present + zoom < 6) is already cheap and returns
+ * before the guard runs.
  */
 export function assertBboxOrSpecies(args: {
   bbox: [number, number, number, number] | undefined;
   speciesCode: string | undefined;
+  stateCode?: string | undefined;
 }):
   | { ok: true }
   | { ok: false; error: string; log: ValidationLog } {
-  if (args.bbox !== undefined || args.speciesCode !== undefined) return { ok: true };
+  if (
+    args.bbox !== undefined ||
+    args.speciesCode !== undefined ||
+    args.stateCode !== undefined
+  ) return { ok: true };
   return {
     ok: false,
     error: 'specify bbox or species',

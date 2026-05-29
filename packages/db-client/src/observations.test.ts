@@ -42,7 +42,7 @@ describe('upsertObservations', () => {
     const count = await upsertObservations(db.pool, sample);
     expect(count).toBe(2);
 
-    const all = await getObservations(db.pool, {});
+    const { data: all } = await getObservations(db.pool, {});
     expect(all).toHaveLength(2);
     const verm = all.find(o => o.subId === 'S100')!;
     expect(verm).not.toHaveProperty('regionId');
@@ -74,7 +74,7 @@ describe('upsertObservations', () => {
         locId: 'L-orphan', locName: 'Nowhere', howMany: 1, isNotable: false,
       },
     ]);
-    const all = await getObservations(db.pool, {});
+    const { data: all } = await getObservations(db.pool, {});
     const orphan = all.find(o => o.subId === 'S-orphan')!;
     expect(orphan.familyCode).toBeNull();
   });
@@ -82,7 +82,7 @@ describe('upsertObservations', () => {
   it('is idempotent — re-running with the same input does not duplicate', async () => {
     await upsertObservations(db.pool, sample);
     await upsertObservations(db.pool, sample);
-    const all = await getObservations(db.pool, {});
+    const { data: all } = await getObservations(db.pool, {});
     expect(all).toHaveLength(2);
   });
 
@@ -90,7 +90,7 @@ describe('upsertObservations', () => {
     await upsertObservations(db.pool, sample);
     const updated: ObservationInput[] = [{ ...sample[0]!, isNotable: true }];
     await upsertObservations(db.pool, updated);
-    const all = await getObservations(db.pool, {});
+    const { data: all } = await getObservations(db.pool, {});
     const verm = all.find(o => o.subId === 'S100')!;
     expect(verm.isNotable).toBe(true);
   });
@@ -126,7 +126,7 @@ describe('upsertObservations', () => {
     expect(count).toBe(2);
 
     // Assert: the M new rows have their silhouette_id stamped...
-    const all = await getObservations(db.pool, {});
+    const { data: all } = await getObservations(db.pool, {});
     const newVerm = all.find(o => o.subId === 'S100')!;
     expect(newVerm.silhouetteId).toBe('tyrannidae');
     const newAnna = all.find(o => o.subId === 'S101')!;
@@ -166,22 +166,22 @@ describe('getObservations filters', () => {
     await db.pool.query(`UPDATE observations SET obs_dt = now() - interval '5 days' WHERE sub_id='S200'`);
     await db.pool.query(`UPDATE observations SET obs_dt = now() - interval '20 days' WHERE sub_id='S201'`);
     await db.pool.query(`UPDATE observations SET obs_dt = now() - interval '40 days' WHERE sub_id='S202'`);
-    const rows = await getObservations(db.pool, { since: '14d' });
+    const { data: rows } = await getObservations(db.pool, { since: '14d' });
     expect(rows.map(r => r.subId)).toEqual(['S200']);
   });
 
   it('filters by notable=true', async () => {
-    const rows = await getObservations(db.pool, { notable: true });
+    const { data: rows } = await getObservations(db.pool, { notable: true });
     expect(rows.map(r => r.subId).sort()).toEqual(['S201']);
   });
 
   it('filters by species code', async () => {
-    const rows = await getObservations(db.pool, { speciesCode: 'vermfly' });
+    const { data: rows } = await getObservations(db.pool, { speciesCode: 'vermfly' });
     expect(rows.map(r => r.subId).sort()).toEqual(['S200', 'S202']);
   });
 
   it('filters by family code', async () => {
-    const rows = await getObservations(db.pool, { familyCode: 'trochilidae' });
+    const { data: rows } = await getObservations(db.pool, { familyCode: 'trochilidae' });
     expect(rows.map(r => r.subId)).toEqual(['S201']);
   });
 
@@ -191,21 +191,21 @@ describe('getObservations filters', () => {
   //   S201 = (32.30, -110.99)
   //   S202 = (32.30, -110.99)
   it('filters by bbox: narrow envelope around S200 returns only S200', async () => {
-    const rows = await getObservations(db.pool, {
+    const { data: rows } = await getObservations(db.pool, {
       bbox: [-111.0, 31.5, -110.8, 31.9],
     });
     expect(rows.map(r => r.subId)).toEqual(['S200']);
   });
 
   it('filters by bbox: wide envelope returns all in-bounds', async () => {
-    const rows = await getObservations(db.pool, {
+    const { data: rows } = await getObservations(db.pool, {
       bbox: [-112.0, 31.0, -110.0, 33.0],
     });
     expect(rows.map(r => r.subId).sort()).toEqual(['S200', 'S201', 'S202']);
   });
 
   it('filters by bbox: envelope outside fixture returns empty', async () => {
-    const rows = await getObservations(db.pool, {
+    const { data: rows } = await getObservations(db.pool, {
       bbox: [-80.0, 25.0, -79.0, 26.0],
     });
     expect(rows).toEqual([]);
@@ -213,7 +213,7 @@ describe('getObservations filters', () => {
 
   it('filters by bbox: boundary point is inclusive', async () => {
     // S200 at exactly (31.72, -110.88) — envelope edge passes through it.
-    const rows = await getObservations(db.pool, {
+    const { data: rows } = await getObservations(db.pool, {
       bbox: [-110.88, 31.72, -110.0, 32.0],
     });
     expect(rows.map(r => r.subId)).toContain('S200');
@@ -225,7 +225,7 @@ describe('getObservations filters', () => {
   // approach ~5K observations in 14d (House Sparrow); cap there is a balance
   // between "real users see the full slice" and "scraper can't drain the DB
   // via species iteration".
-  it('applies LIMIT 5000 when speciesCode is set (#667 Scope C.1)', async () => {
+  it('applies LIMIT 5000 + truncated=true when speciesCode is set (#667 C.1 / #733 B6)', async () => {
     // Seed 6K observations for a single species to cross the cap. Skip the
     // upsertObservations helper's per-row stamping path (slow for 6K rows)
     // and INSERT directly; the query under test only reads obs_dt/species_code/
@@ -252,13 +252,16 @@ describe('getObservations filters', () => {
         false
       FROM generate_series(1, 6000) g
     `);
-    const rows = await getObservations(db.pool, { speciesCode: 'hossp1' });
-    expect(rows).toHaveLength(5000);
+    const { data, truncated } = await getObservations(db.pool, { speciesCode: 'hossp1' });
+    expect(data).toHaveLength(5000);
+    expect(truncated).toBe(true);
   });
 
-  it('does NOT apply LIMIT 5000 when speciesCode is absent', async () => {
-    // Sanity counterpart: same seed, query without speciesCode → no cap.
-    // (The future LIMIT 10000 for the bbox path lands in PR 2.)
+  it('returns truncated=false when a species query is under the 5000 cap (#733 B6)', async () => {
+    // 5500 rows of one species, but query WITHOUT speciesCode → no species cap
+    // applies; the general 10000 cap is not crossed, so the full set returns
+    // and truncated stays false. This is the prior "does NOT apply LIMIT 5000"
+    // sanity counterpart, now asserting the explicit truncated flag.
     await db.pool.query('TRUNCATE observations');
     await db.pool.query(`
       INSERT INTO species_meta (species_code, com_name, sci_name, family_code, family_name, taxon_order)
@@ -275,8 +278,161 @@ describe('getObservations filters', () => {
         'L-uncap', 'Uncap Test Loc', 1, false
       FROM generate_series(1, 5500) g
     `);
-    const rows = await getObservations(db.pool, {});
-    expect(rows.length).toBeGreaterThan(5000);
+    const { data, truncated } = await getObservations(db.pool, {});
+    expect(data).toHaveLength(5500);
+    expect(truncated).toBe(false);
+  });
+
+  it('applies the general LIMIT 10000 + truncated=true on the non-species path (#733 B6)', async () => {
+    // 10001 rows, no species filter → the general 10000 brake fires: the
+    // body is sliced back to exactly 10000 and truncated is true. This is the
+    // emergency brake for an unbounded per-observation query (a dense state at
+    // high zoom). The LIMIT cap+1 probe is what lets us detect the overflow
+    // without a separate COUNT.
+    await db.pool.query('TRUNCATE observations');
+    await db.pool.query(`
+      INSERT INTO species_meta (species_code, com_name, sci_name, family_code, family_name, taxon_order)
+      VALUES ('hossp1', 'House Sparrow', 'Passer domesticus', 'passeridae', 'Old World Sparrows', 999999)
+      ON CONFLICT (species_code) DO NOTHING
+    `);
+    await db.pool.query(`
+      INSERT INTO observations
+        (sub_id, species_code, lat, lng, obs_dt, loc_id, loc_name, how_many, is_notable)
+      SELECT
+        'S-brake-' || g::text, 'hossp1',
+        31.72 + (g * 0.00001), -110.88 - (g * 0.00001),
+        now() - (g * interval '1 second'),
+        'L-brake', 'Brake Test Loc', 1, false
+      FROM generate_series(1, 10001) g
+    `);
+    const { data, truncated } = await getObservations(db.pool, {});
+    expect(data).toHaveLength(10000);
+    expect(truncated).toBe(true);
+  });
+});
+
+// #733 (plan task B3) — the `?state=US-XX` hard server-side data boundary.
+// A PostGIS `ST_Intersects` clip against the `state_boundaries` polygon table
+// (seeded by migration 1700000050000, applied by startTestDb). The clip ANDs
+// with every existing filter; absence of `stateCode` leaves the query
+// unclipped (whole-US). The fixtures S200/S201/S202 are all in Arizona; a new
+// FL-coords row exercises cross-state exclusion, and an AZ-eastern-border
+// vertex exercises border-point inclusivity (the `ST_Intersects`-not-
+// `ST_Contains` guard — a `ST_Contains` clip would DROP a point sitting on a
+// simplified shared edge from both states).
+describe('getObservations state clip (#733)', () => {
+  beforeEach(async () => {
+    await db.pool.query('TRUNCATE observations');
+    await upsertObservations(db.pool, [
+      // Three AZ rows (mirror the bbox-filter fixtures).
+      { subId: 'S200', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 31.72, lng: -110.88, obsDt: '2026-04-15T08:00:00Z',
+        locId: 'L1', locName: 'X', howMany: 1, isNotable: false },
+      { subId: 'S201', speciesCode: 'annhum', comName: 'Anna\'s Hummingbird',
+        lat: 32.30, lng: -110.99, obsDt: '2026-04-10T08:00:00Z',
+        locId: 'L2', locName: 'Y', howMany: 1, isNotable: true },
+      { subId: 'S202', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 32.30, lng: -110.99, obsDt: '2026-03-01T08:00:00Z',
+        locId: 'L3', locName: 'Z', howMany: 3, isNotable: false },
+      // One Florida row (central FL — well inside FL, well outside AZ).
+      { subId: 'S-FL', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 27.8, lng: -81.7, obsDt: '2026-04-12T08:00:00Z',
+        locId: 'L-FL', locName: 'FL', howMany: 1, isNotable: false },
+    ]);
+  });
+
+  it('clips to the AZ polygon and returns a non-empty set (inverted-predicate guard)', async () => {
+    const { data: rows } = await getObservations(db.pool, { stateCode: 'US-AZ' });
+    // All three AZ fixtures, and ASSERT non-empty — an inverted predicate
+    // (e.g. NOT ST_Intersects) would return zero and silently "pass" a
+    // sloppier assertion.
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.map(r => r.subId).sort()).toEqual(['S200', 'S201', 'S202']);
+  });
+
+  it('excludes a Florida row from US-AZ and includes it under US-FL', async () => {
+    const { data: az } = await getObservations(db.pool, { stateCode: 'US-AZ' });
+    expect(az.map(r => r.subId)).not.toContain('S-FL');
+
+    const { data: fl } = await getObservations(db.pool, { stateCode: 'US-FL' });
+    expect(fl.map(r => r.subId)).toEqual(['S-FL']);
+  });
+
+  it('a point on the AZ/NM border resolves into exactly one state, and the clip surfaces it (ST_Intersects, not ST_Contains)', async () => {
+    // -109.04522 is a literal vertex of the seeded AZ MultiPolygon — its
+    // eastern meridian, the AZ/NM Four-Corners line. A `ST_Contains` clip would
+    // treat a boundary point as "not contained" and could drop it from BOTH
+    // states — the vanishing-border-point regression this guard exists to
+    // catch. `ST_Intersects` is inclusive, so the point lands in EXACTLY ONE
+    // state (which side of a simplified seam it falls on is geometry-dependent;
+    // the load-bearing assertion is "exactly one, never zero").
+    const borderLng = -109.04522;
+    const borderLat = 34.16694;
+    const { rows: hit } = await db.pool.query<{ state_code: string }>(
+      `SELECT state_code FROM state_boundaries
+        WHERE ST_Intersects(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326))
+        ORDER BY state_code`,
+      [borderLng, borderLat],
+    );
+    // EXACTLY ONE state — never zero (the ST_Contains-regression assertion).
+    expect(hit).toHaveLength(1);
+    const borderState = hit[0]!.state_code;
+    expect(['US-AZ', 'US-NM']).toContain(borderState);
+
+    await db.pool.query('TRUNCATE observations');
+    await upsertObservations(db.pool, [
+      { subId: 'S-BORDER', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: borderLat, lng: borderLng, obsDt: '2026-04-15T08:00:00Z',
+        locId: 'L-B', locName: 'Border', howMany: 1, isNotable: false },
+    ]);
+    // The clip with the resolved border state surfaces the border row — proof
+    // ST_Intersects includes a point sitting on the polygon edge.
+    const { data: rows } = await getObservations(db.pool, { stateCode: borderState });
+    expect(rows.map(r => r.subId)).toEqual(['S-BORDER']);
+  });
+
+  it('AND-narrows when state and bbox are both present', async () => {
+    // A narrow bbox around S200 only — the state clip AND-s with the bbox so
+    // S201/S202 (in AZ but outside the bbox) are dropped.
+    const { data: rows } = await getObservations(db.pool, {
+      stateCode: 'US-AZ',
+      bbox: [-111, 31.5, -110.85, 31.9],
+    });
+    expect(rows.map(r => r.subId)).toEqual(['S200']);
+  });
+
+  it('composes with a species filter', async () => {
+    const { data: rows } = await getObservations(db.pool, {
+      stateCode: 'US-AZ',
+      speciesCode: 'vermfly',
+    });
+    expect(rows.map(r => r.subId).sort()).toEqual(['S200', 'S202']);
+  });
+});
+
+describe('getObservationsAggregated state clip (#733)', () => {
+  beforeEach(async () => {
+    await db.pool.query('TRUNCATE observations');
+    await upsertObservations(db.pool, [
+      // Two AZ rows in the same 0.25° bucket.
+      { subId: 'AGG-AZ1', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 31.72, lng: -110.88, obsDt: '2026-04-15T08:00:00Z',
+        locId: 'L1', locName: 'X', howMany: 1, isNotable: false },
+      { subId: 'AGG-AZ2', speciesCode: 'annhum', comName: 'Anna\'s Hummingbird',
+        lat: 31.73, lng: -110.88, obsDt: '2026-04-15T09:00:00Z',
+        locId: 'L2', locName: 'Y', howMany: 1, isNotable: true },
+      // One FL row that must be clipped out by US-AZ.
+      { subId: 'AGG-FL', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 27.8, lng: -81.7, obsDt: '2026-04-15T10:00:00Z',
+        locId: 'L3', locName: 'Z', howMany: 1, isNotable: false },
+    ]);
+  });
+
+  it('applies the same clip on the aggregated path', async () => {
+    const buckets = await getObservationsAggregated(db.pool, { stateCode: 'US-AZ' }, 4);
+    // Only the single AZ bucket survives; the FL bucket is clipped out.
+    expect(buckets).toHaveLength(1);
+    expect(buckets[0]!.count).toBe(2);
   });
 });
 
@@ -362,7 +518,7 @@ describe('runReconcileStamping', () => {
         locId: 'L1', locName: 'Madera', howMany: 1, isNotable: false,
       },
     ]);
-    const before = await getObservations(db.pool, {});
+    const { data: before } = await getObservations(db.pool, {});
     expect(before[0]?.silhouetteId).toBeNull();
 
     // Populate species_meta (simulating a successful runTaxonomy) and reconcile.
@@ -373,7 +529,7 @@ describe('runReconcileStamping', () => {
     const touched = await runReconcileStamping(db.pool);
     expect(touched).toBeGreaterThanOrEqual(1);
 
-    const after = await getObservations(db.pool, {});
+    const { data: after } = await getObservations(db.pool, {});
     expect(after[0]?.silhouetteId).toBe('tyrannidae');
     // regionId removed from wire shape by PR-2 of #532; the DB column is
     // dropped in PR-3.
