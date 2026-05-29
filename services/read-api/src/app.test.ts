@@ -555,6 +555,141 @@ describe('GET /api/observations', () => {
       ]);
     }
   });
+
+  // #734 (plan task B5) — `?state=US-XX` is wired through app.ts into
+  // ObservationFilters.stateCode (parsed by parseState/#729) and clipped by
+  // the data layer (ST_Intersects against state_boundaries/#733). The clip
+  // applies in BOTH per-observation and aggregated modes because
+  // filters.stateCode is set before the aggregated-mode branch. The state
+  // codes here resolve against the 49 CONUS rows seeded by migration
+  // 1700000050000_state_boundaries.sql, which startTestDb() applies.
+  describe('?state= scope (#734 B5)', () => {
+    // Re-seed an AZ-ONLY fixture so the US-FL empty-scope assertion is exact.
+    // S1/S2 both fall inside the Arizona polygon; there is deliberately NO
+    // Florida row, so `?state=US-FL` must come back empty.
+    beforeAll(async () => {
+      await db.pool.query('TRUNCATE observations');
+      await upsertObservations(db.pool, [
+        { subId: 'S1', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+          lat: 31.72, lng: -110.88, obsDt: new Date(Date.now() - 5*86400_000).toISOString(),
+          locId: 'L1', locName: 'X', howMany: 1, isNotable: false },
+        { subId: 'S2', speciesCode: 'annhum', comName: "Anna's Hummingbird",
+          lat: 32.30, lng: -110.99, obsDt: new Date(Date.now() - 20*86400_000).toISOString(),
+          locId: 'L2', locName: 'Y', howMany: 1, isNotable: true },
+      ]);
+    });
+
+    it('(a) ?state=US-AZ with no bbox → 200 observations + AZ rows (guard accepts state)', async () => {
+      const app = createApp({ pool: db.pool });
+      const res = await app.request('/api/observations?state=US-AZ');
+      expect(res.status).toBe(200);
+      const body = await res.json() as { mode: string } & ObsEnvelope;
+      expect(body.mode).toBe('observations');
+      // Both seeded rows fall inside Arizona; the polygon clip keeps both.
+      expect(body.data.map(o => o.subId).sort()).toEqual(['S1', 'S2']);
+    });
+
+    it('(b) ?state=US-FL → 200 empty (empty-scope path; AZ-only seed has no FL row)', async () => {
+      const app = createApp({ pool: db.pool });
+      const res = await app.request('/api/observations?state=US-FL');
+      expect(res.status).toBe(200);
+      const body = await res.json() as { mode: string } & ObsEnvelope;
+      expect(body.mode).toBe('observations');
+      // No Florida observations exist — the ST_Intersects clip excludes the
+      // AZ rows. Empty result, NOT a 404 or error.
+      expect(body.data).toEqual([]);
+    });
+
+    it('(c) ?state=banana → 400 invalid state', async () => {
+      const app = createApp({ pool: db.pool });
+      const res = await app.request('/api/observations?state=banana');
+      expect(res.status).toBe(400);
+      const body = await res.json() as { error: string };
+      expect(body.error).toBe('invalid state');
+    });
+
+    it('(c) ?state=US-AK → 400 invalid state (Alaska is outside the CONUS allowlist)', async () => {
+      const app = createApp({ pool: db.pool });
+      const res = await app.request('/api/observations?state=US-AK');
+      expect(res.status).toBe(400);
+      const body = await res.json() as { error: string };
+      expect(body.error).toBe('invalid state');
+    });
+
+    it('(d) ?state=US-AZ&bbox=... ANDs the state clip with the bbox', async () => {
+      const app = createApp({ pool: db.pool });
+      // This bbox contains only S1 (31.72, -110.88); excludes S2 (32.30,
+      // -110.99). Both are inside Arizona, so the state clip alone keeps both —
+      // the narrowing to S1 proves the bbox AND-composes with the state clip.
+      const res = await app.request(
+        '/api/observations?state=US-AZ&bbox=-111,31.5,-110.85,31.9',
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json() as { mode: string } & ObsEnvelope;
+      expect(body.mode).toBe('observations');
+      expect(body.data.map(o => o.subId)).toEqual(['S1']);
+    });
+
+    it('(e) ?state=US-AZ&zoom=4&bbox=... → mode=aggregated (clip applies in aggregated mode)', async () => {
+      const app = createApp({ pool: db.pool });
+      const res = await app.request(
+        '/api/observations?state=US-AZ&bbox=-112,31,-110,33&zoom=4',
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json() as {
+        mode: string;
+        buckets?: Array<{ count: number }>;
+      };
+      expect(body.mode).toBe('aggregated');
+      expect(Array.isArray(body.buckets)).toBe(true);
+      // Both AZ rows fall in the bbox AND the Arizona polygon → total count 2.
+      const total = body.buckets!.reduce((s, b) => s + b.count, 0);
+      expect(total).toBe(2);
+    });
+
+    it('(e) aggregated state clip excludes out-of-state rows (US-FL → empty buckets)', async () => {
+      const app = createApp({ pool: db.pool });
+      // A CONUS-wide bbox + zoom<6 (aggregated) clipped to Florida. The AZ
+      // rows are outside the FL polygon, so the aggregated result is empty —
+      // this is the aggregated-mode counterpart to case (b) and proves the
+      // clip is applied before, not after, the aggregation branch.
+      const res = await app.request(
+        '/api/observations?state=US-FL&bbox=-125,24,-66,50&zoom=4',
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json() as {
+        mode: string;
+        buckets?: Array<{ count: number }>;
+      };
+      expect(body.mode).toBe('aggregated');
+      const total = body.buckets!.reduce((s, b) => s + b.count, 0);
+      expect(total).toBe(0);
+    });
+
+    it('(f) ?state= request preserves the s-maxage=300 observations cache header (#734 B7)', async () => {
+      // #734 B7 — `?state=` rides the existing full-URL cache key exactly like
+      // `?bbox=`. No cache-headers.ts change: the observations TTL is unchanged.
+      const app = createApp({ pool: db.pool });
+      const res = await app.request('/api/observations?state=US-AZ');
+      expect(res.status).toBe(200);
+      expect(res.headers.get('cache-control'))
+        .toBe('public, s-maxage=300, stale-while-revalidate=600');
+    });
+
+    // Restore the canonical S1/S2 fixture for any later describe that assumes
+    // the post-suite table state.
+    afterAll(async () => {
+      await db.pool.query('TRUNCATE observations');
+      await upsertObservations(db.pool, [
+        { subId: 'S1', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+          lat: 31.72, lng: -110.88, obsDt: new Date(Date.now() - 5*86400_000).toISOString(),
+          locId: 'L1', locName: 'X', howMany: 1, isNotable: false },
+        { subId: 'S2', speciesCode: 'annhum', comName: "Anna's Hummingbird",
+          lat: 32.30, lng: -110.99, obsDt: new Date(Date.now() - 20*86400_000).toISOString(),
+          locId: 'L2', locName: 'Y', howMany: 1, isNotable: true },
+      ]);
+    });
+  });
 });
 
 describe('species_meta backfill for eBird hybrid/spuh codes (#484)', () => {
