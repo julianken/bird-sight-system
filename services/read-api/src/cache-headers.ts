@@ -1,4 +1,4 @@
-export type Endpoint = 'observations' | 'hotspots' | 'species' | 'silhouettes' | 'phenology';
+export type Endpoint = 'observations' | 'hotspots' | 'species' | 'silhouettes' | 'phenology' | 'states';
 
 // Cache-Control TTL table for public read endpoints.
 //
@@ -41,6 +41,13 @@ const TABLE: Record<Endpoint, string> = {
   // long enough to absorb the load of repeat page-loads. SWR adds a 2h
   // grace window so the origin never gets a thundering refresh.
   silhouettes:  'public, s-maxage=3600, stale-while-revalidate=7200',
+  // State-boundary summaries (name + bbox) for the scope selector + camera.
+  // The state_boundaries seed is build-time-stable: it only changes when the
+  // offline generator (scripts/generate-state-boundaries.mjs) is re-run and a
+  // new migration ships — which is a fresh deploy that busts the edge anyway.
+  // So unlike /silhouettes (curation pushes drift the payload between deploys),
+  // /api/states is genuinely `immutable` for a week on BOTH browser + CDN.
+  states:       'public, max-age=604800, s-maxage=604800, immutable',
 };
 
 export function cacheControlFor(endpoint: Endpoint): string {

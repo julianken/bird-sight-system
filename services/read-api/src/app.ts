@@ -7,12 +7,13 @@ import {
   getFreshestObservationAt,
   getSpeciesMeta, getSilhouettes,
   getSpeciesPhenology,
+  listStatesWithBbox,
 } from '@bird-watch/db-client';
 import type { ObservationsResponse } from '@bird-watch/shared-types';
 import { cacheControlFor } from './cache-headers.js';
 import { rateLimitFromEnv } from './rate-limit.js';
 import {
-  parseSince, parseNotable, parseSpecies, parseFamily,
+  parseSince, parseNotable, parseSpecies, parseFamily, parseState,
   assertBboxAreaCap, assertBboxOrSpecies,
 } from './validate.js';
 
@@ -144,6 +145,24 @@ export function createApp(deps: AppDeps): Hono {
     }
     const familyCode = familyResult.value;
 
+    // #734 (plan task B5) — optional `?state=US-XX` scope. parseState (#729)
+    // validates against the CONUS allowlist and normalizes to `US-XX`;
+    // anything off the 49-code list (AK/HI/territories, garbage, SQLi) is a
+    // 400 'invalid state' before the data layer. Absence ⇒ unclipped national
+    // query (the data-layer invariant is unchanged). The clip itself
+    // (ST_Intersects against state_boundaries) lives in db-client/#733; here
+    // we only thread the validated code into filters.stateCode (below).
+    const stateResult = parseState(c.req.query('state'));
+    if (!stateResult.ok) {
+      console.log(JSON.stringify(stateResult.log));
+      return c.json({ error: stateResult.error }, 400);
+    }
+    const stateCode = stateResult.value;
+    // #734 (plan task B7) — `?state=` rides the existing full-URL cache key
+    // exactly like `?bbox=`, so no cache-headers.ts change is needed: a
+    // `?state=` observations response keeps `s-maxage=300` (asserted in
+    // app.test.ts B5 case (f)). No new Endpoint value, no Vary change.
+
     // #619 — optional viewport-bbox filter, Phase 2 going-national
     // pre-condition. Format: bbox=minLon,minLat,maxLon,maxLat (EPSG:4326).
     // Backward-compatible: no bbox param → full set unchanged. The bbox
@@ -192,6 +211,12 @@ export function createApp(deps: AppDeps): Hono {
     if (speciesCode !== undefined) filters.speciesCode = speciesCode;
     if (familyCode !== undefined) filters.familyCode = familyCode;
     if (bbox !== undefined) filters.bbox = bbox;
+    // #734 (plan task B5) — set stateCode BEFORE the aggregated-mode branch so
+    // the ST_Intersects state clip (#733) applies in BOTH aggregated and
+    // per-observation modes. Both getObservationsAggregated and getObservations
+    // read filters.stateCode; placing the assignment here (not after the
+    // aggregated return) is load-bearing for clipping the aggregated path.
+    if (stateCode !== undefined) filters.stateCode = stateCode;
 
     // Aggregated path: bbox present AND zoom < 6. Grid multiplier is a closed
     // switch — any zoom <= 3 collapses to the coarsest grid (multiplier 2) so
@@ -222,11 +247,12 @@ export function createApp(deps: AppDeps): Hono {
       return c.json(body);
     }
 
-    // #667 Scope C.1 — per-observation path requires EITHER bbox OR species.
-    // Family-only (no bbox, no species) is the scrape vector for "all of
-    // family X nationally"; reject before hitting the DB. Aggregated mode
-    // above already returned, so this check only fires on the heavier path.
-    const guard = assertBboxOrSpecies({ bbox, speciesCode });
+    // #667 Scope C.1 — per-observation path requires a BOUNDED scope: bbox,
+    // species, OR state (#734 B4). Family-only with no bound is the scrape
+    // vector for "all of family X nationally"; reject before hitting the DB.
+    // Aggregated mode above already returned, so this check only fires on the
+    // heavier path. `?state=` is bounded by the polygon clip, so it is accepted.
+    const guard = assertBboxOrSpecies({ bbox, speciesCode, stateCode });
     if (!guard.ok) {
       console.log(JSON.stringify(guard.log));
       return c.json({ error: guard.error }, 400);
@@ -249,7 +275,7 @@ export function createApp(deps: AppDeps): Hono {
     // state machine on the frontend. The aggregate query is cheap (single
     // table scan for the max timestamp) and does not vary by filter params —
     // it reflects the age of our entire dataset, not the filtered slice.
-    const [rows, freshestObservationAt] = await Promise.all([
+    const [obsResult, freshestObservationAt] = await Promise.all([
       getObservations(deps.pool, filters),
       getFreshestObservationAt(deps.pool),
     ]);
@@ -276,10 +302,18 @@ export function createApp(deps: AppDeps): Hono {
       }));
     }
 
+    // #733 (plan task B6) — getObservations now returns { data, truncated }.
+    // Surface `meta.truncated: true` only when the row brake fired; omit the
+    // field otherwise (stale CDN bodies and the aggregated path both treat the
+    // absent field as "not truncated", so emitting `truncated: false` would be
+    // noise). The aggregated branch above never truncates and never sets it.
     const body: ObservationsResponse = {
       mode: 'observations',
-      data: rows,
-      meta: { freshestObservationAt },
+      data: obsResult.data,
+      meta: {
+        freshestObservationAt,
+        ...(obsResult.truncated ? { truncated: true } : {}),
+      },
     };
     return c.json(body);
   });
@@ -287,6 +321,20 @@ export function createApp(deps: AppDeps): Hono {
   app.get('/api/silhouettes', async c => {
     const rows = await getSilhouettes(deps.pool);
     c.header('Cache-Control', cacheControlFor('silhouettes'));
+    return c.json(rows);
+  });
+
+  // State-boundary summaries (name + [w,s,e,n] bbox) for the scope selector +
+  // camera framing. This is served as a tiny (~4 KB) endpoint rather than a
+  // bundled frontend JSON so the clip (observations.ts ST_Intersects) and the
+  // selector/camera read ONE source of truth — the state_boundaries table —
+  // and can never drift (locked decision #7 of the state-scope plan). The
+  // accessor (listStatesWithBbox) deliberately excludes `geom`, so the polygon
+  // geometry never leaves the server. Long-lived `immutable` cache: the seed
+  // is build-time-stable (see cache-headers.ts).
+  app.get('/api/states', async c => {
+    const rows = await listStatesWithBbox(deps.pool);
+    c.header('Cache-Control', cacheControlFor('states'));
     return c.json(rows);
   });
 

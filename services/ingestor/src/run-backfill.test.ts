@@ -59,7 +59,7 @@ describe('runBackfill', () => {
     });
     expect(calls).toBe(3);
     expect(summary.status).toBe('success');
-    const obs = await getObservations(db.pool, {});
+    const { data: obs } = await getObservations(db.pool, {});
     expect(obs).toHaveLength(3);
   });
 
@@ -76,7 +76,7 @@ describe('runBackfill', () => {
     await runIngest({ pool: db.pool, apiKey: 'k', regionCode: 'US-AZ' });
 
     // Confirm it was stamped notable.
-    let obs = await getObservations(db.pool, {});
+    let { data: obs } = await getObservations(db.pool, {});
     expect(obs.find(o => o.subId === 'S999')?.isNotable).toBe(true);
 
     // Step 2: runBackfill with back=3 days — its /recent/notable returns [] (empty keyset).
@@ -97,7 +97,7 @@ describe('runBackfill', () => {
     expect(summary.status).toBe('success');
 
     // is_notable must still be true — OR-coalesce defended against the empty keyset.
-    obs = await getObservations(db.pool, {});
+    obs = (await getObservations(db.pool, {})).data;
     expect(obs.find(o => o.subId === 'S999')?.isNotable).toBe(true);
   });
 
@@ -138,7 +138,7 @@ describe('runBackfill', () => {
     expect(summary.error).toMatch(/500|server/i);
 
     // Days 1 and 3 (Apr 15 + Apr 13) must have been upserted.
-    const obs = await getObservations(db.pool, {});
+    const { data: obs } = await getObservations(db.pool, {});
     const subIds = obs.map(o => o.subId).sort();
     expect(subIds).toContain('SDay15');
     expect(subIds).toContain('SDay13');

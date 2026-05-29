@@ -231,7 +231,7 @@ describe('runTaxonomy', () => {
         locId: 'L1', locName: 'Madera', howMany: 1, isNotable: false,
       },
     ]);
-    const before = await getObservations(db.pool, {});
+    const { data: before } = await getObservations(db.pool, {});
     expect(before[0]?.silhouetteId).toBeNull();
 
     server.use(
@@ -245,7 +245,7 @@ describe('runTaxonomy', () => {
     });
     expect(summary.status).toBe('success');
 
-    const after = await getObservations(db.pool, {});
+    const { data: after } = await getObservations(db.pool, {});
     // verfly → tyrann1 → silhouette 'tyrannidae' (seeded in migration 9)
     expect(after[0]?.silhouetteId).toBe('tyrannidae');
     // regionId removed from wire shape by PR-2 of #532; column dropped in PR-3.
