@@ -2,6 +2,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { forwardRef, useEffect, useImperativeHandle } from 'react';
 import type { FamilySilhouette, Observation } from '@bird-watch/shared-types';
+import type { MultiPolygon as MultiPolygonGeom } from 'geojson';
+// #762: assert the padded clamp / colors / built mask feature against mask.ts as
+// the single source of truth — never re-literal the padded value or colors.
+import {
+  buildMaskFeature,
+  padBounds,
+  ARTBOARD_PAD,
+  MASK_FILL_LIGHT,
+  MASK_FILL_DARK,
+} from './mask.js';
 
 /* ── Mock react-map-gl/maplibre ─────────────────────────────────────────────
    jsdom has no WebGL context so we stub Map, Source, and Layer as thin
@@ -11,6 +21,13 @@ import type { FamilySilhouette, Observation } from '@bird-watch/shared-types';
 let capturedSourceProps: Record<string, unknown> = {};
 let capturedAttributionProps: Record<string, unknown> = {};
 let capturedLayerFilters: Record<string, unknown> = {};
+// #762: a single OVERWRITTEN capturedSourceProps cannot distinguish the
+// observations <Source> from the state-mask <Source>. Capture sources into an
+// id-keyed map so the mask-source presence/absence clause can target by id.
+let capturedSourcesById: Record<string, Record<string, unknown>> = {};
+// #762: per-layer `paint` capture (the mask-fill theme-repaint clause reads the
+// captured `fill-color` for state-mask-fill before/after a [data-theme] flip).
+let capturedLayerPaint: Record<string, unknown> = {};
 
 let registeredHandlers: Record<string, (e: { point: [number, number] }) => void> = {};
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -139,8 +156,15 @@ vi.mock('react-map-gl/maplibre', () => ({
   Map: MockMap,
   Source: ({ children, ...rest }: Record<string, unknown>) => {
     capturedSourceProps = rest;
+    if (typeof rest.id === 'string') {
+      capturedSourcesById[rest.id] = rest;
+    }
     return (
-      <div data-testid="mock-source" data-props={JSON.stringify(rest)}>
+      <div
+        data-testid="mock-source"
+        data-source-id={rest.id as string}
+        data-props={JSON.stringify(rest)}
+      >
         {children as React.ReactNode}
       </div>
     );
@@ -148,6 +172,7 @@ vi.mock('react-map-gl/maplibre', () => ({
   Layer: (props: Record<string, unknown>) => {
     if (typeof props.id === 'string') {
       capturedLayerFilters[props.id] = props.filter;
+      capturedLayerPaint[props.id] = props.paint;
     }
     return <div data-testid="mock-layer" data-layer-id={props.id} />;
   },
@@ -279,6 +304,8 @@ describe('MapCanvas', () => {
     capturedSourceProps = {};
     capturedAttributionProps = {};
     capturedLayerFilters = {};
+    capturedSourcesById = {};
+    capturedLayerPaint = {};
     registeredHandlers = {};
     bareHandlers = {};
     bareHandlersAll = {};
@@ -308,21 +335,21 @@ describe('MapCanvas', () => {
     expect(capturedSourceProps['maxzoom']).toBe(24);
   });
 
-  it('renders five Layer components: clusters, cluster-count, clusters-hit, notable-ring, unclustered-point', async () => {
+  it('renders EXACTLY the five observation Layers (no maskPolygon → no state-mask-fill leak)', async () => {
     render(<MapCanvas observations={[]} silhouettes={SILHOUETTES} />);
     await waitFor(() => {
       const ids = screen
         .getAllByTestId('mock-layer')
         .map((el) => el.getAttribute('data-layer-id'));
-      expect(ids).toEqual(
-        expect.arrayContaining([
-          'clusters',
-          'cluster-count',
-          'clusters-hit',
-          'notable-ring',
-          'unclustered-point',
-        ]),
-      );
+      // #762: exact ordered toEqual (not arrayContaining) so a 6th
+      // unconditional-mask layer cannot silently pass.
+      expect(ids).toEqual([
+        'clusters',
+        'cluster-count',
+        'clusters-hit',
+        'notable-ring',
+        'unclustered-point',
+      ]);
     });
   });
 
@@ -1043,6 +1070,8 @@ describe('onSelectSpecies popover-bbox wire (Phase 3, #560)', () => {
     capturedSourceProps = {};
     capturedAttributionProps = {};
     capturedLayerFilters = {};
+    capturedSourcesById = {};
+    capturedLayerPaint = {};
     registeredHandlers = {};
     bareHandlers = {};
     bareHandlersAll = {};
@@ -1293,6 +1322,8 @@ describe('ObservationPopover anchoring — displaced silhouette regression (#718
     capturedSourceProps = {};
     capturedAttributionProps = {};
     capturedLayerFilters = {};
+    capturedSourcesById = {};
+    capturedLayerPaint = {};
     registeredHandlers = {};
     bareHandlers = {};
     bareHandlersAll = {};
@@ -1495,6 +1526,8 @@ describe('MapCanvas controllable camera (#736)', () => {
     capturedSourceProps = {};
     capturedAttributionProps = {};
     capturedLayerFilters = {};
+    capturedSourcesById = {};
+    capturedLayerPaint = {};
     registeredHandlers = {};
     bareHandlers = {};
     bareHandlersAll = {};
@@ -1666,5 +1699,272 @@ describe('MapCanvas controllable camera (#736)', () => {
     const [easeOpts] = fakeMap.easeTo.mock.calls.at(-1);
     expect(easeOpts.center).toEqual([-111, 34]);
     expect(easeOpts.zoom).toBe(12);
+  });
+});
+
+/* ── State-artboard inverse mask (#760 / #762) ───────────────────────────────
+   The mask is a single fill <Layer id="state-mask-fill"> inside a <Source
+   id="state-mask"> rendered BEFORE the observations <Source>, so it sits above
+   the basemap and below the cluster/observation layers (birds render inside the
+   state on top of the gray). maskPolygon/clampPad are the two new props. The
+   clamp (padded maxBounds) is decoupled from the fit target (tight bbox);
+   renderWorldCopies:false is conditional on maskPolygon; MIN_ZOOM is 2.
+
+   padBounds / ARTBOARD_PAD / MASK_FILL_* / buildMaskFeature are imported from
+   mask.ts (single source of truth — do NOT re-literal the padded value). */
+
+// A minimal 1-part MultiPolygon standing in for a state's render-only geometry.
+const AZ_POLYGON: MultiPolygonGeom = {
+  type: 'MultiPolygon',
+  coordinates: [
+    [
+      [
+        [-114.815, 31.332],
+        [-109.045, 31.332],
+        [-109.045, 37.004],
+        [-114.815, 37.004],
+        [-114.815, 31.332],
+      ],
+    ],
+  ],
+};
+
+describe('MapCanvas state-artboard mask (#762)', () => {
+  const origMatchMedia = window.matchMedia;
+
+  beforeEach(() => {
+    capturedSourceProps = {};
+    capturedAttributionProps = {};
+    capturedLayerFilters = {};
+    capturedSourcesById = {};
+    capturedLayerPaint = {};
+    registeredHandlers = {};
+    bareHandlers = {};
+    bareHandlersAll = {};
+    deferMapLoad = false;
+    deferredOnLoad = null;
+    fakeMap = makeFakeMap();
+    document.documentElement.removeAttribute('data-theme');
+    stubMatchMedia(null);
+    __resetAdaptiveGridCacheForTesting();
+  });
+
+  afterEach(() => {
+    window.matchMedia = origMatchMedia;
+  });
+
+  const readMapProps = () => {
+    const el = screen.getByTestId('mock-map');
+    return JSON.parse(el.getAttribute('data-props') ?? '{}');
+  };
+
+  it('absent maskPolygon: NO state-mask source/layer; renderWorldCopies not forced (us / chooser unchanged)', async () => {
+    render(
+      <MapCanvas observations={[]} bounds={CONUS_PROD_BOUNDS} boundsKey="us" />,
+    );
+    // Source clause: no state-mask source.
+    expect(capturedSourcesById['state-mask']).toBeUndefined();
+    // Layer clause: state-mask-fill must not leak into the rendered layers.
+    await waitFor(() => {
+      const ids = screen
+        .getAllByTestId('mock-layer')
+        .map((el) => el.getAttribute('data-layer-id'));
+      expect(ids).not.toContain('state-mask-fill');
+    });
+    // renderWorldCopies must NOT be forced false on the unmasked nationwide view
+    // (must remain undefined/truthy so the world repeats at low zoom there).
+    expect(readMapProps().renderWorldCopies).not.toBe(false);
+  });
+
+  it('with maskPolygon: state-mask-fill is the FIRST layer (mask <Source> before observations)', async () => {
+    render(
+      <MapCanvas
+        observations={[]}
+        silhouettes={SILHOUETTES}
+        bounds={AZ_BOUNDS}
+        boundsKey="US-AZ"
+        maskPolygon={AZ_POLYGON}
+        clampPad={ARTBOARD_PAD}
+      />,
+    );
+    await waitFor(() => {
+      const ids = screen
+        .getAllByTestId('mock-layer')
+        .map((el) => el.getAttribute('data-layer-id'));
+      // Exact ordered 6-layer list: state-mask-fill FIRST, then the 5 obs layers.
+      expect(ids).toEqual([
+        'state-mask-fill',
+        'clusters',
+        'cluster-count',
+        'clusters-hit',
+        'notable-ring',
+        'unclustered-point',
+      ]);
+    });
+    // Source clause: the state-mask source IS present.
+    expect(capturedSourcesById['state-mask']).toBeDefined();
+    // The mask source carries the built inverse-mask Feature<Polygon>.
+    expect(capturedSourcesById['state-mask'].data).toEqual(
+      buildMaskFeature(AZ_POLYGON),
+    );
+  });
+
+  it('with maskPolygon: renderWorldCopies === false (forward-compat invariant, #761)', () => {
+    render(
+      <MapCanvas
+        observations={[]}
+        bounds={AZ_BOUNDS}
+        boundsKey="US-AZ"
+        maskPolygon={AZ_POLYGON}
+        clampPad={ARTBOARD_PAD}
+      />,
+    );
+    expect(readMapProps().renderWorldCopies).toBe(false);
+  });
+
+  it('captured minZoom === 2 (backstop floor lowered for small states)', () => {
+    render(
+      <MapCanvas
+        observations={[]}
+        bounds={AZ_BOUNDS}
+        boundsKey="US-AZ"
+        maskPolygon={AZ_POLYGON}
+        clampPad={ARTBOARD_PAD}
+      />,
+    );
+    expect(readMapProps().minZoom).toBe(2);
+  });
+
+  it('clamp/fit decouple: maxBounds === padBounds(bounds, ARTBOARD_PAD); fit target stays the tight bbox (finding 1)', async () => {
+    render(
+      <MapCanvas
+        observations={[]}
+        bounds={AZ_BOUNDS}
+        boundsKey="US-AZ"
+        maskPolygon={AZ_POLYGON}
+        clampPad={ARTBOARD_PAD}
+      />,
+    );
+    // The reactive maxBounds prop is the PADDED clamp (single source of truth).
+    expect(readMapProps().maxBounds).toEqual(padBounds(AZ_BOUNDS, ARTBOARD_PAD));
+    // ...and is NOT the tight bbox (proves the decouple).
+    expect(readMapProps().maxBounds).not.toEqual(AZ_BOUNDS);
+    // The fit target stays the raw tight bbox.
+    await waitFor(() => expect(fakeMap.fitBounds).toHaveBeenCalled());
+    expect(fakeMap.fitBounds.mock.calls.at(-1)[0]).toEqual(AZ_BOUNDS);
+  });
+
+  it('no clampPad: maxBounds stays the raw bounds (legacy / us unchanged)', () => {
+    render(
+      <MapCanvas observations={[]} bounds={AZ_BOUNDS} boundsKey="US-AZ" />,
+    );
+    expect(readMapProps().maxBounds).toEqual(AZ_BOUNDS);
+  });
+
+  it('state-mask-fill paints fill-opacity 1 and the LIGHT color; repaints DARK on [data-theme] flip', async () => {
+    render(
+      <MapCanvas
+        observations={[]}
+        bounds={AZ_BOUNDS}
+        boundsKey="US-AZ"
+        maskPolygon={AZ_POLYGON}
+        clampPad={ARTBOARD_PAD}
+      />,
+    );
+    await waitFor(() =>
+      expect(capturedLayerPaint['state-mask-fill']).toBeDefined(),
+    );
+    const lightPaint = capturedLayerPaint['state-mask-fill'] as Record<string, unknown>;
+    expect(lightPaint['fill-opacity']).toBe(1);
+    expect(lightPaint['fill-color']).toBe(MASK_FILL_LIGHT);
+
+    // Flip [data-theme] → dark. The existing basemap MutationObserver also
+    // drives setMaskTheme(next), so the <Layer> paint diffs to the dark color
+    // with no remount.
+    await act(async () => {
+      document.documentElement.setAttribute('data-theme', 'dark');
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      const darkPaint = capturedLayerPaint['state-mask-fill'] as Record<string, unknown>;
+      expect(darkPaint['fill-color']).toBe(MASK_FILL_DARK);
+    });
+  });
+
+  it('state→state re-fit (fitBounds) inherits the reduced-motion guard (duration 600, essential:true)', async () => {
+    stubMatchMedia(null);
+    const { rerender } = render(
+      <MapCanvas
+        observations={[]}
+        bounds={AZ_BOUNDS}
+        boundsKey="US-AZ"
+        maskPolygon={AZ_POLYGON}
+        clampPad={ARTBOARD_PAD}
+      />,
+    );
+    await waitFor(() => expect(fakeMap.fitBounds).toHaveBeenCalled());
+    // Switch AZ→CA: a net-new artboard move (state→state re-fit).
+    rerender(
+      <MapCanvas
+        observations={[]}
+        bounds={CA_BOUNDS}
+        boundsKey="US-CA"
+        maskPolygon={AZ_POLYGON}
+        clampPad={ARTBOARD_PAD}
+      />,
+    );
+    await waitFor(() =>
+      expect(fakeMap.fitBounds.mock.calls.at(-1)[0]).toEqual(CA_BOUNDS),
+    );
+    const [, opts] = fakeMap.fitBounds.mock.calls.at(-1);
+    expect(opts.duration).toBe(600);
+    expect(opts.essential).toBe(true);
+  });
+
+  it('state→state re-fit is instant (duration 0, essential:true) under prefers-reduced-motion', async () => {
+    stubMatchMedia('(prefers-reduced-motion: reduce)');
+    const { rerender } = render(
+      <MapCanvas
+        observations={[]}
+        bounds={AZ_BOUNDS}
+        boundsKey="US-AZ"
+        maskPolygon={AZ_POLYGON}
+        clampPad={ARTBOARD_PAD}
+      />,
+    );
+    await waitFor(() => expect(fakeMap.fitBounds).toHaveBeenCalled());
+    rerender(
+      <MapCanvas
+        observations={[]}
+        bounds={CA_BOUNDS}
+        boundsKey="US-CA"
+        maskPolygon={AZ_POLYGON}
+        clampPad={ARTBOARD_PAD}
+      />,
+    );
+    await waitFor(() =>
+      expect(fakeMap.fitBounds.mock.calls.at(-1)[0]).toEqual(CA_BOUNDS),
+    );
+    const [, opts] = fakeMap.fitBounds.mock.calls.at(-1);
+    expect(opts.duration).toBe(0);
+    expect(opts.essential).toBe(true);
+  });
+
+  it('ZIP flyTo within a masked state inherits the reduced-motion guard (duration 0, essential:true)', async () => {
+    stubMatchMedia('(prefers-reduced-motion: reduce)');
+    render(
+      <MapCanvas
+        observations={[]}
+        bounds={AZ_BOUNDS}
+        boundsKey="US-AZ"
+        maskPolygon={AZ_POLYGON}
+        clampPad={ARTBOARD_PAD}
+        flyTo={{ center: [-110.974, 32.222], zoom: 10, key: 'zip:85701' }}
+      />,
+    );
+    await waitFor(() => expect(fakeMap.flyTo).toHaveBeenCalled());
+    const [opts] = fakeMap.flyTo.mock.calls.at(-1);
+    expect(opts.duration).toBe(0);
+    expect(opts.essential).toBe(true);
   });
 });
