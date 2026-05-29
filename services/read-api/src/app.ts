@@ -7,6 +7,7 @@ import {
   getFreshestObservationAt,
   getSpeciesMeta, getSilhouettes,
   getSpeciesPhenology,
+  listStatesWithBbox,
 } from '@bird-watch/db-client';
 import type { ObservationsResponse } from '@bird-watch/shared-types';
 import { cacheControlFor } from './cache-headers.js';
@@ -249,7 +250,7 @@ export function createApp(deps: AppDeps): Hono {
     // state machine on the frontend. The aggregate query is cheap (single
     // table scan for the max timestamp) and does not vary by filter params —
     // it reflects the age of our entire dataset, not the filtered slice.
-    const [rows, freshestObservationAt] = await Promise.all([
+    const [obsResult, freshestObservationAt] = await Promise.all([
       getObservations(deps.pool, filters),
       getFreshestObservationAt(deps.pool),
     ]);
@@ -276,10 +277,18 @@ export function createApp(deps: AppDeps): Hono {
       }));
     }
 
+    // #733 (plan task B6) — getObservations now returns { data, truncated }.
+    // Surface `meta.truncated: true` only when the row brake fired; omit the
+    // field otherwise (stale CDN bodies and the aggregated path both treat the
+    // absent field as "not truncated", so emitting `truncated: false` would be
+    // noise). The aggregated branch above never truncates and never sets it.
     const body: ObservationsResponse = {
       mode: 'observations',
-      data: rows,
-      meta: { freshestObservationAt },
+      data: obsResult.data,
+      meta: {
+        freshestObservationAt,
+        ...(obsResult.truncated ? { truncated: true } : {}),
+      },
     };
     return c.json(body);
   });
@@ -287,6 +296,20 @@ export function createApp(deps: AppDeps): Hono {
   app.get('/api/silhouettes', async c => {
     const rows = await getSilhouettes(deps.pool);
     c.header('Cache-Control', cacheControlFor('silhouettes'));
+    return c.json(rows);
+  });
+
+  // State-boundary summaries (name + [w,s,e,n] bbox) for the scope selector +
+  // camera framing. This is served as a tiny (~4 KB) endpoint rather than a
+  // bundled frontend JSON so the clip (observations.ts ST_Intersects) and the
+  // selector/camera read ONE source of truth — the state_boundaries table —
+  // and can never drift (locked decision #7 of the state-scope plan). The
+  // accessor (listStatesWithBbox) deliberately excludes `geom`, so the polygon
+  // geometry never leaves the server. Long-lived `immutable` cache: the seed
+  // is build-time-stable (see cache-headers.ts).
+  app.get('/api/states', async c => {
+    const rows = await listStatesWithBbox(deps.pool);
+    c.header('Cache-Control', cacheControlFor('states'));
     return c.json(rows);
   });
 

@@ -19,6 +19,8 @@
 
 import { createHash } from 'node:crypto';
 
+import { CONUS_STATE_CODES } from '@bird-watch/shared-types';
+
 export type Since = '1d' | '7d' | '14d';
 
 export interface ValidationLog {
@@ -141,6 +143,46 @@ export function parseFamily(
       param: 'family',
       received_hash: hash(raw),
       reason: 'regex_mismatch',
+    },
+  };
+}
+
+// The CONUS allowlist (48 contiguous states + DC = 49 codes) lives once in
+// `@bird-watch/shared-types` (locked decision #6 — the single source the
+// validator, the ZIP→state contract, and the frontend selector all import).
+// Build the lookup `Set` from it here; never re-list the codes in this file.
+const CONUS_CODE_SET = new Set<string>(CONUS_STATE_CODES);
+
+/**
+ * Parses `?state=` against the CONUS allowlist, normalizing to eBird `US-XX`.
+ *
+ * `?state=US-XX` is the hard server-side data boundary (a PostGIS
+ * `ST_Intersects` clip against `state_boundaries`). Absence means an unclipped
+ * national query — so `undefined` passes through as `undefined`, not an error.
+ *
+ * Accepts a bare USPS code (`'AZ'`) OR the eBird form (`'US-AZ'`), in any case
+ * (`'az'`, `'us-ca'`), and normalizes to `'US-XX'`. Anything outside the 49
+ * CONUS codes — AK/HI/territories (`'AK'`, `'PR'`), garbage (`'XX'`, `'%'`),
+ * SQLi probes, the bare prefix `'US-'`, or full names (`'ARIZONA'`) — is
+ * rejected with a structured `not_in_allowlist` log. The raw value is never
+ * logged; only its sha256 prefix is.
+ */
+export function parseState(
+  raw: string | undefined,
+): Result<string | undefined> {
+  if (raw === undefined) return { ok: true, value: undefined };
+  const code = raw.toUpperCase().replace(/^US-/, '');
+  const full = `US-${code}`;
+  if (CONUS_CODE_SET.has(full)) return { ok: true, value: full };
+  return {
+    ok: false,
+    error: 'invalid state',
+    log: {
+      severity: 'INFO',
+      message: 'validation_400',
+      param: 'state',
+      received_hash: hash(raw),
+      reason: 'not_in_allowlist',
     },
   };
 }

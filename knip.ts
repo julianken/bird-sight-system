@@ -17,6 +17,20 @@ const config: KnipConfig = {
     //             — re-audit if new files appear under docs/plans/.
     'docs/plans/2026-04-22-map-v1-prototype/prototype/**',
 
+    // 2026-05-28: state-scope C0 render prototype — a standalone Vite entry
+    //             (its own index.html + vite.config.ts; root: __dirname) that
+    //             validates the chooser-first scoped-map render at production
+    //             volume for plan 2026-05-28-state-scope-selector. Not imported
+    //             by any workspace and not in the frontend build (frontend
+    //             tsconfig.json `include` is ["src"]; tsc -b + vite build ignore
+    //             prototypes/). Same one-shot profile as the 2026-04-22 map-v1
+    //             prototype above.
+    //             Risk: masks genuinely orphaned files added under this dir
+    //             later — re-audit 2026-07-27 by confirming the directory is
+    //             still a standalone prototype (own index.html) and not wired
+    //             into frontend/src/.
+    'frontend/prototypes/scope-prototype/**',
+
     // 2026-05-02: photo-server worker is loaded by Terraform (infra/terraform/
     //             photos.tf:38 `file("${path.module}/../workers/photo-server.js")`)
     //             which knip's static analysis cannot trace. The worker is live in

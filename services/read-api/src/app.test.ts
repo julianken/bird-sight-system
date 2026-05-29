@@ -54,7 +54,7 @@ describe('GET /api/observations', () => {
   // Helper type matching the new ObservationsResponse envelope
   type ObsEnvelope = {
     data: Array<{ subId: string; familyCode?: string | null; [k: string]: unknown }>;
-    meta: { freshestObservationAt: string | null };
+    meta: { freshestObservationAt: string | null; truncated?: boolean };
   };
 
   // Default bbox covering both seeded observations (lat 31.72/32.30, lng
@@ -97,6 +97,58 @@ describe('GET /api/observations', () => {
     const body = await res.json() as ObsEnvelope;
     expect(body.meta.freshestObservationAt).toBeNull();
     // Re-seed so subsequent tests in this describe are not affected
+    await upsertObservations(db.pool, [
+      { subId: 'S1', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 31.72, lng: -110.88, obsDt: new Date(Date.now() - 5*86400_000).toISOString(),
+        locId: 'L1', locName: 'X', howMany: 1, isNotable: false },
+      { subId: 'S2', speciesCode: 'annhum', comName: "Anna's Hummingbird",
+        lat: 32.30, lng: -110.99, obsDt: new Date(Date.now() - 20*86400_000).toISOString(),
+        locId: 'L2', locName: 'Y', howMany: 1, isNotable: true },
+    ]);
+  });
+
+  // #733 (plan task B6) — the per-observation row brake surfaces as
+  // meta.truncated. A truncated body sets truncated:true; a normal body omits
+  // the field entirely (consumers treat absence as "not truncated").
+  it('omits meta.truncated on a normal (non-truncated) observations response (#733 B6)', async () => {
+    const app = createApp({ pool: db.pool });
+    const res = await app.request(`/api/observations?bbox=${BBOX_AZ}`);
+    expect(res.status).toBe(200);
+    const body = await res.json() as ObsEnvelope;
+    // Two seeded rows, well under the 10000 brake → field is absent.
+    expect(body.meta.truncated).toBeUndefined();
+    expect('truncated' in body.meta).toBe(false);
+  });
+
+  it('surfaces meta.truncated:true when the species row brake fires (#733 B6)', async () => {
+    // Seed 5001 rows of one species (no bbox → species deep-link path). The
+    // 5000 species cap fires, so the body is truncated. Use a wide CONUS bbox-
+    // free species query (?species=) which #667 C.1 accepts without a bbox.
+    await db.pool.query('TRUNCATE observations');
+    await db.pool.query(`
+      INSERT INTO species_meta (species_code, com_name, sci_name, family_code, family_name, taxon_order)
+      VALUES ('hossp1', 'House Sparrow', 'Passer domesticus', 'passeridae', 'Old World Sparrows', 999999)
+      ON CONFLICT (species_code) DO NOTHING
+    `);
+    await db.pool.query(`
+      INSERT INTO observations
+        (sub_id, species_code, lat, lng, obs_dt, loc_id, loc_name, how_many, is_notable)
+      SELECT
+        'S-trunc-' || g::text, 'hossp1',
+        31.72 + (g * 0.0001), -110.88 - (g * 0.0001),
+        now() - (g * interval '1 second'),
+        'L-trunc', 'Trunc Test Loc', 1, false
+      FROM generate_series(1, 5001) g
+    `);
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/observations?species=hossp1');
+    expect(res.status).toBe(200);
+    const body = await res.json() as ObsEnvelope;
+    expect(body.data).toHaveLength(5000);
+    expect(body.meta.truncated).toBe(true);
+
+    // Re-seed so subsequent tests in this describe are not affected.
+    await db.pool.query('TRUNCATE observations');
     await upsertObservations(db.pool, [
       { subId: 'S1', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
         lat: 31.72, lng: -110.88, obsDt: new Date(Date.now() - 5*86400_000).toISOString(),
@@ -647,6 +699,44 @@ describe('GET /api/silhouettes', () => {
     // Migration 1700000046000 updated both colors for contrast compliance.
     expect(byFamily['tyrannidae']).toBe('#c3772d');  // was #C77A2E (light-failing, darkened)
     expect(byFamily['trochilidae']).toBe('#9637ad'); // was #7B2D8E (dark-failing, lightened)
+  });
+});
+
+describe('GET /api/states', () => {
+  // The 49 CONUS state_boundaries rows are seeded by migration
+  // 1700000050000_state_boundaries.sql, which startTestDb() applies — no
+  // per-test seeding. This endpoint is the frontend's single source for state
+  // name + bbox; the polygon geom must never appear in the body.
+  it('returns 49 name-sorted StateSummary rows with the states cache header and no geom', async () => {
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/states');
+    expect(res.status).toBe(200);
+    // Build-time-stable seed → long immutable header on both browser + CDN.
+    expect(res.headers.get('cache-control'))
+      .toBe('public, max-age=604800, s-maxage=604800, immutable');
+
+    const body = await res.json() as Array<{
+      stateCode: string; name: string; bbox: [number, number, number, number];
+    }>;
+    expect(body).toHaveLength(49);
+
+    // Name-sorted ascending.
+    const names = body.map(r => r.name);
+    expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)));
+
+    // Every row is a well-formed StateSummary; geom must never leave the server.
+    for (const r of body) {
+      expect(r.stateCode).toMatch(/^US-[A-Z]{2}$/);
+      expect(typeof r.name).toBe('string');
+      expect(r.bbox).toHaveLength(4);
+      const [w, s, e, n] = r.bbox;
+      expect(w).toBeLessThan(e);
+      expect(s).toBeLessThan(n);
+      expect(r).not.toHaveProperty('geom');
+    }
+
+    const az = body.find(r => r.stateCode === 'US-AZ');
+    expect(az?.name).toBe('Arizona');
   });
 });
 
