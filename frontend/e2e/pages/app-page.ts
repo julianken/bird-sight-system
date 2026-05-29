@@ -16,6 +16,39 @@ export class AppPage {
   /** Credits & attribution trigger in appHeader. */
   readonly attributionTrigger: Locator;
 
+  // --- Scope chooser (landing surface, #742) accessors (C9/D6, #741) ---
+  /** The `<ScopeChooser>` landing region (visible only on the unscoped/bare URL).
+   *  Accessible name is the component's `aria-label`. */
+  readonly chooser: Locator;
+  /** ZIP `<input>` inside the chooser (`aria-label='ZIP code'`, owned by ZipInput). */
+  readonly chooserZipInput: Locator;
+  /** State `<select>` inside the chooser (`aria-label='State'` via its `<label>`). */
+  readonly chooserStateSelect: Locator;
+  /** The chooser state-path "Go" submit button. */
+  readonly chooserStateGo: Locator;
+  /** The de-emphasized "Explore the whole US map" escape-hatch button. */
+  readonly chooserWholeUs: Locator;
+  /** ZIP malformed inline hint inside the chooser ("Enter a 5-digit ZIP"). */
+  readonly chooserZipError: Locator;
+  /** ZIP `role=status` region inside the chooser ("ZIP not recognized — …"). */
+  readonly chooserZipStatus: Locator;
+
+  // --- In-state ScopeControl (on-map re-scope bar, #737) accessors ---
+  /** The floating in-state `<ScopeControl>` region (visible only in a scoped view). */
+  readonly scopeControl: Locator;
+  /** The in-state state-switch `<select>` (`aria-label='Switch state'`). */
+  readonly scopeControlStateSelect: Locator;
+  /** The in-state niche "Whole US" escape hatch (state view only). */
+  readonly scopeControlWholeUs: Locator;
+  /** The "Change scope" exit affordance → returns to the chooser. */
+  readonly scopeControlExit: Locator;
+
+  // --- Shared narration / region surfaces ---
+  /** The map's runtime region lede (`<h1 class="map-lede">`, MapLede #738/C7). */
+  readonly mapLede: Locator;
+  /** The map canvas root (`data-testid='map-canvas'`). */
+  readonly mapCanvas: Locator;
+
   constructor(public readonly page: Page) {
     this.filters = new FiltersBar(page);
     this.mainSurface = page.locator('main#main-surface');
@@ -25,6 +58,24 @@ export class AppPage {
     this.filtersTrigger = this.appHeader.getByRole('button', { name: /^Filters/ });
     this.themeToggle = this.appHeader.getByRole('button', { name: /Switch to (light|dark) theme/ });
     this.attributionTrigger = this.appHeader.getByRole('button', { name: /Credits & attribution/ });
+
+    // Chooser (#742) — region accessible name "Choose where to look at birds".
+    this.chooser = page.getByRole('region', { name: 'Choose where to look at birds' });
+    this.chooserZipInput = this.chooser.getByLabel('ZIP code', { exact: true });
+    this.chooserStateSelect = this.chooser.getByLabel('State', { exact: true });
+    this.chooserStateGo = this.chooser.getByRole('button', { name: 'Go', exact: true });
+    this.chooserWholeUs = this.chooser.getByRole('button', { name: 'Explore the whole US map' });
+    this.chooserZipError = this.chooser.getByText('Enter a 5-digit ZIP', { exact: true });
+    this.chooserZipStatus = this.chooser.getByRole('status');
+
+    // In-state ScopeControl (#737) — region accessible name "Change the map scope".
+    this.scopeControl = page.getByRole('region', { name: 'Change the map scope' });
+    this.scopeControlStateSelect = this.scopeControl.getByLabel('Switch state', { exact: true });
+    this.scopeControlWholeUs = this.scopeControl.getByRole('button', { name: 'Whole US', exact: true });
+    this.scopeControlExit = this.scopeControl.getByRole('button', { name: 'Change scope' });
+
+    this.mapLede = page.locator('.map-lede');
+    this.mapCanvas = page.locator('[data-testid="map-canvas"]');
   }
 
   /**
@@ -102,5 +153,25 @@ export class AppPage {
 
   getUrlParams(): URLSearchParams {
     return new URL(this.page.url()).searchParams;
+  }
+
+  /**
+   * Pick a state from the chooser `<select>` + click Go (C9 state-select
+   * round-trip). The select is the chooser's own (`aria-label='State'`); Go is
+   * disabled until a non-empty option is chosen, so this selects first.
+   */
+  async pickStateInChooser(stateCode: string): Promise<void> {
+    await this.chooserStateSelect.selectOption(stateCode);
+    await this.chooserStateGo.click();
+  }
+
+  /**
+   * Enter a ZIP into the chooser ZIP input and submit (the form submits on
+   * Enter; `role=search` form, no separate Go button for the ZIP path). Used by
+   * the D6 ZIP round-trip / empty-region / unknown / malformed cases.
+   */
+  async submitChooserZip(zip: string): Promise<void> {
+    await this.chooserZipInput.fill(zip);
+    await this.chooserZipInput.press('Enter');
   }
 }
