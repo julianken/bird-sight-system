@@ -32,6 +32,32 @@ describe('ApiClient', () => {
     expect(url).toMatch(/bbox=-125(?:%2C|,)24(?:%2C|,)-66(?:%2C|,)50/);
   });
 
+  it('maps stateCode to ?state= on /api/observations (#735)', async () => {
+    const envelope = JSON.stringify({ data: [], meta: { freshestObservationAt: null } });
+    vi.spyOn(global, 'fetch').mockResolvedValue(new Response(envelope, { status: 200 }));
+    const client = new ApiClient({ baseUrl: '' });
+    await client.getObservations({ stateCode: 'US-AZ' });
+    const call = (fetch as unknown as { mock: { calls: [string, unknown][] } }).mock.calls[0]!;
+    expect(call[0]).toContain('state=US-AZ');
+  });
+
+  it('sends NO ?state= for unscoped/whole-US queries (data invariant, #735)', async () => {
+    // Both the unscoped landing and the explicit ?scope=us escape hatch leave
+    // ObservationFilters.stateCode unset, so the backend stays byte-for-byte
+    // untouched (locked decision #4 — no ?state= ⇒ unclipped national query).
+    const envelope = JSON.stringify({ data: [], meta: { freshestObservationAt: null } });
+    // Fresh Response per call — a Response body can only be read once.
+    vi.spyOn(global, 'fetch')
+      .mockResolvedValueOnce(new Response(envelope, { status: 200 }))
+      .mockResolvedValueOnce(new Response(envelope, { status: 200 }));
+    const client = new ApiClient({ baseUrl: '' });
+    await client.getObservations({});
+    await client.getObservations({ since: '14d', bbox: [-125, 24, -66, 50], zoom: 4 });
+    const calls = (fetch as unknown as { mock: { calls: [string, unknown][] } }).mock.calls;
+    expect(calls[0]![0]).not.toContain('state=');
+    expect(calls[1]![0]).not.toContain('state=');
+  });
+
   it('serializes zoom as ?zoom=N on /api/observations (#627)', async () => {
     const envelope = JSON.stringify({
       mode: 'observations', data: [], meta: { freshestObservationAt: null },
