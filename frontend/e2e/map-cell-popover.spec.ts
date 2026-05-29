@@ -29,7 +29,7 @@ import { test, expect } from '@playwright/test';
 
 test('desktop 1440×900: hover cell → preview → click → popover → species → bbox-URL', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto('/');
+  await page.goto('/?scope=us');
 
   // Canonical "map settled" gate.
   const marker = page.locator('[data-testid="adaptive-grid-marker"]').first();
@@ -97,7 +97,7 @@ test('desktop 1440×900: hover cell → preview → click → popover → specie
 
 test('desktop 1440×900: keyboard skip-link → cell → Enter → popover → ESC → focus return', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto('/');
+  await page.goto('/?scope=us');
 
   const marker = page.locator('[data-testid="adaptive-grid-marker"]').first();
   const markerVisible = await marker.waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false);
@@ -162,7 +162,7 @@ test('desktop 1440×900: keyboard skip-link → cell → Enter → popover → E
 
 test('@coarse tablet 768×1024: tap marker → cluster-list popover → tap species → bbox-URL', async ({ page }) => {
   // Cell popover is default-ON since Phase 3 (#560) — no flag override needed.
-  await page.goto('/');
+  await page.goto('/?scope=us');
   // Wait for the map render to complete (canonical pattern).
   await page.locator('[data-testid="adaptive-grid-marker"]').first().waitFor({ state: 'visible' });
 
@@ -207,7 +207,7 @@ test('@coarse tablet 768×1024: tap marker → cluster-list popover → tap spec
 
 test.skip('@coarse mobile 390×844: tap marker → cluster-list → expand-family → species → filtered', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/');
+  await page.goto('/?scope=us');
   await page.locator('[data-testid="adaptive-grid-marker"]').first().waitFor({ state: 'visible' });
 
   // Tap a multi-leaf cluster marker.
@@ -248,7 +248,7 @@ test.skip('@coarse mobile 390×844: tap marker → cluster-list → expand-famil
 
 test('bbox banner "View all observations" clears bbox param from URL', async ({ page }) => {
   // Load with bbox-filtered detail URL (§4.9 shared-link / URL-hydration path).
-  await page.goto('/?view=detail&detail=annhum&bbox=-111.0,31.0,-110.0,32.0');
+  await page.goto('/?view=detail&detail=annhum&bbox=-111.0,31.0,-110.0,32.0&scope=us');
   await page.waitForLoadState('domcontentloaded');
 
   // Wait for the SpeciesDetailSurface to mount. The bbox banner renders when
@@ -257,7 +257,7 @@ test('bbox banner "View all observations" clears bbox param from URL', async ({ 
   const bannerVisible = await banner.waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false);
   if (!bannerVisible) {
     // The species may not be in the seed DB — try with vermfly (always seeded).
-    await page.goto('/?view=detail&detail=vermfly&bbox=-111.0,31.0,-110.0,32.0');
+    await page.goto('/?view=detail&detail=vermfly&bbox=-111.0,31.0,-110.0,32.0&scope=us');
     await banner.waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {});
 
     const bannerVisibleRetry = await banner.isVisible().catch(() => false);
@@ -285,7 +285,7 @@ test('bbox banner "View all observations" clears bbox param from URL', async ({ 
 
 test('cross-surface stale-bbox clear: detail→feed→detail leaves no bbox', async ({ page }) => {
   // Load with bbox in URL (simulates arriving from a map cluster navigation).
-  await page.goto('/?view=detail&detail=annhum&bbox=-111.0,31.0,-110.0,32.0');
+  await page.goto('/?view=detail&detail=annhum&bbox=-111.0,31.0,-110.0,32.0&scope=us');
   await page.waitForLoadState('domcontentloaded');
 
   // The detail surface modal/sheet is open over the tab bar. Close it via
@@ -304,7 +304,7 @@ test('cross-surface stale-bbox clear: detail→feed→detail leaves no bbox', as
   // directly to the legacy feed URL to reach the dead-code feed branch
   // (preserved for bookmark compat per the same issue) so we can click
   // a feed row.
-  await page.goto('/?view=feed');
+  await page.goto('/?view=feed&scope=us');
   await page.waitForLoadState('domcontentloaded');
 
   // Wait for feed surface to load and show at least one row.
