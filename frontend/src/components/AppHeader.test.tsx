@@ -6,17 +6,34 @@ import { AppHeader } from './AppHeader.js';
 const baseProps = {
   activeView: 'map' as const,
   onSelectView: vi.fn(),
+  region: 'Arizona' as string | null,
   filterCount: 0,
   onOpenFilters: vi.fn(),
   onOpenAttribution: vi.fn(),
 };
 
 describe('<AppHeader>', () => {
-  it('renders the wordmark with REGION_LABEL', () => {
-    render(<AppHeader {...baseProps} />);
+  it('renders the wordmark with the runtime region (#738/C5)', () => {
+    render(<AppHeader {...baseProps} region="Arizona" />);
     const link = screen.getByRole('link', { name: /Bird Maps Arizona — home/i });
     expect(link).toBeInTheDocument();
     expect(link).toHaveTextContent(/Bird Maps · Arizona/);
+  });
+
+  it('threads the ?scope=us region "USA" into the wordmark', () => {
+    render(<AppHeader {...baseProps} region="USA" />);
+    const link = screen.getByRole('link', { name: /Bird Maps USA — home/i });
+    expect(link).toHaveTextContent(/Bird Maps · USA/);
+  });
+
+  it('unscoped (region=null): wordmark is "Bird Maps" with no " · " separator', () => {
+    render(<AppHeader {...baseProps} region={null} />);
+    const link = screen.getByRole('link', { name: 'Bird Maps — home' });
+    expect(link).toBeInTheDocument();
+    // No bare separator and no region word in the visible text or aria-label.
+    expect(link.textContent).toBe('Bird Maps');
+    expect(link).not.toHaveTextContent('·');
+    expect(link.getAttribute('aria-label')).toBe('Bird Maps — home');
   });
 
   it('renders a single Map tab (Species + Feed removed per #688 / #662)', () => {

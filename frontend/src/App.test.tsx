@@ -36,6 +36,11 @@ const {
       speciesCode: null as string | null,
       familyCode: null as string | null,
       view: 'feed' as 'feed' | 'map',
+      // #735/#738: scope drives the runtime region label. `us` resolves to
+      // "USA" with no /api/states table needed, so the App→FeedSurface lede
+      // wiring tests assert a deterministic region without inventing a states
+      // fetch (owned by #740). Per-test overrides set scope explicitly.
+      scope: { kind: 'us' as const },
     },
     set: vi.fn(),
   },
@@ -50,10 +55,22 @@ const {
   },
 }));
 
-// Stub url-state before App imports it.
+// Stub url-state before App imports it. #738: App now imports the exported
+// DEFAULTS to compute `noFiltersActive` (`since === DEFAULTS.since`), so the
+// mock must expose it. Only `since` is read by App; mirror the real default.
 vi.mock('./state/url-state.js', () => ({
   useUrlState: () => mockUrlState,
   readMigrationFlag: () => false,
+  DEFAULTS: {
+    speciesCode: null,
+    familyCode: null,
+    since: '14d',
+    notable: false,
+    view: 'map',
+    detail: null,
+    bbox: null,
+    scope: { kind: 'unscoped' },
+  },
 }));
 
 // Stub MapSurface to avoid loading maplibre-gl in jsdom. Since issue #55's
@@ -98,6 +115,7 @@ describe('App error screen', () => {
     __resetSilhouettesCache();
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
+      scope: { kind: 'us' as const },
     };
     mockGetHotspots.mockRejectedValue(new ApiError(503, 'pool exhausted'));
     mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
@@ -179,6 +197,7 @@ describe('App aria-busy', () => {
   it('sets aria-busy=true on <main> when loading on feed view', () => {
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
+      scope: { kind: 'us' as const },
     };
     // getObservations returns a never-resolving promise to keep loading=true
     mockGetObservations.mockReturnValue(new Promise(() => {}));
@@ -190,6 +209,7 @@ describe('App aria-busy', () => {
   it('does NOT set aria-busy=true on map view even while loading', () => {
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'map',
+      scope: { kind: 'us' as const },
     };
     mockGetObservations.mockReturnValue(new Promise(() => {}));
     render(<App />);
@@ -219,6 +239,7 @@ describe('Phase 6: Footer removal + Attribution via AppHeader (issue #250 → Ph
     async view => {
       mockUrlState.state = {
         since: '14d', notable: false, speciesCode: null, familyCode: null, view,
+        scope: { kind: 'us' as const },
       };
       const { container } = render(<App />);
       const footer = container.querySelector('footer.app-footer');
@@ -231,6 +252,7 @@ describe('Phase 6: Footer removal + Attribution via AppHeader (issue #250 → Ph
     async view => {
       mockUrlState.state = {
         since: '14d', notable: false, speciesCode: null, familyCode: null, view,
+        scope: { kind: 'us' as const },
       };
       render(<App />);
       await screen.findByRole('banner');
@@ -243,6 +265,7 @@ describe('Phase 6: Footer removal + Attribution via AppHeader (issue #250 → Ph
   it('AttributionModal Credits button is still present in the DOM (trigger can find it)', () => {
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
+      scope: { kind: 'us' as const },
     };
     const { container } = render(<App />);
     // The modal's own trigger button — className="attribution-trigger"
@@ -267,6 +290,7 @@ describe('Phase 3: AppHeader + Filters panel', () => {
   it('renders <AppHeader> at the top of the app', async () => {
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
+      scope: { kind: 'us' as const },
     };
     render(<App />);
     // Wait for initial bird data fetch resolution
@@ -277,6 +301,7 @@ describe('Phase 3: AppHeader + Filters panel', () => {
   it('Filters trigger opens a panel containing <FiltersBar>; closing hides it', async () => {
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
+      scope: { kind: 'us' as const },
     };
     render(<App />);
     await screen.findByRole('banner');
@@ -294,6 +319,7 @@ describe('Phase 3: AppHeader + Filters panel', () => {
     // Seed URL with active filters before mount
     mockUrlState.state = {
       since: '14d', notable: true, speciesCode: null, familyCode: 'corvidae', view: 'feed',
+      scope: { kind: 'us' as const },
     };
     render(<App />);
     await screen.findByRole('banner');
@@ -331,10 +357,11 @@ describe('Phase 5: FeedSurface lede wiring (App → FeedSurface)', () => {
   it('Priority 1 default lede fires when no species/family filter is set', async () => {
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
+      scope: { kind: 'us' as const },
     };
     mockGetObservations.mockResolvedValue({ data: [SPECIES_OBS], meta: { freshestObservationAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() } });
     render(<App />);
-    await screen.findByText(/species seen across Arizona/i);
+    await screen.findByText(/species seen across USA/i);
     expect(screen.queryByText(/sightings of/i)).toBeNull();
     expect(screen.queryByText(/species of Songbird/i)).toBeNull();
   });
@@ -342,23 +369,25 @@ describe('Phase 5: FeedSurface lede wiring (App → FeedSurface)', () => {
   it('Priority 2 lede fires (species name in lede) when speciesCode filter is active', async () => {
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: 'vermfly', familyCode: null, view: 'feed',
+      scope: { kind: 'us' as const },
     };
     mockGetObservations.mockResolvedValue({ data: [SPECIES_OBS], meta: { freshestObservationAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() } });
     render(<App />);
-    // Priority 2: "{N} sightings of {name} in Arizona in the last {period}."
+    // Priority 2: "{N} sightings of {name} in USA in the last {period}."
     // Regex anchors the period token ("14 days") to catch PERIOD_LABELS
     // regressions that produce "in the last Last 14 days." or similar.
-    await screen.findByText(/sightings of Vermilion Flycatcher in Arizona in the last 14 days\./i);
+    await screen.findByText(/sightings of Vermilion Flycatcher in USA in the last 14 days\./i);
   });
 
   it('Priority 3 lede fires (family name in lede) when familyCode filter is active (no speciesCode)', async () => {
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: 'songbird', view: 'feed',
+      scope: { kind: 'us' as const },
     };
     mockGetObservations.mockResolvedValue({ data: [SPECIES_OBS], meta: { freshestObservationAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() } });
     render(<App />);
-    // Priority 3: "{N} species of {family} seen across Arizona…"
-    await screen.findByText(/species of Songbird seen across Arizona/i);
+    // Priority 3: "{N} species of {family} seen across USA…"
+    await screen.findByText(/species of Songbird seen across USA/i);
   });
 });
 
@@ -394,11 +423,12 @@ describe('Phase 5: FeedSurface cross-surface FilterSentence drift regression', (
   it('with species filter active on feed view, both lede AND FilterSentence mention the species', async () => {
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: 'vermfly', familyCode: null, view: 'feed',
+      scope: { kind: 'us' as const },
     };
     mockGetObservations.mockResolvedValue({ data: [SPECIES_OBS], meta: { freshestObservationAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() } });
     const { container } = render(<App />);
     // Lede must resolve the species name from the speciesIndex and include it.
-    await screen.findByText(/sightings of Vermilion Flycatcher in Arizona in the last 14 days\./i);
+    await screen.findByText(/sightings of Vermilion Flycatcher in USA in the last 14 days\./i);
     // FilterSentence visible sentence must reflect the species — either the
     // resolved common name (when speciesName is threaded from App) or the raw
     // code as a fallback. The key invariant is that the element is rendered
@@ -430,7 +460,9 @@ describe('L2: freshness empty state (null freshestObservationAt)', () => {
 
   beforeEach(() => {
     __resetSilhouettesCache();
-    mockUrlState.state = { since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed' };
+    mockUrlState.state = { since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
+      scope: { kind: 'us' as const },
+    };
     mockGetHotspots.mockResolvedValue([]);
     mockGetSilhouettes.mockResolvedValue([]);
   });
@@ -442,7 +474,7 @@ describe('L2: freshness empty state (null freshestObservationAt)', () => {
   it('does not render alarming freshness copy when freshestObservationAt is null', async () => {
     mockGetObservations.mockResolvedValue({ data: [OBS], meta: { freshestObservationAt: null } });
     render(<App />);
-    await screen.findByText(/species seen across Arizona/i);
+    await screen.findByText(/species seen across USA/i);
     expect(screen.queryByText(/Source unavailable/i)).toBeNull();
     expect(screen.queryByText(/check back soon/i)).toBeNull();
   });
@@ -472,7 +504,9 @@ describe('L3: nowTick advances on visibilitychange (tab return)', () => {
 
   beforeEach(() => {
     __resetSilhouettesCache();
-    mockUrlState.state = { since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed' };
+    mockUrlState.state = { since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
+      scope: { kind: 'us' as const },
+    };
     mockGetHotspots.mockResolvedValue([]);
     mockGetSilhouettes.mockResolvedValue([]);
   });
@@ -486,7 +520,7 @@ describe('L3: nowTick advances on visibilitychange (tab return)', () => {
     const removeSpy = vi.spyOn(document, 'removeEventListener');
     mockGetObservations.mockResolvedValue({ data: [OBS], meta: { freshestObservationAt: RECENT_ISO } });
     const { unmount } = render(<App />);
-    await screen.findByText(/species seen across Arizona/i);
+    await screen.findByText(/species seen across USA/i);
 
     expect(addSpy).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
 
@@ -497,7 +531,7 @@ describe('L3: nowTick advances on visibilitychange (tab return)', () => {
   it('fires setNowTick when tab becomes visible', async () => {
     mockGetObservations.mockResolvedValue({ data: [OBS], meta: { freshestObservationAt: RECENT_ISO } });
     render(<App />);
-    await screen.findByText(/species seen across Arizona/i);
+    await screen.findByText(/species seen across USA/i);
 
     // Simulate tab returning to foreground — trigger visibilitychange with
     // document.visibilityState === 'visible' (jsdom default).
@@ -509,7 +543,7 @@ describe('L3: nowTick advances on visibilitychange (tab return)', () => {
     // App re-renders without crashing — freshness label is still present
     // (we can't easily assert exact time, but we verify no error is thrown
     // and the lede is still rendered).
-    expect(screen.getByText(/species seen across Arizona/i)).toBeInTheDocument();
+    expect(screen.getByText(/species seen across USA/i)).toBeInTheDocument();
   });
 });
 
@@ -551,6 +585,7 @@ describe('App.tsx onSelectSpecies bbox-clear invariant (#560)', () => {
       speciesCode: null,
       familyCode: null,
       view: 'feed',
+      scope: { kind: 'us' as const },
     };
     render(<App />);
     // Wait for feed rows to render
@@ -574,6 +609,7 @@ describe('App.tsx onSelectSpecies bbox-clear invariant (#560)', () => {
       speciesCode: null,
       familyCode: null,
       view: 'feed',
+      scope: { kind: 'us' as const },
     };
     render(<App />);
     await screen.findByRole('banner');
@@ -602,6 +638,7 @@ describe('App.tsx onSelectSpecies bbox-clear invariant (#560)', () => {
       speciesCode: null,
       familyCode: null,
       view: 'feed',
+      scope: { kind: 'us' as const },
     };
     render(<App />);
     const feedRow = await screen.findByRole('button', { name: /Vermilion Flycatcher/i });
@@ -632,6 +669,7 @@ describe('Clarity view tagging (#657-followup)', () => {
     const setViewSpy = vi.spyOn(analytics, 'setView');
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
+      scope: { kind: 'us' as const },
     };
     render(<App />);
     expect(setViewSpy).toHaveBeenCalledWith('feed');
@@ -674,6 +712,7 @@ describe('Zoom/bbox state-race regression (#690)', () => {
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: null,
       view: 'map',
+      scope: { kind: 'us' as const },
     };
   });
 

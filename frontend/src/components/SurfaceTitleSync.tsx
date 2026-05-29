@@ -1,23 +1,33 @@
 import { useEffect } from 'react';
 import type { View } from '../state/url-state.js';
-import { REGION_LABEL } from '../config/region.js';
 
 interface SurfaceTitleSyncProps {
   view: View;
   speciesCommonName: string | null;
+  /**
+   * #738/C5: runtime region label for the active scope (from `regionLabelFor`).
+   * `null` ⟺ the unscoped/chooser landing — the site suffix falls back to
+   * "Bird Maps" (no ` · {region}`) so document.title never reads "Bird Maps · ".
+   */
+  region: string | null;
 }
 
-const SITE_SUFFIX = `Bird Maps · ${REGION_LABEL}`;
-
-function buildTitle(view: View, speciesCommonName: string | null): string {
+// #738/C5: SITE_SUFFIX is now runtime — when unscoped (region=null) it is just
+// "Bird Maps", never a trailing " · " with no region after it.
+function buildTitle(
+  view: View,
+  speciesCommonName: string | null,
+  region: string | null,
+): string {
+  const siteSuffix = region ? `Bird Maps · ${region}` : 'Bird Maps';
   switch (view) {
     case 'feed':
-      return `Feed — ${SITE_SUFFIX}`;
+      return `Feed — ${siteSuffix}`;
     case 'detail':
-      return speciesCommonName ? `${speciesCommonName} — ${SITE_SUFFIX}` : SITE_SUFFIX;
+      return speciesCommonName ? `${speciesCommonName} — ${siteSuffix}` : siteSuffix;
     case 'map':
     default:
-      return SITE_SUFFIX;
+      return siteSuffix;
   }
 }
 
@@ -32,8 +42,8 @@ function buildTitle(view: View, speciesCommonName: string | null): string {
  * from useUrlState() and speciesCommonName from the detail surface's loaded
  * species data (null when detail is loading or no species is selected).
  */
-export function SurfaceTitleSync({ view, speciesCommonName }: SurfaceTitleSyncProps) {
-  const title = buildTitle(view, speciesCommonName);
+export function SurfaceTitleSync({ view, speciesCommonName, region }: SurfaceTitleSyncProps) {
+  const title = buildTitle(view, speciesCommonName, region);
 
   // useEffect sets document.title imperatively — works in both jsdom (tests)
   // and the browser. React 18's declarative <title> rendering hoists to <head>

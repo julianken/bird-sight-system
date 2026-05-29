@@ -78,6 +78,12 @@ const baseProps = {
   // to false so pre-existing tests assert the post-load surface; the
   // loading=true behavior is covered in MapLede.test.tsx.
   loading: false,
+  // #738/C5: runtime region label forwarded to MapLede. Default to the AZ
+  // scope so pre-existing lede assertions ("seen across Arizona") hold.
+  region: 'Arizona' as string | null,
+  // #738/C7: no-filters flag forwarded to MapLede for the data-availability
+  // vs filter-narrowing zero-count split.
+  noFiltersActive: true,
 };
 
 // Issue #662: the "Skip to species list" skip-link + its `onSkipToFeed`
@@ -184,6 +190,8 @@ describe('Phase 3: context strip', () => {
         notable={false}
         freshness="fresh"
         freshnessLabel="Updated 11 min ago · Source: eBird"
+        region="Arizona"
+        noFiltersActive={true}
       />,
     );
     expect(screen.getByRole('heading', { level: 1, name: /3 species seen across Arizona in the last 14 days\./i })).toBeInTheDocument();
@@ -200,6 +208,8 @@ describe('Phase 3: context strip', () => {
         notable={true}
         freshness="fresh"
         freshnessLabel="Updated 11 min ago · Source: eBird"
+        region="Arizona"
+        noFiltersActive={false}
       />,
     );
     // <FilterSentence> renders a span with class .filter-sentence__visible when filters are non-empty
@@ -217,6 +227,8 @@ describe('Phase 3: context strip', () => {
         notable={false}
         freshness="fresh"
         freshnessLabel="Updated 11 min ago · Source: eBird"
+        region="Arizona"
+        noFiltersActive={true}
       />,
     );
     expect(screen.getByText('Updated 11 min ago · Source: eBird')).toHaveClass('map-freshness');
@@ -233,6 +245,8 @@ describe('Phase 3: context strip', () => {
         notable={false}
         freshness="stale"
         freshnessLabel="Last updated 9 h ago · Source: eBird"
+        region="Arizona"
+        noFiltersActive={true}
       />,
     );
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(

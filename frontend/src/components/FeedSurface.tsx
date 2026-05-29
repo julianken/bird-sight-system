@@ -11,7 +11,6 @@ import { FilterSentence } from './ds/FilterSentence.js';
 import { SortLabel } from './ds/SortLabel.js';
 import type { Freshness } from './MapLede.js';
 import { buildFamilyColorResolver, buildFamilyPathResolver } from '../data/family-color.js';
-import { REGION_LABEL } from '../config/region.js';
 
 export interface FeedSurfaceFilters {
   notable: boolean;
@@ -41,8 +40,13 @@ export interface FeedSurfaceProps {
    * rough fallback (may overcount if multiple obs share a species code).
    */
   observationCount?: number;
-  /** Human-readable region label for the lede ("Arizona"). */
-  regionLabel?: string;
+  /**
+   * Runtime region label for the lede ("Arizona", "USA"), from `regionLabelFor`
+   * (#738/C5). `null`/absent ⟺ the unscoped landing — the feed asserts no
+   * region (the feed surface isn't shown unscoped, but the lede degrades
+   * cleanly rather than printing "null").
+   */
+  regionLabel?: string | null;
   /** Human-readable period for the lede ("14 days"). */
   period?: string;
   /**
@@ -214,7 +218,7 @@ export function FeedSurface(props: FeedSurfaceProps) {
     onSelectSpecies,
     speciesIndex,
     observationCount,
-    regionLabel = REGION_LABEL,
+    regionLabel = null,
     period = '14 days',
     speciesName,
     familyName,
@@ -265,13 +269,23 @@ export function FeedSurface(props: FeedSurfaceProps) {
     if (effectiveCount === 0) {
       return 'No sightings match your current filters.';
     }
+    // #738/C5: region is runtime now. The feed surface only renders under an
+    // active scope (region non-null); when null (unscoped, defensive) the lede
+    // asserts no region — drop the " in/across {region}" phrase rather than
+    // printing "null".
     if (speciesName) {
-      return `${effectiveCount} sightings of ${speciesName} in ${regionLabel}${periodClause}.`;
+      return regionLabel
+        ? `${effectiveCount} sightings of ${speciesName} in ${regionLabel}${periodClause}.`
+        : `${effectiveCount} sightings of ${speciesName}${periodClause}.`;
     }
     if (familyName) {
-      return `${effectiveCount} species of ${familyName} seen across ${regionLabel}${periodClause}.`;
+      return regionLabel
+        ? `${effectiveCount} species of ${familyName} seen across ${regionLabel}${periodClause}.`
+        : `${effectiveCount} species of ${familyName}${periodClause}.`;
     }
-    return `${effectiveCount} species seen across ${regionLabel}${periodClause}.`;
+    return regionLabel
+      ? `${effectiveCount} species seen across ${regionLabel}${periodClause}.`
+      : `${effectiveCount} species${periodClause}.`;
   }, [effectiveCount, speciesName, familyName, regionLabel, periodClause]);
 
   // Build the ActiveFilters shape expected by <FilterSentence>.

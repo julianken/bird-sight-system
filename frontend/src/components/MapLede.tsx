@@ -1,8 +1,20 @@
-import { REGION_LABEL } from '../config/region.js';
-
 export type Freshness = 'fresh' | 'recent' | 'stale' | 'empty' | 'error';
 
 export interface MapLedeProps {
+  /**
+   * Runtime region label for the active scope (from `regionLabelFor`, #738/C5).
+   * `null` ⟺ the unscoped/chooser landing — MapLede renders nothing in that
+   * case (the chooser is shown instead of the map; #740/#742 gate the render).
+   * Non-null is "USA" (`?scope=us`) or the resolved state name (`?state=`).
+   */
+  region: string | null;
+  /**
+   * #738/C7: caller-computed "no filters are active" flag. App.tsx (#740)
+   * owns the `since === DEFAULTS.since` comparison so MapLede stays
+   * presentational. When true AND counts are zero, the lede reads as a
+   * data-availability state (sparse region) rather than a filter mistake.
+   */
+  noFiltersActive: boolean;
   /** Number of distinct species across the active filter scope. */
   speciesCount: number;
   /** Number of observations across the active filter scope. */
@@ -37,8 +49,15 @@ export interface MapLedeProps {
  * Newspaper lede for the map / feed / species surfaces. 4 templates in
  * priority order — see docs/design/01-spec/voice-and-content.md §"Lede
  * contract". Stale data drops the "in the last {period}" clause.
+ *
+ * Zero-count narration (#738/C7) is split into two cases so a scoped-but-thin
+ * region reads as a *data-availability* state, not a *filter-narrowed* one:
+ *   - no filters active → "No recent sightings in {region} yet." (sparse)
+ *   - filters active    → "No sightings match your current filters."
  */
 export function MapLede({
+  region,
+  noFiltersActive,
   speciesCount,
   observationCount,
   speciesCommonName,
@@ -47,12 +66,21 @@ export function MapLede({
   freshness,
   loading,
 }: MapLedeProps) {
+  // #738/C7: unscoped (region=null) → the chooser is shown, not the map, so
+  // there is no region to claim. Return null — same discipline as the
+  // cold-load guard below (#716/#720). Guarding before the loading check is
+  // safe because both branches return null.
+  if (region === null) {
+    return null;
+  }
+
   // Issue #716: suppress the lede during the cold-load window. Without this
-  // guard, the empty seed `observations: []` from useBirdData causes Template 1
-  // ("No sightings match your current filters.") to fire — misleading because
-  // the user hasn't applied any filters yet. Suppressing the lede entirely
-  // (rather than swapping in "Loading sightings…") avoids a transient string
-  // that would flash and get replaced ~1s later.
+  // guard, the empty seed `observations: []` from useBirdData causes the
+  // zero-count Template 1 to fire — misleading because the data simply hasn't
+  // arrived yet. Suppressing the lede entirely (rather than swapping in
+  // "Loading sightings…") avoids a transient string that would flash and get
+  // replaced ~1s later. This wins over the data-availability branch too: a
+  // sparse-region read must not flash before the first fetch resolves.
   if (loading && observationCount === 0 && speciesCount === 0) {
     return null;
   }
@@ -61,17 +89,22 @@ export function MapLede({
 
   let text: string;
   if (observationCount === 0 && speciesCount === 0) {
-    // Template 1
-    text = 'No sightings match your current filters.';
+    // #738/C7 — split the zero-count branch on whether any filter is active.
+    text = noFiltersActive
+      ? // Data-availability: the region itself is sparse; the user didn't
+        // narrow anything. Keep this copy in lockstep with #741's e2e spec.
+        `No recent sightings in ${region} yet.`
+      : // Filter-narrowing: the user's active filters excluded everything.
+        'No sightings match your current filters.';
   } else if (speciesCommonName) {
     // Template 2
-    text = `${observationCount} sightings of ${speciesCommonName} in ${REGION_LABEL}${periodClause}.`;
+    text = `${observationCount} sightings of ${speciesCommonName} in ${region}${periodClause}.`;
   } else if (familyName) {
     // Template 3
-    text = `${speciesCount} species of ${familyName} seen across ${REGION_LABEL}${periodClause}.`;
+    text = `${speciesCount} species of ${familyName} seen across ${region}${periodClause}.`;
   } else {
     // Template 4
-    text = `${speciesCount} species seen across ${REGION_LABEL}${periodClause}.`;
+    text = `${speciesCount} species seen across ${region}${periodClause}.`;
   }
 
   return <h1 className="map-lede">{text}</h1>;
