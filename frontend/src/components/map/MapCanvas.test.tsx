@@ -60,7 +60,45 @@ function makeFakeMap() {
   // stateful pair (maplibre's default is `true`). Lets tests both exercise the
   // effect without throwing AND assert the imperative value it lands on.
   let renderWorldCopiesState = true;
+  // #763 — a representative style.layers list for the artboard-fidelity
+  // imperative work (label isolation, sink, float). Mixes symbol layers (some
+  // matching the place/label heuristic, some NOT — to assert the heuristic is
+  // selective and fails open) with basemap fill/line layers (to assert
+  // sinking) and the #762 mask fill (the z-order anchor). The state-mask-fill
+  // entry is conditionally present so a test can simulate the
+  // reconcile-sequencing window where the mask layer does NOT yet exist (the
+  // moveLayer guard).
+  let styleHasMaskLayer = true;
+  const baseStyleLayers = () => {
+    const layers: Array<{ id: string; type: string; source?: string; filter?: unknown }> = [
+      { id: 'background', type: 'background' },
+      { id: 'water', type: 'fill' },
+      { id: 'place_country', type: 'symbol', source: 'openmaptiles', filter: ['==', 'class', 'country'] },
+      { id: 'place_city', type: 'symbol', source: 'openmaptiles' },
+      { id: 'poi_z14', type: 'symbol', source: 'openmaptiles' },
+      { id: 'highway_name_motorway', type: 'symbol', source: 'openmaptiles' }, // _name label
+      { id: 'transit_route_ref', type: 'symbol', source: 'openmaptiles' }, // symbol, no token
+    ];
+    if (styleHasMaskLayer) layers.push({ id: 'state-mask-fill', type: 'fill' });
+    // Stray basemap line/fill layers painted ABOVE the mask (sink targets).
+    layers.push({ id: 'boundary_country', type: 'line' });
+    layers.push({ id: 'landcover_glacier', type: 'fill' });
+    return layers;
+  };
+  let styleLayers = baseStyleLayers();
+  const layersById = () =>
+    Object.fromEntries(styleLayers.map((l) => [l.id, l]));
   return {
+    // #763 test affordances (not part of the maplibre API surface): let a test
+    // simulate the reconcile window where state-mask-fill is absent, and reset
+    // the style layer list between style swaps.
+    __setMaskLayerPresent: (present: boolean) => {
+      styleHasMaskLayer = present;
+      styleLayers = baseStyleLayers();
+    },
+    __resetStyleLayers: () => {
+      styleLayers = baseStyleLayers();
+    },
     on: vi.fn(
       (
         event: string,
@@ -85,7 +123,19 @@ function makeFakeMap() {
     queryRenderedFeatures: vi.fn(),
     querySourceFeatures: vi.fn(() => []),
     getSource: vi.fn(),
-    getLayer: vi.fn(),
+    // #763 — getLayer resolves against the in-memory style layer list so the
+    // moveLayer/float guards and original-filter capture are testable. (The
+    // #762 cluster tests that call getLayer.mockReturnValue still override it.)
+    getLayer: vi.fn((id?: string) => (id ? layersById()[id] : undefined)),
+    // #763 — style introspection + imperative layer ops for artboard fidelity.
+    getStyle: vi.fn(() => ({ layers: styleLayers })),
+    getFilter: vi.fn((id: string) => layersById()[id]?.filter),
+    setFilter: vi.fn((id: string, filter: unknown) => {
+      const layer = layersById()[id];
+      if (layer) layer.filter = filter;
+    }),
+    moveLayer: vi.fn(),
+    triggerRepaint: vi.fn(),
     getCanvas: vi.fn(() => canvas),
     getContainer: vi.fn(() => container),
     easeTo: vi.fn(),
@@ -121,8 +171,17 @@ function makeFakeMap() {
     unproject: vi.fn(() => [-111, 34]),
     addSource: vi.fn(),
     removeSource: vi.fn(),
-    addLayer: vi.fn(),
-    removeLayer: vi.fn(),
+    // #763 — addLayer/removeLayer mutate the in-memory style layer list so the
+    // float-layer lifecycle is realistic: an imperatively-added halo/outline is
+    // then visible to getLayer, and removeFloatLayers can guard-and-remove it.
+    addLayer: vi.fn((layer: { id?: string; type?: string }) => {
+      if (layer?.id && !styleLayers.some((l) => l.id === layer.id)) {
+        styleLayers.push({ id: layer.id, type: layer.type ?? 'line' });
+      }
+    }),
+    removeLayer: vi.fn((id: string) => {
+      styleLayers = styleLayers.filter((l) => l.id !== id);
+    }),
     addImage: vi.fn((id: string) => {
       sprites.add(id);
     }),
@@ -2049,5 +2108,250 @@ describe('MapCanvas state-artboard mask (#762)', () => {
     const [opts] = fakeMap.flyTo.mock.calls.at(-1);
     expect(opts.duration).toBe(0);
     expect(opts.essential).toBe(true);
+  });
+
+  /* ── Artboard FIDELITY wiring (#763) ──────────────────────────────────────
+     These assert the imperative work is WIRED through MapCanvas (the helper's
+     own behavior is unit-tested in artboard-layers.test.ts). The label-bleed
+     regression guard proper lives in the helper test (the within-shape
+     assertion); here we confirm the reconcile-sequencing split, the guard, the
+     teardown, and that the float/sink + isolation fire on an active mask. */
+
+  it('with maskPolygon: label isolation merges ["within", buffered] into matching symbol layers only', async () => {
+    render(
+      <MapCanvas
+        observations={[]}
+        silhouettes={SILHOUETTES}
+        bounds={AZ_BOUNDS}
+        boundsKey="US-AZ"
+        maskPolygon={AZ_POLYGON}
+        clampPad={ARTBOARD_PAD}
+      />,
+    );
+    await waitFor(() => expect(fakeMap.setFilter).toHaveBeenCalled());
+    const touched = (fakeMap.setFilter.mock.calls as Array<[string, unknown]>).map(
+      (c) => c[0],
+    );
+    // Matching symbol layers isolated…
+    expect(touched).toEqual(
+      expect.arrayContaining(['place_country', 'place_city', 'poi_z14']),
+    );
+    // …non-matching symbol + non-symbol layers untouched.
+    expect(touched).not.toContain('transit_route_ref');
+    expect(touched).not.toContain('water');
+
+    // place_city had no original filter → merged filter is just ['within', geom].
+    const cityCall = (fakeMap.setFilter.mock.calls as Array<[string, unknown[]]>).find(
+      (c) => c[0] === 'place_city',
+    );
+    expect((cityCall?.[1] as unknown[])[0]).toBe('within');
+    // place_country had an original → ['all', original, ['within', geom]].
+    const countryCall = (fakeMap.setFilter.mock.calls as Array<[string, unknown[]]>).find(
+      (c) => c[0] === 'place_country',
+    );
+    expect((countryCall?.[1] as unknown[])[0]).toBe('all');
+
+    // The within geometry is the BUFFERED polygon (bbox strictly larger than the
+    // exact maskPolygon the #762 fill uses) — the near-border-survival contract.
+    const withinGeom = ((cityCall?.[1] as unknown[])[1]) as {
+      coordinates: number[][][][];
+    };
+    const flatX = (g: { coordinates: number[][][][] }) =>
+      g.coordinates.flat(3).filter((_, i) => i % 2 === 0);
+    const exactMinX = Math.min(...flatX(AZ_POLYGON as never));
+    const bufMinX = Math.min(...flatX(withinGeom));
+    expect(bufMinX).toBeLessThan(exactMinX);
+
+    // Defensive idle-map flush fired.
+    expect(fakeMap.triggerRepaint).toHaveBeenCalled();
+  });
+
+  it('absent maskPolygon: NO label isolation, NO float layers (us/chooser untouched)', async () => {
+    render(
+      <MapCanvas observations={[]} bounds={CONUS_PROD_BOUNDS} boundsKey="us" />,
+    );
+    await waitFor(() => expect(fakeMap).not.toBeNull());
+    // No within-merge on the unmasked nationwide view.
+    expect(fakeMap.setFilter).not.toHaveBeenCalled();
+    // No float layers added.
+    const addedFloatIds = (fakeMap.addLayer.mock.calls as Array<[{ id?: string }]>)
+      .map((c) => c[0]?.id)
+      .filter((id): id is string => id === 'state-artboard-halo' || id === 'state-artboard-outline');
+    expect(addedFloatIds).toHaveLength(0);
+  });
+
+  it('with maskPolygon: float layers (halo + crisp outline) add above the mask; stray basemap layers sunk', async () => {
+    render(
+      <MapCanvas
+        observations={[]}
+        silhouettes={SILHOUETTES}
+        bounds={AZ_BOUNDS}
+        boundsKey="US-AZ"
+        maskPolygon={AZ_POLYGON}
+        clampPad={ARTBOARD_PAD}
+      />,
+    );
+    await waitFor(() => {
+      const ids = (fakeMap.addLayer.mock.calls as Array<[{ id?: string }]>).map(
+        (c) => c[0]?.id,
+      );
+      expect(ids).toContain('state-artboard-halo');
+      expect(ids).toContain('state-artboard-outline');
+    });
+    // Float layers inserted ABOVE the mask: addLayer(spec, beforeId) inserts
+    // BELOW beforeId, so the anchor is the first layer above state-mask-fill
+    // (here: boundary_country) — NOT the mask id itself (which would put the
+    // floats UNDER the gray).
+    const haloCall = (fakeMap.addLayer.mock.calls as Array<[{ id?: string }, string?]>).find(
+      (c) => c[0]?.id === 'state-artboard-halo',
+    );
+    expect(haloCall?.[1]).not.toBe('state-mask-fill');
+    expect(haloCall?.[1]).toBe('boundary_country');
+    // Stray basemap fill/line layers above the mask were sunk beneath it.
+    const moved = (fakeMap.moveLayer.mock.calls as Array<[string, string]>).map(
+      (c) => [c[0], c[1]],
+    );
+    expect(moved).toEqual(
+      expect.arrayContaining([
+        ['boundary_country', 'state-mask-fill'],
+        ['landcover_glacier', 'state-mask-fill'],
+      ]),
+    );
+  });
+
+  it('[blocker guard] moveLayer is NOT called when state-mask-fill is absent at reconcile time', async () => {
+    // Simulate the reconcile-sequencing window: react-map-gl has not re-added
+    // the mask layer yet, so getLayer('state-mask-fill') returns undefined. The
+    // float/sink effect must warn-and-return, NEVER call moveLayer (which would
+    // throw `Cannot move layer before non-existing layer`).
+    fakeMap.__setMaskLayerPresent(false);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    render(
+      <MapCanvas
+        observations={[]}
+        silhouettes={SILHOUETTES}
+        bounds={AZ_BOUNDS}
+        boundsKey="US-AZ"
+        maskPolygon={AZ_POLYGON}
+        clampPad={ARTBOARD_PAD}
+      />,
+    );
+    await waitFor(() => expect(fakeMap.setFilter).toHaveBeenCalled()); // isolation still ran
+    // No moveLayer / float-add against the missing mask anchor.
+    expect(fakeMap.moveLayer).not.toHaveBeenCalled();
+    const addedFloatIds = (fakeMap.addLayer.mock.calls as Array<[{ id?: string }]>)
+      .map((c) => c[0]?.id)
+      .filter((id): id is string => id === 'state-artboard-halo' || id === 'state-artboard-outline');
+    expect(addedFloatIds).toHaveLength(0);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('state-mask-fill not yet reconciled'),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('[reconcile split] the style.load HANDLER re-invokes setFilter only — never moveLayer (the stray-sink lives in the post-reconcile maskPolygon effect)', async () => {
+    render(
+      <MapCanvas
+        observations={[]}
+        silhouettes={SILHOUETTES}
+        bounds={AZ_BOUNDS}
+        boundsKey="US-AZ"
+        maskPolygon={AZ_POLYGON}
+        clampPad={ARTBOARD_PAD}
+      />,
+    );
+    await waitFor(() => expect(fakeMap.setFilter).toHaveBeenCalled());
+    // Confirm a style.load handler was registered (the once-per-mount listener).
+    expect((bareHandlersAll['style.load'] ?? []).length).toBeGreaterThan(0);
+    // Clear the initial-apply spies so we observe ONLY the style.load re-apply.
+    fakeMap.setFilter.mockClear();
+    fakeMap.moveLayer.mockClear();
+
+    // Simulate the reconcile WINDOW: react-map-gl has not re-added the mask
+    // layer yet (getLayer('state-mask-fill') → undefined). Now fire style.load.
+    // The handler re-applies LABEL isolation (setFilter); the styleEpoch bump it
+    // emits re-runs the (3b) effect, which — because the mask is still absent —
+    // warn-and-returns WITHOUT moveLayer. So across the whole flush, the ONLY
+    // imperative op is setFilter: the handler never sinks, proving the split.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await act(async () => {
+      fakeMap.__setMaskLayerPresent(false);
+      (bareHandlersAll['style.load'] ?? []).forEach((cb) => cb());
+      await Promise.resolve();
+    });
+    expect(fakeMap.setFilter).toHaveBeenCalled(); // label isolation re-applied
+    expect(fakeMap.moveLayer).not.toHaveBeenCalled(); // never from the handler
+    warnSpy.mockRestore();
+  });
+
+  it('[theme swap] float layers are RE-ADDED after a style.load (styleEpoch re-fires the float effect once the mask is back)', async () => {
+    render(
+      <MapCanvas
+        observations={[]}
+        silhouettes={SILHOUETTES}
+        bounds={AZ_BOUNDS}
+        boundsKey="US-AZ"
+        maskPolygon={AZ_POLYGON}
+        clampPad={ARTBOARD_PAD}
+      />,
+    );
+    await waitFor(() => {
+      const ids = (fakeMap.addLayer.mock.calls as Array<[{ id?: string }]>).map((c) => c[0]?.id);
+      expect(ids).toContain('state-artboard-halo');
+    });
+    fakeMap.addLayer.mockClear();
+    fakeMap.moveLayer.mockClear();
+
+    // A style.load reload (the mask layer IS present, mirroring react-map-gl
+    // having reconciled it by the time the styleEpoch effect re-runs).
+    await act(async () => {
+      fakeMap.__resetStyleLayers(); // mask present
+      (bareHandlersAll['style.load'] ?? []).forEach((cb) => cb());
+      await Promise.resolve();
+    });
+
+    // The styleEpoch bump re-ran the float/sink effect: floats re-added + sunk.
+    const reAdded = (fakeMap.addLayer.mock.calls as Array<[{ id?: string }]>)
+      .map((c) => c[0]?.id)
+      .filter((id): id is string => id === 'state-artboard-halo' || id === 'state-artboard-outline');
+    expect(reAdded).toEqual(
+      expect.arrayContaining(['state-artboard-halo', 'state-artboard-outline']),
+    );
+    expect(fakeMap.moveLayer).toHaveBeenCalled();
+  });
+
+  it('teardown (state→us): restores captured original filters and removes float layers', async () => {
+    const { rerender } = render(
+      <MapCanvas
+        observations={[]}
+        silhouettes={SILHOUETTES}
+        bounds={AZ_BOUNDS}
+        boundsKey="US-AZ"
+        maskPolygon={AZ_POLYGON}
+        clampPad={ARTBOARD_PAD}
+      />,
+    );
+    await waitFor(() => expect(fakeMap.setFilter).toHaveBeenCalled());
+    fakeMap.setFilter.mockClear();
+    fakeMap.removeLayer.mockClear();
+
+    // state → us: maskPolygon → null. Teardown effect cleanup fires.
+    rerender(
+      <MapCanvas observations={[]} bounds={CONUS_PROD_BOUNDS} boundsKey="us" maskPolygon={null} />,
+    );
+
+    await waitFor(() => {
+      // place_country restored to its ORIGINAL filter (not a within-merge).
+      const restoreCall = (fakeMap.setFilter.mock.calls as Array<[string, unknown[]]>).find(
+        (c) => c[0] === 'place_country',
+      );
+      expect(restoreCall).toBeDefined();
+      expect((restoreCall?.[1] as unknown[])?.[0]).not.toBe('all');
+    });
+    // Float layers removed.
+    const removed = (fakeMap.removeLayer.mock.calls as Array<[string]>).map((c) => c[0]);
+    expect(removed).toEqual(
+      expect.arrayContaining(['state-artboard-halo', 'state-artboard-outline']),
+    );
   });
 });
