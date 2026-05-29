@@ -34,6 +34,7 @@ import { ClusterPill } from '../components/ds/ClusterPill.js';
 import { FilterSentence } from '../components/ds/FilterSentence.js';
 import { FeedCard } from '../components/FeedCard.js';
 import { FeedRow } from '../components/FeedRow.js';
+import { ZipInput } from '../components/ZipInput.js';
 import type { NotableObservation, Observation } from '@bird-watch/shared-types';
 import type { FamilyCode } from '../config/family-palette.js';
 import type { UrlState } from '../state/url-state.js';
@@ -262,10 +263,49 @@ export function DsPreview(): ReactNode {
     );
   }
 
+  // ZipInput previews (#739). The component warms the real ~1 MB index on
+  // focus from the dev server's public/zip-index.json; the error key forces a
+  // fetch failure so the role=alert fallback renders deterministically.
+  if (key.startsWith('zip-input')) {
+    return <ZipInputPreview variant={key} />;
+  }
+
   // Unknown key: show a helpful error
   return (
     <div style={{ ...PREVIEW_STYLES, color: 'red' }}>
       <p>Unknown ds-preview key: <code>{key}</code></p>
+    </div>
+  );
+}
+
+/**
+ * ZipInput dev harness. Renders the component in isolation for screenshot
+ * capture across the four submit outcomes. `zip-input` shows the idle field;
+ * the `-error` variant monkeypatches `fetch` to reject so the role=alert
+ * state is reproducible without a flaky network condition. Dev-only — never
+ * ships (DsPreview is gated behind import.meta.env.DEV in main.tsx).
+ */
+function ZipInputPreview({ variant }: { variant: string }): ReactNode {
+  const [resolved, setResolved] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (variant !== 'zip-input-error') return;
+    const original = window.fetch;
+    window.fetch = (() =>
+      Promise.reject(new Error('forced zip-index failure'))) as typeof window.fetch;
+    return () => {
+      window.fetch = original;
+    };
+  }, [variant]);
+
+  return (
+    <div style={{ ...PREVIEW_STYLES, maxWidth: '360px' }}>
+      <ZipInput onResolve={(scope) => setResolved(JSON.stringify(scope))} />
+      {resolved && (
+        <p style={{ marginTop: '12px', fontSize: '14px', color: 'var(--color-text-muted)' }}>
+          Resolved scope: <code>{resolved}</code>
+        </p>
+      )}
     </div>
   );
 }

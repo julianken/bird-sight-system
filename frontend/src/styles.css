@@ -1695,3 +1695,48 @@ aside.species-detail-rail .species-detail-rail-close {
   outline: 2px solid var(--color-text-strong);
   outline-offset: 2px;
 }
+
+/* ZipInput (#739) — native ZIP entry that resolves to a map scope. A <form
+   role=search> wrapping a single text input plus a feedback line. The input
+   reuses the panel/input visual contract (white surface, --color-border-ui
+   edge, 4px radius); feedback lines use the shared error tokens for the
+   malformed/fetch-error states and muted text for the "not recognized"
+   status. Every className here has a matching rule below (orphan-classname
+   gate). */
+.zip-input {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.zip-input__field {
+  padding: var(--space-sm) var(--space-md);
+  font-size: var(--type-sm);
+  color: var(--color-text-strong);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-ui);
+  border-radius: 4px;
+  /* A 5-digit ZIP needs little width; cap it so the field doesn't sprawl in
+     the wide on-map control or the landing chooser. */
+  inline-size: 100%;
+  max-inline-size: 8rem;
+}
+.zip-input__field:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+}
+.zip-input__status {
+  margin: 0;
+  font-size: var(--type-sm);
+  color: var(--color-text-muted);
+  line-height: 1.3;
+}
+.zip-input__error {
+  margin: 0;
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--type-sm);
+  color: var(--color-error-text);
+  background: var(--color-error-bg);
+  border: 1px solid var(--color-error-border);
+  border-radius: 4px;
+  line-height: 1.3;
+}
