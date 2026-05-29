@@ -54,7 +54,7 @@ describe('GET /api/observations', () => {
   // Helper type matching the new ObservationsResponse envelope
   type ObsEnvelope = {
     data: Array<{ subId: string; familyCode?: string | null; [k: string]: unknown }>;
-    meta: { freshestObservationAt: string | null };
+    meta: { freshestObservationAt: string | null; truncated?: boolean };
   };
 
   // Default bbox covering both seeded observations (lat 31.72/32.30, lng
@@ -97,6 +97,58 @@ describe('GET /api/observations', () => {
     const body = await res.json() as ObsEnvelope;
     expect(body.meta.freshestObservationAt).toBeNull();
     // Re-seed so subsequent tests in this describe are not affected
+    await upsertObservations(db.pool, [
+      { subId: 'S1', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 31.72, lng: -110.88, obsDt: new Date(Date.now() - 5*86400_000).toISOString(),
+        locId: 'L1', locName: 'X', howMany: 1, isNotable: false },
+      { subId: 'S2', speciesCode: 'annhum', comName: "Anna's Hummingbird",
+        lat: 32.30, lng: -110.99, obsDt: new Date(Date.now() - 20*86400_000).toISOString(),
+        locId: 'L2', locName: 'Y', howMany: 1, isNotable: true },
+    ]);
+  });
+
+  // #733 (plan task B6) — the per-observation row brake surfaces as
+  // meta.truncated. A truncated body sets truncated:true; a normal body omits
+  // the field entirely (consumers treat absence as "not truncated").
+  it('omits meta.truncated on a normal (non-truncated) observations response (#733 B6)', async () => {
+    const app = createApp({ pool: db.pool });
+    const res = await app.request(`/api/observations?bbox=${BBOX_AZ}`);
+    expect(res.status).toBe(200);
+    const body = await res.json() as ObsEnvelope;
+    // Two seeded rows, well under the 10000 brake → field is absent.
+    expect(body.meta.truncated).toBeUndefined();
+    expect('truncated' in body.meta).toBe(false);
+  });
+
+  it('surfaces meta.truncated:true when the species row brake fires (#733 B6)', async () => {
+    // Seed 5001 rows of one species (no bbox → species deep-link path). The
+    // 5000 species cap fires, so the body is truncated. Use a wide CONUS bbox-
+    // free species query (?species=) which #667 C.1 accepts without a bbox.
+    await db.pool.query('TRUNCATE observations');
+    await db.pool.query(`
+      INSERT INTO species_meta (species_code, com_name, sci_name, family_code, family_name, taxon_order)
+      VALUES ('hossp1', 'House Sparrow', 'Passer domesticus', 'passeridae', 'Old World Sparrows', 999999)
+      ON CONFLICT (species_code) DO NOTHING
+    `);
+    await db.pool.query(`
+      INSERT INTO observations
+        (sub_id, species_code, lat, lng, obs_dt, loc_id, loc_name, how_many, is_notable)
+      SELECT
+        'S-trunc-' || g::text, 'hossp1',
+        31.72 + (g * 0.0001), -110.88 - (g * 0.0001),
+        now() - (g * interval '1 second'),
+        'L-trunc', 'Trunc Test Loc', 1, false
+      FROM generate_series(1, 5001) g
+    `);
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/observations?species=hossp1');
+    expect(res.status).toBe(200);
+    const body = await res.json() as ObsEnvelope;
+    expect(body.data).toHaveLength(5000);
+    expect(body.meta.truncated).toBe(true);
+
+    // Re-seed so subsequent tests in this describe are not affected.
+    await db.pool.query('TRUNCATE observations');
     await upsertObservations(db.pool, [
       { subId: 'S1', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
         lat: 31.72, lng: -110.88, obsDt: new Date(Date.now() - 5*86400_000).toISOString(),
