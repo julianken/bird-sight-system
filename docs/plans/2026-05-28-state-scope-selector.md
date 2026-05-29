@@ -341,7 +341,7 @@ Each is one PR. **Mandatory per project writing-plans skill:** every task touchi
 | **C4** | On-map `ScopeControl`: native `<select>` StateSelector + Whole-US + `<ZipInput>` (D5) | `ScopeControl.tsx`, `styles.css`, test | C2 | **CSS sub-task**; a11y |
 | **C5** | Runtime `regionLabelFor(scope)` replacing build-time `REGION_LABEL` across **5** consumers (AppHeader, MapLede, SurfaceTitleSync, FeedSurface, App.tsx); update `region.test.ts` | `region.ts` + 5 consumers | C2 | — |
 | **C6** | Wire scope end-to-end in `App.tsx`: `?state`→clip filter, `scopeBounds`→camera, ZIP `onResolve`→scope+flyTo | `App.tsx` | C2,C3,C4,C5,D5 | one refetch per change |
-| **C7** | Distinct sparse/empty-region `MapLede` template + `FilterSentence` scope narration (data-availability ≠ filter-narrowing; "no filters" must include `since===DEFAULT_SINCE`) | `MapLede.tsx`, `ds/FilterSentence.tsx`, tests | C5 | **CSS sub-task** if new classes |
+| **C7** | Distinct sparse/empty-region `MapLede` template + `FilterSentence` scope narration (data-availability ≠ filter-narrowing; "no filters" must include `since === DEFAULTS.since`; C2 exports `DEFAULTS` from `url-state.ts`, which is module-private today) | `MapLede.tsx`, `ds/FilterSentence.tsx`, tests | C5 | **CSS sub-task** if new classes |
 | **C8** | CSS for `ScopeControl` + scope surfaces; orphan-classname + knip clean | `styles.css`, `ds-primitives.css` | C4,C7 | orphan-classname |
 | **C9** | e2e (state-select, whole-US reset, empty-state) + POM + **5×2 screenshots + `ui-design:ui-designer` design review** | `state-scope.spec.ts`, POM | C6,C8 | ≥10 attachments + ui-design PASS |
 
