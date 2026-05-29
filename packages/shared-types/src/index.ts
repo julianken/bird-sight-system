@@ -1,3 +1,51 @@
+/**
+ * The 49 CONUS eBird region codes — the 48 contiguous states plus the
+ * District of Columbia, in eBird's `US-XX` form. Alaska (`US-AK`) and Hawaii
+ * (`US-HI`) are deliberately excluded: the state-scope selector (epic #726)
+ * frames the lower-48 + DC, and the `state_boundaries` polygon table is seeded
+ * to match this exact set.
+ *
+ * This is the SINGLE source of truth for the allowlist. The read-api validator
+ * (`parseState`), the frontend ZIP→state contract, and the scope selector all
+ * import this array (and derive `StateCode` from it) rather than re-listing the
+ * codes — keeping the allowlist in one place avoids the three-way drift a
+ * duplicated list would invite (locked decision #6, plan task B1).
+ *
+ * `as const` makes every element a string literal, which `StateCode` lifts into
+ * a union; `Object.freeze` blocks accidental runtime mutation of the shared
+ * array by any importer.
+ */
+export const CONUS_STATE_CODES = Object.freeze([
+  'US-AL', 'US-AZ', 'US-AR', 'US-CA', 'US-CO', 'US-CT', 'US-DE', 'US-DC',
+  'US-FL', 'US-GA', 'US-ID', 'US-IL', 'US-IN', 'US-IA', 'US-KS', 'US-KY',
+  'US-LA', 'US-ME', 'US-MD', 'US-MA', 'US-MI', 'US-MN', 'US-MS', 'US-MO',
+  'US-MT', 'US-NE', 'US-NV', 'US-NH', 'US-NJ', 'US-NM', 'US-NY', 'US-NC',
+  'US-ND', 'US-OH', 'US-OK', 'US-OR', 'US-PA', 'US-RI', 'US-SC', 'US-SD',
+  'US-TN', 'US-TX', 'US-UT', 'US-VT', 'US-VA', 'US-WA', 'US-WV', 'US-WI',
+  'US-WY',
+] as const);
+
+/**
+ * A member of the CONUS allowlist — the eBird `US-XX` code union derived
+ * directly from `CONUS_STATE_CODES`. Bare codes (`'AZ'`) are NOT `StateCode`s;
+ * `parseState` normalizes input to this form. Derive, never re-list.
+ */
+export type StateCode = (typeof CONUS_STATE_CODES)[number];
+
+/**
+ * A single CONUS state's display name + bounding envelope, returned by
+ * `GET /api/states` (one row per `CONUS_STATE_CODES` entry, name-sorted). The
+ * `bbox` tuple is `[west, south, east, north]` — the SAME lng/lat ordering as
+ * `ObservationFilters.bbox` — and drives the frontend's camera `fitBounds` and
+ * `MAX_BOUNDS` when a state is chosen. The underlying polygon (`geom`) is
+ * NEVER projected into this shape; it stays server-side (plan tasks A3 + A4).
+ */
+export interface StateSummary {
+  stateCode: string;
+  name: string;
+  bbox: [number, number, number, number];
+}
+
 export interface Hotspot {
   locId: string;
   locName: string;
@@ -159,6 +207,18 @@ export type ObservationFilters = {
    * to keep the CONUS-view payload below the Phase 2 <2 MB gate. Issue #627.
    */
   zoom?: number;
+  /**
+   * Hard server-side data boundary: a CONUS `US-XX` code (`StateCode`) that
+   * clips the observation query to that state's polygon via PostGIS
+   * `ST_Intersects` against `state_boundaries`. ANDs with `bbox` and every
+   * other filter — `bbox`/`zoom` keep their viewport / level-of-detail roles
+   * *within* the clip. ABSENCE means whole-US (the unclipped national query);
+   * the explicit Whole-US escape hatch sends no `?state=` at all. Serialized
+   * as `?state=US-XX`. Typed as `string` (not `StateCode`) because the value
+   * arrives unvalidated off the wire — `parseState` validates it against
+   * `CONUS_STATE_CODES` before it reaches the data layer (plan task B1).
+   */
+  stateCode?: string;
 };
 
 /**
@@ -187,15 +247,25 @@ export interface AggregatedBucket {
  *
  * `meta.freshestObservationAt` carries the same MAX(ingested_at) signal in
  * both modes so the frontend's freshness state machine stays consumer-agnostic.
+ *
+ * `meta.truncated` (issue #727, plan task B6) signals that the per-observation
+ * query hit its row brake (`LIMIT 10000`, or `5000` for a species-filtered
+ * query) and the body is a partial set. It is OPTIONAL on BOTH branches:
+ * - stale CDN bodies predating the field deserialize cleanly (consumers treat
+ *   `undefined` as "not truncated" — no Cache-Control bump required);
+ * - the aggregated path never paginates, so it omits the field entirely (it is
+ *   declared on the aggregated branch only for shape parity, never set there).
+ * The per-observation path sets `truncated: true` only when the brake fired;
+ * it omits the field otherwise rather than emitting `truncated: false`.
  */
 export type ObservationsResponse =
   | {
       mode: 'observations';
       data: Observation[];
-      meta: { freshestObservationAt: string | null };
+      meta: { freshestObservationAt: string | null; truncated?: boolean };
     }
   | {
       mode: 'aggregated';
       buckets: AggregatedBucket[];
-      meta: { freshestObservationAt: string | null };
+      meta: { freshestObservationAt: string | null; truncated?: boolean };
     };
