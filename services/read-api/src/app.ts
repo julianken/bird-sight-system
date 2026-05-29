@@ -7,6 +7,7 @@ import {
   getFreshestObservationAt,
   getSpeciesMeta, getSilhouettes,
   getSpeciesPhenology,
+  listStatesWithBbox,
 } from '@bird-watch/db-client';
 import type { ObservationsResponse } from '@bird-watch/shared-types';
 import { cacheControlFor } from './cache-headers.js';
@@ -287,6 +288,20 @@ export function createApp(deps: AppDeps): Hono {
   app.get('/api/silhouettes', async c => {
     const rows = await getSilhouettes(deps.pool);
     c.header('Cache-Control', cacheControlFor('silhouettes'));
+    return c.json(rows);
+  });
+
+  // State-boundary summaries (name + [w,s,e,n] bbox) for the scope selector +
+  // camera framing. This is served as a tiny (~4 KB) endpoint rather than a
+  // bundled frontend JSON so the clip (observations.ts ST_Intersects) and the
+  // selector/camera read ONE source of truth — the state_boundaries table —
+  // and can never drift (locked decision #7 of the state-scope plan). The
+  // accessor (listStatesWithBbox) deliberately excludes `geom`, so the polygon
+  // geometry never leaves the server. Long-lived `immutable` cache: the seed
+  // is build-time-stable (see cache-headers.ts).
+  app.get('/api/states', async c => {
+    const rows = await listStatesWithBbox(deps.pool);
+    c.header('Cache-Control', cacheControlFor('states'));
     return c.json(rows);
   });
 
