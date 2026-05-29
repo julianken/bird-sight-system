@@ -735,6 +735,41 @@ export function MapCanvas({
     // stable (useMemo []).
   }, [mapReady, boundsKey, flyTo?.key, prefersReducedMotion]);
 
+  // #762/#765 — `renderWorldCopies` reassertion across an IN-PLACE scope change.
+  //
+  // The declarative `renderWorldCopies={maskPolygon == null}` prop above is
+  // necessary (react-map-gl/maplibre does NOT reset an ABSENT setting to its
+  // default — it retains the last value, so the prop must always carry an
+  // explicit value), but it is not sufficient on the `state → us` transition.
+  // That transition also changes `boundsKey`, which re-fires the camera effect
+  // and starts a `fitBounds` animation. maplibre's animation captures a CLONE
+  // of the current transform (with the OLD `renderWorldCopies: false`) and
+  // re-`apply`s it every animation frame — clobbering the `true` that
+  // react-map-gl set declaratively. The net live result was world copies stuck
+  // OFF after leaving a state scope for `?scope=us` (PR #765 bot review,
+  // reproduced live: `getRenderWorldCopies()` stayed `false`).
+  //
+  // Reassert imperatively on `maskPolygon` change AND on `moveend` (when the
+  // clobbering animation has finished) so the explicit value wins the race.
+  // Idempotent: a no-op when the map already matches the desired value.
+  useEffect(() => {
+    if (!mapReady) return;
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+    const desired = maskPolygon == null;
+    const apply = () => {
+      if (map.getRenderWorldCopies() !== desired) {
+        map.setRenderWorldCopies(desired);
+      }
+    };
+    apply();
+    // Win the race against an in-flight fitBounds/flyTo transform-clone replay.
+    map.on('moveend', apply);
+    return () => {
+      map.off('moveend', apply);
+    };
+  }, [mapReady, maskPolygon]);
+
   // Unmount cleanup for the `window.__birdMap` test hook (#291). The hook is
   // assigned in `handleLoad` (which fires once per mount); without an unmount
   // cleanup, a remount (e.g. switching from feed view to map view and back)
@@ -1798,12 +1833,15 @@ export function MapCanvas({
         // #760/#762: disable world copies ONLY when a mask is active, so the
         // world ring does not repeat horizontally on a wide viewport zoomed all
         // the way out (preserving the artboard illusion). `state→us` is an
-        // in-place prop update (no remount) — unconditionally setting this would
-        // break the `?scope=us` wide-viewport view, so it is gated on
-        // `maskPolygon` and flips off automatically when the scope clears. The
-        // unit assertion pins this so the invariant survives #761's
-        // always-mounted lifecycle without a remount.
-        {...(maskPolygon != null ? { renderWorldCopies: false } : {})}
+        // in-place prop update (no remount). This MUST be an explicit prop on
+        // both branches (not a spread-conditional): react-map-gl/maplibre does
+        // NOT reset `renderWorldCopies` to its default when the prop is absent —
+        // it retains the last applied value. A spread that REMOVES the prop on
+        // `state→us` would therefore leave world copies stuck off for `?scope=us`.
+        // `maskPolygon == null` → world copies ON (us scope); a mask → OFF
+        // (state/ZIP artboard). The rerender unit assertion pins this so the
+        // invariant survives #761's always-mounted lifecycle without a remount.
+        renderWorldCopies={maskPolygon == null}
         style={{ width: '100%', height: '100%' }}
         mapStyle={
           typeof document !== 'undefined' &&

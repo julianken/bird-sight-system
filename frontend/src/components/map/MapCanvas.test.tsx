@@ -56,6 +56,10 @@ function makeFakeMap() {
     })),
   };
   const sprites = new Set<string>();
+  // #765 — back the renderWorldCopies imperative reassertion effect with a
+  // stateful pair (maplibre's default is `true`). Lets tests both exercise the
+  // effect without throwing AND assert the imperative value it lands on.
+  let renderWorldCopiesState = true;
   return {
     on: vi.fn(
       (
@@ -125,6 +129,10 @@ function makeFakeMap() {
     hasImage: vi.fn((id: string) => sprites.has(id)),
     removeImage: vi.fn((id: string) => sprites.delete(id)),
     setStyle: vi.fn(),
+    getRenderWorldCopies: vi.fn(() => renderWorldCopiesState),
+    setRenderWorldCopies: vi.fn((v: boolean) => {
+      renderWorldCopiesState = v;
+    }),
   };
 }
 
@@ -1801,12 +1809,13 @@ describe('MapCanvas state-artboard mask (#762)', () => {
         'unclustered-point',
       ]);
     });
-    // Source clause: the state-mask source IS present.
-    expect(capturedSourcesById['state-mask']).toBeDefined();
+    // Source clause: the state-mask source IS present. Narrow to a local
+    // before reading `.data` so `noUncheckedIndexedAccess` (tsconfig.test.json)
+    // does not flag the bracket access as possibly-undefined.
+    const maskSource = capturedSourcesById['state-mask'];
+    expect(maskSource).toBeDefined();
     // The mask source carries the built inverse-mask Feature<Polygon>.
-    expect(capturedSourcesById['state-mask'].data).toEqual(
-      buildMaskFeature(AZ_POLYGON),
-    );
+    expect(maskSource?.data).toEqual(buildMaskFeature(AZ_POLYGON));
   });
 
   it('with maskPolygon: renderWorldCopies === false (forward-compat invariant, #761)', () => {
@@ -1820,6 +1829,80 @@ describe('MapCanvas state-artboard mask (#762)', () => {
       />,
     );
     expect(readMapProps().renderWorldCopies).toBe(false);
+  });
+
+  // Regression guard for the `state→us` in-place transition (PR #765 bot
+  // review): `renderWorldCopies` must be an EXPLICIT prop on BOTH branches.
+  // react-map-gl/maplibre does NOT reset an absent setting to its default — it
+  // retains the last applied value. A spread-conditional that REMOVES the prop
+  // when `maskPolygon` goes null would therefore leave world copies stuck at
+  // `false` after leaving a state scope for `?scope=us`. The two fresh-mount
+  // tests above do NOT catch this leak; only a RERENDER of the SAME instance
+  // (no remount) reproduces it.
+  it('rerender state→us flips renderWorldCopies false→true (no remount leak, #765)', () => {
+    const { rerender } = render(
+      <MapCanvas
+        observations={[]}
+        bounds={AZ_BOUNDS}
+        boundsKey="US-AZ"
+        maskPolygon={AZ_POLYGON}
+        clampPad={ARTBOARD_PAD}
+      />,
+    );
+    // Mask set → world copies OFF (declarative prop).
+    expect(readMapProps().renderWorldCopies).toBe(false);
+
+    // In-place prop update to the SAME instance: drop the mask (state→us).
+    rerender(
+      <MapCanvas
+        observations={[]}
+        bounds={CONUS_PROD_BOUNDS}
+        boundsKey="us"
+        maskPolygon={null}
+      />,
+    );
+    // The explicit prop must reactively flip back ON — NOT retain stale false.
+    expect(readMapProps().renderWorldCopies).toBe(true);
+  });
+
+  // Second regression guard (PR #765 live repro): the declarative prop alone is
+  // necessary but NOT sufficient. The `state→us` switch also changes boundsKey,
+  // which fires a `fitBounds` animation whose transform CLONE re-applies the old
+  // `renderWorldCopies: false` every frame, clobbering react-map-gl's set. The
+  // imperative reassertion effect (keyed on maskPolygon, re-asserted on
+  // `moveend`) must set the live value back to `true` and KEEP it there after a
+  // post-switch `moveend`. Asserts against the fakeMap's stateful getter/setter.
+  it('rerender state→us imperatively reasserts renderWorldCopies=true and survives moveend (#765)', () => {
+    const { rerender } = render(
+      <MapCanvas
+        observations={[]}
+        bounds={AZ_BOUNDS}
+        boundsKey="US-AZ"
+        maskPolygon={AZ_POLYGON}
+        clampPad={ARTBOARD_PAD}
+      />,
+    );
+    // Mask set: the imperative effect drove the live map to world-copies OFF.
+    expect(fakeMap.getRenderWorldCopies()).toBe(false);
+
+    rerender(
+      <MapCanvas
+        observations={[]}
+        bounds={CONUS_PROD_BOUNDS}
+        boundsKey="us"
+        maskPolygon={null}
+      />,
+    );
+    // Imperative reassertion flipped the live map back ON.
+    expect(fakeMap.getRenderWorldCopies()).toBe(true);
+
+    // Simulate the camera animation clobbering the live value back to false…
+    fakeMap.setRenderWorldCopies(false);
+    // …then a `moveend` (animation finished): the reassertion handler must win.
+    act(() => {
+      bareHandlersAll['moveend']?.forEach((cb) => cb());
+    });
+    expect(fakeMap.getRenderWorldCopies()).toBe(true);
   });
 
   it('captured minZoom === 2 (backstop floor lowered for small states)', () => {
