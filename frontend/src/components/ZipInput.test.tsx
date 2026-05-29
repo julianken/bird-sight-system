@@ -74,6 +74,24 @@ describe('<ZipInput>', () => {
     expect(input).toHaveValue('99999');
   });
 
+  it("passes the trimmed value straight to lookupZip — ZIP+4 normalization is lookupZip's job, not duplicated here", async () => {
+    // maxLength={5} means a `-####` ZIP+4 suffix can never be typed into the
+    // field, so ZipInput does NOT pre-strip it. lookupZip owns trimming and the
+    // ZIP+4 strip (and is independently tested for both). The component just
+    // hands lookupZip the trimmed input verbatim.
+    mockLookupZip.mockResolvedValue({
+      zip: '85701',
+      center: [-110.971, 32.21696],
+      stateCode: 'US-AZ',
+    });
+    render(<ZipInput onResolve={vi.fn()} />);
+
+    const input = screen.getByRole('textbox', { name: /ZIP code/i });
+    await userEvent.type(input, '85701{Enter}');
+
+    expect(mockLookupZip).toHaveBeenCalledWith('85701');
+  });
+
   it('malformed input → inline message, no lookup attempted', async () => {
     const onResolve = vi.fn();
     render(<ZipInput onResolve={onResolve} />);

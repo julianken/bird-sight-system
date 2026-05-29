@@ -52,16 +52,21 @@ export function ZipInput({ onResolve }: ZipInputProps): React.JSX.Element {
 
   async function handleSubmit(e: FormEvent): Promise<void> {
     e.preventDefault();
-    const zip5 = value.trim().replace(/-\d{4}$/, '');
+    // `maxLength={5}` caps the field at 5 chars, so a `-####` ZIP+4 suffix can
+    // never be typed here — and `lookupZip` already trims + strips ZIP+4 + gates
+    // on exactly 5 digits (and is independently tested for it). So we do NOT
+    // re-strip: we gate "malformed → no fetch" on the trimmed value and hand the
+    // normalization to `lookupZip`, keeping a single source of truth.
+    const zip = value.trim();
 
     // Malformed → inline hint, no lookup, no fetch.
-    if (!/^\d{5}$/.test(zip5)) {
+    if (!/^\d{5}$/.test(zip)) {
       setFeedback({ kind: 'malformed' });
       return;
     }
 
     try {
-      const res = await lookupZip(zip5);
+      const res = await lookupZip(zip);
       if (res) {
         setFeedback({ kind: 'none' });
         onResolve(zipResolutionToScope(res));
