@@ -32,6 +32,11 @@ export class ApiClient {
     if (f.familyCode) url.searchParams.set('family', f.familyCode);
     if (f.bbox) url.searchParams.set('bbox', f.bbox.join(','));
     if (f.zoom !== undefined) url.searchParams.set('zoom', String(f.zoom));
+    // #735 — the data invariant: only send `?state=` when a state is scoped.
+    // UNSCOPED and the explicit `?scope=us` escape hatch BOTH leave
+    // `stateCode` unset, so the backend stays byte-for-byte untouched (no
+    // `?state=` ⇒ unclipped national query, locked decision #4).
+    if (f.stateCode) url.searchParams.set('state', f.stateCode);
     // Defensive: tolerate three legacy shapes during the rollout window —
     // (a) bare Observation[] (pre-#456), (b) { data, meta } without `mode`
     // (post-#456, pre-#627), and (c) the discriminated union (#627).
