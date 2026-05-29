@@ -1740,3 +1740,138 @@ aside.species-detail-rail .species-detail-rail-close {
   border-radius: 4px;
   line-height: 1.3;
 }
+
+/* ── ScopeChooser (#742) ──────────────────────────────────────────────────
+   The pre-map LANDING surface: a centered card prompting "where do you want
+   to look?" with two CO-PRIMARY paths — the <ZipInput> (#739, styled by
+   .zip-input* above; NOT restyled here) and a native state <select> — joined
+   by an "or" divider, plus a DE-EMPHASIZED "Explore the whole US map" escape
+   hatch placed last and lowest. Reuses the existing card/input visual
+   contract (warm cream page, white surface, --color-border-ui edge, shared
+   spacing/type/weight tokens). Every className the TSX introduces has a
+   matching rule below (orphan-classname gate). */
+.scope-chooser {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-block-size: 100%;
+  padding: var(--space-xl) var(--space-lg);
+  background: var(--color-bg-page);
+}
+.scope-chooser__card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  inline-size: 100%;
+  max-inline-size: 26rem;
+  padding: var(--space-xl);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-ui);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: var(--shadow-listbox);
+}
+.scope-chooser__title {
+  margin: 0;
+  font-size: var(--type-lg);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-strong);
+  line-height: 1.2;
+}
+.scope-chooser__subtitle {
+  margin: 0;
+  font-size: var(--type-base);
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+.scope-chooser__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.scope-chooser__label {
+  font-size: var(--type-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-strong);
+}
+.scope-chooser__divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: var(--type-sm);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.scope-chooser__divider::before,
+.scope-chooser__divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--color-border-ui);
+}
+.scope-chooser__row {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: stretch;
+}
+.scope-chooser__select {
+  flex: 1;
+  min-inline-size: 0;
+  padding: var(--space-sm) var(--space-md);
+  font-size: var(--type-base);
+  color: var(--color-text-strong);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-ui);
+  border-radius: 4px;
+}
+.scope-chooser__select:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+}
+.scope-chooser__select:disabled {
+  color: var(--color-text-muted);
+  background: var(--color-bg-tint);
+  cursor: not-allowed;
+}
+.scope-chooser__btn {
+  flex: 0 0 auto;
+  padding: var(--space-sm) var(--space-lg);
+  font-size: var(--type-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-white);
+  background: var(--color-text-strong);
+  border: 1px solid var(--color-text-strong);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.scope-chooser__btn:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+}
+.scope-chooser__btn:disabled {
+  color: var(--color-text-muted);
+  background: var(--color-bg-tint);
+  border-color: var(--color-border-ui);
+  cursor: not-allowed;
+}
+/* De-emphasized escape hatch: visually subordinate (no primary fill, lighter
+   weight, smaller, link-like) but a real, operable, focusable native button. */
+.scope-chooser__wholeus {
+  align-self: center;
+  margin-block-start: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--type-sm);
+  font-weight: var(--font-weight-regular);
+  color: var(--color-text-muted);
+  background: none;
+  border: none;
+  border-radius: 4px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.scope-chooser__wholeus:hover {
+  color: var(--color-text-strong);
+}
+.scope-chooser__wholeus:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+}

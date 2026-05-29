@@ -35,7 +35,8 @@ import { FilterSentence } from '../components/ds/FilterSentence.js';
 import { FeedCard } from '../components/FeedCard.js';
 import { FeedRow } from '../components/FeedRow.js';
 import { ZipInput } from '../components/ZipInput.js';
-import type { NotableObservation, Observation } from '@bird-watch/shared-types';
+import { ScopeChooser } from '../components/ScopeChooser.js';
+import type { NotableObservation, Observation, StateSummary } from '@bird-watch/shared-types';
 import type { FamilyCode } from '../config/family-palette.js';
 import type { UrlState } from '../state/url-state.js';
 
@@ -79,6 +80,17 @@ const CANNED_FLAT: Observation[] = [
     locId: 'L004', locName: 'Phoenix Zoo', howMany: 2, isNotable: false,
     silhouetteId: null, familyCode: 'trochilidae', taxonOrder: 1600,
   },
+];
+
+// Canned state list for the ScopeChooser preview (#742). A small name-sorted
+// slice — the real list comes from GET /api/states (#732) at runtime.
+const CANNED_STATES: StateSummary[] = [
+  { stateCode: 'US-AZ', name: 'Arizona', bbox: [-114.8, 31.3, -109.0, 37.0] },
+  { stateCode: 'US-CA', name: 'California', bbox: [-124.4, 32.5, -114.1, 42.0] },
+  { stateCode: 'US-CO', name: 'Colorado', bbox: [-109.1, 37.0, -102.0, 41.0] },
+  { stateCode: 'US-NM', name: 'New Mexico', bbox: [-109.1, 31.3, -103.0, 37.0] },
+  { stateCode: 'US-NY', name: 'New York', bbox: [-79.8, 40.5, -71.8, 45.0] },
+  { stateCode: 'US-TX', name: 'Texas', bbox: [-106.7, 25.8, -93.5, 36.5] },
 ];
 
 // Minimal placeholder 1×1 transparent PNG data URI used as a stable
@@ -268,6 +280,21 @@ export function DsPreview(): ReactNode {
   // fetch failure so the role=alert fallback renders deterministically.
   if (key.startsWith('zip-input')) {
     return <ZipInputPreview variant={key} />;
+  }
+
+  // ScopeChooser previews (#742). The landing chooser in isolation across its
+  // states: `scope-chooser` = populated selector; `scope-chooser-loading` =
+  // statesLoading (selector disabled, ZIP path still usable).
+  if (key.startsWith('scope-chooser')) {
+    return (
+      <ScopeChooser
+        states={CANNED_STATES}
+        statesLoading={key === 'scope-chooser-loading'}
+        onPickState={() => {}}
+        onPickWholeUs={() => {}}
+        onResolve={() => {}}
+      />
+    );
   }
 
   // Unknown key: show a helpful error
