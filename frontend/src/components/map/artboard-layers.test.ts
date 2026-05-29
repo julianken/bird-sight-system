@@ -43,11 +43,16 @@ function makeStyleLayers() {
     { id: 'background', type: 'background' },
     { id: 'water', type: 'fill' },
     { id: 'water_outline', type: 'line' },
-    { id: 'place_country', type: 'symbol', filter: ['==', 'class', 'country'] },
-    { id: 'place_city', type: 'symbol' },
-    { id: 'poi_z14', type: 'symbol' },
-    // A symbol layer that must NOT match the heuristic (no place/label token).
-    { id: 'transit_route_ref', type: 'symbol' },
+    { id: 'place_country', type: 'symbol', source: 'openmaptiles', filter: ['==', 'class', 'country'] },
+    { id: 'place_city', type: 'symbol', source: 'openmaptiles' },
+    { id: 'poi_z14', type: 'symbol', source: 'openmaptiles' },
+    // The `<thing>_name` label convention (was bleeding CA/MX freeway names).
+    { id: 'highway_name_motorway', type: 'symbol', source: 'openmaptiles' },
+    { id: 'water_name', type: 'symbol', source: 'openmaptiles' },
+    // A symbol layer that must NOT match the heuristic (no place/label/_name token).
+    { id: 'transit_route_ref', type: 'symbol', source: 'openmaptiles' },
+    // An app-owned observation symbol layer — must NEVER be isolated.
+    { id: 'unclustered-point', type: 'symbol', source: 'observations' },
     // The mask fill (the z-order anchor).
     { id: MASK_LAYER_ID, type: 'fill' },
     // Stray basemap fill/line layers painted ABOVE the mask — must be sunk.
@@ -137,8 +142,27 @@ describe('isIsolatableSymbolLayer (type + name heuristic, fails OPEN)', () => {
     expect(isIsolatableSymbolLayer({ id: 'state_label', type: 'symbol' })).toBe(true);
   });
 
-  it('does NOT match symbol layers with no place/label token (fails open: rendered exterior, not blanked)', () => {
+  it('matches the openmaptiles <thing>_name text-label layers (the freeway/water-name bleed fix)', () => {
+    expect(isIsolatableSymbolLayer({ id: 'highway_name_motorway', type: 'symbol' })).toBe(true);
+    expect(isIsolatableSymbolLayer({ id: 'highway_name_other', type: 'symbol' })).toBe(true);
+    expect(isIsolatableSymbolLayer({ id: 'water_name', type: 'symbol' })).toBe(true);
+  });
+
+  it('does NOT match symbol layers with no place/label/_name token (fails open: rendered exterior, not blanked)', () => {
     expect(isIsolatableSymbolLayer({ id: 'transit_route_ref', type: 'symbol' })).toBe(false);
+    // road_oneway is an icon-only arrow layer, not a text label — left untouched.
+    expect(isIsolatableSymbolLayer({ id: 'road_oneway', type: 'symbol' })).toBe(false);
+  });
+
+  it('NEVER matches the app observation/cluster symbol layers (source: observations)', () => {
+    // Guard over the name heuristic: even though the id contains no basemap
+    // token, the source check is the belt — the bird layers are never isolated.
+    expect(
+      isIsolatableSymbolLayer({ id: 'unclustered-point', type: 'symbol', source: 'observations' }),
+    ).toBe(false);
+    expect(
+      isIsolatableSymbolLayer({ id: 'cluster-count', type: 'symbol', source: 'observations' }),
+    ).toBe(false);
   });
 
   it('does NOT match non-symbol layers even when the id contains a token', () => {
@@ -188,14 +212,21 @@ describe('applyLabelIsolation', () => {
     expect(bMinX).toBeLessThan(iMinX);
   });
 
-  it('only touches MATCHING symbol layers, leaving non-matching + non-symbol layers untouched', () => {
+  it('only touches MATCHING basemap symbol layers, leaving non-matching, non-symbol, and observation layers untouched', () => {
     const map = makeMockMap();
     applyLabelIsolation(map as never, bufferIsolationPolygon(AZ_POLYGON, 8));
     const touched = map.setFilter.mock.calls.map((c) => c[0]);
     expect(touched).toEqual(
-      expect.arrayContaining(['place_country', 'place_city', 'poi_z14']),
+      expect.arrayContaining([
+        'place_country',
+        'place_city',
+        'poi_z14',
+        'highway_name_motorway',
+        'water_name',
+      ]),
     );
     expect(touched).not.toContain('transit_route_ref'); // symbol but no token
+    expect(touched).not.toContain('unclustered-point'); // observation layer (source guard)
     expect(touched).not.toContain('water'); // non-symbol
     expect(touched).not.toContain('boundary_country'); // non-symbol
   });
@@ -288,6 +319,20 @@ describe('addFloatLayers / removeFloatLayers', () => {
     expect(added[1]?.id).toBe(ARTBOARD_OUTLINE_ID);
   });
 
+  it('anchors the float adds on the first layer ABOVE the mask (so they paint above the gray, not below it)', () => {
+    const map = makeMockMap();
+    addFloatLayers(map as never, AZ_POLYGON, MASK_LAYER_ID, 'light');
+    // addLayer(spec, beforeId) inserts BELOW beforeId. The anchor is the first
+    // non-float layer above state-mask-fill (here: boundary_country) → the
+    // floats land just above the mask fill, NOT below it.
+    const haloCall = map.addLayer.mock.calls.find(
+      (c) => (c[0] as { id: string }).id === ARTBOARD_HALO_ID,
+    );
+    expect(haloCall?.[1]).toBe('boundary_country');
+    // Crucially NOT the mask id itself (which would insert BELOW the mask).
+    expect(haloCall?.[1]).not.toBe(MASK_LAYER_ID);
+  });
+
   it('theme param drives the halo paint (light drop-shadow vs dark glow differ)', () => {
     const lightMap = makeMockMap();
     addFloatLayers(lightMap as never, AZ_POLYGON, MASK_LAYER_ID, 'light');
@@ -329,13 +374,15 @@ describe('applyArtboardFidelity (float/sink composite — item 3b)', () => {
     applyArtboardFidelity(map as never, AZ_POLYGON, 'dark');
     // moveLayer (sink) and addLayer (float) both fire.
     expect(map.moveLayer).toHaveBeenCalled();
-    expect(map.addLayer).toHaveBeenCalledWith(
-      expect.objectContaining({ id: ARTBOARD_HALO_ID }),
-      MASK_LAYER_ID, // float added relative to the mask (above it)
+    // Float layers are added (anchored above the mask, NOT below it).
+    const haloCall = map.addLayer.mock.calls.find(
+      (c) => (c[0] as { id: string }).id === ARTBOARD_HALO_ID,
     );
-    expect(map.addLayer).toHaveBeenCalledWith(
-      expect.objectContaining({ id: ARTBOARD_OUTLINE_ID }),
-      MASK_LAYER_ID, // outline also inserts just above the fill
+    const outlineCall = map.addLayer.mock.calls.find(
+      (c) => (c[0] as { id: string }).id === ARTBOARD_OUTLINE_ID,
     );
+    expect(haloCall).toBeDefined();
+    expect(outlineCall).toBeDefined();
+    expect(haloCall?.[1]).not.toBe(MASK_LAYER_ID); // never inserted BELOW the mask
   });
 });

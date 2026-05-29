@@ -70,13 +70,14 @@ function makeFakeMap() {
   // moveLayer guard).
   let styleHasMaskLayer = true;
   const baseStyleLayers = () => {
-    const layers: Array<{ id: string; type: string; filter?: unknown }> = [
+    const layers: Array<{ id: string; type: string; source?: string; filter?: unknown }> = [
       { id: 'background', type: 'background' },
       { id: 'water', type: 'fill' },
-      { id: 'place_country', type: 'symbol', filter: ['==', 'class', 'country'] },
-      { id: 'place_city', type: 'symbol' },
-      { id: 'poi_z14', type: 'symbol' },
-      { id: 'transit_route_ref', type: 'symbol' }, // symbol, no place/label token
+      { id: 'place_country', type: 'symbol', source: 'openmaptiles', filter: ['==', 'class', 'country'] },
+      { id: 'place_city', type: 'symbol', source: 'openmaptiles' },
+      { id: 'poi_z14', type: 'symbol', source: 'openmaptiles' },
+      { id: 'highway_name_motorway', type: 'symbol', source: 'openmaptiles' }, // _name label
+      { id: 'transit_route_ref', type: 'symbol', source: 'openmaptiles' }, // symbol, no token
     ];
     if (styleHasMaskLayer) layers.push({ id: 'state-mask-fill', type: 'fill' });
     // Stray basemap line/fill layers painted ABOVE the mask (sink targets).
@@ -2197,11 +2198,15 @@ describe('MapCanvas state-artboard mask (#762)', () => {
       expect(ids).toContain('state-artboard-halo');
       expect(ids).toContain('state-artboard-outline');
     });
-    // Float layers inserted relative to the mask (above the fill).
+    // Float layers inserted ABOVE the mask: addLayer(spec, beforeId) inserts
+    // BELOW beforeId, so the anchor is the first layer above state-mask-fill
+    // (here: boundary_country) — NOT the mask id itself (which would put the
+    // floats UNDER the gray).
     const haloCall = (fakeMap.addLayer.mock.calls as Array<[{ id?: string }, string?]>).find(
       (c) => c[0]?.id === 'state-artboard-halo',
     );
-    expect(haloCall?.[1]).toBe('state-mask-fill');
+    expect(haloCall?.[1]).not.toBe('state-mask-fill');
+    expect(haloCall?.[1]).toBe('boundary_country');
     // Stray basemap fill/line layers above the mask were sunk beneath it.
     const moved = (fakeMap.moveLayer.mock.calls as Array<[string, string]>).map(
       (c) => [c[0], c[1]],

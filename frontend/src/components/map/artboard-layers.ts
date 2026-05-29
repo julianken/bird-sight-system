@@ -77,7 +77,9 @@ const HALO_OPACITY = 0.55;
  * The real `map` from `mapRef.current.getMap()` is structurally compatible.
  */
 export interface ArtboardMap {
-  getStyle: () => { layers?: Array<{ id: string; type: string }> } | undefined;
+  getStyle: () =>
+    | { layers?: Array<{ id: string; type: string; source?: string }> }
+    | undefined;
   getFilter: (layerId: string) => unknown;
   setFilter: (layerId: string, filter: unknown) => void;
   getLayer: (layerId: string) => unknown;
@@ -104,20 +106,42 @@ type SavedFilters = Record<string, unknown>;
  * are NOT stable across the two styles, so we match by TYPE + NAME, never by a
  * hardcoded id list.
  *
+ * Tokens cover the openmaptiles label-layer convention observed live in the
+ * positron basemap (verified 2026-05-29 against `?state=US-AZ`):
+ *   - place labels: `place_city`, `place_town`, `place_state`, `place_country*`…
+ *   - the generic `<thing>_name` text-label layers: `water_name`,
+ *     `highway_name_motorway`, `highway_name_other` — these were bleeding CA/MX
+ *     freeway + water names onto the gray until the `_name` token was added.
+ * The `_name` token is what catches the road/water labels WITHOUT also catching
+ * the road ARROW layers (`road_oneway`, source-layer `transportation`): those
+ * are icon-only decorations, not text, and have no `_name`/place/label token, so
+ * they (correctly) do NOT match. A bare `road`/`highway` token would wrongly
+ * match `road_oneway` and pointlessly within-isolate a LineString arrow set
+ * (which a border-crossing `within` test would drop wholesale, in-state arrows
+ * included). A `road_label`/`highway_label` style would still match via `label`.
+ *
  * **Fails OPEN by design:** a new/unmatched symbol layer in a future basemap
  * release simply renders exterior (detectable in QA) rather than throwing or
  * blanking the whole map. We never blanket-isolate every symbol layer.
  */
 const SYMBOL_NAME_PATTERN =
-  /(^|[-_])(place|settlement|poi|label|town|city|village|state|country)([-_]|$)/i;
+  /(^|[-_])(place|settlement|poi|label|town|city|village|state|country)([-_]|$)|_name(_|$)/i;
 
 /**
- * True iff the layer is a `symbol` layer whose id matches the place/label name
- * heuristic. Exported for a deterministic unit test of the selectivity +
- * fail-open contract.
+ * True iff the layer is a basemap text-LABEL `symbol` layer that should be
+ * within-isolated. Matches by the name heuristic but EXCLUDES the app's own
+ * observation/cluster symbol layers (`source: 'observations'`) so the bird data
+ * is never isolated even if a future basemap names a layer collisionally — a
+ * belt over the name heuristic's fail-open default.
  */
-export function isIsolatableSymbolLayer(layer: { id: string; type: string }): boolean {
-  return layer.type === 'symbol' && SYMBOL_NAME_PATTERN.test(layer.id);
+export function isIsolatableSymbolLayer(layer: {
+  id: string;
+  type: string;
+  source?: string;
+}): boolean {
+  if (layer.type !== 'symbol') return false;
+  if (layer.source === 'observations') return false; // never isolate bird layers
+  return SYMBOL_NAME_PATTERN.test(layer.id);
 }
 
 /** Basemap layer types that can bleed onto the gray if painted above the mask. */
@@ -148,9 +172,24 @@ function isStrayBasemapLayer(layer: { id: string; type: string }): boolean {
  *
  * **Units:** `@turf/buffer`'s distance is KILOMETERS by default — NOT degrees.
  * `~0.05–0.1°` would be the wrong unit (and the "bbox strictly larger" check
- * would still pass, so the mistake would be silent). We use ~8 km — wide enough
- * to clear the 5%-simplified edge, narrow enough not to re-admit across-the-
- * border foreign-state labels (verified BOTH directions in the manual review).
+ * would still pass, so the mistake would be silent).
+ *
+ * **Width = 0.2 km (calibrated live, NOT the spec's 8 km starting point).** The
+ * AC requires BOTH directions: near-border INTERIOR labels survive AND
+ * across-the-border FOREIGN labels stay gone. The binding constraint on the AZ
+ * S border is Heroica Nogales (MX): its `place_city` label anchor (−110.945,
+ * 31.329) sits only ~0.4 km south of the surveyed AZ-Sonora line (lat 31.3322).
+ * Live measurement of turf's buffered southern edge:
+ *   - 0.2 km → lat 31.3304  → Nogales (31.329) is SOUTH of it → EXCLUDED ✓
+ *   - 0.5 km → lat 31.3277  → Nogales is NORTH of it → wrongly RE-ADMITTED ✗
+ *   - 8 km   → far south    → re-admits Nogales, El Sásabe, San Luis MX, Blythe
+ * Meanwhile every interior near-border anchor is ≥3.5 km INSIDE the simplified
+ * polygon (Yuma 4.3 km, Sasabe AZ 5.3 km, San Luis AZ 3.5 km) so they survive
+ * `within → true` even un-buffered; the buffer only covers the sub-km
+ * 5%-simplification anchor-drift, NOT a wide margin. 0.2 km is the largest width
+ * below Nogales's ~0.4 km gap, keeping the bbox strictly larger than the exact
+ * fill polygon (the within-vs-fill distinction) while excluding the on-border
+ * Mexican cities. Tunable, but raising it past ~0.35 km re-admits Nogales.
  *
  * Returns a bare geometry object (`Polygon` | `MultiPolygon`) — the shape the
  * `['within', geom]` expression consumes — NOT a wrapped `Feature`. turf may
@@ -159,7 +198,7 @@ function isStrayBasemapLayer(layer: { id: string; type: string }): boolean {
  */
 export function bufferIsolationPolygon(
   maskPolygon: MultiPolygon,
-  distanceKm = 8,
+  distanceKm = 0.2,
 ): Polygon | MultiPolygon {
   const buffered = buffer(
     { type: 'Feature', properties: {}, geometry: maskPolygon } as Feature<MultiPolygon>,
@@ -261,14 +300,21 @@ export function sinkStrayLayersBelowMask(map: ArtboardMap, maskLayerId: string):
 }
 
 /**
- * Add the halo (blurred `line`) + crisp outline (`line`) float layers above the
+ * Add the halo (blurred `line`) + crisp outline (`line`) float layers ABOVE the
  * mask, theme-aware. Both trace the state polygon's exterior. Idempotent:
  * removes any existing instance (post theme-swap re-apply) before re-adding.
  *
  * The float layers source the EXACT state polygon (not the buffered isolation
  * polygon) — they draw the visible artboard edge, which must match the gray
- * fill edge. They get their own line `Source` (the inline `source` on a
- * line-layer spec), so they do not depend on the inverse-mask fill geometry.
+ * fill edge. They get their own inline line `Source`, so they do not depend on
+ * the inverse-mask fill geometry.
+ *
+ * **Z-order:** MapLibre's `addLayer(layer, beforeId)` inserts `layer` BELOW
+ * `beforeId`. To paint the floats ABOVE the mask (so they land on the gray, not
+ * under it) we anchor on the layer that currently sits just ABOVE the mask
+ * (the first observation/cluster layer — e.g. `clusters`). That places the
+ * floats between the mask fill and the bird layers: gray fill → halo → outline
+ * → observations. If no layer sits above the mask yet, we append on top.
  */
 export function addFloatLayers(
   map: ArtboardMap,
@@ -283,6 +329,22 @@ export function addFloatLayers(
   const outlineColor = theme === 'dark' ? OUTLINE_DARK : OUTLINE_LIGHT;
   const haloColor = theme === 'dark' ? HALO_DARK : HALO_LIGHT;
 
+  // Anchor: the first layer ABOVE the mask. addLayer(spec, anchor) inserts the
+  // spec just below `anchor` → just above the mask. Skip our own float ids so a
+  // re-add after a non-removed prior instance still anchors correctly.
+  const layers = map.getStyle()?.layers ?? [];
+  const maskIndex = layers.findIndex((l) => l.id === maskLayerId);
+  let aboveMaskAnchor: string | undefined;
+  if (maskIndex !== -1) {
+    for (let i = maskIndex + 1; i < layers.length; i += 1) {
+      const id = layers[i]?.id;
+      if (id && id !== ARTBOARD_HALO_ID && id !== ARTBOARD_OUTLINE_ID) {
+        aboveMaskAnchor = id;
+        break;
+      }
+    }
+  }
+
   // A line feature tracing every exterior ring of the state. (MapLibre draws a
   // `line` layer from a Polygon/MultiPolygon by stroking each ring.)
   const outlineFeature: Feature<MultiPolygon> = {
@@ -291,8 +353,8 @@ export function addFloatLayers(
     geometry: maskPolygon,
   };
 
-  // Halo first so the crisp outline paints ON TOP of it. Both inserted with the
-  // mask as `beforeId` → just above the fill, beneath the observation layers.
+  // Halo added first, then the crisp outline — so the outline paints ON TOP of
+  // the halo (both below `aboveMaskAnchor`, i.e. just above the mask fill).
   map.addLayer(
     {
       id: ARTBOARD_HALO_ID,
@@ -306,7 +368,7 @@ export function addFloatLayers(
         'line-opacity': HALO_OPACITY,
       },
     },
-    maskLayerId,
+    aboveMaskAnchor,
   );
   map.addLayer(
     {
@@ -319,7 +381,7 @@ export function addFloatLayers(
         'line-width': OUTLINE_WIDTH,
       },
     },
-    maskLayerId,
+    aboveMaskAnchor,
   );
 }
 
