@@ -237,10 +237,27 @@ describe('assertBboxOrSpecies', () => {
     }).ok).toBe(true);
   });
 
-  it('rejects when neither bbox nor species is present', () => {
-    const r = assertBboxOrSpecies({ bbox: undefined, speciesCode: undefined });
+  it('passes when stateCode is present (state is a bounded scope — #734 B4)', () => {
+    // A `?state=US-XX` request is bounded by the state polygon (ST_Intersects
+    // clip), so it is NOT the unbounded family-scrape vector the guard exists
+    // to reject. State-only must be accepted on the per-observation path.
+    expect(assertBboxOrSpecies({
+      bbox: undefined,
+      speciesCode: undefined,
+      stateCode: 'US-AZ',
+    }).ok).toBe(true);
+  });
+
+  it('rejects when none of bbox, species, or state is present', () => {
+    const r = assertBboxOrSpecies({
+      bbox: undefined,
+      speciesCode: undefined,
+      stateCode: undefined,
+    });
     expect(r.ok).toBe(false);
     if (!r.ok) {
+      // Error string is UNCHANGED by the state widening — app.test.ts and the
+      // frontend both string-match `'specify bbox or species'`.
       expect(r.error).toBe('specify bbox or species');
       expect(r.log.param).toBe('bbox_required');
       expect(r.log.reason).toBe('missing_required');
