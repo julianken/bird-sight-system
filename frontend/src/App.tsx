@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LngLatBounds } from 'maplibre-gl';
 import { analytics } from './analytics.js';
 import { ApiClient, ApiError } from './api/client.js';
-import { useUrlState } from './state/url-state.js';
+import { useUrlState, DEFAULTS } from './state/url-state.js';
 import type { Since, BBox } from './state/url-state.js';
 import { useBirdData } from './data/use-bird-data.js';
 import { useSilhouettes } from './data/use-silhouettes.js';
@@ -17,7 +17,7 @@ import { useIsCompact } from './lib/use-is-compact.js';
 import { AttributionModal } from './components/AttributionModal.js';
 import { deriveFamilies, deriveSpeciesIndex } from './derived.js';
 import { filterObservationsByBounds } from './lib/viewport-filter.js';
-import { REGION_LABEL } from './config/region.js';
+import { regionLabelFor } from './config/region.js';
 import { SurfaceTitleSync } from './components/SurfaceTitleSync.js';
 import { StatusBlock } from './components/ds/StatusBlock.js';
 import { deriveFreshness } from './lib/freshness.js';
@@ -131,6 +131,25 @@ export function App() {
     '14d': '14 days',
   };
   const period = PERIOD_LABELS[state.since];
+
+  // #738/C5: runtime region label for the active scope (#735). `null` ⟺
+  // unscoped (the chooser landing) — every consumer degrades to no region
+  // claim. The `/api/states` name table (#732) is threaded by #740's wiring;
+  // until then a `?state=US-XX` scope falls back to the bare code (the
+  // documented `?? scope.stateCode` fallback in regionLabelFor).
+  const region = regionLabelFor(state.scope);
+
+  // #738/C7: "no filters active" — the data-availability vs filter-narrowing
+  // split (MapLede) keys off this. A request is unfiltered ONLY when no
+  // species/family/notable filter is set AND `since` is the default. The
+  // `since === DEFAULTS.since` comparison lives here (once, at the call site)
+  // so MapLede stays presentational. DEFAULTS is the exported symbol (#735),
+  // not a re-declared literal.
+  const noFiltersActive =
+    state.speciesCode === null &&
+    state.familyCode === null &&
+    state.notable === false &&
+    state.since === DEFAULTS.since;
 
   // Resolve human-readable species name when a speciesCode filter is active.
   // Derived from speciesIndex — same source the FiltersBar autocomplete uses.
@@ -354,10 +373,12 @@ export function App() {
       <SurfaceTitleSync
         view={state.view}
         speciesCommonName={activeSpeciesMeta?.comName ?? null}
+        region={region}
       />
       <AppHeader
         activeView={state.view}
         onSelectView={view => set({ view })}
+        region={region}
         filterCount={filterCount}
         onOpenFilters={() => setFiltersOpen(true)}
         onOpenAttribution={onOpenAttribution}
@@ -405,7 +426,7 @@ export function App() {
             onSelectSpecies={onSelectSpecies}
             speciesIndex={speciesIndex}
             observationCount={observations.length}
-            regionLabel={REGION_LABEL}
+            regionLabel={region}
             period={period}
             freshness={freshnessState}
             freshnessLabel={freshnessLabel}
@@ -438,6 +459,8 @@ export function App() {
             freshness={freshnessState}
             freshnessLabel={freshnessLabel}
             loading={observationsLoading}
+            region={region}
+            noFiltersActive={noFiltersActive}
           />
         )}
         {/*

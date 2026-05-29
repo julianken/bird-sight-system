@@ -1,11 +1,17 @@
 import { useRef, type KeyboardEvent } from 'react';
-import { REGION_LABEL } from '../config/region.js';
 import { ThemeToggle } from './ThemeToggle.js';
 import type { View } from '../state/url-state.js';
 
 export interface AppHeaderProps {
   activeView: View;
   onSelectView: (view: View) => void;
+  /**
+   * #738/C5: runtime region label for the active scope (from `regionLabelFor`).
+   * `null` ⟺ the unscoped/chooser landing — the wordmark renders just "Bird
+   * Maps" with no ` · {region}` suffix and the aria-label drops the region
+   * word. Non-null appends " · {region}" (e.g. "Bird Maps · Arizona").
+   */
+  region: string | null;
   /** Active filter count — drives the numeric badge on the Filters trigger. */
   filterCount: number;
   /** Open the Filters panel. <App> owns the panel state; this component is presentational. */
@@ -37,6 +43,7 @@ const TABS: readonly TabDef[] = [
 export function AppHeader({
   activeView,
   onSelectView,
+  region,
   filterCount,
   onOpenFilters,
   onOpenAttribution,
@@ -86,8 +93,19 @@ export function AppHeader({
 
   return (
     <header className="app-header" role="banner">
-      <a className="app-header-wordmark" href="/" aria-label={`Bird Maps ${REGION_LABEL} — home`}>
-        Bird Maps<span className="brand-region"><span aria-hidden="true"> ·</span> {REGION_LABEL}</span>
+      <a
+        className="app-header-wordmark"
+        href="/"
+        aria-label={region ? `Bird Maps ${region} — home` : 'Bird Maps — home'}
+      >
+        {/* #738/C5: on the unscoped landing (region=null) the wordmark omits
+            the ` · {region}` suffix entirely — never a bare ` · ` separator. */}
+        Bird Maps
+        {region && (
+          <span className="brand-region">
+            <span aria-hidden="true"> ·</span> {region}
+          </span>
+        )}
       </a>
 
       <div className="app-header-nav" role="tablist" aria-label="Surface">

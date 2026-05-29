@@ -133,6 +133,19 @@ export interface MapSurfaceProps {
    * resolves before `/api/observations`.
    */
   loading: boolean;
+  /**
+   * #738/C5: runtime region label for the active scope (from `regionLabelFor`).
+   * Forwarded to <MapLede>. `null` ⟺ the unscoped/chooser landing, where
+   * MapLede renders nothing. App.tsx (#740) derives this from `state.scope`.
+   */
+  region: string | null;
+  /**
+   * #738/C7: whether any filter is active (App.tsx owns the
+   * `since === DEFAULTS.since` comparison). Forwarded to <MapLede> so the
+   * zero-count branch reads as data-availability (sparse region) vs
+   * filter-narrowing.
+   */
+  noFiltersActive: boolean;
 }
 
 /**
@@ -165,6 +178,8 @@ export function MapSurface({
   freshness,
   freshnessLabel,
   loading,
+  region,
+  noFiltersActive,
 }: MapSurfaceProps) {
   // Compute the expand-by-default once at mount. The component itself
   // (FamilyLegend) handles localStorage precedence + manual toggle.
@@ -214,6 +229,8 @@ export function MapSurface({
       {/* Phase 3: context strip — lede + filter sentence + freshness meta */}
       <section className="map-context-strip" aria-label="Map context">
         <MapLede
+          region={region}
+          noFiltersActive={noFiltersActive}
           speciesCount={speciesCount}
           observationCount={observationCount}
           speciesCommonName={speciesCommonName}
