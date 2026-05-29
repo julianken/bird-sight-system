@@ -46,4 +46,14 @@ describe('cacheControlFor', () => {
     expect(cacheControlFor('phenology'))
       .toBe('public, s-maxage=3600, stale-while-revalidate=7200');
   });
+
+  it('returns a 7d immutable header for /states (build-time-stable seed)', () => {
+    // The state_boundaries seed is build-time-stable: it only changes when the
+    // generator is re-run and a new migration ships, which is a fresh deploy
+    // that busts the edge. So /api/states is safe to cache as `immutable` for
+    // a week on both browser + CDN — unlike /silhouettes, whose payload drifts
+    // between deploys via curation pushes.
+    expect(cacheControlFor('states'))
+      .toBe('public, max-age=604800, s-maxage=604800, immutable');
+  });
 });

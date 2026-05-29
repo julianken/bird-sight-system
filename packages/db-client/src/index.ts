@@ -19,6 +19,7 @@ export {
   type SpeciesDescriptionInput,
 } from './species.js';
 export { getSilhouettes } from './silhouettes.js';
+export { resolveStateForPoint, listStatesWithBbox } from './state-boundaries.js';
 export {
   startIngestRun, finishIngestRun, getRecentIngestRuns,
   type IngestKind, type IngestStatus, type FinishOptions,

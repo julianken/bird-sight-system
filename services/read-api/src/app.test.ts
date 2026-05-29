@@ -702,6 +702,44 @@ describe('GET /api/silhouettes', () => {
   });
 });
 
+describe('GET /api/states', () => {
+  // The 49 CONUS state_boundaries rows are seeded by migration
+  // 1700000050000_state_boundaries.sql, which startTestDb() applies — no
+  // per-test seeding. This endpoint is the frontend's single source for state
+  // name + bbox; the polygon geom must never appear in the body.
+  it('returns 49 name-sorted StateSummary rows with the states cache header and no geom', async () => {
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/states');
+    expect(res.status).toBe(200);
+    // Build-time-stable seed → long immutable header on both browser + CDN.
+    expect(res.headers.get('cache-control'))
+      .toBe('public, max-age=604800, s-maxage=604800, immutable');
+
+    const body = await res.json() as Array<{
+      stateCode: string; name: string; bbox: [number, number, number, number];
+    }>;
+    expect(body).toHaveLength(49);
+
+    // Name-sorted ascending.
+    const names = body.map(r => r.name);
+    expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)));
+
+    // Every row is a well-formed StateSummary; geom must never leave the server.
+    for (const r of body) {
+      expect(r.stateCode).toMatch(/^US-[A-Z]{2}$/);
+      expect(typeof r.name).toBe('string');
+      expect(r.bbox).toHaveLength(4);
+      const [w, s, e, n] = r.bbox;
+      expect(w).toBeLessThan(e);
+      expect(s).toBeLessThan(n);
+      expect(r).not.toHaveProperty('geom');
+    }
+
+    const az = body.find(r => r.stateCode === 'US-AZ');
+    expect(az?.name).toBe('Arizona');
+  });
+});
+
 describe('GET /api/species/:code', () => {
   it('returns species meta for a known code', async () => {
     const app = createApp({ pool: db.pool });
