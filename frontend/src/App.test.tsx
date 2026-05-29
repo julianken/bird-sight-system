@@ -23,12 +23,16 @@ const {
   mockGetHotspots,
   mockGetObservations,
   mockGetSilhouettes,
+  mockGetStates,
   mockUrlState,
   mapSurfaceRef,
 } = vi.hoisted(() => ({
   mockGetHotspots: vi.fn(),
   mockGetObservations: vi.fn(),
   mockGetSilhouettes: vi.fn(),
+  // #740 (C6): App now fetches /api/states for the scope chooser/control
+  // `<select>` and the state-scope camera envelope. Every test stubs it.
+  mockGetStates: vi.fn(),
   mockUrlState: {
     state: {
       since: '14d' as const,
@@ -40,18 +44,28 @@ const {
       // "USA" with no /api/states table needed, so the App→FeedSurface lede
       // wiring tests assert a deterministic region without inventing a states
       // fetch (owned by #740). Per-test overrides set scope explicitly.
-      scope: { kind: 'us' as const },
+      scope: { kind: 'us' as const } as
+        | { kind: 'unscoped' }
+        | { kind: 'us' }
+        | { kind: 'state'; stateCode: string },
     },
     set: vi.fn(),
   },
-  // Capture handle for the zoom/bbox state-race regression (issue #690).
-  // The MapSurface stub assigns the latest `onViewportChange` prop here on
-  // every render so the test can drive App.tsx's viewport callback the same
-  // way MapCanvas's `idle` event would.
+  // Capture handle for the zoom/bbox state-race regression (issue #690) AND the
+  // #740 scope-camera assertions. The MapSurface stub assigns the latest
+  // `onViewportChange` prop + the scope camera props here on every render so
+  // tests can drive App.tsx's viewport callback (the way MapCanvas's `idle`
+  // event would) and assert the framed bounds/flyTo.
   mapSurfaceRef: {
     onViewportChange: null as
       | ((bounds: unknown, zoom: number) => void)
       | null,
+    boundsKey: undefined as string | undefined,
+    scopeBounds: undefined as [[number, number], [number, number]] | undefined,
+    flyTo: undefined as
+      | { center: [number, number]; zoom: number; key: string }
+      | undefined,
+    renderCount: 0,
   },
 }));
 
@@ -87,13 +101,21 @@ vi.mock('./state/url-state.js', () => ({
 vi.mock('./components/MapSurface.js', () => ({
   MapSurface: (props: {
     onViewportChange?: (bounds: unknown, zoom: number) => void;
+    boundsKey?: string;
+    scopeBounds?: [[number, number], [number, number]];
+    flyTo?: { center: [number, number]; zoom: number; key: string };
   }) => {
     mapSurfaceRef.onViewportChange = props.onViewportChange ?? null;
-    return null;
+    mapSurfaceRef.boundsKey = props.boundsKey;
+    mapSurfaceRef.scopeBounds = props.scopeBounds;
+    mapSurfaceRef.flyTo = props.flyTo;
+    mapSurfaceRef.renderCount += 1;
+    return <div data-testid="map-surface-stub" />;
   },
 }));
 
-// Stub the ApiClient constructor so useBirdData receives a controllable mock.
+// Stub the ApiClient constructor so useBirdData / useStates receive a
+// controllable mock.
 vi.mock('./api/client.js', async () => {
   const actual = await vi.importActual<typeof import('./api/client.js')>('./api/client.js');
   return {
@@ -102,6 +124,14 @@ vi.mock('./api/client.js', async () => {
       getHotspots = mockGetHotspots;
       getObservations = mockGetObservations;
       getSilhouettes = mockGetSilhouettes;
+      getStates = mockGetStates;
+      // #740 test: the C6 "detail is not a scope" case sets state.detail, which
+      // mounts useSpeciesDetail → client.getSpecies. Stub it (resolves a minimal
+      // SpeciesMeta) so the hook doesn't throw; the chooser-precedence assertion
+      // doesn't depend on the species payload.
+      getSpecies = vi.fn().mockResolvedValue({
+        speciesCode: 'vermfly', comName: 'Vermilion Flycatcher', sciName: 'Pyrocephalus rubinus',
+      });
     },
   };
 });
@@ -109,10 +139,18 @@ vi.mock('./api/client.js', async () => {
 import { App } from './App.js';
 import { ApiError } from './api/client.js';
 import { __resetSilhouettesCache } from './data/use-silhouettes.js';
+import { __resetStatesCache } from './data/use-states.js';
+import { __resetZipIndexCache } from './data/zip-lookup.js';
 
 describe('App error screen', () => {
   beforeEach(() => {
     __resetSilhouettesCache();
+    __resetStatesCache();
+    mockGetStates.mockResolvedValue([]);
+    mapSurfaceRef.renderCount = 0;
+    mapSurfaceRef.boundsKey = undefined;
+    mapSurfaceRef.scopeBounds = undefined;
+    mapSurfaceRef.flyTo = undefined;
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
       scope: { kind: 'us' as const },
@@ -184,6 +222,12 @@ describe('App error screen', () => {
 describe('App aria-busy', () => {
   beforeEach(() => {
     __resetSilhouettesCache();
+    __resetStatesCache();
+    mockGetStates.mockResolvedValue([]);
+    mapSurfaceRef.renderCount = 0;
+    mapSurfaceRef.boundsKey = undefined;
+    mapSurfaceRef.scopeBounds = undefined;
+    mapSurfaceRef.flyTo = undefined;
     // Successful loads so we get the normal UI (not error screen)
     mockGetHotspots.mockResolvedValue([]);
     mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
@@ -221,6 +265,12 @@ describe('App aria-busy', () => {
 describe('Phase 6: Footer removal + Attribution via AppHeader (issue #250 → Phase 6)', () => {
   beforeEach(() => {
     __resetSilhouettesCache();
+    __resetStatesCache();
+    mockGetStates.mockResolvedValue([]);
+    mapSurfaceRef.renderCount = 0;
+    mapSurfaceRef.boundsKey = undefined;
+    mapSurfaceRef.scopeBounds = undefined;
+    mapSurfaceRef.flyTo = undefined;
     mockGetHotspots.mockResolvedValue([]);
     mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
     mockGetSilhouettes.mockResolvedValue([]);
@@ -278,6 +328,12 @@ describe('Phase 6: Footer removal + Attribution via AppHeader (issue #250 → Ph
 describe('Phase 3: AppHeader + Filters panel', () => {
   beforeEach(() => {
     __resetSilhouettesCache();
+    __resetStatesCache();
+    mockGetStates.mockResolvedValue([]);
+    mapSurfaceRef.renderCount = 0;
+    mapSurfaceRef.boundsKey = undefined;
+    mapSurfaceRef.scopeBounds = undefined;
+    mapSurfaceRef.flyTo = undefined;
     mockGetHotspots.mockResolvedValue([]);
     mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
     mockGetSilhouettes.mockResolvedValue([]);
@@ -346,6 +402,12 @@ describe('Phase 5: FeedSurface lede wiring (App → FeedSurface)', () => {
 
   beforeEach(() => {
     __resetSilhouettesCache();
+    __resetStatesCache();
+    mockGetStates.mockResolvedValue([]);
+    mapSurfaceRef.renderCount = 0;
+    mapSurfaceRef.boundsKey = undefined;
+    mapSurfaceRef.scopeBounds = undefined;
+    mapSurfaceRef.flyTo = undefined;
     mockGetHotspots.mockResolvedValue([]);
     mockGetSilhouettes.mockResolvedValue([]);
   });
@@ -412,6 +474,12 @@ describe('Phase 5: FeedSurface cross-surface FilterSentence drift regression', (
 
   beforeEach(() => {
     __resetSilhouettesCache();
+    __resetStatesCache();
+    mockGetStates.mockResolvedValue([]);
+    mapSurfaceRef.renderCount = 0;
+    mapSurfaceRef.boundsKey = undefined;
+    mapSurfaceRef.scopeBounds = undefined;
+    mapSurfaceRef.flyTo = undefined;
     mockGetHotspots.mockResolvedValue([]);
     mockGetSilhouettes.mockResolvedValue([]);
   });
@@ -460,6 +528,12 @@ describe('L2: freshness empty state (null freshestObservationAt)', () => {
 
   beforeEach(() => {
     __resetSilhouettesCache();
+    __resetStatesCache();
+    mockGetStates.mockResolvedValue([]);
+    mapSurfaceRef.renderCount = 0;
+    mapSurfaceRef.boundsKey = undefined;
+    mapSurfaceRef.scopeBounds = undefined;
+    mapSurfaceRef.flyTo = undefined;
     mockUrlState.state = { since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
       scope: { kind: 'us' as const },
     };
@@ -504,6 +578,12 @@ describe('L3: nowTick advances on visibilitychange (tab return)', () => {
 
   beforeEach(() => {
     __resetSilhouettesCache();
+    __resetStatesCache();
+    mockGetStates.mockResolvedValue([]);
+    mapSurfaceRef.renderCount = 0;
+    mapSurfaceRef.boundsKey = undefined;
+    mapSurfaceRef.scopeBounds = undefined;
+    mapSurfaceRef.flyTo = undefined;
     mockUrlState.state = { since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
       scope: { kind: 'us' as const },
     };
@@ -565,6 +645,12 @@ describe('App.tsx onSelectSpecies bbox-clear invariant (#560)', () => {
 
   beforeEach(() => {
     __resetSilhouettesCache();
+    __resetStatesCache();
+    mockGetStates.mockResolvedValue([]);
+    mapSurfaceRef.renderCount = 0;
+    mapSurfaceRef.boundsKey = undefined;
+    mapSurfaceRef.scopeBounds = undefined;
+    mapSurfaceRef.flyTo = undefined;
     mockGetHotspots.mockResolvedValue([]);
     mockGetSilhouettes.mockResolvedValue([]);
     mockGetObservations.mockResolvedValue({
@@ -655,6 +741,12 @@ describe('App.tsx onSelectSpecies bbox-clear invariant (#560)', () => {
 describe('Clarity view tagging (#657-followup)', () => {
   beforeEach(() => {
     __resetSilhouettesCache();
+    __resetStatesCache();
+    mockGetStates.mockResolvedValue([]);
+    mapSurfaceRef.renderCount = 0;
+    mapSurfaceRef.boundsKey = undefined;
+    mapSurfaceRef.scopeBounds = undefined;
+    mapSurfaceRef.flyTo = undefined;
     mockGetHotspots.mockResolvedValue([]);
     mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
     mockGetSilhouettes.mockResolvedValue([]);
@@ -703,6 +795,12 @@ describe('Zoom/bbox state-race regression (#690)', () => {
 
   beforeEach(() => {
     __resetSilhouettesCache();
+    __resetStatesCache();
+    mockGetStates.mockResolvedValue([]);
+    mapSurfaceRef.renderCount = 0;
+    mapSurfaceRef.boundsKey = undefined;
+    mapSurfaceRef.scopeBounds = undefined;
+    mapSurfaceRef.flyTo = undefined;
     mockGetHotspots.mockResolvedValue([]);
     mockGetObservations.mockResolvedValue({
       data: [], meta: { freshestObservationAt: null },
@@ -783,5 +881,297 @@ describe('Zoom/bbox state-race regression (#690)', () => {
         `inconsistent fetch: bbox=${bbox.join(',')} (lngSpan=${lngSpan.toFixed(2)}), zoom=${zoom}`,
       ).toBe(true);
     }
+  });
+});
+
+describe('#740 (C6): scope wiring end-to-end', () => {
+  // Two CONUS states for the /api/states table. `bbox` is [w,s,e,n] (the
+  // StateSummary order); App converts to [[w,s],[e,n]] for the camera.
+  const STATES = [
+    { stateCode: 'US-AZ', name: 'Arizona', bbox: [-114.82, 31.33, -109.05, 37.0] as [number, number, number, number] },
+    { stateCode: 'US-CA', name: 'California', bbox: [-124.41, 32.53, -114.13, 42.01] as [number, number, number, number] },
+  ];
+
+  // A plain object with the four getter methods App.tsx calls on a LngLatBounds.
+  function makeBounds(
+    west: number, south: number, east: number, north: number,
+  ): LngLatBounds {
+    return {
+      getWest: () => west,
+      getSouth: () => south,
+      getEast: () => east,
+      getNorth: () => north,
+    } as unknown as LngLatBounds;
+  }
+
+  beforeEach(() => {
+    __resetSilhouettesCache();
+    __resetStatesCache();
+    __resetZipIndexCache();
+    mockGetHotspots.mockResolvedValue([]);
+    mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
+    mockGetSilhouettes.mockResolvedValue([]);
+    mockGetStates.mockResolvedValue(STATES);
+    mockGetObservations.mockClear();
+    mockGetHotspots.mockClear();
+    mockGetStates.mockClear();
+    mockGetSilhouettes.mockClear();
+    mockUrlState.set.mockClear();
+    mapSurfaceRef.onViewportChange = null;
+    mapSurfaceRef.boundsKey = undefined;
+    mapSurfaceRef.scopeBounds = undefined;
+    mapSurfaceRef.flyTo = undefined;
+    mapSurfaceRef.renderCount = 0;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // AC 1: Unscoped → chooser, fetch + map suppressed.
+  it('renders the ScopeChooser and fires ZERO /api/observations requests when unscoped', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'unscoped' },
+    };
+    render(<App />);
+    // Chooser is shown in place of the map.
+    expect(
+      await screen.findByRole('region', { name: /Choose where to look at birds/i }),
+    ).toBeInTheDocument();
+    // Map surface is NOT mounted.
+    expect(screen.queryByTestId('map-surface-stub')).toBeNull();
+    // The cold-load fetch is suppressed: zero observations requests. Give any
+    // mistaken effect a tick to fire.
+    await waitFor(() => {
+      expect(mockGetStates).toHaveBeenCalled();
+    });
+    expect(mockGetObservations).not.toHaveBeenCalled();
+    expect(mockGetHotspots).not.toHaveBeenCalled();
+  });
+
+  // AC 1 (callbacks): chooser pick-state writes ?state=US-XX.
+  it('chooser pick-state writes scope { kind: state, stateCode }', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'unscoped' },
+    };
+    render(<App />);
+    await screen.findByRole('region', { name: /Choose where to look at birds/i });
+    // Pick Arizona via the chooser <select> + Go.
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: 'Arizona' })).toBeInTheDocument();
+    });
+    await userEvent.selectOptions(screen.getByLabelText('State'), 'US-AZ');
+    await userEvent.click(screen.getByRole('button', { name: /^Go$/i }));
+    expect(mockUrlState.set).toHaveBeenCalledWith({ scope: { kind: 'state', stateCode: 'US-AZ' } });
+  });
+
+  // AC 1 (callbacks): chooser whole-US writes ?scope=us.
+  it('chooser "Explore the whole US map" writes scope { kind: us }', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'unscoped' },
+    };
+    render(<App />);
+    await screen.findByRole('region', { name: /Choose where to look at birds/i });
+    await userEvent.click(screen.getByRole('button', { name: /Explore the whole US map/i }));
+    expect(mockUrlState.set).toHaveBeenCalledWith({ scope: { kind: 'us' } });
+  });
+
+  // AC 2: ?state=US-AZ → ?state= reaches the client + camera framed to the
+  // state envelope.
+  it('?state=US-AZ sends stateCode to the API and frames the camera to the AZ envelope', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
+    };
+    render(<App />);
+    // Map surface mounts (scoped view).
+    expect(await screen.findByTestId('map-surface-stub')).toBeInTheDocument();
+    // The observations fetch carries ?state=US-AZ (mapped from filters.stateCode
+    // by the client; here we assert the filters reach the hook).
+    await waitFor(() => {
+      expect(mockGetObservations).toHaveBeenCalled();
+    });
+    const everyCallHasState = mockGetObservations.mock.calls.every(
+      ([f]) => (f as { stateCode?: string }).stateCode === 'US-AZ',
+    );
+    expect(everyCallHasState).toBe(true);
+    // Camera framed: boundsKey === state code, scopeBounds === [[w,s],[e,n]].
+    await waitFor(() => {
+      expect(mapSurfaceRef.boundsKey).toBe('US-AZ');
+    });
+    expect(mapSurfaceRef.scopeBounds).toEqual([[-114.82, 31.33], [-109.05, 37.0]]);
+    // No transient flyTo on a bare state deep-link.
+    expect(mapSurfaceRef.flyTo).toBeUndefined();
+  });
+
+  // AC 3: ZIP onResolve → state scope + staged flyTo (flyTo preferred over
+  // fitBounds: it is threaded as a distinct prop alongside boundsKey).
+  it('ZIP onResolve sets the state scope AND stages a flyTo at the resolution zoom', async () => {
+    // Start already scoped to AZ so the in-state ScopeControl ZipInput is
+    // present (the resolution sets a state + flyTo without remounting).
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
+    };
+    render(<App />);
+    await screen.findByTestId('map-surface-stub');
+
+    // Drive the ScopeControl's ZipInput onResolve via the real component: type
+    // a known ZIP and submit. We stub zip-lookup's network by mocking fetch to
+    // return an index containing 85701 → Tucson, AZ. Simpler: invoke the
+    // ScopeControl onResolve path through the ZIP form. The zip-lookup index is
+    // fetched on submit; mock global fetch to serve it.
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({ v: 1, states: ['US-AZ'], zips: { '85701': [32.2217, -110.9747, 0] } }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    try {
+      const zipInputs = screen.getAllByLabelText('ZIP code');
+      // ScopeControl's ZipInput is the on-map one; type + submit.
+      const zip = zipInputs[zipInputs.length - 1];
+      await userEvent.type(zip, '85701');
+      await userEvent.type(zip, '{Enter}');
+      // onResolveZip writes the state scope...
+      await waitFor(() => {
+        expect(mockUrlState.set).toHaveBeenCalledWith({ scope: { kind: 'state', stateCode: 'US-AZ' } });
+      });
+      // ...and stages a flyTo at the metro zoom (ZIP_FLYTO_ZOOM = 10), centered
+      // on the resolved [lng, lat]. Asserted via the MapSurface stub capture.
+      await waitFor(() => {
+        expect(mapSurfaceRef.flyTo).toBeDefined();
+      });
+      expect(mapSurfaceRef.flyTo!.zoom).toBe(10);
+      expect(mapSurfaceRef.flyTo!.center).toEqual([-110.9747, 32.2217]);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  // AC 4: ?scope=us → CONUS map, no ?state= sent.
+  it('?scope=us renders the CONUS map with boundsKey "us" and sends NO stateCode', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'us' },
+    };
+    render(<App />);
+    expect(await screen.findByTestId('map-surface-stub')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockGetObservations).toHaveBeenCalled();
+    });
+    // Data invariant: no ?state= for whole-US.
+    const noState = mockGetObservations.mock.calls.every(
+      ([f]) => (f as { stateCode?: string }).stateCode === undefined,
+    );
+    expect(noState).toBe(true);
+    await waitFor(() => {
+      expect(mapSurfaceRef.boundsKey).toBe('us');
+    });
+    // CONUS production constant [[-130,20],[-65,52]].
+    expect(mapSurfaceRef.scopeBounds).toEqual([[-130, 20], [-65, 52]]);
+  });
+
+  // AC 5: exactly ONE refetch per scope change — every camera-move settle
+  // `idle` fired during the scope-change animation window must be SUPPRESSED, so
+  // a programmatic fitBounds/flyTo (which can emit more than one settle idle)
+  // never adds a second mid-animation fetch. After the settle window, a genuine
+  // user pan refetches normally.
+  it('suppresses scope-change settle idles so only one fetch fires per scope change', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mockUrlState.state = {
+        since: '14d', notable: false, speciesCode: null, familyCode: null,
+        view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
+      };
+      render(<App />);
+      await waitFor(() => {
+        expect(mapSurfaceRef.onViewportChange).not.toBeNull();
+      });
+      // One fetch from the scope itself (the stateCode/enabled trigger).
+      await waitFor(() => {
+        expect(mockGetObservations).toHaveBeenCalledTimes(1);
+      });
+      const onViewportChange = mapSurfaceRef.onViewportChange!;
+
+      // The programmatic fitBounds can settle across MULTIPLE idles (the
+      // uncontrolled initial frame + the imperative move). All within the
+      // ~1000ms scope-move window — every one must be suppressed.
+      await act(async () => {
+        onViewportChange(makeBounds(-114.82, 31.33, -109.05, 37.0), 6);
+      });
+      await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+      await act(async () => {
+        onViewportChange(makeBounds(-114.0, 33.0, -110.0, 35.0), 7);
+      });
+      await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+      // Still only the single scope fetch — both settle idles were swallowed.
+      expect(mockGetObservations).toHaveBeenCalledTimes(1);
+
+      // Advance PAST the settle window, then a genuine user pan DOES refetch.
+      await act(async () => { await vi.advanceTimersByTimeAsync(900); });
+      await act(async () => {
+        onViewportChange(makeBounds(-112.0, 33.0, -111.0, 34.0), 9);
+      });
+      await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+      await waitFor(() => {
+        expect(mockGetObservations).toHaveBeenCalledTimes(2);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // AC 6: clear-scope (ScopeControl exit) → back to the chooser, not a CONUS
+  // home. We assert the exit affordance emits scope: { kind: 'unscoped' }.
+  it('ScopeControl "Change scope" exit emits scope { kind: unscoped }', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
+    };
+    render(<App />);
+    await screen.findByTestId('map-surface-stub');
+    await userEvent.click(screen.getByRole('button', { name: /Change scope/i }));
+    expect(mockUrlState.set).toHaveBeenCalledWith({ scope: { kind: 'unscoped' } });
+  });
+
+  // AC: detail overlay does not by itself constitute a scope — an unscoped URL
+  // carrying ?detail= still shows the chooser, not the detail rail.
+  it('an unscoped URL with a detail code still shows the chooser (detail is not a scope)', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', detail: 'vermfly', scope: { kind: 'unscoped' },
+    } as typeof mockUrlState.state;
+    render(<App />);
+    expect(
+      await screen.findByRole('region', { name: /Choose where to look at birds/i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId('map-surface-stub')).toBeNull();
+    expect(mockGetObservations).not.toHaveBeenCalled();
+  });
+
+  // Region label: state scope resolves to the state NAME from /api/states.
+  it('threads the resolved state name as the region label for a state scope', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'feed', scope: { kind: 'state', stateCode: 'US-AZ' },
+    };
+    mockGetObservations.mockResolvedValue({
+      data: [{
+        subId: 'S1', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 32.2, lng: -110.9, obsDt: new Date().toISOString(), locId: 'L1',
+        locName: 'Sabino Canyon', howMany: 1, isNotable: false,
+        silhouetteId: null, familyCode: 'songbird',
+      }],
+      meta: { freshestObservationAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() },
+    });
+    render(<App />);
+    // FeedSurface lede names the region — "across Arizona" (resolved name),
+    // not the bare "US-AZ" code.
+    await screen.findByText(/across Arizona/i);
+    expect(screen.queryByText(/across US-AZ/i)).toBeNull();
   });
 });
