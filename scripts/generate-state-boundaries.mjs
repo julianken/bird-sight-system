@@ -1,13 +1,19 @@
 #!/usr/bin/env node
 /**
- * generate-state-boundaries.mjs — run-once offline generator (Task A1, #728).
+ * generate-state-boundaries.mjs — run-once offline generator (Task A1, #728;
+ * mask emit #760/#762).
  *
- * Source → simplify → emit two frozen artifacts:
+ * Source → simplify → emit THREE frozen artifacts in one run:
  *   1. `migrations/1700000050000_state_boundaries.sql` INSERT block (pasted into A2)
  *   2. `data/us-state-polygons.geojson` — the canonical simplified CONUS shapes
  *      that the ZIP ETL (Stream D, point-in-polygon precompute) also reads.
  *      The clip and the ZIP→state precompute must never diverge (locked
  *      decision #6) — they share this one file.
+ *   3. `frontend/public/state-polygons.json` — a `code → MultiPolygon geometry`
+ *      map the client lazy-fetches to build the state-artboard inverse mask
+ *      (#760/#762). Emitted from the SAME canonicalFeatures as (1)/(2), so the
+ *      client mask edge matches the server's ST_Intersects data-clip edge
+ *      (locked-decision-#7 cosmetic revision). NEVER regenerate it independently.
  *
  * Input: US Census cartographic boundary file `cb_2023_us_state_500k`
  *   https://www2.census.gov/geo/tiger/GENZ2023/shp/cb_2023_us_state_500k.zip
@@ -244,6 +250,30 @@ const geojsonStr = JSON.stringify(geojson) + '\n';
 const geojsonPath = join(dataDir, 'us-state-polygons.geojson');
 writeFileSync(geojsonPath, geojsonStr);
 
+// --- Emit the client state-mask polygons asset (#760/#762) -------------------
+// frontend/public/state-polygons.json — a `code → MultiPolygon geometry` map the
+// client lazy-fetches once (frontend/src/data/state-polygons.ts) to build the
+// state-artboard inverse mask (frontend/src/components/map/mask.ts). The
+// FeatureCollection wrapper and every property are dropped — only the geometry
+// ships, keyed by state_code. Built from the SAME `canonicalFeatures` (already
+// sorted by state_code above) that produced the SQL INSERT and the GeoJSON, so
+// the gray mask edge cannot drift from the server's ST_Intersects data-clip edge
+// (the locked-decision-#7 cosmetic revision). One generator run emits all three
+// artifacts; they must never be regenerated independently.
+const maskByCode = {};
+let maskVertexCount = 0;
+for (const f of canonicalFeatures) {
+  const code = f.properties.state_code;
+  const geom = f.geometry; // always MultiPolygon (single Polygons wrapped above)
+  if (maskByCode[code]) fail(`duplicate state_code ${code} in mask emit`);
+  maskByCode[code] = { type: geom.type, coordinates: geom.coordinates };
+  for (const poly of geom.coordinates) for (const ring of poly) maskVertexCount += ring.length;
+}
+const maskOut = JSON.stringify(maskByCode) + '\n';
+const maskPath = resolve(repoRoot, 'frontend/public/state-polygons.json');
+writeFileSync(maskPath, maskOut);
+const maskBytes = Buffer.byteLength(maskOut, 'utf-8');
+
 // Emit the ready-to-paste SQL INSERT to stdout AND a sidecar file in the work
 // dir for convenience; the operator pastes it into the A2 migration.
 const sqlOutPath = join(work, 'state_boundaries_insert.sql');
@@ -259,5 +289,8 @@ console.error(`  total vertices:  ${vertexCount}`);
 console.error(`  simplify:        ${SIMPLIFY_PCT} keep-shapes visvalingam`);
 console.error(`  INSERT bytes:    ${seedBytes}`);
 console.error(`  GeoJSON bytes:   ${geojsonBytes}  -> ${geojsonPath}`);
+console.error(`  mask states:     ${Object.keys(maskByCode).length}`);
+console.error(`  mask vertices:   ${maskVertexCount}`);
+console.error(`  mask bytes:      ${maskBytes}  -> ${maskPath}`);
 console.error(`  SQL written to:  ${sqlOutPath}`);
 console.error('\nPaste the INSERT block above into migrations/1700000050000_state_boundaries.sql');

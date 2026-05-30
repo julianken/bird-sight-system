@@ -1,18 +1,25 @@
 # State boundaries — provenance
 
 `scripts/generate-state-boundaries.mjs` is a **run-once offline generator**. It
-turns the US Census state cartographic-boundary shapefile into the two frozen
+turns the US Census state cartographic-boundary shapefile into the three frozen
 artifacts the state-scope epic (#728, plan `2026-05-28-state-scope-selector`)
-rides on:
+and the state-artboard mask (#760/#762) ride on:
 
 1. `migrations/1700000050000_state_boundaries.sql` — the `INSERT` block (49 WKT
-   `MULTIPOLYGON` rows) pasted into the seed migration.
+   `MULTIPOLYGON` rows) pasted into the seed migration (emitted to stdout).
 2. `data/us-state-polygons.geojson` — the canonical simplified CONUS shapes the
    ZIP→state ETL (Stream D) reads for point-in-polygon precompute.
+3. `frontend/public/state-polygons.json` — a `code → MultiPolygon geometry` map
+   the client lazy-fetches once (`frontend/src/data/state-polygons.ts`) to build
+   the state-artboard inverse mask (`frontend/src/components/map/mask.ts`). The
+   FeatureCollection wrapper + every property are dropped; only geometry ships,
+   keyed by `state_code` (#760/#762).
 
-Both artifacts are emitted from the **same generator run** and must never
-diverge (locked decision #6 in the plan). The clip and the ZIP precompute share
-one geometry source.
+All three artifacts are emitted from the **same generator run** and must never
+be regenerated independently (locked decision #6 in the plan, extended to the
+mask asset by the locked-decision-#7 cosmetic revision). The clip, the ZIP
+precompute, and the client mask all share one geometry source — so the gray
+mask edge matches the server's `ST_Intersects` data-clip edge exactly.
 
 ## Source
 
@@ -78,6 +85,7 @@ Regenerate and compare against these to detect drift:
 | Total vertices | 10,142 |
 | `INSERT` block | 209,150 bytes |
 | `data/us-state-polygons.geojson` | 221,882 bytes raw / ~78 KB gzip |
+| `frontend/public/state-polygons.json` | 215,778 bytes raw (geometry-only, wrapper + properties dropped) |
 
 ## Regenerating
 

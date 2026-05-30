@@ -1,5 +1,8 @@
 import React from 'react';
 import type { LngLatBounds } from 'maplibre-gl';
+// GeoJSON `MultiPolygon` comes from `geojson` (@types/geojson), NOT maplibre-gl
+// (5.x does not re-export it). `import type`, erased at build — see mask.ts.
+import type { MultiPolygon } from 'geojson';
 import type { FamilySilhouette, Observation } from '@bird-watch/shared-types';
 import { ErrorBoundary } from './ErrorBoundary.js';
 import { FamilyLegend } from './FamilyLegend.js';
@@ -10,19 +13,10 @@ import { prettyFamily } from '../derived.js';
 
 /**
  * Lazy-loaded MapCanvas. The React.lazy() boundary lives HERE — not inside
- * MapCanvas — so the maplibre-gl chunk is only fetched when the map surface is
- * first rendered. Feed and Species tabs never pay for it. The chunk is large:
- * ~1,028 kB raw / ~273 kB gzip (measured in `dist/assets/maplibre-gl-*.js`,
- * not the ~217 KB this comment previously claimed) — which is exactly why the
- * split must stay (OQ5 / #781): eager-inlining it would regress every cold
- * start, including the unscoped chooser landing where the map never renders.
- *
- * On scoped paths the chunk is warmed EARLY by `prefetchMapCanvas()`
- * (`src/prefetch.ts`, wired in App.tsx) — fired on a scoped landing and on each
- * scope-pick, NEVER on the unscoped chooser landing. The prefetch references
- * the SAME `'./map/MapCanvas.js'` specifier (the bundler dedupes both to one
- * chunk), so it only warms the browser module cache this Suspense boundary then
- * reads from on mount. This lazy boundary remains the actual mount-time loader.
+ * MapCanvas — so the ~1,028 kB raw / ~273 kB gzip maplibre-gl chunk (see
+ * docs/perf/dist-chunk-baseline.md) is fetched only when MapCanvas FIRST
+ * RENDERS, not merely when this module is imported. The unscoped chooser
+ * landing therefore never pays the chunk cost.
  */
 const MapCanvas = React.lazy(() =>
   import('./map/MapCanvas.js').then((m) => ({ default: m.MapCanvas })),
@@ -173,6 +167,18 @@ export interface MapSurfaceProps {
   scopeBounds?: [[number, number], [number, number]];
   boundsKey?: string;
   flyTo?: { center: [number, number]; zoom: number; key: string } | undefined;
+  /**
+   * #760/#762 — state-artboard mask, forwarded VERBATIM to <MapCanvas>. App.tsx
+   * derives these from `state.scope`:
+   *   - `maskPolygon` — the active state's render-only MultiPolygon (from
+   *     `useStatePolygon`); `null` for `?scope=us` / chooser / asset loading.
+   *   - `clampPad`    — the artboard `maxBounds` padding factor (`ARTBOARD_PAD`);
+   *     present only for a state scope so the camera can zoom out onto gray.
+   * Both optional — legacy/test callers that omit them get no mask + the raw
+   * clamp (MapSurface is a thin pass-through here).
+   */
+  maskPolygon?: MultiPolygon | null;
+  clampPad?: number;
 }
 
 /**
@@ -210,6 +216,8 @@ export function MapSurface({
   scopeBounds,
   boundsKey,
   flyTo,
+  maskPolygon,
+  clampPad,
 }: MapSurfaceProps) {
   // Compute the expand-by-default once at mount. The component itself
   // (FamilyLegend) handles localStorage precedence + manual toggle.
@@ -304,6 +312,8 @@ export function MapSurface({
             {...(scopeBounds ? { bounds: scopeBounds } : {})}
             {...(boundsKey !== undefined ? { boundsKey } : {})}
             {...(flyTo ? { flyTo } : {})}
+            {...(maskPolygon != null ? { maskPolygon } : {})}
+            {...(clampPad !== undefined ? { clampPad } : {})}
           />
         </React.Suspense>
         <FamilyLegend
