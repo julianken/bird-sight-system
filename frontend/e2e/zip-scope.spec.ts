@@ -168,9 +168,10 @@ test.describe('ZIP scope round-trip + empty-region + error paths (D6, #741)', ()
       'ZIP not recognized — try a nearby ZIP or pick a state',
     );
 
-    // Scope/URL unchanged — still on the chooser, no state= written.
+    // Scope/URL unchanged — still on the chooser scrim, no state= written.
+    // #761 (S1): the map is mounted-but-INERT behind the scrim (no unmount).
     await expect(app.chooser).toBeVisible();
-    await expect(app.mapCanvas).toHaveCount(0);
+    await app.expectMapInert();
     expect(app.getUrlParams().has('state')).toBe(false);
     // The input value is retained (not cleared).
     await expect(app.chooserZipInput).toHaveValue('10002');
@@ -206,10 +207,11 @@ test.describe('ZIP scope round-trip + empty-region + error paths (D6, #741)', ()
     expect(validity.valid).toBe(false);
     expect(validity.patternMismatch).toBe(true);
 
-    // Scope unchanged — still on the chooser, no state= written, no map.
+    // Scope unchanged — still on the chooser scrim, no state= written.
+    // #761 (S1): the map is mounted-but-INERT behind the scrim (no unmount).
     await expect(app.chooser).toBeVisible();
     expect(app.getUrlParams().has('state')).toBe(false);
-    await expect(app.mapCanvas).toHaveCount(0);
+    await app.expectMapInert();
 
     // D3: the malformed SUBMIT triggers no lookup fetch. `loadZipIndex` warms
     // lazily on FOCUS (an intentional pre-fetch, single-flight memoized), so a

@@ -1465,6 +1465,37 @@ aside.species-detail-rail .species-detail-rail-close {
   line-height: 1.3;
 }
 
+/* ── ScopeChooser scrim (#761 S1) ─────────────────────────────────────────
+   The unscoped landing is now an INERT, FOCUS-TRAPPED modal scrim over a
+   mounted-but-idle map (epic OQ1 option (a)), NOT a full-tree unmount. App
+   renders `<ScopeChooser>` inside this `.scope-chooser-scrim` wrapper as a
+   floating sibling of <main> (the #663 floating-overlay pattern). The wrapper
+   is the full-viewport fixed backdrop + the focus-trap landing element
+   (`tabIndex={-1}`, focused by App's inert/focus-trap effect).
+
+   Z-tier: `--z-modal` (50, the named modal tier from #761 P1 / #778). The scrim
+   must PAINT above the highest currently-rendered overlay — the detail rail at
+   `--z-rail` (43) and the map-assist overlays at `--z-overlay`/`--z-popover`
+   (40/41). It does NOT need to out-stack the map's `.skip-link` (`--z-skip`,
+   60): focusability on the inert map is governed by the `inert` attribute App
+   sets on #main-surface (task #4), not by z-index — `inert` removes the whole
+   map subtree (skip-link included) from the tab order regardless of paint
+   order. The scrim only needs to win the PAINT layering, which 50 does over
+   43/41/40.
+
+   Backdrop: a near-opaque cream wash (`color-mix` over the page color) so the
+   idle map is faintly visible behind the chooser card without competing with
+   it — a true scrim, not the old opaque full-surface unmount. */
+.scope-chooser-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  background: color-mix(in srgb, var(--color-bg-page) 92%, transparent);
+  /* The scrim is the scroll container for a tall card on short viewports. */
+  overflow: auto;
+}
+
 /* ── ScopeChooser (#742) ──────────────────────────────────────────────────
    The pre-map LANDING surface: a centered card prompting "where do you want
    to look?" with two CO-PRIMARY paths — the <ZipInput> (#739, styled by
@@ -1473,14 +1504,19 @@ aside.species-detail-rail .species-detail-rail-close {
    hatch placed last and lowest. Reuses the existing card/input visual
    contract (warm cream page, white surface, --color-border-ui edge, shared
    spacing/type/weight tokens). Every className the TSX introduces has a
-   matching rule below (orphan-classname gate). */
+   matching rule below (orphan-classname gate).
+
+   #761 (S1): now hosted INSIDE `.scope-chooser-scrim` (the fixed backdrop). It
+   only centers the card here — the scrim owns the full-viewport background, so
+   this layer is transparent and fills the scrim. */
 .scope-chooser {
   display: flex;
+  flex: 1;
   align-items: center;
   justify-content: center;
   min-block-size: 100%;
   padding: var(--space-xl) var(--space-lg);
-  background: var(--color-bg-page);
+  background: transparent;
 }
 .scope-chooser__card {
   display: flex;

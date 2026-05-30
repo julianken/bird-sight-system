@@ -169,6 +169,25 @@ export class AppPage {
   }
 
   /**
+   * #761 (S1): assert the map surface is mounted but INERT behind the chooser
+   * scrim on the unscoped landing. The `inert` attribute on `#main-surface`
+   * (set by App's inert/focus-trap effect) removes the whole map subtree from
+   * the tab order and blocks pointer interaction — the load-bearing half of the
+   * "chooser scrim over a mounted, idle map" model. Specs assert through this
+   * helper rather than inlining the `[inert]` selector so the map-first
+   * inversion (#761 S2, the eventual map hoist) re-points only this one line.
+   *
+   * Returns the inertness assertion as a chainable `expect` so callers can
+   * `await app.expectMapInert()`.
+   */
+  async expectMapInert(): Promise<void> {
+    // The map canvas is present (mounted idle behind the scrim)…
+    await this.mapCanvas.waitFor({ state: 'attached' });
+    // …and #main-surface carries the `inert` attribute.
+    await this.mainSurface.and(this.page.locator('[inert]')).waitFor({ state: 'attached' });
+  }
+
+  /**
    * Pick a state from the chooser `<select>` + click Go (C9 state-select
    * round-trip). The select is the chooser's own (`aria-label='State'`); Go is
    * disabled until a non-empty option is chosen, so this selects first.

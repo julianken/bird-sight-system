@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { LngLatBounds } from 'maplibre-gl';
 import { analytics } from './analytics.js';
 import { ApiClient, ApiError } from './api/client.js';
@@ -494,6 +494,98 @@ export function App() {
 
   const mainRef = useRef<HTMLElement | null>(null);
 
+  // #761 (S1) — the unscoped landing is now an INERT, FOCUS-TRAPPED modal scrim
+  // over a mounted-but-idle map (epic OQ1, option (a): modal-over-inert-map),
+  // replacing the prior full-tree-unmount early-return. The map mounts behind
+  // the scrim and fires ZERO /api/observations purely because `scopeActive ===
+  // false` keeps `useBirdData`'s `enabled` false (the fetch gate above is the
+  // load-bearing half — no render-gate change is needed to preserve the
+  // #740/C6 zero-observations-on-landing AC). The scrim itself is rendered as a
+  // floating sibling of <main> (the #663 floating-overlay pattern that
+  // SpeciesDetailRail/Sheet already use) below.
+  const scrimRef = useRef<HTMLDivElement | null>(null);
+
+  // #761 (S1) — inert + focus-trap handshake for the unscoped scrim. Two
+  // mechanisms, BOTH required by the focus-trap AC (they are distinct):
+  //   (4) `inert` on the real <main id="main-surface"> removes the entire map
+  //       subtree (including the map's `.skip-link`) from the tab order while
+  //       the scrim is open. Replicates the attribute-toggle pattern that
+  //       SpeciesDetailSheet.tsx uses on the same `mainRef` (there is no shared
+  //       inert helper — each owner toggles the attribute itself).
+  //   (5a) Move initial focus into the scrim on mount — `inert` alone does NOT
+  //       move focus, it only removes a subtree from the tab order. The focus
+  //       landing target is the scrim wrapper itself (it carries `tabIndex={-1}`
+  //       in the JSX below); the focus unit test keys off `scrimRef`/that
+  //       wrapper holding focus.
+  //   (5b) Trap Tab/Shift+Tab so focus cycles within the chooser and never
+  //       escapes. `inert` on #main-surface covers the map subtree, but the
+  //       ALWAYS-rendered shell now also mounts the <AppHeader> (wordmark,
+  //       Map tab, Attribution, Filters, ThemeToggle) AND the AttributionModal
+  //       trigger as SIBLINGS of <main> — none of which #main-surface's `inert`
+  //       covers. Rather than mark each of those inert, a keydown wrap handler
+  //       on the scrim keeps focus inside the chooser regardless of what other
+  //       focusable siblings exist (the defensive choice). `Escape` is
+  //       deliberately NOT a dismiss path: there is no "no-scope" state to
+  //       return to — the only exits are picking a scope.
+  useLayoutEffect(() => {
+    if (scopeActive) return;
+    const main = mainRef.current;
+    const scrim = scrimRef.current;
+    if (!scrim) return;
+
+    // (4) Remove the map subtree from the tab order.
+    main?.setAttribute('inert', '');
+
+    // The focusable descendants of the scrim, in DOM order. Recomputed inside
+    // the handler so it stays correct if the chooser's controls change (e.g.
+    // the state <select> enabling once /api/states resolves).
+    const focusableSelector =
+      'a[href], button:not([disabled]), input:not([disabled]), ' +
+      'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const focusables = (): HTMLElement[] =>
+      Array.from(scrim.querySelectorAll<HTMLElement>(focusableSelector));
+
+    // (5a) Move initial focus onto the scrim wrapper (the tabIndex={-1}
+    // landing element). Keeping it on the wrapper rather than the first control
+    // avoids stealing focus into the ZIP <input> on every render and matches
+    // the focus unit test's target.
+    scrim.focus();
+
+    // (5b) Wrap Tab / Shift+Tab between the first and last focusable controls.
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key !== 'Tab') return;
+      const items = focusables();
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (!first || !last) {
+        // Nothing focusable inside yet — keep focus pinned to the scrim.
+        e.preventDefault();
+        scrim.focus();
+        return;
+      }
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey) {
+        // Backward from the first control (or from the scrim wrapper) → last.
+        if (active === first || active === scrim || !scrim.contains(active)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else if (active === last || !scrim.contains(active)) {
+        // Forward from the last control (or from outside) → first.
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    scrim.addEventListener('keydown', onKeyDown);
+
+    return () => {
+      scrim.removeEventListener('keydown', onKeyDown);
+      // Clearing `inert` happens when a scope is picked and the scrim unmounts
+      // (this cleanup), or whenever `scopeActive` flips true.
+      main?.removeAttribute('inert');
+    };
+  }, [scopeActive]);
+
   // nowTick advances when the user returns to the tab so freshness labels
   // re-derive after the tab has been hidden for a long time. useRef(new Date())
   // would freeze `now` at first render and never advance — after 5 h open the
@@ -557,33 +649,26 @@ export function App() {
     }
   }, [error]);
 
-  // #740 (C6) — chooser-first landing (locked decision 4b). When unscoped,
-  // render <ScopeChooser> IN PLACE OF the map surface; picking a scope mounts
-  // the map fresh (the validated chooser-gated REMOUNT model, finding (f)).
-  // This return is placed BEFORE the error guard so it takes precedence:
-  //   - The cold-load fetch is already suppressed (scopeActive === false), so
-  //     the chooser landing makes zero /api/observations requests (AC 1).
-  //   - Clearing the scope (the ScopeControl exit, AC "whole-US reset returns
-  //     to the chooser") routes here even if a prior scoped session left a
-  //     sticky `error` in useBirdData — the chooser is the destination, not the
-  //     error screen.
-  //   - A `?detail=` that somehow rides an unscoped URL does NOT constitute a
-  //     scope (AC "detail overlay does not by itself constitute a scope") — the
-  //     chooser still wins.
-  if (state.scope.kind === 'unscoped') {
-    return (
-      <ScopeChooser
-        states={states}
-        statesLoading={statesLoading}
-        statesError={statesError}
-        onPickState={onPickState}
-        onPickWholeUs={onPickWholeUs}
-        onResolve={onResolveZip}
-      />
-    );
-  }
-
-  if (error) {
+  // #761 (S1) — the unscoped early-return is GONE. The `.app` shell now always
+  // renders; the unscoped <ScopeChooser> is hosted as an inert, focus-trapped
+  // modal scrim sibling of <main> (below), over a mounted-but-idle map. See the
+  // inert/focus-trap `useLayoutEffect` above. The cold-load fetch stays
+  // suppressed because `scopeActive === false` keeps `useBirdData`'s `enabled`
+  // false (the #740/C6 zero-observations-on-landing AC is preserved, not
+  // superseded). A `?detail=` riding an unscoped URL does NOT constitute a
+  // scope: the detail rail/sheet render is gated on `scopeActive` below, so the
+  // chooser scrim is the only overlay shown.
+  //
+  // The error early-return below is RETAINED (error-as-overlay is the third
+  // unmount fork, deferred to O7 — out of scope here). It is gated on
+  // `scopeActive` to preserve the exact precedence the old unscoped early-return
+  // gave for free: that return sat BEFORE this guard, so the chooser won over a
+  // sticky `error`. `useBirdData` does not clear `error` when it is disabled, so
+  // a scoped session that errored and then cleared scope (→ unscoped) would
+  // otherwise fall through to the error screen instead of the chooser scrim.
+  // While unscoped the chooser scrim is always the destination (AC: clearing
+  // scope returns to the chooser, never a CONUS home or the error screen).
+  if (scopeActive && error) {
     return (
       <StatusBlock
         state="error"
@@ -647,19 +732,24 @@ export function App() {
         {mapVisible && (
           <>
             {/* #740 (C6) — the in-state on-map re-scope bar (#737). Rendered
-                ONLY in a scoped view (guaranteed here: the unscoped early-return
-                above shows the chooser instead). Floats over the canvas; emits
-                one clean scope intent per action and never touches the map.
-                `state.scope` is narrowed to a ScopedView since unscoped already
-                returned. */}
-            <ScopeControl
-              scope={state.scope}
-              states={states}
-              onPickState={onPickState}
-              onPickWholeUs={onPickWholeUs}
-              onExit={onExitScope}
-              onResolve={onResolveZip}
-            />
+                ONLY in a SCOPED view. #761 (S1) removed the unscoped
+                early-return, so the map now mounts idle behind the chooser
+                scrim while unscoped too — this `state.scope.kind !== 'unscoped'`
+                guard keeps ScopeControl off the unscoped landing (the chooser
+                scrim is the only scope affordance there) AND narrows
+                `state.scope` to the `ScopedView` the component's prop requires.
+                Floats over the canvas; emits one clean scope intent per action
+                and never touches the map. */}
+            {state.scope.kind !== 'unscoped' && (
+              <ScopeControl
+                scope={state.scope}
+                states={states}
+                onPickState={onPickState}
+                onPickWholeUs={onPickWholeUs}
+                onExit={onExitScope}
+                onResolve={onResolveZip}
+              />
+            )}
             <MapSurface
               observations={observations}
               legendObservations={viewportObservations}
@@ -703,7 +793,14 @@ export function App() {
           (no inert backdrop, no top-layer takeover).
         */}
       </main>
-      {state.detail && !isCompact && (
+      {/* #761 (S1) — detail rail/sheet gated on `scopeActive`. The unscoped
+          early-return used to make these lines unreachable while unscoped; now
+          that the shell always renders, a `?detail=` riding an unscoped URL
+          would otherwise mount a SECOND top-layer overlay over the chooser
+          scrim. The `scopeActive` gate stops that: detail is not a scope (AC
+          "detail overlay does not by itself constitute a scope"), so the
+          chooser scrim is the only overlay shown on the unscoped landing. */}
+      {scopeActive && state.detail && !isCompact && (
         <SpeciesDetailRail
           key={state.detail}
           speciesCode={state.detail}
@@ -713,7 +810,7 @@ export function App() {
           onClearBbox={onClearBbox}
         />
       )}
-      {state.detail && isCompact && (
+      {scopeActive && state.detail && isCompact && (
         <SpeciesDetailSheet
           key={state.detail}
           speciesCode={state.detail}
@@ -723,6 +820,33 @@ export function App() {
           bbox={state.bbox}
           onClearBbox={onClearBbox}
         />
+      )}
+      {/* #761 (S1) — the unscoped landing chooser, hosted as an INERT,
+          FOCUS-TRAPPED modal scrim over the mounted-but-idle map. It renders as
+          a floating sibling of <main> (the #663 floating-overlay pattern), NOT
+          in place of the shell — the early-return that used to unmount the whole
+          tree is gone. The scrim wrapper carries `tabIndex={-1}` so the
+          inert/focus-trap effect above can land initial focus on it; the
+          backdrop + above-the-overlays z-tier live in `.scope-chooser-scrim` in
+          styles.css. `<ScopeChooser>` is unchanged — same callback props as
+          before. Gated on `!scopeActive`: picking a scope (state/ZIP/whole-US)
+          unmounts the scrim, clears `inert`, and the live-camera path animates
+          with no shell remount. */}
+      {!scopeActive && (
+        <div
+          ref={scrimRef}
+          className="scope-chooser-scrim"
+          tabIndex={-1}
+        >
+          <ScopeChooser
+            states={states}
+            statesLoading={statesLoading}
+            statesError={statesError}
+            onPickState={onPickState}
+            onPickWholeUs={onPickWholeUs}
+            onResolve={onResolveZip}
+          />
+        </div>
       )}
       {/*
         Phase 6: Footer removed. The Attribution trigger moved to <AppHeader>

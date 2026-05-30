@@ -111,20 +111,27 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
     await expect(app.chooserStateSelect).toBeVisible();
     await expect(app.chooserWholeUs).toBeVisible();
 
-    // The map canvas is NOT rendered (the unscoped early-return shows the
-    // chooser in place of the map surface).
-    await expect(app.mapCanvas).toHaveCount(0);
-    await expect(app.mainSurface).toHaveCount(0);
+    // #761 (S1) re-baseline: the map is now MOUNTED but INERT behind the chooser
+    // scrim (the prior full-tree unmount is gone). The chooser scrim is the
+    // visible primary surface (asserted above); the map canvas is present and
+    // #main-surface carries `inert`.
+    await app.expectMapInert();
 
-    // Headline assertion (learning (f)): ZERO /api/observations requests fire on
-    // the chooser landing. Hold the window open to be sure no late fetch slips
-    // through (the scope gate is in App, not just the unmount).
+    // Headline assertion (learning (f)) — UNCHANGED and STILL GREEN: ZERO
+    // /api/observations requests fire on the chooser landing. The map mounting
+    // idle does NOT fire a request — `scopeActive === false` keeps the fetch
+    // gate closed (the gate is in App, independent of the now-removed unmount).
+    // Hold the window open to be sure no late fetch slips through.
     await page.waitForTimeout(800);
     expect(obsRequests).toHaveLength(0);
-    // O9 (#781): the chooser landing is fetch-light — the scope-gated prefetch
-    // must NOT warm the MapCanvas/maplibre chunk while unscoped. ZERO chunk
-    // requests over the same window.
-    expect(mapChunkRequests).toHaveLength(0);
+    // #761 (S1) re-baseline of the O9 (#781) chunk assertion: under S1 the map
+    // MOUNTS idle behind the scrim, so its lazy MapCanvas/maplibre chunk now
+    // loads on the unscoped landing (the React.lazy boundary fires once
+    // <MapSurface> mounts). This is intended — the map-first model mounts the
+    // map once and never unmounts it. The fetch-light guarantee that survives is
+    // the NETWORK one above (zero /api/observations); the JS-bundle chunk is no
+    // longer suppressible while the map is mounted-but-inert.
+    expect(mapChunkRequests.length).toBeGreaterThan(0);
   });
 
   test('state select round-trip — ?state=US-AZ, map fetches once with state=US-AZ, region "Arizona"', async ({
@@ -136,9 +143,12 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
 
     await app.gotoRaw('');
     await expect(app.chooser).toBeVisible();
-    // O9 (#781): the chunk is NOT warmed while we are still on the unscoped
-    // chooser (pre-pick). The scope-pick below is what triggers the prefetch.
-    expect(mapChunkRequests).toHaveLength(0);
+    // #761 (S1) re-baseline of the O9 (#781) pre-pick assertion: under S1 the
+    // idle map mounts behind the chooser scrim, so the lazy MapCanvas/maplibre
+    // chunk is already loaded BEFORE the scope is picked (the React.lazy
+    // boundary fires on the idle map's mount). The post-pick ≥1 assertion below
+    // is the surviving O9 signal that the scoped map renders.
+    await app.expectMapInert();
 
     // Pick Arizona from the chooser <select> + Go.
     await app.pickStateInChooser('US-AZ');
@@ -215,10 +225,10 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
     const countBeforeExit = obsRequests.length;
     await app.scopeControlExit.click();
 
-    // We return to the CHOOSER, NOT a CONUS map.
+    // We return to the CHOOSER scrim, NOT a CONUS map. #761 (S1): the map stays
+    // MOUNTED but INERT behind the scrim (no teardown on chooser navigation).
     await expect(app.chooser).toBeVisible();
-    await expect(app.mapCanvas).toHaveCount(0);
-    await expect(app.mainSurface).toHaveCount(0);
+    await app.expectMapInert();
     // URL is bare again (no state=, no scope=).
     expect(app.getUrlParams().has('state')).toBe(false);
     expect(app.getUrlParams().has('scope')).toBe(false);
