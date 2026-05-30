@@ -22,6 +22,7 @@ import { AttributionModal } from './components/AttributionModal.js';
 import { deriveFamilies, deriveSpeciesIndex } from './derived.js';
 import { filterObservationsByBounds } from './lib/viewport-filter.js';
 import { regionLabelFor } from './config/region.js';
+import { prefetchMapCanvas } from './prefetch.js';
 import { SurfaceTitleSync } from './components/SurfaceTitleSync.js';
 import { StatusBlock } from './components/ds/StatusBlock.js';
 import { deriveFreshness } from './lib/freshness.js';
@@ -149,6 +150,23 @@ export function App() {
     },
     scopeActive,
   );
+
+  // O9 (#781) — scope-gated MapCanvas chunk prefetch. `MapCanvas` (+ its ~273 kB
+  // gzip `maplibre-gl` dep) is code-split behind the React.lazy boundary in
+  // MapSurface.tsx; that boundary only STARTS the chunk fetch once <MapSurface>
+  // mounts, i.e. after a scope is already chosen. Warm the chunk earlier — but
+  // ONLY once a scope is known. This effect covers the SCOPED LANDING: a
+  // `?state=`/`?scope=us` deep-link mounts with `scopeActive` already true, so
+  // the warm-up fires on first paint instead of waiting for the map to mount.
+  // It early-returns when unscoped, so the fetch-light chooser landing (#740/C6)
+  // never warms the chunk. `prefetchMapCanvas` is idempotent (module-level
+  // guard) — this effect and the scope-pick handlers below coalesce to one
+  // underlying import(). The scope-pick handlers ALSO call it directly to shave
+  // the extra render-commit latency between click and mount.
+  useEffect(() => {
+    if (!scopeActive) return;
+    prefetchMapCanvas();
+  }, [scopeActive]);
 
   // #740 (C6) — the CONUS state name + envelope table (#732/#748). Drives the
   // chooser/control `<select>` display names AND the per-state camera
@@ -417,6 +435,10 @@ export function App() {
   // home — AC "whole-US reset returns to the chooser", #741 e2e contract).
   const onPickState = useCallback(
     (stateCode: string) => {
+      // O9 (#781) — warm the MapCanvas chunk on the click, ahead of the resulting
+      // state change + <MapSurface> mount. Idempotent; the scopeActive effect
+      // re-fires on the state change but the module-level guard no-ops it.
+      prefetchMapCanvas();
       setFlyTo(undefined);
       set({ scope: { kind: 'state', stateCode } as Scope });
     },
@@ -424,12 +446,16 @@ export function App() {
   );
 
   const onPickWholeUs = useCallback(() => {
+    // O9 (#781) — warm the MapCanvas chunk on the click (see onPickState).
+    prefetchMapCanvas();
     setFlyTo(undefined);
     set({ scope: { kind: 'us' } });
   }, [set]);
 
   const onResolveZip = useCallback(
     (resolution: ScopeResolution) => {
+      // O9 (#781) — warm the MapCanvas chunk on the resolve (see onPickState).
+      prefetchMapCanvas();
       // Set the state scope first (so `?state=` + the clip fetch land), then
       // stage the transient metro `flyTo`. MapCanvas's camera-intent effect
       // prefers the `flyTo` over the whole-state `fitBounds` on the same mount

@@ -10,8 +10,19 @@ import { prettyFamily } from '../derived.js';
 
 /**
  * Lazy-loaded MapCanvas. The React.lazy() boundary lives HERE — not inside
- * MapCanvas — so the 217 KB maplibre-gl chunk is only fetched when the map
- * surface is first rendered. Feed and Species tabs never pay for it.
+ * MapCanvas — so the maplibre-gl chunk is only fetched when the map surface is
+ * first rendered. Feed and Species tabs never pay for it. The chunk is large:
+ * ~1,028 kB raw / ~273 kB gzip (measured in `dist/assets/maplibre-gl-*.js`,
+ * not the ~217 KB this comment previously claimed) — which is exactly why the
+ * split must stay (OQ5 / #781): eager-inlining it would regress every cold
+ * start, including the unscoped chooser landing where the map never renders.
+ *
+ * On scoped paths the chunk is warmed EARLY by `prefetchMapCanvas()`
+ * (`src/prefetch.ts`, wired in App.tsx) — fired on a scoped landing and on each
+ * scope-pick, NEVER on the unscoped chooser landing. The prefetch references
+ * the SAME `'./map/MapCanvas.js'` specifier (the bundler dedupes both to one
+ * chunk), so it only warms the browser module cache this Suspense boundary then
+ * reads from on mount. This lazy boundary remains the actual mount-time loader.
  */
 const MapCanvas = React.lazy(() =>
   import('./map/MapCanvas.js').then((m) => ({ default: m.MapCanvas })),
