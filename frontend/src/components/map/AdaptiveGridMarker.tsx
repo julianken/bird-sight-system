@@ -23,8 +23,8 @@ import { ClusterListPopover } from './ClusterListPopover.js';
  *
  * Hit-extender contract (spec §4.4, corrected per Phase 0 issue #541):
  *   - The outer `<button>` IS the click surface.
- *   - `tabIndex={-1}` (spec §4.7 — keyboard users use the skip-link to the
- *     FeedSurface list landmark).
+ *   - `tabIndex={-1}` (spec §4.7 — keyboard users use the live "Explore map
+ *     markers" skip-link to reach the first marker cell, #558).
  *   - A transparent overlay `<span class="adaptive-grid-marker__hit">`
  *     extends OUTWARD via per-axis `top/bottom/left/right` style values
  *     so the hit zone is ≥44×44 (fine pointer) or ≥48×48 (coarse). The

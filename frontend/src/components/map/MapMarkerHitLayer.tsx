@@ -13,8 +13,8 @@ import { useEffect, useRef, useState, useCallback } from 'react';
  *
  * The hit layer is intentionally NOT in the global Tab order. Per the
  * issue body Gotchas — a 344-marker tab sequence is hostile to keyboard
- * users. The skip-link in MapSurface routes Tab traffic to the FeedSurface
- * list landmark (which is properly navigable).
+ * users. The live "Explore map markers" skip-link in MapSurface routes Tab
+ * traffic to the first marker cell (#558, which is properly navigable).
  *
  * Position updates: we re-project on every `move` event. The `move` event
  * fires continuously during pan/zoom, so positions stay glued to the map.

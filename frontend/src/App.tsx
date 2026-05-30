@@ -8,7 +8,12 @@ import type { ScopeResolution } from './state/scope-types.js';
 import { useBirdData } from './data/use-bird-data.js';
 import { useSilhouettes } from './data/use-silhouettes.js';
 import { useStates } from './data/use-states.js';
+import { useStatePolygon } from './data/state-polygons.js';
 import { useSpeciesDetail } from './data/use-species-detail.js';
+// ARTBOARD_PAD lives in the map's mask util but mask.ts imports only `geojson`
+// *types* (erased at build), so this does NOT pull the lazy maplibre chunk into
+// the entry bundle — App owns the scope→clampPad derivation (#760/#762).
+import { ARTBOARD_PAD } from './components/map/mask.js';
 import { FiltersBar } from './components/FiltersBar.js';
 import { FeedSurface } from './components/FeedSurface.js';
 import { MapSurface } from './components/MapSurface.js';
@@ -22,6 +27,7 @@ import { AttributionModal } from './components/AttributionModal.js';
 import { deriveFamilies, deriveSpeciesIndex } from './derived.js';
 import { filterObservationsByBounds } from './lib/viewport-filter.js';
 import { regionLabelFor } from './config/region.js';
+import { prefetchMapCanvas } from './prefetch.js';
 import { SurfaceTitleSync } from './components/SurfaceTitleSync.js';
 import { StatusBlock } from './components/ds/StatusBlock.js';
 import { deriveFreshness } from './lib/freshness.js';
@@ -150,6 +156,23 @@ export function App() {
     scopeActive,
   );
 
+  // O9 (#781) — scope-gated MapCanvas chunk prefetch. `MapCanvas` (+ its ~273 kB
+  // gzip `maplibre-gl` dep) is code-split behind the React.lazy boundary in
+  // MapSurface.tsx; that boundary only STARTS the chunk fetch once <MapSurface>
+  // mounts, i.e. after a scope is already chosen. Warm the chunk earlier — but
+  // ONLY once a scope is known. This effect covers the SCOPED LANDING: a
+  // `?state=`/`?scope=us` deep-link mounts with `scopeActive` already true, so
+  // the warm-up fires on first paint instead of waiting for the map to mount.
+  // It early-returns when unscoped, so the fetch-light chooser landing (#740/C6)
+  // never warms the chunk. `prefetchMapCanvas` is idempotent (module-level
+  // guard) — this effect and the scope-pick handlers below coalesce to one
+  // underlying import(). The scope-pick handlers ALSO call it directly to shave
+  // the extra render-commit latency between click and mount.
+  useEffect(() => {
+    if (!scopeActive) return;
+    prefetchMapCanvas();
+  }, [scopeActive]);
+
   // #740 (C6) — the CONUS state name + envelope table (#732/#748). Drives the
   // chooser/control `<select>` display names AND the per-state camera
   // `fitBounds`/`maxBounds` envelope. Cached for the tab lifetime (see
@@ -228,6 +251,20 @@ export function App() {
     // unscoped — no scope camera (the chooser is shown, the map is unmounted).
     return { scopeBounds: undefined, boundsKey: undefined };
   }, [state.scope, states]);
+
+  // #760/#762 — state-artboard mask. A `?state=US-XX` scope (and the state a ZIP
+  // resolves into, which is also a `state` scope) gets the inverse mask: the
+  // exterior is painted flat opaque gray and the camera can zoom out onto that
+  // gray field (clamp padded by ARTBOARD_PAD). `?scope=us` and the chooser get
+  // no mask (and `renderWorldCopies` stays unforced). `useStatePolygon`
+  // lazy-fetches the render-only polygon from the static `/state-polygons.json`
+  // asset (module-cached, single fetch per tab); it returns `null` for a null
+  // code, an unknown code, or while loading — in which case MapCanvas simply
+  // renders no mask (degrades to the plain view).
+  const isStateScope = state.scope.kind === 'state';
+  const statePolygon = useStatePolygon(
+    state.scope.kind === 'state' ? state.scope.stateCode : null,
+  );
 
   // #740 (C6) — a transient ZIP `flyTo` staged by `onResolve`. NOT URL state
   // (`?zip=` is never persisted, locked decision #5) — it lives in component
@@ -417,6 +454,10 @@ export function App() {
   // home — AC "whole-US reset returns to the chooser", #741 e2e contract).
   const onPickState = useCallback(
     (stateCode: string) => {
+      // O9 (#781) — warm the MapCanvas chunk on the click, ahead of the resulting
+      // state change + <MapSurface> mount. Idempotent; the scopeActive effect
+      // re-fires on the state change but the module-level guard no-ops it.
+      prefetchMapCanvas();
       setFlyTo(undefined);
       set({ scope: { kind: 'state', stateCode } as Scope });
     },
@@ -424,12 +465,16 @@ export function App() {
   );
 
   const onPickWholeUs = useCallback(() => {
+    // O9 (#781) — warm the MapCanvas chunk on the click (see onPickState).
+    prefetchMapCanvas();
     setFlyTo(undefined);
     set({ scope: { kind: 'us' } });
   }, [set]);
 
   const onResolveZip = useCallback(
     (resolution: ScopeResolution) => {
+      // O9 (#781) — warm the MapCanvas chunk on the resolve (see onPickState).
+      prefetchMapCanvas();
       // Set the state scope first (so `?state=` + the clip fetch land), then
       // stage the transient metro `flyTo`. MapCanvas's camera-intent effect
       // prefers the `flyTo` over the whole-state `fitBounds` on the same mount
@@ -674,6 +719,8 @@ export function App() {
               {...(scopeBounds ? { scopeBounds } : {})}
               {...(boundsKey !== undefined ? { boundsKey } : {})}
               {...(flyTo ? { flyTo } : {})}
+              {...(statePolygon != null ? { maskPolygon: statePolygon } : {})}
+              {...(isStateScope ? { clampPad: ARTBOARD_PAD } : {})}
             />
           </>
         )}

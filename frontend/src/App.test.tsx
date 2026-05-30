@@ -26,10 +26,15 @@ const {
   mockGetStates,
   mockUrlState,
   mapSurfaceRef,
+  mockPrefetchMapCanvas,
 } = vi.hoisted(() => ({
   mockGetHotspots: vi.fn(),
   mockGetObservations: vi.fn(),
   mockGetSilhouettes: vi.fn(),
+  // O9 (#781): spy on the scope-gated MapCanvas chunk prefetch. App must call
+  // it on a scoped landing + each scope-pick, and NEVER on the unscoped
+  // chooser landing (the #740/C6 fetch-light landing guarantee).
+  mockPrefetchMapCanvas: vi.fn(),
   // #740 (C6): App now fetches /api/states for the scope chooser/control
   // `<select>` and the state-scope camera envelope. Every test stubs it.
   mockGetStates: vi.fn(),
@@ -112,6 +117,13 @@ vi.mock('./components/MapSurface.js', () => ({
     mapSurfaceRef.renderCount += 1;
     return <div data-testid="map-surface-stub" />;
   },
+}));
+
+// O9 (#781): stub the prefetch module so the scope-gated warm-up is observable
+// (and a strict no-op) under jsdom. App imports `prefetchMapCanvas` from
+// './prefetch.js'; tests assert WHEN it is and is not called.
+vi.mock('./prefetch.js', () => ({
+  prefetchMapCanvas: mockPrefetchMapCanvas,
 }));
 
 // Stub the ApiClient constructor so useBirdData / useStates receive a
@@ -1199,5 +1211,140 @@ describe('#740 (C6): scope wiring end-to-end', () => {
     // not the bare "US-AZ" code.
     await screen.findByText(/across Arizona/i);
     expect(screen.queryByText(/across US-AZ/i)).toBeNull();
+  });
+});
+
+describe('O9 (#781): scope-gated MapCanvas prefetch wiring', () => {
+  const STATES = [
+    { stateCode: 'US-AZ', name: 'Arizona', bbox: [-114.82, 31.33, -109.05, 37.0] as [number, number, number, number] },
+  ];
+
+  beforeEach(() => {
+    __resetSilhouettesCache();
+    __resetStatesCache();
+    __resetZipIndexCache();
+    mockGetHotspots.mockResolvedValue([]);
+    mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
+    mockGetSilhouettes.mockResolvedValue([]);
+    mockGetStates.mockResolvedValue(STATES);
+    mockUrlState.set.mockClear();
+    mockPrefetchMapCanvas.mockClear();
+    mapSurfaceRef.renderCount = 0;
+    mapSurfaceRef.boundsKey = undefined;
+    mapSurfaceRef.scopeBounds = undefined;
+    mapSurfaceRef.flyTo = undefined;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // The load-bearing negative: the unscoped chooser landing must NOT warm the
+  // chunk (the #740/C6 fetch-light landing guarantee). prefetchMapCanvas is
+  // never called while scope.kind === 'unscoped'.
+  it('does NOT call prefetchMapCanvas on the unscoped chooser landing', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'unscoped' },
+    };
+    render(<App />);
+    await screen.findByRole('region', { name: /Choose where to look at birds/i });
+    // Give any mistaken scope effect a tick to fire.
+    await waitFor(() => {
+      expect(mockGetStates).toHaveBeenCalled();
+    });
+    expect(mockPrefetchMapCanvas).not.toHaveBeenCalled();
+  });
+
+  // Scoped landing: a `?state=US-AZ` deep-link mounts with scopeActive already
+  // true → the scopeActive effect warms the chunk.
+  it('calls prefetchMapCanvas on a scoped landing (?state=US-AZ deep-link)', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
+    };
+    render(<App />);
+    await waitFor(() => {
+      expect(mockPrefetchMapCanvas).toHaveBeenCalled();
+    });
+  });
+
+  // Scoped landing: ?scope=us is also a real scope → warms the chunk.
+  it('calls prefetchMapCanvas on a ?scope=us scoped landing', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'us' },
+    };
+    render(<App />);
+    await waitFor(() => {
+      expect(mockPrefetchMapCanvas).toHaveBeenCalled();
+    });
+  });
+
+  // Scope-pick: chooser pick-state warms the chunk on the click (ahead of the
+  // resulting state change + MapSurface mount).
+  it('calls prefetchMapCanvas when picking a state from the chooser', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'unscoped' },
+    };
+    render(<App />);
+    await screen.findByRole('region', { name: /Choose where to look at birds/i });
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: 'Arizona' })).toBeInTheDocument();
+    });
+    expect(mockPrefetchMapCanvas).not.toHaveBeenCalled();
+    await userEvent.selectOptions(screen.getByLabelText('State'), 'US-AZ');
+    await userEvent.click(screen.getByRole('button', { name: /^Go$/i }));
+    expect(mockPrefetchMapCanvas).toHaveBeenCalled();
+  });
+
+  // Scope-pick: chooser whole-US warms the chunk on the click.
+  it('calls prefetchMapCanvas when picking whole-US from the chooser', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'unscoped' },
+    };
+    render(<App />);
+    await screen.findByRole('region', { name: /Choose where to look at birds/i });
+    expect(mockPrefetchMapCanvas).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: /Explore the whole US map/i }));
+    expect(mockPrefetchMapCanvas).toHaveBeenCalled();
+  });
+
+  // Scope-pick: ZIP onResolve (in-state ScopeControl) warms the chunk. Start
+  // already scoped so the on-map ScopeControl ZipInput is mounted. Mirrors the
+  // #740 ZIP-onResolve test's fetch stub for the zip-lookup index.
+  it('calls prefetchMapCanvas when resolving a ZIP via the in-state ScopeControl', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
+    };
+    render(<App />);
+    await screen.findByTestId('map-surface-stub');
+    // The scoped landing already warmed once; clear so the assertion isolates
+    // the ZIP-resolve call.
+    await waitFor(() => {
+      expect(mockPrefetchMapCanvas).toHaveBeenCalled();
+    });
+    mockPrefetchMapCanvas.mockClear();
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({ v: 1, states: ['US-AZ'], zips: { '85701': [32.2217, -110.9747, 0] } }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    try {
+      const zipInputs = screen.getAllByLabelText('ZIP code');
+      const zip = zipInputs[zipInputs.length - 1];
+      await userEvent.type(zip, '85701');
+      await userEvent.type(zip, '{Enter}');
+      await waitFor(() => {
+        expect(mockPrefetchMapCanvas).toHaveBeenCalled();
+      });
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });
