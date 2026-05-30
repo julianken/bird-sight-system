@@ -5,7 +5,32 @@
   --opacity-dimmed: 0.2;
   --opacity-hover:  0.3;
 
-  --z-panel: 40;
+  /* Named overlay z-index scale (#761 P1, issue #778). #761 P1 is a STRICT
+     zero-visual-change refactor: it names the existing tiers but does NOT
+     invert any element's visible stacking. The tiers actually ADOPTED in this
+     PR (overlay/popover/rail/cell-popover/cluster-popover/skip) preserve the
+     pre-refactor stack order EXACTLY — note the rail (--z-rail) sits BELOW the
+     cell/cluster popovers, matching today's rail(45) < cell(46) < cluster(47).
+     --z-chrome and --z-modal are DEFINED here for later PRs to adopt but are
+     NOT yet applied: .app-header keeps its raw z-index: 10 (below the overlays)
+     until S2 (#775) makes it floating chrome + adds the overlay top-offset; the
+     SpeciesDetailSheet keeps its raw 10/15/20 until O5 (#783) lifts the
+     full-snap sheet above legend/popover with the compensating #663 inert work.
+     Mirrors the renumbered zIndex object in tokens.ts (keep both sides in sync).
+     --z-panel is a deprecated CSS-only alias of --z-overlay kept for one PR so
+     existing calc(var(--z-panel)+N) refs in ds-primitives.css resolve unchanged;
+     migrate those refs and remove this alias in a #761 follow-up.
+     Added 2026-05-30 (#761 P1). */
+  --z-map:             0;    /* persistent map canvas base layer                       */
+  --z-overlay:         40;   /* map-assist overlays: legend, scope-control             */
+  --z-popover:         41;   /* on-canvas popovers above map-assist overlays           */
+  --z-chrome:          42;   /* DEFINED for S2 (#775) — floating app-header chrome; NOT adopted in P1 */
+  --z-rail:            43;   /* detail rail — above overlays, BELOW cell/cluster popovers */
+  --z-cell-popover:    44;   /* per-cell popover — above the rail                      */
+  --z-cluster-popover: 45;   /* cluster-list popover — above the cell popover          */
+  --z-modal:           50;   /* DEFINED for O5 (#783) — full-screen sheet/modal; NOT adopted in P1 */
+  --z-skip:            60;   /* skip-link — always reachable, above all                */
+  --z-panel: var(--z-overlay); /* DEPRECATED alias — remove in #761 follow-up          */
 
   --space-xs: 4px;
   --space-sm: 8px;
@@ -121,7 +146,7 @@ body {
   color: var(--color-text-strong);
   font: inherit;
   cursor: pointer;
-  z-index: calc(var(--z-panel) + 10);
+  z-index: var(--z-skip);
 }
 .skip-link:focus,
 .skip-link:focus-visible {
@@ -170,6 +195,15 @@ body {
   border-bottom: 1px solid var(--color-border-ui);
   position: sticky;
   top: 0;
+  /* KEPT at the pre-refactor raw 10 (BELOW the overlay band) — #761 P1 (#778)
+     is a strict zero-visual-change refactor and must NOT invert any element's
+     visible stacking. The `.scope-control` floats at top: var(--space-md) (12px)
+     and overlaps this 48px header by ~36px; raising the header to --z-chrome (42,
+     above the overlays) would make it intercept clicks on the scope-control
+     controls (elementFromPoint → HEADER), failing state-scope.spec.ts:180.
+     Adopting --z-chrome (above overlays) for the now-floating header is deferred
+     to S2 (#775), which makes the header floating chrome AND adds the overlay
+     top-offset so the floating header does not occlude .scope-control. (2026-05-30) */
   z-index: 10;
 }
 
@@ -865,7 +899,7 @@ body {
   position: absolute;
   bottom: var(--space-md);
   left: var(--space-md);
-  z-index: var(--z-panel);
+  z-index: var(--z-overlay);
   background: var(--color-bg-surface);
   border: 1px solid var(--color-border-ui);
   border-radius: 6px;
@@ -995,7 +1029,7 @@ body {
    layout read on the popover DOM. Change both together. */
 .observation-popover {
   position: absolute;
-  z-index: calc(var(--z-panel) + 1);
+  z-index: var(--z-popover);
   background: var(--color-bg-surface);
   border: 1px solid var(--color-border-ui);
   border-radius: 6px;
@@ -1074,9 +1108,16 @@ body {
    capped at 560px (issue #663 Addendum A); the Map keeps the remaining
    width and stays interactive (no inert backdrop).
 
-   z-index sits above the map controls (var(--z-panel) = 40) but below
-   floating toasts/notifications. We pick (--z-panel) + 5 to mirror the
-   existing convention used by .filters-panel etc.
+   z-index: the rail sits at the dedicated rail tier (--z-rail = 43), above the
+   map-assist overlays (--z-overlay/--z-popover = 40/41) and BELOW the
+   cell/cluster popovers (--z-cell-popover/--z-cluster-popover = 44/45 — both
+   popovers still float ABOVE the rail, matching the pre-refactor
+   rail(45) < cell(46) < cluster(47)). This is a rank-preserving rename: the
+   raw value moves 45 → 43 but the rail's order relative to everything that can
+   overlap it is unchanged. The named --z-chrome / --z-modal tiers exist in the
+   scale but are NOT adopted by .app-header / the sheet in this PR (#761 P1 is
+   strict zero-visual-change); the header stays at raw 10 below the overlays
+   until S2 (#775) and the sheet stays at 10/15/20 until O5 (#783). (#761 P1, #778.)
    ========================================================================== */
 aside.species-detail-rail {
   position: fixed;
@@ -1089,7 +1130,7 @@ aside.species-detail-rail {
   border-left: 1px solid var(--color-border, rgba(0, 0, 0, 0.08));
   box-shadow: -8px 0 32px rgba(0, 0, 0, 0.12);
   overflow: auto;
-  z-index: calc(var(--z-panel) + 5);
+  z-index: var(--z-rail);
 }
 
 aside.species-detail-rail .species-detail-rail-close {
@@ -1129,6 +1170,12 @@ aside.species-detail-rail .species-detail-rail-close {
   border-top-left-radius: var(--radius-lg, 12px);
   border-top-right-radius: var(--radius-lg, 12px);
   box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.18);
+  /* KEPT at the pre-refactor raw values (base/peek/half/full = 10/10/15/20,
+     BELOW the overlay band) — #761 P1 (#778) is a strict zero-visual-change
+     refactor and must NOT invert any element's visible stacking. Adopting
+     --z-modal (above the overlays) for the full-snap sheet is deferred to
+     O5 (#783), which rewires the full-snap sheet above legend/popover and
+     does the compensating #663 inert work. (2026-05-30) */
   z-index: 10;
   display: flex;
   flex-direction: column;
@@ -1144,7 +1191,8 @@ aside.species-detail-rail .species-detail-rail-close {
 
 .species-detail-sheet--full {
   /* At full snap, the sheet covers the viewport sans 8px inset. Visual
-     parity with the modal — same z-stack expectation. */
+     parity with the modal — same z-stack expectation. KEPT at the pre-refactor
+     raw 20; adopting --z-modal (above overlays) is deferred to O5 (#783). */
   z-index: 20;
 }
 
@@ -1295,19 +1343,22 @@ aside.species-detail-rail .species-detail-rail-close {
 
    --peek: collapsed bar; gives affordance without covering the map.
    --half: mid-point snap; common for drill-down gesture contexts.
-   --full: already authored at styles.css:1288 (z-index: 20 uplift). */
+   --full: already authored above (z-index: 20). */
 .species-detail-sheet--peek {
   /* Collapsed bar — anchored at bottom with shallow z-index so map controls
-     remain fully interactive. Content is clipped at the inline-driven 96px
-     peek height. */
+     remain fully interactive. KEPT at the pre-refactor raw 10 — #761 P1 (#778)
+     preserves the sheet's current stacking; adopting --z-modal is deferred to
+     O5 (#783). Content is clipped at the inline-driven 96px peek height. */
   z-index: 10;
   overflow: hidden;
 }
 
 .species-detail-sheet--half {
-  /* Half-height state — above the map but below the full-screen tier.
-     Overflow hidden keeps the sheet clean at the snap boundary; .sheet-scroll
-     inside handles scrollable content via its own touch-action. */
+  /* Half-height state — above the map but below the full-screen tier. KEPT at
+     the pre-refactor raw 15 — #761 P1 (#778) preserves the sheet's current
+     stacking; adopting --z-modal is deferred to O5 (#783). Overflow hidden
+     keeps the sheet clean at the snap boundary; .sheet-scroll inside handles
+     scrollable content via its own touch-action. */
   z-index: 15;
   overflow: hidden;
 }
@@ -1888,8 +1939,8 @@ aside.species-detail-rail .species-detail-rail-close {
    chooser landing (that is .scope-chooser above). Unlike the C0 prototype's
    .scope-app__bar — a non-overlapping flex row that sat ABOVE the map — the
    production control FLOATS over the canvas: absolutely positioned, anchored
-   top-center, layered above the basemap via the same `--z-panel` token the
-   other map overlays (.family-legend, .observation-popover) use. Because it
+   top-center, layered above the basemap via the same `--z-overlay` tier the
+   other map-assist overlay (.family-legend) uses. Because it
    floats, #736/C3's `fitBounds` top-padding is ASYMMETRIC (top ≈ this bar's
    height) so the framed state isn't occluded.
 
@@ -1904,7 +1955,7 @@ aside.species-detail-rail .species-detail-rail-close {
   position: absolute;
   inset-block-start: var(--space-md);
   inset-inline: var(--space-md);
-  z-index: var(--z-panel);
+  z-index: var(--z-overlay);
   display: flex;
   flex-wrap: wrap;
   align-items: center;

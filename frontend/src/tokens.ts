@@ -57,25 +57,43 @@ export const iconSize = {
   silhouetteBbox: { w: 24, h: 24 },
 } as const;
 
+/**
+ * Named floating-overlay z-index tier scale (#761 P1, issue #778).
+ *
+ * Renumbered into one strictly-increasing named sequence that preserves the
+ * pre-refactor VISIBLE stack order EXACTLY — note the rail (`rail`) sits BELOW
+ * the cell/cluster popovers (`cellPopover`/`clusterPopover`), matching today's
+ * rail(45) < cell(46) < cluster(47). Doc/test-only: no runtime code reads any
+ * member (verified — refs live only here and in tokens.test.ts), so the
+ * renumber has zero behavioral blast radius. Mirrors the `--z-*` custom
+ * properties in styles.css :root (keep both sides numerically in sync).
+ */
 export const zIndex = {
-  /** Default stacking (reserved — no rule uses this today). */
-  base: 0,
-  /**
-   * Region polygon layer. Reserved for future CSS-stacked layers; note that
-   * SVG interiors paint in document order, NOT CSS z-index. The region
-   * polygons today are SVG children, so this value never applies to them.
-   */
-  shapes: 10,
-  /** Badge layer (reserved). */
-  badges: 20,
-  /** Hotspot-dot layer (reserved). */
-  hotspots: 25,
-  /** Scrims / full-screen backdrops (reserved). */
-  overlay: 30,
-  /** Panel z-index (reserved for future overlays). Was `10` before tokens landed. */
-  panel: 40,
-  /** Future modal dialogs (reserved). */
+  /** Persistent map canvas base layer. */
+  map: 0,
+  /** Map-assist overlays: family legend, scope-control. */
+  overlay: 40,
+  /** On-canvas popovers above map-assist overlays (observation popover). */
+  popover: 41,
+  /** Floating app-header chrome band — above overlays, BELOW the rail. */
+  chrome: 42,
+  /** Species detail rail — one rank above the header chrome, BELOW the cell/cluster popovers. */
+  rail: 43,
+  /** Per-cell popover — above the rail (preserves the pre-refactor rail<cell order). */
+  cellPopover: 44,
+  /** Cluster-list popover — above the cell popover (preserves cell<cluster order). */
+  clusterPopover: 45,
+  /** Full-screen sheet / scrim / modal surfaces. */
   modal: 50,
+  /** Skip-link — always reachable, above all. */
+  skip: 60,
+  /**
+   * DEPRECATED alias of `overlay`, retained for one PR so existing
+   * CSS `calc(var(--z-panel)+N)` refs (mirrored conceptually here) resolve
+   * unchanged. NOT part of the strict-monotonic tier chain — it ties with
+   * `overlay` by design. Migrate refs and remove in a #761 follow-up.
+   */
+  panel: 40,
 } as const;
 
 export const opacity = {

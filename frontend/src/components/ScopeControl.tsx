@@ -10,7 +10,7 @@ import type { ScopeResolution } from '../state/scope-types.js';
  * `?state=US-XX` state view or a `?scope=us` whole-US view. It is NEVER the
  * pre-map landing chooser (that is `<ScopeChooser>`, #742). It floats over the
  * map canvas (absolutely positioned overlay anchored top, above the basemap via
- * the `--z-panel` token layer the other map overlays use) and lets a user
+ * the `--z-overlay` tier the other map-assist overlays use) and lets a user
  * re-scope without going back to the chooser:
  *   - a native `<select>` StateSelector (no combobox lib — repo pattern),
  *   - the existing `<ZipInput>` (#739), reused not re-implemented,
