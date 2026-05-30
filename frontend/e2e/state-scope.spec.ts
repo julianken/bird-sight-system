@@ -259,6 +259,43 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
     for (const url of obsRequests) {
       expect(new URL(url).searchParams.get('state')).toBe('US-AZ');
     }
+
+    // #737/S3 (#773): the deep-linked scoped landing frames AZ with the
+    // asymmetric `fitBounds` top-padding so the STATE envelope's north edge is
+    // pushed clear of the floating header + scope-control chrome band (markers
+    // near the top latitude are not hidden behind the bar). Assert via the live
+    // maplibre instance: project AZ's actual north latitude (37.004) to a screen Y
+    // and require it to sit BELOW the scope-control's bottom edge. With the old
+    // uniform 48px padding this Y was ~48 (under the ~113px chrome band → occluded
+    // → would fail). WebGL-guarded — falls through when `__birdMap` is absent
+    // (no-WebGL CI project), where the unit test + map-root-geometry chrome guards
+    // still cover the contract.
+    await page
+      .waitForFunction(() => {
+        const map = (window as { __birdMap?: { loaded: () => boolean; isMoving: () => boolean } }).__birdMap;
+        return !!map && map.loaded() && !map.isMoving();
+      }, undefined, { timeout: 10_000 })
+      .catch(() => { /* no WebGL hook — covered by unit + geometry guards */ });
+    const clearance = await page.evaluate(() => {
+      const map = (window as {
+        __birdMap?: { project: (lnglat: [number, number]) => { y: number } };
+      }).__birdMap;
+      const sc = document.querySelector<HTMLElement>('.scope-control');
+      if (!map || !sc) return null;
+      // AZ envelope (STATES_FIXTURE bbox [-114.82, 31.33, -109.04, 37.0]): lng
+      // center ≈ -111.93, north lat = 37.0 — the value App.tsx passes as the scope
+      // `bounds` north and the camera frames to.
+      const northY = map.project([-111.93, 37.0]).y;
+      return { northY, scopeBottom: sc.getBoundingClientRect().bottom };
+    });
+    if (clearance) {
+      // The framed state's north edge projects BELOW the chrome band — not
+      // occluded by the floating header + scope-control.
+      expect(
+        clearance.northY,
+        `framed AZ north edge (y=${clearance.northY.toFixed(1)}) clears scope-control bottom (y=${clearance.scopeBottom.toFixed(1)})`,
+      ).toBeGreaterThanOrEqual(clearance.scopeBottom);
+    }
   });
 
   test('chooser state <select> lists the name-sorted states from /api/states', async ({

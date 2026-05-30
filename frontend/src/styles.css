@@ -524,8 +524,9 @@ body {
      = the viewport). `position: relative` is RETAINED so the in-`MapSurface`
      overlays (`.family-legend`, `.observation-popover`) keep anchoring to it; the
      inner `MapCanvas` is already `width/height: 100%`, so the canvas reaches
-     full-bleed once `#map-layer` does. (Corrective `map.resize()` on the
-     flex→fixed transition is S3's — #773; S2 asserts steady-state geometry only.) */
+     full-bleed once `#map-layer` does. (The corrective `map.resize()` on the
+     flex→fixed transition landed in S3 — #773 — as a camera-neutral
+     ResizeObserver on the `data-testid="map-canvas"` wrapper in MapCanvas.tsx.) */
   position: absolute;
   inset: 0;
 }
