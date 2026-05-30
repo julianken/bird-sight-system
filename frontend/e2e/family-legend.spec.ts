@@ -115,7 +115,7 @@ test.describe('FamilyLegend (mobile)', () => {
       window.localStorage.clear();
     });
     await page.goto('/?view=map&scope=us');
-    await page.locator('main[data-render-complete="true"]').waitFor({ state: 'attached', timeout: 15_000 });
+    await new AppPage(page).waitForAppReady(15_000);
     await expect(page.locator('[data-testid=map-canvas]')).toBeVisible({ timeout: 15_000 });
 
     const toggle = page.getByRole('button', { name: /Bird families in view/i });

@@ -89,11 +89,13 @@ test.describe('Map cold load — issue #716', () => {
     // land on the whole-US escape hatch (`?scope=us` → region "USA").
     await app.goto('scope=us');
 
-    // <main data-render-complete="false"> is the loading-state marker —
-    // App.tsx flips it to "true" only when useBirdData's combined `loading`
-    // settles. We wait for it to confirm React mounted.
+    // [data-render-complete="false"] is the loading-state marker — App.tsx
+    // flips it to "true" only when useBirdData's combined `loading` settles.
+    // We wait for it to confirm React mounted. Keyed on the attribute (not the
+    // `<main>` tag) so it survives the map-first inversion (#761) moving the
+    // readiness-bearing element off `<main>`.
     await page
-      .locator('main[data-render-complete="false"]')
+      .locator('[data-render-complete="false"]')
       .waitFor({ state: 'attached', timeout: 5_000 });
 
     const lede = page.locator('.map-lede');

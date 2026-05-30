@@ -175,7 +175,11 @@ test.describe('A11Y-10 — <main> tabindex review', () => {
     await app.waitForAppReady();
 
     const tabIndex = await page.evaluate(() => {
-      const main = document.querySelector('main#main-surface');
+      // Browser context: a Playwright Locator can't cross into page.evaluate,
+      // so we select on the tag-AND-id-free `[data-render-complete]` attribute
+      // (the readiness hook the map-first inversion (#761) carries forward).
+      // It resolves to the same single element as `#main-surface` today.
+      const main = document.querySelector('[data-render-complete]');
       return main instanceof HTMLElement ? main.tabIndex : null;
     });
     // tabIndex=0 — keyboard-focusable scrollable region per WCAG 2.1.1.

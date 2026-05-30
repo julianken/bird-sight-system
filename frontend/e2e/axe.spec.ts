@@ -296,8 +296,7 @@ test.describe('axe-core WCAG scans', () => {
 
       // The map landmark is inert — set BEFORE the role flip in JS, but
       // observable as a steady-state attribute once the transition settles.
-      const main = page.locator('#main-surface');
-      await expect(main).toHaveAttribute('inert', '');
+      await expect(app.mainSurface).toHaveAttribute('inert', '');
 
       const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
       if (results.violations.length) {

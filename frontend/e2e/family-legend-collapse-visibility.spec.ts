@@ -138,7 +138,11 @@ async function assertChipInsideMain(
   page: import('@playwright/test').Page,
 ): Promise<{ chipBottom: number; mainBottom: number; chipLeft: number; mainLeft: number }> {
   const rects = await page.evaluate(() => {
-    const main = document.querySelector<HTMLElement>('#main-surface');
+    // Browser context: select the readiness surface on the tag-AND-id-free
+    // `[data-render-complete]` attribute (the hook the map-first inversion
+    // (#761) carries forward), which resolves to the same single element as
+    // `#main-surface` today. A Playwright Locator can't cross into evaluate.
+    const main = document.querySelector<HTMLElement>('[data-render-complete]');
     // The collapsed chip is the toggle button with aria-expanded="false" inside .map-surface
     const chip = document.querySelector<HTMLElement>(
       '.map-surface button[aria-expanded="false"]',
