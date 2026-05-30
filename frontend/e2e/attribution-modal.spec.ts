@@ -68,8 +68,12 @@ test.describe('AttributionModal — open / close (desktop)', () => {
     const app = new AppPage(page);
     await app.goto('scope=us');
     await app.waitForAppReady();
-    const trigger = page.locator('button.attribution-trigger');
-    await trigger.click();
+    // #761 (S2): open via the AppHeader "Attribution" button (the live affordance,
+    // fixed chrome on --z-chrome). The standalone `.attribution-trigger` shim now
+    // sits in the `.app` flow BEHIND the full-viewport `#map-layer`, so a direct
+    // pointer click on it is intercepted by the map. The header fires the same
+    // onOpenAttribution → programmatic `.attribution-trigger.click()` shim.
+    await app.attributionTrigger.click();
     const dialog = page.locator('dialog.attribution-modal');
     await expect(dialog).toHaveAttribute('open', '');
     // The dialog has an h2 title.
@@ -80,7 +84,7 @@ test.describe('AttributionModal — open / close (desktop)', () => {
     const app = new AppPage(page);
     await app.goto('scope=us');
     await app.waitForAppReady();
-    await page.locator('button.attribution-trigger').click();
+    await app.attributionTrigger.click();
     const dialog = page.locator('dialog.attribution-modal');
     await expect(dialog.getByRole('heading', { level: 3, name: /bird sightings data/i })).toBeVisible();
     await expect(dialog.getByRole('heading', { level: 3, name: /family silhouettes/i })).toBeVisible();
@@ -91,7 +95,7 @@ test.describe('AttributionModal — open / close (desktop)', () => {
     const app = new AppPage(page);
     await app.goto('scope=us');
     await app.waitForAppReady();
-    await page.locator('button.attribution-trigger').click();
+    await app.attributionTrigger.click();
     const dialog = page.locator('dialog.attribution-modal');
     // Wait for the seeded Phylopic data to land (it arrives via the
     // /api/silhouettes fetch). At least one row with a creator must
@@ -118,7 +122,7 @@ test.describe('AttributionModal — open / close (desktop)', () => {
     const app = new AppPage(page);
     await app.goto('scope=us');
     await app.waitForAppReady();
-    await page.locator('button.attribution-trigger').click();
+    await app.attributionTrigger.click();
     const dialog = page.locator('dialog.attribution-modal');
     await expect(dialog.getByRole('heading', { level: 3, name: /bird sightings data/i })).toBeVisible();
     // Wait for any phylopic data to land so the assertion sees the full
@@ -135,40 +139,41 @@ test.describe('AttributionModal — open / close (desktop)', () => {
     }
   });
 
-  test('Escape closes the dialog and returns focus to the Credits trigger', async ({ page }) => {
+  test('Escape closes the dialog and returns focus to the opener', async ({ page }) => {
     const app = new AppPage(page);
     await app.goto('scope=us');
     await app.waitForAppReady();
-    const trigger = page.locator('button.attribution-trigger');
-    await trigger.click();
+    // #761 (S2): open via the header affordance (the standalone trigger is behind
+    // the full-bleed map). The modal restores focus to `document.activeElement` at
+    // open time — now the header "Attribution" button — so focus-return is asserted
+    // on that button (the live opener), not the occluded `.attribution-trigger`.
+    await app.attributionTrigger.click();
     const dialog = page.locator('dialog.attribution-modal');
     await expect(dialog).toHaveAttribute('open', '');
 
     await page.keyboard.press('Escape');
-    // After Escape, the dialog closes and focus returns to the trigger.
+    // After Escape, the dialog closes and focus returns to the opener.
     await expect(dialog).not.toHaveAttribute('open', '');
-    await expect(trigger).toBeFocused();
+    await expect(app.attributionTrigger).toBeFocused();
   });
 
-  test('close button closes the dialog and returns focus to the Credits trigger', async ({ page }) => {
+  test('close button closes the dialog and returns focus to the opener', async ({ page }) => {
     const app = new AppPage(page);
     await app.goto('scope=us');
     await app.waitForAppReady();
-    const trigger = page.locator('button.attribution-trigger');
-    await trigger.click();
+    await app.attributionTrigger.click();
     const dialog = page.locator('dialog.attribution-modal');
     const close = dialog.getByRole('button', { name: /close/i });
     await close.click();
     await expect(dialog).not.toHaveAttribute('open', '');
-    await expect(trigger).toBeFocused();
+    await expect(app.attributionTrigger).toBeFocused();
   });
 
   test('opening the dialog moves focus into the modal (close button is autofocused)', async ({ page }) => {
     const app = new AppPage(page);
     await app.goto('scope=us');
     await app.waitForAppReady();
-    const trigger = page.locator('button.attribution-trigger');
-    await trigger.click();
+    await app.attributionTrigger.click();
     const dialog = page.locator('dialog.attribution-modal');
     const close = dialog.getByRole('button', { name: /close/i });
     await expect(close).toBeFocused();
@@ -191,20 +196,21 @@ test.describe('AttributionModal — mobile viewport', () => {
     const app = new AppPage(page);
     await app.goto('scope=us');
     await app.waitForAppReady();
-    const trigger = page.locator('button.attribution-trigger');
-    await trigger.click();
+    // #761 (S2): open via the header affordance; focus returns to that opener
+    // (the standalone trigger is behind the full-bleed map — see desktop tests).
+    await app.attributionTrigger.click();
     const dialog = page.locator('dialog.attribution-modal');
     await expect(dialog).toHaveAttribute('open', '');
     await page.keyboard.press('Escape');
     await expect(dialog).not.toHaveAttribute('open', '');
-    await expect(trigger).toBeFocused();
+    await expect(app.attributionTrigger).toBeFocused();
   });
 
   test('Phylopic section renders at least one silhouette (mobile)', async ({ page }) => {
     const app = new AppPage(page);
     await app.goto('scope=us');
     await app.waitForAppReady();
-    await page.locator('button.attribution-trigger').click();
+    await app.attributionTrigger.click();
     const dialog = page.locator('dialog.attribution-modal');
     const rows = dialog.locator('[data-testid=attribution-phylopic-row]');
     await expect(rows.first()).toBeVisible({ timeout: 10_000 });

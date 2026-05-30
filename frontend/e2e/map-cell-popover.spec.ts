@@ -168,6 +168,28 @@ test('@coarse tablet 768×1024: tap marker → cluster-list popover → tap spec
   // Wait for the map render to complete (canonical pattern).
   await page.locator('[data-testid="adaptive-grid-marker"]').first().waitFor({ state: 'visible' });
 
+  // #761 (S2): wait for the map to go IDLE before tapping. The cluster-list
+  // popover renders INSIDE the AdaptiveGridMarker; if the marker-reconcile churn
+  // (sourcedata → render → idle, triggered while the canvas is still settling)
+  // re-creates the marker DOM node AFTER the tap, the marker's local
+  // `isClusterListOpen` state resets and the popover is dismissed mid-assertion.
+  // Post-inversion the map mounts into the full-viewport `#map-layer` and the
+  // settle window can extend just past first-marker-visible at this viewport
+  // (the corrective `map.resize()` on the flex→fixed transition is S3's — #773 —
+  // and is intentionally NOT wired here; S2 asserts steady state). Waiting for a
+  // settled idle frame closes that race deterministically without map-resize
+  // plumbing. If `__birdMap` is unavailable (no WebGL), fall through — the
+  // describe-level skip guards already cover that path.
+  await page
+    .waitForFunction(() => {
+      const map = (window as { __birdMap?: { isMoving: () => boolean; loaded: () => boolean } }).__birdMap;
+      return !!map && map.loaded() && !map.isMoving();
+    }, undefined, { timeout: 10_000 })
+    .catch(() => { /* no map hook (no WebGL) — the existing skip guards apply */ });
+  // Settle one more rAF beyond `idle` so any trailing reconcile commit lands
+  // before we interact (the marker DOM node is stable after this point).
+  await page.waitForTimeout(300);
+
   // Tap a multi-leaf cluster marker.
   const marker = page.locator('[data-testid="adaptive-grid-marker"]').first();
   await marker.tap();
