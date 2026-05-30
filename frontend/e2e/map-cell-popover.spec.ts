@@ -168,18 +168,22 @@ test('@coarse tablet 768×1024: tap marker → cluster-list popover → tap spec
   // Wait for the map render to complete (canonical pattern).
   await page.locator('[data-testid="adaptive-grid-marker"]').first().waitFor({ state: 'visible' });
 
-  // #761 (S2): wait for the map to go IDLE before tapping. The cluster-list
-  // popover renders INSIDE the AdaptiveGridMarker; if the marker-reconcile churn
-  // (sourcedata → render → idle, triggered while the canvas is still settling)
-  // re-creates the marker DOM node AFTER the tap, the marker's local
-  // `isClusterListOpen` state resets and the popover is dismissed mid-assertion.
-  // Post-inversion the map mounts into the full-viewport `#map-layer` and the
-  // settle window can extend just past first-marker-visible at this viewport
-  // (the corrective `map.resize()` on the flex→fixed transition is S3's — #773 —
-  // and is intentionally NOT wired here; S2 asserts steady state). Waiting for a
-  // settled idle frame closes that race deterministically without map-resize
-  // plumbing. If `__birdMap` is unavailable (no WebGL), fall through — the
-  // describe-level skip guards already cover that path.
+  // Wait for the map to go IDLE before tapping. The cluster-list popover renders
+  // INSIDE the AdaptiveGridMarker; if a trailing marker-reconcile (sourcedata →
+  // render → idle) re-creates the marker DOM node AFTER the tap, the marker's
+  // local `isClusterListOpen` state resets and the popover is dismissed
+  // mid-assertion.
+  //
+  // #761/S3 (#773) note — this wait is RETAINED, not removed. S3 lands the
+  // corrective camera-neutral `map.resize()` (a ResizeObserver on the map-canvas
+  // wrapper in MapCanvas.tsx) that fixes the full-bleed canvas MIS-SIZE on the
+  // flex→fixed transition. But this spec's race is a SEPARATE phenomenon: the
+  // React adaptive-grid reconciler re-creates marker nodes on trailing
+  // cluster-leaf / tile-driven reconciles that fire just past first-marker-
+  // visible — independent of canvas sizing. S3 verified removal empirically:
+  // dropping this block fails 3/3 reruns, and dropping just the trailing
+  // `waitForTimeout(300)` fails 4/5, so both are kept. If `__birdMap` is
+  // unavailable (no WebGL), fall through — the describe-level skip guards cover it.
   await page
     .waitForFunction(() => {
       const map = (window as { __birdMap?: { isMoving: () => boolean; loaded: () => boolean } }).__birdMap;
