@@ -32,22 +32,40 @@ describe('tokens', () => {
   });
 
   describe('zIndex', () => {
-    it('scale is strictly monotonic', () => {
+    // Named-tier chain — EXCLUDES the deprecated `panel` alias (it ties with
+    // `overlay` by design, so it cannot live in a strict-monotonic array).
+    // The chain preserves the pre-refactor visible stack order EXACTLY,
+    // including the rail-below-popovers relation (#761 P1, issue #778).
+    it('named-tier chain is strictly monotonic', () => {
       const ranks = [
-        zIndex.base,
-        zIndex.shapes,
-        zIndex.badges,
-        zIndex.hotspots,
+        zIndex.map,
         zIndex.overlay,
-        zIndex.panel,
+        zIndex.popover,
+        zIndex.chrome,
+        zIndex.rail,
+        zIndex.cellPopover,
+        zIndex.clusterPopover,
         zIndex.modal,
+        zIndex.skip,
       ];
       ranks.forEach((v, i) => {
         if (i > 0) expect(v).toBeGreaterThan(ranks[i - 1]!);
       });
     });
-    it('panel is above overlay', () => {
-      expect(zIndex.panel).toBeGreaterThan(zIndex.overlay);
+    it('panel is a deprecated alias of overlay (same rank)', () => {
+      expect(zIndex.panel).toBe(zIndex.overlay);
+    });
+    it('rail stays BELOW both popovers (preserves rail < cell < cluster)', () => {
+      // Guards the #778 rail-above-popover regression at the unit level: a
+      // future scheme that lifts the rail to/above a popover tier fails HERE,
+      // not just in the map-cell-popover e2e.
+      expect(zIndex.rail).toBeLessThan(zIndex.cellPopover);
+      expect(zIndex.cellPopover).toBeLessThan(zIndex.clusterPopover);
+    });
+    it('floating header chrome sits below the detail rail', () => {
+      // #761 focus-order intent (AppHeader → … → detail rail/sheet),
+      // token-enforced rather than DOM-order-dependent.
+      expect(zIndex.chrome).toBeLessThan(zIndex.rail);
     });
   });
 

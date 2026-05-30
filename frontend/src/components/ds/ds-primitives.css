@@ -694,6 +694,15 @@ button.adaptive-grid-marker__cell {
 
 .cell-hover-preview {
   position: absolute;
+  /* KEPT at the pre-refactor calc(var(--z-panel) + 5) (#761 P1, #778). The
+     --z-panel alias now resolves to --z-overlay (40), so this still evaluates
+     to 45 — byte-identical rank to main. This governs ONLY the keyboard-focus
+     inline render path (cursorPos === null, no portal); the cursor-driven path
+     keeps its own inline z-index: 1000 in CellHoverPreview.tsx. Both ranks are
+     held unchanged because dropping the preview into the popover band (41) would
+     change which element wins a real geometric overlap (the cursor tooltip can
+     float over an open rail/cluster popover today) — that fails the P1 zero-
+     visual-change litmus, so the old ranks are preserved. */
   z-index: calc(var(--z-panel) + 5);
   background: var(--color-bg-surface);
   border: 1px solid var(--color-border-strong);
@@ -768,7 +777,7 @@ button.adaptive-grid-marker__cell {
 
 .cell-popover {
   position: absolute;
-  z-index: calc(var(--z-panel) + 6);
+  z-index: var(--z-cell-popover); /* #761 P1, #778 — above the rail, below the cluster popover */
   background: var(--color-bg-surface);
   border: 1px solid var(--color-border-strong);
   border-radius: 6px;
@@ -876,7 +885,7 @@ button.adaptive-grid-marker__cell {
   left: var(--space-md);
   right: var(--space-md);
   bottom: var(--space-md);
-  z-index: calc(var(--z-panel) + 7);
+  z-index: var(--z-cluster-popover); /* #761 P1, #778 — topmost popover, above cell popover + rail */
   max-height: 70vh;
   overflow-y: auto;
   background: var(--color-bg-surface);
