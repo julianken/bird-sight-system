@@ -531,6 +531,31 @@ test.describe('state-artboard verification (SUB3, #764)', () => {
     page,
     apiStub,
   }) => {
+    // Emulate prefers-reduced-motion BEFORE navigation so MapCanvas's mount-time
+    // `useMemo([])` read picks it up. WHY this matters for THIS test (and not the
+    // others): the AZ→NY re-mask hangs on the camera completing its move OUT of
+    // the old AZ artboard. The reactive `maxBounds` clamp updates to padded NY
+    // (App recomputes `scopeBounds`/`boundsKey` → react-map-gl `setMaxBounds`),
+    // but maplibre will not let the NEW clamp settle while the camera center is
+    // still parked at the OLD state (AZ center is OUTSIDE padded-NY); the
+    // `fitBounds(NY)` move is what carries the center across the AZ→NY boundary so
+    // the new clamp can take. With the default 600ms animation that move eases
+    // across many painted frames — which a HEADLESS WebGL backend that never
+    // paints intermediate frames does not advance, so the camera stays wedged on
+    // AZ and `getMaxBounds()` reads the stale AZ clamp for the whole poll (the
+    // deterministic 10-pass / 1-fail this test exhibited with WebGL present). On a
+    // real GPU the frames paint and the move completes (verified live — the app
+    // re-masks correctly), so this is a HEADLESS-TIMING artifact, not an app bug.
+    // Under reduced motion the camera effect issues `fitBounds(NY, {duration: 0})`
+    // (MapCanvas:730 — `prefersReducedMotion ? 0 : 600`), which lands the center
+    // inside NY in a SINGLE synchronous jump with no animation frames to paint, so
+    // the NY clamp settles deterministically on every backend. The assertion below
+    // is UNCHANGED and still proves the clamp genuinely re-masks AZ→NY (padded NY,
+    // and ≠ padded AZ). Reduced-motion only removes the frame-painting dependency
+    // — the C0 contract is that a scope reframe must ALWAYS land (`essential:true`),
+    // so the destination is identical with or without motion.
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+
     const { app, assertCleanConsole } = await setup(page, apiStub);
 
     await app.goto('state=US-AZ');
@@ -550,11 +575,11 @@ test.describe('state-artboard verification (SUB3, #764)', () => {
     await expect(page).toHaveURL(/[?&]state=US-NY\b/);
     await app.waitForAppReady();
 
-    // The mask repaints (still mounted) and the clamp updates to padded NY. The
-    // re-mask is async (useStatePolygon fetches NY's polygon, then the camera
-    // re-fits and the clamp prop updates), so poll generously — up to 8s — for
-    // the NY clamp to land rather than asserting on a single read that could
-    // race the in-place re-fit under load.
+    // The mask repaints (still mounted) and the clamp updates to padded NY. Under
+    // reduced motion the re-fit lands instantly, but `useStatePolygon` still
+    // resolves NY's polygon asynchronously and the clamp prop propagates over a
+    // render or two, so poll generously — up to 8s — for the NY clamp to land
+    // rather than asserting on a single read that could race the in-place re-fit.
     await waitForStyleLoaded(page);
     expect(await hasLayer(page, MASK_FILL_ID), 'mask stays mounted across re-mask').toBe(true);
     let nyMb: [[number, number], [number, number]] | null = null;
