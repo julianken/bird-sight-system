@@ -55,6 +55,22 @@
   --font-weight-semibold: 600;
   --font-weight-bold:     700;
   --font-weight-heavy:    800;
+
+  /* Corner radius (#761 P1, issue #778). --radius-lg retires the missing-token
+     inline fallback var(--radius-lg, 12px) consumed at styles.css (sheet top
+     corners, scope-control, cluster-list). Defining it makes the fallback
+     resolve to the same 12px — zero visual change. Added 2026-05-30 (#761 P1). */
+  --radius-lg: 12px;
+
+  /* Overlay sizing breakpoints (#761 P1, issue #778) — govern floating-overlay
+     size/anchor only, NOT prose-column layout. Distinct from the 760px content
+     breakpoint and the 1024px content column. Formalizes the
+     LEGEND_EXPAND_MIN_WIDTH / useIsCompact decoupling started in
+     MapSurface.tsx:37. Consumed by later #761 overlay-move PRs; no rule
+     consumes them yet. Added 2026-05-30 (#761 P1). */
+  --overlay-bp-compact: 480px;  /* below: overlays go full-bleed sheet/peek   */
+  --overlay-bp-roomy:   600px;  /* above: overlays may sit as anchored cards  */
+  --overlay-bp-wide:    1024px; /* above: legend defaults expanded (mirrors MapSurface) */
 }
 
 /* ── Layer 2: Semantic — light mode ─────────────────────────────────── */

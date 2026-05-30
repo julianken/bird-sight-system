@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test';
+import { test as stubTest, expect as stubExpect, VERMFLY_WITH_PHOTO } from './fixtures.js';
+import { AppPage } from './pages/app-page.js';
 
 // ---------------------------------------------------------------------------
 // Phase 3 (#560): full 6-scenario cell-popover spec per design §7.3
@@ -340,4 +342,142 @@ test('cross-surface stale-bbox clear: map species commit leaves no bbox', async 
   // state). #663: new clicks write ?detail=, not ?view=detail.
   await expect(page).toHaveURL(/[?&]detail=/, { timeout: 8_000 });
   await expect(page).not.toHaveURL(/[?&]bbox=/);
+});
+
+// ─── #761 P1 (#778): named z-index scale — stacking-order guards ───────────────
+//
+// PURE-REFACTOR REGRESSION GUARDS. These assert the layering vocabulary the
+// named-z-index refactor introduced, deterministically (no WebGL / no live map
+// render): they resolve the `--z-*` :root tokens and read the rail's COMPUTED
+// z-index. The load-bearing guard is rail-below-popovers — the relation the
+// first draft of #778 inverted (it proposed rail=47, above cell=46/cluster=47).
+// Written so a future rail-above-popover scheme FAILS here.
+//
+// NOTE: --z-chrome (42) and --z-modal (50) are DEFINED in the scale but NOT
+// adopted by .app-header / the SpeciesDetailSheet in this PR — P1 is a strict
+// zero-visual-change refactor (header stays at raw 10 until S2 #775; the sheet
+// stays at 10/15/20 until O5 #783). These guards therefore assert the TOKEN
+// values' rank order, which is the contract later PRs adopt; they do not claim
+// the header/sheet currently resolve to those tiers.
+//
+// These are stub-backed (no DB dependency): the rail mounts purely from
+// `?detail=<code>` + a stubbed `/api/species/<code>` at a ≥1200px viewport.
+
+/** Resolve a `:root` custom property to its numeric value (e.g. `--z-rail` → 43). */
+async function resolveZToken(
+  page: import('@playwright/test').Page,
+  token: string,
+): Promise<number> {
+  return page.evaluate((t) => {
+    const raw = getComputedStyle(document.documentElement)
+      .getPropertyValue(t)
+      .trim();
+    return Number.parseInt(raw, 10);
+  }, token);
+}
+
+stubTest.describe('z-index named scale — co-occurrence stacking (#778)', () => {
+  stubTest.use({ viewport: { width: 1440, height: 900 } });
+
+  stubTest('named tier tokens preserve the pre-refactor rank order exactly', async ({ page }) => {
+    await page.goto('/?scope=us');
+    await page.waitForLoadState('domcontentloaded');
+
+    const map = await resolveZToken(page, '--z-map');
+    const overlay = await resolveZToken(page, '--z-overlay');
+    const popover = await resolveZToken(page, '--z-popover');
+    const chrome = await resolveZToken(page, '--z-chrome');
+    const rail = await resolveZToken(page, '--z-rail');
+    const cellPopover = await resolveZToken(page, '--z-cell-popover');
+    const clusterPopover = await resolveZToken(page, '--z-cluster-popover');
+    const modal = await resolveZToken(page, '--z-modal');
+    const skip = await resolveZToken(page, '--z-skip');
+    const panel = await resolveZToken(page, '--z-panel'); // deprecated alias
+
+    // Whole-chain strict monotonicity (matches the pre-refactor stack order).
+    stubExpect(map).toBeLessThan(overlay);
+    stubExpect(overlay).toBeLessThan(popover);
+    stubExpect(popover).toBeLessThan(chrome);
+    stubExpect(chrome).toBeLessThan(rail);
+    stubExpect(rail).toBeLessThan(cellPopover);
+    stubExpect(cellPopover).toBeLessThan(clusterPopover);
+    stubExpect(clusterPopover).toBeLessThan(modal);
+    stubExpect(modal).toBeLessThan(skip);
+
+    // The single most important relation (#778): the rail sits BELOW both
+    // popovers — this is the inversion the first draft would have shipped.
+    stubExpect(rail, 'rail must stay below the cell popover').toBeLessThan(cellPopover);
+    stubExpect(rail, 'rail must stay below the cluster popover').toBeLessThan(clusterPopover);
+
+    // The --z-chrome tier (reserved for S2 #775's floating header) sits one
+    // rank below the rail in the scale — the contract S2 will adopt.
+    stubExpect(chrome, 'the --z-chrome tier must sit below the rail tier').toBeLessThan(rail);
+
+    // The deprecated --z-panel alias resolves to --z-overlay (var() indirection).
+    stubExpect(panel).toBe(overlay);
+  });
+
+  stubTest('with the rail open, the rail computed z-index stays below both popover tiers', async ({ page }) => {
+    const app = new AppPage(page);
+    // Stub the species endpoint so the rail mounts deterministically from
+    // ?detail= at ≥1200px — no WebGL, no live observation data needed.
+    await page.route('**/api/species/vermfly', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(VERMFLY_WITH_PHOTO),
+      });
+    });
+
+    await app.goto('detail=vermfly&view=detail');
+    await app.waitForAppReady();
+
+    const rail = page.locator('aside.species-detail-rail');
+    await stubExpect(rail).toBeVisible({ timeout: 10_000 });
+
+    const railZ = await rail.evaluate((el) =>
+      Number.parseInt(getComputedStyle(el).zIndex, 10),
+    );
+    const cellPopover = await resolveZToken(page, '--z-cell-popover');
+    const clusterPopover = await resolveZToken(page, '--z-cluster-popover');
+    const popover = await resolveZToken(page, '--z-popover');
+
+    // The rail's RESOLVED z-index (not just the token) must be below both
+    // popover tiers — so a co-occurring open cell/cluster popover paints ABOVE
+    // the rail, preserving the pre-refactor rail(45) < cell(46) < cluster(47).
+    stubExpect(railZ, 'rail z-index must be below the cell popover tier').toBeLessThan(cellPopover);
+    stubExpect(railZ, 'rail z-index must be below the cluster popover tier').toBeLessThan(clusterPopover);
+    // And above the on-canvas popover band (observation popover / hover preview).
+    stubExpect(railZ, 'rail must stay above the on-canvas popover tier').toBeGreaterThan(popover);
+  });
+
+  stubTest('keyboard-focus hover-preview (Path B) keeps its pre-refactor resolved z-index of 45', async ({ page }) => {
+    // Path B = the inline, NON-portaled CellHoverPreview render path
+    // (cursorPos === null). Its layer is governed by the `.cell-hover-preview`
+    // CSS rule, which #761 P1 KEEPS at calc(var(--z-panel) + 5). With --z-panel
+    // now aliased to --z-overlay (40) that still resolves to exactly 45 —
+    // byte-identical to main. The rule was deliberately NOT moved into the
+    // popover band (41): the cursor-driven path (separate inline z-index: 1000)
+    // can float over an open rail/cluster popover, and dropping it to 41 would
+    // change which element wins that real geometric overlap — failing the P1
+    // zero-visual-change litmus. So both hover-preview render paths keep their
+    // pre-refactor ranks. This guard FAILS if a future change lowers the inline
+    // rule's resolved value below 45 without the compensating overlap work.
+    await page.goto('/?scope=us');
+    await page.waitForLoadState('domcontentloaded');
+
+    const previewZ = await page.evaluate(() => {
+      const el = document.createElement('div');
+      el.className = 'cell-hover-preview'; // no inline style → CSS rule governs (Path B)
+      el.setAttribute('role', 'tooltip');
+      document.body.appendChild(el);
+      const z = Number.parseInt(getComputedStyle(el).zIndex, 10);
+      el.remove();
+      return z;
+    });
+    const overlay = await resolveZToken(page, '--z-overlay');
+
+    // calc(var(--z-panel) + 5) === calc(--z-overlay + 5) === 45 — unchanged from main.
+    stubExpect(previewZ, 'inline hover-preview keeps its pre-refactor resolved z-index of 45').toBe(overlay + 5);
+  });
 });

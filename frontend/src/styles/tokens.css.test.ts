@@ -145,6 +145,20 @@ describe('tokens.css — W1 conformance', () => {
       expect(darkBlock).toMatch(/--color-accent-notable-bg-hover:\s*#332e26/);
     });
   });
+
+  // ── #761 P1 (issue #778): Layer-1 primitives added in the named-z-index /
+  //    overlay-sizing refactor. These tokens live in tokens.css.
+  describe('Layer-1 primitives — #761 P1 (#778)', () => {
+    it('defines --radius-lg (retires the var(--radius-lg, 12px) inline fallback)', () => {
+      expect(TOKENS_CSS).toMatch(/--radius-lg:\s*12px/);
+    });
+
+    it('defines the overlay sizing breakpoints distinct from prose breakpoints', () => {
+      expect(TOKENS_CSS).toMatch(/--overlay-bp-compact:\s*480px/);
+      expect(TOKENS_CSS).toMatch(/--overlay-bp-roomy:\s*600px/);
+      expect(TOKENS_CSS).toMatch(/--overlay-bp-wide:\s*1024px/);
+    });
+  });
 });
 
 describe('styles.css — W1 conformance', () => {
@@ -156,6 +170,28 @@ describe('styles.css — W1 conformance', () => {
       expect(STYLES_CSS).not.toMatch(
         /\.app-header-tab\.is-active\s*\{[^}]*background:\s*var\(--color-text-strong\)/s,
       );
+    });
+  });
+
+  // ── #761 P1 (issue #778): named z-index tier scale lives in styles.css :root.
+  //    Assert the full scale + the deprecated --z-panel var() indirection alias.
+  describe('named z-index scale — #761 P1 (#778)', () => {
+    it('declares every named tier with its rank-preserving value', () => {
+      expect(STYLES_CSS).toMatch(/--z-map:\s*0\b/);
+      expect(STYLES_CSS).toMatch(/--z-overlay:\s*40\b/);
+      expect(STYLES_CSS).toMatch(/--z-popover:\s*41\b/);
+      expect(STYLES_CSS).toMatch(/--z-chrome:\s*42\b/);
+      expect(STYLES_CSS).toMatch(/--z-rail:\s*43\b/);
+      expect(STYLES_CSS).toMatch(/--z-cell-popover:\s*44\b/);
+      expect(STYLES_CSS).toMatch(/--z-cluster-popover:\s*45\b/);
+      expect(STYLES_CSS).toMatch(/--z-modal:\s*50\b/);
+      expect(STYLES_CSS).toMatch(/--z-skip:\s*60\b/);
+    });
+
+    it('keeps --z-panel as a CSS-only var() indirection alias of --z-overlay', () => {
+      // Encoded as var() indirection (not a hardcoded 40) so it carries no
+      // monotonicity obligation and stays correct if --z-overlay ever moves.
+      expect(STYLES_CSS).toMatch(/--z-panel:\s*var\(--z-overlay\)/);
     });
   });
 });
