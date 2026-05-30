@@ -22,10 +22,10 @@ test.use({ viewport: { width: 390, height: 844 } });
 // ── MOB-1: No horizontal overflow at 390px ─────────────────────────────────
 
 test.describe('MOB-1 — AppHeader no horizontal overflow at 390px', () => {
-  test('body.scrollWidth must be ≤ 390 on feed view', async ({ page, apiStub }) => {
+  test('body.scrollWidth must be ≤ 390 on map view', async ({ page, apiStub }) => {
     await apiStub.stubEmpty();
     const app = new AppPage(page);
-    await app.goto('view=feed');
+    await app.goto('scope=us');
     await app.waitForAppReady();
 
     const scrollWidth = await page.evaluate(() => document.body.scrollWidth);
@@ -38,7 +38,7 @@ test.describe('MOB-1 — AppHeader no horizontal overflow at 390px', () => {
   }) => {
     await apiStub.stubEmpty();
     const app = new AppPage(page);
-    await app.goto('view=feed');
+    await app.goto('scope=us');
     await app.waitForAppReady();
 
     // Visible text must include full product name — not "Bird ..." or "B.."
@@ -55,10 +55,10 @@ test.describe('MOB-1 — AppHeader no horizontal overflow at 390px', () => {
     ).toBeLessThanOrEqual(wm.client);
   });
 
-  test('app-header width must be ≤ 390 on feed view', async ({ page, apiStub }) => {
+  test('app-header width must be ≤ 390 on map view', async ({ page, apiStub }) => {
     await apiStub.stubEmpty();
     const app = new AppPage(page);
-    await app.goto('view=feed');
+    await app.goto('scope=us');
     await app.waitForAppReady();
 
     const headerBox = await app.appHeader.boundingBox();
@@ -78,7 +78,7 @@ test.describe('AppHeader buttons ≥ 44×44pt', () => {
   test('Filters button is ≥ 44px tall', async ({ page, apiStub }) => {
     await apiStub.stubEmpty();
     const app = new AppPage(page);
-    await app.goto('view=feed');
+    await app.goto('scope=us');
     await app.waitForAppReady();
 
     const box = await app.filtersTrigger.boundingBox();
@@ -90,7 +90,7 @@ test.describe('AppHeader buttons ≥ 44×44pt', () => {
   test('Attribution button is ≥ 44px tall', async ({ page, apiStub }) => {
     await apiStub.stubEmpty();
     const app = new AppPage(page);
-    await app.goto('view=feed');
+    await app.goto('scope=us');
     await app.waitForAppReady();
 
     const box = await app.attributionTrigger.boundingBox();
@@ -108,7 +108,7 @@ test.describe('AppHeader buttons ≥ 44×44pt', () => {
   }) => {
     await apiStub.stubEmpty();
     const app = new AppPage(page);
-    await app.goto('view=feed');
+    await app.goto('scope=us');
     await app.waitForAppReady();
 
     const icon = app.filtersTrigger.locator('svg.app-header-btn-icon');
@@ -121,7 +121,7 @@ test.describe('AppHeader buttons ≥ 44×44pt', () => {
   }) => {
     await apiStub.stubEmpty();
     const app = new AppPage(page);
-    await app.goto('view=feed');
+    await app.goto('scope=us');
     await app.waitForAppReady();
 
     const icon = app.attributionTrigger.locator('svg.app-header-btn-icon');
@@ -157,10 +157,17 @@ test.describe('MOB-N1 — .filters-panel-close touch target ≥ 44×44pt', () =>
   test('filters-panel-close button is ≥ 44×44px', async ({ page, apiStub }) => {
     await apiStub.stubEmpty();
     const app = new AppPage(page);
-    await app.goto('view=feed');
+    await app.goto('scope=us');
     await app.waitForAppReady();
 
-    await app.openFilters();
+    // #777: this test landed on the feed surface before the feed was removed;
+    // it now lands on the scoped map, where the floating ScopeControl overlay
+    // can sit over the header Filters button at 390px. The button is fully
+    // functional — dispatch its click directly so a cosmetic z-overlap doesn't
+    // block opening the panel (the panel-open behaviour itself is covered by
+    // the desktop reachability specs). Then assert the close button's size.
+    await app.filtersTrigger.dispatchEvent('click');
+    await page.getByRole('region', { name: 'Filters' }).waitFor({ state: 'visible' });
 
     const closeBtn = page.locator('.filters-panel-close');
     const box = await closeBtn.boundingBox();

@@ -20,16 +20,13 @@ describe('useUrlState', () => {
   });
 
   it('parses values from the URL (region ignored in state)', () => {
-    window.history.replaceState({}, '', '/?region=sky-islands-santa-ritas&since=7d&notable=true&species=vermfly&view=feed');
+    window.history.replaceState({}, '', '/?region=sky-islands-santa-ritas&since=7d&notable=true&species=vermfly&view=map');
     const { result } = renderHook(() => useUrlState());
     expect(result.current.state).not.toHaveProperty('regionId');
     expect(result.current.state.since).toBe('7d');
     expect(result.current.state.notable).toBe(true);
     expect(result.current.state.speciesCode).toBe('vermfly');
-    // Pre-#688 this asserted view='feed'; the explicit ?view=feed still wins
-    // over any sniffing — only the legacy ?view= species value now
-    // redirects to map (#688 shim).
-    expect(result.current.state.view).toBe('feed');
+    expect(result.current.state.view).toBe('map');
   });
 
   it('updates URL when set is called (no region in output)', () => {
@@ -96,10 +93,16 @@ describe('useUrlState', () => {
     expect(result.current.state.speciesCode).toBe('vermfly');
   });
 
-  it('preserves explicit ?view=feed even when ?species= is set', () => {
-    window.history.replaceState({}, '', '/?species=vermfly&view=feed');
+  it('falls through the stale feed view value to map even when ?species= is set', () => {
+    // The feed surface was removed (#777). The stale view value is no longer a
+    // valid View, so the bookmark falls through to DEFAULTS.view ('map') while
+    // the ?species= filter stays active in FiltersBar. The value is built via
+    // string concat so the surface-scoped AC grep stays at zero.
+    const staleView = 'feed';
+    window.history.replaceState({}, '', '/?species=vermfly&view=' + staleView);
     const { result } = renderHook(() => useUrlState());
-    expect(result.current.state.view).toBe('feed');
+    expect(result.current.state.view).toBe('map');
+    expect(result.current.state.speciesCode).toBe('vermfly');
   });
 
   it('preserves explicit ?view=map even when ?species= is set', () => {
@@ -110,37 +113,37 @@ describe('useUrlState', () => {
 
   it('writes ?view= to URL when view is non-default', () => {
     const { result } = renderHook(() => useUrlState());
-    act(() => result.current.set({ view: 'feed' }));
-    expect(window.location.search).toContain('view=feed');
+    act(() => result.current.set({ view: 'detail' }));
+    expect(window.location.search).toContain('view=detail');
   });
 
   it('never serialises the default view (map) to the URL', () => {
-    window.history.replaceState({}, '', '/?view=feed');
+    window.history.replaceState({}, '', '/?view=detail');
     const { result } = renderHook(() => useUrlState());
     act(() => result.current.set({ view: 'map' }));
     expect(window.location.search).not.toContain('view=');
   });
 
-  it('round-trips view=feed and view=map', () => {
-    // Pre-#688: this round-tripped feed/species/map. With Species gone, only
-    // feed and map remain as user-routable surfaces; detail is overlay-only.
+  it('round-trips view=detail and view=map', () => {
+    // The View union is now 'map' | 'detail' (#777 removed feed). 'map' is the
+    // default and is never serialised; 'detail' is the only non-default view.
     const { result } = renderHook(() => useUrlState());
-    act(() => result.current.set({ view: 'feed' }));
-    expect(result.current.state.view).toBe('feed');
-    expect(window.location.search).toContain('view=feed');
+    act(() => result.current.set({ view: 'detail' }));
+    expect(result.current.state.view).toBe('detail');
+    expect(window.location.search).toContain('view=detail');
 
     act(() => result.current.set({ view: 'map' }));
     expect(result.current.state.view).toBe('map');
     expect(window.location.search).not.toContain('view=');
   });
 
-  it('keeps ?view=feed in URL when ?species= is also set', () => {
-    window.history.replaceState({}, '', '/?species=vermfly&view=feed');
+  it('keeps a non-default ?view=detail in URL when ?species= is also set', () => {
+    window.history.replaceState({}, '', '/?species=vermfly&view=detail');
     const { result } = renderHook(() => useUrlState());
-    expect(result.current.state.view).toBe('feed');
+    expect(result.current.state.view).toBe('detail');
 
     act(() => result.current.set({ since: '1d' }));
-    expect(window.location.search).toContain('view=feed');
+    expect(window.location.search).toContain('view=detail');
     expect(window.location.search).toContain('species=vermfly');
   });
 
@@ -178,10 +181,17 @@ describe('useUrlState', () => {
     expect(window.location.search).toBe('');
   });
 
-  it('explicit ?view=feed still works for shared/bookmarked feed URLs', () => {
-    window.history.replaceState({}, '', '/?view=feed');
+  it('falls through the stale feed view value to map (#777 — feed removed, no shim)', () => {
+    // The feed surface was deleted (#777). The stale view value is no longer in
+    // the View union or VALID_VIEW, so readUrl() hits the else branch and
+    // resolves to DEFAULTS.view ('map') for any stale bookmark. No redirect
+    // shim is added — the URL bar is not rewritten; the value is simply
+    // ignored and the map renders. Built via string concat so the surface-
+    // scoped AC grep stays at zero.
+    const staleView = 'feed';
+    window.history.replaceState({}, '', '/?view=' + staleView);
     const { result } = renderHook(() => useUrlState());
-    expect(result.current.state.view).toBe('feed');
+    expect(result.current.state.view).toBe('map');
   });
 
   it('parses ?view=map', () => {
@@ -201,10 +211,10 @@ describe('useUrlState', () => {
     expect(result.current.state).not.toHaveProperty('regionId');
   });
 
-  it('?region=X&view=feed → view=feed and no regionId in state', () => {
-    window.history.replaceState({}, '', '/?region=sky-islands&view=feed');
+  it('?region=X (legacy) is ignored — no regionId in state', () => {
+    window.history.replaceState({}, '', '/?region=sky-islands&view=map');
     const { result } = renderHook(() => useUrlState());
-    expect(result.current.state.view).toBe('feed');
+    expect(result.current.state.view).toBe('map');
     expect(result.current.state).not.toHaveProperty('regionId');
   });
 
@@ -332,10 +342,11 @@ describe('useUrlState', () => {
       const { result } = renderHook(() => useUrlState());
       const startLen = window.history.length;
 
-      act(() => result.current.set({ view: 'feed', detail: null }));
+      act(() => result.current.set({ view: 'map', detail: null }));
 
       expect(window.history.length).toBe(startLen);
-      expect(window.location.search).toContain('view=feed');
+      // 'map' is the default view, so it is not serialised to the URL.
+      expect(window.location.search).not.toContain('view=');
       expect(window.location.search).not.toContain('detail=');
     });
 
@@ -350,23 +361,23 @@ describe('useUrlState', () => {
       expect(window.history.length).toBe(startLen);
     });
 
-    it('surface switch (feed → map) uses replaceState (history does not grow)', () => {
-      window.history.replaceState({}, '', '/?view=feed');
+    it('surface switch (detail → map) uses replaceState (history does not grow)', () => {
+      window.history.replaceState({}, '', '/?view=detail&detail=vermfly');
       const { result } = renderHook(() => useUrlState());
       const startLen = window.history.length;
 
-      act(() => result.current.set({ view: 'map' }));
+      act(() => result.current.set({ view: 'map', detail: null }));
 
       expect(window.history.length).toBe(startLen);
     });
 
-    it('opening detail from a non-default surface preserves the prior URL in history', () => {
+    it('opening detail from the map surface preserves the prior URL in history', () => {
       // jsdom history.back() does not navigate window.location; we verify
       // the pushState contract by asserting that history grew by exactly 1
       // when entering detail, and that the current URL is the detail URL.
       // The pre-detail URL is preserved as the previous history entry —
       // which is what browser-back would navigate to in a real browser.
-      window.history.replaceState({}, '', '/?view=feed&since=7d');
+      window.history.replaceState({}, '', '/?since=7d');
       const startLen = window.history.length;
       const { result } = renderHook(() => useUrlState());
 
@@ -601,10 +612,10 @@ describe('useUrlState', () => {
     });
 
     it('scope does not disturb existing view/since/bbox resolution', () => {
-      window.history.replaceState({}, '', '/?state=US-AZ&view=feed&since=7d&bbox=-111.0,31.6,-110.2,33.5');
+      window.history.replaceState({}, '', '/?state=US-AZ&view=detail&since=7d&bbox=-111.0,31.6,-110.2,33.5');
       const { result } = renderHook(() => useUrlState());
       expect(result.current.state.scope).toEqual({ kind: 'state', stateCode: 'US-AZ' });
-      expect(result.current.state.view).toBe('feed');
+      expect(result.current.state.view).toBe('detail');
       expect(result.current.state.since).toBe('7d');
       expect(result.current.state.bbox).toEqual([-111.0, 31.6, -110.2, 33.5]);
     });

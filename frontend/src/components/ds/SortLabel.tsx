@@ -1,9 +1,9 @@
 /**
  * <SortLabel>
  *
- * Thin sibling of <FilterSentence>. Renders the sort-prefix string on
- * the feed surface ("Sorted by recency"). Separate component per the
- * design spec: <FilterSentence> does not gain a view prop for sort.
+ * Thin sibling of <FilterSentence>. Renders the sort-prefix string
+ * ("Sorted by recency"). Separate component per the design spec:
+ * <FilterSentence> does not gain a view prop for sort.
  *
  * Accepts either:
  *   - `label` prop (string): rendered as-is.

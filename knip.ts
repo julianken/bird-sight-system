@@ -152,17 +152,6 @@ const config: KnipConfig = {
     //             (e.g., bun, ts-node, native node --import).
     'tsx',
 
-    // 2026-05-13: @types/react-window — provides ambient TypeScript type
-    //             declarations consumed implicitly when type-checking imports
-    //             from the react-window package. TypeScript's automatic @types/
-    //             resolution is invisible to knip's static analysis (no explicit
-    //             `import type` statement references this package directly).
-    //             Risk: masks a genuine unused @types/ dep if react-window is
-    //             removed without also removing @types/react-window from
-    //             frontend/package.json. Re-audit 2026-07-27 by confirming
-    //             react-window is still in frontend/package.json dependencies.
-    '@types/react-window',
-
     // 2026-05-29: geojson — `import type { Feature, MultiPolygon, Polygon,
     //             Position } from 'geojson'` (#760/#762 state-artboard mask:
     //             frontend/src/components/map/mask.ts, MapCanvas.tsx,
@@ -172,8 +161,8 @@ const config: KnipConfig = {
     //             transitively (maplibre-gl depends on it) and is NOT a direct
     //             dependency. Knip sees the bare `from 'geojson'` import and
     //             reports an unlisted dependency; it is a type-only import
-    //             resolved at compile time, never a runtime require. Mirrors the
-    //             @types/react-window transitive-types ignore above.
+    //             resolved at compile time, never a runtime require (a
+    //             transitive-types ignore, like the @testcontainers entries above).
     //             Risk: masks a genuine missing dep if a RUNTIME geojson import
     //             is ever added (there is none — these are all `import type`).
     //             Re-audit 2026-07-27 by confirming every `from 'geojson'` in

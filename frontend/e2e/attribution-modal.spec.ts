@@ -8,7 +8,7 @@ import { AppPage } from './pages/app-page.js';
  * programmatically clicks .attribution-trigger.
  *
  * Covers:
- *   - Credits trigger reachable from every view (feed, species, map, detail).
+ *   - Credits trigger reachable from every view (map, detail).
  *   - Modal open / focus management / Escape close / focus return.
  *   - Phylopic per-silhouette section renders creator + license + image-
  *     page link for at least one silhouette using the seeded Phylopic
@@ -32,8 +32,9 @@ test.describe('AttributionModal — reachability from AppHeader (desktop)', () =
   // Phase 6: footer removed. Credits trigger is AttributionModal's own button
   // (.attribution-trigger). The AppHeader "Attribution" button programmatically
   // clicks it. Tests assert on the trigger directly — no footer required.
-  // 'species' removed from iteration in #688 (Species surface deleted).
-  for (const view of ['feed', 'map'] as const) {
+  // 'species' removed from iteration in #688 (Species surface deleted); 'feed'
+  // removed in #777 (Feed surface deleted).
+  for (const view of ['map'] as const) {
     test(`Credits trigger reachable on view=${view}`, async ({ page }) => {
       const app = new AppPage(page);
       await app.goto(`view=${view}`);
@@ -65,7 +66,7 @@ test.describe('AttributionModal — open / close (desktop)', () => {
 
   test('clicking Credits opens the dialog', async ({ page }) => {
     const app = new AppPage(page);
-    await app.goto('view=feed');
+    await app.goto('scope=us');
     await app.waitForAppReady();
     const trigger = page.locator('button.attribution-trigger');
     await trigger.click();
@@ -77,7 +78,7 @@ test.describe('AttributionModal — open / close (desktop)', () => {
 
   test('renders the three credit sections', async ({ page }) => {
     const app = new AppPage(page);
-    await app.goto('view=feed');
+    await app.goto('scope=us');
     await app.waitForAppReady();
     await page.locator('button.attribution-trigger').click();
     const dialog = page.locator('dialog.attribution-modal');
@@ -88,7 +89,7 @@ test.describe('AttributionModal — open / close (desktop)', () => {
 
   test('Phylopic section renders at least one silhouette with creator + license + source link', async ({ page }) => {
     const app = new AppPage(page);
-    await app.goto('view=feed');
+    await app.goto('scope=us');
     await app.waitForAppReady();
     await page.locator('button.attribution-trigger').click();
     const dialog = page.locator('dialog.attribution-modal');
@@ -115,7 +116,7 @@ test.describe('AttributionModal — open / close (desktop)', () => {
 
   test('all external links use rel="noopener noreferrer" and target="_blank"', async ({ page }) => {
     const app = new AppPage(page);
-    await app.goto('view=feed');
+    await app.goto('scope=us');
     await app.waitForAppReady();
     await page.locator('button.attribution-trigger').click();
     const dialog = page.locator('dialog.attribution-modal');
@@ -136,7 +137,7 @@ test.describe('AttributionModal — open / close (desktop)', () => {
 
   test('Escape closes the dialog and returns focus to the Credits trigger', async ({ page }) => {
     const app = new AppPage(page);
-    await app.goto('view=feed');
+    await app.goto('scope=us');
     await app.waitForAppReady();
     const trigger = page.locator('button.attribution-trigger');
     await trigger.click();
@@ -151,7 +152,7 @@ test.describe('AttributionModal — open / close (desktop)', () => {
 
   test('close button closes the dialog and returns focus to the Credits trigger', async ({ page }) => {
     const app = new AppPage(page);
-    await app.goto('view=feed');
+    await app.goto('scope=us');
     await app.waitForAppReady();
     const trigger = page.locator('button.attribution-trigger');
     await trigger.click();
@@ -164,7 +165,7 @@ test.describe('AttributionModal — open / close (desktop)', () => {
 
   test('opening the dialog moves focus into the modal (close button is autofocused)', async ({ page }) => {
     const app = new AppPage(page);
-    await app.goto('view=feed');
+    await app.goto('scope=us');
     await app.waitForAppReady();
     const trigger = page.locator('button.attribution-trigger');
     await trigger.click();
@@ -177,9 +178,9 @@ test.describe('AttributionModal — open / close (desktop)', () => {
 test.describe('AttributionModal — mobile viewport', () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test('Credits trigger reachable on view=feed (mobile)', async ({ page }) => {
+  test('Credits trigger reachable on the map (mobile)', async ({ page }) => {
     const app = new AppPage(page);
-    await app.goto('view=feed');
+    await app.goto('scope=us');
     await app.waitForAppReady();
     // Phase 6: footer removed — trigger is AttributionModal's own button.
     const trigger = page.locator('button.attribution-trigger');
@@ -188,7 +189,7 @@ test.describe('AttributionModal — mobile viewport', () => {
 
   test('open + Escape + focus-return cycle works (mobile)', async ({ page }) => {
     const app = new AppPage(page);
-    await app.goto('view=feed');
+    await app.goto('scope=us');
     await app.waitForAppReady();
     const trigger = page.locator('button.attribution-trigger');
     await trigger.click();
@@ -201,7 +202,7 @@ test.describe('AttributionModal — mobile viewport', () => {
 
   test('Phylopic section renders at least one silhouette (mobile)', async ({ page }) => {
     const app = new AppPage(page);
-    await app.goto('view=feed');
+    await app.goto('scope=us');
     await app.waitForAppReady();
     await page.locator('button.attribution-trigger').click();
     const dialog = page.locator('dialog.attribution-modal');

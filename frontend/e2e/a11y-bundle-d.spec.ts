@@ -2,7 +2,7 @@
  * A11y Bundle D (issue #513) — semantic structure assertions.
  *
  * Covers:
- *   A11Y-3  — Each surface has exactly one <h1> (FeedSurface).
+ *   A11Y-3  — Each surface has exactly one <h1>.
  *   A11Y-5  — Exactly one <header role="banner"> in the document.
  *   A11Y-10 — <main> tabindex decision (retained as WCAG 2.1.1 scrollable-region-focusable fix).
  *
@@ -24,15 +24,15 @@ const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 // ---------------------------------------------------------------------------
 
 test.describe('A11Y-3 — one <h1> per surface', () => {
-  test('feed view has exactly one <h1>', async ({ page }) => {
+  test('map view has exactly one <h1>', async ({ page }) => {
     const app = new AppPage(page);
-    await app.goto('view=feed');
+    await app.goto('scope=us');
     await app.waitForAppReady();
 
     const h1Count = await page.evaluate(
       () => document.querySelectorAll('h1').length,
     );
-    expect(h1Count, 'feed view must have exactly 1 <h1>').toBe(1);
+    expect(h1Count, 'map view must have exactly 1 <h1>').toBe(1);
   });
 
 
@@ -74,27 +74,29 @@ test.describe('A11Y-3 — one <h1> per surface', () => {
   test.describe('at 390×844 mobile viewport', () => {
     test.use({ viewport: { width: 390, height: 844 } });
 
-    test('feed view has exactly one <h1> (mobile)', async ({ page }) => {
+    test('map view has exactly one <h1> (mobile)', async ({ page }) => {
       const app = new AppPage(page);
-      await app.goto('view=feed');
+      await app.goto('scope=us');
       await app.waitForAppReady();
 
       const h1Count = await page.evaluate(
         () => document.querySelectorAll('h1').length,
       );
-      expect(h1Count, 'feed view must have exactly 1 <h1> at mobile').toBe(1);
+      expect(h1Count, 'map view must have exactly 1 <h1> at mobile').toBe(1);
     });
 
   });
 
-  // Axe-core passes on feed and species surfaces after h1 fix.
-  test('feed view has no WCAG 2/2.1 A/AA violations after h1 fix', async ({ page }) => {
+  // Axe-core passes on the map surface after the h1 fix. (The feed-specific
+  // scan was removed with the feed surface in #777; axe.spec.ts covers the
+  // map chrome's full WCAG 2/2.1 A/AA surface.)
+  test('map view has no WCAG 2/2.1 A/AA violations after h1 fix', async ({ page }) => {
     const app = new AppPage(page);
-    await app.goto('view=feed');
+    await app.goto('scope=us');
     await app.waitForAppReady();
     const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
     if (results.violations.length) {
-      await test.info().attach('axe-violations-feed-a11y-d', {
+      await test.info().attach('axe-violations-map-a11y-d', {
         body: JSON.stringify(results.violations, null, 2),
         contentType: 'application/json',
       });
@@ -111,7 +113,7 @@ test.describe('A11Y-3 — one <h1> per surface', () => {
 test.describe('A11Y-5 — single banner landmark', () => {
   test('exactly one <header role="banner"> exists at any time', async ({ page }) => {
     const app = new AppPage(page);
-    await app.goto('view=feed');
+    await app.goto('scope=us');
     await app.waitForAppReady();
 
     const bannerCount = await page.evaluate(
@@ -123,7 +125,7 @@ test.describe('A11Y-5 — single banner landmark', () => {
 
   test('banner landmark is the AppHeader (app-header class)', async ({ page }) => {
     const app = new AppPage(page);
-    await app.goto('view=feed');
+    await app.goto('scope=us');
     await app.waitForAppReady();
 
     const bannerClass = await page.evaluate(() => {
@@ -133,9 +135,10 @@ test.describe('A11Y-5 — single banner landmark', () => {
     expect(bannerClass).toContain('app-header');
   });
 
-  // Verify across all primary views — banner count must not change.
-  // (Pre-#688 included 'species'; that surface was removed in #688.)
-  for (const view of ['feed', 'map'] as const) {
+  // Verify across the surviving primary views — banner count must not change.
+  // (Pre-#688 included 'species'; that surface was removed in #688. The feed
+  // arm was removed with the feed surface in #777, leaving the map.)
+  for (const view of ['map'] as const) {
     test(`banner count stays 1 on ${view} view`, async ({ page }) => {
       const app = new AppPage(page);
       await app.goto(`view=${view}`);
@@ -164,14 +167,13 @@ test.describe('A11Y-10 — <main> tabindex review', () => {
    * Tab order and violate WCAG 2.1.1 by making the scroll region
    * unfocusable by keyboard.
    *
-   * The skip-link target is `ol.feed[aria-label="Observations"]` (NOT
-   * #main-surface) — see App.tsx onSkipToFeed and MapSurface skip-link.
-   * These two concerns are independent; retaining tabIndex=0 on <main>
-   * satisfies both.
+   * The "Explore map markers" skip-link targets the first marker cell (NOT
+   * #main-surface) — see MapSurface's skip-link (#558). These two concerns
+   * are independent; retaining tabIndex=0 on <main> satisfies both.
    */
   test('<main id="main-surface"> has tabIndex=0 (scrollable-region-focusable)', async ({ page }) => {
     const app = new AppPage(page);
-    await app.goto('view=feed');
+    await app.goto('scope=us');
     await app.waitForAppReady();
 
     const tabIndex = await page.evaluate(() => {

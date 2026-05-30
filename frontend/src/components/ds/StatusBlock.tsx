@@ -2,7 +2,7 @@
  * <StatusBlock>
  *
  * Page-level status primitive. Collapses ad-hoc CSS classes
- * (.feed-empty, .species-detail-loading, .species-detail-error,
+ * (.species-detail-loading, .species-detail-error,
  * .attribution-modal-loading, .attribution-modal-empty,
  * .attribution-modal-error, .error-screen, .map-loading-skeleton) and
  * the distinct copy+class pairs they carried into a single typed API.

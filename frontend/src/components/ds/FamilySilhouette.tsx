@@ -4,8 +4,8 @@
  * Synchronously renderable SVG silhouette tinted with family-channel fill.
  * Used by:
  *   - <Photo> as the no-photo fallback (src=null or onError)
- *   - Feed rows as family thumbnails (Phase 3)
  *   - <FamilyLegend> as the swatch marker (Phase 3)
+ *   - the species detail masthead + map marker/popover thumbnails
  *
  * Phase 2 note: Path data is a per-family placeholder pending Phase 3
  * integration with /api/silhouettes. The placeholder paths are distinct

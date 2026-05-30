@@ -6,8 +6,8 @@ export interface SpeciesOption {
   code: string;
   comName: string;
   // Plan 6 Task 10 (issue #119): exposes the last two latent fields so
-  // FeedSurface can offer a taxonomic sort and future autocomplete
-  // groupings can cluster by family without a second derive pass.
+  // future autocomplete groupings can cluster by family without a second
+  // derive pass.
   // Both are nullable: taxonOrder lives on SpeciesMeta, NOT Observation,
   // so today's derive pulls it only when the API has been extended to
   // project it onto the observation payload (backward-compatible

@@ -1,5 +1,4 @@
 import { test, expect, VERMFLY } from './fixtures.js';
-import { AppPage } from './pages/app-page.js';
 
 test.describe('dynamic <title> per surface', () => {
   // #738 — DEFAULTS.scope is now `unscoped` (bare URL → chooser, region=null →
@@ -12,9 +11,14 @@ test.describe('dynamic <title> per surface', () => {
     await expect(page).toHaveTitle('Bird Maps · USA');
   });
 
-  test('feed surface shows "Feed — Bird Maps · USA"', async ({ page }) => {
-    await page.goto('/?view=feed&scope=us');
-    await expect(page).toHaveTitle('Feed — Bird Maps · USA');
+  test('a stale feed view value falls through to the map title (#777)', async ({ page }) => {
+    // The feed surface was removed (#777). A stale bookmark with the old feed
+    // view value falls through to the map (DEFAULTS.view), so the title is the
+    // bare scoped site suffix — never "Feed — …". The value is built via concat
+    // so the surface-scoped AC grep stays at zero.
+    const staleView = 'feed';
+    await page.goto('/?scope=us&view=' + staleView);
+    await expect(page).toHaveTitle('Bird Maps · USA');
   });
 
   test('legacy ?view= species URL redirects to map title (#688 compat shim)', async ({ page }) => {
@@ -40,17 +44,20 @@ test.describe('dynamic <title> per surface', () => {
     await expect(page).toHaveTitle(/Vermilion Flycatcher — Bird Maps · USA/, { timeout: 10_000 });
   });
 
-  test('title updates when navigating from feed to map (#688)', async ({ page }) => {
-    // Pre-#688 the test navigated feed → species. With the Species tab gone,
-    // only feed → map remains as a header-driven cross-surface navigation.
-    // (Feed itself is reachable only via direct URL post-#662; the Map tab
-    // is the only one in AppHeader.)
-    // `scope=us` persists across the view switch (writeUrl re-emits it), so
-    // both titles keep their "· USA" suffix under the #738 unscoped default.
-    await page.goto('/?view=feed&scope=us');
-    await expect(page).toHaveTitle('Feed — Bird Maps · USA');
-    const app = new AppPage(page);
-    await app.selectView('map');
-    await expect(page).toHaveTitle('Bird Maps · USA');
+  test('title updates from detail back to map when the detail surface closes (#777)', async ({ page, apiStub }) => {
+    // #688 removed Species and #777 removed Feed, so the surviving
+    // cross-surface title transition is detail → map (closing the detail
+    // overlay returns to the underlying map surface). `scope=us` persists
+    // across the transition (writeUrl re-emits it), so both titles keep their
+    // "· USA" suffix under the #738 unscoped default.
+    await apiStub.stubSpecies('vermfly', VERMFLY);
+    await page.goto('/?view=detail&detail=vermfly&scope=us');
+    await expect(page).toHaveTitle(/Vermilion Flycatcher — Bird Maps · USA/, { timeout: 10_000 });
+
+    const closeBtn = page.getByRole('button', { name: /Close species detail/i });
+    await closeBtn.waitFor({ state: 'visible', timeout: 10_000 });
+    await closeBtn.click();
+
+    await expect(page).toHaveTitle('Bird Maps · USA', { timeout: 10_000 });
   });
 });

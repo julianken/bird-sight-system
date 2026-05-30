@@ -36,37 +36,18 @@ test.describe('species detail surface (#151)', () => {
       .toBe('detail');
   });
 
-  test('row click navigates to detail surface without narrowing feed', async ({ page, apiStub }) => {
-    await apiStub.stubSpecies('vermfly', VERMFLY);
-    const app = new AppPage(page);
-    await app.goto('view=feed');
-    await app.waitForAppReady();
+  // #777: the "row click → detail" navigation test was removed with the feed
+  // surface. The surviving map-marker / cell-popover species-commit → detail
+  // path is covered by map-cell-popover.spec.ts (scenarios 1, 6).
 
-    // Click first feed row.
-    await expect(page.locator('.feed-row').first()).toBeVisible({ timeout: 10_000 });
-    await page.locator('.feed-row').first().click();
-
-    // Should open the detail overlay. #663: new clicks write ?detail=
-    // only — they do NOT set ?view=detail. The overlay renders over the
-    // surface the user was on (here, feed).
-    await expect.poll(() => new URL(page.url()).searchParams.get('detail'), { timeout: 5_000 })
-      .toBeTruthy();
-    await expect.poll(() => new URL(page.url()).searchParams.get('view'), { timeout: 5_000 })
-      .toBe('feed');
-
-    // species= filter param should NOT be set by a row click.
-    const speciesParam = new URL(page.url()).searchParams.get('species');
-    expect(speciesParam).toBeNull();
-  });
-
-  test('FiltersBar species commit narrows feed without opening detail', async ({ page, apiStub }) => {
+  test('FiltersBar species commit narrows the map without opening detail', async ({ page, apiStub }) => {
     // /api/observations now (#627) returns aggregated buckets at low zoom;
     // synthetic obs carry family names as comName, so the species typeahead
     // needs a real-species observation stubbed in to resolve
     // "Vermilion Flycatcher" → "vermfly".
     await apiStub.stubObservations(VERMFLY_OBS);
     const app = new AppPage(page);
-    await app.goto('view=feed');
+    await app.goto('scope=us');
     await app.waitForAppReady();
 
     // Phase 3: FiltersBar is inside a panel triggered from AppHeader.
@@ -82,17 +63,15 @@ test.describe('species detail surface (#151)', () => {
     // species= should be set (filter narrowing).
     await expect.poll(() => app.getUrlParams().get('species'), { timeout: 5_000 }).toBe('vermfly');
 
-    // detail= should NOT be set. View should stay on the feed dead-code
-    // branch (preserved per #662 for legacy bookmark compatibility).
+    // detail= should NOT be set; the commit narrows the map, it does not open
+    // the detail overlay. The map remains the active (default) surface.
     expect(app.getUrlParams().get('detail')).toBeNull();
-    expect(app.getUrlParams().get('view')).toBe('feed');
+    expect(app.getUrlParams().get('view')).toBeNull();
 
-    // Feed tab removed in #662 and Species tab removed in #688. Only the
-    // Map tab remains in the header; the ?view=feed URL state is preserved
-    // for legacy bookmarks but no tab is selected on that surface.
-    await expect(page.getByRole('tab', { name: 'Feed view' })).toHaveCount(0);
+    // #688/#777: Species and Feed tabs are gone. Only the Map tab remains,
+    // and it is the selected tab on the scoped map landing.
     await expect(page.getByRole('tab', { name: 'Species view' })).toHaveCount(0);
-    await expect(page.getByRole('tab', { name: 'Map view' })).toHaveAttribute('aria-selected', 'false');
+    await expect(page.getByRole('tab', { name: 'Map view' })).toHaveAttribute('aria-selected', 'true');
   });
 
   test('network failure shows inline error on detail surface', async ({ page, apiStub }) => {

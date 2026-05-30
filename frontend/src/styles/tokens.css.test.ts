@@ -1,12 +1,11 @@
 /**
  * CSS token conformance tests — W1 dark-mode revert
  *
- * These tests read tokens.css as a string and assert that the three
+ * These tests read tokens.css as a string and assert that the
  * regressions introduced in PR #415 are not present:
  *   1. --color-accent-notable-fg must NOT be the olive hex #b8860b in light.
  *   2. The dark block must contain all 14 spec-mandated token overrides.
- *   3. styles.css must not use a hardcoded hex for .feed-card-meta color.
- *   4. styles.css .app-header-tab.is-active must not use background:
+ *   3. styles.css .app-header-tab.is-active must not use background:
  *      var(--color-text-strong) (cascade trap in dark mode).
  *
  * Spec: docs/plans/2026-05-09-sky-atlas-phase-1-token-foundation.md:151-175
@@ -130,8 +129,8 @@ describe('tokens.css — W1 conformance', () => {
     });
 
     // Group 7: notable-bg variants (2)
-    // NEW-1 hotfix: these were absent from the dark block, causing .feed-row-notable
-    // to resolve to the light-mode #fff8e1 (pale cream) on a dark navy page.
+    // NEW-1 hotfix: these were absent from the dark block, causing notable
+    // accents to resolve to the light-mode #fff8e1 (pale cream) on a dark navy page.
     // Contrast verified: #f5f7fb (--color-text-strong dark) on #2a2620 → 14.02:1 (AAA).
     it('overrides --color-accent-notable-bg (hotfix NEW-1: dark warm-amber, not light cream)', () => {
       expect(darkBlock).toMatch(/--color-accent-notable-bg:/);
@@ -163,20 +162,6 @@ describe('tokens.css — W1 conformance', () => {
 });
 
 describe('styles.css — W1 conformance', () => {
-  describe('.feed-card-meta color — no hardcoded hex', () => {
-    it('does not use #7a6010 hardcode for .feed-card-meta color', () => {
-      // The walkback shipped: color: #7a6010 at styles.css:491
-      // Fix: use var(--color-accent-notable-fg)
-      expect(STYLES_CSS).not.toMatch(/\.feed-card-meta\s*\{[^}]*color:\s*#7a6010/s);
-    });
-
-    it('.feed-card-meta uses var(--color-accent-notable-fg) for color', () => {
-      expect(STYLES_CSS).toMatch(
-        /\.feed-card-meta\s*\{[^}]*color:\s*var\(--color-accent-notable-fg\)/s,
-      );
-    });
-  });
-
   describe('.app-header-tab.is-active — cascade trap', () => {
     it('does not use background: var(--color-text-strong) (inverts to white-on-white in dark)', () => {
       // The cascade trap: in dark mode --color-text-strong becomes #f5f7fb (near-white).

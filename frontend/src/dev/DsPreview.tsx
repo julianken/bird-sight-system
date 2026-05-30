@@ -23,7 +23,6 @@
  *   cluster-ember         → <ClusterPill count={900}>
  *   filter-notable        → <FilterSentence> with notable=true
  *   filter-notable-family → <FilterSentence> with notable=true + familyCode
- *   feed-card             → <FeedCard> elevated card with canned notable observation
  *   scope-control         → <ScopeControl> in a state view (US-AZ), floated over a map-ish backdrop
  *   scope-control-us      → <ScopeControl> in the whole-US view (no "Whole US" self-link)
  */
@@ -34,56 +33,12 @@ import { FamilySilhouette } from '../components/ds/FamilySilhouette.js';
 import { Photo } from '../components/ds/Photo.js';
 import { ClusterPill } from '../components/ds/ClusterPill.js';
 import { FilterSentence } from '../components/ds/FilterSentence.js';
-import { FeedCard } from '../components/FeedCard.js';
-import { FeedRow } from '../components/FeedRow.js';
 import { ZipInput } from '../components/ZipInput.js';
 import { ScopeChooser } from '../components/ScopeChooser.js';
 import { ScopeControl } from '../components/ScopeControl.js';
-import type { NotableObservation, Observation, StateSummary } from '@bird-watch/shared-types';
+import type { StateSummary } from '@bird-watch/shared-types';
 import type { FamilyCode } from '../config/family-palette.js';
 import type { UrlState } from '../state/url-state.js';
-
-// Canned notable observation used by the feed-card DsPreview key.
-const CANNED_NOTABLE: NotableObservation = {
-  subId: 'S001',
-  speciesCode: 'vermfly',
-  comName: 'Vermilion Flycatcher',
-  lat: 33.45,
-  lng: -112.07,
-  obsDt: new Date(Date.now() - 15 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19),
-  locId: 'L001',
-  locName: 'Papago Park',
-  howMany: 3,
-  isNotable: true,
-  silhouetteId: null,
-  familyCode: 'tyrannidae',
-  taxonOrder: 4400,
-};
-
-// Canned flat observations shown below the FeedCard in the feed-card preview.
-const CANNED_FLAT: Observation[] = [
-  {
-    subId: 'S002', speciesCode: 'gilwoo', comName: 'Gila Woodpecker',
-    lat: 33.46, lng: -112.08,
-    obsDt: new Date(Date.now() - 45 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19),
-    locId: 'L002', locName: 'South Mountain', howMany: 1, isNotable: false,
-    silhouetteId: null, familyCode: 'picidae', taxonOrder: 5200,
-  },
-  {
-    subId: 'S003', speciesCode: 'incdov', comName: 'Inca Dove',
-    lat: 33.44, lng: -112.06,
-    obsDt: new Date(Date.now() - 90 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19),
-    locId: 'L003', locName: 'Desert Botanical Garden', howMany: null, isNotable: false,
-    silhouetteId: null, familyCode: 'columbidae', taxonOrder: 3100,
-  },
-  {
-    subId: 'S004', speciesCode: 'annhum', comName: "Anna's Hummingbird",
-    lat: 33.47, lng: -112.05,
-    obsDt: new Date(Date.now() - 120 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19),
-    locId: 'L004', locName: 'Phoenix Zoo', howMany: 2, isNotable: false,
-    silhouetteId: null, familyCode: 'trochilidae', taxonOrder: 1600,
-  },
-];
 
 // Canned state list for the ScopeChooser preview (#742). A small name-sorted
 // slice — the real list comes from GET /api/states (#732) at runtime.
@@ -250,30 +205,6 @@ export function DsPreview(): ReactNode {
     return (
       <div style={PREVIEW_STYLES}>
         <FilterSentence filters={makeFilters({ notable: true, familyCode: 'woodpeckers' })} />
-      </div>
-    );
-  }
-
-  // FeedCard preview — elevated notable card + 3 flat rows below (issue #440)
-  if (key === 'feed-card') {
-    const now = new Date();
-    return (
-      <div style={{ ...PREVIEW_STYLES, maxWidth: '800px' }}>
-        <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-          <FeedCard
-            observation={CANNED_NOTABLE}
-            now={now}
-            onSelectSpecies={() => {}}
-          />
-          {CANNED_FLAT.map(obs => (
-            <FeedRow
-              key={obs.subId}
-              observation={obs}
-              now={now}
-              onSelectSpecies={() => {}}
-            />
-          ))}
-        </ul>
       </div>
     );
   }

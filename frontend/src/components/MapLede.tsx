@@ -33,8 +33,7 @@ export interface MapLedeProps {
    * Re-fetches don't reset `observations` to `[]` (see use-bird-data.ts),
    * so this flag only matters on first paint. The freshness meta-line is
    * already empty during loading (deriveFreshness(null) → label ''), so the
-   * context strip collapses to nothing — matching FeedSurface's own loading
-   * branch.
+   * context strip collapses to nothing during the loading branch.
    *
    * Issue #720: this must be driven by useBirdData's `observationsLoading`
    * — NOT the combined `loading` — because under typical network conditions
@@ -46,7 +45,7 @@ export interface MapLedeProps {
 }
 
 /**
- * Newspaper lede for the map / feed / species surfaces. 4 templates in
+ * Newspaper lede for the map / species surfaces. 4 templates in
  * priority order — see docs/design/01-spec/voice-and-content.md §"Lede
  * contract". Stale data drops the "in the last {period}" clause.
  *

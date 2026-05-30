@@ -17,8 +17,8 @@
  *
  * State names are sourced at runtime from `GET /api/states`
  * (`StateSummary[]`, #732) — NOT a hard-coded map here. The build-time
- * `REGION_LABEL` constant was removed in #738/C5; its five consumers
- * (AppHeader, MapLede, SurfaceTitleSync, FeedSurface, App.tsx) now thread the
+ * `REGION_LABEL` constant was removed in #738/C5; its consumers
+ * (AppHeader, MapLede, SurfaceTitleSync, App.tsx) now thread the
  * runtime value.
  *
  * Spec: docs/design/01-spec/architecture.md §Cross-cutting structures;

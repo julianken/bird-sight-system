@@ -15,11 +15,6 @@ describe('SurfaceTitleSync', () => {
     expect(document.title).toBe('Bird Maps · Arizona');
   });
 
-  it('sets title to "Feed — Bird Maps · Arizona" on feed surface', () => {
-    render(<SurfaceTitleSync view="feed" speciesCommonName={null} region="Arizona" />);
-    expect(document.title).toBe('Feed — Bird Maps · Arizona');
-  });
-
   it('sets title to "{commonName} — Bird Maps · Arizona" on detail surface with species', () => {
     render(<SurfaceTitleSync view="detail" speciesCommonName="Gila Woodpecker" region="Arizona" />);
     expect(document.title).toBe('Gila Woodpecker — Bird Maps · Arizona');
@@ -51,8 +46,10 @@ describe('SurfaceTitleSync', () => {
       <SurfaceTitleSync view="map" speciesCommonName={null} region="Arizona" />,
     );
     expect(document.title).toBe('Bird Maps · Arizona');
-    rerender(<SurfaceTitleSync view="feed" speciesCommonName={null} region="Arizona" />);
-    expect(document.title).toBe('Feed — Bird Maps · Arizona');
+    rerender(
+      <SurfaceTitleSync view="detail" speciesCommonName="Gila Woodpecker" region="Arizona" />,
+    );
+    expect(document.title).toBe('Gila Woodpecker — Bird Maps · Arizona');
   });
 
   it('updates title when species changes on detail surface', () => {

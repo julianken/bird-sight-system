@@ -3,7 +3,7 @@ import type { LngLatBounds } from 'maplibre-gl';
 import { analytics } from './analytics.js';
 import { ApiClient, ApiError } from './api/client.js';
 import { useUrlState, DEFAULTS } from './state/url-state.js';
-import type { Since, BBox, Scope } from './state/url-state.js';
+import type { BBox, Scope } from './state/url-state.js';
 import type { ScopeResolution } from './state/scope-types.js';
 import { useBirdData } from './data/use-bird-data.js';
 import { useSilhouettes } from './data/use-silhouettes.js';
@@ -15,7 +15,6 @@ import { useSpeciesDetail } from './data/use-species-detail.js';
 // the entry bundle — App owns the scope→clampPad derivation (#760/#762).
 import { ARTBOARD_PAD } from './components/map/mask.js';
 import { FiltersBar } from './components/FiltersBar.js';
-import { FeedSurface } from './components/FeedSurface.js';
 import { MapSurface } from './components/MapSurface.js';
 import { ScopeChooser } from './components/ScopeChooser.js';
 import { ScopeControl } from './components/ScopeControl.js';
@@ -83,7 +82,7 @@ export function App() {
   const { state, set } = useUrlState();
   const isCompact = useIsCompact();
   // Tag the current Clarity session with the active view so dashboards can
-  // filter sessions by surface (feed | map | detail). Fires on initial mount
+  // filter sessions by surface (map | detail). Fires on initial mount
   // and on every view change; analytics.setView no-ops safely when Clarity
   // isn't initialized (dev/test/missing project ID). PR #659 follow-up.
   useEffect(() => {
@@ -127,7 +126,7 @@ export function App() {
   // observation fetch specifically — under typical network conditions
   // hotspots resolves first, flipping a shared `loading` flag to false
   // while observations is still in flight and triggering the very
-  // Template-1 misfire #716 set out to suppress. FeedSurface and the
+  // Template-1 misfire #716 set out to suppress. The MapLede and the
   // <main aria-busy> attribute narrate observation data, so they switch
   // to `observationsLoading` too. `loading` (combined) is retained for
   // `data-render-complete`, which tracks the whole tree being ready.
@@ -185,18 +184,6 @@ export function App() {
 
   const families = useMemo(() => deriveFamilies(observations), [observations]);
   const speciesIndex = useMemo(() => deriveSpeciesIndex(observations), [observations]);
-
-  // Map the Since discriminant to bare-duration tokens used in lede templates.
-  // These must be bare duration strings (e.g. "14 days") NOT noun phrases —
-  // the lede template at FeedSurface reads "in the last {period}." which
-  // would produce "in the last Last 14 days." with full noun phrases.
-  // Spec: docs/design/01-spec/voice-and-content.md §Lede contract.
-  const PERIOD_LABELS: Record<Since, string> = {
-    '1d': '1 day',
-    '7d': '7 days',
-    '14d': '14 days',
-  };
-  const period = PERIOD_LABELS[state.since];
 
   // #738/C5: runtime region label for the active scope (#735). `null` ⟺
   // unscoped (the chooser landing) — every consumer degrades to no region
@@ -301,7 +288,7 @@ export function App() {
   // No reset effect on view transitions: the `viewportBounds` value is
   // never read directly — only through the `viewportObservations` memo
   // below, which is gated on `state.view === 'map'`. Stale bounds left
-  // in state when the user switches to feed/detail views are therefore
+  // in state when the user switches to the detail view are therefore
   // harmless; an explicit reset effect would race the memo on re-entry
   // and is unnecessary.
   const [viewportBounds, setViewportBounds] = useState<LngLatBounds | null>(null);
@@ -553,8 +540,8 @@ export function App() {
   // closes IN PLACE — return to whatever view was underneath (typically
   // 'map'). If the user landed via the legacy ?view=detail deep-link
   // (backward compat), reset to 'map' so they don't end up on a stale
-  // detail-view shell with no detail code. Note: #662 removed Feed as a
-  // user-visible surface, so we never land on 'feed' here.
+  // detail-view shell with no detail code. The View union is now just
+  // 'map' | 'detail', so 'map' is always the surface underneath.
   const onCloseDetail = useCallback(
     () => set({ view: state.view === 'detail' ? 'map' : state.view, detail: null }),
     [set, state.view],
@@ -648,7 +635,7 @@ export function App() {
         ref={mainRef}
         id="main-surface"
         data-render-complete={renderComplete}
-        aria-busy={observationsLoading && state.view === 'feed'}
+        aria-busy={observationsLoading}
         // axe `scrollable-region-focusable` (WCAG 2.1.1): #main-surface
         // has `overflow: auto` so it can scroll when its content (e.g.
         // species detail with photo) exceeds the viewport. Keyboard users
@@ -657,24 +644,6 @@ export function App() {
         // other interactive role.
         tabIndex={0}
       >
-        {state.view === 'feed' && (
-          <FeedSurface
-            loading={observationsLoading}
-            observations={observations}
-            now={now}
-            filters={{ notable: state.notable, since: state.since, speciesCode: state.speciesCode, familyCode: state.familyCode }}
-            onSelectSpecies={onSelectSpecies}
-            speciesIndex={speciesIndex}
-            observationCount={observations.length}
-            regionLabel={region}
-            period={period}
-            freshness={freshnessState}
-            freshnessLabel={freshnessLabel}
-            silhouettes={silhouettes}
-            {...(speciesName !== undefined ? { speciesName } : {})}
-            {...(familyName !== undefined ? { familyName } : {})}
-          />
-        )}
         {mapVisible && (
           <>
             {/* #740 (C6) — the in-state on-map re-scope bar (#737). Rendered
@@ -757,7 +726,7 @@ export function App() {
       )}
       {/*
         Phase 6: Footer removed. The Attribution trigger moved to <AppHeader>
-        in Phase 3 — reachable from every view (map|feed|detail), meeting
+        in Phase 3 — reachable from every view (map|detail), meeting
         the eBird ToU §3 and CC BY-SA §4(b/c) prominence requirement.
 
         <AttributionModal> is mounted here (outside any landmark container)

@@ -124,7 +124,7 @@ export class AppPage {
    * URL (no `?state=`/`?scope=`) now lands on the <ScopeChooser>, NOT the map.
    * Pre-C6 these specs assumed a bare URL cold-loaded the CONUS national map —
    * which is now exactly the `?scope=us` whole-US view. To preserve what every
-   * legacy feed/map/detail spec actually tests, default to `scope=us` when the
+   * legacy map/detail spec actually tests, default to `scope=us` when the
    * caller passes no explicit scope. Specs that DO exercise the chooser / a
    * specific scope (e.g. `goto('scope=us')`, `goto('state=US-AZ')`, or the
    * dedicated unscoped-chooser spec via `gotoRaw`) pass their own scope and are

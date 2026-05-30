@@ -8,7 +8,7 @@ import { analytics } from '../analytics.js';
 // longer emits it. Bookmarked `?since=30d` URLs fall back to default `'14d'`
 // via the existing `VALID_SINCE.has(...)` check below.
 export type Since = '1d' | '7d' | '14d';
-export type View = 'feed' | 'map' | 'detail';
+export type View = 'map' | 'detail';
 export type BBox = readonly [number, number, number, number];
 
 // #735 — the three-landing-state scope model the C0 prototype validated
@@ -52,7 +52,7 @@ export const DEFAULTS: UrlState = {
 };
 
 const VALID_SINCE: ReadonlySet<string> = new Set(['1d', '7d', '14d']);
-const VALID_VIEW: ReadonlySet<string> = new Set(['feed', 'map', 'detail']);
+const VALID_VIEW: ReadonlySet<string> = new Set(['map', 'detail']);
 
 // #735 — single-source CONUS allowlist (locked decision #6). `as const`'d to
 // a Set<string> so the `.has()` narrows cleanly; the cast back to `StateCode`
@@ -97,7 +97,7 @@ function readUrl(): UrlState {
     // ?species=<code> is preserved so the FiltersBar species combobox
     // stays active. The Species surface was removed in #688 — its filter
     // UX folds into the FiltersBar combobox, and the navigation UX folds
-    // into clicking a feed row / map marker.
+    // into clicking a map marker.
     view = 'map';
     const redirect = new URLSearchParams(window.location.search);
     redirect.set('view', 'map');
@@ -273,9 +273,9 @@ export function useUrlState(): {
       // Push (vs replace) when the user is navigating INTO the detail
       // surface, OR navigating between two different species details.
       // Both cases are user-meaningful "I clicked into a thing" moves
-      // that the browser back button should undo. Filter changes and
-      // surface switches (feed/map) keep replaceState so the history
-      // stack doesn't grow on every chip toggle.
+      // that the browser back button should undo. Filter changes keep
+      // replaceState so the history stack doesn't grow on every chip
+      // toggle.
       const push =
         // Entering detail from a non-detail surface
         (next.view === 'detail' && prev.view !== 'detail') ||

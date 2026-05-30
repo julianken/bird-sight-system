@@ -81,7 +81,7 @@
  * (spec docs/design/01-spec/tokens.md §Light/dark mechanic — lighter
  * grays, warm cream surfaces) is a Phase 3+ concern coupled to surface
  * redesign; landing the lighter palette here would regress AA contrast
- * (e.g. .feed-row-time @ 12px on #fff with #8a8a8a fails 4.5:1).
+ * (e.g. .map-freshness @ 12px on #fff with #8a8a8a fails 4.5:1).
  *
  * NEW additions in this block (no existing equivalent in styles.css):
  *   --color-bg-skeleton, --color-decision-point, --color-density-{low,mid,high},
@@ -180,11 +180,6 @@
  * override on the component scope rather than per-property.
  * Expand this block as Phase 2 primitives land.
  */
-.feed-row {
-  --feed-row-bg:       var(--color-bg-surface);
-  --feed-row-bg-hover: var(--color-bg-tint);
-}
-
 /*
  * Lede — a one-off display size that sits between --type-lg (22px) and
  * --type-hero (34px). Scoped here (Layer 3) rather than inside the type
@@ -192,7 +187,6 @@
  * exception inside the ladder weakens the contract. Moved out of Layer 1
  * intentionally — see commit "refactor(styles): relocate --lede-size".
  */
-.lede,
-.feed-lede {
+.lede {
   --lede-size: 26px;
 }
