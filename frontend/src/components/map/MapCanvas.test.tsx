@@ -2219,6 +2219,33 @@ describe('MapCanvas state-artboard mask (#762)', () => {
     );
   });
 
+  it('with maskPolygon: state-mask-fill is moved BELOW the first basemap label layer (interior-label un-clip)', async () => {
+    render(
+      <MapCanvas
+        observations={[]}
+        silhouettes={SILHOUETTES}
+        bounds={AZ_BOUNDS}
+        boundsKey="US-AZ"
+        maskPolygon={AZ_POLYGON}
+        clampPad={ARTBOARD_PAD}
+      />,
+    );
+    await waitFor(() => expect(fakeMap.moveLayer).toHaveBeenCalled());
+    // The fidelity composite lowers state-mask-fill below the FIRST basemap
+    // label (symbol) layer (here `place_country`, the first isolatable symbol),
+    // so within-filtered INTERIOR labels paint ON TOP of the gray and a
+    // near-border label is no longer sliced by the opaque mask.
+    const moved = (fakeMap.moveLayer.mock.calls as Array<[string, string?]>);
+    expect(moved).toEqual(
+      expect.arrayContaining([['state-mask-fill', 'place_country']]),
+    );
+    // The mask is NEVER lowered below the app observation symbol layer or a
+    // float layer (it anchors on the first ISOLATABLE basemap label only).
+    expect(moved).not.toEqual(
+      expect.arrayContaining([['state-mask-fill', 'transit_route_ref']]),
+    );
+  });
+
   it('[blocker guard] moveLayer is NOT called when state-mask-fill is absent at reconcile time', async () => {
     // Simulate the reconcile-sequencing window: react-map-gl has not re-added
     // the mask layer yet, so getLayer('state-mask-fill') returns undefined. The
