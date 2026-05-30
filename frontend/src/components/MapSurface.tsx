@@ -13,8 +13,10 @@ import { prettyFamily } from '../derived.js';
 
 /**
  * Lazy-loaded MapCanvas. The React.lazy() boundary lives HERE — not inside
- * MapCanvas — so the 217 KB maplibre-gl chunk is only fetched when the map
- * surface is first rendered. Feed and Species tabs never pay for it.
+ * MapCanvas — so the ~1,028 kB raw / ~273 kB gzip maplibre-gl chunk (see
+ * docs/perf/dist-chunk-baseline.md) is fetched only when MapCanvas FIRST
+ * RENDERS, not merely when this module is imported. The unscoped chooser
+ * landing therefore never pays the chunk cost.
  */
 const MapCanvas = React.lazy(() =>
   import('./map/MapCanvas.js').then((m) => ({ default: m.MapCanvas })),
