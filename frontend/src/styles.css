@@ -125,7 +125,8 @@ body {
 /* Skip-link (issue #247). WCAG 2.4.1 (Bypass Blocks) — keyboard users
    skip past the map canvas (which is intentionally NOT in the global tab
    order — a 344-marker tab sequence is hostile per UX/a11y review) to
-   the FeedSurface list landmark. The link is visually hidden until it
+   the first map-marker cell (the "Explore map markers" skip-link, #558).
+   The link is visually hidden until it
    receives keyboard focus, then it slides into the top of the surface
    and renders as a visible button. Pattern follows the WebAIM
    "Skip Navigation" recommendation. */
