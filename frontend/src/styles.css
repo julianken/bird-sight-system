@@ -38,6 +38,26 @@
   --space-lg: 16px;
   --space-xl: 24px;
 
+  /* Vertical clearance the bottom-left .family-legend must leave for MapLibre's
+     basemap AttributionControl so the OSM / OpenFreeMap / eBird license text is
+     NEVER overlapped (ODbL + eBird ToU §3 — licensing, not cosmetic). #775.
+
+     Under the full-bleed map (#761 S2) the map fills 100vh and the non-compact
+     attribution (`compact={false}` in MapCanvas.tsx — deliberately always-
+     expanded so the OSM credit is visible without a click) renders as a bottom
+     bar that, on narrow viewports, spans the FULL viewport width and wraps to
+     multiple lines — its left portion reaching into the legend's bottom-left
+     corner. Measured band heights (single source of truth for this token,
+     re-derive with the map-root-geometry attribution-clearance guard):
+       - ≤760px : 3-line wrap  → ~60px tall, left edge at x=0  (full width)
+       - 761–1024px : 2→1-line → up to ~40px tall, wide bar
+       - >1024px : single line → ~20px tall, hugs the bottom-right corner
+     The token lifts the legend's bottom anchor ABOVE the worst-case band per
+     tier (clearance > band height), so the lift is independent of the bar's
+     horizontal extent — the legend clears it vertically regardless of width.
+     Default is the desktop tier; the two media queries below override it. */
+  --attribution-clearance: 20px;
+
   /* Floating-header height (#761 S2). The AppHeader became `position: fixed`
      chrome over the full-viewport map root, so it no longer occupies flow
      height. Every in-flow chrome surface that previously sat below it — the
@@ -677,13 +697,17 @@ body {
 }
 
 /* FamilyLegend floating overlay (#249). Anchored to the bottom-left of
-   .map-surface, above MapLibre's AttributionControl (which lives at
-   bottom-right by default — but we still want clearance for keyboard-tabs
-   that open it). The legend is a semantic <aside> — keyboard-reachable,
-   labelled by its toggle button, and self-collapsing on mobile. */
+   .map-surface. MapLibre's non-compact AttributionControl anchors bottom-right
+   but, under the full-bleed map (#761 S2), its always-expanded license bar wraps
+   to the FULL viewport width on narrow viewports and reaches into this corner.
+   The `bottom` offset lifts the legend ABOVE that band (--attribution-clearance,
+   tiered by viewport) so the OSM / OpenFreeMap / eBird credit is never overlapped
+   — a licensing requirement, not cosmetic (#775). The legend is a semantic
+   <aside> — keyboard-reachable, labelled by its toggle button, and self-
+   collapsing on mobile. */
 .family-legend {
   position: absolute;
-  bottom: var(--space-md);
+  bottom: calc(var(--space-md) + var(--attribution-clearance));
   left: var(--space-md);
   z-index: var(--z-overlay);
   background: var(--color-bg-surface);
@@ -787,13 +811,32 @@ body {
   background: var(--color-bg-surface);
 }
 
+/* Attribution-clearance tablet tier (#775). At 761–1024px the non-compact
+   basemap attribution bar wraps to ~2 lines (~40px tall, measured at 768×1024)
+   and still spans most of the viewport width, so the legend must clear a taller
+   band than the desktop default. Source-ordered BEFORE the ≤760px block so the
+   narrower mobile query (60px) overrides this at phone widths. */
+@media (max-width: 1024px) {
+  :root {
+    --attribution-clearance: 40px;
+  }
+}
+
 /* Mobile collapse-by-default. The component reads this breakpoint via
    matchMedia at mount time (see MapSurface.readLegendDefaultExpanded);
    the CSS below additionally tightens the collapsed footprint so the
    chevron tab doesn't obscure the map. localStorage 'family-legend-
    expanded' overrides this — the responsive default is a first-visit
-   hint, not a sticky rule. */
+   hint, not a sticky rule.
+
+   --attribution-clearance jumps to 60px here: at ≤760px the attribution bar
+   spans the full viewport width and wraps to ~3 lines (measured 60px at
+   390×844), so the legend's bottom-left corner must clear that full band
+   (#775 — licensing requirement). */
 @media (max-width: 760px) {
+  :root {
+    --attribution-clearance: 60px;
+  }
   .family-legend {
     max-width: calc(100vw - 2 * var(--space-md));
   }
