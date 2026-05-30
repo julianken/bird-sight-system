@@ -58,11 +58,12 @@ test.describe('accessibility', () => {
   });
 
   test('aria-busy flips from true to false when data loads', async ({ page }) => {
+    const app = new AppPage(page);
     await page.goto('/?scope=us');
     // Race: the mount effect kicks off a fetch, and we may miss the `true` state
     // if the network is very fast. Accept either ordering, but we MUST end on 'false'.
     await expect.poll(
-      () => page.locator('main#main-surface').getAttribute('aria-busy'),
+      () => app.mainSurface.getAttribute('aria-busy'),
       { timeout: 10_000 }
     ).toBe('false');
   });
