@@ -794,6 +794,119 @@ describe('Zoom/bbox state-race regression (#690)', () => {
   });
 });
 
+describe('S4 (#769): onViewportChange scope-gate', () => {
+  // A plain object with the four getter methods App.tsx calls on a LngLatBounds
+  // (jsdom can't load maplibre-gl — the same constraint the MapSurface stub and
+  // the #690 block above work around).
+  function makeBounds(
+    west: number, south: number, east: number, north: number,
+  ): LngLatBounds {
+    return {
+      getWest: () => west,
+      getSouth: () => south,
+      getEast: () => east,
+      getNorth: () => north,
+    } as unknown as LngLatBounds;
+  }
+
+  // Two arbitrary, distinct framings — chosen so the second is a clearly
+  // different camera (would force a `setViewportBounds` re-render if the gate
+  // were absent).
+  const FRAME_A = makeBounds(-125, 24, -66, 50);
+  const FRAME_B = makeBounds(-122.5, 37.3, -121.8, 37.9);
+
+  beforeEach(() => {
+    __resetSilhouettesCache();
+    __resetStatesCache();
+    mockGetStates.mockResolvedValue([]);
+    mockGetHotspots.mockResolvedValue([]);
+    mockGetObservations.mockResolvedValue({
+      data: [], meta: { freshestObservationAt: null },
+    });
+    mockGetSilhouettes.mockResolvedValue([]);
+    mockGetObservations.mockClear();
+    mockGetHotspots.mockClear();
+    mapSurfaceRef.onViewportChange = null;
+    mapSurfaceRef.boundsKey = undefined;
+    mapSurfaceRef.scopeBounds = undefined;
+    mapSurfaceRef.flyTo = undefined;
+    mapSurfaceRef.renderCount = 0;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  // AC: while unscoped, onViewportChange early-returns — it does NOT call
+  // setViewportBounds, so a settled `idle` causes ZERO additional App renders.
+  // Under S1 the map is persistently mounted behind the scrim, so the real
+  // maplibre `idle` (modelled here by invoking the captured callback) DOES
+  // reach App's onViewportChange even while unscoped — the early-return is the
+  // mechanism that keeps it inert, NOT an unmount. This is the unit-level proof
+  // that the live-map e2e proves at the network layer (net /api/observations
+  // === 0 after a real unscoped idle).
+  it('does NOT update viewportBounds (no re-render) when the map idles while unscoped', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'unscoped' },
+    };
+    render(<App />);
+    // The chooser scrim is up, but the map surface is mounted behind it (S1),
+    // so the stub captures the live onViewportChange even while unscoped.
+    expect(
+      await screen.findByRole('region', { name: /Choose where to look at birds/i }),
+    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mapSurfaceRef.onViewportChange).not.toBeNull();
+    });
+    const onViewportChange = mapSurfaceRef.onViewportChange!;
+
+    const rendersBefore = mapSurfaceRef.renderCount;
+    // Drive a settled viewport idle while unscoped — the gate must swallow it
+    // with ZERO state writes, so no re-render is committed.
+    await act(async () => {
+      onViewportChange(FRAME_A, 4);
+    });
+    await act(async () => {
+      onViewportChange(FRAME_B, 9);
+    });
+    expect(mapSurfaceRef.renderCount).toBe(rendersBefore);
+    // And the enabled=false backstop still holds: no observations fetch fired.
+    expect(mockGetObservations).not.toHaveBeenCalled();
+  });
+
+  // Control case: with a scope active, the SAME callback DOES update
+  // viewportBounds (re-renders) — proving the no-op above is the unscoped gate,
+  // not a dead callback. (`?scope=us` framing arms the scopeMoveUntilRef window,
+  // so we advance past SCOPE_MOVE_SETTLE_MS first; that window suppresses the
+  // bbox *refetch*, NOT the `setViewportBounds` write the legend depends on.)
+  it('DOES update viewportBounds (re-renders) when the map idles while scoped', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'us' as const },
+    };
+    render(<App />);
+    await waitFor(() => {
+      expect(mapSurfaceRef.onViewportChange).not.toBeNull();
+    });
+    const onViewportChange = mapSurfaceRef.onViewportChange!;
+
+    // Clear the scope-framing settle window so the idle is treated as genuine
+    // user pan, not the programmatic scope-frame settle.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1100);
+    });
+    const rendersBefore = mapSurfaceRef.renderCount;
+    await act(async () => {
+      onViewportChange(FRAME_B, 9);
+    });
+    // setViewportBounds committed a new value → at least one re-render.
+    expect(mapSurfaceRef.renderCount).toBeGreaterThan(rendersBefore);
+  });
+});
+
 describe('#740 (C6): scope wiring end-to-end', () => {
   // Two CONUS states for the /api/states table. `bbox` is [w,s,e,n] (the
   // StateSummary order); App converts to [[w,s],[e,n]] for the camera.

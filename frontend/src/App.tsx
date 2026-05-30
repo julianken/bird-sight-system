@@ -137,6 +137,15 @@ export function App() {
   // but the fetch gate is the load-bearing half: it keeps the network panel
   // empty even though the hooks above this return are always evaluated.
   const scopeActive = state.scope.kind !== 'unscoped';
+  // S4 (#769) — live-readable mirror of `scopeActive` for the empty-deps
+  // `onViewportChange` callback (below). It is read through `.current` so the
+  // callback can hard scope-gate WITHOUT taking `state.scope` as a dep (which
+  // would re-create the `useCallback(…, [])` and risk the #690 bbox/zoom
+  // de-pairing). Same per-render-assignment idiom as MapCanvas's
+  // `onViewportChangeRef` (MapCanvas.tsx:1016-1017): assign on every render so
+  // the ref always holds the current value by the time an `idle` fires.
+  const scopeActiveRef = useRef(scopeActive);
+  scopeActiveRef.current = scopeActive;
   // #740 (C6) — only a `?state=US-XX` scope sends `?state=` to the API (the
   // server clips via ST_Intersects). UNSCOPED and `?scope=us` both leave
   // `stateCode` unset, so the backend stays untouched (data invariant, #735).
@@ -336,7 +345,13 @@ export function App() {
   // is the single fetch trigger (via the `stateCode`/`enabled` deps of
   // useBirdData). After the window, genuine user pan/zoom within the scope
   // refetches normally. Unscoped (`boundsKey === undefined`) needs no
-  // suppression — the map is unmounted and no idle fires.
+  // suppression here — but the reason is NO LONGER "the map is unmounted and no
+  // idle fires." #761 (S1) made the map persistently mounted behind the chooser
+  // scrim, so an unscoped map DOES emit `idle`. The unscoped no-op is now
+  // enforced one level up by the `scopeActiveRef` early-return at the top of
+  // `onViewportChange` below (S4, #769) — it returns before this window is even
+  // read while unscoped, so `scopeMoveUntilRef` is never consulted on the
+  // unscoped landing.
   const SCOPE_MOVE_SETTLE_MS = 1000;
   const scopeMoveUntilRef = useRef(0);
   useEffect(() => {
@@ -345,6 +360,33 @@ export function App() {
     }
   }, [boundsKey, flyTo?.key]);
   const onViewportChange = useCallback((bounds: LngLatBounds, zoom: number) => {
+    // S4 (#769) — hard scope-gate. #761 (S1) made the map persistently mounted
+    // behind the chooser scrim, so a still-UNSCOPED map keeps emitting `idle`.
+    // The `scopeMoveUntilRef` window below only covers the scope-framing settle
+    // and historically assumed the map was UNMOUNTED while unscoped. Under the
+    // always-mounted model an unscoped idle must do ZERO refetch work — not even
+    // `setViewportBounds` or a `scopeMoveUntilRef` read — because
+    // `useBirdData(enabled=false)` is a SINGLE backstop, not the load-bearing
+    // gate (R1, the epic's highest risk). Returning here makes the two gates
+    // independently sufficient: an unscoped idle cannot stage a bbox/zoom even
+    // if a scope is then activated mid-pan.
+    //
+    // Skipping `setViewportBounds(bounds)` while unscoped is safe because of the
+    // EMPTY-OBSERVATIONS invariant, NOT the `mapVisible` view-gate. `mapVisible`
+    // (`state.view === 'map' || 'detail'`) is gated on VIEW, not scope — on the
+    // unscoped landing the view is still `'map'`, so `mapVisible === true` and
+    // it does not discriminate the unscoped case at all. The load-bearing reason
+    // is that while unscoped `useBirdData(enabled=false)` leaves
+    // `observations === []` (use-bird-data.ts:116, the `!enabled` short-circuit
+    // at :148, and `setObservations([])` at :153), so the `viewportObservations`
+    // memo computes `filterObservationsByBounds([], bounds) === []` independent
+    // of `viewportBounds` — a stale/absent `viewportBounds` is therefore inert.
+    // (Secondary, belt-and-suspenders: under S1 the inert scrim also suppresses
+    // map-marker render and the FamilyLegend it feeds; but the primary safety
+    // rests on the empty-observations invariant, not the scrim.)
+    if (!scopeActiveRef.current) {
+      return;
+    }
     setViewportBounds(bounds);
     // Swallow the scope-change settle window: keep the legend's bounds fresh
     // (set above) but skip the bbox/zoom refetch while the programmatic camera
