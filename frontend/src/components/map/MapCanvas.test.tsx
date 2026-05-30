@@ -138,6 +138,10 @@ function makeFakeMap() {
     triggerRepaint: vi.fn(),
     getCanvas: vi.fn(() => canvas),
     getContainer: vi.fn(() => container),
+    // #737/S3 — corrective resize on the flex→fixed container transition. Spied
+    // so the ResizeObserver effect's camera-neutral resize() is assertable AND
+    // so the fitBounds/flyTo camera spies can be checked unchanged after a fire.
+    resize: vi.fn(),
     easeTo: vi.fn(),
     // Camera-contract spies (#736). fitBounds/flyTo are the scope-driven
     // imperative moves; setMaxBounds is asserted to be NEVER called (maxBounds
@@ -265,6 +269,40 @@ vi.mock('react-map-gl/maplibre', () => ({
 }));
 
 vi.mock('maplibre-gl/dist/maplibre-gl.css', () => ({}));
+
+/* ── Controllable ResizeObserver + rAF stubs (#737/S3) ──────────────────────
+   jsdom has no ResizeObserver. MapCanvas's corrective resize effect guards on
+   `typeof ResizeObserver === 'undefined'` and no-ops without it, so to exercise
+   the camera-neutral `map.resize()` we install a stub that records each observer
+   instance and lets a test fire its callback. requestAnimationFrame is stubbed to
+   run synchronously so the rAF-coalesced resize lands within `act()`. */
+const resizeObservers: Array<{ cb: ResizeObserverCallback; fire: () => void }> = [];
+class StubResizeObserver {
+  cb: ResizeObserverCallback;
+  constructor(cb: ResizeObserverCallback) {
+    this.cb = cb;
+    resizeObservers.push({
+      cb,
+      // Simulate a box-size change notification to this observer.
+      fire: () => cb([] as unknown as ResizeObserverEntry[], this as unknown as ResizeObserver),
+    });
+  }
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(globalThis as any).ResizeObserver = StubResizeObserver;
+// Run rAF callbacks synchronously so the resize effect's coalescing frame fires
+// inside the test's act() flush (return a non-zero id so the `frame !== 0` guard
+// and cancelAnimationFrame cleanup behave like the real API).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(globalThis as any).requestAnimationFrame = (cb: FrameRequestCallback): number => {
+  cb(0);
+  return 1;
+};
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(globalThis as any).cancelAnimationFrame = () => {};
 
 class FakeImage {
   src = '';
@@ -1601,6 +1639,7 @@ describe('MapCanvas controllable camera (#736)', () => {
     deferMapLoad = false;
     deferredOnLoad = null;
     fakeMap = makeFakeMap();
+    resizeObservers.length = 0; // #737/S3 — reset captured RO instances per test.
     document.documentElement.removeAttribute('data-theme');
     // Default: nothing matches (no reduced motion, fine pointer path is fine).
     stubMatchMedia(null);
@@ -1611,7 +1650,7 @@ describe('MapCanvas controllable camera (#736)', () => {
     window.matchMedia = origMatchMedia;
   });
 
-  it('fitBounds(state) on scope change uses padding 48 + maxZoom 12 + essential:true + duration 600 (no reduced motion)', async () => {
+  it('fitBounds(state) on scope change uses asymmetric padding (top > bottom/left/right=48) + maxZoom 12 + essential:true + duration 600 (no reduced motion)', async () => {
     stubMatchMedia(null); // prefers-reduced-motion: reduce → false
     render(
       <MapCanvas observations={[]} bounds={AZ_BOUNDS} boundsKey="US-AZ" />,
@@ -1619,14 +1658,44 @@ describe('MapCanvas controllable camera (#736)', () => {
     await waitFor(() => expect(fakeMap.fitBounds).toHaveBeenCalled());
     const [bounds, opts] = fakeMap.fitBounds.mock.calls.at(-1);
     expect(bounds).toEqual(AZ_BOUNDS);
-    expect(opts.padding).toBe(48);
+    // #737/S3: padding is now an asymmetric object — a larger TOP inset clears
+    // the floating AppHeader + ScopeControl chrome that stacks over the
+    // full-bleed canvas top edge post-#761/S2; the other three edges keep 48.
+    expect(typeof opts.padding).toBe('object');
+    expect(opts.padding.top).toBeGreaterThan(opts.padding.bottom);
+    expect(opts.padding.top).toBeGreaterThan(opts.padding.left);
+    expect(opts.padding.top).toBeGreaterThan(opts.padding.right);
+    expect(opts.padding.bottom).toBe(48);
+    expect(opts.padding.left).toBe(48);
+    expect(opts.padding.right).toBe(48);
     expect(opts.maxZoom).toBe(12);
     expect(opts.essential).toBe(true);
     expect(opts.duration).toBe(600);
     expect(fakeMap.flyTo).not.toHaveBeenCalled();
   });
 
-  it('fitBounds duration is 0 (still essential:true) under prefers-reduced-motion (plan P3 gate)', async () => {
+  it('mount-frame deep-link uses the same asymmetric fitBounds padding (initialViewState.fitBoundsOptions)', async () => {
+    stubMatchMedia(null);
+    render(
+      <MapCanvas observations={[]} bounds={AZ_BOUNDS} boundsKey="US-AZ" />,
+    );
+    // Read the props the MockMap captured into data-props — the mount-frame
+    // `initialViewState` carries `fitBoundsOptions` so a deep-linked scoped
+    // landing (?state=US-AZ) frames with the same asymmetric padding, not the
+    // legacy scalar 48.
+    const mockMap = await screen.findByTestId('mock-map');
+    const props = JSON.parse(mockMap.getAttribute('data-props') ?? '{}');
+    const fitOpts = props.initialViewState?.fitBoundsOptions;
+    expect(fitOpts).toBeTruthy();
+    expect(typeof fitOpts.padding).toBe('object');
+    expect(fitOpts.padding.top).toBeGreaterThan(fitOpts.padding.bottom);
+    expect(fitOpts.padding.bottom).toBe(48);
+    expect(fitOpts.padding.left).toBe(48);
+    expect(fitOpts.padding.right).toBe(48);
+    expect(fitOpts.maxZoom).toBe(12);
+  });
+
+  it('fitBounds duration is 0 (still essential:true + asymmetric padding) under prefers-reduced-motion (plan P3 gate)', async () => {
     stubMatchMedia('(prefers-reduced-motion: reduce)');
     render(
       <MapCanvas observations={[]} bounds={AZ_BOUNDS} boundsKey="US-AZ" />,
@@ -1635,6 +1704,9 @@ describe('MapCanvas controllable camera (#736)', () => {
     const [, opts] = fakeMap.fitBounds.mock.calls.at(-1);
     expect(opts.duration).toBe(0);
     expect(opts.essential).toBe(true);
+    // #737/S3: reduced motion still lands the asymmetric camera instantly.
+    expect(typeof opts.padding).toBe('object');
+    expect(opts.padding.top).toBeGreaterThan(opts.padding.bottom);
   });
 
   it('prefers flyTo over fitBounds when both a state bounds AND a ZIP flyTo are present on the same cycle (finding f)', async () => {
@@ -1688,6 +1760,80 @@ describe('MapCanvas controllable camera (#736)', () => {
     });
     await waitFor(() => expect(fakeMap.fitBounds).toHaveBeenCalled());
     expect(fakeMap.fitBounds.mock.calls.at(-1)[0]).toEqual(AZ_BOUNDS);
+  });
+
+  it('calls map.resize() on a container box change (S2 flex→fixed transition) and is camera-neutral — no fitBounds/flyTo (#737/S3 gap 8)', async () => {
+    stubMatchMedia(null);
+    // No scope bounds → no scope-reframe fitBounds; isolates the resize path so a
+    // fitBounds/flyTo call could only come from the resize handler (it must not).
+    render(<MapCanvas observations={[]} />);
+    await waitFor(() => expect(resizeObservers.length).toBeGreaterThan(0));
+    const fitBefore = fakeMap.fitBounds.mock.calls.length;
+    const flyBefore = fakeMap.flyTo.mock.calls.length;
+
+    // Simulate the flex→fixed container box change. rAF is synchronous in this
+    // suite, so the coalesced resize lands within act().
+    act(() => {
+      resizeObservers.at(-1)!.fire();
+    });
+
+    expect(fakeMap.resize).toHaveBeenCalled();
+    // Camera-neutral: the resize handler must NOT schedule a camera move (which
+    // would risk a bbox refetch — the S4 scope-gate invariant, report R1).
+    expect(fakeMap.fitBounds.mock.calls.length).toBe(fitBefore);
+    expect(fakeMap.flyTo.mock.calls.length).toBe(flyBefore);
+  });
+
+  it('isMobile cluster tier reads the full-bleed container width: 767 → mobile (3×3 grid-overflow), 768 → desktop (4×4 grid)', async () => {
+    stubMatchMedia(null);
+    // A 10-unique-family / 30-point cluster: pickGridShape returns
+    // grid-overflow (3×3 + hiddenCount) when isMobile, but a 4×4 grid when
+    // desktop (10–16 families) — so the rendered marker shape distinguishes the
+    // tier at the 768px boundary the full-bleed read now sees.
+    const cluster = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [-110, 32] },
+      properties: { cluster: true, cluster_id: 42, point_count: 30 },
+    };
+    fakeMap.queryRenderedFeatures.mockReturnValue([cluster]);
+    const leaves = Array.from({ length: 10 }, (_, i) => ({
+      type: 'Feature',
+      properties: { familyCode: `fam${i}` },
+    }));
+    fakeMap.getSource.mockReturnValue({
+      getClusterLeaves: vi.fn().mockResolvedValue(leaves),
+      getClusterExpansionZoom: vi.fn().mockResolvedValue(11),
+    });
+
+    // 767px → mobile: pickGridShape caps families>8 at a 3×3 grid-overflow that
+    // surfaces a "+N" hidden-count affordance.
+    fakeMap.getContainer.mockReturnValue({
+      getBoundingClientRect: () => ({ width: 767, height: 900 }),
+    });
+    const { unmount } = render(
+      <MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />,
+    );
+    await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+    await act(async () => { await bareHandlers['idle']?.(); });
+    await act(async () => { await Promise.resolve(); });
+    // grid-overflow renders the hidden-count overflow cell.
+    expect(
+      screen.queryByTestId('adaptive-grid-marker-overflow'),
+    ).not.toBeNull();
+    unmount();
+
+    // 768px → desktop: families 10–16 → a full 4×4 grid, NO overflow "+N".
+    __resetAdaptiveGridCacheForTesting();
+    fakeMap.getContainer.mockReturnValue({
+      getBoundingClientRect: () => ({ width: 768, height: 900 }),
+    });
+    render(<MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />);
+    await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+    await act(async () => { await bareHandlers['idle']?.(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(
+      screen.queryByTestId('adaptive-grid-marker-overflow'),
+    ).toBeNull();
   });
 
   it('passes maxBounds as a reactive prop and NEVER calls setMaxBounds imperatively (finding a)', async () => {

@@ -403,6 +403,33 @@ const INITIAL_VIEW = {
 } as const;
 
 /**
+ * Single source of truth for the scope-framing `fitBounds` padding (#737, S3 of
+ * #761). ASYMMETRIC by design: after #761 (S2) the map is the viewport-filling
+ * root (`#map-layer` → `position: fixed; inset: 0`) and two stacked overlays now
+ * float over its TOP edge — the fixed `.app-header` chrome and the top-anchored
+ * `.scope-control` bar below it. A uniform inset would let that chrome occlude
+ * the top of the framed region (the northern strip of a state, markers at the
+ * top latitude). So `top` is grown to clear BOTH overlays while `bottom`/`left`/
+ * `right` keep the historical 48px (the non-chrome edges; bottom also leaves room
+ * for the bottom-left `.family-legend` + the MapLibre attribution bar).
+ *
+ * Derivation from the CSS tokens that own this stack (styles.css):
+ *   - `--header-height` = 48px (the fixed `.app-header` band).
+ *   - `.scope-control` top offset = `--header-height + --space-md` = 48 + 12 = 60px
+ *     from the viewport top (styles.css `.scope-control { inset-block-start }`).
+ *   - `.scope-control` height: `padding: --space-sm` (8px) top + bottom + content.
+ *     At ≤480px the bar WRAPS (`flex-wrap: wrap`; the `.scope-control__select` and
+ *     `.scope-control__exit-group` each go `flex: 1 1 100%`) to ~2 rows of ~36px
+ *     touch targets → ~88px tall worst case. Its bottom edge then sits at
+ *     ~60 + 88 ≈ 148px from the viewport top.
+ *   `top: 152` clears that wrapped worst case (narrowest 390px viewport) with a
+ *   small margin; on wider viewports the single-row bar is ~52px tall (bottom at
+ *   ~112px) so the same value clears it comfortably. Verified live against the
+ *   measured stack at all 5 canonical viewports (UI verification, #773).
+ */
+const FIT_BOUNDS_PADDING = { top: 152, bottom: 48, left: 48, right: 48 } as const;
+
+/**
  * Convert a `family_silhouettes` row into a complete SVG document string
  * suitable for `<img src="data:image/svg+xml,...">`. The svgData column
  * stores a single path-`d` string (24-viewBox); we wrap it in a minimal
@@ -527,6 +554,13 @@ export function MapCanvas({
 }: MapCanvasProps) {
   const mapRef = useRef<MapRef>(null);
   /**
+   * Wrapper element the `map.resize()` ResizeObserver watches (#737, S3 of
+   * #761). This is the `data-testid="map-canvas"` div — the box whose containing
+   * block flipped from a padded `<main>` flex child to the `position: fixed;
+   * inset: 0` `#map-layer` viewport sibling in S2. See the resize effect below.
+   */
+  const mapWrapperRef = useRef<HTMLDivElement>(null);
+  /**
    * Scope-selector camera (#736). `activeBounds` is the FIT TARGET — the
    * envelope the camera frames on entry (`fitBounds` + the mount
    * `initialViewState`): the scope `bounds` prop when present, else the CONUS
@@ -563,7 +597,7 @@ export function MapCanvas({
    */
   const initialViewStateRef = useRef(
     bounds
-      ? { bounds, fitBoundsOptions: { padding: 48, maxZoom: 12 } }
+      ? { bounds, fitBoundsOptions: { padding: FIT_BOUNDS_PADDING, maxZoom: 12 } }
       : INITIAL_VIEW,
   );
   /**
@@ -748,12 +782,10 @@ export function MapCanvas({
       return;
     }
     map.fitBounds(activeBounds, {
-      // TODO(#737): asymmetric top padding == ScopeControl bar height — the
-      // in-state on-map ScopeControl floats over the canvas, so uniform 48
-      // would let the bar occlude the top of the framed state. Land uniform
-      // 48 until #737 fixes the bar height, then switch to
-      // `{ top: <barHeightPx>, bottom: 48, left: 48, right: 48 }`.
-      padding: 48,
+      // Asymmetric top inset (FIT_BOUNDS_PADDING) clears the floating header +
+      // scope-control chrome that stacks over the full-bleed canvas top edge
+      // post-#761/S2 — resolves the deferred TODO(#737). top > bottom/left/right.
+      padding: FIT_BOUNDS_PADDING,
       maxZoom: 12,
       essential: true,
       duration: prefersReducedMotion ? 0 : 600,
@@ -764,6 +796,63 @@ export function MapCanvas({
     // (prototype documents this exact disable). prefersReducedMotion is mount-
     // stable (useMemo []).
   }, [mapReady, boundsKey, flyTo?.key, prefersReducedMotion]);
+
+  /**
+   * Corrective `map.resize()` on the S2 flex→fixed container transition (#737,
+   * gap 8 of #761). Before S2 the map was a `flex: 1; min-height: 0` child of a
+   * padded `<main>`; S2 hoisted it into `#map-layer` (`position: fixed; inset: 0`)
+   * and `.map-surface` became `position: absolute; inset: 0`. That swaps the
+   * CONTAINING BLOCK (a reparent/reflow), and maplibre's built-in observer on the
+   * inner GL container does not always re-read `_containerDimensions` for the new
+   * full-viewport box on the first paint — leaving a one-frame mis-sized canvas
+   * (clipped tiles, off-by-padding marker projection). S2 demonstrated the fallout
+   * test-side: the coarse-pointer cluster-tap spec saw the marker DOM node
+   * re-created ~600ms post-tap (`sameMarkerNode === false`) because the canvas was
+   * still settling, and worked around it with an extra idle+rAF wait it deferred
+   * to this PR.
+   *
+   * Fix: a `ResizeObserver` on the `data-testid="map-canvas"` wrapper (the box
+   * whose containing block changed). It is the robust form because the box can
+   * change AGAIN after the one-time reparent (theme-toggle reflow, the detail
+   * rail/sheet opening alongside the fixed map, mobile URL-bar show/hide changing
+   * 100vh). The observer is:
+   *   - CAMERA-NEUTRAL: it only calls `map.resize()` — never `fitBounds`/`flyTo`/
+   *     a refetch — so it cannot schedule a bbox `/api/observations` (the S4
+   *     scope-gate invariant, report R1).
+   *   - IDEMPOTENT / debounced: coalesced to the next animation frame so a burst
+   *     of observer fires (including maplibre's own internal observer churn during
+   *     the same reflow) collapses to a single `resize()`; a pending frame is
+   *     guarded so we never stack rAFs.
+   *   - DISCONNECTED on cleanup (observer + any pending rAF), so a `<Map>` remount
+   *     across a scope pick leaks neither.
+   * `mapReady`-gated so `getMap()` is live. The first observe-callback fire (which
+   * ResizeObserver delivers on `observe()`) doubles as the one-shot post-`mapReady`
+   * correction for the initial reparent.
+   */
+  useEffect(() => {
+    if (!mapReady) return;
+    const map = mapRef.current?.getMap();
+    const wrapper = mapWrapperRef.current;
+    if (!map || !wrapper || typeof ResizeObserver === 'undefined') return;
+
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      // Coalesce a burst of box changes (and maplibre's own internal observer
+      // churn during the same reflow) into a single rAF-batched resize. Camera-
+      // neutral: resize() recomputes the canvas/transform for the new box only.
+      if (frame !== 0) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        map.resize();
+      });
+    });
+    observer.observe(wrapper);
+
+    return () => {
+      observer.disconnect();
+      if (frame !== 0) cancelAnimationFrame(frame);
+    };
+  }, [mapReady]);
 
   // #762/#765 — `renderWorldCopies` reassertion across an IN-PLACE scope change.
   //
@@ -1370,6 +1459,16 @@ export function MapCanvas({
 
     const reconcile = async () => {
       const myGen = cacheGeneration;
+      // Cluster-shape tier (feeds pickGridShape below). Reads the GL container's
+      // measured width against the 768px breakpoint. Post-#761/S2 the map fills
+      // the full viewport (`#map-layer` is `position: fixed; inset: 0`), so this
+      // now reads the TRUE rendered map width — the old `−32px` (`<main>`'s
+      // 2×16px padding) gutter is gone. The threshold is `< 768`, so at EXACTLY
+      // 768px the tier is DESKTOP (`768 ≥ 768` → not mobile); a 768px-wide
+      // viewport that previously read 736px (→ mobile) is now desktop. This is
+      // the intended full-bleed behavior (#773 AC) — the read reflects the real
+      // canvas width the user sees. Backed by the 767→mobile / 768→desktop
+      // boundary unit test in MapCanvas.test.tsx.
       const isMobile = map.getContainer
         ? map.getContainer().getBoundingClientRect().width < 768
         : false;
@@ -1999,7 +2098,7 @@ export function MapCanvas({
   const map = mapReady ? mapRef.current?.getMap() ?? null : null;
 
   return (
-    <div data-testid="map-canvas" style={{ width: '100%', height: '100%', position: 'relative' }}>
+    <div ref={mapWrapperRef} data-testid="map-canvas" style={{ width: '100%', height: '100%', position: 'relative' }}>
       <MapView
         ref={mapRef}
         initialViewState={initialViewStateRef.current}
