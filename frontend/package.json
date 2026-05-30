@@ -14,6 +14,7 @@
   "dependencies": {
     "@bird-watch/shared-types": "*",
     "@microsoft/clarity": "^1.0.2",
+    "@turf/buffer": "^7.3.5",
     "maplibre-gl": "^5.24.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

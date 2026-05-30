@@ -163,6 +163,23 @@ const config: KnipConfig = {
     //             react-window is still in frontend/package.json dependencies.
     '@types/react-window',
 
+    // 2026-05-29: geojson — `import type { Feature, MultiPolygon, Polygon,
+    //             Position } from 'geojson'` (#760/#762 state-artboard mask:
+    //             frontend/src/components/map/mask.ts, MapCanvas.tsx,
+    //             MapSurface.tsx, frontend/src/data/state-polygons.ts, and the
+    //             co-located test files). The `geojson` MODULE declarations are
+    //             provided by the @types/geojson package, which ships
+    //             transitively (maplibre-gl depends on it) and is NOT a direct
+    //             dependency. Knip sees the bare `from 'geojson'` import and
+    //             reports an unlisted dependency; it is a type-only import
+    //             resolved at compile time, never a runtime require. Mirrors the
+    //             @types/react-window transitive-types ignore above.
+    //             Risk: masks a genuine missing dep if a RUNTIME geojson import
+    //             is ever added (there is none — these are all `import type`).
+    //             Re-audit 2026-07-27 by confirming every `from 'geojson'` in
+    //             frontend/src is still `import type`.
+    'geojson',
+
     // 2026-05-28: @turf/boolean-point-in-polygon is used ONLY by the run-once
     //             ZIP ETL (scripts/zip-etl/state-polygons.ts, Task D2 #730),
     //             whose files are themselves knip-ignored above. Knip therefore

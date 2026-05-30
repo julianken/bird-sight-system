@@ -74,15 +74,30 @@ export function MapLede({
     return null;
   }
 
-  // Issue #716: suppress the lede during the cold-load window. Without this
-  // guard, the empty seed `observations: []` from useBirdData causes the
+  // #760/#762 — scope announcement (epic a11y AC, owned here unconditionally).
+  // MapLede is the scope's only non-visual cue, so it ships a POLITE live region
+  // announcing the active region. A chooser→state transition mounts this region
+  // (region flips null→name); a state→state transition updates its text — both
+  // perceivable to a screen reader WITHOUT a focus move. This is independent of
+  // #763's boundary outline; it announces even while the visible lede is
+  // suppressed during the cold-load window (the user navigated into the state —
+  // they should be told the region regardless of the observation fetch state).
+  const announcement = (
+    <span className="sr-only" role="status" aria-live="polite">
+      Showing {region}.
+    </span>
+  );
+
+  // Issue #716: suppress the VISIBLE lede during the cold-load window. Without
+  // this guard, the empty seed `observations: []` from useBirdData causes the
   // zero-count Template 1 to fire — misleading because the data simply hasn't
-  // arrived yet. Suppressing the lede entirely (rather than swapping in
+  // arrived yet. Suppressing the lede heading (rather than swapping in
   // "Loading sightings…") avoids a transient string that would flash and get
   // replaced ~1s later. This wins over the data-availability branch too: a
-  // sparse-region read must not flash before the first fetch resolves.
+  // sparse-region read must not flash before the first fetch resolves. The
+  // live-region announcement still renders (the scope change is real).
   if (loading && observationCount === 0 && speciesCount === 0) {
-    return null;
+    return announcement;
   }
 
   const periodClause = freshness === 'stale' ? '' : ` in the last ${period}`;
@@ -107,5 +122,10 @@ export function MapLede({
     text = `${speciesCount} species seen across ${region}${periodClause}.`;
   }
 
-  return <h1 className="map-lede">{text}</h1>;
+  return (
+    <>
+      {announcement}
+      <h1 className="map-lede">{text}</h1>
+    </>
+  );
 }

@@ -71,12 +71,13 @@ describe('<MapLede>', () => {
     expect(h.textContent).not.toMatch(/No recent sightings/);
   });
 
-  // Issue #716/#720: during the cold-load window the lede must suppress even
-  // when no filters are active — counts are 0 because the fetch hasn't
-  // resolved, not because the region is sparse. The loading guard wins over
-  // the data-availability branch.
-  it('loading=true with zero counts: renders nothing (issue #716)', () => {
-    const { container } = render(
+  // Issue #716/#720: during the cold-load window the VISIBLE lede must suppress
+  // even when no filters are active — counts are 0 because the fetch hasn't
+  // resolved, not because the region is sparse. The loading guard wins over the
+  // data-availability branch for the heading. (#760/#762: the polite live region
+  // still renders during this window — see the dedicated clause below.)
+  it('loading=true with zero counts: renders no visible heading (issue #716)', () => {
+    render(
       <MapLede
         {...base}
         region="Arizona"
@@ -89,7 +90,6 @@ describe('<MapLede>', () => {
         loading={true}
       />,
     );
-    expect(container).toBeEmptyDOMElement();
     expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
   });
 
@@ -177,6 +177,81 @@ describe('<MapLede>', () => {
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
       '472 species seen across USA in the last 14 days.',
     );
+  });
+
+  // #760/#762 epic a11y AC — the scope's only non-visual cue. MapLede ships a
+  // polite live region so a chooser→state / state→state transition is announced
+  // to screen-reader users without a focus move. Owned here unconditionally
+  // (independent of #763's outline); #764 asserts it at the feature level.
+  it('renders a polite live region (role=status, aria-live=polite) announcing the region', () => {
+    render(
+      <MapLede
+        {...base}
+        region="Arizona"
+        speciesCount={344}
+        observationCount={11_412}
+        speciesCommonName={null}
+        familyName={null}
+        freshness="fresh"
+        loading={false}
+      />,
+    );
+    const live = screen.getByRole('status');
+    expect(live).toHaveAttribute('aria-live', 'polite');
+    expect(live).toHaveTextContent(/Arizona/);
+  });
+
+  it('updates the announced text when the region prop changes (state→state)', () => {
+    const { rerender } = render(
+      <MapLede
+        {...base}
+        region="Arizona"
+        speciesCount={1}
+        observationCount={1}
+        speciesCommonName={null}
+        familyName={null}
+        freshness="fresh"
+        loading={false}
+      />,
+    );
+    expect(screen.getByRole('status')).toHaveTextContent(/Arizona/);
+    rerender(
+      <MapLede
+        {...base}
+        region="New Mexico"
+        speciesCount={1}
+        observationCount={1}
+        speciesCommonName={null}
+        familyName={null}
+        freshness="fresh"
+        loading={false}
+      />,
+    );
+    const live = screen.getByRole('status');
+    expect(live).toHaveTextContent(/New Mexico/);
+    expect(live).not.toHaveTextContent(/Arizona/);
+  });
+
+  it('keeps the live region present during the cold-load suppression window', () => {
+    // The visual <h1> is suppressed (#716) but the scope-change announcement
+    // must still fire — a screen-reader user navigating into a state should be
+    // told the region even while observations are still loading.
+    render(
+      <MapLede
+        {...base}
+        region="Arizona"
+        noFiltersActive={true}
+        speciesCount={0}
+        observationCount={0}
+        speciesCommonName={null}
+        familyName={null}
+        freshness="empty"
+        loading={true}
+      />,
+    );
+    // No visible heading yet (loading guard), but the region is announced.
+    expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
+    expect(screen.getByRole('status')).toHaveTextContent(/Arizona/);
   });
 
   it('drops the period clause under freshness="stale"', () => {
