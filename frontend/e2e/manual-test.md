@@ -3,9 +3,11 @@
 Step-by-step instructions for a Claude agent to execute the E2E test suite manually
 using the Playwright MCP tools. Each flow maps 1:1 to a `happy-path.spec.ts` assertion.
 
-> **Readiness gate:** The `<main id="main-surface">` element flips
-> `data-render-complete="true"` once `useBirdData` finishes its initial load.
-> All flows that require data must wait for this attribute before asserting.
+> **Readiness gate:** The element carrying `data-render-complete` flips that
+> attribute to `"true"` once `useBirdData` finishes its initial load. The gate
+> is attribute-keyed (not `<main>`-tag-keyed) — the map-first inversion (#761)
+> may move the readiness-bearing element off `<main>`. All flows that require
+> data must wait for `data-render-complete="true"` before asserting.
 
 > **Page Object Model:** Shared selectors live in `frontend/e2e/pages/*.ts`:
 > `AppPage` (`goto`, `waitForAppReady`, `getUrlParams`) and `FiltersBar`
@@ -28,7 +30,7 @@ npm run dev --workspace @bird-watch/frontend
 Confirm the API: navigate to `http://localhost:8787/api/observations` — a JSON
 array must be returned.
 Confirm the frontend: navigate to `http://localhost:5173` — the page loads and
-`<main data-render-complete="true">` appears within a few seconds.
+an element with `data-render-complete="true"` appears within a few seconds.
 
 ---
 
@@ -44,7 +46,7 @@ the Feed tab has `aria-selected="true"`.
 
 2. Wait for render completion:
    - Tool: `browser_evaluate`
-   - Script: `document.querySelector('main[data-render-complete="true"]') !== null`
+   - Script: `document.querySelector('[data-render-complete="true"]') !== null`
    - **Pass:** `true` (retry up to ~10 s)
 
 3. Verify at least one feed row is visible:
@@ -83,7 +85,7 @@ observations are notable).
 
 5. Wait for re-render:
    - Tool: `browser_evaluate`
-   - Script: `document.querySelector('main[data-render-complete="true"]') !== null`
+   - Script: `document.querySelector('[data-render-complete="true"]') !== null`
 
 6. Count rows after filter:
    - Tool: `browser_evaluate` → `document.querySelectorAll('.feed-row').length`

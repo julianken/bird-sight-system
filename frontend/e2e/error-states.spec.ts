@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures.js';
+import { AppPage } from './pages/app-page.js';
 
 // Error-state coverage runs through the hotspots + observations fetches
 // that useBirdData drives.
@@ -38,13 +39,14 @@ test.describe('error screen', () => {
   });
 
   test('does not hang with aria-busy=true when API aborts', async ({ page, apiStub }) => {
+    const app = new AppPage(page);
     await apiStub.stubApiAbort('observations');
     await page.goto('/?scope=us');
     // Either the error StatusBlock renders, or main#main-surface stops reporting busy.
     // Race them with Promise.race — first acceptable resolution wins.
     await Promise.race([
       expect(page.locator('.status-block--state-error')).toBeVisible({ timeout: 10_000 }),
-      expect(page.locator('main#main-surface')).toHaveAttribute('aria-busy', 'false', { timeout: 10_000 }),
+      expect(app.mainSurface).toHaveAttribute('aria-busy', 'false', { timeout: 10_000 }),
     ]);
   });
 });

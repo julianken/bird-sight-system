@@ -25,14 +25,14 @@ test.describe('SpeciesDetailSheet snap behavior', () => {
     await expect(sheet).toHaveAttribute('data-snap-state', 'full');
     await expect(sheet).toHaveAttribute('role', 'dialog');
     await expect(sheet).toHaveAttribute('aria-modal', 'true');
-    await expect(page.locator('#main-surface')).toHaveAttribute('inert', '');
+    await expect(app.mainSurface).toHaveAttribute('inert', '');
 
     // Collapse path
     const collapse = page.getByRole('button', { name: /collapse/i });
     await collapse.click();
     await expect(sheet).toHaveAttribute('data-snap-state', 'half');
     await expect(sheet).toHaveAttribute('role', 'region');
-    await expect(page.locator('#main-surface')).not.toHaveAttribute('inert', '');
+    await expect(app.mainSurface).not.toHaveAttribute('inert', '');
   });
 
   test('drag-down past peek dismisses the sheet (URL flips off detail)', async ({ page, apiStub }) => {

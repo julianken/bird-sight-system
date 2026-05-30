@@ -51,6 +51,14 @@ export class AppPage {
 
   constructor(public readonly page: Page) {
     this.filters = new FiltersBar(page);
+    // Shared handle for the readiness surface in **Node test context**: every
+    // `page.locator`-based spec must reference the surface through this accessor
+    // instead of inlining `main#main-surface`, so the map-first inversion (#761)
+    // re-points only this one line. Browser-context (`page.evaluate`) consumers
+    // cannot use this Locator — a Playwright `Locator` does not cross into
+    // `page.evaluate` — and instead select on the tag-AND-id-free
+    // `[data-render-complete]` attribute (the one hook the inversion carries
+    // forward onto whatever element becomes the readiness root).
     this.mainSurface = page.locator('main#main-surface');
     this.errorScreen = page.locator('.error-screen');
     this.appHeader = page.locator('header.app-header');
@@ -140,14 +148,19 @@ export class AppPage {
   }
 
   /**
-   * Wait for the app to finish its initial data load. The `<main>`
-   * landmark flips `data-render-complete="true"` once `useBirdData`'s
-   * `loading` settles to `false`. Replaces the legacy `[data-region-id]`
-   * count=9 gate that disappeared when the map chain was deleted in #113.
+   * Wait for the app to finish its initial data load. The readiness flag is
+   * keyed on the `data-render-complete` **attribute** — NOT the `<main>`
+   * landmark — which flips to `"true"` once `useBirdData`'s `loading` settles
+   * to `false`. The selector is intentionally tag-agnostic
+   * (`[data-render-complete="true"]`, no `main` qualifier) because the
+   * map-first inversion (#761) may move the readiness-bearing element off
+   * `<main>`; keying on the attribute keeps this gate valid across that move.
+   * Replaces the legacy `[data-region-id]` count=9 gate that disappeared when
+   * the map chain was deleted in #113.
    */
   async waitForAppReady(timeout = 10_000) {
     await this.page
-      .locator('main[data-render-complete="true"]')
+      .locator('[data-render-complete="true"]')
       .waitFor({ state: 'attached', timeout });
   }
 

@@ -13,7 +13,7 @@ test.describe('production build smoke', () => {
     const app = new AppPage(page);
     await app.goto();
     await app.waitForAppReady(15_000);
-    await expect(page.locator('main#main-surface'))
+    await expect(app.mainSurface)
       .toHaveAttribute('aria-busy', 'false', { timeout: 15_000 });
     await expect(page.locator('.error-screen')).toHaveCount(0);
   });
