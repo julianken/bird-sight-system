@@ -648,34 +648,38 @@ test.describe('state-artboard verification (SUB3, #764)', () => {
     assertCleanConsole();
   });
 
-  test('state → chooser: map unmounts, chooser visible, mask never present @remount-shaped', async ({
+  test('state → chooser: map stays mounted-but-inert, chooser visible, mask never present', async ({
     page,
     apiStub,
   }) => {
-    // @remount-shaped: under #761 (always-mounted canvas) the map no longer
-    // tears down on chooser navigation — the #761 implementer must revisit the
-    // `mapCanvas` count-0 assertion here rather than paper over the now-false
-    // remount assumption.
+    // #761 (S1): the unscoped early-return is gone — the map no longer tears
+    // down on chooser navigation. On the "Change scope" exit the map stays
+    // MOUNTED but INERT behind the chooser scrim (`#main-surface` carries
+    // `inert`), and the scope gate keeps the observations fetch suppressed
+    // (`scopeActive === false`) so no new request fires even though the canvas
+    // is still mounted. (This resolves the prior @remount-shaped TODO that
+    // flagged the now-false count-0 assumption.)
     const { app, obsRequests, assertCleanConsole } = await setup(page, apiStub);
 
     await app.goto('state=US-AZ');
     await app.waitForAppReady();
     await expect(app.scopeControl).toBeVisible();
 
-    // "Change scope" exit → returns to the CHOOSER (not a CONUS home).
+    // "Change scope" exit → returns to the CHOOSER scrim (not a CONUS home).
     await app.scopeControlExit.click();
     await expect(app.chooser).toBeVisible();
-    await expect(app.mapCanvas).toHaveCount(0);
-    await expect(app.mainSurface).toHaveCount(0);
+    await app.expectMapInert();
     expect(app.getUrlParams().has('state')).toBe(false);
     expect(app.getUrlParams().has('scope')).toBe(false);
 
-    // The observations fetch is suppressed again — no NEW request after exit.
+    // The observations fetch is suppressed again — no NEW request after exit,
+    // even though the map is now mounted-and-inert (the scope gate, not the
+    // unmount, is what holds the request count flat).
     const countAtExit = obsRequests.length;
     await page.waitForTimeout(600);
     expect(obsRequests.length).toBe(countAtExit);
 
-    // The mask never renders on the chooser (no canvas at all).
+    // The mask never renders on the chooser scrim (no scope → no state polygon).
     assertCleanConsole();
   });
 

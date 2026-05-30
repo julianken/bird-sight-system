@@ -838,19 +838,23 @@ describe('#740 (C6): scope wiring end-to-end', () => {
     vi.restoreAllMocks();
   });
 
-  // AC 1: Unscoped → chooser, fetch + map suppressed.
+  // AC 1: Unscoped → chooser scrim over a mounted-but-INERT map, fetch suppressed.
   it('renders the ScopeChooser and fires ZERO /api/observations requests when unscoped', async () => {
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: null,
       view: 'map', scope: { kind: 'unscoped' },
     };
-    render(<App />);
-    // Chooser is shown in place of the map.
+    const { container } = render(<App />);
+    // Chooser scrim is shown over the map.
     expect(
       await screen.findByRole('region', { name: /Choose where to look at birds/i }),
     ).toBeInTheDocument();
-    // Map surface is NOT mounted.
-    expect(screen.queryByTestId('map-surface-stub')).toBeNull();
+    // #761 (S1): the map surface is mounted but INERT behind the scrim (no
+    // longer a full-tree unmount). The stub is present and #main-surface — the
+    // real <main id="main-surface"> App renders around the stub (NOT the mock) —
+    // carries the `inert` attribute set by App's inert/focus-trap effect.
+    expect(screen.getByTestId('map-surface-stub')).toBeInTheDocument();
+    expect(container.querySelector('#main-surface')).toHaveAttribute('inert');
     // The cold-load fetch is suppressed: zero observations requests. Give any
     // mistaken effect a tick to fire.
     await waitFor(() => {
@@ -1075,18 +1079,73 @@ describe('#740 (C6): scope wiring end-to-end', () => {
   });
 
   // AC: detail overlay does not by itself constitute a scope — an unscoped URL
-  // carrying ?detail= still shows the chooser, not the detail rail.
+  // carrying ?detail= still shows the chooser scrim, not the detail rail.
   it('an unscoped URL with a detail code still shows the chooser (detail is not a scope)', async () => {
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: null,
       view: 'map', detail: 'vermfly', scope: { kind: 'unscoped' },
     } as typeof mockUrlState.state;
-    render(<App />);
+    const { container } = render(<App />);
+    // Pre-existing guard (a): the chooser region is shown.
     expect(
       await screen.findByRole('region', { name: /Choose where to look at birds/i }),
     ).toBeInTheDocument();
-    expect(screen.queryByTestId('map-surface-stub')).toBeNull();
+    // #761 (S1) re-baseline: the map surface is now mounted but INERT behind the
+    // scrim (it was unmounted under the old early-return). The inert attribute
+    // lands on the real <main id="main-surface"> App renders (NOT the mock).
+    expect(screen.getByTestId('map-surface-stub')).toBeInTheDocument();
+    expect(container.querySelector('#main-surface')).toHaveAttribute('inert');
+    // #761 (S1) NEW guard: the detail rail/sheet does NOT render on an unscoped
+    // URL even though detail:'vermfly' is set — the `scopeActive` gate (App
+    // task #6) stops a `?detail=` from mounting a second top-layer over the
+    // scrim. SpeciesDetailRail is NOT mocked here, so key off its real DOM: the
+    // rail renders <aside role="complementary"> with a "Close species detail"
+    // button. Neither must be present.
+    expect(screen.queryByRole('complementary', { name: /detail/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Close species detail/i })).toBeNull();
+    // Pre-existing guard (b): zero /api/observations while unscoped.
     expect(mockGetObservations).not.toHaveBeenCalled();
+  });
+
+  // #761 (S1): the always-rendered shell, the mounted-but-inert map stub, and
+  // the chooser region all co-exist on an unscoped render (under the old
+  // early-return they were mutually exclusive). The shell is `.app`; #main-surface
+  // carries `inert`; the cold-load fetch stays suppressed.
+  it('unscoped render mounts the shell + inert map + chooser together, no observations fetch', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'unscoped' },
+    };
+    const { container } = render(<App />);
+    expect(
+      await screen.findByRole('region', { name: /Choose where to look at birds/i }),
+    ).toBeInTheDocument();
+    // The full app shell renders (it used to be replaced by the chooser).
+    expect(container.querySelector('.app')).not.toBeNull();
+    // The map stub and the chooser region are BOTH in the DOM simultaneously.
+    expect(screen.getByTestId('map-surface-stub')).toBeInTheDocument();
+    // #main-surface is inert.
+    expect(container.querySelector('#main-surface')).toHaveAttribute('inert');
+    // Fetch stays suppressed.
+    expect(mockGetObservations).not.toHaveBeenCalled();
+    expect(mockGetHotspots).not.toHaveBeenCalled();
+  });
+
+  // #761 (S1) focus-trap (task #5a): initial focus is moved into the chooser
+  // scrim on mount. The focus LANDING TARGET task #5a chose is the
+  // `.scope-chooser-scrim` wrapper element (it carries `tabIndex={-1}`); App's
+  // inert/focus-trap useLayoutEffect calls `.focus()` on it after mount. Assert
+  // that wrapper holds focus on the unscoped render.
+  it('moves initial focus into the chooser scrim on the unscoped landing', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'unscoped' },
+    };
+    const { container } = render(<App />);
+    await screen.findByRole('region', { name: /Choose where to look at birds/i });
+    const scrim = container.querySelector('.scope-chooser-scrim');
+    expect(scrim).not.toBeNull();
+    expect(scrim).toHaveFocus();
   });
 
   // Region label: state scope resolves to the state NAME from /api/states.
