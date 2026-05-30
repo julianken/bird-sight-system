@@ -5,6 +5,7 @@ import {
   restoreLabelIsolation,
   bufferIsolationPolygon,
   sinkStrayLayersBelowMask,
+  moveMaskBelowFirstLabel,
   addFloatLayers,
   removeFloatLayers,
   applyArtboardFidelity,
@@ -91,7 +92,27 @@ function makeMockMap(layers = makeStyleLayers()) {
     removeSource: vi.fn((id: string) => {
       delete sources[id];
     }),
-    moveLayer: vi.fn(),
+    // moveLayer mutates the in-memory `layers` array so order-sensitive tests
+    // (the mask-below-first-label move) can assert final z-order, not just the
+    // spy call args. `moveLayer(id)` (no beforeId) moves to the top; with
+    // `beforeId` it re-inserts `id` immediately BEFORE `beforeId` (MapLibre
+    // semantics: the moved layer is painted UNDER `beforeId`).
+    moveLayer: vi.fn((id: string, beforeId?: string) => {
+      const from = layers.findIndex((l) => l.id === id);
+      if (from === -1) return;
+      const [moved] = layers.splice(from, 1);
+      if (!moved) return;
+      if (beforeId == null) {
+        layers.push(moved);
+        return;
+      }
+      const to = layers.findIndex((l) => l.id === beforeId);
+      if (to === -1) {
+        layers.push(moved);
+        return;
+      }
+      layers.splice(to, 0, moved);
+    }),
     addLayer: vi.fn(),
     removeLayer: vi.fn(),
     triggerRepaint: vi.fn(),
@@ -157,9 +178,29 @@ describe('isIsolatableSymbolLayer (type + name heuristic, fails OPEN)', () => {
     expect(isIsolatableSymbolLayer({ id: 'water_name', type: 'symbol' })).toBe(true);
   });
 
-  it('does NOT match symbol layers with no place/label/_name token (fails open: rendered exterior, not blanked)', () => {
+  it('matches the LIGHT (positron) basemap label/road/shield/airport layers (hyphenated + new tokens)', () => {
+    // positron uses `label_*` instead of `place_*`.
+    expect(isIsolatableSymbolLayer({ id: 'label_other', type: 'symbol' })).toBe(true);
+    expect(isIsolatableSymbolLayer({ id: 'label_city', type: 'symbol' })).toBe(true);
+    expect(isIsolatableSymbolLayer({ id: 'label_country_1', type: 'symbol' })).toBe(true);
+    // HYPHENATED road-name labels — the `_name`-only pattern silently missed
+    // these, so VA-side freeway names bled onto the gray once the mask dropped
+    // below the labels. `[-_]name([-_]|$)` now catches them.
+    expect(isIsolatableSymbolLayer({ id: 'highway-name-major', type: 'symbol' })).toBe(true);
+    expect(isIsolatableSymbolLayer({ id: 'highway-name-minor', type: 'symbol' })).toBe(true);
+    expect(isIsolatableSymbolLayer({ id: 'highway-name-path', type: 'symbol' })).toBe(true);
+    // Shields + airport labels (own symbol layers, no place/label/name token).
+    expect(isIsolatableSymbolLayer({ id: 'road_shield_us', type: 'symbol' })).toBe(true);
+    expect(isIsolatableSymbolLayer({ id: 'highway-shield-us-interstate', type: 'symbol' })).toBe(true);
+    expect(isIsolatableSymbolLayer({ id: 'highway-shield-non-us', type: 'symbol' })).toBe(true);
+    expect(isIsolatableSymbolLayer({ id: 'airport', type: 'symbol' })).toBe(true);
+  });
+
+  it('does NOT match symbol layers with no place/label/name/shield/airport token (fails open: rendered exterior, not blanked)', () => {
     expect(isIsolatableSymbolLayer({ id: 'transit_route_ref', type: 'symbol' })).toBe(false);
-    // road_oneway is an icon-only arrow layer, not a text label — left untouched.
+    // road_oneway is an icon-only arrow layer, not a text label — left untouched
+    // (no label-bearing token; a bare `road`/`highway` token is deliberately not
+    // used so this LineString arrow set is never within-dropped).
     expect(isIsolatableSymbolLayer({ id: 'road_oneway', type: 'symbol' })).toBe(false);
   });
 
@@ -280,6 +321,73 @@ describe('restoreLabelIsolation', () => {
   });
 });
 
+describe('moveMaskBelowFirstLabel (isolate mode — interior labels render ON TOP of the gray)', () => {
+  // The fixture style places state-mask-fill AFTER all the symbol/label layers
+  // (the pre-fix BUG state from #762: the mask <Layer> has no beforeId so
+  // react-map-gl appends it above the basemap labels). The first basemap label
+  // layer is `place_country` (the first isolatable symbol). The mask must move
+  // to sit immediately BELOW it.
+  const firstLabelId = 'place_country';
+
+  it('moves state-mask-fill BELOW the first basemap label (symbol) layer', () => {
+    const map = makeMockMap();
+    // Precondition: the mask starts ABOVE the first label (the bug).
+    const before = map.layers.map((l) => l.id);
+    expect(before.indexOf(MASK_LAYER_ID)).toBeGreaterThan(before.indexOf(firstLabelId));
+
+    moveMaskBelowFirstLabel(map as never, MASK_LAYER_ID);
+
+    expect(map.moveLayer).toHaveBeenCalledWith(MASK_LAYER_ID, firstLabelId);
+    // Final z-order: the mask now sits immediately below the first label layer.
+    const after = map.layers.map((l) => l.id);
+    expect(after.indexOf(MASK_LAYER_ID)).toBeLessThan(after.indexOf(firstLabelId));
+    // …specifically directly beneath it.
+    expect(after.indexOf(MASK_LAYER_ID)).toBe(after.indexOf(firstLabelId) - 1);
+  });
+
+  it('lands EVERY interior basemap label layer ABOVE the mask (the un-clip invariant)', () => {
+    const map = makeMockMap();
+    moveMaskBelowFirstLabel(map as never, MASK_LAYER_ID);
+    const after = map.layers.map((l) => l.id);
+    const maskIdx = after.indexOf(MASK_LAYER_ID);
+    // All basemap label symbol layers now paint ABOVE the mask → interior labels
+    // (within-filtered) render whole on top of the gray instead of being sliced.
+    for (const labelId of ['place_country', 'place_city', 'poi_z14', 'highway_name_motorway', 'water_name']) {
+      expect(after.indexOf(labelId)).toBeGreaterThan(maskIdx);
+    }
+  });
+
+  it('anchors on the first ISOLATABLE symbol layer (never an app observation / float layer)', () => {
+    const map = makeMockMap();
+    moveMaskBelowFirstLabel(map as never, MASK_LAYER_ID);
+    // The anchor is place_country (first isolatable basemap label), NOT the
+    // app-owned observation symbol (`unclustered-point`, source: observations)
+    // nor a float line layer — so the mask is never lowered below the bird data.
+    expect(map.moveLayer).toHaveBeenCalledTimes(1);
+    expect(map.moveLayer).toHaveBeenCalledWith(MASK_LAYER_ID, 'place_country');
+    expect(map.moveLayer).not.toHaveBeenCalledWith(MASK_LAYER_ID, 'unclustered-point');
+    expect(map.moveLayer).not.toHaveBeenCalledWith(MASK_LAYER_ID, ARTBOARD_HALO_ID);
+  });
+
+  it('warns and does NOT move when the mask layer is absent (reconcile-sequencing guard, fail open)', () => {
+    const layers = makeStyleLayers().filter((l) => l.id !== MASK_LAYER_ID);
+    const map = makeMockMap(layers);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    moveMaskBelowFirstLabel(map as never, MASK_LAYER_ID);
+    expect(map.moveLayer).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('leaves the mask where it is when NO basemap label layer exists (fail open, no throw)', () => {
+    // A style with the mask but zero isolatable symbol layers.
+    const layers = makeStyleLayers().filter((l) => l.type !== 'symbol');
+    const map = makeMockMap(layers);
+    expect(() => moveMaskBelowFirstLabel(map as never, MASK_LAYER_ID)).not.toThrow();
+    expect(map.moveLayer).not.toHaveBeenCalled();
+  });
+});
+
 describe('sinkStrayLayersBelowMask', () => {
   it('moves basemap fill/line layers ordered ABOVE the mask beneath it via moveLayer(strayId, MASK_LAYER_ID)', () => {
     const map = makeMockMap();
@@ -395,11 +503,13 @@ describe('addFloatLayers / removeFloatLayers', () => {
   });
 });
 
-describe('applyArtboardFidelity (float/sink composite — item 3b)', () => {
-  it('sinks stray layers then adds the float layers above the mask', () => {
+describe('applyArtboardFidelity (mask-move + float/sink composite — item 3b)', () => {
+  it('moves the mask below the first label, sinks stray layers, then adds the float layers above the mask', () => {
     const map = makeMockMap();
     applyArtboardFidelity(map as never, AZ_POLYGON, 'dark');
-    // moveLayer (sink) and addLayer (float) both fire.
+    // Step 1: the mask moved below the first basemap label layer (place_country).
+    expect(map.moveLayer).toHaveBeenCalledWith(MASK_LAYER_ID, 'place_country');
+    // moveLayer (mask-move + sink) and addLayer (float) both fire.
     expect(map.moveLayer).toHaveBeenCalled();
     // Float layers are added (anchored above the mask, NOT below it).
     const haloCall = map.addLayer.mock.calls.find(
@@ -411,5 +521,17 @@ describe('applyArtboardFidelity (float/sink composite — item 3b)', () => {
     expect(haloCall).toBeDefined();
     expect(outlineCall).toBeDefined();
     expect(haloCall?.[1]).not.toBe(MASK_LAYER_ID); // never inserted BELOW the mask
+  });
+
+  it('runs the mask-move BEFORE the float/sink (interior labels end up above the mask)', () => {
+    const map = makeMockMap();
+    applyArtboardFidelity(map as never, AZ_POLYGON, 'dark');
+    // After the composite, every basemap label layer paints ABOVE the lowered
+    // mask — the interior-label un-clip invariant.
+    const after = map.layers.map((l) => l.id);
+    const maskIdx = after.indexOf(MASK_LAYER_ID);
+    for (const labelId of ['place_country', 'place_city', 'poi_z14']) {
+      expect(after.indexOf(labelId)).toBeGreaterThan(maskIdx);
+    }
   });
 });

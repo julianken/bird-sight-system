@@ -5,18 +5,26 @@ import type { Feature, MultiPolygon, Polygon } from 'geojson';
  * State-artboard FIDELITY layer manipulation (#760/#763 — SUB2).
  *
  * #762 lands the inverse-mask FILL (source `state-mask` / layer `state-mask-fill`):
- * flat opaque theme-aware gray everywhere except the selected state. With the
- * fill alone the basemap symbol layers still render across the whole world, so
- * OTHER-state labels bleed onto the gray and labels straddling the state border
- * get sliced by the opaque fill. This module makes the artboard look *finished*:
+ * flat opaque theme-aware gray everywhere except the selected state. #762 renders
+ * that fill as a react-map-gl `<Layer>` with NO `beforeId`, so it lands ON TOP of
+ * the WHOLE basemap — including the basemap symbol (label) layers. With the fill
+ * alone OTHER-state labels bleed onto the gray, and an INTERIOR label straddling
+ * the (server-clipped) border gets SLICED by the opaque fill above it. This
+ * module makes the artboard look *finished*:
  *
- *   1. `applyLabelIsolation` — merge a `['within', isolationPolygon]` test into
- *      each basemap symbol layer so exterior labels do not render and none are
- *      sliced; interior labels render whole. Captures + restores originals.
- *   2. `sinkStrayLayersBelowMask` — move stray basemap fill/line layers (country
+ *   1. `moveMaskBelowFirstLabel` — move `state-mask-fill` BELOW the first basemap
+ *      label (`symbol`) layer so `within`-passing INTERIOR labels render ON TOP
+ *      of the gray (whole, overhang onto the gray included). This is the
+ *      "isolate mode" of the v3 mockup and the fix for the interior-label
+ *      clipping regression — without it the mask sits above the labels and any
+ *      near-border interior label is sliced by the gray.
+ *   2. `applyLabelIsolation` — merge a `['within', isolationPolygon]` test into
+ *      each basemap symbol layer so exterior labels do not render; interior
+ *      labels render whole. Captures + restores originals.
+ *   3. `sinkStrayLayersBelowMask` — move stray basemap fill/line layers (country
  *      boundaries, coastlines, glaciers) painted ABOVE the mask beneath it so
  *      nothing bleeds onto the gray.
- *   3. `addFloatLayers` / `removeFloatLayers` — a blurred halo + a crisp,
+ *   4. `addFloatLayers` / `removeFloatLayers` — a blurred halo + a crisp,
  *      a11y-load-bearing outline above the mask so the artboard "floats".
  *
  * All functions take a minimal structural `ArtboardMap` (see below), NOT
@@ -115,30 +123,41 @@ type SavedFilters = Record<string, unknown>;
 
 /**
  * The basemap symbol-layer name heuristic. Matched against the layer id with a
- * conservative place/label token pattern. Positron(light) and dark layer IDs
- * are NOT stable across the two styles, so we match by TYPE + NAME, never by a
- * hardcoded id list.
+ * conservative place/label token pattern. The two basemaps use DIFFERENT layer
+ * id conventions, so we match by TYPE + NAME, never by a hardcoded id list:
+ *   - DARK (`.../styles/dark`): underscore ids — `place_city`, `place_country*`,
+ *     `water_name`, `highway_name_motorway`, `highway_name_other`.
+ *   - LIGHT (`.../styles/positron`): a mix of `label_*` (`label_other`,
+ *     `label_city`, `label_country_1`…) AND HYPHENATED road labels
+ *     (`highway-name-major`, `highway-name-minor`, `highway-name-path`),
+ *     shields (`road_shield_us`, `highway-shield-us-interstate`,
+ *     `highway-shield-non-us`), and `airport`.
  *
- * Tokens cover the openmaptiles label-layer convention observed live in the
- * positron basemap (verified 2026-05-29 against `?state=US-AZ`):
- *   - place labels: `place_city`, `place_town`, `place_state`, `place_country*`…
- *   - the generic `<thing>_name` text-label layers: `water_name`,
- *     `highway_name_motorway`, `highway_name_other` — these were bleeding CA/MX
- *     freeway + water names onto the gray until the `_name` token was added.
- * The `_name` token is what catches the road/water labels WITHOUT also catching
- * the road ARROW layers (`road_oneway`, source-layer `transportation`): those
- * are icon-only decorations, not text, and have no `_name`/place/label token, so
- * they (correctly) do NOT match. A bare `road`/`highway` token would wrongly
- * match `road_oneway` and pointlessly within-isolate a LineString arrow set
- * (which a border-crossing `within` test would drop wholesale, in-state arrows
- * included). A `road_label`/`highway_label` style would still match via `label`.
+ * Tokens:
+ *   - place/label tokens: `place|settlement|poi|label|town|city|village|state|
+ *     country` (catches both `place_city` AND `label_city`).
+ *   - `name` with EITHER an underscore OR a hyphen separator
+ *     (`[-_]name([-_]|$)`) — catches the dark `water_name`/`highway_name_*` AND
+ *     the light `highway-name-*`. The earlier `_name(_|$)`-only form silently
+ *     missed the light basemap's hyphenated road labels, so VA-side freeway
+ *     names bled onto the gray once the mask dropped below the labels (#762/#763
+ *     interior-label-clipping fix). The separator class is what now catches them.
+ *   - `shield` / `airport` — the light basemap renders road shields and the
+ *     airport label as their own symbol layers with no place/label/name token;
+ *     both are decorations tied to a road/place and must isolate with the rest.
+ *
+ * **`road_oneway` is still EXCLUDED** (the original calibration constraint): it
+ * is an icon-only arrow layer with no place/label/`name`/`shield`/`airport`
+ * token, so it does NOT match — a bare `road`/`highway` token (deliberately not
+ * used) would have wrongly within-isolated that LineString arrow set, dropping
+ * in-state arrows along with foreign ones. We require a label-bearing token.
  *
  * **Fails OPEN by design:** a new/unmatched symbol layer in a future basemap
  * release simply renders exterior (detectable in QA) rather than throwing or
  * blanking the whole map. We never blanket-isolate every symbol layer.
  */
 const SYMBOL_NAME_PATTERN =
-  /(^|[-_])(place|settlement|poi|label|town|city|village|state|country)([-_]|$)|_name(_|$)/i;
+  /(^|[-_])(place|settlement|poi|label|town|city|village|state|country|shield|airport)([-_]|$)|[-_]name([-_]|$)/i;
 
 /**
  * True iff the layer is a basemap text-LABEL `symbol` layer that should be
@@ -155,6 +174,75 @@ export function isIsolatableSymbolLayer(layer: {
   if (layer.type !== 'symbol') return false;
   if (layer.source === 'observations') return false; // never isolate bird layers
   return SYMBOL_NAME_PATTERN.test(layer.id);
+}
+
+/**
+ * True iff the layer is a basemap text-LABEL `symbol` layer that the mask FILL
+ * should be moved BELOW (the "isolate mode" of the v3 mockup). Reuses the same
+ * type+name heuristic as `isIsolatableSymbolLayer` so the mask anchors on the
+ * SAME class of layer the `within` isolation operates on — but additionally
+ * EXCLUDES the app-owned float layers (`state-artboard-*`). Those are `line`
+ * layers (so the symbol check already drops them), but the exclusion is an
+ * explicit belt in case a future float layer is ever a symbol.
+ *
+ * `isIsolatableSymbolLayer` already excludes `source: 'observations'` (the
+ * cluster-count / unclustered-point app symbol layers), so anchoring the mask
+ * here can never land it below the bird data.
+ */
+function isFirstLabelAnchorLayer(layer: {
+  id: string;
+  type: string;
+  source?: string;
+}): boolean {
+  if (layer.id === ARTBOARD_HALO_ID || layer.id === ARTBOARD_OUTLINE_ID) {
+    return false;
+  }
+  return isIsolatableSymbolLayer(layer);
+}
+
+/**
+ * Move `state-mask-fill` BELOW the FIRST basemap label (`symbol`) layer so the
+ * `within`-filtered INTERIOR labels render ON TOP of the gray — i.e. a label
+ * that overhangs the (server-clipped) state boundary into the gray is drawn
+ * WHOLE rather than sliced by the opaque mask fill (#762/#763 interior-label
+ * clipping regression).
+ *
+ * Root cause this repairs: #762 renders the mask as a react-map-gl `<Layer
+ * id="state-mask-fill">` with NO `beforeId`, so react-map-gl appends it ON TOP
+ * of the entire basemap — including the basemap symbol/label layers. #763's
+ * `sinkStrayLayersBelowMask` only moves `fill`/`line` strays below the mask
+ * (never `symbol`), so the label layers stayed UNDER the mask and any interior
+ * label straddling the border got clipped by the gray. Lowering the mask below
+ * the first label layer puts every basemap label back on top of the gray; the
+ * `within` filter (unchanged) keeps EXTERIOR labels removed, so only whole
+ * interior labels — overhang onto the gray included — remain.
+ *
+ * **Fails OPEN.** Guards on `getLayer(maskLayerId)` (warn-and-return if the
+ * mask is absent — the reconcile-sequencing window). If NO basemap symbol/label
+ * layer is found, the mask is left exactly where it is (no throw, no move) —
+ * the worst case is the pre-fix clipping, never a blanked map.
+ *
+ * Idempotent: re-running after the mask is already beneath the first label is a
+ * no-op `moveLayer(maskLayerId, sameAnchor)` (MapLibre tolerates moving a layer
+ * to its current relative position). The CALLER re-applies this wherever
+ * fidelity runs (the `maskPolygon` effect AND the `style.load` re-apply path),
+ * so the imperative move survives react-map-gl reconciles and theme swaps.
+ */
+export function moveMaskBelowFirstLabel(map: ArtboardMap, maskLayerId: string): void {
+  if (map.getLayer(maskLayerId) == null) {
+    console.warn(
+      `[artboard] ${maskLayerId} absent; cannot move below labels (deferring)`,
+    );
+    return;
+  }
+  const layers = map.getStyle()?.layers ?? [];
+  const firstLabel = layers.find((l) => isFirstLabelAnchorLayer(l));
+  if (!firstLabel) return; // no basemap label layer found — fail open, leave as-is
+  try {
+    map.moveLayer(maskLayerId, firstLabel.id);
+  } catch {
+    /* defensive — layer/style churn after a swap */
+  }
 }
 
 /** Basemap layer types that can bleed onto the gray if painted above the mask. */
@@ -431,14 +519,28 @@ export function removeFloatLayers(map: ArtboardMap): void {
  * MapCanvas). The label-isolation half (`applyLabelIsolation`) runs separately
  * in `style.load`.
  *
- * Order: sink stray basemap layers below the mask, THEN add the float layers
- * above it.
+ * Order of operations (load-bearing):
+ *   1. `moveMaskBelowFirstLabel` — lower `state-mask-fill` BENEATH the first
+ *      basemap label (`symbol`) layer so `within`-filtered INTERIOR labels
+ *      render ON TOP of the gray (whole, overhang onto the gray included) — the
+ *      "isolate mode" of the v3 mockup; repairs the interior-label-clipping
+ *      regression where a near-border label was sliced by the opaque mask.
+ *   2. `sinkStrayLayersBelowMask` — move stray basemap fill/line layers painted
+ *      ABOVE the mask beneath it (coastlines, boundaries) so nothing bleeds.
+ *   3. `addFloatLayers` — halo + crisp outline ABOVE the mask. The crisp outline
+ *      remains a clear top edge regardless of where the mask now sits.
+ *
+ * Step 1 runs FIRST: the float/sink anchors derive from the mask's NEW position
+ * in the layer array, and the stray-sink only needs to act on fill/line layers
+ * that end up above the lowered mask. Moving the mask first means the
+ * subsequent `getStyle().layers` reads reflect the final mask index.
  */
 export function applyArtboardFidelity(
   map: ArtboardMap,
   maskPolygon: MultiPolygon,
   theme: 'light' | 'dark',
 ): void {
+  moveMaskBelowFirstLabel(map, MASK_LAYER_ID);
   sinkStrayLayersBelowMask(map, MASK_LAYER_ID);
   addFloatLayers(map, maskPolygon, MASK_LAYER_ID, theme);
 }
