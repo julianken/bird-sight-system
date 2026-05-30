@@ -35,7 +35,7 @@ jobs:
           VITE_CLARITY_PROJECT_ID: ${{ secrets.CLARITY_PROJECT_ID }}
         run: npm run build -w @bird-watch/frontend
       - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
