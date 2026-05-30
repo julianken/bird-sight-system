@@ -27,7 +27,7 @@ jobs:
     # See: .github/orphan-classname-allowlist.yml and CLAUDE.md drift detection section.
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Run orphan-classname check
         run: bash scripts/check-orphan-classnames.sh
