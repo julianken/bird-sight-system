@@ -9,7 +9,7 @@ import { test, expect } from '@playwright/test';
 //   3. Tablet tap→cluster-list→species→bbox-URL (@coarse, 768×1024, coarse-pointer)
 //   4. Mobile tap→cluster-list→expand-family→species→filtered (@coarse, 390×844, coarse-pointer)
 //   5. Banner "View all observations" clears bbox URL param (dev-server)
-//   6. Cross-surface stale-bbox clear: detail→feed→detail leaves no bbox (dev-server)
+//   6. Cross-surface stale-bbox clear: map species commit leaves no bbox (dev-server)
 //
 // Phase 2 lessons baked in (5 CI iterations to land 1 test):
 //   - Use `.click({ force: true })` on `<a role="link">` without href.
@@ -279,48 +279,65 @@ test('bbox banner "View all observations" clears bbox param from URL', async ({ 
 
 // ─── Scenario 6: Cross-surface stale-bbox clear ─
 //
-// Load with bbox set → navigate to feed → click a feed row → detail URL
-// must NOT carry the stale bbox (§4.9 cross-surface invariant).
+// Load with bbox set → close detail → commit a species from the map cell
+// popover → detail URL must NOT carry the stale bbox (§4.9 cross-surface
+// invariant). #777: this previously routed through the feed surface; the
+// feed is gone, so the commit now comes from a map cell-popover species link
+// (the surviving onSelectSpecies-without-bbox path).
 // No @coarse → dev-server.
 
-test('cross-surface stale-bbox clear: detail→feed→detail leaves no bbox', async ({ page }) => {
+test('cross-surface stale-bbox clear: map species commit leaves no bbox', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
   // Load with bbox in URL (simulates arriving from a map cluster navigation).
   await page.goto('/?view=detail&detail=annhum&bbox=-111.0,31.0,-110.0,32.0&scope=us');
   await page.waitForLoadState('domcontentloaded');
 
   // The detail surface modal/sheet is open over the tab bar. Close it via
-  // its Close button so the tab is clickable.
+  // its Close button so the map underneath is interactive.
   const closeBtn = page.getByRole('button', { name: /Close species detail/i });
   await closeBtn.waitFor({ state: 'visible', timeout: 10_000 });
   await closeBtn.click();
 
   // After close, the URL clears `?view=detail` automatically (onClose
-  // returns to map per App.tsx onCloseDetail, #662). bbox is preserved
-  // — it is only cleared by the subsequent feed-row onSelectSpecies()
-  // call without bbox.
+  // returns to map per App.tsx onCloseDetail, #662). The bbox is preserved
+  // — it is only cleared by the subsequent onSelectSpecies() call without
+  // bbox (the map-popover species commit below).
   await expect(page).not.toHaveURL(/[?&]view=detail/, { timeout: 5_000 });
 
-  // Issue #662: the Feed tab no longer exists in the header. Navigate
-  // directly to the legacy feed URL to reach the dead-code feed branch
-  // (preserved for bookmark compat per the same issue) so we can click
-  // a feed row.
-  await page.goto('/?view=feed&scope=us');
-  await page.waitForLoadState('domcontentloaded');
-
-  // Wait for feed surface to load and show at least one row.
-  const feedRow = page.locator('.feed-row').first();
-  const feedRowVisible = await feedRow.waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false);
-  if (!feedRowVisible) {
-    test.skip(true, 'No feed rows visible — seed DB may be empty in this run; deferred to CI');
+  // Canonical "map settled" gate.
+  const marker = page.locator('[data-testid="adaptive-grid-marker"]').first();
+  const markerVisible = await marker.waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false);
+  if (!markerVisible) {
+    test.skip(true, 'No adaptive-grid markers visible — likely WebGL unavailable in headless run');
     return;
   }
 
-  // Click a feed row to navigate to SpeciesDetailSurface.
-  await feedRow.click();
+  // Open a cell popover and commit a species via its link — the surviving
+  // onSelectSpecies-without-bbox path (replaces the old feed-row click).
+  const cell = page.locator('[data-testid^="adaptive-grid-marker-cell"]').first();
+  const cellVisible = await cell.waitFor({ state: 'visible', timeout: 8_000 }).then(() => true).catch(() => false);
+  if (!cellVisible) {
+    test.skip(true, 'No cell testids visible — Phase 3 cells may not have rendered');
+    return;
+  }
+  await cell.hover();
+  await cell.click({ force: true });
 
-  // Detail surface must open WITHOUT bbox param (§4.9 cross-surface invariant:
-  // onSelectSpecies() without bbox clears any stale bbox from URL state).
-  // #663: new clicks write ?detail=, not ?view=detail.
+  const link = page.locator('.cell-popover__rows a[role="link"]').first();
+  const linkVisible = await link.waitFor({ state: 'visible', timeout: 8_000 }).then(() => true).catch(() => false);
+  if (!linkVisible) {
+    // At low zoom every row carries a synthetic agg-* code and renders as a
+    // static <span>, not a link (#715), so no commit can fire. The bbox-clear
+    // invariant is then covered directly by the App.test.tsx onSelectSpecies
+    // unit assertions; skip the e2e arm rather than assert on a non-clickable row.
+    test.skip(true, 'Cell popover rows are non-clickable synthetic codes at this zoom (#715); covered by unit tests');
+    return;
+  }
+  await link.click({ force: true });
+
+  // Detail surface must open WITHOUT the stale bbox param (§4.9 cross-surface
+  // invariant: onSelectSpecies() without bbox clears any stale bbox from URL
+  // state). #663: new clicks write ?detail=, not ?view=detail.
   await expect(page).toHaveURL(/[?&]detail=/, { timeout: 8_000 });
   await expect(page).not.toHaveURL(/[?&]bbox=/);
 });

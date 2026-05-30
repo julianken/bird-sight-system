@@ -75,15 +75,14 @@ export interface MapSurfaceProps {
    * Threaded down to FamilyLegend.
    */
   onFamilyToggle: (familyCode: string) => void;
-  // Issue #662: the `onSkipToFeed` prop + the "Skip to species list"
-  // skip-link were intentionally REMOVED here. Feed is no longer a
-  // user-visible surface, so there is no destination to skip to. The
+  // Issue #662: the legacy skip-to-list prop + skip-link were intentionally
+  // REMOVED here. There is no list surface to skip to. The
   // Explore-map-markers skip-link below remains as the keyboard-bypass
   // entry point.
   /**
    * Issue #246: ObservationPopover detail link. App.tsx wires this to
    * `set({ view: 'detail', detail: speciesCode })` via `useUrlState`
-   * (already exposed for the FeedSurface row clicks). Optional — when
+   * (already exposed for map marker clicks). Optional — when
    * absent, the popover hides the "See species details" link.
    */
   onSelectSpecies?: (speciesCode: string, bbox: BBox | null) => void;
@@ -191,8 +190,7 @@ export interface MapSurfaceProps {
  *      element in tab order on the map view, visually hidden until focused.
  *      WCAG 2.4.1 (Bypass Blocks) compliance for keyboard users to bypass
  *      the map canvas and land on the first marker cell. The original
- *      "Skip to species list" skip-link was removed with the Feed view in
- *      #662.
+ *      "Skip to species list" skip-link was removed in #662.
  */
 export function MapSurface({
   observations,
@@ -247,9 +245,9 @@ export function MapSurface({
         </div>
       }
     >
-      {/* Issue #662: the "Skip to species list" skip-link was deleted with
-          the Feed view. The Explore-map-markers skip-link below is now the
-          first interactive element on the map view. */}
+      {/* Issue #662: the legacy "Skip to species list" skip-link was deleted.
+          The Explore-map-markers skip-link below is now the first interactive
+          element on the map view. */}
       {onExploreMapMarkers && (
         <button
           type="button"

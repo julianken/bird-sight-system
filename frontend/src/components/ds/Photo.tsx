@@ -14,7 +14,7 @@
  * CSS aspect-ratio model (from styles.css:422–437 pattern, generalized):
  *   masthead → 16/10  (hero; detail modal masthead)
  *   inline   → 4/3    (species detail panel; original .species-detail-photo ratio)
- *   thumb    → 1/1    (feed row thumbnail; future use)
+ *   thumb    → 1/1    (square thumbnail; future use)
  *
  * Priority for LCP: <Photo priority={true}> sets loading="eager"
  * fetchpriority="high". The detail-surface masthead always passes

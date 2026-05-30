@@ -332,14 +332,6 @@ test.describe('axe-core WCAG scans', () => {
   // is now AttributionModal's own .attribution-trigger button, reachable on
   // every view via the AppHeader "Attribution" button.
   test.describe('attribution reachability (issue #250)', () => {
-    test('feed view exposes a Credits trigger in the DOM', async ({ page }) => {
-      const app = new AppPage(page);
-      await app.goto('view=feed');
-      await app.waitForAppReady();
-      // Phase 6: no footer — Credits trigger is AttributionModal's own button.
-      await expect(page.locator('button.attribution-trigger')).toBeAttached();
-    });
-
     test('detail view exposes a Credits trigger in the DOM', async ({ page, apiStub }) => {
       await apiStub.stubEmpty();
       await apiStub.stubSpecies('vermfly', VERMFLY);
@@ -363,7 +355,7 @@ test.describe('axe-core WCAG scans', () => {
     // Phase 6: app-footer removed — assert no app-footer element in DOM.
     test('no app-footer element renders (footer removed Phase 6)', async ({ page }) => {
       const app = new AppPage(page);
-      for (const view of ['feed', 'map'] as const) {
+      for (const view of ['map'] as const) {
         await app.goto(`view=${view}`);
         await app.waitForAppReady();
         await expect(page.locator('footer.app-footer')).toHaveCount(0);
@@ -373,7 +365,7 @@ test.describe('axe-core WCAG scans', () => {
     // SurfaceFooter retired in #250 — assert no leftover surface-level footers.
     test('no per-surface footer.surface-footer renders anywhere', async ({ page }) => {
       const app = new AppPage(page);
-      for (const view of ['feed', 'map'] as const) {
+      for (const view of ['map'] as const) {
         await app.goto(`view=${view}`);
         await app.waitForAppReady();
         await expect(page.locator('footer.surface-footer')).toHaveCount(0);
@@ -381,24 +373,8 @@ test.describe('axe-core WCAG scans', () => {
     });
   });
 
-  // Feed view explicit scan. Initial-load above also covers ?view=feed
-  // by default, but assert explicitly for the URL-driven path.
-  // (Map view is covered above at desktop + mobile — see lines ~34 and
-  // ~146. The earlier duplicate `map view` test at the bottom of this
-  // describe was removed in #263 as functionally redundant.)
-  test('feed view has no WCAG 2/2.1 A/AA violations', async ({ page }) => {
-    const app = new AppPage(page);
-    await app.goto('view=feed');
-    await app.waitForAppReady();
-    const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
-    if (results.violations.length) {
-      await test.info().attach('axe-violations', {
-        body: JSON.stringify(results.violations, null, 2),
-        contentType: 'application/json',
-      });
-    }
-    expect(results.violations).toEqual([]);
-  });
+  // #777: the feed-view explicit scan was removed with the feed surface. The
+  // map view is covered above at desktop + mobile (see lines ~34 and ~146).
 
   // Issue #373 task 5 — axe scan with the AttributionModal OPEN. The
   // existing detail-surface scans cover the modal-CLOSED state, but the
@@ -416,7 +392,7 @@ test.describe('axe-core WCAG scans', () => {
   // pattern here.
   test('attribution modal open has no WCAG 2/2.1 A/AA violations (desktop)', async ({ page }) => {
     const app = new AppPage(page);
-    await app.goto('view=feed');
+    await app.goto('view=map');
     await app.waitForAppReady();
     // Phase 6: footer removed. Use .attribution-trigger (AttributionModal's
     // own button) directly — no footer scoping needed.
@@ -440,7 +416,7 @@ test.describe('axe-core WCAG scans', () => {
 
     test('attribution modal open has no WCAG 2/2.1 A/AA violations (mobile)', async ({ page }) => {
       const app = new AppPage(page);
-      await app.goto('view=feed');
+      await app.goto('view=map');
       await app.waitForAppReady();
       // Phase 6: footer removed. Use .attribution-trigger directly.
       await page.locator('button.attribution-trigger').click();

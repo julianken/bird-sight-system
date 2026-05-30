@@ -4,9 +4,9 @@ import { AppPage } from './pages/app-page.js';
 /**
  * Plan 6 — Path A happy path.
  *
- * Five end-to-end scenarios that exercise the core user journey across
- * the three surfaces (Feed / Species / Map) introduced after #113
- * deleted the map chain. Replaces the `DISCARD`'d map-expansion
+ * End-to-end scenarios that exercise the core user journey on the map
+ * surface (the single content surface after #688 removed Species and
+ * #777 removed Feed). Replaces the `DISCARD`'d map-expansion
  * `happy-path.spec.ts` of the same name.
  *
  * Navigation contract: every test begins with `page.goto(...)` — no
@@ -43,12 +43,10 @@ test.describe('Path A happy path', () => {
     await expect(page.locator('[data-testid=map-canvas]')).toBeVisible({ timeout: 10_000 });
   });
 
-  // Issue #662: Feed removed as a user-visible surface. The legacy
-  // ?view=feed URL handling is preserved (so old bookmarks still load),
-  // but the Feed tab is gone from the header and there is no longer a
-  // tab to assert as selected. The feed-row click flow is still covered
-  // by the "feed row click opens detail surface" test below, which uses
-  // ?view=feed to reach the dead-code feed branch.
+  // Issue #662 / #777: the Feed surface is gone entirely. The Map tab is the
+  // only content surface; species navigation flows through map markers /
+  // popovers and through ?detail= deep-links. The detail-open flow is covered
+  // by the "detail deep link opens the detail surface" test below.
 
   test('species deep link cold-loads to map surface with filter active in FiltersBar (#688)', async ({ page, apiStub }) => {
     // Stub the three list endpoints to eliminate real-API timing dependency.
@@ -100,22 +98,28 @@ test.describe('Path A happy path', () => {
     await expect(mapTab).toHaveAttribute('aria-selected', 'false');
   });
 
-  test('feed row click opens detail surface at mobile and desktop', async ({ page, apiStub }) => {
+  test('detail deep link opens the detail surface at mobile and desktop', async ({ page, apiStub }) => {
+    // #777: the feed surface (and its row-click navigation) is gone. The
+    // detail surface is reached via a ?detail= deep-link (or a map-marker /
+    // popover species commit, covered in map-cell-popover.spec.ts). This test
+    // asserts the detail rail/sheet opens from a deep-link at both viewports.
+    await apiStub.stubEmpty();
     await apiStub.stubSpecies('vermfly', VERMFLY);
-    const app = new AppPage(page);
-    await app.goto('view=feed');
-    await app.waitForAppReady();
 
-    await expect(page.locator('.feed-row').first()).toBeVisible({ timeout: 10_000 });
-    await page.locator('.feed-row').first().click();
+    for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
+      await page.setViewportSize(viewport);
+      const app = new AppPage(page);
+      await app.goto('detail=vermfly&view=detail');
+      await app.waitForAppReady();
 
-    // Should open the detail rail/sheet in place. Per #663, new click
-    // handlers write ONLY ?detail=<code>; ?view= reflects the underlying
-    // surface (in this case 'feed' from app.goto above) — it is NOT
-    // flipped to 'detail'. The rail/sheet renders whenever ?detail= is
-    // set, irrespective of view.
-    await expect.poll(() => app.getUrlParams().get('detail'), { timeout: 5_000 })
-      .toBeTruthy();
-    expect(app.getUrlParams().get('view')).not.toBe('detail');
+      // The detail surface renders the species heading (rail on desktop,
+      // sheet on mobile — both mount on ?detail=).
+      await expect(
+        page.getByRole('heading', { name: 'Vermilion Flycatcher' }),
+      ).toBeVisible({ timeout: 10_000 });
+      await expect
+        .poll(() => app.getUrlParams().get('detail'), { timeout: 5_000 })
+        .toBe('vermfly');
+    }
   });
 });

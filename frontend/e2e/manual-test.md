@@ -34,47 +34,49 @@ an element with `data-render-complete="true"` appears within a few seconds.
 
 ---
 
-## Flow 1 — Feed surface loads by default
+## Flow 1 — Map surface loads on a scoped landing
 
-**What the automated test asserts:** at least one `.feed-row` is visible;
-the Feed tab has `aria-selected="true"`.
+**What the automated test asserts:** on a scoped landing (`?scope=us`) at least
+one `[data-testid="adaptive-grid-marker"]` is visible; the Map tab has
+`aria-selected="true"`. (#777 removed the feed surface; the map is the single
+content surface.)
 
 ### Steps
 
-1. Navigate to the app:
-   - Tool: `browser_navigate` → `http://localhost:5173`
+1. Navigate to the scoped map:
+   - Tool: `browser_navigate` → `http://localhost:5173/?scope=us`
 
 2. Wait for render completion:
    - Tool: `browser_evaluate`
    - Script: `document.querySelector('[data-render-complete="true"]') !== null`
    - **Pass:** `true` (retry up to ~10 s)
 
-3. Verify at least one feed row is visible:
+3. Verify at least one map marker is visible:
    - Tool: `browser_evaluate`
-   - Script: `document.querySelectorAll('.feed-row').length`
+   - Script: `document.querySelectorAll('[data-testid="adaptive-grid-marker"]').length`
    - **Pass:** result ≥ 1
 
-4. Verify the Feed tab is selected:
+4. Verify the Map tab is selected:
    - Tool: `browser_evaluate`
-   - Script: `document.querySelector('[role="tab"][aria-label="Feed view"]')?.getAttribute('aria-selected')`
+   - Script: `document.querySelector('[role="tab"][aria-label="Map view"]')?.getAttribute('aria-selected')`
    - **Pass:** `"true"`
 
 5. Take a screenshot at desktop (1440×900) and mobile (390×844).
 
 ---
 
-## Flow 2 — Notable-only filter narrows feed and updates URL
+## Flow 2 — Notable-only filter narrows the map and updates URL
 
 **What the automated test asserts:** after toggling "Notable only", the URL
-gains `notable=true` and the row count decreases (or stays equal if all seeded
-observations are notable).
+gains `notable=true` and the rendered marker count decreases (or stays equal if
+all seeded observations are notable).
 
 ### Steps
 
-1. Navigate to `http://localhost:5173` and wait for render completion.
+1. Navigate to `http://localhost:5173/?scope=us` and wait for render completion.
 
-2. Count baseline feed rows:
-   - Tool: `browser_evaluate` → `document.querySelectorAll('.feed-row').length`
+2. Count baseline map markers:
+   - Tool: `browser_evaluate` → `document.querySelectorAll('[data-testid="adaptive-grid-marker"]').length`
 
 3. Click the Notable only checkbox:
    - Tool: `browser_click` → `input[aria-label="Notable only"]`
@@ -87,8 +89,8 @@ observations are notable).
    - Tool: `browser_evaluate`
    - Script: `document.querySelector('[data-render-complete="true"]') !== null`
 
-6. Count rows after filter:
-   - Tool: `browser_evaluate` → `document.querySelectorAll('.feed-row').length`
+6. Count markers after filter:
+   - Tool: `browser_evaluate` → `document.querySelectorAll('[data-testid="adaptive-grid-marker"]').length`
    - **Pass:** count ≤ baseline count
 
 ---
@@ -187,7 +189,7 @@ overlay dismisses the panel and strips `?species=` from the URL.
 After completing all flows, summarise findings:
 
 ```
-Flow 1 — Feed surface default load:           PASS / FAIL
+Flow 1 — Map surface scoped load:             PASS / FAIL
 Flow 2 — Notable filter narrows + URL:        PASS / FAIL
 Flow 4 — Mobile drawer + overlay dismiss:     PASS / FAIL
 Flow 5 — Desktop sidebar + ESC dismiss:       PASS / FAIL

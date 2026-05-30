@@ -67,8 +67,8 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
   const { silhouettes } = useSilhouettes(apiClient);
 
   // Build the familyCode → color resolver once per silhouettes identity change.
-  // Mirrors the FeedSurface pattern so the masthead silhouette renders in the
-  // family's DB color when photoUrl is null (bot finding on #480).
+  // The masthead silhouette renders in the family's DB color when photoUrl is
+  // null (bot finding on #480).
   const resolveColor = useMemo(
     () => buildFamilyColorResolver(silhouettes),
     [silhouettes],

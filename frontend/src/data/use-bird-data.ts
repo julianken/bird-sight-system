@@ -79,7 +79,7 @@ export interface BirdDataState {
    * True while the initial /api/observations request (or a filter-driven
    * refetch) is in flight. This is the correct flag for "are observations
    * still loading?" — used by MapLede's #716 cold-load guard and by
-   * FeedSurface's loading placeholder, both of which narrate observation
+   * the <main aria-busy> attribute, both of which narrate observation
    * data specifically.
    */
   observationsLoading: boolean;

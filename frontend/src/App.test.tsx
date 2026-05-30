@@ -44,10 +44,10 @@ const {
       notable: false,
       speciesCode: null as string | null,
       familyCode: null as string | null,
-      view: 'feed' as 'feed' | 'map',
+      view: 'map' as 'map' | 'detail',
       // #735/#738: scope drives the runtime region label. `us` resolves to
-      // "USA" with no /api/states table needed, so the App→FeedSurface lede
-      // wiring tests assert a deterministic region without inventing a states
+      // "USA" with no /api/states table needed, so the region-label wiring
+      // tests assert a deterministic region without inventing a states
       // fetch (owned by #740). Per-test overrides set scope explicitly.
       scope: { kind: 'us' as const } as
         | { kind: 'unscoped' }
@@ -64,6 +64,13 @@ const {
   mapSurfaceRef: {
     onViewportChange: null as
       | ((bounds: unknown, zoom: number) => void)
+      | null,
+    // #560 / #777: App threads its `onSelectSpecies` down to MapSurface (the
+    // species-commit path that used to be a feed-row click). The stub captures
+    // it so the bbox-clear invariant tests can invoke App's callback directly,
+    // the way a real map marker / popover click would.
+    onSelectSpecies: null as
+      | ((speciesCode: string, bbox?: readonly [number, number, number, number] | null) => void)
       | null,
     boundsKey: undefined as string | undefined,
     scopeBounds: undefined as [[number, number], [number, number]] | undefined,
@@ -106,11 +113,13 @@ vi.mock('./state/url-state.js', () => ({
 vi.mock('./components/MapSurface.js', () => ({
   MapSurface: (props: {
     onViewportChange?: (bounds: unknown, zoom: number) => void;
+    onSelectSpecies?: (speciesCode: string, bbox?: readonly [number, number, number, number] | null) => void;
     boundsKey?: string;
     scopeBounds?: [[number, number], [number, number]];
     flyTo?: { center: [number, number]; zoom: number; key: string };
   }) => {
     mapSurfaceRef.onViewportChange = props.onViewportChange ?? null;
+    mapSurfaceRef.onSelectSpecies = props.onSelectSpecies ?? null;
     mapSurfaceRef.boundsKey = props.boundsKey;
     mapSurfaceRef.scopeBounds = props.scopeBounds;
     mapSurfaceRef.flyTo = props.flyTo;
@@ -164,7 +173,7 @@ describe('App error screen', () => {
     mapSurfaceRef.scopeBounds = undefined;
     mapSurfaceRef.flyTo = undefined;
     mockUrlState.state = {
-      since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
+      since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'map',
       scope: { kind: 'us' as const },
     };
     mockGetHotspots.mockRejectedValue(new ApiError(503, 'pool exhausted'));
@@ -250,9 +259,11 @@ describe('App aria-busy', () => {
     vi.restoreAllMocks();
   });
 
-  it('sets aria-busy=true on <main> when loading on feed view', () => {
+  it('sets aria-busy=true on <main> while observations are loading', () => {
+    // #777 removed the `&& state.view === 'feed'` conjunct; aria-busy now
+    // tracks observationsLoading directly on the surviving surface (map).
     mockUrlState.state = {
-      since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
+      since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'map',
       scope: { kind: 'us' as const },
     };
     // getObservations returns a never-resolving promise to keep loading=true
@@ -262,15 +273,17 @@ describe('App aria-busy', () => {
     expect(main.getAttribute('aria-busy')).toBe('true');
   });
 
-  it('does NOT set aria-busy=true on map view even while loading', () => {
+  it('clears aria-busy on <main> once observations have loaded', async () => {
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'map',
       scope: { kind: 'us' as const },
     };
-    mockGetObservations.mockReturnValue(new Promise(() => {}));
+    mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
     render(<App />);
-    const main = screen.getByRole('main');
-    expect(main.getAttribute('aria-busy')).toBe('false');
+    await waitFor(() => {
+      const main = screen.getByRole('main');
+      expect(main.getAttribute('aria-busy')).toBe('false');
+    });
   });
 });
 
@@ -296,7 +309,7 @@ describe('Phase 6: Footer removal + Attribution via AppHeader (issue #250 → Ph
   // Attribution trigger reachable from every view, meeting eBird ToU §3
   // and CC BY-SA §4(b/c). The footer's role="contentinfo" landmark is no
   // longer needed — banner + main are sufficient per ARIA spec.
-  it.each(['feed', 'map', 'detail'] as const)(
+  it.each(['map', 'detail'] as const)(
     'no app-footer element on view=%s (footer removed in Phase 6)',
     async view => {
       mockUrlState.state = {
@@ -309,7 +322,7 @@ describe('Phase 6: Footer removal + Attribution via AppHeader (issue #250 → Ph
     },
   );
 
-  it.each(['feed', 'map', 'detail'] as const)(
+  it.each(['map', 'detail'] as const)(
     'Attribution trigger is reachable from AppHeader on view=%s',
     async view => {
       mockUrlState.state = {
@@ -326,7 +339,7 @@ describe('Phase 6: Footer removal + Attribution via AppHeader (issue #250 → Ph
 
   it('AttributionModal Credits button is still present in the DOM (trigger can find it)', () => {
     mockUrlState.state = {
-      since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
+      since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'map',
       scope: { kind: 'us' as const },
     };
     const { container } = render(<App />);
@@ -357,7 +370,7 @@ describe('Phase 3: AppHeader + Filters panel', () => {
 
   it('renders <AppHeader> at the top of the app', async () => {
     mockUrlState.state = {
-      since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
+      since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'map',
       scope: { kind: 'us' as const },
     };
     render(<App />);
@@ -368,7 +381,7 @@ describe('Phase 3: AppHeader + Filters panel', () => {
 
   it('Filters trigger opens a panel containing <FiltersBar>; closing hides it', async () => {
     mockUrlState.state = {
-      since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
+      since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'map',
       scope: { kind: 'us' as const },
     };
     render(<App />);
@@ -386,136 +399,13 @@ describe('Phase 3: AppHeader + Filters panel', () => {
   it('Filters badge count reflects active filters (notable + family = 2)', async () => {
     // Seed URL with active filters before mount
     mockUrlState.state = {
-      since: '14d', notable: true, speciesCode: null, familyCode: 'corvidae', view: 'feed',
+      since: '14d', notable: true, speciesCode: null, familyCode: 'corvidae', view: 'map',
       scope: { kind: 'us' as const },
     };
     render(<App />);
     await screen.findByRole('banner');
     const trigger = screen.getByRole('button', { name: /Filters \(2 active\)/i });
     expect(trigger).toBeInTheDocument();
-  });
-});
-
-describe('Phase 5: FeedSurface lede wiring (App → FeedSurface)', () => {
-  const SPECIES_OBS = {
-    subId: 'S1',
-    speciesCode: 'vermfly',
-    comName: 'Vermilion Flycatcher',
-    lat: 32.2,
-    lng: -110.9,
-    obsDt: new Date().toISOString(),
-    locId: 'L1',
-    locName: 'Sabino Canyon',
-    howMany: 1,
-    isNotable: false,
-    silhouetteId: null,
-    familyCode: 'songbird',
-  };
-
-  beforeEach(() => {
-    __resetSilhouettesCache();
-    __resetStatesCache();
-    mockGetStates.mockResolvedValue([]);
-    mapSurfaceRef.renderCount = 0;
-    mapSurfaceRef.boundsKey = undefined;
-    mapSurfaceRef.scopeBounds = undefined;
-    mapSurfaceRef.flyTo = undefined;
-    mockGetHotspots.mockResolvedValue([]);
-    mockGetSilhouettes.mockResolvedValue([]);
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it('Priority 1 default lede fires when no species/family filter is set', async () => {
-    mockUrlState.state = {
-      since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
-      scope: { kind: 'us' as const },
-    };
-    mockGetObservations.mockResolvedValue({ data: [SPECIES_OBS], meta: { freshestObservationAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() } });
-    render(<App />);
-    await screen.findByText(/species seen across USA/i);
-    expect(screen.queryByText(/sightings of/i)).toBeNull();
-    expect(screen.queryByText(/species of Songbird/i)).toBeNull();
-  });
-
-  it('Priority 2 lede fires (species name in lede) when speciesCode filter is active', async () => {
-    mockUrlState.state = {
-      since: '14d', notable: false, speciesCode: 'vermfly', familyCode: null, view: 'feed',
-      scope: { kind: 'us' as const },
-    };
-    mockGetObservations.mockResolvedValue({ data: [SPECIES_OBS], meta: { freshestObservationAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() } });
-    render(<App />);
-    // Priority 2: "{N} sightings of {name} in USA in the last {period}."
-    // Regex anchors the period token ("14 days") to catch PERIOD_LABELS
-    // regressions that produce "in the last Last 14 days." or similar.
-    await screen.findByText(/sightings of Vermilion Flycatcher in USA in the last 14 days\./i);
-  });
-
-  it('Priority 3 lede fires (family name in lede) when familyCode filter is active (no speciesCode)', async () => {
-    mockUrlState.state = {
-      since: '14d', notable: false, speciesCode: null, familyCode: 'songbird', view: 'feed',
-      scope: { kind: 'us' as const },
-    };
-    mockGetObservations.mockResolvedValue({ data: [SPECIES_OBS], meta: { freshestObservationAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() } });
-    render(<App />);
-    // Priority 3: "{N} species of {family} seen across USA…"
-    await screen.findByText(/species of Songbird seen across USA/i);
-  });
-});
-
-describe('Phase 5: FeedSurface cross-surface FilterSentence drift regression', () => {
-  // Regression for PR #429 finding: FeedSurface activeFilters memo hard-coded
-  // speciesCode/familyCode as null, causing the lede to name the species but
-  // the sibling FilterSentence to omit it. Both must reflect the same URL state.
-  const SPECIES_OBS = {
-    subId: 'S1',
-    speciesCode: 'vermfly',
-    comName: 'Vermilion Flycatcher',
-    lat: 32.2,
-    lng: -110.9,
-    obsDt: new Date().toISOString(),
-    locId: 'L1',
-    locName: 'Sabino Canyon',
-    howMany: 1,
-    isNotable: false,
-    silhouetteId: null,
-    familyCode: 'songbird',
-  };
-
-  beforeEach(() => {
-    __resetSilhouettesCache();
-    __resetStatesCache();
-    mockGetStates.mockResolvedValue([]);
-    mapSurfaceRef.renderCount = 0;
-    mapSurfaceRef.boundsKey = undefined;
-    mapSurfaceRef.scopeBounds = undefined;
-    mapSurfaceRef.flyTo = undefined;
-    mockGetHotspots.mockResolvedValue([]);
-    mockGetSilhouettes.mockResolvedValue([]);
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it('with species filter active on feed view, both lede AND FilterSentence mention the species', async () => {
-    mockUrlState.state = {
-      since: '14d', notable: false, speciesCode: 'vermfly', familyCode: null, view: 'feed',
-      scope: { kind: 'us' as const },
-    };
-    mockGetObservations.mockResolvedValue({ data: [SPECIES_OBS], meta: { freshestObservationAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() } });
-    const { container } = render(<App />);
-    // Lede must resolve the species name from the speciesIndex and include it.
-    await screen.findByText(/sightings of Vermilion Flycatcher in USA in the last 14 days\./i);
-    // FilterSentence visible sentence must reflect the species — either the
-    // resolved common name (when speciesName is threaded from App) or the raw
-    // code as a fallback. The key invariant is that the element is rendered
-    // (non-null) and contains either the resolved name or the raw code.
-    const filterSentenceVisible = container.querySelector('.filter-sentence__visible');
-    expect(filterSentenceVisible).not.toBeNull();
-    expect(filterSentenceVisible?.textContent).toMatch(/vermilion flycatcher|vermfly/i);
   });
 });
 
@@ -546,7 +436,7 @@ describe('L2: freshness empty state (null freshestObservationAt)', () => {
     mapSurfaceRef.boundsKey = undefined;
     mapSurfaceRef.scopeBounds = undefined;
     mapSurfaceRef.flyTo = undefined;
-    mockUrlState.state = { since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
+    mockUrlState.state = { since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'map',
       scope: { kind: 'us' as const },
     };
     mockGetHotspots.mockResolvedValue([]);
@@ -560,7 +450,11 @@ describe('L2: freshness empty state (null freshestObservationAt)', () => {
   it('does not render alarming freshness copy when freshestObservationAt is null', async () => {
     mockGetObservations.mockResolvedValue({ data: [OBS], meta: { freshestObservationAt: null } });
     render(<App />);
-    await screen.findByText(/species seen across USA/i);
+    // MapSurface (which hosts the MapLede + freshness line) is stubbed in this
+    // file; assert at the App level that a null freshestObservationAt drives no
+    // alarming copy into the rendered tree. The freshness-suppression rendering
+    // itself is covered by MapLede.test.tsx.
+    await screen.findByTestId('map-surface-stub');
     expect(screen.queryByText(/Source unavailable/i)).toBeNull();
     expect(screen.queryByText(/check back soon/i)).toBeNull();
   });
@@ -596,7 +490,7 @@ describe('L3: nowTick advances on visibilitychange (tab return)', () => {
     mapSurfaceRef.boundsKey = undefined;
     mapSurfaceRef.scopeBounds = undefined;
     mapSurfaceRef.flyTo = undefined;
-    mockUrlState.state = { since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
+    mockUrlState.state = { since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'map',
       scope: { kind: 'us' as const },
     };
     mockGetHotspots.mockResolvedValue([]);
@@ -612,7 +506,7 @@ describe('L3: nowTick advances on visibilitychange (tab return)', () => {
     const removeSpy = vi.spyOn(document, 'removeEventListener');
     mockGetObservations.mockResolvedValue({ data: [OBS], meta: { freshestObservationAt: RECENT_ISO } });
     const { unmount } = render(<App />);
-    await screen.findByText(/species seen across USA/i);
+    await screen.findByTestId('map-surface-stub');
 
     expect(addSpy).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
 
@@ -623,7 +517,7 @@ describe('L3: nowTick advances on visibilitychange (tab return)', () => {
   it('fires setNowTick when tab becomes visible', async () => {
     mockGetObservations.mockResolvedValue({ data: [OBS], meta: { freshestObservationAt: RECENT_ISO } });
     render(<App />);
-    await screen.findByText(/species seen across USA/i);
+    await screen.findByTestId('map-surface-stub');
 
     // Simulate tab returning to foreground — trigger visibilitychange with
     // document.visibilityState === 'visible' (jsdom default).
@@ -632,15 +526,13 @@ describe('L3: nowTick advances on visibilitychange (tab return)', () => {
       document.dispatchEvent(new Event('visibilitychange'));
     });
 
-    // App re-renders without crashing — freshness label is still present
-    // (we can't easily assert exact time, but we verify no error is thrown
-    // and the lede is still rendered).
-    expect(screen.getByText(/species seen across USA/i)).toBeInTheDocument();
+    // App re-renders without crashing — the surface is still mounted.
+    expect(screen.getByTestId('map-surface-stub')).toBeInTheDocument();
   });
 });
 
 describe('App.tsx onSelectSpecies bbox-clear invariant (#560)', () => {
-  const FEED_OBS = {
+  const MARKER_OBS = {
     subId: 'S1',
     speciesCode: 'vermfly',
     comName: 'Vermilion Flycatcher',
@@ -666,7 +558,7 @@ describe('App.tsx onSelectSpecies bbox-clear invariant (#560)', () => {
     mockGetHotspots.mockResolvedValue([]);
     mockGetSilhouettes.mockResolvedValue([]);
     mockGetObservations.mockResolvedValue({
-      data: [FEED_OBS],
+      data: [MARKER_OBS],
       meta: { freshestObservationAt: null },
     });
     mockUrlState.set.mockClear();
@@ -676,26 +568,31 @@ describe('App.tsx onSelectSpecies bbox-clear invariant (#560)', () => {
     vi.restoreAllMocks();
   });
 
-  it('clears stale bbox when onSelectSpecies called without bbox argument (feed row click)', async () => {
+  it('clears stale bbox when onSelectSpecies called without bbox argument (map marker click)', async () => {
     mockUrlState.state = {
       since: '14d',
       notable: false,
       speciesCode: null,
       familyCode: null,
-      view: 'feed',
+      view: 'map',
       scope: { kind: 'us' as const },
     };
     render(<App />);
-    // Wait for feed rows to render
-    const feedRow = await screen.findByRole('button', { name: /Vermilion Flycatcher/i });
-    await userEvent.click(feedRow);
+    // Wait for the map surface to mount, then drive App's onSelectSpecies the
+    // way a real map marker / popover "See species details" click would (#777:
+    // this was a feed-row click before the feed surface was removed).
+    await screen.findByTestId('map-surface-stub');
+    expect(mapSurfaceRef.onSelectSpecies).not.toBeNull();
+    act(() => {
+      mapSurfaceRef.onSelectSpecies!('vermfly');
+    });
     // set() must be called with bbox: null to clear any stale bbox
     const calls = mockUrlState.set.mock.calls;
     expect(calls.length).toBeGreaterThanOrEqual(1);
     const lastCall = calls[calls.length - 1][0];
     // #663: onSelectSpecies writes detail + bbox only. The view param is
     // no longer forced to 'detail' — the rail/sheet renders in place over
-    // whatever view (typically 'map' or 'feed') the user was on.
+    // the map surface the user was on.
     expect(lastCall).toMatchObject({ detail: 'vermfly', bbox: null });
     expect(lastCall.view).toBeUndefined();
   });
@@ -706,41 +603,42 @@ describe('App.tsx onSelectSpecies bbox-clear invariant (#560)', () => {
       notable: false,
       speciesCode: null,
       familyCode: null,
-      view: 'feed',
+      view: 'map',
       scope: { kind: 'us' as const },
     };
     render(<App />);
-    await screen.findByRole('banner');
-    // Invoke the onSelectSpecies from the App directly via FeedSurface callback.
-    // We trigger via a feed row but we also need to verify the widened 2-arg form.
-    // Render App and directly access the set mock after calling with explicit bbox.
-    // Since FeedSurface passes a single-arg callback, use the set mock to verify
-    // the bbox=null branch, and verify the widened signature compiles + routes.
-    // Directly assert: if App.onSelectSpecies is called with bbox, set gets bbox.
-    // We verify this indirectly: click feed row → set called with bbox: null (default).
-    const feedRow = screen.getByRole('button', { name: /Vermilion Flycatcher/i });
-    await userEvent.click(feedRow);
+    await screen.findByTestId('map-surface-stub');
+    expect(mapSurfaceRef.onSelectSpecies).not.toBeNull();
+    // Cluster-commit path: the map calls onSelectSpecies WITH a bbox so the
+    // detail surface narrows to the clicked cell's envelope.
+    const bbox = [-111.0, 31.6, -110.2, 33.5] as const;
+    act(() => {
+      mapSurfaceRef.onSelectSpecies!('vermfly', bbox);
+    });
     const calls = mockUrlState.set.mock.calls;
     const lastCall = calls[calls.length - 1][0];
-    // Default (no bbox arg) → bbox: null
-    expect(lastCall.bbox).toBeNull();
+    // The widened 2-arg form forwards the bbox through to set().
+    expect(lastCall.bbox).toEqual(bbox);
     expect(lastCall.detail).toBe('vermfly');
     // #663: no view: 'detail' write; overlay coexists with current view.
     expect(lastCall.view).toBeUndefined();
   });
 
-  it('cross-surface navigation: feed → detail does not leak a pre-existing bbox param', async () => {
+  it('navigating to detail does not leak a pre-existing bbox param', async () => {
     mockUrlState.state = {
       since: '14d',
       notable: false,
       speciesCode: null,
       familyCode: null,
-      view: 'feed',
+      view: 'map',
       scope: { kind: 'us' as const },
     };
     render(<App />);
-    const feedRow = await screen.findByRole('button', { name: /Vermilion Flycatcher/i });
-    await userEvent.click(feedRow);
+    await screen.findByTestId('map-surface-stub');
+    expect(mapSurfaceRef.onSelectSpecies).not.toBeNull();
+    act(() => {
+      mapSurfaceRef.onSelectSpecies!('vermfly');
+    });
     // Regardless of any prior bbox in URL, App.onSelectSpecies always passes
     // bbox: null when called without a second argument.
     const calls = mockUrlState.set.mock.calls;
@@ -772,11 +670,11 @@ describe('Clarity view tagging (#657-followup)', () => {
     const { analytics } = await import('./analytics.js');
     const setViewSpy = vi.spyOn(analytics, 'setView');
     mockUrlState.state = {
-      since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'feed',
+      since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'map',
       scope: { kind: 'us' as const },
     };
     render(<App />);
-    expect(setViewSpy).toHaveBeenCalledWith('feed');
+    expect(setViewSpy).toHaveBeenCalledWith('map');
   });
 });
 
@@ -1193,9 +1091,12 @@ describe('#740 (C6): scope wiring end-to-end', () => {
 
   // Region label: state scope resolves to the state NAME from /api/states.
   it('threads the resolved state name as the region label for a state scope', async () => {
+    mockGetStates.mockResolvedValue([
+      { stateCode: 'US-AZ', name: 'Arizona', bbox: [-114.8, 31.3, -109.0, 37.0] },
+    ]);
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: null,
-      view: 'feed', scope: { kind: 'state', stateCode: 'US-AZ' },
+      view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
     };
     mockGetObservations.mockResolvedValue({
       data: [{
@@ -1207,10 +1108,12 @@ describe('#740 (C6): scope wiring end-to-end', () => {
       meta: { freshestObservationAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() },
     });
     render(<App />);
-    // FeedSurface lede names the region — "across Arizona" (resolved name),
-    // not the bare "US-AZ" code.
-    await screen.findByText(/across Arizona/i);
-    expect(screen.queryByText(/across US-AZ/i)).toBeNull();
+    // The AppHeader wordmark names the region — the resolved "Arizona" name,
+    // not the bare "US-AZ" code. (The MapLede surface lede is covered in
+    // MapSurface.test.tsx; MapSurface is stubbed in this file.)
+    const brandRegion = await screen.findByText('Arizona', { selector: '.brand-region' });
+    expect(brandRegion).toBeInTheDocument();
+    expect(screen.queryByText('US-AZ', { selector: '.brand-region' })).toBeNull();
   });
 });
 

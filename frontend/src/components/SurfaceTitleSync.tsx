@@ -21,8 +21,6 @@ function buildTitle(
 ): string {
   const siteSuffix = region ? `Bird Maps · ${region}` : 'Bird Maps';
   switch (view) {
-    case 'feed':
-      return `Feed — ${siteSuffix}`;
     case 'detail':
       return speciesCommonName ? `${speciesCommonName} — ${siteSuffix}` : siteSuffix;
     case 'map':

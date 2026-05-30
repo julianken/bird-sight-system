@@ -12,7 +12,7 @@ import type { FamilySilhouette } from '@bird-watch/shared-types';
  *     license URI; reasonable means of attribution must be prominent enough
  *     to be reachable from every surface that displays the work. The trigger
  *     lives in <AppHeader> (Phase 3) as a persistent header button so the
- *     prominence requirement is met on every view (view=map|feed|detail).
+ *     prominence requirement is met on every view (view=map|detail).
  *     The footer was removed in Phase 6.
  *   - OSM/OpenFreeMap ODbL §4.3: source attribution + license URL.
  *

@@ -342,7 +342,8 @@ describe('AdaptiveGridMarker', () => {
       />,
     );
     // The outer <button> IS the click surface and must be tabIndex=-1
-    // (per spec §4.7 — keyboard users navigate via the skip-link to FeedSurface).
+    // (per spec §4.7 — keyboard users navigate via the "Explore map markers"
+    // skip-link to the first marker cell).
     const btn = screen.getByRole('button');
     expect(btn.getAttribute('tabindex')).toBe('-1');
   });

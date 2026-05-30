@@ -326,273 +326,6 @@ body {
   line-height: 1;
 }
 
-/* Feed lede paragraph (#439). The .feed-lede class is applied to the
-   introductory <p> above the feed list. --lede-size (26px) is made available
-   via the extended selector in tokens.css (.lede, .feed-lede). Approach A
-   chosen: design-faithful 26px rather than the 22px --type-lg fallback. */
-.feed-lede {
-  font-size: var(--lede-size);
-  font-weight: 600;
-  line-height: 1.25;
-  margin-bottom: var(--space-lg);
-  color: var(--color-text-strong);
-}
-
-/* Feed surface (#116). Reverse-chronological observation rows. Row min-
-   height is 44px — iOS HIG tap-target minimum, also referenced in
-   risk-viability.md Part 2. Interior spacing uses design-token custom
-   properties so mobile/desktop density is one place to tune. */
-.feed {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  max-width: 760px;
-  margin-inline: auto;
-}
-/* Feed sort toggle (Plan 6 Task 10 / issue #119). Sits above the feed
-   and controls the component-local `sortMode`. Uses native radio inputs
-   inside a role=radiogroup — arrow-key traversal, focus-visible, and
-   label-click all come from the browser for free. Color / contrast is
-   reused from the feed-row palette; no new design-token surface needed. */
-.feed-sort {
-  max-width: 760px;
-  margin: 0 auto var(--space-md) auto;
-  display: flex;
-  gap: var(--space-lg);
-  padding: var(--space-sm) var(--space-md);
-  font-size: var(--type-sm);
-  color: var(--color-text-strong);
-}
-.feed-sort-option {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-}
-.feed-sort-option input[type="radio"] {
-  accent-color: var(--color-text-strong);
-}
-.feed-row-item {
-  /* Each feed row is a <li><button/></li> — the <li> keeps listitem
-     semantics for axe/SR consumers while the nested <button> carries
-     focus, click, and Enter/Space behaviour for free. */
-  margin: 0;
-  padding: 0;
-}
-.feed-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  min-height: 44px;
-  width: 100%;
-  padding: var(--space-sm) var(--space-md);
-  border: none;
-  border-bottom: 1px solid var(--color-border-subtle);
-  cursor: pointer;
-  background: var(--color-bg-surface);
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  appearance: none;
-}
-.feed-row:hover {
-  background: var(--color-bg-hover);
-}
-.feed-row:focus-visible {
-  outline: 2px solid var(--color-text-strong);
-  outline-offset: -2px;
-}
-/* Row-level notable marker. Background is a soft amber that reads as
-   "warm pointer" without competing with the detail-surface palette. Border-
-   left stripe is the accent so a dense notable-only feed still has a clean
-   left edge. */
-.feed-row-notable {
-  background: var(--color-accent-notable-bg);
-  border-left: 3px solid var(--color-accent-notable-fg);
-}
-.feed-row-notable:hover {
-  background: var(--color-accent-notable-bg-hover);
-}
-.feed-row-badge {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: var(--color-accent-notable-fg);
-  color: var(--color-text-white);
-  font-size: var(--type-xs);
-  font-weight: 700;
-  line-height: 1;
-}
-.feed-row-name {
-  flex: 1;
-  min-width: 0;
-  font-weight: 600;
-  font-size: var(--type-sm);
-  color: var(--color-text-strong);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.feed-row-count {
-  flex-shrink: 0;
-  font-variant-numeric: tabular-nums;
-  font-size: var(--type-sm);
-  color: var(--color-text-body);
-  background: var(--color-bg-tint);
-  padding: 2px 6px;
-  border-radius: 10px;
-}
-.feed-row-count-unknown {
-  background: transparent;
-  /* #666 on #fff = 5.74:1, clears WCAG 2.1 AA 4.5:1 for normal text.
-     Intentionally darker than the visual-only #888 placeholder that axe
-     flagged at 3.5:1 — color-contrast is a serious-impact blocker for
-     the whole axe.spec.ts WCAG scan. */
-  color: var(--color-text-faint);
-}
-.feed-row-loc {
-  flex-shrink: 1;
-  min-width: 0;
-  font-size: var(--type-sm);
-  /* #555 on #fff = 7.46:1 — well clear of 4.5:1. */
-  color: var(--color-text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.feed-row-time {
-  flex-shrink: 0;
-  font-size: var(--type-xs);
-  /* #5c5c5c on #fff = 6.86:1 — passes AA at 11px. tokens.css preserves
-     this color in light mode (see tokens.css [data-theme="light"]). */
-  color: var(--color-text-subtle);
-  font-variant-numeric: tabular-nums;
-}
-/* Notable-row timestamp override: --color-text-subtle (#7a8599 dark) on
-   #2a2620 = 4.04:1 — still below AA 4.5:1. Override to --color-text-muted
-   (#8a98ad dark) which gives 5.14:1 against #2a2620. Light mode is
-   unaffected (both tokens resolve to similar values on the warm-cream bg). */
-.feed-row-notable .feed-row-time {
-  color: var(--color-text-muted);
-}
-/* FeedCard — elevated hero treatment for the top-notable observation.
-   Sits ABOVE the flat FeedRow list in FeedSurface. Visually distinct from
-   .feed-row via card frame (background + border-radius + shadow), larger
-   heading scale, and the NOTABLE small-caps meta-label.
-   Accent token discipline: .feed-card-meta uses a WCAG AA-safe amber.
-   --color-accent-notable-fg (#b8860b) only achieves 3.25:1 on #fff at
-   11px/bold, which fails WCAG 1.4.3 (requires 4.5:1). A darkened amber
-   (#7a6010, 5.99:1) is scoped here as a Layer-3 component token so the
-   shared token stays unchanged for larger / badge-on-dark uses. */
-.feed-card-item {
-  /* <li> wrapper — strips list-item bullet; margin-bottom separates the card
-     from the flat row list below. */
-  list-style: none;
-  margin: 0 0 var(--space-lg) 0;
-  padding: 0;
-}
-.feed-card {
-  /* Card frame: full-width clickable surface with clear visual separation
-     from the flat rows. border-radius + subtle shadow + surface background
-     satisfy the "card frame visible" acceptance criterion. */
-  display: flex;
-  align-items: center;
-  gap: var(--space-lg);
-  width: 100%;
-  max-width: 760px;
-  margin-inline: auto;
-  padding: var(--space-lg) var(--space-xl);
-  background: var(--color-bg-surface);
-  border: 1px solid var(--color-border-ui);
-  border-radius: 12px;
-  box-shadow: var(--shadow-listbox);
-  cursor: pointer;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  appearance: none;
-  transition: background var(--dur-fast) ease;
-}
-.feed-card:hover {
-  background: var(--color-bg-hover);
-}
-.feed-card:focus-visible {
-  outline: 2px solid var(--color-text-strong);
-  outline-offset: -2px;
-}
-.feed-card-body {
-  /* Flex column: stacks meta/count row, heading, and detail line vertically
-     with consistent small gaps. flex: 1 lets the text block fill available
-     width after the silhouette icon. */
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-}
-.feed-card-meta {
-  /* NOTABLE label — small-caps uppercase treatment + deep-ember accent.
-     letter-spacing and font-weight reinforce the badge character.
-     textTransform must compute to 'uppercase' (acceptance criterion).
-     Color: var(--color-accent-notable-fg) = var(--c-deep-ember) = #c43a1a
-     in light (7.25:1 on #ffffff — well above 4.5:1 AA at 11px bold).
-     In dark mode the token flips to var(--c-orange-500) = #f5853b
-     (4.52:1 against #131c30 dark surface — meets 4.5:1 AA). */
-  font-size: var(--type-xs);
-  font-weight: var(--font-weight-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--color-accent-notable-fg);
-}
-.feed-card-count {
-  /* Observation count chip — same typographic weight as .feed-card-meta,
-     muted body color; floats on the same visual line as the meta label via
-     the flex column natural stacking (meta → count → name → detail). */
-  font-size: var(--type-xs);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-body);
-  font-variant-numeric: tabular-nums;
-}
-.feed-card-name {
-  /* Species heading: one step above .feed-row-name (--type-sm, 13px) at
-     --type-md (17px), semibold to anchor visual hierarchy. min-width: 0
-     prevents flex blowout on long names. */
-  margin: 0;
-  font-size: var(--type-md);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text-strong);
-  line-height: 1.2;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.feed-card-detail {
-  /* Location + time — muted secondary line below the heading.
-     Inline children (location span + time span) are separated by an
-     interpunct via the gap; explicit display:flex keeps them on one line. */
-  margin: 0;
-  display: flex;
-  gap: var(--space-sm);
-  flex-wrap: wrap;
-  font-size: var(--type-sm);
-  color: var(--color-text-muted);
-  line-height: 1.3;
-}
-
-.feed-empty {
-  padding: var(--space-xl);
-  text-align: center;
-  color: var(--color-text-muted);
-  font-size: var(--type-sm);
-  max-width: 480px;
-  margin-inline: auto;
-}
-
 .filters-bar {
   display: flex;
   gap: var(--space-lg);
@@ -679,8 +412,8 @@ body {
 
    Responsive convention. The @media (max-width: 760px) rule below is
    the project's first responsive breakpoint. Default state for everything
-   else is desktop-first (the codebase's content caps — .feed, .feed-sort,
-   .species-detail-surface — all use max-width: 760px). The 760px legend
+   else is desktop-first (the codebase's content caps — e.g.
+   .species-detail-surface — use max-width: 760px). The 760px legend
    breakpoint is chosen to align numerically with those caps for visual
    coherence; downstream responsive styles should reuse this token when
    their behavior aligns. */
@@ -1198,10 +931,10 @@ aside.species-detail-rail .species-detail-rail-close {
    ========================================================================== */
 
 /* ── MapLede (.map-lede) ────────────────────────────────────────────────────
-   Newspaper lede for map / feed / species surfaces (MapLede.tsx:50).
+   Newspaper lede for the map / species surfaces (MapLede.tsx:50).
    The spec calls for 26px (--lede-size) at semibold weight with no UA margin.
-   --lede-size is scoped to .lede, .feed-lede in tokens.css; extended here so
-   all three lede surfaces share one token.
+   --lede-size is scoped to .lede in tokens.css; extended here so the
+   lede surfaces share one token.
    font-weight-semibold (600) rather than bold (700) matches the newspaper-lede
    "confident but not aggressive" voice-and-content.md contract.
 
@@ -1240,22 +973,6 @@ aside.species-detail-rail .species-detail-rail-close {
    to reinforce the label character. letter-spacing is mild — enough to
    suggest a label without adding reading friction. */
 .map-freshness {
-  margin: 0;
-  font-size: var(--type-xs);
-  font-weight: var(--font-weight-medium);
-  font-variant: small-caps;
-  letter-spacing: 0.05em;
-  color: var(--color-text-muted);
-  line-height: 1.4;
-}
-
-/* ── Surface freshness meta line (.feed-freshness) ──────────────────────────
-   Metadata paragraph showing data-freshness state on FeedSurface
-   (FeedSurface.tsx:207). Without rules this would render as a bare <p> at
-   1em/16px with UA margins. Spec voice-and-content.md "freshness contract"
-   calls for muted small-caps meta text — identical visual treatment to
-   .map-freshness (PR #471 W2). */
-.feed-freshness {
   margin: 0;
   font-size: var(--type-xs);
   font-weight: var(--font-weight-medium);
@@ -1311,28 +1028,6 @@ aside.species-detail-rail .species-detail-rail-close {
      inside handles scrollable content via its own touch-action. */
   z-index: 15;
   overflow: hidden;
-}
-
-/* ── Feed surface wrapper (.feed-surface) — IMPORTANT ──────────────────────
-   Outer wrapper <div> in FeedSurface.tsx. Without a rule children inherit
-   body width with no surface-level max-width or padding constraint.
-   padding-top adds breathing room between AppHeader and the lede.
-   The inner .feed, .feed-lede, .feed-sort, .feed-card each carry their own
-   max-width: 760px — the wrapper does not cap width, it provides surface
-   padding only. box-sizing: border-box prevents padding from adding to width.
-
-   Issue #509: display:flex + flex-direction:column + flex:1 let the
-   .feed-list-container child (react-window wrapper) expand to fill the
-   remaining height in #main-surface. Without flex here, .feed-list-container's
-   flex:1 has nothing to fill against and defaults to content height. */
-.feed-surface {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  width: 100%;
-  padding: var(--space-lg) var(--space-lg) 0;
-  box-sizing: border-box;
-  min-height: 0;
 }
 
 /* ── Screen-reader-only live region (.filter-sentence-live) — SUGGESTION ───
@@ -1434,22 +1129,6 @@ aside.species-detail-rail .species-detail-rail-close {
   color: var(--color-text-muted);
 }
 
-/* ── Virtual feed list container (.feed-list-container) — issue #509 ────────
-   FeedSurface.tsx: wrapper div around the react-window List component.
-   flex: 1 1 auto lets the container expand to fill available space in the
-   .feed-surface column layout. overflow: hidden clips the react-window
-   positioning context; the virtual <ol.feed> carries overflow-y: auto via
-   react-window's injected style.
-   The container does not set a fixed height — height is measured via
-   ResizeObserver in FeedSurface.tsx and passed to the List as a style prop.
-   The 120px minimum ensures the list is visible on first paint before the
-   ResizeObserver fires (jsdom / cold SSR). */
-.feed-list-container {
-  flex: 1 1 auto;
-  min-height: 120px;
-  overflow: hidden;
-}
-
 /* ── Windows High Contrast / forced-colors fallback — issue #513 (A11Y-9) ──
    When forced-colors: active (Windows High Contrast Mode, Contrast Themes on
    Windows 11, forced-colors in Edge/Chrome DevTools), the UA overrides all
@@ -1499,13 +1178,6 @@ aside.species-detail-rail .species-detail-rail-close {
      background-color only; add a bottom border so it remains visible. */
   .app-header-tab.is-active {
     border-bottom: 3px solid ButtonText;
-  }
-
-  /* Feed rows and cards — border-bottom row separators should use
-     ButtonText so they remain visible regardless of forced palette. */
-  .feed-row-item,
-  .feed-card {
-    border-bottom-color: ButtonText;
   }
 
   /* Filter badge — background-only badge is invisible; add a border. */

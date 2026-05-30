@@ -952,8 +952,8 @@ export function MapCanvas({
 
   // Unmount cleanup for the `window.__birdMap` test hook (#291). The hook is
   // assigned in `handleLoad` (which fires once per mount); without an unmount
-  // cleanup, a remount (e.g. switching from feed view to map view and back)
-  // would leave a stale handle to the prior MapCanvas's maplibre instance on
+  // cleanup, a remount (e.g. switching from the detail view to the map view
+  // and back) would leave a stale handle to the prior MapCanvas's maplibre instance on
   // window between unmount and the next handleLoad firing. Empty dep array —
   // we only want this to run on component unmount. Same env gate as the
   // assignment so prod builds skip the cleanup branch entirely.

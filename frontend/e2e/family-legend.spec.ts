@@ -124,14 +124,3 @@ test.describe('FamilyLegend (mobile)', () => {
     await expect(toggle).toHaveAttribute('aria-expanded', 'false');
   });
 });
-
-test.describe('FamilyLegend (other views)', () => {
-  test('does NOT render on view=feed', async ({ page }) => {
-    const app = new AppPage(page);
-    await app.goto('view=feed');
-    await app.waitForAppReady();
-    // Legend only mounts inside MapSurface (view=map gate in App.tsx).
-    await expect(page.getByRole('button', { name: /bird families/i }))
-      .toHaveCount(0);
-  });
-});

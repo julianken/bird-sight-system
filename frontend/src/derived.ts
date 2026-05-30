@@ -54,9 +54,9 @@ export function deriveSpeciesIndex(observations: Observation[]): SpeciesOption[]
   return Array.from(byCode.values()).sort((a, b) => a.comName.localeCompare(b.comName));
 }
 
-// Exported for reuse across surfaces that surface a family label (FeedSurface
-// header, FiltersBar option label, MapSurface lede, AttributionModal Phylopic
-// section). Pre-#688 this also fed the species autocomplete's family group
+// Exported for reuse across surfaces that surface a family label (FiltersBar
+// option label, MapSurface lede + cell/marker popovers, AttributionModal
+// Phylopic section). Pre-#688 this also fed the species autocomplete's family group
 // headers; that component was deleted but the function still has 9+ live
 // consumers across kept surfaces.
 //
