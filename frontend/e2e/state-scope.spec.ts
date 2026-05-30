@@ -63,7 +63,7 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
   async function setup(
     page: import('@playwright/test').Page,
     apiStub: import('./fixtures.js').ApiStub,
-  ): Promise<{ app: AppPage; obsRequests: string[] }> {
+  ): Promise<{ app: AppPage; obsRequests: string[]; mapChunkRequests: string[] }> {
     await apiStub.stubStates();
     await apiStub.stubZipIndex();
     // hotspots + silhouettes resolve immediately so the rest of the app boots
@@ -72,19 +72,28 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
     await apiStub.stubEmpty();
 
     const obsRequests: string[] = [];
+    // O9 (#781): count requests for the lazy MapCanvas / maplibre-gl chunk so
+    // we can assert the scope-gated prefetch fires it on a scoped path and NEVER
+    // on the unscoped chooser landing (the #740/C6 fetch-light landing). The
+    // dev server serves the chunk un-hashed (e.g. `/src/components/map/
+    // MapCanvas.tsx` + `/node_modules/.vite/deps/maplibre-gl-*.js`); a hashed
+    // preview build emits `maplibre-gl-<hash>.js` / `MapCanvas-<hash>.js`. Both
+    // are caught by the stable `maplibre` / `MapCanvas` substrings.
+    const mapChunkRequests: string[] = [];
     page.on('request', req => {
       const url = req.url();
       if (url.includes('/api/observations')) obsRequests.push(url);
+      if (/maplibre/i.test(url) || /MapCanvas/i.test(url)) mapChunkRequests.push(url);
     });
 
-    return { app: new AppPage(page), obsRequests };
+    return { app: new AppPage(page), obsRequests, mapChunkRequests };
   }
 
   test('chooser landing (bare URL) — map + cold-load /api/observations fetch suppressed', async ({
     page,
     apiStub,
   }) => {
-    const { app, obsRequests } = await setup(page, apiStub);
+    const { app, obsRequests, mapChunkRequests } = await setup(page, apiStub);
 
     // gotoRaw — NO default-scope injection, so this is the true bare-URL
     // unscoped landing (the C9 chooser case). Navigation contract: chooser case
@@ -112,17 +121,24 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
     // through (the scope gate is in App, not just the unmount).
     await page.waitForTimeout(800);
     expect(obsRequests).toHaveLength(0);
+    // O9 (#781): the chooser landing is fetch-light — the scope-gated prefetch
+    // must NOT warm the MapCanvas/maplibre chunk while unscoped. ZERO chunk
+    // requests over the same window.
+    expect(mapChunkRequests).toHaveLength(0);
   });
 
   test('state select round-trip — ?state=US-AZ, map fetches once with state=US-AZ, region "Arizona"', async ({
     page,
     apiStub,
   }) => {
-    const { app, obsRequests } = await setup(page, apiStub);
+    const { app, obsRequests, mapChunkRequests } = await setup(page, apiStub);
     await apiStub.stubObservations(AZ_OBS);
 
     await app.gotoRaw('');
     await expect(app.chooser).toBeVisible();
+    // O9 (#781): the chunk is NOT warmed while we are still on the unscoped
+    // chooser (pre-pick). The scope-pick below is what triggers the prefetch.
+    expect(mapChunkRequests).toHaveLength(0);
 
     // Pick Arizona from the chooser <select> + Go.
     await app.pickStateInChooser('US-AZ');
@@ -148,6 +164,11 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
 
     // Region label reads "Arizona" (resolved from the /api/states name table).
     await expect(app.mapLede).toContainText('Arizona');
+
+    // O9 (#781): the scope-pick warmed the MapCanvas/maplibre chunk — at least
+    // one chunk request fired on the scoped path (the prefetch on click + the
+    // lazy boundary on mount both target the same chunk; ≥1 is the signal).
+    expect(mapChunkRequests.length).toBeGreaterThan(0);
   });
 
   test('?scope=us — CONUS map, region "USA", /api/observations carries NO state=', async ({
