@@ -3,7 +3,7 @@ import { AppPage } from './pages/app-page.js';
 import type { Observation } from '@bird-watch/shared-types';
 
 /**
- * Regression: collapsed family legend chip clipped by #main-surface overflow.
+ * Regression: collapsed family legend chip clipped by its scroll/overflow parent.
  *
  * PR #471 (W2) added `.map-context-strip { padding: var(--space-md)
  * var(--space-lg) }` (24 px vertical) + a 1px border-bottom. The combined
@@ -11,9 +11,14 @@ import type { Observation } from '@bird-watch/shared-types';
  * area, causing `#main-surface`'s overflow:auto scroll container to clip the
  * `position:absolute; bottom:12px` collapsed chip entirely.
  *
- * Fix (this PR): `#main-surface` becomes a flex column; `.map-surface` uses
- * `flex:1; min-height:0` instead of `height:100%`. The chip now sits inside
- * the flex-sized `.map-surface`, never below the clip boundary.
+ * #761 (S2) re-baseline: the map left `#main-surface` entirely — the shell
+ * inverted so the map is the viewport ROOT (`#map-layer { position: fixed;
+ * inset: 0 }`, a sibling of `<main>`). The collapsed chip now lives inside the
+ * viewport-filling `.map-surface`, NOT inside `#main-surface`. The clip parent
+ * the original #471 guard checked against is gone by design, so this guard now
+ * asserts the chip is fully inside the VIEWPORT (the new bounding box). The
+ * invariant the test protects is unchanged: the collapsed chip must be fully
+ * visible, never clipped by its container.
  *
  * This test is the regression guard #471 should have had.
  *
@@ -130,57 +135,56 @@ async function skipIfMapHookAbsent(
 }
 
 /**
- * Assert that the collapsed chip's bounding rect is fully inside
- * main#main-surface's bounding rect. Both edges (bottom and left) are
- * checked to within a 1px tolerance (fractional sub-pixel rounding).
+ * Assert that the collapsed chip's bounding rect is fully inside the VIEWPORT.
+ *
+ * #761 (S2): the map is now the viewport ROOT (`#map-layer { position: fixed;
+ * inset: 0 }`), so the chip's containing/clip parent is the viewport, not
+ * `#main-surface` (which the map left). Both edges (bottom and left) are checked
+ * to within a 1px tolerance (fractional sub-pixel rounding).
  */
-async function assertChipInsideMain(
+async function assertChipInsideViewport(
   page: import('@playwright/test').Page,
-): Promise<{ chipBottom: number; mainBottom: number; chipLeft: number; mainLeft: number }> {
+): Promise<{ chipBottom: number; viewportBottom: number; chipLeft: number; viewportLeft: number }> {
   const rects = await page.evaluate(() => {
-    // Browser context: select the readiness surface on the tag-AND-id-free
-    // `[data-render-complete]` attribute (the hook the map-first inversion
-    // (#761) carries forward), which resolves to the same single element as
-    // `#main-surface` today. A Playwright Locator can't cross into evaluate.
-    const main = document.querySelector<HTMLElement>('[data-render-complete]');
     // The collapsed chip is the toggle button with aria-expanded="false" inside .map-surface
     const chip = document.querySelector<HTMLElement>(
       '.map-surface button[aria-expanded="false"]',
     );
-    if (!main || !chip) return null;
-    const mainRect = main.getBoundingClientRect();
+    if (!chip) return null;
     const chipRect = chip.getBoundingClientRect();
     return {
       chipBottom: chipRect.bottom,
-      mainBottom: mainRect.bottom,
+      // #761 (S2): the map fills the viewport, so the bottom/left bound is the
+      // viewport edge (the map left #main-surface — the old clip parent is gone).
+      viewportBottom: window.innerHeight,
       chipLeft: chipRect.left,
-      mainLeft: mainRect.left,
+      viewportLeft: 0,
     };
   });
 
-  expect(rects, 'main#main-surface and/or collapsed chip button not found in DOM').not.toBeNull();
-  const { chipBottom, mainBottom, chipLeft, mainLeft } = rects!;
+  expect(rects, 'collapsed chip button not found in DOM').not.toBeNull();
+  const { chipBottom, viewportBottom, chipLeft, viewportLeft } = rects!;
 
-  // Chip bottom edge must be at or above main bottom edge (allow 1px for sub-pixel rounding)
+  // Chip bottom edge must be at or above the viewport bottom (allow 1px sub-pixel rounding)
   expect(
     chipBottom,
-    `Collapsed chip bottom (${chipBottom.toFixed(1)}) is BELOW main bottom (${mainBottom.toFixed(1)}) — chip is clipped`,
-  ).toBeLessThanOrEqual(mainBottom + 1);
+    `Collapsed chip bottom (${chipBottom.toFixed(1)}) is BELOW viewport bottom (${viewportBottom.toFixed(1)}) — chip is clipped`,
+  ).toBeLessThanOrEqual(viewportBottom + 1);
 
-  // Chip left edge must be at or right of main left edge
+  // Chip left edge must be at or right of the viewport left edge
   expect(
     chipLeft,
-    `Collapsed chip left (${chipLeft.toFixed(1)}) is LEFT OF main left (${mainLeft.toFixed(1)}) — chip is clipped`,
-  ).toBeGreaterThanOrEqual(mainLeft - 1);
+    `Collapsed chip left (${chipLeft.toFixed(1)}) is LEFT OF viewport left (${viewportLeft.toFixed(1)}) — chip is clipped`,
+  ).toBeGreaterThanOrEqual(viewportLeft - 1);
 
-  return { chipBottom, mainBottom, chipLeft, mainLeft };
+  return { chipBottom, viewportBottom, chipLeft, viewportLeft };
 }
 
 test.describe('Collapsed legend chip visibility — P0 regression from #471', () => {
   test.describe('desktop (1440×900)', () => {
     test.use({ viewport: { width: 1440, height: 900 } });
 
-    test('collapsed chip is fully inside main#main-surface bounds', async ({ page, apiStub }) => {
+    test('collapsed chip is fully inside the viewport bounds', async ({ page, apiStub }) => {
       await setupRoutes(page, apiStub);
       const app = new AppPage(page);
       // Clear localStorage so we get the default expanded state, then collapse
@@ -202,12 +206,12 @@ test.describe('Collapsed legend chip visibility — P0 regression from #471', ()
       await toggle.click();
       await expect(toggle).toHaveAttribute('aria-expanded', 'false');
 
-      // Assert chip is inside main bounds
-      const { chipBottom, mainBottom } = await assertChipInsideMain(page);
+      // Assert chip is inside the viewport bounds (#761 S2: the map fills the viewport)
+      const { chipBottom, viewportBottom } = await assertChipInsideViewport(page);
       // Provide readable context in the test output
       expect(
-        chipBottom <= mainBottom + 1,
-        `Desktop: chip bottom ${chipBottom.toFixed(1)} <= main bottom ${mainBottom.toFixed(1)}`,
+        chipBottom <= viewportBottom + 1,
+        `Desktop: chip bottom ${chipBottom.toFixed(1)} <= viewport bottom ${viewportBottom.toFixed(1)}`,
       ).toBe(true);
     });
   });
@@ -215,7 +219,7 @@ test.describe('Collapsed legend chip visibility — P0 regression from #471', ()
   test.describe('mobile (390×844)', () => {
     test.use({ viewport: { width: 390, height: 844 } });
 
-    test('collapsed chip is fully inside main#main-surface bounds', async ({ page, apiStub }) => {
+    test('collapsed chip is fully inside the viewport bounds', async ({ page, apiStub }) => {
       await setupRoutes(page, apiStub);
       const app = new AppPage(page);
       // Mobile defaults to collapsed — clear localStorage and let the
@@ -236,11 +240,11 @@ test.describe('Collapsed legend chip visibility — P0 regression from #471', ()
       const toggle = page.getByRole('button', { name: /bird families/i });
       await expect(toggle).toHaveAttribute('aria-expanded', 'false');
 
-      // Assert chip is inside main bounds
-      const { chipBottom, mainBottom } = await assertChipInsideMain(page);
+      // Assert chip is inside the viewport bounds (#761 S2: the map fills the viewport)
+      const { chipBottom, viewportBottom } = await assertChipInsideViewport(page);
       expect(
-        chipBottom <= mainBottom + 1,
-        `Mobile: chip bottom ${chipBottom.toFixed(1)} <= main bottom ${mainBottom.toFixed(1)}`,
+        chipBottom <= viewportBottom + 1,
+        `Mobile: chip bottom ${chipBottom.toFixed(1)} <= viewport bottom ${viewportBottom.toFixed(1)}`,
       ).toBe(true);
     });
   });

@@ -38,6 +38,37 @@
   --space-lg: 16px;
   --space-xl: 24px;
 
+  /* Vertical clearance the bottom-left .family-legend must leave for MapLibre's
+     basemap AttributionControl so the OSM / OpenFreeMap / eBird license text is
+     NEVER overlapped (ODbL + eBird ToU §3 — licensing, not cosmetic). #775.
+
+     Under the full-bleed map (#761 S2) the map fills 100vh and the non-compact
+     attribution (`compact={false}` in MapCanvas.tsx — deliberately always-
+     expanded so the OSM credit is visible without a click) renders as a bottom
+     bar that, on narrow viewports, spans the FULL viewport width and wraps to
+     multiple lines — its left portion reaching into the legend's bottom-left
+     corner. Measured band heights (single source of truth for this token,
+     re-derive with the map-root-geometry attribution-clearance guard):
+       - ≤760px : 3-line wrap  → ~60px tall, left edge at x=0  (full width)
+       - 761–1024px : 2→1-line → up to ~40px tall, wide bar
+       - >1024px : single line → ~20px tall, hugs the bottom-right corner
+     The token lifts the legend's bottom anchor ABOVE the worst-case band per
+     tier (clearance > band height), so the lift is independent of the bar's
+     horizontal extent — the legend clears it vertically regardless of width.
+     Default is the desktop tier; the two media queries below override it. */
+  --attribution-clearance: 20px;
+
+  /* Floating-header height (#761 S2). The AppHeader became `position: fixed`
+     chrome over the full-viewport map root, so it no longer occupies flow
+     height. Every in-flow chrome surface that previously sat below it — the
+     non-map `#main-surface` content (R15 surface 1) and the open `.filters-panel`
+     (R15 surface 2), plus the top-anchored `.scope-control` overlay — must clear
+     this height so the floating header does not occlude it. 48px comfortably
+     clears both the ~44–48px desktop header (8px+8px vertical padding + ~28px
+     content + 1px border) and the ≤480px header (no vertical padding, 44px
+     touch-target buttons). Single source of truth for the clearance offset. */
+  --header-height: 48px;
+
   --dur-fast: 200ms;
   --dur-base: 250ms;
   --dur-slow: 350ms;
@@ -104,14 +135,42 @@ body {
   flex-direction: column;
   height: 100vh;
 }
+
+/* #761 (S2) — Full-viewport map ROOT. The `{mapVisible && …}` block (ScopeControl
+   + MapSurface) was hoisted OUT of the padded `<main>` into this fixed-inset
+   wrapper, rendered as a SIBLING of `<main>`. `position: fixed; inset: 0` makes
+   it viewport-filling and — load-bearing — makes it the nearest POSITIONED
+   ancestor of the absolutely-positioned `.scope-control` (a sibling of
+   `.map-surface`, not its child), so ScopeControl's `inset` offsets resolve
+   against the viewport box. Its z-index sits BELOW the chrome band (`--z-chrome`
+   = 42): the canvas is the backdrop and the floating header floats over it
+   (Google-Maps-style). The map's own overlays (`.family-legend` /
+   `.scope-control` at `--z-overlay`, `.observation-popover` at `--z-popover`)
+   stack within this layer on their existing tiers. */
+#map-layer {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-map);
+}
+
 /* Main surface. The map chain (Map/Region/Badge/BadgeStack/HotspotDot) was
-   removed in the DISCARD wave (#113). FeedSurface shipped in #116;
-   hotspots (#117) and species (#118) mount alongside it. The element is
-   also the e2e readiness gate via data-render-complete. */
+   removed in the DISCARD wave (#113); the map itself was hoisted into
+   `#map-layer` above in the #761 (S2) shell inversion. `<main>` is retained as
+   the e2e readiness gate (data-render-complete), the scroll-bypass affordance
+   (#586), and the `inert` target. It now wraps only non-map view surfaces (none
+   today after F1 #777 removed the feed branch); the `--space-lg` padding stays
+   for any such surface.
+   R15 (S2): the now-`position: fixed` AppHeader left the flow, so any non-map
+   surface here would otherwise render UNDER the floating chrome. `padding-top`
+   (and `scroll-margin-top`, for the #586 scroll-bypass focus target) clears the
+   header height. The map layer is exempt — `#map-layer` sits at `inset: 0`
+   beneath the header on purpose. */
 #main-surface {
   flex: 1;
   min-height: 0;
   padding: var(--space-lg);
+  padding-top: calc(var(--header-height) + var(--space-lg));
+  scroll-margin-top: var(--header-height);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -184,9 +243,10 @@ body {
    for these semantic roles — see tokens.css dark-mode comment at line ~115.
    Do not add per-theme overrides here without revisiting that constraint. */
 
-/* Top-level chrome bar — stretches full width, pins to top of the
-   flex-column .app layout. Sticky so it stays in view when #main-surface
-   overflows. */
+/* Top-level chrome bar — floating fixed chrome over the full-viewport map root.
+   #761 (S2): the shell inverted so the map is the viewport ROOT (`#map-layer`,
+   `position: fixed; inset: 0`) and the header FLOATS over its top edge
+   (Google-Maps-style) rather than displacing it down a flex column. */
 .app-header {
   display: flex;
   align-items: center;
@@ -194,18 +254,24 @@ body {
   padding: var(--space-sm) var(--space-lg);
   background: var(--color-bg-surface);
   border-bottom: 1px solid var(--color-border-ui);
-  position: sticky;
+  /* #761 (S2): `position: fixed` (was `sticky; z-index: 10`) so the header leaves
+     the flow and floats over `#map-layer`. It adopts the named `--z-chrome` token
+     S1 (#778) defined-but-did-not-apply: 42 sits ABOVE the map-assist overlays
+     (legend / scope-control at `--z-overlay` = 40, observation-popover at
+     `--z-popover` = 41) and BELOW the detail rail (`--z-rail` = 43) so the
+     in-place rail (#663) still floats over the header. The P1-deferred
+     scope-control click regression (raising the header above the overlay band
+     made it intercept clicks on the top-anchored `.scope-control`) is fixed in
+     the SAME PR by the compensating `.scope-control` top-offset below — the
+     control is pushed below the header band so `elementFromPoint` returns the
+     control, not the header. (S2 makes NO z-order claim about the bottom-sheet
+     snap tiers (10/15/20) — that reconciliation is the deferred mobile-overlay
+     workstream / O5.) (2026-05-30) */
+  position: fixed;
   top: 0;
-  /* KEPT at the pre-refactor raw 10 (BELOW the overlay band) — #761 P1 (#778)
-     is a strict zero-visual-change refactor and must NOT invert any element's
-     visible stacking. The `.scope-control` floats at top: var(--space-md) (12px)
-     and overlaps this 48px header by ~36px; raising the header to --z-chrome (42,
-     above the overlays) would make it intercept clicks on the scope-control
-     controls (elementFromPoint → HEADER), failing state-scope.spec.ts:180.
-     Adopting --z-chrome (above overlays) for the now-floating header is deferred
-     to S2 (#775), which makes the header floating chrome AND adds the overlay
-     top-offset so the floating header does not occlude .scope-control. (2026-05-30) */
-  z-index: 10;
+  left: 0;
+  right: 0;
+  z-index: var(--z-chrome);
 }
 
 /* Brand link — suppress UA link chrome; inherit body typography.
@@ -452,10 +518,16 @@ body {
    coherence; downstream responsive styles should reuse this token when
    their behavior aligns. */
 .map-surface {
-  position: relative;
-  width: 100%;
-  flex: 1;
-  min-height: 0;
+  /* #761 (S2): the map is the viewport ROOT now. `.map-surface` was a controlled
+     flex child (`flex: 1; min-height: 0`) capped by the old padded `<main>` flex
+     box; post-hoist it fills its `#map-layer` parent (`position: fixed; inset: 0`
+     = the viewport). `position: relative` is RETAINED so the in-`MapSurface`
+     overlays (`.family-legend`, `.observation-popover`) keep anchoring to it; the
+     inner `MapCanvas` is already `width/height: 100%`, so the canvas reaches
+     full-bleed once `#map-layer` does. (Corrective `map.resize()` on the
+     flex→fixed transition is S3's — #773; S2 asserts steady-state geometry only.) */
+  position: absolute;
+  inset: 0;
 }
 
 /* AttributionModal trigger button. Visually a link rather than a CTA so
@@ -625,13 +697,17 @@ body {
 }
 
 /* FamilyLegend floating overlay (#249). Anchored to the bottom-left of
-   .map-surface, above MapLibre's AttributionControl (which lives at
-   bottom-right by default — but we still want clearance for keyboard-tabs
-   that open it). The legend is a semantic <aside> — keyboard-reachable,
-   labelled by its toggle button, and self-collapsing on mobile. */
+   .map-surface. MapLibre's non-compact AttributionControl anchors bottom-right
+   but, under the full-bleed map (#761 S2), its always-expanded license bar wraps
+   to the FULL viewport width on narrow viewports and reaches into this corner.
+   The `bottom` offset lifts the legend ABOVE that band (--attribution-clearance,
+   tiered by viewport) so the OSM / OpenFreeMap / eBird credit is never overlapped
+   — a licensing requirement, not cosmetic (#775). The legend is a semantic
+   <aside> — keyboard-reachable, labelled by its toggle button, and self-
+   collapsing on mobile. */
 .family-legend {
   position: absolute;
-  bottom: var(--space-md);
+  bottom: calc(var(--space-md) + var(--attribution-clearance));
   left: var(--space-md);
   z-index: var(--z-overlay);
   background: var(--color-bg-surface);
@@ -735,13 +811,32 @@ body {
   background: var(--color-bg-surface);
 }
 
+/* Attribution-clearance tablet tier (#775). At 761–1024px the non-compact
+   basemap attribution bar wraps to ~2 lines (~40px tall, measured at 768×1024)
+   and still spans most of the viewport width, so the legend must clear a taller
+   band than the desktop default. Source-ordered BEFORE the ≤760px block so the
+   narrower mobile query (60px) overrides this at phone widths. */
+@media (max-width: 1024px) {
+  :root {
+    --attribution-clearance: 40px;
+  }
+}
+
 /* Mobile collapse-by-default. The component reads this breakpoint via
    matchMedia at mount time (see MapSurface.readLegendDefaultExpanded);
    the CSS below additionally tightens the collapsed footprint so the
    chevron tab doesn't obscure the map. localStorage 'family-legend-
    expanded' overrides this — the responsive default is a first-visit
-   hint, not a sticky rule. */
+   hint, not a sticky rule.
+
+   --attribution-clearance jumps to 60px here: at ≤760px the attribution bar
+   spans the full viewport width and wraps to ~3 lines (measured 60px at
+   390×844), so the legend's bottom-left corner must clear that full band
+   (#775 — licensing requirement). */
 @media (max-width: 760px) {
+  :root {
+    --attribution-clearance: 60px;
+  }
   .family-legend {
     max-width: calc(100vw - 2 * var(--space-md));
   }
@@ -928,6 +1023,24 @@ aside.species-detail-rail .species-detail-rail-close {
      parity with the modal — same z-stack expectation. KEPT at the pre-refactor
      raw 20; adopting --z-modal (above overlays) is deferred to O5 (#783). */
   z-index: 20;
+}
+
+/* #761 (S2): the AppHeader became `position: fixed` floating chrome on
+   `--z-chrome` (42), which now outranks the full-snap sheet's z-stack (10/15/20).
+   That is acceptable for S2 — the full z-reconciliation (lifting the sheet onto
+   `--z-modal` with the compensating #663 inert work) is O5 (#783). The ONE thing
+   S2 must not regress is the sheet's own controls: at full snap the sheet's drag
+   handle / collapse button sits at the viewport TOP, directly under the floating
+   header, so the header would intercept the collapse click (the sheet-snap spec's
+   collapse-at-full path). Because the full-snap sheet is a modal (`aria-modal`,
+   it already inerts `#main-surface`), the chrome behind it must be non-interactive
+   while it is open. This makes the floating header click-through ONLY when a
+   full-snap sheet is present — no z-index change (no z-index war), no inert
+   retarget — so the collapse handle underneath receives the pointer. The header
+   stays visible; it is simply muted under the modal, which is correct modal
+   semantics. (O5 replaces this with proper top-layer z-ordering.) */
+body:has(.species-detail-sheet--full) .app-header {
+  pointer-events: none;
 }
 
 .sheet-handle {
@@ -1385,7 +1498,28 @@ aside.species-detail-rail .species-detail-rail-close {
    positioned at the top-right of the panel. The panel itself needs position:
    relative so the absolute positioning of the close button resolves correctly. */
 .filters-panel {
+  /* #761 (S2) R15 (surface 2): the panel is an in-flow sibling of `<main>`
+     rendered at the top of the `.app` flow, opened from the header on any view
+     (incl. the map). The shell inversion made TWO things occlude it:
+       1. The AppHeader is now `position: fixed` floating chrome, so the panel's
+          top edge + close button would slide UNDER the header. `margin-block-start`
+          offsets the panel below the header band.
+       2. `#map-layer` is now `position: fixed; inset: 0` (a positioned element),
+          so it paints ABOVE the panel's in-flow content — the panel's controls
+          (notable checkbox, typeaheads, close button) would be behind the map and
+          un-clickable. Giving the panel a positioned stacking context with a
+          z-index in the map-assist band lifts it above the map (`--z-map` = 0) and
+          its overlays (legend/scope at `--z-overlay`, popover at `--z-popover`),
+          while staying BELOW the floating header (`--z-chrome`) so the header's
+          own controls remain reachable.
+     This is the interim clearance; the full conversion of `.filters-panel` to a
+     floating sheet + backdrop with proper top-layer z-layering is O4. */
   position: relative;
+  z-index: var(--z-popover);
+  margin-block-start: var(--header-height);
+  /* Opaque surface so the panel's controls read cleanly over the map canvas
+     beneath it (the panel is no longer backed by an in-flow page background). */
+  background: var(--color-bg-surface);
 }
 
 .filters-panel-close {
@@ -1662,7 +1796,16 @@ aside.species-detail-rail .species-detail-rail-close {
    className the TSX renders has a matching rule here (orphan-classname gate). */
 .scope-control {
   position: absolute;
-  inset-block-start: var(--space-md);
+  /* #761 (S2): the AppHeader is now `position: fixed` floating chrome on
+     `--z-chrome` (42) — ABOVE this control's `--z-overlay` (40). At the old
+     `inset-block-start: var(--space-md)` (12px) the control floated UNDER the
+     ~48px header and the header intercepted clicks on the "Change scope" / state
+     <select> / "Whole US" affordances (`elementFromPoint` → HEADER) — the exact
+     regression P1 (#778) surfaced and deferred to S2. Offsetting the top by the
+     header height pushes the control below the header band so it is fully
+     clickable (state-scope.spec.ts whole-US-reset). The wrapper (`#map-layer`)
+     equals the viewport, so this resolves against the viewport top edge. */
+  inset-block-start: calc(var(--header-height) + var(--space-md));
   inset-inline: var(--space-md);
   z-index: var(--z-overlay);
   display: flex;

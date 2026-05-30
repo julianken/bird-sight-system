@@ -61,6 +61,16 @@ describe('<AppHeader>', () => {
     expect(mapTab).toHaveClass('app-header-tab', 'is-active');
   });
 
+  // #761 (S2): the shell inverted so the map is the viewport ROOT (#map-layer),
+  // hoisted out of #main-surface. The "Map view" tab controls the region that
+  // actually holds the map, so its aria-controls points at "map-layer" — NOT the
+  // now-feed-only "main-surface" (which would be a silent a11y semantic regression).
+  it('points the Map view tab\'s aria-controls at the map-layer region (#761 S2)', () => {
+    render(<AppHeader {...baseProps} activeView="map" />);
+    const mapTab = screen.getByRole('tab', { name: /Map view/i });
+    expect(mapTab).toHaveAttribute('aria-controls', 'map-layer');
+  });
+
   it('renders Filters trigger without badge when filterCount === 0', () => {
     render(<AppHeader {...baseProps} filterCount={0} />);
     const trigger = screen.getByRole('button', { name: /Filters/i });

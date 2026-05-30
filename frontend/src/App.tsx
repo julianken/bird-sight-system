@@ -716,83 +716,103 @@ export function App() {
           />
         </div>
       )}
+      {/* #761 (S2) — the map is the viewport-filling ROOT, no longer a windowed
+          flex child of the padded `<main>`. The `{mapVisible && …}` block is
+          HOISTED OUT of `<main>` into the fixed-inset `#map-layer` wrapper that
+          renders as a SIBLING of `<main>` — the same `position: fixed` floating
+          pattern the detail rail/sheet (#663) already use below. The chrome
+          (AppHeader) floats over this layer on `--z-chrome`.
+
+          The wrapper is MANDATORY, not optional: `ScopeControl` is a SIBLING of
+          `MapSurface` (not a child of `.map-surface`), so its `position: absolute`
+          offsets resolve against the nearest POSITIONED ancestor. `#map-layer`
+          (`position: fixed; inset: 0`) is that ancestor — it equals the viewport,
+          so ScopeControl anchors to the viewport top edge as before. Without the
+          wrapper ScopeControl would lose its containing block (`.map-surface` is
+          its sibling, not its ancestor).
+
+          Always-mounted-under-scrim invariant (post-S1): `#map-layer` is gated
+          ONLY by the existing `mapVisible` VIEW-tier gate (`'map' || 'detail'`,
+          true on the scrim landing) — NOT by `scopeActive`. On the unscoped
+          landing the map mounts idle behind S1's inert scrim; the `scopeActive`
+          fetch gate (above) is the sole mechanism holding `/api/observations` at
+          zero. Do NOT make `#map-layer` conditional on `scopeActive`. */}
+      {mapVisible && (
+        <div id="map-layer">
+          {/* #740 (C6) — the in-state on-map re-scope bar (#737). Rendered
+              ONLY in a SCOPED view. #761 (S1) removed the unscoped
+              early-return, so the map now mounts idle behind the chooser
+              scrim while unscoped too — this `state.scope.kind !== 'unscoped'`
+              guard keeps ScopeControl off the unscoped landing (the chooser
+              scrim is the only scope affordance there) AND narrows
+              `state.scope` to the `ScopedView` the component's prop requires.
+              Floats over the canvas; emits one clean scope intent per action
+              and never touches the map. */}
+          {state.scope.kind !== 'unscoped' && (
+            <ScopeControl
+              scope={state.scope}
+              states={states}
+              onPickState={onPickState}
+              onPickWholeUs={onPickWholeUs}
+              onExit={onExitScope}
+              onResolve={onResolveZip}
+            />
+          )}
+          <MapSurface
+            observations={observations}
+            legendObservations={viewportObservations}
+            silhouettes={silhouettes}
+            familyCode={state.familyCode}
+            onFamilyToggle={onFamilyToggle}
+            onSelectSpecies={onSelectSpecies}
+            onViewportChange={onViewportChange}
+            onExploreMapMarkers={() => {
+              const firstCell = document.querySelector(
+                '[data-testid="adaptive-grid-marker-cell-rendered"], ' +
+                '[data-testid="adaptive-grid-marker-cell-fallback"]'
+              ) as HTMLElement | null;
+              firstCell?.focus();
+            }}
+            hasMarkers={observations.length > 0}
+            since={state.since}
+            notable={state.notable}
+            speciesCode={state.speciesCode}
+            {...(speciesName !== undefined ? { speciesName } : {})}
+            freshness={freshnessState}
+            freshnessLabel={freshnessLabel}
+            loading={observationsLoading}
+            region={region}
+            noFiltersActive={noFiltersActive}
+            {...(scopeBounds ? { scopeBounds } : {})}
+            {...(boundsKey !== undefined ? { boundsKey } : {})}
+            {...(flyTo ? { flyTo } : {})}
+            {...(statePolygon != null ? { maskPolygon: statePolygon } : {})}
+            {...(isStateScope ? { clampPad: ARTBOARD_PAD } : {})}
+          />
+        </div>
+      )}
       <main
         ref={mainRef}
         id="main-surface"
         data-render-complete={renderComplete}
         aria-busy={observationsLoading}
         // axe `scrollable-region-focusable` (WCAG 2.1.1): #main-surface
-        // has `overflow: auto` so it can scroll when its content (e.g.
-        // species detail with photo) exceeds the viewport. Keyboard users
-        // need to be able to focus the scrollable region itself to scroll
-        // it. tabIndex={0} adds it to the tab order; the container has no
-        // other interactive role.
+        // has `overflow: auto` so it can scroll when its content exceeds the
+        // viewport. Keyboard users need to be able to focus the scrollable
+        // region itself to scroll it. tabIndex={0} adds it to the tab order;
+        // the container has no other interactive role.
+        //
+        // #761 (S2): the map + ScopeControl no longer render here — they were
+        // hoisted into the fixed `#map-layer` wrapper above. `<main>` is kept
+        // (with `id`, `data-render-complete`, `mainRef`, `tabIndex={0}`) as the
+        // readiness gate (#586), the scroll-bypass affordance, and the `inert`
+        // target S1's focus-trap effect / SpeciesDetailSheet still wire to it.
+        // It now wraps only non-map view surfaces (F1 (#777) removed the feed
+        // branch, so today that is none); its `--space-lg` padding stays for
+        // any future non-map surface and the `padding-top` header-clearance
+        // (R15) keeps such a surface out from under the floating chrome.
         tabIndex={0}
-      >
-        {mapVisible && (
-          <>
-            {/* #740 (C6) — the in-state on-map re-scope bar (#737). Rendered
-                ONLY in a SCOPED view. #761 (S1) removed the unscoped
-                early-return, so the map now mounts idle behind the chooser
-                scrim while unscoped too — this `state.scope.kind !== 'unscoped'`
-                guard keeps ScopeControl off the unscoped landing (the chooser
-                scrim is the only scope affordance there) AND narrows
-                `state.scope` to the `ScopedView` the component's prop requires.
-                Floats over the canvas; emits one clean scope intent per action
-                and never touches the map. */}
-            {state.scope.kind !== 'unscoped' && (
-              <ScopeControl
-                scope={state.scope}
-                states={states}
-                onPickState={onPickState}
-                onPickWholeUs={onPickWholeUs}
-                onExit={onExitScope}
-                onResolve={onResolveZip}
-              />
-            )}
-            <MapSurface
-              observations={observations}
-              legendObservations={viewportObservations}
-              silhouettes={silhouettes}
-              familyCode={state.familyCode}
-              onFamilyToggle={onFamilyToggle}
-              onSelectSpecies={onSelectSpecies}
-              onViewportChange={onViewportChange}
-              onExploreMapMarkers={() => {
-                const firstCell = document.querySelector(
-                  '[data-testid="adaptive-grid-marker-cell-rendered"], ' +
-                  '[data-testid="adaptive-grid-marker-cell-fallback"]'
-                ) as HTMLElement | null;
-                firstCell?.focus();
-              }}
-              hasMarkers={observations.length > 0}
-              since={state.since}
-              notable={state.notable}
-              speciesCode={state.speciesCode}
-              {...(speciesName !== undefined ? { speciesName } : {})}
-              freshness={freshnessState}
-              freshnessLabel={freshnessLabel}
-              loading={observationsLoading}
-              region={region}
-              noFiltersActive={noFiltersActive}
-              {...(scopeBounds ? { scopeBounds } : {})}
-              {...(boundsKey !== undefined ? { boundsKey } : {})}
-              {...(flyTo ? { flyTo } : {})}
-              {...(statePolygon != null ? { maskPolygon: statePolygon } : {})}
-              {...(isStateScope ? { clampPad: ARTBOARD_PAD } : {})}
-            />
-          </>
-        )}
-        {/*
-          #663 — detail surface routing. The body component
-          (SpeciesDetailSurface) renders inside one of two wrappers:
-          a side rail (<aside>) on ≥1200px viewports, a bottom-sheet
-          on ≤1199px. Selection drives off useIsCompact.
-          The wrappers render OUTSIDE <main>: both sit as siblings of
-          <main> so the Map stays mounted and interactive underneath
-          (no inert backdrop, no top-layer takeover).
-        */}
-      </main>
+      />
       {/* #761 (S1) — detail rail/sheet gated on `scopeActive`. The unscoped
           early-return used to make these lines unreachable while unscoped; now
           that the shell always renders, a `?detail=` riding an unscoped URL
