@@ -394,9 +394,14 @@ test.describe('axe-core WCAG scans', () => {
     const app = new AppPage(page);
     await app.goto('view=map');
     await app.waitForAppReady();
-    // Phase 6: footer removed. Use .attribution-trigger (AttributionModal's
-    // own button) directly — no footer scoping needed.
-    await page.locator('button.attribution-trigger').click();
+    // #761 (S2): open via the AppHeader "Attribution" button — the documented
+    // real affordance, which fires onOpenAttribution → programmatic click on the
+    // hidden `.attribution-trigger` shim. The header is fixed chrome on
+    // `--z-chrome` (always clickable); the standalone `.attribution-trigger` now
+    // sits in the `.app` flow BEHIND the full-viewport `#map-layer`, so a direct
+    // POINTER click on it is intercepted by the maplibre attribution control. The
+    // header path is occlusion-immune (programmatic .click()).
+    await app.attributionTrigger.click();
     // Wait on the [open] attribute commit — observable contract that
     // showModal() has run, focus-delegation is settled, and the dialog
     // is in the top layer.
@@ -418,8 +423,10 @@ test.describe('axe-core WCAG scans', () => {
       const app = new AppPage(page);
       await app.goto('view=map');
       await app.waitForAppReady();
-      // Phase 6: footer removed. Use .attribution-trigger directly.
-      await page.locator('button.attribution-trigger').click();
+      // #761 (S2): open via the AppHeader "Attribution" button (occlusion-immune
+      // programmatic shim) — the standalone `.attribution-trigger` now sits behind
+      // the full-viewport `#map-layer`. See the desktop test for the rationale.
+      await app.attributionTrigger.click();
       await expect(page.locator('dialog.attribution-modal[open]')).toBeVisible();
       const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
       if (results.violations.length) {

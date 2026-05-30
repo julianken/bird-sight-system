@@ -122,7 +122,15 @@ export function AppHeader({
               role="tab"
               id={`app-header-tab-${tab.value}`}
               aria-selected={selected}
-              aria-controls="main-surface"
+              // #761 (S2): the "Map view" tab controls the map region, which is
+              // now the hoisted `#map-layer` wrapper (the map left `#main-surface`
+              // when the shell inverted to a full-viewport map root). Pointing at
+              // `"main-surface"` would silently control a map-free region — an
+              // a11y semantic regression introduced by the hoist. The broader
+              // inert/aria-busy/aria-live retarget on `#map-layer` stays O1; the
+              // tablist tab→region pointer is a different attribute O1 does not
+              // touch, so S2 owns this one in the same PR that moves the map out.
+              aria-controls="map-layer"
               aria-label={tab.accessibleName}
               tabIndex={tabbable ? 0 : -1}
               className={`app-header-tab${selected ? ' is-active' : ''}`}

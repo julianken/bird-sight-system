@@ -851,8 +851,11 @@ describe('#740 (C6): scope wiring end-to-end', () => {
     ).toBeInTheDocument();
     // #761 (S1): the map surface is mounted but INERT behind the scrim (no
     // longer a full-tree unmount). The stub is present and #main-surface — the
-    // real <main id="main-surface"> App renders around the stub (NOT the mock) —
-    // carries the `inert` attribute set by App's inert/focus-trap effect.
+    // real <main id="main-surface"> App renders — carries the `inert` attribute
+    // set by App's inert/focus-trap effect. #761 (S2): the stub now lives in the
+    // hoisted #map-layer wrapper (a SIBLING of <main>), not inside #main-surface;
+    // the `inert` target stays #main-surface (the inert retarget to #map-layer is
+    // O1, not S2). Both assertions are unaffected by where the stub renders.
     expect(screen.getByTestId('map-surface-stub')).toBeInTheDocument();
     expect(container.querySelector('#main-surface')).toHaveAttribute('inert');
     // The cold-load fetch is suppressed: zero observations requests. Give any
@@ -1092,7 +1095,9 @@ describe('#740 (C6): scope wiring end-to-end', () => {
     ).toBeInTheDocument();
     // #761 (S1) re-baseline: the map surface is now mounted but INERT behind the
     // scrim (it was unmounted under the old early-return). The inert attribute
-    // lands on the real <main id="main-surface"> App renders (NOT the mock).
+    // lands on the real <main id="main-surface"> App renders. #761 (S2): the map
+    // stub now lives in the hoisted #map-layer sibling, not inside #main-surface;
+    // the `inert` target stays #main-surface in S2 (retarget is O1).
     expect(screen.getByTestId('map-surface-stub')).toBeInTheDocument();
     expect(container.querySelector('#main-surface')).toHaveAttribute('inert');
     // #761 (S1) NEW guard: the detail rail/sheet does NOT render on an unscoped
@@ -1173,6 +1178,102 @@ describe('#740 (C6): scope wiring end-to-end', () => {
     const brandRegion = await screen.findByText('Arizona', { selector: '.brand-region' });
     expect(brandRegion).toBeInTheDocument();
     expect(screen.queryByText('US-AZ', { selector: '.brand-region' })).toBeNull();
+  });
+});
+
+describe('#761 (S2): map hoisted to a viewport-root #map-layer sibling of <main>', () => {
+  beforeEach(() => {
+    __resetSilhouettesCache();
+    __resetStatesCache();
+    __resetZipIndexCache();
+    mockGetHotspots.mockResolvedValue([]);
+    mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
+    mockGetSilhouettes.mockResolvedValue([]);
+    mockGetStates.mockResolvedValue([
+      { stateCode: 'US-AZ', name: 'Arizona', bbox: [-114.82, 31.33, -109.05, 37.0] as [number, number, number, number] },
+    ]);
+    mockGetObservations.mockClear();
+    mockGetHotspots.mockClear();
+    mockGetStates.mockClear();
+    mockGetSilhouettes.mockClear();
+    mockUrlState.set.mockClear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // AC: the {mapVisible && …} block renders inside a #map-layer wrapper that is a
+  // SIBLING of <main>, not a descendant. The bare MapSurface stub
+  // (<div data-testid="map-surface-stub" />) satisfies the structure check.
+  it('renders #map-layer as a sibling of <main>, NOT a descendant of #main-surface', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
+    };
+    const { container } = render(<App />);
+    await screen.findByTestId('map-surface-stub');
+
+    const mapLayer = container.querySelector('#map-layer');
+    const mainSurface = container.querySelector('#main-surface');
+    expect(mapLayer).not.toBeNull();
+    expect(mainSurface).not.toBeNull();
+
+    // #map-layer is NOT contained within #main-surface (the hoist's load-bearing
+    // structural invariant — the map left the windowed <main>).
+    expect(mainSurface!.contains(mapLayer)).toBe(false);
+    // The map stub lives inside #map-layer, and #map-layer is NOT inside <main>.
+    const mapStub = screen.getByTestId('map-surface-stub');
+    expect(mapLayer!.contains(mapStub)).toBe(true);
+    expect(mainSurface!.contains(mapStub)).toBe(false);
+    // Both are children of the same `.app` root (siblings, not parent/child).
+    const app = container.querySelector('.app');
+    expect(mapLayer!.parentElement).toBe(app);
+    expect(mainSurface!.parentElement).toBe(app);
+  });
+
+  // AC: the "Map view" tab's aria-controls is retargeted to "map-layer" and
+  // resolves to the present, hoisted #map-layer — the region that actually
+  // contains the map post-hoist (NOT the now-feed-only #main-surface). A
+  // presence-only check against #main-surface would assert the regression passes.
+  it('points the Map view tab\'s aria-controls at #map-layer (the region holding the map)', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
+    };
+    const { container } = render(<App />);
+    await screen.findByTestId('map-surface-stub');
+
+    const mapTab = screen.getByRole('tab', { name: 'Map view' });
+    expect(mapTab).toHaveAttribute('aria-controls', 'map-layer');
+    expect(mapTab).not.toHaveAttribute('aria-controls', 'main-surface');
+    // The controlled region resolves to a present element that holds the map.
+    const controlled = container.querySelector('#map-layer');
+    expect(controlled).not.toBeNull();
+    expect(controlled!.contains(screen.getByTestId('map-surface-stub'))).toBe(true);
+  });
+
+  // AC: the always-mounted-under-scrim invariant survives the hoist — on the
+  // unscoped scrim landing #map-layer still mounts (idle) and /api/observations
+  // stays at zero (existing scopeActive fetch gate). #map-layer is NOT gated on
+  // scopeActive.
+  it('mounts #map-layer on the unscoped scrim landing with zero observations fetch', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'unscoped' },
+    };
+    const { container } = render(<App />);
+    // Chooser scrim is shown; the map is mounted idle behind it.
+    expect(
+      await screen.findByRole('region', { name: /Choose where to look at birds/i }),
+    ).toBeInTheDocument();
+    expect(container.querySelector('#map-layer')).not.toBeNull();
+    expect(screen.getByTestId('map-surface-stub')).toBeInTheDocument();
+    // The scopeActive fetch gate holds observations at zero on the unscoped landing.
+    await waitFor(() => {
+      expect(mockGetStates).toHaveBeenCalled();
+    });
+    expect(mockGetObservations).not.toHaveBeenCalled();
   });
 });
 
