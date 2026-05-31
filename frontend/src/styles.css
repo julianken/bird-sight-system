@@ -58,17 +58,6 @@
      Default is the desktop tier; the two media queries below override it. */
   --attribution-clearance: 20px;
 
-  /* Floating-header height (#761 S2). The AppHeader became `position: fixed`
-     chrome over the full-viewport map root, so it no longer occupies flow
-     height. Every in-flow chrome surface that previously sat below it — the
-     non-map `#main-surface` content (R15 surface 1) and the open `.filters-panel`
-     (R15 surface 2), plus the top-anchored `.scope-control` overlay — must clear
-     this height so the floating header does not occlude it. 48px comfortably
-     clears both the ~44–48px desktop header (8px+8px vertical padding + ~28px
-     content + 1px border) and the ≤480px header (no vertical padding, 44px
-     touch-target buttons). Single source of truth for the clearance offset. */
-  --header-height: 48px;
-
   --dur-fast: 200ms;
   --dur-base: 250ms;
   --dur-slow: 350ms;
@@ -1435,8 +1424,8 @@ aside.species-detail-rail .species-detail-rail-close {
      rendered at the top of the `.app` flow, opened from the controls pill
      in the top-right corner. The AppHeader is now `position: fixed; inset: 0`
      with no block-height — so `margin-block-start` must clear the controls pill
-     height (~60px: 12px inset + ~48px pill). Using `--header-height` (48px) is
-     a reasonable approximation that keeps the panel clear of the controls pill.
+     height (~60px: 12px inset + ~48px pill). `calc(var(--card-inset) + 65px)`
+     keeps the panel clear of the controls pill.
      `#map-layer` is `position: fixed; inset: 0` so the panel needs a z-index
      ABOVE `--z-chrome` (42) — the floating corner cards have pointer-events: auto
      and would otherwise intercept clicks on the panel's controls. `--z-rail` (43)
