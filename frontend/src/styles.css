@@ -58,16 +58,14 @@
      Default is the desktop tier; the two media queries below override it. */
   --attribution-clearance: 20px;
 
-  /* Floating-header height (#761 S2). The AppHeader became `position: fixed`
-     chrome over the full-viewport map root, so it no longer occupies flow
-     height. Every in-flow chrome surface that previously sat below it — the
-     non-map `#main-surface` content (R15 surface 1) and the open `.filters-panel`
-     (R15 surface 2), plus the top-anchored `.scope-control` overlay — must clear
-     this height so the floating header does not occlude it. 48px comfortably
-     clears both the ~44–48px desktop header (8px+8px vertical padding + ~28px
-     content + 1px border) and the ≤480px header (no vertical padding, 44px
-     touch-target buttons). Single source of truth for the clearance offset. */
-  --header-height: 48px;
+  /* Floating-header clearance (#761 S2 + #800). The AppHeader is `position:
+     fixed` chrome inset from the viewport edge: `top: --space-md` (12px) +
+     element height ~44px → bottom edge ≈ 56px from the viewport top. Every
+     in-flow chrome surface (non-map `#main-surface`, `.filters-panel`) and the
+     top-anchored `.scope-control` overlay must clear this bottom edge so the
+     header does not occlude them. 56px = top-inset (12px) + element-height
+     (~44px). Single source of truth for the clearance offset. */
+  --header-height: 56px;
 
   --dur-fast: 200ms;
   --dur-base: 250ms;
@@ -243,34 +241,33 @@ body {
    for these semantic roles — see tokens.css dark-mode comment at line ~115.
    Do not add per-theme overrides here without revisiting that constraint. */
 
-/* Top-level chrome bar — floating fixed chrome over the full-viewport map root.
-   #761 (S2): the shell inverted so the map is the viewport ROOT (`#map-layer`,
-   `position: fixed; inset: 0`) and the header FLOATS over its top edge
-   (Google-Maps-style) rather than displacing it down a flex column. */
+/* Top-level chrome bar — thin floating chrome over the full-viewport map root.
+   #761 (#800): Google-Maps-style floating-inset principle. The header is a
+   discrete bar inset from ALL viewport edges: map pixels are visible at y=0
+   (above the header) and to its left/right sides. Rounded corners + shadow
+   match the other floating overlay cards (.scope-control, .family-legend).
+   NO border-bottom — a hard edge would make it read as a cap, not a float.
+   NO left:0/right:0 — full-bleed span kills the "map visible around it" goal.
+
+   z-order: `--z-chrome` (42) sits ABOVE map-assist overlays (legend /
+   scope-control at `--z-overlay` = 40, observation-popover at `--z-popover`
+   = 41) and BELOW the detail rail (`--z-rail` = 43). The scope-control click
+   regression (header intercepting elementFromPoint on the top-anchored
+   .scope-control) is resolved by the compensating `.scope-control`
+   inset-block-start offset below (pushed below the header bottom edge).
+   No z-order claim on the bottom-sheet snap tiers (10/15/20) — deferred to O5. */
 .app-header {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-lg);
+  padding: var(--space-sm) var(--space-md);
   background: var(--color-bg-surface);
-  border-bottom: 1px solid var(--color-border-ui);
-  /* #761 (S2): `position: fixed` (was `sticky; z-index: 10`) so the header leaves
-     the flow and floats over `#map-layer`. It adopts the named `--z-chrome` token
-     S1 (#778) defined-but-did-not-apply: 42 sits ABOVE the map-assist overlays
-     (legend / scope-control at `--z-overlay` = 40, observation-popover at
-     `--z-popover` = 41) and BELOW the detail rail (`--z-rail` = 43) so the
-     in-place rail (#663) still floats over the header. The P1-deferred
-     scope-control click regression (raising the header above the overlay band
-     made it intercept clicks on the top-anchored `.scope-control`) is fixed in
-     the SAME PR by the compensating `.scope-control` top-offset below — the
-     control is pushed below the header band so `elementFromPoint` returns the
-     control, not the header. (S2 makes NO z-order claim about the bottom-sheet
-     snap tiers (10/15/20) — that reconciliation is the deferred mobile-overlay
-     workstream / O5.) (2026-05-30) */
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: var(--shadow-listbox);
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
+  top: var(--space-md);
+  left: var(--space-md);
+  right: var(--space-md);
   z-index: var(--z-chrome);
 }
 
@@ -293,58 +290,11 @@ body {
   border-radius: 4px;
 }
 
-/* Tablist container — sits between wordmark and action buttons. flex: 1
-   pushes the right cluster to the far edge on wide viewports.
-   justify-content: center aligns the tab cluster to the horizontal
-   midpoint of the available space between the wordmark and right cluster,
-   matching the v4 mock's centred navigation treatment. */
-.app-header-nav {
-  display: flex;
-  gap: var(--space-xs);
-  flex: 1;
-  justify-content: center;
-}
-
-/* Tab buttons — full UA reset, then design-token styling.
-   min-height is applied inside the ≤480px media query (MOB-4) to keep the
-   desktop header height unchanged. */
-.app-header-tab {
-  appearance: none;
-  background: transparent;
-  border: 1px solid transparent;
-  border-bottom-width: 2px;
-  border-radius: 4px;
-  padding: 6px 14px;
-  font: inherit;
-  font-size: var(--type-sm);
-  color: var(--color-text-strong);
-  cursor: pointer;
-  line-height: 1.2;
-}
-.app-header-tab:hover {
-  background: var(--color-bg-tint);
-}
-.app-header-tab:focus-visible {
-  outline: 2px solid var(--color-text-strong);
-  outline-offset: 2px;
-}
-.app-header-tab.is-active {
-  /* Underline-only pattern: mode-safe (works in both light and dark) per
-     v4 mock and #454 W1 cascade-trap fix. The previous filled-chip pattern
-     inverted to white-on-white in dark mode because --color-text-strong
-     flips from #1a1a1a → #f5f7fb in the dark block.
-     border-bottom acts as the visual active indicator; background stays
-     transparent so no dark-mode inversion can occur. */
-  background: transparent;
-  color: var(--color-text-strong);
-  border-color: transparent;
-  border-bottom-color: var(--color-text-strong);
-  border-bottom-width: 2px;
-}
-
 /* Right-side action cluster — Attribution, Filters, ThemeToggle.
    ThemeToggle renders a plain <button> with no class; target all
    buttons in this cluster with the descendant rule below.
+   margin-left: auto pushes the cluster to the far edge of the header now
+   that the nav (flex: 1) is removed (#800 Map-nav removal).
    min-height/min-width 44pt touch targets are applied inside the
    ≤480px media query (MOB-4) to keep the desktop header unchanged. */
 .app-header-right {
@@ -352,6 +302,7 @@ body {
   align-items: center;
   gap: var(--space-xs);
   flex-shrink: 0;
+  margin-left: auto;
 }
 .app-header-right button {
   /* touch targets set in @media (max-width: 480px) block — see MOB-4 */
@@ -413,11 +364,10 @@ body {
   height: 18px;
   padding: 0 4px;
   border-radius: 9px;
-  /* Outline-only pattern — mirrors the active-tab fix in .app-header-tab.is-active.
+  /* Outline-only pattern — mode-safe in both light and dark.
      --color-text-strong flips from #1a1a1a → #f5f7fb in dark mode, so using it as
-     a background would produce white-on-white (1.07:1) in dark mode (the same cascade
-     trap the active-tab had). Outline + transparent background keeps ≥4.5:1 in both
-     themes because the text inherits --color-text-strong against --color-bg-surface. */
+     a background would produce white-on-white (1.07:1). Outline + transparent
+     background keeps ≥4.5:1 in both themes. */
   background: transparent;
   border: 1.5px solid var(--color-text-strong);
   color: var(--color-text-strong);
@@ -1322,7 +1272,6 @@ body:has(.species-detail-sheet--full) .app-header {
      in forced-colors — fall back to a 1px border. */
   button,
   [role="button"],
-  [role="tab"],
   [role="radio"],
   input[type="radio"],
   input[type="checkbox"],
@@ -1337,12 +1286,6 @@ body:has(.species-detail-sheet--full) .app-header {
   :focus-visible {
     outline: 2px solid ButtonText;
     outline-offset: 2px;
-  }
-
-  /* AppHeader tab buttons — selected state is typically communicated via
-     background-color only; add a bottom border so it remains visible. */
-  .app-header-tab.is-active {
-    border-bottom: 3px solid ButtonText;
   }
 
   /* Filter badge — background-only badge is invisible; add a border. */
@@ -1378,38 +1321,23 @@ body:has(.species-detail-sheet--full) .app-header {
    ========================================================================== */
 
 /* ── MOB-1/MOB-4: AppHeader collapse + touch targets at ≤ 480px ─────────────
-   The unconstrained header overflows at 390px (body.scrollWidth≈578px).
-   Strategy: hide the brand region label, compress nav padding, reduce the
-   outer header gap so the three segments (wordmark · tabs · actions) fit
-   inside 390px without wrapping.
+   Strategy: hide the brand region label, reduce the outer header padding/gap
+   so the two segments (wordmark · actions) fit comfortably at 390px.
+   The "Map" nav tab is removed (#800 floating-inset chrome principle) — only
+   the wordmark and right-cluster controls remain.
 
-   We do NOT hide the wordmark entirely — "Bird Maps" is the product name and
-   should remain visible. The " · Arizona" region badge is redundant at mobile
-   (single-region product) and is the largest single contributor to overflow.
+   The right-cluster Attribution + Filters buttons hide their text labels at
+   this breakpoint; icon-only touch targets keep the bar narrow. aria-label
+   attributes remain intact — accessibility preserved via accessible name.
 
-   Space budget at 390px:
-     16px (padding) + 8px (2×4px gaps) = 24px overhead.
-     Available: 366px.
-     Wordmark:       80px (flex-shrink: 0 — guaranteed, no flex contention)
-     Right cluster: 140px (3 × 44px icon-only buttons + 2 × 4px gaps)
-     Nav:           146px remaining for 3 tabs
-
-   The right-cluster Attribution + Filters buttons hide their text labels
-   at this breakpoint (font-size: 0; icon-sized footprint). Their aria-label
-   attributes remain intact — accessibility is preserved via the accessible
-   name, not the visible text. This frees ~120px vs. the previous text-label
-   layout, giving the wordmark guaranteed render space.
-
-   min-height: 44px touch targets (MOB-4) are scoped here rather than
-   globally so the desktop header height is unchanged. */
+   min-height: 44px touch targets (MOB-4) are scoped here so the desktop
+   header height is unchanged. */
 @media (max-width: 480px) {
   .app-header {
     padding: 0 var(--space-sm);
     gap: var(--space-xs);
     /* overflow: hidden prevents the header itself from being wider than the
-       viewport while the body catches up to the new layout. Without this,
-       the header's flex children can still force the layout wider than 390px
-       if any child has a min-width that exceeds available space. */
+       floating bar width (viewport - 2 × --space-md). */
     overflow: hidden;
   }
 
@@ -1418,13 +1346,7 @@ body:has(.species-detail-sheet--full) .app-header {
     display: none;
   }
 
-  /* Guarantee the wordmark renders untruncated.
-     flex-shrink: 0 prevents the nav's flex:1 from squeezing the wordmark
-     below its natural width (~65px for "Bird Maps" at --type-sm / 13px).
-     max-width: 80px gives comfortable headroom above the 65px scrollWidth.
-     Without flex-shrink: 0 here, the flex algorithm allocates space to the
-     nav first (flex-grow: 1) and the wordmark falls below 72px (measured
-     46px at 390px — see design review BLOCKING finding). */
+  /* Guarantee the wordmark renders untruncated at mobile. */
   .app-header-wordmark {
     font-size: var(--type-sm);
     flex-shrink: 0;
@@ -1432,13 +1354,6 @@ body:has(.species-detail-sheet--full) .app-header {
     overflow: hidden;
     text-overflow: ellipsis;
     max-width: 80px;
-  }
-
-  /* Compress tab padding while keeping the 44pt min-height touch target. */
-  .app-header-tab {
-    padding: 0 8px;
-    font-size: var(--type-xs);
-    min-height: 44px;
   }
 
   /* Right-cluster buttons: collapse to 44pt icon-only touch targets at mobile.

@@ -34,10 +34,9 @@ test.describe('Path A happy path', () => {
     await app.goto();
     await app.waitForAppReady();
 
-    // Phase 0: bare '/' now loads the map surface (DEFAULTS.view='map').
-    // The Map tab is the selected AppHeader tab on a cold load.
-    const mapTab = page.getByRole('tab', { name: 'Map view' });
-    await expect(mapTab).toHaveAttribute('aria-selected', 'true');
+    // #800: Map tab removed — map is always-mounted sole surface; assert canvas visible.
+    await expect(page.getByRole('tablist')).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: 'Map view' })).toHaveCount(0);
 
     // Map canvas is visible.
     await expect(page.locator('[data-testid=map-canvas]')).toBeVisible({ timeout: 10_000 });
@@ -61,13 +60,10 @@ test.describe('Path A happy path', () => {
     await app.goto('species=vermfly');
     await app.waitForAppReady();
 
-    // Pre-#688: ?species= without ?view= sniffed to view='species'. With the
-    // Species surface removed (#688), bookmarked species URLs cold-load to
-    // the map (DEFAULTS.view) with the species filter active in FiltersBar.
-    const mapTab = page.getByRole('tab', { name: 'Map view' });
-    await expect(mapTab).toHaveAttribute('aria-selected', 'true');
-
-    // No Species tab exists post-#688.
+    // #800: Map tab + tablist removed; the map is the always-mounted sole surface.
+    // Bookmarked species URLs cold-load to the map with the species filter active.
+    await expect(page.getByRole('tablist')).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: 'Map view' })).toHaveCount(0);
     await expect(page.getByRole('tab', { name: 'Species view' })).toHaveCount(0);
 
     // No complementary landmark (SpeciesPanel is deleted; the detail rail
@@ -91,11 +87,10 @@ test.describe('Path A happy path', () => {
     // Phase 4: detail surface renders in a dialog/sheet outside <main>.
     await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeVisible({ timeout: 10_000 });
 
-    // Feed tab removed in #662 and Species tab removed in #688. The Map
-    // tab exists but is NOT selected on view=detail.
-    const mapTab = page.getByRole('tab', { name: 'Map view' });
+    // #800: Map tab + tablist removed entirely (Feed #662, Species #688, Map #800).
+    await expect(page.getByRole('tablist')).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: 'Map view' })).toHaveCount(0);
     await expect(page.getByRole('tab', { name: 'Species view' })).toHaveCount(0);
-    await expect(mapTab).toHaveAttribute('aria-selected', 'false');
   });
 
   test('detail deep link opens the detail surface at mobile and desktop', async ({ page, apiStub }) => {

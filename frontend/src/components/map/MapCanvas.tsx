@@ -404,30 +404,29 @@ const INITIAL_VIEW = {
 
 /**
  * Single source of truth for the scope-framing `fitBounds` padding (#737, S3 of
- * #761). ASYMMETRIC by design: after #761 (S2) the map is the viewport-filling
- * root (`#map-layer` → `position: fixed; inset: 0`) and two stacked overlays now
- * float over its TOP edge — the fixed `.app-header` chrome and the top-anchored
- * `.scope-control` bar below it. A uniform inset would let that chrome occlude
- * the top of the framed region (the northern strip of a state, markers at the
- * top latitude). So `top` is grown to clear BOTH overlays while `bottom`/`left`/
- * `right` keep the historical 48px (the non-chrome edges; bottom also leaves room
- * for the bottom-left `.family-legend` + the MapLibre attribution bar).
+ * #761, revised #800). ASYMMETRIC by design: the map is the viewport-filling
+ * root (`#map-layer` → `position: fixed; inset: 0`) and two stacked overlays
+ * float over its TOP edge — the floating `.app-header` chrome and the
+ * top-anchored `.scope-control` bar below it. A uniform inset would let that
+ * chrome occlude the top of the framed region (the northern strip of a state,
+ * markers at the top latitude). So `top` is grown to clear BOTH overlays while
+ * `bottom`/`left`/`right` keep the historical 48px (the non-chrome edges;
+ * bottom also leaves room for the bottom-left `.family-legend` + the MapLibre
+ * attribution bar).
  *
- * Derivation from the CSS tokens that own this stack (styles.css):
- *   - `--header-height` = 48px (the fixed `.app-header` band).
- *   - `.scope-control` top offset = `--header-height + --space-md` = 48 + 12 = 60px
+ * Derivation from the CSS tokens that own this stack (styles.css), post-#800:
+ *   - `--header-height` = 56px (top-inset `--space-md` = 12px + element ~44px).
+ *   - `.scope-control` top offset = `--header-height + --space-md` = 56 + 12 = 68px
  *     from the viewport top (styles.css `.scope-control { inset-block-start }`).
  *   - `.scope-control` height: `padding: --space-sm` (8px) top + bottom + content.
- *     At ≤480px the bar WRAPS (`flex-wrap: wrap`; the `.scope-control__select` and
- *     `.scope-control__exit-group` each go `flex: 1 1 100%`) to ~2 rows of ~36px
- *     touch targets → ~88px tall worst case. Its bottom edge then sits at
- *     ~60 + 88 ≈ 148px from the viewport top.
- *   `top: 152` clears that wrapped worst case (narrowest 390px viewport) with a
+ *     At ≤480px the bar WRAPS (`flex-wrap: wrap`) to ~2 rows of ~36px touch
+ *     targets → ~88px tall worst case. Its bottom edge then sits at
+ *     ~68 + 88 ≈ 156px from the viewport top.
+ *   `top: 164` clears that wrapped worst case (narrowest 390px viewport) with a
  *   small margin; on wider viewports the single-row bar is ~52px tall (bottom at
- *   ~112px) so the same value clears it comfortably. Verified live against the
- *   measured stack at all 5 canonical viewports (UI verification, #773).
+ *   ~120px) so the same value clears it comfortably.
  */
-const FIT_BOUNDS_PADDING = { top: 152, bottom: 48, left: 48, right: 48 } as const;
+const FIT_BOUNDS_PADDING = { top: 164, bottom: 48, left: 48, right: 48 } as const;
 
 /**
  * Convert a `family_silhouettes` row into a complete SVG document string

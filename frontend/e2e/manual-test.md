@@ -56,10 +56,10 @@ content surface.)
    - Script: `document.querySelectorAll('[data-testid="adaptive-grid-marker"]').length`
    - **Pass:** result ≥ 1
 
-4. Verify the Map tab is selected:
+4. Verify no tablist or Map tab exists (#800 Map-nav removal):
    - Tool: `browser_evaluate`
-   - Script: `document.querySelector('[role="tab"][aria-label="Map view"]')?.getAttribute('aria-selected')`
-   - **Pass:** `"true"`
+   - Script: `document.querySelector('[role="tablist"]')`
+   - **Pass:** `null`
 
 5. Take a screenshot at desktop (1440×900) and mobile (390×844).
 

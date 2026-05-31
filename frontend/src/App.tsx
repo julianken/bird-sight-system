@@ -730,8 +730,6 @@ export function App() {
         region={region}
       />
       <AppHeader
-        activeView={state.view}
-        onSelectView={view => set({ view })}
         region={region}
         filterCount={filterCount}
         onOpenFilters={() => setFiltersOpen(true)}

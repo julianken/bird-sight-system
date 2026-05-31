@@ -1345,11 +1345,10 @@ describe('#761 (S2): map hoisted to a viewport-root #map-layer sibling of <main>
     expect(mainSurface!.parentElement).toBe(app);
   });
 
-  // AC: the "Map view" tab's aria-controls is retargeted to "map-layer" and
-  // resolves to the present, hoisted #map-layer — the region that actually
-  // contains the map post-hoist (NOT the now-feed-only #main-surface). A
-  // presence-only check against #main-surface would assert the regression passes.
-  it('points the Map view tab\'s aria-controls at #map-layer (the region holding the map)', async () => {
+  // AC (#800): no "Map view" tab exists — the Map nav is removed because the
+  // map is the always-mounted sole surface after F1 #777. Assert the tab and
+  // tablist are gone; #map-layer still resolves and holds the map.
+  it('has no Map-view tab or tablist after #800 (Map-nav removal)', async () => {
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: null,
       view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
@@ -1357,13 +1356,14 @@ describe('#761 (S2): map hoisted to a viewport-root #map-layer sibling of <main>
     const { container } = render(<App />);
     await screen.findByTestId('map-surface-stub');
 
-    const mapTab = screen.getByRole('tab', { name: 'Map view' });
-    expect(mapTab).toHaveAttribute('aria-controls', 'map-layer');
-    expect(mapTab).not.toHaveAttribute('aria-controls', 'main-surface');
-    // The controlled region resolves to a present element that holds the map.
-    const controlled = container.querySelector('#map-layer');
-    expect(controlled).not.toBeNull();
-    expect(controlled!.contains(screen.getByTestId('map-surface-stub'))).toBe(true);
+    // The tablist and Map tab are gone.
+    expect(screen.queryByRole('tablist')).toBeNull();
+    expect(screen.queryByRole('tab', { name: 'Map view' })).toBeNull();
+    expect(container.querySelector('[aria-controls="map-layer"]')).toBeNull();
+    // #map-layer still mounts and holds the map stub.
+    const mapLayer = container.querySelector('#map-layer');
+    expect(mapLayer).not.toBeNull();
+    expect(mapLayer!.contains(screen.getByTestId('map-surface-stub'))).toBe(true);
   });
 
   // AC: the always-mounted-under-scrim invariant survives the hoist — on the

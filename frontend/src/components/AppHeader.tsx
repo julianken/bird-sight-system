@@ -1,10 +1,6 @@
-import { useRef, type KeyboardEvent } from 'react';
 import { ThemeToggle } from './ThemeToggle.js';
-import type { View } from '../state/url-state.js';
 
 export interface AppHeaderProps {
-  activeView: View;
-  onSelectView: (view: View) => void;
   /**
    * #738/C5: runtime region label for the active scope (from `regionLabelFor`).
    * `null` ⟺ the unscoped/chooser landing — the wordmark renders just "Bird
@@ -20,74 +16,12 @@ export interface AppHeaderProps {
   onOpenAttribution: () => void;
 }
 
-interface TabDef {
-  value: View;
-  label: string;
-  // Accessible name diverges from visible text to avoid colliding with
-  // <FiltersBar>'s "Species" and "Family" input labels. Preserved verbatim
-  // from the pre-#688 two-tab tablist for compatibility with e2e selectors
-  // that target `getByRole('tab', { name: 'Map view' })`.
-  accessibleName: string;
-}
-
-// One-tab tablist post-#688 (Species surface removed). ARIA APG explicitly
-// allows single-tab tablists — the role + aria-selected contract still
-// expresses the surface state and the structure tolerates future additions
-// without churning the markup. The visible "Map" label is suppressed in CSS
-// to avoid a "lone Map word" wordmark-adjacent treatment; the accessible
-// name is preserved so SR users still hear "Map view, selected".
-const TABS: readonly TabDef[] = [
-  { value: 'map', label: 'Map', accessibleName: 'Map view' },
-];
-
 export function AppHeader({
-  activeView,
-  onSelectView,
   region,
   filterCount,
   onOpenFilters,
   onOpenAttribution,
 }: AppHeaderProps) {
-  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
-
-  function activateIndex(index: number) {
-    const next = TABS[index];
-    if (!next) return;
-    tabRefs.current[index]?.focus();
-    if (next.value !== activeView) onSelectView(next.value);
-  }
-
-  function handleKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
-    switch (event.key) {
-      case 'ArrowRight':
-        event.preventDefault();
-        activateIndex((index + 1) % TABS.length);
-        break;
-      case 'ArrowLeft':
-        event.preventDefault();
-        activateIndex((index - 1 + TABS.length) % TABS.length);
-        break;
-      case 'Home':
-        event.preventDefault();
-        activateIndex(0);
-        break;
-      case 'End':
-        event.preventDefault();
-        activateIndex(TABS.length - 1);
-        break;
-      case 'Enter':
-      case ' ': {
-        event.preventDefault();
-        const tab = TABS[index];
-        if (tab && tab.value !== activeView) onSelectView(tab.value);
-        break;
-      }
-      default:
-        break;
-    }
-  }
-
-  const anyTabActive = TABS.some(t => t.value === activeView);
   const filterTriggerLabel =
     filterCount > 0 ? `Filters (${filterCount} active)` : 'Filters';
 
@@ -107,43 +41,6 @@ export function AppHeader({
           </span>
         )}
       </a>
-
-      <div className="app-header-nav" role="tablist" aria-label="Surface">
-        {TABS.map((tab, index) => {
-          const selected = tab.value === activeView;
-          const tabbable = selected || (!anyTabActive && index === 0);
-          return (
-            <button
-              key={tab.value}
-              ref={el => {
-                tabRefs.current[index] = el;
-              }}
-              type="button"
-              role="tab"
-              id={`app-header-tab-${tab.value}`}
-              aria-selected={selected}
-              // #761 (S2): the "Map view" tab controls the map region, which is
-              // now the hoisted `#map-layer` wrapper (the map left `#main-surface`
-              // when the shell inverted to a full-viewport map root). Pointing at
-              // `"main-surface"` would silently control a map-free region — an
-              // a11y semantic regression introduced by the hoist. The broader
-              // inert/aria-busy/aria-live retarget on `#map-layer` stays O1; the
-              // tablist tab→region pointer is a different attribute O1 does not
-              // touch, so S2 owns this one in the same PR that moves the map out.
-              aria-controls="map-layer"
-              aria-label={tab.accessibleName}
-              tabIndex={tabbable ? 0 : -1}
-              className={`app-header-tab${selected ? ' is-active' : ''}`}
-              onClick={() => {
-                if (tab.value !== activeView) onSelectView(tab.value);
-              }}
-              onKeyDown={e => handleKeyDown(e, index)}
-            >
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
 
       <div className="app-header-right">
         <button

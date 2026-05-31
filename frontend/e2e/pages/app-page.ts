@@ -5,10 +5,8 @@ export class AppPage {
   readonly filters: FiltersBar;
   readonly mainSurface: Locator;
   readonly errorScreen: Locator;
-  /** Persistent header chrome — wordmark, tablist, action buttons. */
+  /** Persistent header chrome — wordmark, action buttons. No tab nav (#800). */
   readonly appHeader: Locator;
-  /** Surface tabs inside appHeader (Map). Feed removed in #662; Species in #688. */
-  readonly appHeaderTabs: Locator;
   /** Filters trigger button in appHeader (badge shows active-filter count). */
   readonly filtersTrigger: Locator;
   /** Theme toggle button in appHeader. */
@@ -62,7 +60,6 @@ export class AppPage {
     this.mainSurface = page.locator('main#main-surface');
     this.errorScreen = page.locator('.error-screen');
     this.appHeader = page.locator('header.app-header');
-    this.appHeaderTabs = this.appHeader.getByRole('tab');
     this.filtersTrigger = this.appHeader.getByRole('button', { name: /^Filters/ });
     this.themeToggle = this.appHeader.getByRole('button', { name: /Switch to (light|dark) theme/ });
     this.attributionTrigger = this.appHeader.getByRole('button', { name: /Credits & attribution/ });
@@ -108,15 +105,6 @@ export class AppPage {
       await this.filtersTrigger.click();
       await panel.waitFor({ state: 'visible' });
     }
-  }
-
-  /**
-   * Navigate to a surface by tab name. Only the Map tab remains in the
-   * header post-#688 (Species removed); Feed was removed in #662.
-   */
-  async selectView(view: 'map'): Promise<void> {
-    const labelMap = { map: 'Map view' };
-    await this.appHeader.getByRole('tab', { name: labelMap[view] }).click();
   }
 
   /**
