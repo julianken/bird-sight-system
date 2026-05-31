@@ -993,7 +993,10 @@ body:has(.species-detail-sheet--full) .app-header-controls-pill {
    inside <main> — the map stays live and interactive around it.
 
    Geometry:
-     - inset-block: var(--card-inset) — 12px gap top AND bottom
+     - inset-block-start: calc(var(--card-inset) + var(--controls-cluster-h) +
+         var(--card-gap)) — clears the controls pill (54px measured) with an
+         additional 8px gap; rail top sits BELOW the pill bottom at all widths
+     - inset-block-end: var(--card-inset) — 12px gap from the bottom edge
      - inset-inline-end: var(--card-inset) — 12px gap from the right edge
      - inset-inline-start: auto — not docked to the left edge
      - width: clamp(360px, 38vw, var(--card-maxw-rail)) — 360–420px, shrinks
@@ -1005,20 +1008,24 @@ body:has(.species-detail-sheet--full) .app-header-controls-pill {
        replaces the old directional "-8px 0 32px" edge-dock shadow
      - border-left removed — the old edge-dock visual divider is gone
 
+   At ≥1440px all three inset terms switch to --card-inset-wide (24px) so the
+   rail's right edge aligns with the controls pill's right edge at wide viewports
+   (four-corner anchor contract, spec §3 / CLAUDE.md).
+
    z-index: --z-rail (43) preserved — above map overlays (40/41), above
    identity+controls chrome (42), BELOW cell/cluster popovers (44/45).
    The rank-preserving contract from #778 holds unchanged.
 
-   Collision avoidance (spec §5.3): the card sits in the top-right region
-   *below* the controls cluster (--z-chrome 42 card insets from top by
-   --card-inset; the controls pill is also inset-inline-end from the same
-   edge, so the rail and the controls pill share the same right margin and
-   the rail's top gap keeps it below the pill at typical heights).
+   Collision avoidance (spec §5.3): rail.top ≥ pill.bottom is guaranteed by the
+   inset-block-start formula:
+     <1440  → 12 + 54 + 8 = 74px top; pill bottom = 12 + 54 = 66px → +8px gap
+     ≥1440  → 24 + 54 + 8 = 86px top; pill bottom = 24 + 54 = 78px → +8px gap
    (#801, #761.)
    ========================================================================== */
 aside.species-detail-rail {
   position: fixed;
-  inset-block: var(--card-inset);
+  inset-block-start: calc(var(--card-inset) + var(--controls-cluster-h) + var(--card-gap));
+  inset-block-end: var(--card-inset);
   inset-inline-end: var(--card-inset);
   inset-inline-start: auto;
   width: clamp(360px, 38vw, var(--card-maxw-rail));
@@ -1028,6 +1035,16 @@ aside.species-detail-rail {
   box-shadow: var(--card-elevation-3);
   overflow: auto;
   z-index: var(--z-rail);
+}
+
+/* At ≥1440px switch all three rail insets to --card-inset-wide (24px) so the
+   right edge aligns with the controls pill and both use the same wide gutter. */
+@media (min-width: 1440px) {
+  aside.species-detail-rail {
+    inset-block-start: calc(var(--card-inset-wide) + var(--controls-cluster-h) + var(--card-gap));
+    inset-block-end: var(--card-inset-wide);
+    inset-inline-end: var(--card-inset-wide);
+  }
 }
 
 aside.species-detail-rail .species-detail-rail-close {

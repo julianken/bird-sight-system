@@ -218,6 +218,52 @@ test.describe('species detail surface (#151)', () => {
     expect(m.bottom, 'rail.bottom < 1080: map visible below the card at 1920').toBeLessThan(m.viewportHeight);
     expect(m.left,   'rail.left > 0: not docked to left edge at 1920').toBeGreaterThan(0);
   });
+
+  /**
+   * #801 Tier-2 occlusion regression guard — rail must NOT overlap the controls pill.
+   *
+   * At ≥1440 the rail (z-index --z-rail 43) is stacked ABOVE the controls pill
+   * (z-index --z-chrome 42). If the rail's top edge encroaches into the pill's
+   * vertical band, the Attribution/Filters/theme buttons are painted over and
+   * unclickable. This test asserts disjoint bounding boxes: rail.top ≥ pill.bottom.
+   *
+   * Tested at both canonical wide viewports (1440×900 and 1920×1080).
+   */
+  for (const [vw, vh] of [[1440, 900], [1920, 1080]] as const) {
+    test(`#801 rail does not occlude controls pill at ${vw}×${vh} — rail.top ≥ pill.bottom`, async ({ page, apiStub }) => {
+      await apiStub.stubEmpty();
+      await apiStub.stubSpecies('vermfly', VERMFLY);
+      const app = new AppPage(page);
+      await page.setViewportSize({ width: vw, height: vh });
+      await app.goto('detail=vermfly&view=detail');
+      await app.waitForAppReady();
+      await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeVisible({ timeout: 10_000 });
+
+      const rects = await page.evaluate(() => {
+        const rail = document.querySelector('aside.species-detail-rail');
+        const pill = document.querySelector('.app-header-controls-pill');
+        if (!rail || !pill) return null;
+        const railR = rail.getBoundingClientRect();
+        const pillR = pill.getBoundingClientRect();
+        return {
+          railTop:    railR.top,
+          pillBottom: pillR.bottom,
+          pillTop:    pillR.top,
+          pillRight:  pillR.right,
+          railRight:  railR.right,
+        };
+      });
+
+      expect(rects, 'rail and pill elements must be present').not.toBeNull();
+
+      // The rail's top edge must be at or below the pill's bottom edge —
+      // no shared vertical band means no occlusion regardless of z-index.
+      expect(
+        rects!.railTop,
+        `rail.top (${rects!.railTop}px) must be ≥ pill.bottom (${rects!.pillBottom}px) — no vertical overlap`,
+      ).toBeGreaterThanOrEqual(rects!.pillBottom);
+    });
+  }
 });
 
 /**

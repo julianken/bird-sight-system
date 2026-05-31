@@ -102,6 +102,13 @@
   --card-maxw-legend:   280px;  /* bottom-left legend cap                         */
   --card-maxw-rail:     420px;  /* detail card cap (max(420px,38vw) clamp below)  */
   --card-maxw-popover:  300px;  /* transient popover cap                          */
+
+  /* Controls-cluster (top-right pill) height — measured at 54px:
+   *   8px top padding + 36px button min-height + 8px bottom padding + 2px border
+   * Used by the detail rail and filters panel to clear the controls pill's
+   * bottom edge. Named for what it is (the cluster height), NOT --header-height
+   * which is a retired layout-reservation token. Added 2026-05-30 (#801). */
+  --controls-cluster-h: 54px;
 }
 
 /* ── Layer 2: Semantic — light mode ─────────────────────────────────── */
