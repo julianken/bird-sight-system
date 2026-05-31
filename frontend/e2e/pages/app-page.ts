@@ -78,6 +78,29 @@ export class AppPage {
   /** The Dismiss (×) button inside the error overlay. */
   readonly errorOverlayDismiss: Locator;
 
+  // --- V1 (#788): Persistent-overlay exclusion-zone accessors ---
+  /**
+   * The FamilyLegend overlay (`.family-legend`). After O2 (#770) this is a
+   * `position:fixed` App-root sibling, not a canvas child. O5 (#783) caps it
+   * to ≤280px at ≤480px via `@media max-width:480px` — the physical fix for R6.
+   * This accessor is used by marker-overlap.spec.ts to collect the overlay rect
+   * and by safe-area.spec.ts indirectly (no direct use needed there).
+   */
+  readonly familyLegend: Locator;
+  /**
+   * The `.map-context-strip` in-flow section. After #800/#779 this class is
+   * absent from the DOM on current `main` (strip removed per `styles.css:1313`).
+   * Kept as a forward-compat accessor for O3 (relocation to floating card).
+   * The locator safely returns 0 elements when the strip is not present.
+   */
+  readonly mapContextStrip: Locator;
+  /**
+   * The `SpeciesDetailSheet` element (`data-testid='species-detail-sheet'`).
+   * Used by safe-area.spec.ts to assert bottom-edge flush alignment and the
+   * authored CSS source for `env(safe-area-inset-bottom)`.
+   */
+  readonly speciesDetailSheet: Locator;
+
   constructor(public readonly page: Page) {
     this.filters = new FiltersBar(page);
     // Shared handle for the readiness surface in **Node test context**: every
@@ -123,6 +146,14 @@ export class AppPage {
     this.errorOverlay = page.getByTestId('error-overlay');
     this.errorOverlayRetry = this.errorOverlay.getByRole('button', { name: 'Retry' });
     this.errorOverlayDismiss = this.errorOverlay.getByRole('button', { name: 'Dismiss error' });
+
+    // V1 (#788): persistent-overlay exclusion-zone accessors.
+    // familyLegend: position:fixed App-root sibling after O2 (#770); capped ≤280px at ≤480px by O5 (#783).
+    this.familyLegend = page.locator('.family-legend');
+    // mapContextStrip: removed from DOM in #800/#779 (styles.css:1313); kept for O3 forward-compat.
+    this.mapContextStrip = page.locator('.map-context-strip');
+    // speciesDetailSheet: the bottom-sheet modal (data-testid per SpeciesDetailSheet.tsx:284).
+    this.speciesDetailSheet = page.getByTestId('species-detail-sheet');
   }
 
   /**
