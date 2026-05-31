@@ -1419,7 +1419,8 @@ body:has(.species-detail-sheet--full) .app-header {
      (incl. the map). The shell inversion made TWO things occlude it:
        1. The AppHeader is now `position: fixed` floating chrome, so the panel's
           top edge + close button would slide UNDER the header. `margin-block-start`
-          offsets the panel below the header band.
+          offsets the panel below the header band (header-height + space-md,
+          matching the `.scope-control` clearance so both clear the header bottom).
        2. `#map-layer` is now `position: fixed; inset: 0` (a positioned element),
           so it paints ABOVE the panel's in-flow content — the panel's controls
           (notable checkbox, typeaheads, close button) would be behind the map and
@@ -1432,7 +1433,7 @@ body:has(.species-detail-sheet--full) .app-header {
      floating sheet + backdrop with proper top-layer z-layering is O4. */
   position: relative;
   z-index: var(--z-popover);
-  margin-block-start: var(--header-height);
+  margin-block-start: calc(var(--header-height) + var(--space-md));
   /* Opaque surface so the panel's controls read cleanly over the map canvas
      beneath it (the panel is no longer backed by an in-flow page background). */
   background: var(--color-bg-surface);
