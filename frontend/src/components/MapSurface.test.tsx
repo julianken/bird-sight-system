@@ -1,6 +1,6 @@
 import React from 'react';
-import { describe, it, expect, vi } from 'vitest';
-import { render } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 import type { Observation } from '@bird-watch/shared-types';
 
 /* Stub the heavy MapCanvas chunk so MapSurface tests don't pull in maplibre.
@@ -8,16 +8,21 @@ import type { Observation } from '@bird-watch/shared-types';
    to App-root siblings. MapSurface now owns only the Suspense/MapCanvas
    boundary. The stub captures observations + onViewportChange so prop-
    threading can be asserted. FamilyLegend is no longer imported by
-   MapSurface, so no FamilyLegend stub is needed. */
+   MapSurface, so no FamilyLegend stub is needed.
+   O7 (#786): `mapCanvasShouldThrow` controls whether the stub simulates a
+   GL failure so the ErrorBoundary GL-recovery integration test can drive
+   the full wired path (throw → fallback → "Try again" → recovery). */
 let mapCanvasObservations: Observation[] | undefined;
 let mapCanvasOnViewportChange:
   | ((bounds: unknown) => void)
   | undefined;
+let mapCanvasShouldThrow = false;
 vi.mock('./map/MapCanvas.js', () => ({
   MapCanvas: (props: {
     observations: Observation[];
     onViewportChange?: (bounds: unknown) => void;
   }) => {
+    if (mapCanvasShouldThrow) throw new Error('WebGL context lost');
     mapCanvasObservations = props.observations;
     mapCanvasOnViewportChange = props.onViewportChange;
     return <div data-testid="stub-map-canvas" />;
@@ -129,5 +134,54 @@ describe('Phase 3: context strip — REMOVED from MapSurface (#800)', () => {
   it('does NOT render a .map-freshness paragraph', () => {
     render(<MapSurface {...baseProps} />);
     expect(document.querySelector('.map-freshness')).toBeNull();
+  });
+});
+
+/* ── O7 (#786): GL-recovery integration test ────────────────────────────────
+   Drives the FULL wired path: MapCanvas throws → ErrorBoundary catches it →
+   GL fallback renders with "Try again" → clicking "Try again" bumps
+   glRetryKey (resetKeys) → boundary clears → MapCanvas re-renders (now
+   succeeding) proving in-place recovery without a page reload. */
+
+// Suppress ErrorBoundary's componentDidCatch console.error during GL tests.
+beforeEach(() => {
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+});
+afterEach(() => {
+  mapCanvasShouldThrow = false;
+  vi.restoreAllMocks();
+});
+
+describe('O7 (#786): GL ErrorBoundary wiring — MapSurface in-place recovery', () => {
+  it('shows the GL fallback with "Try again" when MapCanvas throws', () => {
+    mapCanvasShouldThrow = true;
+    render(<MapSurface {...baseProps} />);
+
+    // The custom GL fallback (not the default ErrorBoundary fallback) renders
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByText('Map failed to load')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+
+    // The stub MapCanvas must NOT be in the DOM
+    expect(screen.queryByTestId('stub-map-canvas')).toBeNull();
+  });
+
+  it('"Try again" clears the GL boundary and re-mounts MapCanvas (no page reload)', () => {
+    // First render: MapCanvas throws → boundary catches
+    mapCanvasShouldThrow = true;
+    render(<MapSurface {...baseProps} />);
+
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+
+    // Simulate recovery: MapCanvas will succeed on the next mount
+    mapCanvasShouldThrow = false;
+
+    // Click "Try again" — bumps glRetryKey → resetKeys changes → boundary resets
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+
+    // GL fallback must be gone; MapCanvas must be rendered
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByTestId('stub-map-canvas')).toBeInTheDocument();
   });
 });

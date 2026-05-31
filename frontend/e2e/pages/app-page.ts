@@ -65,6 +65,19 @@ export class AppPage {
    */
   readonly filtersBackdrop: Locator;
 
+  // --- O7 (#786): Data-fetch error overlay accessors ---
+  /**
+   * The floating error overlay (`data-testid='error-overlay'`). Present
+   * only when `scopeActive && error && !dismissed`. Distinguished from
+   * `errorScreen` (`.error-screen`) which is the GL-boundary fallback —
+   * these are two separate failure classes.
+   */
+  readonly errorOverlay: Locator;
+  /** The Retry button inside the error overlay (StatusBlock action prop). */
+  readonly errorOverlayRetry: Locator;
+  /** The Dismiss (×) button inside the error overlay. */
+  readonly errorOverlayDismiss: Locator;
+
   constructor(public readonly page: Page) {
     this.filters = new FiltersBar(page);
     // Shared handle for the readiness surface in **Node test context**: every
@@ -105,6 +118,11 @@ export class AppPage {
     this.mapCanvas = page.locator('[data-testid="map-canvas"]');
     // O4 (#780): filters backdrop scrim — present only while filters panel is open.
     this.filtersBackdrop = page.getByTestId('filters-backdrop');
+
+    // O7 (#786): data-fetch error overlay — present only when scoped + error + !dismissed.
+    this.errorOverlay = page.getByTestId('error-overlay');
+    this.errorOverlayRetry = this.errorOverlay.getByRole('button', { name: 'Retry' });
+    this.errorOverlayDismiss = this.errorOverlay.getByRole('button', { name: 'Dismiss error' });
   }
 
   /**

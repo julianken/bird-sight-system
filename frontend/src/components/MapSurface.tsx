@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { LngLatBounds } from 'maplibre-gl';
 // GeoJSON `MultiPolygon` comes from `geojson` (@types/geojson), NOT maplibre-gl
 // (5.x does not re-export it). `import type`, erased at build — see mask.ts.
@@ -106,12 +106,29 @@ export function MapSurface({
   clampPad,
   detailOpen = false,
 }: MapSurfaceProps) {
+  /**
+   * O7 (#786): GL-recovery counter. Bumping this key clears the ErrorBoundary's
+   * hasError state (via resetKeys) and re-mounts the Suspense/MapCanvas subtree,
+   * re-acquiring the WebGL context in-place — no full page reload required.
+   */
+  const [glRetryKey, setGlRetryKey] = useState(0);
+
   return (
     <ErrorBoundary
+      resetKeys={[glRetryKey]}
       fallback={
         <div className="error-screen" role="alert">
           <h2>Map failed to load</h2>
-          <p>The map could not be displayed. Try refreshing the page.</p>
+          <p>
+            The map could not be displayed. This is usually a temporary WebGL issue.
+          </p>
+          <button
+            type="button"
+            className="error-screen__retry"
+            onClick={() => setGlRetryKey(k => k + 1)}
+          >
+            Try again
+          </button>
         </div>
       }
     >

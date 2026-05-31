@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { ApiClient } from '../api/client.js';
 import type {
   Hotspot, Observation, ObservationFilters, AggregatedBucket,
@@ -98,6 +98,17 @@ export interface BirdDataState {
    * meta.freshestObservationAt in the ObservationsResponse envelope (#456 W3-A).
    */
   freshestObservationAt: string | null;
+  /**
+   * O7 (#786) — user-triggered retry. Bumps an internal `reloadKey` counter
+   * that is added to the dep arrays of BOTH effects (hotspots one-time load +
+   * observations filter-driven refetch), causing them to re-run from scratch.
+   * Also clears the current `error` so the retry starts from a clean slate.
+   *
+   * Respects the `enabled` gate: a no-op while `!enabled` (unscoped landing)
+   * so Retry can never fire `/api/observations` before a scope is chosen
+   * (preserves #740/C6).
+   */
+  refetch: () => void;
 }
 
 export function useBirdData(
@@ -120,6 +131,10 @@ export function useBirdData(
   const [hotspotsLoading, setHotspotsLoading] = useState(enabled);
   const [observationsLoading, setObservationsLoading] = useState(enabled);
   const [error, setError] = useState<Error | null>(null);
+  // O7 (#786) — internal retry counter. Bumping this re-runs BOTH effects
+  // (hotspots + observations), giving the user a clean-slate retry without a
+  // remount. Added to both dep arrays below.
+  const [reloadKey, setReloadKey] = useState(0);
 
   // One-time load (gated — no hotspots fetch while unscoped)
   useEffect(() => {
@@ -139,7 +154,8 @@ export function useBirdData(
       .catch(err => { if (!cancelled) setError(err as Error); })
       .finally(() => { if (!cancelled) setHotspotsLoading(false); });
     return () => { cancelled = true; };
-  }, [client, enabled]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client, enabled, reloadKey]);
 
   // Observation refetch on filter change — unwrap the ObservationsResponse
   // envelope. Gated on `enabled`: while unscoped this effect short-circuits
@@ -171,6 +187,8 @@ export function useBirdData(
     // bbox is an array — serialize to a stable string for the dep list so
     // React re-runs the effect on value-change, not array-identity-change.
     // (App.tsx debounces the bbox upstream; this hook trusts the value.)
+    // reloadKey: O7 (#786) — user-triggered retry bumps this, re-running the
+    // observations effect from scratch (clean-slate, no remount).
   }, [
     client,
     enabled,
@@ -181,9 +199,22 @@ export function useBirdData(
     filters.stateCode,
     filters.bbox?.join(','),
     filters.zoom,
+    reloadKey,
   ]);
 
   const loading = hotspotsLoading || observationsLoading;
+
+  // O7 (#786) — stable refetch callback. Calling this:
+  //   1. Clears the current error so the retry starts from a clean slate.
+  //   2. Bumps `reloadKey` so both effects (hotspots + observations) re-run.
+  // The `enabled` gate is respected: if the hook is disabled (unscoped landing),
+  // this is a no-op — Retry can never fire `/api/observations` before a scope
+  // is chosen (preserves #740/C6 zero-fetch-on-chooser-landing invariant).
+  const refetch = useCallback(() => {
+    if (!enabled) return;
+    setError(null);
+    setReloadKey(k => k + 1);
+  }, [enabled]);
 
   return {
     loading,
@@ -193,5 +224,6 @@ export function useBirdData(
     hotspots,
     observations,
     freshestObservationAt,
+    refetch,
   };
 }

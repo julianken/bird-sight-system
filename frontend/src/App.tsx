@@ -122,6 +122,14 @@ export function App() {
   // Phase 3: filters panel state + badge count.
   const [filtersOpen, setFiltersOpen] = useState(false);
 
+  // O7 (#786) — error overlay dismiss state. When the user dismisses the
+  // overlay, the error is hidden but the last-good observations stay on the
+  // live map. Resetting to `false` when the error clears (a successful retry
+  // or a scope change that resolves the error) so stale dismissals don't
+  // suppress genuine new errors. The error itself is cleared by `refetch`
+  // (sets `setError(null)` before bumping the reload key).
+  const [errorDismissed, setErrorDismissed] = useState(false);
+
   // O5 (#783) — track the detail sheet's snap state so forceCollapsed can be
   // computed. Starts at 'peek' (the sheet's initial snap); reset to 'peek'
   // when the sheet unmounts (detail closes). Only relevant on compact/mobile
@@ -309,7 +317,7 @@ export function App() {
   // server clips via ST_Intersects). UNSCOPED and `?scope=us` both leave
   // `stateCode` unset, so the backend stays untouched (data invariant, #735).
   const scopeStateCode = state.scope.kind === 'state' ? state.scope.stateCode : undefined;
-  const { loading, observationsLoading, error, observations, freshestObservationAt } = useBirdData(
+  const { loading, observationsLoading, error, observations, freshestObservationAt, refetch } = useBirdData(
     apiClient,
     {
       since: state.since,
@@ -949,6 +957,18 @@ export function App() {
     }
   }, [error]);
 
+  // O7 (#786) — reset the dismiss flag whenever the error clears (successful
+  // retry or scope change). This ensures a new error after a dismissed one
+  // will show the overlay again rather than staying suppressed.
+  // Note: we use a ref to track the previous error value to avoid adding
+  // `setErrorDismissed` to a stale closure. The standard pattern for
+  // "react to a value clearing" is a separate effect keyed on the value.
+  useEffect(() => {
+    if (!error) {
+      setErrorDismissed(false);
+    }
+  }, [error]);
+
   // #761 (S1) — the unscoped early-return is GONE. The `.app` shell now always
   // renders; the unscoped <ScopeChooser> is hosted as an inert, focus-trapped
   // modal scrim sibling of <main> (below), over a mounted-but-idle map. See the
@@ -959,24 +979,16 @@ export function App() {
   // scope: the detail rail/sheet render is gated on `scopeActive` below, so the
   // chooser scrim is the only overlay shown.
   //
-  // The error early-return below is RETAINED (error-as-overlay is the third
-  // unmount fork, deferred to O7 — out of scope here). It is gated on
-  // `scopeActive` to preserve the exact precedence the old unscoped early-return
-  // gave for free: that return sat BEFORE this guard, so the chooser won over a
-  // sticky `error`. `useBirdData` does not clear `error` when it is disabled, so
-  // a scoped session that errored and then cleared scope (→ unscoped) would
-  // otherwise fall through to the error screen instead of the chooser scrim.
-  // While unscoped the chooser scrim is always the destination (AC: clearing
-  // scope returns to the chooser, never a CONUS home or the error screen).
-  if (scopeActive && error) {
-    return (
-      <StatusBlock
-        state="error"
-        title="Couldn't load bird data"
-        body={craftedFromError(error)}
-      />
-    );
-  }
+  // O7 (#786): the error early-return has been REMOVED — replaced by a floating
+  // dismissible overlay below. The shell+map render unconditionally so the map
+  // is never torn down on a data-fetch failure. Retry calls `refetch()` in place
+  // (camera preserved, no remount). Dismiss hides the overlay while leaving the
+  // last-good `observations` on the live map.
+  //
+  // `scopeActive` gate is preserved: the overlay only renders on the
+  // scoped/active path so a sticky error can't paint over the chooser scrim
+  // (the same precedence the old early-return enforced).
+  const showErrorOverlay = scopeActive && !!error && !errorDismissed;
 
   const renderComplete = !loading ? 'true' : 'false';
 
@@ -1124,6 +1136,46 @@ export function App() {
             {...(isStateScope ? { clampPad: ARTBOARD_PAD } : {})}
             detailOpen={!!(scopeActive && state.detail)}
           />
+        </div>
+      )}
+      {/* O7 (#786) — Data-fetch error overlay. Floats as a fixed sibling of
+          #map-layer (same pattern as SpeciesDetailRail/Sheet) so the map
+          stays mounted + interactive underneath. Gated on `showErrorOverlay`
+          (= scopeActive && error && !dismissed) so it never paints over the
+          chooser scrim (S1) — the same precedence the old early-return enforced
+          by sitting after the unscoped fork.
+
+          Z-tier: `--z-rail` (43) — above map-assist overlays (--z-overlay/40,
+          --z-popover/41) and chrome (--z-chrome/42), but BELOW the detail
+          rail/sheet and the S1 scrim (both on --z-modal/50). A data-fetch error
+          is a focused card over a still-interactive map, not a blocking modal,
+          so it sits at the rail tier (same as SpeciesDetailRail) rather than
+          the modal tier. The `--z-rail` token is already stable from O5 (#783).
+          If P1's named scale introduces a dedicated `--z-error-overlay`, re-point
+          the CSS rule to that token in the follow-up PR. */}
+      {showErrorOverlay && error && (
+        <div
+          className="map-error-overlay"
+          role="dialog"
+          aria-modal="false"
+          aria-label="Bird data error"
+          data-testid="error-overlay"
+        >
+          <StatusBlock
+            state="error"
+            title="Couldn't load bird data"
+            body={craftedFromError(error)}
+            surface="overlay"
+            action={{ label: 'Retry', onClick: refetch }}
+          />
+          <button
+            type="button"
+            className="map-error-overlay__dismiss"
+            aria-label="Dismiss error"
+            onClick={() => setErrorDismissed(true)}
+          >
+            ×
+          </button>
         </div>
       )}
       <main
