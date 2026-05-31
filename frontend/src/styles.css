@@ -428,6 +428,26 @@ body {
   .app-header-region-name {
     display: none;
   }
+
+  /* ── Compact header: identity card must not overlap the controls pill ──────
+     At <480px the controls pill (3 × 44px touch targets + pill padding + gaps
+     ≈ 180px) sits top-right at --card-inset (12px). The identity card is
+     anchored top-left at the same inset. Without a width cap the card's
+     max-inline-size of 360px extends past the pill's left edge, causing a
+     ~160px overlap (the pill sits on top of the card's wordmark row).
+
+     Fix: cap the identity card at the space left of the controls pill.
+       available = 100% (viewport) − left-inset − pill-width(≈180px) − gap
+       = 100% − 12px − 180px − 8px  = 100% − 200px
+
+     This guarantees ≥ 8px clearance between the card's right edge and the
+     pill's left edge at every compact width (360–479px), matching spec §3
+     mobile ASCII art: "Bird Maps  ⓘ ⛛ ☀" on one non-overlapping top row.
+     The lede / region / scope rows sit below the wordmark inside the card
+     and wrap naturally within the narrower column. */
+  .app-header-identity-card {
+    max-inline-size: calc(100% - var(--card-inset) - 180px - var(--card-gap));
+  }
 }
 
 /* Numeric badge on the Filters button when filters are active. */

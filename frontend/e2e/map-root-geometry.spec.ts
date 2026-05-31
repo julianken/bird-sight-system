@@ -270,6 +270,48 @@ test.describe('#761 (S2): full-viewport map root geometry', () => {
       expect(m!.panelTop, 'panel top below controls pill bottom').toBeGreaterThanOrEqual(m!.pillBottom - 1);
       expect(m!.closeTop, 'close button below controls pill bottom').toBeGreaterThanOrEqual(m!.pillBottom - 1);
     });
+
+    // ── Compact header geometry guard (#800 compact fix) ─────────────────────
+    // At 390×844 the identity card (top-left) and controls pill (top-right)
+    // must NOT overlap. Before the fix, the card's max-inline-size of 360px
+    // extended past the pill's left edge (~214px), causing a ~160px overlap.
+    // The fix caps the card to `calc(100% − card-inset − 180px − card-gap)`
+    // which constrains its right edge to be left of the pill's left edge.
+    // We assert bounding-box disjoint on the horizontal axis (intersectX = 0),
+    // matching the legend/attribution guard pattern above.
+    test('identity card and controls pill do NOT overlap at compact 390px (#800)', async ({ page, apiStub }) => {
+      await setupRoutes(page, apiStub);
+      const app = new AppPage(page);
+      await app.goto('state=US-AZ');
+      await app.waitForAppReady();
+
+      const m = await page.evaluate(() => {
+        const card = document.querySelector<HTMLElement>('.app-header-identity-card');
+        const pill = document.querySelector<HTMLElement>('.app-header-controls-pill');
+        if (!card || !pill) return null;
+        const c = card.getBoundingClientRect();
+        const p = pill.getBoundingClientRect();
+        // Horizontal intersection: positive value means they overlap.
+        const intersectX = Math.max(0, Math.min(c.right, p.right) - Math.max(c.left, p.left));
+        // Vertical intersection: positive value means they overlap.
+        const intersectY = Math.max(0, Math.min(c.bottom, p.bottom) - Math.max(c.top, p.top));
+        return {
+          card: { left: c.left, top: c.top, right: c.right, bottom: c.bottom },
+          pill: { left: p.left, top: p.top, right: p.right, bottom: p.bottom },
+          intersectX,
+          intersectY,
+        };
+      });
+      expect(m, '.app-header-identity-card / .app-header-controls-pill not found').not.toBeNull();
+      // The two elements are horizontally disjoint: the card's right edge must be
+      // to the left of the pill's left edge (sub-pixel tolerance for rounding).
+      expect(
+        m!.intersectX,
+        `identity card (right=${m!.card.right.toFixed(1)}) overlaps controls pill ` +
+          `(left=${m!.pill.left.toFixed(1)}) by ${m!.intersectX.toFixed(1)}px at 390×844 — ` +
+          `compact layout regression`,
+      ).toBeLessThanOrEqual(0.5);
+    });
   });
 
   test.describe('always-mounted-under-scrim invariant (unscoped landing)', () => {
