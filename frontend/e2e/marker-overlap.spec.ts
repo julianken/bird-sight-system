@@ -19,6 +19,47 @@ import { AppPage } from './pages/app-page.js';
  * hidden via the `hidden` feature-state (promoteId="subId"). This spec
  * combines DOM marker rects + symbol-layer feature rects (skipping
  * hidden ones) in the pairwise overlap measurement.
+ *
+ * ── Exclusion-zone contract (V1 / issue #788) ────────────────────────────────
+ *
+ * No marker rendered into a region covered by a persistent overlay
+ * (`.family-legend`, `.scope-control`, `.map-context-strip` once O3 makes it
+ * floating, `.observation-popover`) may have non-zero AABB intersection area
+ * with that overlay. Two assertions enforce this:
+ *
+ *   • **390×844 (iphone-14-pro) — full overlay set:**
+ *     `expect(result.marker_overlay_overlap_area).toBe(0)` over the complete
+ *     persistent-overlay set. At 390px the legend is the binding occluder:
+ *     before O5 it widened to ~94% of the viewport via the old uncapped
+ *     `@media (max-width:760px)` rule and sat over the entire bottom-band of
+ *     markers. O5 (#783) capped it to ≤280px at ≤480px; V1 verifies that cap.
+ *     RED-by-construction on pre-O5 `main`; GREEN once O5 is merged.
+ *
+ *   • **1440×900 (desktop-standard) — legend-only set:**
+ *     `expect(result.marker_legend_overlap_area).toBe(0)` over the single
+ *     `.family-legend` rect only. The 1440px control scope is deliberately
+ *     narrower because: (a) `.map-context-strip` is a flow sibling ABOVE
+ *     `.map-surface` on current `main` (no `position` rule, cannot intersect
+ *     a canvas marker rect); (b) `.scope-control` is `fit-content`/top-center,
+ *     narrow on desktop, and any occlusion it causes is governed by O3/O6's
+ *     relocation, NOT by O5. Folding scope-control/strip into the O5-gated
+ *     desktop assertion would falsely couple V1 to O3. The legend's
+ *     width-widening is `@media max-width:760px`-gated (`styles.css:976-979`),
+ *     so the desktop legend is content-sized and never reaches the marker band
+ *     regardless of O5. This control is GREEN on current `main` independently
+ *     of O5 and is pure desktop regression coverage.
+ *
+ * The contract is satisfied physically by O5 (legend mobile-width cap) + O2
+ * (legend hoist to persistent App-root `position:fixed`). Silhouettes always
+ * remain visible — `deconflict.ts:319-326` "silhouettes MUST REMAIN VISIBLE
+ * — no suppression, no hiding" invariant is preserved; the contract is met by
+ * overlay geometry, not by hiding markers.
+ *
+ * Do NOT relax either assertion to `<= residual` — a non-zero value IS the
+ * signal that an overlay geometry change has broken the contract. Treat it as
+ * a Tier-1 finding. Precedent: the strict-zero rationale already in this file
+ * at the `total_overlap_area` assertion below.
+ * ─────────────────────────────────────────────────────────────────────────────
  */
 
 const ZOOM_LEVELS = [5, 6, 8, 10, 12, 14];
@@ -35,10 +76,34 @@ interface OverlapResult {
   marker_count: number;
   total_overlap_area: number;
   worst_overlap_area: number;
+  /** V1 (#788): pairwise AABB intersection, each marker rect × each persistent-overlay rect (full set). */
+  marker_overlay_overlap_area: number;
+  /** V1 (#788): pairwise AABB intersection, each marker rect × the `.family-legend` rect only.
+   *  Kept separate from the full-set measurement so the 1440px desktop control asserts only
+   *  what O5 governs (legend width-widening is @media max-width:760px-gated; at 1440px the
+   *  legend is content-sized regardless of O5 status, giving a clean O5-independent control). */
+  marker_legend_overlap_area: number;
+}
+
+/** Helper: AABB pairwise intersection area between two lists of rects. */
+function pairwiseArea(
+  as: Array<{ x: number; y: number; w: number; h: number }>,
+  bs: Array<{ x: number; y: number; w: number; h: number }>,
+): number {
+  let total = 0;
+  for (const a of as) {
+    for (const b of bs) {
+      const ox = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
+      const oy = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+      if (ox > 0 && oy > 0) total += ox * oy;
+    }
+  }
+  return total;
 }
 
 async function measureOverlap(page: Page): Promise<OverlapResult> {
   return await page.evaluate<OverlapResult>(() => {
+    // ── Marker collection ────────────────────────────────────────────────────
     // DOM-based markers: AdaptiveGridMarker, ClusterPill, displaced silhouettes.
     const grids = Array.from(
       document.querySelectorAll('[data-testid="adaptive-grid-marker"]'),
@@ -93,6 +158,8 @@ async function measureOverlap(page: Page): Promise<OverlapResult> {
     }
 
     const items = [...domItems, ...symBoxes];
+
+    // ── Marker-vs-marker overlap (existing contract — byte-for-byte unchanged) ──
     let total = 0;
     let worst = 0;
     for (let i = 0; i < items.length; i++) {
@@ -114,10 +181,54 @@ async function measureOverlap(page: Page): Promise<OverlapResult> {
         }
       }
     }
+
+    // ── Persistent-overlay collection (V1 / #788) ────────────────────────────
+    // Rects are read live via getBoundingClientRect so they track the
+    // responsive legend width (e.g. ≤280px at ≤480px after O5, content-sized
+    // at 1440px). Overlays absent from the DOM contribute no rect (e.g.
+    // .map-context-strip was removed in #800; .observation-popover only mounts
+    // while a popover is open — both yield empty arrays and contribute zero).
+    // Do NOT fold overlayBoxes into `items` — that would also count
+    // overlay-vs-overlay pairs, which is out of scope.
+    type Rect = { x: number; y: number; w: number; h: number };
+    function elToRect(el: Element): Rect {
+      const r = el.getBoundingClientRect();
+      return { x: r.left, y: r.top, w: r.width, h: r.height };
+    }
+    function queryRects(sel: string): Rect[] {
+      return Array.from(document.querySelectorAll(sel)).map(elToRect);
+    }
+
+    const legendBoxes  = queryRects('.family-legend');
+    const scopeBoxes   = queryRects('.scope-control');
+    const stripBoxes   = queryRects('.map-context-strip'); // absent on current main (#800)
+    const popoverBoxes = queryRects('.observation-popover'); // only when a popover is open
+
+    const overlayBoxes = [...legendBoxes, ...scopeBoxes, ...stripBoxes, ...popoverBoxes];
+
+    // marker_overlay_overlap_area: full overlay set (binding assertion at 390px).
+    function pairArea(as: Rect[], bs: Rect[]): number {
+      let t = 0;
+      for (const a of as) {
+        for (const b of bs) {
+          const ox = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
+          const oy = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+          if (ox > 0 && oy > 0) t += ox * oy;
+        }
+      }
+      return t;
+    }
+
+    const markerOverlayOverlapArea = pairArea(items, overlayBoxes);
+    // marker_legend_overlap_area: legend-only (O5-governed desktop control at 1440px).
+    const markerLegendOverlapArea  = pairArea(items, legendBoxes);
+
     return {
       marker_count: items.length,
       total_overlap_area: total,
       worst_overlap_area: worst,
+      marker_overlay_overlap_area: markerOverlayOverlapArea,
+      marker_legend_overlap_area:  markerLegendOverlapArea,
     };
   });
 }
@@ -145,6 +256,8 @@ for (const viewport of VIEWPORTS) {
       await page.waitForTimeout(500);
 
       const result = await measureOverlap(page);
+
+      // ── Marker-vs-marker assertion (unchanged from V2 baseline) ─────────────
       // INTENTIONALLY strict: total_overlap_area must be exactly zero.
       //
       // The silhouette-displacement layer (deconflict.ts displaceSilhouettes)
@@ -167,6 +280,34 @@ for (const viewport of VIEWPORTS) {
         result.total_overlap_area,
         `marker_count=${result.marker_count}, worst_overlap=${result.worst_overlap_area}px²`,
       ).toBe(0);
+
+      // ── Exclusion-zone assertions (V1 / #788) ────────────────────────────────
+      // See the header doc block above for the full contract rationale.
+      // Do NOT relax to `<= residual` — see strict-zero precedent above.
+
+      if (viewport.name === 'iphone-14-pro') {
+        // 390×844 — full overlay set. O5 (#783) caps the legend ≤280px at ≤480px
+        // so it no longer covers the bottom-band marker region. GREEN post-O5.
+        expect(
+          result.marker_overlay_overlap_area,
+          `[${viewport.name} z${zoom}] marker_overlay_overlap_area must be 0 — ` +
+          `a non-zero value means a persistent overlay (legend/scope-control/strip/popover) ` +
+          `is occluding a marker at 390px (R6 / exclusion-zone contract, V1 #788)`,
+        ).toBe(0);
+      }
+
+      if (viewport.name === 'desktop-standard') {
+        // 1440×900 — legend-only set. The legend width-widening is @media
+        // max-width:760px-gated (styles.css:976-979), so at 1440px the legend
+        // is content-sized and never reaches the marker band regardless of O5.
+        // This is a pure desktop regression / over-constraint guard.
+        expect(
+          result.marker_legend_overlap_area,
+          `[${viewport.name} z${zoom}] marker_legend_overlap_area must be 0 — ` +
+          `the desktop legend must stay content-sized and clear of the marker band ` +
+          `(exclusion-zone contract desktop control, V1 #788)`,
+        ).toBe(0);
+      }
     });
   }
 }
