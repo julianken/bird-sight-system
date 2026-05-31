@@ -13,7 +13,8 @@ test.describe('production build smoke', () => {
     const app = new AppPage(page);
     await app.goto();
     await app.waitForAppReady(15_000);
-    await expect(app.mainSurface)
+    // O1 (#776): aria-busy re-homed from main#main-surface to #map-layer.
+    await expect(app.mapLayer)
       .toHaveAttribute('aria-busy', 'false', { timeout: 15_000 });
     await expect(page.locator('.error-screen')).toHaveCount(0);
   });

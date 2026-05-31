@@ -268,7 +268,8 @@ test.describe('axe-core WCAG scans', () => {
     // Sky Atlas Phase 4 — bottom-sheet at full snap accessibility contract.
     // The sheet is NOT a <dialog> at peek/half (map underneath stays
     // interactive); it flips to role="dialog" aria-modal="true" only at
-    // full snap, with `inert` on #main-surface set BEFORE the role flip.
+    // full snap, with `inert` on #map-layer set BEFORE the role flip
+    // (O1 #776: retargeted from #main-surface to #map-layer).
     test('species detail sheet (mobile) at full snap — role="dialog", map inert', async ({ page, apiStub }) => {
       await apiStub.stubEmpty();
       await apiStub.stubSpecies('vermfly', VERMFLY_WITH_PHOTO);
@@ -294,9 +295,11 @@ test.describe('axe-core WCAG scans', () => {
       await expect(sheet).toHaveAttribute('aria-modal', 'true');
       await expect(sheet).toHaveAttribute('aria-label', /vermilion flycatcher/i);
 
-      // The map landmark is inert — set BEFORE the role flip in JS, but
+      // The map layer is inert — set BEFORE the role flip in JS, but
       // observable as a steady-state attribute once the transition settles.
-      await expect(app.mainSurface).toHaveAttribute('inert', '');
+      // O1 (#776): retargeted from #main-surface to #map-layer so the live
+      // MapLibre canvas is frozen, not the near-empty <main> shell.
+      await expect(app.mapLayer).toHaveAttribute('inert', '');
 
       const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
       if (results.violations.length) {

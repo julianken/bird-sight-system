@@ -62,8 +62,10 @@ test.describe('accessibility', () => {
     await page.goto('/?scope=us');
     // Race: the mount effect kicks off a fetch, and we may miss the `true` state
     // if the network is very fast. Accept either ordering, but we MUST end on 'false'.
+    // O1 (#776): aria-busy re-homed from main#main-surface to #map-layer so
+    // assistive tech announces against the element whose subtree is changing.
     await expect.poll(
-      () => app.mainSurface.getAttribute('aria-busy'),
+      () => app.mapLayer.getAttribute('aria-busy'),
       { timeout: 10_000 }
     ).toBe('false');
   });

@@ -11,11 +11,13 @@ import { AppPage } from './pages/app-page.js';
  * fires exactly one observations fetch — carrying `state=US-XX` for a state
  * scope, and NO `state=` for `?scope=us` (the data invariant, #735).
  *
- * Camera-assertion handle (AC 4): App.tsx exposes no dedicated camera
- * data-attribute, so the camera move is asserted via the URL round-trip
- * (`?state=` set) + the `/api/observations` request query (`state=US-XX`) — the
- * agreed handle. The map canvas presence (`data-testid='map-canvas'`) confirms
- * the scoped map mounted.
+ * Camera-assertion handle (AC 4 / O1 #776): App.tsx now exposes direct camera
+ * handles on #map-layer: `data-camera-bounds` (the active boundsKey) and
+ * `data-scope-fitted` (false→true after SCOPE_MOVE_SETTLE_MS). These are the
+ * canonical handles. The URL round-trip (`?state=` set) + the
+ * `/api/observations` request query (`state=US-XX`) remain as belt-and-suspenders.
+ * The map canvas presence (`data-testid='map-canvas'`) confirms the scoped map
+ * mounted.
  *
  * Navigation contract (AC 15): the chooser-landing + whole-US-reset cases skip
  * `waitForAppReady()` (no map render is expected); the data cases wait for it.
@@ -179,6 +181,19 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
     // one chunk request fired on the scoped path (the prefetch on click + the
     // lazy boundary on mount both target the same chunk; ≥1 is the signal).
     expect(mapChunkRequests.length).toBeGreaterThan(0);
+
+    // O1 (#776) camera data-attribute assertions (AC 4 / scoped-path-only):
+    // After a state pick + settle, #map-layer exposes the direct camera handles.
+    // data-camera-bounds carries the active boundsKey ('US-AZ' for a state scope).
+    await expect(app.mapLayer).toHaveAttribute('data-camera-bounds', 'US-AZ');
+    // data-scope-fitted flips true after SCOPE_MOVE_SETTLE_MS (1000ms) — wait
+    // up to 3s for the timer to fire after the scope-pick animation settles.
+    await expect(app.mapLayer).toHaveAttribute('data-scope-fitted', 'true', { timeout: 3_000 });
+
+    // O1 (#776) result-settle aria-live region (R9): after data settles the
+    // App-root polite live region carries the scope+result summary. The region
+    // is visually hidden (.sr-only) but present in the a11y tree.
+    await expect(page.locator('[role="status"].sr-only')).toContainText('Arizona', { timeout: 3_000 });
   });
 
   test('?scope=us — CONUS map, region "USA", /api/observations carries NO state=', async ({

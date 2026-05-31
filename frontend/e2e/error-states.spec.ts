@@ -42,11 +42,12 @@ test.describe('error screen', () => {
     const app = new AppPage(page);
     await apiStub.stubApiAbort('observations');
     await page.goto('/?scope=us');
-    // Either the error StatusBlock renders, or main#main-surface stops reporting busy.
+    // Either the error StatusBlock renders, or #map-layer stops reporting busy.
     // Race them with Promise.race — first acceptable resolution wins.
+    // O1 (#776): aria-busy re-homed from main#main-surface to #map-layer.
     await Promise.race([
       expect(page.locator('.status-block--state-error')).toBeVisible({ timeout: 10_000 }),
-      expect(app.mainSurface).toHaveAttribute('aria-busy', 'false', { timeout: 10_000 }),
+      expect(app.mapLayer).toHaveAttribute('aria-busy', 'false', { timeout: 10_000 }),
     ]);
   });
 });
