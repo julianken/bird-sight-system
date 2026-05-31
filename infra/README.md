@@ -1,8 +1,12 @@
 # Infrastructure
 
-Terraform configuration for the bird-watch system, managing GCP (Cloud Run,
-Artifact Registry, Secret Manager, Cloud Scheduler), Neon (Postgres), and
-Cloudflare (Pages, DNS).
+Terraform configuration for the bird-watch system, managing GCP (Cloud Run
+services + scheduled jobs, Cloud SQL for Postgres 16, Artifact Registry,
+Secret Manager, Cloud Scheduler, Cloud Monitoring, GCS observations-archive,
+BigQuery, Billing Budget) and Cloudflare (Pages, DNS, R2, Workers, cache &
+rate-limit rulesets, Smart Tiered Cache). The Cloud Run footprint is two
+services (`bird-read-api`, `bird-admin-api`) plus the ingestor and digest
+jobs; Neon is decommissioned (no Neon provider in `versions.tf`).
 
 ## Remote state
 
