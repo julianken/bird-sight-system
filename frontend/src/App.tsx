@@ -603,7 +603,9 @@ export function App() {
   // pill. Held here so the filters-sheet close path can restore focus to the
   // trigger regardless of which dismiss mechanism fires (close button, backdrop
   // click, or Escape). AppHeader attaches this ref to the button element.
-  const filtersTriggerRef = useRef<HTMLButtonElement | null>(null);
+  // Typed as useRef<HTMLButtonElement>(null) → RefObject<HTMLButtonElement>
+  // (current: HTMLButtonElement | null), matching AppHeaderProps.filtersTriggerRef.
+  const filtersTriggerRef = useRef<HTMLButtonElement>(null);
 
   // O1 (#776) — camera data-attributes on #map-layer.
   // data-scope-fitted starts false on each new boundsKey/flyTo change and flips

@@ -76,8 +76,10 @@ export interface AppHeaderProps {
   /**
    * Ref forwarded to the Filters trigger button. App.tsx holds this so it can
    * restore focus to the trigger when the filters sheet is dismissed (O4 #780).
+   * The button is always mounted (in the persistent controls pill), so `.current`
+   * is reliably non-null whenever the useLayoutEffect close path fires.
    */
-  filtersTriggerRef: RefObject<HTMLButtonElement | null>;
+  filtersTriggerRef: RefObject<HTMLButtonElement>;
   /** Open the Credits & Attribution modal. */
   onOpenAttribution: () => void;
   // ── Lede / context-strip props (O3 #779) ────────────────────────────────

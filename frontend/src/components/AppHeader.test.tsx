@@ -11,7 +11,7 @@ const baseProps = {
   // O4 (#780): filtersOpen drives aria-expanded on the trigger;
   // filtersTriggerRef is forwarded to the button for focus restoration.
   filtersOpen: false,
-  filtersTriggerRef: createRef<HTMLButtonElement | null>(),
+  filtersTriggerRef: createRef<HTMLButtonElement>(),
   onOpenAttribution: vi.fn(),
   ledeText: null as string | null,
   freshnessLabel: '',
