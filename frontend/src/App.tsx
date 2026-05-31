@@ -168,7 +168,7 @@ export function App() {
   //   Open: set `inert` on #map-layer (same target as S1 scrim / full-snap
   //         detail sheet); move focus into the sheet (close button); add a
   //         Tab/Shift+Tab wrap handler so focus cannot escape to AppHeader
-  //         (mirrors the S1 scrim pattern at App.tsx:652–710).
+  //         (mirrors the S1-scrim inert+focus-trap useLayoutEffect, deps: [scopeActive]).
   //   Close: remove `inert` from #map-layer; restore focus to the trigger
   //         ONLY when transitioning from open→close (not on initial mount).
   // useLayoutEffect so the DOM mutation (inert) lands before the browser
@@ -197,7 +197,8 @@ export function App() {
       // AppHeader siblings (Attribution, theme-toggle, scope-control).
       // `inert` on #map-layer covers only the map subtree; AppHeader sits
       // above the backdrop and stays tabbable without this wrap handler.
-      // Pattern mirrors the S1 scrim focus-wrap at App.tsx:677–700.
+      // Pattern mirrors the S1-scrim onKeyDown wrap handler inside the
+      // S1-scrim inert+focus-trap useLayoutEffect (deps: [scopeActive]).
       const onKeyDown = (e: KeyboardEvent): void => {
         if (e.key !== 'Tab') return;
         const items = focusables();

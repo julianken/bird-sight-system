@@ -83,12 +83,11 @@ test.describe('O2 (#770): skip-link DOM-order + focus guard (WCAG 2.4.1)', () =>
       await app.waitForAppReady();
 
       // Wait for the skip-link to be attached (renders when mapVisible && scopeActive).
+      // Hard assertion — with scope=us + observations stubbed, the skip-link MUST
+      // attach. A silent test.skip here would mask the "skip-link never renders"
+      // regression (mapVisible derives from URL state, not WebGL availability).
       const skipLink = page.locator('[data-testid="explore-map-markers-skip-link"]');
-      const attached = await skipLink.waitFor({ state: 'attached', timeout: 8_000 }).then(() => true).catch(() => false);
-      if (!attached) {
-        test.skip(true, 'skip-link not attached — likely unscoped or mapVisible=false in this run');
-        return;
-      }
+      await expect(skipLink, 'skip-link must attach on scoped map view (scope=us)').toBeAttached({ timeout: 8_000 });
 
       // Guard 1: DOM-order assertion (compareDocumentPosition).
       // skip-link must precede #map-layer (the canvas block). If the link were

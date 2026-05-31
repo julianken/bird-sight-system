@@ -2027,13 +2027,14 @@ describe('O2 (#770): skip-link + FamilyLegend hoisted to App-root siblings', () 
     expect(String(skipLink!.tabIndex)).toBe('-1');
   });
 
-  it('skip-link is NOT inside MapSurface (.map-surface)', () => {
-    const { container } = render(<App />);
-    const skipLink = container.querySelector('[data-testid="explore-map-markers-skip-link"]');
-    const mapSurface = container.querySelector('.map-surface');
-    if (!skipLink || !mapSurface) return; // skip-link absent on unscoped; ok
-    expect(mapSurface.contains(skipLink)).toBe(false);
-  });
+  // NOTE: the vacuous '.map-surface containment' assertion that used to live
+  // here was removed (O2 #809 deferred nit). MapSurface is mocked to
+  // `<div data-testid="map-surface-stub" />` (no .map-surface class) so
+  // `.querySelector('.map-surface')` always returned null and the
+  // early-return guard fired every time — the assertion was never reached.
+  // The real invariant is covered by the DOM-order compareDocumentPosition
+  // test above + the `#map-layer` containment test below + the e2e
+  // compareDocumentPosition guard in `map-skip-link-and-hit-layer.spec.ts`.
 
   it('skip-link is NOT inside #map-layer (it precedes #map-layer in DOM)', () => {
     const { container } = render(<App />);

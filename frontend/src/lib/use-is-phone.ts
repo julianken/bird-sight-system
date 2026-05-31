@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 /**
  * P1 overlay breakpoint (≤480px). Pin to 480 here; the CSS token is
- * `--overlay-bp` in `frontend/src/styles/tokens.css`. Keep in lockstep:
+ * `--overlay-bp-compact` in `frontend/src/styles/tokens.css`. Keep in lockstep:
  * if P1 changes the token value, update this constant too (O5 #783).
  */
 const OVERLAY_BP_PX = 480;
