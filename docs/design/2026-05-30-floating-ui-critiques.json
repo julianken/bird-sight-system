@@ -1,0 +1,299 @@
+[
+  {
+    "lens": "Spatial composition & Google-Maps idiom \u2014 does the whole app read as one cohesive floating system over an edge-to-edge map, or as chrome framing a map?",
+    "currentReading": "The shell HAS been inverted correctly at the foundation: `#map-layer` is `position: fixed; inset: 0; z-index: 0` (styles.css:150-154), `.map-surface` is `position: absolute; inset: 0` (styles.css:530-531), and MapCanvas fills it \u2014 so the basemap genuinely is edge-to-edge under everything. That is the right substrate and it reads as map-first in the captures (scoped-az-1440-light, scoped-az-1920-light: the gray artboard + markers fill the whole frame, no windowing). The problem is everything floating OVER that substrate has not been composed as one system \u2014 it is three different spatial languages stacked on one canvas:\n\n1. A full-width top BAR (AppHeader): `position: fixed; top/left/right: 0; border-bottom: 1px` (styles.css:250-275). This is a literal edge-to-edge cap, not a corner-anchored Google-Maps control. At 1920 it spans 100% width with a 1px hairline divider and an enormous dead center between the left wordmark cluster and the right Attribution/Filters/theme cluster \u2014 the single tab (\"Map\") is centered in a void (app-header-nav `flex:1; justify-content:center`, styles.css:301-306). The bar visually re-introduces the \"chrome framing a map\" reading that the `#map-layer` inversion was supposed to kill. Google Maps has NO top bar \u2014 it has a floating search pill top-left and an avatar top-right, with map between them.\n\n2. A top-CENTER floating pill (ScopeControl): `position: absolute; inset-block-start: calc(header-height + space-md); inset-inline: space-md; margin-inline: auto` (styles.css:1798-1818). This is genuinely floating and correctly shaped (rounded card, shadow) \u2014 but it sits in a SECOND horizontal band directly under the header, so the top ~110px of the map is occluded by two stacked horizontal chrome strata (bar, then pill). Two horizontal bands at the top is the opposite of corner-anchoring.\n\n3. A bottom-LEFT floating card (FamilyLegend): `position: absolute; bottom; left; max-width: 240px` (styles.css:709-721). This one IS a proper corner-anchored Google-Maps-idiom floating cluster. It is the only element in the whole system that gets the spatial language right.\n\n4. The context strip (MapLede \"331 species\u2026\" + FilterSentence + freshness) is authored as an OPAQUE in-flow band \u2014 `.map-context-strip { background: var(--color-bg-surface); border-bottom: 1px }` (styles.css:1124-1128) \u2014 and is rendered as a normal-flow sibling BEFORE `.map-surface` inside MapSurface (MapSurface.tsx:276-294). But because `.map-surface` is `position: absolute; inset: 0`, it paints over the ENTIRE `#map-layer` on top of that strip. So the lede the manifest expects to see at desktop is painted underneath the full-bleed map and is effectively invisible/clipped \u2014 there is no visible lede band in scoped-az-1440-light or scoped-az-1920-light. The app's primary orienting sentence has been orphaned by the inversion.\n\nSo the current reading is: a correct full-bleed map carrying a top-edge bar (wrong idiom), a top-center pill stacked under it (second band), one correct bottom-left cluster, an orphaned invisible lede, and \u2014 on detail \u2014 a right rail that overlaps the header (z-rail 43 > z-chrome 42, styles.css:952-963). It does not yet read as one intentional floating system; it reads as a half-migrated layout where the map went full-bleed but the chrome kept its pre-inversion bar-and-band habits.",
+    "problems": [
+      {
+        "issue": "AppHeader is a full-width fixed top bar with a bottom border, not corner-anchored floating chrome. At 1024px+ it reads as an edge-to-edge cap (0.6% side margin at 1920px \u2014 effectively zero) with a huge dead center: a single centered 'Map' tab floating in a void between the left wordmark and the right action cluster. This is the single biggest violation of the map-first / Google-Maps idiom \u2014 Google Maps has no top bar at all, just corner-anchored islands.",
+        "severity": "blocker",
+        "evidence": "styles.css:250-275 (.app-header position:fixed; top/left/right:0; border-bottom:1px); styles.css:301-306 (.app-header-nav flex:1; justify-content:center \u2192 centered lone tab); captures scoped-az-1920-light.png + scoped-az-1440-light.png (full-width white cap, dead center)"
+      },
+      {
+        "issue": "Two stacked horizontal chrome bands at the top: the fixed header, then the top-center ScopeControl pill offset by calc(header-height + space-md) directly beneath it. The top ~110px of the map is double-occluded by horizontal strata, which is the inverse of corner-anchoring and wastes the most valuable orienting band of the map.",
+        "severity": "major",
+        "evidence": "styles.css:1809 (.scope-control inset-block-start: calc(var(--header-height) + var(--space-md))); captures scoped-az-768-light.png, scoped-az-1440-light.png (header bar + pill stacked as two bands)"
+      },
+      {
+        "issue": "The context strip / MapLede ('331 species seen across Arizona\u2026', FilterSentence, freshness) is orphaned: authored as an opaque in-flow band (.map-context-strip background + border-bottom) rendered as a sibling BEFORE .map-surface, but .map-surface is position:absolute; inset:0 and paints over the whole #map-layer, so the lede is covered by the full-bleed map and is not visibly rendered as a band at desktop. The app's primary scope-orientation sentence has no home in the floating system.",
+        "severity": "blocker",
+        "evidence": "MapSurface.tsx:276-294 (.map-context-strip rendered before .map-surface); styles.css:1124-1128 (opaque background, border-bottom \u2014 built for a flow layout); styles.css:530-531 (.map-surface position:absolute; inset:0 covers it); no visible lede band in scoped-az-1440-light.png / scoped-az-1920-light.png"
+      },
+      {
+        "issue": "The desktop detail rail anchors to top:0 and overlaps the fixed header (z-rail 43 > z-chrome 42), so opening species detail slices off the right end of the header (Attribution/Filters/theme become covered). Floating clusters in a cohesive system should coexist, not occlude each other \u2014 Google Maps' side panel tucks UNDER the search bar, it does not cover it.",
+        "severity": "major",
+        "evidence": "styles.css:952-963 (aside.species-detail-rail position:fixed; top:0; right:0; z-index:var(--z-rail)=43); styles.css:274 (.app-header z-index:var(--z-chrome)=42); capture species-detail-rail-1440-light.png (rail starts at the very top, over header's right cluster)"
+      },
+      {
+        "issue": "Cluster popover has no edge-collision handling \u2014 anchored at the map's western edge it is clipped against the viewport's left edge. A Google-Maps-grade floating system flips/shifts popovers to stay fully on-screen.",
+        "severity": "major",
+        "evidence": "capture cluster-popover-1440-light.png (left margin clipped against viewport edge, per manifest caveat 2); no flip/shift logic referenced in the popover styles or MapSurface"
+      },
+      {
+        "issue": "Vast dead center at wide viewports. With the header as the only top element and all data clustered (AZ markers fill the artboard, FamilyLegend bottom-left), the entire upper-center and right of the 1920 frame is empty chrome-free space that no floating element claims \u2014 the composition has no intentional balance, it is 'one bar + one corner card + a lot of nothing'.",
+        "severity": "minor",
+        "evidence": "captures scoped-az-1920-light.png + scoped-az-1920-dark.png (upper-center/right empty); only floating elements are the top bar, the top-center pill, and the bottom-left legend"
+      },
+      {
+        "issue": "Mobile collapses three of the four floating elements into the SAME top region: header bar, then the full-width ScopeControl card directly under it, then (on first paint at <1024) the bottom-left legend overlaps the lower-left marker cluster. The 390 layout is top-heavy chrome over a map that has little breathing room, rather than thumb-reachable corner islands.",
+        "severity": "minor",
+        "evidence": "styles.css:1886-1899 (scope-control mobile: inline-size:auto, exit-group wraps full-width); MapSurface.tsx:27-42 (LEGEND_EXPAND_MIN_WIDTH=1024 because expanded legend covers the only visible marker on tablet/mobile); captures scoped-az-390-light.png + filters-open-390-light.png (stacked top chrome)"
+      }
+    ],
+    "recommendations": [
+      {
+        "area": "Header \u2192 dissolve the bar into two corner clusters",
+        "recommendation": "Kill .app-header as a full-width fixed bar (drop top/left/right:0 + border-bottom). Replace with two independently corner-anchored floating islands inside #map-layer: a TOP-LEFT brand+scope cluster ('Bird Maps \u00b7 Arizona' wordmark sitting directly above-or-beside the scope control, as one rounded card with shadow), and a TOP-RIGHT controls cluster (Attribution, Filters, theme as a compact pill group). Each gets the same surface contract the FamilyLegend already uses (white/dark surface, --color-border-ui, --shadow-listbox, radius-lg). The map fills 100% between them. This is the single change that converts the whole composition from 'chrome framing a map' to 'islands floating over a map'.",
+        "rationale": "The captures and styles.css:250-275 show the bar is the dominant chrome-framing signal; the FamilyLegend (styles.css:709-721) already proves the corner-island pattern works in this codebase. The single centered 'Map' tab carries no navigational value (one-tab tablist, AppHeader.tsx:39-41) so removing the centered nav slot loses nothing and erases the dead center. --z-chrome (42) is already defined for exactly this."
+      },
+      {
+        "area": "Scope control \u2192 fold into the top-left cluster, not a second band",
+        "recommendation": "Merge ScopeControl into the new top-left brand cluster as one stacked card (wordmark/region label on top, the state select + ZIP + 'Change scope' beneath), so there is ONE top-left island instead of header-band-then-pill-band. Remove the inset-block-start: calc(header-height + space-md) offset \u2014 it only exists to dodge the header that is being removed. This reclaims the top ~110px of map and gives the top-left a single coherent 'where am I / change where' control, exactly like Google Maps' top-left search+directions stack.",
+        "rationale": "styles.css:1800-1809 documents that the offset is a compensation for the fixed header intercepting clicks; once the header is corner-anchored that whole regression class disappears. Co-locating brand+region+scope matches the AppHeader region-label intent (AppHeader.tsx:99-108, 'Bird Maps \u00b7 Arizona') which currently duplicates the region the ScopeControl select already shows."
+      },
+      {
+        "area": "Lede \u2192 rehome the orphaned context strip as a real floating element",
+        "recommendation": "Stop rendering .map-context-strip as an in-flow opaque band (it is painted under the absolute .map-surface and is invisible). Either (a) fold the one-line lede ('331 species seen across Arizona') + freshness into the top-left scope cluster as a subtitle row, or (b) make it its own bottom-center floating chip (Google-Maps 'X results' idiom) with a translucent surface. Drop the border-bottom/opaque-band styling \u2014 it was built for a flow layout that no longer exists.",
+        "rationale": "MapSurface.tsx:276-294 + styles.css:530-531 prove the strip is covered by the full-bleed map; the lede is the app's primary scope-orientation sentence and currently has no visible home (absent from scoped-az-1440-light.png). Rehoming it is required for the system to narrate scope at all on desktop."
+      },
+      {
+        "area": "Detail rail / sheet \u2192 make floating clusters coexist, not occlude",
+        "recommendation": "Inset the desktop rail below the top-right controls cluster (top: header-cluster-height + gap instead of top:0) OR push the top-right cluster's z above the rail and let the rail tuck under it. Either way the rail must not slice the header. On mobile the peek sheet is correct (Apple-Maps idiom) \u2014 keep it, but ensure the top-left/top-right clusters stay visible above the peek so orientation persists.",
+        "rationale": "styles.css:952-963 vs 274 shows z-rail(43) > z-chrome(42) and top:0 causes the overlap visible in species-detail-rail-1440-light.png. In a cohesive island system, opening detail should add a right-edge island, not cover an existing one."
+      },
+      {
+        "area": "Popover collision + overall balance",
+        "recommendation": "Add flip/shift edge-collision to marker and cluster popovers so they never clip against the viewport (anchor-relative reposition; a lightweight positioning pass or anchor-positioning where supported). Separately, adopt a documented four-corner anchor map as the system contract: top-left = brand+scope+lede, top-right = controls, bottom-left = family legend, bottom-right = reserved (zoom/locate/attribution). Write it into tokens/CLAUDE.md so every future floating element gets assigned a corner instead of inventing a new band.",
+        "rationale": "cluster-popover-1440-light.png is clipped (manifest caveat 2). A named four-corner contract is what makes the difference between 'patched element-by-element' and 'one cohesive Google-Maps-grade system' \u2014 it gives the empty 1920 center an intentional reason to be empty (the map owns the center; chrome owns the corners)."
+      }
+    ]
+  },
+  {
+    "lens": "Visual treatment & design-token consistency \u2014 is the floating chrome ONE coherent floating-card design system, or ad-hoc per-element styling?",
+    "currentReading": "The floating chrome is NOT one design system. It is at least three separately-authored idioms wearing similar colors, and a genuinely shared floating-card language never existed.\n\n(1) There is no \"floating card\" token at all. There is no `--floating-*` family, no shared inset/gutter token, no radius token for cards, and crucially no elevation system. What looks shared is one listbox shadow, `--shadow-listbox: 0 4px 12px rgba(0,0,0,0.08)` (styles.css:77), reused by exactly four surfaces \u2014 legend (styles.css:717), scope-control (styles.css:1823), observation-popover (styles.css:866), and the scope-chooser card (styles.css:1666). Everything else hardcodes its own shadow. The full inventory across the two card stylesheets is eight distinct box-shadow formulas: `var(--shadow-listbox)`\u00d74, plus rail `-8px 0 32px /0.12` (styles.css:961), sheet `0 -4px 16px /0.18` (styles.css:1002), modal `0 12px 40px /0.3` (styles.css:587), cell-popover `0 4px 12px /0.15` (ds-primitives.css:814), cluster-popover `0 -4px 16px /0.2` (ds-primitives.css:935), and the only two dark-aware shadows in the whole app: cell-popover dark `/0.5` (ds-primitives.css:874) and cluster dark `/0.6` (ds-primitives.css:1057). Eight surfaces, eight different elevation recipes.\n\n(2) Corner radius is equally unsystematic. The card surfaces alone span 6px (legend ds, observation-popover), 8px (attribution-modal, cluster-popover), and 12px (scope-control, scope-chooser card, sheet top corners) \u2014 three different card radii with no semantic logic (the legend and the scope-control are the same visual class of floating overlay yet round at 6px vs 12px). The repo-wide radius histogram is 12 distinct values (4px\u00d720, 2px\u00d79, 8px\u00d75, 6px\u00d74, 1px\u00d74, 12px\u00d72, plus one-offs at 9px, 7px, 3px, 20px, 999px).\n\n(3) The system is split across two stylesheets with two parallel, partly-undefined token vocabularies. The legend/scope/popover/modal/rail/sheet live in styles.css and consume `--color-bg-surface` / `--color-border-ui` / `--shadow-listbox`. The cell-popover and cluster-list-popover live in components/ds/ds-primitives.css and consume a DIFFERENT vocabulary \u2014 `--color-border-strong`, `--color-text-link`, `--text-body-sm`, `--text-heading-sm` \u2014 none of which is defined in any CSS file or token module (grep for their definitions returns empty). So the two map popovers a user sees back-to-back (single-observation vs cluster) are styled from a token set that silently falls through to inherited/initial values, while ds-primitives.css's own header comment claims \"All values are resolved through Phase 1 semantic tokens. No raw hex codes\" \u2014 directly contradicted by its `rgba(0,0,0,0.15\u20260.6)` shadows.\n\n(4) The dark-mode black-on-black separation failure named in the brief is real AND systemic, not isolated to the header. `--shadow-listbox` is `rgba(0,0,0,0.08)`; over the near-black dark basemap (`--c-navy-900 #0d1424`) a 0.08-alpha black shadow is invisible, and the dark card fill `#131c30` sits only ~6 luminance points off the basemap with a `--color-border-ui #283354` edge that barely reads. In scoped-az-1440-dark / 1920-dark / 768-dark the legend and scope-control float with almost no separation \u2014 they look painted onto the map, not lifted above it. The header is worse: it has NO box-shadow at all (the `.app-header` rule, styles.css:250\u2013275, defines only `border-bottom: 1px solid --color-border-ui`), so as \"Google-Maps-style floating chrome\" (its own comment) it has zero elevation in either theme; in dark it's a slightly-lighter navy bar bleeding into a navy void (landing-1440-dark, scoped-az-1440-dark). The ONLY surfaces that separate correctly in dark are the two ds-primitives popovers, because someone hand-patched `/0.5` and `/0.6` dark shadows onto them \u2014 proving the rest of the system was never given the same treatment.\n\n(5) The context strip (lede + \"Updated 20 min ago \u00b7 Source: eBird\") is not a floating card at all \u2014 `.map-context-strip` (styles.css:1124) is an in-flow block with `background: --color-bg-surface` and a `border-bottom`, the pre-map-first chrome idiom. In a map-first floating system it's the one piece of \"chrome\" that doesn't float, doesn't round, and doesn't elevate \u2014 a leftover from the document-flow era.\n\nNet: the surfaces share a palette (white/navy fills, the `--color-border-ui` edge) and that buys a loose family resemblance in light mode at default framing. But inset, radius, elevation, and dark separation are decided per-element, in two files, against two token vocabularies, with eight shadow recipes and three card radii. It is patched element-by-element \u2014 exactly what the owner wants to stop.",
+    "problems": [
+      {
+        "issue": "Header has no elevation in either theme, and dark floating cards do not separate from the near-black basemap. `.app-header` declares only `border-bottom: 1px solid --color-border-ui` and NO box-shadow (styles.css:250-275), so the 'Google-Maps-style floating chrome' has zero lift. The shared `--shadow-listbox` is `rgba(0,0,0,0.08)` (styles.css:77), invisible over the dark basemap; combined with the dark card fill `#131c30` sitting ~6 luminance units off `--c-navy-900 #0d1424`, the legend, scope-control, and header all blend into the map in dark.",
+        "severity": "blocker",
+        "evidence": "scoped-az-1440-dark.png, scoped-az-1920-dark.png, scoped-az-768-dark.png, landing-1440-dark.png; styles.css:77 (--shadow-listbox 0.08), styles.css:250-275 (.app-header no box-shadow), tokens.css:137-139 (dark fills)"
+      },
+      {
+        "issue": "Eight distinct, mostly hardcoded box-shadow formulas across the floating surfaces \u2014 there is no elevation SYSTEM. Only 4 surfaces share `--shadow-listbox`; rail (0.12), sheet (0.18), modal (0.3), cell-popover (0.15), cluster-popover (0.2) each invent their own magic-number alpha, and the only dark-aware shadows (cell 0.5, cluster 0.6) are hand-patched onto two surfaces while every other card has no dark shadow at all.",
+        "severity": "major",
+        "evidence": "styles.css:587 (modal 0.3), styles.css:717/866/1666/1823 (shadow-listbox \u00d74), styles.css:961 (rail 0.12), styles.css:1002 (sheet 0.18); ds-primitives.css:814 (cell 0.15), 874 (cell dark 0.5), 935 (cluster 0.2), 1057 (cluster dark 0.6)"
+      },
+      {
+        "issue": "Three different corner radii across the same visual class of floating card, with no semantic rationale. Legend and observation-popover round at 6px; attribution-modal and cluster-popover at 8px; scope-control, scope-chooser card and sheet-top at 12px. The legend and scope-control are both top-/bottom-anchored map-assist overlays yet differ (6px vs 12px).",
+        "severity": "major",
+        "evidence": "styles.css:716 (legend 6px), 865 (obs-popover 6px), 578 (modal 8px), 1665 (scope-chooser 12px), 1822 (scope-control 12px), 1000 (sheet 12px); ds-primitives.css:808 (cell 6px), 931 (cluster 8px)"
+      },
+      {
+        "issue": "The floating system is split across two stylesheets that consume two different token vocabularies, and the ds-primitives popovers reference tokens that are defined NOWHERE. `--color-border-strong`, `--color-text-link`, `--text-body-sm`, `--text-heading-sm` are consumed by cell-popover and cluster-list-popover but have no definition in any CSS file or token module (grep for their definitions is empty), so two adjacent popovers silently fall through to inherited/initial values while styles.css surfaces use `--color-border-ui` / `--type-sm`.",
+        "severity": "major",
+        "evidence": "ds-primitives.css:807,810,849,933,943 (consume undefined tokens); grep for `--color-border-strong:` / `--text-body-sm:` definitions returns empty across styles.css, tokens.css, ds-primitives.css, motion.css"
+      },
+      {
+        "issue": "ds-primitives.css's stated contract is false. Its header comment claims 'All values are resolved through Phase 1 semantic tokens (tokens.css). No raw hex codes.' but the popovers it owns hardcode raw shadow alphas (0.15, 0.2, 0.5, 0.6). This is exactly the drift the repo's own conventions warn about \u2014 the doc says one thing, the code does another.",
+        "severity": "minor",
+        "evidence": "ds-primitives.css:7-9 (no-raw-hex claim) vs ds-primitives.css:814, 874, 935, 1057 (raw rgba shadows)"
+      },
+      {
+        "issue": "The context strip (lede + freshness) is the one 'chrome' surface that is NOT a floating card \u2014 `.map-context-strip` is an in-flow block with `border-bottom` and a flat surface fill, a leftover from the pre-map-first document-flow layout. In a fully floating system it reads as an orphan: no radius, no inset, no elevation.",
+        "severity": "minor",
+        "evidence": "styles.css:1124-1128 (.map-context-strip in-flow border-bottom block); scoped-az-1440-light.png shows the '331 species\u2026/Updated 20 min ago' strip sitting flush, not floating"
+      },
+      {
+        "issue": "Inset/gutter from the viewport edge is inconsistent across anchored overlays. Legend anchors at `--space-md` (12px) plus a tiered attribution-clearance; scope-control insets `--space-md`; cluster-popover insets `--space-md`; but the rail and sheet butt the viewport edge (0 inset) and the header spans full-bleed. There is no single 'floating inset' token, so the gutter a card leaves from the screen edge is decided per-component.",
+        "severity": "minor",
+        "evidence": "styles.css:711-712 (legend bottom/left space-md), 1810 (scope-control inset-inline space-md), 1809 (scope-control top = header-height+space-md); ds-primitives.css:910-912 (cluster space-md); styles.css:955-957 (rail right:0), 995-997 (sheet bottom:0)"
+      }
+    ],
+    "recommendations": [
+      {
+        "area": "Elevation system (the load-bearing fix)",
+        "recommendation": "Introduce a single mode-paired elevation scale and make EVERY floating card consume it \u2014 never a raw rgba shadow. Define in tokens.css under each [data-theme] block: light `--elevation-1: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)`, `--elevation-2: 0 4px 12px rgba(0,0,0,0.15)`, `--elevation-3: 0 12px 32px rgba(0,0,0,0.22)`. For dark, do NOT just raise black alpha \u2014 black-on-black can't separate. Use a layered approach: a dark-ambient drop shadow `rgba(0,0,0,0.6)` PLUS a top inner/hairline light rim, e.g. `--elevation-2: 0 4px 14px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.06)`, and pair it with a brighter card fill (lift dark `--color-bg-surface` from #131c30 toward ~#1b2742) and a lighter edge (`--color-border-ui` toward ~#3a4straints). The rim-light + lighter fill is what actually makes a card read as 'above' a near-black map \u2014 Google/Apple dark map UIs separate by fill+rim, not by drop shadow alone. Map surfaces to tiers: header/legend/scope-control/context-card = elevation-1, popovers/observation = elevation-2, rail/sheet/modal/chooser = elevation-3.",
+        "rationale": "This is the brief's named blocker and it is systemic. A single mode-paired scale replaces eight ad-hoc shadows at once and is the only way dark cards separate from a #0d1424 basemap. Doing it as tokens (not per-rule) is what converts 'patch each element' into 'one cohesive system'."
+      },
+      {
+        "area": "Give the header real chrome",
+        "recommendation": "Add `box-shadow: var(--elevation-1)` to `.app-header` and, in dark, a 1px bottom rim-light (`box-shadow: 0 1px 0 rgba(255,255,255,0.06), var(--elevation-1)`) so the floating header lifts off the map in both themes. Keep the border-bottom only as the light-mode hairline; it is doing all the work today and does almost nothing in dark.",
+        "rationale": "As declared 'Google-Maps-style floating chrome', the header is the single most prominent floating surface and currently has zero elevation. It sets the tone for whether the whole UI reads as floating."
+      },
+      {
+        "area": "Shared floating-card token set",
+        "recommendation": "Add a small `--card-*` family to tokens.css and route every floating surface through it: `--card-radius: 12px` (one card radius \u2014 retire 6px/8px for cards; keep 4px strictly for inner inputs/buttons), `--card-inset: var(--space-md)` (the gutter every viewport-anchored card leaves from the screen edge), `--card-padding: var(--space-md) var(--space-lg)`, `--card-bg: var(--color-bg-surface)`, `--card-border: 1px solid var(--color-border-ui)`, `--card-elevation: var(--elevation-2)`. Then legend, scope-control, observation/cell/cluster popovers, rail, sheet, chooser, and the (newly-floated) context card all set `border-radius: var(--card-radius)` etc. Light/dark stays a one-line override because the elevation/bg/border tokens are already mode-paired.",
+        "rationale": "This is the concrete 'one floating-card language' the owner asked for: a single inset token, a single card radius, a single elevation alias. It collapses three card radii and eight shadows into one vocabulary and makes a future restyle a token edit, not a sweep across two files."
+      },
+      {
+        "area": "Unify the two stylesheets and kill the undefined tokens",
+        "recommendation": "Either define `--color-border-strong`, `--color-text-link`, `--text-body-sm`, `--text-heading-sm` in tokens.css (mode-paired) or replace their usages in ds-primitives.css with the existing `--color-border-ui` / `--type-sm` / `--type-md` tokens, so the cell-popover and cluster-list-popover stop silently inheriting. Long-term, move the two map popovers onto the shared `--card-*` set so all popovers (observation in styles.css, cell+cluster in ds-primitives) are visually identical, and correct the ds-primitives.css 'no raw hex' header comment once its shadows become `var(--card-elevation)`.",
+        "rationale": "Two adjacent popovers a user toggles between (single-observation vs cluster) are styled from two token vocabularies, one of them undefined. Unifying them is necessary for the cohesive system and removes a live, grep-provable drift between the file's stated contract and its code."
+      },
+      {
+        "area": "Float the context strip",
+        "recommendation": "Convert `.map-context-strip` from an in-flow `border-bottom` block into a floating card: anchor it top-left (or below the header) with `--card-inset`, `--card-radius`, `--card-bg`, `--card-elevation`, and drop the border-bottom. It becomes the 'context card' tier (elevation-1).",
+        "rationale": "It is the only chrome surface still living in document flow; floating it removes the last visual exception and makes the system uniformly map-first."
+      }
+    ]
+  },
+  {
+    "lens": "LENS 3 \u2014 Per-element treatment in the cohesive floating system. For each floating element I assess (a) how it reads today from the captures + code, (b) whether it violates the floating-inset principle (a Google-Maps-grade system anchors every surface as an inset, rounded, shadowed card floating OVER an edge-to-edge map \u2014 never a full-width top-dock or full-height edge-dock that carves the map into panels), and (c) the target treatment, mapped to the owning epic issue (#800 header, #801 rail, O3 #779 context-card, O4 #780 filters-sheet, O5 #783 legend/sheet).",
+    "currentReading": "The system is a half-migrated map-first shell: the map is correctly the viewport root (#map-layer fixed inset:0, .map-surface absolute inset:0; App.tsx:783, styles.css:520-532), but the chrome on top of it is a mix of TRUE floating cards (ScopeControl, FamilyLegend, ScopeChooser scrim, popovers) and LEGACY full-bleed docks that pre-date the hoist and were never converted (AppHeader, FiltersBar, context strip, SpeciesDetailRail). Because the header is position:fixed and reserves no flow height, the in-flow surfaces that still live inside the map layer collide with it. The most consequential symptom: the entire context strip (lede + filter-sentence + freshness) is invisible in EVERY scoped capture \u2014 it is the first in-flow child of .map-surface (MapSurface.tsx:276) so it paints at the map's top edge, directly behind the fixed header band, and the promised \"331 species seen across Arizona\u2026\" / \"Updated 20 min ago\" never appears (scoped-az-1440/1920/768-light/dark). On desktop the floating cards (scope-control top-center, legend bottom-left) read genuinely Google-Maps-like, but they don't yet share a single card grammar with the docked chrome, so the system looks like two design eras stacked on one map. The named z-scale (styles.css:8-33) and overlay breakpoint tokens (tokens.css:71-73) are already in place to finish the migration \u2014 the tiers exist (--z-chrome 42, --z-rail 43, --z-modal 50) but the docked elements have not adopted the floating-card treatment those tiers were defined for.",
+    "problems": [
+      {
+        "issue": "Context strip is fully occluded by the fixed header \u2014 the lede/freshness never render visibly under a scope. .map-context-strip is the first in-flow child of .map-surface (position:absolute; inset:0), so it lays out at y=0 of the map layer, directly behind .app-header (position:fixed; z-chrome 42, no reserved flow height). The strip has no top-offset, no float, just a flow border-bottom band (styles.css:1124-1128). Result: the primary 'what am I looking at' sentence is dead on arrival on every scoped view.",
+        "severity": "blocker",
+        "evidence": "scoped-az-1440-light.png, scoped-az-1920-light.png, scoped-az-768-light.png (no lede/freshness anywhere in frame); MapSurface.tsx:276-294; styles.css:1124-1128 (.map-context-strip border-bottom band, no position); styles.css:270-275 (.app-header fixed, no flow height); App.tsx:837 (<main> is empty so the strip is NOT in a clearing-padded container)"
+      },
+      {
+        "issue": "SpeciesDetailRail is a full-height right-edge dock, not a floating card. position:fixed; top:0;right:0;bottom:0; width:min(560px,100vw); border-left (styles.css:952-964). It butts all three edges and slices the viewport into 'map | panel', the exact panel-splitting the map-first epic set out to retire. It also passes UNDER the fixed header (top:0) so its sticky close button (top:8px, styles.css:967) collides with the header band.",
+        "severity": "blocker",
+        "evidence": "species-detail-rail-1440-light.png and -dark.png (hard 3-edge dock, vertical seam down the viewport); styles.css:952-964; close button styles.css:966-981 (top:8px under the z-42 header)"
+      },
+      {
+        "issue": "FiltersBar opens as a full-bleed flow band pinned across the top, displacing the map down instead of floating over it. .filters-bar is display:flex; border-bottom; full width (styles.css:429-437) with no position/inset/radius/shadow \u2014 it is a docked toolbar, not a floating panel. On desktop it reads as a horizontal strip edge-to-edge under the header; the map jumps down when it opens.",
+        "severity": "major",
+        "evidence": "filters-open-1440-light.png (edge-to-edge top band, map pushed down); filters-open-390-light.png; styles.css:429-439 (.filters-bar \u2014 no position, no radius, no shadow)"
+      },
+      {
+        "issue": "AppHeader is a full-width top-dock with a hard border-bottom \u2014 it spans edge to edge and reads as a classic app titlebar, not floating chrome. position:fixed; left:0;right:0; background:surface; border-bottom:1px (styles.css:250-275). In a Google-Maps-grade system the top chrome is an inset floating cluster (wordmark pill left, action pill right) over the map, not a solid bar that visually caps the map.",
+        "severity": "major",
+        "evidence": "scoped-az-1440-light.png, scoped-az-1920-light.png, landing-1440-light.png (solid edge-to-edge bar with bottom rule); styles.css:250-275"
+      },
+      {
+        "issue": "Cluster popover has no viewport-edge collision handling \u2014 it clips against the left edge. When the anchor marker is near the west edge of the artboard the family list renders hard against x=0 with its left margin against the viewport, partially clipped. The single-observation popover has a flipX (POPOVER_W duplicated in ObservationPopover.tsx, styles.css:857) but the cluster list popover does not share that logic.",
+        "severity": "major",
+        "evidence": "cluster-popover-1440-light.png (list pinned to viewport left edge, left margin clipped); manifest caveat #2; styles.css:849-871 (.observation-popover has max-width flip; cluster list lacks an equivalent edge-flip rule)"
+      },
+      {
+        "issue": "On mobile the FamilyLegend (bottom-left) and the SpeciesDetailSheet peek (bottom, full width) occupy the same bottom region and stack/compete; the peek sheet overlaps the legend card. Both are bottom-anchored floating surfaces with no shared bottom-stack manager, so the peek sheet sits on top of the legend toggle.",
+        "severity": "major",
+        "evidence": "species-detail-sheet-390-light.png (peek sheet bottom + legend card both bottom-left, overlapping); styles.css:709-721 (.family-legend bottom-anchored), styles.css:993-1009 (.species-detail-sheet bottom:0 full width)"
+      },
+      {
+        "issue": "Scope-chooser scrim is near-opaque (color-mix 92% page over transparent), so the idle map behind the card is barely perceptible \u2014 it reads as a solid splash screen, not 'map behind glass.' A Google-Maps-grade landing wants the live map clearly visible behind a translucent scrim so the chooser feels like it sits ON the map, not before it.",
+        "severity": "minor",
+        "evidence": "landing-1440-light.png, landing-1440-dark.png (map almost fully washed out behind card); styles.css:1624-1632 (.scope-chooser-scrim background color-mix 92%)"
+      },
+      {
+        "issue": "Header has a single suppressed 'Map' tab in a tablist (label hidden via CSS, AppHeader.tsx:39-41) \u2014 a one-tab tablist is vestigial chrome eating horizontal space at the header center (.app-header-nav flex:1 justify-content:center, styles.css:301-306). It contributes nothing visible and complicates the floating-cluster header reflow.",
+        "severity": "minor",
+        "evidence": "scoped-az-1440-light.png (lone underlined 'Map' centered); AppHeader.tsx:39-41,111-146; styles.css:301-343"
+      },
+      {
+        "issue": "Z-stack is internally inconsistent for a cohesive system: the detail rail (--z-rail 43) and cell/cluster popovers (44/45) sit ABOVE the fixed header (--z-chrome 42), while the full-snap mobile sheet stays at raw 10/15/20 BELOW the overlay band and relies on a pointer-events:none hack on the header (styles.css:1043-1045) to let its collapse handle receive clicks. The header is simultaneously above the context strip/legend and below the rail/popovers, so 'what floats over what' is not a clean, predictable ladder.",
+        "severity": "minor",
+        "evidence": "styles.css:24-33 (z-scale), styles.css:993-1027 (sheet raw 10/15/20), styles.css:1043-1045 (pointer-events:none header hack), styles.css:952-964 (rail z-rail 43 over chrome 42)"
+      }
+    ],
+    "recommendations": [
+      {
+        "area": "Context strip \u2192 floating context card (O3 #779)",
+        "recommendation": "Convert .map-context-strip from an in-flow border-bottom band into a position:absolute floating card anchored top-left (or top-center under the scope-control), inset by --space-md and offset below the header by calc(var(--header-height) + var(--space-md)) \u2014 the SAME offset .scope-control already uses (styles.css:1809). Give it the shared card chrome (bg-surface, 1px border-ui, --radius-lg, --shadow-listbox) and a max-width so the lede wraps to 2 lines. This is the single highest-value fix: it makes the lede/freshness visible at all, which they currently are not.",
+        "rationale": "The strip is the app's primary orientation sentence and it is invisible today purely because it lays out behind the fixed header. Reusing the scope-control's header-clearance offset and the legend's card grammar makes it cohere with the other floating cards in one move."
+      },
+      {
+        "area": "SpeciesDetailRail \u2192 inset floating panel (#801)",
+        "recommendation": "Re-anchor the rail as an inset card: top:calc(var(--header-height) + var(--space-md)); right:var(--space-md); bottom:var(--space-md) (clearing the attribution band like the legend); width:min(420px, 38vw); add --radius-lg on all corners, full box-shadow (not just border-left), and keep the map visibly wrapping AROUND it on all four sides. Drop border-left for a floating shadow. This preserves the 'map stays interactive beside the rail' intent (#663) while making it read as a card on the map, not a wall.",
+        "rationale": "The rail already deliberately avoids modal semantics so the map stays live; finishing the job means it should LOOK like it floats over the live map. A 3-edge dock visually contradicts the coexistence it was built for, and the top:0 anchor collides with the header."
+      },
+      {
+        "area": "FiltersBar \u2192 anchored floating sheet (O4 #780)",
+        "recommendation": "Render filters as a floating panel anchored to the Filters trigger in the header (popover/anchored card on desktop, bottom-sheet on mobile reusing the SpeciesDetailSheet snap mechanics), with card chrome and a close affordance \u2014 not a full-bleed top band. On desktop anchor it top-right under the header below the trigger; on \u2264480px promote to a bottom sheet so it doesn't crush the map. Use the --overlay-bp-compact (480) / --overlay-bp-roomy (600) tokens already defined (tokens.css:71-73) to switch between anchored-card and full-bleed-sheet.",
+        "rationale": "A docked toolbar that displaces the map breaks the 'map is the canvas' contract and is jarring on open/close. The breakpoint tokens were defined for exactly this anchored-card-vs-sheet decision; adopting them ties filters into the same responsive overlay system as the legend and detail surfaces."
+      },
+      {
+        "area": "AppHeader \u2192 floating chrome cluster (#800)",
+        "recommendation": "Split the header into two floating clusters over the map: a wordmark pill top-left and an action pill (Attribution / Filters / theme) top-right, each with card chrome (bg-surface, --radius-lg, --shadow-listbox), inset by --space-md, with the map visible in the gap between them. Drop the edge-to-edge background + border-bottom. Remove the vestigial one-tab tablist (AppHeader.tsx:39-41) \u2014 collapse the wordmark to brand + region only \u2014 to reclaim the center and simplify reflow.",
+        "rationale": "Edge-to-edge top chrome with a bottom rule is the single strongest 'this is an app with a titlebar' signal and the main thing separating this from a Google-Maps read. Two floating pill clusters over a continuous map is the idiom; the lone hidden tab is dead weight that complicates the reflow."
+      },
+      {
+        "area": "Popover edge-collision system (shared)",
+        "recommendation": "Give the cluster-list popover the same viewport-edge flip the single-observation popover already has: factor the flipX/flipY decision (and a clamp to keep the card fully inside the inset safe-area, accounting for the floating header + scope-control + legend) into one shared popover-position helper used by both cell and cluster popovers. Add an arrow/caret pointing to the anchor so the connection survives the flip.",
+        "rationale": "A popover clipped at the viewport edge (cluster-popover-1440-light.png) is a Google-Maps-grade failure; the logic already exists for the cell popover, so this is a consolidation, not new invention, and it makes all on-canvas popovers behave consistently."
+      },
+      {
+        "area": "Bottom-stack manager for mobile overlays (O5 #783)",
+        "recommendation": "Introduce a single bottom-anchored stacking contract on \u2264480px: when the SpeciesDetailSheet is at peek/half, the FamilyLegend collapses to a compact chip or shifts to bottom-RIGHT so the two never overlap; track the sheet height in a CSS var and offset the legend's bottom by it. Reconcile the sheet z-tiers onto the named --z-modal (50) at full snap (the deferred O5 work) so the pointer-events:none header hack (styles.css:1043-1045) can be replaced by a clean top-layer.",
+        "rationale": "Two independent bottom-anchored floats with no shared manager guarantees overlap on small screens (sheet peek capture). A height-aware offset plus the already-planned z-reconciliation gives mobile a predictable, single bottom region \u2014 the last piece for a cohesive cross-viewport float system."
+      },
+      {
+        "area": "Scrim translucency (landing)",
+        "recommendation": "Lower the scope-chooser scrim opacity from 92% toward ~60\u201370% (and/or add a subtle backdrop-filter: blur) so the idle map reads clearly behind the card, signaling 'pick a place ON this map.' Keep AA contrast on the card itself (the card is opaque bg-surface, so card text contrast is unaffected by scrim opacity).",
+        "rationale": "A nearly opaque scrim turns the map-first landing into a generic splash modal and discards the strongest first-impression cue that this is a map app. A translucent scrim over the live basemap is the Google/Apple Maps landing idiom and costs nothing in legibility because the card stays opaque."
+      }
+    ]
+  },
+  {
+    "lens": "Responsive composition & visual hierarchy \u2014 how the floating chrome lays out and ranks itself across 390 / 768 / 1440 / 1920, and whether that adaptation is a coherent system or a per-element accretion.",
+    "currentReading": "The floating UI is currently FOUR independently-authored overlays sharing one viewport, not one composed system. The map is a fixed full-viewport root (`#map-layer`, styles.css:151 `position: fixed; inset: 0`) and every piece of chrome is hung off it separately: the AppHeader floats top-full-width (styles.css:250-274, `--z-chrome` 42); the ScopeControl floats top-center as a card offset by header height (styles.css:1798-1824, `--z-overlay` 40); the FamilyLegend floats bottom-left (styles.css:709-721, `--z-overlay` 40); the detail rail is right-edge fixed (styles.css:952-963, `--z-rail` 43) or, on mobile, a bottom sheet (SpeciesDetailSheet.tsx:268-281, raw z 10/15/20). Each has its OWN breakpoint logic \u2014 the legend collapses at a JS 1024px threshold (MapSurface.tsx:42) AND a CSS 760px query (styles.css:837), the scope-control reflows at 480px (styles.css:1886), the header swaps icon/text at 480px (styles.css:1405) \u2014 and there is NO shared spatial grammar tying them together. The most telling evidence: tokens.css:71-73 DEFINES `--overlay-bp-compact: 480px / --overlay-bp-roomy: 600px / --overlay-bp-wide: 1024px` as the intended responsive-overlay system, but the comment admits \"no rule consumes them yet.\" The cohesive layer is specified and stubbed but unbuilt.\\n\\nReading the captures top-down by width:\\n\\n- **390 (scoped-az-390-light/dark, species-detail-sheet-390-*):** This is where the lack of a system shows worst. Header (top), ScopeControl card (top, eating ~120px of the 844px viewport), FamilyLegend (bottom-left, expanded by default at first paint despite the collapse logic), and the bottom attribution band ALL stack into a narrow column with markers in between. In scoped-az-390-light the legend's bottom edge sits directly on top of the wrapped 3-line OpenFreeMap attribution and a red marker pokes out beside it; in species-detail-sheet-390-light the peek sheet, the still-floating ScopeControl, AND the legend are all on screen at once \u2014 three competing surfaces plus the header on a phone. Nothing yields to anything.\\n- **768 (scoped-az-768-light/dark):** ScopeControl goes full-text inline-row at the top, legend bottom-left expanded \u2014 markers down the left and bottom of the AZ artboard sit partly under the legend (the exact #249 collision the 1024px JS threshold was meant to fix, but at 768 the legend renders EXPANDED here, covering the southwest cluster).\\n- **1440 (scoped-az-1440-light/dark):** Reads cleanest \u2014 legend bottom-left, scope-control top-center, generous map. BUT the `.map-context-strip` lede (\\\"331 species seen across Arizona\u2026\\\") that the manifest expected is NOT VISIBLE in any 1440 capture. It is rendered (MapSurface.tsx:276-294) but occluded: the context strip is a static block at the top of MapSurface while `.map-surface` (styles.css:520-531, `position: absolute; inset: 0`) paints the map canvas over the entire fixed `#map-layer`, covering the strip. The primary scope-identity sentence \u2014 the thing that should be the strongest text on the page \u2014 is painted out.\\n- **1920 (scoped-az-1920-light/dark):** The chrome does not scale up \u2014 header, scope-control, and legend stay the same pixel size while the map balloons, so on a wide desktop the legend is a tiny card lost in a vast lower-left and the scope-control is a small island at top-center. No corner-anchored desktop composition; just the mobile layout stretched.\\n\\nHierarchy as built is INVERTED from intent. The scope/region identity should be primary; instead the region label is a whispered ` \u00b7 Arizona` suffix in the wordmark (AppHeader.tsx:104-108) and the lede that names it is occluded. The ScopeControl \u2014 a re-scope utility, secondary by the component's own doc (\\\"DE-EMPHASIZED exit affordance\\\", ScopeControl.tsx:16) \u2014 is the single most visually dominant card on the map at top-center. Filters, genuinely primary for what's shown, are demoted to a 20px icon button (AppHeader.tsx:174-202). So the loudest element is a utility, the quietest is the identity, and the transient popovers (marker/cluster) are the only things that behave like a normal z-tier.",
+    "problems": [
+      {
+        "issue": "The map-context-strip lede \u2014 the primary scope-identity sentence ('N species seen across Arizona\u2026') plus freshness \u2014 is rendered but visually occluded by the map canvas at every desktop width. MapSurface emits `.map-context-strip` as a static block (MapSurface.tsx:276-294), but `.map-surface` is `position: absolute; inset: 0` (styles.css:520-531) inside the fixed full-viewport `#map-layer` (styles.css:151), so the canvas paints over the strip. The strongest text in the information hierarchy is invisible on the live map.",
+        "severity": "blocker",
+        "evidence": "scoped-az-1440-light.png + scoped-az-1920-light.png (no lede visible despite manifest expecting it); MapSurface.tsx:276-294 (strip rendered) vs styles.css:520-531 (.map-surface absolute inset:0) over #map-layer styles.css:151"
+      },
+      {
+        "issue": "At 390px four+ floating surfaces compete with no yielding rule: header + top-center ScopeControl card (~120px tall) + bottom-left FamilyLegend (expanded on first paint) + bottom attribution, and when the detail sheet opens at peek it ADDS a fifth without dismissing any of the others. The legend overlaps the wrapped attribution band and adjacent markers. There is no mobile rule that collapses the scope-control to an affordance or hides the legend when a sheet is up.",
+        "severity": "blocker",
+        "evidence": "scoped-az-390-light.png + scoped-az-390-dark.png (legend overlapping attribution + marker); species-detail-sheet-390-light.png (peek sheet + ScopeControl + legend + header all co-resident); ScopeControl @media only reflows, never collapses, styles.css:1886-1900"
+      },
+      {
+        "issue": "Visual hierarchy is inverted. The region identity is a faint ` \u00b7 Arizona` wordmark suffix (AppHeader.tsx:104-108) and an occluded lede; the re-scope ScopeControl \u2014 secondary/utility by its own contract (ScopeControl.tsx:16 'DE-EMPHASIZED') \u2014 is the most dominant card on the canvas (top-center, full surface card, styles.css:1798-1824); Filters, primary to what's shown, is a 20px icon (AppHeader.tsx:174-202). Loudest element is a utility; quietest is the identity.",
+        "severity": "major",
+        "evidence": "scoped-az-1440-light.png (scope-control dominant top-center, region only in wordmark); AppHeader.tsx:104-108 + ScopeControl.tsx:16 + styles.css:1798-1824"
+      },
+      {
+        "issue": "The cohesive responsive-overlay breakpoint system is specified and stubbed but unbuilt, so each overlay improvises its own thresholds (legend: JS 1024 in MapSurface.tsx:42 AND CSS 760 in styles.css:837; scope-control: 480 in styles.css:1886; header: 480 in styles.css:1405). The result is the per-element patching the audit is trying to escape.",
+        "severity": "major",
+        "evidence": "tokens.css:71-73 defines --overlay-bp-compact/roomy/wide with comment 'no rule consumes them yet'; divergent thresholds at MapSurface.tsx:42, styles.css:837, styles.css:1886, styles.css:1405"
+      },
+      {
+        "issue": "Chrome does not scale with viewport: at 1920 the header, scope-control, and legend stay fixed pixel sizes while the map balloons, leaving a tiny legend lost in the lower-left and a small scope-control island at top-center. The desktop composition is the mobile layout stretched, not a corner-anchored wide-screen layout.",
+        "severity": "major",
+        "evidence": "scoped-az-1920-light.png vs scoped-az-1440-light.png (identical chrome footprint, far more empty map); no >1024 max-width or corner-grid rule for overlays in styles.css"
+      },
+      {
+        "issue": "Cluster popover has no edge-collision handling and gets clipped off the left viewport edge, collapsing to single-word-per-line. ObservationPopover computes flipX/flipY against viewport width (ObservationPopover.tsx:98-102), but ClusterListPopover has no positioning JS at all and relies on `position: fixed; left/right/bottom: --space-md` (ds-primitives.css:905-912) \u2014 which, as that file's own comment warns, gets trapped inside the transformed MapLibre marker box for a west-edge marker, pushing it off-screen.",
+        "severity": "major",
+        "evidence": "cluster-popover-1440-light.png (popover clipped at left edge, family list wrapping one word per line); ds-primitives.css:905-923 (fixed, no flip, self-documented trap risk) vs ObservationPopover.tsx:98-102 (has flipX/flipY)"
+      },
+      {
+        "issue": "FamilyLegend default-expanded heuristic misfires at 768: it defaults expanded above the 1024 JS threshold's inverse but the capture shows it expanded at 768 covering the southwest marker cluster \u2014 the precise #249 tablet-portrait collision the threshold was raised to 1024 to prevent. The dual JS-1024 / CSS-760 control leaves the 760\u20131024 band inconsistent.",
+        "severity": "minor",
+        "evidence": "scoped-az-768-light.png (expanded legend over lower-left markers); MapSurface.tsx:42 LEGEND_EXPAND_MIN_WIDTH=1024 comment vs CSS collapse at 760 styles.css:837"
+      }
+    ],
+    "recommendations": [
+      {
+        "area": "Cohesive floating layout engine",
+        "recommendation": "Build the spatial system the tokens already name. Introduce a single overlay layout layer that owns placement for ALL floating chrome via the three existing breakpoints (tokens.css:71-73): COMPACT (<480) = single bottom-sheet stack with at most ONE expanded surface at a time + collapsed pills for the rest; ROOMY (480\u20131024) = corner-anchored cards with a max-one-per-corner rule; WIDE (>1024) = corner-anchored with capped card widths and increased map breathing room. Drive every overlay's anchor/size from this layer instead of each component carrying its own @media. Wire the orphaned --overlay-bp-* tokens to real rules and delete the divergent per-component thresholds (MapSurface.tsx:42, styles.css:837/1886/1405).",
+        "rationale": "Google-Maps-grade cohesion comes from one placement authority, not N overlays each guessing. The tokens are already defined and stubbed \u2014 finishing them is the single highest-leverage move and directly retires the 'no rule consumes them yet' debt at tokens.css:72."
+      },
+      {
+        "area": "Restore + re-rank the scope identity",
+        "recommendation": "Stop occluding the lede and make region identity primary. Either lift `.map-context-strip` out of the absolutely-covered MapSurface into its own top overlay above the canvas, or fold the lede into a top-left floating identity card ('Arizona \u2014 331 species \u00b7 updated 20 min ago') that is the visual anchor of the scoped view. Demote ScopeControl from a dominant top-center card to a compact control attached to that identity card (a 'change' affordance), matching its own 'de-emphasized' contract (ScopeControl.tsx:16). Promote Filters from a 20px icon to a labeled control at desktop widths.",
+        "rationale": "Hierarchy should read identity \u2192 filters (what you're seeing) \u2192 legend/attribution \u2192 transient popovers. Today it reads utility-loudest, identity-quietest, and the identity sentence is literally painted out (blocker). Fixing the occlusion and swapping the scope-control/lede prominence corrects the inversion in one pass."
+      },
+      {
+        "area": "Mobile single-surface discipline (390)",
+        "recommendation": "At COMPACT, enforce 'one primary overlay at a time.' When the detail sheet is at peek/half/full, auto-collapse the FamilyLegend to its chevron pill and collapse ScopeControl into a single 'Arizona \u25be' pill docked to the header; never show the expanded legend, the full scope-control, and a sheet simultaneously. Reserve the bottom 60px for attribution as a fixed safe-zone the legend pill must clear (the --attribution-clearance mechanism at styles.css:837 already exists \u2014 extend it to gate sheet/legend coexistence).",
+        "rationale": "The captures show 4\u20135 surfaces co-resident on a 390px phone with overlaps onto markers and the license band (a licensing requirement, #775). A single-surface rule is how Apple/Google Maps keep a phone canvas legible and is the cleanest fix for the worst crowding evidence (scoped-az-390-*, species-detail-sheet-390-*)."
+      },
+      {
+        "area": "Wide-desktop composition (1440/1920)",
+        "recommendation": "Above 1024, switch overlays to true corner anchoring with capped widths and let the map breathe: identity+lede top-left, filters top-right, legend bottom-left, attribution bottom-right, detail rail as an inset right column rather than full-height edge-to-edge. Cap card widths (e.g. legend max ~280, identity ~360) so they don't shrink-to-nothing relative to a 1920 canvas, and increase corner insets with viewport so the composition feels intentional at width.",
+        "rationale": "At 1920 the chrome is the 1440 chrome unchanged in a much larger frame, leaving small islands in a sea of map. Corner anchoring with width caps + scaling insets is the standard wide-screen map pattern and makes 1920 read as designed rather than stretched."
+      },
+      {
+        "area": "Unify transient popover edge-collision",
+        "recommendation": "Give ClusterListPopover the same viewport-edge clamping ObservationPopover already has. On fine pointers, position it as an anchored popover with flipX/flipY against viewport bounds (reuse ObservationPopover.tsx:98-102 logic or portal it out of the transformed MapLibre marker container); keep the bottom-sheet treatment only for COMPACT/coarse pointers. Make both popovers share one anchored-popover primitive so edge handling is defined once.",
+        "rationale": "The cluster popover clips off the left edge into one-word-per-line because it has zero positioning logic and inherits the marker's transformed box (ds-primitives.css:905-923, self-documented risk). One shared popover primitive with edge-flip is both the fix and a step toward the cohesive system \u2014 transient overlays should obey one set of rules, not two."
+      },
+      {
+        "area": "Single legend-expansion authority",
+        "recommendation": "Collapse the dual JS-1024 / CSS-760 legend control into one breakpoint sourced from --overlay-bp-wide (1024). Default the legend collapsed below WIDE, expanded above, with localStorage override \u2014 removing the 760\u20131024 inconsistency that leaves it expanded over markers at 768.",
+        "rationale": "The 768 capture shows the legend expanded over the southwest cluster \u2014 the exact #249 collision the 1024 threshold targeted, reintroduced by the mismatched CSS 760 query. One authority sourced from the shared token closes the gap and folds into the cohesive system."
+      }
+    ]
+  }
+]
