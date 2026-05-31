@@ -172,6 +172,16 @@
   padding: var(--space-lg);
 }
 
+/* O7 (#786): StatusBlock `surface="overlay"` modifier. Applied when the block
+   renders inside a floating overlay container (.map-error-overlay) rather than
+   filling a full-page or panel surface. Overrides the default max-width and
+   padding so the block fits compactly inside the card without excess whitespace.
+   The container (.map-error-overlay) controls positioning and elevation. */
+.status-block--surface-overlay {
+  --status-block-padding: var(--space-md, 16px);
+  --status-block-max-width: none;
+}
+
 /* Dark mode — no structural change; --color-bg-skeleton-highlight token handles mid-stop */
 
 /* ─────────────────────────────────────────────────────────────────────────────

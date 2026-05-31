@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor, act } from '@testing-library/react';
 import { useBirdData, isSyntheticCode } from './use-bird-data.js';
 import { ApiClient } from '../api/client.js';
 
@@ -171,6 +171,107 @@ describe('useBirdData', () => {
       .filter(o => o.subId.startsWith('agg:0:'))
       .map(o => o.speciesCode);
     expect(firstBucketCodes).toContain('agg-0-tyrannidae-0');
+  });
+
+  // --- O7 (#786) refetch tests ---
+
+  it('refetch re-fires getObservations and clears prior error', async () => {
+    const getObservations = vi.fn()
+      .mockRejectedValueOnce(new Error('network failure'))
+      .mockResolvedValue({ data: [{ subId: 's1' }], meta: { freshestObservationAt: null } });
+    const getHotspots = vi.fn().mockResolvedValue([]);
+    const client = makeClient({
+      getHotspots,
+      getObservations,
+    } as unknown as Partial<ApiClient>);
+
+    const { result } = renderHook(() =>
+      useBirdData(client, { since: '14d', notable: false }, true));
+
+    // Wait for the initial failure
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+    expect(result.current.observations).toEqual([]);
+
+    // Call refetch — must clear the error and re-run the effect
+    await act(async () => { result.current.refetch(); });
+
+    await waitFor(() => expect(result.current.error).toBeNull());
+    await waitFor(() => expect(result.current.observations).toHaveLength(1));
+    // getObservations must have been called twice (initial + refetch)
+    expect(getObservations).toHaveBeenCalledTimes(2);
+  });
+
+  it('refetch re-fires getHotspots', async () => {
+    const getHotspots = vi.fn()
+      .mockRejectedValueOnce(new Error('hotspot fail'))
+      .mockResolvedValue([{ locId: 'h1' }]);
+    const getObservations = vi.fn().mockResolvedValue({
+      data: [], meta: { freshestObservationAt: null },
+    });
+    const client = makeClient({
+      getHotspots,
+      getObservations,
+    } as unknown as Partial<ApiClient>);
+
+    const { result } = renderHook(() =>
+      useBirdData(client, { since: '14d', notable: false }, true));
+
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+
+    await act(async () => { result.current.refetch(); });
+
+    await waitFor(() => expect(result.current.error).toBeNull());
+    await waitFor(() => expect(result.current.hotspots).toHaveLength(1));
+    expect(getHotspots).toHaveBeenCalledTimes(2);
+  });
+
+  it('refetch is a no-op while enabled === false (preserves #740/C6)', async () => {
+    const getObservations = vi.fn().mockRejectedValue(new Error('never'));
+    const getHotspots = vi.fn().mockRejectedValue(new Error('never'));
+    const client = makeClient({
+      getHotspots,
+      getObservations,
+    } as unknown as Partial<ApiClient>);
+
+    const { result } = renderHook(() =>
+      useBirdData(client, { since: '14d', notable: false }, false));
+
+    // Disabled hook: no calls fired
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(getObservations).not.toHaveBeenCalled();
+    expect(getHotspots).not.toHaveBeenCalled();
+
+    // refetch while disabled — must not trigger any calls
+    await act(async () => { result.current.refetch(); });
+    expect(getObservations).not.toHaveBeenCalled();
+    expect(getHotspots).not.toHaveBeenCalled();
+  });
+
+  it('a failed refetch sets error but leaves prior observations intact', async () => {
+    const getObservations = vi.fn()
+      .mockResolvedValueOnce({ data: [{ subId: 's1' }], meta: { freshestObservationAt: null } })
+      .mockRejectedValue(new Error('second fetch failed'));
+    const getHotspots = vi.fn()
+      .mockResolvedValueOnce([{ locId: 'h1' }])
+      .mockResolvedValue([{ locId: 'h1' }]);
+    const client = makeClient({
+      getHotspots,
+      getObservations,
+    } as unknown as Partial<ApiClient>);
+
+    const { result } = renderHook(() =>
+      useBirdData(client, { since: '14d', notable: false }, true));
+
+    // Initial success: 1 observation
+    await waitFor(() => expect(result.current.observations).toHaveLength(1));
+    expect(result.current.error).toBeNull();
+
+    // Refetch — this time the fetch fails
+    await act(async () => { result.current.refetch(); });
+
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+    // Prior observations must still be in place (last-good data stays)
+    expect(result.current.observations).toHaveLength(1);
   });
 
   it('exposes error state when a fetch fails', async () => {

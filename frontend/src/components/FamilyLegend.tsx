@@ -173,7 +173,7 @@ export function FamilyLegend({
         type="button"
         className="family-legend-toggle"
         aria-expanded={effectiveExpanded}
-        aria-controls="family-legend-entries"
+        {...(effectiveExpanded && entries.length > 0 ? { 'aria-controls': 'family-legend-entries' } : {})}
         onClick={() => {
           // forceCollapsed is a transient display override — the toggle
           // click still advances the stored preference if forceCollapsed

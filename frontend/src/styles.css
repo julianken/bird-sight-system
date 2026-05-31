@@ -169,6 +169,99 @@ body {
   margin: 0 auto;
 }
 
+/* O7 (#786): "Try again" button inside the default .error-screen fallback
+   rendered by ErrorBoundary when no custom fallback prop is supplied.
+   Keeps the button visually distinct from a bare paragraph but intentionally
+   minimal — the full StatusBlock action style (.status-block__action) is for
+   data-fetch errors; this is the GL-boundary "can we recover?" affordance. */
+.error-screen__retry {
+  margin-top: 12px;
+  padding: 6px 16px;
+  border: 1px solid var(--color-border, #ccc);
+  border-radius: 4px;
+  background: var(--color-bg-surface, #fff);
+  color: var(--color-text, #111);
+  font: inherit;
+  cursor: pointer;
+}
+.error-screen__retry:hover {
+  background: var(--color-bg-tint, #f4f1ea);
+}
+
+/* O7 (#786): Data-fetch error overlay. Floats as a fixed positioned card above
+   the live map so the map stays mounted + interactive underneath a failed
+   /api/observations or /api/hotspots request.
+
+   Z-tier: --z-rail (43). Rationale: this is a dismissible focused card over a
+   still-interactive map — not a blocking modal. --z-rail sits above map-assist
+   overlays (--z-overlay/40, --z-popover/41) and chrome (--z-chrome/42), below
+   the detail rail/sheet and chooser scrim (--z-modal/50). The overlay is
+   informational + retryable, so the user can still see and interact with the
+   map beneath it. When P1 lands a dedicated named token for this tier, re-point
+   z-index to that token here.
+
+   Placement: top-center, inset from the top by enough clearance for the AppHeader
+   chrome (--card-inset + --controls-cluster-h + a gap). Capped at
+   --card-maxw-identity (360px) for coherence with the identity card's width —
+   they're both narration surfaces in the top-left/top-center zone. On narrow
+   viewports (< 440px) it expands to fill inset on both sides. */
+.map-error-overlay {
+  position: fixed;
+  top: calc(var(--card-inset) + var(--controls-cluster-h, 54px) + var(--card-gap, 8px));
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(var(--card-maxw-identity, 360px), calc(100vw - 2 * var(--card-inset, 12px)));
+  background: var(--color-bg-surface);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-elevation-3);
+  z-index: var(--z-rail);
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  /* The StatusBlock already carries internal padding via .status-block styles.
+     Add a small container padding so the dismiss button has breathing room. */
+  padding: 0;
+}
+
+/* The StatusBlock inside the overlay fills the card width; the dismiss button
+   is absolutely positioned in the top-right corner of the card. */
+.map-error-overlay .status-block {
+  flex: 1;
+}
+
+.map-error-overlay__dismiss {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary, #666);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.map-error-overlay__dismiss:hover {
+  background: var(--color-bg-tint, #f4f1ea);
+  color: var(--color-text, #111);
+}
+
+/* On narrow phone viewports (≤ 440px) fill edge-to-edge with inset margins
+   and anchor top rather than centering horizontally. */
+@media (max-width: 440px) {
+  .map-error-overlay {
+    left: var(--card-inset, 12px);
+    right: var(--card-inset, 12px);
+    transform: none;
+    width: auto;
+  }
+}
+
 /* Skip-link (issue #247). WCAG 2.4.1 (Bypass Blocks) — keyboard users
    skip past the map canvas (which is intentionally NOT in the global tab
    order — a 344-marker tab sequence is hostile per UX/a11y review) to
