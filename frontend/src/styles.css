@@ -1520,13 +1520,21 @@ aside.species-detail-rail .species-detail-rail-close {
    The backdrop covers the viewport below the sheet and above map overlays.
    Clicking it dismisses the filters panel (see App.tsx — onClick handler).
    It carries no role/label (presentational); data-testid="filters-backdrop"
-   is the stable e2e hook. z-index is one below the sheet (--z-modal - 1 = 49),
-   above all chrome (42) and rail (43) tiers. */
+   is the stable e2e hook.
+
+   z-index: --z-overlay - 1 (= 39) — deliberately BELOW the chrome band
+   (--z-chrome 42) and legend/overlay tier (--z-overlay 40) so that only the
+   map canvas dims. Corner cards (identity, legend) remain crisp and legible
+   while the filters sheet (--z-modal 50) still out-paints all chrome. The
+   backdrop remains full-viewport fixed so click-outside-to-dismiss still
+   fires (the backdrop is the topmost element over the map center at z-39).
+   Alpha lowered to 0.18 for a lighter "floating" feel now that only the map
+   is covered. */
 .filters-backdrop {
   position: fixed;
   inset: 0;
-  z-index: calc(var(--z-modal) - 1);
-  background: rgba(0, 0, 0, 0.25);
+  z-index: calc(var(--z-overlay) - 1);
+  background: rgba(0, 0, 0, 0.18);
   /* Backdrop click area is the full viewport; cursor shows it is interactive. */
   cursor: default;
 }
@@ -1541,10 +1549,11 @@ aside.species-detail-rail .species-detail-rail-close {
   /* 44×44pt touch target (Apple HIG, WCAG 2.5.5) */
   min-width: 44px;
   min-height: 44px;
-  /* Visual: pull to top-right corner of the panel */
+  /* Visual: pull to top-right corner of the panel, inset so the 44×44 target
+     sits fully inside the panel edge (no overhang at 1440px+). */
   position: absolute;
   top: var(--space-xs, 4px);
-  right: var(--space-xs, 4px);
+  right: 8px;
   /* Content centering */
   display: inline-flex;
   align-items: center;
