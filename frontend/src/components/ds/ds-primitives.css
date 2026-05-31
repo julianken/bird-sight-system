@@ -694,16 +694,31 @@ button.adaptive-grid-marker__cell {
 
 .cell-hover-preview {
   position: absolute;
-  /* KEPT at the pre-refactor calc(var(--z-panel) + 5) (#761 P1, #778). The
-     --z-panel alias now resolves to --z-overlay (40), so this still evaluates
-     to 45 — byte-identical rank to main. This governs ONLY the keyboard-focus
-     inline render path (cursorPos === null, no portal); the cursor-driven path
-     keeps its own inline z-index: 1000 in CellHoverPreview.tsx. Both ranks are
-     held unchanged because dropping the preview into the popover band (41) would
-     change which element wins a real geometric overlap (the cursor tooltip can
-     float over an open rail/cluster popover today) — that fails the P1 zero-
-     visual-change litmus, so the old ranks are preserved. */
-  z-index: calc(var(--z-panel) + 5);
+  /* #761 O6 (#782) — MIGRATED off the `calc(var(--z-panel) + 5)` arithmetic onto
+     the named `--z-modal` (50) tier. Rationale: this passive hover tooltip must
+     paint ABOVE every popover it can geometrically overlap. Pre-O6 the two render
+     paths DISAGREED — the keyboard-focus inline path sat at calc(--z-panel + 5) =
+     45 (a tie with --z-cluster-popover, won only by DOM order) while the
+     cursor-following path used an off-scale inline `zIndex: 1000` (~955 above the
+     scale). O6 removes the inline literal (CellHoverPreview.tsx) so BOTH paths now
+     inherit this one class token. `--z-modal` (50) is the lowest NAMED tier that
+     sits strictly above --z-cluster-popover (45), preserving the tooltip's
+     "above the popovers it overlaps" rank — the cursor tooltip can still float
+     over an open cell/cluster popover, matching the pre-O6 inline-1000 intent.
+     This is safe against real --z-modal surfaces (detail sheet 50, scope-chooser
+     scrim 50) because O6 also GATES the hover-preview mount: AdaptiveGridMarker
+     suppresses it whenever a detail overlay holds focus (detailOpen), and the
+     chooser scrim only shows when there are no markers to hover. So the tooltip
+     can never coexist with a --z-modal surface despite sharing the tier value.
+
+     ORDERING CONTRACT vs the detail rail (handoff to O5 / #783):
+     P1's `--z-cell-popover`/`--z-cluster-popover` (44/45) resolve ABOVE the
+     rail's current `--z-rail` (43), so the click-driven popovers temporarily
+     paint over the rail. Re-tiering the rail/sheet ABOVE the popovers (into the
+     --z-modal band with the compensating #663 inert work) is O5's job (report R3);
+     O6 does NOT move the rail's z value. This tooltip at --z-modal (50) is moot to
+     that contract because its mount is gated off while the rail is open. */
+  z-index: var(--z-modal);
   background: var(--color-bg-surface);
   border: 1px solid var(--color-border-strong);
   border-radius: 4px;
@@ -777,7 +792,17 @@ button.adaptive-grid-marker__cell {
 
 .cell-popover {
   position: absolute;
-  z-index: var(--z-cell-popover); /* #761 P1, #778 — above the rail, below the cluster popover */
+  /* #761 P1, #778 — above the rail, below the cluster popover.
+     #761 O6 (#782) ORDERING CONTRACT vs the detail rail: --z-cell-popover (44)
+     resolves ABOVE the rail's current --z-rail (43), so this click-driven popover
+     temporarily paints over an open SpeciesDetailRail. Re-tiering the rail ABOVE
+     the popovers (into --z-modal with the #663 inert work) is O5's job (report R3);
+     O6 does NOT move the rail's z value and leaves the temporary popover-over-rail
+     state as expected. Verified live (O6): this popover, though mounted inside the
+     transformed MapLibre marker container, escapes to a higher stacking context and
+     paints above the map-assist overlays (legend/scope at --z-overlay 40,
+     observation-popover at --z-popover 41) as the token intends — no portal needed. */
+  z-index: var(--z-cell-popover);
   background: var(--color-bg-surface);
   border: 1px solid var(--color-border-strong);
   border-radius: 6px;
@@ -885,7 +910,20 @@ button.adaptive-grid-marker__cell {
   left: var(--space-md);
   right: var(--space-md);
   bottom: var(--space-md);
-  z-index: var(--z-cluster-popover); /* #761 P1, #778 — topmost popover, above cell popover + rail */
+  /* #761 P1, #778 — topmost popover, above cell popover + rail.
+     #761 O6 (#782) ORDERING CONTRACT vs the detail rail: --z-cluster-popover (45)
+     resolves ABOVE the rail's current --z-rail (43); this coarse-pointer popover
+     temporarily paints over an open SpeciesDetailRail. Re-tiering the rail ABOVE
+     the popovers is O5's job (report R3); O6 does NOT move the rail's z value.
+     CONTAINING BLOCK NOTE: this rule is `position: fixed`, but on coarse pointers
+     it is anchored to the viewport edges (left/right/bottom = --space-md), so even
+     if the transformed MapLibre marker container traps the fixed positioning to the
+     marker's box, the popover still occupies the bottom strip of the marker-local
+     stacking context at the top of that context's z-order, painting above the
+     map-assist overlays. Verified live (O6): no portal needed — the cluster popover
+     paints above legend/scope (--z-overlay 40) and observation-popover (--z-popover
+     41) as the token intends. */
+  z-index: var(--z-cluster-popover);
   max-height: 70vh;
   overflow-y: auto;
   background: var(--color-bg-surface);

@@ -16,6 +16,30 @@ import type { FamilySilhouette } from '@bird-watch/shared-types';
  *     The footer was removed in Phase 6.
  *   - OSM/OpenFreeMap ODbL §4.3: source attribution + license URL.
  *
+ * Top layer & the CSS z-index scale (#761 O6, issue #782):
+ *   `dialog.showModal()` (below, in the open effect) promotes this dialog into
+ *   the browser **top layer** — a paint surface that sits ABOVE the entire CSS
+ *   z-index stacking context REGARDLESS of any `z-index` value. It CANNOT be
+ *   ordered by the named `--z-*` scale (`--z-overlay` … `--z-skip`, styles.css
+ *   :root): no `--z-*` token governs this dialog, and none should be ADDED
+ *   expecting to. A future author adding e.g. a `--z-modal`-based rule to "put
+ *   Credits above X" would be wrong — `showModal()` already wins unconditionally,
+ *   and `z-index` on a top-layer element is inert. The corollary is that
+ *   `showModal()` also auto-`inert`s the rest of the document (the backdrop's
+ *   sibling tree becomes non-interactive and AT-invisible) while the dialog is
+ *   open, so no manual scrim/`inert` plumbing is required for THIS surface.
+ *
+ *   Focus-trap reconciliation with a future chooser scrim (gap 2, #782):
+ *   The scope-chooser scrim conversion (epic-relative S1) will give the
+ *   `.scope-chooser-scrim` its own JS focus trap. When THIS dialog is open it
+ *   already top-layers + `inert`s the whole document, which MOOTS any scrim
+ *   focus trap underneath it (the scrim's subtree is `inert`, so its trap has
+ *   nothing focusable to cycle). Therefore the two must NOT both run JS focus
+ *   traps simultaneously: when AttributionModal is open, the scrim's trap is a
+ *   no-op by construction and must not fight the native `inert` (e.g. by
+ *   re-focusing into the inert subtree on a focusout). The scrim work (S1)
+ *   inherits this contract; O6 writes no scrim code.
+ *
  * Modal idioms (this is the codebase's first modal — document the pattern):
  *   1. Native `<dialog>` element. `dialog.showModal()` opens with the
  *      browser-managed top-layer + backdrop; `dialog.close()` closes.

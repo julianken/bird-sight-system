@@ -197,6 +197,12 @@ describe('<CellHoverPreview>', () => {
     expect(tooltip.style.position).toBe('fixed');
     expect(tooltip.style.left).toBe('116px');
     expect(tooltip.style.top).toBe('212px');
+    // #761 O6 (#782): the cursor-following path no longer carries an inline
+    // zIndex — stacking comes from the `.cell-hover-preview` class's --z-modal
+    // token. (`screen.getByRole` queries document.body by default, which reaches
+    // the portaled node for the cursor branch — do NOT scope to a local
+    // container or this lookup fails.)
+    expect(tooltip.style.zIndex).toBe('');
   });
 
   it('with cursorPos=null, root element has no inline position (falls back to CSS)', () => {
@@ -211,5 +217,8 @@ describe('<CellHoverPreview>', () => {
     );
     const tooltip = screen.getByRole('tooltip');
     expect(tooltip.style.position).toBe('');
+    // #761 O6 (#782): the keyboard-focus path never had an inline zIndex; lock
+    // that both render paths now defer stacking entirely to the class token.
+    expect(tooltip.style.zIndex).toBe('');
   });
 });

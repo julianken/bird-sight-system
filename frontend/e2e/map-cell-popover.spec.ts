@@ -157,6 +157,48 @@ test('desktop 1440×900: keyboard skip-link → cell → Enter → popover → E
   await expect(page).not.toHaveURL(/[?&]detail=/);
 });
 
+// ─── #761 O6 (#782): detail-overlay gate — hovering a cell with a detail
+//     overlay open does NOT surface the passive hover preview ──────────────────
+//
+// The detail rail/sheet stays the topmost interactive surface; the unbidden
+// hover tooltip is suppressed (AdaptiveGridMarker's `detailOpen` gate, threaded
+// App → MapSurface → MapCanvas → AdaptiveGridMarker). WebGL-guarded like the
+// other live-marker scenarios. No @coarse → dev-server, 1440×900.
+
+test('desktop 1440×900: with the detail rail open, hovering a cell does NOT surface the hover preview', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  // Open a detail overlay alongside the live map (rail mounts at ≥1200px).
+  await page.goto('/?scope=us&detail=vermfly&view=detail');
+
+  // Canonical "map settled" gate.
+  const marker = page.locator('[data-testid="adaptive-grid-marker"]').first();
+  const markerVisible = await marker.waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false);
+  if (!markerVisible) {
+    test.skip(true, 'No adaptive-grid markers visible — likely WebGL unavailable in headless run');
+    return;
+  }
+
+  // The detail rail/sheet must be the topmost interactive surface.
+  const detailSurface = page.locator('aside.species-detail-rail, .species-detail-sheet');
+  await expect(detailSurface.first()).toBeVisible({ timeout: 10_000 });
+
+  // Hover a cell — under the gate, the passive preview must NOT mount.
+  const cell = page.locator('[data-testid^="adaptive-grid-marker-cell"]').first();
+  const cellVisible = await cell.waitFor({ state: 'visible', timeout: 8_000 }).then(() => true).catch(() => false);
+  if (!cellVisible) {
+    test.skip(true, 'No cell testids visible — Phase 3 cells may not have rendered');
+    return;
+  }
+  await cell.hover();
+
+  // Give the preview the chance it would normally have to appear, then assert
+  // it never did (the gate suppresses the mount while the overlay holds focus).
+  await expect(page.locator('[data-testid="cell-hover-preview"]')).toHaveCount(0);
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
+  // Detail surface still present (it remained the topmost interactive surface).
+  await expect(detailSurface.first()).toBeVisible();
+});
+
 // ─── Scenario 3: Tablet tap → cluster-list → species → bbox-URL (@coarse) ─
 //
 // Phase 2 (#559) test — preserved verbatim (renamed for clarity).
@@ -477,33 +519,38 @@ stubTest.describe('z-index named scale — co-occurrence stacking (#778)', () =>
     stubExpect(railZ, 'rail must stay above the on-canvas popover tier').toBeGreaterThan(popover);
   });
 
-  stubTest('keyboard-focus hover-preview (Path B) keeps its pre-refactor resolved z-index of 45', async ({ page }) => {
-    // Path B = the inline, NON-portaled CellHoverPreview render path
-    // (cursorPos === null). Its layer is governed by the `.cell-hover-preview`
-    // CSS rule, which #761 P1 KEEPS at calc(var(--z-panel) + 5). With --z-panel
-    // now aliased to --z-overlay (40) that still resolves to exactly 45 —
-    // byte-identical to main. The rule was deliberately NOT moved into the
-    // popover band (41): the cursor-driven path (separate inline z-index: 1000)
-    // can float over an open rail/cluster popover, and dropping it to 41 would
-    // change which element wins that real geometric overlap — failing the P1
-    // zero-visual-change litmus. So both hover-preview render paths keep their
-    // pre-refactor ranks. This guard FAILS if a future change lowers the inline
-    // rule's resolved value below 45 without the compensating overlap work.
+  stubTest('hover-preview resolves to the named --z-modal tier, above both popover tiers (#761 O6 #782)', async ({ page }) => {
+    // The `.cell-hover-preview` CSS rule governs BOTH render paths' stacking now:
+    //   - Path B (keyboard focus, cursorPos === null): inline, non-portaled.
+    //   - Path A (cursor following): portaled to body, no longer carries the
+    //     pre-O6 off-scale inline `zIndex: 1000`.
+    // #761 O6 (#782) MIGRATED this rule off `calc(var(--z-panel) + 5)` (=45, a tie
+    // with --z-cluster-popover won only by DOM order) onto the NAMED `--z-modal`
+    // (50) tier — the lowest named tier strictly above --z-cluster-popover (45).
+    // That preserves the tooltip's "above the popovers it overlaps" rank (the
+    // cursor tooltip can still float over an open cell/cluster popover, matching
+    // the pre-O6 inline-1000 intent) while unifying the two paths onto one token.
+    // Safe against real --z-modal surfaces because O6 gates the hover-preview
+    // mount off whenever a detail overlay holds focus. This guard FAILS if a
+    // future change drops the rule below the cluster-popover tier.
     await page.goto('/?scope=us');
     await page.waitForLoadState('domcontentloaded');
 
     const previewZ = await page.evaluate(() => {
       const el = document.createElement('div');
-      el.className = 'cell-hover-preview'; // no inline style → CSS rule governs (Path B)
+      el.className = 'cell-hover-preview'; // no inline style → CSS rule governs
       el.setAttribute('role', 'tooltip');
       document.body.appendChild(el);
       const z = Number.parseInt(getComputedStyle(el).zIndex, 10);
       el.remove();
       return z;
     });
-    const overlay = await resolveZToken(page, '--z-overlay');
+    const modal = await resolveZToken(page, '--z-modal');
+    const cellPopover = await resolveZToken(page, '--z-cell-popover');
+    const clusterPopover = await resolveZToken(page, '--z-cluster-popover');
 
-    // calc(var(--z-panel) + 5) === calc(--z-overlay + 5) === 45 — unchanged from main.
-    stubExpect(previewZ, 'inline hover-preview keeps its pre-refactor resolved z-index of 45').toBe(overlay + 5);
+    stubExpect(previewZ, 'hover-preview now resolves to the named --z-modal tier').toBe(modal);
+    stubExpect(previewZ, 'hover-preview stays above the cell popover tier').toBeGreaterThan(cellPopover);
+    stubExpect(previewZ, 'hover-preview stays above the cluster popover tier').toBeGreaterThan(clusterPopover);
   });
 });

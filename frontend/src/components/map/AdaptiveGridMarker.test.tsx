@@ -774,6 +774,75 @@ describe('AdaptiveGridMarker — cell popover (Phase 1, #558)', () => {
     expect(screen.getByText(/Hummingbirds \(5\)/)).toBeInTheDocument();
   });
 
+  // --- #761 O6 (#782): detailOpen gates the passive hover preview mount -------
+
+  it('pointer:fine + detailOpen: mouseenter does NOT mount <CellHoverPreview> (gated by a focused detail overlay)', async () => {
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', '#888', [
+          { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
+        ])]}
+        totalCount={5}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 5 observations."
+        isCoarsePointer={false}
+        detailOpen
+        onClick={noop}
+      />
+    );
+    const cell = screen.getByTestId('adaptive-grid-marker-cell-rendered');
+    fireEvent.mouseEnter(cell);
+    // The passive hover preview must NOT appear while a detail overlay holds focus.
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+
+  it('pointer:fine + detailOpen=false (default): existing hover-preview behavior is unchanged', async () => {
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', '#888', [
+          { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
+        ])]}
+        totalCount={5}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 5 observations."
+        isCoarsePointer={false}
+        detailOpen={false}
+        onClick={noop}
+      />
+    );
+    const cell = screen.getByTestId('adaptive-grid-marker-cell-rendered');
+    fireEvent.mouseEnter(cell);
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+  });
+
+  it('pointer:fine + detailOpen: the click-driven <CellPopover> is UNAFFECTED by the gate', async () => {
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', '#888', [
+          { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
+        ])]}
+        totalCount={5}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 5 observations."
+        isCoarsePointer={false}
+        detailOpen
+        onClick={noop}
+      />
+    );
+    const cell = screen.getByTestId('adaptive-grid-marker-cell-rendered');
+    cell.focus();
+    fireEvent.keyDown(cell, { key: 'Enter' });
+    // Only the passive preview is gated; the click-driven popover still opens.
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(cell.getAttribute('aria-expanded')).toBe('true');
+  });
+
   // --- Fix 1: outer element tag per perCellInteractive state (nested-button guard) ---
 
   it('pointer:fine → outer is <div role="group" data-testid="adaptive-grid-marker"> (no nested buttons)', async () => {
