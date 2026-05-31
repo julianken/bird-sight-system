@@ -15,6 +15,7 @@ import { useSpeciesDetail } from './data/use-species-detail.js';
 // the entry bundle — App owns the scope→clampPad derivation (#760/#762).
 import { ARTBOARD_PAD } from './components/map/mask.js';
 import { FiltersBar } from './components/FiltersBar.js';
+import { FamilyLegend } from './components/FamilyLegend.js';
 import { MapSurface } from './components/MapSurface.js';
 import { ScopeChooser } from './components/ScopeChooser.js';
 import { SpeciesDetailRail } from './components/SpeciesDetailRail.js';
@@ -44,6 +45,31 @@ const apiClient = new ApiClient({ baseUrl: import.meta.env.VITE_API_BASE_URL ?? 
  * chunk into the entry bundle just to read a constant.
  */
 const CONUS_BOUNDS: [[number, number], [number, number]] = [[-130, 20], [-65, 52]];
+
+/**
+ * O2 (#770): Default-expanded breakpoint for FamilyLegend, moved here from
+ * MapSurface so the legend can render as a persistent App-root sibling.
+ *
+ * Originally mirrored the global `(max-width: 760px)` mobile breakpoint, but
+ * the CONUS default viewport puts the AZ-only data cluster in the lower-left
+ * of the map — directly under the bottom-left FamilyLegend overlay. At
+ * 768×1024 (iPad portrait) the expanded legend covers the only visible marker
+ * on first paint. Lift the JS threshold to 1024 so tablet-portrait (and
+ * narrower) start collapsed; tablet-landscape and desktop still default
+ * expanded. localStorage `family-legend-expanded.v2` still overrides the
+ * default once the user toggles.
+ */
+const LEGEND_EXPAND_MIN_WIDTH = 1024;
+
+function readLegendDefaultExpanded(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    // SSR / jsdom-without-matchMedia — default to expanded so server-rendered
+    // HTML matches the desktop fallback. The component re-evaluates from
+    // localStorage on mount regardless.
+    return true;
+  }
+  return window.matchMedia(`(min-width: ${LEGEND_EXPAND_MIN_WIDTH}px)`).matches;
+}
 
 /**
  * Maps an Error to a user-facing body string for the top-level error screen.
@@ -401,6 +427,13 @@ export function App() {
   // #663: the Map stays mounted on view === 'map' OR 'detail' (rail/sheet
   // coexist over it). The viewport-bounds filter applies in both cases.
   const mapVisible = state.view === 'map' || state.view === 'detail';
+
+  // O2 (#770): compute the legend's expand-by-default once at mount. The
+  // component itself (FamilyLegend) handles localStorage precedence + manual
+  // toggle. Evaluated here (App level) because the legend is now an App-root
+  // sibling, not a child of MapSurface.
+  const legendDefaultExpanded = useMemo(readLegendDefaultExpanded, []);
+
   const viewportObservations = useMemo(
     () =>
       mapVisible && viewportBounds
@@ -941,6 +974,36 @@ export function App() {
         onExitScope={onExitScope}
         onResolveZip={onResolveZip}
       />
+      {/* O2 (#770) — "Explore map markers" skip-link. WCAG 2.4.1 (Bypass
+          Blocks): renders as the FIRST interactive App-root element after
+          <AppHeader>, BEFORE <main id="main-surface"> and BEFORE #map-layer,
+          so a fresh Tab into the scoped map view reaches this button BEFORE
+          any ScopeControl or canvas element (DOM order determines tab order;
+          position:fixed does NOT reorder focus). The skip-link activates
+          focus on the first marker cell (the keyboard bypass for the 344-
+          marker tap sequence). Gated on `mapVisible && scopeActive` so it
+          does not render on the unscoped landing or the non-map view.
+          The original "Skip to species list" skip-link was removed in #662. */}
+      {mapVisible && scopeActive && (
+        <button
+          type="button"
+          className="skip-link"
+          data-testid="explore-map-markers-skip-link"
+          aria-hidden={observations.length > 0 ? undefined : true}
+          tabIndex={observations.length > 0 ? 0 : -1}
+          onClick={() => {
+            if (observations.length > 0) {
+              const firstCell = document.querySelector(
+                '[data-testid="adaptive-grid-marker-cell-rendered"], ' +
+                '[data-testid="adaptive-grid-marker-cell-fallback"]',
+              ) as HTMLElement | null;
+              firstCell?.focus();
+            }
+          }}
+        >
+          Explore map markers
+        </button>
+      )}
       {/* O4 (#780) — Filters floating sheet. Replaces the old in-flow panel that
           displaced the map down. The sheet is `position: fixed` (see styles.css
           `.filters-panel`), anchored top-right under the controls pill, capped
@@ -1022,20 +1085,9 @@ export function App() {
               is also deleted: corner cards have nothing to dodge. */}
           <MapSurface
             observations={observations}
-            legendObservations={viewportObservations}
             silhouettes={silhouettes}
-            familyCode={state.familyCode}
-            onFamilyToggle={onFamilyToggle}
             onSelectSpecies={onSelectSpecies}
             onViewportChange={onViewportChange}
-            onExploreMapMarkers={() => {
-              const firstCell = document.querySelector(
-                '[data-testid="adaptive-grid-marker-cell-rendered"], ' +
-                '[data-testid="adaptive-grid-marker-cell-fallback"]'
-              ) as HTMLElement | null;
-              firstCell?.focus();
-            }}
-            hasMarkers={observations.length > 0}
             {...(scopeBounds ? { scopeBounds } : {})}
             {...(boundsKey !== undefined ? { boundsKey } : {})}
             {...(flyTo ? { flyTo } : {})}
@@ -1078,6 +1130,31 @@ export function App() {
       <div role="status" aria-live="polite" className="sr-only">
         {settledLedeText ?? ''}
       </div>
+      {/* O2 (#770) — FamilyLegend as a persistent App-root sibling (post-<main>),
+          `position:fixed` bottom-left. Hoisted out of MapSurface so it persists
+          across map↔detail transitions WITHOUT re-entering the lazy MapCanvas
+          Suspense subtree. Gated on `mapVisible && scopeActive` to preserve
+          current behavior (not on view=feed or while unscoped). The `<aside>`
+          carries explicit `role="complementary"` with its `aria-labelledby`
+          name ("Bird families in view") — mirroring SpeciesDetailRail's pattern.
+
+          Inert/filters interaction (decision per O2 AC): when the filters sheet
+          or S1 scrim is open, #808's focus-trap and keyboard-inert on #map-layer
+          already contain keyboard focus within the sheet/scrim — only a pointer
+          click on the legend during filters-open is possible. Adding `inert` to
+          the hoisted legend when filtersOpen is deferred to O5 (#783) to keep
+          this PR scoped, consistent with the O5 issue which owns the full
+          inert-overlay audit. The focus-trap already prevents keyboard users
+          from reaching the legend while filters are open. */}
+      {mapVisible && scopeActive && (
+        <FamilyLegend
+          silhouettes={silhouettes}
+          observations={viewportObservations}
+          familyCode={state.familyCode}
+          onFamilyToggle={onFamilyToggle}
+          defaultExpanded={legendDefaultExpanded}
+        />
+      )}
       {/* #761 (S1) — detail rail/sheet gated on `scopeActive`. The unscoped
           early-return used to make these lines unreachable while unscoped; now
           that the shell always renders, a `?detail=` riding an unscoped URL

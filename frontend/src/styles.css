@@ -173,12 +173,15 @@ body {
    skip past the map canvas (which is intentionally NOT in the global tab
    order — a 344-marker tab sequence is hostile per UX/a11y review) to
    the first map-marker cell (the "Explore map markers" skip-link, #558).
-   The link is visually hidden until it
-   receives keyboard focus, then it slides into the top of the surface
-   and renders as a visible button. Pattern follows the WebAIM
-   "Skip Navigation" recommendation. */
+   O2 (#770): changed position:absolute → position:fixed so the element
+   anchors to the viewport top-left corner regardless of scroll or
+   ancestor positioning context (now an App-root sibling, not a child of
+   .map-surface). The link is visually hidden until it receives keyboard
+   focus, then it slides into the top-left of the viewport and renders as
+   a visible button. Pattern follows the WebAIM "Skip Navigation"
+   recommendation. */
 .skip-link {
-  position: absolute;
+  position: fixed;
   left: 0;
   top: 0;
   /* Hidden but reachable: clipped 1×1 box rather than display:none so
@@ -748,17 +751,16 @@ body:has(.species-detail-sheet--full) .app-header-controls-pill {
   }
 }
 
-/* FamilyLegend floating overlay (#249). Anchored to the bottom-left of
-   .map-surface. MapLibre's non-compact AttributionControl anchors bottom-right
-   but, under the full-bleed map (#761 S2), its always-expanded license bar wraps
-   to the FULL viewport width on narrow viewports and reaches into this corner.
-   The `bottom` offset lifts the legend ABOVE that band (--attribution-clearance,
-   tiered by viewport) so the OSM / OpenFreeMap / eBird credit is never overlapped
-   — a licensing requirement, not cosmetic (#775). The legend is a semantic
-   <aside> — keyboard-reachable, labelled by its toggle button, and self-
-   collapsing on mobile. */
+/* FamilyLegend floating overlay (#249). O2 (#770): changed position:absolute
+   → position:fixed so the element anchors to the viewport bottom-left corner
+   as an App-root sibling (no longer a child of .map-surface). The bottom
+   offset lifts the legend ABOVE MapLibre's AttributionControl band
+   (--attribution-clearance, tiered by viewport) so the OSM / OpenFreeMap /
+   eBird credit is never overlapped — a licensing requirement, not cosmetic
+   (#775). The legend is a semantic <aside role="complementary"> — keyboard-
+   reachable, labelled by its toggle button, and self-collapsing on mobile. */
 .family-legend {
-  position: absolute;
+  position: fixed;
   bottom: calc(var(--space-md) + var(--attribution-clearance));
   left: var(--space-md);
   z-index: var(--z-overlay);
@@ -1530,9 +1532,12 @@ aside.species-detail-rail .species-detail-rail-close {
    background: transparent — NO scrim dim. Modality is enforced by the `inert`
    attribute on #map-layer (set in App.tsx when the panel is open) plus the
    elevated floating panel itself. This matches the Google-Maps "panel over a
-   live map" reference: opening a panel must not dim the map. It also avoids
-   dimming the bottom-left .family-legend, which remains a child of #map-layer
-   (inside its stacking context) until O2 #770 hoists it to the app root. */
+   live map" reference: opening a panel must not dim the map.
+   O2 (#770): .family-legend is now a `position:fixed` App-root sibling (not
+   inside #map-layer). The filters `inert` on #map-layer therefore no longer
+   covers the legend — keyboard focus is still contained by the focus-trap in
+   App.tsx's filters effect; pointer interaction with the legend during
+   filters-open is an accepted edge case deferred to O5 (#783). */
 .filters-backdrop {
   position: fixed;
   inset: 0;
