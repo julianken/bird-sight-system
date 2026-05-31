@@ -6,10 +6,7 @@ import type { MultiPolygon } from 'geojson';
 import type { FamilySilhouette, Observation } from '@bird-watch/shared-types';
 import { ErrorBoundary } from './ErrorBoundary.js';
 import { FamilyLegend } from './FamilyLegend.js';
-import { MapLede, type Freshness } from './MapLede.js';
-import { FilterSentence } from './ds/FilterSentence.js';
-import type { Since, BBox } from '../state/url-state.js';
-import { prettyFamily } from '../derived.js';
+import type { BBox } from '../state/url-state.js';
 
 /**
  * Lazy-loaded MapCanvas. The React.lazy() boundary lives HERE — not inside
@@ -108,48 +105,6 @@ export interface MapSurfaceProps {
    * keeps showing full-set counts.
    */
   onViewportChange?: (bounds: LngLatBounds, zoom: number) => void;
-  // --- Phase 3: context strip ---
-  /** Time-window filter (mirrors UrlState.since). */
-  since: Since;
-  /** Notable-only filter (mirrors UrlState.notable). */
-  notable: boolean;
-  /** Currently active species filter code (mirrors UrlState.speciesCode). */
-  speciesCode: string | null;
-  /**
-   * Human-readable common name for the active species filter (e.g.
-   * "Vermilion Flycatcher"). Forwarded to <FilterSentence> so the visible
-   * sentence renders the common name instead of the raw eBird code.
-   * Optional — when absent FilterSentence falls back to the raw code.
-   */
-  speciesName?: string;
-  /** Freshness state from <App>'s freshness derivation. */
-  freshness: Freshness;
-  /** Pre-formatted freshness meta string (e.g. "Updated 11 min ago · Source: eBird"). */
-  freshnessLabel: string;
-  /**
-   * Issue #716/#720: cold-load gate forwarded to <MapLede>. While the
-   * initial /api/observations fetch is in flight, useBirdData's seeded
-   * empty `observations: []` would otherwise drive MapLede into Template 1
-   * ("No sightings match your current filters."), which is misleading
-   * before the user has applied any filters. App.tsx threads
-   * `observationsLoading` (NOT the combined `loading`) into this prop
-   * so the suppression survives the common case where `/api/hotspots`
-   * resolves before `/api/observations`.
-   */
-  loading: boolean;
-  /**
-   * #738/C5: runtime region label for the active scope (from `regionLabelFor`).
-   * Forwarded to <MapLede>. `null` ⟺ the unscoped/chooser landing, where
-   * MapLede renders nothing. App.tsx (#740) derives this from `state.scope`.
-   */
-  region: string | null;
-  /**
-   * #738/C7: whether any filter is active (App.tsx owns the
-   * `since === DEFAULTS.since` comparison). Forwarded to <MapLede> so the
-   * zero-count branch reads as data-availability (sparse region) vs
-   * filter-narrowing.
-   */
-  noFiltersActive: boolean;
   /**
    * #740/C6 — scope camera props, forwarded VERBATIM to <MapCanvas> (#736 owns
    * the `fitBounds`/`maxBounds`/`flyTo` mechanics). App.tsx derives these from
@@ -211,15 +166,6 @@ export function MapSurface({
   onViewportChange,
   onExploreMapMarkers,
   hasMarkers = true,
-  since,
-  notable,
-  speciesCode,
-  speciesName,
-  freshness,
-  freshnessLabel,
-  loading,
-  region,
-  noFiltersActive,
   scopeBounds,
   boundsKey,
   flyTo,
@@ -235,16 +181,6 @@ export function MapSurface({
   // narrate viewport state. When absent, fall back to the same array
   // MapCanvas sees so baseline callers and tests stay unchanged.
   const legendObs = legendObservations ?? observations;
-
-  // Phase 3: derive lede inputs from the observations array.
-  const speciesCount = new Set(observations.map(o => o.speciesCode).filter(Boolean)).size;
-  const observationCount = observations.length;
-  // For Template 2 (single species filter), prefer the comName of the first
-  // observation if there's exactly one species in scope.
-  const speciesCommonName =
-    speciesCount === 1 ? (observations[0]?.comName ?? null) : null;
-  const familyName = familyCode ? prettyFamily(familyCode) : null;
-  const period = since === '1d' ? '24 hours' : since.replace('d', ' days');
 
   return (
     <ErrorBoundary
@@ -272,26 +208,11 @@ export function MapSurface({
           Explore map markers
         </button>
       )}
-      {/* Phase 3: context strip — lede + filter sentence + freshness meta */}
-      <section className="map-context-strip" aria-label="Map context">
-        <MapLede
-          region={region}
-          noFiltersActive={noFiltersActive}
-          speciesCount={speciesCount}
-          observationCount={observationCount}
-          speciesCommonName={speciesCommonName}
-          familyName={familyName}
-          period={period}
-          freshness={freshness}
-          loading={loading}
-        />
-        <FilterSentence
-          filters={{ since, notable, speciesCode, familyCode }}
-          {...(familyName !== null ? { familyName } : {})}
-          {...(speciesName !== undefined ? { speciesName } : {})}
-        />
-        {freshnessLabel && <p className="map-freshness">{freshnessLabel}</p>}
-      </section>
+      {/* #800 / #779: The context strip (lede + filter sentence + freshness)
+          was rendered here as an in-flow band that the `absolute; inset:0`
+          map canvas painted over — the app's primary orientation sentence was
+          invisible. It is now in the AppHeader identity card (top-left floating
+          card). This MapSurface no longer renders the strip. */}
       <div className="map-surface">
         <React.Suspense
           fallback={

@@ -1285,12 +1285,11 @@ describe('#740 (C6): scope wiring end-to-end', () => {
       meta: { freshestObservationAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() },
     });
     render(<App />);
-    // The AppHeader wordmark names the region — the resolved "Arizona" name,
-    // not the bare "US-AZ" code. (The MapLede surface lede is covered in
-    // MapSurface.test.tsx; MapSurface is stubbed in this file.)
-    const brandRegion = await screen.findByText('Arizona', { selector: '.brand-region' });
-    expect(brandRegion).toBeInTheDocument();
-    expect(screen.queryByText('US-AZ', { selector: '.brand-region' })).toBeNull();
+    // The AppHeader wordmark / region-name row names the region — the resolved
+    // "Arizona" name, not the bare "US-AZ" code. Check the identity card.
+    // .brand-region contains " · Arizona" (note space + dot); use a regex match.
+    await screen.findByText(/Arizona/i, { selector: '.brand-region' });
+    expect(screen.queryByText(/US-AZ/, { selector: '.brand-region' })).toBeNull();
   });
 });
 
@@ -1345,25 +1344,21 @@ describe('#761 (S2): map hoisted to a viewport-root #map-layer sibling of <main>
     expect(mainSurface!.parentElement).toBe(app);
   });
 
-  // AC: the "Map view" tab's aria-controls is retargeted to "map-layer" and
-  // resolves to the present, hoisted #map-layer — the region that actually
-  // contains the map post-hoist (NOT the now-feed-only #main-surface). A
-  // presence-only check against #main-surface would assert the regression passes.
-  it('points the Map view tab\'s aria-controls at #map-layer (the region holding the map)', async () => {
+  // AC (#800): The "Map view" tab is REMOVED. There is no tablist or tab role
+  // in the new AppHeader — the map is the always-mounted sole surface.
+  // Assert the absence (was: aria-controls='map-layer' tab assertion).
+  it('does NOT render a tablist or Map view tab after #800 header migration', async () => {
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: null,
       view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
     };
-    const { container } = render(<App />);
+    render(<App />);
     await screen.findByTestId('map-surface-stub');
 
-    const mapTab = screen.getByRole('tab', { name: 'Map view' });
-    expect(mapTab).toHaveAttribute('aria-controls', 'map-layer');
-    expect(mapTab).not.toHaveAttribute('aria-controls', 'main-surface');
-    // The controlled region resolves to a present element that holds the map.
-    const controlled = container.querySelector('#map-layer');
-    expect(controlled).not.toBeNull();
-    expect(controlled!.contains(screen.getByTestId('map-surface-stub'))).toBe(true);
+    expect(screen.queryByRole('tablist')).toBeNull();
+    expect(screen.queryByRole('tab', { name: 'Map view' })).toBeNull();
+    // The #map-layer is still present and holds the map.
+    expect(document.querySelector('#map-layer')).not.toBeNull();
   });
 
   // AC: the always-mounted-under-scrim invariant survives the hoist — on the

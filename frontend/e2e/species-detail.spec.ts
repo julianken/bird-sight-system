@@ -68,10 +68,9 @@ test.describe('species detail surface (#151)', () => {
     expect(app.getUrlParams().get('detail')).toBeNull();
     expect(app.getUrlParams().get('view')).toBeNull();
 
-    // #688/#777: Species and Feed tabs are gone. Only the Map tab remains,
-    // and it is the selected tab on the scoped map landing.
+    // #688/#777/#800: Species, Feed, and Map tabs are all gone. No tablist.
     await expect(page.getByRole('tab', { name: 'Species view' })).toHaveCount(0);
-    await expect(page.getByRole('tab', { name: 'Map view' })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('tab', { name: 'Map view' })).toHaveCount(0);
   });
 
   test('network failure shows inline error on detail surface', async ({ page, apiStub }) => {
@@ -102,7 +101,9 @@ test.describe('species detail surface (#151)', () => {
     await expect.poll(() => new URL(page.url()).searchParams.get('detail'), { timeout: 5_000 })
       .toBeNull();
     await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' })).toHaveCount(0);
-    await expect(page.getByRole('tab', { name: 'Map view' })).toHaveAttribute('aria-selected', 'true');
+    // #800: no Map tab — assert map canvas is reachable after ESC.
+    await expect(page.getByRole('tab', { name: 'Map view' })).toHaveCount(0);
+    await expect(page.locator('[data-testid=map-canvas]')).toBeVisible({ timeout: 5_000 });
   });
 
   test('detail surface renders as <aside role="complementary"> on desktop (#663)', async ({ page, apiStub }) => {

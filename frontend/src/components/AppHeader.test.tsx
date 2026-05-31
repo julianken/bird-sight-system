@@ -4,76 +4,122 @@ import userEvent from '@testing-library/user-event';
 import { AppHeader } from './AppHeader.js';
 
 const baseProps = {
-  activeView: 'map' as const,
-  onSelectView: vi.fn(),
   region: 'Arizona' as string | null,
   filterCount: 0,
   onOpenFilters: vi.fn(),
   onOpenAttribution: vi.fn(),
+  ledeText: null as string | null,
+  freshnessLabel: '',
+  scope: { kind: 'unscoped' as const },
+  states: [],
+  onPickState: vi.fn(),
+  onPickWholeUs: vi.fn(),
+  onExitScope: vi.fn(),
+  onResolveZip: vi.fn(),
 };
 
 describe('<AppHeader>', () => {
-  it('renders the wordmark with the runtime region (#738/C5)', () => {
+  // ── Wordmark ────────────────────────────────────────────────────────────
+
+  it('renders the wordmark as a home link (#738/C5)', () => {
     render(<AppHeader {...baseProps} region="Arizona" />);
     const link = screen.getByRole('link', { name: /Bird Maps Arizona — home/i });
     expect(link).toBeInTheDocument();
-    expect(link).toHaveTextContent(/Bird Maps · Arizona/);
-  });
-
-  it('threads the ?scope=us region "USA" into the wordmark', () => {
-    render(<AppHeader {...baseProps} region="USA" />);
-    const link = screen.getByRole('link', { name: /Bird Maps USA — home/i });
-    expect(link).toHaveTextContent(/Bird Maps · USA/);
   });
 
   it('unscoped (region=null): wordmark is "Bird Maps" with no " · " separator', () => {
     render(<AppHeader {...baseProps} region={null} />);
     const link = screen.getByRole('link', { name: 'Bird Maps — home' });
     expect(link).toBeInTheDocument();
-    // No bare separator and no region word in the visible text or aria-label.
-    expect(link.textContent).toBe('Bird Maps');
     expect(link).not.toHaveTextContent('·');
     expect(link.getAttribute('aria-label')).toBe('Bird Maps — home');
   });
 
-  it('renders a single Map tab (Species + Feed removed per #688 / #662)', () => {
+  it('threads the ?scope=us region "USA" into the wordmark', () => {
+    render(<AppHeader {...baseProps} region="USA" />);
+    expect(screen.getByRole('link', { name: /Bird Maps USA — home/i })).toBeInTheDocument();
+  });
+
+  // ── No tablist / Map nav ────────────────────────────────────────────────
+  // The "Map" tab and role="tablist" were removed in #800. The map is the
+  // always-mounted sole surface — a navigation tab adds no value and creates
+  // a dead center in the old bar.
+
+  it('does NOT render a tablist or any tab roles (#800)', () => {
     render(<AppHeader {...baseProps} />);
-    const tablist = screen.getByRole('tablist', { name: /Surface/i });
-    const tabs = within(tablist).getAllByRole('tab');
-    expect(tabs).toHaveLength(1);
-    expect(tabs[0].textContent).toBe('Map');
+    expect(screen.queryByRole('tablist')).toBeNull();
+    expect(screen.queryByRole('tab')).toBeNull();
   });
 
-  it('does not render a Feed tab (issue #662)', () => {
+  it('does NOT render a "Map" tab label (#800)', () => {
     render(<AppHeader {...baseProps} />);
-    expect(screen.queryByRole('tab', { name: /Feed view/i })).toBeNull();
+    expect(screen.queryByRole('tab', { name: /Map view/i })).toBeNull();
+    expect(screen.queryByText(/^Map$/, { selector: 'button' })).toBeNull();
   });
 
-  it('does not render a Species tab (issue #688)', () => {
+  // ── Two floating cards ──────────────────────────────────────────────────
+
+  it('renders the identity card and controls pill', () => {
     render(<AppHeader {...baseProps} />);
-    expect(screen.queryByRole('tab', { name: /Species view/i })).toBeNull();
+    expect(document.querySelector('.app-header-identity-card')).not.toBeNull();
+    expect(document.querySelector('.app-header-controls-pill')).not.toBeNull();
   });
 
-  it('marks the Map tab as selected via aria-selected and is-active class', () => {
-    render(<AppHeader {...baseProps} activeView="map" />);
-    const mapTab = screen.getByRole('tab', { name: /Map view/i });
-    expect(mapTab).toHaveAttribute('aria-selected', 'true');
-    expect(mapTab).toHaveClass('app-header-tab', 'is-active');
+  // ── Lede (O3 #779) ─────────────────────────────────────────────────────
+
+  it('renders the lede text when ledeText is provided', () => {
+    render(
+      <AppHeader
+        {...baseProps}
+        ledeText="331 species seen across Arizona in the last 14 days."
+      />,
+    );
+    expect(
+      screen.getByText('331 species seen across Arizona in the last 14 days.'),
+    ).toBeInTheDocument();
   });
 
-  // #761 (S2): the shell inverted so the map is the viewport ROOT (#map-layer),
-  // hoisted out of #main-surface. The "Map view" tab controls the region that
-  // actually holds the map, so its aria-controls points at "map-layer" — NOT the
-  // now-feed-only "main-surface" (which would be a silent a11y semantic regression).
-  it('points the Map view tab\'s aria-controls at the map-layer region (#761 S2)', () => {
-    render(<AppHeader {...baseProps} activeView="map" />);
-    const mapTab = screen.getByRole('tab', { name: /Map view/i });
-    expect(mapTab).toHaveAttribute('aria-controls', 'map-layer');
+  it('does NOT render a lede row when ledeText is null', () => {
+    render(<AppHeader {...baseProps} ledeText={null} />);
+    expect(document.querySelector('.app-header-lede-row')).toBeNull();
   });
+
+  it('renders freshnessLabel alongside the lede when both are present', () => {
+    render(
+      <AppHeader
+        {...baseProps}
+        ledeText="331 species seen across Arizona in the last 14 days."
+        freshnessLabel="Updated 11 min ago · Source: eBird"
+      />,
+    );
+    expect(screen.getByText('Updated 11 min ago · Source: eBird')).toBeInTheDocument();
+  });
+
+  // ── Scope rows ──────────────────────────────────────────────────────────
+
+  it('renders scope rows + divider when scope is active (state)', () => {
+    render(
+      <AppHeader
+        {...baseProps}
+        scope={{ kind: 'state', stateCode: 'US-AZ' }}
+        states={[{ stateCode: 'US-AZ', name: 'Arizona', bbox: [-114.82, 31.33, -109.05, 37.0] }]}
+      />,
+    );
+    expect(document.querySelector('.app-header-divider')).not.toBeNull();
+    expect(document.querySelector('.app-header-scope-rows')).not.toBeNull();
+  });
+
+  it('does NOT render scope rows on the unscoped landing', () => {
+    render(<AppHeader {...baseProps} scope={{ kind: 'unscoped' }} />);
+    expect(document.querySelector('.app-header-divider')).toBeNull();
+    expect(document.querySelector('.app-header-scope-rows')).toBeNull();
+  });
+
+  // ── Filters trigger ─────────────────────────────────────────────────────
 
   it('renders Filters trigger without badge when filterCount === 0', () => {
     render(<AppHeader {...baseProps} filterCount={0} />);
-    const trigger = screen.getByRole('button', { name: /Filters/i });
+    const trigger = screen.getByRole('button', { name: /^Filters$/i });
     expect(trigger).toBeInTheDocument();
     expect(within(trigger).queryByText(/^[1-9]/)).toBeNull();
   });
@@ -92,6 +138,8 @@ describe('<AppHeader>', () => {
     expect(onOpenFilters).toHaveBeenCalledTimes(1);
   });
 
+  // ── Attribution ─────────────────────────────────────────────────────────
+
   it('clicking the Attribution link calls onOpenAttribution', async () => {
     const onOpenAttribution = vi.fn();
     render(<AppHeader {...baseProps} onOpenAttribution={onOpenAttribution} />);
@@ -99,10 +147,18 @@ describe('<AppHeader>', () => {
     expect(onOpenAttribution).toHaveBeenCalledTimes(1);
   });
 
-  it('mounts the <ThemeToggle> in the right cluster', () => {
+  // ── ThemeToggle ─────────────────────────────────────────────────────────
+
+  it('mounts the <ThemeToggle> in the controls pill', () => {
     render(<AppHeader {...baseProps} />);
-    // Fix #459 W4-C: ThemeToggle now uses a static aria-label + aria-pressed.
-    // The label no longer changes with theme state.
     expect(screen.getByRole('button', { name: /Toggle color theme/i })).toBeInTheDocument();
+  });
+
+  // ── role="banner" landmark ───────────────────────────────────────────────
+
+  it('wraps both clusters in exactly ONE role="banner" landmark', () => {
+    render(<AppHeader {...baseProps} />);
+    const banners = screen.getAllByRole('banner');
+    expect(banners).toHaveLength(1);
   });
 });

@@ -413,31 +413,37 @@ const INITIAL_VIEW = {
 } as const;
 
 /**
- * Single source of truth for the scope-framing `fitBounds` padding (#737, S3 of
- * #761). ASYMMETRIC by design: after #761 (S2) the map is the viewport-filling
- * root (`#map-layer` → `position: fixed; inset: 0`) and two stacked overlays now
- * float over its TOP edge — the fixed `.app-header` chrome and the top-anchored
- * `.scope-control` bar below it. A uniform inset would let that chrome occlude
- * the top of the framed region (the northern strip of a state, markers at the
- * top latitude). So `top` is grown to clear BOTH overlays while `bottom`/`left`/
- * `right` keep the historical 48px (the non-chrome edges; bottom also leaves room
- * for the bottom-left `.family-legend` + the MapLibre attribution bar).
+ * Single source of truth for the scope-framing `fitBounds` padding (#800, #761).
  *
- * Derivation from the CSS tokens that own this stack (styles.css):
- *   - `--header-height` = 48px (the fixed `.app-header` band).
- *   - `.scope-control` top offset = `--header-height + --space-md` = 48 + 12 = 60px
- *     from the viewport top (styles.css `.scope-control { inset-block-start }`).
- *   - `.scope-control` height: `padding: --space-sm` (8px) top + bottom + content.
- *     At ≤480px the bar WRAPS (`flex-wrap: wrap`; the `.scope-control__select` and
- *     `.scope-control__exit-group` each go `flex: 1 1 100%`) to ~2 rows of ~36px
- *     touch targets → ~88px tall worst case. Its bottom edge then sits at
- *     ~60 + 88 ≈ 148px from the viewport top.
- *   `top: 152` clears that wrapped worst case (narrowest 390px viewport) with a
- *   small margin; on wider viewports the single-row bar is ~52px tall (bottom at
- *   ~112px) so the same value clears it comfortably. Verified live against the
- *   measured stack at all 5 canonical viewports (UI verification, #773).
+ * Re-derived after the AppHeader → two floating corner cards migration (#800).
+ * The old value (top: 152) was sized to clear TWO stacked full-width bands:
+ * the fixed `.app-header` bar (48px) AND the top-center `.scope-control` overlay
+ * (up to 88px wrapped at 390px, giving ~148px total). Those bands are now GONE.
+ *
+ * Replacement: two CORNER cards (not full-width bands) sit at:
+ *   - TOP-LEFT: `.app-header-identity-card` — anchored at `--card-inset` (12px)
+ *     from the top-left. When fully populated (scoped with lede + scope rows) its
+ *     bottom edge reaches ~170px on desktop, but it is only `--card-maxw-identity`
+ *     (360px) wide — it does NOT span the full viewport width. The center and
+ *     right of the map framing are completely clear of top occlusion.
+ *   - TOP-RIGHT: `.app-header-controls-pill` — anchored at `--card-inset` (12px).
+ *     Content-width (~160px wide, ~52px tall). Bottom edge ≈ 12 + 52 = 64px.
+ *
+ * Because neither card spans the full viewport width, a uniform top padding
+ * equal to the tallest card's bottom would over-frame the map on desktop. A
+ * value of 80px clears the controls pill (the rightmost card, ~64px tall) with a
+ * comfortable margin, and keeps most of the top-left identity card's area visible
+ * in the framed view. The identity card (max 360px wide) only partially overlaps
+ * the top-left corner of the framed state — acceptable for typical state data
+ * distributions (density is rarely highest at the very top-left corner).
+ *
+ * bottom/left/right: unchanged at 48px — the bottom-left family legend and
+ * MapLibre attribution bar set the bottom constraint; left/right are symmetric
+ * insets that provide breathing room from the viewport edge.
+ *
+ * Single source of truth for BOTH fitBounds call sites in this file.
  */
-const FIT_BOUNDS_PADDING = { top: 152, bottom: 48, left: 48, right: 48 } as const;
+const FIT_BOUNDS_PADDING = { top: 80, bottom: 48, left: 48, right: 48 } as const;
 
 /**
  * Convert a `family_silhouettes` row into a complete SVG document string

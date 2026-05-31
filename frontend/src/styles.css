@@ -153,24 +153,23 @@ body {
   z-index: var(--z-map);
 }
 
-/* Main surface. The map chain (Map/Region/Badge/BadgeStack/HotspotDot) was
-   removed in the DISCARD wave (#113); the map itself was hoisted into
-   `#map-layer` above in the #761 (S2) shell inversion. `<main>` is retained as
-   the e2e readiness gate (data-render-complete), the scroll-bypass affordance
-   (#586), and the `inert` target. It now wraps only non-map view surfaces (none
-   today after F1 #777 removed the feed branch); the `--space-lg` padding stays
-   for any such surface.
-   R15 (S2): the now-`position: fixed` AppHeader left the flow, so any non-map
-   surface here would otherwise render UNDER the floating chrome. `padding-top`
-   (and `scroll-margin-top`, for the #586 scroll-bypass focus target) clears the
-   header height. The map layer is exempt — `#map-layer` sits at `inset: 0`
-   beneath the header on purpose. */
+/* Main surface. The map chain was removed in the DISCARD wave (#113); the map
+   was hoisted into `#map-layer` in the #761 (S2) shell inversion. `<main>` is
+   retained as the e2e readiness gate (data-render-complete), the scroll-bypass
+   affordance (#586), and the `inert` target. It now wraps only non-map view
+   surfaces (none today after F1 #777 removed the feed branch).
+   #800: The AppHeader is now a transparent pointer-events-none wrapper (position:
+   fixed; inset:0; no block-height). Any future non-map content here does not need
+   to clear a header band — the top-left identity card only occludes the top-left
+   corner. A top padding of `calc(var(--card-inset) + 60px)` gives clearance above
+   the controls pill for any future content. The `--z-skip` skip-link is exempt
+   (it sits at z:60 and appears over the corner cards when focused). */
 #main-surface {
   flex: 1;
   min-height: 0;
   padding: var(--space-lg);
-  padding-top: calc(var(--header-height) + var(--space-lg));
-  scroll-margin-top: var(--header-height);
+  padding-top: calc(var(--card-inset) + 60px);
+  scroll-margin-top: calc(var(--card-inset) + 60px);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -222,67 +221,66 @@ body {
   border-radius: 4px;
 }
 
-/* AppHeader wordmark region label — Phase 6. The .brand-region span
-   contains the " · Arizona" part of "Bird Maps · Arizona"; the separator
-   dot is aria-hidden so screen readers pronounce the full phrase naturally.
-   Subtle weight + muted color visually demote the region label relative to
-   the "Bird Maps" primary text without hiding it. Margin-left bridges the
-   separator and the text at the correct density. */
-.app-header-wordmark .brand-region {
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-muted);
-  margin-left: var(--space-xs);
-}
+/* ── AppHeader — two floating corner clusters (#800 / #779 / #761) ──────────
+   Design spec: docs/design/2026-05-30-floating-ui-design-spec.md §4.1–4.3.
 
-/* ── AppHeader chrome bar (#437) ────────────────────────────────────────────
-   Phase 3 introduced the .app-header-* class names. Rules below provide
-   the visual contract for the header chrome (tablist, action buttons,
-   wordmark).
+   The old full-width top bar (position:fixed; left:0; right:0; border-bottom)
+   is replaced by two independent tier-1 floating cards over the edge-to-edge
+   map. The four-corner anchor contract is the system rule: every chrome element
+   lives in a corner, the center belongs to the map.
 
-   Token contract: all tokens resolve identically in light and dark modes
-   for these semantic roles — see tokens.css dark-mode comment at line ~115.
-   Do not add per-theme overrides here without revisiting that constraint. */
-
-/* Top-level chrome bar — floating fixed chrome over the full-viewport map root.
-   #761 (S2): the shell inverted so the map is the viewport ROOT (`#map-layer`,
-   `position: fixed; inset: 0`) and the header FLOATS over its top edge
-   (Google-Maps-style) rather than displacing it down a flex column. */
+   .app-header: transparent pointer-events-none wrapper that preserves the ONE
+   role="banner" landmark for assistive technology. The two card children get
+   pointer-events: auto so they remain interactive. Fixed + inset:0 makes it
+   a positioned ancestor for the cards without adding a visual layer. */
 .app-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-lg);
-  background: var(--color-bg-surface);
-  border-bottom: 1px solid var(--color-border-ui);
-  /* #761 (S2): `position: fixed` (was `sticky; z-index: 10`) so the header leaves
-     the flow and floats over `#map-layer`. It adopts the named `--z-chrome` token
-     S1 (#778) defined-but-did-not-apply: 42 sits ABOVE the map-assist overlays
-     (legend / scope-control at `--z-overlay` = 40, observation-popover at
-     `--z-popover` = 41) and BELOW the detail rail (`--z-rail` = 43) so the
-     in-place rail (#663) still floats over the header. The P1-deferred
-     scope-control click regression (raising the header above the overlay band
-     made it intercept clicks on the top-anchored `.scope-control`) is fixed in
-     the SAME PR by the compensating `.scope-control` top-offset below — the
-     control is pushed below the header band so `elementFromPoint` returns the
-     control, not the header. (S2 makes NO z-order claim about the bottom-sheet
-     snap tiers (10/15/20) — that reconciliation is the deferred mobile-overlay
-     workstream / O5.) (2026-05-30) */
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
+  inset: 0;
+  pointer-events: none;
   z-index: var(--z-chrome);
+  /* No background, no border — this is a transparent scaffold only. */
 }
 
-/* Brand link — suppress UA link chrome; inherit body typography.
-   font-weight-bold distinguishes the wordmark from body text.
-   The .brand-region span inside carries its own Phase 6 rule above. */
+/* ── TOP-LEFT: identity card ────────────────────────────────────────────────
+   Wordmark + region name (PRIMARY text) + lede + freshness + divider +
+   scope-control rows (de-emphasized "change where"). ONE stacked card.
+   Spec §4.1, §4.2, §4.3, §5.2. */
+.app-header-identity-card {
+  position: absolute;
+  inset-block-start: var(--card-inset);
+  inset-inline-start: var(--card-inset);
+  max-inline-size: var(--card-maxw-identity);
+  pointer-events: auto;
+
+  /* Tier-1 floating-card design language (spec §2.1–§2.3, #803 tokens) */
+  background: var(--card-bg, var(--color-bg-surface));
+  border: 1px solid var(--card-border, var(--color-border-ui));
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-elevation-1);
+  padding: var(--card-padding);
+
+  /* Stacked column layout: each row is a block below the previous. */
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+/* At ≥1440 switch to the wide-gutter corner inset. */
+@media (min-width: 1440px) {
+  .app-header-identity-card {
+    inset-block-start: var(--card-inset-wide);
+    inset-inline-start: var(--card-inset-wide);
+  }
+}
+
+/* Brand link — suppress UA link chrome; inherit body typography. */
 .app-header-wordmark {
   text-decoration: none;
   color: var(--color-text-strong);
   font-weight: var(--font-weight-bold);
+  font-size: var(--type-md);
   line-height: 1.2;
-  flex-shrink: 0;
+  display: block;
 }
 .app-header-wordmark:hover {
   opacity: 0.8;
@@ -293,103 +291,108 @@ body {
   border-radius: 4px;
 }
 
-/* Tablist container — sits between wordmark and action buttons. flex: 1
-   pushes the right cluster to the far edge on wide viewports.
-   justify-content: center aligns the tab cluster to the horizontal
-   midpoint of the available space between the wordmark and right cluster,
-   matching the v4 mock's centred navigation treatment. */
-.app-header-nav {
-  display: flex;
-  gap: var(--space-xs);
-  flex: 1;
-  justify-content: center;
+/* " · Arizona" suffix in the wordmark (at roomy/wide; hidden at compact). */
+.app-header-wordmark .brand-region {
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-muted);
 }
 
-/* Tab buttons — full UA reset, then design-token styling.
-   min-height is applied inside the ≤480px media query (MOB-4) to keep the
-   desktop header height unchanged. */
-.app-header-tab {
-  appearance: none;
-  background: transparent;
-  border: 1px solid transparent;
-  border-bottom-width: 2px;
-  border-radius: 4px;
-  padding: 6px 14px;
-  font: inherit;
-  font-size: var(--type-sm);
+/* Row 2: Region name — PRIMARY text (spec §5.2). --type-lg semibold.
+   This is the loudest element on a scoped view. */
+.app-header-region-name {
+  margin: 0;
+  font-size: var(--type-lg);
+  font-weight: var(--font-weight-semibold);
   color: var(--color-text-strong);
-  cursor: pointer;
   line-height: 1.2;
 }
-.app-header-tab:hover {
-  background: var(--color-bg-tint);
-}
-.app-header-tab:focus-visible {
-  outline: 2px solid var(--color-text-strong);
-  outline-offset: 2px;
-}
-.app-header-tab.is-active {
-  /* Underline-only pattern: mode-safe (works in both light and dark) per
-     v4 mock and #454 W1 cascade-trap fix. The previous filled-chip pattern
-     inverted to white-on-white in dark mode because --color-text-strong
-     flips from #1a1a1a → #f5f7fb in the dark block.
-     border-bottom acts as the visual active indicator; background stays
-     transparent so no dark-mode inversion can occur. */
-  background: transparent;
-  color: var(--color-text-strong);
-  border-color: transparent;
-  border-bottom-color: var(--color-text-strong);
-  border-bottom-width: 2px;
+
+/* Row 3: Lede wrapper containing the sentence + freshness line. */
+.app-header-lede-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
-/* Right-side action cluster — Attribution, Filters, ThemeToggle.
-   ThemeToggle renders a plain <button> with no class; target all
-   buttons in this cluster with the descendant rule below.
-   min-height/min-width 44pt touch targets are applied inside the
-   ≤480px media query (MOB-4) to keep the desktop header unchanged. */
-.app-header-right {
+/* Lede sentence — the formerly invisible context-strip content (O3 #779). */
+.app-header-lede {
+  margin: 0;
+  font-size: var(--type-sm);
+  color: var(--color-text-body);
+  line-height: 1.4;
+}
+
+/* Freshness / source meta — "Updated 11 min ago · Source: eBird" */
+.app-header-freshness {
+  margin: 0;
+  font-size: var(--type-xs);
+  color: var(--color-text-subtle);
+  line-height: 1.4;
+}
+
+/* Hairline divider between lede content and scope rows. */
+.app-header-divider {
+  margin: var(--space-xs) 0;
+  border: none;
+  border-top: 1px solid var(--color-border-ui);
+}
+
+/* Scope rows container (§4.2 — de-emphasized "change where" affordance). */
+.app-header-scope-rows {
+  /* The embedded ScopeControl renders its own flex row inside; this wrapper
+     just ensures it sits flush within the card's padding. */
+}
+
+/* ── TOP-RIGHT: controls pill ───────────────────────────────────────────────
+   Filters · Attribution · Theme toggle — compact content-width floating card.
+   Spec §4.1. */
+.app-header-controls-pill {
+  position: absolute;
+  inset-block-start: var(--card-inset);
+  inset-inline-end: var(--card-inset);
+  pointer-events: auto;
+
+  /* Tier-1 floating-card design language */
+  background: var(--card-bg, var(--color-bg-surface));
+  border: 1px solid var(--card-border, var(--color-border-ui));
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-elevation-1);
+  padding: var(--card-padding-tight);
+
+  /* Horizontal pill layout */
   display: flex;
   align-items: center;
   gap: var(--space-xs);
-  flex-shrink: 0;
-}
-.app-header-right button {
-  /* touch targets set in @media (max-width: 480px) block — see MOB-4 */
 }
 
-/* Attribution + Filters buttons — same UA reset + visual contract as tabs.
-   Slightly subdued: color-text-body rather than color-text-strong keeps
-   them secondary to the navigation tabs without becoming invisible.
-   min-height applied inside ≤480px media query (MOB-4) — desktop unchanged.
-   Icon/label visibility:
-   - .app-header-btn-icon hidden at desktop (>480px); shown at mobile (≤480px).
-   - .app-header-btn-label shown at desktop (>480px); sr-only at mobile (≤480px). */
+@media (min-width: 1440px) {
+  .app-header-controls-pill {
+    inset-block-start: var(--card-inset-wide);
+    inset-inline-end: var(--card-inset-wide);
+  }
+}
+
+/* Attribution + Filters buttons inside the controls pill.
+   icon-only at compact (<1024), labeled at wide (≥1024) — toggled via
+   the filtersLabeled flag in AppHeader.tsx (useBreakpoint). */
 .app-header-attribution,
 .app-header-filters {
   appearance: none;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 4px;
-  padding: 6px 14px;
+  border-radius: var(--card-radius-inner);
+  padding: var(--space-xs) var(--space-sm);
   font: inherit;
   font-size: var(--type-sm);
   color: var(--color-text-body);
   cursor: pointer;
   line-height: 1.2;
-  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 4px;
-}
-
-/* Desktop default: icon hidden, text label visible */
-.app-header-btn-icon {
-  display: none;
-}
-
-/* Desktop default: text label visible (override sr-only at desktop) */
-.app-header-btn-label {
-  /* visible by default at desktop */
+  min-height: 36px;
+  min-width: 36px;
+  justify-content: center;
 }
 .app-header-attribution:hover,
 .app-header-filters:hover {
@@ -401,9 +404,31 @@ body {
   outline-offset: 2px;
 }
 
-/* Numeric badge on the Filters button when filters are active.
-   Inline-block pill positioned after the label text; does not affect
-   button height because it shares the button's line-height. */
+/* Icon is always shown in the controls pill */
+.app-header-btn-icon {
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+/* Label shown only when AppHeader passes it (filtersLabeled = bp==='wide') */
+.app-header-btn-label {
+  /* visible when rendered */
+}
+
+/* Touch targets at mobile */
+@media (max-width: 480px) {
+  .app-header-attribution,
+  .app-header-filters {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  /* At compact, hide the identity card's region-name row (it merges with lede) */
+  .app-header-region-name {
+    display: none;
+  }
+}
+
+/* Numeric badge on the Filters button when filters are active. */
 .app-header-filter-badge {
   display: inline-flex;
   align-items: center;
@@ -413,17 +438,32 @@ body {
   height: 18px;
   padding: 0 4px;
   border-radius: 9px;
-  /* Outline-only pattern — mirrors the active-tab fix in .app-header-tab.is-active.
-     --color-text-strong flips from #1a1a1a → #f5f7fb in dark mode, so using it as
-     a background would produce white-on-white (1.07:1) in dark mode (the same cascade
-     trap the active-tab had). Outline + transparent background keeps ≥4.5:1 in both
-     themes because the text inherits --color-text-strong against --color-bg-surface. */
+  /* Outline-only pattern — avoids white-on-white in dark mode (same cascade
+     trap as the old active-tab fix). */
   background: transparent;
   border: 1.5px solid var(--color-text-strong);
   color: var(--color-text-strong);
   font-size: 11px;
   font-weight: var(--font-weight-semibold);
   line-height: 1;
+}
+
+/* ThemeToggle button inside the controls pill (plain <button> via ThemeToggle). */
+.app-header-controls-pill button {
+  /* touch targets set in @media (max-width: 480px) block */
+}
+@media (max-width: 480px) {
+  .app-header-controls-pill button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* Full-snap sheet: the identity card and controls pill become pointer-events:none
+   so the sheet's collapse handle receives the gesture. */
+body:has(.species-detail-sheet--full) .app-header-identity-card,
+body:has(.species-detail-sheet--full) .app-header-controls-pill {
+  pointer-events: none;
 }
 
 .filters-bar {
@@ -1040,10 +1080,6 @@ aside.species-detail-rail .species-detail-rail-close {
    retarget — so the collapse handle underneath receives the pointer. The header
    stays visible; it is simply muted under the modal, which is correct modal
    semantics. (O5 replaces this with proper top-layer z-ordering.) */
-body:has(.species-detail-sheet--full) .app-header {
-  pointer-events: none;
-}
-
 .sheet-handle {
   /* Drag-region: own the gesture entirely; do not pan-scroll the page.
      min-height: 44px satisfies Apple HIG / WCAG 2.5.5 touch-target (MOB-7).
@@ -1114,18 +1150,10 @@ body:has(.species-detail-sheet--full) .app-header {
   color: var(--color-text-strong);
 }
 
-/* ── Map context strip (.map-context-strip) — IMPORTANT ────────────────────
-   Section wrapper hosting the lede + filter sentence + freshness paragraph
-   (MapSurface.tsx:175). Without a rule the section is a bare block with no
-   padding or visual separation from the map canvas below. The strip sits
-   ABOVE the map canvas — padding-block gives breathing room; background
-   matches the page surface so the strip reads as chrome rather than content.
-   border-bottom separates chrome from the map edge cleanly. */
-.map-context-strip {
-  padding: var(--space-md) var(--space-lg);
-  background: var(--color-bg-surface);
-  border-bottom: 1px solid var(--color-border-ui);
-}
+/* .map-context-strip REMOVED (#800 / #779): the in-flow context strip was an
+   opaque band that the `absolute; inset:0` map canvas painted over, making the
+   app's primary orientation sentence invisible. Its content (lede + freshness)
+   is now rendered in the AppHeader identity card (top-left floating card). */
 
 /* ── Map freshness (.map-freshness) — IMPORTANT ────────────────────────────
    Metadata paragraph showing data-freshness state (MapSurface.tsx:185).
@@ -1339,13 +1367,7 @@ body:has(.species-detail-sheet--full) .app-header {
     outline-offset: 2px;
   }
 
-  /* AppHeader tab buttons — selected state is typically communicated via
-     background-color only; add a bottom border so it remains visible. */
-  .app-header-tab.is-active {
-    border-bottom: 3px solid ButtonText;
-  }
-
-  /* Filter badge — background-only badge is invisible; add a border. */
+  /* Filter badge — background-only badge is invisible in forced-colors; add a border. */
   .app-header-filter-badge {
     border: 1px solid ButtonText;
   }
@@ -1377,121 +1399,9 @@ body:has(.species-detail-sheet--full) .app-header {
    Breakpoint ≤ 414px targets iPhone 14 Pro (390×844) and all narrower phones.
    ========================================================================== */
 
-/* ── MOB-1/MOB-4: AppHeader collapse + touch targets at ≤ 480px ─────────────
-   The unconstrained header overflows at 390px (body.scrollWidth≈578px).
-   Strategy: hide the brand region label, compress nav padding, reduce the
-   outer header gap so the three segments (wordmark · tabs · actions) fit
-   inside 390px without wrapping.
-
-   We do NOT hide the wordmark entirely — "Bird Maps" is the product name and
-   should remain visible. The " · Arizona" region badge is redundant at mobile
-   (single-region product) and is the largest single contributor to overflow.
-
-   Space budget at 390px:
-     16px (padding) + 8px (2×4px gaps) = 24px overhead.
-     Available: 366px.
-     Wordmark:       80px (flex-shrink: 0 — guaranteed, no flex contention)
-     Right cluster: 140px (3 × 44px icon-only buttons + 2 × 4px gaps)
-     Nav:           146px remaining for 3 tabs
-
-   The right-cluster Attribution + Filters buttons hide their text labels
-   at this breakpoint (font-size: 0; icon-sized footprint). Their aria-label
-   attributes remain intact — accessibility is preserved via the accessible
-   name, not the visible text. This frees ~120px vs. the previous text-label
-   layout, giving the wordmark guaranteed render space.
-
-   min-height: 44px touch targets (MOB-4) are scoped here rather than
-   globally so the desktop header height is unchanged. */
-@media (max-width: 480px) {
-  .app-header {
-    padding: 0 var(--space-sm);
-    gap: var(--space-xs);
-    /* overflow: hidden prevents the header itself from being wider than the
-       viewport while the body catches up to the new layout. Without this,
-       the header's flex children can still force the layout wider than 390px
-       if any child has a min-width that exceeds available space. */
-    overflow: hidden;
-  }
-
-  /* Hide the region label (" · Arizona"). "Bird Maps" remains fully visible. */
-  .app-header-wordmark .brand-region {
-    display: none;
-  }
-
-  /* Guarantee the wordmark renders untruncated.
-     flex-shrink: 0 prevents the nav's flex:1 from squeezing the wordmark
-     below its natural width (~65px for "Bird Maps" at --type-sm / 13px).
-     max-width: 80px gives comfortable headroom above the 65px scrollWidth.
-     Without flex-shrink: 0 here, the flex algorithm allocates space to the
-     nav first (flex-grow: 1) and the wordmark falls below 72px (measured
-     46px at 390px — see design review BLOCKING finding). */
-  .app-header-wordmark {
-    font-size: var(--type-sm);
-    flex-shrink: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 80px;
-  }
-
-  /* Compress tab padding while keeping the 44pt min-height touch target. */
-  .app-header-tab {
-    padding: 0 8px;
-    font-size: var(--type-xs);
-    min-height: 44px;
-  }
-
-  /* Right-cluster buttons: collapse to 44pt icon-only touch targets at mobile.
-     The text label (.app-header-btn-label) becomes sr-only so screen readers
-     still announce the button's purpose. The SVG icon (.app-header-btn-icon)
-     is shown as the visual affordance. aria-label on each button provides the
-     accessible name (the filterCount is baked in when > 0).
-     padding: 0 + justify-content: center + min-width/height enforce the 44pt
-     touch target (Apple HIG). */
-  .app-header-attribution,
-  .app-header-filters {
-    padding: 0;
-    min-width: 44px;
-    min-height: 44px;
-    justify-content: center;
-  }
-
-  /* Mobile: show the SVG icon */
-  .app-header-btn-icon {
-    display: inline-block;
-    flex-shrink: 0;
-  }
-
-  /* Mobile: visually hide the text label but keep it in the accessibility tree.
-     Uses the same clip pattern as .sr-only (defined globally). The inline-flex
-     container on the button means we can't use position:absolute without layout
-     side effects, so we apply sr-only via a scoped class override. */
-  .app-header-btn-label {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
-  }
-
-  /* Hide the filter count badge at mobile — the accessible name on the
-     Filters button already announces "Filters (N active)" via aria-label. */
-  .app-header-filter-badge {
-    display: none;
-  }
-
-  /* ThemeToggle uses a plain <button> with no className.
-     Target it via the right-cluster wrapper. */
-  .app-header-right button {
-    min-height: 44px;
-    min-width: 44px;
-    padding: 0 6px;
-  }
-}
+/* MOB-1/MOB-4: the old AppHeader bar responsive rules are REMOVED (#800).
+   The new floating corner cards have their own responsive rules scoped within
+   the AppHeader CSS block above (max-width: 480px identity-card / controls-pill). */
 
 /* ── MOB-N1: .filters-panel-close touch target ─────────────────────────────
    The close button for the FiltersPanel was unstyled (24×22px per audit).
@@ -1499,25 +1409,19 @@ body:has(.species-detail-sheet--full) .app-header {
    positioned at the top-right of the panel. The panel itself needs position:
    relative so the absolute positioning of the close button resolves correctly. */
 .filters-panel {
-  /* #761 (S2) R15 (surface 2): the panel is an in-flow sibling of `<main>`
-     rendered at the top of the `.app` flow, opened from the header on any view
-     (incl. the map). The shell inversion made TWO things occlude it:
-       1. The AppHeader is now `position: fixed` floating chrome, so the panel's
-          top edge + close button would slide UNDER the header. `margin-block-start`
-          offsets the panel below the header band.
-       2. `#map-layer` is now `position: fixed; inset: 0` (a positioned element),
-          so it paints ABOVE the panel's in-flow content — the panel's controls
-          (notable checkbox, typeaheads, close button) would be behind the map and
-          un-clickable. Giving the panel a positioned stacking context with a
-          z-index in the map-assist band lifts it above the map (`--z-map` = 0) and
-          its overlays (legend/scope at `--z-overlay`, popover at `--z-popover`),
-          while staying BELOW the floating header (`--z-chrome`) so the header's
-          own controls remain reachable.
-     This is the interim clearance; the full conversion of `.filters-panel` to a
-     floating sheet + backdrop with proper top-layer z-layering is O4. */
+  /* #800 R15 (surface 2): the panel is an in-flow sibling of `<main>`
+     rendered at the top of the `.app` flow, opened from the controls pill
+     in the top-right corner. The AppHeader is now `position: fixed; inset: 0`
+     with no block-height — so `margin-block-start` must clear the controls pill
+     height (~60px: 12px inset + ~48px pill). Using `--header-height` (48px) is
+     a reasonable approximation that keeps the panel clear of the controls pill.
+     `#map-layer` is `position: fixed; inset: 0` so the panel needs a z-index in
+     the map-assist band to lift it above the map and its overlays; the panel
+     stays BELOW `--z-chrome` so the corner cards remain reachable.
+     Full conversion to a floating sheet is O4. */
   position: relative;
   z-index: var(--z-popover);
-  margin-block-start: var(--header-height);
+  margin-block-start: calc(var(--card-inset) + 48px);
   /* Opaque surface so the panel's controls read cleanly over the map canvas
      beneath it (the panel is no longer backed by an in-flow page background). */
   background: var(--color-bg-surface);
@@ -1778,41 +1682,27 @@ body:has(.species-detail-sheet--full) .app-header {
   outline-offset: 2px;
 }
 
-/* ── ScopeControl (#737) — in-state on-map re-scope bar (C4) ────────────────
-   Rendered ONLY in a scoped view (`?state=US-XX` or `?scope=us`), NEVER on the
-   chooser landing (that is .scope-chooser above). Unlike the C0 prototype's
-   .scope-app__bar — a non-overlapping flex row that sat ABOVE the map — the
-   production control FLOATS over the canvas: absolutely positioned, anchored
-   top-center, layered above the basemap via the same `--z-overlay` tier the
-   other map-assist overlay (.family-legend) uses. Because it
-   floats, #736/C3's `fitBounds` top-padding is ASYMMETRIC (top ≈ this bar's
-   height) so the framed state isn't occluded.
+/* ── ScopeControl (#737 / #800) — folded into AppHeader identity card ───────
+   #800: ScopeControl is now EMBEDDED inside the top-left identity card
+   (.app-header-scope-rows) and no longer a standalone floating overlay anchored
+   top-center inside #map-layer. The `embedded` prop on ScopeControl adds the
+   `.scope-control--embedded` modifier, which overrides the old absolute positioning.
 
-   Surface visual contract mirrors the other map overlays (white surface,
-   --color-border-ui edge, --shadow-listbox). All color/spacing/type/weight
-   comes from semantic tokens (no raw hex — ds-primitives.css convention); the
-   semantic tokens swap under [data-theme="dark"], and the float gets an
-   explicit dark surface override below (mirroring the prototype's
-   .scope-app__bar dark block) for contrast against the dark basemap. Every
-   className the TSX renders has a matching rule here (orphan-classname gate). */
+   Base `.scope-control` rules are kept for backward compatibility with tests
+   that query `role="region" aria-label="Change the map scope"`. The positioning
+   rules (position: absolute, inset-block-start, z-index) only apply to the
+   standalone case. */
 .scope-control {
-  position: absolute;
-  /* #761 (S2): the AppHeader is now `position: fixed` floating chrome on
-     `--z-chrome` (42) — ABOVE this control's `--z-overlay` (40). At the old
-     `inset-block-start: var(--space-md)` (12px) the control floated UNDER the
-     ~48px header and the header intercepted clicks on the "Change scope" / state
-     <select> / "Whole US" affordances (`elementFromPoint` → HEADER) — the exact
-     regression P1 (#778) surfaced and deferred to S2. Offsetting the top by the
-     header height pushes the control below the header band so it is fully
-     clickable (state-scope.spec.ts whole-US-reset). The wrapper (`#map-layer`)
-     equals the viewport, so this resolves against the viewport top edge. */
-  inset-block-start: calc(var(--header-height) + var(--space-md));
-  inset-inline: var(--space-md);
-  z-index: var(--z-overlay);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-md);
+  gap: var(--space-sm);
+  /* Standalone (non-embedded) mode: absolute positioned top-center overlay.
+     Overridden by .scope-control--embedded below. */
+  position: absolute;
+  inset-block-start: var(--space-md);
+  inset-inline: var(--space-md);
+  z-index: var(--z-overlay);
   margin-inline: auto;
   inline-size: fit-content;
   max-inline-size: calc(100% - 2 * var(--space-md));
@@ -1822,13 +1712,32 @@ body:has(.species-detail-sheet--full) .app-header {
   border-radius: var(--radius-lg, 12px);
   box-shadow: var(--shadow-listbox);
 }
+
+/* Embedded mode (#800): inside .app-header-identity-card — no float, no
+   absolute positioning, no background (the card provides the surface). */
+.scope-control--embedded {
+  position: static;
+  inset-block-start: unset;
+  inset-inline: unset;
+  z-index: unset;
+  margin-inline: unset;
+  inline-size: auto;
+  max-inline-size: 100%;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
 [data-theme="dark"] .scope-control {
-  /* Explicit dark surface for contrast against the dark basemap — mirrors the
-     prototype's [data-theme] .scope-app__bar treatment. The semantic
-     --color-bg-surface / --color-border-ui already swap, so this block only
-     re-asserts them as the documented dark surface anchor. */
+  /* Explicit dark surface for contrast against the dark basemap. */
   background: var(--color-bg-surface);
   border-color: var(--color-border-ui);
+}
+[data-theme="dark"] .scope-control--embedded {
+  background: none;
+  border: none;
 }
 .scope-control__select {
   flex: 0 1 auto;

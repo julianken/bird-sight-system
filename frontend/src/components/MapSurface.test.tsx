@@ -60,7 +60,10 @@ function makeObs(overrides: Partial<Observation> & { subId: string }): Observati
 }
 
 /* Common required-prop set for every test. The skip-link is the only
-   thing under test; the rest are dummies so MapSurface mounts. */
+   thing under test; the rest are dummies so MapSurface mounts.
+   #800: the context-strip props (since, notable, speciesCode, freshness,
+   freshnessLabel, loading, region, noFiltersActive) are REMOVED from
+   MapSurface — that content moved to the AppHeader identity card. */
 const baseProps = {
   observations: sampleObs,
   silhouettes: [],
@@ -68,22 +71,6 @@ const baseProps = {
   onFamilyToggle: () => {
     /* no-op */
   },
-  // Phase 3 required props — use defaults for pre-existing tests.
-  since: '14d' as const,
-  notable: false,
-  speciesCode: null as string | null,
-  freshness: 'fresh' as const,
-  freshnessLabel: 'Updated just now · Source: eBird',
-  // Issue #716: loading is the cold-load gate forwarded to MapLede. Default
-  // to false so pre-existing tests assert the post-load surface; the
-  // loading=true behavior is covered in MapLede.test.tsx.
-  loading: false,
-  // #738/C5: runtime region label forwarded to MapLede. Default to the AZ
-  // scope so pre-existing lede assertions ("seen across Arizona") hold.
-  region: 'Arizona' as string | null,
-  // #738/C7: no-filters flag forwarded to MapLede for the data-availability
-  // vs filter-narrowing zero-count split.
-  noFiltersActive: true,
 };
 
 // Issue #662: the "Skip to species list" skip-link + its `onSkipToFeed`
@@ -171,88 +158,27 @@ describe('MapSurface legendObservations prop', () => {
   });
 });
 
-describe('Phase 3: context strip', () => {
-  const baseObservations = [
-    // 3 species, 3 observations
-    makeObs({ subId: 's1', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher' }),
-    makeObs({ subId: 's2', speciesCode: 'gilwoo', comName: 'Gila Woodpecker' }),
-    makeObs({ subId: 's3', speciesCode: 'cacwre', comName: 'Cactus Wren' }),
-  ];
+describe('Phase 3: context strip — REMOVED from MapSurface (#800)', () => {
+  // The context strip (MapLede + FilterSentence + freshness) was moved to the
+  // AppHeader identity card in #800. MapSurface no longer renders it.
+  // Tests that covered the old context-strip behaviour are now in
+  // AppHeader.test.tsx (lede rows) and App.test.tsx (ledeText derivation).
+  //
+  // This block verifies that MapSurface does NOT render the old strip.
 
-  it('mounts <MapLede> with the default-template text', () => {
-    render(
-      <MapSurface
-        observations={baseObservations}
-        silhouettes={[]}
-        familyCode={null}
-        onFamilyToggle={vi.fn()}
-        since="14d"
-        notable={false}
-        freshness="fresh"
-        freshnessLabel="Updated 11 min ago · Source: eBird"
-        region="Arizona"
-        noFiltersActive={true}
-      />,
-    );
-    expect(screen.getByRole('heading', { level: 1, name: /3 species seen across Arizona in the last 14 days\./i })).toBeInTheDocument();
+  it('does NOT render a .map-context-strip section', () => {
+    render(<MapSurface {...baseProps} />);
+    expect(document.querySelector('.map-context-strip')).toBeNull();
   });
 
-  it('mounts <FilterSentence> when filters are active', () => {
-    render(
-      <MapSurface
-        observations={baseObservations}
-        silhouettes={[]}
-        familyCode={null}
-        onFamilyToggle={vi.fn()}
-        since="14d"
-        notable={true}
-        freshness="fresh"
-        freshnessLabel="Updated 11 min ago · Source: eBird"
-        region="Arizona"
-        noFiltersActive={false}
-      />,
-    );
-    // <FilterSentence> renders a span with class .filter-sentence__visible when filters are non-empty
-    expect(document.querySelector('.filter-sentence__visible')).not.toBeNull();
+  it('does NOT render a .map-lede h1 heading', () => {
+    render(<MapSurface {...baseProps} />);
+    expect(document.querySelector('.map-lede')).toBeNull();
   });
 
-  it('renders the freshness meta line below the lede', () => {
-    render(
-      <MapSurface
-        observations={baseObservations}
-        silhouettes={[]}
-        familyCode={null}
-        onFamilyToggle={vi.fn()}
-        since="14d"
-        notable={false}
-        freshness="fresh"
-        freshnessLabel="Updated 11 min ago · Source: eBird"
-        region="Arizona"
-        noFiltersActive={true}
-      />,
-    );
-    expect(screen.getByText('Updated 11 min ago · Source: eBird')).toHaveClass('map-freshness');
-  });
-
-  it('drops period clause and shows "Last updated" copy under stale', () => {
-    render(
-      <MapSurface
-        observations={baseObservations}
-        silhouettes={[]}
-        familyCode={null}
-        onFamilyToggle={vi.fn()}
-        since="14d"
-        notable={false}
-        freshness="stale"
-        freshnessLabel="Last updated 9 h ago · Source: eBird"
-        region="Arizona"
-        noFiltersActive={true}
-      />,
-    );
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
-      '3 species seen across Arizona.',
-    );
-    expect(screen.getByText('Last updated 9 h ago · Source: eBird')).toBeInTheDocument();
+  it('does NOT render a .map-freshness paragraph', () => {
+    render(<MapSurface {...baseProps} />);
+    expect(document.querySelector('.map-freshness')).toBeNull();
   });
 });
 
