@@ -5,7 +5,6 @@ import type { LngLatBounds } from 'maplibre-gl';
 import type { MultiPolygon } from 'geojson';
 import type { FamilySilhouette, Observation } from '@bird-watch/shared-types';
 import { ErrorBoundary } from './ErrorBoundary.js';
-import { FamilyLegend } from './FamilyLegend.js';
 import type { BBox } from '../state/url-state.js';
 
 /**
@@ -19,63 +18,14 @@ const MapCanvas = React.lazy(() =>
   import('./map/MapCanvas.js').then((m) => ({ default: m.MapCanvas })),
 );
 
-/**
- * Default-expanded breakpoint for FamilyLegend (issue #249).
- *
- * Originally mirrored the global `(max-width: 760px)` mobile breakpoint, but
- * the CONUS default viewport (PR #612) puts the AZ-only data cluster in the
- * lower-left of the map — directly under the bottom-left FamilyLegend
- * overlay. At 768×1024 (iPad portrait) the expanded legend covers the only
- * visible marker on first paint, intercepting taps and breaking the
- * primary discovery flow on tablet-portrait.
- *
- * Lift the JS threshold to 1024 so tablet-portrait (and narrower) start
- * collapsed; tablet-landscape and desktop still default expanded. This is
- * intentionally decoupled from the global 760px mobile breakpoint — the
- * legend's overlay footprint is the constraint here, not the
- * mobile-layout heuristics elsewhere. localStorage `family-legend-
- * expanded.v2` still overrides the default once the user toggles.
- */
-const LEGEND_EXPAND_MIN_WIDTH = 1024;
-
-function readLegendDefaultExpanded(): boolean {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
-    // SSR / jsdom-without-matchMedia — default to expanded so server-rendered
-    // HTML matches the desktop fallback. The component re-evaluates from
-    // localStorage on mount regardless.
-    return true;
-  }
-  return window.matchMedia(`(min-width: ${LEGEND_EXPAND_MIN_WIDTH}px)`).matches;
-}
-
 export interface MapSurfaceProps {
   observations: Observation[];
-  /**
-   * Issue #351: optional viewport-filtered observations array routed to
-   * FamilyLegend ONLY. When absent, FamilyLegend uses `observations`
-   * (preserves prior behavior for callers that don't pass distinct sets,
-   * keeps existing tests' `baseProps` working without churn). When
-   * present, MapCanvas still receives the full `observations` array —
-   * clustering math + auto-spider depend on a stable observations
-   * identity, so filtering MapCanvas's feed would break both. The split
-   * exists so the legend can narrate viewport state while the map
-   * continues to render the full set.
-   */
-  legendObservations?: Observation[];
-  /** Provided by App.tsx via useSilhouettes — single mount per #246. */
+  /** Provided by App.tsx via useSilhouettes — single mount per #246.
+   *  Forwarded verbatim to MapCanvas for the SDF sprite/symbol layer. */
   silhouettes: FamilySilhouette[];
-  /** Currently active family filter (mirrors UrlState.familyCode). */
-  familyCode: string | null;
-  /**
-   * Toggle handler — App.tsx wires this to:
-   *   set({ familyCode: prev === code ? null : code })
-   * Threaded down to FamilyLegend.
-   */
-  onFamilyToggle: (familyCode: string) => void;
   // Issue #662: the legacy skip-to-list prop + skip-link were intentionally
   // REMOVED here. There is no list surface to skip to. The
-  // Explore-map-markers skip-link below remains as the keyboard-bypass
-  // entry point.
+  // Explore-map-markers skip-link is now an App-root sibling (O2 #770).
   /**
    * Issue #246: ObservationPopover detail link. App.tsx wires this to
    * `set({ view: 'detail', detail: speciesCode })` via `useUrlState`
@@ -84,25 +34,10 @@ export interface MapSurfaceProps {
    */
   onSelectSpecies?: (speciesCode: string, bbox: BBox | null) => void;
   /**
-   * Phase 1 (#558): skip-link handler for the new "Explore map markers"
-   * skip-link. When activated, MapCanvas places focus on the first
-   * <TileCell> of the first marker group. Optional — when absent, the
-   * skip-link is not rendered regardless of the feature flag.
-   */
-  onExploreMapMarkers?: () => void;
-  /**
-   * Phase 1 (#558): whether the map currently has at least one
-   * AdaptiveGrid marker visible. When false, the "Explore map markers"
-   * skip-link is aria-hidden + tabIndex=-1 (cannot focus into a no-op
-   * state per spec §4.7 empty-viewport policy). Defaults to true.
-   */
-  hasMarkers?: boolean;
-  /**
    * Issue #351: passthrough for MapCanvas's onViewportChange callback.
    * App.tsx threads this so it can update its `viewportBounds` state on
    * each map `idle` (camera-change settle). Optional — when absent,
-   * MapCanvas registers no viewport-change listener and the FamilyLegend
-   * keeps showing full-set counts.
+   * MapCanvas registers no viewport-change listener.
    */
   onViewportChange?: (bounds: LngLatBounds, zoom: number) => void;
   /**
@@ -150,22 +85,20 @@ export interface MapSurfaceProps {
  *      out of the main bundle.
  *   2. Error boundary — isolates WebGL / tile / style failures.
  *   3. Loading skeleton while the chunk downloads.
- *   4. "Explore map markers" skip-link (Phase 1, #558) — first interactive
- *      element in tab order on the map view, visually hidden until focused.
- *      WCAG 2.4.1 (Bypass Blocks) compliance for keyboard users to bypass
- *      the map canvas and land on the first marker cell. The original
- *      "Skip to species list" skip-link was removed in #662.
+ *
+ * O2 (#770): The "Explore map markers" skip-link and FamilyLegend are NO
+ * LONGER rendered here — they were hoisted to persistent App-root siblings
+ * (position:fixed) so they persist across map↔detail transitions without
+ * re-entering this Suspense subtree. The skip-link renders BEFORE <main>
+ * (WCAG 2.4.1 tab order); the legend renders after </main> alongside the
+ * rail/sheet. The original "Skip to species list" skip-link was removed in
+ * #662.
  */
 export function MapSurface({
   observations,
-  legendObservations,
   silhouettes,
-  familyCode,
-  onFamilyToggle,
   onSelectSpecies,
   onViewportChange,
-  onExploreMapMarkers,
-  hasMarkers = true,
   scopeBounds,
   boundsKey,
   flyTo,
@@ -173,15 +106,6 @@ export function MapSurface({
   clampPad,
   detailOpen = false,
 }: MapSurfaceProps) {
-  // Compute the expand-by-default once at mount. The component itself
-  // (FamilyLegend) handles localStorage precedence + manual toggle.
-  const defaultExpanded = React.useMemo(readLegendDefaultExpanded, []);
-  // Issue #351: FamilyLegend's observations source. When the parent
-  // hands us a distinct legendObservations array (App.tsx in view=map),
-  // narrate viewport state. When absent, fall back to the same array
-  // MapCanvas sees so baseline callers and tests stay unchanged.
-  const legendObs = legendObservations ?? observations;
-
   return (
     <ErrorBoundary
       fallback={
@@ -191,23 +115,6 @@ export function MapSurface({
         </div>
       }
     >
-      {/* Issue #662: the legacy "Skip to species list" skip-link was deleted.
-          The Explore-map-markers skip-link below is now the first interactive
-          element on the map view. */}
-      {onExploreMapMarkers && (
-        <button
-          type="button"
-          className="skip-link"
-          data-testid="explore-map-markers-skip-link"
-          aria-hidden={!hasMarkers || undefined}
-          tabIndex={hasMarkers ? 0 : -1}
-          onClick={() => {
-            if (hasMarkers) onExploreMapMarkers();
-          }}
-        >
-          Explore map markers
-        </button>
-      )}
       {/* #800 / #779: The context strip (lede + filter sentence + freshness)
           was rendered here as an in-flow band that the `absolute; inset:0`
           map canvas painted over — the app's primary orientation sentence was
@@ -246,13 +153,6 @@ export function MapSurface({
             detailOpen={detailOpen}
           />
         </React.Suspense>
-        <FamilyLegend
-          silhouettes={silhouettes}
-          observations={legendObs}
-          familyCode={familyCode}
-          onFamilyToggle={onFamilyToggle}
-          defaultExpanded={defaultExpanded}
-        />
       </div>
     </ErrorBoundary>
   );

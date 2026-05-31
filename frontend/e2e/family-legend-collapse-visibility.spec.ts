@@ -146,9 +146,10 @@ async function assertChipInsideViewport(
   page: import('@playwright/test').Page,
 ): Promise<{ chipBottom: number; viewportBottom: number; chipLeft: number; viewportLeft: number }> {
   const rects = await page.evaluate(() => {
-    // The collapsed chip is the toggle button with aria-expanded="false" inside .map-surface
+    // O2 (#770): the legend is now a fixed App-root sibling (not inside
+    // .map-surface). Select the collapsed toggle from .family-legend directly.
     const chip = document.querySelector<HTMLElement>(
-      '.map-surface button[aria-expanded="false"]',
+      '.family-legend button[aria-expanded="false"]',
     );
     if (!chip) return null;
     const chipRect = chip.getBoundingClientRect();

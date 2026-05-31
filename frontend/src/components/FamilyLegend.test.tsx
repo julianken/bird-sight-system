@@ -82,6 +82,27 @@ beforeEach(() => clearLegendStorage());
 afterEach(() => clearLegendStorage());
 
 describe('FamilyLegend', () => {
+  it('O2 (#770): <aside> has explicit role="complementary" and aria-labelledby', () => {
+    // AC: the <aside> must carry an explicit role="complementary" landmark
+    // (not relying on the implicit aside-in-body mapping, which is ambiguous
+    // once the element is hoisted to App-root). The aria-labelledby name
+    // ("Bird families in view") disambiguates it from SpeciesDetailRail's
+    // complementary landmark when both are open on desktop.
+    render(
+      <FamilyLegend
+        silhouettes={baseSilhouettes}
+        observations={baseObservations}
+        familyCode={null}
+        onFamilyToggle={() => {}}
+        defaultExpanded={true}
+      />
+    );
+    const aside = document.querySelector('.family-legend');
+    expect(aside).not.toBeNull();
+    expect(aside!.getAttribute('role')).toBe('complementary');
+    expect(aside!.getAttribute('aria-labelledby')).toBe('family-legend-toggle');
+  });
+
   it('renders a header reading "Bird families in view" and a toggle button', () => {
     // Issue #351: the legend title narrates viewport state, not a global
     // catalogue. The "in view" suffix is what tells a sighted user that

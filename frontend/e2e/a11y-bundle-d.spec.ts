@@ -168,8 +168,9 @@ test.describe('A11Y-10 — <main> tabindex review', () => {
    * unfocusable by keyboard.
    *
    * The "Explore map markers" skip-link targets the first marker cell (NOT
-   * #main-surface) — see MapSurface's skip-link (#558). These two concerns
-   * are independent; retaining tabIndex=0 on <main> satisfies both.
+   * #main-surface or ol.feed) — see App-root skip-link (O2 #770, ex-#558).
+   * These two concerns are independent; retaining tabIndex=0 on <main>
+   * satisfies both.
    */
   test('<main id="main-surface"> has tabIndex=0 (scrollable-region-focusable)', async ({ page }) => {
     const app = new AppPage(page);

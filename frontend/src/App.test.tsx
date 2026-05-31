@@ -1768,3 +1768,98 @@ describe('O1 (#776): inert retarget to #map-layer', () => {
     vi.useRealTimers();
   });
 });
+
+describe('O2 (#770): skip-link + FamilyLegend hoisted to App-root siblings', () => {
+  /**
+   * These tests assert the new App-root rendering of the hoisted overlays
+   * and their DOM-order invariants (WCAG 2.4.1 focus order).
+   *
+   * FamilyLegend returns null when silhouettes.length === 0 (its own guard),
+   * so the App-root legend assertion uses a non-empty silhouettes stub.
+   * The skip-link renders whenever mapVisible && scopeActive, regardless
+   * of silhouettes.
+   */
+  const SCOPED_MAP_STATE = {
+    since: '14d' as const,
+    notable: false,
+    speciesCode: null as string | null,
+    familyCode: null as string | null,
+    view: 'map' as const,
+    scope: { kind: 'us' as const } as
+      | { kind: 'unscoped' }
+      | { kind: 'us' }
+      | { kind: 'state'; stateCode: string },
+  };
+
+  beforeEach(() => {
+    __resetSilhouettesCache();
+    __resetStatesCache();
+    mockGetHotspots.mockResolvedValue([]);
+    mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
+    mockGetSilhouettes.mockResolvedValue([]);
+    mockGetStates.mockResolvedValue([]);
+    mapSurfaceRef.renderCount = 0;
+    mockUrlState.state = SCOPED_MAP_STATE;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('skip-link renders as an App-root element BEFORE <main id="main-surface">', () => {
+    const { container } = render(<App />);
+    const skipLink = container.querySelector('[data-testid="explore-map-markers-skip-link"]');
+    const main = container.querySelector('#main-surface');
+    expect(skipLink, 'skip-link not found in DOM on scoped map view').not.toBeNull();
+    expect(main, '<main id="main-surface"> not found in DOM').not.toBeNull();
+
+    // WCAG 2.4.1 DOM-order guard: skip-link must precede <main> so Tab
+    // traversal reaches it before any ScopeControl or canvas element.
+    // Node.DOCUMENT_POSITION_FOLLOWING (4) means `main` comes after `skipLink`.
+    const position = skipLink!.compareDocumentPosition(main!);
+    expect(
+      position & Node.DOCUMENT_POSITION_FOLLOWING,
+      'skip-link must precede <main> in DOM order (WCAG 2.4.1)',
+    ).toBeTruthy();
+  });
+
+  it('skip-link does NOT render while unscoped', () => {
+    mockUrlState.state = {
+      ...SCOPED_MAP_STATE,
+      scope: { kind: 'unscoped' },
+    };
+    const { container } = render(<App />);
+    expect(
+      container.querySelector('[data-testid="explore-map-markers-skip-link"]'),
+    ).toBeNull();
+  });
+
+  it('skip-link is aria-hidden and tabIndex=-1 when observations are empty (hasMarkers=false)', async () => {
+    mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
+    const { container } = render(<App />);
+    await waitFor(() => {
+      // Wait for observations to settle (empty)
+      expect(container.querySelector('#map-layer')?.getAttribute('aria-busy')).toBe('false');
+    });
+    const skipLink = container.querySelector('[data-testid="explore-map-markers-skip-link"]') as HTMLElement | null;
+    expect(skipLink).not.toBeNull();
+    expect(skipLink!.getAttribute('aria-hidden')).toBe('true');
+    expect(String(skipLink!.tabIndex)).toBe('-1');
+  });
+
+  it('skip-link is NOT inside MapSurface (.map-surface)', () => {
+    const { container } = render(<App />);
+    const skipLink = container.querySelector('[data-testid="explore-map-markers-skip-link"]');
+    const mapSurface = container.querySelector('.map-surface');
+    if (!skipLink || !mapSurface) return; // skip-link absent on unscoped; ok
+    expect(mapSurface.contains(skipLink)).toBe(false);
+  });
+
+  it('skip-link is NOT inside #map-layer (it precedes #map-layer in DOM)', () => {
+    const { container } = render(<App />);
+    const skipLink = container.querySelector('[data-testid="explore-map-markers-skip-link"]');
+    const mapLayer = container.querySelector('#map-layer');
+    if (!skipLink || !mapLayer) return;
+    expect(mapLayer.contains(skipLink)).toBe(false);
+  });
+});

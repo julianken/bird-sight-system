@@ -1,25 +1,18 @@
 import React from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render } from '@testing-library/react';
 import type { Observation } from '@bird-watch/shared-types';
 
 /* Stub the heavy MapCanvas chunk so MapSurface tests don't pull in maplibre.
-   The skip-link rendering is what we're asserting on, and it lives outside
-   the React.lazy() boundary, so a no-op canvas is sufficient here.
-
-   Both stubs capture their `observations` prop in module-scoped vars so
-   the issue-#351 thread test can assert MapCanvas receives the FULL set
-   while FamilyLegend receives the (potentially) filtered legendObservations.
-
-   FamilyLegend is also stubbed because it consumes silhouette+observation
-   data and renders its own DOM that would shadow the skip-link role queries
-   in the original tests — keeping it out of the test surface narrows the
-   assertion target to the skip-link only. */
+   O2 (#770): the skip-link and FamilyLegend were hoisted out of MapSurface
+   to App-root siblings. MapSurface now owns only the Suspense/MapCanvas
+   boundary. The stub captures observations + onViewportChange so prop-
+   threading can be asserted. FamilyLegend is no longer imported by
+   MapSurface, so no FamilyLegend stub is needed. */
 let mapCanvasObservations: Observation[] | undefined;
 let mapCanvasOnViewportChange:
   | ((bounds: unknown) => void)
   | undefined;
-let familyLegendObservations: Observation[] | undefined;
 vi.mock('./map/MapCanvas.js', () => ({
   MapCanvas: (props: {
     observations: Observation[];
@@ -30,66 +23,51 @@ vi.mock('./map/MapCanvas.js', () => ({
     return <div data-testid="stub-map-canvas" />;
   },
 }));
-vi.mock('./FamilyLegend.js', () => ({
-  FamilyLegend: (props: { observations: Observation[] }) => {
-    familyLegendObservations = props.observations;
-    return <div data-testid="stub-family-legend" />;
-  },
-}));
 
 const { MapSurface } = await import('./MapSurface.js');
 
 const sampleObs: Observation[] = [];
 
-/* Helper to build an Observation for context-strip tests. */
-function makeObs(overrides: Partial<Observation> & { subId: string }): Observation {
-  return {
-    speciesCode: 'x',
-    comName: 'X',
-    lat: 32.0,
-    lng: -110.0,
-    obsDt: '2026-04-15T12:00:00Z',
-    locId: 'L1',
-    locName: 'X',
-    howMany: 1,
-    isNotable: false,
-    silhouetteId: null,
-    familyCode: null,
-    ...overrides,
-  };
-}
-
-/* Common required-prop set for every test. The skip-link is the only
-   thing under test; the rest are dummies so MapSurface mounts.
-   #800: the context-strip props (since, notable, speciesCode, freshness,
-   freshnessLabel, loading, region, noFiltersActive) are REMOVED from
-   MapSurface — that content moved to the AppHeader identity card. */
+/* Common required-prop set for every test.
+   O2 (#770): familyCode, onFamilyToggle, legendObservations,
+   onExploreMapMarkers, hasMarkers are REMOVED from MapSurface — those
+   moved to the App level alongside the hoisted skip-link + FamilyLegend.
+   #800: context-strip props (since, notable, speciesCode, freshness, etc.)
+   were already removed from MapSurface in that PR. */
 const baseProps = {
   observations: sampleObs,
   silhouettes: [],
-  familyCode: null as string | null,
-  onFamilyToggle: () => {
-    /* no-op */
-  },
 };
 
 // Issue #662: the "Skip to species list" skip-link + its `onSkipToFeed`
-// prop were removed with the Feed view. The "Explore map markers"
-// skip-link below (covered in its own describe block) is now the sole
-// keyboard-bypass entry point on the map surface.
+// prop were removed with the Feed view.
 describe('MapSurface — no Feed skip-link (issue #662)', () => {
   it('does not render a "Skip to species list" button', () => {
     render(<MapSurface {...baseProps} />);
-    expect(screen.queryByRole('button', { name: /Skip to species list/i })).toBeNull();
+    expect(document.querySelector('button[name="Skip to species list"]')).toBeNull();
   });
 });
 
-/* ── Issue #351: legendObservations prop split ──────────────────────────
-   MapSurface now optionally accepts `legendObservations` distinct from
-   `observations`. When supplied, the FamilyLegend renders against the
-   filtered legend set while MapCanvas continues to render against the
-   full set. When omitted, both consumers receive the same array
-   (preserves prior behavior for callers that didn't migrate). */
+// O2 (#770): MapSurface NO LONGER renders the "Explore map markers" skip-link
+// or the FamilyLegend — both were hoisted to persistent App-root siblings.
+describe('O2 (#770): MapSurface does NOT render the hoisted overlays', () => {
+  it('does NOT render the "Explore map markers" skip-link', () => {
+    render(<MapSurface {...baseProps} />);
+    expect(
+      document.querySelector('[data-testid="explore-map-markers-skip-link"]'),
+    ).toBeNull();
+  });
+
+  it('does NOT render the family-legend <aside>', () => {
+    render(<MapSurface {...baseProps} />);
+    expect(document.querySelector('.family-legend')).toBeNull();
+  });
+});
+
+/* ── Issue #351: MapCanvas observations prop threading ─────────────────────
+   MapSurface forwards its observations array directly to MapCanvas.
+   The legendObservations split was removed in O2 (#770) since FamilyLegend
+   now lives at App level and receives viewportObservations directly. */
 
 function obs(subId: string, lat: number, lng: number): Observation {
   return {
@@ -108,36 +86,12 @@ function obs(subId: string, lat: number, lng: number): Observation {
   };
 }
 
-describe('MapSurface legendObservations prop', () => {
-  it('passes the legendObservations array to FamilyLegend when provided', () => {
+describe('MapSurface → MapCanvas prop threading', () => {
+  it('passes observations to MapCanvas', () => {
     mapCanvasObservations = undefined;
-    familyLegendObservations = undefined;
     const fullSet = [obs('A', 32.2, -110.9), obs('B', 35.2, -111.6)];
-    const filtered = [fullSet[0]!];
-    render(
-      <MapSurface
-        {...baseProps}
-        observations={fullSet}
-        legendObservations={filtered}
-      />,
-    );
-    // MapCanvas always sees the full set — clustering math + auto-spider
-    // depend on a stable observations identity.
-    expect(mapCanvasObservations).toBe(fullSet);
-    // FamilyLegend sees the (potentially) filtered set so per-family
-    // counts narrate what's in the viewport.
-    expect(familyLegendObservations).toBe(filtered);
-  });
-
-  it('falls back to observations for FamilyLegend when legendObservations is omitted', () => {
-    mapCanvasObservations = undefined;
-    familyLegendObservations = undefined;
-    const fullSet = [obs('A', 32.2, -110.9)];
     render(<MapSurface {...baseProps} observations={fullSet} />);
     expect(mapCanvasObservations).toBe(fullSet);
-    // No legendObservations → MapSurface defaults to observations so
-    // existing callers see no behavior change.
-    expect(familyLegendObservations).toBe(fullSet);
   });
 
   it('threads onViewportChange through to MapCanvas when provided', () => {
@@ -150,10 +104,8 @@ describe('MapSurface legendObservations prop', () => {
   it('does NOT pass onViewportChange to MapCanvas when omitted', () => {
     mapCanvasOnViewportChange = undefined;
     render(<MapSurface {...baseProps} />);
-    // Tests that already use baseProps (no onViewportChange) shouldn't see
-    // a callback on the MapCanvas. Strict-undefined matters because
-    // exactOptionalPropertyTypes mode disallows passing `undefined` to an
-    // optional prop — we want a true omit, not a `prop={undefined}`.
+    // Strict-undefined matters because exactOptionalPropertyTypes mode
+    // disallows passing `undefined` to an optional prop — we want a true omit.
     expect(mapCanvasOnViewportChange).toBeUndefined();
   });
 });
@@ -163,8 +115,6 @@ describe('Phase 3: context strip — REMOVED from MapSurface (#800)', () => {
   // AppHeader identity card in #800. MapSurface no longer renders it.
   // Tests that covered the old context-strip behaviour are now in
   // AppHeader.test.tsx (lede rows) and App.test.tsx (ledeText derivation).
-  //
-  // This block verifies that MapSurface does NOT render the old strip.
 
   it('does NOT render a .map-context-strip section', () => {
     render(<MapSurface {...baseProps} />);
@@ -179,68 +129,5 @@ describe('Phase 3: context strip — REMOVED from MapSurface (#800)', () => {
   it('does NOT render a .map-freshness paragraph', () => {
     render(<MapSurface {...baseProps} />);
     expect(document.querySelector('.map-freshness')).toBeNull();
-  });
-});
-
-// --- Phase 1 (#558): second skip-link "Explore map markers" --------------------
-
-describe('MapSurface — cell popover skip-link (Phase 1, #558)', () => {
-  beforeEach(() => {
-    vi.resetModules();
-  });
-
-  it('renders "Explore map markers" as a second skip-link', async () => {
-    const { MapSurface } = await import('./MapSurface.js');
-    render(
-      <MapSurface
-        {...baseProps}
-        onExploreMapMarkers={vi.fn()}
-        hasMarkers={true}
-      />
-    );
-    expect(screen.getByRole('button', { name: /Explore map markers/i })).toBeInTheDocument();
-  });
-
-  it('skip-link uses class="skip-link" so global hidden-until-focus style applies', async () => {
-    const { MapSurface } = await import('./MapSurface.js');
-    render(
-      <MapSurface
-        {...baseProps}
-        onExploreMapMarkers={vi.fn()}
-        hasMarkers={true}
-      />
-    );
-    const link = screen.getByRole('button', { name: /Explore map markers/i });
-    expect(link.className).toContain('skip-link');
-  });
-
-  it('clicking the skip-link calls onExploreMapMarkers prop', async () => {
-    const { MapSurface } = await import('./MapSurface.js');
-    const onExplore = vi.fn();
-    render(
-      <MapSurface
-        {...baseProps}
-        onExploreMapMarkers={onExplore}
-        hasMarkers={true}
-      />
-    );
-    fireEvent.click(screen.getByRole('button', { name: /Explore map markers/i }));
-    expect(onExplore).toHaveBeenCalledTimes(1);
-  });
-
-  it('empty viewport (hasMarkers=false): skip-link is aria-hidden and tabIndex=-1', async () => {
-    const { MapSurface } = await import('./MapSurface.js');
-    render(
-      <MapSurface
-        {...baseProps}
-        onExploreMapMarkers={vi.fn()}
-        hasMarkers={false}
-      />
-    );
-    // queryByRole skips aria-hidden=true buttons; use a class-based query.
-    const link = document.querySelector('[data-testid="explore-map-markers-skip-link"]') as HTMLElement | null;
-    expect(link).toBeTruthy();
-    expect(link!.getAttribute('aria-hidden')).toBe('true');
-    expect(link!.getAttribute('tabIndex') ?? link!.tabIndex.toString()).toBe('-1');
   });
 });

@@ -145,6 +145,7 @@ export function FamilyLegend({
   return (
     <aside
       className="family-legend"
+      role="complementary"
       aria-labelledby={toggleId}
       data-expanded={expanded ? 'true' : 'false'}
     >
