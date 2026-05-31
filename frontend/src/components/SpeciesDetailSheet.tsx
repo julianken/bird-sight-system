@@ -39,7 +39,8 @@ export interface SpeciesDetailSheetProps {
   bbox?: BBox | null;
   /** Clears the bbox URL param — passed through to SpeciesDetailSurface. */
   onClearBbox?: () => void;
-  /** Ref to <main id="main-surface"> — receives `inert` at full snap. */
+  /** Ref to the inert target element (O1: #map-layer) — receives `inert` at full snap.
+   *  App passes `mapLayerRef` so the live MapLibre canvas is frozen, not <main>. */
   mainRef: RefObject<HTMLElement | null>;
 }
 
@@ -54,8 +55,8 @@ export interface SpeciesDetailSheetProps {
  *   peek/half → role="region", aria-label="Selected sighting"
  *   full      → role="dialog", aria-modal="true", aria-label={species}
  *
- * Sequencing at half→full: `inert` is set on mainRef.current BEFORE
- * the role attribute flips. On full→collapse the order reverses
+ * Sequencing at half→full: `inert` is set on mainRef.current (O1: #map-layer)
+ * BEFORE the role attribute flips. On full→collapse the order reverses
  * (React renders region first, then JS removes inert). The advance
  * side writes `inert` synchronously inside the click/drag handler
  * BEFORE calling setSnap('full'), so the DOM observer order is
