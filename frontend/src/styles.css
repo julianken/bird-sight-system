@@ -202,14 +202,17 @@ body {
 
    Placement: top-center, inset from the top by enough clearance for the AppHeader
    chrome (--card-inset + --controls-cluster-h + a gap). Capped at
-   --card-maxw-identity (360px) for coherence with the identity card's width —
-   they're both narration surfaces in the top-left/top-center zone. On narrow
-   viewports (< 440px) it expands to fill inset on both sides. */
+   --card-maxw-identity (360px) for coherence with the identity card's width.
+   Centered vertically and horizontally so it clears the top corner cluster
+   (identity card top-left, controls top-right) and the bottom attribution
+   safe-zone at all 5 canonical viewports. On narrow viewports (≤ 440px) the
+   mobile @media rule expands it to fill edge-to-edge with inset margins while
+   keeping vertical centering. */
 .map-error-overlay {
   position: fixed;
-  top: calc(var(--card-inset) + var(--controls-cluster-h, 54px) + var(--card-gap, 8px));
+  top: 50%;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translate(-50%, -50%);
   width: min(var(--card-maxw-identity, 360px), calc(100vw - 2 * var(--card-inset, 12px)));
   background: var(--color-bg-surface);
   border-radius: var(--card-radius);
@@ -233,8 +236,11 @@ body {
   position: absolute;
   top: 8px;
   right: 8px;
-  width: 28px;
-  height: 28px;
+  /* Touch target ≥44×44 (WCAG 2.5.5 / design-review finding).
+     The visible × glyph stays at font-size:18px; padding + flex-centering
+     expand the hit area without enlarging the visual mark. */
+  min-width: 44px;
+  min-height: 44px;
   border: none;
   background: transparent;
   color: var(--color-text-secondary, #666);
@@ -252,12 +258,13 @@ body {
 }
 
 /* On narrow phone viewports (≤ 440px) fill edge-to-edge with inset margins
-   and anchor top rather than centering horizontally. */
+   while keeping true vertical center (translateY(-50%) from top:50%). */
 @media (max-width: 440px) {
   .map-error-overlay {
     left: var(--card-inset, 12px);
     right: var(--card-inset, 12px);
-    transform: none;
+    top: 50%;
+    transform: translateY(-50%);
     width: auto;
   }
 }
