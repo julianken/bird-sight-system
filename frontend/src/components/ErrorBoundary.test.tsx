@@ -132,7 +132,6 @@ describe('ErrorBoundary', () => {
     // Bump resetKeys — now MaybeThrower won't throw (key !== 0)
     fireEvent.click(document.body); // ensure no stale focus
     // Simulate the resetKey change via React state
-    import('../../../frontend/src/App.js').catch(() => {}); // prevent unused import warning
     React.act(() => { setKey(1); });
 
     expect(screen.queryByRole('alert')).toBeNull();

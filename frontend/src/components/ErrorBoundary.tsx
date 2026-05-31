@@ -11,8 +11,9 @@ export interface ErrorBoundaryProps {
    * context-loss recovery: the parent can bump a key to trigger a re-attempt
    * without a full page reload.
    *
-   * MapSurface passes a `[themeKey]` or similar stable value so a recovered
-   * WebGL context (e.g. after a `setStyle`) can re-mount the canvas in-place.
+   * MapSurface passes `[glRetryKey]` — a local useState counter bumped by its
+   * custom fallback's "Try again" button — so clicking "Try again" re-mounts
+   * the Suspense/MapCanvas GL subtree in-place without a full page reload.
    */
   resetKeys?: unknown[];
   children: React.ReactNode;
