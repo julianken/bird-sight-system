@@ -25,14 +25,21 @@ test.describe('SpeciesDetailSheet snap behavior', () => {
     await expect(sheet).toHaveAttribute('data-snap-state', 'full');
     await expect(sheet).toHaveAttribute('role', 'dialog');
     await expect(sheet).toHaveAttribute('aria-modal', 'true');
-    await expect(app.mainSurface).toHaveAttribute('inert', '');
+    // O1 (#776): inert retargeted from #main-surface to #map-layer so the live
+    // MapLibre canvas is frozen at full snap, not the near-empty <main> shell.
+    await expect(app.mapLayer).toHaveAttribute('inert', '');
+    // AC-1: map canvas is non-interactive (inert) at full snap — a marker/cluster
+    // inside #map-layer cannot be focused because the inert attribute removes all
+    // descendants from the tab order and blocks pointer events.
+    await expect(page.locator('#map-layer')).toHaveAttribute('inert', '');
 
     // Collapse path
     const collapse = page.getByRole('button', { name: /collapse/i });
     await collapse.click();
     await expect(sheet).toHaveAttribute('data-snap-state', 'half');
     await expect(sheet).toHaveAttribute('role', 'region');
-    await expect(app.mainSurface).not.toHaveAttribute('inert', '');
+    // O1: inert is removed from #map-layer on collapse (map becomes interactive again).
+    await expect(app.mapLayer).not.toHaveAttribute('inert', '');
   });
 
   test('drag-down past peek dismisses the sheet (URL flips off detail)', async ({ page, apiStub }) => {

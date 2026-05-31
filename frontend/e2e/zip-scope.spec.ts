@@ -8,10 +8,12 @@ import { AppPage } from './pages/app-page.js';
  * The ZIP path resolves a 5-digit ZIP to a `?state=US-XX` scope (NO `?zip=`,
  * locked decision #5) + a transient metro `flyTo` at `ZIP_FLYTO_ZOOM` (10). The
  * camera move is asserted via the URL round-trip (`?state=` set, no `?zip=`) +
- * the `/api/observations` request query (`state=US-XX`) — the agreed handle
- * (App exposes no dedicated camera data-attribute); the metro-zoom landing is
- * the prototype's learning (f) (the ZIP `flyTo` wins over the whole-state
- * `fitBounds` on the chooser→map remount).
+ * the `/api/observations` request query (`state=US-XX`). O1 (#776) added direct
+ * camera handles (`data-camera-bounds` / `data-scope-fitted` on #map-layer) —
+ * this spec's assertion re-baseline to those direct handles is deferred to
+ * WS9.3; the URL+observations-proxy assertions remain as belt-and-suspenders.
+ * The metro-zoom landing is the prototype's learning (f) (the ZIP `flyTo` wins
+ * over the whole-state `fitBounds` on the chooser→map remount).
  *
  * Empty-region (AC 11) is the data-availability ≠ filter-narrowing distinction:
  * a valid non-AZ ZIP whose state is empty on the AZ-only seed must read the

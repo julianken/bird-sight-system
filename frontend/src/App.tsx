@@ -349,7 +349,21 @@ export function App() {
   useEffect(() => {
     if (boundsKey !== undefined) {
       scopeMoveUntilRef.current = Date.now() + SCOPE_MOVE_SETTLE_MS;
+      // O1 (#776) — data-scope-fitted: reset to false on each new camera move,
+      // then flip to true after the programmatic animation window expires.
+      // Both this timer and scopeMoveUntilRef share SCOPE_MOVE_SETTLE_MS so
+      // they settle in lockstep. This is an App-local timer — not driven by any
+      // existing settle hook (onViewportChange swallows settle frames in the
+      // window). Scoped-path-only: boundsKey is only defined when scoped.
+      setDataScopeFitted(false);
+      if (scopeFittedTimerRef.current !== null) clearTimeout(scopeFittedTimerRef.current);
+      scopeFittedTimerRef.current = setTimeout(() => {
+        setDataScopeFitted(true);
+      }, SCOPE_MOVE_SETTLE_MS);
     }
+    return () => {
+      if (scopeFittedTimerRef.current !== null) clearTimeout(scopeFittedTimerRef.current);
+    };
   }, [boundsKey, flyTo?.key]);
   const onViewportChange = useCallback((bounds: LngLatBounds, zoom: number) => {
     // S4 (#769) — hard scope-gate. #761 (S1) made the map persistently mounted
@@ -528,6 +542,21 @@ export function App() {
 
   const mainRef = useRef<HTMLElement | null>(null);
 
+  // O1 (#776) — dedicated inert target for the map layer. Both the S1 unscoped
+  // scrim and SpeciesDetailSheet (via the mainRef prop below) operate on this
+  // wrapper so the live MapLibre canvas is frozen whenever a modal/scrim or a
+  // full-snap detail sheet is active. `#main-surface` is kept as the readiness
+  // gate (#586) and scroll-bypass affordance, but no longer receives `inert`.
+  const mapLayerRef = useRef<HTMLDivElement | null>(null);
+
+  // O1 (#776) — camera data-attributes on #map-layer.
+  // data-scope-fitted starts false on each new boundsKey/flyTo change and flips
+  // true after SCOPE_MOVE_SETTLE_MS (the same window that suppresses idle refetch
+  // in scopeMoveUntilRef). Driven by an App-local timer — not by any existing
+  // settle hook (onViewportChange deliberately swallows settle frames).
+  const [dataScopeFitted, setDataScopeFitted] = useState(false);
+  const scopeFittedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // #761 (S1) — the unscoped landing is now an INERT, FOCUS-TRAPPED modal scrim
   // over a mounted-but-idle map (epic OQ1, option (a): modal-over-inert-map),
   // replacing the prior full-tree-unmount early-return. The map mounts behind
@@ -541,34 +570,35 @@ export function App() {
 
   // #761 (S1) — inert + focus-trap handshake for the unscoped scrim. Two
   // mechanisms, BOTH required by the focus-trap AC (they are distinct):
-  //   (4) `inert` on the real <main id="main-surface"> removes the entire map
-  //       subtree (including the map's `.skip-link`) from the tab order while
-  //       the scrim is open. Replicates the attribute-toggle pattern that
-  //       SpeciesDetailSheet.tsx uses on the same `mainRef` (there is no shared
-  //       inert helper — each owner toggles the attribute itself).
+  //   (4) `inert` on #map-layer (O1 retarget from #main-surface) removes the
+  //       live MapLibre canvas from the tab order and blocks pointer interaction
+  //       while the scrim is open. The retarget freezes the map subtree wherever
+  //       it sits (in-<main> pre-S2 or hoisted post-S2) — that's the whole point
+  //       of the wrapper. Replicates the attribute-toggle pattern that
+  //       SpeciesDetailSheet.tsx uses via the mapLayerRef prop (O1 unified target).
   //   (5a) Move initial focus into the scrim on mount — `inert` alone does NOT
   //       move focus, it only removes a subtree from the tab order. The focus
   //       landing target is the scrim wrapper itself (it carries `tabIndex={-1}`
   //       in the JSX below); the focus unit test keys off `scrimRef`/that
   //       wrapper holding focus.
   //   (5b) Trap Tab/Shift+Tab so focus cycles within the chooser and never
-  //       escapes. `inert` on #main-surface covers the map subtree, but the
+  //       escapes. `inert` on #map-layer covers the map subtree, but the
   //       ALWAYS-rendered shell now also mounts the <AppHeader> (wordmark,
-  //       Map tab, Attribution, Filters, ThemeToggle) AND the AttributionModal
-  //       trigger as SIBLINGS of <main> — none of which #main-surface's `inert`
-  //       covers. Rather than mark each of those inert, a keydown wrap handler
-  //       on the scrim keeps focus inside the chooser regardless of what other
-  //       focusable siblings exist (the defensive choice). `Escape` is
-  //       deliberately NOT a dismiss path: there is no "no-scope" state to
-  //       return to — the only exits are picking a scope.
+  //       Attribution, Filters, ThemeToggle) AND the AttributionModal trigger as
+  //       SIBLINGS of #map-layer — none of which #map-layer's `inert` covers.
+  //       Rather than mark each of those inert, a keydown wrap handler on the
+  //       scrim keeps focus inside the chooser regardless of what other focusable
+  //       siblings exist (the defensive choice). `Escape` is deliberately NOT a
+  //       dismiss path: there is no "no-scope" state to return to — the only
+  //       exits are picking a scope.
   useLayoutEffect(() => {
     if (scopeActive) return;
-    const main = mainRef.current;
+    const mapLayer = mapLayerRef.current;
     const scrim = scrimRef.current;
     if (!scrim) return;
 
-    // (4) Remove the map subtree from the tab order.
-    main?.setAttribute('inert', '');
+    // (4) Remove the map subtree from the tab order (O1: target is #map-layer).
+    mapLayer?.setAttribute('inert', '');
 
     // The focusable descendants of the scrim, in DOM order. Recomputed inside
     // the handler so it stays correct if the chooser's controls change (e.g.
@@ -616,7 +646,8 @@ export function App() {
       scrim.removeEventListener('keydown', onKeyDown);
       // Clearing `inert` happens when a scope is picked and the scrim unmounts
       // (this cleanup), or whenever `scopeActive` flips true.
-      main?.removeAttribute('inert');
+      // O1: target is #map-layer, not #main-surface.
+      mapLayer?.removeAttribute('inert');
     };
   }, [scopeActive]);
 
@@ -682,6 +713,30 @@ export function App() {
     noFiltersActive,
     familyName,
   ]);
+
+  // O1 (#776) — App-root polite aria-live result-settle narration (R9).
+  // The AppHeader already announces scope changes ("Showing {region}"). This
+  // region narrates the sightings-count/result settle ONCE per data load,
+  // debounced to SCOPE_MOVE_SETTLE_MS so it fires only after the camera and
+  // fetch both settle — not on every incremental render while loading.
+  // It reuses ledeText (the same copy AppHeader displays) so the SR hears the
+  // same summary a sighted user reads in the identity card, with no duplicate
+  // narration vs the scope-change announcer (which announces the region name
+  // while this announces the result count). Both are polite — they don't
+  // interrupt; the SR hears: "Showing Arizona." → [data loads] → "{N} species …"
+  const [settledLedeText, setSettledLedeText] = useState<string | null>(null);
+  const ledeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    // Only narrate once observations have settled (not while loading, not null).
+    if (observationsLoading || ledeText === null) return;
+    if (ledeDebounceRef.current !== null) clearTimeout(ledeDebounceRef.current);
+    ledeDebounceRef.current = setTimeout(() => {
+      setSettledLedeText(ledeText);
+    }, SCOPE_MOVE_SETTLE_MS);
+    return () => {
+      if (ledeDebounceRef.current !== null) clearTimeout(ledeDebounceRef.current);
+    };
+  }, [ledeText, observationsLoading]);
 
   // #663: clicking a species in a popover opens the detail overlay
   // IN PLACE — the map stays mounted. New click flow writes only
@@ -814,7 +869,15 @@ export function App() {
           fetch gate (above) is the sole mechanism holding `/api/observations` at
           zero. Do NOT make `#map-layer` conditional on `scopeActive`. */}
       {mapVisible && (
-        <div id="map-layer">
+        <div
+          id="map-layer"
+          ref={mapLayerRef}
+          aria-busy={observationsLoading}
+          {...(boundsKey !== undefined ? {
+            'data-camera-bounds': boundsKey,
+            'data-scope-fitted': String(dataScopeFitted),
+          } : {})}
+        >
           {/* #800 (S3): ScopeControl is now folded into the AppHeader identity
               card (spec §4.2) and rendered THERE — no longer a standalone
               floating overlay anchored top-center inside #map-layer. The header-
@@ -849,7 +912,10 @@ export function App() {
         ref={mainRef}
         id="main-surface"
         data-render-complete={renderComplete}
-        aria-busy={observationsLoading}
+        // aria-busy removed from <main> by O1 (#776) — re-homed to #map-layer
+        // above so assistive tech announces "busy" against the region that is
+        // actually changing (the map block), not the near-empty <main> shell.
+        // Single-busy-node invariant: #map-layer is the sole aria-busy node.
         // axe `scrollable-region-focusable` (WCAG 2.1.1): #main-surface
         // has `overflow: auto` so it can scroll when its content exceeds the
         // viewport. Keyboard users need to be able to focus the scrollable
@@ -859,14 +925,22 @@ export function App() {
         // #761 (S2): the map + ScopeControl no longer render here — they were
         // hoisted into the fixed `#map-layer` wrapper above. `<main>` is kept
         // (with `id`, `data-render-complete`, `mainRef`, `tabIndex={0}`) as the
-        // readiness gate (#586), the scroll-bypass affordance, and the `inert`
-        // target S1's focus-trap effect / SpeciesDetailSheet still wire to it.
-        // It now wraps only non-map view surfaces (F1 (#777) removed the feed
-        // branch, so today that is none); its `--space-lg` padding stays for
-        // any future non-map surface and the `padding-top` header-clearance
-        // (R15) keeps such a surface out from under the floating chrome.
+        // readiness gate (#586) and scroll-bypass affordance. O1 (#776) removed
+        // the `inert` toggle from <main> (retargeted to #map-layer) and removed
+        // `aria-busy` (re-homed to #map-layer). It now wraps only non-map view
+        // surfaces; its `--space-lg` padding stays for any future non-map surface.
         tabIndex={0}
       />
+      {/* O1 (#776) — App-root result-settle live region (R9). Announces the
+          sightings-count/result summary once per settle, debounced to
+          SCOPE_MOVE_SETTLE_MS. Complements AppHeader's scope-change announcer
+          ("Showing {region}") — no duplicate: that fires on region change, this
+          fires after data loads. Both are polite; SR hears both in sequence.
+          Composes .sr-only only (no extra class needed — no map-specific
+          positioning override required). */}
+      <div role="status" aria-live="polite" className="sr-only">
+        {settledLedeText ?? ''}
+      </div>
       {/* #761 (S1) — detail rail/sheet gated on `scopeActive`. The unscoped
           early-return used to make these lines unreachable while unscoped; now
           that the shell always renders, a `?detail=` riding an unscoped URL
@@ -890,7 +964,7 @@ export function App() {
           speciesCode={state.detail}
           apiClient={apiClient}
           onClose={onCloseDetail}
-          mainRef={mainRef}
+          mainRef={mapLayerRef}
           bbox={state.bbox}
           onClearBbox={onClearBbox}
         />

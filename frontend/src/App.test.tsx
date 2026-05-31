@@ -259,31 +259,36 @@ describe('App aria-busy', () => {
     vi.restoreAllMocks();
   });
 
-  it('sets aria-busy=true on <main> while observations are loading', () => {
-    // #777 removed the `&& state.view === 'feed'` conjunct; aria-busy now
-    // tracks observationsLoading directly on the surviving surface (map).
+  // O1 (#776): aria-busy re-homed from <main> to #map-layer.
+  it('sets aria-busy=true on #map-layer (not <main>) while observations are loading', () => {
+    // O1 re-homes aria-busy from <main id="main-surface"> to #map-layer so
+    // assistive tech announces "busy" against the region that is actually
+    // changing (the map block), not the near-empty <main> shell.
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'map',
       scope: { kind: 'us' as const },
     };
     // getObservations returns a never-resolving promise to keep loading=true
     mockGetObservations.mockReturnValue(new Promise(() => {}));
-    render(<App />);
-    const main = screen.getByRole('main');
-    expect(main.getAttribute('aria-busy')).toBe('true');
+    const { container } = render(<App />);
+    // Map root carries aria-busy=true while loading.
+    expect(container.querySelector('#map-layer')?.getAttribute('aria-busy')).toBe('true');
+    // Single-busy-node invariant: <main id="main-surface"> carries NO aria-busy.
+    expect(screen.getByRole('main').hasAttribute('aria-busy')).toBe(false);
   });
 
-  it('clears aria-busy on <main> once observations have loaded', async () => {
+  it('clears aria-busy on #map-layer once observations have loaded', async () => {
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'map',
       scope: { kind: 'us' as const },
     };
     mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
-    render(<App />);
+    const { container } = render(<App />);
     await waitFor(() => {
-      const main = screen.getByRole('main');
-      expect(main.getAttribute('aria-busy')).toBe('false');
+      expect(container.querySelector('#map-layer')?.getAttribute('aria-busy')).toBe('false');
     });
+    // Invariant: <main> still has no aria-busy after settle.
+    expect(screen.getByRole('main').hasAttribute('aria-busy')).toBe(false);
   });
 });
 
@@ -962,15 +967,13 @@ describe('#740 (C6): scope wiring end-to-end', () => {
     expect(
       await screen.findByRole('region', { name: /Choose where to look at birds/i }),
     ).toBeInTheDocument();
-    // #761 (S1): the map surface is mounted but INERT behind the scrim (no
-    // longer a full-tree unmount). The stub is present and #main-surface — the
-    // real <main id="main-surface"> App renders — carries the `inert` attribute
-    // set by App's inert/focus-trap effect. #761 (S2): the stub now lives in the
-    // hoisted #map-layer wrapper (a SIBLING of <main>), not inside #main-surface;
-    // the `inert` target stays #main-surface (the inert retarget to #map-layer is
-    // O1, not S2). Both assertions are unaffected by where the stub renders.
+    // #761 (S1) / O1 (#776): the map surface is mounted but INERT behind the
+    // scrim (no longer a full-tree unmount). The stub is present and #map-layer
+    // — the map wrapper — carries the `inert` attribute set by App's
+    // inert/focus-trap effect. O1 retargeted `inert` from #main-surface to
+    // #map-layer so the live MapLibre canvas is frozen, not the near-empty shell.
     expect(screen.getByTestId('map-surface-stub')).toBeInTheDocument();
-    expect(container.querySelector('#main-surface')).toHaveAttribute('inert');
+    expect(container.querySelector('#map-layer')).toHaveAttribute('inert');
     // The cold-load fetch is suppressed: zero observations requests. Give any
     // mistaken effect a tick to fire.
     await waitFor(() => {
@@ -1206,13 +1209,11 @@ describe('#740 (C6): scope wiring end-to-end', () => {
     expect(
       await screen.findByRole('region', { name: /Choose where to look at birds/i }),
     ).toBeInTheDocument();
-    // #761 (S1) re-baseline: the map surface is now mounted but INERT behind the
-    // scrim (it was unmounted under the old early-return). The inert attribute
-    // lands on the real <main id="main-surface"> App renders. #761 (S2): the map
-    // stub now lives in the hoisted #map-layer sibling, not inside #main-surface;
-    // the `inert` target stays #main-surface in S2 (retarget is O1).
+    // #761 (S1) / O1 (#776) re-baseline: the map surface is now mounted but
+    // INERT behind the scrim (it was unmounted under the old early-return).
+    // O1 retargeted `inert` from #main-surface to #map-layer (the map wrapper).
     expect(screen.getByTestId('map-surface-stub')).toBeInTheDocument();
-    expect(container.querySelector('#main-surface')).toHaveAttribute('inert');
+    expect(container.querySelector('#map-layer')).toHaveAttribute('inert');
     // #761 (S1) NEW guard: the detail rail/sheet does NOT render on an unscoped
     // URL even though detail:'vermfly' is set — the `scopeActive` gate (App
     // task #6) stops a `?detail=` from mounting a second top-layer over the
@@ -1242,8 +1243,8 @@ describe('#740 (C6): scope wiring end-to-end', () => {
     expect(container.querySelector('.app')).not.toBeNull();
     // The map stub and the chooser region are BOTH in the DOM simultaneously.
     expect(screen.getByTestId('map-surface-stub')).toBeInTheDocument();
-    // #main-surface is inert.
-    expect(container.querySelector('#main-surface')).toHaveAttribute('inert');
+    // #map-layer is inert (O1 retarget from #main-surface).
+    expect(container.querySelector('#map-layer')).toHaveAttribute('inert');
     // Fetch stays suppressed.
     expect(mockGetObservations).not.toHaveBeenCalled();
     expect(mockGetHotspots).not.toHaveBeenCalled();
@@ -1517,5 +1518,86 @@ describe('O9 (#781): scope-gated MapCanvas prefetch wiring', () => {
     } finally {
       fetchSpy.mockRestore();
     }
+  });
+});
+
+describe('O1 (#776): inert retarget to #map-layer', () => {
+  beforeEach(() => {
+    __resetSilhouettesCache();
+    __resetStatesCache();
+    __resetZipIndexCache();
+    mockGetHotspots.mockResolvedValue([]);
+    mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
+    mockGetSilhouettes.mockResolvedValue([]);
+    mockGetStates.mockResolvedValue([]);
+    mapSurfaceRef.renderCount = 0;
+    mapSurfaceRef.boundsKey = undefined;
+    mapSurfaceRef.scopeBounds = undefined;
+    mapSurfaceRef.flyTo = undefined;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // S1 unscoped scrim: inert is set on #map-layer (not #main-surface) so the
+  // live MapLibre canvas is frozen while the chooser scrim is active.
+  it('sets inert on #map-layer (not #main-surface) when the unscoped scrim is shown', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'unscoped' },
+    };
+    const { container } = render(<App />);
+    await screen.findByRole('region', { name: /Choose where to look at birds/i });
+
+    // #map-layer carries the inert attribute (the retargeted mute).
+    expect(container.querySelector('#map-layer')).toHaveAttribute('inert');
+    // #main-surface does NOT carry inert (O1 retargets it off main).
+    expect(container.querySelector('#main-surface')).not.toHaveAttribute('inert');
+  });
+
+  // O1 camera data-attributes: data-camera-bounds and data-scope-fitted exist on
+  // the map root on a scoped path. data-scope-fitted starts "false" on a new
+  // boundsKey and flips "true" after SCOPE_MOVE_SETTLE_MS.
+  it('exposes data-camera-bounds on #map-layer for a scoped view', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
+    };
+    const { container } = render(<App />);
+    await screen.findByTestId('map-surface-stub');
+
+    // The camera attribute is present on #map-layer (the map root).
+    const mapLayer = container.querySelector('#map-layer');
+    expect(mapLayer).not.toBeNull();
+    expect(mapLayer?.hasAttribute('data-camera-bounds')).toBe(true);
+  });
+
+  // O1: data-scope-fitted starts 'false' on mount with a boundsKey and flips
+  // 'true' after the SCOPE_MOVE_SETTLE_MS timer fires.
+  it('data-scope-fitted starts false and flips true after SCOPE_MOVE_SETTLE_MS', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
+    };
+    // Install fake timers AFTER setting up state but BEFORE render so the
+    // setTimeout in the boundsKey effect is captured. Use `shouldAdvanceTime:
+    // false` so findByTestId's internal retry (which uses real microtask
+    // scheduling) is not blocked by our clock freeze.
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    let container: HTMLElement;
+    await act(async () => {
+      ({ container } = render(<App />));
+    });
+
+    const mapLayer = container!.querySelector('#map-layer');
+    expect(mapLayer?.getAttribute('data-scope-fitted')).toBe('false');
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000); // SCOPE_MOVE_SETTLE_MS
+    });
+
+    expect(mapLayer?.getAttribute('data-scope-fitted')).toBe('true');
+    vi.useRealTimers();
   });
 });

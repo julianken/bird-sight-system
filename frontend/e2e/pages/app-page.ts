@@ -4,6 +4,10 @@ import { FiltersBar } from './filters-bar.js';
 export class AppPage {
   readonly filters: FiltersBar;
   readonly mainSurface: Locator;
+  /** O1 (#776): the #map-layer div — receives `inert` at full snap / unscoped
+   *  scrim, carries `aria-busy` (re-homed from <main>), and exposes
+   *  `data-camera-bounds` / `data-scope-fitted` as e2e camera handles. */
+  readonly mapLayer: Locator;
   readonly errorScreen: Locator;
   /**
    * Persistent header banner — transparent wrapper holding identity card +
@@ -64,6 +68,8 @@ export class AppPage {
     // `[data-render-complete]` attribute (the one hook the inversion carries
     // forward onto whatever element becomes the readiness root).
     this.mainSurface = page.locator('main#main-surface');
+    // O1 (#776): map-layer — the inert target, aria-busy node, and camera handle.
+    this.mapLayer = page.locator('#map-layer');
     this.errorScreen = page.locator('.error-screen');
     this.appHeader = page.locator('header.app-header');
     // #800: appHeaderTabs removed — no tablist in the new corner-card header.
@@ -175,13 +181,11 @@ export class AppPage {
   }
 
   /**
-   * #761 (S1): assert the map surface is mounted but INERT behind the chooser
-   * scrim on the unscoped landing. The `inert` attribute on `#main-surface`
-   * (set by App's inert/focus-trap effect) removes the whole map subtree from
-   * the tab order and blocks pointer interaction — the load-bearing half of the
-   * "chooser scrim over a mounted, idle map" model. Specs assert through this
-   * helper rather than inlining the `[inert]` selector so the map-first
-   * inversion (#761 S2, the eventual map hoist) re-points only this one line.
+   * #761 (S1) / O1 (#776): assert the map surface is mounted but INERT behind
+   * the chooser scrim on the unscoped landing. O1 retargeted `inert` from
+   * `#main-surface` to `#map-layer` so the live MapLibre canvas is frozen, not
+   * the near-empty <main> shell. Specs assert through this helper rather than
+   * inlining the `[inert]` selector so future re-targets re-point only here.
    *
    * Returns the inertness assertion as a chainable `expect` so callers can
    * `await app.expectMapInert()`.
@@ -189,8 +193,8 @@ export class AppPage {
   async expectMapInert(): Promise<void> {
     // The map canvas is present (mounted idle behind the scrim)…
     await this.mapCanvas.waitFor({ state: 'attached' });
-    // …and #main-surface carries the `inert` attribute.
-    await this.mainSurface.and(this.page.locator('[inert]')).waitFor({ state: 'attached' });
+    // …and #map-layer carries the `inert` attribute (O1 retarget from #main-surface).
+    await this.mapLayer.and(this.page.locator('[inert]')).waitFor({ state: 'attached' });
   }
 
   /**
