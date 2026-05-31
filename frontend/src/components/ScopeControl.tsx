@@ -75,7 +75,7 @@ export interface ScopeControlProps {
   embedded?: boolean;
 }
 
-export function ScopeControl({
+function ScopeControlImpl({
   scope,
   states,
   onPickState,
@@ -144,3 +144,15 @@ export function ScopeControl({
     </section>
   );
 }
+
+/**
+ * O8 (#784): React.memo boundary — prevents re-renders when AppHeader
+ * re-renders due to unrelated App-level state (e.g. nowTick / visibilitychange
+ * / freshnessLabel updates) but ScopeControl's own props are unchanged.
+ * All props are primitives or useCallback-stable references; the scope object
+ * reference is stable when no scope-change has occurred (it's the same useState
+ * identity from useUrlState). Default shallow comparison short-circuits on a
+ * same-minute nowTick bump.
+ */
+export const ScopeControl = React.memo(ScopeControlImpl);
+ScopeControl.displayName = 'ScopeControl';

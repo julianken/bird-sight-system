@@ -953,6 +953,42 @@ describe('MapCanvas', () => {
       await new Promise((r) => setTimeout(r, 0));
       expect(fakeMap.setStyle).not.toHaveBeenCalled();
     });
+
+    // O8 (#784): prevThemeRef dedup — a genuine light→dark flip fires setStyle
+    // EXACTLY ONCE (not twice, not zero). Guards the MutationObserver
+    // short-circuit: a single attribute write must produce a single setStyle call.
+    it('O8: a light→dark flip fires map.setStyle EXACTLY ONCE (prevThemeRef dedup)', async () => {
+      document.documentElement.setAttribute('data-theme', 'light');
+      render(<MapCanvas observations={[]} silhouettes={SILHOUETTES} />);
+      await waitFor(() => expect(fakeMap).not.toBeNull());
+      (fakeMap.setStyle as ReturnType<typeof vi.fn>).mockClear();
+
+      act(() => {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      });
+      await waitFor(() => {
+        expect(fakeMap.setStyle).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    // O8 (#784): a redundant same-value setAttribute fires setStyle ZERO times.
+    // The prevThemeRef guard prevents re-painting when the attribute is written
+    // but the value hasn't changed (e.g. a second `data-theme="light"` write
+    // while the map is already in light mode).
+    it('O8: a redundant same-value mutation fires map.setStyle ZERO times', async () => {
+      document.documentElement.setAttribute('data-theme', 'light');
+      render(<MapCanvas observations={[]} silhouettes={SILHOUETTES} />);
+      await waitFor(() => expect(fakeMap).not.toBeNull());
+      (fakeMap.setStyle as ReturnType<typeof vi.fn>).mockClear();
+
+      // Write the same value twice — both should be no-ops.
+      act(() => {
+        document.documentElement.setAttribute('data-theme', 'light');
+        document.documentElement.setAttribute('data-theme', 'light');
+      });
+      await new Promise((r) => setTimeout(r, 0));
+      expect(fakeMap.setStyle).toHaveBeenCalledTimes(0);
+    });
   });
 
   /* ── ClusterPillOverlay (preserved, post-cutover semantics) ─────── */

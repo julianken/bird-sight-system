@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import type { FamilySilhouette as FamilySilhouetteData, Observation } from '@bird-watch/shared-types';
 import { prettyFamily } from '../derived.js';
 import { FamilySilhouette } from './ds/FamilySilhouette.js';
@@ -108,7 +108,7 @@ function buildEntries(
   return out.sort((a, b) => a.label.localeCompare(b.label));
 }
 
-export function FamilyLegend({
+function FamilyLegendImpl({
   silhouettes,
   observations,
   familyCode,
@@ -241,3 +241,12 @@ export function FamilyLegend({
     </aside>
   );
 }
+
+/**
+ * O8 (#784): React.memo boundary — prevents re-renders when App-level state
+ * (e.g. nowTick / visibilitychange) changes but FamilyLegend's own props are
+ * unchanged. All props are primitives or useCallback-stable references, so the
+ * default shallow comparison short-circuits on a same-minute nowTick bump.
+ */
+export const FamilyLegend = memo(FamilyLegendImpl);
+FamilyLegend.displayName = 'FamilyLegend';
