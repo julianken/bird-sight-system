@@ -124,6 +124,146 @@ test.describe('species detail surface (#151)', () => {
     // The legacy position:fixed overlay class is still absent.
     await expect(page.locator('.species-panel-overlay')).toHaveCount(0);
   });
+
+  /**
+   * #801 — SpeciesDetailRail de-docked to an inset floating card.
+   *
+   * At ≥1200px the rail must float inset from ALL four sides of the viewport:
+   *   - rect.top > 0     — map pixels visible above the card
+   *   - rect.right < viewportWidth — map pixels visible to the right (inset from right edge)
+   *   - rect.bottom < viewportHeight — map pixels visible below the card
+   *   - rect.left > 0    — map pixels visible to the left (not a full-height dock from left:0)
+   *
+   * Additionally:
+   *   - No border-left divider (the old edge-dock's left border must be gone)
+   *   - border-radius on all four corners (--card-radius ≥ 8px confirms all-corner treatment)
+   *   - --z-rail tier preserved (43 — above chrome 42, below cell/cluster popovers)
+   */
+  test('#801 rail is an inset floating card at 1440×900 — map pixels visible on all four sides', async ({ page, apiStub }) => {
+    await apiStub.stubEmpty();
+    await apiStub.stubSpecies('vermfly', VERMFLY);
+    const app = new AppPage(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await app.goto('detail=vermfly&view=detail');
+    await app.waitForAppReady();
+    await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeVisible({ timeout: 10_000 });
+
+    const rail = page.locator('aside.species-detail-rail');
+    await expect(rail).toBeVisible();
+
+    const m = await rail.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const cs = getComputedStyle(el);
+      return {
+        top:            r.top,
+        right:          r.right,
+        bottom:         r.bottom,
+        left:           r.left,
+        viewportWidth:  window.innerWidth,
+        viewportHeight: window.innerHeight,
+        borderLeft:     cs.borderLeftWidth,
+        borderTopLeftRadius:     cs.borderTopLeftRadius,
+        borderTopRightRadius:    cs.borderTopRightRadius,
+        borderBottomLeftRadius:  cs.borderBottomLeftRadius,
+        borderBottomRightRadius: cs.borderBottomRightRadius,
+      };
+    });
+
+    // All four sides must have a gap — the card floats inset, not docked.
+    expect(m.top,    'rail.top > 0: map visible above the card').toBeGreaterThan(0);
+    expect(m.right,  'rail.right < viewportWidth: map visible to the right').toBeLessThan(m.viewportWidth);
+    expect(m.bottom, 'rail.bottom < viewportHeight: map visible below the card').toBeLessThan(m.viewportHeight);
+    expect(m.left,   'rail.left > 0: not full-height docked to left edge').toBeGreaterThan(0);
+
+    // No hard left-border divider — the old edge-dock visual.
+    expect(
+      parseFloat(m.borderLeft),
+      'no border-left divider on the floating card',
+    ).toBeLessThanOrEqual(0);
+
+    // All four corners have border-radius (≥ 8px confirms all-corner floating treatment).
+    const minRadius = 8;
+    expect(parseFloat(m.borderTopLeftRadius),     'top-left radius ≥ 8px').toBeGreaterThanOrEqual(minRadius);
+    expect(parseFloat(m.borderTopRightRadius),    'top-right radius ≥ 8px').toBeGreaterThanOrEqual(minRadius);
+    expect(parseFloat(m.borderBottomLeftRadius),  'bottom-left radius ≥ 8px').toBeGreaterThanOrEqual(minRadius);
+    expect(parseFloat(m.borderBottomRightRadius), 'bottom-right radius ≥ 8px').toBeGreaterThanOrEqual(minRadius);
+  });
+
+  test('#801 rail is an inset floating card at 1920×1080 — map pixels visible on all four sides', async ({ page, apiStub }) => {
+    await apiStub.stubEmpty();
+    await apiStub.stubSpecies('vermfly', VERMFLY);
+    const app = new AppPage(page);
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await app.goto('detail=vermfly&view=detail');
+    await app.waitForAppReady();
+    await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeVisible({ timeout: 10_000 });
+
+    const rail = page.locator('aside.species-detail-rail');
+    await expect(rail).toBeVisible();
+
+    const m = await rail.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return {
+        top:            r.top,
+        right:          r.right,
+        bottom:         r.bottom,
+        left:           r.left,
+        viewportWidth:  window.innerWidth,
+        viewportHeight: window.innerHeight,
+      };
+    });
+
+    expect(m.top,    'rail.top > 0: map visible above the card at 1920').toBeGreaterThan(0);
+    expect(m.right,  'rail.right < 1920: map visible to the right').toBeLessThan(m.viewportWidth);
+    expect(m.bottom, 'rail.bottom < 1080: map visible below the card at 1920').toBeLessThan(m.viewportHeight);
+    expect(m.left,   'rail.left > 0: not docked to left edge at 1920').toBeGreaterThan(0);
+  });
+
+  /**
+   * #801 Tier-2 occlusion regression guard — rail must NOT overlap the controls pill.
+   *
+   * At ≥1440 the rail (z-index --z-rail 43) is stacked ABOVE the controls pill
+   * (z-index --z-chrome 42). If the rail's top edge encroaches into the pill's
+   * vertical band, the Attribution/Filters/theme buttons are painted over and
+   * unclickable. This test asserts disjoint bounding boxes: rail.top ≥ pill.bottom.
+   *
+   * Tested at both canonical wide viewports (1440×900 and 1920×1080).
+   */
+  for (const [vw, vh] of [[1440, 900], [1920, 1080]] as const) {
+    test(`#801 rail does not occlude controls pill at ${vw}×${vh} — rail.top ≥ pill.bottom`, async ({ page, apiStub }) => {
+      await apiStub.stubEmpty();
+      await apiStub.stubSpecies('vermfly', VERMFLY);
+      const app = new AppPage(page);
+      await page.setViewportSize({ width: vw, height: vh });
+      await app.goto('detail=vermfly&view=detail');
+      await app.waitForAppReady();
+      await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeVisible({ timeout: 10_000 });
+
+      const rects = await page.evaluate(() => {
+        const rail = document.querySelector('aside.species-detail-rail');
+        const pill = document.querySelector('.app-header-controls-pill');
+        if (!rail || !pill) return null;
+        const railR = rail.getBoundingClientRect();
+        const pillR = pill.getBoundingClientRect();
+        return {
+          railTop:    railR.top,
+          pillBottom: pillR.bottom,
+          pillTop:    pillR.top,
+          pillRight:  pillR.right,
+          railRight:  railR.right,
+        };
+      });
+
+      expect(rects, 'rail and pill elements must be present').not.toBeNull();
+
+      // The rail's top edge must be at or below the pill's bottom edge —
+      // no shared vertical band means no occlusion regardless of z-index.
+      expect(
+        rects!.railTop,
+        `rail.top (${rects!.railTop}px) must be ≥ pill.bottom (${rects!.pillBottom}px) — no vertical overlap`,
+      ).toBeGreaterThanOrEqual(rects!.pillBottom);
+    });
+  }
 });
 
 /**

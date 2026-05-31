@@ -983,35 +983,68 @@ body:has(.species-detail-sheet--full) .app-header-controls-pill {
 }
 
 /* ==========================================================================
-   #663 — in-place species detail rail (≥1200px viewports).
-   Renders as <aside role="complementary"> on the right edge of the
-   viewport, coexisting with a still-mounted Map to the left. Width is
-   capped at 560px (issue #663 Addendum A); the Map keeps the remaining
-   width and stays interactive (no inert backdrop).
+   #663 / #801 — SpeciesDetailRail as an inset floating card (≥1200px).
 
-   z-index: the rail sits at the dedicated rail tier (--z-rail = 43), above the
-   map-assist overlays (--z-overlay/--z-popover = 40/41) and BELOW the
-   cell/cluster popovers (--z-cell-popover/--z-cluster-popover = 44/45 — both
-   popovers still float ABOVE the rail, matching the pre-refactor
-   rail(45) < cell(46) < cluster(47)). This is a rank-preserving rename: the
-   raw value moves 45 → 43 but the rail's order relative to everything that can
-   overlap it is unchanged. The named --z-chrome / --z-modal tiers exist in the
-   scale but are NOT adopted by .app-header / the sheet in this PR (#761 P1 is
-   strict zero-visual-change); the header stays at raw 10 below the overlays
-   until S2 (#775) and the sheet stays at 10/15/20 until O5 (#783). (#761 P1, #778.)
+   #801 de-docks the rail from the right edge (floating-inset chrome principle,
+   spec §4.5). It now insets from ALL four viewport edges so the map is visible
+   above, below, and to the left of it — Google-Maps-style detail card, not a
+   side-panel wall. The #663 interactive-map-beneath guarantee is preserved:
+   the rail is still position:fixed and still a sibling of the map canvas, NOT
+   inside <main> — the map stays live and interactive around it.
+
+   Geometry:
+     - inset-block-start: calc(var(--card-inset) + var(--controls-cluster-h) +
+         var(--card-gap)) — clears the controls pill (54px measured) with an
+         additional 8px gap; rail top sits BELOW the pill bottom at all widths
+     - inset-block-end: var(--card-inset) — 12px gap from the bottom edge
+     - inset-inline-end: var(--card-inset) — 12px gap from the right edge
+     - inset-inline-start: auto — not docked to the left edge
+     - width: clamp(360px, 38vw, var(--card-maxw-rail)) — 360–420px, shrinks
+       gracefully on narrow-wide viewports
+     - max-height: none (height is governed by inset-block on both sides)
+     - border-radius: var(--card-radius) on ALL four corners (12px) — no
+       more flush right edge; the card floats with visible corners all around
+     - box-shadow: var(--card-elevation-3) — tier-3 floating shadow (spec §2.3)
+       replaces the old directional "-8px 0 32px" edge-dock shadow
+     - border-left removed — the old edge-dock visual divider is gone
+
+   At ≥1440px all three inset terms switch to --card-inset-wide (24px) so the
+   rail's right edge aligns with the controls pill's right edge at wide viewports
+   (four-corner anchor contract, spec §3 / CLAUDE.md).
+
+   z-index: --z-rail (43) preserved — above map overlays (40/41), above
+   identity+controls chrome (42), BELOW cell/cluster popovers (44/45).
+   The rank-preserving contract from #778 holds unchanged.
+
+   Collision avoidance (spec §5.3): rail.top ≥ pill.bottom is guaranteed by the
+   inset-block-start formula:
+     <1440  → 12 + 54 + 8 = 74px top; pill bottom = 12 + 54 = 66px → +8px gap
+     ≥1440  → 24 + 54 + 8 = 86px top; pill bottom = 24 + 54 = 78px → +8px gap
+   (#801, #761.)
    ========================================================================== */
 aside.species-detail-rail {
   position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: min(560px, 100vw);
+  inset-block-start: calc(var(--card-inset) + var(--controls-cluster-h) + var(--card-gap));
+  inset-block-end: var(--card-inset);
+  inset-inline-end: var(--card-inset);
+  inset-inline-start: auto;
+  width: clamp(360px, 38vw, var(--card-maxw-rail));
   background: var(--color-bg-surface);
   color: var(--color-text);
-  border-left: 1px solid var(--color-border, rgba(0, 0, 0, 0.08));
-  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.12);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-elevation-3);
   overflow: auto;
   z-index: var(--z-rail);
+}
+
+/* At ≥1440px switch all three rail insets to --card-inset-wide (24px) so the
+   right edge aligns with the controls pill and both use the same wide gutter. */
+@media (min-width: 1440px) {
+  aside.species-detail-rail {
+    inset-block-start: calc(var(--card-inset-wide) + var(--controls-cluster-h) + var(--card-gap));
+    inset-block-end: var(--card-inset-wide);
+    inset-inline-end: var(--card-inset-wide);
+  }
 }
 
 aside.species-detail-rail .species-detail-rail-close {
