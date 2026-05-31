@@ -163,6 +163,154 @@ describe('tokens.css — W1 conformance', () => {
       expect(TOKENS_CSS).toMatch(/--overlay-bp-wide:\s*1024px/);
     });
   });
+
+  // ── #761 #803: Floating-card design language — geometry + elevation tokens.
+  describe('Floating-card geometry tokens — #761 #803 (spec §2.1)', () => {
+    it('defines --card-radius aliased to --radius-lg', () => {
+      expect(TOKENS_CSS).toMatch(/--card-radius:\s*var\(--radius-lg\)/);
+    });
+    it('defines --card-radius-inner as 8px', () => {
+      expect(TOKENS_CSS).toMatch(/--card-radius-inner:\s*8px/);
+    });
+    it('defines --card-inset aliased to --space-md', () => {
+      expect(TOKENS_CSS).toMatch(/--card-inset:\s*var\(--space-md\)/);
+    });
+    it('defines --card-inset-wide aliased to --space-xl', () => {
+      expect(TOKENS_CSS).toMatch(/--card-inset-wide:\s*var\(--space-xl\)/);
+    });
+    it('defines --card-gap aliased to --space-sm', () => {
+      expect(TOKENS_CSS).toMatch(/--card-gap:\s*var\(--space-sm\)/);
+    });
+    it('defines --card-padding as var(--space-md) var(--space-lg)', () => {
+      expect(TOKENS_CSS).toMatch(/--card-padding:\s*var\(--space-md\)\s*var\(--space-lg\)/);
+    });
+    it('defines --card-padding-tight as var(--space-sm) var(--space-md)', () => {
+      expect(TOKENS_CSS).toMatch(/--card-padding-tight:\s*var\(--space-sm\)\s*var\(--space-md\)/);
+    });
+    it('defines --card-maxw-identity as 360px', () => {
+      expect(TOKENS_CSS).toMatch(/--card-maxw-identity:\s*360px/);
+    });
+    it('defines --card-maxw-legend as 280px', () => {
+      expect(TOKENS_CSS).toMatch(/--card-maxw-legend:\s*280px/);
+    });
+    it('defines --card-maxw-rail as 420px', () => {
+      expect(TOKENS_CSS).toMatch(/--card-maxw-rail:\s*420px/);
+    });
+    it('defines --card-maxw-popover as 300px', () => {
+      expect(TOKENS_CSS).toMatch(/--card-maxw-popover:\s*300px/);
+    });
+  });
+
+  // ── #761 #803: Elevation system — light and dark.
+  describe('Elevation tokens — light mode (spec §2.3)', () => {
+    const lightBlockMatch = TOKENS_CSS.match(
+      /:root\[data-theme="light"\]\s*\{([^}]*)\}/s,
+    );
+    const lightBlock = lightBlockMatch?.[1] ?? '';
+
+    it('light block exists', () => {
+      expect(lightBlock).not.toBe('');
+    });
+    it('defines --elevation-1 in light (drop shadow, no inset)', () => {
+      expect(lightBlock).toMatch(/--elevation-1:/);
+      // Light elevation must NOT have an inset rim-light (that's dark-mode only)
+      const el1Match = lightBlock.match(/--elevation-1:\s*([^;]+)/);
+      expect(el1Match?.[1]).not.toMatch(/inset/);
+    });
+    it('defines --elevation-2 in light', () => {
+      expect(lightBlock).toMatch(/--elevation-2:/);
+    });
+    it('defines --elevation-3 in light', () => {
+      expect(lightBlock).toMatch(/--elevation-3:/);
+    });
+    it('defines --card-elevation-1/-2/-3 as aliases of --elevation-1/-2/-3 in light', () => {
+      expect(lightBlock).toMatch(/--card-elevation-1:\s*var\(--elevation-1\)/);
+      expect(lightBlock).toMatch(/--card-elevation-2:\s*var\(--elevation-2\)/);
+      expect(lightBlock).toMatch(/--card-elevation-3:\s*var\(--elevation-3\)/);
+    });
+  });
+
+  describe('Elevation tokens — dark mode (spec §2.3)', () => {
+    const darkBlockMatch = TOKENS_CSS.match(
+      /:root\[data-theme="dark"\]\s*\{([^}]*)\}/s,
+    );
+    const darkBlock = darkBlockMatch?.[1] ?? '';
+
+    it('defines --elevation-1 in dark with inset rim-light (not just more black alpha)', () => {
+      const el1Match = darkBlock.match(/--elevation-1:\s*([^;]+)/);
+      expect(el1Match?.[1]).toMatch(/inset/);
+      expect(el1Match?.[1]).toMatch(/rgba\(255,255,255/);
+    });
+    it('defines --elevation-2 in dark with rim-light', () => {
+      const el2Match = darkBlock.match(/--elevation-2:\s*([^;]+)/);
+      expect(el2Match?.[1]).toMatch(/inset/);
+    });
+    it('defines --elevation-3 in dark with rim-light', () => {
+      const el3Match = darkBlock.match(/--elevation-3:\s*([^;]+)/);
+      expect(el3Match?.[1]).toMatch(/inset/);
+    });
+    it('defines --card-elevation-1/-2/-3 as aliases in dark', () => {
+      expect(darkBlock).toMatch(/--card-elevation-1:\s*var\(--elevation-1\)/);
+      expect(darkBlock).toMatch(/--card-elevation-2:\s*var\(--elevation-2\)/);
+      expect(darkBlock).toMatch(/--card-elevation-3:\s*var\(--elevation-3\)/);
+    });
+  });
+
+  // ── #761 #803: Dark surface lift — the primary card-separation fix.
+  describe('Dark surface token lift (spec §2.2)', () => {
+    const darkBlockMatch = TOKENS_CSS.match(
+      /:root\[data-theme="dark"\]\s*\{([^}]*)\}/s,
+    );
+    const darkBlock = darkBlockMatch?.[1] ?? '';
+
+    it('dark --color-bg-surface is lifted to #1b2742 (was #131c30)', () => {
+      expect(darkBlock).toMatch(/--color-bg-surface:\s*#1b2742/);
+    });
+    it('dark --color-border-ui is lifted to #3a4668 (was #283354)', () => {
+      expect(darkBlock).toMatch(/--color-border-ui:\s*#3a4668/);
+    });
+    it('light --color-bg-surface remains #ffffff (no regression)', () => {
+      const lightBlockMatch = TOKENS_CSS.match(
+        /:root\[data-theme="light"\]\s*\{([^}]*)\}/s,
+      );
+      const lightBlock = lightBlockMatch?.[1] ?? '';
+      expect(lightBlock).toMatch(/--color-bg-surface:\s*#ffffff/);
+    });
+  });
+
+  // ── #761 #803: Previously-undefined tokens now resolve (spec §2.5).
+  describe('Undefined-token cleanup — 4 tokens now resolve (spec §2.5)', () => {
+    it('defines --color-border-strong in light mode', () => {
+      const lightBlockMatch = TOKENS_CSS.match(
+        /:root\[data-theme="light"\]\s*\{([^}]*)\}/s,
+      );
+      expect(lightBlockMatch?.[1]).toMatch(/--color-border-strong:/);
+    });
+    it('defines --color-border-strong in dark mode', () => {
+      const darkBlockMatch = TOKENS_CSS.match(
+        /:root\[data-theme="dark"\]\s*\{([^}]*)\}/s,
+      );
+      expect(darkBlockMatch?.[1]).toMatch(/--color-border-strong:/);
+    });
+    it('defines --color-text-link in light mode', () => {
+      const lightBlockMatch = TOKENS_CSS.match(
+        /:root\[data-theme="light"\]\s*\{([^}]*)\}/s,
+      );
+      expect(lightBlockMatch?.[1]).toMatch(/--color-text-link:/);
+    });
+    it('defines --color-text-link in dark mode', () => {
+      const darkBlockMatch = TOKENS_CSS.match(
+        /:root\[data-theme="dark"\]\s*\{([^}]*)\}/s,
+      );
+      expect(darkBlockMatch?.[1]).toMatch(/--color-text-link:/);
+    });
+    it('defines --text-body-sm as a CSS font shorthand', () => {
+      expect(TOKENS_CSS).toMatch(/--text-body-sm:/);
+    });
+    it('defines --text-heading-sm as a CSS font shorthand', () => {
+      expect(TOKENS_CSS).toMatch(/--text-heading-sm:/);
+    });
+  });
 });
 
 describe('styles.css — W1 conformance', () => {

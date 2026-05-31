@@ -71,6 +71,37 @@
   --overlay-bp-compact: 480px;  /* below: overlays go full-bleed sheet/peek   */
   --overlay-bp-roomy:   600px;  /* above: overlays may sit as anchored cards  */
   --overlay-bp-wide:    1024px; /* above: legend defaults expanded (mirrors MapSurface) */
+
+  /* ── Floating-card geometry (#761 #803, spec §2.1) ─────────────────────
+   *
+   * Four-corner anchor contract (spec §3) — the map owns the center.
+   * Every floating surface is assigned exactly ONE corner or the transient
+   * layer; no new bands are ever created:
+   *
+   *   TOP-LEFT    Identity+scope cluster: wordmark, region, lede, scope
+   *               control — stacked card, cap --card-maxw-identity.
+   *   TOP-RIGHT   Controls cluster: Filters · Attribution · theme toggle
+   *               — compact pill group, content-width.
+   *   BOTTOM-LEFT Family legend — --card-maxw-legend.
+   *   BOTTOM-RIGHT Attribution line + future zoom/locate — safe-zone.
+   *   TRANSIENT   Popovers (flip/shift/clamp to stay on-screen), detail
+   *               card (insets into top-right region), filters panel
+   *               (anchored under its trigger) — per-element caps.
+   *
+   * No floating element may introduce a full-width top/bottom band or an
+   * edge dock. The center of the screen belongs to the map.
+   */
+  --card-radius:        var(--radius-lg);  /* 12px — retires 6px/8px for cards    */
+  --card-radius-inner:  8px;               /* nested controls inside a card        */
+  --card-inset:         var(--space-md);   /* 12px — gutter from viewport edge     */
+  --card-inset-wide:    var(--space-xl);   /* 24px — wider gutter at ≥1440px       */
+  --card-gap:           var(--space-sm);   /* 8px — gap between stacked corner cards */
+  --card-padding:       var(--space-md) var(--space-lg);   /* 12px 16px            */
+  --card-padding-tight: var(--space-sm) var(--space-md);   /* 8px 12px — pills, popover rows */
+  --card-maxw-identity: 360px;  /* top-left identity+scope cluster cap           */
+  --card-maxw-legend:   280px;  /* bottom-left legend cap                         */
+  --card-maxw-rail:     420px;  /* detail card cap (max(420px,38vw) clamp below)  */
+  --card-maxw-popover:  300px;  /* transient popover cap                          */
 }
 
 /* ── Layer 2: Semantic — light mode ─────────────────────────────────── */
@@ -100,6 +131,23 @@
   --color-text-subtle: #5c5c5c; /* preserve existing — AA at 12px */
 
   --color-border-ui: #d8d3c3;   /* preserve existing */
+
+  /* Elevation system — light mode (spec §2.3, #761 #803).
+   * Three tiers; tier aliases keep element CSS readable. */
+  --elevation-1: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08);
+  --elevation-2: 0 4px 12px rgba(0,0,0,0.15);
+  --elevation-3: 0 12px 32px rgba(0,0,0,0.22);
+  --card-elevation-1: var(--elevation-1);   /* resting chrome          */
+  --card-elevation-2: var(--elevation-2);   /* on-canvas transient     */
+  --card-elevation-3: var(--elevation-3);   /* focused / modal         */
+
+  /* Undefined-token cleanup (spec §2.5, #761 #803) — these four tokens were
+   * consumed by ds-primitives.css but never defined, causing cell/cluster
+   * popovers to silently inherit nothing. */
+  --color-border-strong: #a09890;           /* stronger hairline — darker than --color-border-ui */
+  --color-text-link:     var(--color-decision-point); /* same orange accent as interactive cue */
+  --text-body-sm:        var(--font-weight-regular) var(--type-sm) / 1.5 var(--font-stack);
+  --text-heading-sm:     var(--font-weight-medium) var(--type-md) / 1.3 var(--font-stack);
 
   /* RENAMED from mock --accent; DO NOT collide with --color-accent-notable-fg.
      Decision-point is a NEW token; spec value lands. */
@@ -135,7 +183,10 @@
  */
 :root[data-theme="dark"] {
   --color-bg-page:    var(--c-navy-900);
-  --color-bg-surface: #131c30;
+  /* Lifted from #131c30 → #1b2742 (spec §2.2, #761 #803): a card sitting only
+   * ~6 luminance points off the #0d1424 basemap cannot separate by shadow alone
+   * on a near-black ground — the fill itself must read as lifted. */
+  --color-bg-surface: #1b2742;
   --color-bg-tint:    #1c2640;
   --color-bg-skeleton: #1c2640;
   --color-bg-skeleton-highlight: #253050;
@@ -148,7 +199,25 @@
      on dark surfaces. Stays within the same blue-grey semantic register. */
   --color-text-subtle: #7a8599;
 
-  --color-border-ui: #283354;
+  /* Lifted from #283354 → #3a4668 (spec §2.2, #761 #803): pairs with the
+   * lifted --color-bg-surface so the hairline remains a visible edge. */
+  --color-border-ui: #3a4668;
+
+  /* Elevation system — dark mode (spec §2.3, #761 #803).
+   * Dark elevation is NOT more black alpha (invisible on a black map) —
+   * it is ambient drop shadow + a top inner rim-light (Google/Apple idiom). */
+  --elevation-1: 0 1px 3px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.05);
+  --elevation-2: 0 4px 14px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.06);
+  --elevation-3: 0 14px 36px rgba(0,0,0,0.62), inset 0 1px 0 rgba(255,255,255,0.07);
+  --card-elevation-1: var(--elevation-1);
+  --card-elevation-2: var(--elevation-2);
+  --card-elevation-3: var(--elevation-3);
+
+  /* Undefined-token cleanup — dark overrides (spec §2.5, #761 #803). */
+  --color-border-strong: #4a5a80;           /* stronger hairline on dark surfaces */
+  --color-text-link:     var(--color-decision-point); /* cyan-500 in dark mode */
+  /* --text-body-sm / --text-heading-sm: font shorthand; no color component so
+     dark override is identical — inherits the :root definition above.         */
 
   --color-decision-point: var(--c-cyan-500);
 
