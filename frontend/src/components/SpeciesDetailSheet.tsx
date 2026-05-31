@@ -115,12 +115,12 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
   // Inert sequencing — collapse side. When `snap` transitions away
   // from 'full', the React commit runs first (the new role="region"
   // attribute lands on the sheet), then this layout effect fires and
-  // removes `inert` from <main>. Observable order: role → inert-removal.
+  // removes `inert` from #map-layer. Observable order: role → inert-removal.
   //
   // The cleanup function is the load-bearing fix for the viewport-flip bug:
   // if the user rotates the device mid-snap, App.tsx swaps SpeciesDetailSheet
   // for SpeciesDetailModal and this sheet unmounts without ever reaching the
-  // snap !== 'full' branch above. Without cleanup, `inert` leaks onto <main>
+  // snap !== 'full' branch above. Without cleanup, `inert` leaks onto #map-layer
   // indefinitely — pointer events blocked, tab order broken.
   //
   // Cleanup closure mechanics: `snap` is captured at effect-run time. When the

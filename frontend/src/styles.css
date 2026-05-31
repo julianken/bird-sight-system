@@ -1447,38 +1447,88 @@ aside.species-detail-rail .species-detail-rail-close {
    The new floating corner cards have their own responsive rules scoped within
    the AppHeader CSS block above (max-width: 480px identity-card / controls-pill). */
 
-/* ── MOB-N1: .filters-panel-close touch target ─────────────────────────────
-   The close button for the FiltersPanel was unstyled (24×22px per audit).
-   Full UA reset + 44×44pt minimum touch area. Visual: text × as the icon,
-   positioned at the top-right of the panel. The panel itself needs position:
-   relative so the absolute positioning of the close button resolves correctly. */
+/* ── O4 (#780): .filters-panel — floating sheet anchored top-right ──────────
+   O4 converts the old in-flow panel (position: relative, margin-based clear)
+   into a fixed-position floating sheet that overlays the map. The sheet is
+   a member of the transient layer from the four-corner anchor contract:
+   "anchored under trigger" in the top-right region.
+
+   Design invariants (spec §4.6 + four-corner contract):
+   • position: fixed — panel does NOT displace the map.
+   • Anchored top-right under the controls pill: `top` clears the pill
+     (~60px: 12px inset + ~48px pill height + 4px gap).
+   • inline-size capped at --card-maxw-rail (420px) — never full-width.
+   • Opaque surface using --card-* design-language tokens (same as identity
+     card, detail rail): background + radius + elevation.
+   • z-index: --z-modal (50) — the sheet is a modal-with-backdrop that
+     inert-mutes the map, so it sits ABOVE chrome (42) and rail (43) tiers
+     and at the full modal tier for assistive-tech hierarchy correctness.
+   • position: relative is required on the container so .filters-panel-close
+     (position: absolute) resolves against the panel, not the viewport. */
 .filters-panel {
-  /* #800 R15 (surface 2): the panel is an in-flow sibling of `<main>`
-     rendered at the top of the `.app` flow, opened from the controls pill
-     in the top-right corner. The AppHeader is now `position: fixed; inset: 0`
-     with no block-height — so `margin-block-start` must clear the controls pill
-     height (~60px: 12px inset + ~48px pill). `calc(var(--card-inset) + 65px)`
-     keeps the panel clear of the controls pill.
-     `#map-layer` is `position: fixed; inset: 0` so the panel needs a z-index
-     ABOVE `--z-chrome` (42) — the floating corner cards have pointer-events: auto
-     and would otherwise intercept clicks on the panel's controls. `--z-rail` (43)
-     clears the chrome while remaining below cell/cluster popovers.
-     Full conversion to a floating sheet is O4. */
-  position: relative;
-  z-index: var(--z-rail);
-  margin-block-start: calc(var(--card-inset) + 65px);
-  /* Opaque surface so the panel's controls read cleanly over the map canvas
-     beneath it (the panel is no longer backed by an in-flow page background). */
+  position: fixed;
+  /* Anchor top-right: clear the pill (--card-inset 12px + pill ~48px + 4px gap). */
+  inset-block-start: calc(var(--card-inset) + 64px);
+  inset-inline-end: var(--card-inset);
+  /* Cap width — never full-bleed; same token as the detail rail. */
+  inline-size: min(420px, calc(100vw - var(--card-inset) * 2));
+  max-inline-size: var(--card-maxw-rail);
+  /* Scroll containment for overflowing filter controls on small viewports. */
+  max-block-size: calc(100dvh - var(--card-inset) - 64px - env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+  /* Design-language surface — matches identity card / detail rail tier. */
   background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-ui, rgba(0,0,0,0.08));
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-elevation-3);
+  /* Modality z-tier (O4): sheet is modal-with-backdrop, above chrome (42). */
+  z-index: var(--z-modal);
+  /* Padding: top padding generous to clear the close button; rest standard. */
+  padding-block-start: calc(var(--space-lg, 20px) + 8px);
+  padding-block-end: var(--space-lg, 20px);
+  padding-inline: var(--space-md);
 }
 
 /* At ≥1440px the controls pill uses --card-inset-wide (24px instead of 12px),
-   so the panel's margin must grow by the same delta to keep the panel below
-   the controls pill bottom. */
+   so the panel position must track the wider gutter. */
 @media (min-width: 1440px) {
   .filters-panel {
-    margin-block-start: calc(var(--card-inset-wide) + 65px);
+    inset-block-start: calc(var(--card-inset-wide) + 64px);
+    inset-inline-end: var(--card-inset-wide);
+    inline-size: min(420px, calc(100vw - var(--card-inset-wide) * 2));
   }
+}
+
+/* Mobile (compact ≤639px): bottom-anchored sheet instead of top-right drop.
+   Respects env(safe-area-inset-bottom) for home-indicator clearance.
+   Max height limits the sheet to ~80vh so the map is still partly visible. */
+@media (max-width: 639px) {
+  .filters-panel {
+    inset-block-start: auto;
+    inset-block-end: env(safe-area-inset-bottom, 0px);
+    inset-inline-start: 0;
+    inset-inline-end: 0;
+    inline-size: 100%;
+    max-inline-size: 100%;
+    max-block-size: 80dvh;
+    border-radius: var(--card-radius) var(--card-radius) 0 0;
+    overflow-y: auto;
+  }
+}
+
+/* ── O4 (#780): .filters-backdrop — modal scrim ─────────────────────────────
+   The backdrop covers the viewport below the sheet and above map overlays.
+   Clicking it dismisses the filters panel (see App.tsx — onClick handler).
+   It carries no role/label (presentational); data-testid="filters-backdrop"
+   is the stable e2e hook. z-index is one below the sheet (--z-modal - 1 = 49),
+   above all chrome (42) and rail (43) tiers. */
+.filters-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-modal) - 1);
+  background: rgba(0, 0, 0, 0.25);
+  /* Backdrop click area is the full viewport; cursor shows it is interactive. */
+  cursor: default;
 }
 
 .filters-panel-close {

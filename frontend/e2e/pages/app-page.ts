@@ -56,6 +56,14 @@ export class AppPage {
   readonly mapLede: Locator;
   /** The map canvas root (`data-testid='map-canvas'`). */
   readonly mapCanvas: Locator;
+  /**
+   * O4 (#780): Filters backdrop scrim (`data-testid='filters-backdrop'`).
+   * Present in the DOM only while the filters panel is open (conditionally
+   * rendered). Clicking it dismisses the panel — the e2e backdrop-dismiss
+   * assertion drives this accessor rather than a raw `.filters-backdrop`
+   * class locator, matching the POM convention for stable test hooks.
+   */
+  readonly filtersBackdrop: Locator;
 
   constructor(public readonly page: Page) {
     this.filters = new FiltersBar(page);
@@ -95,6 +103,8 @@ export class AppPage {
     // #800: lede moved into AppHeader identity card as <p data-testid="map-lede">.
     this.mapLede = page.locator('[data-testid="map-lede"]');
     this.mapCanvas = page.locator('[data-testid="map-canvas"]');
+    // O4 (#780): filters backdrop scrim — present only while filters panel is open.
+    this.filtersBackdrop = page.getByTestId('filters-backdrop');
   }
 
   /**

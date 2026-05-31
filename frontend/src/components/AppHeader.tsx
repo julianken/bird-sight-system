@@ -44,6 +44,7 @@
  * are hidden (chooser is the only affordance on the unscoped landing).
  */
 
+import type { RefObject } from 'react';
 import { ThemeToggle } from './ThemeToggle.js';
 import type { ScopedView } from './ScopeControl.js';
 import { ScopeControl } from './ScopeControl.js';
@@ -63,6 +64,20 @@ export interface AppHeaderProps {
   filterCount: number;
   /** Open the Filters panel. <App> owns the panel state; this component is presentational. */
   onOpenFilters: () => void;
+  /**
+   * Whether the Filters panel is currently open. Drives `aria-expanded` on the
+   * Filters trigger so screen readers announce the modality and its state.
+   * No `aria-controls` — the sheet is conditionally rendered, so an IDREF to
+   * an absent element fails axe `aria-valid-attr-value`. Matches the
+   * `AttributionModal`/`AdaptiveGridMarker` precedent: `haspopup`+`expanded`
+   * alone conveys the modality for a conditionally-mounted dialog (O4 #780).
+   */
+  filtersOpen: boolean;
+  /**
+   * Ref forwarded to the Filters trigger button. App.tsx holds this so it can
+   * restore focus to the trigger when the filters sheet is dismissed (O4 #780).
+   */
+  filtersTriggerRef: RefObject<HTMLButtonElement | null>;
   /** Open the Credits & Attribution modal. */
   onOpenAttribution: () => void;
   // ── Lede / context-strip props (O3 #779) ────────────────────────────────
@@ -101,6 +116,8 @@ export function AppHeader({
   region,
   filterCount,
   onOpenFilters,
+  filtersOpen,
+  filtersTriggerRef,
   onOpenAttribution,
   ledeText,
   freshnessLabel,
@@ -231,10 +248,13 @@ export function AppHeader({
         </button>
 
         <button
+          ref={filtersTriggerRef}
           type="button"
           className="app-header-filters"
           onClick={onOpenFilters}
           aria-label={filterTriggerLabel}
+          aria-haspopup="dialog"
+          aria-expanded={filtersOpen}
         >
           <svg
             className="app-header-btn-icon"

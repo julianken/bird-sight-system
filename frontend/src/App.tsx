@@ -89,6 +89,56 @@ export function App() {
   }, [state.view]);
   // Phase 3: filters panel state + badge count.
   const [filtersOpen, setFiltersOpen] = useState(false);
+
+  // O4 (#780) — ref to the floating filters sheet panel. Focus moves into the
+  // panel on open (specifically the close button, first focusable element).
+  const filtersPanelRef = useRef<HTMLDivElement | null>(null);
+
+  // O4 (#780) — inert + focus handshake for the filters floating sheet.
+  //   Open: set `inert` on #map-layer (same target as S1 scrim / full-snap
+  //         detail sheet); move focus into the sheet (close button).
+  //   Close: remove `inert` from #map-layer; restore focus to the trigger.
+  // useLayoutEffect so the DOM mutation (inert) lands before the browser
+  // paints, matching SpeciesDetailSheet's sequencing discipline.
+  useLayoutEffect(() => {
+    const mapLayer = mapLayerRef.current;
+    const panel = filtersPanelRef.current;
+    if (filtersOpen) {
+      // Mute the map while filters sheet is open — O1 target is #map-layer.
+      mapLayer?.setAttribute('inert', '');
+      // Move focus into the sheet so keyboard users land inside the panel.
+      // The close button is the first focusable element; focus it directly.
+      const firstFocusable = panel?.querySelector<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      );
+      firstFocusable?.focus();
+    } else {
+      // Remove inert from #map-layer on close — matches S1 scrim cleanup.
+      mapLayer?.removeAttribute('inert');
+      // Restore focus to the Filters trigger. The trigger is always mounted
+      // (it is inside the persistent AppHeader, not conditionally rendered),
+      // so focus can be set synchronously inside useLayoutEffect without
+      // waiting for a re-render or requestAnimationFrame.
+      filtersTriggerRef.current?.focus();
+    }
+    // No cleanup needed: `filtersOpen` switching covers both paths in-body.
+  }, [filtersOpen]);
+
+  // O4 (#780) — Escape key dismisses the filters sheet from anywhere (not
+  // just when focus is inside the sheet, since inert mutes the map subtree
+  // but AppHeader and other siblings remain interactive). Listening on the
+  // document level (capture phase) matches the attribution modal pattern.
+  useEffect(() => {
+    if (!filtersOpen) return;
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        setFiltersOpen(false);
+      }
+    };
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => document.removeEventListener('keydown', onKeyDown, true);
+  }, [filtersOpen]);
+
   // Active-filter count: every non-default URL-state field counts as 1.
   // since !== '14d', notable, speciesCode, familyCode. Detail/view do not
   // count (they're navigation, not filter narrowing).
@@ -126,7 +176,7 @@ export function App() {
   // hotspots resolves first, flipping a shared `loading` flag to false
   // while observations is still in flight and triggering the very
   // Template-1 misfire #716 set out to suppress. The MapLede and the
-  // <main aria-busy> attribute narrate observation data, so they switch
+  // #map-layer aria-busy attribute narrate observation data, so they switch
   // to `observationsLoading` too. `loading` (combined) is retained for
   // `data-render-complete`, which tracks the whole tree being ready.
   // #740 (C6) — the scope gate. The observations (+ hotspots) fetch fires ONLY
@@ -549,6 +599,12 @@ export function App() {
   // gate (#586) and scroll-bypass affordance, but no longer receives `inert`.
   const mapLayerRef = useRef<HTMLDivElement | null>(null);
 
+  // O4 (#780) — ref to the Filters trigger button in the top-right controls
+  // pill. Held here so the filters-sheet close path can restore focus to the
+  // trigger regardless of which dismiss mechanism fires (close button, backdrop
+  // click, or Escape). AppHeader attaches this ref to the button element.
+  const filtersTriggerRef = useRef<HTMLButtonElement | null>(null);
+
   // O1 (#776) — camera data-attributes on #map-layer.
   // data-scope-fitted starts false on each new boundsKey/flyTo change and flips
   // true after SCOPE_MOVE_SETTLE_MS (the same window that suppresses idle refetch
@@ -816,6 +872,8 @@ export function App() {
         region={region}
         filterCount={filterCount}
         onOpenFilters={() => setFiltersOpen(true)}
+        filtersOpen={filtersOpen}
+        filtersTriggerRef={filtersTriggerRef}
         onOpenAttribution={onOpenAttribution}
         ledeText={ledeText}
         freshnessLabel={freshnessLabel}
@@ -826,26 +884,48 @@ export function App() {
         onExitScope={onExitScope}
         onResolveZip={onResolveZip}
       />
+      {/* O4 (#780) — Filters floating sheet. Replaces the old in-flow panel that
+          displaced the map down. The sheet is `position: fixed` (see styles.css
+          `.filters-panel`), anchored top-right under the controls pill, capped
+          at `--card-maxw-rail` width so it never sprawls full-width on desktop.
+          The backdrop covers the viewport at `--z-modal - 1` so it is below the
+          sheet but above map overlays; clicking it dismisses the sheet.
+          `inert` on #map-layer is managed by the useLayoutEffect above.
+          The `role="region" aria-label="Filters"` accessible name is preserved
+          exactly — the POM and history-nav.spec.ts resolve via
+          `getByRole('region', { name: 'Filters' })`. */}
       {filtersOpen && (
-        <div className="filters-panel" role="region" aria-label="Filters">
-          <button
-            type="button"
-            className="filters-panel-close"
+        <>
+          <div
+            className="filters-backdrop"
+            data-testid="filters-backdrop"
             onClick={() => setFiltersOpen(false)}
-            aria-label="Close filters"
-          >
-            ×
-          </button>
-          <FiltersBar
-            since={state.since}
-            notable={state.notable}
-            speciesCode={state.speciesCode}
-            familyCode={state.familyCode}
-            families={families}
-            speciesIndex={speciesIndex}
-            onChange={set}
           />
-        </div>
+          <div
+            ref={filtersPanelRef}
+            className="filters-panel"
+            role="region"
+            aria-label="Filters"
+          >
+            <button
+              type="button"
+              className="filters-panel-close"
+              onClick={() => setFiltersOpen(false)}
+              aria-label="Close filters"
+            >
+              ×
+            </button>
+            <FiltersBar
+              since={state.since}
+              notable={state.notable}
+              speciesCode={state.speciesCode}
+              familyCode={state.familyCode}
+              families={families}
+              speciesIndex={speciesIndex}
+              onChange={set}
+            />
+          </div>
+        </>
       )}
       {/* #761 (S2) — the map is the viewport-filling ROOT, no longer a windowed
           flex child of the padded `<main>`. The `{mapVisible && …}` block is

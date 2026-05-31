@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { createRef } from 'react';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { AppHeader } from './AppHeader.js';
@@ -7,6 +8,10 @@ const baseProps = {
   region: 'Arizona' as string | null,
   filterCount: 0,
   onOpenFilters: vi.fn(),
+  // O4 (#780): filtersOpen drives aria-expanded on the trigger;
+  // filtersTriggerRef is forwarded to the button for focus restoration.
+  filtersOpen: false,
+  filtersTriggerRef: createRef<HTMLButtonElement | null>(),
   onOpenAttribution: vi.fn(),
   ledeText: null as string | null,
   freshnessLabel: '',

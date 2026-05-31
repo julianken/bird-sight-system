@@ -414,6 +414,120 @@ describe('Phase 3: AppHeader + Filters panel', () => {
   });
 });
 
+describe('O4 (#780): Filters floating sheet — modality, dismiss, inert, aria', () => {
+  // These tests cover the O4 filter-sheet contract:
+  //   - inert on #map-layer set/removed
+  //   - Escape and backdrop click both close panel + restore focus to trigger
+  //   - aria-expanded on the trigger flips false→true→false
+  //   - trigger carries aria-haspopup="dialog" and NO aria-controls
+
+  beforeEach(() => {
+    __resetSilhouettesCache();
+    __resetStatesCache();
+    mockGetStates.mockResolvedValue([]);
+    mapSurfaceRef.renderCount = 0;
+    mapSurfaceRef.boundsKey = undefined;
+    mapSurfaceRef.scopeBounds = undefined;
+    mapSurfaceRef.flyTo = undefined;
+    mockGetHotspots.mockResolvedValue([]);
+    mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
+    mockGetSilhouettes.mockResolvedValue([]);
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'map',
+      scope: { kind: 'us' as const },
+    };
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('trigger carries aria-haspopup="dialog" and no aria-controls', async () => {
+    render(<App />);
+    await screen.findByRole('banner');
+    const trigger = screen.getByRole('button', { name: /Filters/i });
+    expect(trigger).toHaveAttribute('aria-haspopup', 'dialog');
+    expect(trigger).not.toHaveAttribute('aria-controls');
+  });
+
+  it('aria-expanded on trigger flips false→true on open, true→false on close', async () => {
+    render(<App />);
+    await screen.findByRole('banner');
+    const trigger = screen.getByRole('button', { name: /Filters/i });
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await userEvent.click(screen.getByRole('button', { name: /Close filters/i }));
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('opening filters sets inert on #map-layer; closing removes it', async () => {
+    const { container } = render(<App />);
+    await screen.findByRole('banner');
+    const trigger = screen.getByRole('button', { name: /Filters/i });
+    const mapLayer = container.querySelector('#map-layer');
+
+    // Before open: no inert (the scrim useLayoutEffect is for unscoped only;
+    // we are scoped here so mapLayer should not be inert)
+    expect(mapLayer).not.toHaveAttribute('inert');
+
+    await userEvent.click(trigger);
+    // After open: map-layer is inert
+    expect(mapLayer).toHaveAttribute('inert');
+
+    await userEvent.click(screen.getByRole('button', { name: /Close filters/i }));
+    // After close: inert removed
+    expect(mapLayer).not.toHaveAttribute('inert');
+  });
+
+  it('Escape key closes the filters panel and removes inert', async () => {
+    const { container } = render(<App />);
+    await screen.findByRole('banner');
+    const trigger = screen.getByRole('button', { name: /Filters/i });
+    const mapLayer = container.querySelector('#map-layer');
+
+    await userEvent.click(trigger);
+    expect(screen.getByRole('region', { name: /Filters/i })).toBeInTheDocument();
+    expect(mapLayer).toHaveAttribute('inert');
+
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('region', { name: /Filters/i })).toBeNull();
+    expect(mapLayer).not.toHaveAttribute('inert');
+  });
+
+  it('backdrop click closes the filters panel and removes inert', async () => {
+    const { container } = render(<App />);
+    await screen.findByRole('banner');
+    const trigger = screen.getByRole('button', { name: /Filters/i });
+    const mapLayer = container.querySelector('#map-layer');
+
+    await userEvent.click(trigger);
+    expect(screen.getByRole('region', { name: /Filters/i })).toBeInTheDocument();
+    expect(mapLayer).toHaveAttribute('inert');
+
+    const backdrop = container.querySelector('[data-testid="filters-backdrop"]');
+    expect(backdrop).not.toBeNull();
+    await userEvent.click(backdrop!);
+    expect(screen.queryByRole('region', { name: /Filters/i })).toBeNull();
+    expect(mapLayer).not.toHaveAttribute('inert');
+  });
+
+  it('focus restores to the Filters trigger on close (close button path)', async () => {
+    render(<App />);
+    await screen.findByRole('banner');
+    const trigger = screen.getByRole('button', { name: /Filters/i });
+
+    await userEvent.click(trigger);
+    // panel is open; close button is present
+    const closeBtn = screen.getByRole('button', { name: /Close filters/i });
+    expect(closeBtn).toBeInTheDocument();
+
+    await userEvent.click(closeBtn);
+    // focus should return to the trigger
+    expect(document.activeElement).toBe(trigger);
+  });
+});
+
 describe('L2: freshness empty state (null freshestObservationAt)', () => {
   // When the API returns null for freshestObservationAt (empty table or ingestor
   // not yet run), the app must NOT render alarming "Source unavailable" copy —
