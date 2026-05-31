@@ -65,6 +65,20 @@ Four load-bearing rules: (1) PR body follows `.github/PULL_REQUEST_TEMPLATE.md` 
 
 Conventional commits style with scope where useful: `feat(scope):`, `chore:`, `ci:`, `infra:`, `docs:`, `test(scope):`, `plan(N):`. Multi-line messages should explain *why*, not *what* — diffs show what.
 
+## Floating-card four-corner anchor contract (#761 #803, spec §3)
+
+**The map owns the center. Every floating surface is assigned exactly one corner or the transient layer — no new bands, no edge docks.**
+
+| Corner | Owns | Width cap |
+|---|---|---|
+| **Top-left** | Identity+scope cluster: wordmark, region, lede, scope control — one stacked card | `--card-maxw-identity` 360px |
+| **Top-right** | Controls cluster: Filters · Attribution · theme toggle — compact pill group | content-width |
+| **Bottom-left** | Family legend | `--card-maxw-legend` 280px |
+| **Bottom-right** | Attribution line + future zoom/locate — safe-zone | content-width |
+| **Transient** | Popovers (flip/shift/clamp), detail card (insets top-right region), filters panel (anchored under trigger) | per-element caps |
+
+Implementing rule: before adding any new floating surface, assign it a corner from this table. If no corner fits, that is a signal the design is wrong — raise it rather than introducing a new band. All shared geometry is in `frontend/src/styles/tokens.css` under `--card-*` (§2.1). Elevation tiers: tier 1 = resting chrome, tier 2 = on-canvas transient, tier 3 = focused/modal. Design authority: `docs/design/2026-05-30-floating-ui-design-spec.md`.
+
 ## Testing
 
 ### UI verification (agents + reviewers)
