@@ -71,22 +71,18 @@ test.describe('error screen', () => {
     // Wait for the overlay
     await expect(app.errorOverlay).toBeVisible({ timeout: 10_000 });
 
-    // Phase 2: remove stubs so the next calls succeed (real dev API or let
-    // Playwright serve the un-intercepted request to the dev server).
-    // Reset the route so subsequent requests fall through.
-    await page.unroute('**/api/hotspots');
-    await page.unroute('**/api/observations');
+    // Phase 2: remove the Phase-1 abort stubs (using the SAME patterns
+    // stubApiAbort registers — `**/api/<endpoint>**` with trailing `**`) and
+    // register success routes via the canonical apiStub helpers so that
+    // query-bearing requests like /api/observations?bbox=... are matched.
+    await page.unroute('**/api/hotspots**');
+    await page.unroute('**/api/observations**');
 
-    // Stub success responses for the retry
-    await page.route('**/api/hotspots', route =>
+    // Stub success responses for the retry using the same trailing-** patterns
+    // that cover query strings (e.g. /api/observations?bbox=...).
+    await apiStub.stubObservations([]);
+    await page.route('**/api/hotspots**', route =>
       route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
-    );
-    await page.route('**/api/observations', route =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ mode: 'observations', data: [], meta: { freshestObservationAt: null } }),
-      }),
     );
 
     // Click Retry — must call refetch() without remounting the map
