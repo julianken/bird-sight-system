@@ -1516,25 +1516,28 @@ aside.species-detail-rail .species-detail-rail-close {
   }
 }
 
-/* ── O4 (#780): .filters-backdrop — modal scrim ─────────────────────────────
-   The backdrop covers the viewport below the sheet and above map overlays.
-   Clicking it dismisses the filters panel (see App.tsx — onClick handler).
-   It carries no role/label (presentational); data-testid="filters-backdrop"
-   is the stable e2e hook.
+/* ── O4 (#780): .filters-backdrop — transparent click-catch ─────────────────
+   The backdrop covers the full viewport so clicking outside the filters panel
+   dismisses it (see App.tsx — onClick handler). It carries no role/label
+   (presentational); data-testid="filters-backdrop" is the stable e2e hook.
 
-   z-index: --z-overlay - 1 (= 39) — deliberately BELOW the chrome band
-   (--z-chrome 42) and legend/overlay tier (--z-overlay 40) so that only the
-   map canvas dims. Corner cards (identity, legend) remain crisp and legible
-   while the filters sheet (--z-modal 50) still out-paints all chrome. The
-   backdrop remains full-viewport fixed so click-outside-to-dismiss still
-   fires (the backdrop is the topmost element over the map center at z-39).
-   Alpha lowered to 0.18 for a lighter "floating" feel now that only the map
-   is covered. */
+   z-index: --z-overlay - 1 (= 39) — below the filters sheet (--z-modal 50)
+   and below the chrome band (--z-chrome 42); the backdrop is the topmost
+   element over the map center at z-39, so click-outside-to-dismiss fires
+   reliably without an opaque scrim. pointer-events defaults to auto (inherited)
+   so the click handler works.
+
+   background: transparent — NO scrim dim. Modality is enforced by the `inert`
+   attribute on #map-layer (set in App.tsx when the panel is open) plus the
+   elevated floating panel itself. This matches the Google-Maps "panel over a
+   live map" reference: opening a panel must not dim the map. It also avoids
+   dimming the bottom-left .family-legend, which remains a child of #map-layer
+   (inside its stacking context) until O2 #770 hoists it to the app root. */
 .filters-backdrop {
   position: fixed;
   inset: 0;
   z-index: calc(var(--z-overlay) - 1);
-  background: rgba(0, 0, 0, 0.18);
+  background: transparent;
   /* Backdrop click area is the full viewport; cursor shows it is interactive. */
   cursor: default;
 }
