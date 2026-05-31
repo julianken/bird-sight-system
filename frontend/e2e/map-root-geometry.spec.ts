@@ -175,75 +175,80 @@ test.describe('#761 (S2): full-viewport map root geometry', () => {
       expect(Math.abs(rect.bottom - 900), 'bottom edge ≈ viewport height').toBeLessThanOrEqual(1);
     });
 
-    test('.scope-control anchors to the viewport top, clearing the fixed header', async ({ page, apiStub }) => {
+    test('.scope-control is embedded in the identity card, clear of the top edge (#800)', async ({ page, apiStub }) => {
       await setupRoutes(page, apiStub);
       const app = new AppPage(page);
       await app.goto('state=US-AZ');
       await app.waitForAppReady();
       await expect(app.scopeControl).toBeVisible();
 
-      // The ScopeControl is a SIBLING of `.map-surface`; its `position: absolute`
-      // offsets must resolve against the fixed `#map-layer` wrapper (≡ viewport).
-      // Expected top = header height + --space-md (it clears the floating header),
-      // and it is horizontally centered (margin-inline: auto) within the viewport.
+      // #800: ScopeControl is now embedded inside the AppHeader identity card
+      // (top-left corner card) rather than a standalone floating overlay.
+      // The identity card is anchored at --card-inset (12px) from the top-left.
+      // The scope-control section sits BELOW the wordmark + region + lede rows
+      // inside the card, so its top must be > 12px (the card inset) and < the
+      // viewport height (it's in the top-left corner, not full-screen).
       const m = await page.evaluate(() => {
         const root = getComputedStyle(document.documentElement);
-        const headerH = parseFloat(root.getPropertyValue('--header-height'));
-        const spaceMd = parseFloat(root.getPropertyValue('--space-md'));
+        // Read both --card-inset (12px) and --card-inset-wide (24px). At ≥1440px
+        // the CSS switches the identity card to --card-inset-wide; we take the
+        // max so the assertion holds regardless of viewport width.
+        const cardInset = parseFloat(root.getPropertyValue('--card-inset')) || 12;
+        const cardInsetWide = parseFloat(root.getPropertyValue('--card-inset-wide')) || 24;
+        const effectiveInset = Math.max(cardInset, cardInsetWide);
         const sc = document.querySelector<HTMLElement>('.scope-control');
-        const header = document.querySelector<HTMLElement>('.app-header');
-        if (!sc || !header) return null;
+        const card = document.querySelector<HTMLElement>('.app-header-identity-card');
+        if (!sc || !card) return null;
         const r = sc.getBoundingClientRect();
-        const hr = header.getBoundingClientRect();
+        const cr = card.getBoundingClientRect();
         return {
           top: r.top,
-          left: r.left,
-          right: r.right,
-          headerBottom: hr.bottom,
-          expectedTop: headerH + spaceMd,
-          viewportWidth: window.innerWidth,
+          cardTop: cr.top,
+          cardInset: effectiveInset,
+          viewportHeight: window.innerHeight,
         };
       });
-      expect(m, '.scope-control / .app-header not found').not.toBeNull();
-      // Anchored at header-height + --space-md from the viewport TOP (not under the header).
-      expect(Math.abs(m!.top - m!.expectedTop), `scope-control top ${m!.top} ≈ ${m!.expectedTop}`).toBeLessThanOrEqual(2);
-      // It clears the fixed header (its top is at or below the header's bottom edge).
-      expect(m!.top, 'scope-control top clears the header bottom').toBeGreaterThanOrEqual(m!.headerBottom - 1);
-      // Centered within the viewport width (margin-inline: auto): symmetric side gaps.
-      const leftGap = m!.left;
-      const rightGap = m!.viewportWidth - m!.right;
-      expect(Math.abs(leftGap - rightGap), `centered: left gap ${leftGap.toFixed(1)} ≈ right gap ${rightGap.toFixed(1)}`).toBeLessThanOrEqual(2);
+      expect(m, '.scope-control / .app-header-identity-card not found').not.toBeNull();
+      // The scope-control is inside the identity card, so its top >= the card's top.
+      expect(m!.top, 'scope-control top is below identity card top').toBeGreaterThanOrEqual(m!.cardTop - 1);
+      // The identity card top is at --card-inset (or --card-inset-wide at ≥1440px) from the viewport top.
+      expect(m!.cardTop, 'identity card top ≈ --card-inset from viewport').toBeLessThanOrEqual(m!.cardInset + 2);
+      // The scope-control top is well above the viewport midpoint (it's a top card).
+      expect(m!.top, 'scope-control top is in the top half of the viewport').toBeLessThan(m!.viewportHeight / 2);
     });
 
-    test('open filters panel clears the fixed header (close button visible)', async ({ page, apiStub }) => {
+    test('open filters panel clears the controls pill (close button visible) (#800)', async ({ page, apiStub }) => {
       await setupRoutes(page, apiStub);
       const app = new AppPage(page);
       await app.goto('state=US-AZ');
       await app.waitForAppReady();
       await app.openFilters();
 
+      // #800: the header is now a transparent wrapper (inset:0); clearance is
+      // measured against the controls pill (top-right card) bottom edge instead.
       const m = await page.evaluate(() => {
         const panel = document.querySelector<HTMLElement>('.filters-panel');
         const close = document.querySelector<HTMLElement>('.filters-panel-close');
-        const header = document.querySelector<HTMLElement>('.app-header');
-        if (!panel || !close || !header) return null;
+        const pill = document.querySelector<HTMLElement>('.app-header-controls-pill');
+        if (!panel || !close || !pill) return null;
         return {
           panelTop: panel.getBoundingClientRect().top,
           closeTop: close.getBoundingClientRect().top,
-          headerBottom: header.getBoundingClientRect().bottom,
+          pillBottom: pill.getBoundingClientRect().bottom,
         };
       });
-      expect(m, '.filters-panel / close / header not found').not.toBeNull();
-      // R15 surface 2: the panel top edge and its close button clear the header.
-      expect(m!.panelTop, 'panel top below header bottom').toBeGreaterThanOrEqual(m!.headerBottom - 1);
-      expect(m!.closeTop, 'close button below header bottom').toBeGreaterThanOrEqual(m!.headerBottom - 1);
+      expect(m, '.filters-panel / close / controls-pill not found').not.toBeNull();
+      // R15 surface 2 (#800 update): the panel top and close button must be below
+      // the controls pill so they are not obscured by the top-right corner card.
+      expect(m!.panelTop, 'panel top below controls pill bottom').toBeGreaterThanOrEqual(m!.pillBottom - 1);
+      expect(m!.closeTop, 'close button below controls pill bottom').toBeGreaterThanOrEqual(m!.pillBottom - 1);
     });
   });
 
   test.describe('mobile (390×844)', () => {
     test.use({ viewport: { width: 390, height: 844 } });
 
-    test('open filters panel clears the fixed header (close button visible)', async ({ page, apiStub }) => {
+    test('open filters panel clears the controls pill (close button visible) (#800)', async ({ page, apiStub }) => {
       await setupRoutes(page, apiStub);
       const app = new AppPage(page);
       await app.goto('state=US-AZ');
@@ -253,17 +258,59 @@ test.describe('#761 (S2): full-viewport map root geometry', () => {
       const m = await page.evaluate(() => {
         const panel = document.querySelector<HTMLElement>('.filters-panel');
         const close = document.querySelector<HTMLElement>('.filters-panel-close');
-        const header = document.querySelector<HTMLElement>('.app-header');
-        if (!panel || !close || !header) return null;
+        const pill = document.querySelector<HTMLElement>('.app-header-controls-pill');
+        if (!panel || !close || !pill) return null;
         return {
           panelTop: panel.getBoundingClientRect().top,
           closeTop: close.getBoundingClientRect().top,
-          headerBottom: header.getBoundingClientRect().bottom,
+          pillBottom: pill.getBoundingClientRect().bottom,
         };
       });
-      expect(m, '.filters-panel / close / header not found').not.toBeNull();
-      expect(m!.panelTop, 'panel top below header bottom').toBeGreaterThanOrEqual(m!.headerBottom - 1);
-      expect(m!.closeTop, 'close button below header bottom').toBeGreaterThanOrEqual(m!.headerBottom - 1);
+      expect(m, '.filters-panel / close / controls-pill not found').not.toBeNull();
+      expect(m!.panelTop, 'panel top below controls pill bottom').toBeGreaterThanOrEqual(m!.pillBottom - 1);
+      expect(m!.closeTop, 'close button below controls pill bottom').toBeGreaterThanOrEqual(m!.pillBottom - 1);
+    });
+
+    // ── Compact header geometry guard (#800 compact fix) ─────────────────────
+    // At 390×844 the identity card (top-left) and controls pill (top-right)
+    // must NOT overlap. Before the fix, the card's max-inline-size of 360px
+    // extended past the pill's left edge (~214px), causing a ~160px overlap.
+    // The fix caps the card to `calc(100% − card-inset − 180px − card-gap)`
+    // which constrains its right edge to be left of the pill's left edge.
+    // We assert bounding-box disjoint on the horizontal axis (intersectX = 0),
+    // matching the legend/attribution guard pattern above.
+    test('identity card and controls pill do NOT overlap at compact 390px (#800)', async ({ page, apiStub }) => {
+      await setupRoutes(page, apiStub);
+      const app = new AppPage(page);
+      await app.goto('state=US-AZ');
+      await app.waitForAppReady();
+
+      const m = await page.evaluate(() => {
+        const card = document.querySelector<HTMLElement>('.app-header-identity-card');
+        const pill = document.querySelector<HTMLElement>('.app-header-controls-pill');
+        if (!card || !pill) return null;
+        const c = card.getBoundingClientRect();
+        const p = pill.getBoundingClientRect();
+        // Horizontal intersection: positive value means they overlap.
+        const intersectX = Math.max(0, Math.min(c.right, p.right) - Math.max(c.left, p.left));
+        // Vertical intersection: positive value means they overlap.
+        const intersectY = Math.max(0, Math.min(c.bottom, p.bottom) - Math.max(c.top, p.top));
+        return {
+          card: { left: c.left, top: c.top, right: c.right, bottom: c.bottom },
+          pill: { left: p.left, top: p.top, right: p.right, bottom: p.bottom },
+          intersectX,
+          intersectY,
+        };
+      });
+      expect(m, '.app-header-identity-card / .app-header-controls-pill not found').not.toBeNull();
+      // The two elements are horizontally disjoint: the card's right edge must be
+      // to the left of the pill's left edge (sub-pixel tolerance for rounding).
+      expect(
+        m!.intersectX,
+        `identity card (right=${m!.card.right.toFixed(1)}) overlaps controls pill ` +
+          `(left=${m!.pill.left.toFixed(1)}) by ${m!.intersectX.toFixed(1)}px at 390×844 — ` +
+          `compact layout regression`,
+      ).toBeLessThanOrEqual(0.5);
     });
   });
 

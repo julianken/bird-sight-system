@@ -98,7 +98,12 @@ test.describe('Map cold load — issue #716', () => {
       .locator('[data-render-complete="false"]')
       .waitFor({ state: 'attached', timeout: 5_000 });
 
-    const lede = page.locator('.map-lede');
+    // #800: the lede moved from <h1 class="map-lede"> (MapLede in MapSurface)
+    // into the AppHeader identity card as <p data-testid="map-lede">.
+    // The suppression contract is preserved: ledeText in App.tsx returns null
+    // while observationsLoading is true, so the [data-testid="map-lede"] element
+    // is absent from the DOM during cold-load and visible after.
+    const lede = page.locator('[data-testid="map-lede"]');
     await expect(lede).toHaveCount(0);
 
     await expect(
@@ -164,7 +169,8 @@ test.describe('Map cold load — issue #716', () => {
     // other variant — because observationCount + speciesCount are still 0
     // pre-resolution. Hold the assertion for ~1s to make sure we're not just
     // catching a transient null-render between two render passes.
-    const lede = page.locator('.map-lede');
+    // #800: lede is now [data-testid="map-lede"] in the AppHeader identity card.
+    const lede = page.locator('[data-testid="map-lede"]');
     await expect(lede).toHaveCount(0);
     await page.waitForTimeout(800);
     await expect(lede).toHaveCount(0);

@@ -17,7 +17,6 @@ import { ARTBOARD_PAD } from './components/map/mask.js';
 import { FiltersBar } from './components/FiltersBar.js';
 import { MapSurface } from './components/MapSurface.js';
 import { ScopeChooser } from './components/ScopeChooser.js';
-import { ScopeControl } from './components/ScopeControl.js';
 import { SpeciesDetailRail } from './components/SpeciesDetailRail.js';
 import { SpeciesDetailSheet } from './components/SpeciesDetailSheet.js';
 import { AppHeader } from './components/AppHeader.js';
@@ -272,13 +271,6 @@ export function App() {
   const [flyTo, setFlyTo] = useState<
     { center: [number, number]; zoom: number; key: string } | undefined
   >(undefined);
-
-  // Resolve human-readable species name when a speciesCode filter is active.
-  // Derived from speciesIndex — same source the FiltersBar autocomplete uses.
-  const speciesName = useMemo(
-    () => (state.speciesCode ? speciesIndex.find(s => s.code === state.speciesCode)?.comName : undefined),
-    [speciesIndex, state.speciesCode],
-  );
 
   // Resolve human-readable family name when a familyCode filter is active.
   // Derived from families (prettyFamily-capitalised code from deriveFamilies).
@@ -655,6 +647,42 @@ export function App() {
     [freshestObservationAt, now],
   );
 
+  // #800 / #779 — lede text computation for the AppHeader identity card.
+  // Mirrors MapLede's template logic (now removed from MapSurface) so the
+  // formerly-invisible context-strip content is lifted into the top-left card.
+  // Returns null when region=null (unscoped) or while loading (cold-load guard).
+  // Must come after freshnessState (computed above).
+  const ledeText = useMemo<string | null>(() => {
+    if (region === null) return null;
+    const speciesCount = new Set(observations.map(o => o.speciesCode).filter(Boolean)).size;
+    const observationCount = observations.length;
+    // Cold-load guard (#716/#720): suppress Template 1 while the first fetch is
+    // in flight. Same discipline as MapLede's `loading` guard.
+    if (observationsLoading && observationCount === 0 && speciesCount === 0) return null;
+    const speciesCommonName =
+      speciesCount === 1 ? (observations[0]?.comName ?? null) : null;
+    const periodText = state.since === '1d' ? '24 hours' : state.since.replace('d', ' days');
+    const periodClause = freshnessState === 'stale' ? '' : ` in the last ${periodText}`;
+    if (observationCount === 0 && speciesCount === 0) {
+      return noFiltersActive
+        ? `No recent sightings in ${region} yet.`
+        : 'No sightings match your current filters.';
+    } else if (speciesCommonName) {
+      return `${observationCount} sightings of ${speciesCommonName} in ${region}${periodClause}.`;
+    } else if (familyName) {
+      return `${speciesCount} species of ${familyName} seen across ${region}${periodClause}.`;
+    }
+    return `${speciesCount} species seen across ${region}${periodClause}.`;
+  }, [
+    region,
+    observations,
+    observationsLoading,
+    state.since,
+    freshnessState,
+    noFiltersActive,
+    familyName,
+  ]);
+
   // #663: clicking a species in a popover opens the detail overlay
   // IN PLACE — the map stays mounted. New click flow writes only
   // `?detail=` (+ bbox); it does NOT write `?view=detail`. Old shared
@@ -730,12 +758,18 @@ export function App() {
         region={region}
       />
       <AppHeader
-        activeView={state.view}
-        onSelectView={view => set({ view })}
         region={region}
         filterCount={filterCount}
         onOpenFilters={() => setFiltersOpen(true)}
         onOpenAttribution={onOpenAttribution}
+        ledeText={ledeText}
+        freshnessLabel={freshnessLabel}
+        scope={state.scope}
+        states={states}
+        onPickState={onPickState}
+        onPickWholeUs={onPickWholeUs}
+        onExitScope={onExitScope}
+        onResolveZip={onResolveZip}
       />
       {filtersOpen && (
         <div className="filters-panel" role="region" aria-label="Filters">
@@ -781,25 +815,11 @@ export function App() {
           zero. Do NOT make `#map-layer` conditional on `scopeActive`. */}
       {mapVisible && (
         <div id="map-layer">
-          {/* #740 (C6) — the in-state on-map re-scope bar (#737). Rendered
-              ONLY in a SCOPED view. #761 (S1) removed the unscoped
-              early-return, so the map now mounts idle behind the chooser
-              scrim while unscoped too — this `state.scope.kind !== 'unscoped'`
-              guard keeps ScopeControl off the unscoped landing (the chooser
-              scrim is the only scope affordance there) AND narrows
-              `state.scope` to the `ScopedView` the component's prop requires.
-              Floats over the canvas; emits one clean scope intent per action
-              and never touches the map. */}
-          {state.scope.kind !== 'unscoped' && (
-            <ScopeControl
-              scope={state.scope}
-              states={states}
-              onPickState={onPickState}
-              onPickWholeUs={onPickWholeUs}
-              onExit={onExitScope}
-              onResolve={onResolveZip}
-            />
-          )}
+          {/* #800 (S3): ScopeControl is now folded into the AppHeader identity
+              card (spec §4.2) and rendered THERE — no longer a standalone
+              floating overlay anchored top-center inside #map-layer. The header-
+              height offset that the old position:absolute ScopeControl required
+              is also deleted: corner cards have nothing to dodge. */}
           <MapSurface
             observations={observations}
             legendObservations={viewportObservations}
@@ -816,15 +836,6 @@ export function App() {
               firstCell?.focus();
             }}
             hasMarkers={observations.length > 0}
-            since={state.since}
-            notable={state.notable}
-            speciesCode={state.speciesCode}
-            {...(speciesName !== undefined ? { speciesName } : {})}
-            freshness={freshnessState}
-            freshnessLabel={freshnessLabel}
-            loading={observationsLoading}
-            region={region}
-            noFiltersActive={noFiltersActive}
             {...(scopeBounds ? { scopeBounds } : {})}
             {...(boundsKey !== undefined ? { boundsKey } : {})}
             {...(flyTo ? { flyTo } : {})}

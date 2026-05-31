@@ -5,15 +5,17 @@ export class AppPage {
   readonly filters: FiltersBar;
   readonly mainSurface: Locator;
   readonly errorScreen: Locator;
-  /** Persistent header chrome — wordmark, tablist, action buttons. */
+  /**
+   * Persistent header banner — transparent wrapper holding identity card +
+   * controls pill. The header is `role="banner"` per ARIA landmark semantics.
+   * #800: no tablist or tabs — the map is the always-mounted sole surface.
+   */
   readonly appHeader: Locator;
-  /** Surface tabs inside appHeader (Map). Feed removed in #662; Species in #688. */
-  readonly appHeaderTabs: Locator;
-  /** Filters trigger button in appHeader (badge shows active-filter count). */
+  /** Filters trigger button in the controls pill (badge shows active-filter count). */
   readonly filtersTrigger: Locator;
-  /** Theme toggle button in appHeader. */
+  /** Theme toggle button in the controls pill. */
   readonly themeToggle: Locator;
-  /** Credits & attribution trigger in appHeader. */
+  /** Credits & attribution trigger in the controls pill. */
   readonly attributionTrigger: Locator;
 
   // --- Scope chooser (landing surface, #742) accessors (C9/D6, #741) ---
@@ -44,7 +46,9 @@ export class AppPage {
   readonly scopeControlExit: Locator;
 
   // --- Shared narration / region surfaces ---
-  /** The map's runtime region lede (`<h1 class="map-lede">`, MapLede #738/C7). */
+  /** The map's runtime region lede (`<p data-testid="map-lede">` in the AppHeader
+   *  identity card, #800). Absent while loading (cold-load suppression #716),
+   *  visible after /api/observations resolves. */
   readonly mapLede: Locator;
   /** The map canvas root (`data-testid='map-canvas'`). */
   readonly mapCanvas: Locator;
@@ -62,7 +66,7 @@ export class AppPage {
     this.mainSurface = page.locator('main#main-surface');
     this.errorScreen = page.locator('.error-screen');
     this.appHeader = page.locator('header.app-header');
-    this.appHeaderTabs = this.appHeader.getByRole('tab');
+    // #800: appHeaderTabs removed — no tablist in the new corner-card header.
     this.filtersTrigger = this.appHeader.getByRole('button', { name: /^Filters/ });
     this.themeToggle = this.appHeader.getByRole('button', { name: /Switch to (light|dark) theme/ });
     this.attributionTrigger = this.appHeader.getByRole('button', { name: /Credits & attribution/ });
@@ -82,7 +86,8 @@ export class AppPage {
     this.scopeControlWholeUs = this.scopeControl.getByRole('button', { name: 'Whole US', exact: true });
     this.scopeControlExit = this.scopeControl.getByRole('button', { name: 'Change scope' });
 
-    this.mapLede = page.locator('.map-lede');
+    // #800: lede moved into AppHeader identity card as <p data-testid="map-lede">.
+    this.mapLede = page.locator('[data-testid="map-lede"]');
     this.mapCanvas = page.locator('[data-testid="map-canvas"]');
   }
 
@@ -111,12 +116,13 @@ export class AppPage {
   }
 
   /**
-   * Navigate to a surface by tab name. Only the Map tab remains in the
-   * header post-#688 (Species removed); Feed was removed in #662.
+   * Wait for the map canvas to be visible — replaces the old `selectView('map')`
+   * tab-click in tests that needed to assert "on the map view." Post-#800 there is
+   * no tablist; the map is always mounted. Callers that previously used
+   * `selectView('map')` should use `waitForMapLoad()` instead.
    */
-  async selectView(view: 'map'): Promise<void> {
-    const labelMap = { map: 'Map view' };
-    await this.appHeader.getByRole('tab', { name: labelMap[view] }).click();
+  async waitForMapLoad(timeout = 10_000): Promise<void> {
+    await this.mapCanvas.waitFor({ state: 'visible', timeout });
   }
 
   /**

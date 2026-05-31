@@ -1,15 +1,62 @@
-import { useRef, type KeyboardEvent } from 'react';
+/**
+ * AppHeader — two floating corner clusters over the edge-to-edge map (#800 / #779 / #761).
+ *
+ * Design spec: docs/design/2026-05-30-floating-ui-design-spec.md §4.1–4.3.
+ *
+ * Previous design: a full-width top bar (`position:fixed; left:0; right:0`) with
+ * a tablist holding a single "Map" nav tab. This violated the four-corner anchor
+ * contract — a full-bleed band, not a corner card.
+ *
+ * New design: two independent tier-1 floating cards inside a transparent,
+ * pointer-events-none `<header role="banner">` wrapper:
+ *
+ *   TOP-LEFT identity card (.app-header-identity-card) — one stacked card:
+ *     1. Wordmark "Bird Maps" (link to /).
+ *     2. Region name at --type-lg semibold (the PRIMARY text on a scoped view).
+ *     3. Lede row: species count + freshness + source at --type-sm/--type-xs.
+ *        THIS is where the formerly-invisible context-strip content now lives (#779).
+ *     4. Hairline divider.
+ *     5. Scope control rows (de-emphasized "change where" affordance, §4.2):
+ *        folded ScopeControl content — state select, ZIP trigger, Whole US / Change scope.
+ *        The header-height top-offset that the old ScopeControl required is deleted;
+ *        the identity card is a corner card, not a band, so there is nothing to dodge.
+ *
+ *   TOP-RIGHT controls pill (.app-header-controls-pill) — compact content-width card:
+ *     Filters trigger (+ active-count badge) · Attribution · Theme toggle.
+ *     Filters is a labeled button at ≥1024, icon-only below.
+ *
+ * The old `role="tablist"` / `TABS` / `activeView` / `onSelectView` machinery is
+ * entirely removed — the map is the always-mounted sole surface post-#688/#777.
+ *
+ * Responsive behaviour (driven by useBreakpoint()):
+ *   wide (≥1024): Filters shows its text label; corner insets use --card-inset-wide.
+ *   roomy (480–1024): Filters is icon-only; standard --card-inset gutters.
+ *   compact (<480): wordmark collapses (brand only, region drops into lede row);
+ *     scope control collapses to a single "Region ▾" affordance; icons only.
+ *
+ * Lede props (O3 #779) — carried from MapSurface into AppHeader so the formerly
+ * invisible context-strip content renders in the identity card:
+ *   - ledeText: the pre-rendered lede sentence (or null while loading / unscoped).
+ *   - freshnessLabel: "331 species · updated 20 min ago · eBird" (or '').
+ *
+ * Scope-control props (§4.2) — ScopeControl content is now folded into the
+ * bottom rows of this card. When `scope.kind === 'unscoped'` the scope rows
+ * are hidden (chooser is the only affordance on the unscoped landing).
+ */
+
 import { ThemeToggle } from './ThemeToggle.js';
-import type { View } from '../state/url-state.js';
+import type { ScopedView } from './ScopeControl.js';
+import { ScopeControl } from './ScopeControl.js';
+import type { StateSummary } from '@bird-watch/shared-types';
+import type { Scope } from '../state/url-state.js';
+import { useBreakpoint } from '../hooks/use-breakpoint.js';
+import type { ScopeResolution } from '../state/scope-types.js';
 
 export interface AppHeaderProps {
-  activeView: View;
-  onSelectView: (view: View) => void;
   /**
-   * #738/C5: runtime region label for the active scope (from `regionLabelFor`).
-   * `null` ⟺ the unscoped/chooser landing — the wordmark renders just "Bird
-   * Maps" with no ` · {region}` suffix and the aria-label drops the region
-   * word. Non-null appends " · {region}" (e.g. "Bird Maps · Arizona").
+   * Runtime region label for the active scope (from `regionLabelFor`, #738/C5).
+   * `null` ⟺ the unscoped/chooser landing — the region display is omitted.
+   * Non-null is "USA" (`?scope=us`) or the resolved state name (`?state=`).
    */
   region: string | null;
   /** Active filter count — drives the numeric badge on the Filters trigger. */
@@ -18,141 +65,151 @@ export interface AppHeaderProps {
   onOpenFilters: () => void;
   /** Open the Credits & Attribution modal. */
   onOpenAttribution: () => void;
+  // ── Lede / context-strip props (O3 #779) ────────────────────────────────
+  /**
+   * Pre-rendered lede sentence from MapLede (e.g. "331 species seen across Arizona
+   * in the last 14 days."). Null while loading, null when region=null (unscoped).
+   * Rendered in the identity card at --type-sm as the lede row.
+   */
+  ledeText: string | null;
+  /**
+   * Pre-formatted freshness / source string from deriveFreshness (e.g.
+   * "Updated 11 min ago · Source: eBird"). Empty string when not yet resolved.
+   * Rendered in the identity card below the lede at --type-xs --color-text-subtle.
+   */
+  freshnessLabel: string;
+  // ── Scope-control props (§4.2) ───────────────────────────────────────────
+  /**
+   * Active scope — determines whether scope rows are rendered. When
+   * `kind === 'unscoped'` the scope rows are hidden (the chooser is the only
+   * affordance on the unscoped landing).
+   */
+  scope: Scope;
+  /** States list for the scope control <select>. Forwarded from App.tsx. */
+  states: StateSummary[];
+  /** Pick a state from the in-card scope control. */
+  onPickState: (stateCode: string) => void;
+  /** Switch to the whole-US scope from the in-card scope control. */
+  onPickWholeUs: () => void;
+  /** Exit to the chooser from the in-card scope control. */
+  onExitScope: () => void;
+  /** Resolve a ZIP code from the in-card scope control's ZIP input. */
+  onResolveZip: (resolution: ScopeResolution) => void;
 }
-
-interface TabDef {
-  value: View;
-  label: string;
-  // Accessible name diverges from visible text to avoid colliding with
-  // <FiltersBar>'s "Species" and "Family" input labels. Preserved verbatim
-  // from the pre-#688 two-tab tablist for compatibility with e2e selectors
-  // that target `getByRole('tab', { name: 'Map view' })`.
-  accessibleName: string;
-}
-
-// One-tab tablist post-#688 (Species surface removed). ARIA APG explicitly
-// allows single-tab tablists — the role + aria-selected contract still
-// expresses the surface state and the structure tolerates future additions
-// without churning the markup. The visible "Map" label is suppressed in CSS
-// to avoid a "lone Map word" wordmark-adjacent treatment; the accessible
-// name is preserved so SR users still hear "Map view, selected".
-const TABS: readonly TabDef[] = [
-  { value: 'map', label: 'Map', accessibleName: 'Map view' },
-];
 
 export function AppHeader({
-  activeView,
-  onSelectView,
   region,
   filterCount,
   onOpenFilters,
   onOpenAttribution,
+  ledeText,
+  freshnessLabel,
+  scope,
+  states,
+  onPickState,
+  onPickWholeUs,
+  onExitScope,
+  onResolveZip,
 }: AppHeaderProps) {
-  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
-
-  function activateIndex(index: number) {
-    const next = TABS[index];
-    if (!next) return;
-    tabRefs.current[index]?.focus();
-    if (next.value !== activeView) onSelectView(next.value);
-  }
-
-  function handleKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
-    switch (event.key) {
-      case 'ArrowRight':
-        event.preventDefault();
-        activateIndex((index + 1) % TABS.length);
-        break;
-      case 'ArrowLeft':
-        event.preventDefault();
-        activateIndex((index - 1 + TABS.length) % TABS.length);
-        break;
-      case 'Home':
-        event.preventDefault();
-        activateIndex(0);
-        break;
-      case 'End':
-        event.preventDefault();
-        activateIndex(TABS.length - 1);
-        break;
-      case 'Enter':
-      case ' ': {
-        event.preventDefault();
-        const tab = TABS[index];
-        if (tab && tab.value !== activeView) onSelectView(tab.value);
-        break;
-      }
-      default:
-        break;
-    }
-  }
-
-  const anyTabActive = TABS.some(t => t.value === activeView);
+  const bp = useBreakpoint();
+  const scopeActive = scope.kind !== 'unscoped';
   const filterTriggerLabel =
     filterCount > 0 ? `Filters (${filterCount} active)` : 'Filters';
+  // At wide (≥1024), Filters shows a text label; below it is icon-only.
+  const filtersLabeled = bp === 'wide';
 
   return (
+    // Transparent pointer-events-none wrapper preserves the ONE role="banner"
+    // landmark while letting the map receive pointer events in the empty center.
+    // Each cluster gets pointer-events: auto so they remain interactive.
     <header className="app-header" role="banner">
-      <a
-        className="app-header-wordmark"
-        href="/"
-        aria-label={region ? `Bird Maps ${region} — home` : 'Bird Maps — home'}
-      >
-        {/* #738/C5: on the unscoped landing (region=null) the wordmark omits
-            the ` · {region}` suffix entirely — never a bare ` · ` separator. */}
-        Bird Maps
+      {/* TOP-LEFT: identity card (wordmark + lede + scope rows) */}
+      <div className="app-header-identity-card" aria-label="Bird Maps identity">
+        {/* Row 1: Wordmark */}
+        <a
+          className="app-header-wordmark"
+          href="/"
+          aria-label={region ? `Bird Maps ${region} — home` : 'Bird Maps — home'}
+        >
+          Bird Maps
+          {/* At compact (<480) the region drops to the lede row; keep it in the
+              wordmark at roomy/wide. Spec: compact collapses to brand+region pill
+              but that's the label in the lede row below, not a second inline span. */}
+          {region && bp !== 'compact' && (
+            <span className="brand-region" aria-hidden="true"> · {region}</span>
+          )}
+        </a>
+
+        {/* Row 2: Region name — PRIMARY heading (spec §5.2, A11Y-3).
+            Rendered as <h1> for every scoped view — this is the page's single
+            <h1>, satisfying A11Y-3 "exactly one h1 per surface."
+            At compact (<480): the text is visually sr-only (the region label
+            is already embedded in the lede sentence below), but the h1 stays
+            in the accessibility tree so the heading count stays at 1.
+            Hidden only when region is null (unscoped — the chooser handles
+            scope narration there). */}
         {region && (
-          <span className="brand-region">
-            <span aria-hidden="true"> ·</span> {region}
+          <h1 className={`app-header-region-name${bp === 'compact' ? ' sr-only' : ''}`}>
+            {region}
+          </h1>
+        )}
+
+        {/* Scope-change live region (#760/#762 — carried from MapLede): announces
+            the active region to screen readers on chooser→state and state→state
+            transitions WITHOUT requiring a focus move. The same `role="status"
+            aria-live="polite"` contract that MapLede.tsx previously provided.
+            Renders whenever region is non-null (including during cold-load
+            suppression when ledeText is null, matching MapLede's original
+            unconditional announcement semantics). */}
+        {region && (
+          <span className="sr-only" role="status" aria-live="polite">
+            Showing {region}.
           </span>
         )}
-      </a>
 
-      <div className="app-header-nav" role="tablist" aria-label="Surface">
-        {TABS.map((tab, index) => {
-          const selected = tab.value === activeView;
-          const tabbable = selected || (!anyTabActive && index === 0);
-          return (
-            <button
-              key={tab.value}
-              ref={el => {
-                tabRefs.current[index] = el;
-              }}
-              type="button"
-              role="tab"
-              id={`app-header-tab-${tab.value}`}
-              aria-selected={selected}
-              // #761 (S2): the "Map view" tab controls the map region, which is
-              // now the hoisted `#map-layer` wrapper (the map left `#main-surface`
-              // when the shell inverted to a full-viewport map root). Pointing at
-              // `"main-surface"` would silently control a map-free region — an
-              // a11y semantic regression introduced by the hoist. The broader
-              // inert/aria-busy/aria-live retarget on `#map-layer` stays O1; the
-              // tablist tab→region pointer is a different attribute O1 does not
-              // touch, so S2 owns this one in the same PR that moves the map out.
-              aria-controls="map-layer"
-              aria-label={tab.accessibleName}
-              tabIndex={tabbable ? 0 : -1}
-              className={`app-header-tab${selected ? ' is-active' : ''}`}
-              onClick={() => {
-                if (tab.value !== activeView) onSelectView(tab.value);
-              }}
-              onKeyDown={e => handleKeyDown(e, index)}
-            >
-              {tab.label}
-            </button>
-          );
-        })}
+        {/* Row 3: Lede text + freshness (O3 #779 — the formerly invisible context strip).
+            The lede is visible here for the first time; the old in-flow
+            .map-context-strip band is removed from MapSurface.
+            data-testid="map-lede" is the stable test hook for e2e specs
+            (#716 suppression contract: absent while loading, visible after). */}
+        {ledeText && (
+          <div className="app-header-lede-row">
+            <p className="app-header-lede" data-testid="map-lede">{ledeText}</p>
+            {freshnessLabel && (
+              <p className="app-header-freshness">{freshnessLabel}</p>
+            )}
+          </div>
+        )}
+
+        {/* Hairline divider — only visible when scope rows follow */}
+        {scopeActive && <hr className="app-header-divider" aria-hidden="true" />}
+
+        {/* Rows 4+: Scope control (§4.2) — de-emphasized "change where" rows.
+            Folded directly into the identity card; no longer a separate top-center
+            band with a header-height offset. */}
+        {scopeActive && (
+          <div className="app-header-scope-rows">
+            <ScopeControl
+              scope={scope as ScopedView}
+              states={states}
+              onPickState={onPickState}
+              onPickWholeUs={onPickWholeUs}
+              onExit={onExitScope}
+              onResolve={onResolveZip}
+              embedded
+            />
+          </div>
+        )}
       </div>
 
-      <div className="app-header-right">
+      {/* TOP-RIGHT: controls pill (Filters · Attribution · Theme toggle) */}
+      <div className="app-header-controls-pill">
         <button
           type="button"
           className="app-header-attribution"
           onClick={onOpenAttribution}
           aria-label="Credits & attribution"
         >
-          {/* Info-circle icon — visible at mobile (≤480px), hidden at desktop via CSS */}
           <svg
             className="app-header-btn-icon"
             width="20"
@@ -168,16 +225,17 @@ export function AppHeader({
             <circle cx="12" cy="12" r="10" />
             <path d="M12 16v-4M12 8h.01" />
           </svg>
-          {/* Text label — visible at desktop (>480px), sr-only at mobile */}
-          <span className="app-header-btn-label">Attribution</span>
+          {filtersLabeled && (
+            <span className="app-header-btn-label">Attribution</span>
+          )}
         </button>
+
         <button
           type="button"
           className="app-header-filters"
           onClick={onOpenFilters}
           aria-label={filterTriggerLabel}
         >
-          {/* Funnel/filter icon — visible at mobile (≤480px), hidden at desktop via CSS */}
           <svg
             className="app-header-btn-icon"
             width="20"
@@ -192,14 +250,16 @@ export function AppHeader({
           >
             <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
           </svg>
-          {/* Text label — visible at desktop (>480px), sr-only at mobile */}
-          <span className="app-header-btn-label">Filters</span>
+          {filtersLabeled && (
+            <span className="app-header-btn-label">Filters</span>
+          )}
           {filterCount > 0 && (
             <span className="app-header-filter-badge" aria-hidden="true">
               {filterCount}
             </span>
           )}
         </button>
+
         <ThemeToggle />
       </div>
     </header>

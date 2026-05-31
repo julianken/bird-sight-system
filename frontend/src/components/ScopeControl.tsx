@@ -2,6 +2,7 @@ import type { StateSummary } from '@bird-watch/shared-types';
 import type { Scope } from '../state/url-state.js';
 import { ZipInput } from './ZipInput.js';
 import type { ScopeResolution } from '../state/scope-types.js';
+import React from 'react';
 
 /**
  * In-state on-map scope control (Task C4, #737).
@@ -61,6 +62,17 @@ export interface ScopeControlProps {
    *  forwarded straight up (#740 turns it into `?state=US-XX` + a `flyTo` at
    *  `ZIP_FLYTO_ZOOM`). ScopeControl is a pass-through here. */
   onResolve: (scope: ScopeResolution) => void;
+  /**
+   * When `true`, the component is rendered EMBEDDED inside the AppHeader
+   * identity card (§4.2) and does NOT apply the old absolute-positioned
+   * `.scope-control` wrapper (the positioning is owned by the identity card).
+   * When `false` (the default), the old standalone floating-overlay behaviour
+   * is preserved for callers that still use the standalone control.
+   *
+   * #800: The standalone usage in App.tsx is removed in this PR; the prop
+   * exists only to avoid needing two separate component files.
+   */
+  embedded?: boolean;
 }
 
 export function ScopeControl({
@@ -70,14 +82,19 @@ export function ScopeControl({
   onPickWholeUs,
   onExit,
   onResolve,
+  embedded = false,
 }: ScopeControlProps): React.JSX.Element {
   // In a state view the current state is the selected option; in a whole-US
   // view the neutral placeholder ("") is selected (no state is active).
   const selectedState = scope.kind === 'state' ? scope.stateCode : '';
 
+  // When embedded inside the identity card, use a class that does NOT apply
+  // the old absolute-positioned overlay CSS. The identity card owns the layout.
+  const wrapperClass = embedded ? 'scope-control scope-control--embedded' : 'scope-control';
+
   return (
     <section
-      className="scope-control"
+      className={wrapperClass}
       role="region"
       aria-label="Change the map scope"
     >

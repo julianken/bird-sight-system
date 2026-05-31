@@ -34,13 +34,10 @@ test.describe('Path A happy path', () => {
     await app.goto();
     await app.waitForAppReady();
 
-    // Phase 0: bare '/' now loads the map surface (DEFAULTS.view='map').
-    // The Map tab is the selected AppHeader tab on a cold load.
-    const mapTab = page.getByRole('tab', { name: 'Map view' });
-    await expect(mapTab).toHaveAttribute('aria-selected', 'true');
-
-    // Map canvas is visible.
+    // #800: the Map tab is REMOVED. The map is the always-mounted sole surface.
+    // Assert map canvas is visible and no tablist exists.
     await expect(page.locator('[data-testid=map-canvas]')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('role=tablist')).toHaveCount(0);
   });
 
   // Issue #662 / #777: the Feed surface is gone entirely. The Map tab is the
@@ -64,10 +61,8 @@ test.describe('Path A happy path', () => {
     // Pre-#688: ?species= without ?view= sniffed to view='species'. With the
     // Species surface removed (#688), bookmarked species URLs cold-load to
     // the map (DEFAULTS.view) with the species filter active in FiltersBar.
-    const mapTab = page.getByRole('tab', { name: 'Map view' });
-    await expect(mapTab).toHaveAttribute('aria-selected', 'true');
-
-    // No Species tab exists post-#688.
+    // #800: there is no tablist or Map tab — assert their absence.
+    await expect(page.getByRole('tab', { name: 'Map view' })).toHaveCount(0);
     await expect(page.getByRole('tab', { name: 'Species view' })).toHaveCount(0);
 
     // No complementary landmark (SpeciesPanel is deleted; the detail rail
@@ -91,11 +86,10 @@ test.describe('Path A happy path', () => {
     // Phase 4: detail surface renders in a dialog/sheet outside <main>.
     await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeVisible({ timeout: 10_000 });
 
-    // Feed tab removed in #662 and Species tab removed in #688. The Map
-    // tab exists but is NOT selected on view=detail.
-    const mapTab = page.getByRole('tab', { name: 'Map view' });
+    // Feed tab removed in #662, Species tab removed in #688, Map tab removed in #800.
+    // The header has no tablist at all.
+    await expect(page.getByRole('tab', { name: 'Map view' })).toHaveCount(0);
     await expect(page.getByRole('tab', { name: 'Species view' })).toHaveCount(0);
-    await expect(mapTab).toHaveAttribute('aria-selected', 'false');
   });
 
   test('detail deep link opens the detail surface at mobile and desktop', async ({ page, apiStub }) => {

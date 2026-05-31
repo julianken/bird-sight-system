@@ -21,9 +21,8 @@ test.describe('Map surface', () => {
     // The MapCanvas component renders a [data-testid=map-canvas] container.
     await expect(page.locator('[data-testid=map-canvas]')).toBeVisible({ timeout: 15_000 });
 
-    // Map tab is selected.
-    const mapTab = page.getByRole('tab', { name: 'Map view' });
-    await expect(mapTab).toHaveAttribute('aria-selected', 'true');
+    // #800: The Map tab is REMOVED — the map is the always-mounted sole surface.
+    await expect(page.getByRole('tab', { name: 'Map view' })).toHaveCount(0);
   });
 
   test('?view=hotspots silently redirects to ?view=map', async ({ page }) => {
