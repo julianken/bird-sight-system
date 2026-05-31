@@ -94,34 +94,89 @@ export function App() {
   // panel on open (specifically the close button, first focusable element).
   const filtersPanelRef = useRef<HTMLDivElement | null>(null);
 
+  // O4 (#780) — tracks whether the filters sheet has ever been opened in this
+  // session. Used to guard the close-path focus restore: we must NOT steal
+  // focus to the trigger on the initial mount (when filtersOpen===false and
+  // the effect fires for the first time). Focus restore only belongs on an
+  // actual open→close TRANSITION.
+  const hasOpenedFiltersRef = useRef(false);
+
   // O4 (#780) — inert + focus handshake for the filters floating sheet.
   //   Open: set `inert` on #map-layer (same target as S1 scrim / full-snap
-  //         detail sheet); move focus into the sheet (close button).
-  //   Close: remove `inert` from #map-layer; restore focus to the trigger.
+  //         detail sheet); move focus into the sheet (close button); add a
+  //         Tab/Shift+Tab wrap handler so focus cannot escape to AppHeader
+  //         (mirrors the S1 scrim pattern at App.tsx:652–710).
+  //   Close: remove `inert` from #map-layer; restore focus to the trigger
+  //         ONLY when transitioning from open→close (not on initial mount).
   // useLayoutEffect so the DOM mutation (inert) lands before the browser
   // paints, matching SpeciesDetailSheet's sequencing discipline.
   useLayoutEffect(() => {
     const mapLayer = mapLayerRef.current;
     const panel = filtersPanelRef.current;
+
+    const focusableSelector =
+      'a[href], button:not([disabled]), input:not([disabled]), ' +
+      'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const focusables = (): HTMLElement[] =>
+      panel ? Array.from(panel.querySelectorAll<HTMLElement>(focusableSelector)) : [];
+
     if (filtersOpen) {
+      // Record that the sheet has been opened at least once.
+      hasOpenedFiltersRef.current = true;
       // Mute the map while filters sheet is open — O1 target is #map-layer.
       mapLayer?.setAttribute('inert', '');
       // Move focus into the sheet so keyboard users land inside the panel.
       // The close button is the first focusable element; focus it directly.
-      const firstFocusable = panel?.querySelector<HTMLElement>(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-      );
-      firstFocusable?.focus();
+      const items = focusables();
+      items[0]?.focus();
+
+      // Trap Tab / Shift+Tab within the panel so focus cannot escape into
+      // AppHeader siblings (Attribution, theme-toggle, scope-control).
+      // `inert` on #map-layer covers only the map subtree; AppHeader sits
+      // above the backdrop and stays tabbable without this wrap handler.
+      // Pattern mirrors the S1 scrim focus-wrap at App.tsx:677–700.
+      const onKeyDown = (e: KeyboardEvent): void => {
+        if (e.key !== 'Tab') return;
+        const items = focusables();
+        const first = items[0];
+        const last = items[items.length - 1];
+        if (!first || !last) {
+          e.preventDefault();
+          return;
+        }
+        const active = document.activeElement as HTMLElement | null;
+        if (e.shiftKey) {
+          // Backward from the first control (or from outside) → last.
+          if (active === first || !panel!.contains(active)) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          // Forward from the last control (or from outside) → first.
+          if (active === last || !panel!.contains(active)) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      };
+      panel?.addEventListener('keydown', onKeyDown);
+
+      // Cleanup: remove the wrap handler when the sheet closes or unmounts.
+      return () => {
+        panel?.removeEventListener('keydown', onKeyDown);
+      };
     } else {
       // Remove inert from #map-layer on close — matches S1 scrim cleanup.
       mapLayer?.removeAttribute('inert');
-      // Restore focus to the Filters trigger. The trigger is always mounted
-      // (it is inside the persistent AppHeader, not conditionally rendered),
-      // so focus can be set synchronously inside useLayoutEffect without
-      // waiting for a re-render or requestAnimationFrame.
-      filtersTriggerRef.current?.focus();
+      // Restore focus to the Filters trigger ONLY on an open→close transition,
+      // never on the initial mount (where filtersOpen===false and the sheet was
+      // never open). Without this guard, focus is stolen to the trigger on every
+      // scoped page load. The S1 scrim effect early-returns on scopeActive and
+      // does not override this, so the guard here is load-bearing.
+      if (hasOpenedFiltersRef.current) {
+        filtersTriggerRef.current?.focus();
+      }
     }
-    // No cleanup needed: `filtersOpen` switching covers both paths in-body.
   }, [filtersOpen]);
 
   // O4 (#780) — Escape key dismisses the filters sheet from anywhere (not
