@@ -1,25 +1,28 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * CLS regression test for .map-lede font-size stability.
+ * CLS regression test for the map orientation lede (issue #510).
  *
  * Issue #510: Map CLS regressed 0.068 → 0.172 (POOR) on mobile after
- * W2 #471 added the `.map-lede` rule. The `<h1>` renders at UA default
- * ~32px bold with 0.67em top/bottom margins before CSS applies, then shifts
- * to 26px semibold with margin reset — the height change causes CLS > 0.1 on
- * mobile where the font wraps across more lines at the narrow viewport.
+ * W2 #471 added the `.map-lede` rule. The original `<h1 class="map-lede">` was
+ * an in-flow element that shifted from UA-default 32px/bold to 26px/semibold
+ * after stylesheet hydration, causing CLS > 0.1.
  *
- * Fix: inline critical `.map-lede` styles in `<head>` of index.html so the
- * element is already sized correctly at first paint, before any external CSS
- * or JS executes.
+ * V2 re-baseline (#787 / O3 #779 / #800): the lede moved out of the in-flow
+ * `.map-context-strip` band (now removed — see styles.css) into the AppHeader
+ * identity card as `<p class="app-header-lede" data-testid="map-lede">`, which
+ * is inside a `position:fixed` corner card. Document-flow CLS no longer applies
+ * — the element never participates in block layout. CLS <= 0.1 holds without the
+ * old inline-critical-CSS workaround. The 26px font-size assertion is removed:
+ * the lede in the fixed identity card renders at --type-sm, not 26px.
  *
- * Acceptance:
- * - CLS ≤ 0.1 (Good) on mobile 390×844
- * - `.map-lede` computed font-size is 26px (no regression from #471 typography fix)
- * - No desktop regression
+ * Acceptance (post-O3):
+ * - CLS <= 0.1 (Good) on mobile 390x844
+ * - CLS <= 0.1 (Good) on desktop 1440x900
+ * - [data-testid="map-lede"] is visible after observations resolve
  *
  * Spec ref: /Users/j/.claude/plans/execute-the-sky-atlas-reflective-rabin.md §Bundle B B3
- * Closes: #510
+ * Closes: #510 / V2 re-baseline: #787
  */
 
 const MOBILE = { width: 390, height: 844 };
@@ -66,7 +69,7 @@ async function collectCLS(
   });
 }
 
-test.describe('.map-lede CLS regression — #510', () => {
+test.describe('map-lede CLS regression — #510 (V2 re-baseline #787)', () => {
   /**
    * Task 0 / acceptance criterion: CLS ≤ 0.1 on mobile 390×844.
    *
