@@ -297,8 +297,10 @@ body {
   color: var(--color-text-muted);
 }
 
-/* Row 2: Region name — PRIMARY text (spec §5.2). --type-lg semibold.
-   This is the loudest element on a scoped view. */
+/* Row 2: Region name — PRIMARY heading (spec §5.2). --type-lg semibold.
+   This is the loudest element AND the page's single <h1> on a scoped view.
+   Rendered as <h1> in AppHeader.tsx; margin:0 resets UA h1 margins so the
+   floating-card layout is unaffected by default browser h1 styles. */
 .app-header-region-name {
   margin: 0;
   font-size: var(--type-lg);
@@ -1415,16 +1417,26 @@ aside.species-detail-rail .species-detail-rail-close {
      with no block-height — so `margin-block-start` must clear the controls pill
      height (~60px: 12px inset + ~48px pill). Using `--header-height` (48px) is
      a reasonable approximation that keeps the panel clear of the controls pill.
-     `#map-layer` is `position: fixed; inset: 0` so the panel needs a z-index in
-     the map-assist band to lift it above the map and its overlays; the panel
-     stays BELOW `--z-chrome` so the corner cards remain reachable.
+     `#map-layer` is `position: fixed; inset: 0` so the panel needs a z-index
+     ABOVE `--z-chrome` (42) — the floating corner cards have pointer-events: auto
+     and would otherwise intercept clicks on the panel's controls. `--z-rail` (43)
+     clears the chrome while remaining below cell/cluster popovers.
      Full conversion to a floating sheet is O4. */
   position: relative;
-  z-index: var(--z-popover);
-  margin-block-start: calc(var(--card-inset) + 48px);
+  z-index: var(--z-rail);
+  margin-block-start: calc(var(--card-inset) + 65px);
   /* Opaque surface so the panel's controls read cleanly over the map canvas
      beneath it (the panel is no longer backed by an in-flow page background). */
   background: var(--color-bg-surface);
+}
+
+/* At ≥1440px the controls pill uses --card-inset-wide (24px instead of 12px),
+   so the panel's margin must grow by the same delta to keep the panel below
+   the controls pill bottom. */
+@media (min-width: 1440px) {
+  .filters-panel {
+    margin-block-start: calc(var(--card-inset-wide) + 65px);
+  }
 }
 
 .filters-panel-close {

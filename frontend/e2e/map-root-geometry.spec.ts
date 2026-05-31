@@ -190,7 +190,12 @@ test.describe('#761 (S2): full-viewport map root geometry', () => {
       // viewport height (it's in the top-left corner, not full-screen).
       const m = await page.evaluate(() => {
         const root = getComputedStyle(document.documentElement);
+        // Read both --card-inset (12px) and --card-inset-wide (24px). At ≥1440px
+        // the CSS switches the identity card to --card-inset-wide; we take the
+        // max so the assertion holds regardless of viewport width.
         const cardInset = parseFloat(root.getPropertyValue('--card-inset')) || 12;
+        const cardInsetWide = parseFloat(root.getPropertyValue('--card-inset-wide')) || 24;
+        const effectiveInset = Math.max(cardInset, cardInsetWide);
         const sc = document.querySelector<HTMLElement>('.scope-control');
         const card = document.querySelector<HTMLElement>('.app-header-identity-card');
         if (!sc || !card) return null;
@@ -199,14 +204,14 @@ test.describe('#761 (S2): full-viewport map root geometry', () => {
         return {
           top: r.top,
           cardTop: cr.top,
-          cardInset,
+          cardInset: effectiveInset,
           viewportHeight: window.innerHeight,
         };
       });
       expect(m, '.scope-control / .app-header-identity-card not found').not.toBeNull();
       // The scope-control is inside the identity card, so its top >= the card's top.
       expect(m!.top, 'scope-control top is below identity card top').toBeGreaterThanOrEqual(m!.cardTop - 1);
-      // The identity card top is at --card-inset from the viewport top.
+      // The identity card top is at --card-inset (or --card-inset-wide at ≥1440px) from the viewport top.
       expect(m!.cardTop, 'identity card top ≈ --card-inset from viewport').toBeLessThanOrEqual(m!.cardInset + 2);
       // The scope-control top is well above the viewport midpoint (it's a top card).
       expect(m!.top, 'scope-control top is in the top half of the viewport').toBeLessThan(m!.viewportHeight / 2);

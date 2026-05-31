@@ -261,13 +261,15 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
     }
 
     // #737/S3 (#773): the deep-linked scoped landing frames AZ with the
-    // asymmetric `fitBounds` top-padding so the STATE envelope's north edge is
-    // pushed clear of the floating header + scope-control chrome band (markers
-    // near the top latitude are not hidden behind the bar). Assert via the live
-    // maplibre instance: project AZ's actual north latitude (37.004) to a screen Y
-    // and require it to sit BELOW the scope-control's bottom edge. With the old
-    // uniform 48px padding this Y was ~48 (under the ~113px chrome band → occluded
-    // → would fail). WebGL-guarded — falls through when `__birdMap` is absent
+    // asymmetric `fitBounds` top-padding (FIT_BOUNDS_PADDING = {top:80}) so the
+    // STATE envelope's north edge is pushed clear of the floating chrome.
+    // Post-#800: the "chrome" is the controls pill (top-right card, ~64px bottom),
+    // NOT the old full-width band. FIT_BOUNDS_PADDING.top = 80 clears the controls
+    // pill with comfortable margin. The identity card (top-left) is wider but its
+    // bottom (~170-200px) extends below the fitBounds framing on the LEFT — the
+    // assertion uses the controls pill as the reference, matching the MapCanvas
+    // FIT_BOUNDS_PADDING intent (see MapCanvas.tsx §FIT_BOUNDS_PADDING comment).
+    // WebGL-guarded — falls through when `__birdMap` is absent
     // (no-WebGL CI project), where the unit test + map-root-geometry chrome guards
     // still cover the contract.
     await page
@@ -280,20 +282,24 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
       const map = (window as {
         __birdMap?: { project: (lnglat: [number, number]) => { y: number } };
       }).__birdMap;
-      const sc = document.querySelector<HTMLElement>('.scope-control');
-      if (!map || !sc) return null;
+      // #800: use the controls pill (top-right card) as the reference — its bottom
+      // edge (~64px) matches the FIT_BOUNDS_PADDING.top = 80 intent. The identity
+      // card (top-left) is taller but corner-anchored, so its bottom extends below
+      // the framing on the LEFT side only.
+      const pill = document.querySelector<HTMLElement>('.app-header-controls-pill');
+      if (!map || !pill) return null;
       // AZ envelope (STATES_FIXTURE bbox [-114.82, 31.33, -109.04, 37.0]): lng
       // center ≈ -111.93, north lat = 37.0 — the value App.tsx passes as the scope
       // `bounds` north and the camera frames to.
       const northY = map.project([-111.93, 37.0]).y;
-      return { northY, scopeBottom: sc.getBoundingClientRect().bottom };
+      return { northY, scopeBottom: pill.getBoundingClientRect().bottom };
     });
     if (clearance) {
-      // The framed state's north edge projects BELOW the chrome band — not
-      // occluded by the floating header + scope-control.
+      // The framed state's north edge projects BELOW the controls pill — not
+      // occluded by the top-right floating chrome card.
       expect(
         clearance.northY,
-        `framed AZ north edge (y=${clearance.northY.toFixed(1)}) clears scope-control bottom (y=${clearance.scopeBottom.toFixed(1)})`,
+        `framed AZ north edge (y=${clearance.northY.toFixed(1)}) clears controls-pill bottom (y=${clearance.scopeBottom.toFixed(1)})`,
       ).toBeGreaterThanOrEqual(clearance.scopeBottom);
     }
   });

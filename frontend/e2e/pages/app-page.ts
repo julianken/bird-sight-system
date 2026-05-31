@@ -46,7 +46,9 @@ export class AppPage {
   readonly scopeControlExit: Locator;
 
   // --- Shared narration / region surfaces ---
-  /** The map's runtime region lede (`<h1 class="map-lede">`, MapLede #738/C7). */
+  /** The map's runtime region lede (`<p data-testid="map-lede">` in the AppHeader
+   *  identity card, #800). Absent while loading (cold-load suppression #716),
+   *  visible after /api/observations resolves. */
   readonly mapLede: Locator;
   /** The map canvas root (`data-testid='map-canvas'`). */
   readonly mapCanvas: Locator;
@@ -84,7 +86,8 @@ export class AppPage {
     this.scopeControlWholeUs = this.scopeControl.getByRole('button', { name: 'Whole US', exact: true });
     this.scopeControlExit = this.scopeControl.getByRole('button', { name: 'Change scope' });
 
-    this.mapLede = page.locator('.map-lede');
+    // #800: lede moved into AppHeader identity card as <p data-testid="map-lede">.
+    this.mapLede = page.locator('[data-testid="map-lede"]');
     this.mapCanvas = page.locator('[data-testid="map-canvas"]');
   }
 

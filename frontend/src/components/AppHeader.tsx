@@ -140,21 +140,41 @@ export function AppHeader({
           )}
         </a>
 
-        {/* Row 2: Region name — PRIMARY text (--type-lg semibold). Spec §5.2:
-            this is the loudest element on a scoped view. Hidden when unscoped
-            (chooser handles that) or at compact where it merges with the lede. */}
-        {region && bp !== 'compact' && (
-          <p className="app-header-region-name" aria-hidden="true">
+        {/* Row 2: Region name — PRIMARY heading (spec §5.2, A11Y-3).
+            Rendered as <h1> for every scoped view — this is the page's single
+            <h1>, satisfying A11Y-3 "exactly one h1 per surface."
+            At compact (<480): the text is visually sr-only (the region label
+            is already embedded in the lede sentence below), but the h1 stays
+            in the accessibility tree so the heading count stays at 1.
+            Hidden only when region is null (unscoped — the chooser handles
+            scope narration there). */}
+        {region && (
+          <h1 className={`app-header-region-name${bp === 'compact' ? ' sr-only' : ''}`}>
             {region}
-          </p>
+          </h1>
+        )}
+
+        {/* Scope-change live region (#760/#762 — carried from MapLede): announces
+            the active region to screen readers on chooser→state and state→state
+            transitions WITHOUT requiring a focus move. The same `role="status"
+            aria-live="polite"` contract that MapLede.tsx previously provided.
+            Renders whenever region is non-null (including during cold-load
+            suppression when ledeText is null, matching MapLede's original
+            unconditional announcement semantics). */}
+        {region && (
+          <span className="sr-only" role="status" aria-live="polite">
+            Showing {region}.
+          </span>
         )}
 
         {/* Row 3: Lede text + freshness (O3 #779 — the formerly invisible context strip).
             The lede is visible here for the first time; the old in-flow
-            .map-context-strip band is removed from MapSurface. */}
+            .map-context-strip band is removed from MapSurface.
+            data-testid="map-lede" is the stable test hook for e2e specs
+            (#716 suppression contract: absent while loading, visible after). */}
         {ledeText && (
           <div className="app-header-lede-row">
-            <p className="app-header-lede">{ledeText}</p>
+            <p className="app-header-lede" data-testid="map-lede">{ledeText}</p>
             {freshnessLabel && (
               <p className="app-header-freshness">{freshnessLabel}</p>
             )}

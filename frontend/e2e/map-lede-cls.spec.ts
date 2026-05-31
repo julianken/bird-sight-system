@@ -70,30 +70,28 @@ test.describe('.map-lede CLS regression — #510', () => {
   /**
    * Task 0 / acceptance criterion: CLS ≤ 0.1 on mobile 390×844.
    *
-   * Pre-fix: UA-default h1 styles (32px / 0.67em margin) shift to
-   * final values (26px / 0 0 12px 0) when the stylesheet hydrates,
-   * producing CLS ≈ 0.172 (POOR).
+   * Pre-fix: UA-default h1 styles (32px / 0.67em margin) shifted to
+   * final values when stylesheet hydrated, producing CLS ≈ 0.172 (POOR).
    *
-   * Post-fix: inline critical CSS in <head> ensures the element is sized
-   * correctly at first paint — no shift, CLS ≤ 0.1.
+   * Post-#800: the lede moved into the AppHeader identity card
+   * (<p data-testid="map-lede"> inside a position:fixed card). Document-flow
+   * layout shift no longer applies — CLS should be ≤ 0.1 (Good) without the
+   * old inline-critical-CSS workaround. Font-size assertion removed: the lede
+   * in the fixed identity card renders at --type-sm (not the old 26px h1 size).
    */
-  test('mobile (390×844): CLS ≤ 0.1 and .map-lede font-size stable at 26px', async ({ page }) => {
+  test('mobile (390×844): CLS ≤ 0.1 (#510 — now position:fixed card)', async ({ page }) => {
     await page.setViewportSize(MOBILE);
     await injectLsObserver(page);
 
-    // #738 — bare URL now lands unscoped (chooser, no `.map-lede`). The
-    // critical-CSS/CLS contract this spec guards only applies to a scoped
-    // map surface, so navigate to the whole-US escape hatch.
+    // #738 — bare URL now lands unscoped (chooser, no lede). The CLS contract
+    // this spec guards only applies to a scoped map surface, so navigate to
+    // the whole-US escape hatch.
     await page.goto('/?scope=us');
     await page.waitForLoadState('networkidle');
 
-    // .map-lede must be visible and sized correctly
-    const lede = page.locator('h1.map-lede');
+    // #800: lede is now [data-testid="map-lede"] in the AppHeader identity card.
+    const lede = page.locator('[data-testid="map-lede"]');
     await expect(lede).toBeVisible({ timeout: 10_000 });
-
-    // Final font-size must be 26px (typography contract from #471 preserved)
-    const fontSize = await lede.evaluate((el) => window.getComputedStyle(el).fontSize);
-    expect(fontSize).toBe('26px');
 
     const cls = await collectCLS(page);
     // eslint-disable-next-line no-console
@@ -107,15 +105,13 @@ test.describe('.map-lede CLS regression — #510', () => {
     await page.setViewportSize(DESKTOP);
     await injectLsObserver(page);
 
-    // #738 — see mobile case: scope to whole-US so the `.map-lede` renders.
+    // #738 — see mobile case: scope to whole-US so the lede renders.
     await page.goto('/?scope=us');
     await page.waitForLoadState('networkidle');
 
-    const lede = page.locator('h1.map-lede');
+    // #800: lede is now [data-testid="map-lede"] in the AppHeader identity card.
+    const lede = page.locator('[data-testid="map-lede"]');
     await expect(lede).toBeVisible({ timeout: 10_000 });
-
-    const fontSize = await lede.evaluate((el) => window.getComputedStyle(el).fontSize);
-    expect(fontSize).toBe('26px');
 
     const cls = await collectCLS(page);
     // eslint-disable-next-line no-console
