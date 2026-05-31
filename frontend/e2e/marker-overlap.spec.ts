@@ -157,8 +157,12 @@ for (const viewport of VIEWPORTS) {
       // decides: raise the 20px cap, or add a per-marker exception path. Do
       // NOT relax this assertion to `<= someResidual` — that hides the signal.
       //
-      // Observed at the time of writing (2026-05-15): the AZ fixture
-      // produces ≤5 cross-overlaps at z=8, all resolved within the 20px cap.
+      // Observed at the time of writing (V2 re-baseline 2026-05-31, full-bleed
+      // scope=us/CONUS framing, #map-layer position:fixed;inset:0): the seeded
+      // fixture produces zero marker-vs-marker overlap across all 5 viewports ×
+      // 6 zooms. The full-bleed canvas is larger than the old windowed shell but
+      // the deconflict geometry is shell-agnostic — the 20px displacement cap
+      // still resolves all observed cross-overlaps within the seeded fixture.
       expect(
         result.total_overlap_area,
         `marker_count=${result.marker_count}, worst_overlap=${result.worst_overlap_area}px²`,

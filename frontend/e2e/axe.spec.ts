@@ -23,13 +23,17 @@ test.describe('axe-core WCAG scans', () => {
   // viewports. Replaces the historical `region expanded` skip (the
   // pre-#113 map's region-expand axe scan no longer has a target).
   // The maplibre AttributionControl needs WebGL to render and headless
-  // Chromium (CI + local) ships without it. We scan the chrome around
-  // the map (filters bar, surface nav, the map-canvas wrapper) — that's
-  // the part axe actually has DOM for. The attribution markup is unit-
-  // tested at the customAttribution-array level, so dropping the canvas
-  // contents from the axe scan does not mask a WCAG regression in the
-  // map's own controls (those are MapLibre-owned and out of our axe
-  // jurisdiction anyway).
+  // Chromium (CI + local) ships without it. We scan the floating chrome
+  // that overlays the full-bleed map: the AppHeader identity card (top-left
+  // — wordmark, region h1, lede, scope-control rows) and the controls pill
+  // (top-right — Filters, Attribution, ThemeToggle), plus the FamilyLegend
+  // (bottom-left) and any error overlay. The `#map-layer` canvas wrapper is
+  // present in the DOM (position:fixed;inset:0) but MapLibre's WebGL content
+  // is not axe-readable without a GPU context. V2 (#787) re-baselined against
+  // the full-bleed shell (#761 S2 + O3). The attribution markup is unit-tested
+  // at the customAttribution-array level, so dropping the canvas contents from
+  // the axe scan does not mask a WCAG regression in the map's own controls
+  // (those are MapLibre-owned and out of our axe jurisdiction anyway).
   test('map view has no WCAG 2/2.1 A/AA violations (desktop)', async ({ page }) => {
     const app = new AppPage(page);
     await app.goto('view=map');
