@@ -414,6 +414,173 @@ describe('Phase 3: AppHeader + Filters panel', () => {
   });
 });
 
+describe('O4 (#780): Filters floating sheet — modality, dismiss, inert, aria', () => {
+  // These tests cover the O4 filter-sheet contract:
+  //   - inert on #map-layer set/removed
+  //   - Escape and backdrop click both close panel + restore focus to trigger
+  //   - aria-expanded on the trigger flips false→true→false
+  //   - trigger carries aria-haspopup="dialog" and NO aria-controls
+
+  beforeEach(() => {
+    __resetSilhouettesCache();
+    __resetStatesCache();
+    mockGetStates.mockResolvedValue([]);
+    mapSurfaceRef.renderCount = 0;
+    mapSurfaceRef.boundsKey = undefined;
+    mapSurfaceRef.scopeBounds = undefined;
+    mapSurfaceRef.flyTo = undefined;
+    mockGetHotspots.mockResolvedValue([]);
+    mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
+    mockGetSilhouettes.mockResolvedValue([]);
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'map',
+      scope: { kind: 'us' as const },
+    };
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('trigger carries aria-haspopup="dialog" and no aria-controls', async () => {
+    render(<App />);
+    await screen.findByRole('banner');
+    const trigger = screen.getByRole('button', { name: /Filters/i });
+    expect(trigger).toHaveAttribute('aria-haspopup', 'dialog');
+    expect(trigger).not.toHaveAttribute('aria-controls');
+  });
+
+  it('aria-expanded on trigger flips false→true on open, true→false on close', async () => {
+    render(<App />);
+    await screen.findByRole('banner');
+    const trigger = screen.getByRole('button', { name: /Filters/i });
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await userEvent.click(screen.getByRole('button', { name: /Close filters/i }));
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('opening filters sets inert on #map-layer; closing removes it', async () => {
+    const { container } = render(<App />);
+    await screen.findByRole('banner');
+    const trigger = screen.getByRole('button', { name: /Filters/i });
+    const mapLayer = container.querySelector('#map-layer');
+
+    // Before open: no inert (the scrim useLayoutEffect is for unscoped only;
+    // we are scoped here so mapLayer should not be inert)
+    expect(mapLayer).not.toHaveAttribute('inert');
+
+    await userEvent.click(trigger);
+    // After open: map-layer is inert
+    expect(mapLayer).toHaveAttribute('inert');
+
+    await userEvent.click(screen.getByRole('button', { name: /Close filters/i }));
+    // After close: inert removed
+    expect(mapLayer).not.toHaveAttribute('inert');
+  });
+
+  it('Escape key closes the filters panel and removes inert', async () => {
+    const { container } = render(<App />);
+    await screen.findByRole('banner');
+    const trigger = screen.getByRole('button', { name: /Filters/i });
+    const mapLayer = container.querySelector('#map-layer');
+
+    await userEvent.click(trigger);
+    expect(screen.getByRole('region', { name: /Filters/i })).toBeInTheDocument();
+    expect(mapLayer).toHaveAttribute('inert');
+
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('region', { name: /Filters/i })).toBeNull();
+    expect(mapLayer).not.toHaveAttribute('inert');
+  });
+
+  it('backdrop click closes the filters panel and removes inert', async () => {
+    const { container } = render(<App />);
+    await screen.findByRole('banner');
+    const trigger = screen.getByRole('button', { name: /Filters/i });
+    const mapLayer = container.querySelector('#map-layer');
+
+    await userEvent.click(trigger);
+    expect(screen.getByRole('region', { name: /Filters/i })).toBeInTheDocument();
+    expect(mapLayer).toHaveAttribute('inert');
+
+    const backdrop = container.querySelector('[data-testid="filters-backdrop"]');
+    expect(backdrop).not.toBeNull();
+    await userEvent.click(backdrop!);
+    expect(screen.queryByRole('region', { name: /Filters/i })).toBeNull();
+    expect(mapLayer).not.toHaveAttribute('inert');
+  });
+
+  it('focus restores to the Filters trigger on close (close button path)', async () => {
+    render(<App />);
+    await screen.findByRole('banner');
+    const trigger = screen.getByRole('button', { name: /Filters/i });
+
+    await userEvent.click(trigger);
+    // panel is open; close button is present
+    const closeBtn = screen.getByRole('button', { name: /Close filters/i });
+    expect(closeBtn).toBeInTheDocument();
+
+    await userEvent.click(closeBtn);
+    // focus should return to the trigger
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  // DEFECT 1 (#780 bot finding): on initial page load with filters CLOSED,
+  // the useLayoutEffect close branch must NOT steal focus to the Filters
+  // trigger. Focus theft only belongs on an open→close TRANSITION.
+  it('does NOT steal focus to the Filters trigger on initial render (scoped URL)', async () => {
+    // Scoped URL — filters closed, scopeActive=true (S1 scrim does NOT override focus).
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'map',
+      scope: { kind: 'us' as const },
+    };
+    render(<App />);
+    await screen.findByRole('banner');
+    const trigger = screen.getByRole('button', { name: /Filters/i });
+    // On mount, the Filters trigger must NOT hold focus.
+    expect(document.activeElement).not.toBe(trigger);
+  });
+
+  // DEFECT 2 (#780 bot finding): focus must be trapped inside the filters
+  // sheet while it is open. Tab from the last focusable element must wrap
+  // back to the first (and not escape into AppHeader Attribution/theme-toggle).
+  // Shift+Tab from the first focusable must wrap to the last.
+  it('Tab from last focusable in sheet wraps to first (no escape to AppHeader)', async () => {
+    const { container } = render(<App />);
+    await screen.findByRole('banner');
+    const trigger = screen.getByRole('button', { name: /Filters/i });
+
+    await userEvent.click(trigger);
+    // Panel is now open; collect all focusable elements inside it.
+    const panel = container.querySelector('.filters-panel');
+    expect(panel).not.toBeNull();
+    const focusableSelector =
+      'a[href], button:not([disabled]), input:not([disabled]), ' +
+      'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const focusables = Array.from(panel!.querySelectorAll<HTMLElement>(focusableSelector));
+    expect(focusables.length).toBeGreaterThan(0);
+
+    const firstFocusable = focusables[0];
+    const lastFocusable = focusables[focusables.length - 1];
+
+    // Place focus on the last focusable element inside the sheet.
+    lastFocusable.focus();
+    expect(document.activeElement).toBe(lastFocusable);
+
+    // Tab forward from last → should wrap to first (not escape to AppHeader).
+    await userEvent.keyboard('{Tab}');
+    expect(document.activeElement).toBe(firstFocusable);
+    // Double-check: the focus is still inside the panel, not in AppHeader.
+    expect(panel!.contains(document.activeElement)).toBe(true);
+
+    // Shift+Tab from first → should wrap to last.
+    await userEvent.keyboard('{Shift>}{Tab}{/Shift}');
+    expect(document.activeElement).toBe(lastFocusable);
+  });
+});
+
 describe('L2: freshness empty state (null freshestObservationAt)', () => {
   // When the API returns null for freshestObservationAt (empty table or ingestor
   // not yet run), the app must NOT render alarming "Source unavailable" copy —

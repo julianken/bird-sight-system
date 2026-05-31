@@ -65,4 +65,49 @@ test.describe('filter flows', () => {
     await page.keyboard.press('Enter');
     await expect.poll(() => app.getUrlParams().get('species'), { timeout: 5_000 }).toBe('vermfly');
   });
+
+  // O4 (#780): floating-sheet modality — map-box unchanged + backdrop/Escape dismiss.
+  test('opening filters does not change the map-layer box (no layout displacement)', async ({ page }) => {
+    // Get the map-layer bounding box with the panel already open (openFilters
+    // fires in beforeEach). The box must not differ from the closed state —
+    // position:fixed means the map-layer never re-flows regardless of the panel.
+    const mapLayer = page.locator('#map-layer');
+    await mapLayer.waitFor({ state: 'attached' });
+    const boxOpen = await mapLayer.boundingBox();
+    expect(boxOpen).not.toBeNull();
+
+    // Close via close button, re-check dimensions.
+    await page.getByRole('button', { name: /Close filters/i }).click();
+    await expect(page.getByRole('region', { name: 'Filters' })).not.toBeVisible();
+    const boxClosed = await mapLayer.boundingBox();
+    expect(boxClosed).not.toBeNull();
+
+    // The map-layer box must not change between open and closed.
+    expect(boxOpen!.x).toBeCloseTo(boxClosed!.x, 0);
+    expect(boxOpen!.y).toBeCloseTo(boxClosed!.y, 0);
+    expect(boxOpen!.width).toBeCloseTo(boxClosed!.width, 0);
+    expect(boxOpen!.height).toBeCloseTo(boxClosed!.height, 0);
+  });
+
+  test('backdrop click dismisses the filters panel', async ({ page }) => {
+    // Panel is open from beforeEach.
+    await expect(page.getByRole('region', { name: 'Filters' })).toBeVisible();
+
+    // Click the backdrop (data-testid="filters-backdrop").
+    await app.filtersBackdrop.click();
+
+    // Panel should no longer be visible.
+    await expect(page.getByRole('region', { name: 'Filters' })).not.toBeVisible();
+    // Backdrop should also be gone (conditionally rendered).
+    await expect(app.filtersBackdrop).not.toBeAttached();
+  });
+
+  test('Escape key dismisses the filters panel', async ({ page }) => {
+    // Panel is open from beforeEach.
+    await expect(page.getByRole('region', { name: 'Filters' })).toBeVisible();
+
+    await page.keyboard.press('Escape');
+
+    await expect(page.getByRole('region', { name: 'Filters' })).not.toBeVisible();
+  });
 });
