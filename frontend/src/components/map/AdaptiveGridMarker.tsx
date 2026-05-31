@@ -90,6 +90,16 @@ export interface AdaptiveGridMarkerProps {
   onClick: (e: ReactMouseEvent<HTMLElement>) => void;
   /** Phase 1 (#558): forwarded from per-cell popover row clicks. */
   onSelectSpecies?: (speciesCode: string) => void;
+  /**
+   * #761 O6 (#782): true when a detail overlay (SpeciesDetailRail / Sheet)
+   * holds focus (App-level `state.detail` under an active scope). When true,
+   * the passive `<CellHoverPreview>` mount is SUPPRESSED so a hover tooltip
+   * cannot appear unbidden over/under a focused detail overlay. Only the
+   * passive hover preview is gated — the click-driven `<CellPopover>` and
+   * `<ClusterListPopover>` are intentionally UNAFFECTED (they are explicit
+   * user actions, not unbidden surfaces). Defaults to `false`.
+   */
+  detailOpen?: boolean;
 }
 
 // Layout constants — match MosaicMarker's 22px tile / 2px gap (issue #248).
@@ -132,6 +142,7 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
     isNotable,
     onClick,
     onSelectSpecies,
+    detailOpen = false,
   } = props;
 
   const isPointerFine = useMediaQuery('(pointer: fine)');
@@ -352,13 +363,19 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
       )}
       {perCellInteractive && activeCell !== null && activeTile && (
         activeCell.mode === 'preview' ? (
-          <CellHoverPreview
-            familyCode={activeTile.familyCode}
-            familyCount={activeTile.count}
-            species={activeTile.species}
-            id={previewId!}
-            cursorPos={cursorPos}
-          />
+          // #761 O6 (#782): suppress the passive hover preview while a detail
+          // overlay holds focus (detailOpen) so an unbidden tooltip can't appear
+          // over/under a focused SpeciesDetailRail/Sheet. The click-driven
+          // popover branch below is deliberately NOT gated.
+          detailOpen ? null : (
+            <CellHoverPreview
+              familyCode={activeTile.familyCode}
+              familyCount={activeTile.count}
+              species={activeTile.species}
+              id={previewId!}
+              cursorPos={cursorPos}
+            />
+          )
         ) : (
           cellRefs.current[activeCell.index] ? (
             <CellPopover

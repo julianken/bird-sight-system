@@ -23,6 +23,10 @@ const STYLES_CSS = readFileSync(
   join(import.meta.dirname, '../styles.css'),
   'utf8',
 );
+const DS_PRIMITIVES_CSS = readFileSync(
+  join(import.meta.dirname, '../components/ds/ds-primitives.css'),
+  'utf8',
+);
 
 describe('tokens.css — W1 conformance', () => {
   describe('Light mode — --color-accent-notable-fg', () => {
@@ -192,6 +196,32 @@ describe('styles.css — W1 conformance', () => {
       // Encoded as var() indirection (not a hardcoded 40) so it carries no
       // monotonicity obligation and stays correct if --z-overlay ever moves.
       expect(STYLES_CSS).toMatch(/--z-panel:\s*var\(--z-overlay\)/);
+    });
+  });
+
+  // ── #761 O6 (#782): the three on-canvas cell popovers consume P1's NAMED
+  //    popover tokens — no `z-index: calc(var(--z-panel) + N)` arithmetic
+  //    survives on any of them.
+  describe('cell popovers on the named z-scale — #761 O6 (#782)', () => {
+    it('ds-primitives.css has NO `z-index: calc(var(--z-panel) + N)` arithmetic remaining', () => {
+      // The last `calc(var(--z-panel) + 5)` ref (.cell-hover-preview) was
+      // migrated to var(--z-modal) by O6. Any reappearance is a regression.
+      expect(DS_PRIMITIVES_CSS).not.toMatch(/z-index:\s*calc\(\s*var\(--z-panel\)/);
+    });
+
+    it('.cell-hover-preview consumes the named --z-modal tier (above the cell/cluster popovers it can overlap)', () => {
+      expect(DS_PRIMITIVES_CSS).toMatch(
+        /\.cell-hover-preview\s*\{[^}]*z-index:\s*var\(--z-modal\)/s,
+      );
+    });
+
+    it('.cell-popover consumes --z-cell-popover and .cluster-list-popover consumes --z-cluster-popover', () => {
+      expect(DS_PRIMITIVES_CSS).toMatch(
+        /\.cell-popover\s*\{[^}]*z-index:\s*var\(--z-cell-popover\)/s,
+      );
+      expect(DS_PRIMITIVES_CSS).toMatch(
+        /\.cluster-list-popover\s*\{[^}]*z-index:\s*var\(--z-cluster-popover\)/s,
+      );
     });
   });
 });

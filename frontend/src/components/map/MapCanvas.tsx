@@ -321,6 +321,16 @@ export interface MapCanvasProps {
    * `bounds ?? CONUS_BOUNDS` (unchanged behavior).
    */
   clampPad?: number;
+  /**
+   * #761 O6 (#782): true when a detail overlay (SpeciesDetailRail / Sheet) is
+   * open under an active scope (App-level `scopeActive && state.detail`).
+   * Forwarded VERBATIM to every `<AdaptiveGridMarker>` so the passive
+   * `<CellHoverPreview>` mount is suppressed while the overlay holds focus —
+   * a hover tooltip must not appear unbidden over/under a focused detail
+   * surface. The click-driven cell/cluster popovers are unaffected. Defaults
+   * to `false` (legacy/test callers keep the pre-O6 always-mount behavior).
+   */
+  detailOpen?: boolean;
 }
 
 /**
@@ -551,6 +561,7 @@ export function MapCanvas({
   flyTo,
   maskPolygon,
   clampPad,
+  detailOpen = false,
 }: MapCanvasProps) {
   const mapRef = useRef<MapRef>(null);
   /**
@@ -2289,6 +2300,7 @@ export function MapCanvas({
                 ariaLabel={g.ariaLabel}
                 isCoarsePointer={isCoarsePointer}
                 isNotable={anchor.isNotable ?? false}
+                detailOpen={detailOpen}
                 onClick={() => handleGroupClick(g)}
                 {...(onSelectSpecies ? {
                   onSelectSpecies: (code: string) => onSelectSpecies(code, getClusterBbox(g)),

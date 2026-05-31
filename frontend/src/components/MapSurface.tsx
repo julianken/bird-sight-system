@@ -178,6 +178,15 @@ export interface MapSurfaceProps {
    */
   maskPolygon?: MultiPolygon | null;
   clampPad?: number;
+  /**
+   * #761 O6 (#782): true when a detail overlay (SpeciesDetailRail / Sheet) is
+   * open under an active scope. App.tsx derives this from `scopeActive &&
+   * state.detail` — the same gate that mounts the rail/sheet. Forwarded
+   * VERBATIM to <MapCanvas> (thin pass-through) so the passive cell-hover
+   * preview is suppressed while the detail overlay holds focus. Optional;
+   * defaults to `false` for legacy/test callers.
+   */
+  detailOpen?: boolean;
 }
 
 /**
@@ -216,6 +225,7 @@ export function MapSurface({
   flyTo,
   maskPolygon,
   clampPad,
+  detailOpen = false,
 }: MapSurfaceProps) {
   // Compute the expand-by-default once at mount. The component itself
   // (FamilyLegend) handles localStorage precedence + manual toggle.
@@ -312,6 +322,7 @@ export function MapSurface({
             {...(flyTo ? { flyTo } : {})}
             {...(maskPolygon != null ? { maskPolygon } : {})}
             {...(clampPad !== undefined ? { clampPad } : {})}
+            detailOpen={detailOpen}
           />
         </React.Suspense>
         <FamilyLegend

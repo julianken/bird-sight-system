@@ -830,6 +830,7 @@ export function App() {
             {...(flyTo ? { flyTo } : {})}
             {...(statePolygon != null ? { maskPolygon: statePolygon } : {})}
             {...(isStateScope ? { clampPad: ARTBOARD_PAD } : {})}
+            detailOpen={!!(scopeActive && state.detail)}
           />
         </div>
       )}

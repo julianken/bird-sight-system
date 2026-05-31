@@ -38,13 +38,19 @@ export function CellHoverPreview(props: CellHoverPreviewProps) {
   const visible = species.slice(0, PREVIEW_CAP);
   const hasMore = species.length > PREVIEW_CAP;
 
+  // #761 O6 (#782): the cursor-following branch keeps `position: fixed` +
+  // `left`/`top`/`pointerEvents` inline (computed from `cursorPos`, cannot move
+  // to CSS), but the stacking level no longer comes from the off-scale inline
+  // literal it used to carry (the magic 1000). Both render paths now inherit the
+  // `.cell-hover-preview` class's named `--z-modal` (50) token, so the
+  // keyboard-focus path and the cursor-following path agree on rank (above the
+  // cell/cluster popovers the tooltip can overlap) instead of disagreeing by ~955.
   const positionStyle: CSSProperties | undefined = cursorPos
     ? {
         position: 'fixed',
         left: cursorPos.x + 16,
         top: cursorPos.y + 12,
         pointerEvents: 'none',
-        zIndex: 1000,
       }
     : undefined;
 
