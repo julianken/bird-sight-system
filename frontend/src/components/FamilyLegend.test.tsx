@@ -528,3 +528,161 @@ describe('DB color binding (NEW-3 fix)', () => {
     expect(silhouette.style.getPropertyValue('--family-fill')).toBe('#7B2D8E');
   });
 });
+
+/**
+ * O5 (#783) — forceCollapsed prop tests.
+ *
+ * AC coverage:
+ *   - forceCollapsed=true renders the toggle bar only (no entries).
+ *   - forceCollapsed=true does NOT call writeStoredExpanded / mutate localStorage.
+ *   - aria-expanded reflects the EFFECTIVE rendered state (false when force-collapsed).
+ *   - data-force-collapsed="true" attribute is present on the <aside>.
+ *   - Restoring forceCollapsed=false restores the user's stored expanded state.
+ *   - localStorage .v2 precedence is orthogonal to forceCollapsed.
+ */
+describe('O5 (#783): forceCollapsed prop', () => {
+  beforeEach(() => {
+    try { window.localStorage.clear(); } catch { /* jsdom only */ }
+  });
+  afterEach(() => {
+    try { window.localStorage.clear(); } catch { /* jsdom only */ }
+  });
+
+  it('forceCollapsed=true renders toggle bar only — no family-legend-entries', () => {
+    render(
+      <FamilyLegend
+        silhouettes={baseSilhouettes}
+        observations={baseObservations}
+        familyCode={null}
+        onFamilyToggle={vi.fn()}
+        defaultExpanded={true}
+        forceCollapsed={true}
+      />,
+    );
+    // Entries list must be absent regardless of defaultExpanded=true
+    expect(screen.queryAllByTestId('family-legend-entry')).toHaveLength(0);
+    // Toggle button must still be present
+    expect(
+      screen.getByRole('button', { name: /bird families in view/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('forceCollapsed=true sets data-force-collapsed="true" on the <aside>', () => {
+    const { container } = render(
+      <FamilyLegend
+        silhouettes={baseSilhouettes}
+        observations={baseObservations}
+        familyCode={null}
+        onFamilyToggle={vi.fn()}
+        defaultExpanded={true}
+        forceCollapsed={true}
+      />,
+    );
+    const aside = container.querySelector('.family-legend');
+    expect(aside).not.toBeNull();
+    expect(aside!.getAttribute('data-force-collapsed')).toBe('true');
+  });
+
+  it('forceCollapsed=true: aria-expanded reflects effective state (false)', () => {
+    render(
+      <FamilyLegend
+        silhouettes={baseSilhouettes}
+        observations={baseObservations}
+        familyCode={null}
+        onFamilyToggle={vi.fn()}
+        defaultExpanded={true}
+        forceCollapsed={true}
+      />,
+    );
+    // Effective state is collapsed — aria-expanded must be false
+    expect(
+      screen.getByRole('button', { name: /bird families in view/i }),
+    ).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('forceCollapsed=true does NOT mutate localStorage (transient display override)', () => {
+    // Set a stored expanded=true to verify it survives force-collapse
+    window.localStorage.setItem(STORAGE_KEY, 'true');
+    render(
+      <FamilyLegend
+        silhouettes={baseSilhouettes}
+        observations={baseObservations}
+        familyCode={null}
+        onFamilyToggle={vi.fn()}
+        defaultExpanded={true}
+        forceCollapsed={true}
+      />,
+    );
+    // forceCollapsed must NOT write to localStorage
+    // The stored value remains 'true' (or at minimum is NOT set to 'false')
+    const stored = window.localStorage.getItem(STORAGE_KEY);
+    expect(stored).toBe('true');
+  });
+
+  it('restoring forceCollapsed=false renders stored expanded state', () => {
+    // User had expanded=true stored
+    window.localStorage.setItem(STORAGE_KEY, 'true');
+    const { rerender } = render(
+      <FamilyLegend
+        silhouettes={baseSilhouettes}
+        observations={baseObservations}
+        familyCode={null}
+        onFamilyToggle={vi.fn()}
+        defaultExpanded={true}
+        forceCollapsed={true}
+      />,
+    );
+    // While force-collapsed: no entries
+    expect(screen.queryAllByTestId('family-legend-entry')).toHaveLength(0);
+
+    // Overlay dismissed — forceCollapsed=false
+    rerender(
+      <FamilyLegend
+        silhouettes={baseSilhouettes}
+        observations={baseObservations}
+        familyCode={null}
+        onFamilyToggle={vi.fn()}
+        defaultExpanded={true}
+        forceCollapsed={false}
+      />,
+    );
+    // The stored expanded=true state is restored — entries are visible
+    expect(screen.getAllByTestId('family-legend-entry')).toHaveLength(3);
+    expect(
+      screen.getByRole('button', { name: /bird families in view/i }),
+    ).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('localStorage .v2 precedence is orthogonal to forceCollapsed', () => {
+    // User previously expanded on desktop — .v2 = 'true'
+    window.localStorage.setItem(STORAGE_KEY, 'true');
+    render(
+      <FamilyLegend
+        silhouettes={baseSilhouettes}
+        observations={baseObservations}
+        familyCode={null}
+        onFamilyToggle={vi.fn()}
+        defaultExpanded={false} // responsive default says collapsed
+        forceCollapsed={false}  // no force-collapse right now
+      />,
+    );
+    // localStorage wins over defaultExpanded — entries render expanded
+    expect(screen.getAllByTestId('family-legend-entry')).toHaveLength(3);
+  });
+
+  it('data-force-collapsed attribute absent when forceCollapsed=false', () => {
+    const { container } = render(
+      <FamilyLegend
+        silhouettes={baseSilhouettes}
+        observations={baseObservations}
+        familyCode={null}
+        onFamilyToggle={vi.fn()}
+        defaultExpanded={true}
+        forceCollapsed={false}
+      />,
+    );
+    const aside = container.querySelector('.family-legend');
+    expect(aside).not.toBeNull();
+    expect(aside!.getAttribute('data-force-collapsed')).toBeNull();
+  });
+});

@@ -12,7 +12,7 @@ import type { BBox } from '../state/url-state.js';
 import { SpeciesDetailSurface } from './SpeciesDetailSurface.js';
 import { useSpeciesDetail } from '../data/use-species-detail.js';
 
-type SnapState = 'peek' | 'half' | 'full';
+export type SnapState = 'peek' | 'half' | 'full';
 
 // MOB-6: PEEK_PX raised from 96 → 120 so the peek strip is comfortably
 // reachable by a thumb at the bottom of a 390×844 screen (96px was tight
@@ -42,6 +42,12 @@ export interface SpeciesDetailSheetProps {
   /** Ref to the inert target element (O1: #map-layer) — receives `inert` at full snap.
    *  App passes `mapLayerRef` so the live MapLibre canvas is frozen, not <main>. */
   mainRef: RefObject<HTMLElement | null>;
+  /**
+   * Optional callback fired whenever the snap state changes. Used by App.tsx
+   * to derive the forceCollapsed signal for FamilyLegend (O5 #783): the legend
+   * is force-collapsed on mobile when the sheet is at half or full snap.
+   */
+  onSnapChange?: (snap: SnapState) => void;
 }
 
 /**
@@ -72,12 +78,18 @@ export interface SpeciesDetailSheetProps {
  *   - .species-detail-body: touch-action: pan-y (browser owns scroll)
  */
 export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
-  const { speciesCode, apiClient, onClose, mainRef, bbox, onClearBbox } = props;
+  const { speciesCode, apiClient, onClose, mainRef, bbox, onClearBbox, onSnapChange } = props;
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const handleRef = useRef<HTMLButtonElement | null>(null);
   const [snap, setSnap] = useState<SnapState>('peek');
   const [dragOffset, setDragOffset] = useState<number>(0); // px: positive = pulled down
   const dragStartRef = useRef<{ y: number; snap: SnapState } | null>(null);
+
+  // O5 (#783) — notify App.tsx of snap changes so it can drive forceCollapsed
+  // on FamilyLegend. Fires on every snap transition (peek→half→full and back).
+  useEffect(() => {
+    onSnapChange?.(snap);
+  }, [snap, onSnapChange]);
 
   // Pull the species name into the sheet (for aria-label at full). The
   // body component fetches the same data via its own hook; the cache
