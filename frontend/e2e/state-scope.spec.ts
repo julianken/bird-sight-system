@@ -191,9 +191,10 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
     await expect(app.mapLayer).toHaveAttribute('data-scope-fitted', 'true', { timeout: 3_000 });
 
     // O1 (#776) result-settle aria-live region (R9): after data settles the
-    // App-root polite live region carries the scope+result summary. The region
-    // is visually hidden (.sr-only) but present in the a11y tree.
-    await expect(page.locator('[role="status"].sr-only')).toContainText('Arizona', { timeout: 3_000 });
+    // App-root polite live region (a <div> at App root, distinct from the
+    // AppHeader scope-change <span>) carries the scope+result summary.
+    // The div is visually hidden (.sr-only) but present in the a11y tree.
+    await expect(page.locator('div[role="status"].sr-only')).toContainText('Arizona', { timeout: 3_000 });
   });
 
   test('?scope=us — CONUS map, region "USA", /api/observations carries NO state=', async ({
