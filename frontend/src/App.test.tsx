@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, waitFor, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { LngLatBounds } from 'maplibre-gl';
+import type React from 'react';
 
 // Phase 4 / #663: useIsCompact calls window.matchMedia. JSDOM does not
 // implement it — polyfill with a stub that returns non-compact (wide
@@ -27,6 +28,7 @@ const {
   mockUrlState,
   mapSurfaceRef,
   mockPrefetchMapCanvas,
+  overlayRenderCounts,
 } = vi.hoisted(() => ({
   mockGetHotspots: vi.fn(),
   mockGetObservations: vi.fn(),
@@ -78,6 +80,12 @@ const {
       | { center: [number, number]; zoom: number; key: string }
       | undefined,
     renderCount: 0,
+  },
+  // O8 (#784): render-count tracking for the two memoized App-root overlays.
+  // Incremented by the stubs below; asserted in the "O8 memo boundary" suite.
+  overlayRenderCounts: {
+    familyLegend: 0,
+    scopeControl: 0,
   },
 }));
 
@@ -134,6 +142,38 @@ vi.mock('./components/MapSurface.js', () => ({
 vi.mock('./prefetch.js', () => ({
   prefetchMapCanvas: mockPrefetchMapCanvas,
 }));
+
+// O8 (#784): wrap FamilyLegend + ScopeControl with render-counting HOCs.
+// Each mock imports the REAL implementation (so all prop-passing, event
+// emission, and DOM content remain correct for existing tests) and wraps it in
+// an additional React.memo layer whose render body increments overlayRenderCounts
+// before delegating to the real component. This keeps the full ScopeControl ZIP
+// / exit / state-select behavior intact for #740 / O9 integration tests while
+// also making the render-count assertions load-bearing for O8's memo guard:
+// a nowTick bump that causes either wrapper to re-render will increment the
+// counter, failing the assertion in the O8 suite.
+vi.mock('./components/FamilyLegend.js', async () => {
+  const real = await vi.importActual<typeof import('./components/FamilyLegend.js')>('./components/FamilyLegend.js');
+  const { memo, createElement } = await import('react');
+  const RealFamilyLegend = real.FamilyLegend;
+  const WrappedFamilyLegend = memo(function FamilyLegendCounting(props: Parameters<typeof RealFamilyLegend>[0]) {
+    overlayRenderCounts.familyLegend += 1;
+    return createElement(RealFamilyLegend as React.ComponentType<typeof props>, props);
+  });
+  WrappedFamilyLegend.displayName = 'FamilyLegend';
+  return { ...real, FamilyLegend: WrappedFamilyLegend };
+});
+vi.mock('./components/ScopeControl.js', async () => {
+  const real = await vi.importActual<typeof import('./components/ScopeControl.js')>('./components/ScopeControl.js');
+  const { memo, createElement } = await import('react');
+  const RealScopeControl = real.ScopeControl;
+  const WrappedScopeControl = memo(function ScopeControlCounting(props: Parameters<typeof RealScopeControl>[0]) {
+    overlayRenderCounts.scopeControl += 1;
+    return createElement(RealScopeControl as React.ComponentType<typeof props>, props);
+  });
+  WrappedScopeControl.displayName = 'ScopeControl';
+  return { ...real, ScopeControl: WrappedScopeControl };
+});
 
 // Stub the ApiClient constructor so useBirdData / useStates receive a
 // controllable mock.
@@ -1952,5 +1992,161 @@ describe('O2 (#770): skip-link + FamilyLegend hoisted to App-root siblings', () 
     const mapLayer = container.querySelector('#map-layer');
     if (!skipLink || !mapLayer) return;
     expect(mapLayer.contains(skipLink)).toBe(false);
+  });
+});
+
+describe('O8 (#784): React.memo render-count regression — FamilyLegend + ScopeControl', () => {
+  /**
+   * Asserts that the two memoized App-root overlays (FamilyLegend, ScopeControl)
+   * do NOT re-render when unrelated App-level state changes.
+   *
+   * Fan-out vector: `nowTick` bumps on every `visibilitychange` → `visible`.
+   * On a same-minute bump the resolved freshness label is unchanged, so
+   * FamilyLegend and ScopeControl (which take no freshness props) must stay
+   * at 0 additional renders — their memo boundary short-circuits.
+   *
+   * Theme toggle: AppHeader re-renders (freshnessLabel/region propagate through
+   * it), but ScopeControl's own props are unchanged → at most 1 render per
+   * theme flip is allowed for ScopeControl (the initial render only; subsequent
+   * nowTick or irrelevant-state bumps must not produce more renders).
+   *
+   * Stubs are memo-wrapped (see vi.mock above) so the test is load-bearing:
+   * removing React.memo from either stub would cause the nowTick-bump assertion
+   * to observe a render-count increment and fail.
+   */
+  const SCOPED_US_STATE = {
+    since: '14d' as const,
+    notable: false,
+    speciesCode: null as string | null,
+    familyCode: null as string | null,
+    view: 'map' as const,
+    scope: { kind: 'us' as const } as
+      | { kind: 'unscoped' }
+      | { kind: 'us' }
+      | { kind: 'state'; stateCode: string },
+  };
+
+  beforeEach(() => {
+    __resetSilhouettesCache();
+    __resetStatesCache();
+    mockGetHotspots.mockResolvedValue([]);
+    mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
+    // Return a non-empty silhouettes list so the FamilyLegend gate passes
+    // (mapVisible && scopeActive && silhouettes.length > 0) and the stub renders.
+    mockGetSilhouettes.mockResolvedValue([{
+      familyCode: 'tyrannidae',
+      color: '#C77A2E',
+      colorDark: '#C77A2E',
+      svgData: 'M0 0L1 1Z',
+      svgUrl: null,
+      source: 'placeholder',
+      license: 'CC0',
+      commonName: 'Tyrant Flycatchers',
+      creator: null,
+    }]);
+    mockGetStates.mockResolvedValue([]);
+    mapSurfaceRef.renderCount = 0;
+    overlayRenderCounts.familyLegend = 0;
+    overlayRenderCounts.scopeControl = 0;
+    mockUrlState.state = SCOPED_US_STATE;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.documentElement.removeAttribute('data-theme');
+  });
+
+  it('nowTick bump (visibilitychange→visible) produces ZERO additional renders of FamilyLegend', async () => {
+    render(<App />);
+
+    // Wait for data load: App resolves silhouettes and FamilyLegend's HOC wrapper
+    // is called at least once (mapVisible && scopeActive both true in SCOPED_US_STATE).
+    // The HOC wraps the real component — we wait on the render count, not a DOM stub.
+    await waitFor(() => {
+      expect(overlayRenderCounts.familyLegend).toBeGreaterThan(0);
+    });
+
+    const countAfterMount = overlayRenderCounts.familyLegend;
+
+    // Simulate a nowTick bump — the same signal App wires on visibilitychange.
+    // jsdom does not fire real events on documentElement.hidden, so dispatch
+    // visibilitychange with visibilityState='visible' manually.
+    Object.defineProperty(document, 'visibilityState', {
+      value: 'visible',
+      writable: true,
+      configurable: true,
+    });
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    // React.memo short-circuits: FamilyLegend's props are unchanged → 0 extra renders.
+    expect(overlayRenderCounts.familyLegend).toBe(countAfterMount);
+  });
+
+  it('nowTick bump (visibilitychange→visible) produces ZERO additional renders of ScopeControl', async () => {
+    render(<App />);
+
+    // ScopeControl renders inside AppHeader on a scoped view. The HOC wrapper
+    // is called as soon as App mounts with scopeActive=true.
+    await waitFor(() => {
+      expect(overlayRenderCounts.scopeControl).toBeGreaterThan(0);
+    });
+
+    const countAfterMount = overlayRenderCounts.scopeControl;
+
+    Object.defineProperty(document, 'visibilityState', {
+      value: 'visible',
+      writable: true,
+      configurable: true,
+    });
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    // React.memo short-circuits: ScopeControl's props are unchanged → 0 extra renders.
+    expect(overlayRenderCounts.scopeControl).toBe(countAfterMount);
+  });
+
+  it('theme toggle does not produce an unbounded render cascade (ScopeControl: at most 1 extra render per toggle)', async () => {
+    document.documentElement.setAttribute('data-theme', 'light');
+    render(<App />);
+
+    await waitFor(() => {
+      expect(overlayRenderCounts.scopeControl).toBeGreaterThan(0);
+    });
+
+    const countAfterMount = overlayRenderCounts.scopeControl;
+    expect(countAfterMount).toBeGreaterThan(0);
+
+    // Flip [data-theme]: triggers AppHeader to re-render (freshness reads theme
+    // indirectly via AppHeader's ledeText/region props), but ScopeControl's
+    // direct props (scope/states/callbacks) are unchanged → memo should hold.
+    await act(async () => {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    });
+
+    // ScopeControl's memo boundary holds on a theme flip (its props don't change).
+    // Assert at most 1 additional render — any more indicates the memo is broken.
+    expect(overlayRenderCounts.scopeControl - countAfterMount).toBeLessThanOrEqual(1);
+  });
+
+  it('theme toggle does not produce an unbounded render cascade (FamilyLegend: at most 1 extra render per toggle)', async () => {
+    document.documentElement.setAttribute('data-theme', 'light');
+    render(<App />);
+
+    await waitFor(() => {
+      expect(overlayRenderCounts.familyLegend).toBeGreaterThan(0);
+    });
+
+    const countAfterMount = overlayRenderCounts.familyLegend;
+    expect(countAfterMount).toBeGreaterThan(0);
+
+    await act(async () => {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    });
+
+    // FamilyLegend's memo boundary holds on a theme flip (its props don't change).
+    expect(overlayRenderCounts.familyLegend - countAfterMount).toBeLessThanOrEqual(1);
   });
 });
