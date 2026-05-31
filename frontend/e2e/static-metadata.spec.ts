@@ -94,4 +94,23 @@ test.describe('static OG/meta head — CONUS national fallback (#785)', () => {
       expect(text.toLowerCase()).not.toContain('arizona');
     }
   });
+
+  test('manifest.json carries national name and description (AZ-revert tripwire)', async ({ page }) => {
+    // manifest.json is a static file served by the dev server — fetch it directly
+    // so this assertion fires even before the React app boots. A future AZ-revert
+    // to manifest.json would otherwise pass the <head> guard above and slip through.
+    await page.goto('/');
+    const response = await page.request.get('/manifest.json');
+    expect(response.ok(), 'manifest.json must be reachable').toBe(true);
+    const manifest = await response.json() as { name?: string; description?: string };
+
+    expect(manifest.name, 'manifest.json name must be the national title').toBe('Bird Maps');
+    expect(
+      manifest.description,
+      'manifest.json description must be the national description',
+    ).toBe(NATIONAL_DESCRIPTION);
+    // Belt-and-suspenders: no "Arizona" substring anywhere in either field.
+    expect((manifest.name ?? '').toLowerCase()).not.toContain('arizona');
+    expect((manifest.description ?? '').toLowerCase()).not.toContain('arizona');
+  });
 });

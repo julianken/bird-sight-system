@@ -85,21 +85,10 @@ interface OverlapResult {
   marker_legend_overlap_area: number;
 }
 
-/** Helper: AABB pairwise intersection area between two lists of rects. */
-function pairwiseArea(
-  as: Array<{ x: number; y: number; w: number; h: number }>,
-  bs: Array<{ x: number; y: number; w: number; h: number }>,
-): number {
-  let total = 0;
-  for (const a of as) {
-    for (const b of bs) {
-      const ox = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
-      const oy = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
-      if (ox > 0 && oy > 0) total += ox * oy;
-    }
-  }
-  return total;
-}
+// NOTE: the top-level `pairwiseArea` helper that used to live here was removed
+// (V1 #814 deferred nit). It was never called — the actual occlusion math runs
+// as the in-page `pairArea` function inside `page.evaluate` in `measureOverlap`
+// below. Keeping both would risk future drift between the two implementations.
 
 async function measureOverlap(page: Page): Promise<OverlapResult> {
   return await page.evaluate<OverlapResult>(() => {

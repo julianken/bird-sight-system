@@ -41,8 +41,10 @@ import { AppPage } from './pages/app-page.js';
  *   hard-coded point can land on a road, label, or water. Instead, sampleLandPixel()
  *   tries a grid of candidates and picks the first that reads as bright cream
  *   (positron land ≈ #f4f1ea) in light mode — making the choice robust to future
- *   reframes. The AZ-vs-CONUS wording is moot at assert time because the sample
- *   is verified land by construction.
+ *   reframes. When a candidate matches the ±30 cream window it is verified land
+ *   by construction. In the degenerate fallback (all candidates miss), the first
+ *   readable point is used un-verified — AC2's ±20 assertion will catch that
+ *   and report what color was actually sampled.
  *
  * Route stubs: all /api/* endpoints are stubbed to return empty arrays so the
  * test does not depend on a live database or the read-api service being seeded.
@@ -136,8 +138,11 @@ async function readCanvasPixel(
  *
  * V2 (#787): replaces the old single SAMPLE_X/SAMPLE_Y point that was calibrated
  * to the windowed AZ overview but actually sampled the scope=us/CONUS framing.
- * The multi-candidate approach survives reframes: it verifies each point is
- * genuinely land before asserting, so the AZ-vs-CONUS wording is moot.
+ * The multi-candidate approach survives reframes: when a candidate matches the
+ * ±30 cream window it is verified land and the AZ-vs-CONUS wording is moot.
+ * Degenerate fallback: if no candidate matches, returns CANDIDATE_POINTS[0]
+ * un-verified — callers should be aware that AC2's ±20 assertion may then fail
+ * (revealing the unverified sample color rather than silently skipping).
  */
 async function sampleLandPixel(
   page: import('@playwright/test').Page,
@@ -244,8 +249,8 @@ test.describe('Basemap dark-flip pixel assertions (Phase 4, closes G8)', () => {
       // V2 (#787): use sampleLandPixel() — tries CANDIDATE_POINTS to find a
       // pixel that reads as positron cream (≈#f4f1ea ±30) in light mode.
       // This is robust to the full-bleed CONUS reframe (scope=us injected by
-      // the POM) — the point is verified land before it is used for dark-mode
-      // comparison.
+      // the POM). When a candidate matches the ±30 window it is verified land;
+      // in the degenerate fallback, CANDIDATE_POINTS[0] is used un-verified.
       const lightSample = await sampleLandPixel(page);
       // If null the canvas isn't readable (no preserveDrawingBuffer). Skip.
       test.skip(
@@ -309,7 +314,6 @@ test.describe('Basemap dark-flip pixel assertions (Phase 4, closes G8)', () => {
         'Canvas pixel read returned null (likely no preserveDrawingBuffer) — pixel-sample skipped',
       );
 
-      const { x: LAND_X2, y: LAND_Y2, pixel: lightPixel } = lightSample!;
       const { x: landX, y: landY, pixel: [r, g, b] } = lightSample!;
       // Positron land-surface color is #f4f1ea → [244, 241, 234].
       // Tolerance ±20: accounts for sub-pixel rendering, label layers, and tile
