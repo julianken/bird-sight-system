@@ -33,6 +33,32 @@ test.describe('SpeciesDetailSheet snap behavior', () => {
     // descendants from the tab order and blocks pointer events.
     await expect(page.locator('#map-layer')).toHaveAttribute('inert', '');
 
+    // R3 token-resolution probe (O5 #783) — PRIMARY assertion.
+    // Verifies that:
+    //   (a) --z-modal > --z-overlay AND --z-modal > --z-popover (P1 named scale)
+    //   (b) the mounted full-snap sheet resolves z-index to the --z-modal value
+    //       (not a raw integer — confirms the CSS rule references var(--z-modal))
+    //
+    // This fixture uses stubEmpty so FamilyLegend returns null (no silhouettes)
+    // and no ObservationPopover mounts — no legend/popover DOM node is required.
+    // The probe reads CSS vars off document.documentElement and the sheet only.
+    const tiers = await page.evaluate(() => {
+      const cs = getComputedStyle(document.documentElement);
+      return {
+        modal: Number(cs.getPropertyValue('--z-modal').trim()),
+        overlay: Number(cs.getPropertyValue('--z-overlay').trim()),
+        popover: Number(cs.getPropertyValue('--z-popover').trim()),
+      };
+    });
+    // --z-modal (50) must be above --z-overlay (40) and --z-popover (41)
+    expect(tiers.modal).toBeGreaterThan(tiers.overlay);
+    expect(tiers.modal).toBeGreaterThan(tiers.popover);
+
+    // The full-snap sheet's computed z-index must equal --z-modal,
+    // confirming .species-detail-sheet--full uses var(--z-modal) not a raw int.
+    const sheetZ = await sheet.evaluate(el => Number(getComputedStyle(el).zIndex));
+    expect(sheetZ).toBe(tiers.modal);
+
     // Collapse path
     const collapse = page.getByRole('button', { name: /collapse/i });
     await collapse.click();

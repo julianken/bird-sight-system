@@ -32,6 +32,15 @@ export interface FamilyLegendProps {
    * hint, not a sticky rule.
    */
   defaultExpanded: boolean;
+  /**
+   * Transient display override — when `true`, render the collapsed toggle bar
+   * ONLY (no entries), regardless of the user's internal `expanded` state.
+   * Does NOT mutate or persist `expanded` (the stored preference survives).
+   * Used by App.tsx to suppress the legend while another overlay holds focus
+   * on mobile (chooser scrim, filters sheet, half/full detail sheet).
+   * Reflected as `data-force-collapsed` for e2e assertions. (O5 #783)
+   */
+  forceCollapsed?: boolean;
 }
 
 function readStoredExpanded(): boolean | null {
@@ -105,6 +114,7 @@ export function FamilyLegend({
   familyCode,
   onFamilyToggle,
   defaultExpanded,
+  forceCollapsed = false,
 }: FamilyLegendProps) {
   // Initial state precedence: localStorage .v2 > defaultExpanded prop.
   // The function-form initializer means readStoredExpanded only runs once
@@ -117,6 +127,8 @@ export function FamilyLegend({
 
   // Persist on every change. The write is idempotent; cost is trivial.
   // Only written after a manual toggle — first paints defer to defaultExpanded.
+  // forceCollapsed does NOT trigger this effect — it is a transient display
+  // override and must NOT mutate the user's stored preference. (O5 #783)
   useEffect(() => {
     writeStoredExpanded(expanded);
   }, [expanded]);
@@ -142,27 +154,40 @@ export function FamilyLegend({
 
   const toggleId = 'family-legend-toggle';
 
+  // When forceCollapsed is true, the effective rendered state is collapsed
+  // regardless of the internal `expanded` value. aria-expanded reflects the
+  // effective rendered state (what the user actually sees), not the stored
+  // preference. (O5 #783 — AC: "aria-expanded accurate to effective state")
+  const effectiveExpanded = forceCollapsed ? false : expanded;
+
   return (
     <aside
       className="family-legend"
       role="complementary"
       aria-labelledby={toggleId}
       data-expanded={expanded ? 'true' : 'false'}
+      {...(forceCollapsed ? { 'data-force-collapsed': 'true' } : {})}
     >
       <button
         id={toggleId}
         type="button"
         className="family-legend-toggle"
-        aria-expanded={expanded}
+        aria-expanded={effectiveExpanded}
         aria-controls="family-legend-entries"
-        onClick={() => setExpanded(prev => !prev)}
+        onClick={() => {
+          // forceCollapsed is a transient display override — the toggle
+          // click still advances the stored preference if forceCollapsed
+          // is true (the stored preference persists; the force-collapsed
+          // visual is driven by the parent prop, not by expanded state).
+          if (!forceCollapsed) setExpanded(prev => !prev);
+        }}
       >
         <span className="family-legend-title">Bird families in view</span>
         <span className="family-legend-chevron" aria-hidden="true">
-          {expanded ? '▾' : '▸'}
+          {effectiveExpanded ? '▾' : '▸'}
         </span>
       </button>
-      {expanded && entries.length > 0 && (
+      {effectiveExpanded && entries.length > 0 && (
         <ul
           id="family-legend-entries"
           className="family-legend-entries"

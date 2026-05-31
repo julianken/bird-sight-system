@@ -20,8 +20,10 @@ import { MapSurface } from './components/MapSurface.js';
 import { ScopeChooser } from './components/ScopeChooser.js';
 import { SpeciesDetailRail } from './components/SpeciesDetailRail.js';
 import { SpeciesDetailSheet } from './components/SpeciesDetailSheet.js';
+import type { SnapState } from './components/SpeciesDetailSheet.js';
 import { AppHeader } from './components/AppHeader.js';
 import { useIsCompact } from './lib/use-is-compact.js';
+import { useIsPhone } from './lib/use-is-phone.js';
 import { AttributionModal } from './components/AttributionModal.js';
 import { deriveFamilies, deriveSpeciesIndex } from './derived.js';
 import { filterObservationsByBounds } from './lib/viewport-filter.js';
@@ -106,6 +108,10 @@ function craftedFromError(error: Error): string {
 export function App() {
   const { state, set } = useUrlState();
   const isCompact = useIsCompact();
+  // O5 (#783): phone-only hook keyed to ≤480px (P1's overlay breakpoint).
+  // Deliberately separate from isCompact (1199px) so force-collapse does NOT
+  // trigger on tablet (768×1024) or laptop (1024×768) viewports.
+  const isPhone = useIsPhone();
   // Tag the current Clarity session with the active view so dashboards can
   // filter sessions by surface (map | detail). Fires on initial mount
   // and on every view change; analytics.setView no-ops safely when Clarity
@@ -115,6 +121,29 @@ export function App() {
   }, [state.view]);
   // Phase 3: filters panel state + badge count.
   const [filtersOpen, setFiltersOpen] = useState(false);
+
+  // O5 (#783) — track the detail sheet's snap state so forceCollapsed can be
+  // computed. Starts at 'peek' (the sheet's initial snap); reset to 'peek'
+  // when the sheet unmounts (detail closes). Only relevant on compact/mobile
+  // viewports where the sheet renders instead of the rail.
+  const [sheetSnap, setSheetSnap] = useState<SnapState>('peek');
+
+  // O5 (#783) — forceCollapsed: collapse the legend while another overlay holds
+  // focus on mobile (≤480px). Scoped to isPhone so it does NOT fire at 1024×768
+  // (iPad landscape) or 1440×900 (laptop) — those use isCompact/rail, not isPhone.
+  // Three overlay signals:
+  //   - !scopeActive: S1 chooser scrim is open (unscoped landing)
+  //   - filtersOpen: O4 filters sheet is open
+  //   - sheetSnap !== 'peek': detail sheet is at half or full (not just peeking)
+  // forceCollapsed is derived here (at render time) — no extra state needed.
+  // The `scopeActive` ref is not yet available at this point; use
+  // `state.scope.kind !== 'unscoped'` directly (same derivation as line 269).
+  const legendForceCollapsed =
+    isPhone && (
+      state.scope.kind === 'unscoped' ||
+      filtersOpen ||
+      (sheetSnap === 'half' || sheetSnap === 'full')
+    );
 
   // O4 (#780) — ref to the floating filters sheet panel. Focus moves into the
   // panel on open (specifically the close button, first focusable element).
@@ -1138,14 +1167,12 @@ export function App() {
           carries explicit `role="complementary"` with its `aria-labelledby`
           name ("Bird families in view") — mirroring SpeciesDetailRail's pattern.
 
-          Inert/filters interaction (decision per O2 AC): when the filters sheet
-          or S1 scrim is open, #808's focus-trap and keyboard-inert on #map-layer
-          already contain keyboard focus within the sheet/scrim — only a pointer
-          click on the legend during filters-open is possible. Adding `inert` to
-          the hoisted legend when filtersOpen is deferred to O5 (#783) to keep
-          this PR scoped, consistent with the O5 issue which owns the full
-          inert-overlay audit. The focus-trap already prevents keyboard users
-          from reaching the legend while filters are open. */}
+          Inert/filters interaction (O5 #783): forceCollapsed suppresses the
+          legend's entries list when another overlay holds focus on phone-sized
+          viewports (≤480px). The stored `expanded` preference is NOT mutated —
+          this is a transient display override. The focus-trap already prevents
+          keyboard users from reaching the legend while overlays are open;
+          forceCollapsed is the visual complement for pointer users. */}
       {mapVisible && scopeActive && (
         <FamilyLegend
           silhouettes={silhouettes}
@@ -1153,6 +1180,7 @@ export function App() {
           familyCode={state.familyCode}
           onFamilyToggle={onFamilyToggle}
           defaultExpanded={legendDefaultExpanded}
+          forceCollapsed={legendForceCollapsed}
         />
       )}
       {/* #761 (S1) — detail rail/sheet gated on `scopeActive`. The unscoped
@@ -1177,10 +1205,16 @@ export function App() {
           key={state.detail}
           speciesCode={state.detail}
           apiClient={apiClient}
-          onClose={onCloseDetail}
+          onClose={() => {
+            // Reset snap tracker when the sheet closes so forceCollapsed
+            // lifts on the next detail open. (O5 #783)
+            setSheetSnap('peek');
+            onCloseDetail();
+          }}
           mainRef={mapLayerRef}
           bbox={state.bbox}
           onClearBbox={onClearBbox}
+          onSnapChange={setSheetSnap}
         />
       )}
       {/* #761 (S1) — the unscoped landing chooser, hosted as an INERT,

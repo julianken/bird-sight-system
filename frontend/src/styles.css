@@ -891,12 +891,29 @@ body:has(.species-detail-sheet--full) .app-header-controls-pill {
   :root {
     --attribution-clearance: 60px;
   }
+}
+
+/* R6 fix (O5 #783): cap the legend at the overlay breakpoint (≤480px, P1's
+   --overlay-bp token). The old 760px content-breakpoint rule widened the
+   legend to ~94% of a 390px viewport (366px). Overlay sizing must use the
+   overlay breakpoint, NOT the content breakpoint (anti-pattern OQ2).
+   The min() cap keeps the legend ≤280px regardless of expanded state — the
+   stored preference is NOT mutated; this is a CSS display cap only. */
+@media (max-width: 480px) {
   .family-legend {
-    max-width: calc(100vw - 2 * var(--space-md));
+    max-width: min(280px, calc(100vw - 2 * var(--space-md)));
   }
   .family-legend-entries {
     max-height: 240px;
   }
+}
+
+/* Force-collapsed treatment (O5 #783): when another overlay holds focus on
+   mobile and forceCollapsed=true, FamilyLegend sets data-force-collapsed="true"
+   on the <aside>. This suppresses the entries list while keeping the toggle
+   bar visible — no localStorage mutation (transient display override only). */
+.family-legend[data-force-collapsed="true"] .family-legend-entries {
+  display: none;
 }
 
 /* Observation popover (#246, repositioned in #718). Anchored to the
@@ -1086,12 +1103,11 @@ aside.species-detail-rail .species-detail-rail-close {
   border-top-left-radius: var(--radius-lg, 12px);
   border-top-right-radius: var(--radius-lg, 12px);
   box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.18);
-  /* KEPT at the pre-refactor raw values (base/peek/half/full = 10/10/15/20,
-     BELOW the overlay band) — #761 P1 (#778) is a strict zero-visual-change
-     refactor and must NOT invert any element's visible stacking. Adopting
-     --z-modal (above the overlays) for the full-snap sheet is deferred to
-     O5 (#783), which rewires the full-snap sheet above legend/popover and
-     does the compensating #663 inert work. (2026-05-30) */
+  /* Base z-index kept at 10 (below overlay band) — the snap modifier below
+     overrides this at full snap. --peek (z-10) and --half (z-15) intentionally
+     stay below the overlay band so map controls remain interactive when the
+     sheet is partially open (peek/half). --full is elevated to --z-modal (50)
+     by the .species-detail-sheet--full modifier below. (O5 #783) */
   z-index: 10;
   display: flex;
   flex-direction: column;
@@ -1106,26 +1122,24 @@ aside.species-detail-rail .species-detail-rail-close {
 }
 
 .species-detail-sheet--full {
-  /* At full snap, the sheet covers the viewport sans 8px inset. Visual
-     parity with the modal — same z-stack expectation. KEPT at the pre-refactor
-     raw 20; adopting --z-modal (above overlays) is deferred to O5 (#783). */
-  z-index: 20;
+  /* At full snap, the sheet covers the viewport — modal-tier z-index (O5 #783).
+     Now on --z-modal (50): above the legend (--z-overlay/40) and observation
+     popovers (--z-popover/41), above chrome (--z-chrome/42) and rail
+     (--z-rail/43). O2 (#770) hoisted FamilyLegend to a persistent App-root
+     sibling; O5 completes the fix by raising --full above that band.
+     --peek (z-10) and --half (z-15) intentionally stay on their below-map-
+     controls tiers so the map remains interactive while the sheet is partially
+     open (see styles.css for --peek/--half comments). */
+  z-index: var(--z-modal);
 }
 
-/* #761 (S2): the AppHeader became `position: fixed` floating chrome on
-   `--z-chrome` (42), which now outranks the full-snap sheet's z-stack (10/15/20).
-   That is acceptable for S2 — the full z-reconciliation (lifting the sheet onto
-   `--z-modal` with the compensating #663 inert work) is O5 (#783). The ONE thing
-   S2 must not regress is the sheet's own controls: at full snap the sheet's drag
-   handle / collapse button sits at the viewport TOP, directly under the floating
-   header, so the header would intercept the collapse click (the sheet-snap spec's
-   collapse-at-full path). Because the full-snap sheet is a modal (`aria-modal`,
-   it already inerts `#main-surface`), the chrome behind it must be non-interactive
-   while it is open. This makes the floating header click-through ONLY when a
-   full-snap sheet is present — no z-index change (no z-index war), no inert
-   retarget — so the collapse handle underneath receives the pointer. The header
-   stays visible; it is simply muted under the modal, which is correct modal
-   semantics. (O5 replaces this with proper top-layer z-ordering.) */
+/* #761 (S2/O5): the AppHeader is `position: fixed` floating chrome on
+   `--z-chrome` (42). The full-snap sheet is now on `--z-modal` (50) via
+   the .species-detail-sheet--full modifier above, so at full snap the sheet
+   correctly outranks the chrome. The pointer-events arrangement is unchanged:
+   the floating header click-through at full snap is preserved by the modal
+   `inert` on #map-layer (O1, O4) — chrome remains visible but non-interactive
+   while the modal sheet is open. */
 .sheet-handle {
   /* Drag-region: own the gesture entirely; do not pan-scroll the page.
      min-height: 44px satisfies Apple HIG / WCAG 2.5.5 touch-target (MOB-7).
@@ -1249,22 +1263,20 @@ aside.species-detail-rail .species-detail-rail-close {
 
    --peek: collapsed bar; gives affordance without covering the map.
    --half: mid-point snap; common for drill-down gesture contexts.
-   --full: already authored above (z-index: 20). */
+   --full: on --z-modal (50) via the .species-detail-sheet--full modifier (O5 #783). */
 .species-detail-sheet--peek {
-  /* Collapsed bar — anchored at bottom with shallow z-index so map controls
-     remain fully interactive. KEPT at the pre-refactor raw 10 — #761 P1 (#778)
-     preserves the sheet's current stacking; adopting --z-modal is deferred to
-     O5 (#783). Content is clipped at the inline-driven 96px peek height. */
+  /* Collapsed bar — intentionally BELOW the overlay band (z-10) so map
+     controls and the legend remain fully interactive at peek. Content is
+     clipped at the inline-driven 96px peek height. */
   z-index: 10;
   overflow: hidden;
 }
 
 .species-detail-sheet--half {
-  /* Half-height state — above the map but below the full-screen tier. KEPT at
-     the pre-refactor raw 15 — #761 P1 (#778) preserves the sheet's current
-     stacking; adopting --z-modal is deferred to O5 (#783). Overflow hidden
-     keeps the sheet clean at the snap boundary; .sheet-scroll inside handles
-     scrollable content via its own touch-action. */
+  /* Half-height state — above the map (z-15) but intentionally BELOW the
+     overlay band so map overlays remain interactive around the sheet.
+     Overflow hidden keeps the sheet clean at the snap boundary; .sheet-scroll
+     inside handles scrollable content via its own touch-action. */
   z-index: 15;
   overflow: hidden;
 }
