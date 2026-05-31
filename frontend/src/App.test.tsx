@@ -82,7 +82,7 @@ const {
     renderCount: 0,
   },
   // O8 (#784): render-count tracking for the two memoized App-root overlays.
-  // Incremented by the stubs below; asserted in the "O8 memo boundary" suite.
+  // Incremented by the counting wrappers in vi.mock below; asserted in the O8 suite.
   overlayRenderCounts: {
     familyLegend: 0,
     scopeControl: 0,
@@ -143,33 +143,82 @@ vi.mock('./prefetch.js', () => ({
   prefetchMapCanvas: mockPrefetchMapCanvas,
 }));
 
-// O8 (#784): wrap FamilyLegend + ScopeControl with render-counting HOCs.
-// Each mock imports the REAL implementation (so all prop-passing, event
-// emission, and DOM content remain correct for existing tests) and wraps it in
-// an additional React.memo layer whose render body increments overlayRenderCounts
-// before delegating to the real component. This keeps the full ScopeControl ZIP
-// / exit / state-select behavior intact for #740 / O9 integration tests while
-// also making the render-count assertions load-bearing for O8's memo guard:
-// a nowTick bump that causes either wrapper to re-render will increment the
-// counter, failing the assertion in the O8 suite.
+// O8 (#784): render-counting mocks for FamilyLegend + ScopeControl.
+//
+// TWO-LAYER LOAD-BEARING DESIGN:
+//
+// Layer 1 — structural guard ($$typeof check): the mock verifies at
+//   initialization time that the production export IS a React.memo component
+//   (via `$$typeof === Symbol.for('react.memo')`). If memo is removed from
+//   production, the mock substitutes a component that throws during render,
+//   making ALL tests in this file fail with a clear message. This is what
+//   makes the mutation test (remove production memo → tests fail) work.
+//
+// Layer 2 — behavioral counter (render body count): the mock wraps the inner
+//   implementation (FamilyLegendImpl / ScopeControlImpl, accessed via .type)
+//   with a counting function, then re-applies React.memo around it. The counter
+//   only runs when OUR memo allows the render through — i.e., when props are
+//   NOT shallowly equal. The O8 suite asserts that counter=0 after a nowTick
+//   bump (which doesn't change these components' props). If OUR memo were
+//   removed, the counter would increment on every App re-render, failing the test.
+//
+// Why not Profiler? React.Profiler fires onRender whenever the Profiler node
+//   itself commits (even when a memo'd child bails), making it unsuitable for
+//   detecting memo bailouts in this test environment (React 18.3.1 / jsdom /
+//   vitest). Confirmed empirically: Profiler phase='update' fires with delta=1
+//   on a parent force-update even when the memo'd child produces zero actual
+//   render work (actualDuration > 0 despite memo bail).
 vi.mock('./components/FamilyLegend.js', async () => {
   const real = await vi.importActual<typeof import('./components/FamilyLegend.js')>('./components/FamilyLegend.js');
   const { memo, createElement } = await import('react');
-  const RealFamilyLegend = real.FamilyLegend;
-  const WrappedFamilyLegend = memo(function FamilyLegendCounting(props: Parameters<typeof RealFamilyLegend>[0]) {
+
+  // Layer 1: structural guard — fail loudly if production memo is removed.
+  const REACT_MEMO_TYPE = Symbol.for('react.memo');
+  if ((real.FamilyLegend as unknown as { $$typeof?: symbol }).$$typeof !== REACT_MEMO_TYPE) {
+    // Production memo was removed (O8 regression). Substitute a component that
+    // throws during render so ALL O8 tests fail with a diagnostic message.
+    const O8RegressionGuard = function FamilyLegendO8Broken() {
+      throw new Error(
+        'O8 REGRESSION DETECTED: FamilyLegend production React.memo was removed. ' +
+        'Restore `export const FamilyLegend = memo(FamilyLegendImpl)` in FamilyLegend.tsx',
+      );
+    };
+    return { ...real, FamilyLegend: O8RegressionGuard };
+  }
+
+  // Layer 2: behavioral counter — wrap inner impl, re-apply memo.
+  // The counter fires only when OUR memo allows the render through.
+  // .type is the inner FamilyLegendImpl function on a React.memo component.
+  const innerImpl = (real.FamilyLegend as unknown as { type: (props: Parameters<typeof real.FamilyLegend>[0]) => React.JSX.Element }).type;
+  const WrappedFamilyLegend = memo(function FamilyLegendCounting(props: Parameters<typeof real.FamilyLegend>[0]) {
     overlayRenderCounts.familyLegend += 1;
-    return createElement(RealFamilyLegend as React.ComponentType<typeof props>, props);
+    return createElement(innerImpl as React.ComponentType<typeof props>, props);
   });
   WrappedFamilyLegend.displayName = 'FamilyLegend';
   return { ...real, FamilyLegend: WrappedFamilyLegend };
 });
+
 vi.mock('./components/ScopeControl.js', async () => {
   const real = await vi.importActual<typeof import('./components/ScopeControl.js')>('./components/ScopeControl.js');
   const { memo, createElement } = await import('react');
-  const RealScopeControl = real.ScopeControl;
-  const WrappedScopeControl = memo(function ScopeControlCounting(props: Parameters<typeof RealScopeControl>[0]) {
+
+  // Layer 1: structural guard.
+  const REACT_MEMO_TYPE = Symbol.for('react.memo');
+  if ((real.ScopeControl as unknown as { $$typeof?: symbol }).$$typeof !== REACT_MEMO_TYPE) {
+    const O8RegressionGuard = function ScopeControlO8Broken() {
+      throw new Error(
+        'O8 REGRESSION DETECTED: ScopeControl production React.memo was removed. ' +
+        'Restore `export const ScopeControl = React.memo(ScopeControlImpl)` in ScopeControl.tsx',
+      );
+    };
+    return { ...real, ScopeControl: O8RegressionGuard };
+  }
+
+  // Layer 2: behavioral counter.
+  const innerImpl = (real.ScopeControl as unknown as { type: (props: Parameters<typeof real.ScopeControl>[0]) => React.JSX.Element }).type;
+  const WrappedScopeControl = memo(function ScopeControlCounting(props: Parameters<typeof real.ScopeControl>[0]) {
     overlayRenderCounts.scopeControl += 1;
-    return createElement(RealScopeControl as React.ComponentType<typeof props>, props);
+    return createElement(innerImpl as React.ComponentType<typeof props>, props);
   });
   WrappedScopeControl.displayName = 'ScopeControl';
   return { ...real, ScopeControl: WrappedScopeControl };
@@ -1997,22 +2046,29 @@ describe('O2 (#770): skip-link + FamilyLegend hoisted to App-root siblings', () 
 
 describe('O8 (#784): React.memo render-count regression — FamilyLegend + ScopeControl', () => {
   /**
-   * Asserts that the two memoized App-root overlays (FamilyLegend, ScopeControl)
-   * do NOT re-render when unrelated App-level state changes.
+   * LOAD-BEARING memo guards: two-layer approach.
    *
-   * Fan-out vector: `nowTick` bumps on every `visibilitychange` → `visible`.
-   * On a same-minute bump the resolved freshness label is unchanged, so
-   * FamilyLegend and ScopeControl (which take no freshness props) must stay
-   * at 0 additional renders — their memo boundary short-circuits.
+   * Layer 1 — structural guard (vi.mock, $$typeof check, top of this file):
+   *   The vi.mock for FamilyLegend and ScopeControl checks at initialization
+   *   time that the production export IS a React.memo component. If memo is
+   *   removed from production, the mock substitutes a component that THROWS
+   *   during render — all tests in this suite (and in App.test.tsx broadly)
+   *   fail immediately with a clear diagnostic message. This is the mechanism
+   *   that makes the mutation test (remove production memo → tests FAIL) work.
    *
-   * Theme toggle: AppHeader re-renders (freshnessLabel/region propagate through
-   * it), but ScopeControl's own props are unchanged → at most 1 render per
-   * theme flip is allowed for ScopeControl (the initial render only; subsequent
-   * nowTick or irrelevant-state bumps must not produce more renders).
+   * Layer 2 — render-body counter (overlayRenderCounts):
+   *   The mock wraps the inner implementation (FamilyLegendImpl / ScopeControlImpl,
+   *   accessed via .type on the memo export) with a counting function, then
+   *   re-applies React.memo around it. The counter increments ONLY when the
+   *   wrapped memo allows the render through (props changed). On a nowTick bump,
+   *   neither component's props change → memo bails → counter stays flat.
    *
-   * Stubs are memo-wrapped (see vi.mock above) so the test is load-bearing:
-   * removing React.memo from either stub would cause the nowTick-bump assertion
-   * to observe a render-count increment and fail.
+   *   Why not Profiler? In React 18.3.1 / jsdom / vitest, React.Profiler fires
+   *   onRender with phase='update' whenever the Profiler node's parent commits,
+   *   even when the memo'd child bails and produces zero actual render work.
+   *   Confirmed empirically with a pure no-hooks memo'd component: Profiler
+   *   delta=1 regardless of memo. Render-body counter (module-level variable
+   *   incremented inside the function that memo wraps) is the reliable tool.
    */
   const SCOPED_US_STATE = {
     since: '14d' as const,
@@ -2032,7 +2088,7 @@ describe('O8 (#784): React.memo render-count regression — FamilyLegend + Scope
     mockGetHotspots.mockResolvedValue([]);
     mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
     // Return a non-empty silhouettes list so the FamilyLegend gate passes
-    // (mapVisible && scopeActive && silhouettes.length > 0) and the stub renders.
+    // (mapVisible && scopeActive && silhouettes.length > 0) and the mock renders.
     mockGetSilhouettes.mockResolvedValue([{
       familyCode: 'tyrannidae',
       color: '#C77A2E',
@@ -2056,12 +2112,21 @@ describe('O8 (#784): React.memo render-count regression — FamilyLegend + Scope
     document.documentElement.removeAttribute('data-theme');
   });
 
-  it('nowTick bump (visibilitychange→visible) produces ZERO additional renders of FamilyLegend', async () => {
+  it('nowTick bump (visibilitychange→visible) does NOT increment FamilyLegend render-body counter', async () => {
+    /**
+     * App re-renders on nowTick (visibilitychange → setNowTick). FamilyLegend's
+     * props (silhouettes, observations, familyCode, onFamilyToggle, etc.) don't
+     * change on a tick bump → the mock's memo bails → the counting wrapper's body
+     * never runs → overlayRenderCounts.familyLegend is unchanged.
+     *
+     * MUTATION PROOF: if the production memo is removed, the vi.mock's structural
+     * guard ($$typeof check) substitutes a throwing component → this test FAILS.
+     * If additionally the mock's own memo is removed, the counter body runs on
+     * every App re-render → count increases → this assertion FAILS.
+     */
     render(<App />);
 
-    // Wait for data load: App resolves silhouettes and FamilyLegend's HOC wrapper
-    // is called at least once (mapVisible && scopeActive both true in SCOPED_US_STATE).
-    // The HOC wraps the real component — we wait on the render count, not a DOM stub.
+    // Wait for data load so FamilyLegend's gate passes and the mock has rendered.
     await waitFor(() => {
       expect(overlayRenderCounts.familyLegend).toBeGreaterThan(0);
     });
@@ -2069,8 +2134,6 @@ describe('O8 (#784): React.memo render-count regression — FamilyLegend + Scope
     const countAfterMount = overlayRenderCounts.familyLegend;
 
     // Simulate a nowTick bump — the same signal App wires on visibilitychange.
-    // jsdom does not fire real events on documentElement.hidden, so dispatch
-    // visibilitychange with visibilityState='visible' manually.
     Object.defineProperty(document, 'visibilityState', {
       value: 'visible',
       writable: true,
@@ -2080,15 +2143,14 @@ describe('O8 (#784): React.memo render-count regression — FamilyLegend + Scope
       document.dispatchEvent(new Event('visibilitychange'));
     });
 
-    // React.memo short-circuits: FamilyLegend's props are unchanged → 0 extra renders.
+    // Mock's memo short-circuits: props unchanged → body doesn't run → 0 extra.
     expect(overlayRenderCounts.familyLegend).toBe(countAfterMount);
   });
 
-  it('nowTick bump (visibilitychange→visible) produces ZERO additional renders of ScopeControl', async () => {
+  it('nowTick bump (visibilitychange→visible) does NOT increment ScopeControl render-body counter', async () => {
     render(<App />);
 
-    // ScopeControl renders inside AppHeader on a scoped view. The HOC wrapper
-    // is called as soon as App mounts with scopeActive=true.
+    // ScopeControl renders inside AppHeader on a scoped view.
     await waitFor(() => {
       expect(overlayRenderCounts.scopeControl).toBeGreaterThan(0);
     });
@@ -2104,7 +2166,6 @@ describe('O8 (#784): React.memo render-count regression — FamilyLegend + Scope
       document.dispatchEvent(new Event('visibilitychange'));
     });
 
-    // React.memo short-circuits: ScopeControl's props are unchanged → 0 extra renders.
     expect(overlayRenderCounts.scopeControl).toBe(countAfterMount);
   });
 
@@ -2117,16 +2178,14 @@ describe('O8 (#784): React.memo render-count regression — FamilyLegend + Scope
     });
 
     const countAfterMount = overlayRenderCounts.scopeControl;
-    expect(countAfterMount).toBeGreaterThan(0);
 
     // Flip [data-theme]: triggers AppHeader to re-render (freshness reads theme
-    // indirectly via AppHeader's ledeText/region props), but ScopeControl's
-    // direct props (scope/states/callbacks) are unchanged → memo should hold.
+    // indirectly), but ScopeControl's direct props (scope/states/callbacks) are
+    // unchanged → mock's memo should hold.
     await act(async () => {
       document.documentElement.setAttribute('data-theme', 'dark');
     });
 
-    // ScopeControl's memo boundary holds on a theme flip (its props don't change).
     // Assert at most 1 additional render — any more indicates the memo is broken.
     expect(overlayRenderCounts.scopeControl - countAfterMount).toBeLessThanOrEqual(1);
   });
@@ -2140,13 +2199,11 @@ describe('O8 (#784): React.memo render-count regression — FamilyLegend + Scope
     });
 
     const countAfterMount = overlayRenderCounts.familyLegend;
-    expect(countAfterMount).toBeGreaterThan(0);
 
     await act(async () => {
       document.documentElement.setAttribute('data-theme', 'dark');
     });
 
-    // FamilyLegend's memo boundary holds on a theme flip (its props don't change).
     expect(overlayRenderCounts.familyLegend - countAfterMount).toBeLessThanOrEqual(1);
   });
 });
