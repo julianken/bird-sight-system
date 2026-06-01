@@ -937,7 +937,16 @@ body:has(.species-detail-sheet--full) .app-header-controls-pill {
   margin: 0;
   padding: var(--space-xs) var(--space-sm) var(--space-sm);
   display: grid;
-  grid-template-columns: 1fr;
+  /* minmax(0, 1fr) — NOT 1fr. A bare 1fr track has an implicit auto
+     minimum, so the row's intrinsic width (icon + gap + nowrap label +
+     count) lets the track exceed the shrink-to-fit card and pushes the
+     flex-shrink:0 count past the card's right edge, where overflow-y:auto
+     clips it. Capping the min to 0 keeps the track within the card so the
+     label ellipsis absorbs the slack and the count keeps its 16px gutter.
+     (overflow-y:auto already shrinks the content box when a classic
+     scrollbar is present, so the count tracks inside it — no extra gutter
+     reservation needed.) */
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   max-height: 400px;
   overflow-y: auto;
