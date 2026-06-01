@@ -222,7 +222,7 @@ describe('AttributionModal', () => {
     expect(ebirdLink).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
-  it('renders OSM and OpenFreeMap credits + links in the Map Tiles section', async () => {
+  it('renders OSM, OpenMapTiles, and OpenFreeMap credits + links in the Map Tiles section', async () => {
     const user = userEvent.setup();
     render(<AttributionModal silhouettes={SILHOUETTES} />);
     await user.click(screen.getByRole('button', { name: /credits/i }));
@@ -230,6 +230,13 @@ describe('AttributionModal', () => {
     expect(osmLink).toHaveAttribute('href', 'https://www.openstreetmap.org/copyright');
     expect(osmLink).toHaveAttribute('target', '_blank');
     expect(osmLink).toHaveAttribute('rel', 'noopener noreferrer');
+    // Item C (#830): OpenFreeMap's required attribution is
+    // "OpenFreeMap © OpenMapTiles Data from OpenStreetMap" — OpenMapTiles is
+    // mandatory and was previously omitted (a compliance gap).
+    const omtLink = screen.getByRole('link', { name: /openmaptiles/i });
+    expect(omtLink).toHaveAttribute('href', 'https://openmaptiles.org');
+    expect(omtLink).toHaveAttribute('target', '_blank');
+    expect(omtLink).toHaveAttribute('rel', 'noopener noreferrer');
     const ofmLink = screen.getByRole('link', { name: /openfreemap/i });
     expect(ofmLink).toHaveAttribute('href', 'https://openfreemap.org');
     expect(ofmLink).toHaveAttribute('target', '_blank');

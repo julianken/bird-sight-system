@@ -525,6 +525,14 @@ export function AttributionModal({
           </section>
           <section className="attribution-modal-section">
             <h3>Map Tiles</h3>
+            {/*
+              OpenFreeMap's required attribution is the full chain
+              "OpenFreeMap © OpenMapTiles Data from OpenStreetMap" — all three
+              of OpenStreetMap, OpenMapTiles, and OpenFreeMap must be credited
+              and linked (#830 item C; previously OpenMapTiles was omitted, a
+              compliance gap). Order/connective words are free; the three
+              linked names are the contractual minimum.
+            */}
             <p>
               Base map data{' '}
               <a
@@ -534,7 +542,15 @@ export function AttributionModal({
               >
                 &copy; OpenStreetMap
               </a>{' '}
-              contributors, tile hosting by{' '}
+              contributors, tiles by{' '}
+              <a
+                href="https://openmaptiles.org"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                OpenMapTiles
+              </a>
+              , hosting by{' '}
               <a
                 href="https://openfreemap.org"
                 target="_blank"
