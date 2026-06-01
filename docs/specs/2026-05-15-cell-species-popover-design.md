@@ -1,6 +1,6 @@
 # Cell species popover — design
 
-Per-cell hover preview + click popover that reveals the species composition behind each adaptive-grid family cell. Click on a species row navigates to the existing `SpeciesDetailSurface` filtered to the cluster's bounding box. Mobile collapses the per-cell affordance into a single cluster-level list popover. Pill click behavior is preserved (zoom to expansion).
+Per-cell hover preview + click popover that reveals the species composition behind each adaptive-grid family cell. Click on a species row navigates to the existing `SpeciesDetailSurface` via the `?detail=<speciesCode>` URL param. Mobile collapses the per-cell affordance into a single cluster-level list popover. Pill click behavior is preserved (zoom to expansion).
 
 Status: **brainstorming complete; plan-body authorship pending issue triage + PR #555 merge**.
 
@@ -24,7 +24,7 @@ From the 2026-05-15 brainstorm session:
 
 1. **Hover on a cell reveals its species breakdown.** Example: hover a 3-Hummingbird cell → tooltip shows "2× Anna's Hummingbird, 1× Costa's Hummingbird".
 2. **Click on a cluster cell opens a popover for THAT cell** — does NOT zoom. (Pills still zoom; pill click handler unchanged.)
-3. **Click on a species row navigates to SpeciesDetailSurface scoped to the cluster's bounding box.** New routing — `bbox` query param on the existing detail view.
+3. **Click on a species row navigates to SpeciesDetailSurface.** Routing is via the existing `?detail=<speciesCode>` URL param. (An earlier draft scoped the detail surface to the cluster's bounding box via a `?bbox=` query param; that path was never wired up and has since been removed — see §4.9.)
 4. **No zoom-in path from grids is required.** Existing MapLibre zoom controls (pinch, scroll, +/- buttons) are sufficient.
 
 ## 2. Goals · Non-goals
@@ -34,7 +34,7 @@ From the 2026-05-15 brainstorm session:
 1. Surface per-cell species composition with `count × comName` rows.
 2. Hover = lightweight preview; click = full popover with clickable species links.
 3. Mobile (≤ 480 px viewport) gets a single cluster-level list popover instead of per-cell affordances (WCAG 2.5.5 sidestep — see §4.6).
-4. Clicking a species row navigates to `SpeciesDetailSurface` filtered to the cluster's bbox.
+4. Clicking a species row navigates to `SpeciesDetailSurface` via the existing `?detail=<speciesCode>` URL param.
 5. Preserve existing single-leaf (`point_count === 1`) tap-to-obs UX.
 6. Preserve existing pill click → zoom behavior.
 7. Preserve existing aria-describedby family list (spec §4.6) — popover augments, doesn't replace.
@@ -44,7 +44,7 @@ From the 2026-05-15 brainstorm session:
 - Per-cell tap zones on mobile. The whole-marker tap → cluster list path stays the mobile interaction.
 - New visual changes to the adaptive grid cells themselves (size, color, silhouette rendering all unchanged).
 - A "zoom into cluster" affordance inside the popover. Existing MapLibre zoom controls are sufficient.
-- Backward-incompat changes to `onSelectSpecies(speciesCode)`. The new optional `bbox` arg is additive.
+- Changes to the `onSelectSpecies(speciesCode)` signature. It stays single-arg; the popover calls it with just the species code.
 - Deconflict layer changes (issue #554). The popover renders OVER the deconflict-resolved marker positions; no geometry tension.
 - **Telemetry / analytics events on cell hover or click.** Out of scope; the project has no analytics surface today; a separate effort owns that decision.
 - **SSR / no-JS rendering of the popover.** bird-maps.com is statically hosted with JS required for the map; the existing aria-describedby family-list `<ul>` (preserved per §8) remains the JS-off fallback.
@@ -61,7 +61,7 @@ Locked during the 2026-05-15 brainstorm:
 | Trigger surface (desktop) | Hover + keyboard focus + touch tap on cells | Per-cell tap reverses spec §2's non-goal. Reconciled via §4.6 below. |
 | Trigger surface (mobile) | Whole-marker tap → cluster list popover | Sidesteps WCAG 2.5.5 — 22×22 cells fail; mobile gets a single 48×48 tap surface. |
 | Hover preview vs click popover | Different content | Preview = top 3, no links, "click for more" footer. Click popover = top 8 + links. Two components. |
-| Species link target | `SpeciesDetailSurface` with `bbox` URL param | New optional URL param; existing callsites continue working without it. |
+| Species link target | `SpeciesDetailSurface` via existing `?detail=<speciesCode>` | Routes through the existing detail param; no new query param. (The brainstorm originally proposed a `bbox` URL param to scope the surface; that path was never wired and was removed — see §4.9.) |
 | Spuh/slash observation handling | Render every row; link conditional on `speciesCode !== null` | No numeric gaps; non-clickable rows render as plain text. |
 | Cluster zoom path from grids | None (intentional) | User waives — existing MapLibre zoom controls are sufficient. |
 | Pill click | Unchanged (zoom to expansion) | |
@@ -134,7 +134,7 @@ The empty-array fallback handles the theoretically-impossible case of "family pr
 | `<ClusterListPopover>` | NEW | Mobile-only. `role="dialog"`. Collapsible family sections, top 8 species per family, "Done" button bottom. |
 | `<TileCell>` | EXTENDED | Desktop: hover/focus/click handlers + ARIA wiring. Mobile: visual only. |
 | `<AdaptiveGridMarker>` | EXTENDED | Mobile outer-button tap opens `<ClusterListPopover>`. Desktop outer-button click is a no-op (cells handle their own clicks). |
-| `<SpeciesDetailSurface>` | EXTENDED | Reads `bbox` from URL state; filters obs list; renders chrome banner above the species detail. |
+| `<SpeciesDetailSurface>` | UNCHANGED | Reached via `?detail=<speciesCode>`; keeps its existing `{ speciesCode, apiClient }` props (see §5.4). |
 
 ### 4.5 Trigger surface
 
@@ -277,7 +277,7 @@ eBird returns several non-species taxa, each with a `comName` but variable `spec
 Behavior:
 
 - All four render as rows in `<CellHoverPreview>` / `<CellPopover>` / `<ClusterListPopover>`.
-- `speciesCode !== null` → row renders as `<a>` (or `<button>`) linking to `SpeciesDetailSurface?bbox=…`.
+- `speciesCode !== null` → row renders as `<a>` (or `<button>`) linking to `SpeciesDetailSurface` via `?detail=<speciesCode>`.
 - `speciesCode === null` → row renders as plain `<span>`. SR announces "12 Sandpiper sp." without a "Link" suffix, signaling the row is unactionable.
 - Counts always reconcile: `sum(species[].count) === tile.count`.
 
@@ -308,14 +308,12 @@ interface CellPopoverProps {
   familyCount: number;
   /** All species for this family (consumer slices to top 8 + computes "and N more"). */
   species: ReadonlyArray<SpeciesAggregate>;
-  /** Bbox of the cluster's leaves. Threaded onto each species link's URL. */
-  bbox: BBox;
   /** Anchor element for positioning. */
   anchorEl: HTMLElement;
   /** Invoked when user dismisses (ESC, click-outside, blur out). */
   onDismiss: () => void;
-  /** Invoked when user clicks a species row. Calls `onSelectSpecies(speciesCode, bbox)`. */
-  onSelectSpecies: (speciesCode: string, bbox: BBox) => void;
+  /** Invoked when user clicks a species row. Calls `onSelectSpecies(speciesCode)`. */
+  onSelectSpecies: (speciesCode: string) => void;
 }
 ```
 
@@ -331,10 +329,8 @@ interface ClusterListPopoverProps {
   totalCount: number;
   /** Total unique families for the cluster header. */
   uniqueFamilies: number;
-  /** Bbox of the cluster's leaves. */
-  bbox: BBox;
   onDismiss: () => void;
-  onSelectSpecies: (speciesCode: string, bbox: BBox) => void;
+  onSelectSpecies: (speciesCode: string) => void;
 }
 ```
 
@@ -430,7 +426,7 @@ New tests for `aggregateClusterSpecies`:
 - **Desktop @ 1440×900**: hover the Tucson Hummingbirds cell → preview shows top 3 species; click promotes to popover; click "Anna's Hummingbird" → URL changes to `?detail=anhumm`; SpeciesDetailSurface renders.
 - **Desktop keyboard**: activate the new "Explore map markers" skip-link → focus lands on the first cell; preview appears on focus; Enter opens popover; ESC dismisses; focus returns to cell. Arrow keys move focus between cells; Tab moves to the next marker's first cell.
 - **Tablet @ 768×1024 (`pointer:coarse`)**: tap marker → cluster list popover slides up (NOT per-cell — confirms the `pointer:coarse` partition).
-- **Mobile @ 390×844**: tap marker → cluster list popover slides up; expand "Tyrant Flycatchers"; tap "Black Phoebe" → SpeciesDetailSurface filtered; tap "Done" returns to map.
+- **Mobile @ 390×844**: tap marker → cluster list popover slides up; expand "Tyrant Flycatchers"; tap "Black Phoebe" → URL changes to `?detail=<code>` and SpeciesDetailSurface renders; tap "Done" returns to map.
 - **Smart-flip positioning at viewport edge**: position a marker so its preview would clip the bottom of the viewport; assert the preview renders ABOVE the cell instead of below. Mirror test for top/left/right.
 - **Popover-vs-marker overlap**: extend the #554 falsifiable test to assert popovers don't overlap any cluster marker when open.
 
@@ -490,7 +486,7 @@ This spec gates Issue #556 (per the user's instruction to file an epic after spe
 1. **Phase 0** — Data layer: `aggregateClusterSpecies` + `AdaptiveTile.species` thread + `speciesCode` propagation through `observationsToGeoJson` and `ClusterLeafFeature` + test-fixture updates + unit tests. CI green; no UI changes.
 2. **Phase 1** — `<CellHoverPreview>` + `<CellPopover>` + `<TileCell>` desktop wiring + minimum-viable "Explore map markers" skip-link behind a feature flag (`VITE_FF_CELL_POPOVER`). Default off. Existing tests + new component tests all green.
 3. **Phase 2** — `<ClusterListPopover>` + mobile wiring behind the same flag. Depends on Phase 1 (shared `AdaptiveGridMarker.tsx` mutations); ships AFTER Phase 1. Playwright config gains a `coarse-pointer` project for `pointer:coarse` media-query emulation.
-4. **Phase 3** — `SpeciesDetailSurface` **client-side** `bbox` filter (Read API has no `bbox` support; server-side bbox is a deferred follow-up if data volume grows) + `useUrlState` bbox + full e2e spec + **atomic** flag flip + cleanup in one PR (matches PR #546's `VITE_FF_ADAPTIVE_GRID` precedent — deletes runtime branching alongside the env-default flip in `.env.example`) + spec amend to `docs/specs/2026-05-14-adaptive-cluster-grid-design.md` §2 reflecting the reversal.
+4. **Phase 3** — species-row → `?detail=<speciesCode>` routing wired through `App` (single-arg `onSelectSpecies`) + full e2e spec + **atomic** flag flip + cleanup in one PR (matches PR #546's `VITE_FF_ADAPTIVE_GRID` precedent — deletes runtime branching alongside the env-default flip in `.env.example`) + spec amend to `docs/specs/2026-05-14-adaptive-cluster-grid-design.md` §2 reflecting the reversal. (The original plan added a `SpeciesDetailSurface` client-side `bbox` filter + `useUrlState` bbox here; that path was never wired and was removed — see §4.9.)
 
 Each phase is its own PR. All 4 phases preserve the prototype-gate convention from `CLAUDE.md` (no UI changes commit without screenshots from the 5 canonical viewports × 2 themes).
 
