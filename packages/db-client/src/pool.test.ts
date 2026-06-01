@@ -28,4 +28,18 @@ describe('createPool', () => {
     expect(a).toBe(b);
     closePool(a);
   });
+
+  it('threads statement_timeout through to the live connection (#821)', async () => {
+    // Behavioral proof that the option is wired into the pg.Pool config and
+    // honored by the server session — not merely stored. A 1ms statement
+    // timeout against a 500ms sleep MUST be cancelled server-side; pg surfaces
+    // the cancellation as SQLSTATE 57014 (query_canceled / "canceling statement
+    // due to statement timeout"). This is the no-mocks-compliant way to verify
+    // the timeout reaches the live connection without poking pg internals.
+    const pool = createPool({ databaseUrl: dbUrl, statement_timeout: 1 });
+    await expect(pool.query('SELECT pg_sleep(0.5)')).rejects.toMatchObject({
+      code: '57014',
+    });
+    await closePool(pool);
+  });
 });
