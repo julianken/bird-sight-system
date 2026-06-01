@@ -340,7 +340,7 @@ resource "google_monitoring_dashboard" "bird_watch_overview" {
                     filter = "metric.type=\"logging.googleapis.com/user/bird-ingest-archived-row-count\" AND resource.type=\"cloud_run_job\""
                     aggregation = {
                       alignmentPeriod    = "86400s" # daily buckets
-                      perSeriesAligner   = "ALIGN_SUM"
+                      perSeriesAligner   = "ALIGN_PERCENTILE_50"
                       crossSeriesReducer = "REDUCE_SUM"
                     }
                   }
@@ -369,7 +369,7 @@ resource "google_monitoring_dashboard" "bird_watch_overview" {
                     filter = "metric.type=\"logging.googleapis.com/user/bird-ingest-archived-bytes-uploaded\" AND resource.type=\"cloud_run_job\""
                     aggregation = {
                       alignmentPeriod    = "86400s"
-                      perSeriesAligner   = "ALIGN_SUM"
+                      perSeriesAligner   = "ALIGN_PERCENTILE_50"
                       crossSeriesReducer = "REDUCE_SUM"
                     }
                   }
@@ -403,7 +403,7 @@ resource "google_monitoring_dashboard" "bird_watch_overview" {
                       filter = "metric.type=\"logging.googleapis.com/user/bird-ingest-archived-row-count\" AND resource.type=\"cloud_run_job\""
                       aggregation = {
                         alignmentPeriod    = "86400s"
-                        perSeriesAligner   = "ALIGN_SUM"
+                        perSeriesAligner   = "ALIGN_PERCENTILE_50"
                         crossSeriesReducer = "REDUCE_SUM"
                       }
                     }
@@ -417,7 +417,7 @@ resource "google_monitoring_dashboard" "bird_watch_overview" {
                       filter = "metric.type=\"logging.googleapis.com/user/bird-ingest-archived-deleted-count\" AND resource.type=\"cloud_run_job\""
                       aggregation = {
                         alignmentPeriod    = "86400s"
-                        perSeriesAligner   = "ALIGN_SUM"
+                        perSeriesAligner   = "ALIGN_PERCENTILE_50"
                         crossSeriesReducer = "REDUCE_SUM"
                       }
                     }
