@@ -718,32 +718,9 @@ body:has(.species-detail-sheet--full) .app-header-controls-pill {
   inset: 0;
 }
 
-/* AttributionModal trigger button. Visually a link rather than a CTA so
-   the footer stays unobtrusive — the credits surface is reference, not
-   action. Underlined + muted color matches the SurfaceFooter idiom the
-   modal subsumes. The 32px min-height satisfies the iOS HIG tap target
-   on mobile (the trigger is the only thing in the footer). */
-.attribution-trigger {
-  appearance: none;
-  background: transparent;
-  border: none;
-  padding: var(--space-xs) var(--space-sm);
-  color: var(--color-text-muted);
-  font: inherit;
-  font-size: var(--type-xs);
-  text-decoration: underline;
-  cursor: pointer;
-  border-radius: 4px;
-  min-height: 32px;
-}
-.attribution-trigger:hover,
-.attribution-trigger:focus-visible {
-  color: var(--color-text-strong);
-}
-.attribution-trigger:focus-visible {
-  outline: 2px solid var(--color-text-strong);
-  outline-offset: 2px;
-}
+/* #830 item D: the internal `.attribution-trigger` button (and its CSS) was
+   removed — the modal is controlled via the `open` prop, opened by the
+   top-right AppHeader ⓘ button. */
 
 /* AttributionModal native <dialog>. Browser-managed top-layer + backdrop
    means we don't need a separate overlay element; ::backdrop styles the
@@ -762,7 +739,10 @@ body:has(.species-detail-sheet--full) .app-header-controls-pill {
    browser's centering on Safari. */
 .attribution-modal {
   border: 1px solid var(--color-border-ui);
-  border-radius: 8px;
+  /* #830 item G: adopt the floating-card token language (spec §2.3) — cards
+     round at --card-radius (12px, retires the old 8px) and a focused/modal
+     surface uses the tier-3 elevation token (retires the bespoke shadow). */
+  border-radius: var(--card-radius);
   background: var(--color-bg-surface);
   color: var(--color-text-strong);
   padding: 0;
@@ -771,7 +751,7 @@ body:has(.species-detail-sheet--full) .app-header-controls-pill {
   width: calc(100vw - 2 * var(--space-lg));
   inset: 0;
   margin: auto;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, var(--opacity-hover));
+  box-shadow: var(--card-elevation-3);
 }
 .attribution-modal::backdrop {
   background: rgba(0, 0, 0, 0.45);

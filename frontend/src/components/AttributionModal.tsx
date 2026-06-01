@@ -1,20 +1,29 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import type { FamilySilhouette } from '@bird-watch/shared-types';
 
 /**
- * AttributionModal — credits surface for eBird, Phylopic, and OSM/OpenFreeMap.
+ * AttributionModal — credits surface for eBird, Phylopic, and
+ * OSM/OpenMapTiles/OpenFreeMap. As of #830 this is the SINGLE full-credit
+ * surface for the map: the bottom-right MapLibre AttributionControl bar was
+ * removed, and the always-visible eBird credit now lives (as a link) in the
+ * identity-card freshness line — the modal carries the complete credits.
  *
  * Compliance citations:
  *   - eBird API ToU §3: "You agree to attribute eBird.org as the source of
  *     the data accessed via the API wherever it is used or displayed…
- *     please accompany this with a link back to eBird.org."
+ *     please accompany this with a link back to eBird.org." The always-visible
+ *     anchor is the identity-card freshness-line eBird link (#830); the modal
+ *     carries the full credit.
  *   - CC BY 3.0 / CC BY-SA 3.0 §4(b/c): per-work creator attribution +
  *     license URI; reasonable means of attribution must be prominent enough
  *     to be reachable from every surface that displays the work. The trigger
- *     lives in <AppHeader> (Phase 3) as a persistent header button so the
- *     prominence requirement is met on every view (view=map|detail).
- *     The footer was removed in Phase 6.
- *   - OSM/OpenFreeMap ODbL §4.3: source attribution + license URL.
+ *     is the persistent ⓘ button in <AppHeader> (controlled-open, #830 item D),
+ *     so the prominence requirement is met on every view (view=map|detail).
+ *   - OSM ODbL §4.3 / OSMF Attribution Guidelines: a labeled ⓘ → modal with
+ *     "© OpenStreetMap" + link is explicitly sanctioned ("an '(i)' button in
+ *     the corner of the map"); "any corner of the map is acceptable" (#830).
+ *     OpenFreeMap/OpenMapTiles: required "OpenFreeMap © OpenMapTiles Data from
+ *     OpenStreetMap" — all three linked in the Map Tiles section (#830 item C).
  *
  * Top layer & the CSS z-index scale (#761 O6, issue #782):
  *   `dialog.showModal()` (below, in the open effect) promotes this dialog into
@@ -53,12 +62,15 @@ import type { FamilySilhouette } from '@bird-watch/shared-types';
  *      box hosts the backdrop in the top layer, so a click whose target IS
  *      the dialog element (not a descendant) is a backdrop click.
  *   4. External links use `rel="noopener noreferrer"` and `target="_blank"`.
- *      The codebase's other ebird/OSM credits use `rel="noopener"` (see
- *      MapCanvas customAttribution); the modal intentionally diverges to
- *      `noopener noreferrer` because (a) the modal is the most prominent
- *      attribution surface and (b) the W3C Tag finding on referrer
- *      privacy mandates noreferrer for "credit" links to third parties.
- *      Future modals should match this convention.
+ *      This is the canonical convention for every credit link in the app: the
+ *      W3C Tag finding on referrer privacy mandates noreferrer for "credit"
+ *      links to third parties. The old MapCanvas customAttribution (which used
+ *      `noopener`-only) was removed in #830, so this is the single convention;
+ *      the freshness-line eBird link (#830 item B) also uses noopener noreferrer.
+ *   5. Controlled-open (#830 item D): the dialog has no internal trigger button.
+ *      App.tsx owns `open` state, the AppHeader ⓘ button flips it, and the
+ *      `open`-prop effect runs the shared open/close path. The native `close`
+ *      event still drives onOpenChange(false) + focus-return.
  */
 
 /**
@@ -173,9 +185,19 @@ export interface AttributionModalProps {
    */
   error?: Error | null;
   /**
-   * Optional open-state callback. App.tsx can wire telemetry / focus
-   * instrumentation through this without forcing a refactor. The callback
-   * fires once per state change with the new `open` boolean.
+   * Controlled open state (#830 item D). App.tsx owns this via
+   * `const [attributionOpen, setAttributionOpen] = useState(false)` and the
+   * AppHeader ⓘ trigger drives it. When it flips true the dialog `showModal()`s
+   * (and initial focus + SR state behave identically to the old click-open
+   * path); when it flips false the dialog `close()`s. Defaults to `false` for
+   * callers (e.g. unit tests) that drive the dialog through a wrapper.
+   */
+  open?: boolean;
+  /**
+   * Optional open-state callback. App.tsx wires this to its `setAttributionOpen`
+   * so the native `close` event (Escape / backdrop / close button) flips the
+   * controlled state back to false. The callback fires once per state change
+   * with the new `open` boolean.
    */
   onOpenChange?: (open: boolean) => void;
   /**
@@ -207,20 +229,24 @@ export function AttributionModal({
   silhouettes,
   loading = false,
   error = null,
+  open = false,
   onOpenChange,
   photoAttribution,
   photoLicense,
 }: AttributionModalProps) {
   const dialogRef = useRef<HTMLDialogElement | null>(null);
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
   // Stash the previously-focused element when the modal opens so we can
-  // return focus on close. Storing on a ref avoids a re-render between
-  // open and close.
+  // return focus on close. With the controlled-open prop (#830 item D) the
+  // restore target is the AppHeader ⓘ button (the element that had focus when
+  // `open` flipped true); we capture document.activeElement at open time.
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
-  const [open, setOpen] = useState<boolean>(false);
 
-  const onOpen = useCallback(() => {
-    previouslyFocusedRef.current = (document.activeElement as HTMLElement) ?? triggerRef.current;
+  // The shared open path (#830 item D): both the controlled `open` effect below
+  // and any future programmatic opener run THIS, so initial focus + SR state are
+  // identical regardless of how the dialog was opened. Extracted from the old
+  // click-handler body verbatim (minus the deleted internal trigger state).
+  const openDialog = useCallback(() => {
+    previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
     const dialog = dialogRef.current;
     if (!dialog) return;
     // Some browsers throw if showModal() is called twice without an
@@ -233,16 +259,33 @@ export function AttributionModal({
     // `showModal()` focus-delegation, but headless Chromium under
     // Playwright doesn't always run the delegation step before the
     // test's assertion races in. Setting focus here makes the contract
-    // observable: after onOpen returns, the close button IS the active
+    // observable: after this returns, the close button IS the active
     // element. Wrap in queueMicrotask so React's render commit completes
     // before we touch the DOM ref.
     queueMicrotask(() => {
       const close = dialog.querySelector<HTMLButtonElement>('.attribution-modal-close');
       close?.focus();
     });
-    setOpen(true);
     onOpenChange?.(true);
   }, [onOpenChange]);
+
+  // Controlled-open effect (#830 item D). Mirror the `open` prop into the
+  // native dialog: open via the shared `openDialog` path, close via close().
+  // Deps are [open] ONLY — onOpenChange is intentionally excluded so a parent
+  // passing an unstable callback can't re-fire showModal()/close() on every
+  // render (the open/close guards below also make re-runs idempotent). The
+  // native `close` listener (below) is the single source of truth for
+  // onOpenChange(false); this effect must not also call it on the close path.
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (open && !dialog.open) {
+      openDialog();
+    } else if (!open && dialog.open) {
+      dialog.close();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const onClose = useCallback(() => {
     const dialog = dialogRef.current;
@@ -259,11 +302,11 @@ export function AttributionModal({
     const dialog = dialogRef.current;
     if (!dialog) return;
     const handleClose = () => {
-      setOpen(false);
       onOpenChange?.(false);
-      // Restore focus after the React commit cycle so the trigger button
-      // (which may have re-rendered) actually exists in the DOM.
-      const previous = previouslyFocusedRef.current ?? triggerRef.current;
+      // Restore focus after the React commit cycle to the element that had
+      // focus when the dialog opened (the AppHeader ⓘ button under the
+      // controlled-open prop, #830 item D).
+      const previous = previouslyFocusedRef.current;
       if (previous && typeof previous.focus === 'function') {
         previous.focus();
       }
@@ -293,18 +336,10 @@ export function AttributionModal({
   // color only, nothing to attribute, drop.
   const phylopicRows = silhouettes.filter(s => s.source !== null || s.creator !== null);
 
+  // #830 item D: the internal `.attribution-trigger` button is gone — the
+  // dialog is controlled via the `open` prop, opened by the AppHeader ⓘ button.
+  // Only the <dialog> renders here (no fragment wrapper needed).
   return (
-    <>
-      <button
-        ref={triggerRef}
-        type="button"
-        className="attribution-trigger"
-        onClick={onOpen}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-      >
-        Credits
-      </button>
       <dialog
         ref={dialogRef}
         className="attribution-modal"
@@ -578,6 +613,5 @@ export function AttributionModal({
           </section>
         </div>
       </dialog>
-    </>
   );
 }

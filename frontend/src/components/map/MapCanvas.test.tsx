@@ -19,7 +19,6 @@ import {
    Map is wrapped in forwardRef because MapCanvas passes a ref to it. */
 
 let capturedSourceProps: Record<string, unknown> = {};
-let capturedAttributionProps: Record<string, unknown> = {};
 let capturedLayerFilters: Record<string, unknown> = {};
 // #762: a single OVERWRITTEN capturedSourceProps cannot distinguish the
 // observations <Source> from the state-mask <Source>. Capture sources into an
@@ -247,15 +246,8 @@ vi.mock('react-map-gl/maplibre', () => ({
     }
     return <div data-testid="mock-layer" data-layer-id={props.id} />;
   },
-  AttributionControl: (props: Record<string, unknown>) => {
-    capturedAttributionProps = props;
-    return (
-      <div
-        data-testid="mock-attribution-control"
-        data-props={JSON.stringify(props)}
-      />
-    );
-  },
+  // #830: the standalone <AttributionControl> was removed from MapCanvas — no
+  // mock needed. attributionControl={false} keeps MapLibre auto-attribution off.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   Marker: ({ children, longitude, latitude }: any) => (
     <div
@@ -407,7 +399,6 @@ async function fireAllIdleHandlers() {
 describe('MapCanvas', () => {
   beforeEach(() => {
     capturedSourceProps = {};
-    capturedAttributionProps = {};
     capturedLayerFilters = {};
     capturedSourcesById = {};
     capturedLayerPaint = {};
@@ -458,12 +449,12 @@ describe('MapCanvas', () => {
     });
   });
 
-  it('renders the AttributionControl with OSM + OpenFreeMap + eBird (ToU §3)', () => {
+  it('does NOT render a maplibre AttributionControl over the map (#830 — consolidated to the ⓘ modal)', () => {
     render(<MapCanvas observations={[]} />);
-    const attribution = capturedAttributionProps['customAttribution'] as string[];
-    expect(attribution.join(' ')).toMatch(/OpenStreetMap/);
-    expect(attribution.join(' ')).toMatch(/OpenFreeMap/);
-    expect(attribution.join(' ')).toMatch(/eBird/);
+    // Item A: the bottom-right attribution bar is gone. The mock module no
+    // longer exports AttributionControl, and attributionControl={false} on the
+    // <Map> keeps MapLibre's own auto-attribution suppressed.
+    expect(screen.queryByTestId('mock-attribution-control')).toBeNull();
   });
 
   /* ── Sprite registration (issue #246, preserved) ────────────────── */
@@ -1209,7 +1200,6 @@ describe('onSelectSpecies popover wire', () => {
 
   beforeEach(async () => {
     capturedSourceProps = {};
-    capturedAttributionProps = {};
     capturedLayerFilters = {};
     capturedSourcesById = {};
     capturedLayerPaint = {};
@@ -1375,7 +1365,6 @@ describe('onSelectSpecies popover wire', () => {
 describe('ObservationPopover anchoring — displaced silhouette regression (#718)', () => {
   beforeEach(() => {
     capturedSourceProps = {};
-    capturedAttributionProps = {};
     capturedLayerFilters = {};
     capturedSourcesById = {};
     capturedLayerPaint = {};
@@ -1579,7 +1568,6 @@ describe('MapCanvas controllable camera (#736)', () => {
 
   beforeEach(() => {
     capturedSourceProps = {};
-    capturedAttributionProps = {};
     capturedLayerFilters = {};
     capturedSourcesById = {};
     capturedLayerPaint = {};
@@ -1897,7 +1885,6 @@ describe('MapCanvas state-artboard mask (#762)', () => {
 
   beforeEach(() => {
     capturedSourceProps = {};
-    capturedAttributionProps = {};
     capturedLayerFilters = {};
     capturedSourcesById = {};
     capturedLayerPaint = {};
