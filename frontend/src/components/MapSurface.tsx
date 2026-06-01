@@ -5,7 +5,6 @@ import type { LngLatBounds } from 'maplibre-gl';
 import type { MultiPolygon } from 'geojson';
 import type { FamilySilhouette, Observation } from '@bird-watch/shared-types';
 import { ErrorBoundary } from './ErrorBoundary.js';
-import type { BBox } from '../state/url-state.js';
 
 /**
  * Lazy-loaded MapCanvas. The React.lazy() boundary lives HERE — not inside
@@ -32,7 +31,7 @@ export interface MapSurfaceProps {
    * (already exposed for map marker clicks). Optional — when
    * absent, the popover hides the "See species details" link.
    */
-  onSelectSpecies?: (speciesCode: string, bbox: BBox | null) => void;
+  onSelectSpecies?: (speciesCode: string) => void;
   /**
    * Issue #351: passthrough for MapCanvas's onViewportChange callback.
    * App.tsx threads this so it can update its `viewportBounds` state on

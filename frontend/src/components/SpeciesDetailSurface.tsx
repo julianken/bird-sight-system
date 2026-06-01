@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
 import type { ApiClient } from '../api/client.js';
-import type { Observation } from '@bird-watch/shared-types';
 import { useSpeciesDetail } from '../data/use-species-detail.js';
 import { useSilhouettes } from '../data/use-silhouettes.js';
 import { buildFamilyColorResolver, buildFamilyPathResolver, buildFamilyImgUrlResolver } from '../data/family-color.js';
@@ -9,30 +8,10 @@ import { SpeciesDescription } from './SpeciesDescription.js';
 import { Photo } from './ds/Photo.js';
 import { StatusBlock } from './ds/StatusBlock.js';
 import type { FamilyCode } from '../config/family-palette.js';
-import type { BBox } from '../state/url-state.js';
 
 export interface SpeciesDetailSurfaceProps {
   speciesCode: string;
   apiClient: ApiClient;
-  /**
-   * Optional list of observations for this species to display. When omitted,
-   * no observation list is rendered. When provided and `bbox` is set, the list
-   * is filtered to observations within the bbox.
-   */
-  observations?: Observation[];
-  /**
-   * Optional cluster bbox to filter observations. When null/undefined,
-   * the surface renders all observations for the species (unchanged behavior).
-   * When set, only observations whose (lng, lat) falls inside the bbox are
-   * rendered. Spec §4.9 — bbox routing from cell-popover.
-   */
-  bbox?: BBox | null;
-  /**
-   * Callback fired when the user clicks the "View all observations"
-   * banner link. Should clear the bbox URL param. Required when bbox
-   * is non-null; otherwise unused.
-   */
-  onClearBbox?: () => void;
 }
 
 /**
@@ -58,7 +37,7 @@ export interface SpeciesDetailSurfaceProps {
  * inside the wrapper's scroll container (modal or sheet), not <main>.
  */
 export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
-  const { speciesCode, apiClient, observations = [], bbox, onClearBbox } = props;
+  const { speciesCode, apiClient } = props;
   const detail = useSpeciesDetail(apiClient, speciesCode);
   const { loading, error, data } = detail;
   // useSilhouettes provides the family-color payload. The data is cached at
@@ -90,21 +69,6 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
     () => buildFamilyImgUrlResolver(silhouettes),
     [silhouettes],
   );
-
-  // Phase 3 (#560) — client-side bbox filter for cluster→detail navigation.
-  // When bbox is null/undefined, all observations are rendered (passthrough).
-  // When bbox is set, only observations within the bbox (inclusive bounds) are
-  // rendered. Memo'd by [observations, bbox] so reference is stable when
-  // neither input changes. Spec §5.4.
-  const filteredObservations = useMemo(() => {
-    if (!bbox) return observations;
-    const [lngMin, latMin, lngMax, latMax] = bbox;
-    return observations.filter(
-      (o) =>
-        o.lng >= lngMin && o.lng <= lngMax &&
-        o.lat >= latMin && o.lat <= latMax,
-    );
-  }, [observations, bbox]);
 
   // Analytics: panel_opened / panel_dwell_ms (preserved from pre-Phase-4).
   useEffect(() => {
@@ -195,33 +159,6 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
         descriptionBody={data.descriptionBody}
         descriptionAttributionUrl={data.descriptionAttributionUrl}
       />
-      {bbox && (
-        <section
-          className="species-detail-bbox-banner"
-          role="region"
-          aria-label="Filtered by map area"
-        >
-          <p className="species-detail-bbox-banner__text">
-            Showing {filteredObservations.length} observations in the selected map area.
-          </p>
-          <button
-            type="button"
-            className="species-detail-bbox-banner__link"
-            onClick={onClearBbox}
-          >
-            View all observations
-          </button>
-        </section>
-      )}
-      {filteredObservations.length > 0 && (
-        <ul className="species-detail-observations" aria-label="Recent observations">
-          {filteredObservations.map((o) => (
-            <li key={o.subId} data-testid="observation-item">
-              {o.subId}
-            </li>
-          ))}
-        </ul>
-      )}
       <div
         ref={sentinelRef}
         data-testid="detail-bottom-sentinel"

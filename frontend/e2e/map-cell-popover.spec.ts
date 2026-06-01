@@ -3,15 +3,13 @@ import { test as stubTest, expect as stubExpect, VERMFLY_WITH_PHOTO } from './fi
 import { AppPage } from './pages/app-page.js';
 
 // ---------------------------------------------------------------------------
-// Phase 3 (#560): full 6-scenario cell-popover spec per design §7.3
+// Cell-popover spec per design §7.3
 //
 // Scenario breakdown:
-//   1. Desktop hover→preview→click→popover→species→bbox-URL (1440×900, dev-server)
+//   1. Desktop hover→preview→click→popover→species→?detail= nav (1440×900, dev-server)
 //   2. Desktop keyboard skip-link→cell→preview→Enter→popover→ESC→focus (1440×900, dev-server)
-//   3. Tablet tap→cluster-list→species→bbox-URL (@coarse, 768×1024, coarse-pointer)
-//   4. Mobile tap→cluster-list→expand-family→species→filtered (@coarse, 390×844, coarse-pointer)
-//   5. Banner "View all observations" clears bbox URL param (dev-server)
-//   6. Cross-surface stale-bbox clear: map species commit leaves no bbox (dev-server)
+//   3. Tablet tap→cluster-list→species→?detail= nav (@coarse, 768×1024, coarse-pointer)
+//   4. Mobile tap→cluster-list→expand-family→species→?detail= nav (@coarse, 390×844, coarse-pointer)
 //
 // Phase 2 lessons baked in (5 CI iterations to land 1 test):
 //   - Use `.click({ force: true })` on `<a role="link">` without href.
@@ -23,13 +21,13 @@ import { AppPage } from './pages/app-page.js';
 //     page.setViewportSize() within the same coarse-pointer project.
 // ---------------------------------------------------------------------------
 
-// ─── Scenario 1: Desktop hover → preview → click → popover → species → bbox-URL ─
+// ─── Scenario 1: Desktop hover → preview → click → popover → species → ?detail= ─
 //
 // No @coarse tag → runs under dev-server (1440×900 viewport).
 // Headless Chromium may not fire the map's onLoad (WebGL). We guard with
 // test.skip rather than a hard-fail so CI stays green in WebGL-less envs.
 
-test('desktop 1440×900: hover cell → preview → click → popover → species → bbox-URL', async ({ page }) => {
+test('desktop 1440×900: hover cell → preview → click → popover → species → ?detail=', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/?scope=us');
 
@@ -68,8 +66,8 @@ test('desktop 1440×900: hover cell → preview → click → popover → specie
   // Click the first species link in the CellPopover (desktop path uses .cell-popover__rows).
   // #715: at default zoom (z=3 → aggregated mode) every row carries a synthetic
   // `agg-*` code and renders as a static <span>, not a link. The popover still
-  // opens (the bbox-sniff URL hydration path is exercised), but rows are not
-  // clickable at this zoom. The popover-opens assertion above is sufficient
+  // opens, but rows are not clickable at this zoom. The popover-opens
+  // assertion above is sufficient
   // for the cell-popover smoke; the link-click path is now covered by the
   // role-real-code unit tests in CellPopover.test.tsx + the synthetic-code
   // deep-link spec in synthetic-species-code-gate.spec.ts.
@@ -199,12 +197,12 @@ test('desktop 1440×900: with the detail rail open, hovering a cell does NOT sur
   await expect(detailSurface.first()).toBeVisible();
 });
 
-// ─── Scenario 3: Tablet tap → cluster-list → species → bbox-URL (@coarse) ─
+// ─── Scenario 3: Tablet tap → cluster-list → species → ?detail= (@coarse) ─
 //
 // Phase 2 (#559) test — preserved verbatim (renamed for clarity).
 // @coarse tag → runs under coarse-pointer project (iPad gen 6, 768×1024).
 
-test('@coarse tablet 768×1024: tap marker → cluster-list popover → tap species → bbox-URL', async ({ page }) => {
+test('@coarse tablet 768×1024: tap marker → cluster-list popover → tap species → ?detail=', async ({ page }) => {
   // Cell popover is default-ON since Phase 3 (#560) — no flag override needed.
   await page.goto('/?scope=us');
   // Wait for the map render to complete (canonical pattern).
@@ -305,111 +303,9 @@ test.skip('@coarse mobile 390×844: tap marker → cluster-list → expand-famil
   await link.waitFor({ state: 'visible' });
   await link.click({ force: true });
 
-  // SpeciesDetailSurface renders (bbox banner present when bbox in URL).
+  // SpeciesDetailSurface renders.
   // #663: new clicks write ?detail=, not ?view=detail.
   await expect(page).toHaveURL(/[?&]detail=/, { timeout: 8_000 });
-});
-
-// ─── Scenario 5: Banner "View all observations" clears bbox URL param ─
-//
-// No marker interaction — loads directly with bbox in URL to exercise the
-// SpeciesDetailSurface bbox banner. Asserts URL bbox param is cleared on
-// "View all observations" click. No @coarse → dev-server.
-
-test('bbox banner "View all observations" clears bbox param from URL', async ({ page }) => {
-  // Load with bbox-filtered detail URL (§4.9 shared-link / URL-hydration path).
-  await page.goto('/?view=detail&detail=annhum&bbox=-111.0,31.0,-110.0,32.0&scope=us');
-  await page.waitForLoadState('domcontentloaded');
-
-  // Wait for the SpeciesDetailSurface to mount. The bbox banner renders when
-  // the app hydrates the bbox param.
-  const banner = page.locator('.species-detail-bbox-banner');
-  const bannerVisible = await banner.waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false);
-  if (!bannerVisible) {
-    // The species may not be in the seed DB — try with vermfly (always seeded).
-    await page.goto('/?view=detail&detail=vermfly&bbox=-111.0,31.0,-110.0,32.0&scope=us');
-    await banner.waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {});
-
-    const bannerVisibleRetry = await banner.isVisible().catch(() => false);
-    if (!bannerVisibleRetry) {
-      test.skip(true, 'bbox banner not visible — SpeciesDetailSurface may need species in seed DB; deferred to CI');
-      return;
-    }
-  }
-
-  // Click "View all observations".
-  const viewAllBtn = page.getByRole('button', { name: /View all observations/i });
-  await viewAllBtn.click();
-
-  // URL bbox param must be cleared.
-  await expect(page).not.toHaveURL(/[?&]bbox=/, { timeout: 5_000 });
-  // View stays on detail (species stays selected).
-  await expect(page).toHaveURL(/[?&]view=detail/);
-});
-
-// ─── Scenario 6: Cross-surface stale-bbox clear ─
-//
-// Load with bbox set → close detail → commit a species from the map cell
-// popover → detail URL must NOT carry the stale bbox (§4.9 cross-surface
-// invariant). #777: this previously routed through the feed surface; the
-// feed is gone, so the commit now comes from a map cell-popover species link
-// (the surviving onSelectSpecies-without-bbox path).
-// No @coarse → dev-server.
-
-test('cross-surface stale-bbox clear: map species commit leaves no bbox', async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  // Load with bbox in URL (simulates arriving from a map cluster navigation).
-  await page.goto('/?view=detail&detail=annhum&bbox=-111.0,31.0,-110.0,32.0&scope=us');
-  await page.waitForLoadState('domcontentloaded');
-
-  // The detail surface modal/sheet is open over the tab bar. Close it via
-  // its Close button so the map underneath is interactive.
-  const closeBtn = page.getByRole('button', { name: /Close species detail/i });
-  await closeBtn.waitFor({ state: 'visible', timeout: 10_000 });
-  await closeBtn.click();
-
-  // After close, the URL clears `?view=detail` automatically (onClose
-  // returns to map per App.tsx onCloseDetail, #662). The bbox is preserved
-  // — it is only cleared by the subsequent onSelectSpecies() call without
-  // bbox (the map-popover species commit below).
-  await expect(page).not.toHaveURL(/[?&]view=detail/, { timeout: 5_000 });
-
-  // Canonical "map settled" gate.
-  const marker = page.locator('[data-testid="adaptive-grid-marker"]').first();
-  const markerVisible = await marker.waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false);
-  if (!markerVisible) {
-    test.skip(true, 'No adaptive-grid markers visible — likely WebGL unavailable in headless run');
-    return;
-  }
-
-  // Open a cell popover and commit a species via its link — the surviving
-  // onSelectSpecies-without-bbox path (replaces the old feed-row click).
-  const cell = page.locator('[data-testid^="adaptive-grid-marker-cell"]').first();
-  const cellVisible = await cell.waitFor({ state: 'visible', timeout: 8_000 }).then(() => true).catch(() => false);
-  if (!cellVisible) {
-    test.skip(true, 'No cell testids visible — Phase 3 cells may not have rendered');
-    return;
-  }
-  await cell.hover();
-  await cell.click({ force: true });
-
-  const link = page.locator('.cell-popover__rows a[role="link"]').first();
-  const linkVisible = await link.waitFor({ state: 'visible', timeout: 8_000 }).then(() => true).catch(() => false);
-  if (!linkVisible) {
-    // At low zoom every row carries a synthetic agg-* code and renders as a
-    // static <span>, not a link (#715), so no commit can fire. The bbox-clear
-    // invariant is then covered directly by the App.test.tsx onSelectSpecies
-    // unit assertions; skip the e2e arm rather than assert on a non-clickable row.
-    test.skip(true, 'Cell popover rows are non-clickable synthetic codes at this zoom (#715); covered by unit tests');
-    return;
-  }
-  await link.click({ force: true });
-
-  // Detail surface must open WITHOUT the stale bbox param (§4.9 cross-surface
-  // invariant: onSelectSpecies() without bbox clears any stale bbox from URL
-  // state). #663: new clicks write ?detail=, not ?view=detail.
-  await expect(page).toHaveURL(/[?&]detail=/, { timeout: 8_000 });
-  await expect(page).not.toHaveURL(/[?&]bbox=/);
 });
 
 // ─── #761 P1 (#778): named z-index scale — stacking-order guards ───────────────
