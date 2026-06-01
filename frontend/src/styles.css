@@ -38,25 +38,12 @@
   --space-lg: 16px;
   --space-xl: 24px;
 
-  /* Vertical clearance the bottom-left .family-legend must leave for MapLibre's
-     basemap AttributionControl so the OSM / OpenFreeMap / eBird license text is
-     NEVER overlapped (ODbL + eBird ToU §3 — licensing, not cosmetic). #775.
-
-     Under the full-bleed map (#761 S2) the map fills 100vh and the non-compact
-     attribution (`compact={false}` in MapCanvas.tsx — deliberately always-
-     expanded so the OSM credit is visible without a click) renders as a bottom
-     bar that, on narrow viewports, spans the FULL viewport width and wraps to
-     multiple lines — its left portion reaching into the legend's bottom-left
-     corner. Measured band heights (single source of truth for this token,
-     re-derive with the map-root-geometry attribution-clearance guard):
-       - ≤760px : 3-line wrap  → ~60px tall, left edge at x=0  (full width)
-       - 761–1024px : 2→1-line → up to ~40px tall, wide bar
-       - >1024px : single line → ~20px tall, hugs the bottom-right corner
-     The token lifts the legend's bottom anchor ABOVE the worst-case band per
-     tier (clearance > band height), so the lift is independent of the bar's
-     horizontal extent — the legend clears it vertically regardless of width.
-     Default is the desktop tier; the two media queries below override it. */
-  --attribution-clearance: 20px;
+  /* The tiered legend-bottom clearance token was retired in #830: the
+     bottom-right MapLibre attribution bar was removed (attribution consolidated
+     into the ⓘ modal + the freshness-line eBird link), so the legend no longer
+     needs a tiered bottom lift to clear it. The legend now sits at --card-inset;
+     the only remaining bottom-sheet interaction is the peek-snap rule below
+     .family-legend. */
 
   --dur-fast: 200ms;
   --dur-base: 250ms;
@@ -866,15 +853,16 @@ body:has(.species-detail-sheet--full) .app-header-controls-pill {
 
 /* FamilyLegend floating overlay (#249). O2 (#770): changed position:absolute
    → position:fixed so the element anchors to the viewport bottom-left corner
-   as an App-root sibling (no longer a child of .map-surface). The bottom
-   offset lifts the legend ABOVE MapLibre's AttributionControl band
-   (--attribution-clearance, tiered by viewport) so the OSM / OpenFreeMap /
-   eBird credit is never overlapped — a licensing requirement, not cosmetic
-   (#775). The legend is a semantic <aside role="complementary"> — keyboard-
-   reachable, labelled by its toggle button, and self-collapsing on mobile. */
+   as an App-root sibling (no longer a child of .map-surface). The legend sits
+   at --card-inset from the bottom-left edge (the four-corner contract's
+   bottom-left anchor). The pre-#830 tiered bottom lift (to clear the removed
+   MapLibre attribution bar) is gone; the only bottom-sheet interaction is the
+   peek-snap rule below. The legend is a semantic <aside
+   role="complementary"> — keyboard-reachable, labelled by its toggle button,
+   and self-collapsing on mobile. */
 .family-legend {
   position: fixed;
-  bottom: calc(var(--space-md) + var(--attribution-clearance));
+  bottom: var(--card-inset);
   left: var(--space-md);
   z-index: var(--z-overlay);
   background: var(--color-bg-surface);
@@ -1017,33 +1005,9 @@ body:has(.species-detail-sheet--full) .app-header-controls-pill {
   background: var(--color-bg-surface);
 }
 
-/* Attribution-clearance tablet tier (#775). At 761–1024px the non-compact
-   basemap attribution bar wraps to ~2 lines (~40px tall, measured at 768×1024)
-   and still spans most of the viewport width, so the legend must clear a taller
-   band than the desktop default. Source-ordered BEFORE the ≤760px block so the
-   narrower mobile query (60px) overrides this at phone widths. */
-@media (max-width: 1024px) {
-  :root {
-    --attribution-clearance: 40px;
-  }
-}
-
-/* Mobile collapse-by-default. The component reads this breakpoint via
-   matchMedia at mount time (see MapSurface.readLegendDefaultExpanded);
-   the CSS below additionally tightens the collapsed footprint so the
-   chevron tab doesn't obscure the map. localStorage 'family-legend-
-   expanded' overrides this — the responsive default is a first-visit
-   hint, not a sticky rule.
-
-   --attribution-clearance jumps to 60px here: at ≤760px the attribution bar
-   spans the full viewport width and wraps to ~3 lines (measured 60px at
-   390×844), so the legend's bottom-left corner must clear that full band
-   (#775 — licensing requirement). */
-@media (max-width: 760px) {
-  :root {
-    --attribution-clearance: 60px;
-  }
-}
+/* #830: the two legend-clearance media overrides (tablet 40px / mobile 60px)
+   were removed along with the token — there is no longer a bottom attribution
+   bar for the legend to clear. */
 
 /* R6 fix (O5 #783): cap the legend at the overlay breakpoint (≤480px, P1's
    --overlay-bp token). The old 760px content-breakpoint rule widened the
@@ -1066,6 +1030,18 @@ body:has(.species-detail-sheet--full) .app-header-controls-pill {
    bar visible — no localStorage mutation (transient display override only). */
 .family-legend[data-force-collapsed="true"] .family-legend-entries {
   display: none;
+}
+
+/* Peek-snap sheet clearance (#830 item F). At the half/full snaps the legend is
+   already force-collapsed on phones (App.tsx legendForceCollapsed → entries
+   display:none above), so ONLY the peek snap leaves the un-collapsed legend
+   inside the bottom-sheet band. Lift the legend above the peek strip so the two
+   never overlap. This is a Layer-3 (transient-interaction) rule scoped to the
+   peek state — deliberately NOT a :root primitive and NOT applied at --half.
+   The 120px MUST stay synced to PEEK_PX in SpeciesDetailSheet.tsx (the peek
+   strip height); change both together. */
+body:has(.species-detail-sheet--peek) .family-legend {
+  bottom: calc(var(--card-inset) + 120px + var(--space-md));
 }
 
 /* Observation popover (#246, repositioned in #718). Anchored to the
