@@ -40,6 +40,20 @@ function renderChooser(overrides: Partial<React.ComponentProps<typeof ScopeChoos
   return props;
 }
 
+/**
+ * The State-path "Go" submit button. #827 added a second "Go" (the ZipInput
+ * submit), so a bare `getByRole('button', { name: /go/i })` is now ambiguous.
+ * The State "Go" is the submit button inside the State `<select>`'s own
+ * `<form>` — scope to that form to select it unambiguously. (The ZIP "Go" lives
+ * in the sibling `role="search"` form and is always enabled.)
+ */
+function getStateGo(): HTMLElement {
+  const stateSelect = screen.getByRole('combobox', { name: /state/i });
+  const stateForm = stateSelect.closest('form');
+  if (!stateForm) throw new Error('State <select> is not inside a <form>');
+  return within(stateForm).getByRole('button', { name: /go/i });
+}
+
 describe('<ScopeChooser>', () => {
   beforeEach(() => {
     mockLoadZipIndex.mockReset().mockResolvedValue(undefined);
@@ -79,7 +93,7 @@ describe('<ScopeChooser>', () => {
 
   it('state "Go" is disabled until a state is selected, then emits onPickState once with the chosen code', async () => {
     const { onPickState } = renderChooser();
-    const goButton = screen.getByRole('button', { name: /go/i });
+    const goButton = getStateGo();
     expect(goButton).toBeDisabled();
 
     await userEvent.selectOptions(
@@ -93,9 +107,42 @@ describe('<ScopeChooser>', () => {
     expect(onPickState).toHaveBeenCalledWith('US-CA');
   });
 
+  it('the ZIP path has its own always-enabled "Go" (#827) — matches the State row, never disabled', () => {
+    renderChooser();
+    // Two distinct "Go" buttons now: the State submit (getStateGo) and the ZIP
+    // submit (inside the role="search" ZipInput form). The ZIP one is always
+    // enabled — submitting a malformed value still surfaces the inline hint.
+    const search = screen.getByRole('search');
+    const zipGo = within(search).getByRole('button', { name: /^go$/i });
+    expect(zipGo).toBeEnabled();
+    expect(zipGo).toHaveAttribute('type', 'submit');
+    // Sanity: it is NOT the State Go (which starts disabled).
+    expect(zipGo).not.toBe(getStateGo());
+  });
+
+  it('forwards a resolved ZIP via the ZIP "Go" button click (#827 — pointer path)', async () => {
+    mockLookupZip.mockResolvedValue({
+      zip: '85701',
+      center: [-110.971, 32.21696],
+      stateCode: 'US-AZ',
+    });
+    const { onResolve } = renderChooser();
+
+    await userEvent.type(screen.getByRole('textbox', { name: /ZIP code/i }), '85701');
+    const search = screen.getByRole('search');
+    await userEvent.click(within(search).getByRole('button', { name: /^go$/i }));
+
+    expect(onResolve).toHaveBeenCalledTimes(1);
+    expect(onResolve).toHaveBeenCalledWith({
+      stateCode: 'US-AZ',
+      center: [-110.971, 32.21696],
+      zoom: ZIP_FLYTO_ZOOM,
+    });
+  });
+
   it('does not emit onPickState for the empty placeholder selection', async () => {
     const { onPickState } = renderChooser();
-    const goButton = screen.getByRole('button', { name: /go/i });
+    const goButton = getStateGo();
     // Button stays disabled — clicking a disabled button is inert.
     await userEvent.click(goButton);
     expect(onPickState).not.toHaveBeenCalled();
@@ -134,8 +181,8 @@ describe('<ScopeChooser>', () => {
     const placeholder = within(select).getAllByRole('option')[0];
     expect(placeholder).toHaveValue('');
     expect(placeholder).toHaveTextContent(/loading/i);
-    // Go is disabled while loading too.
-    expect(screen.getByRole('button', { name: /go/i })).toBeDisabled();
+    // State Go is disabled while loading too.
+    expect(getStateGo()).toBeDisabled();
 
     // ZIP path stays fully usable: focusing warms the index (independent path).
     const input = screen.getByRole('textbox', { name: /ZIP code/i });
