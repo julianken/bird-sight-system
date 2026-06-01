@@ -62,6 +62,54 @@ terraform plan   # review changes
 terraform apply  # apply (requires confirmation)
 ```
 
+Local `apply` is the break-glass path. Day-to-day, infra changes reach prod via
+CI — see **Deployment (CI)** below.
+
+## Deployment (CI)
+
+Infra deploys via `.github/workflows/deploy-infra.yml` (#825) using a two-job
+plan-artifact pattern. Every merge to `main` that touches `infra/terraform/**`
+(or a manual `workflow_dispatch`) runs:
+
+1. **`plan` job (ungated):** `terraform plan -out=tfplan`, writes the
+   human-readable plan to the GitHub job summary, and uploads `tfplan` as a
+   build artifact.
+2. **`apply` job (`needs: plan`):** bound to the `infra-prod` GitHub Actions
+   environment, so it pauses for a required-reviewer approval click. The
+   reviewer reads the plan job's summary **before** approving; on approval the
+   job downloads `tfplan` and runs `terraform apply tfplan` — exactly the diff
+   that was reviewed.
+
+The two jobs are deliberate, not cosmetic. GitHub Actions enforces an
+`environment:` required-reviewer rule **before** the job runs any step — there
+is no per-step gating. A single job with `environment: infra-prod` would force
+the reviewer to approve blind (before `plan` produced any output) and then run
+`plan`→`apply` unattended. Splitting plan (ungated, posts the diff) from apply
+(gated, consumes the saved plan) is the only way the reviewer sees what they are
+approving. Apply-time errors surface within minutes of merge instead of
+accumulating silently.
+
+The nightly `.github/workflows/terraform-plan-drift-check.yml` remains as the
+read-only safety net: it catches out-of-band (console) drift that no merge would
+produce, opening a `drift:automated` issue on novel drift.
+
+The two coexist without fighting over the GCS state lock:
+
+- **deploy-infra**: `concurrency` group `deploy-infra-${{ github.ref }}` with
+  `cancel-in-progress: false` (never cancel a running apply — it can orphan the
+  lock and half-apply the plan) + `-lock-timeout=120s`.
+- **drift-check**: its own `concurrency` group + `-lock-timeout=60s`.
+
+Because each holds the lock only briefly and waits (rather than erroring) if the
+other holds it, a nightly plan that overlaps an apply queues behind it.
+
+> **First-apply ordering (one-time):** the deploy SA needs
+> `roles/storage.objectAdmin` on `gs://bird-maps-tfstate` (state writes), and the
+> two known config bugs (`monitoring.tf` metric type, `cloudflare_tiered_cache`
+> token scope — tracked separately) must be fixed before the first real apply, or
+> it will fail on those resources. The `infra-prod` reviewer gate means even the
+> first auto-fire waits for a human who can see the (still-dirty) plan and decline.
+
 ## Basemap tiles
 
 The frontend basemap loads vector tiles from `tiles.openfreemap.org`
