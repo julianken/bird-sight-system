@@ -67,12 +67,27 @@ CI — see **Deployment (CI)** below.
 
 ## Deployment (CI)
 
-Infra deploys via `.github/workflows/deploy-infra.yml` (#825): every merge to
-`main` that touches `infra/terraform/**` runs `terraform plan`, then pauses on
-the `infra-prod` GitHub Actions environment for a required-reviewer approval
-click before it runs `terraform apply` on the saved plan. Apply-time errors
-surface within minutes of merge instead of accumulating silently. `workflow_dispatch`
-runs the same gated plan→apply on demand.
+Infra deploys via `.github/workflows/deploy-infra.yml` (#825) using a two-job
+plan-artifact pattern. Every merge to `main` that touches `infra/terraform/**`
+(or a manual `workflow_dispatch`) runs:
+
+1. **`plan` job (ungated):** `terraform plan -out=tfplan`, writes the
+   human-readable plan to the GitHub job summary, and uploads `tfplan` as a
+   build artifact.
+2. **`apply` job (`needs: plan`):** bound to the `infra-prod` GitHub Actions
+   environment, so it pauses for a required-reviewer approval click. The
+   reviewer reads the plan job's summary **before** approving; on approval the
+   job downloads `tfplan` and runs `terraform apply tfplan` — exactly the diff
+   that was reviewed.
+
+The two jobs are deliberate, not cosmetic. GitHub Actions enforces an
+`environment:` required-reviewer rule **before** the job runs any step — there
+is no per-step gating. A single job with `environment: infra-prod` would force
+the reviewer to approve blind (before `plan` produced any output) and then run
+`plan`→`apply` unattended. Splitting plan (ungated, posts the diff) from apply
+(gated, consumes the saved plan) is the only way the reviewer sees what they are
+approving. Apply-time errors surface within minutes of merge instead of
+accumulating silently.
 
 The nightly `.github/workflows/terraform-plan-drift-check.yml` remains as the
 read-only safety net: it catches out-of-band (console) drift that no merge would
