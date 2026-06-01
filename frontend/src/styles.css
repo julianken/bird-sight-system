@@ -599,7 +599,25 @@ body:has(.species-detail-sheet--full) .app-header-controls-pill {
   max-width: 760px;
   margin-inline: auto;
 }
-.species-detail-body { margin-top: var(--space-sm); }
+/* Shared by the desktop rail, the desktop modal, and the mobile sheet — they
+   all wrap <SpeciesDetailSurface>, which renders this body. One horizontal
+   gutter (16px) is applied here so EVERY text block (title, sci-name, family,
+   description, map-area banner) shares the same inset; previously only the
+   description carried padding while the title/banner sat flush at the edge. */
+.species-detail-body {
+  padding-inline: var(--space-lg);
+  padding-bottom: var(--space-lg);
+}
+/* The masthead photo (and its silhouette fallback) is a full-bleed hero:
+   cancel the gutter so it spans edge-to-edge. The card's own border-radius +
+   overflow clip rounds the photo's top corners; --photo-radius:0 squares the
+   inner <img>/skeleton so no rounded corners show inside the squared frame. */
+.species-detail-body > .photo {
+  --photo-radius: 0;
+  margin-inline: calc(-1 * var(--space-lg));
+  width: calc(100% + 2 * var(--space-lg));
+  margin-bottom: var(--space-md);
+}
 /* Photo / silhouette visual (#327 task-10). The photo renders at full
    container width capped at 480px so it stays usable on 1440×900 desktop
    without ballooning past the surface's 760px content cap. The silhouette
@@ -866,11 +884,14 @@ body:has(.species-detail-sheet--full) .app-header-controls-pill {
   z-index: var(--z-overlay);
   background: var(--color-bg-surface);
   border: 1px solid var(--color-border-ui);
-  border-radius: 6px;
+  /* Adopt the floating-card geometry contract (spec §2.1, #761 #803): cards
+     round at --card-radius (12px) and the bottom-left legend caps at
+     --card-maxw-legend (280px) — replaces the pre-contract 6px / 240px. */
+  border-radius: var(--card-radius);
   box-shadow: var(--shadow-listbox);
   font-size: var(--type-sm);
   color: var(--color-text-strong);
-  max-width: 240px;
+  max-width: var(--card-maxw-legend);
 }
 .family-legend-toggle {
   display: flex;
@@ -880,12 +901,21 @@ body:has(.species-detail-sheet--full) .app-header-controls-pill {
   appearance: none;
   background: transparent;
   border: none;
-  padding: var(--space-sm) var(--space-md);
+  /* 12px 16px gutter — the title aligns with the entry icons below (which sit
+     at 8px list + 8px entry = 16px from the card edge). */
+  padding: var(--space-md) var(--space-lg);
   font: inherit;
   color: inherit;
   cursor: pointer;
   text-align: left;
-  border-radius: 6px;
+  border-radius: var(--card-radius);
+}
+/* Square the toggle's bottom corners only when an entries list actually
+   follows it, so header + list read as one continuous card. :has() tracks the
+   real presence of entries — correct for expanded-but-empty and
+   force-collapsed states without needing a JS-driven class. */
+.family-legend-toggle:has(+ .family-legend-entries) {
+  border-radius: var(--card-radius) var(--card-radius) 0 0;
 }
 .family-legend-toggle:hover {
   background: var(--color-bg-hover);
@@ -905,13 +935,23 @@ body:has(.species-detail-sheet--full) .app-header-controls-pill {
 .family-legend-entries {
   list-style: none;
   margin: 0;
-  padding: var(--space-xs) var(--space-xs) var(--space-sm) var(--space-xs);
+  padding: var(--space-xs) var(--space-sm) var(--space-sm);
   display: grid;
-  grid-template-columns: 1fr;
+  /* minmax(0, 1fr) — NOT 1fr. A bare 1fr track has an implicit auto
+     minimum, so the row's intrinsic width (icon + gap + nowrap label +
+     count) lets the track exceed the shrink-to-fit card and pushes the
+     flex-shrink:0 count past the card's right edge, where overflow-y:auto
+     clips it. Capping the min to 0 keeps the track within the card so the
+     label ellipsis absorbs the slack and the count keeps its 16px gutter.
+     (overflow-y:auto already shrinks the content box when a classic
+     scrollbar is present, so the count tracks inside it — no extra gutter
+     reservation needed.) */
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   max-height: 400px;
   overflow-y: auto;
   border-top: 1px solid var(--color-border-subtle);
+  border-radius: 0 0 var(--card-radius) var(--card-radius);
 }
 .family-legend-entry-item {
   margin: 0;
@@ -920,19 +960,36 @@ body:has(.species-detail-sheet--full) .app-header-controls-pill {
 .family-legend-entry {
   display: flex;
   align-items: center;
-  gap: 6px;
+  /* 12px between the silhouette and the label; 4px block padding around a
+     28px icon yields the even 36px row height. The 8px inline padding adds to
+     the list's 8px to land the icon on the same 16px gutter as the header. */
+  gap: var(--space-md);
   width: 100%;
   appearance: none;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 4px;
-  padding: 4px 6px;
+  border-radius: var(--card-radius-inner);
+  padding: var(--space-xs) var(--space-sm);
   font: inherit;
-  font-size: var(--type-xs);
+  font-size: var(--type-sm);
   color: var(--color-text-strong);
   cursor: pointer;
   text-align: left;
-  min-height: 32px;
+  min-height: 36px;
+}
+/* The thumb silhouette renders at 44px in the ds primitive, which dwarfs the
+   13px label and overflows the row. The legend is the only consumer of
+   layout="thumb", so scope it down to a balanced 28px here (covers both the
+   inline-<svg> and the CDN mask-<div> render paths). flex:0 0 auto keeps the
+   glyph from squishing when a long family label fills the row. */
+.family-legend-entry .family-silhouette,
+.family-legend-entry .family-silhouette-img {
+  flex: 0 0 auto;
+}
+.family-legend-entry .family-silhouette--thumb svg,
+.family-legend-entry .family-silhouette-img.family-silhouette--thumb {
+  width: 28px;
+  height: 28px;
 }
 .family-legend-entry:hover {
   background: var(--color-bg-tint);
@@ -1469,7 +1526,10 @@ aside.species-detail-rail .species-detail-rail-close {
    - .species-detail-description-credit: muted small meta paragraph matching
      the freshness/attribution typographic tier throughout the sheet. */
 .species-detail-description {
-  padding: var(--space-md) var(--space-lg);
+  /* Horizontal inset now comes from .species-detail-body's shared gutter;
+     keep only the vertical rhythm so the wiki prose isn't double-indented. */
+  padding-block: var(--space-md);
+  padding-inline: 0;
   font-size: var(--type-sm);
   line-height: 1.6;
   color: var(--color-text-body);
