@@ -78,6 +78,38 @@ describe('ApiClient', () => {
     if (res.mode === 'observations') expect(res.data).toEqual([]);
   });
 
+  // #830 item B (licensing invariant — Remedy 1): the dead `Array.isArray(raw)`
+  // branch that fabricated `meta.freshestObservationAt: null` for a non-empty
+  // bare array was deleted. The live read-api always emits the discriminated
+  // envelope; the only path that could ever produce non-empty `data` with a
+  // null freshness (breaking "eBird credit visible ⟺ ≥1 marker") was that dead
+  // branch. Assert the envelope's freshestObservationAt is preserved verbatim
+  // (non-null carries through — never silently nulled).
+  it('preserves a non-null meta.freshestObservationAt from the discriminated envelope (#830 B)', async () => {
+    const ts = '2026-05-31T12:00:00.000Z';
+    const envelope = JSON.stringify({
+      mode: 'observations',
+      data: [
+        {
+          subId: 'S1', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+          lat: 32.22, lng: -110.97, obsDt: ts, locId: 'L1', locName: 'Tucson',
+          howMany: 1, isNotable: false, silhouetteId: 'tyrannidae', familyCode: 'tyrannidae',
+        },
+      ],
+      meta: { freshestObservationAt: ts },
+    });
+    vi.spyOn(global, 'fetch').mockResolvedValue(new Response(envelope, { status: 200 }));
+    const client = new ApiClient({ baseUrl: '' });
+    const res = await client.getObservations({});
+    expect(res.mode).toBe('observations');
+    if (res.mode === 'observations') {
+      expect(res.data).toHaveLength(1);
+      // The non-null timestamp survives — the deleted bare-array branch would
+      // have forced this to null on a non-empty payload.
+      expect(res.meta.freshestObservationAt).toBe(ts);
+    }
+  });
+
   it('passes through aggregated envelope unchanged (#627)', async () => {
     const agg = JSON.stringify({
       mode: 'aggregated',

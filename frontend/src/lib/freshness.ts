@@ -5,10 +5,16 @@
  * the freshestObservationAt ISO string from meta.freshestObservationAt to
  * produce a { state, label } pair for display.
  *
+ * The label is the AGE CLAUSE ONLY. The "· Source: eBird" credit is composed in
+ * AppHeader JSX (#830 item B) as `{label} · Source: <a href="https://ebird.org">eBird</a>`
+ * so the eBird credit is a real link, not interpolated text. The credit therefore
+ * appears in fresh/recent/stale (data shown) and is absent in empty/error
+ * (label: '') — preserving "attribute wherever eBird data is displayed."
+ *
  * State machine (spec: docs/design/01-spec/voice-and-content.md §Freshness label state machine):
- *   fresh  — age ≤ FRESHNESS_FRESH_MAX_MS (30 min) → "Updated N min ago · Source: eBird"
- *   recent — age ≤ FRESHNESS_RECENT_MAX_MS (6 h)   → "Updated N h ago · Source: eBird"
- *   stale  — age > FRESHNESS_RECENT_MAX_MS          → "Last updated N h ago · Source: eBird"
+ *   fresh  — age ≤ FRESHNESS_FRESH_MAX_MS (30 min) → "Updated N min ago"
+ *   recent — age ≤ FRESHNESS_RECENT_MAX_MS (6 h)   → "Updated N h ago"
+ *   stale  — age > FRESHNESS_RECENT_MAX_MS          → "Last updated N h ago"
  *   empty  — freshestObservationAt is null AND table is empty (post-migration / fresh deploy)
  *            → label: '' (suppressed — no display noise on a legitimately empty table)
  *   error  — freshestObservationAt is null AND ingestor/API truly failed
@@ -85,20 +91,20 @@ export function deriveFreshness(
   if (ageMs <= FRESHNESS_FRESH_MAX_MS) {
     return {
       state: 'fresh',
-      label: `Updated ${formatAge(ageMs)} · Source: eBird`,
+      label: `Updated ${formatAge(ageMs)}`,
     };
   }
 
   if (ageMs <= FRESHNESS_RECENT_MAX_MS) {
     return {
       state: 'recent',
-      label: `Updated ${formatAge(ageMs)} · Source: eBird`,
+      label: `Updated ${formatAge(ageMs)}`,
     };
   }
 
   // stale: age > FRESHNESS_RECENT_MAX_MS
   return {
     state: 'stale',
-    label: `Last updated ${formatAge(ageMs)} · Source: eBird`,
+    label: `Last updated ${formatAge(ageMs)}`,
   };
 }

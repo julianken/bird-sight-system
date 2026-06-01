@@ -416,12 +416,27 @@ body {
   line-height: 1.4;
 }
 
-/* Freshness / source meta — "Updated 11 min ago · Source: eBird" */
+/* Freshness / source meta — "Updated 11 min ago · Source: eBird" (the eBird
+   token is a real link; see .app-header-freshness a below). */
 .app-header-freshness {
   margin: 0;
   font-size: var(--type-xs);
   color: var(--color-text-subtle);
   line-height: 1.4;
+}
+/* The always-visible eBird source credit (#830 item B). Uses the modal-link
+   recipe — var(--color-text-strong) (~17:1 light / ~13.8:1 dark on the
+   identity-card surface --color-bg-surface) + underline. Do NOT use the
+   project link token --color-text-link (orange/cyan --color-decision-point):
+   it is only 2.53:1 on the card surface and fails WCAG 1.4.3. */
+.app-header-freshness a {
+  color: var(--color-text-strong);
+  text-decoration: underline;
+}
+.app-header-freshness a:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
 /* Hairline divider between lede content and scope rows. */
