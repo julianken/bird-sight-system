@@ -87,7 +87,22 @@ export function createApp(deps: AppDeps): Hono {
   // bypasses Cloudflare (direct *.a.run.app hits).
   app.use('*', rateLimitFromEnv());
 
-  app.get('/health', c => c.json({ ok: true }));
+  // Deepened to probe the DB (#821): a trivial round-trip catches the case
+  // where the process is up but the connection to Cloud SQL is gone, which is
+  // exactly the failure mode behind the user-facing 503s (read-api OOM-kill
+  // severs the pg connection). We catch IN the handler and return 503 directly
+  // rather than relying on app.onError — onError maps a generic throw to 500,
+  // so an in-handler catch makes the unhealthy status deterministic regardless
+  // of the failure's error shape. /health stays exempt from the rate-limiter
+  // (rate-limit.ts only matches /api/*); do not move it under /api.
+  app.get('/health', async c => {
+    try {
+      await deps.pool.query('SELECT 1');
+      return c.json({ ok: true });
+    } catch {
+      return c.json({ ok: false, error: 'database unavailable' }, 503);
+    }
+  });
 
   app.get('/api/hotspots', async c => {
     const rows = await getHotspots(deps.pool);
