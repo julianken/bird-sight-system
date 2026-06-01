@@ -1,4 +1,4 @@
-import { test, expect, STATES_FIXTURE } from './fixtures.js';
+import { test, expect, STATES_FIXTURE, VERMFLY } from './fixtures.js';
 import { AppPage } from './pages/app-page.js';
 
 /**
@@ -49,11 +49,11 @@ async function setupRoutes(
 }
 
 /**
- * Silhouettes stub for the attribution-clearance guard. The FamilyLegend only
- * mounts when `silhouettes.length > 0` (FamilyLegend.tsx), so the legend-vs-
- * attribution overlap test must register a non-empty silhouettes payload — the
- * `tyrannidae` row matches AZ_OBS's `familyCode`, plus the required `_FALLBACK`
- * row. Registered AFTER setupRoutes so this more-specific route wins (LIFO).
+ * Silhouettes stub for the peek-clearance guard. The FamilyLegend only mounts
+ * when `silhouettes.length > 0` (FamilyLegend.tsx), so the legend-vs-sheet
+ * overlap test must register a non-empty silhouettes payload — the `tyrannidae`
+ * row matches AZ_OBS's `familyCode`, plus the required `_FALLBACK` row.
+ * Registered AFTER setupRoutes so this more-specific route wins (LIFO).
  */
 async function stubSilhouettesForLegend(
   page: import('@playwright/test').Page,
@@ -91,62 +91,32 @@ async function stubSilhouettesForLegend(
 }
 
 /**
- * WebGL skip guard for the attribution-clearance guard. The MapLibre
- * AttributionControl only attaches its DOM (`.maplibregl-ctrl-attrib`) after the
- * map fires `load`; headless runs without a GPU never fire it, so the
- * bounding-box overlap check would be vacuous. Skip cleanly — mirrors the
- * `__birdMap` guard in family-legend-viewport.spec.ts. CI runs software WebGL
- * (SwiftShader), so CI exercises the full assertion.
+ * Read the family-legend + species-detail-sheet bounding boxes and the size of
+ * their vertical intersection. Returns null if either element is missing.
+ * #830: replaces the old legend-vs-attribution measurement — the attribution
+ * bar was removed, so the only remaining bottom-left collision risk is the
+ * peek-snap detail sheet.
  */
-async function skipIfAttributionAbsent(
-  page: import('@playwright/test').Page,
-  testRef: typeof test,
-): Promise<boolean> {
-  const present = await page
-    .locator('.maplibregl-ctrl-attrib')
-    .waitFor({ state: 'attached', timeout: 8_000 })
-    .then(() => true)
-    .catch(() => false);
-  if (!present) {
-    testRef.skip(
-      true,
-      '.maplibregl-ctrl-attrib not attached — maplibre `load` did not fire ' +
-        '(likely WebGL unavailable in headless run).',
-    );
-  }
-  return !present;
-}
-
-/**
- * Read the attribution control + family legend bounding boxes and the size of
- * their intersection. Returns null if either element is missing.
- */
-async function measureAttributionVsLegend(
+async function measureLegendVsSheet(
   page: import('@playwright/test').Page,
 ): Promise<{
-  attrib: { left: number; top: number; right: number; bottom: number };
+  sheet: { left: number; top: number; right: number; bottom: number };
   legend: { left: number; top: number; right: number; bottom: number };
-  intersectX: number;
   intersectY: number;
 } | null> {
   return page.evaluate(() => {
-    const attrib = document.querySelector('.maplibregl-ctrl-attrib');
+    const sheet = document.querySelector('.species-detail-sheet');
     const legend = document.querySelector('.family-legend');
-    if (!attrib || !legend) return null;
-    const a = attrib.getBoundingClientRect();
+    if (!sheet || !legend) return null;
+    const s = sheet.getBoundingClientRect();
     const l = legend.getBoundingClientRect();
-    const intersectX = Math.max(
-      0,
-      Math.min(a.right, l.right) - Math.max(a.left, l.left),
-    );
     const intersectY = Math.max(
       0,
-      Math.min(a.bottom, l.bottom) - Math.max(a.top, l.top),
+      Math.min(s.bottom, l.bottom) - Math.max(s.top, l.top),
     );
     return {
-      attrib: { left: a.left, top: a.top, right: a.right, bottom: a.bottom },
+      sheet: { left: s.left, top: s.top, right: s.right, bottom: s.bottom },
       legend: { left: l.left, top: l.top, right: l.right, bottom: l.bottom },
-      intersectX,
       intersectY,
     };
   });
@@ -339,105 +309,78 @@ test.describe('#761 (S2): full-viewport map root geometry', () => {
   });
 
   // ───────────────────────────────────────────────────────────────────────────
-  // #775 — basemap attribution clearance under the full-bleed map.
+  // #830 — peek-snap detail sheet clearance vs the family legend.
   //
-  // The full-viewport map (#761 S2) made `.map-surface` fill 100vh. MapLibre's
-  // non-compact AttributionControl (`compact={false}` — deliberately always-
-  // expanded so the OSM credit shows without a click) then renders as a bottom
-  // bar that, on short/narrow viewports, spans the full viewport width and wraps
-  // to multiple lines — its left portion reaching into the bottom-left corner
-  // where `.family-legend` lives. The legend (z-overlay) painted ON TOP of the
-  // OSM / OpenFreeMap license text. That is an ODbL + eBird-ToU LICENSING defect
-  // (the attribution must be fully visible), and it shipped with no test.
-  //
-  // Fix (#775): `.family-legend { bottom: calc(var(--space-md) +
-  // var(--attribution-clearance)) }`, with --attribution-clearance tiered by
-  // viewport (20/40/60px) to lift the legend ABOVE the worst-case band. These
-  // guards assert ZERO overlap between the two boxes at 390/768/1024 in BOTH the
-  // collapsed and expanded legend states (the expanded legend is wider, so it is
-  // the harder case at 1024 where the bar already reaches x≈192).
+  // The bottom-right MapLibre attribution bar was removed (#830 item A), so the
+  // old legend-vs-attribution guard is gone (it asserted a control that no
+  // longer renders). The only remaining bottom-left collision risk is the
+  // species-detail bottom sheet at its PEEK snap on phones: at half/full the
+  // legend is already force-collapsed (App.tsx legendForceCollapsed), so peek is
+  // the one state where the un-collapsed legend shares the bottom band with the
+  // sheet. The `body:has(.species-detail-sheet--peek) .family-legend` rule lifts
+  // the legend by calc(--card-inset + 120px + --space-md) so the two never
+  // overlap. This guard asserts the legend's bottom edge sits at or ABOVE the
+  // peek sheet's top edge at 390×844 (the AC viewport).
   // ───────────────────────────────────────────────────────────────────────────
-  test.describe('#775: basemap attribution clearance vs family legend', () => {
-    for (const vp of [
-      { width: 390, height: 844 },
-      { width: 768, height: 1024 },
-      { width: 1024, height: 768 },
-    ] as const) {
-      test.describe(`${vp.width}×${vp.height}`, () => {
-        test.use({ viewport: { width: vp.width, height: vp.height } });
+  test.describe('#830: peek-snap detail sheet clearance vs family legend', () => {
+    test.use({ viewport: { width: 390, height: 844 } });
 
-        test('attribution control is not overlapped by the family legend (collapsed + expanded)', async ({
-          page,
-          apiStub,
-        }) => {
-          await setupRoutes(page, apiStub);
-          await stubSilhouettesForLegend(page);
-          // Start from a known legend state regardless of prior persistence.
-          await page.addInitScript(() => {
-            try {
-              window.localStorage.removeItem('family-legend-expanded');
-              window.localStorage.removeItem('family-legend-expanded.v2');
-            } catch {
-              /* noop */
-            }
-          });
-
-          const app = new AppPage(page);
-          await app.goto('state=US-AZ');
-          await app.waitForAppReady();
-          await expect(app.mapCanvas).toBeVisible({ timeout: 15_000 });
-
-          if (await skipIfAttributionAbsent(page, test)) return;
-          // The legend mounts once silhouettes resolve.
-          await expect(page.locator('.family-legend')).toBeVisible({
-            timeout: 10_000,
-          });
-
-          const toggle = page.locator('.family-legend [aria-expanded]');
-
-          // Assert no overlap in BOTH legend states. The expanded legend is the
-          // wider box (the 1024 worst case), the collapsed legend the typical
-          // first-paint mobile state — both must clear the attribution band.
-          for (const wantExpanded of [false, true] as const) {
-            const current = await toggle.getAttribute('aria-expanded');
-            if (current !== String(wantExpanded)) {
-              await toggle.click();
-              await expect(toggle).toHaveAttribute(
-                'aria-expanded',
-                String(wantExpanded),
-              );
-            }
-
-            const m = await measureAttributionVsLegend(page);
-            expect(
-              m,
-              '.maplibregl-ctrl-attrib / .family-legend not found',
-            ).not.toBeNull();
-
-            // Boxes are disjoint when EITHER axis has no intersection. The
-            // licensing requirement is that the legend never covers the
-            // attribution text, so we require zero overlap area (sub-pixel
-            // tolerance for fractional rounding).
-            const disjoint =
-              m!.intersectX <= 0.5 || m!.intersectY <= 0.5;
-            expect(
-              disjoint,
-              `legend (expanded=${wantExpanded}) overlaps attribution at ${vp.width}×${vp.height}: ` +
-                `intersect ${m!.intersectX.toFixed(1)}×${m!.intersectY.toFixed(1)}px ` +
-                `[attrib ${JSON.stringify(m!.attrib)} legend ${JSON.stringify(m!.legend)}]`,
-            ).toBe(true);
-
-            // Stronger, fix-specific assertion: the legend's bottom edge sits at
-            // or ABOVE the attribution band's top edge — i.e. the legend is
-            // lifted clear vertically, independent of the bar's horizontal span.
-            expect(
-              m!.legend.bottom,
-              `legend bottom (${m!.legend.bottom.toFixed(1)}) must clear attribution top ` +
-                `(${m!.attrib.top.toFixed(1)}) at ${vp.width}×${vp.height} (expanded=${wantExpanded})`,
-            ).toBeLessThanOrEqual(m!.attrib.top + 0.5);
-          }
-        });
+    test('family legend clears the peek detail sheet at 390×844 (no overlap)', async ({
+      page,
+      apiStub,
+    }) => {
+      await setupRoutes(page, apiStub);
+      await stubSilhouettesForLegend(page);
+      await apiStub.stubSpecies('vermfly', VERMFLY);
+      // Start from a known (expanded) legend state regardless of prior
+      // persistence — the expanded legend is the taller box and the harder case.
+      await page.addInitScript(() => {
+        try {
+          window.localStorage.removeItem('family-legend-expanded');
+          window.localStorage.removeItem('family-legend-expanded.v2');
+        } catch {
+          /* noop */
+        }
       });
-    }
+
+      const app = new AppPage(page);
+      // Scope to AZ (so the legend mounts with AZ silhouettes) AND deep-link the
+      // detail param so the bottom sheet opens. At 390×844 it lands at peek.
+      await app.goto('state=US-AZ&detail=vermfly&view=detail');
+      await app.waitForAppReady();
+
+      // The sheet mounts at peek (data-snap-state="peek" → the
+      // .species-detail-sheet--peek class that the :has() rule keys on).
+      const sheet = page.locator('[data-testid=species-detail-sheet]');
+      await expect(sheet).toBeVisible({ timeout: 10_000 });
+      await expect(sheet).toHaveAttribute('data-snap-state', 'peek');
+
+      // The legend mounts once silhouettes resolve (App-root sibling — no WebGL
+      // dependency). At peek it is NOT force-collapsed, so it renders normally.
+      await expect(page.locator('.family-legend')).toBeVisible({ timeout: 10_000 });
+      // Ensure the legend is expanded (the taller, harder case).
+      const toggle = page.locator('.family-legend [aria-expanded]');
+      if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
+        await toggle.click();
+        await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      }
+
+      const m = await measureLegendVsSheet(page);
+      expect(m, '.species-detail-sheet / .family-legend not found').not.toBeNull();
+
+      // The legend's bottom edge must sit at or ABOVE the peek sheet's top edge:
+      // the peek-clearance rule lifts it clear so the two never overlap.
+      expect(
+        m!.legend.bottom,
+        `legend bottom (${m!.legend.bottom.toFixed(1)}) must clear peek sheet top ` +
+          `(${m!.sheet.top.toFixed(1)}) at 390×844 ` +
+          `[sheet ${JSON.stringify(m!.sheet)} legend ${JSON.stringify(m!.legend)}]`,
+      ).toBeLessThanOrEqual(m!.sheet.top + 0.5);
+      // And zero vertical overlap area (sub-pixel tolerance for rounding).
+      expect(
+        m!.intersectY,
+        `legend overlaps peek sheet vertically by ${m!.intersectY.toFixed(1)}px at 390×844`,
+      ).toBeLessThanOrEqual(0.5);
+    });
   });
 });
