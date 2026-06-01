@@ -174,8 +174,11 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
       expect(new URL(url).searchParams.get('state')).toBe('US-AZ');
     }
 
-    // Region label reads "Arizona" (resolved from the /api/states name table).
-    await expect(app.mapLede).toContainText('Arizona');
+    // #828: the region moved to the wordmark headline; the lede is count-only.
+    // The region ("Arizona", resolved from the /api/states name table) now reads
+    // in the wordmark line, and the lede is just the count.
+    await expect(app.appHeader.locator('.brand-region')).toHaveText('· Arizona');
+    await expect(app.mapLede).toHaveText(/^\d+ species$/);
 
     // O9 (#781): the scope-pick warmed the MapCanvas/maplibre chunk — at least
     // one chunk request fired on the scoped path (the prefetch on click + the
@@ -192,9 +195,18 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
 
     // O1 (#776) result-settle aria-live region (R9): after data settles the
     // App-root polite live region (a <div> at App root, distinct from the
-    // AppHeader scope-change <span>) carries the scope+result summary.
-    // The div is visually hidden (.sr-only) but present in the a11y tree.
-    await expect(page.locator('div[role="status"].sr-only')).toContainText('Arizona', { timeout: 3_000 });
+    // AppHeader scope-change <span>) re-speaks `ledeText`. #828 made that
+    // count-only, so the result-settle region now carries the count ("N
+    // species"), NOT the region name. The div is visually hidden (.sr-only) but
+    // present in the a11y tree (#741 copy-lockstep — this contract mirrors the
+    // displayed lede, so it moves in lockstep with App.tsx's ledeText).
+    await expect(page.locator('div[role="status"].sr-only')).toHaveText(/^\d+ species$/, { timeout: 3_000 });
+    // #828 a11y (no regression): the REGION is still announced — by the AppHeader
+    // scope-change live region ("Showing Arizona."), so a screen-reader user
+    // hears "Showing Arizona." then "N species" with no duplication.
+    await expect(
+      app.appHeader.locator('span[role="status"][aria-live="polite"]'),
+    ).toHaveText('Showing Arizona.');
   });
 
   test('?scope=us — CONUS map, region "USA", /api/observations carries NO state=', async ({
@@ -210,8 +222,8 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
     await app.waitForAppReady();
     await expect(app.mapCanvas).toBeVisible();
 
-    // Region label is "USA".
-    await expect(app.mapLede).toContainText('USA');
+    // #828: region "USA" now reads in the wordmark line; the lede is count-only.
+    await expect(app.appHeader.locator('.brand-region')).toHaveText('· USA');
 
     // Data invariant (#735): ?scope=us sends NO state= — byte-for-byte the
     // unscoped national query. Every observations request must omit state=.
@@ -234,6 +246,9 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
     // Start in a scoped state view.
     await app.goto('state=US-AZ');
     await app.waitForAppReady();
+    // #828: the scope form is collapsed behind the 🔍 disclosure — open it so
+    // the "Change scope" exit affordance is revealed.
+    await app.openScopeDisclosure();
     await expect(app.scopeControl).toBeVisible();
     expect(obsRequests.length).toBeGreaterThan(0);
 
@@ -270,7 +285,8 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
 
     // ?state wins; the ?zip is not a scope and is dropped from the resolution.
     expect(app.getUrlParams().get('state')).toBe('US-AZ');
-    await expect(app.mapLede).toContainText('Arizona');
+    // #828: AZ rendered → region in the wordmark line; lede is count-only.
+    await expect(app.appHeader.locator('.brand-region')).toHaveText('· Arizona');
     expect(obsRequests.length).toBeGreaterThan(0);
     for (const url of obsRequests) {
       expect(new URL(url).searchParams.get('state')).toBe('US-AZ');

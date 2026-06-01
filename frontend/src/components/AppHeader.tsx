@@ -10,16 +10,24 @@
  * New design: two independent tier-1 floating cards inside a transparent,
  * pointer-events-none `<header role="banner">` wrapper:
  *
- *   TOP-LEFT identity card (.app-header-identity-card) — one stacked card:
- *     1. Wordmark "Bird Maps" (link to /).
- *     2. Region name at --type-lg semibold (the PRIMARY text on a scoped view).
- *     3. Lede row: species count + freshness + source at --type-sm/--type-xs.
- *        THIS is where the formerly-invisible context-strip content now lives (#779).
- *     4. Hairline divider.
- *     5. Scope control rows (de-emphasized "change where" affordance, §4.2):
+ *   TOP-LEFT identity card (.app-header-identity-card) — one stacked card,
+ *   TWO LINES at rest (#828):
+ *     1. Wordmark row: "Bird Maps · {Region}" + a 🔍 disclosure trigger.
+ *        The visible region rides here (the loudest text); a visually-hidden
+ *        <h1>{Region}</h1> sits alongside for heading structure (A11Y-3).
+ *     2. Lede row: a COUNT-ONLY sentence ("331 species") at --type-sm (#828 —
+ *        region + time-window dropped; the region is now the wordmark headline).
+ *     ── below the fold, revealed by the 🔍 disclosure (mounted, CSS-hidden when
+ *        collapsed) ──
+ *     3. Hairline divider (only visible when the disclosure is open).
+ *     4. Scope control rows (de-emphasized "change where" affordance, §4.2):
  *        folded ScopeControl content — state select, ZIP trigger, Whole US / Change scope.
- *        The header-height top-offset that the old ScopeControl required is deleted;
- *        the identity card is a corner card, not a band, so there is nothing to dodge.
+ *        Collapsed behind the disclosure so the resting card stays two lines (#828);
+ *        🔍 toggles to ✕, focus moves to the state <select> on open, Esc closes and
+ *        restores focus to the trigger, and there is NO click-outside-to-close
+ *        (a stray map click must not discard a half-typed ZIP). The freshness line
+ *        was removed entirely (#828) — source/licensing lives in the bottom-right
+ *        attribution and recency isn't worth a permanent line on a minimized card.
  *
  *   TOP-RIGHT controls pill (.app-header-controls-pill) — compact content-width card:
  *     Filters trigger (+ active-count badge) · Attribution · Theme toggle.
@@ -29,23 +37,31 @@
  * entirely removed — the map is the always-mounted sole surface post-#688/#777.
  *
  * Responsive behaviour (driven by useBreakpoint()):
- *   wide (≥1024): Filters shows its text label; corner insets use --card-inset-wide.
- *   roomy (480–1024): Filters is icon-only; standard --card-inset gutters.
- *   compact (<480): wordmark collapses (brand only, region drops into lede row);
- *     scope control collapses to a single "Region ▾" affordance; icons only.
+ *   The resting card is TWO LINES at EVERY breakpoint (#828) — the region rides
+ *   in the wordmark line and the scope form is collapsed behind the disclosure —
+ *   so the layout is near-identical across the canonical viewport set. The only
+ *   per-breakpoint variation is in the top-right controls pill:
+ *   wide (≥1024): Filters/Attribution show text labels; corner insets use --card-inset-wide.
+ *   roomy/compact (<1024): Filters/Attribution are icon-only; standard --card-inset gutters.
  *
- * Lede props (O3 #779) — carried from MapSurface into AppHeader so the formerly
- * invisible context-strip content renders in the identity card:
- *   - ledeText: the pre-rendered lede sentence (or null while loading / unscoped).
- *   - freshnessLabel: the age clause only, e.g. "Updated 20 min ago" (or '').
- *     The "· Source: eBird" credit (a real link) is composed in JSX below (#830).
+ * Lede prop (O3 #779 / #828) — carried from MapSurface into AppHeader so the
+ * formerly invisible context-strip content renders in the identity card:
+ *   - ledeText: the pre-rendered COUNT-ONLY lede ("331 species") or null while
+ *     loading / unscoped. Region + time-window were dropped in #828.
  *
- * Scope-control props (§4.2) — ScopeControl content is now folded into the
- * bottom rows of this card. When `scope.kind === 'unscoped'` the scope rows
- * are hidden (chooser is the only affordance on the unscoped landing).
+ * The always-visible eBird + OpenFreeMap attribution does NOT live in this card
+ * (#828 removed the freshness line that #830 had hosted the eBird link in); it
+ * is restored to the bottom-right corner as App-root chrome (.map-attribution,
+ * four-corner contract §4.8). The full credits stay in the top-right ⓘ modal.
+ *
+ * Scope-control props (§4.2) — ScopeControl content is folded into the bottom
+ * rows of this card, behind the 🔍 disclosure (#828). When `scope.kind ===
+ * 'unscoped'` the disclosure + scope rows are hidden (the chooser is the only
+ * affordance on the unscoped landing).
  */
 
-import type { RefObject } from 'react';
+import type { KeyboardEvent, RefObject } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { ThemeToggle } from './ThemeToggle.js';
 import type { ScopedView } from './ScopeControl.js';
 import { ScopeControl } from './ScopeControl.js';
@@ -83,21 +99,15 @@ export interface AppHeaderProps {
   filtersTriggerRef: RefObject<HTMLButtonElement>;
   /** Open the Credits & Attribution modal. */
   onOpenAttribution: () => void;
-  // ── Lede / context-strip props (O3 #779) ────────────────────────────────
+  // ── Lede / context-strip props (O3 #779 / #828) ─────────────────────────
   /**
-   * Pre-rendered lede sentence from MapLede (e.g. "331 species seen across Arizona
-   * in the last 14 days."). Null while loading, null when region=null (unscoped).
-   * Rendered in the identity card at --type-sm as the lede row.
+   * Pre-rendered COUNT-ONLY lede sentence (e.g. "331 species") from the
+   * `ledeText` useMemo in App.tsx. Null while loading, null when region=null
+   * (unscoped). Rendered in the identity card at --type-sm as the lede row.
+   * #828: the region + time-window were dropped — the region is the wordmark
+   * headline and the window is discoverable via Filters.
    */
   ledeText: string | null;
-  /**
-   * Freshness age clause from deriveFreshness (e.g. "Updated 11 min ago").
-   * Empty string when not yet resolved or for empty/error data states. The
-   * "· Source: eBird" credit (a real ebird.org link) is composed in AppHeader
-   * JSX, not interpolated into this string (#830 item B). Rendered in the
-   * identity card below the lede at --type-xs --color-text-subtle.
-   */
-  freshnessLabel: string;
   // ── Scope-control props (§4.2) ───────────────────────────────────────────
   /**
    * Active scope — determines whether scope rows are rendered. When
@@ -125,7 +135,6 @@ export function AppHeader({
   filtersTriggerRef,
   onOpenAttribution,
   ledeText,
-  freshnessLabel,
   scope,
   states,
   onPickState,
@@ -140,38 +149,122 @@ export function AppHeader({
   // At wide (≥1024), Filters shows a text label; below it is icon-only.
   const filtersLabeled = bp === 'wide';
 
+  // ── Scope disclosure (#828) ──────────────────────────────────────────────
+  // The scope form collapses behind a 🔍 trigger on the wordmark row and
+  // expands IN PLACE (the card is already a flex column). State is component-
+  // local — re-scoping is the persisted action, not the panel's open/closed
+  // state, so this does NOT belong in the URL. Spec §7 (disclosure pattern).
+  const [scopeOpen, setScopeOpen] = useState(false);
+  const scopeRegionId = useId();
+  const scopeTriggerRef = useRef<HTMLButtonElement>(null);
+  const scopeRowsRef = useRef<HTMLDivElement>(null);
+
+  // Open → move focus to the first field (the state <select>); spec §7. The
+  // ScopeControl owns the <select> internally, so we reach it through the rows
+  // wrapper rather than threading a ref prop. Runs only on the open edge so
+  // re-renders while open don't steal focus.
+  useEffect(() => {
+    if (scopeOpen) {
+      scopeRowsRef.current?.querySelector('select')?.focus();
+    }
+  }, [scopeOpen]);
+
+  // If the scope goes inactive (→ unscoped chooser) while the disclosure is
+  // open, reset to collapsed so a later re-scope starts closed (the trigger is
+  // unmounted on the unscoped landing, so the open state would otherwise
+  // persist invisibly).
+  useEffect(() => {
+    if (!scopeActive) setScopeOpen(false);
+  }, [scopeActive]);
+
+  // Esc collapses + restores focus to the trigger (spec §7). NO click-outside:
+  // a stray map click must not discard a half-typed ZIP. Handler lives on the
+  // identity card so Esc closes from any field inside the form OR from the
+  // trigger itself; guarded on `scopeOpen` so a stray Esc on the resting card
+  // (e.g. while a popover elsewhere is the real Esc target) is a no-op here.
+  const onCardKeyDown = useCallback((e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape' && scopeOpen) {
+      e.stopPropagation();
+      setScopeOpen(false);
+      scopeTriggerRef.current?.focus();
+    }
+  }, [scopeOpen]);
+
   return (
     // Transparent pointer-events-none wrapper preserves the ONE role="banner"
     // landmark while letting the map receive pointer events in the empty center.
     // Each cluster gets pointer-events: auto so they remain interactive.
     <header className="app-header" role="banner">
-      {/* TOP-LEFT: identity card (wordmark + lede + scope rows) */}
-      <div className="app-header-identity-card" aria-label="Bird Maps identity">
-        {/* Row 1: Wordmark */}
-        <a
-          className="app-header-wordmark"
-          href="/"
-          aria-label={region ? `Bird Maps ${region} — home` : 'Bird Maps — home'}
-        >
-          Bird Maps
-          {/* At compact (<480) the region drops to the lede row; keep it in the
-              wordmark at roomy/wide. Spec: compact collapses to brand+region pill
-              but that's the label in the lede row below, not a second inline span. */}
-          {region && bp !== 'compact' && (
-            <span className="brand-region" aria-hidden="true"> · {region}</span>
-          )}
-        </a>
+      {/* TOP-LEFT: identity card (wordmark+region+lede; scope behind disclosure) */}
+      <div
+        className="app-header-identity-card"
+        aria-label="Bird Maps identity"
+        onKeyDown={onCardKeyDown}
+      >
+        {/* Row 1: Wordmark line — "Bird Maps · {Region}" + the 🔍 disclosure.
+            The region rides here (the loudest text on a scoped view, #828); the
+            scope form collapses behind the search trigger. */}
+        <div className="app-header-wordmark-row">
+          <a
+            className="app-header-wordmark"
+            href="/"
+            aria-label={region ? `Bird Maps ${region} — home` : 'Bird Maps — home'}
+          >
+            Bird Maps
+            {/* #828: the visible region rides in the wordmark line at EVERY
+                breakpoint (the resting card is two lines everywhere). The
+                matching <h1> below is sr-only so the region isn't read twice. */}
+            {region && (
+              <span className="brand-region" aria-hidden="true"> · {region}</span>
+            )}
+          </a>
 
-        {/* Row 2: Region name — PRIMARY heading (spec §5.2, A11Y-3).
-            Rendered as <h1> for every scoped view — this is the page's single
-            <h1>, satisfying A11Y-3 "exactly one h1 per surface."
-            At compact (<480): the text is visually sr-only (the region label
-            is already embedded in the lede sentence below), but the h1 stays
-            in the accessibility tree so the heading count stays at 1.
-            Hidden only when region is null (unscoped — the chooser handles
-            scope narration there). */}
+          {/* 🔍/✕ scope disclosure — only on a scoped view (the unscoped landing
+              has no scope form; the chooser is the sole affordance there). The
+              disclosure pattern (spec §7): aria-expanded + aria-controls pointing
+              at the mounted-but-hidden scope region (a valid IDREF, unlike the
+              conditionally-rendered Filters dialog which omits aria-controls). */}
+          {scopeActive && (
+            <button
+              ref={scopeTriggerRef}
+              type="button"
+              className="app-header-scope-toggle"
+              onClick={() => setScopeOpen(o => !o)}
+              aria-expanded={scopeOpen}
+              aria-controls={scopeRegionId}
+              aria-label={scopeOpen ? 'Close scope options' : 'Change region'}
+            >
+              {scopeOpen ? (
+                <svg
+                  className="app-header-btn-icon"
+                  width="20" height="20" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+                  strokeLinejoin="round" aria-hidden="true"
+                >
+                  <path d="M18 6 6 18M6 6l12 12" />
+                </svg>
+              ) : (
+                <svg
+                  className="app-header-btn-icon"
+                  width="20" height="20" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+                  strokeLinejoin="round" aria-hidden="true"
+                >
+                  <circle cx="11" cy="11" r="8" />
+                  <path d="m21 21-4.3-4.3" />
+                </svg>
+              )}
+            </button>
+          )}
+        </div>
+
+        {/* Region name — preserved as the page's single <h1> for heading
+            structure (A11Y-3), but visually hidden at EVERY breakpoint (#828):
+            the visible "Arizona" lives in the wordmark line above, so the <h1>
+            is sr-only to avoid reading the region twice. Omitted when region is
+            null (unscoped — the chooser handles scope narration there). */}
         {region && (
-          <h1 className={`app-header-region-name${bp === 'compact' ? ' sr-only' : ''}`}>
+          <h1 className="app-header-region-name sr-only">
             {region}
           </h1>
         )}
@@ -189,45 +282,34 @@ export function AppHeader({
           </span>
         )}
 
-        {/* Row 3: Lede text + freshness (O3 #779 — the formerly invisible context strip).
-            The lede is visible here for the first time; the old in-flow
-            .map-context-strip band is removed from MapSurface.
+        {/* Row 2: Lede — a COUNT-ONLY sentence (#828; region + window dropped).
+            The old in-flow .map-context-strip band is removed from MapSurface.
             data-testid="map-lede" is the stable test hook for e2e specs
             (#716 suppression contract: absent while loading, visible after). */}
         {ledeText && (
           <div className="app-header-lede-row">
             <p className="app-header-lede" data-testid="map-lede">{ledeText}</p>
-            {/* #830 item B: the always-visible eBird credit lives here as a real
-                link (the freshness line is proper top-left chrome, not a floating
-                corner label). `freshnessLabel` is the age clause only; the
-                "· Source: eBird" credit is composed here. The truthiness guard
-                wraps the WHOLE line so empty/error states (label: '') render
-                nothing — eBird credit visible ⟺ observations shown. The link
-                uses rel="noopener noreferrer" (the surviving modal convention;
-                the old MapCanvas noopener-only block was deleted in item A). */}
-            {freshnessLabel && (
-              <p className="app-header-freshness">
-                {freshnessLabel} · Source:{' '}
-                <a
-                  href="https://ebird.org"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  eBird
-                </a>
-              </p>
-            )}
           </div>
         )}
 
-        {/* Hairline divider — only visible when scope rows follow */}
-        {scopeActive && <hr className="app-header-divider" aria-hidden="true" />}
-
-        {/* Rows 4+: Scope control (§4.2) — de-emphasized "change where" rows.
-            Folded directly into the identity card; no longer a separate top-center
-            band with a header-height offset. */}
+        {/* Scope disclosure body (§4.2 / #828) — MOUNTED whenever scope is active
+            (so aria-controls has a valid target) but CSS-collapsed until the 🔍
+            trigger opens it. `data-open` drives the reveal; the Esc handler lives
+            here so a press from any field (or the trigger) collapses + restores
+            focus. NO click-outside (a stray map click must not lose a typed ZIP).
+            The divider only renders when open — the resting card is two lines. */}
         {scopeActive && (
-          <div className="app-header-scope-rows">
+          <div
+            id={scopeRegionId}
+            ref={scopeRowsRef}
+            className="app-header-scope-rows"
+            data-open={scopeOpen}
+            hidden={!scopeOpen}
+          >
+            {/* Divider only renders when open — the resting card is two lines.
+                (The ScopeControl below stays mounted regardless so aria-controls
+                always resolves to a present target.) */}
+            {scopeOpen && <hr className="app-header-divider" aria-hidden="true" />}
             <ScopeControl
               scope={scope as ScopedView}
               states={states}

@@ -39,7 +39,15 @@ export class AppPage {
   /** ZIP `role=status` region inside the chooser ("ZIP not recognized — …"). */
   readonly chooserZipStatus: Locator;
 
-  // --- In-state ScopeControl (on-map re-scope bar, #737) accessors ---
+  // --- In-state ScopeControl (on-map re-scope form, #737 / #828) accessors ---
+  /**
+   * #828: the in-state scope form is collapsed behind a 🔍 disclosure on the
+   * identity card's wordmark row. This is the trigger button (accessible name
+   * "Change region" collapsed / "Close scope options" expanded). Call
+   * `openScopeDisclosure()` before interacting with the fields below — they are
+   * mounted-but-hidden until the disclosure is expanded.
+   */
+  readonly scopeDisclosureTrigger: Locator;
   /** The floating in-state `<ScopeControl>` region (visible only in a scoped view). */
   readonly scopeControl: Locator;
   /** The in-state state-switch `<select>` (`aria-label='Switch state'`). */
@@ -130,7 +138,10 @@ export class AppPage {
     this.chooserZipError = this.chooser.getByText('Enter a 5-digit ZIP', { exact: true });
     this.chooserZipStatus = this.chooser.getByRole('status');
 
-    // In-state ScopeControl (#737) — region accessible name "Change the map scope".
+    // In-state ScopeControl (#737 / #828) — collapsed behind a 🔍 disclosure on
+    // the identity card. The trigger lives in the header banner; the region
+    // accessible name is still "Change the map scope".
+    this.scopeDisclosureTrigger = this.appHeader.getByRole('button', { name: /change region|close scope options/i });
     this.scopeControl = page.getByRole('region', { name: 'Change the map scope' });
     this.scopeControlStateSelect = this.scopeControl.getByLabel('Switch state', { exact: true });
     this.scopeControlWholeUs = this.scopeControl.getByRole('button', { name: 'Whole US', exact: true });
@@ -188,6 +199,21 @@ export class AppPage {
    */
   async waitForMapLoad(timeout = 10_000): Promise<void> {
     await this.mapCanvas.waitFor({ state: 'visible', timeout });
+  }
+
+  /**
+   * #828: expand the in-state scope disclosure so the scope form (state select,
+   * ZIP, Whole US / Change scope) is revealed. The form is mounted-but-hidden in
+   * a scoped view until the 🔍 trigger is clicked. Idempotent: if already open
+   * (aria-expanded=true) it is a no-op. Any test that interacts with the in-card
+   * scope fields must call this first.
+   */
+  async openScopeDisclosure(): Promise<void> {
+    const expanded = await this.scopeDisclosureTrigger.getAttribute('aria-expanded');
+    if (expanded !== 'true') {
+      await this.scopeDisclosureTrigger.click();
+      await this.scopeControlStateSelect.waitFor({ state: 'visible' });
+    }
   }
 
   /**

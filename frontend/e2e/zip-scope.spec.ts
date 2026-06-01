@@ -122,8 +122,9 @@ test.describe('ZIP scope round-trip + empty-region + error paths (D6, #741)', ()
     for (const url of obsRequests) {
       expect(new URL(url).searchParams.get('state')).toBe('US-AZ');
     }
-    // AZ has data → the lede reads a populated region (NOT the empty copy).
-    await expect(app.mapLede).toContainText('Arizona');
+    // AZ has data → the count-only lede reads a populated region (#828: the
+    // region moved to the wordmark headline, so the lede no longer names it).
+    await expect(app.mapLede).toHaveText(/^\d+ (species|sightings of .+)$/);
     await expect(app.mapLede).not.toContainText('No recent sightings');
   });
 
@@ -143,13 +144,15 @@ test.describe('ZIP scope round-trip + empty-region + error paths (D6, #741)', ()
     await app.waitForAppReady();
     await expect(app.mapCanvas).toBeVisible();
 
-    // Data-availability copy (C7): the region itself is sparse — NOT the
-    // filter-narrowing copy. Region label resolves to "New York".
-    await expect(app.mapLede).toHaveText('No recent sightings in New York yet.');
+    // Data-availability copy (C7 / #828): the region itself is sparse — NOT the
+    // filter-narrowing copy. #828 shortened both to count-only forms: the sparse
+    // (no-filter) branch reads "No recent sightings", the filter-narrowing branch
+    // reads "No matches for these filters". The load-bearing distinction (data-
+    // availability ≠ filter-narrowing) is preserved in the shortened copy.
+    await expect(app.mapLede).toHaveText('No recent sightings');
     // The filter-narrowing copy MUST be absent (the load-bearing distinction).
-    await expect(
-      page.getByText('No sightings match your current filters.'),
-    ).toHaveCount(0);
+    await expect(page.getByText('No matches for these filters')).toHaveCount(0);
+    await expect(page.getByText('No sightings match your current filters.')).toHaveCount(0);
   });
 
   test('unknown well-formed ZIP → role=status "ZIP not recognized"; scope unchanged; value retained', async ({

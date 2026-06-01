@@ -564,6 +564,47 @@ describe('Phase 6: Footer removal + Attribution via AppHeader (issue #250 → Ph
     await userEvent.click(screen.getByRole('button', { name: /Credits & attribution/i }));
     expect(dialog?.hasAttribute('open')).toBe(true);
   });
+
+  // #828 Option-A rebase over #830: #828 deletes the identity-card freshness
+  // line that #830 had hosted the always-visible eBird credit in, so the
+  // license-floor credit is restored to the bottom-right .map-attribution corner
+  // (four-corner contract §4.8). This is the always-visible eBird-ToU-§3 anchor;
+  // the full credits stay in the top-right ⓘ modal (tested above). Assert the
+  // eBird link is present (licensing) AND that no in-card freshness line
+  // resurfaced.
+  it.each(['map', 'detail'] as const)(
+    'renders the always-visible bottom-right eBird + OpenFreeMap attribution on view=%s',
+    async view => {
+      mockUrlState.state = {
+        since: '14d', notable: false, speciesCode: null, familyCode: null, view,
+        scope: { kind: 'us' as const },
+      };
+      render(<App />);
+      await screen.findByRole('banner');
+      const attribution = document.querySelector('.map-attribution');
+      expect(attribution).not.toBeNull();
+      const ebird = within(attribution as HTMLElement).getByRole('link', { name: 'eBird' });
+      expect(ebird).toHaveAttribute('href', 'https://ebird.org');
+      expect(ebird).toHaveAttribute('rel', 'noopener noreferrer');
+      expect(ebird).toHaveAttribute('target', '_blank');
+      const ofm = within(attribution as HTMLElement).getByRole('link', { name: 'OpenFreeMap' });
+      expect(ofm).toHaveAttribute('href', 'https://openfreemap.org');
+      // The in-card freshness line stays gone (Option A relocated, not restored).
+      expect(document.querySelector('.app-header-freshness')).toBeNull();
+    },
+  );
+
+  it('does NOT render the bottom-right attribution on the unscoped landing', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'map',
+      scope: { kind: 'unscoped' as const },
+    };
+    render(<App />);
+    await screen.findByRole('banner');
+    // Unscoped → no map data shown → no always-visible data credit (the chooser
+    // scrim owns the unscoped landing; eBird credit appears once a scope resolves).
+    expect(document.querySelector('.map-attribution')).toBeNull();
+  });
 });
 
 describe('Phase 3: AppHeader + Filters panel', () => {
@@ -792,127 +833,13 @@ describe('O4 (#780): Filters floating sheet — modality, dismiss, inert, aria',
   });
 });
 
-describe('L2: freshness empty state (null freshestObservationAt)', () => {
-  // When the API returns null for freshestObservationAt (empty table or ingestor
-  // not yet run), the app must NOT render alarming "Source unavailable" copy —
-  // it silently suppresses the freshness label. (critic L2, #456 W3-A)
-  const OBS = {
-    subId: 'S1',
-    speciesCode: 'vermfly',
-    comName: 'Vermilion Flycatcher',
-    lat: 32.2,
-    lng: -110.9,
-    obsDt: new Date().toISOString(),
-    locId: 'L1',
-    locName: 'Sabino Canyon',
-    howMany: 1,
-    isNotable: false,
-    silhouetteId: null,
-    familyCode: null,
-  };
-
-  beforeEach(() => {
-    __resetSilhouettesCache();
-    __resetStatesCache();
-    mockGetStates.mockResolvedValue([]);
-    mapSurfaceRef.renderCount = 0;
-    mapSurfaceRef.boundsKey = undefined;
-    mapSurfaceRef.scopeBounds = undefined;
-    mapSurfaceRef.flyTo = undefined;
-    mockUrlState.state = { since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'map',
-      scope: { kind: 'us' as const },
-    };
-    mockGetHotspots.mockResolvedValue([]);
-    mockGetSilhouettes.mockResolvedValue([]);
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it('does not render alarming freshness copy when freshestObservationAt is null', async () => {
-    mockGetObservations.mockResolvedValue({ data: [OBS], meta: { freshestObservationAt: null } });
-    render(<App />);
-    // MapSurface (which hosts the MapLede + freshness line) is stubbed in this
-    // file; assert at the App level that a null freshestObservationAt drives no
-    // alarming copy into the rendered tree. The freshness-suppression rendering
-    // itself is covered by MapLede.test.tsx.
-    await screen.findByTestId('map-surface-stub');
-    expect(screen.queryByText(/Source unavailable/i)).toBeNull();
-    expect(screen.queryByText(/check back soon/i)).toBeNull();
-  });
-});
-
-describe('L3: nowTick advances on visibilitychange (tab return)', () => {
-  // useRef(new Date()) would freeze `now` at first render. After hours of the
-  // tab being hidden, freshness labels would stay stuck. Pattern A: bump nowTick
-  // on visibilitychange so labels re-derive when the user returns to the tab.
-  // (critic L3, #456 W3-A)
-  const RECENT_ISO = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-
-  const OBS = {
-    subId: 'S1',
-    speciesCode: 'vermfly',
-    comName: 'Vermilion Flycatcher',
-    lat: 32.2,
-    lng: -110.9,
-    obsDt: RECENT_ISO,
-    locId: 'L1',
-    locName: 'Sabino Canyon',
-    howMany: 1,
-    isNotable: false,
-    silhouetteId: null,
-    familyCode: null,
-  };
-
-  beforeEach(() => {
-    __resetSilhouettesCache();
-    __resetStatesCache();
-    mockGetStates.mockResolvedValue([]);
-    mapSurfaceRef.renderCount = 0;
-    mapSurfaceRef.boundsKey = undefined;
-    mapSurfaceRef.scopeBounds = undefined;
-    mapSurfaceRef.flyTo = undefined;
-    mockUrlState.state = { since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'map',
-      scope: { kind: 'us' as const },
-    };
-    mockGetHotspots.mockResolvedValue([]);
-    mockGetSilhouettes.mockResolvedValue([]);
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it('registers a visibilitychange listener on mount and removes it on unmount', async () => {
-    const addSpy = vi.spyOn(document, 'addEventListener');
-    const removeSpy = vi.spyOn(document, 'removeEventListener');
-    mockGetObservations.mockResolvedValue({ data: [OBS], meta: { freshestObservationAt: RECENT_ISO } });
-    const { unmount } = render(<App />);
-    await screen.findByTestId('map-surface-stub');
-
-    expect(addSpy).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
-
-    unmount();
-    expect(removeSpy).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
-  });
-
-  it('fires setNowTick when tab becomes visible', async () => {
-    mockGetObservations.mockResolvedValue({ data: [OBS], meta: { freshestObservationAt: RECENT_ISO } });
-    render(<App />);
-    await screen.findByTestId('map-surface-stub');
-
-    // Simulate tab returning to foreground — trigger visibilitychange with
-    // document.visibilityState === 'visible' (jsdom default).
-    await act(async () => {
-      Object.defineProperty(document, 'visibilityState', { value: 'visible', writable: true, configurable: true });
-      document.dispatchEvent(new Event('visibilitychange'));
-    });
-
-    // App re-renders without crashing — the surface is still mounted.
-    expect(screen.getByTestId('map-surface-stub')).toBeInTheDocument();
-  });
-});
+// #828: the L2 (freshness empty-state) and L3 (nowTick/visibilitychange
+// re-derivation) suites were removed with the freshness module. The freshness
+// line, `deriveFreshness`, and the nowTick visibilitychange machinery no longer
+// exist (the bottom-right attribution carries source/licensing instead), so
+// there is no "Source unavailable" copy and no per-tab-return re-derivation to
+// guard. The deleted module's own unit coverage lived in lib/freshness.test.ts
+// + config/freshness.test.ts, also removed this PR. (#456 W3-A is superseded.)
 
 describe('Clarity view tagging (#657-followup)', () => {
   beforeEach(() => {
@@ -1338,6 +1265,9 @@ describe('#740 (C6): scope wiring end-to-end', () => {
     };
     render(<App />);
     await screen.findByTestId('map-surface-stub');
+    // #828: the in-card ScopeControl is collapsed behind the 🔍 disclosure —
+    // open it so its ZipInput is revealed (mounted-but-hidden until expanded).
+    await userEvent.click(screen.getByRole('button', { name: /change region/i }));
 
     // Drive the ScopeControl's ZipInput onResolve via the real component: type
     // a known ZIP and submit. We stub zip-lookup's network by mocking fetch to
@@ -1454,6 +1384,9 @@ describe('#740 (C6): scope wiring end-to-end', () => {
     };
     render(<App />);
     await screen.findByTestId('map-surface-stub');
+    // #828: the scope form is collapsed behind the 🔍 disclosure — open it first
+    // so the "Change scope" exit affordance is revealed and clickable.
+    await userEvent.click(screen.getByRole('button', { name: /change region/i }));
     await userEvent.click(screen.getByRole('button', { name: /Change scope/i }));
     expect(mockUrlState.set).toHaveBeenCalledWith({ scope: { kind: 'unscoped' } });
   });
@@ -1761,6 +1694,9 @@ describe('O9 (#781): scope-gated MapCanvas prefetch wiring', () => {
       expect(mockPrefetchMapCanvas).toHaveBeenCalled();
     });
     mockPrefetchMapCanvas.mockClear();
+    // #828: open the 🔍 disclosure so the in-card ScopeControl ZipInput is
+    // revealed (the scope form is collapsed/hidden until expanded).
+    await userEvent.click(screen.getByRole('button', { name: /change region/i }));
 
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(
@@ -2120,5 +2056,164 @@ describe('O8 (#784): React.memo render-count regression — FamilyLegend + Scope
     });
 
     expect(overlayRenderCounts.familyLegend - countAfterMount).toBeLessThanOrEqual(1);
+  });
+});
+
+// #828 — Lede dedupe: the AppHeader identity card's lede drops the region and
+// the time-window from every template (the region is now the wordmark headline;
+// the window is discoverable only via Filters). The producer is the `ledeText`
+// useMemo in App.tsx; these tests drive the 5 variants end-to-end through the
+// real AppHeader (MapSurface is stubbed, AppHeader is not) and assert the
+// count-only copy from the issue's table — plus that the old "seen across
+// {region} … in the last {period}." strings are gone (the #741 copy-lockstep
+// contract). The cold-load suppression (#716) is unchanged and still covered by
+// the map-cold-load e2e + the L2 suite above.
+describe('#828: lede dedupe — count-only copy, no region, no time-window', () => {
+  const STATES = [
+    { stateCode: 'US-AZ', name: 'Arizona', bbox: [-114.82, 31.33, -109.05, 37.0] as [number, number, number, number] },
+  ];
+
+  function obs(overrides: Partial<{ speciesCode: string; comName: string; familyCode: string | null }> = {}) {
+    return {
+      subId: `S-${Math.random().toString(36).slice(2)}`,
+      speciesCode: overrides.speciesCode ?? 'vermfly',
+      comName: overrides.comName ?? 'Vermilion Flycatcher',
+      lat: 32.2,
+      lng: -110.9,
+      obsDt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      locId: 'L1',
+      locName: 'Tucson',
+      howMany: 1,
+      isNotable: false,
+      silhouetteId: null,
+      familyCode: overrides.familyCode ?? null,
+    };
+  }
+
+  beforeEach(() => {
+    __resetSilhouettesCache();
+    __resetStatesCache();
+    __resetZipIndexCache();
+    mockGetHotspots.mockResolvedValue([]);
+    mockGetSilhouettes.mockResolvedValue([]);
+    mockGetStates.mockResolvedValue(STATES);
+    mockUrlState.set.mockClear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('Default (T4): "{N} species" — no region, no window', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
+    };
+    mockGetObservations.mockResolvedValue({
+      data: [obs({ speciesCode: 'vermfly' }), obs({ speciesCode: 'gilwoo', comName: 'Gila Woodpecker' })],
+      meta: { freshestObservationAt: new Date().toISOString() },
+    });
+    render(<App />);
+    const lede = await screen.findByTestId('map-lede');
+    expect(lede).toHaveTextContent('2 species');
+    expect(lede).not.toHaveTextContent(/seen across/i);
+    expect(lede).not.toHaveTextContent(/Arizona/i);
+    expect(lede).not.toHaveTextContent(/in the last/i);
+  });
+
+  it('Family filter (T3): "{N} species of {familyName}" — no region, no window', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: 'picidae',
+      view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
+    };
+    mockGetObservations.mockResolvedValue({
+      // Two DISTINCT species in the same family so speciesCount > 1 → the lede
+      // takes the family-filter branch (the single-species branch only fires at
+      // speciesCount === 1 with a resolvable common name).
+      data: [
+        obs({ speciesCode: 'gilwoo', comName: 'Gila Woodpecker', familyCode: 'picidae' }),
+        obs({ speciesCode: 'ladwoo', comName: 'Ladder-backed Woodpecker', familyCode: 'picidae' }),
+      ],
+      meta: { freshestObservationAt: new Date().toISOString() },
+    });
+    render(<App />);
+    const lede = await screen.findByTestId('map-lede');
+    // familyName is resolved from the family taxonomy; assert the count + "species of"
+    // shape and the absence of region/window. (The exact family label is owned by
+    // the family-name lookup; the dedupe contract is the count + no region/window.)
+    expect(lede).toHaveTextContent(/^2 species of .+$/);
+    expect(lede).not.toHaveTextContent(/seen across/i);
+    expect(lede).not.toHaveTextContent(/Arizona/i);
+    expect(lede).not.toHaveTextContent(/in the last/i);
+  });
+
+  it('Single species (T2): "{N} sightings of {commonName}" — no region, no window', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: 'wesblu', familyCode: null,
+      view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
+    };
+    mockGetObservations.mockResolvedValue({
+      data: [
+        obs({ speciesCode: 'wesblu', comName: 'Western Bluebird' }),
+        obs({ speciesCode: 'wesblu', comName: 'Western Bluebird' }),
+      ],
+      meta: { freshestObservationAt: new Date().toISOString() },
+    });
+    render(<App />);
+    const lede = await screen.findByTestId('map-lede');
+    expect(lede).toHaveTextContent('2 sightings of Western Bluebird');
+    expect(lede).not.toHaveTextContent(/ in (Arizona|USA)/i);
+    expect(lede).not.toHaveTextContent(/in the last/i);
+  });
+
+  it('Sparse region: "No recent sightings" — no region name', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
+    };
+    mockGetObservations.mockResolvedValue({
+      data: [],
+      meta: { freshestObservationAt: null },
+    });
+    render(<App />);
+    const lede = await screen.findByTestId('map-lede');
+    expect(lede).toHaveTextContent('No recent sightings');
+    expect(lede).not.toHaveTextContent(/Arizona/i);
+    expect(lede).not.toHaveTextContent(/yet/i);
+  });
+
+  it('Filtered to empty: "No matches for these filters"', async () => {
+    mockUrlState.state = {
+      // A narrowing filter is active (notable) so an empty result is the
+      // filter-narrowing branch, not the sparse-region branch.
+      since: '14d', notable: true, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
+    };
+    mockGetObservations.mockResolvedValue({
+      data: [],
+      meta: { freshestObservationAt: null },
+    });
+    render(<App />);
+    const lede = await screen.findByTestId('map-lede');
+    expect(lede).toHaveTextContent('No matches for these filters');
+    expect(lede).not.toHaveTextContent(/your current filters/i);
+  });
+
+  it('drops the period clause entirely even when freshness would have been non-stale', async () => {
+    // Pre-#828, a fresh (non-stale) load appended " in the last 14 days." Now the
+    // clause is gone unconditionally. Use a very-fresh timestamp (would have been
+    // the period-clause-present branch) and assert no window text leaks.
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
+    };
+    mockGetObservations.mockResolvedValue({
+      data: [obs({ speciesCode: 'vermfly' })],
+      meta: { freshestObservationAt: new Date().toISOString() },
+    });
+    render(<App />);
+    const lede = await screen.findByTestId('map-lede');
+    expect(lede).not.toHaveTextContent(/in the last/i);
+    expect(lede).not.toHaveTextContent(/14 days/i);
   });
 });
