@@ -1335,6 +1335,10 @@ aside.species-detail-rail .species-detail-rail-close {
   touch-action: pan-y;
   flex: 1;
   overflow-y: auto;
+  /* The detail body's full-bleed hero photo bleeds ±16px; contain it
+     explicitly rather than relying on overflow-y:auto implicitly promoting
+     overflow-x. (julianken-bot suggestion, PR #820.) */
+  overflow-x: clip;
   -webkit-overflow-scrolling: touch;
 }
 
