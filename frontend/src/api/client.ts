@@ -37,18 +37,20 @@ export class ApiClient {
     // `stateCode` unset, so the backend stays byte-for-byte untouched (no
     // `?state=` ⇒ unclipped national query, locked decision #4).
     if (f.stateCode) url.searchParams.set('state', f.stateCode);
-    // Defensive: tolerate three legacy shapes during the rollout window —
-    // (a) bare Observation[] (pre-#456), (b) { data, meta } without `mode`
-    // (post-#456, pre-#627), and (c) the discriminated union (#627).
-    // Normalize all three to the discriminated union so callers can switch
-    // on `mode` unconditionally.
+    // Tolerate two shapes — (a) { data, meta } without `mode` (post-#456,
+    // pre-#627) and (b) the discriminated union (#627) — normalizing both to the
+    // discriminated union so callers can switch on `mode` unconditionally.
+    //
+    // The bare-Observation[] branch (pre-#456) was REMOVED in #830 (item B,
+    // Remedy 1): the live read-api never returns a bare array, and that branch
+    // was the only path that could yield non-empty `data` with a fabricated
+    // `freshestObservationAt: null` — which would have broken the licensing
+    // invariant "eBird credit visible ⟺ ≥1 observation marker rendered"
+    // (deriveFreshness(null) → label '' → no eBird credit, despite markers).
     type LegacyEnvelope = { data: Observation[]; meta: { freshestObservationAt: string | null } };
-    const raw = await this.get<ObservationsResponse | LegacyEnvelope | Observation[]>(
+    const raw = await this.get<ObservationsResponse | LegacyEnvelope>(
       url.pathname + url.search,
     );
-    if (Array.isArray(raw)) {
-      return { mode: 'observations', data: raw, meta: { freshestObservationAt: null } };
-    }
     if (!('mode' in raw)) {
       return { mode: 'observations', data: raw.data, meta: raw.meta };
     }

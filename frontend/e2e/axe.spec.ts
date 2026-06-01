@@ -30,10 +30,11 @@ test.describe('axe-core WCAG scans', () => {
   // (bottom-left) and any error overlay. The `#map-layer` canvas wrapper is
   // present in the DOM (position:fixed;inset:0) but MapLibre's WebGL content
   // is not axe-readable without a GPU context. V2 (#787) re-baselined against
-  // the full-bleed shell (#761 S2 + O3). The attribution markup is unit-tested
-  // at the customAttribution-array level, so dropping the canvas contents from
-  // the axe scan does not mask a WCAG regression in the map's own controls
-  // (those are MapLibre-owned and out of our axe jurisdiction anyway).
+  // the full-bleed shell (#761 S2 + O3). #830 removed the MapLibre attribution
+  // bar entirely (attribution consolidated into the ⓘ modal + the freshness-line
+  // eBird link, both unit-tested), so dropping the canvas contents from the axe
+  // scan does not mask a WCAG regression in the map's own controls (the modal
+  // open-state is axe-scanned below).
   test('map view has no WCAG 2/2.1 A/AA violations (desktop)', async ({ page }) => {
     const app = new AppPage(page);
     await app.goto('view=map');
@@ -335,12 +336,13 @@ test.describe('axe-core WCAG scans', () => {
     });
   });
 
-  // Issue #243 / #250 — eBird API ToU §3 attribution lives in the app-level
-  // AttributionModal. Phase 6 removed the persistent <footer>; the trigger
-  // is now AttributionModal's own .attribution-trigger button, reachable on
-  // every view via the AppHeader "Attribution" button.
-  test.describe('attribution reachability (issue #250)', () => {
-    test('detail view exposes a Credits trigger in the DOM', async ({ page, apiStub }) => {
+  // Issue #243 / #250 / #830 — eBird API ToU §3 attribution lives in the
+  // app-level AttributionModal, opened by the AppHeader ⓘ "Credits &
+  // attribution" button (the controlled-open trigger, #830 item D). The old
+  // internal .attribution-trigger button was removed; reachability is now the
+  // AppHeader ⓘ button, present on every view.
+  test.describe('attribution reachability (issue #250 / #830)', () => {
+    test('detail view exposes the AppHeader Credits trigger', async ({ page, apiStub }) => {
       await apiStub.stubEmpty();
       await apiStub.stubSpecies('vermfly', VERMFLY);
       const app = new AppPage(page);
@@ -348,16 +350,18 @@ test.describe('axe-core WCAG scans', () => {
       await app.waitForAppReady();
       await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' }))
         .toBeVisible({ timeout: 10_000 });
-      // Phase 4: trigger is in DOM behind the detail dialog; reachability =
-      // attached in DOM (click reachability covered by attribution-modal spec).
-      await expect(page.locator('button.attribution-trigger')).toBeAttached();
+      // The ⓘ Credits trigger is the AppHeader button (reachable on every view).
+      await expect(app.attributionTrigger).toBeVisible();
+      // The old internal shim is gone.
+      await expect(page.locator('button.attribution-trigger')).toHaveCount(0);
     });
 
-    test('map view exposes a Credits trigger in the DOM', async ({ page }) => {
+    test('map view exposes the AppHeader Credits trigger', async ({ page }) => {
       const app = new AppPage(page);
       await app.goto('view=map');
       await app.waitForAppReady();
-      await expect(page.locator('button.attribution-trigger')).toBeAttached();
+      await expect(app.attributionTrigger).toBeVisible();
+      await expect(page.locator('button.attribution-trigger')).toHaveCount(0);
     });
 
     // Phase 6: app-footer removed — assert no app-footer element in DOM.
@@ -402,13 +406,10 @@ test.describe('axe-core WCAG scans', () => {
     const app = new AppPage(page);
     await app.goto('view=map');
     await app.waitForAppReady();
-    // #761 (S2): open via the AppHeader "Attribution" button — the documented
-    // real affordance, which fires onOpenAttribution → programmatic click on the
-    // hidden `.attribution-trigger` shim. The header is fixed chrome on
-    // `--z-chrome` (always clickable); the standalone `.attribution-trigger` now
-    // sits in the `.app` flow BEHIND the full-viewport `#map-layer`, so a direct
-    // POINTER click on it is intercepted by the maplibre attribution control. The
-    // header path is occlusion-immune (programmatic .click()).
+    // #830: open via the AppHeader ⓘ "Credits & attribution" button — the
+    // documented real affordance, which sets the controlled `open` prop on
+    // AttributionModal (item D). The header is fixed chrome on `--z-chrome`
+    // (always clickable). No internal shim is involved any more.
     await app.attributionTrigger.click();
     // Wait on the [open] attribute commit — observable contract that
     // showModal() has run, focus-delegation is settled, and the dialog
@@ -431,9 +432,8 @@ test.describe('axe-core WCAG scans', () => {
       const app = new AppPage(page);
       await app.goto('view=map');
       await app.waitForAppReady();
-      // #761 (S2): open via the AppHeader "Attribution" button (occlusion-immune
-      // programmatic shim) — the standalone `.attribution-trigger` now sits behind
-      // the full-viewport `#map-layer`. See the desktop test for the rationale.
+      // #830: open via the AppHeader ⓘ "Credits & attribution" button (the
+      // controlled-open trigger, item D). See the desktop test for the rationale.
       await app.attributionTrigger.click();
       await expect(page.locator('dialog.attribution-modal[open]')).toBeVisible();
       const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();

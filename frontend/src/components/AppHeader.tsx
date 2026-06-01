@@ -37,7 +37,8 @@
  * Lede props (O3 #779) — carried from MapSurface into AppHeader so the formerly
  * invisible context-strip content renders in the identity card:
  *   - ledeText: the pre-rendered lede sentence (or null while loading / unscoped).
- *   - freshnessLabel: "331 species · updated 20 min ago · eBird" (or '').
+ *   - freshnessLabel: the age clause only, e.g. "Updated 20 min ago" (or '').
+ *     The "· Source: eBird" credit (a real link) is composed in JSX below (#830).
  *
  * Scope-control props (§4.2) — ScopeControl content is now folded into the
  * bottom rows of this card. When `scope.kind === 'unscoped'` the scope rows
@@ -90,9 +91,11 @@ export interface AppHeaderProps {
    */
   ledeText: string | null;
   /**
-   * Pre-formatted freshness / source string from deriveFreshness (e.g.
-   * "Updated 11 min ago · Source: eBird"). Empty string when not yet resolved.
-   * Rendered in the identity card below the lede at --type-xs --color-text-subtle.
+   * Freshness age clause from deriveFreshness (e.g. "Updated 11 min ago").
+   * Empty string when not yet resolved or for empty/error data states. The
+   * "· Source: eBird" credit (a real ebird.org link) is composed in AppHeader
+   * JSX, not interpolated into this string (#830 item B). Rendered in the
+   * identity card below the lede at --type-xs --color-text-subtle.
    */
   freshnessLabel: string;
   // ── Scope-control props (§4.2) ───────────────────────────────────────────
@@ -194,8 +197,25 @@ export function AppHeader({
         {ledeText && (
           <div className="app-header-lede-row">
             <p className="app-header-lede" data-testid="map-lede">{ledeText}</p>
+            {/* #830 item B: the always-visible eBird credit lives here as a real
+                link (the freshness line is proper top-left chrome, not a floating
+                corner label). `freshnessLabel` is the age clause only; the
+                "· Source: eBird" credit is composed here. The truthiness guard
+                wraps the WHOLE line so empty/error states (label: '') render
+                nothing — eBird credit visible ⟺ observations shown. The link
+                uses rel="noopener noreferrer" (the surviving modal convention;
+                the old MapCanvas noopener-only block was deleted in item A). */}
             {freshnessLabel && (
-              <p className="app-header-freshness">{freshnessLabel}</p>
+              <p className="app-header-freshness">
+                {freshnessLabel} · Source:{' '}
+                <a
+                  href="https://ebird.org"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  eBird
+                </a>
+              </p>
             )}
           </div>
         )}
@@ -228,6 +248,11 @@ export function AppHeader({
           className="app-header-attribution"
           onClick={onOpenAttribution}
           aria-label="Credits & attribution"
+          // #830 item E: this opens a showModal() dialog rendered in the top
+          // layer, so it carries aria-haspopup="dialog" but INTENTIONALLY omits
+          // aria-expanded — a deliberate divergence from .app-header-filters
+          // (an inline disclosure). Do NOT "fix" to match filters.
+          aria-haspopup="dialog"
         >
           <svg
             className="app-header-btn-icon"

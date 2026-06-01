@@ -40,14 +40,16 @@ describe('deriveFreshness — 5-state machine', () => {
       const ts = new Date(NOW.getTime() - 15 * MINUTE_MS).toISOString();
       const result = deriveFreshness(ts, NOW);
       expect(result.state).toBe('fresh');
-      expect(result.label).toBe('Updated 15 min ago · Source: eBird');
+      // #830 item B: the label is the age clause only — the "· Source: eBird"
+      // credit is now composed in AppHeader JSX with a linkified eBird anchor.
+      expect(result.label).toBe('Updated 15 min ago');
     });
 
     it('returns fresh for data 1 minute old', () => {
       const ts = new Date(NOW.getTime() - 1 * MINUTE_MS).toISOString();
       const result = deriveFreshness(ts, NOW);
       expect(result.state).toBe('fresh');
-      expect(result.label).toBe('Updated 1 min ago · Source: eBird');
+      expect(result.label).toBe('Updated 1 min ago');
     });
 
     it('returns fresh for data exactly at the 30-min boundary', () => {
@@ -62,7 +64,7 @@ describe('deriveFreshness — 5-state machine', () => {
       const ts = new Date(NOW.getTime() - 2 * HOUR_MS).toISOString();
       const result = deriveFreshness(ts, NOW);
       expect(result.state).toBe('recent');
-      expect(result.label).toBe('Updated 2h ago · Source: eBird');
+      expect(result.label).toBe('Updated 2h ago');
     });
 
     it('returns recent for data just past the 30-min threshold', () => {
@@ -84,7 +86,7 @@ describe('deriveFreshness — 5-state machine', () => {
       const ts = new Date(NOW.getTime() - 9 * HOUR_MS).toISOString();
       const result = deriveFreshness(ts, NOW);
       expect(result.state).toBe('stale');
-      expect(result.label).toBe('Last updated 9h ago · Source: eBird');
+      expect(result.label).toBe('Last updated 9h ago');
     });
 
     it('returns stale for data just past the 6-h threshold', () => {

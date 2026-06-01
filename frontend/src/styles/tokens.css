@@ -83,7 +83,10 @@
    *   TOP-RIGHT   Controls cluster: Filters · Attribution · theme toggle
    *               — compact pill group, content-width.
    *   BOTTOM-LEFT Family legend — --card-maxw-legend.
-   *   BOTTOM-RIGHT Attribution line + future zoom/locate — safe-zone.
+   *   BOTTOM-RIGHT Reserved for future zoom/locate — safe-zone. (Attribution
+   *               consolidated #830: always-visible eBird source credit in the
+   *               identity-card freshness line; full credits in the top-right
+   *               ⓘ Credits modal.)
    *   TRANSIENT   Popovers (flip/shift/clamp to stay on-screen), detail
    *               card (insets into top-right region), filters panel
    *               (anchored under its trigger) — per-element caps.

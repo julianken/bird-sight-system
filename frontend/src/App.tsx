@@ -706,15 +706,13 @@ export function App() {
     set({ scope: { kind: 'unscoped' } });
   }, [set]);
 
-  // Phase 3: Attribution modal trigger — AppHeader's "Attribution" button
-  // dispatches a click into the existing AttributionModal trigger inside the
-  // footer (which remains rendered but visually de-emphasized). Phase 6 will
-  // reconcile by removing the footer trigger and wiring a controlled-open API.
-  // TODO(phase-6): replace this querySelector with a proper controlled-open prop.
-  const onOpenAttribution = useCallback(() => {
-    const trigger = document.querySelector<HTMLButtonElement>('.attribution-trigger');
-    trigger?.click();
-  }, []);
+  // Attribution modal — controlled-open (#830 item D). The AppHeader ⓘ button
+  // sets `attributionOpen`; <AttributionModal> mirrors it into the native
+  // <dialog> via its `open` prop, and its native `close` event (Escape /
+  // backdrop / close button) flips the state back through `onOpenChange`. This
+  // replaced the Phase 3 querySelector('.attribution-trigger').click() shim.
+  const [attributionOpen, setAttributionOpen] = useState(false);
+  const onOpenAttribution = useCallback(() => setAttributionOpen(true), []);
 
   const mainRef = useRef<HTMLElement | null>(null);
 
@@ -1289,15 +1287,16 @@ export function App() {
         </div>
       )}
       {/*
-        Phase 6: Footer removed. The Attribution trigger moved to <AppHeader>
-        in Phase 3 — reachable from every view (map|detail), meeting
-        the eBird ToU §3 and CC BY-SA §4(b/c) prominence requirement.
+        The Attribution trigger is the ⓘ button in <AppHeader>, reachable from
+        every view (map|detail), meeting the eBird ToU §3 and CC BY-SA §4(b/c)
+        prominence requirement.
 
-        <AttributionModal> is mounted here (outside any landmark container)
-        so it remains in the DOM on all surfaces. The AppHeader "Attribution"
-        button fires onOpenAttribution → clicks the modal's own trigger button
-        (.attribution-trigger). Phase 6 retains the Phase 3 querySelector
-        shim; a follow-up PR can replace it with a proper controlled-open prop.
+        <AttributionModal> is mounted here (outside any landmark container) so it
+        remains in the DOM on all surfaces. It is controlled-open (#830 item D):
+        onOpenAttribution sets `attributionOpen` → the `open` prop opens the
+        native dialog; the dialog's `close` event flips `attributionOpen` back
+        via onOpenChange. (Replaced the old .attribution-trigger querySelector
+        shim.)
 
         Silhouettes and photo-credit props threaded as before (issue #274,
         issue #327 task-11).
@@ -1306,6 +1305,8 @@ export function App() {
         silhouettes={silhouettes}
         loading={silhouettesLoading}
         error={silhouettesError}
+        open={attributionOpen}
+        onOpenChange={setAttributionOpen}
         photoAttribution={activeSpeciesMeta?.photoAttribution}
         photoLicense={activeSpeciesMeta?.photoLicense}
       />
