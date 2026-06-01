@@ -111,6 +111,14 @@ jobs:
           # though the nightly drift workflow won't apply the grant — without
           # this the plan errors out with `No value for required variable`.
           TF_VAR_deployer_service_account_email: ${{ secrets.GCP_DEPLOY_SA_EMAIL }}
+          # Added 2026-06-01 (#825). `gcp_billing_account_id` has no default in
+          # variables.tf:40 and is consumed unconditionally by budget.tf:23, so
+          # it is required by every plan. Drift-check never hit this before
+          # because it 403s at `init` on the state bucket (IAM gap, #825 Task 1)
+          # and so has never reached `plan`. Once that IAM grant lands, plan will
+          # fail with `No value for required variable: gcp_billing_account_id`
+          # unless this is wired. deploy-infra.yml wires the same secret.
+          TF_VAR_gcp_billing_account_id: ${{ secrets.GCP_BILLING_ACCOUNT_ID }}
         run: |
           set +e
           terraform plan -detailed-exitcode -input=false -lock-timeout=60s \

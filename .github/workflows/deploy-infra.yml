@@ -1,0 +1,134 @@
+name: deploy-infra
+
+# Gated CI `terraform apply` — the post-merge CD half of the infra pipeline (#825).
+#
+# Infra historically reached prod only via an operator running `terraform apply`
+# by hand. That gap let drift accumulate silently across 48 TF commits / 38 days
+# (PR #822 swept in 8 pre-existing drift items; 4 of 9 changes failed). This
+# workflow closes the gap: every merge to `main` that touches infra plans, then
+# pauses on the `infra-prod` environment for a required-reviewer click before it
+# applies. Apply-time errors now surface within minutes of merge, not weeks.
+#
+# Pairs with `terraform-plan-drift-check.yml` (nightly read-only drift watcher,
+# still the safety net for out-of-band / console drift) and #242 (PR-time
+# `validate`/`plan`, the pre-merge gate). This is the post-merge apply only.
+#
+# Single job by design: GitHub Actions jobs do not share a workspace, so a
+# `plan -out=tfplan` saved in one job would be lost before a separate apply job
+# could consume it. The `infra-prod` environment's protection rule pauses this
+# one job before the apply step is entered (the apply step is the one that
+# `environment:` guards), so the saved `tfplan` persists in the workspace and
+# `apply tfplan` runs exactly the diff a human reviewed. Do NOT split into
+# plan/apply jobs without adding actions/upload-artifact + download-artifact.
+#
+# Security invariants (inherited from the drift-check workflow):
+#   1. Never echo `terraform show -json` / plan internals — they contain live
+#      DB passwords + CF/eBird tokens under `variables[].value`.
+#   2. `pull_request` is deliberately NOT a trigger; this workflow uses
+#      repo-scoped secrets that must not be reachable from fork PRs.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'infra/terraform/**'
+  workflow_dispatch:
+
+concurrency:
+  # Serialize applies so two runs can't race the GCS state lock. cancel-in-progress
+  # is FALSE (mirrors deploy-read-api.yml:15-17, NOT drift-check's `true`):
+  # cancelling a `terraform apply` mid-flight can orphan the state lock and leave
+  # a half-applied plan. Never cancel an in-progress apply. Paired with the
+  # -lock-timeout below so a concurrent nightly plan queues rather than errors.
+  group: deploy-infra-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read        # checkout
+  id-token: write       # WIF -> GCP (GCS backend + google/cloudflare provider auth)
+
+env:
+  # Hardcodeable literals (not secrets) — match terraform-plan-drift-check.yml.
+  TF_VAR_domain: bird-maps.com
+  TF_VAR_gcp_project_id: bird-maps-prod
+  TF_VAR_gcp_region: us-west1
+  # Suppress provider colourisation for cleaner log parsing.
+  TF_CLI_ARGS: "-no-color"
+  # Telemetry opt-out — nothing about this CI run should phone HashiCorp.
+  CHECKPOINT_DISABLE: "1"
+
+jobs:
+  apply:
+    name: terraform apply (gated)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # The load-bearing safety control: the `infra-prod` environment's required
+    # reviewer (Julian) must approve before the job proceeds to the apply step.
+    # Plan output is visible in the run log while the job waits for the click.
+    environment: infra-prod
+
+    defaults:
+      run:
+        working-directory: infra/terraform
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SA_EMAIL }}
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          # Matches infra/terraform/versions.tf required_version (>= 1.6.0) and
+          # the pin used by terraform-plan-drift-check.yml. Keeps plan/apply
+          # output deterministic if HashiCorp ships a minor that changes shape.
+          terraform_version: "1.14.8"
+          terraform_wrapper: false
+
+      - name: terraform init
+        run: terraform init -input=false -lock-timeout=120s
+
+      - name: terraform plan
+        id: plan
+        env:
+          # Secrets that must reach provider/variable blocks. If any required one
+          # is unset, `terraform plan` errors loudly — desired.
+          TF_VAR_cloudflare_account_id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          TF_VAR_cloudflare_zone_id: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+          TF_VAR_ebird_api_key: ${{ secrets.EBIRD_API_KEY }}
+          TF_VAR_deployer_service_account_email: ${{ secrets.GCP_DEPLOY_SA_EMAIL }}
+          # REQUIRED: gcp_billing_account_id has no default in variables.tf:40 and
+          # is consumed unconditionally by budget.tf:23, so it participates in
+          # every plan. Without the GCP_BILLING_ACCOUNT_ID secret, plan dies with
+          # `No value for required variable` BEFORE reaching the approval gate.
+          # (Neon is decommissioned — no kislerdm/neon provider, no neon_* vars —
+          # so TF_VAR_neon_* is intentionally omitted.)
+          TF_VAR_gcp_billing_account_id: ${{ secrets.GCP_BILLING_ACCOUNT_ID }}
+        run: |
+          # Save the plan so the apply step applies exactly the reviewed diff.
+          terraform plan -out=tfplan -input=false -lock-timeout=120s
+          {
+            echo "## terraform plan"
+            echo
+            echo '```'
+            terraform show -no-color tfplan | tail -n 40
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: terraform apply
+        env:
+          # Same var wiring as plan — `apply tfplan` reads the saved plan, but
+          # provider auth still needs the sensitive vars in scope.
+          TF_VAR_cloudflare_account_id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          TF_VAR_cloudflare_zone_id: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+          TF_VAR_ebird_api_key: ${{ secrets.EBIRD_API_KEY }}
+          TF_VAR_deployer_service_account_email: ${{ secrets.GCP_DEPLOY_SA_EMAIL }}
+          TF_VAR_gcp_billing_account_id: ${{ secrets.GCP_BILLING_ACCOUNT_ID }}
+        run: terraform apply -input=false -lock-timeout=120s tfplan
