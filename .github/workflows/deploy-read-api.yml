@@ -79,11 +79,22 @@ jobs:
 
       - name: Smoke test
         run: |
-          # Retry to absorb DNS / Cloud LB / custom-domain propagation after a revision swap.
-          # `gcloud run services update` returns when the new revision serves on its .run.app URL,
-          # but api.bird-maps.com goes through a Cloud LB + custom domain mapping with its own
-          # warm-up window. --retry 5 --retry-delay 3 covers up to ~15s of propagation lag without
-          # masking a genuinely broken deploy.
+          # Smoke-test the Cloud Run origin directly via its .run.app URL — NOT the
+          # public api.bird-maps.com hostname. That hostname is proxied through
+          # Cloudflare (frontend.tf: proxied = true, since #708 / 2026-05-22), and
+          # CF's managed-challenge bot rule (rate-limit.tf "Layer 2") issues a 403
+          # `cf-mitigated: challenge` HTML page to this runner's datacenter IP. curl
+          # cannot solve a JS challenge, so the step failed on every deploy from
+          # 2026-05-29 on while the deploy itself was healthy — a dead post-merge
+          # canary that masks real failures. Hitting .run.app tests the exact
+          # revision this job just deployed with no Cloudflare edge in the path.
+          # The service is allUsers-invokable (read-api.tf:124) with default
+          # ingress, so no identity token is needed.
+          URL=$(gcloud run services describe "$SERVICE_NAME" \
+            --region="$GCP_REGION" --format='value(status.url)')
+          # --retry absorbs the brief gap between `services update` returning and the
+          # new revision serving; --retry-all-errors covers transient cold-start 5xx
+          # without masking a genuinely broken deploy.
           curl -sSfv --retry 5 --retry-delay 3 --retry-all-errors \
-            "https://api.bird-maps.com/health" | tee /tmp/health.json
+            "${URL}/health" | tee /tmp/health.json
           grep -q '"ok":true' /tmp/health.json
