@@ -67,12 +67,12 @@ const {
     onViewportChange: null as
       | ((bounds: unknown, zoom: number) => void)
       | null,
-    // #560 / #777: App threads its `onSelectSpecies` down to MapSurface (the
+    // #777: App threads its `onSelectSpecies` down to MapSurface (the
     // species-commit path that used to be a feed-row click). The stub captures
-    // it so the bbox-clear invariant tests can invoke App's callback directly,
-    // the way a real map marker / popover click would.
+    // it so tests can invoke App's callback directly, the way a real map
+    // marker / popover click would.
     onSelectSpecies: null as
-      | ((speciesCode: string, bbox?: readonly [number, number, number, number] | null) => void)
+      | ((speciesCode: string) => void)
       | null,
     boundsKey: undefined as string | undefined,
     scopeBounds: undefined as [[number, number], [number, number]] | undefined,
@@ -102,7 +102,6 @@ vi.mock('./state/url-state.js', () => ({
     notable: false,
     view: 'map',
     detail: null,
-    bbox: null,
     scope: { kind: 'unscoped' },
   },
 }));
@@ -121,7 +120,7 @@ vi.mock('./state/url-state.js', () => ({
 vi.mock('./components/MapSurface.js', () => ({
   MapSurface: (props: {
     onViewportChange?: (bounds: unknown, zoom: number) => void;
-    onSelectSpecies?: (speciesCode: string, bbox?: readonly [number, number, number, number] | null) => void;
+    onSelectSpecies?: (speciesCode: string) => void;
     boundsKey?: string;
     scopeBounds?: [[number, number], [number, number]];
     flyTo?: { center: [number, number]; zoom: number; key: string };
@@ -880,123 +879,6 @@ describe('L3: nowTick advances on visibilitychange (tab return)', () => {
 
     // App re-renders without crashing — the surface is still mounted.
     expect(screen.getByTestId('map-surface-stub')).toBeInTheDocument();
-  });
-});
-
-describe('App.tsx onSelectSpecies bbox-clear invariant (#560)', () => {
-  const MARKER_OBS = {
-    subId: 'S1',
-    speciesCode: 'vermfly',
-    comName: 'Vermilion Flycatcher',
-    lat: 32.2,
-    lng: -110.9,
-    obsDt: new Date().toISOString(),
-    locId: 'L1',
-    locName: 'Sabino Canyon',
-    howMany: 1,
-    isNotable: false,
-    silhouetteId: null,
-    familyCode: 'tyrann',
-  };
-
-  beforeEach(() => {
-    __resetSilhouettesCache();
-    __resetStatesCache();
-    mockGetStates.mockResolvedValue([]);
-    mapSurfaceRef.renderCount = 0;
-    mapSurfaceRef.boundsKey = undefined;
-    mapSurfaceRef.scopeBounds = undefined;
-    mapSurfaceRef.flyTo = undefined;
-    mockGetHotspots.mockResolvedValue([]);
-    mockGetSilhouettes.mockResolvedValue([]);
-    mockGetObservations.mockResolvedValue({
-      data: [MARKER_OBS],
-      meta: { freshestObservationAt: null },
-    });
-    mockUrlState.set.mockClear();
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it('clears stale bbox when onSelectSpecies called without bbox argument (map marker click)', async () => {
-    mockUrlState.state = {
-      since: '14d',
-      notable: false,
-      speciesCode: null,
-      familyCode: null,
-      view: 'map',
-      scope: { kind: 'us' as const },
-    };
-    render(<App />);
-    // Wait for the map surface to mount, then drive App's onSelectSpecies the
-    // way a real map marker / popover "See species details" click would (#777:
-    // this was a feed-row click before the feed surface was removed).
-    await screen.findByTestId('map-surface-stub');
-    expect(mapSurfaceRef.onSelectSpecies).not.toBeNull();
-    act(() => {
-      mapSurfaceRef.onSelectSpecies!('vermfly');
-    });
-    // set() must be called with bbox: null to clear any stale bbox
-    const calls = mockUrlState.set.mock.calls;
-    expect(calls.length).toBeGreaterThanOrEqual(1);
-    const lastCall = calls[calls.length - 1][0];
-    // #663: onSelectSpecies writes detail + bbox only. The view param is
-    // no longer forced to 'detail' — the rail/sheet renders in place over
-    // the map surface the user was on.
-    expect(lastCall).toMatchObject({ detail: 'vermfly', bbox: null });
-    expect(lastCall.view).toBeUndefined();
-  });
-
-  it('sets bbox when onSelectSpecies called with second bbox argument', async () => {
-    mockUrlState.state = {
-      since: '14d',
-      notable: false,
-      speciesCode: null,
-      familyCode: null,
-      view: 'map',
-      scope: { kind: 'us' as const },
-    };
-    render(<App />);
-    await screen.findByTestId('map-surface-stub');
-    expect(mapSurfaceRef.onSelectSpecies).not.toBeNull();
-    // Cluster-commit path: the map calls onSelectSpecies WITH a bbox so the
-    // detail surface narrows to the clicked cell's envelope.
-    const bbox = [-111.0, 31.6, -110.2, 33.5] as const;
-    act(() => {
-      mapSurfaceRef.onSelectSpecies!('vermfly', bbox);
-    });
-    const calls = mockUrlState.set.mock.calls;
-    const lastCall = calls[calls.length - 1][0];
-    // The widened 2-arg form forwards the bbox through to set().
-    expect(lastCall.bbox).toEqual(bbox);
-    expect(lastCall.detail).toBe('vermfly');
-    // #663: no view: 'detail' write; overlay coexists with current view.
-    expect(lastCall.view).toBeUndefined();
-  });
-
-  it('navigating to detail does not leak a pre-existing bbox param', async () => {
-    mockUrlState.state = {
-      since: '14d',
-      notable: false,
-      speciesCode: null,
-      familyCode: null,
-      view: 'map',
-      scope: { kind: 'us' as const },
-    };
-    render(<App />);
-    await screen.findByTestId('map-surface-stub');
-    expect(mapSurfaceRef.onSelectSpecies).not.toBeNull();
-    act(() => {
-      mapSurfaceRef.onSelectSpecies!('vermfly');
-    });
-    // Regardless of any prior bbox in URL, App.onSelectSpecies always passes
-    // bbox: null when called without a second argument.
-    const calls = mockUrlState.set.mock.calls;
-    const selectCall = calls.find((c) => c[0]?.detail === 'vermfly');
-    expect(selectCall).toBeDefined();
-    expect(selectCall![0].bbox).toBeNull();
   });
 });
 

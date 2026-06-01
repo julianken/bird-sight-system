@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import type { ApiClient } from '../api/client.js';
-import type { BBox } from '../state/url-state.js';
 import { SpeciesDetailSurface } from './SpeciesDetailSurface.js';
 
 export interface SpeciesDetailRailProps {
@@ -20,10 +19,6 @@ export interface SpeciesDetailRailProps {
    * still on the map surface and the Map tab is the right landmark.
    */
   fallbackFocusSelector?: string;
-  /** Cluster bbox to pass through to SpeciesDetailSurface (#560). */
-  bbox?: BBox | null;
-  /** Clears the bbox URL param — passed through to SpeciesDetailSurface. */
-  onClearBbox?: () => void;
 }
 
 /**
@@ -55,8 +50,6 @@ export function SpeciesDetailRail(props: SpeciesDetailRailProps) {
     onClose,
     triggerRef,
     fallbackFocusSelector = '#surface-tab-map',
-    bbox,
-    onClearBbox,
   } = props;
   const asideRef = useRef<HTMLElement | null>(null);
   const closeBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -129,8 +122,6 @@ export function SpeciesDetailRail(props: SpeciesDetailRailProps) {
       <SpeciesDetailSurface
         speciesCode={speciesCode}
         apiClient={apiClient}
-        {...(bbox !== undefined ? { bbox } : {})}
-        {...(onClearBbox !== undefined ? { onClearBbox } : {})}
       />
     </aside>
   );

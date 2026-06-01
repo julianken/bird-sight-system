@@ -70,7 +70,6 @@ function makeFilters(overrides: Partial<UrlState> = {}): UrlState {
     notable: false,
     view: 'map',
     detail: null,
-    bbox: null,
     scope: { kind: 'unscoped' }, // #735 — UrlState now carries a scope; default unscoped.
     ...overrides,
   };

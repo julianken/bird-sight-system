@@ -219,42 +219,39 @@ SR announcement on cell focus: `"Hummingbirds, 8 observations. <preview-content>
 
 ### 4.9 Routing + URL state
 
-**New optional URL query param**: `bbox`.
+Clicking a species row navigates to the species detail surface via the existing
+`?detail=<speciesCode>` URL param — no new query param.
 
 ```
-?view=detail&detail=<speciesCode>&bbox=<minLng>,<minLat>,<maxLng>,<maxLat>
+?detail=<speciesCode>
 ```
 
-- 4 comma-separated decimals, WGS84, **rounded to 6 decimal places** (~11 cm geographic precision; plenty for obs filtering, half the URL noise vs raw `map.getBounds()` precision).
-- Optional. Existing callsites of `view=detail&detail=<code>` (FeedCard species link, etc.) work unchanged.
-- Validation in `useUrlState`: parsed to a typed `BBox`. Invalid format → discarded silently, falls back to global view. Matches existing defensive-parsing pattern.
-
-**`onSelectSpecies` signature extension** (`App.tsx:218-219`):
+**`onSelectSpecies` signature** (single-arg):
 
 ```ts
-// Was: (speciesCode: string) => void
-// Now: (speciesCode: string, bbox?: BBox) => void
 const onSelectSpecies = useCallback(
-  (speciesCode: string, bbox?: BBox) =>
-    set({ detail: speciesCode, view: 'detail', bbox: bbox ?? null }),
-  [],
+  (speciesCode: string) => set({ detail: speciesCode }),
+  [set],
 );
 ```
 
-**Cross-surface invariant**: `onSelectSpecies(code)` invocations WITHOUT a `bbox` argument MUST clear any previously-set `bbox` from URL state. The reducer above does this correctly via `bbox: bbox ?? null` — but the invariant is load-bearing: a user who navigates Map → SpeciesDetail (with bbox), then Back, then Feed → SpeciesDetail (no bbox) must NOT see the stale Map-set bbox bleed into the Feed-originated detail view. Unit-tested in §7 (`url-state.test.ts` cross-surface case).
+- The popover species link calls `onSelectSpecies(speciesCode)`; App writes only
+  `?detail=`. The detail rail/sheet renders in place over the still-mounted map
+  (#663) — no `?view=detail` write; backward-compat with legacy `?view=detail`
+  deep-links is handled in `useUrlState`.
+- All callsites are single-arg; there is no second argument.
 
-**URL-hydration policy (shared-link case)**: `useUrlState` initialization reads `bbox` directly from the URL on first mount, regardless of which surface the user navigates FROM. Rationale: **the URL is the source of truth**. A shared link `?view=detail&detail=anhumm&bbox=-110.99,32.20,-110.91,32.27` hydrates with `bbox` set, the SpeciesDetailSurface renders the "Filtered to selected area" banner, and the "View all observations →" link clears the bbox if the recipient wants to break out of the filter. No surface-provenance tracking; the URL alone determines state. This is consistent with how every other URL param on the project hydrates. Unit-tested in §7 (`url-state.test.ts` hydration-from-URL case).
-
-Backward-compat: existing single-arg callsites at `App.tsx:331, 351, 368` (FeedSurface → species; SpeciesSearchSurface → species; FeedCard → species) keep their signatures; the second arg is `undefined`; the reducer writes `null` (clears any stale bbox in PROGRAMMATIC navigation; does not affect URL-hydrated bbox).
-
-**`SpeciesDetailSurface` extension**:
-
-- Reads `bbox` from `useUrlState`.
-- When non-null: passes a bbox filter to the existing observations fetch hook → server returns only obs within those bounds.
-- Renders a banner above the species detail: "Filtered to selected area. View all observations →" (link clears the bbox param).
-- Aria-live announcement on first render: "Showing N observations of <species> in selected area."
-
-**Bbox source + caching strategy (CONCRETE)**: computed **lazily on first popover open per cluster**, NOT eagerly in the reconciler. The compute is `[min(lng), min(lat), max(lng), max(lat)]` over the cluster's leaves (≤64 per `MAX_OBSERVATIONS`). Cache: a module-scoped `WeakMap<DeconflictGroup, BBox>` for best-effort de-duplication within a single reconcile pass. **Cache scope is realistically per-reconcile-pass**: `MapCanvas.tsx` rebuilds `DeconflictGroup` objects on every `idle` event, so prior cached entries become unreachable as soon as the user pans or zooms. The cache's primary win is double-click + immediate re-open of the same popover (avoids a redundant leaf walk for a single user gesture); not a long-lived memoization. Eager computation in the reconciler was rejected — it would burn CPU on every `idle` for clusters never clicked.
+> **Removed (dead):** an earlier Phase-3 draft routed a `bbox` URL param
+> (`?bbox=<minLng>,<minLat>,<maxLng>,<maxLat>`) to filter the detail surface's
+> observation list and render a "Filtered to selected area / View all
+> observations" banner. The banner's `observations` prop was never populated by
+> any wrapper, so it always read "0 observations" and the list never rendered;
+> the `?bbox=` param had no consumer beyond that dead banner (it never touched
+> the map camera or the `/api/observations` fetch). The whole path —
+> `?bbox=` parse/serialize, the `BBox` type, `getClusterBbox`, the banner, and
+> the observation list — was removed (tracker #568). The separate viewport
+> `/api/observations` bbox filter (`debouncedBbox`) and the state-camera
+> envelope (`StateSummary.bbox`) are unrelated and remain.
 
 ### 4.10 Single-leaf preservation
 
@@ -341,20 +338,19 @@ interface ClusterListPopoverProps {
 }
 ```
 
-### 5.4 `<SpeciesDetailSurface>` extension
+### 5.4 `<SpeciesDetailSurface>`
 
-```ts
-interface SpeciesDetailSurfaceProps {
-  speciesCode: string;
-  /** NEW: when non-null, filter the obs list to this bbox and render the banner. */
-  bbox?: BBox | null;
-  // ...existing props unchanged...
-}
-```
+No extension. The species link routes via `?detail=<speciesCode>` only;
+`<SpeciesDetailSurface>` keeps its existing `{ speciesCode, apiClient }` props.
+
+> **Removed (dead):** an earlier draft added a `bbox?: BBox | null` prop that
+> filtered the observation list and rendered a "Filtered to selected area"
+> banner. The prop was never populated by any wrapper and the whole path was
+> removed (tracker #568) — see the §4.9 note.
 
 ## 6. File map
 
-### New (8)
+### New (7)
 
 | File | Purpose |
 |---|---|
@@ -365,23 +361,16 @@ interface SpeciesDetailSurfaceProps {
 | `frontend/src/components/map/ClusterListPopover.tsx` | Mobile cluster list popover |
 | `frontend/src/components/map/ClusterListPopover.test.tsx` | Unit tests (sheet shape, collapsible families, focus trap, "Done" return) |
 | `frontend/e2e/map-cell-popover.spec.ts` | E2E for desktop + mobile flows + species-link navigation |
-| `frontend/src/state/bbox.ts` | `BBox` type + parser/serializer for URL roundtripping |
 
-### Modified (5)
+### Modified (4)
 
 | File | Changes |
 |---|---|
 | `frontend/src/components/map/adaptive-grid.ts` | Add `SpeciesAggregate` type, `aggregateClusterSpecies(leaves)`, thread species onto `AdaptiveTile`. Existing function signatures preserved. |
 | `frontend/src/components/map/AdaptiveGridMarker.tsx` | Extend `<TileCell>` with hover/focus/click handlers (desktop). Extend outer button to open `<ClusterListPopover>` on mobile. Wire ARIA roles. |
-| `frontend/src/components/map/MapCanvas.tsx` | Compute cluster bbox per group (from leaves cached during reconcile). Wire `onSelectSpecies(code, bbox)` through to App via existing prop. |
-| `frontend/src/App.tsx` | Extend `onSelectSpecies` signature with optional `bbox`. Thread to `useUrlState`. |
-| `frontend/src/components/SpeciesDetailSurface.tsx` | Read `bbox` from URL state; filter obs fetch; render filter banner; aria-live announcement. |
-
-### State (1)
-
-| File | Changes |
-|---|---|
-| `frontend/src/state/url-state.ts` | Add `bbox: BBox \| null` to state; URL ser/de via `frontend/src/state/bbox.ts`. |
+| `frontend/src/components/map/MapCanvas.tsx` | Wire `onSelectSpecies(code)` through to App via the existing single-arg prop. |
+| `frontend/src/App.tsx` | `onSelectSpecies(speciesCode)` writes `?detail=` via `useUrlState`. |
+| `frontend/src/components/SpeciesDetailSurface.tsx` | Unchanged props (`{ speciesCode, apiClient }`); renders the species detail body. |
 
 ### Kept
 
@@ -416,7 +405,7 @@ New tests for `aggregateClusterSpecies`:
 
 - Renders top 8 species; "…and N more species" footer shows N when family has > 8 species; absent when ≤ 8.
 - Clickable rows have `role="link"` and resolve `speciesCode !== null`; rows with `speciesCode === null` render as `<span>` with no link.
-- Clicking a clickable row calls `onSelectSpecies(speciesCode, bbox)` with the cell's bbox.
+- Clicking a clickable row calls `onSelectSpecies(speciesCode)`.
 - ESC dismisses; focus returns to the triggering `<TileCell>`.
 - `aria-labelledby` resolves to the popover heading element.
 - Family count `(47)` reconciles to `sum(species[].count)` (visually + via test assertion).
@@ -436,23 +425,9 @@ New tests for `aggregateClusterSpecies`:
 - **Hit-extender pointer-events on `pointer:fine`**: inspect the rendered hit-overlay's computed `pointer-events` style — must be `'none'`. On `pointer:coarse` must be `'auto'`. Locks the §4.6 reconciliation in code.
 - **ARIA tree snapshot on focused cell**: render the marker, focus a cell, snapshot the rendered DOM tree, assert (1) cell has its own `aria-describedby` (preview id), NOT the outer marker's family-list id; (2) cell has `aria-haspopup="dialog"` and `aria-expanded="false"` initially; (3) outer marker's `aria-describedby` still points at the family-list `<ul>`.
 
-### State (`url-state.test.ts`)
-
-- `bbox` round-trips through URL serialization with 6-decimal rounding (input precision >6 is truncated).
-- Invalid `bbox` format (wrong number of commas, non-decimal, NaN) → null fallback, no exception.
-- Clearing `bbox` (set to null) removes the query param from the URL.
-- **Cross-surface invariant**: Map → SpeciesDetail (sets bbox), Back, then Feed → SpeciesDetail (no bbox arg) — assert the stale Map-set bbox is CLEARED in URL state. Pins §4.9's invariant.
-- **URL-hydration of bbox**: simulate a fresh mount with URL `?view=detail&detail=anhumm&bbox=-110.99,32.20,-110.91,32.27` (no prior in-memory state). Assert `useUrlState()[0].bbox` resolves to the parsed BBox object. Pins §4.9's URL-as-source-of-truth policy.
-
-### Component (`SpeciesDetailSurface.test.tsx`) — extensions
-
-- With `bbox` prop → obs list filtered + banner rendered + aria-live message present.
-- Without `bbox` prop → global view unchanged (existing tests pass verbatim).
-- Banner "View all observations" link clears the bbox param.
-
 ### E2E (`map-cell-popover.spec.ts`)
 
-- **Desktop @ 1440×900**: hover the Tucson Hummingbirds cell → preview shows top 3 species; click promotes to popover; click "Anna's Hummingbird" → URL changes to `?view=detail&detail=anhumm&bbox=…`; SpeciesDetailSurface renders with banner.
+- **Desktop @ 1440×900**: hover the Tucson Hummingbirds cell → preview shows top 3 species; click promotes to popover; click "Anna's Hummingbird" → URL changes to `?detail=anhumm`; SpeciesDetailSurface renders.
 - **Desktop keyboard**: activate the new "Explore map markers" skip-link → focus lands on the first cell; preview appears on focus; Enter opens popover; ESC dismisses; focus returns to cell. Arrow keys move focus between cells; Tab moves to the next marker's first cell.
 - **Tablet @ 768×1024 (`pointer:coarse`)**: tap marker → cluster list popover slides up (NOT per-cell — confirms the `pointer:coarse` partition).
 - **Mobile @ 390×844**: tap marker → cluster list popover slides up; expand "Tyrant Flycatchers"; tap "Black Phoebe" → SpeciesDetailSurface filtered; tap "Done" returns to map.
@@ -487,12 +462,9 @@ New tests for `aggregateClusterSpecies`:
 | Risk | Resolution |
 |---|---|
 | Hit-extender overlay swallowing cell clicks on `pointer:fine` | `pointerEvents: 'none'` on the overlay when `isCoarsePointer === false`. Test in `AdaptiveGridMarker.test.tsx` pins it. |
-| `bbox` URL precision | Rounded to 6 decimals (~11 cm). Tested in `url-state.test.ts`. |
-| Stale `bbox` bleeding across cross-surface navigation | Invariant in §4.9: `onSelectSpecies(code)` without `bbox` clears any stale param. Tested cross-surface. |
 | ARIA describedby composition ambiguity | §4.8 specifies the exact tree on a focused cell; snapshot test pins it. |
 | Mobile breakpoint missing iPad portrait | Partition predicate changed from `viewport ≤ 480 px` to `pointer:coarse`. iPad portrait now correctly gets cluster-list popover. |
 | Keyboard entry to per-cell focus | Committed: new "Explore map markers" skip-link inside `MapSurface`. |
-| Bbox compute-vs-cache strategy | Lazy + WeakMap-cached per `DeconflictGroup`. Eager rejected. |
 | Displaced-silhouette popover interaction | §4.10 extended: displaced single-leaf silhouettes inherit the single-leaf path (obs popover); no cell popover. |
 | Hover-preview footer copy | Changed from "Click for more" to "Click or tap for full list". |
 | Out-of-scope concerns (telemetry, SSR, RTL, print) | Enumerated as explicit non-goals in §2. |
@@ -501,7 +473,6 @@ New tests for `aggregateClusterSpecies`:
 
 | Risk | Where it gets answered |
 |---|---|
-| `bbox` filter on the server side: does the existing `/api/observations` endpoint accept a `bbox` query? If not, client-side filtering is the fallback. | Plan body / Read API check |
 | Per-cell positioning math at the edges of the viewport (smart-flip above/below) — Floating-UI dep or hand-rolled? | Plan body — recommend Floating-UI for the maintenance win |
 | `<ClusterListPopover>` collapse-state persistence: do collapsed families stay collapsed across opens, or reset each time? | Plan body |
 | Roving tabindex implementation: arrow-key navigation order (row-major vs column-major)? | Plan body |
