@@ -3,7 +3,7 @@ import type { LngLatBounds } from 'maplibre-gl';
 import { analytics } from './analytics.js';
 import { ApiClient, ApiError } from './api/client.js';
 import { useUrlState, DEFAULTS } from './state/url-state.js';
-import type { BBox, Scope } from './state/url-state.js';
+import type { Scope } from './state/url-state.js';
 import type { ScopeResolution } from './state/scope-types.js';
 import { useBirdData } from './data/use-bird-data.js';
 import { useSilhouettes } from './data/use-silhouettes.js';
@@ -924,18 +924,13 @@ export function App() {
 
   // #663: clicking a species in a popover opens the detail overlay
   // IN PLACE — the map stays mounted. New click flow writes only
-  // `?detail=` (+ bbox); it does NOT write `?view=detail`. Old shared
-  // URLs that include `?view=detail` continue to work via url-state's
+  // `?detail=`; it does NOT write `?view=detail`. Old shared URLs that
+  // include `?view=detail` continue to work via url-state's
   // backward-compat handling — see state/url-state.ts.
   const onSelectSpecies = useCallback(
-    (speciesCode: string, bbox: BBox | null = null) =>
-      set({ detail: speciesCode, bbox }),
+    (speciesCode: string) => set({ detail: speciesCode }),
     [set],
   );
-
-  const onClearBbox = useCallback(() => {
-    set({ bbox: null });
-  }, [set]);
 
   // Close callback for detail rail/sheet wrappers (#663). The overlay
   // closes IN PLACE — return to whatever view was underneath (typically
@@ -1249,8 +1244,6 @@ export function App() {
           speciesCode={state.detail}
           apiClient={apiClient}
           onClose={onCloseDetail}
-          bbox={state.bbox}
-          onClearBbox={onClearBbox}
         />
       )}
       {scopeActive && state.detail && isCompact && (
@@ -1265,8 +1258,6 @@ export function App() {
             onCloseDetail();
           }}
           mainRef={mapLayerRef}
-          bbox={state.bbox}
-          onClearBbox={onClearBbox}
           onSnapChange={setSheetSnap}
         />
       )}

@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { BBox } from '../../state/url-state.js';
 // ZIP_FLYTO_ZOOM is the single shared metro-framing zoom (= 10) owned by
 // Stream D's scope-types. The ZIP `flyTo` move carries its own `zoom` in the
 // prop (App.tsx builds it via `zipResolutionToScope`), but importing the
@@ -73,7 +72,6 @@ import {
 import {
   buildGroups,
   displaceSilhouettes,
-  getClusterBbox,
   SILHOUETTE_PX,
   type DeconflictGroup,
   type DeconflictInput,
@@ -237,14 +235,7 @@ export interface MapCanvasProps {
    * `set({ view: 'detail', detail: code })` via `useUrlState`. Optional
    * — when absent, the popover hides the link.
    */
-  /**
-   * Phase 3 (#560): widened to accept an optional second argument `bbox`
-   * so the MapCanvas wrapper can pass the cluster's geographic bbox to
-   * App.tsx's `onSelectSpecies(code, bbox)`. The popover components
-   * (`CellPopover`, `ClusterListPopover`) keep their single-arg signature;
-   * bbox is attached by the wrapper at the `<AdaptiveGridMarker>` call site.
-   */
-  onSelectSpecies?: (speciesCode: string, bbox: BBox | null) => void;
+  onSelectSpecies?: (speciesCode: string) => void;
   /**
    * Issue #351: invoked on every map `idle` (camera-change settle) with
    * the current `map.getBounds()`. App.tsx threads this so the
@@ -2062,8 +2053,7 @@ export function MapCanvas({
 
   const handlePopoverSelectSpecies = useCallback(
     (speciesCode: string) => {
-      // ObservationPopover is for single observations — no cluster bbox.
-      onSelectSpecies?.(speciesCode, null);
+      onSelectSpecies?.(speciesCode);
       // Close the popover after the navigation — the user has expressed
       // intent to leave the map view; the dialog hanging open during the
       // surface switch is a stale state.
@@ -2309,7 +2299,7 @@ export function MapCanvas({
                 detailOpen={detailOpen}
                 onClick={() => handleGroupClick(g)}
                 {...(onSelectSpecies ? {
-                  onSelectSpecies: (code: string) => onSelectSpecies(code, getClusterBbox(g)),
+                  onSelectSpecies: (code: string) => onSelectSpecies(code),
                 } : {})}
               />
             </PresentationMarker>
@@ -2435,7 +2425,7 @@ export function MapCanvas({
           onDismiss={() => setClusterList(null)}
           onSelectSpecies={(code) => {
             if (onSelectSpecies) {
-              onSelectSpecies(code, getClusterBbox(clusterList.group));
+              onSelectSpecies(code);
             }
             setClusterList(null);
           }}
