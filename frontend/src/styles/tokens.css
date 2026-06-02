@@ -33,6 +33,12 @@
   --c-orange-500: #f5853b;  /* sunrise — light accent */
   --c-cyan-500:   #6db8d4;  /* moon — dark accent */
   --c-deep-ember: #c43a1a;  /* notable — distinct from accent */
+  /* Deep amber — a darkened (L=33%) sibling of --c-orange-500 (same warm ~21°
+     hue, high saturation), used as the LIGHT focus-ring color. The L=60% orange
+     accent only reaches 2.53:1 on #fff / 1.69:1 on the field border #d8d3c3 —
+     below WCAG 2.1 SC 1.4.11's 3:1 floor for focus indicators (#842). This deep
+     amber clears it with headroom: 6.82:1 on #fff, 4.56:1 on #d8d3c3. */
+  --c-amber-700: #984012;
 
   /* Navy / dark scale */
   --c-navy-50:  #f5f7fb;
@@ -167,6 +173,15 @@
      Decision-point is a NEW token; spec value lands. */
   --color-decision-point: var(--c-orange-500);
 
+  /* Focus-ring color — mode-paired, semantic (#842). The embedded scope-form
+     focus ring (.app-header-scope-rows … :focus-visible, a 2px box-shadow with
+     no offset) needs ≥3:1 against BOTH adjacent surfaces — the white card #fff
+     AND the field border #d8d3c3 — per WCAG 2.1 SC 1.4.11. Light mode CANNOT
+     reuse --color-decision-point (orange #f5853b: 2.53:1 / 1.69:1, both fail);
+     it gets the deep amber instead (6.82:1 / 4.56:1). Dark mode's cyan already
+     passes (6.68:1 on the #1b2742 card) so it stays the decision-point cyan. */
+  --color-focus-ring: var(--c-amber-700);
+
   /* NEW cluster-density triad (no existing equivalent) */
   --color-density-low:  var(--c-sky-500);
   --color-density-mid:  var(--c-sand-500);
@@ -234,6 +249,10 @@
      dark override is identical — inherits the :root definition above.         */
 
   --color-decision-point: var(--c-cyan-500);
+
+  /* Dark focus ring keeps the cyan accent — it already clears WCAG 1.4.11
+     (6.68:1 against the #1b2742 card). See the light-block note (#842). */
+  --color-focus-ring: var(--c-cyan-500);
 
   --color-density-low:  #4a8aa8;
   --color-density-mid:  #c49850;

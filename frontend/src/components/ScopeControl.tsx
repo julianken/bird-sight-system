@@ -75,15 +75,22 @@ export interface ScopeControlProps {
   embedded?: boolean;
 }
 
-function ScopeControlImpl({
-  scope,
-  states,
-  onPickState,
-  onPickWholeUs,
-  onExit,
-  onResolve,
-  embedded = false,
-}: ScopeControlProps): React.JSX.Element {
+function ScopeControlImpl(
+  {
+    scope,
+    states,
+    onPickState,
+    onPickWholeUs,
+    onExit,
+    onResolve,
+    embedded = false,
+  }: ScopeControlProps,
+  // #837: forwarded ref to the FIRST field (the state <select>). AppHeader's
+  // open-the-disclosure effect focuses this directly instead of a fragile
+  // `scopeRowsRef.querySelector('select')` DOM-order lookup — focus follows the
+  // declared first field, not whatever tag happens to come first in the tree.
+  firstFieldRef: React.ForwardedRef<HTMLSelectElement>,
+): React.JSX.Element {
   // In a state view the current state is the selected option; in a whole-US
   // view the neutral placeholder ("") is selected (no state is active).
   const selectedState = scope.kind === 'state' ? scope.stateCode : '';
@@ -99,6 +106,7 @@ function ScopeControlImpl({
       aria-label="Change the map scope"
     >
       <select
+        ref={firstFieldRef}
         className="scope-control__select"
         aria-label="Switch state"
         value={selectedState}
@@ -153,6 +161,10 @@ function ScopeControlImpl({
  * reference is stable when no scope-change has occurred (it's the same useState
  * identity from useUrlState). Default shallow comparison short-circuits on a
  * same-minute nowTick bump.
+ *
+ * #837: wrapped in forwardRef so AppHeader can hand a ref to the first field
+ * (the state <select>) for robust focus-on-open. memo(forwardRef(...)) keeps the
+ * O8 re-render boundary while threading the ref through.
  */
-export const ScopeControl = React.memo(ScopeControlImpl);
+export const ScopeControl = React.memo(React.forwardRef(ScopeControlImpl));
 ScopeControl.displayName = 'ScopeControl';
