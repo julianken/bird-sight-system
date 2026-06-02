@@ -89,6 +89,13 @@ describe('tokens.css — W1 conformance', () => {
       expect(darkBlock).toMatch(/--color-decision-point:/);
     });
 
+    // Focus ring (#842) — mode-paired like decision-point. Light uses a deep
+    // amber that meets WCAG 1.4.11's 3:1 floor on both the white card and the
+    // field border; dark keeps the cyan accent (which already passes).
+    it('overrides --color-focus-ring (dark keeps cyan, light is the deep amber)', () => {
+      expect(darkBlock).toMatch(/--color-focus-ring:/);
+    });
+
     // Group 5: density triad (4)
     it('overrides --color-density-low', () => {
       expect(darkBlock).toMatch(/--color-density-low:/);

@@ -2188,11 +2188,15 @@ aside.species-detail-rail .species-detail-rail-close {
    standard heavy `outline: 2px solid var(--color-text-strong); outline-offset:
    2px` slammed a thick black offset box around it that read as jarring rather
    than deliberate. Inside the disclosure card we instead use a tight accent
-   ring (`--color-decision-point`, the same orange/cyan interactive cue used for
-   links) via box-shadow — no offset gap, so it hugs the control and looks
-   intentional on mouse-open. A transparent `outline` is kept so Windows High
-   Contrast Mode still paints a visible focus ring (forced-colors strips
-   box-shadow). Scoped to `.app-header-scope-rows` so ONLY the in-card scope
+   ring (`--color-focus-ring` — deep amber in light, cyan in dark) via
+   box-shadow — no offset gap, so it hugs the control and looks intentional on
+   mouse-open. The ring color is its OWN mode-paired token, NOT the link/cue
+   `--color-decision-point`: in light mode that orange (#f5853b) only reaches
+   2.53:1 on the white card and 1.69:1 on the field border, both below WCAG
+   2.1 SC 1.4.11's 3:1 floor for focus indicators (#842); the deep amber clears
+   it (6.82:1 / 4.56:1). Dark stays cyan (already 6.68:1). A transparent
+   `outline` is kept so Windows High Contrast Mode still paints a visible focus
+   ring (forced-colors strips box-shadow). Scoped to `.app-header-scope-rows` so ONLY the in-card scope
    form softens — the standalone landing chooser's ZipInput keeps the base
    heavy ring (it is the primary affordance there, not an on-open auto-focus).
    Covers the three focusable inputs (state select, ZIP field, ZIP [Go]); the
@@ -2203,7 +2207,7 @@ aside.species-detail-rail .species-detail-rail-close {
 .app-header-scope-rows .zip-input__submit:focus-visible {
   outline: 2px solid transparent;
   outline-offset: 0;
-  box-shadow: 0 0 0 2px var(--color-decision-point);
+  box-shadow: 0 0 0 2px var(--color-focus-ring);
 }
 
 .scope-control__select {
