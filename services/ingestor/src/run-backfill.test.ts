@@ -263,17 +263,50 @@ describe('runBackfill', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     // Wrap real pool: pass through startIngestRun/finishIngestRun (which use
-    // INSERT/UPDATE on ingest_runs) but throw on the observations multi-row INSERT.
+    // INSERT/UPDATE on ingest_runs via pool.query) but throw on the observations
+    // multi-row INSERT. As of #843 upsertObservations runs inside a transaction
+    // on a connected client (pool.connect() -> client.query), so the synthetic
+    // failure must be injected on BOTH paths: the direct pool.query path AND the
+    // connected-client path. Intercepting only pool.query (the pre-#843 shape)
+    // would let the real INSERT succeed and the status==='failure' assertion
+    // would never trip.
+    const rejectIfObservationsInsert = (
+      text: string | { text?: string },
+      pass: (t: never, p: never) => Promise<unknown>,
+      params?: unknown[],
+    ) => {
+      const sql = typeof text === 'string' ? text : text.text ?? '';
+      if (sql.includes('observations') && /INSERT/i.test(sql)) {
+        return Promise.reject(new Error('synthetic upsert failure'));
+      }
+      return pass(text as never, params as never);
+    };
     const realQuery = db.pool.query.bind(db.pool);
     const wrappedPool = new Proxy(db.pool, {
       get(target, prop) {
         if (prop === 'query') {
-          return (text: string, params?: unknown[]) => {
-            const sql = typeof text === 'string' ? text : (text as { text?: string }).text ?? '';
-            if (sql.includes('observations') && /INSERT/i.test(sql)) {
-              return Promise.reject(new Error('synthetic upsert failure'));
-            }
-            return realQuery(text as never, params as never);
+          return (text: string, params?: unknown[]) =>
+            rejectIfObservationsInsert(text, realQuery, params);
+        }
+        if (prop === 'connect') {
+          // upsertObservations() acquires a client and runs
+          // BEGIN / INSERT / stamp / COMMIT (or ROLLBACK) on it. Return a Proxy
+          // over the REAL client so BEGIN/ROLLBACK/COMMIT and release() behave
+          // normally, but the observations INSERT rejects with the same
+          // synthetic failure — driving the catch -> ROLLBACK -> rethrow path.
+          return async () => {
+            const client = await db.pool.connect();
+            const realClientQuery = client.query.bind(client);
+            return new Proxy(client, {
+              get(clientTarget, clientProp) {
+                if (clientProp === 'query') {
+                  return (text: string, params?: unknown[]) =>
+                    rejectIfObservationsInsert(text, realClientQuery, params);
+                }
+                const value = (clientTarget as unknown as Record<string | symbol, unknown>)[clientProp as string];
+                return typeof value === 'function' ? value.bind(clientTarget) : value;
+              },
+            });
           };
         }
         return (target as unknown as Record<string | symbol, unknown>)[prop as string];
