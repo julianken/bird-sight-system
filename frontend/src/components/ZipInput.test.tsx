@@ -30,6 +30,49 @@ describe('<ZipInput>', () => {
     expect(input).toHaveAttribute('maxLength', '5');
   });
 
+  it('renders a visible, always-enabled "Go" submit button (iOS numeric keypad has no Return key)', () => {
+    render(<ZipInput onResolve={vi.fn()} />);
+    const go = screen.getByRole('button', { name: /^Go$/i });
+    expect(go).toBeInTheDocument();
+    expect(go).toHaveAttribute('type', 'submit');
+    // Always-enabled: not gated on a 5-digit value, so a malformed submit still
+    // routes through handleSubmit and surfaces the inline hint (never silent).
+    expect(go).toBeEnabled();
+  });
+
+  it('clicking "Go" submits a resolved ZIP — pointer path, no Enter key (iOS-safe)', async () => {
+    mockLookupZip.mockResolvedValue({
+      zip: '85701',
+      center: [-110.971, 32.21696],
+      stateCode: 'US-AZ',
+    });
+    const onResolve = vi.fn();
+    render(<ZipInput onResolve={onResolve} />);
+
+    await userEvent.type(screen.getByRole('textbox', { name: /ZIP code/i }), '85701');
+    await userEvent.click(screen.getByRole('button', { name: /^Go$/i }));
+
+    expect(mockLookupZip).toHaveBeenCalledWith('85701');
+    expect(onResolve).toHaveBeenCalledTimes(1);
+    expect(onResolve).toHaveBeenCalledWith({
+      stateCode: 'US-AZ',
+      center: [-110.971, 32.21696],
+      zoom: ZIP_FLYTO_ZOOM,
+    });
+  });
+
+  it('clicking "Go" with a malformed value shows the inline hint (never-silent contract via the button)', async () => {
+    const onResolve = vi.fn();
+    render(<ZipInput onResolve={onResolve} />);
+
+    await userEvent.type(screen.getByRole('textbox', { name: /ZIP code/i }), '123');
+    await userEvent.click(screen.getByRole('button', { name: /^Go$/i }));
+
+    expect(screen.getByText(/5-digit ZIP/i)).toBeInTheDocument();
+    expect(mockLookupZip).not.toHaveBeenCalled();
+    expect(onResolve).not.toHaveBeenCalled();
+  });
+
   it('does NOT call loadZipIndex on mount — only on focus (lazy trigger)', async () => {
     render(<ZipInput onResolve={vi.fn()} />);
     expect(mockLoadZipIndex).not.toHaveBeenCalled();

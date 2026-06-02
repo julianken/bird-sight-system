@@ -1827,6 +1827,15 @@ aside.species-detail-rail .species-detail-rail-close {
   flex-direction: column;
   gap: var(--space-xs);
 }
+/* #827: field + [Go] share one horizontal row; the feedback <p> elements stay
+   block siblings of this row (below it, under the column .zip-input flow), so
+   the full-width .zip-input__error box keeps its layout. align-items:stretch
+   makes the button match the field's height. */
+.zip-input__row {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: stretch;
+}
 .zip-input__field {
   padding: var(--space-sm) var(--space-md);
   font-size: var(--type-sm);
@@ -1835,13 +1844,49 @@ aside.species-detail-rail .species-detail-rail-close {
   border: 1px solid var(--color-border-ui);
   border-radius: 4px;
   /* A 5-digit ZIP needs little width; cap it so the field doesn't sprawl in
-     the wide on-map control or the landing chooser. */
-  inline-size: 100%;
+     the wide on-map control or the landing chooser. Inside the flex row it
+     grows to the cap then yields the rest to the [Go] button. */
+  flex: 1 1 auto;
+  min-inline-size: 0;
   max-inline-size: 8rem;
 }
 .zip-input__field:focus-visible {
   outline: 2px solid var(--color-text-strong);
   outline-offset: 2px;
+}
+/* #827: the ZIP [Go] submit button. Mirrors the chooser State row's
+   .scope-chooser__btn (primary dark fill, white text) so the ZIP row matches
+   the State row directly below it. ALWAYS enabled — no :disabled rule — so a
+   malformed click still routes through handleSubmit and shows the inline hint
+   (never-silent contract). */
+.zip-input__submit {
+  flex: 0 0 auto;
+  padding: var(--space-sm) var(--space-lg);
+  font-size: var(--type-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-white);
+  background: var(--color-text-strong);
+  border: 1px solid var(--color-text-strong);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.zip-input__submit:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+}
+/* #827 / dark-mode fix (PR #834): both Go buttons fill with --color-text-strong,
+   which inverts to near-white (#f5f7fb) in dark mode — so the white label
+   (--color-text-white #fff) would render ~1.07:1 on it (unreadable). The
+   approved Figma dark treatment is a LIGHT button with DARK text; flip the
+   label to --color-bg-surface (#1b2742 → 13.83:1 on the #f5f7fb fill, well past
+   AA). Covering BOTH selectors here is the single place the duplicated-to-match
+   buttons (#827 AC) take the dark fix once, so they can never drift apart in
+   dark mode. :not(:disabled) leaves .scope-chooser__btn:disabled (which sets its
+   own muted color at equal specificity) untouched regardless of source order;
+   .zip-input__submit is always enabled so the guard is a no-op there. */
+[data-theme="dark"] .zip-input__submit,
+[data-theme="dark"] .scope-chooser__btn:not(:disabled) {
+  color: var(--color-bg-surface);
 }
 .zip-input__status {
   margin: 0;
