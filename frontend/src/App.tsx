@@ -333,7 +333,7 @@ export function App() {
   // server clips via ST_Intersects). UNSCOPED and `?scope=us` both leave
   // `stateCode` unset, so the backend stays untouched (data invariant, #735).
   const scopeStateCode = state.scope.kind === 'state' ? state.scope.stateCode : undefined;
-  const { loading, observationsLoading, error, observations, refetch } = useBirdData(
+  const { loading, observationsLoading, error, observations, mode, refetch } = useBirdData(
     apiClient,
     {
       since: state.since,
@@ -927,8 +927,6 @@ export function App() {
     // Cold-load guard (#716/#720): suppress Template 1 while the first fetch is
     // in flight. Same discipline as MapLede's `loading` guard.
     if (observationsLoading && observationCount === 0 && speciesCount === 0) return null;
-    const speciesCommonName =
-      speciesCount === 1 ? (observations[0]?.comName ?? null) : null;
     // #828: the lede is count-only. The region moved into the wordmark headline
     // (no longer repeated in the sentence) and the time-window dropped entirely
     // (it's discoverable via Filters). No period clause, no `${region}` — see the
@@ -937,7 +935,22 @@ export function App() {
       return noFiltersActive
         ? 'No recent sightings'
         : 'No matches for these filters';
-    } else if (speciesCommonName) {
+    }
+    // #852: in aggregated (low-zoom / whole-state) mode the `observations` are
+    // SYNTHETIC rows whose `speciesCode`s are fabricated per-bucket — the same
+    // species across N cells yields N distinct codes, so `speciesCount` counts
+    // buckets, not species (the live "AZ 4257 species" overcount). The total
+    // SIGHTINGS count (observations.length = sum of bucket.count) IS correct in
+    // both modes, so aggregated mode reports sightings instead of a species
+    // count. The per-observation (z >= 6) "{N} species" / "{N} species of
+    // {family}" copy below is unchanged. (Second consumer derived.ts
+    // deriveSpeciesIndex is also synthetic-code-polluted — tracked separately.)
+    if (mode === 'aggregated') {
+      return `${observationCount} sightings`;
+    }
+    const speciesCommonName =
+      speciesCount === 1 ? (observations[0]?.comName ?? null) : null;
+    if (speciesCommonName) {
       return `${observationCount} sightings of ${speciesCommonName}`;
     } else if (familyName) {
       return `${speciesCount} species of ${familyName}`;
@@ -946,6 +959,7 @@ export function App() {
   }, [
     region,
     observations,
+    mode,
     observationsLoading,
     noFiltersActive,
     familyName,

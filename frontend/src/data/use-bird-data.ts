@@ -93,6 +93,21 @@ export interface BirdDataState {
   hotspots: Hotspot[];
   observations: Observation[];
   /**
+   * Render mode of the most recently resolved /api/observations response
+   * (#627). `'aggregated'` at low zoom (z < 6, whole-state/regional view) where
+   * `observations` are SYNTHETIC rows expanded from coarse-grid buckets;
+   * `'observations'` at z >= 6 where they are real per-observation rows.
+   *
+   * #852: consumers that derive a distinct-species count from `observations`
+   * (e.g. the MapLede "{N} species" copy) MUST gate on this — in aggregated
+   * mode the synthetic `agg-{bi}-…` codes are PREFIXED by bucket index, so the
+   * same species across N cells yields N distinct codes and
+   * `new Set(speciesCode).size` counts buckets, not species (the "4257 species"
+   * overcount). The total sightings count (`observations.length`) stays correct
+   * in both modes; the distinct-species count does not in aggregated mode.
+   */
+  mode: 'observations' | 'aggregated';
+  /**
    * ISO string of the most recently ingested observation (MAX(ingested_at)),
    * or null when the table is empty / read-api unavailable. Sourced from
    * meta.freshestObservationAt in the ObservationsResponse envelope (#456 W3-A).
@@ -125,6 +140,10 @@ export function useBirdData(
 ): BirdDataState {
   const [hotspots, setHotspots] = useState<Hotspot[]>([]);
   const [observations, setObservations] = useState<Observation[]>([]);
+  // #852 — mode of the last resolved response. Seeded 'observations' so a
+  // never-resolved/disabled hook reports the per-observation default (no
+  // overcount risk before any aggregated response lands).
+  const [mode, setMode] = useState<'observations' | 'aggregated'>('observations');
   const [freshestObservationAt, setFreshestObservationAt] = useState<string | null>(null);
   // Seed loading from `enabled`: a disabled hook is not loading (nothing is in
   // flight), so the chooser landing never paints a loading shell.
@@ -176,8 +195,10 @@ export function useBirdData(
         if (cancelled) return;
         if (envelope.mode === 'aggregated') {
           setObservations(expandBucketsToSyntheticObservations(envelope.buckets));
+          setMode('aggregated');
         } else {
           setObservations(envelope.data);
+          setMode('observations');
         }
         setFreshestObservationAt(envelope.meta.freshestObservationAt);
       })
@@ -223,6 +244,7 @@ export function useBirdData(
     error,
     hotspots,
     observations,
+    mode,
     freshestObservationAt,
     refetch,
   };
