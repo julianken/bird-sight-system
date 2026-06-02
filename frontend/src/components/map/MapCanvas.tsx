@@ -147,6 +147,73 @@ export function __resetAdaptiveGridCacheForTesting(): void {
 }
 
 /**
+ * The vector-tile source id used by the OpenFreeMap basemap styles
+ * (`positron` / `dark`, BASEMAP_LIGHT / BASEMAP_DARK). Both styles key their
+ * tiles on `openmaptiles` — see the representative `style.layers` fixture in
+ * MapCanvas.test.tsx (`source: 'openmaptiles'`). Used by `handleMapError` to
+ * scope the benign tile/network swallow to the basemap ONLY, so a real 404 /
+ * style-load error on one of the app's own sources (`observations`,
+ * `state-mask`) is never silenced.
+ */
+export const BASEMAP_SOURCE_ID = 'openmaptiles';
+
+/**
+ * The maplibre `error` event payload as react-map-gl surfaces it
+ * (@vis.gl/react-maplibre 8.1.1 `ErrorEvent = MapEvent<Map> & { error: Error }`).
+ * `sourceId` is NOT in that exported type, but maplibre-gl 5.x attaches it to
+ * source-data `error` events at runtime — so we widen the shape with an optional
+ * `sourceId` rather than reach for `any`.
+ */
+type MapErrorEvent = { type: string; error?: Error; sourceId?: string };
+
+/**
+ * Narrow, explicit predicate for transient/benign map errors that are safe to
+ * downgrade to `console.debug` during camera moves (#854). Two — and only two —
+ * structured signals qualify; everything else is treated as genuine:
+ *
+ *   (i)  `error.name === 'AbortError'` — an in-flight basemap-tile fetch that was
+ *        cancelled when a `fitBounds` fly (e.g. a scope/state switch) superseded
+ *        it. This is the dominant noise source and the only one with a stable,
+ *        structured discriminator.
+ *   (ii) a tile/network error keyed on the basemap vector source
+ *        (`sourceId === BASEMAP_SOURCE_ID`) — the occasionally-flaky OpenFreeMap
+ *        CDN hiccup the issue describes.
+ *
+ * Deliberately NOT a loose message-substring match: a broad predicate would eat
+ * a real basemap 404 or a style-load failure, which is exactly the "masks real
+ * errors" failure mode #854 (and the bot review) warns against. An error on the
+ * app's own sources (`observations`, `state-mask`) never matches clause (ii).
+ */
+export function isBenignMapError(e: MapErrorEvent): boolean {
+  if (e.error?.name === 'AbortError') return true;
+  if (e.sourceId === BASEMAP_SOURCE_ID) return true;
+  return false;
+}
+
+/**
+ * `onError` handler for `<MapView>` (#854). Passing `onError` fully diverts the
+ * maplibre `error` event away from react-map-gl's built-in `_onEvent` fallback
+ * (@vis.gl/react-maplibre 8.1.1 `maplibre.js` `_onEvent` :93-102 —
+ * `const cb = this.props['onError']; if (cb) cb(e); else if (e.type === 'error')
+ * console.error(e.error)`). Because the `cb` branch is taken, the library no
+ * longer logs anything itself — so this handler MUST re-surface genuinely
+ * unexpected errors via `console.error`, or they would be silently dropped.
+ *
+ * Benign transient errors (see `isBenignMapError`) are downgraded to
+ * `console.debug` so the console stays clean during camera moves without hiding
+ * real failures. No behavior change to the map.
+ */
+export function handleMapError(e: MapErrorEvent): void {
+  if (isBenignMapError(e)) {
+    // Downgraded, not dropped — still visible at the debug log level for anyone
+    // who opts in, but out of the default error/warning console surface.
+    console.debug('[map] benign transient error swallowed (#854)', e.error);
+    return;
+  }
+  console.error(e.error);
+}
+
+/**
  * Stable string hash for observation subIds (issue #554 silhouette
  * deconflict). Used to derive a NEGATIVE pseudo-cluster_id so silhouette
  * inputs can be carried through `buildGroups` alongside real clusters
@@ -2234,6 +2301,15 @@ export function MapCanvas({
             : BASEMAP_LIGHT
         }
         onLoad={handleLoad}
+        // #854: swallow benign transient map errors (AbortErrors from tile
+        // fetches cancelled mid-camera-move; OpenFreeMap CDN hiccups keyed on
+        // the basemap source) and re-log everything else. Without an `onError`
+        // prop, react-map-gl's `_onEvent` falls back to `console.error(e.error)`
+        // for every maplibre `error` event — dirtying the console during a
+        // scope `fitBounds` fly. Passing this handler diverts that fallback, so
+        // `handleMapError` re-surfaces genuine errors itself. See the handler's
+        // doc comment + isBenignMapError for the narrow swallow predicate.
+        onError={handleMapError}
         attributionControl={false}
         // Fix 3b (PR #582 bot review): preserve the WebGL backbuffer when running
         // e2e tests so `readCanvasPixel` in basemap-dark-flip.spec.ts can sample
