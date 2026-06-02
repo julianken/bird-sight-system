@@ -45,6 +45,25 @@ describe('EbirdClient.fetchNotable', () => {
     const obs = await client.fetchNotable('US-AZ');
     expect(obs[0]?.speciesCode).toBe('eltrog');
   });
+
+  // #845 — fetchNotable previously set `back` + `detail=simple` but NOT
+  // maxResults, so eBird capped the response at its default of 100. In busy
+  // states at peak migration (200-500 notable sightings/14d) any notable
+  // observation past the top-100 landed with is_notable silently false. Mirror
+  // fetchRecent and request the 10000 ceiling so the notable set is complete.
+  it('requests maxResults=10000 so the notable set is not capped at eBird default 100', async () => {
+    server.use(
+      http.get('https://api.ebird.org/v2/data/obs/US-AZ/recent/notable', ({ request }) => {
+        const url = new URL(request.url);
+        expect(url.searchParams.get('maxResults')).toBe('10000');
+        expect(url.searchParams.get('detail')).toBe('simple');
+        return HttpResponse.json(SAMPLE_OBS);
+      })
+    );
+    const client = new EbirdClient({ apiKey: 'k' });
+    const obs = await client.fetchNotable('US-AZ');
+    expect(obs).toHaveLength(1);
+  });
 });
 
 describe('EbirdClient.fetchHotspots', () => {

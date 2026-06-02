@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
+import pg from 'pg';
 import { startTestDb, type TestDb } from './test-helpers.js';
 import {
   upsertObservations, getObservations, getObservationsAggregated,
@@ -246,6 +247,104 @@ describe('upsertObservations', () => {
       "SELECT is_notable FROM observations WHERE sub_id = 'S-notable-x' AND species_code = 'annhum'"
     );
     expect(after[0]!.is_notable).toBe(true);
+  }, 120_000);
+});
+
+// #845 — the upsert transaction must exempt itself from the session
+// `statement_timeout`. `pool.ts:35` defaults every ingestor pool connection to
+// 15_000ms (added by #822 to protect the read-api); the ~13.3k-row national
+// fan-out upsert exceeds that on db-g1-small and gets cancelled with SQLSTATE
+// 57014, rolling back so zero rows commit. `SET LOCAL statement_timeout = 0`
+// immediately after BEGIN exempts ONLY the INSERT + stamp UPDATE in this txn
+// and reverts on COMMIT/ROLLBACK — every other query keeps the session cap.
+describe('upsertObservations statement_timeout (#845)', () => {
+  // A dedicated pool on the SAME test DB whose connections carry a deliberately
+  // tiny session `statement_timeout`. `pg.Pool`'s `statement_timeout` option
+  // issues `SET statement_timeout` on every connection, so this stands in for
+  // the prod ingestor pool's 15s cap — just small enough that the real upsert's
+  // INSERT exceeds it without the SET LOCAL override.
+  let tinyPool: pg.Pool;
+
+  // 1ms is well below the wall-clock cost of a real ~14k-row UNNEST INSERT +
+  // correlated stamp UPDATE, so without the SET LOCAL fix the upsert is
+  // cancelled with 57014. Large enough a value that an *empty* pool round-trip
+  // (the no-leak SHOW) still resolves; SHOW is sub-millisecond but tolerant
+  // because statement_timeout's granularity means a 1ms cap rarely trips a
+  // trivial read. We use 50ms to keep the no-leak SHOW robust while still being
+  // far under the multi-second real INSERT.
+  const TINY_TIMEOUT_MS = 50;
+
+  beforeAll(() => {
+    tinyPool = new pg.Pool({
+      connectionString: db.url,
+      max: 4,
+      statement_timeout: TINY_TIMEOUT_MS,
+    });
+  });
+
+  afterAll(async () => {
+    await tinyPool?.end();
+  });
+
+  beforeEach(async () => {
+    await db.pool.query('TRUNCATE observations');
+  });
+
+  function makeBulk(n: number): ObservationInput[] {
+    const out: ObservationInput[] = [];
+    for (let i = 0; i < n; i++) {
+      out.push({
+        subId: `S-timeout-${i}`,
+        speciesCode: 'vermfly',
+        comName: 'Vermilion Flycatcher',
+        lat: 31.72 + (i % 1000) * 0.0001,
+        lng: -110.88 - (i % 1000) * 0.0001,
+        obsDt: '2026-04-15T08:00:00Z',
+        locId: `L-timeout-${i}`,
+        locName: i % 7 === 0 ? null : `Loc ${i}`,
+        howMany: i % 5 === 0 ? null : (i % 4) + 1,
+        isNotable: false,
+      });
+    }
+    return out;
+  }
+
+  it('completes a large upsert despite a tiny session statement_timeout (SET LOCAL 0 overrides the cap)', async () => {
+    // Without `SET LOCAL statement_timeout = 0` after BEGIN, this multi-second
+    // INSERT is cancelled by the 50ms session cap with SQLSTATE 57014 and the
+    // txn rolls back. With the fix the upsert runs to completion and every row
+    // commits.
+    const inputs = makeBulk(14_000);
+    const count = await upsertObservations(tinyPool, inputs);
+    expect(count).toBe(14_000);
+
+    const { rows } = await db.pool.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM observations WHERE sub_id LIKE 'S-timeout-%'"
+    );
+    expect(Number(rows[0]!.n)).toBe(14_000);
+  }, 120_000);
+
+  it('does NOT leak statement_timeout = 0 — a fresh connection after the txn keeps the session default', async () => {
+    // Run the upsert (which sets statement_timeout = 0 inside its txn), then
+    // acquire a NEW connection from the pool and read its statement_timeout.
+    // `SET LOCAL` is transaction-scoped, so the override must be gone: the fresh
+    // connection sees the session default (50ms), NOT 0. Checking a connection
+    // acquired AFTER the txn closed is the load-bearing part — a same-txn check
+    // would pass even on a leaky implementation.
+    await upsertObservations(tinyPool, makeBulk(14_000));
+
+    const client = await tinyPool.connect();
+    try {
+      const { rows } = await client.query<{ statement_timeout: string }>(
+        'SHOW statement_timeout'
+      );
+      // pg renders the 50ms session cap as '50ms'; the disabled value would be
+      // '0'. Assert it is NOT disabled — the SET LOCAL did not escape the txn.
+      expect(rows[0]!.statement_timeout).not.toBe('0');
+      expect(rows[0]!.statement_timeout).toBe('50ms');
+    } finally {
+      client.release();
+    }
   }, 120_000);
 });
 

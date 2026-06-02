@@ -103,6 +103,19 @@ export async function upsertObservations(
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    // #845 — exempt THIS transaction from the session statement_timeout.
+    // pool.ts defaults every connection to a 15s statement_timeout (#822, to
+    // protect the read-api from runaway queries). The #840 per-state fan-out
+    // funnels the whole nation (~13.3k rows) into one upsert call whose INSERT +
+    // stamp UPDATE exceeds 15s on db-g1-small, so Postgres cancels it (SQLSTATE
+    // 57014), the txn rolls back, and zero rows commit. `SET LOCAL` is
+    // transaction-scoped: it applies ONLY to the two statements below and
+    // auto-reverts on COMMIT/ROLLBACK, so every other ingestor query
+    // (startIngestRun, findMissingSpeciesMeta, finishIngestRun) and the
+    // separate read-api pool keep their 15s guard. This is deliberately
+    // narrower than disabling the timeout pool-wide; the Cloud Run job's 900s
+    // timeout remains the outer kill switch.
+    await client.query('SET LOCAL statement_timeout = 0');
     await client.query(insertSql, [
       subIds, speciesCodes, lats, lngs, obsDts,
       locIds, locNames, howManys, isNotables,

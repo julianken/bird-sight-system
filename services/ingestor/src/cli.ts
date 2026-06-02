@@ -240,10 +240,14 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
       // (one /recent + /recent/notable per state) because eBird's region-recent
       // endpoint dedups to one-observation-per-species region-wide — a single
       // 'US' call starved every non-AZ state. paceMs defaults to 1000ms inside
-      // runIngest (~98 calls × 1s ≈ 98s, well under the 900s job timeout); the
-      // status ladder (success | partial | failure) is keyed on per-state
-      // failure count + 429 circuit-break, and `partial` still pings the
-      // success heartbeat below (only `failure` skips it).
+      // runIngest, applied as ONE inter-round pause per state (recent + notable
+      // fire concurrently per round), so ~48 pauses × 1s ≈ 48s of pacing — well
+      // under the 900s job timeout. (The two endpoints per state make ~98 HTTP
+      // calls total, but they're not serialized 1s apart; the pacing is the ~48
+      // inter-round sleeps, not the call count.) The status ladder (success |
+      // partial | failure) is keyed on per-state failure count + 429
+      // circuit-break, and `partial` still pings the success heartbeat below
+      // (only `failure` skips it).
       summary = await deps.runIngest({ pool, apiKey });
     } else if (kind === 'hotspots') {
       summary = await deps.runHotspotIngest({ pool, apiKey, regionCode: 'US-AZ' });
