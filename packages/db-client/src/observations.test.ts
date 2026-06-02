@@ -142,6 +142,111 @@ describe('upsertObservations', () => {
       expect(r.silhouette_id).toBeNull();
     }
   });
+
+  // #843 — Postgres bind-message param overflow regression guard.
+  //
+  // The old single-`INSERT … VALUES ($1..$N)` build emitted one $N placeholder
+  // per field (9 cols/row). The Postgres wire protocol encodes the Bind
+  // parameter count as a uint16 (max 65,535); node-postgres does NOT guard it,
+  // so once total params cross 65,535 the count silently overflows mod 65536
+  // and the bind desyncs ("bind message has N parameter formats but 0
+  // parameters"). 65,535 ÷ 9 = 7,281 rows is a CORRUPTION THRESHOLD, not a safe
+  // ceiling. The #840 per-state fan-out aggregates tens of thousands of rows
+  // into ONE upsert call (the failing prod run had ~13.3k), which is exactly
+  // what this exercises. These tests MUST drive the REAL upsertObservations
+  // path (the per-row JS build + correlated stamp UPDATE), NOT the
+  // generate_series bypass the LIMIT-cap test above uses — that bypass skips the
+  // build site that overflows and would never catch this bug. The path is slow
+  // for 14k rows; that is inherent to exercising the real code.
+  function makeSynthetic(n: number, opts?: { startAt?: number }): ObservationInput[] {
+    const startAt = opts?.startAt ?? 0;
+    const out: ObservationInput[] = [];
+    for (let i = startAt; i < startAt + n; i++) {
+      out.push({
+        subId: `S-bulk-${i}`,
+        speciesCode: 'vermfly',
+        comName: 'Vermilion Flycatcher',
+        lat: 31.72 + (i % 1000) * 0.0001,
+        lng: -110.88 - (i % 1000) * 0.0001,
+        obsDt: '2026-04-15T08:00:00Z',
+        locId: `L-bulk-${i}`,
+        locName: i % 7 === 0 ? null : `Loc ${i}`,
+        howMany: i % 5 === 0 ? null : (i % 4) + 1,
+        isNotable: false,
+      });
+    }
+    return out;
+  }
+
+  it('upserts 14,000 rows in one call without overflowing the uint16 bind-param limit (#843)', async () => {
+    const inputs = makeSynthetic(14_000);
+    const count = await upsertObservations(db.pool, inputs);
+    expect(count).toBe(14_000);
+
+    const { rows } = await db.pool.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM observations WHERE sub_id LIKE 'S-bulk-%'"
+    );
+    expect(Number(rows[0]!.n)).toBe(14_000);
+
+    // The stamp UPDATE (also previously unbounded, 2 params/row) must have run
+    // across the whole batch — every row gets its silhouette_id.
+    const { rows: stamped } = await db.pool.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM observations WHERE sub_id LIKE 'S-bulk-%' AND silhouette_id = 'tyrannidae'"
+    );
+    expect(Number(stamped[0]!.n)).toBe(14_000);
+  }, 120_000);
+
+  it('upserts 14,001 distinct rows with no drop or double-count across boundaries (#843)', async () => {
+    const inputs = makeSynthetic(14_001);
+    const count = await upsertObservations(db.pool, inputs);
+    expect(count).toBe(14_001);
+
+    const { rows } = await db.pool.query<{ total: string; distinct: string }>(
+      `SELECT count(*)::text AS total,
+              count(DISTINCT (sub_id, species_code))::text AS distinct
+       FROM observations WHERE sub_id LIKE 'S-bulk-%'`
+    );
+    expect(Number(rows[0]!.total)).toBe(14_001);
+    expect(Number(rows[0]!.distinct)).toBe(14_001);
+  }, 120_000);
+
+  it('OR-coalesces is_notable across large upsert calls at fan-out scale (#843)', async () => {
+    // The `is_notable = observations.is_notable OR EXCLUDED.is_notable`
+    // ON-CONFLICT clause must survive the UNNEST rewrite at >7,281-row scale.
+    // Callers (the #840 fan-out) pass a per-call deduplicated batch — Postgres
+    // rejects two rows sharing the conflict key inside ONE statement ("ON
+    // CONFLICT DO UPDATE command cannot affect row a second time"), exactly as
+    // the old single-INSERT form did, so the in-batch dedup is the caller's job
+    // (run-ingest.ts byKey map). What this guards is the CROSS-CALL coalesce: a
+    // key that arrives non-notable in one big upsert and notable in the next
+    // must end notable, with both calls clearing the uint16 ceiling.
+    const conflictKey = { subId: 'S-notable-x', speciesCode: 'annhum' as const };
+    const notNotable: ObservationInput = {
+      ...conflictKey, comName: "Anna's Hummingbird",
+      lat: 32.3, lng: -110.99, obsDt: '2026-04-15T08:00:00Z',
+      locId: 'L-x', locName: 'X', howMany: 1, isNotable: false,
+    };
+    const notable: ObservationInput = { ...notNotable, isNotable: true, obsDt: '2026-04-16T08:00:00Z' };
+
+    // Call 1: 8,000 filler + the non-notable copy (clears 7,281).
+    await upsertObservations(db.pool, [...makeSynthetic(8_000), notNotable]);
+    // Call 2: a fresh 8,000 filler + the notable copy of the same key.
+    await upsertObservations(db.pool, [...makeSynthetic(8_000, { startAt: 20_000 }), notable]);
+
+    const { rows } = await db.pool.query<{ is_notable: boolean }>(
+      "SELECT is_notable FROM observations WHERE sub_id = 'S-notable-x' AND species_code = 'annhum'"
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.is_notable).toBe(true);
+
+    // And the reverse direction does NOT clobber: a later non-notable upsert of
+    // an already-notable key keeps is_notable = true (OR, not assignment).
+    await upsertObservations(db.pool, [{ ...notable, isNotable: false }]);
+    const { rows: after } = await db.pool.query<{ is_notable: boolean }>(
+      "SELECT is_notable FROM observations WHERE sub_id = 'S-notable-x' AND species_code = 'annhum'"
+    );
+    expect(after[0]!.is_notable).toBe(true);
+  }, 120_000);
 });
 
 describe('getObservations filters', () => {
