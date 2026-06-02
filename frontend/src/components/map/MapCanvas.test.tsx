@@ -337,7 +337,12 @@ if (typeof URL.createObjectURL === 'undefined') {
 }
 
 /* ── Import after mocks ───────────────────────────────────────────────── */
-const { MapCanvas, __resetAdaptiveGridCacheForTesting } = await import('./MapCanvas.js');
+const {
+  MapCanvas,
+  __resetAdaptiveGridCacheForTesting,
+  handleMapError,
+  BASEMAP_SOURCE_ID,
+} = await import('./MapCanvas.js');
 
 /* ── Helpers ──────────────────────────────────────────────────────────── */
 
@@ -1798,7 +1803,17 @@ describe('MapCanvas controllable camera (#736)', () => {
     ).toBeNull();
   });
 
-  it('passes maxBounds as a reactive prop and NEVER calls setMaxBounds imperatively (finding a)', async () => {
+  it('passes maxBounds as a reactive prop and calls NO imperative setMaxBounds during reactive reconciliation — mount or maxBounds-prop change with no moveend (finding a)', async () => {
+    // #851: finding-(a) forbids driving `maxBounds` imperatively as the PRIMARY
+    // clamp (during reactive reconciliation). The ONE sanctioned imperative
+    // `setMaxBounds` is the #848 moveend corrector's idempotent reassert of the
+    // SAME declarative value (see MapCanvas.tsx clampBounds invariant + the
+    // moveend corrector). This test guards the forbidden path only: it drives
+    // mount + a maxBounds-prop change and fires NO `moveend`, so the corrector
+    // is registered-but-not-fired and the ONLY way `setMaxBounds` could be hit
+    // is reactive reconciliation — which must never call it. (The allowed
+    // moveend branch is covered by the #848 corrector fire/no-op tests below;
+    // exercising it here would just duplicate them.)
     stubMatchMedia(null);
     const { rerender } = render(
       <MapCanvas observations={[]} bounds={AZ_BOUNDS} boundsKey="US-AZ" />,
@@ -1808,14 +1823,23 @@ describe('MapCanvas controllable camera (#736)', () => {
       const props = JSON.parse(el.getAttribute('data-props') ?? '{}');
       return props.maxBounds;
     };
+    // On mount: maxBounds is a reactive <Map> prop, applied declaratively — no
+    // imperative setMaxBounds during the initial reconciliation.
     expect(readMaxBounds()).toEqual(AZ_BOUNDS);
+    expect(fakeMap.setMaxBounds).not.toHaveBeenCalled();
 
     // Change scope AZ→CA: the rendered maxBounds prop must update with no
-    // imperative setMaxBounds call.
+    // imperative setMaxBounds call during this reactive reconciliation either.
     rerender(
       <MapCanvas observations={[]} bounds={CA_BOUNDS} boundsKey="US-CA" />,
     );
     await waitFor(() => expect(readMaxBounds()).toEqual(CA_BOUNDS));
+
+    // The #848 moveend corrector IS registered (its one sanctioned imperative
+    // setMaxBounds lives behind a moveend), but we deliberately never fire a
+    // moveend here — so the only remaining caller would be reactive
+    // reconciliation, which is forbidden. Registered-but-not-fired ⇒ uncalled.
+    expect(fakeMap.once).toHaveBeenCalledWith('moveend', expect.any(Function));
     expect(fakeMap.setMaxBounds).not.toHaveBeenCalled();
   });
 
@@ -2637,5 +2661,87 @@ describe('MapCanvas state-artboard mask (#762)', () => {
     expect(removed).toEqual(
       expect.arrayContaining(['state-artboard-halo', 'state-artboard-outline']),
     );
+  });
+});
+
+/* ── onError console hygiene (#854) ──────────────────────────────────────────
+   `<MapView onError={handleMapError}>` diverts maplibre `error` events away from
+   react-map-gl's built-in `_onEvent` fallback. That fallback (in
+   @vis.gl/react-maplibre 8.1.1 `maplibre.js` `_onEvent` :93-102) does
+   `const cb = this.props['onError']; if (cb) cb(e); else if (e.type === 'error')
+   console.error(e.error)` — so once `onError` is wired, the library NO LONGER
+   logs anything itself; `handleMapError` is solely responsible for re-surfacing
+   genuinely-unexpected errors via `console.error`. These tests pin the narrow
+   swallow predicate (AbortError + basemap-source-keyed tile/network errors only)
+   and prove an unknown error still reaches `console.error`. */
+describe('handleMapError (#854 console hygiene)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function errEvent(error: Error, sourceId?: string): any {
+    return { type: 'error', target: fakeMap, error, sourceId };
+  }
+
+  it('swallows an AbortError (in-flight tile fetch cancelled mid-camera-move) via console.debug, not console.error', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+
+    const abort = new Error('The user aborted a request.');
+    abort.name = 'AbortError';
+    handleMapError(errEvent(abort));
+
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(debugSpy).toHaveBeenCalledTimes(1);
+
+    errorSpy.mockRestore();
+    debugSpy.mockRestore();
+  });
+
+  it('swallows a basemap-source tile/network error (keyed on the basemap sourceId) via console.debug, not console.error', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+
+    // Generic network Error (no AbortError name) but carrying the basemap
+    // source id — the OpenFreeMap CDN hiccup the issue describes.
+    const tileErr = new Error('Failed to fetch');
+    handleMapError(errEvent(tileErr, BASEMAP_SOURCE_ID));
+
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(debugSpy).toHaveBeenCalledTimes(1);
+
+    errorSpy.mockRestore();
+    debugSpy.mockRestore();
+  });
+
+  it('re-logs a genuinely-unexpected error (non-Abort, non-basemap-source) via console.error', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+
+    // A style-load / parse error with no sourceId — exactly the kind of real
+    // error the issue insists must NOT be swallowed.
+    const styleErr = new Error('Style is not done loading');
+    handleMapError(errEvent(styleErr));
+
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledWith(styleErr);
+    expect(debugSpy).not.toHaveBeenCalled();
+
+    errorSpy.mockRestore();
+    debugSpy.mockRestore();
+  });
+
+  it('does NOT swallow a 404/error on one of the app\'s own sources (observations) — re-logs it', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+
+    // A non-Abort error keyed on the `observations` source (NOT the basemap)
+    // is a real app-data failure — it must surface, not be swallowed.
+    const appErr = new Error('observations source failed');
+    handleMapError(errEvent(appErr, 'observations'));
+
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledWith(appErr);
+    expect(debugSpy).not.toHaveBeenCalled();
+
+    errorSpy.mockRestore();
+    debugSpy.mockRestore();
   });
 });
