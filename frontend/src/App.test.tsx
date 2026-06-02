@@ -2383,6 +2383,42 @@ describe('#828: lede dedupe — count-only copy, no region, no time-window', () 
     expect(lede).not.toHaveTextContent(/in the last/i);
   });
 
+  // #852 — Aggregated (low-zoom / whole-state) mode must NOT report a species
+  // count. At zoom < 6 the API returns coarse-grid buckets with no per-species
+  // code; use-bird-data fabricates synthetic `agg-{bi}-…` codes PREFIXED by the
+  // bucket index, so the SAME species spanning N cells yields N distinct codes
+  // and `new Set(speciesCode).size` counts BUCKETS, not species — the live
+  // "AZ 4257 species" overcount. The fix (option b): in aggregated mode the lede
+  // reports the total SIGHTINGS count (sum of bucket.count = observations.length,
+  // which IS correctly computable) instead of the inflated species count. The
+  // per-observation-mode "{N} species" lede (T4 above) is unchanged.
+  it('Aggregated mode (T4): reports total sightings, never the inflated species count', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
+    };
+    // Three cells, each holding the SAME single species (1 distinct species
+    // total across the region). The synthetic expansion fabricates one code per
+    // bucket (`agg-0-picidae-0`, `agg-1-…`, `agg-2-…`) → Set size 3, even though
+    // the truth is 1 species. Total sightings = 50 + 50 + 50 = 150.
+    mockGetObservations.mockResolvedValue({
+      mode: 'aggregated',
+      buckets: [
+        { lat: 32.2, lng: -110.9, count: 50, speciesCount: 1, families: ['picidae'] },
+        { lat: 33.4, lng: -111.9, count: 50, speciesCount: 1, families: ['picidae'] },
+        { lat: 34.5, lng: -112.4, count: 50, speciesCount: 1, families: ['picidae'] },
+      ],
+      meta: { freshestObservationAt: new Date().toISOString() },
+    });
+    render(<App />);
+    const lede = await screen.findByTestId('map-lede');
+    // The correct, computable count is sightings — not species.
+    expect(lede).toHaveTextContent('150 sightings');
+    // The bug: never report a species count in aggregated mode (3 would be the
+    // bucket-count overcount; any "{N} species" copy is wrong here).
+    expect(lede).not.toHaveTextContent(/species/i);
+  });
+
   it('Family filter (T3): "{N} species of {familyName}" — no region, no window', async () => {
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: 'picidae',
