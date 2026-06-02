@@ -16,31 +16,58 @@ export interface ObservationInput {
   isNotable: boolean;
 }
 
+// UNNEST-based bulk upsert (#843). The previous build emitted one `$N`
+// placeholder per FIELD (9 cols × N rows for the INSERT, 2 × N for the stamp
+// UPDATE). The Postgres wire protocol encodes a Bind message's parameter count
+// as a uint16 (max 65,535) and node-postgres does NOT guard it — past that the
+// count silently overflows mod 65536 and the bind desyncs ("bind message has N
+// parameter formats but 0 parameters"). The #840 per-state `recent` fan-out
+// aggregates tens of thousands of rows into ONE upsert call (~13.3k in the
+// failing prod run), so 7,281 rows (65,535÷9) was a CORRUPTION THRESHOLD, not a
+// safe ceiling. UNNEST passes ONE array param per COLUMN — 9 params for the
+// INSERT, 2 for the stamp — regardless of row count, so the ceiling is
+// structurally unreachable. Both statements run inside a single transaction on
+// one client so a mid-upsert failure rolls back cleanly (a half-written
+// national map is worse than a clean retry next cycle).
 export async function upsertObservations(
   pool: Pool,
   inputs: ObservationInput[]
 ): Promise<number> {
   if (inputs.length === 0) return 0;
 
-  const values: unknown[] = [];
-  const placeholders: string[] = [];
+  // One column-major array per field. Casts match the observations schema:
+  // sub_id/species_code/loc_id/loc_name TEXT, lat/lng DOUBLE PRECISION (float8),
+  // obs_dt TIMESTAMPTZ, how_many INTEGER, is_notable BOOLEAN. loc_name and
+  // how_many are nullable — null elements pass through fine.
+  const subIds: string[] = [];
+  const speciesCodes: string[] = [];
+  const lats: number[] = [];
+  const lngs: number[] = [];
+  const obsDts: string[] = [];
+  const locIds: string[] = [];
+  const locNames: (string | null)[] = [];
+  const howManys: (number | null)[] = [];
+  const isNotables: boolean[] = [];
 
-  inputs.forEach((o, i) => {
-    const off = i * 9;
-    placeholders.push(
-      `($${off + 1}, $${off + 2}, $${off + 3}, $${off + 4}, $${off + 5}, ` +
-      `$${off + 6}, $${off + 7}, $${off + 8}, $${off + 9})`
-    );
-    values.push(
-      o.subId, o.speciesCode, o.lat, o.lng, o.obsDt,
-      o.locId, o.locName, o.howMany, o.isNotable
-    );
-  });
+  for (const o of inputs) {
+    subIds.push(o.subId);
+    speciesCodes.push(o.speciesCode);
+    lats.push(o.lat);
+    lngs.push(o.lng);
+    obsDts.push(o.obsDt);
+    locIds.push(o.locId);
+    locNames.push(o.locName);
+    howManys.push(o.howMany);
+    isNotables.push(o.isNotable);
+  }
 
   const insertSql = `
     INSERT INTO observations
       (sub_id, species_code, lat, lng, obs_dt, loc_id, loc_name, how_many, is_notable)
-    VALUES ${placeholders.join(',')}
+    SELECT * FROM unnest(
+      $1::text[], $2::text[], $3::float8[], $4::float8[], $5::timestamptz[],
+      $6::text[], $7::text[], $8::int[], $9::bool[]
+    )
     ON CONFLICT (sub_id, species_code) DO UPDATE SET
       lat        = EXCLUDED.lat,
       lng        = EXCLUDED.lng,
@@ -52,19 +79,11 @@ export async function upsertObservations(
       ingested_at = now()
   `;
 
-  // Build a (sub_id, species_code) VALUES set that scopes the stamp UPDATE to
-  // just the rows in this batch. Without this scoping the WHERE clause goes
-  // O(table) — every batch re-scans every NULL-stamp residue row in
-  // observations, which is what made the daily backfill loop time out (#505).
+  // Scope the stamp UPDATE to just this batch's (sub_id, species_code) pairs.
+  // Without this scoping the WHERE clause goes O(table) — every batch re-scans
+  // every NULL-stamp residue row in observations, which is what made the daily
+  // backfill loop time out (#505). UNNEST keeps it O(batch) at 2 array params.
   // runReconcileStamping() remains the once-per-run sweeper for NULL residue.
-  const stampValues: unknown[] = [];
-  const stampPlaceholders: string[] = [];
-  inputs.forEach((o, i) => {
-    const off = i * 2;
-    stampPlaceholders.push(`($${off + 1}, $${off + 2})`);
-    stampValues.push(o.subId, o.speciesCode);
-  });
-
   const stampSql = `
     UPDATE observations o
     SET
@@ -75,14 +94,41 @@ export async function upsertObservations(
         WHERE sm.species_code = o.species_code
         LIMIT 1
       )
-    FROM (VALUES ${stampPlaceholders.join(',')}) AS batch(sub_id, species_code)
+    FROM unnest($1::text[], $2::text[]) AS batch(sub_id, species_code)
     WHERE o.sub_id = batch.sub_id
       AND o.species_code = batch.species_code
       AND o.silhouette_id IS NULL
   `;
 
-  await pool.query(insertSql, values);
-  await pool.query(stampSql, stampValues);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // #845 — exempt THIS transaction from the session statement_timeout.
+    // pool.ts defaults every connection to a 15s statement_timeout (#822, to
+    // protect the read-api from runaway queries). The #840 per-state fan-out
+    // funnels the whole nation (~13.3k rows) into one upsert call whose INSERT +
+    // stamp UPDATE exceeds 15s on db-g1-small, so Postgres cancels it (SQLSTATE
+    // 57014), the txn rolls back, and zero rows commit. `SET LOCAL` is
+    // transaction-scoped: it applies ONLY to the two statements below and
+    // auto-reverts on COMMIT/ROLLBACK, so every other ingestor query
+    // (startIngestRun, findMissingSpeciesMeta, finishIngestRun) and the
+    // separate read-api pool keep their 15s guard. This is deliberately
+    // narrower than disabling the timeout pool-wide; the Cloud Run job's 900s
+    // timeout remains the outer kill switch.
+    await client.query('SET LOCAL statement_timeout = 0');
+    await client.query(insertSql, [
+      subIds, speciesCodes, lats, lngs, obsDts,
+      locIds, locNames, howManys, isNotables,
+    ]);
+    await client.query(stampSql, [subIds, speciesCodes]);
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+
   return inputs.length;
 }
 

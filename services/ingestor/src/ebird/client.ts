@@ -45,6 +45,12 @@ export class EbirdClient {
     const url = new URL(`${this.baseUrl}/data/obs/${regionCode}/recent/notable`);
     url.searchParams.set('back', String(o.back ?? 14));
     url.searchParams.set('detail', 'simple');
+    // #845 — without maxResults eBird caps the notable response at its default
+    // of 100. In busy states at peak migration (200-500 notable sightings/14d)
+    // any notable observation past the top-100 would be missing from this set,
+    // so the intersect in run-ingest leaves its is_notable silently false.
+    // Mirror fetchRecent's 10000 ceiling.
+    url.searchParams.set('maxResults', String(o.maxResults ?? 10_000));
     return this.getJson<EbirdObservation[]>(url);
   }
 
@@ -101,7 +107,11 @@ export class EbirdClient {
         }
         if (!res.ok) {
           const body = await res.text();
-          throw new EbirdClientError(res.status, body);
+          // 429 is a 4xx — still not retried at this layer (the fan-out in
+          // run-ingest.ts owns rate-limit backoff/circuit-break, issue #840).
+          // Surface the `Retry-After` header (seconds or HTTP-date form) so
+          // that layer can honor eBird's advised cool-down instead of guessing.
+          throw new EbirdClientError(res.status, body, parseRetryAfter(res.headers.get('retry-after')));
         }
         return (await res.json()) as T;
       } catch (err) {
@@ -124,10 +134,34 @@ export class EbirdClient {
 }
 
 export class EbirdClientError extends Error {
-  constructor(public status: number, public body: string) {
+  /**
+   * Parsed `Retry-After` (in ms) when eBird returns 429. `undefined` when the
+   * header was absent or the status wasn't a rate-limit. The per-state recent
+   * fan-out (run-ingest.ts, #840) honors this for its backoff before falling
+   * back to exponential.
+   */
+  constructor(public status: number, public body: string, public retryAfterMs?: number) {
     super(`eBird client error ${status}: ${body}`);
     this.name = 'EbirdClientError';
   }
+}
+
+/**
+ * Parse an HTTP `Retry-After` header into milliseconds. Accepts both the
+ * delta-seconds form (`"120"`) and the HTTP-date form
+ * (`"Wed, 21 Oct 2026 07:28:00 GMT"`). Returns `undefined` for an absent or
+ * unparseable value, or a non-positive delay (already elapsed date).
+ */
+function parseRetryAfter(headerValue: string | null): number | undefined {
+  if (!headerValue) return undefined;
+  const trimmed = headerValue.trim();
+  if (/^\d+$/.test(trimmed)) {
+    return Number.parseInt(trimmed, 10) * 1000;
+  }
+  const dateMs = Date.parse(trimmed);
+  if (Number.isNaN(dateMs)) return undefined;
+  const delta = dateMs - Date.now();
+  return delta > 0 ? delta : undefined;
 }
 export class EbirdServerError extends Error {
   constructor(public status: number, public body: string) {

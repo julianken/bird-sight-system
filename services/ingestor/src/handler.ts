@@ -39,7 +39,11 @@ export async function handleScheduled(
   try {
     switch (kind) {
       case 'recent':
-        return await runIngest({ pool, apiKey: env.EBIRD_API_KEY, regionCode: 'US' });
+        // Per-state fan-out (#840): runIngest loops CONUS_STATE_CODES internally
+        // rather than making one nationwide 'US' call (which eBird deduped to
+        // one-obs-per-species, starving non-AZ states). Mirrors cli.ts's recent
+        // dispatch — no regionCode pinned.
+        return await runIngest({ pool, apiKey: env.EBIRD_API_KEY });
       case 'hotspots':
         return await runHotspotIngest({ pool, apiKey: env.EBIRD_API_KEY, regionCode: 'US-AZ' });
       case 'backfill':

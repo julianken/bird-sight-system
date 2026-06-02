@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
+import pg from 'pg';
 import { startTestDb, type TestDb } from './test-helpers.js';
 import {
   upsertObservations, getObservations, getObservationsAggregated,
@@ -142,6 +143,209 @@ describe('upsertObservations', () => {
       expect(r.silhouette_id).toBeNull();
     }
   });
+
+  // #843 — Postgres bind-message param overflow regression guard.
+  //
+  // The old single-`INSERT … VALUES ($1..$N)` build emitted one $N placeholder
+  // per field (9 cols/row). The Postgres wire protocol encodes the Bind
+  // parameter count as a uint16 (max 65,535); node-postgres does NOT guard it,
+  // so once total params cross 65,535 the count silently overflows mod 65536
+  // and the bind desyncs ("bind message has N parameter formats but 0
+  // parameters"). 65,535 ÷ 9 = 7,281 rows is a CORRUPTION THRESHOLD, not a safe
+  // ceiling. The #840 per-state fan-out aggregates tens of thousands of rows
+  // into ONE upsert call (the failing prod run had ~13.3k), which is exactly
+  // what this exercises. These tests MUST drive the REAL upsertObservations
+  // path (the per-row JS build + correlated stamp UPDATE), NOT the
+  // generate_series bypass the LIMIT-cap test above uses — that bypass skips the
+  // build site that overflows and would never catch this bug. The path is slow
+  // for 14k rows; that is inherent to exercising the real code.
+  function makeSynthetic(n: number, opts?: { startAt?: number }): ObservationInput[] {
+    const startAt = opts?.startAt ?? 0;
+    const out: ObservationInput[] = [];
+    for (let i = startAt; i < startAt + n; i++) {
+      out.push({
+        subId: `S-bulk-${i}`,
+        speciesCode: 'vermfly',
+        comName: 'Vermilion Flycatcher',
+        lat: 31.72 + (i % 1000) * 0.0001,
+        lng: -110.88 - (i % 1000) * 0.0001,
+        obsDt: '2026-04-15T08:00:00Z',
+        locId: `L-bulk-${i}`,
+        locName: i % 7 === 0 ? null : `Loc ${i}`,
+        howMany: i % 5 === 0 ? null : (i % 4) + 1,
+        isNotable: false,
+      });
+    }
+    return out;
+  }
+
+  it('upserts 14,000 rows in one call without overflowing the uint16 bind-param limit (#843)', async () => {
+    const inputs = makeSynthetic(14_000);
+    const count = await upsertObservations(db.pool, inputs);
+    expect(count).toBe(14_000);
+
+    const { rows } = await db.pool.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM observations WHERE sub_id LIKE 'S-bulk-%'"
+    );
+    expect(Number(rows[0]!.n)).toBe(14_000);
+
+    // The stamp UPDATE (also previously unbounded, 2 params/row) must have run
+    // across the whole batch — every row gets its silhouette_id.
+    const { rows: stamped } = await db.pool.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM observations WHERE sub_id LIKE 'S-bulk-%' AND silhouette_id = 'tyrannidae'"
+    );
+    expect(Number(stamped[0]!.n)).toBe(14_000);
+  }, 120_000);
+
+  it('upserts 14,001 distinct rows with no drop or double-count across boundaries (#843)', async () => {
+    const inputs = makeSynthetic(14_001);
+    const count = await upsertObservations(db.pool, inputs);
+    expect(count).toBe(14_001);
+
+    const { rows } = await db.pool.query<{ total: string; distinct: string }>(
+      `SELECT count(*)::text AS total,
+              count(DISTINCT (sub_id, species_code))::text AS distinct
+       FROM observations WHERE sub_id LIKE 'S-bulk-%'`
+    );
+    expect(Number(rows[0]!.total)).toBe(14_001);
+    expect(Number(rows[0]!.distinct)).toBe(14_001);
+  }, 120_000);
+
+  it('OR-coalesces is_notable across large upsert calls at fan-out scale (#843)', async () => {
+    // The `is_notable = observations.is_notable OR EXCLUDED.is_notable`
+    // ON-CONFLICT clause must survive the UNNEST rewrite at >7,281-row scale.
+    // Callers (the #840 fan-out) pass a per-call deduplicated batch — Postgres
+    // rejects two rows sharing the conflict key inside ONE statement ("ON
+    // CONFLICT DO UPDATE command cannot affect row a second time"), exactly as
+    // the old single-INSERT form did, so the in-batch dedup is the caller's job
+    // (run-ingest.ts byKey map). What this guards is the CROSS-CALL coalesce: a
+    // key that arrives non-notable in one big upsert and notable in the next
+    // must end notable, with both calls clearing the uint16 ceiling.
+    const conflictKey = { subId: 'S-notable-x', speciesCode: 'annhum' as const };
+    const notNotable: ObservationInput = {
+      ...conflictKey, comName: "Anna's Hummingbird",
+      lat: 32.3, lng: -110.99, obsDt: '2026-04-15T08:00:00Z',
+      locId: 'L-x', locName: 'X', howMany: 1, isNotable: false,
+    };
+    const notable: ObservationInput = { ...notNotable, isNotable: true, obsDt: '2026-04-16T08:00:00Z' };
+
+    // Call 1: 8,000 filler + the non-notable copy (clears 7,281).
+    await upsertObservations(db.pool, [...makeSynthetic(8_000), notNotable]);
+    // Call 2: a fresh 8,000 filler + the notable copy of the same key.
+    await upsertObservations(db.pool, [...makeSynthetic(8_000, { startAt: 20_000 }), notable]);
+
+    const { rows } = await db.pool.query<{ is_notable: boolean }>(
+      "SELECT is_notable FROM observations WHERE sub_id = 'S-notable-x' AND species_code = 'annhum'"
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.is_notable).toBe(true);
+
+    // And the reverse direction does NOT clobber: a later non-notable upsert of
+    // an already-notable key keeps is_notable = true (OR, not assignment).
+    await upsertObservations(db.pool, [{ ...notable, isNotable: false }]);
+    const { rows: after } = await db.pool.query<{ is_notable: boolean }>(
+      "SELECT is_notable FROM observations WHERE sub_id = 'S-notable-x' AND species_code = 'annhum'"
+    );
+    expect(after[0]!.is_notable).toBe(true);
+  }, 120_000);
+});
+
+// #845 — the upsert transaction must exempt itself from the session
+// `statement_timeout`. `pool.ts:35` defaults every ingestor pool connection to
+// 15_000ms (added by #822 to protect the read-api); the ~13.3k-row national
+// fan-out upsert exceeds that on db-g1-small and gets cancelled with SQLSTATE
+// 57014, rolling back so zero rows commit. `SET LOCAL statement_timeout = 0`
+// immediately after BEGIN exempts ONLY the INSERT + stamp UPDATE in this txn
+// and reverts on COMMIT/ROLLBACK — every other query keeps the session cap.
+describe('upsertObservations statement_timeout (#845)', () => {
+  // A dedicated pool on the SAME test DB whose connections carry a deliberately
+  // tiny session `statement_timeout`. `pg.Pool`'s `statement_timeout` option
+  // issues `SET statement_timeout` on every connection, so this stands in for
+  // the prod ingestor pool's 15s cap — just small enough that the real upsert's
+  // INSERT exceeds it without the SET LOCAL override.
+  let tinyPool: pg.Pool;
+
+  // 1ms is well below the wall-clock cost of a real ~14k-row UNNEST INSERT +
+  // correlated stamp UPDATE, so without the SET LOCAL fix the upsert is
+  // cancelled with 57014. Large enough a value that an *empty* pool round-trip
+  // (the no-leak SHOW) still resolves; SHOW is sub-millisecond but tolerant
+  // because statement_timeout's granularity means a 1ms cap rarely trips a
+  // trivial read. We use 50ms to keep the no-leak SHOW robust while still being
+  // far under the multi-second real INSERT.
+  const TINY_TIMEOUT_MS = 50;
+
+  beforeAll(() => {
+    tinyPool = new pg.Pool({
+      connectionString: db.url,
+      max: 4,
+      statement_timeout: TINY_TIMEOUT_MS,
+    });
+  });
+
+  afterAll(async () => {
+    await tinyPool?.end();
+  });
+
+  beforeEach(async () => {
+    await db.pool.query('TRUNCATE observations');
+  });
+
+  function makeBulk(n: number): ObservationInput[] {
+    const out: ObservationInput[] = [];
+    for (let i = 0; i < n; i++) {
+      out.push({
+        subId: `S-timeout-${i}`,
+        speciesCode: 'vermfly',
+        comName: 'Vermilion Flycatcher',
+        lat: 31.72 + (i % 1000) * 0.0001,
+        lng: -110.88 - (i % 1000) * 0.0001,
+        obsDt: '2026-04-15T08:00:00Z',
+        locId: `L-timeout-${i}`,
+        locName: i % 7 === 0 ? null : `Loc ${i}`,
+        howMany: i % 5 === 0 ? null : (i % 4) + 1,
+        isNotable: false,
+      });
+    }
+    return out;
+  }
+
+  it('completes a large upsert despite a tiny session statement_timeout (SET LOCAL 0 overrides the cap)', async () => {
+    // Without `SET LOCAL statement_timeout = 0` after BEGIN, this multi-second
+    // INSERT is cancelled by the 50ms session cap with SQLSTATE 57014 and the
+    // txn rolls back. With the fix the upsert runs to completion and every row
+    // commits.
+    const inputs = makeBulk(14_000);
+    const count = await upsertObservations(tinyPool, inputs);
+    expect(count).toBe(14_000);
+
+    const { rows } = await db.pool.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM observations WHERE sub_id LIKE 'S-timeout-%'"
+    );
+    expect(Number(rows[0]!.n)).toBe(14_000);
+  }, 120_000);
+
+  it('does NOT leak statement_timeout = 0 — a fresh connection after the txn keeps the session default', async () => {
+    // Run the upsert (which sets statement_timeout = 0 inside its txn), then
+    // acquire a NEW connection from the pool and read its statement_timeout.
+    // `SET LOCAL` is transaction-scoped, so the override must be gone: the fresh
+    // connection sees the session default (50ms), NOT 0. Checking a connection
+    // acquired AFTER the txn closed is the load-bearing part — a same-txn check
+    // would pass even on a leaky implementation.
+    await upsertObservations(tinyPool, makeBulk(14_000));
+
+    const client = await tinyPool.connect();
+    try {
+      const { rows } = await client.query<{ statement_timeout: string }>(
+        'SHOW statement_timeout'
+      );
+      // pg renders the 50ms session cap as '50ms'; the disabled value would be
+      // '0'. Assert it is NOT disabled — the SET LOCAL did not escape the txn.
+      expect(rows[0]!.statement_timeout).not.toBe('0');
+      expect(rows[0]!.statement_timeout).toBe('50ms');
+    } finally {
+      client.release();
+    }
+  }, 120_000);
 });
 
 describe('getObservations filters', () => {

@@ -45,6 +45,25 @@ describe('EbirdClient.fetchNotable', () => {
     const obs = await client.fetchNotable('US-AZ');
     expect(obs[0]?.speciesCode).toBe('eltrog');
   });
+
+  // #845 — fetchNotable previously set `back` + `detail=simple` but NOT
+  // maxResults, so eBird capped the response at its default of 100. In busy
+  // states at peak migration (200-500 notable sightings/14d) any notable
+  // observation past the top-100 landed with is_notable silently false. Mirror
+  // fetchRecent and request the 10000 ceiling so the notable set is complete.
+  it('requests maxResults=10000 so the notable set is not capped at eBird default 100', async () => {
+    server.use(
+      http.get('https://api.ebird.org/v2/data/obs/US-AZ/recent/notable', ({ request }) => {
+        const url = new URL(request.url);
+        expect(url.searchParams.get('maxResults')).toBe('10000');
+        expect(url.searchParams.get('detail')).toBe('simple');
+        return HttpResponse.json(SAMPLE_OBS);
+      })
+    );
+    const client = new EbirdClient({ apiKey: 'k' });
+    const obs = await client.fetchNotable('US-AZ');
+    expect(obs).toHaveLength(1);
+  });
 });
 
 describe('EbirdClient.fetchHotspots', () => {
@@ -240,6 +259,41 @@ describe('EbirdClient retries', () => {
     const client = new EbirdClient({ apiKey: 'k', retryBaseMs: 1, maxRetries: 2 });
     await expect(client.fetchRecent('US-AZ')).rejects.toThrow(/502/);
     expect(calls).toBe(3); // 1 initial + 2 retries
+  });
+
+  it('throws EbirdClientError(429) immediately and surfaces Retry-After (seconds form) as retryAfterMs', async () => {
+    // 429 is a 4xx: not retried at the client layer (the run-ingest fan-out
+    // owns rate-limit backoff/circuit-break, #840). The client's only job is
+    // to surface the eBird-advised cool-down so that layer can honor it.
+    let calls = 0;
+    server.use(
+      http.get('https://api.ebird.org/v2/data/obs/US-AZ/recent', () => {
+        calls++;
+        return new HttpResponse('rate limited', {
+          status: 429,
+          headers: { 'retry-after': '12' },
+        });
+      })
+    );
+    const client = new EbirdClient({ apiKey: 'k', retryBaseMs: 1, maxRetries: 5 });
+    const err = await client.fetchRecent('US-AZ').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(EbirdClientError);
+    expect((err as EbirdClientError).status).toBe(429);
+    expect((err as EbirdClientError).retryAfterMs).toBe(12_000);
+    expect(calls).toBe(1); // no retry on 4xx
+  });
+
+  it('leaves retryAfterMs undefined when a 429 carries no Retry-After header', async () => {
+    server.use(
+      http.get('https://api.ebird.org/v2/data/obs/US-AZ/recent', () =>
+        new HttpResponse('rate limited', { status: 429 })
+      )
+    );
+    const client = new EbirdClient({ apiKey: 'k', retryBaseMs: 1, maxRetries: 5 });
+    const err = await client.fetchRecent('US-AZ').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(EbirdClientError);
+    expect((err as EbirdClientError).status).toBe(429);
+    expect((err as EbirdClientError).retryAfterMs).toBeUndefined();
   });
 
   it('retries on request timeout then throws EbirdServerError', async () => {

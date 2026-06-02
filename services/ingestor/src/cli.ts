@@ -236,7 +236,19 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
     // see scripts/verify-backfill.sh.
     let backfillState: string | undefined;
     if (kind === 'recent') {
-      summary = await deps.runIngest({ pool, apiKey, regionCode: 'US' });
+      // Per-state fan-out (#840): runIngest loops CONUS_STATE_CODES internally
+      // (one /recent + /recent/notable per state) because eBird's region-recent
+      // endpoint dedups to one-observation-per-species region-wide — a single
+      // 'US' call starved every non-AZ state. paceMs defaults to 1000ms inside
+      // runIngest, applied as ONE inter-round pause per state (recent + notable
+      // fire concurrently per round), so ~48 pauses × 1s ≈ 48s of pacing — well
+      // under the 900s job timeout. (The two endpoints per state make ~98 HTTP
+      // calls total, but they're not serialized 1s apart; the pacing is the ~48
+      // inter-round sleeps, not the call count.) The status ladder (success |
+      // partial | failure) is keyed on per-state failure count + 429
+      // circuit-break, and `partial` still pings the success heartbeat below
+      // (only `failure` skips it).
+      summary = await deps.runIngest({ pool, apiKey });
     } else if (kind === 'hotspots') {
       summary = await deps.runHotspotIngest({ pool, apiKey, regionCode: 'US-AZ' });
     } else if (kind === 'backfill') {
@@ -376,6 +388,27 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
     // log-based metrics extract (see issue #641 + epic #638, PR-2 in #642).
     // Sibling pattern: `services/read-api/src/app.ts:161` (meta_freshness).
     const durationSeconds = Math.round((Date.now() - startedAt) / 1000);
+    // Per-state fan-out degradation (#840 review): a `partial` recent run pings
+    // the SUCCESS heartbeat (correctly — the map made forward progress), so the
+    // ONLY aggregate signal that it was degraded is this line. Without the
+    // failed-state count here, a degraded-but-green run reads as a clean INFO
+    // line and the silent-degradation is invisible — the same class of bug that
+    // hid the original single-region starve. Surface `statesFailed` + the failed
+    // state codes whenever any state failed (covers `partial` AND the per-state
+    // `failure` path; `summary.error` is only set on `failure`, so a `partial`
+    // run otherwise carried no error context at all).
+    const statesFailed =
+      'statesFailed' in summary && typeof summary.statesFailed === 'number'
+        ? summary.statesFailed
+        : 0;
+    const failedStates =
+      'failures' in summary && Array.isArray(summary.failures)
+        ? summary.failures.map(f => f.state)
+        : [];
+    const firstFanoutError =
+      'failures' in summary && Array.isArray(summary.failures)
+        ? summary.failures[0]?.error
+        : undefined;
     console.log(JSON.stringify({
       severity: summary.status === 'failure' ? 'ERROR' : 'INFO',
       message: 'bird_ingest_run_completed',
@@ -386,11 +419,21 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
       // field so Cloud Logging can filter by `jsonPayload.state="US-CA"`.
       // Omitted for non-backfill kinds to keep the structured shape minimal.
       ...(backfillState !== undefined && { state: backfillState }),
-      // Surface the first per-day error (or fatal pre-loop error) in the
-      // run-completed summary so Cloud Logging triage doesn't require
-      // joining against the per-day bird_ingest_day_failed lines.
-      ...(summary.status !== 'success' && 'error' in summary && typeof summary.error === 'string'
-        && { firstError: summary.error.slice(0, 500) }),
+      // Per-state fan-out: emit the degraded-state count + codes ONLY when there
+      // is degradation to surface (mirrors the conditional `state` shape above).
+      ...(statesFailed > 0 && { statesFailed, failedStates: failedStates.slice(0, 10) }),
+      // Surface the first error in the run-completed summary so Cloud Logging
+      // triage doesn't require joining against the per-state/per-day WARNING
+      // lines. `summary.error` covers fatal pre-loop / >threshold failure; the
+      // per-state `failures[0].error` covers the `partial` path where
+      // `summary.error` is unset.
+      ...((() => {
+        const err =
+          summary.status !== 'success' && 'error' in summary && typeof summary.error === 'string'
+            ? summary.error
+            : firstFanoutError;
+        return err !== undefined ? { firstError: err.slice(0, 500) } : {};
+      })()),
     }));
     if (summary.status === 'failure') {
       // Flag the process as failed without killing the loop mid-pool-close.
