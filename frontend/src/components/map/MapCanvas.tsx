@@ -786,8 +786,97 @@ export function MapCanvas({
         essential: true,
         duration: prefersReducedMotion ? 0 : 800,
       });
+      // The ZIP `flyTo` branch is IMMUNE to the #848 mid-flight longitude bug:
+      // flyTo's easeFunc snaps to the exact targetCenter at `k===1`, so an
+      // interrupted in-flight flyTo still lands the requested center. No
+      // corrector is registered here — the branch is untouched.
       return;
     }
+
+    // #848 — Switching to a new state WHILE the camera is mid-animation frames
+    // the new state at the wrong longitude (zoom + latitude land correctly).
+    // VERIFIED live + traced into maplibre-gl 5.24.0: this is the SAME in-flight
+    // transform-clone replay class as the #762/#765 `renderWorldCopies` clobber
+    // (:864-897) — on the `maxBounds`/`lngRange` axis.
+    //
+    // Sequence (verified frame-by-frame in the e2e harness):
+    //   1. The state switch re-renders; react-map-gl's layout effect runs FIRST
+    //      and `setMaxBounds(newState)` → `transform.lngRange` momentarily holds
+    //      the NEW state envelope ("Not a stale-maxBounds clamp" is true at this
+    //      instant — react-map-gl DID apply the new bounds).
+    //   2. But the still-in-flight `easeTo` from before the switch re-`apply`s a
+    //      CLONE of its start transform (with the OLD state's `lngRange`) on its
+    //      next animation frame — clobbering `lngRange` back to the OLD state
+    //      BEFORE this passive effect even runs (passive effects fire after a
+    //      paint, i.e. after ≥1 animation frame).
+    //   3. So by the time this effect calls `fitBounds`, `transform.lngRange` is
+    //      the OLD (e.g. western) state's. `fitBounds` → Mercator `handleEaseTo`
+    //      captures its `from`-basis against that clobbered transform; with no
+    //      `k===1` target snap (unlike flyTo) and `renderWorldCopies=false` (no
+    //      world-copy wrap), the camera lands edge-pinned at the OLD state's
+    //      eastern `lngRange` edge — the wrong, western-ish longitude.
+    //
+    // `cameraForBounds` returns the geometry-correct target even mid-flight (it
+    // derives from absolute world geometry, independent of the live transform).
+    // So we read the target up front and, on the settle `moveend` (after the
+    // clobbering animation has fully ended so the clone no longer re-applies),
+    // RE-ASSERT the new state's `maxBounds` (undoing the clone clobber of
+    // `lngRange`) and `jumpTo` the target. This mirrors #762/#765's
+    // imperative-reassert-on-moveend exactly, one axis over.
+    //
+    // Why the maxBounds reassert is REQUIRED (not just jumpTo): the clobbered
+    // `lngRange` would clamp the corrective `jumpTo` straight back to the OLD
+    // state's edge — verified live. The reassert is one imperative `setMaxBounds`
+    // INSIDE the moveend corrector, NOT the reactive clamp mechanism: `maxBounds`
+    // remains a reactive `<Map>` prop (finding-(a)); the existing finding-(a)
+    // guard fires no `moveend`, so it stays green. NOT a bare `map.stop()` in the
+    // effect: `easeTo` already self-`_stop`s, freezing the western basis — stop
+    // alone fixes neither the longitude nor the `lngRange` clobber.
+    const target = map.cameraForBounds(activeBounds, {
+      padding: FIT_BOUNDS_PADDING,
+      maxZoom: 12,
+    });
+    let corrector: (() => void) | undefined;
+    // `fitBounds` first `stop()`s the in-flight `easeTo` — which fires a
+    // SYNCHRONOUS cancellation `moveend` (at the frozen western position) DURING
+    // the `fitBounds()` call, before fitBounds starts its own animation. We must
+    // NOT correct on that cancellation moveend: a `jumpTo` there is immediately
+    // clobbered by fitBounds's subsequent animation (verified live). We correct
+    // only on fitBounds's OWN settle moveend, which fires asynchronously AFTER
+    // `fitBounds()` returns. `fitBoundsDispatched` gates that: a moveend that
+    // fires while it is still `false` is the synchronous cancellation (or, under
+    // reduced motion, the instant settle that needs no correction) — re-arm and
+    // skip.
+    let fitBoundsDispatched = false;
+    if (target) {
+      const EPS = 1e-3; // ≈100 m — far below the 15–41° bug magnitude, above float noise.
+      corrector = () => {
+        if (!fitBoundsDispatched) {
+          // Synchronous cancellation moveend (still inside the fitBounds call) —
+          // re-arm for the real settle rather than correcting prematurely.
+          if (corrector) map.once('moveend', corrector);
+          return;
+        }
+        const c = map.getCenter();
+        if (
+          Math.abs(c.lng - target.center.lng) > EPS ||
+          Math.abs(c.lat - target.center.lat) > EPS
+        ) {
+          // Re-assert the new scope's clamp (undo the in-flight clone's
+          // `lngRange` clobber) so the corrective jumpTo is not re-clamped back
+          // to the old state's edge, THEN land the geometry-correct target.
+          map.setMaxBounds(clampBounds);
+          map.jumpTo({ center: target.center, zoom: target.zoom });
+        }
+      };
+      // Register the one-shot corrector BEFORE calling fitBounds — ordering is
+      // load-bearing: under prefers-reduced-motion `fitBounds` runs `duration: 0`
+      // and fires `moveend` SYNCHRONOUSLY inside the call, so the listener must
+      // already exist. `map.once` is self-removing, so `jumpTo`'s own `moveend`
+      // cannot re-fire the corrector (no loop).
+      map.once('moveend', corrector);
+    }
+
     map.fitBounds(activeBounds, {
       // Asymmetric top inset (FIT_BOUNDS_PADDING) clears the floating header +
       // scope-control chrome that stacks over the full-bleed canvas top edge
@@ -797,6 +886,16 @@ export function MapCanvas({
       essential: true,
       duration: prefersReducedMotion ? 0 : 600,
     });
+    // fitBounds has returned: any synchronous cancellation moveend it fired
+    // (while stopping the in-flight easeTo) is now past. From here, the next
+    // moveend is fitBounds's own settle — the corrector may act.
+    fitBoundsDispatched = true;
+
+    // Belt-and-suspenders: detach the corrector on cleanup so a re-fired effect
+    // (next boundsKey change) cannot leave a stale listener (mirrors :894-896).
+    return () => {
+      if (corrector) map.off('moveend', corrector);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- boundsKey +
     // flyTo?.key are the intentional triggers; `activeBounds` identity derives
     // from boundsKey and re-running on its reference churn is undesirable
