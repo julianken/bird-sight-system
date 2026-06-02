@@ -179,7 +179,12 @@ describe('runIngest — partial-failure isolation + status ladder (#840)', () =>
     expect(summary.status).toBe('partial');
     expect(summary.statesSucceeded).toBe(1);
     expect(summary.statesFailed).toBe(1);
+    // The failed-state info rides the summary on `partial` (not only `failure`)
+    // so cli.ts can surface it in the run-completed line — a degraded-but-green
+    // run must read as degraded in the aggregate log, not just the per-state
+    // WARNING lines (#840 review).
     expect(summary.failures?.[0]?.state).toBe('US-NM');
+    expect(summary.failures?.[0]?.error).toBeDefined();
     // AZ's two observations still landed despite NM failing.
     const { data: obs } = await getObservations(db.pool, {});
     expect(obs).toHaveLength(2);

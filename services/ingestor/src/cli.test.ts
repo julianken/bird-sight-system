@@ -114,6 +114,72 @@ describe('runCli', () => {
     delete process.env.HEALTHCHECKS_URL_RECENT;
   });
 
+  it('"recent" partial run surfaces statesFailed + failed state codes in the run-completed line (#840 review)', async () => {
+    // A degraded-but-green run (some states 500'd, under the failure threshold)
+    // correctly still pings the success heartbeat — but if the aggregate
+    // bird_ingest_run_completed line drops the failed-state count, the dashboard
+    // metrics see a clean INFO line and the silent-degradation is invisible
+    // (the same class of bug that hid the original #840 single-region starve).
+    // The summary line MUST carry statesFailed (and the failed state codes) so a
+    // partial run reads as degraded in Cloud Logging without joining against the
+    // per-state WARNING lines.
+    const partialSummary: RunSummary = {
+      status: 'partial', fetched: 5, upserted: 5,
+      statesSucceeded: 46, statesFailed: 3,
+      failures: [
+        { state: 'US-NM', error: 'boom' },
+        { state: 'US-TX', error: 'timeout' },
+        { state: 'US-NV', error: '500' },
+      ],
+    };
+    const deps = makeDeps({ runIngest: vi.fn().mockResolvedValue(partialSummary) });
+
+    await runCli('recent', deps);
+
+    const emitted = logSpy.mock.calls
+      .map((args: unknown[]): unknown => {
+        try { return JSON.parse(args[0] as string); } catch { return null; }
+      })
+      .filter((o: unknown): o is Record<string, unknown> =>
+        typeof o === 'object' && o !== null && (o as Record<string, unknown>).message === 'bird_ingest_run_completed'
+      );
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]).toMatchObject({
+      severity: 'INFO',
+      message: 'bird_ingest_run_completed',
+      kind: 'recent',
+      status: 'partial',
+      statesFailed: 3,
+      failedStates: ['US-NM', 'US-TX', 'US-NV'],
+      firstError: 'boom',
+    });
+  });
+
+  it('"recent" success run omits statesFailed/failedStates from the run-completed line', async () => {
+    // A clean run (0 failed) must not clutter the structured line with a
+    // statesFailed:0 / empty failedStates field — those keys appear ONLY when
+    // there is degradation to surface, mirroring the existing conditional
+    // `state` / `firstError` field shape.
+    const successSummary: RunSummary = {
+      status: 'success', fetched: 10, upserted: 10,
+      statesSucceeded: 49, statesFailed: 0,
+    };
+    const deps = makeDeps({ runIngest: vi.fn().mockResolvedValue(successSummary) });
+
+    await runCli('recent', deps);
+
+    const emitted = logSpy.mock.calls
+      .map((args: unknown[]): unknown => {
+        try { return JSON.parse(args[0] as string); } catch { return null; }
+      })
+      .filter((o: unknown): o is Record<string, unknown> =>
+        typeof o === 'object' && o !== null && (o as Record<string, unknown>).message === 'bird_ingest_run_completed'
+      );
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]).not.toHaveProperty('statesFailed');
+    expect(emitted[0]).not.toHaveProperty('failedStates');
+  });
+
   it('still closes pool when the runner throws', async () => {
     const deps = makeDeps({
       runTaxonomy: vi.fn().mockRejectedValue(new Error('thrown')),
