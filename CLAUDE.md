@@ -74,7 +74,7 @@ Conventional commits style with scope where useful: `feat(scope):`, `chore:`, `c
 | **Top-left** | Identity+scope cluster: wordmark, region, lede, scope control — one stacked card | `--card-maxw-identity` 360px |
 | **Top-right** | Controls cluster: Filters · Attribution · theme toggle — compact pill group | content-width |
 | **Bottom-left** | Family legend | `--card-maxw-legend` 280px |
-| **Bottom-right** | Attribution line + future zoom/locate — safe-zone | content-width |
+| **Bottom-right** | Reserved for future zoom/locate — safe-zone. (Attribution consolidated: always-visible eBird source credit in the identity-card freshness line; full credits in the top-right ⓘ Credits modal.) | n/a |
 | **Transient** | Popovers (flip/shift/clamp), detail card (insets top-right region), filters panel (anchored under trigger) | per-element caps |
 
 Implementing rule: before adding any new floating surface, assign it a corner from this table. If no corner fits, that is a signal the design is wrong — raise it rather than introducing a new band. All shared geometry is in `frontend/src/styles/tokens.css` under `--card-*` (§2.1). Elevation tiers: tier 1 = resting chrome, tier 2 = on-canvas transient, tier 3 = focused/modal. Design authority: `docs/design/2026-05-30-floating-ui-design-spec.md`.

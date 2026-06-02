@@ -19,7 +19,6 @@ import {
    Map is wrapped in forwardRef because MapCanvas passes a ref to it. */
 
 let capturedSourceProps: Record<string, unknown> = {};
-let capturedAttributionProps: Record<string, unknown> = {};
 let capturedLayerFilters: Record<string, unknown> = {};
 // #762: a single OVERWRITTEN capturedSourceProps cannot distinguish the
 // observations <Source> from the state-mask <Source>. Capture sources into an
@@ -247,15 +246,8 @@ vi.mock('react-map-gl/maplibre', () => ({
     }
     return <div data-testid="mock-layer" data-layer-id={props.id} />;
   },
-  AttributionControl: (props: Record<string, unknown>) => {
-    capturedAttributionProps = props;
-    return (
-      <div
-        data-testid="mock-attribution-control"
-        data-props={JSON.stringify(props)}
-      />
-    );
-  },
+  // #830: the standalone <AttributionControl> was removed from MapCanvas — no
+  // mock needed. attributionControl={false} keeps MapLibre auto-attribution off.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   Marker: ({ children, longitude, latitude }: any) => (
     <div
@@ -407,7 +399,6 @@ async function fireAllIdleHandlers() {
 describe('MapCanvas', () => {
   beforeEach(() => {
     capturedSourceProps = {};
-    capturedAttributionProps = {};
     capturedLayerFilters = {};
     capturedSourcesById = {};
     capturedLayerPaint = {};
@@ -458,12 +449,12 @@ describe('MapCanvas', () => {
     });
   });
 
-  it('renders the AttributionControl with OSM + OpenFreeMap + eBird (ToU §3)', () => {
+  it('does NOT render a maplibre AttributionControl over the map (#830 — consolidated to the ⓘ modal)', () => {
     render(<MapCanvas observations={[]} />);
-    const attribution = capturedAttributionProps['customAttribution'] as string[];
-    expect(attribution.join(' ')).toMatch(/OpenStreetMap/);
-    expect(attribution.join(' ')).toMatch(/OpenFreeMap/);
-    expect(attribution.join(' ')).toMatch(/eBird/);
+    // Item A: the bottom-right attribution bar is gone. The mock module no
+    // longer exports AttributionControl, and attributionControl={false} on the
+    // <Map> keeps MapLibre's own auto-attribution suppressed.
+    expect(screen.queryByTestId('mock-attribution-control')).toBeNull();
   });
 
   /* ── Sprite registration (issue #246, preserved) ────────────────── */
@@ -1198,10 +1189,10 @@ describe('MapCanvas', () => {
   });
 });
 
-// Phase 3 (#560) — popover-originated onSelectSpecies attaches bbox
+// Popover-originated onSelectSpecies wire.
 // These tests run in a separate describe block that resets modules to
 // pick up the pointer:fine matchMedia stub for AdaptiveGridMarker.
-describe('onSelectSpecies popover-bbox wire (Phase 3, #560)', () => {
+describe('onSelectSpecies popover wire', () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let MapCanvasFresh: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1209,7 +1200,6 @@ describe('onSelectSpecies popover-bbox wire (Phase 3, #560)', () => {
 
   beforeEach(async () => {
     capturedSourceProps = {};
-    capturedAttributionProps = {};
     capturedLayerFilters = {};
     capturedSourcesById = {};
     capturedLayerPaint = {};
@@ -1246,15 +1236,11 @@ describe('onSelectSpecies popover-bbox wire (Phase 3, #560)', () => {
     vi.resetModules();
   });
 
-  it('calls set with bbox derived from cluster coordinates when a species row is clicked', async () => {
-    // Cluster at known coordinates — getClusterBbox will return
-    // [lng, lat, lng, lat] (degenerate bbox for a single-member group).
-    const clusterLng = -110.9;
-    const clusterLat = 32.2;
+  it('calls onSelectSpecies with only the species code (no bbox arg) when a species row is clicked', async () => {
     const cluster = {
       id: 1,
       properties: { cluster_id: 1, point_count: 3 },
-      geometry: { type: 'Point', coordinates: [clusterLng, clusterLat] },
+      geometry: { type: 'Point', coordinates: [-110.9, 32.2] },
     };
     fakeMap.queryRenderedFeatures.mockImplementation(
       (_: unknown, opts?: { layers?: string[] }) =>
@@ -1305,93 +1291,11 @@ describe('onSelectSpecies popover-bbox wire (Phase 3, #560)', () => {
     const speciesRow = screen.getByTestId('cell-popover-row');
     fireEvent.click(speciesRow);
 
-    // The wrapper must have called onSelectSpecies with the bbox from
-    // getClusterBbox(group). For a single-member group whose anchor is at
-    // (clusterLng, clusterLat), the bbox is the degenerate tuple
-    // [lngMin, latMin, lngMax, latMax] = [clusterLng, clusterLat, clusterLng, clusterLat]
-    // (rounded to 6 decimals).
+    // The wrapper calls onSelectSpecies with ONLY the species code — no
+    // bbox argument (the dead ?bbox= path was removed).
     expect(onSelectSpecies).toHaveBeenCalledOnce();
-    const [code, bbox] = onSelectSpecies.mock.calls[0];
-    expect(code).toBe('annhum');
-    expect(Array.isArray(bbox)).toBe(true);
-    expect(bbox).toHaveLength(4);
-    // All four values are the cluster's center coordinates (degenerate single-leaf bbox).
-    expect(bbox[0]).toBeCloseTo(clusterLng, 5);
-    expect(bbox[1]).toBeCloseTo(clusterLat, 5);
-    expect(bbox[2]).toBeCloseTo(clusterLng, 5);
-    expect(bbox[3]).toBeCloseTo(clusterLat, 5);
-  });
-
-  it('bbox matches THIS cluster leaves, not a neighboring cluster', async () => {
-    // Two clusters at distinct coordinates. Click the first → bbox must
-    // match the first cluster, not the second.
-    const clusterA = {
-      id: 1,
-      properties: { cluster_id: 1, point_count: 2 },
-      geometry: { type: 'Point', coordinates: [-110.0, 32.0] },
-    };
-    const clusterB = {
-      id: 2,
-      properties: { cluster_id: 2, point_count: 2 },
-      geometry: { type: 'Point', coordinates: [-112.0, 34.0] },
-    };
-    fakeMap.queryRenderedFeatures.mockImplementation(
-      (_: unknown, opts?: { layers?: string[] }) =>
-        opts?.layers?.includes('clusters-hit') ? [clusterA, clusterB] : [],
-    );
-    fakeMap.getSource.mockReturnValue({
-      getClusterLeaves: vi.fn().mockResolvedValue([
-        {
-          type: 'Feature',
-          properties: {
-            familyCode: 'trochilidae',
-            speciesCode: 'annhum',
-            comName: "Anna's Hummingbird",
-          },
-        },
-      ]),
-      getClusterExpansionZoom: vi.fn().mockResolvedValue(12),
-    });
-
-    const onSelectSpecies = vi.fn();
-    render(
-      <MapCanvasFresh
-        observations={[makeObs()]}
-        silhouettes={SILHOUETTES}
-        onSelectSpecies={onSelectSpecies}
-        isCoarsePointer={false}
-      />,
-    );
-    await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
-    await act(async () => { await bareHandlers['idle']?.(); });
-    await act(async () => { await Promise.resolve(); });
-
-    await waitFor(() => {
-      const markers = screen.queryAllByTestId('adaptive-grid-marker');
-      expect(markers.length).toBeGreaterThanOrEqual(2);
-    });
-
-    // Click the first rendered cell (corresponds to clusterA at lng=-110, lat=32).
-    const cells = screen.queryAllByTestId('adaptive-grid-marker-cell-rendered');
-    expect(cells.length).toBeGreaterThanOrEqual(1);
-    fireEvent.mouseEnter(cells[0]);
-    fireEvent.click(cells[0]);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('cell-popover')).toBeInTheDocument();
-    });
-    const speciesRows = screen.queryAllByTestId('cell-popover-row');
-    expect(speciesRows.length).toBeGreaterThan(0);
-    fireEvent.click(speciesRows[0]);
-
-    expect(onSelectSpecies).toHaveBeenCalledOnce();
-    const [code, bbox] = onSelectSpecies.mock.calls[0];
-    expect(code).toBe('annhum');
-    // bbox must NOT be the second cluster's coordinates.
-    expect(bbox[0]).not.toBeCloseTo(-112.0, 1);
-    // bbox must be within the range of valid coordinates (finite, bounded).
-    expect(Number.isFinite(bbox[0])).toBe(true);
-    expect(Number.isFinite(bbox[1])).toBe(true);
+    expect(onSelectSpecies).toHaveBeenCalledWith('annhum');
+    expect(onSelectSpecies.mock.calls[0]).toHaveLength(1);
   });
 
   it('onSelectSpecies is NOT called when no species row is clicked (defensive)', async () => {
@@ -1461,7 +1365,6 @@ describe('onSelectSpecies popover-bbox wire (Phase 3, #560)', () => {
 describe('ObservationPopover anchoring — displaced silhouette regression (#718)', () => {
   beforeEach(() => {
     capturedSourceProps = {};
-    capturedAttributionProps = {};
     capturedLayerFilters = {};
     capturedSourcesById = {};
     capturedLayerPaint = {};
@@ -1665,7 +1568,6 @@ describe('MapCanvas controllable camera (#736)', () => {
 
   beforeEach(() => {
     capturedSourceProps = {};
-    capturedAttributionProps = {};
     capturedLayerFilters = {};
     capturedSourcesById = {};
     capturedLayerPaint = {};
@@ -1983,7 +1885,6 @@ describe('MapCanvas state-artboard mask (#762)', () => {
 
   beforeEach(() => {
     capturedSourceProps = {};
-    capturedAttributionProps = {};
     capturedLayerFilters = {};
     capturedSourcesById = {};
     capturedLayerPaint = {};

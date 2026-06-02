@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { BBox } from '../../state/url-state.js';
 // ZIP_FLYTO_ZOOM is the single shared metro-framing zoom (= 10) owned by
 // Stream D's scope-types. The ZIP `flyTo` move carries its own `zoom` in the
 // prop (App.tsx builds it via `zipResolutionToScope`), but importing the
@@ -15,7 +14,6 @@ import {
   Source,
   Layer,
   Marker,
-  AttributionControl,
 } from 'react-map-gl/maplibre';
 import type { MapLayerMouseEvent, MapRef } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -73,7 +71,6 @@ import {
 import {
   buildGroups,
   displaceSilhouettes,
-  getClusterBbox,
   SILHOUETTE_PX,
   type DeconflictGroup,
   type DeconflictInput,
@@ -237,14 +234,7 @@ export interface MapCanvasProps {
    * `set({ view: 'detail', detail: code })` via `useUrlState`. Optional
    * — when absent, the popover hides the link.
    */
-  /**
-   * Phase 3 (#560): widened to accept an optional second argument `bbox`
-   * so the MapCanvas wrapper can pass the cluster's geographic bbox to
-   * App.tsx's `onSelectSpecies(code, bbox)`. The popover components
-   * (`CellPopover`, `ClusterListPopover`) keep their single-arg signature;
-   * bbox is attached by the wrapper at the `<AdaptiveGridMarker>` call site.
-   */
-  onSelectSpecies?: (speciesCode: string, bbox: BBox | null) => void;
+  onSelectSpecies?: (speciesCode: string) => void;
   /**
    * Issue #351: invoked on every map `idle` (camera-change settle) with
    * the current `map.getBounds()`. App.tsx threads this so the
@@ -2062,8 +2052,7 @@ export function MapCanvas({
 
   const handlePopoverSelectSpecies = useCallback(
     (speciesCode: string) => {
-      // ObservationPopover is for single observations — no cluster bbox.
-      onSelectSpecies?.(speciesCode, null);
+      onSelectSpecies?.(speciesCode);
       // Close the popover after the navigation — the user has expressed
       // intent to leave the map view; the dialog hanging open during the
       // surface switch is a stale state.
@@ -2159,29 +2148,17 @@ export function MapCanvas({
           : {})}
       >
         {/*
-          ODbL compliance: OpenStreetMap data (via OpenFreeMap's positron tiles)
-          is contractually required to be attributed. React-map-gl v7's <Map>
-          prop narrows maplibre's `attributionControl` to `boolean`, so the
-          standalone <AttributionControl> component is the only way to pass
-          `compact: false` alongside custom text. `customAttribution` augments
-          the style's built-in attribution rather than replacing it.
-
-          eBird API ToU §3 (issue #243): observation data displayed on this
-          map originates from the eBird API and must be attributed with a link
-          back to eBird.org. The credit lives here (alongside OSM /
-          OpenFreeMap) on the map view, NOT in a SurfaceFooter, so the map is
-          not double-credited. All three entries use `rel="noopener"` — do
-          NOT introduce a `noopener noreferrer` divergence inside this array;
-          the AttributionModal in #250 inherits this exact convention.
+          Attribution consolidated (#830): the bottom-right MapLibre
+          AttributionControl bar was removed. `attributionControl={false}` (above)
+          keeps MapLibre's own auto-attribution suppressed, so no control renders
+          over the map. License compliance now lives in two places — the
+          always-visible eBird source link in the identity-card freshness line
+          (AppHeader, #830 item B) and the full credits (OSM / OpenMapTiles /
+          OpenFreeMap / eBird / PhyloPic / photos) in the top-right ⓘ
+          AttributionModal. The bottom-right corner is intentionally empty
+          (reserved for future zoom/locate). The OSMF Attribution Guidelines
+          explicitly sanction collapsing attribution behind a labeled ⓘ button.
         */}
-        <AttributionControl
-          compact={false}
-          customAttribution={[
-            '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
-            '<a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a>',
-            'Bird data: <a href="https://ebird.org" target="_blank" rel="noopener">eBird</a> (Cornell Lab of Ornithology)',
-          ]}
-        />
         {/*
           State-artboard inverse mask (#760/#762). A single fill of the world
           ring with the selected state punched out as a hole — paints flat opaque
@@ -2309,7 +2286,7 @@ export function MapCanvas({
                 detailOpen={detailOpen}
                 onClick={() => handleGroupClick(g)}
                 {...(onSelectSpecies ? {
-                  onSelectSpecies: (code: string) => onSelectSpecies(code, getClusterBbox(g)),
+                  onSelectSpecies: (code: string) => onSelectSpecies(code),
                 } : {})}
               />
             </PresentationMarker>
@@ -2435,7 +2412,7 @@ export function MapCanvas({
           onDismiss={() => setClusterList(null)}
           onSelectSpecies={(code) => {
             if (onSelectSpecies) {
-              onSelectSpecies(code, getClusterBbox(clusterList.group));
+              onSelectSpecies(code);
             }
             setClusterList(null);
           }}

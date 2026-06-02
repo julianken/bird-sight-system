@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { startTestDb, type TestDb } from '@bird-watch/db-client/dist/test-helpers.js';
+import type { Pool } from '@bird-watch/db-client';
 import {
   upsertHotspots,
   upsertSpeciesMeta,
@@ -12,6 +13,36 @@ import { createApp } from './app.js';
 let db: TestDb;
 beforeAll(async () => { db = await startTestDb(); }, 90_000);
 afterAll(async () => { await db?.stop(); });
+
+describe('GET /health', () => {
+  it('returns 200 {ok:true} when the DB probe succeeds (#821)', async () => {
+    // Healthy path: the real testcontainer pool answers SELECT 1, so the
+    // deepened probe returns 200. This guards against a regression where the
+    // handler reports healthy without actually round-tripping the DB.
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/health');
+    expect(res.status).toBe(200);
+    const body = await res.json() as { ok: boolean };
+    expect(body.ok).toBe(true);
+  });
+
+  it('returns 503 when the DB probe fails (#821)', async () => {
+    // DB-down path: a typed fake Pool DI double whose query() rejects. This is
+    // dependency-injection substitution at the createApp seam, NOT a pg-driver
+    // mock — the no-DB-mocks rule (CLAUDE.md) bans vi.mock('pg'), not Pool-
+    // shaped doubles. The handler catches in-place and returns 503 directly
+    // (not via app.onError, which would map a generic throw to 500), so the
+    // 503 is deterministic regardless of the rejection's error shape.
+    const failingPool = {
+      query: () => Promise.reject(new Error('connection terminated')),
+    } as unknown as Pool;
+    const app = createApp({ pool: failingPool });
+    const res = await app.request('/health');
+    expect(res.status).toBe(503);
+    const body = await res.json() as { ok: boolean };
+    expect(body.ok).toBe(false);
+  });
+});
 
 describe('GET /api/hotspots', () => {
   it('returns hotspots with the correct cache header', async () => {

@@ -9,7 +9,6 @@ import { analytics } from '../analytics.js';
 // via the existing `VALID_SINCE.has(...)` check below.
 export type Since = '1d' | '7d' | '14d';
 export type View = 'map' | 'detail';
-export type BBox = readonly [number, number, number, number];
 
 // #735 — the three-landing-state scope model the C0 prototype validated
 // (`frontend/prototypes/scope-prototype/App.tsx`). A discriminated union so
@@ -33,7 +32,6 @@ export interface UrlState {
   notable: boolean;
   view: View;
   detail: string | null;
-  bbox: BBox | null;
   scope: Scope;
 }
 
@@ -47,7 +45,6 @@ export const DEFAULTS: UrlState = {
   notable: false,
   view: 'map',
   detail: null,
-  bbox: null, // Phase 3 (#560) — Cluster→SpeciesDetailSurface bbox filter
   scope: { kind: 'unscoped' }, // #735 — bare URL lands on the chooser, not whole-US.
 };
 
@@ -58,10 +55,6 @@ const VALID_VIEW: ReadonlySet<string> = new Set(['map', 'detail']);
 // a Set<string> so the `.has()` narrows cleanly; the cast back to `StateCode`
 // is sound because membership was just verified against `CONUS_STATE_CODES`.
 const VALID_STATE_CODES: ReadonlySet<string> = new Set(CONUS_STATE_CODES);
-
-function round6(n: number): number {
-  return Math.round(n * 1_000_000) / 1_000_000;
-}
 
 function readUrl(): UrlState {
   const p = new URLSearchParams(window.location.search);
@@ -144,33 +137,8 @@ function readUrl(): UrlState {
     view = DEFAULTS.view;
   }
 
-  // Phase 3 (#560) — bbox URL state for cluster→SpeciesDetailSurface filter.
-  // Format: ?bbox=lngMin,latMin,lngMax,latMax (4 comma-separated, 6 decimals).
-  // Defensive parsing: reject any malformed input as null so a corrupted
-  // shared URL doesn't break rendering. Range checks: lng ∈ [-180, 180],
-  // lat ∈ [-90, 90]. NaN/Infinity are rejected.
-  let bbox: BBox | null = null;
-  const rawBbox = p.get('bbox');
-  if (rawBbox !== null) {
-    const parts = rawBbox.split(',').map(Number);
-    if (parts.length === 4) {
-      const [p0, p1, p2, p3] = parts as [number, number, number, number];
-      if (
-        Number.isFinite(p0) && Number.isFinite(p1) &&
-        Number.isFinite(p2) && Number.isFinite(p3) &&
-        p0 >= -180 && p0 <= 180 &&
-        p2 >= -180 && p2 <= 180 &&
-        p1 >= -90 && p1 <= 90 &&
-        p3 >= -90 && p3 <= 90
-      ) {
-        // Round each to 6 decimals on read so downstream comparisons are stable.
-        bbox = [round6(p0), round6(p1), round6(p2), round6(p3)] as const;
-      }
-    }
-  }
-
   // #735 — scope resolution (three landing states + precedence). Parsed
-  // independently of the view/detail/bbox logic above. Ports the prototype's
+  // independently of the view/detail logic above. Ports the prototype's
   // `readScopeFromUrl` exactly:
   //   1. `?state=US-XX` (validated against the CONUS allowlist) wins — an
   //      unknown / non-CONUS / malformed state falls through to the chooser
@@ -195,7 +163,6 @@ function readUrl(): UrlState {
     notable: p.get('notable') === 'true',
     view,
     detail,
-    bbox,
     scope,
   };
 }
@@ -219,15 +186,6 @@ function writeUrl(state: UrlState, push: boolean = false): void {
   // bypass the #511 guard on every fresh ?detail= write.
   if (state.view !== DEFAULTS.view) {
     p.set('view', state.view);
-  }
-  if (state.bbox !== null) {
-    const lngMin = round6(state.bbox[0]);
-    const latMin = round6(state.bbox[1]);
-    const lngMax = round6(state.bbox[2]);
-    const latMax = round6(state.bbox[3]);
-    p.set('bbox', `${lngMin},${latMin},${lngMax},${latMax}`);
-  } else {
-    p.delete('bbox');
   }
   // #735 — emit only the active scope and drop the rest. Mirrors the
   // prototype's `writeScopeToUrl`:

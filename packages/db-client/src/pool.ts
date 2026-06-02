@@ -11,6 +11,15 @@ export interface PoolOptions {
   key?: string;          // when set, pool is memoized by key
   max?: number;
   idleTimeoutMillis?: number;
+  // Crash-hardening (#821): a per-statement server-side timeout and a
+  // connection-acquisition timeout. The statement ceiling caps a runaway
+  // query so it fails fast with a clean pg error (SQLSTATE 57014) instead of
+  // holding the connection open until the read-api container OOM-kills. The
+  // 15s default sits above the observed 6–13s legitimate slow-query runtimes
+  // (ops-log-forensics report §3.3.1) and below the OOM path. Both are
+  // optional so all existing callers keep compiling.
+  statement_timeout?: number;
+  connectionTimeoutMillis?: number;
 }
 
 const POOLS = new Map<string, pg.Pool>();
@@ -23,6 +32,8 @@ export function createPool(opts: PoolOptions): pg.Pool {
     connectionString: opts.databaseUrl,
     max: opts.max ?? 5,
     idleTimeoutMillis: opts.idleTimeoutMillis ?? 30_000,
+    statement_timeout: opts.statement_timeout ?? 15_000,
+    connectionTimeoutMillis: opts.connectionTimeoutMillis ?? 10_000,
   });
   if (opts.key) POOLS.set(opts.key, pool);
   return pool;

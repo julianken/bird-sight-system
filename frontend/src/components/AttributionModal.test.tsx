@@ -1,8 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
+import { useState } from 'react';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { FamilySilhouette } from '@bird-watch/shared-types';
-import { AttributionModal } from './AttributionModal.js';
+import { AttributionModal, type AttributionModalProps } from './AttributionModal.js';
 
 /**
  * AttributionModal tests (#250).
@@ -42,6 +43,49 @@ function patchDialog() {
 
 patchDialog();
 
+/**
+ * #830 item D: AttributionModal no longer renders its own trigger button — it
+ * is controlled via the `open` prop, opened by the AppHeader ⓘ button. These
+ * tests drive it through a small harness that owns `open` state and exposes a
+ * real "Open credits" opener button, so (a) opening is a genuine click on a
+ * focusable element and (b) focus-return on close has a real restore target
+ * (mirroring the production AppHeader trigger). The harness also threads
+ * `onOpenChange` so the dialog's native close flips `open` back to false.
+ */
+type HarnessProps = Omit<AttributionModalProps, 'open' | 'onOpenChange'> & {
+  onOpenChange?: (open: boolean) => void;
+};
+function ControlledModalHarness({ onOpenChange, ...modalProps }: HarnessProps) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)}>
+        Open credits
+      </button>
+      <AttributionModal
+        {...modalProps}
+        open={open}
+        onOpenChange={next => {
+          setOpen(next);
+          onOpenChange?.(next);
+        }}
+      />
+    </>
+  );
+}
+
+/**
+ * Render the harness and open the dialog via the opener button. Returns the
+ * userEvent instance and the opener element (the focus-return target).
+ */
+async function openModal(props: HarnessProps = { silhouettes: [] }) {
+  const user = userEvent.setup();
+  render(<ControlledModalHarness {...props} />);
+  const opener = screen.getByRole('button', { name: /open credits/i });
+  await user.click(opener);
+  return { user, opener };
+}
+
 const SILHOUETTES: FamilySilhouette[] = [
   {
     familyCode: 'tyrannidae',
@@ -80,38 +124,49 @@ const SILHOUETTES: FamilySilhouette[] = [
 ];
 
 describe('AttributionModal', () => {
-  it('renders a Credits trigger button', () => {
+  it('does NOT render an internal .attribution-trigger button (controlled-open, #830 item D)', () => {
     render(<AttributionModal silhouettes={SILHOUETTES} />);
-    expect(screen.getByRole('button', { name: /credits/i })).toBeInTheDocument();
+    // The modal is controlled via the `open` prop now; its old internal trigger
+    // is gone. The only "Credits" affordance is the AppHeader ⓘ button.
+    expect(document.querySelector('.attribution-trigger')).toBeNull();
+    expect(screen.queryByRole('button', { name: /^credits$/i })).toBeNull();
   });
 
-  it('does not render the dialog content visibly when closed', () => {
-    render(<AttributionModal silhouettes={SILHOUETTES} />);
+  it('does not render the dialog content visibly when open is false', () => {
+    render(<AttributionModal silhouettes={SILHOUETTES} open={false} />);
     // The <dialog> exists in the DOM but reports open=false.
     const dialog = document.querySelector('dialog');
     expect(dialog).not.toBeNull();
     expect(dialog?.hasAttribute('open')).toBe(false);
   });
 
-  it('opens when the trigger is clicked', async () => {
-    const user = userEvent.setup();
-    render(<AttributionModal silhouettes={SILHOUETTES} />);
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+  it('opens the dialog when the open prop is true', () => {
+    render(<AttributionModal silhouettes={SILHOUETTES} open={true} />);
+    const dialog = document.querySelector('dialog');
+    expect(dialog?.hasAttribute('open')).toBe(true);
+  });
+
+  it('closes the dialog when the open prop flips back to false', () => {
+    const { rerender } = render(<AttributionModal silhouettes={SILHOUETTES} open={true} />);
+    const dialog = document.querySelector('dialog');
+    expect(dialog?.hasAttribute('open')).toBe(true);
+    rerender(<AttributionModal silhouettes={SILHOUETTES} open={false} />);
+    expect(dialog?.hasAttribute('open')).toBe(false);
+  });
+
+  it('opens when the opener flips the controlled state', async () => {
+    await openModal({ silhouettes: SILHOUETTES });
     const dialog = document.querySelector('dialog');
     expect(dialog?.hasAttribute('open')).toBe(true);
   });
 
   it('renders the modal title as an <h2>', async () => {
-    const user = userEvent.setup();
-    render(<AttributionModal silhouettes={SILHOUETTES} />);
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+    await openModal({ silhouettes: SILHOUETTES });
     expect(screen.getByRole('heading', { level: 2, name: /credits/i })).toBeInTheDocument();
   });
 
   it('renders five sections (without optional Photos), each with an <h3> heading', async () => {
-    const user = userEvent.setup();
-    render(<AttributionModal silhouettes={SILHOUETTES} />);
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+    await openModal({ silhouettes: SILHOUETTES });
     // eBird, Family Silhouettes (Phylopic), Species descriptions
     // (Wikipedia — #373), Map Tiles (OSM/OpenFreeMap), Privacy
     // (Clarity disclosure — issue #657). Photos is optional and
@@ -129,9 +184,7 @@ describe('AttributionModal', () => {
   // credit on SpeciesDetailSurface satisfies the per-work attribution
   // requirement, so the modal-level credit is the catch-all.
   it('renders a Species descriptions section disclosing Wikipedia + CC BY-SA', async () => {
-    const user = userEvent.setup();
-    render(<AttributionModal silhouettes={SILHOUETTES} />);
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+    await openModal({ silhouettes: SILHOUETTES });
     const heading = screen.getByRole('heading', { level: 3, name: /species descriptions/i });
     expect(heading).toBeInTheDocument();
     const section = heading.closest('section');
@@ -146,15 +199,11 @@ describe('AttributionModal', () => {
   });
 
   it('renders the Species descriptions section between Photos and Map Tiles in DOM order', async () => {
-    const user = userEvent.setup();
-    render(
-      <AttributionModal
-        silhouettes={SILHOUETTES}
-        photoAttribution="Jane Photographer"
-        photoLicense="cc-by"
-      />,
-    );
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+    await openModal({
+      silhouettes: SILHOUETTES,
+      photoAttribution: 'Jane Photographer',
+      photoLicense: 'cc-by',
+    });
     const headings = screen
       .getAllByRole('heading', { level: 3 })
       .map(h => h.textContent?.toLowerCase() ?? '');
@@ -170,9 +219,7 @@ describe('AttributionModal', () => {
   });
 
   it('renders the Species descriptions section even with Photos absent (sits between Family Silhouettes and Map Tiles)', async () => {
-    const user = userEvent.setup();
-    render(<AttributionModal silhouettes={SILHOUETTES} />);
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+    await openModal({ silhouettes: SILHOUETTES });
     const headings = screen
       .getAllByRole('heading', { level: 3 })
       .map(h => h.textContent?.toLowerCase() ?? '');
@@ -190,9 +237,7 @@ describe('AttributionModal', () => {
   });
 
   it('renders a Privacy section disclosing Clarity analytics + default masking', async () => {
-    const user = userEvent.setup();
-    render(<AttributionModal silhouettes={SILHOUETTES} />);
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+    await openModal({ silhouettes: SILHOUETTES });
     // The section follows the existing <h3> idiom (Bird Sightings Data,
     // Family Silhouettes, Photos conditional, Map Tiles).  Privacy is the
     // new final section.
@@ -213,23 +258,26 @@ describe('AttributionModal', () => {
   });
 
   it('renders an eBird credit + link in the Bird Sightings section', async () => {
-    const user = userEvent.setup();
-    render(<AttributionModal silhouettes={SILHOUETTES} />);
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+    await openModal({ silhouettes: SILHOUETTES });
     const ebirdLink = screen.getByRole('link', { name: /eBird/i });
     expect(ebirdLink).toHaveAttribute('href', 'https://ebird.org');
     expect(ebirdLink).toHaveAttribute('target', '_blank');
     expect(ebirdLink).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
-  it('renders OSM and OpenFreeMap credits + links in the Map Tiles section', async () => {
-    const user = userEvent.setup();
-    render(<AttributionModal silhouettes={SILHOUETTES} />);
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+  it('renders OSM, OpenMapTiles, and OpenFreeMap credits + links in the Map Tiles section', async () => {
+    await openModal({ silhouettes: SILHOUETTES });
     const osmLink = screen.getByRole('link', { name: /openstreetmap/i });
     expect(osmLink).toHaveAttribute('href', 'https://www.openstreetmap.org/copyright');
     expect(osmLink).toHaveAttribute('target', '_blank');
     expect(osmLink).toHaveAttribute('rel', 'noopener noreferrer');
+    // Item C (#830): OpenFreeMap's required attribution is
+    // "OpenFreeMap © OpenMapTiles Data from OpenStreetMap" — OpenMapTiles is
+    // mandatory and was previously omitted (a compliance gap).
+    const omtLink = screen.getByRole('link', { name: /openmaptiles/i });
+    expect(omtLink).toHaveAttribute('href', 'https://openmaptiles.org');
+    expect(omtLink).toHaveAttribute('target', '_blank');
+    expect(omtLink).toHaveAttribute('rel', 'noopener noreferrer');
     const ofmLink = screen.getByRole('link', { name: /openfreemap/i });
     expect(ofmLink).toHaveAttribute('href', 'https://openfreemap.org');
     expect(ofmLink).toHaveAttribute('target', '_blank');
@@ -237,17 +285,13 @@ describe('AttributionModal', () => {
   });
 
   it('renders one Phylopic row per silhouette with a non-null source', async () => {
-    const user = userEvent.setup();
-    render(<AttributionModal silhouettes={SILHOUETTES} />);
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+    await openModal({ silhouettes: SILHOUETTES });
     const items = screen.getAllByTestId('attribution-phylopic-row');
     expect(items).toHaveLength(SILHOUETTES.length);
   });
 
   it('renders the creator name and source link for a row with creator + source', async () => {
-    const user = userEvent.setup();
-    render(<AttributionModal silhouettes={SILHOUETTES} />);
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+    await openModal({ silhouettes: SILHOUETTES });
     // The first row in SILHOUETTES is tyrannidae with a creator.
     const rows = screen.getAllByTestId('attribution-phylopic-row');
     const tyr = rows[0]!;
@@ -259,9 +303,7 @@ describe('AttributionModal', () => {
   });
 
   it('omits the "by <creator>" prefix when creator is null but still renders the source link', async () => {
-    const user = userEvent.setup();
-    render(<AttributionModal silhouettes={SILHOUETTES} />);
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+    await openModal({ silhouettes: SILHOUETTES });
     const rows = screen.getAllByTestId('attribution-phylopic-row');
     // Cuckoos is the third silhouette, with creator: null.
     const cuckoo = rows[2]!;
@@ -273,9 +315,7 @@ describe('AttributionModal', () => {
   });
 
   it('renders the license short identifier as a link to the matching CC URL', async () => {
-    const user = userEvent.setup();
-    render(<AttributionModal silhouettes={SILHOUETTES} />);
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+    await openModal({ silhouettes: SILHOUETTES });
     const rows = screen.getAllByTestId('attribution-phylopic-row');
     // Expected pairs:
     //   tyrannidae   -> CC0-1.0       -> https://creativecommons.org/publicdomain/zero/1.0/
@@ -295,7 +335,6 @@ describe('AttributionModal', () => {
   });
 
   it('skips silhouettes with a null source (no Phylopic data → nothing to attribute)', async () => {
-    const user = userEvent.setup();
     const noPhylopic: FamilySilhouette[] = [
       {
         familyCode: 'fallback',
@@ -310,17 +349,14 @@ describe('AttributionModal', () => {
       },
       ...SILHOUETTES,
     ];
-    render(<AttributionModal silhouettes={noPhylopic} />);
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+    await openModal({ silhouettes: noPhylopic });
     // Only the three rows with non-null sources should be rendered.
     const items = screen.getAllByTestId('attribution-phylopic-row');
     expect(items).toHaveLength(3);
   });
 
   it('shows a no-attributions message in the Phylopic section when silhouettes is empty', async () => {
-    const user = userEvent.setup();
-    render(<AttributionModal silhouettes={[]} />);
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+    await openModal({ silhouettes: [] });
     // eBird + OSM sections render unconditionally; only the Phylopic
     // section degrades to the "no attributions" message. Default props
     // give loading=false, error=null — this is the fetch-succeeded-but-
@@ -331,7 +367,6 @@ describe('AttributionModal', () => {
   });
 
   it('renders the no-attributions message when loading=false, error=null, and phylopicRows=[] (only fallback rows in payload)', async () => {
-    const user = userEvent.setup();
     // The migration-1700000018000 fallback rows have source=null AND
     // creator=null. After phylopicRows filtering they are dropped, so
     // the section renders the empty-attribution message even though the
@@ -360,8 +395,7 @@ describe('AttributionModal', () => {
         creator: null,
       },
     ];
-    render(<AttributionModal silhouettes={fallbackOnly} loading={false} error={null} />);
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+    await openModal({ silhouettes: fallbackOnly, loading: false, error: null });
     expect(screen.getByText(/no silhouette attributions available/i)).toBeInTheDocument();
     // Defensive: the loading and error copies must NOT appear in this branch.
     expect(screen.queryByText(/loading silhouette attributions/i)).toBeNull();
@@ -370,49 +404,39 @@ describe('AttributionModal', () => {
     expect(screen.queryAllByTestId('attribution-phylopic-row')).toHaveLength(0);
   });
 
-  it('returns focus to the trigger when the modal closes', async () => {
-    const user = userEvent.setup();
-    render(<AttributionModal silhouettes={SILHOUETTES} />);
-    const trigger = screen.getByRole('button', { name: /credits/i });
-    await user.click(trigger);
-    // Click the close button.
+  it('returns focus to the opener when the modal closes', async () => {
+    // #830 item D: the restore target is the element focused at open time —
+    // here the harness opener (the production equivalent is the AppHeader ⓘ).
+    const { user, opener } = await openModal({ silhouettes: SILHOUETTES });
     const close = screen.getByRole('button', { name: /close/i });
     await user.click(close);
-    // After close, focus returns to the trigger.
-    expect(document.activeElement).toBe(trigger);
+    expect(document.activeElement).toBe(opener);
   });
 
   it('closes when the close button is clicked', async () => {
-    const user = userEvent.setup();
-    render(<AttributionModal silhouettes={SILHOUETTES} />);
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+    const { user } = await openModal({ silhouettes: SILHOUETTES });
     const dialog = document.querySelector('dialog');
     expect(dialog?.hasAttribute('open')).toBe(true);
     await user.click(screen.getByRole('button', { name: /close/i }));
     expect(dialog?.hasAttribute('open')).toBe(false);
   });
 
-  it('returns focus to the trigger when the dialog dispatches its close event (Escape path)', async () => {
-    const user = userEvent.setup();
-    render(<AttributionModal silhouettes={SILHOUETTES} />);
-    const trigger = screen.getByRole('button', { name: /credits/i });
-    await user.click(trigger);
+  it('returns focus to the opener when the dialog dispatches its close event (Escape path)', async () => {
+    const { opener } = await openModal({ silhouettes: SILHOUETTES });
     const dialog = document.querySelector('dialog')!;
     expect(dialog.hasAttribute('open')).toBe(true);
     // Production contract: native <dialog> closes on Escape and emits a
     // 'close' event. jsdom doesn't synthesise the Escape→close flow, so
     // we dispatch the event directly to verify the close handler returns
-    // focus to the trigger. The component listens for 'close' (the native
+    // focus to the opener. The component listens for 'close' (the native
     // event the browser fires after Escape OR backdrop close OR an
     // explicit close()).
     dialog.dispatchEvent(new Event('close'));
-    expect(document.activeElement).toBe(trigger);
+    expect(document.activeElement).toBe(opener);
   });
 
   it('closes when the user clicks the dialog backdrop', async () => {
-    const user = userEvent.setup();
-    render(<AttributionModal silhouettes={SILHOUETTES} />);
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+    await openModal({ silhouettes: SILHOUETTES });
     const dialog = document.querySelector('dialog') as HTMLDialogElement;
     expect(dialog.hasAttribute('open')).toBe(true);
     // The backdrop-click handler matches `event.target === dialog`. jsdom
@@ -425,9 +449,7 @@ describe('AttributionModal', () => {
   });
 
   it('does NOT close when the user clicks inside the dialog content', async () => {
-    const user = userEvent.setup();
-    render(<AttributionModal silhouettes={SILHOUETTES} />);
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+    await openModal({ silhouettes: SILHOUETTES });
     const dialog = document.querySelector('dialog') as HTMLDialogElement;
     // Click an inner element — a heading is convenient and unambiguously
     // not the dialog itself.
@@ -443,7 +465,6 @@ describe('AttributionModal', () => {
   // as plain text rather than a broken link — fail-soft on Phylopic curation
   // adding a new license short identifier the modal hasn't been taught yet.
   it('renders an unknown license short identifier as plain text (no link)', async () => {
-    const user = userEvent.setup();
     const exoticLicense: FamilySilhouette[] = [
       {
         familyCode: 'corvidae',
@@ -457,8 +478,7 @@ describe('AttributionModal', () => {
         creator: 'C. Author',
       },
     ];
-    render(<AttributionModal silhouettes={exoticLicense} />);
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+    await openModal({ silhouettes: exoticLicense });
     const rows = screen.getAllByTestId('attribution-phylopic-row');
     // The license string is in the row...
     expect(within(rows[0]!).getByText(/CC-BY-7\.0/)).toBeInTheDocument();
@@ -484,9 +504,7 @@ describe('AttributionModal', () => {
    */
 
   it('renders a user-facing loading message in the Phylopic section when loading=true', async () => {
-    const user = userEvent.setup();
-    render(<AttributionModal silhouettes={[]} loading={true} />);
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+    await openModal({ silhouettes: [], loading: true });
     // Status (aria-live) text replaces the empty list.
     expect(
       screen.getByText(/loading silhouette attributions/i),
@@ -501,10 +519,8 @@ describe('AttributionModal', () => {
   });
 
   it('renders a user-facing error message in the Phylopic section when error is set (raw message hidden)', async () => {
-    const user = userEvent.setup();
     const err = new Error('pool exhausted');
-    render(<AttributionModal silhouettes={[]} error={err} />);
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+    await openModal({ silhouettes: [], error: err });
     // User-facing copy is generic; raw error string MUST NOT leak.
     expect(
       screen.getByText(/couldn't load silhouette attributions/i),
@@ -520,15 +536,7 @@ describe('AttributionModal', () => {
   });
 
   it('error state takes precedence over loading state', async () => {
-    const user = userEvent.setup();
-    render(
-      <AttributionModal
-        silhouettes={[]}
-        loading={true}
-        error={new Error('x')}
-      />,
-    );
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+    await openModal({ silhouettes: [], loading: true, error: new Error('x') });
     expect(
       screen.getByText(/couldn't load silhouette attributions/i),
     ).toBeInTheDocument();
@@ -538,7 +546,6 @@ describe('AttributionModal', () => {
   });
 
   it('renders a creator-only row (source=null, creator!=null) as plain text — no broken anchor', async () => {
-    const user = userEvent.setup();
     const creatorOnly: FamilySilhouette[] = [
       {
         familyCode: 'foobar',
@@ -552,8 +559,7 @@ describe('AttributionModal', () => {
         creator: 'Jane Doe',
       },
     ];
-    render(<AttributionModal silhouettes={creatorOnly} />);
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+    await openModal({ silhouettes: creatorOnly });
     const rows = screen.getAllByTestId('attribution-phylopic-row');
     expect(rows).toHaveLength(1);
     const row = rows[0]!;
@@ -573,14 +579,12 @@ describe('AttributionModal', () => {
     expect(within(row).getByText(/Jane Doe/)).toBeInTheDocument();
   });
 
-  // Smoke test: the trigger calls a controlled onOpenChange callback if
-  // provided (lets App.tsx wire telemetry / focus instrumentation if it
-  // ever wants to without a refactor).
+  // Smoke test: opening (via the controlled `open` prop) and closing both fire
+  // the onOpenChange callback. App.tsx wires this to setAttributionOpen so the
+  // native close (Escape / backdrop / close button) flips the controlled state.
   it('forwards open-state changes to an optional onOpenChange prop', async () => {
     const onOpenChange = vi.fn();
-    const user = userEvent.setup();
-    render(<AttributionModal silhouettes={SILHOUETTES} onOpenChange={onOpenChange} />);
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+    const { user } = await openModal({ silhouettes: SILHOUETTES, onOpenChange });
     expect(onOpenChange).toHaveBeenCalledWith(true);
     await user.click(screen.getByRole('button', { name: /close/i }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
@@ -612,15 +616,11 @@ describe('AttributionModal', () => {
    */
 
   it('renders a Photos section when photoAttribution + photoLicense are both present', async () => {
-    const user = userEvent.setup();
-    render(
-      <AttributionModal
-        silhouettes={SILHOUETTES}
-        photoAttribution="Jane Photographer"
-        photoLicense="cc-by"
-      />,
-    );
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+    await openModal({
+      silhouettes: SILHOUETTES,
+      photoAttribution: 'Jane Photographer',
+      photoLicense: 'cc-by',
+    });
     // Section heading appears as <h3> (consistent with the other sections).
     expect(
       screen.getByRole('heading', { level: 3, name: /^photos$/i }),
@@ -628,15 +628,11 @@ describe('AttributionModal', () => {
   });
 
   it('renders the photographer name + license link in the Photos section', async () => {
-    const user = userEvent.setup();
-    render(
-      <AttributionModal
-        silhouettes={SILHOUETTES}
-        photoAttribution="Jane Photographer"
-        photoLicense="cc-by"
-      />,
-    );
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+    await openModal({
+      silhouettes: SILHOUETTES,
+      photoAttribution: 'Jane Photographer',
+      photoLicense: 'cc-by',
+    });
     const photosHeading = screen.getByRole('heading', { level: 3, name: /^photos$/i });
     const section = photosHeading.closest('section');
     expect(section).not.toBeNull();
@@ -651,9 +647,7 @@ describe('AttributionModal', () => {
   });
 
   it('omits the Photos section when both photoAttribution and photoLicense are absent', async () => {
-    const user = userEvent.setup();
-    render(<AttributionModal silhouettes={SILHOUETTES} />);
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+    await openModal({ silhouettes: SILHOUETTES });
     // No <h3>Photos</h3> in the modal.
     expect(
       screen.queryByRole('heading', { level: 3, name: /^photos$/i }),
@@ -661,43 +655,25 @@ describe('AttributionModal', () => {
   });
 
   it('omits the Photos section when only photoAttribution is present (no license)', async () => {
-    const user = userEvent.setup();
-    render(
-      <AttributionModal
-        silhouettes={SILHOUETTES}
-        photoAttribution="Jane Photographer"
-      />,
-    );
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+    await openModal({ silhouettes: SILHOUETTES, photoAttribution: 'Jane Photographer' });
     expect(
       screen.queryByRole('heading', { level: 3, name: /^photos$/i }),
     ).toBeNull();
   });
 
   it('omits the Photos section when only photoLicense is present (no attribution)', async () => {
-    const user = userEvent.setup();
-    render(
-      <AttributionModal
-        silhouettes={SILHOUETTES}
-        photoLicense="cc-by"
-      />,
-    );
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+    await openModal({ silhouettes: SILHOUETTES, photoLicense: 'cc-by' });
     expect(
       screen.queryByRole('heading', { level: 3, name: /^photos$/i }),
     ).toBeNull();
   });
 
   it('renders an unknown photo license code as plain text (no link)', async () => {
-    const user = userEvent.setup();
-    render(
-      <AttributionModal
-        silhouettes={SILHOUETTES}
-        photoAttribution="Jane Photographer"
-        photoLicense="cc-mystery-9.9"
-      />,
-    );
-    await user.click(screen.getByRole('button', { name: /credits/i }));
+    await openModal({
+      silhouettes: SILHOUETTES,
+      photoAttribution: 'Jane Photographer',
+      photoLicense: 'cc-mystery-9.9',
+    });
     const photosHeading = screen.getByRole('heading', { level: 3, name: /^photos$/i });
     const section = photosHeading.closest('section');
     expect(section).not.toBeNull();
