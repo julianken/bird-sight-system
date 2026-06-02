@@ -236,7 +236,15 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
     // see scripts/verify-backfill.sh.
     let backfillState: string | undefined;
     if (kind === 'recent') {
-      summary = await deps.runIngest({ pool, apiKey, regionCode: 'US' });
+      // Per-state fan-out (#840): runIngest loops CONUS_STATE_CODES internally
+      // (one /recent + /recent/notable per state) because eBird's region-recent
+      // endpoint dedups to one-observation-per-species region-wide — a single
+      // 'US' call starved every non-AZ state. paceMs defaults to 1000ms inside
+      // runIngest (~98 calls × 1s ≈ 98s, well under the 900s job timeout); the
+      // status ladder (success | partial | failure) is keyed on per-state
+      // failure count + 429 circuit-break, and `partial` still pings the
+      // success heartbeat below (only `failure` skips it).
+      summary = await deps.runIngest({ pool, apiKey });
     } else if (kind === 'hotspots') {
       summary = await deps.runHotspotIngest({ pool, apiKey, regionCode: 'US-AZ' });
     } else if (kind === 'backfill') {

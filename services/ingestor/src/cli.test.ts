@@ -65,13 +65,53 @@ describe('runCli', () => {
   });
 
   it('leaves process.exitCode untouched when summary.status === "success"', async () => {
-    const successSummary: RunSummary = { status: 'success', fetched: 10, upserted: 10 };
+    const successSummary: RunSummary = {
+      status: 'success', fetched: 10, upserted: 10,
+      statesSucceeded: 49, statesFailed: 0,
+    };
     const deps = makeDeps({ runIngest: vi.fn().mockResolvedValue(successSummary) });
 
     await runCli('recent', deps);
 
     expect(process.exitCode).toBeUndefined();
     expect(deps.closePool).toHaveBeenCalledWith(POOL_SENTINEL);
+  });
+
+  it('"recent" kind drives the per-state fan-out — does NOT pass regionCode:"US" (#840)', async () => {
+    // The old single-nationwide-call bug passed `regionCode: 'US'`, which
+    // eBird deduped to one-obs-per-species, starving non-AZ states. runIngest
+    // now loops CONUS_STATE_CODES internally; cli must NOT re-pin a region.
+    const runIngestSpy = vi.fn().mockResolvedValue({
+      status: 'success', fetched: 0, upserted: 0,
+      statesSucceeded: 49, statesFailed: 0,
+    } as RunSummary);
+    const deps = makeDeps({ runIngest: runIngestSpy });
+
+    await runCli('recent', deps);
+
+    expect(runIngestSpy).toHaveBeenCalledTimes(1);
+    const arg = runIngestSpy.mock.calls[0]![0] as { regionCode?: string };
+    expect(arg.regionCode).toBeUndefined();
+  });
+
+  it('"recent" partial status still pings the heartbeat (does not set exitCode)', async () => {
+    process.env.HEALTHCHECKS_URL_RECENT = 'https://hc-ping.com/uuid-recent-partial';
+    const partialSummary: RunSummary = {
+      status: 'partial', fetched: 5, upserted: 5,
+      statesSucceeded: 46, statesFailed: 3,
+      failures: [{ state: 'US-NM', error: 'boom' }],
+    };
+    const pingSpy = vi.fn().mockResolvedValue(undefined);
+    const deps = makeDeps({
+      runIngest: vi.fn().mockResolvedValue(partialSummary),
+      pingHeartbeat: pingSpy,
+    });
+
+    await runCli('recent', deps);
+
+    expect(process.exitCode).toBeUndefined();
+    expect(pingSpy).toHaveBeenCalledWith('https://hc-ping.com/uuid-recent-partial', 'recent');
+    delete process.env.HEALTHCHECKS_URL_RECENT;
   });
 
   it('still closes pool when the runner throws', async () => {
@@ -555,7 +595,10 @@ describe('runCli', () => {
   // payload directly would flap on `duration_seconds` (computed from
   // Date.now()); parse-then-toMatchObject + expect.any(Number) is stable.
   it('emits compact structured JSON with bird_ingest_run_completed message on success', async () => {
-    const successSummary: RunSummary = { status: 'success', fetched: 1, upserted: 1 };
+    const successSummary: RunSummary = {
+      status: 'success', fetched: 1, upserted: 1,
+      statesSucceeded: 49, statesFailed: 0,
+    };
     const deps = makeDeps({ runIngest: vi.fn().mockResolvedValue(successSummary) });
 
     await runCli('recent', deps);

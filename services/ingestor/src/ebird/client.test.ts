@@ -242,6 +242,41 @@ describe('EbirdClient retries', () => {
     expect(calls).toBe(3); // 1 initial + 2 retries
   });
 
+  it('throws EbirdClientError(429) immediately and surfaces Retry-After (seconds form) as retryAfterMs', async () => {
+    // 429 is a 4xx: not retried at the client layer (the run-ingest fan-out
+    // owns rate-limit backoff/circuit-break, #840). The client's only job is
+    // to surface the eBird-advised cool-down so that layer can honor it.
+    let calls = 0;
+    server.use(
+      http.get('https://api.ebird.org/v2/data/obs/US-AZ/recent', () => {
+        calls++;
+        return new HttpResponse('rate limited', {
+          status: 429,
+          headers: { 'retry-after': '12' },
+        });
+      })
+    );
+    const client = new EbirdClient({ apiKey: 'k', retryBaseMs: 1, maxRetries: 5 });
+    const err = await client.fetchRecent('US-AZ').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(EbirdClientError);
+    expect((err as EbirdClientError).status).toBe(429);
+    expect((err as EbirdClientError).retryAfterMs).toBe(12_000);
+    expect(calls).toBe(1); // no retry on 4xx
+  });
+
+  it('leaves retryAfterMs undefined when a 429 carries no Retry-After header', async () => {
+    server.use(
+      http.get('https://api.ebird.org/v2/data/obs/US-AZ/recent', () =>
+        new HttpResponse('rate limited', { status: 429 })
+      )
+    );
+    const client = new EbirdClient({ apiKey: 'k', retryBaseMs: 1, maxRetries: 5 });
+    const err = await client.fetchRecent('US-AZ').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(EbirdClientError);
+    expect((err as EbirdClientError).status).toBe(429);
+    expect((err as EbirdClientError).retryAfterMs).toBeUndefined();
+  });
+
   it('retries on request timeout then throws EbirdServerError', async () => {
     let calls = 0;
     server.use(
