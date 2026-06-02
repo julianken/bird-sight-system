@@ -1803,7 +1803,17 @@ describe('MapCanvas controllable camera (#736)', () => {
     ).toBeNull();
   });
 
-  it('passes maxBounds as a reactive prop and NEVER calls setMaxBounds imperatively (finding a)', async () => {
+  it('passes maxBounds as a reactive prop and calls NO imperative setMaxBounds during reactive reconciliation — mount or maxBounds-prop change with no moveend (finding a)', async () => {
+    // #851: finding-(a) forbids driving `maxBounds` imperatively as the PRIMARY
+    // clamp (during reactive reconciliation). The ONE sanctioned imperative
+    // `setMaxBounds` is the #848 moveend corrector's idempotent reassert of the
+    // SAME declarative value (see MapCanvas.tsx clampBounds invariant + the
+    // moveend corrector). This test guards the forbidden path only: it drives
+    // mount + a maxBounds-prop change and fires NO `moveend`, so the corrector
+    // is registered-but-not-fired and the ONLY way `setMaxBounds` could be hit
+    // is reactive reconciliation — which must never call it. (The allowed
+    // moveend branch is covered by the #848 corrector fire/no-op tests below;
+    // exercising it here would just duplicate them.)
     stubMatchMedia(null);
     const { rerender } = render(
       <MapCanvas observations={[]} bounds={AZ_BOUNDS} boundsKey="US-AZ" />,
@@ -1813,14 +1823,23 @@ describe('MapCanvas controllable camera (#736)', () => {
       const props = JSON.parse(el.getAttribute('data-props') ?? '{}');
       return props.maxBounds;
     };
+    // On mount: maxBounds is a reactive <Map> prop, applied declaratively — no
+    // imperative setMaxBounds during the initial reconciliation.
     expect(readMaxBounds()).toEqual(AZ_BOUNDS);
+    expect(fakeMap.setMaxBounds).not.toHaveBeenCalled();
 
     // Change scope AZ→CA: the rendered maxBounds prop must update with no
-    // imperative setMaxBounds call.
+    // imperative setMaxBounds call during this reactive reconciliation either.
     rerender(
       <MapCanvas observations={[]} bounds={CA_BOUNDS} boundsKey="US-CA" />,
     );
     await waitFor(() => expect(readMaxBounds()).toEqual(CA_BOUNDS));
+
+    // The #848 moveend corrector IS registered (its one sanctioned imperative
+    // setMaxBounds lives behind a moveend), but we deliberately never fire a
+    // moveend here — so the only remaining caller would be reactive
+    // reconciliation, which is forbidden. Registered-but-not-fired ⇒ uncalled.
+    expect(fakeMap.once).toHaveBeenCalledWith('moveend', expect.any(Function));
     expect(fakeMap.setMaxBounds).not.toHaveBeenCalled();
   });
 

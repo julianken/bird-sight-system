@@ -652,8 +652,21 @@ export function MapCanvas({
    * clamp halts the move. For `?scope=us` and legacy callers (no `clampPad`) it
    * stays the raw `bounds ?? CONUS_BOUNDS` — unchanged behavior. Passed straight
    * to `<MapView maxBounds={clampBounds}>`; react-map-gl re-applies a changed
-   * `maxBounds` with no `<Map>` remount. We never call `map.setMaxBounds()`
-   * imperatively (the existing finding-(a) test guards this).
+   * `maxBounds` with no `<Map>` remount.
+   *
+   * Finding-(a) invariant: imperative `setMaxBounds` during REACTIVE
+   * RECONCILIATION — i.e. as the PRIMARY clamp mechanism, driven by a
+   * mount/`maxBounds`-prop change — is FORBIDDEN. `maxBounds` is the reactive
+   * `<Map>` prop above; that is the single authoritative clamp. There is ONE
+   * sanctioned imperative `setMaxBounds` site: the #848 `moveend` corrector
+   * below (~`:868`), a defensive IDEMPOTENT reassert of this same declarative
+   * `clampBounds` value that an in-flight animation's transform-clone clobbered
+   * (mirrors the accepted #762/#765 `renderWorldCopies`-on-`moveend` reassert).
+   * It runs only behind a `moveend`, never during reconciliation, so it does
+   * NOT make `maxBounds` imperative. The finding-(a) test guards the forbidden
+   * path: it fires NO `moveend`, leaving the corrector registered-but-not-fired,
+   * so any `setMaxBounds` it observes would necessarily be a reconciliation-time
+   * primary-clamp call (the thing this invariant forbids).
    */
   const clampBounds =
     bounds && clampPad ? padBounds(bounds, clampPad) : activeBounds;
@@ -893,12 +906,15 @@ export function MapCanvas({
     //
     // Why the maxBounds reassert is REQUIRED (not just jumpTo): the clobbered
     // `lngRange` would clamp the corrective `jumpTo` straight back to the OLD
-    // state's edge — verified live. The reassert is one imperative `setMaxBounds`
-    // INSIDE the moveend corrector, NOT the reactive clamp mechanism: `maxBounds`
-    // remains a reactive `<Map>` prop (finding-(a)); the existing finding-(a)
-    // guard fires no `moveend`, so it stays green. NOT a bare `map.stop()` in the
-    // effect: `easeTo` already self-`_stop`s, freezing the western basis — stop
-    // alone fixes neither the longitude nor the `lngRange` clobber.
+    // state's edge — verified live. The reassert is the ONE sanctioned imperative
+    // `setMaxBounds` site (an idempotent reassert of the same declarative
+    // `clampBounds`), NOT the reactive clamp mechanism: `maxBounds` remains a
+    // reactive `<Map>` prop (finding-(a), invariant documented at the clampBounds
+    // block ~`:580`). It runs only behind this `moveend`, never during reactive
+    // reconciliation; the finding-(a) guard fires no `moveend`, so it stays green.
+    // NOT a bare `map.stop()` in the effect: `easeTo` already self-`_stop`s,
+    // freezing the western basis — stop alone fixes neither the longitude nor
+    // the `lngRange` clobber.
     const target = map.cameraForBounds(activeBounds, {
       padding: FIT_BOUNDS_PADDING,
       maxZoom: 12,
