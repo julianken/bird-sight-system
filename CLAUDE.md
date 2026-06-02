@@ -141,7 +141,7 @@ model: "opus"   # explicit override required — the agent's frontmatter declare
                 # implementer also ran on Sonnet.
 prompt: |
   <brief naming PR URL, design-intent reference (mock path / spec path /
-   v4 HTML path), all screenshot user-attachments URLs, AC reference from
+   v4 HTML path / Figma node link), all screenshot user-attachments URLs, AC reference from
    the plan, expected verdict format: PASS / FAIL with file:line-equivalent
    evidence, capped at 3 findings per viewport per R3>
 ```
@@ -153,6 +153,21 @@ the correct invocation for automated pre-merge design review.
 One dispatch per PR covers all viewports, OR one dispatch per viewport for
 narrower context per pass — orchestrator's choice. All 5 viewports must PASS
 before bot review, critic review, and queue.
+
+**Figma design-intent references (orchestrator-resolved; conditional).** Most
+PRs have no Figma design — this is a no-op for them. **When the work has an
+associated Figma design** (a node featured in the conversation, the spec, or the
+issue/plan body), the **orchestrator** — not the implementer — resolves it: run
+one `get_design_context` (and optionally `get_screenshot`) on that node and paste
+the returned context into the implementer brief AND the `ui-design:ui-designer`
+dispatch above. Implementer/review subagents MUST NOT call the Figma MCP
+themselves: worktree-isolated and background dispatches may lack the
+interactively-authenticated Figma OAuth connection, and centralizing keeps usage
+to a couple of orchestrator-side calls per ticket (well within the plan's per-day
+cap) instead of N per subagent. Prefer `get_design_context` (durable text) over a
+`get_screenshot` URL (short-lived — it expires before a subagent reads it). The
+committed spec stays the source of truth; the Figma node is a pixel-accurate
+supplement.
 
 `.playwright-mcp/` is already gitignored so per-call snapshot YAMLs never land
 in git. Do not remove it from `.gitignore`.
