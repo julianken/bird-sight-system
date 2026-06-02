@@ -2,13 +2,13 @@ import { test, expect } from './fixtures.js';
 import { AppPage } from './pages/app-page.js';
 
 /**
- * AttributionModal — Phase 6 update: footer removed; Credits trigger
- * is AttributionModal's own .attribution-trigger button, accessible
- * from every view via the AppHeader "Attribution" button which
- * programmatically clicks .attribution-trigger.
+ * AttributionModal — #830 update: the modal is controlled-open. The internal
+ * `.attribution-trigger` button was removed; the only Credits affordance is the
+ * AppHeader ⓘ "Credits & attribution" button (`app.attributionTrigger`), which
+ * sets the modal's `open` prop. Every test opens via that button.
  *
  * Covers:
- *   - Credits trigger reachable from every view (map, detail).
+ *   - Credits trigger (AppHeader ⓘ) reachable from every view (map, detail).
  *   - Modal open / focus management / Escape close / focus return.
  *   - Phylopic per-silhouette section renders creator + license + image-
  *     page link for at least one silhouette using the seeded Phylopic
@@ -29,9 +29,9 @@ const VERMFLY = {
 test.describe('AttributionModal — reachability from AppHeader (desktop)', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  // Phase 6: footer removed. Credits trigger is AttributionModal's own button
-  // (.attribution-trigger). The AppHeader "Attribution" button programmatically
-  // clicks it. Tests assert on the trigger directly — no footer required.
+  // #830: the Credits affordance is the AppHeader ⓘ button (the internal
+  // .attribution-trigger was deleted; aria-expanded is intentionally omitted —
+  // it opens a top-layer showModal() dialog, not an inline disclosure).
   // 'species' removed from iteration in #688 (Species surface deleted); 'feed'
   // removed in #777 (Feed surface deleted).
   for (const view of ['map'] as const) {
@@ -39,10 +39,10 @@ test.describe('AttributionModal — reachability from AppHeader (desktop)', () =
       const app = new AppPage(page);
       await app.goto(`view=${view}`);
       await app.waitForAppReady();
-      // The modal's own trigger button is always in the DOM
-      const trigger = page.locator('button.attribution-trigger');
-      await expect(trigger).toBeAttached();
-      await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+      await expect(app.attributionTrigger).toBeVisible();
+      await expect(app.attributionTrigger).toHaveAttribute('aria-haspopup', 'dialog');
+      // The old internal shim is gone from the DOM.
+      await expect(page.locator('button.attribution-trigger')).toHaveCount(0);
     });
   }
 
@@ -54,10 +54,9 @@ test.describe('AttributionModal — reachability from AppHeader (desktop)', () =
     await app.waitForAppReady();
     await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' }))
       .toBeVisible({ timeout: 10_000 });
-    // Phase 4: the Credits trigger is in the DOM behind the detail dialog.
-    // Reachability = attached in the DOM; click-through is covered separately.
-    const trigger = page.locator('button.attribution-trigger');
-    await expect(trigger).toBeAttached();
+    // The AppHeader ⓘ trigger is the persistent Credits affordance on every view.
+    await expect(app.attributionTrigger).toBeVisible();
+    await expect(page.locator('button.attribution-trigger')).toHaveCount(0);
   });
 });
 
@@ -68,11 +67,8 @@ test.describe('AttributionModal — open / close (desktop)', () => {
     const app = new AppPage(page);
     await app.goto('scope=us');
     await app.waitForAppReady();
-    // #761 (S2): open via the AppHeader "Attribution" button (the live affordance,
-    // fixed chrome on --z-chrome). The standalone `.attribution-trigger` shim now
-    // sits in the `.app` flow BEHIND the full-viewport `#map-layer`, so a direct
-    // pointer click on it is intercepted by the map. The header fires the same
-    // onOpenAttribution → programmatic `.attribution-trigger.click()` shim.
+    // #830: open via the AppHeader ⓘ button — it sets the modal's controlled
+    // `open` prop (no internal shim). Fixed chrome on --z-chrome.
     await app.attributionTrigger.click();
     const dialog = page.locator('dialog.attribution-modal');
     await expect(dialog).toHaveAttribute('open', '');
@@ -143,10 +139,9 @@ test.describe('AttributionModal — open / close (desktop)', () => {
     const app = new AppPage(page);
     await app.goto('scope=us');
     await app.waitForAppReady();
-    // #761 (S2): open via the header affordance (the standalone trigger is behind
-    // the full-bleed map). The modal restores focus to `document.activeElement` at
-    // open time — now the header "Attribution" button — so focus-return is asserted
-    // on that button (the live opener), not the occluded `.attribution-trigger`.
+    // #830: open via the AppHeader ⓘ button. The modal restores focus to
+    // `document.activeElement` at open time — the ⓘ button — so focus-return is
+    // asserted on that button (the controlled-open opener).
     await app.attributionTrigger.click();
     const dialog = page.locator('dialog.attribution-modal');
     await expect(dialog).toHaveAttribute('open', '');
@@ -187,17 +182,16 @@ test.describe('AttributionModal — mobile viewport', () => {
     const app = new AppPage(page);
     await app.goto('scope=us');
     await app.waitForAppReady();
-    // Phase 6: footer removed — trigger is AttributionModal's own button.
-    const trigger = page.locator('button.attribution-trigger');
-    await expect(trigger).toBeAttached();
+    // #830: the Credits affordance is the AppHeader ⓘ button.
+    await expect(app.attributionTrigger).toBeVisible();
+    await expect(page.locator('button.attribution-trigger')).toHaveCount(0);
   });
 
   test('open + Escape + focus-return cycle works (mobile)', async ({ page }) => {
     const app = new AppPage(page);
     await app.goto('scope=us');
     await app.waitForAppReady();
-    // #761 (S2): open via the header affordance; focus returns to that opener
-    // (the standalone trigger is behind the full-bleed map — see desktop tests).
+    // #830: open via the AppHeader ⓘ button; focus returns to that opener.
     await app.attributionTrigger.click();
     const dialog = page.locator('dialog.attribution-modal');
     await expect(dialog).toHaveAttribute('open', '');
@@ -259,17 +253,12 @@ test.describe('AttributionModal — iNat photo credit (#327 task-11)', () => {
         await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' }))
           .toBeVisible({ timeout: 10_000 });
 
-        // Phase 4: the detail <dialog> sits in the top layer and intercepts
-        // pointer events, so Playwright's trigger.click() is blocked. Use
-        // page.evaluate to dispatch a synthetic click directly on the DOM
-        // node — this bypasses the top-layer pointer interception while keeping
-        // the page in view=detail so App.activeSpeciesMeta stays populated.
-        // Phase 6: selector updated from 'footer.app-footer button.attribution-trigger'
-        // to 'button.attribution-trigger' (footer removed).
-        await page.evaluate(() => {
-          const btn = document.querySelector('button.attribution-trigger');
-          if (btn instanceof HTMLElement) btn.click();
-        });
+        // #830: open via the AppHeader ⓘ button (controlled-open). It is fixed
+        // chrome on --z-chrome in the top-right pill; the detail rail (desktop)
+        // insets BELOW the controls cluster and the peek sheet (mobile) sits at
+        // the bottom, so the ⓘ stays clickable while view=detail keeps
+        // App.activeSpeciesMeta populated (so the Photos section threads through).
+        await app.attributionTrigger.click();
         const dialog = page.locator('dialog.attribution-modal');
         await expect(dialog).toHaveAttribute('open', '');
 
@@ -304,13 +293,8 @@ test.describe('AttributionModal — iNat photo credit (#327 task-11)', () => {
         await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' }))
           .toBeVisible({ timeout: 10_000 });
 
-        // Phase 4: bypass detail dialog pointer interception via evaluate.
-        // Phase 6: selector updated from 'footer.app-footer button.attribution-trigger'
-        // to 'button.attribution-trigger' (footer removed).
-        await page.evaluate(() => {
-          const btn = document.querySelector('button.attribution-trigger');
-          if (btn instanceof HTMLElement) btn.click();
-        });
+        // #830: open via the AppHeader ⓘ button (controlled-open).
+        await app.attributionTrigger.click();
         const dialog = page.locator('dialog.attribution-modal');
         await expect(dialog).toHaveAttribute('open', '');
         // No Photos heading; no photos section testid.

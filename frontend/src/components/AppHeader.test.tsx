@@ -89,15 +89,37 @@ describe('<AppHeader>', () => {
     expect(document.querySelector('.app-header-lede-row')).toBeNull();
   });
 
-  it('renders freshnessLabel alongside the lede when both are present', () => {
+  it('renders freshnessLabel + linkified eBird source alongside the lede when both are present', () => {
     render(
       <AppHeader
         {...baseProps}
         ledeText="331 species seen across Arizona in the last 14 days."
-        freshnessLabel="Updated 11 min ago · Source: eBird"
+        freshnessLabel="Updated 11 min ago"
       />,
     );
-    expect(screen.getByText('Updated 11 min ago · Source: eBird')).toBeInTheDocument();
+    // #830 item B: freshnessLabel is the age clause only; AppHeader composes
+    // "· Source: <eBird link>". The eBird credit is now a nested <a>, so the
+    // text splits across nodes — assert the source prefix + the link structurally
+    // (an exact getByText over the whole composed line would no longer match).
+    expect(screen.getByText(/Source:/)).toBeInTheDocument();
+    const ebirdLink = screen.getByRole('link', { name: 'eBird' });
+    expect(ebirdLink).toHaveAttribute('href', 'https://ebird.org');
+    expect(ebirdLink).toHaveAttribute('target', '_blank');
+    expect(ebirdLink).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  it('does NOT render the freshness/source line when freshnessLabel is empty', () => {
+    render(
+      <AppHeader
+        {...baseProps}
+        ledeText="331 species seen across Arizona in the last 14 days."
+        freshnessLabel=""
+      />,
+    );
+    // #830 item B: the {freshnessLabel && …} guard wraps the WHOLE composed line,
+    // so empty/error states (label: '') render no source credit at all.
+    expect(screen.queryByText(/Source:/)).toBeNull();
+    expect(screen.queryByRole('link', { name: 'eBird' })).toBeNull();
   });
 
   // ── Scope rows ──────────────────────────────────────────────────────────
@@ -150,6 +172,16 @@ describe('<AppHeader>', () => {
     render(<AppHeader {...baseProps} onOpenAttribution={onOpenAttribution} />);
     await userEvent.click(screen.getByRole('button', { name: /Credits & attribution/i }));
     expect(onOpenAttribution).toHaveBeenCalledTimes(1);
+  });
+
+  it('marks the Attribution trigger with aria-haspopup="dialog" (and intentionally omits aria-expanded)', () => {
+    // #830 item E: the trigger opens a showModal() dialog (top-layer), not an
+    // inline disclosure — so it carries aria-haspopup but deliberately NOT
+    // aria-expanded (a divergence from the Filters trigger, which is inline).
+    render(<AppHeader {...baseProps} />);
+    const trigger = screen.getByRole('button', { name: /Credits & attribution/i });
+    expect(trigger).toHaveAttribute('aria-haspopup', 'dialog');
+    expect(trigger).not.toHaveAttribute('aria-expanded');
   });
 
   // ── ThemeToggle ─────────────────────────────────────────────────────────

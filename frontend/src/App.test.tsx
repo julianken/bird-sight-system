@@ -19,6 +19,32 @@ vi.stubGlobal('matchMedia', (query: string) => ({
   dispatchEvent: vi.fn(),
 }));
 
+// #830 item D: AttributionModal is controlled-open and calls dialog.showModal()
+// / dialog.close(). jsdom predates the top-layer dialog spec, so patch the
+// prototype to mirror open/close (set/remove the `open` attribute, dispatch the
+// native close event) — same polyfill the AttributionModal unit test uses.
+(() => {
+  if (typeof HTMLDialogElement === 'undefined') return;
+  const proto = HTMLDialogElement.prototype as unknown as {
+    showModal?: () => void;
+    close?: () => void;
+    __patched?: boolean;
+  };
+  if ((proto.showModal as unknown as { __patched?: boolean } | undefined)?.__patched) return;
+  const showModal = function (this: HTMLDialogElement) {
+    (this as unknown as { open: boolean }).open = true;
+    this.setAttribute('open', '');
+  };
+  const close = function (this: HTMLDialogElement) {
+    (this as unknown as { open: boolean }).open = false;
+    this.removeAttribute('open');
+    this.dispatchEvent(new Event('close'));
+  };
+  Object.defineProperty(showModal, '__patched', { value: true });
+  proto.showModal = showModal as () => void;
+  proto.close = close as () => void;
+})();
+
 // Hoist mock fns so they exist before any module-level code runs.
 const {
   mockGetHotspots,
@@ -521,16 +547,22 @@ describe('Phase 6: Footer removal + Attribution via AppHeader (issue #250 → Ph
     },
   );
 
-  it('AttributionModal Credits button is still present in the DOM (trigger can find it)', () => {
+  it('clicking the AppHeader ⓘ button opens the AttributionModal (controlled-open, #830 item D)', async () => {
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: null, view: 'map',
       scope: { kind: 'us' as const },
     };
-    const { container } = render(<App />);
-    // The modal's own trigger button — className="attribution-trigger"
-    // onOpenAttribution's querySelector('.attribution-trigger') must resolve.
-    const credits = container.querySelector('button.attribution-trigger');
-    expect(credits).not.toBeNull();
+    render(<App />);
+    await screen.findByRole('banner');
+    const dialog = document.querySelector('dialog.attribution-modal');
+    expect(dialog).not.toBeNull();
+    // Closed initially (open prop is false).
+    expect(dialog?.hasAttribute('open')).toBe(false);
+    // onOpenAttribution sets attributionOpen → the modal's open prop opens the
+    // native dialog. (No leftover .attribution-trigger shim — it was deleted.)
+    expect(document.querySelector('.attribution-trigger')).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: /Credits & attribution/i }));
+    expect(dialog?.hasAttribute('open')).toBe(true);
   });
 });
 

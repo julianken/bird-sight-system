@@ -120,3 +120,23 @@ Capture at both light and dark theme (10 screenshots minimum per touched
 surface). Dark-mode trigger: `document.documentElement.setAttribute('data-theme', 'dark')`
 via Playwright MCP `browser_evaluate` — NOT `prefers-color-scheme` emulation
 (the repo overrides via attribute, not media query).
+
+## Figma design-intent reference (conditional — only when a Figma design exists)
+
+Most plans have no Figma design; this section is a no-op for them. **When the
+work has an associated Figma design** — a node featured in the conversation, the
+spec, or the design context — the design-related plan/issue MUST:
+
+- Carry the **Figma node link** (`figma.com/design/<fileKey>?node-id=<id>`) in
+  the plan/issue body, alongside the committed spec path, as a design-intent
+  reference.
+- Name that Figma node as the `design-intent reference` in the multi-viewport
+  design-review task above (handed to the `ui-design:ui-designer` subagent).
+
+The **orchestrator** resolves the node and frontloads it (one `get_design_context`,
+pasted into the implementer + review briefs) — subagents never call the Figma MCP
+themselves. Full rule + rationale: CLAUDE.md → "Figma design-intent references
+(orchestrator-resolved; conditional)".
+
+The committed spec stays the source of truth; the Figma node is a pixel-accurate
+supplement. No Figma design → add nothing.

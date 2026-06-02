@@ -102,7 +102,7 @@ The header gains real elevation (it has **none** today) by adopting tier 1. The 
 | **Top-left** | Identity+scope cluster: wordmark `Bird Maps`, region label `Arizona`, the lede (`331 species · updated 20 min ago`), and the scope control (state select / ZIP / Change-scope), as **one stacked card** | `--card-maxw-identity` 360px |
 | **Top-right** | Controls cluster: Filters (labeled at ≥1024), Attribution, theme toggle — a compact pill group | content-width |
 | **Bottom-left** | Family legend | `--card-maxw-legend` 280px |
-| **Bottom-right** | Attribution line + reserved zone for future zoom/locate | content-width |
+| **Bottom-right** | Reserved zone for future zoom/locate — safe-zone. *(Attribution consolidated #830: always-visible eBird source credit in the identity-card freshness line; full credits in the top-right ⓘ Credits modal.)* | n/a |
 | **Transient** | Popovers (flip/shift to stay on-screen), detail card (insets top-right region), filters panel (anchored under its trigger) | per-element caps |
 
 ### Desktop (1440 / 1920)
@@ -120,10 +120,10 @@ The header gains real elevation (it has **none** today) by adopting tier 1. The 
 │ └─────────────────────┘                                                 │
 │                                                                         │
 │ ┌──────────────────┐                                                    │
-│ │ Bird families ▴  │                              ┌────────────────────┐│
-│ │ 🪶 Parrots    5  │                              │ © OpenFreeMap · …  ││  ← bottom-right attribution
-│ │ 🦉 Barn-Owls 12  │                              └────────────────────┘│
-│ └──────────────────┘                                                    │
+│ │ Bird families ▴  │                                                     │
+│ │ 🪶 Parrots    5  │                              (bottom-right reserved │
+│ │ 🦉 Barn-Owls 12  │                               for zoom/locate; attr │
+│ └──────────────────┘                               in ⓘ modal — #830)   │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -154,13 +154,13 @@ One corner stack per region, **at most one expanded surface at a time** (see §5
 │      (map)           │
 │                      │
 │ ┌──────────────────┐ │
-│ │ Bird families ▾  │ │  ← legend, collapsed-by-default below WIDE
-│ └──────────────────┘ │
-│  © OpenFreeMap …     │  ← attribution safe-zone (bottom 60px) the legend pill must clear
+│ │ Bird families ▾  │ │  ← legend, collapsed-by-default below WIDE; at
+│ └──────────────────┘ │     --card-inset (no attribution bar to clear — #830)
+│                      │  ← bottom-right reserved (zoom/locate); full attr in ⓘ modal
 └──────────────────────┘
 ```
 
-When a **bottom sheet** (detail or filters) is up, the legend auto-collapses to its chevron pill and shifts so it never overlaps the sheet or the attribution band.
+When a **bottom sheet** (detail or filters) is up, the legend auto-collapses to its chevron pill and shifts so it never overlaps the sheet. (At half/full it is force-collapsed; at peek it lifts above the peek strip — #830. There is no longer an attribution band to clear.)
 
 ---
 
@@ -192,7 +192,7 @@ When a **bottom sheet** (detail or filters) is up, the legend auto-collapses to 
 ### 4.4 FamilyLegend → keep (the one correct island), formalize
 
 - **Today:** the *only* element already in the right idiom — bottom-left, rounded, shadowed, capped at 240px. Keep the anchor.
-- **Target:** Migrate its hardcoded `--shadow-listbox` 6px to the shared language: `--card-radius` 12px, `--card-elevation-1`, `--card-maxw-legend` 280px, anchored `bottom/left: var(--card-inset)` and clearing the attribution band via the existing `--attribution-clearance` mechanism.
+- **Target:** Migrate its hardcoded `--shadow-listbox` 6px to the shared language: `--card-radius` 12px, `--card-elevation-1`, `--card-maxw-legend` 280px, anchored `bottom/left: var(--card-inset)`. (Post-#830 there is no attribution band to clear; the only bottom-sheet interaction is the peek-snap lift.)
 - **Responsive:** **single expansion authority** — default expanded only above `--overlay-bp-wide` (1024), collapsed below. Delete the divergent dual control (JS-1024 *and* CSS-760) that leaves it expanded over the southwest markers at 768. Below WIDE it's a chevron pill; localStorage override persists user choice.
 
 ### 4.5 SpeciesDetail → inset floating card / bottom sheet *(PRINCIPLE-VIOLATOR #2 — full-height right dock)*
@@ -215,9 +215,9 @@ When a **bottom sheet** (detail or filters) is up, the legend auto-collapses to 
 - **Target:** one shared anchored-popover primitive used by all three. Flip/shift against the viewport, **clamped to the `--card-inset` safe-area** (accounting for the floating header, scope cluster, and legend), with a caret that points to the anchor and survives the flip. All consume `--card-radius`, `--card-elevation-2`, `--card-bg/border`.
 - **Responsive:** anchored popover on fine pointers; bottom sheet on coarse/`--overlay-bp-compact`.
 
-### 4.8 Attribution → bottom-right, and the scope-chooser scrim
+### 4.8 Attribution → consolidated to the ⓘ Credits modal, and the scope-chooser scrim
 
-- **Attribution:** small `--type-xs` line bottom-right; the legend's bottom inset must clear it (existing `--attribution-clearance`). It is a licensing requirement (#775) — it is a *safe-zone*, not a floating card.
+- **Attribution (consolidated, #830):** there is no bottom-right attribution line. The always-visible eBird source credit is a link in the identity-card freshness line (top-left), and the full credits (OSM / OpenMapTiles / OpenFreeMap / eBird / PhyloPic / photos) live in the top-right ⓘ Credits modal. The OSMF Attribution Guidelines explicitly sanction collapsing OSM attribution behind a labeled ⓘ button. The bottom-right corner is a reserved *safe-zone* (future zoom/locate), not a floating card; the legend now sits at `--card-inset` (the retired `--attribution-clearance` lift is gone — the only remaining bottom-sheet interaction is the peek-snap legend lift).
 - **Scope-chooser (landing):** lower the scrim from ~92% opaque toward **~60–70%** (optionally `backdrop-filter: blur(2px)`) so the live map reads clearly behind the chooser card — signaling "pick a place *on this map*." The card stays opaque `--card-bg` so card-text AA is unaffected. Card adopts `--card-radius` / `--card-elevation-3`.
 
 ---
@@ -245,7 +245,7 @@ Today the loudest element is a utility (scope control, top-center) and the quiet
 ### 5.3 Collision avoidance (system rules, not per-element patches)
 
 - **Mobile single-surface discipline:** when detail or filters sheet is at peek/half/full, auto-collapse the legend to its chevron pill and the scope to its `Arizona ▾` pill. Never show expanded legend + full scope + sheet at once.
-- **Bottom-stack manager (≤480):** track sheet height in a CSS var; offset the legend's `bottom` by it (or shift legend bottom-right) so the two never overlap; both clear the 60px attribution safe-zone.
+- **Bottom-stack manager (≤480):** track sheet height in a CSS var; offset the legend's `bottom` by it (or shift legend bottom-right) so the two never overlap. (The 60px attribution safe-zone clause is retired — the attribution bar was removed in #830; the legend lifts above the peek strip via `body:has(.species-detail-sheet--peek) .family-legend`.)
 - **Detail never occludes controls:** the inset detail card sits *below* the top-right cluster (z and offset), never slicing it.
 - **Popover edge-collision:** one shared flip/shift/clamp helper (§4.7).
 - **Clean z-ladder:** `--z-map 0 < --z-overlay 40 (legend, scope, context) < --z-popover 41 < --z-chrome 42 (header clusters) < --z-rail 43 (detail card) < cell 44 < cluster 45 < --z-modal 50 (full sheet / modal)`. The detail card and full-snap sheet move onto this ladder so "what floats over what" is predictable; the `pointer-events:none` header hack is removed.
