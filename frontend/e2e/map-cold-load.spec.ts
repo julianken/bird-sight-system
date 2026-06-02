@@ -19,6 +19,8 @@ test.describe('Map cold load — issue #716', () => {
    * post-load Template 4 ("N species seen across …") fires instead of the
    * single-species-by-name form.
    */
+  // Two distinct species so the post-load lede is the count-only default
+  // ("2 species", #828) rather than the single-species-by-name form.
   const observationsPayload = {
     data: [
       {
@@ -113,8 +115,11 @@ test.describe('Map cold load — issue #716', () => {
     releaseObservations?.();
 
     await expect(lede).toBeVisible({ timeout: 10_000 });
-    await expect(lede).not.toHaveText('No sightings match your current filters.');
-    await expect(lede).toHaveText(/\d+ species seen across .+ in the last .+\./);
+    // #828: the lede is count-only — no region, no time-window. The misleading
+    // filter-empty copy must still never appear after a successful cold load.
+    await expect(lede).not.toHaveText(/No matches for these filters/i);
+    await expect(lede).not.toHaveText(/No sightings match your current filters/i);
+    await expect(lede).toHaveText(/^\d+ species$/);
   });
 
   /**
@@ -182,6 +187,7 @@ test.describe('Map cold load — issue #716', () => {
     // Release observations; the real lede now renders.
     releaseObservations?.();
     await expect(lede).toBeVisible({ timeout: 10_000 });
-    await expect(lede).toHaveText(/\d+ species seen across .+ in the last .+\./);
+    // #828: count-only lede — no region, no time-window.
+    await expect(lede).toHaveText(/^\d+ species$/);
   });
 });

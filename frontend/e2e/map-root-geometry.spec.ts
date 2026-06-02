@@ -145,11 +145,14 @@ test.describe('#761 (S2): full-viewport map root geometry', () => {
       expect(Math.abs(rect.bottom - 900), 'bottom edge ≈ viewport height').toBeLessThanOrEqual(1);
     });
 
-    test('.scope-control is embedded in the identity card, clear of the top edge (#800)', async ({ page, apiStub }) => {
+    test('.scope-control is embedded in the identity card, clear of the top edge (#800 / #828)', async ({ page, apiStub }) => {
       await setupRoutes(page, apiStub);
       const app = new AppPage(page);
       await app.goto('state=US-AZ');
       await app.waitForAppReady();
+      // #828: the scope form is collapsed behind the 🔍 disclosure — open it so
+      // .scope-control is rendered (not display:none) and has a measurable rect.
+      await app.openScopeDisclosure();
       await expect(app.scopeControl).toBeVisible();
 
       // #800: ScopeControl is now embedded inside the AppHeader identity card

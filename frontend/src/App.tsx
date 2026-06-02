@@ -31,7 +31,6 @@ import { regionLabelFor } from './config/region.js';
 import { prefetchMapCanvas } from './prefetch.js';
 import { SurfaceTitleSync } from './components/SurfaceTitleSync.js';
 import { StatusBlock } from './components/ds/StatusBlock.js';
-import { deriveFreshness } from './lib/freshness.js';
 
 const apiClient = new ApiClient({ baseUrl: import.meta.env.VITE_API_BASE_URL ?? '' });
 
@@ -318,7 +317,7 @@ export function App() {
   // server clips via ST_Intersects). UNSCOPED and `?scope=us` both leave
   // `stateCode` unset, so the backend stays untouched (data invariant, #735).
   const scopeStateCode = state.scope.kind === 'state' ? state.scope.stateCode : undefined;
-  const { loading, observationsLoading, error, observations, freshestObservationAt, refetch } = useBirdData(
+  const { loading, observationsLoading, error, observations, refetch } = useBirdData(
     apiClient,
     {
       since: state.since,
@@ -833,38 +832,13 @@ export function App() {
     };
   }, [scopeActive]);
 
-  // nowTick advances when the user returns to the tab so freshness labels
-  // re-derive after the tab has been hidden for a long time. useRef(new Date())
-  // would freeze `now` at first render and never advance — after 5 h open the
-  // "Updated N min ago" label would stay stuck. Pattern A: bump on visibilitychange
-  // (tab return is the primary freshness signal for a passive read-only UI).
-  // Issue: #456 W3-A critic L3.
-  const [nowTick, setNowTick] = useState(() => new Date());
-  useEffect(() => {
-    function handleVisibility() {
-      if (document.visibilityState === 'visible') {
-        setNowTick(new Date());
-      }
-    }
-    document.addEventListener('visibilitychange', handleVisibility);
-    return () => document.removeEventListener('visibilitychange', handleVisibility);
-  }, []);
-  const now = nowTick;
-
-  // Derive freshness state + label from meta.freshestObservationAt (#456 W3-A).
-  // Uses the current `now` tick so the label re-derives on data fetch AND on
-  // tab return (visibilitychange above). No polling interval needed.
-  // Spec: docs/design/01-spec/voice-and-content.md §Freshness label state machine.
-  const { state: freshnessState, label: freshnessLabel } = useMemo(
-    () => deriveFreshness(freshestObservationAt, now),
-    [freshestObservationAt, now],
-  );
-
   // #800 / #779 — lede text computation for the AppHeader identity card.
   // Mirrors MapLede's template logic (now removed from MapSurface) so the
   // formerly-invisible context-strip content is lifted into the top-left card.
   // Returns null when region=null (unscoped) or while loading (cold-load guard).
-  // Must come after freshnessState (computed above).
+  // #828: the freshness derivation (deriveFreshness + nowTick/visibilitychange)
+  // was removed along with the freshness line — the lede no longer consumes a
+  // freshness state and the card no longer renders a recency label.
   const ledeText = useMemo<string | null>(() => {
     if (region === null) return null;
     const speciesCount = new Set(observations.map(o => o.speciesCode).filter(Boolean)).size;
@@ -874,24 +848,24 @@ export function App() {
     if (observationsLoading && observationCount === 0 && speciesCount === 0) return null;
     const speciesCommonName =
       speciesCount === 1 ? (observations[0]?.comName ?? null) : null;
-    const periodText = state.since === '1d' ? '24 hours' : state.since.replace('d', ' days');
-    const periodClause = freshnessState === 'stale' ? '' : ` in the last ${periodText}`;
+    // #828: the lede is count-only. The region moved into the wordmark headline
+    // (no longer repeated in the sentence) and the time-window dropped entirely
+    // (it's discoverable via Filters). No period clause, no `${region}` — see the
+    // 5-template table in the issue and docs/design/01-spec/voice-and-content.md.
     if (observationCount === 0 && speciesCount === 0) {
       return noFiltersActive
-        ? `No recent sightings in ${region} yet.`
-        : 'No sightings match your current filters.';
+        ? 'No recent sightings'
+        : 'No matches for these filters';
     } else if (speciesCommonName) {
-      return `${observationCount} sightings of ${speciesCommonName} in ${region}${periodClause}.`;
+      return `${observationCount} sightings of ${speciesCommonName}`;
     } else if (familyName) {
-      return `${speciesCount} species of ${familyName} seen across ${region}${periodClause}.`;
+      return `${speciesCount} species of ${familyName}`;
     }
-    return `${speciesCount} species seen across ${region}${periodClause}.`;
+    return `${speciesCount} species`;
   }, [
     region,
     observations,
     observationsLoading,
-    state.since,
-    freshnessState,
     noFiltersActive,
     familyName,
   ]);
@@ -1001,7 +975,6 @@ export function App() {
         filtersTriggerRef={filtersTriggerRef}
         onOpenAttribution={onOpenAttribution}
         ledeText={ledeText}
-        freshnessLabel={freshnessLabel}
         scope={state.scope}
         states={states}
         onPickState={onPickState}
@@ -1228,6 +1201,41 @@ export function App() {
           defaultExpanded={legendDefaultExpanded}
           forceCollapsed={legendForceCollapsed}
         />
+      )}
+      {/*
+        Bottom-right always-visible attribution (#828 Option-A rebase over #830).
+        #830 removed the bottom-right MapLibre attribution bar and parked the
+        always-visible eBird credit in the identity-card freshness line; #828
+        deletes that freshness line, so the always-visible credit is restored
+        HERE — the four-corner contract's bottom-right home for attribution
+        (spec §4.8). This is the minimal license-floor (OpenFreeMap basemap +
+        eBird data), NOT the full credits — the complete OSM/OpenMapTiles/
+        OpenFreeMap/eBird/PhyloPic/photos surface stays in the top-right ⓘ
+        Credits modal. Gated on `mapVisible && scopeActive` (same as the legend)
+        so the eBird credit is shown whenever observation data is on the map —
+        a stronger always-visible guarantee than #830's `freshnessLabel &&` had
+        (which hid the credit during empty/error states). Links reuse #830's
+        canonical recipe: target="_blank" + rel="noopener noreferrer". This
+        partially reverts #830's bottom-right-bar removal (#830 owner FYI).
+      */}
+      {mapVisible && scopeActive && (
+        <div className="map-attribution" aria-label="Map data attribution">
+          <a
+            href="https://openfreemap.org"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            OpenFreeMap
+          </a>
+          {' · '}
+          <a
+            href="https://ebird.org"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            eBird
+          </a>
+        </div>
       )}
       {/* #761 (S1) — detail rail/sheet gated on `scopeActive`. The unscoped
           early-return used to make these lines unreachable while unscoped; now

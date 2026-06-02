@@ -560,7 +560,9 @@ test.describe('state-artboard verification (SUB3, #764)', () => {
 
     await app.goto('state=US-AZ');
     await app.waitForAppReady();
-    await expect(app.scopeControl).toBeVisible();
+    // #828: scoped view → the 🔍 disclosure trigger is present (the scope form
+    // itself is collapsed; it's opened below before the state switch).
+    await expect(app.scopeDisclosureTrigger).toBeVisible();
 
     const ready = await waitForMapReady(page);
     test.skip(!ready, 'WebGL unavailable — __birdMap absent; re-mask echo skipped');
@@ -570,6 +572,8 @@ test.describe('state-artboard verification (SUB3, #764)', () => {
     expect(azMb, 'AZ maxBounds set before switch').not.toBeNull();
     expect(boundsApproxEqual(azMb!, AZ_PADDED), 'starts on padded AZ clamp').toBe(true);
 
+    // #828: reveal the scope form (collapsed behind the 🔍 disclosure).
+    await app.openScopeDisclosure();
     // Switch AZ → NY in place (the on-map ScopeControl select). No remount.
     await app.scopeControlStateSelect.selectOption('US-NY');
     await expect(page).toHaveURL(/[?&]state=US-NY\b/);
@@ -610,6 +614,8 @@ test.describe('state-artboard verification (SUB3, #764)', () => {
 
     await app.goto('state=US-AZ');
     await app.waitForAppReady();
+    // #828: reveal the scope form (collapsed behind the 🔍 disclosure).
+    await app.openScopeDisclosure();
     await expect(app.scopeControl).toBeVisible();
     const countBeforeSwitch = obsRequests.length;
 
@@ -663,6 +669,8 @@ test.describe('state-artboard verification (SUB3, #764)', () => {
 
     await app.goto('state=US-AZ');
     await app.waitForAppReady();
+    // #828: reveal the scope form (collapsed behind the 🔍 disclosure).
+    await app.openScopeDisclosure();
     await expect(app.scopeControl).toBeVisible();
 
     // "Change scope" exit → returns to the CHOOSER scrim (not a CONUS home).
@@ -833,6 +841,9 @@ test.describe('state-artboard verification (SUB3, #764)', () => {
     });
     await expect(liveRegion).toHaveText('Showing Arizona.');
 
+    // #828: reveal the scope form (collapsed behind the 🔍 disclosure) before
+    // switching states via the in-card select.
+    await app.openScopeDisclosure();
     // state→state updates the SAME polite region's text (no focus move).
     await app.scopeControlStateSelect.selectOption('US-NY');
     await expect(page).toHaveURL(/[?&]state=US-NY\b/);
@@ -887,6 +898,8 @@ test.describe('state-artboard verification (SUB3, #764)', () => {
       wrap('flyTo');
     });
 
+    // #828: reveal the scope form (collapsed behind the 🔍 disclosure).
+    await app.openScopeDisclosure();
     await app.scopeControlStateSelect.selectOption('US-NY');
     await expect(page).toHaveURL(/[?&]state=US-NY\b/);
 
@@ -922,6 +935,9 @@ test.describe('state-artboard verification (SUB3, #764)', () => {
 
       // DOM overlays render ABOVE the canvas (visible, not occluded). These are
       // DOM-layer assertions and hold WITHOUT WebGL.
+      // #828: the scope form is collapsed behind the 🔍 disclosure — open it so
+      // its controls are revealed (and keyboard-operable) over the masked canvas.
+      await app.openScopeDisclosure();
       await expect(app.scopeControl).toBeVisible();
       await expect(app.mapLede).toBeVisible();
       // FamilyLegend (<aside class="family-legend">) renders with the AZ seed.
@@ -964,7 +980,9 @@ test.describe('state-artboard verification (SUB3, #764)', () => {
       await app.goto('state=US-RI');
       await app.waitForAppReady();
       await expect(app.mapCanvas).toBeVisible();
-      await expect(app.scopeControl).toBeVisible();
+      // #828: scoped view → the 🔍 disclosure trigger is present (the scope
+      // form is collapsed; this test only asserts a clean small-state entry).
+      await expect(app.scopeDisclosureTrigger).toBeVisible();
 
       // No uncaught error from the small-state entry frame.
       expect(pageErrors, `US-RI entry threw: ${pageErrors.join('\n')}`).toHaveLength(0);

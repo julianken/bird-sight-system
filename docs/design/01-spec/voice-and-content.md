@@ -1,6 +1,6 @@
 # Voice & content
 
-Position B voice (declarative-direct), the lede contract, the freshness label state machine, and accent discipline. Phase 6 ships these systematically; the contracts here are the spec they implement.
+Position B voice (declarative-direct), the lede contract, and accent discipline. Phase 6 ships these systematically; the contracts here are the spec they implement. (The freshness label state machine this doc once specified was removed in #828 along with the freshness line — see the [Lede contract](#lede-contract) note.)
 
 ## Voice register — Position B
 
@@ -29,47 +29,43 @@ The Position B claim is bounded and verifiable: recent (last 14 days by default)
 
 ## Lede contract
 
-The lede is the first-screen sentence that appears in the context strip below the chrome on map / feed / species surfaces. It's a **runtime-evaluated truth claim** evaluated in priority order:
+The lede is the first-screen sentence in the top-left identity card. It's a
+**runtime-evaluated truth claim** evaluated in priority order. Since #828 it is
+**count-only**: the region moved to the wordmark headline (`Bird Maps · {Region}`)
+so the lede no longer repeats it, and the time-window dropped (it's discoverable
+via Filters). The producer is the `ledeText` useMemo in `frontend/src/App.tsx`.
 
 | Priority | Trigger | Template |
 |---|---|---|
-| 1 | Zero results from current filters | "No sightings match your current filters." |
-| 2 | Single species selected (`speciesCode`) | "{N} sightings of {commonName} in {REGION_LABEL} in the last {period}." |
-| 3 | Family filter active (`familyCode`) | "{N} species of {familyName} seen across {REGION_LABEL} in the last {period}." |
-| 4 | Default (no narrowing filter) | "{N} species seen across {REGION_LABEL} in the last {period}." |
+| 1 | Zero results from current filters | "No matches for these filters" |
+| 2 | Single species selected (`speciesCode`) | "{N} sightings of {commonName}" |
+| 3 | Family filter active (`familyCode`) | "{N} species of {familyName}" |
+| 4 | Default (no narrowing filter) | "{N} species" |
+| 5 | Sparse region (no data, no filters) | "No recent sightings" |
 
-Stale data (ingestor lag > threshold from `frontend/src/config/freshness.ts`) drops the period clause: "{N} species seen across {REGION_LABEL}." — and the freshness label below escalates to "Stale" state.
-
-`REGION_LABEL` and the freshness threshold live in `frontend/src/config/`. Region is a single export constant; freshness is three thresholds (fresh, recent, stale).
+The region (`REGION_LABEL`) is rendered once, visually, in the identity card's
+wordmark line; an `sr-only <h1>` preserves heading structure. `REGION_LABEL`
+lives in `frontend/src/config/`.
 
 ### Templates are explicit, not generative
 
-Phase 5 component code branches through the 4 templates literally. There is no string-template engine, no NLG. The 4 cases above cover every (filter, freshness) tuple in `useUrlState`.
+Phase 5 component code branches through the templates literally. There is no
+string-template engine, no NLG. The cases above cover every (filter, data-
+availability) tuple in `useUrlState`.
 
-If a future filter combination produces a sentence that doesn't read well (e.g., family + species both set), the response is to expand the template list explicitly — not to introduce template grammar. Hand-written copy in 4–8 deterministic branches is the right level of abstraction.
+If a future filter combination produces a sentence that doesn't read well (e.g.,
+family + species both set), the response is to expand the template list
+explicitly — not to introduce template grammar. Hand-written copy in a handful
+of deterministic branches is the right level of abstraction.
 
-## Freshness label state machine
-
-The "Updated 11 min ago · Source: eBird" meta line below the lede is a state machine over `meta.freshest_observation_at` from the read API.
-
-| State | Trigger | Visible copy |
-|---|---|---|
-| `fresh` | age ≤ 30 min | "Updated 11 min ago · Source: eBird" |
-| `recent` | age ≤ 6 h | "Updated 2 h ago · Source: eBird" |
-| `stale` | age > 6 h | "Last updated 9 h ago · Source: eBird" |
-| `error` | ingestor error / Read API unavailable | "Source unavailable · check back soon" |
-
-Thresholds live in `frontend/src/config/freshness.ts`:
-
-```ts
-export const FRESHNESS_FRESH_MAX_MS = 30 * 60 * 1000;   // 30 min
-export const FRESHNESS_RECENT_MAX_MS = 6 * 60 * 60 * 1000; // 6 h
-// stale = anything older than recent threshold
-```
-
-The Read API exposes `meta.freshest_observation_at` via `MAX(inserted_at)` on the observation table. Frontend computes age client-side; relative time strings via existing `formatRelative` utility.
-
-In `error` state, the lede + freshness label work together to surface the problem without crashing the surface — `<StatusBlock state="error">` does not need to fire if the data is merely stale; the lede + label communicate it.
+> **#828 — freshness line removed.** The identity card no longer carries a
+> "Updated N min ago · Source: eBird" recency line. Source and licensing live in
+> the bottom-right attribution; recency was not worth a permanent line on a card
+> the redesign minimizes to two resting lines. The freshness state machine and
+> its `frontend/src/config/freshness.ts` thresholds were deleted along with the
+> line (the module became dead code once the lede also stopped consuming a
+> freshness state). Any "Stale data drops the period clause" behavior is gone —
+> there is no period clause and no freshness state to derive.
 
 ## Accent discipline
 
@@ -124,7 +120,10 @@ The NOTABLE label (`--color-accent-notable-fg`) is rendered in `text-transform: 
 
 ### Freshness meta-line typography
 
-The "Updated N min ago · Source: eBird" line (see [Freshness label state machine](#freshness-label-state-machine)) renders at `--type-xs` in `text-transform: uppercase; letter-spacing: 1.5px`. This is a system-state label and follows the uppercase-tracking convention for labels.
+**Removed (#828).** The identity card no longer renders a freshness meta-line
+("Updated N min ago · Source: eBird"); the line, its state machine, and its
+`config/freshness.ts` thresholds were deleted. Source/licensing now lives in the
+bottom-right attribution. No freshness-specific typography remains.
 
 ## Copy register inventory
 
@@ -152,8 +151,7 @@ For Phase 6's voice-pass rewrites, the existing 14 strings to update or preserve
 All preserved strings already match Position B register. Phase 6 adds:
 
 - Metadata `<meta>` strings (description, OG, Twitter)
-- Lede templates (4 variants)
-- Freshness label state copy (4 states)
+- Lede templates (count-only; 5 variants — see [Lede contract](#lede-contract), #828)
 - Filter sentence template
 - Wordmark `aria-label` ("Bird Maps Arizona — home")
 
