@@ -1495,6 +1495,254 @@ describe('#740 (C6): scope wiring end-to-end', () => {
   });
 });
 
+describe('#847: state→state switch re-seeds debouncedBbox/zoom (render-phase)', () => {
+  // Two DISJOINT CONUS states. The bug: an in-app AZ→CA switch fires
+  // /api/observations with { state: US-CA, bbox: PREVIOUS-settled-AZ viewport }.
+  // The server ANDs stateCode (ST_Intersects) with bbox, so a stale-AZ bbox
+  // never intersects CA → empty 200 → 0 markers, "No recent sightings".
+  // bbox is [w,s,e,n] (the StateSummary order); App converts to [[w,s],[e,n]].
+  const STATES = [
+    { stateCode: 'US-AZ', name: 'Arizona', bbox: [-114.82, 31.33, -109.05, 37.0] as [number, number, number, number] },
+    { stateCode: 'US-CA', name: 'California', bbox: [-124.41, 32.53, -114.13, 42.01] as [number, number, number, number] },
+  ];
+
+  // A plain object with the four getter methods App.tsx calls on a LngLatBounds
+  // (jsdom can't load maplibre-gl — same constraint as the #690/#740 blocks).
+  function makeBounds(
+    west: number, south: number, east: number, north: number,
+  ): LngLatBounds {
+    return {
+      getWest: () => west,
+      getSouth: () => south,
+      getEast: () => east,
+      getNorth: () => north,
+    } as unknown as LngLatBounds;
+  }
+
+  // Does bbox [w,s,e,n] intersect the [w,s,e,n] envelope? (axis-aligned overlap)
+  function bboxIntersects(
+    bbox: [number, number, number, number],
+    env: [number, number, number, number],
+  ): boolean {
+    const [w, s, e, n] = bbox;
+    const [ew, es, ee, en] = env;
+    return w <= ee && e >= ew && s <= en && n >= es;
+  }
+
+  beforeEach(() => {
+    __resetSilhouettesCache();
+    __resetStatesCache();
+    __resetZipIndexCache();
+    mockGetHotspots.mockResolvedValue([]);
+    mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
+    mockGetSilhouettes.mockResolvedValue([]);
+    mockGetStates.mockResolvedValue(STATES);
+    mockGetObservations.mockClear();
+    mockGetHotspots.mockClear();
+    mockGetStates.mockClear();
+    mockGetSilhouettes.mockClear();
+    mockUrlState.set.mockClear();
+    mapSurfaceRef.onViewportChange = null;
+    mapSurfaceRef.boundsKey = undefined;
+    mapSurfaceRef.scopeBounds = undefined;
+    mapSurfaceRef.flyTo = undefined;
+    mapSurfaceRef.renderCount = 0;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  // PRIMARY regression: render scoped to AZ, settle an AZ viewport, then switch
+  // to the DISJOINT CA. The LAST/only post-switch fetch must carry stateCode
+  // 'US-CA' with a bbox intersecting CA (NOT the stale AZ viewport), and exactly
+  // one post-switch fetch must fire.
+  it('switching AZ→CA re-seeds the bbox so the post-switch fetch carries a CA-intersecting bbox', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mockUrlState.state = {
+        since: '14d', notable: false, speciesCode: null, familyCode: null,
+        view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
+      };
+      const { rerender } = render(<App />);
+      await waitFor(() => {
+        expect(mapSurfaceRef.onViewportChange).not.toBeNull();
+      });
+      // The scope itself fires one fetch (the stateCode/enabled trigger).
+      await waitFor(() => {
+        expect(mockGetObservations).toHaveBeenCalledTimes(1);
+      });
+      const onViewportChange = mapSurfaceRef.onViewportChange!;
+
+      // Settle a real INTERIOR-AZ viewport: advance PAST the scope-move window,
+      // fire a genuine AZ idle, then drain the 250ms debounce so debouncedBbox
+      // commits. INTERIOR_AZ is strictly EAST of CA's east edge (-114.13) so it
+      // is genuinely DISJOINT from the CA envelope — this is the stale bbox that,
+      // unreset, de-pairs the post-switch CA fetch (the live-confirmed bug).
+      const INTERIOR_AZ: [number, number, number, number] = [-112.0, 32.0, -110.0, 35.0];
+      await act(async () => { await vi.advanceTimersByTimeAsync(1100); });
+      await act(async () => {
+        onViewportChange(makeBounds(...INTERIOR_AZ), 6);
+      });
+      await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+
+      // Sanity: the just-committed fetch carried the interior-AZ bbox + AZ state,
+      // and that bbox is disjoint from the CA envelope (the precondition for the bug).
+      const azCall = mockGetObservations.mock.calls.at(-1)![0] as {
+        stateCode?: string; bbox?: [number, number, number, number];
+      };
+      expect(azCall.stateCode).toBe('US-AZ');
+      expect(azCall.bbox).toEqual(INTERIOR_AZ);
+      expect(bboxIntersects(INTERIOR_AZ, STATES[1].bbox)).toBe(false);
+
+      const callsBeforeSwitch = mockGetObservations.mock.calls.length;
+
+      // In-app switch to the DISJOINT CA scope (mutate URL state + rerender —
+      // models the in-card scope-control <select> writing ?state=US-CA).
+      mockUrlState.state = {
+        ...mockUrlState.state,
+        scope: { kind: 'state', stateCode: 'US-CA' },
+      };
+      await act(async () => {
+        rerender(<App />);
+      });
+      // Let any debounce/effect work settle.
+      await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+
+      const postSwitchCalls = mockGetObservations.mock.calls.slice(callsBeforeSwitch);
+      // Exactly ONE post-switch fetch (the scope change itself; no second one).
+      expect(postSwitchCalls).toHaveLength(1);
+
+      // The LAST/only post-switch fetch carries US-CA + a CA-intersecting bbox —
+      // NOT the stale AZ bbox (which is disjoint from CA → the empty-200 bug).
+      const last = mockGetObservations.mock.calls.at(-1)![0] as {
+        stateCode?: string; bbox?: [number, number, number, number];
+      };
+      expect(last.stateCode).toBe('US-CA');
+      expect(last.bbox).toBeDefined();
+      expect(
+        bboxIntersects(last.bbox!, STATES[1].bbox),
+        `post-switch bbox=${last.bbox!.join(',')} must intersect the CA envelope ${STATES[1].bbox.join(',')}`,
+      ).toBe(true);
+      // And it must NOT be the stale AZ viewport (disjoint from CA).
+      expect(
+        bboxIntersects(last.bbox!, STATES[0].bbox) && !bboxIntersects(last.bbox!, STATES[1].bbox),
+      ).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // #690 pairing invariant across the switch: the post-switch fetch satisfies
+  // lngSpan <= 45 || zoom < 6 (no bbox-area-cap violation). The reseeded
+  // zoom = 3 (aggregated) is the documented choice.
+  it('post-switch fetch satisfies the #690 {bbox,zoom} consistency predicate', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mockUrlState.state = {
+        since: '14d', notable: false, speciesCode: null, familyCode: null,
+        view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
+      };
+      const { rerender } = render(<App />);
+      await waitFor(() => {
+        expect(mapSurfaceRef.onViewportChange).not.toBeNull();
+      });
+      const onViewportChange = mapSurfaceRef.onViewportChange!;
+      await act(async () => { await vi.advanceTimersByTimeAsync(1100); });
+      await act(async () => {
+        onViewportChange(makeBounds(-114.82, 31.33, -109.05, 37.0), 6);
+      });
+      await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+
+      mockUrlState.state = {
+        ...mockUrlState.state,
+        scope: { kind: 'state', stateCode: 'US-CA' },
+      };
+      await act(async () => { rerender(<App />); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+
+      // Every fetch carrying a bbox/zoom pair must be internally consistent.
+      for (const [filters] of mockGetObservations.mock.calls) {
+        const { bbox, zoom } = filters as {
+          bbox?: [number, number, number, number];
+          zoom?: number;
+        };
+        if (!bbox || zoom === undefined) continue;
+        const lngSpan = bbox[2] - bbox[0];
+        const consistent = lngSpan <= 45 || zoom < 6;
+        expect(
+          consistent,
+          `inconsistent fetch: bbox=${bbox.join(',')} (lngSpan=${lngSpan.toFixed(2)}), zoom=${zoom}`,
+        ).toBe(true);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Regression-preservation: a mid-animation onViewportChange INSIDE the
+  // scope-move window adds NO extra fetch (the render-phase seed must not
+  // reintroduce the mid-animation double-fetch the window exists to prevent).
+  it('a mid-animation idle inside the scope-move window adds no extra fetch', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mockUrlState.state = {
+        since: '14d', notable: false, speciesCode: null, familyCode: null,
+        view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
+      };
+      const { rerender } = render(<App />);
+      await waitFor(() => {
+        expect(mapSurfaceRef.onViewportChange).not.toBeNull();
+      });
+      await waitFor(() => {
+        expect(mockGetObservations).toHaveBeenCalledTimes(1);
+      });
+      const onViewportChange = mapSurfaceRef.onViewportChange!;
+
+      // Switch to CA — the scope change arms a fresh scope-move window.
+      mockUrlState.state = {
+        ...mockUrlState.state,
+        scope: { kind: 'state', stateCode: 'US-CA' },
+      };
+      await act(async () => { rerender(<App />); });
+      await waitFor(() => {
+        expect(mockGetObservations).toHaveBeenCalledTimes(2);
+      });
+
+      // A mid-animation settle idle INSIDE the freshly-armed window: swallowed,
+      // so the count stays at 2 (no extra fetch).
+      await act(async () => {
+        onViewportChange(makeBounds(-124.41, 32.53, -114.13, 42.01), 6);
+      });
+      await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+      expect(mockGetObservations).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Regression-preservation: the render-phase seed must NOT double-fire on a
+  // cold scoped mount — the FIRST render initializes prevBoundsKeyRef to the
+  // mount boundsKey, so the initial scope is not treated as a change.
+  // Mirrors App.test.tsx AC-5 toHaveBeenCalledTimes(1).
+  it('cold scoped mount still fires exactly one fetch (prevBoundsKeyRef seed guard)', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
+    };
+    render(<App />);
+    await waitFor(() => {
+      expect(mockGetObservations).toHaveBeenCalledTimes(1);
+    });
+    // Give any mistaken second effect/render a tick to fire.
+    await waitFor(() => {
+      expect(mockGetObservations).toHaveBeenCalledTimes(1);
+    });
+    expect(mockGetObservations).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('#761 (S2): map hoisted to a viewport-root #map-layer sibling of <main>', () => {
   beforeEach(() => {
     __resetSilhouettesCache();

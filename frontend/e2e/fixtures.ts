@@ -142,6 +142,19 @@ export interface ApiStub {
   /** Stubs `/api/observations` to return `200` with the provided list. */
   stubObservations(obs: Observation[]): Promise<void>;
   /**
+   * #847 — state-aware, bbox-intersecting `/api/observations` stub. Models the
+   * server's `stateCode AND bbox` clip (packages/db-client/src/observations.ts:
+   * 184): it parses `state` and `bbox=[w,s,e,n]` off the request URL and returns
+   * a state's `rows` ONLY when the requested bbox intersects that state's
+   * envelope (looked up from `STATES_FIXTURE` by `stateCode`). A request whose
+   * bbox is disjoint from the requested state's envelope — the stale-bbox
+   * de-pairing the #847 bug produces — returns a clean empty 200 (zero rows),
+   * exactly reproducing "No recent sightings" with no thrown error. A request
+   * with no `bbox=` (or no `state=`) returns the state's rows unconditionally
+   * (no clip to apply). Pure `page.route`; no DB writes.
+   */
+  stubStateAwareObservations(rowsByState: Record<string, Observation[]>): Promise<void>;
+  /**
    * Stubs `**\/api/states**` to return `200` with the provided name-sorted
    * `StateSummary[]` (default `STATES_FIXTURE`). Both `<ScopeChooser>` (#742)
    * and the in-state `<ScopeControl>` (#737) fetch this on mount, so every
@@ -216,6 +229,50 @@ export const test = base.extend<{ apiStub: ApiStub }>({
             body: JSON.stringify({
               data: obs,
               meta: { freshestObservationAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() },
+            }),
+          });
+        });
+      },
+      async stubStateAwareObservations(rowsByState) {
+        // [w,s,e,n] envelope per state, from STATES_FIXTURE.
+        const envByState = new Map<string, [number, number, number, number]>(
+          STATES_FIXTURE.map(s => [s.stateCode, s.bbox]),
+        );
+        const intersects = (
+          a: [number, number, number, number],
+          b: [number, number, number, number],
+        ): boolean => a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
+
+        await page.route('**/api/observations**', async route => {
+          const url = new URL(route.request().url());
+          const state = url.searchParams.get('state');
+          const bboxParam = url.searchParams.get('bbox');
+          const rows = (state && rowsByState[state]) || [];
+
+          // Apply the server's `stateCode AND bbox` clip: a state's rows are
+          // returned only when the requested bbox intersects that state's
+          // envelope. No bbox / no known state → no clip (return the rows).
+          let clipped = rows;
+          if (state && bboxParam) {
+            const parts = bboxParam.split(',').map(Number);
+            const env = envByState.get(state);
+            if (parts.length === 4 && !parts.some(Number.isNaN) && env) {
+              const bbox = parts as [number, number, number, number];
+              clipped = intersects(bbox, env) ? rows : [];
+            }
+          }
+
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              data: clipped,
+              meta: {
+                freshestObservationAt:
+                  clipped.length > 0
+                    ? new Date(Date.now() - 5 * 60 * 1000).toISOString()
+                    : null,
+              },
             }),
           });
         });
