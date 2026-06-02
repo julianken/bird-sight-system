@@ -1,40 +1,25 @@
 name: deploy-infra
 
-# Gated CI `terraform apply` — the post-merge CD half of the infra pipeline (#825).
+# Plan-only CI preview for infra — the post-merge half of the infra pipeline (#825).
 #
-# Infra historically reached prod only via an operator running `terraform apply`
-# by hand. That gap let drift accumulate silently across 48 TF commits / 38 days
-# (PR #822 swept in 8 pre-existing drift items; 4 of 9 changes failed). This
-# workflow closes the gap: every merge to `main` that touches infra plans, then
-# pauses for a required-reviewer click before it applies. Apply-time errors now
-# surface within minutes of merge, not weeks.
+# The infra deploy model is MANUAL `terraform apply`: the operator runs apply
+# locally after reviewing the plan this workflow posts (mirrors how
+# `terraform-plan-drift-check.yml` already operates). This workflow does NOT
+# apply anything — every merge to `main` that touches infra produces a
+# human-readable, sensitive-masked plan in the run summary so the operator has a
+# concrete, reviewed diff to apply by hand.
+#
+# ONE job by design (`plan`): checkout → auth (WIF) → setup-gcloud →
+# setup-terraform → `terraform init` → `terraform plan -out=tfplan` →
+# post `terraform show -no-color tfplan` to the job summary. The `tfplan` binary
+# is written only into the ephemeral runner workspace (destroyed at job end) so
+# the summary step can render the masked plan from it — it is never uploaded as
+# an artifact and never persisted anywhere downloadable.
 #
 # Pairs with `terraform-plan-drift-check.yml` (nightly read-only drift watcher,
-# still the safety net for out-of-band / console drift) and #242 (PR-time
-# `validate`/`plan`, the pre-merge gate). This is the post-merge apply only.
-#
-# TWO jobs by design — the plan-artifact pattern (corrected after PR #826 review):
-# GitHub Actions enforces an `environment:` required-reviewer rule BEFORE the job
-# runs ANY step; there is no per-step gating. A single job with
-# `environment: infra-prod` would make the reviewer approve BLIND (before `plan`
-# ran), then run `plan`→`apply` unattended back-to-back — defeating the entire
-# "approve the plan you reviewed" guarantee. So we split:
-#   1. `plan` job (UNGATED, no environment): runs `terraform plan -out=tfplan`,
-#      writes the human-readable plan to the job summary, and uploads `tfplan`
-#      as an artifact (precedent: perf-gate.yml / e2e.yml already use
-#      upload/download-artifact).
-#   2. `apply` job (`needs: plan`, `environment: infra-prod`): the environment's
-#      required reviewer (Julian) sees the plan job's summary, THEN approves. On
-#      approval it downloads `tfplan` and runs `terraform apply tfplan` — exactly
-#      the diff that was reviewed. The reviewer can decline a dirty/unexpected
-#      plan after seeing it.
-#
-# Artifact integrity: the binary `tfplan` is tied to the provider lockfile +
-# state at plan time, so both jobs pin terraform 1.14.8 and `checkout` the same
-# SHA, and the apply job re-runs `init` against the same backend before
-# `apply tfplan`. The apply job does not need the full TF_VAR block (the diff is
-# baked into the saved plan); it only needs `init` to reach the GCS backend,
-# which the WIF auth provides.
+# the safety net for out-of-band / console drift) and #242 (PR-time
+# `validate`/`plan`, the pre-merge gate). Apply is performed manually by the
+# operator after reviewing this plan.
 #
 # Security invariants (inherited from the drift-check workflow):
 #   1. Never echo `terraform show -json` / plan internals — they contain live
@@ -52,11 +37,11 @@ on:
   workflow_dispatch:
 
 concurrency:
-  # Serialize applies so two runs can't race the GCS state lock. cancel-in-progress
+  # Serialize plan runs so two runs can't race the GCS state lock. cancel-in-progress
   # is FALSE (mirrors deploy-read-api.yml:15-17, NOT drift-check's `true`):
-  # cancelling a `terraform apply` mid-flight can orphan the state lock and leave
-  # a half-applied plan. Never cancel an in-progress apply. Paired with the
-  # -lock-timeout below so a concurrent nightly plan queues rather than errors.
+  # `terraform plan` takes a read lock against the shared state, and cancelling
+  # mid-flight can orphan that lock. Paired with the -lock-timeout below so a
+  # concurrent nightly plan queues rather than errors.
   group: deploy-infra-${{ github.ref }}
   cancel-in-progress: false
 
@@ -79,30 +64,29 @@ jobs:
     name: terraform plan
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # UNGATED on purpose: this job runs immediately so the reviewer has a concrete
-    # plan to look at before approving the gated `apply` job below. No
-    # `environment:` here — gating belongs solely on `apply`.
+    # Plan-only preview: this job posts the plan to the run summary; the operator
+    # reviews it and runs `terraform apply` manually. No `environment:` gate and
+    # no apply step — this workflow never mutates infra.
 
     defaults:
       run:
         working-directory: infra/terraform
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - id: auth
-        uses: google-github-actions/auth@v3
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_DEPLOY_SA_EMAIL }}
 
-      - uses: google-github-actions/setup-gcloud@v3
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
 
-      - uses: hashicorp/setup-terraform@v4
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
         with:
           # Matches infra/terraform/versions.tf required_version (>= 1.6.0) and
-          # the pin used by terraform-plan-drift-check.yml. The apply job pins the
-          # same version so the saved tfplan stays appliable.
+          # the pin used by terraform-plan-drift-check.yml.
           terraform_version: "1.14.8"
           terraform_wrapper: false
 
@@ -127,10 +111,12 @@ jobs:
           # so TF_VAR_neon_* is intentionally omitted.)
           TF_VAR_gcp_billing_account_id: ${{ secrets.GCP_BILLING_ACCOUNT_ID }}
         run: |
-          # Save the plan so the apply job applies exactly the reviewed diff.
+          # Save the plan to the ephemeral runner workspace so the summary step
+          # below can render the masked human-readable diff from it. The binary is
+          # never uploaded or persisted — it dies with the runner at job end.
           terraform plan -out=tfplan -input=false -lock-timeout=120s
-          # Human-readable plan to the job summary so the infra-prod reviewer can
-          # see the diff before approving the apply job. -no-color (NOT -json):
+          # Human-readable plan to the job summary so the operator can review the
+          # diff before running `terraform apply` manually. -no-color (NOT -json):
           # the sensitive TF vars mask under `show`, and we never echo raw var
           # values.
           {
@@ -140,61 +126,3 @@ jobs:
             terraform show -no-color tfplan | tail -n 200
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload tfplan artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: tfplan
-          # tfplan is written in working-directory (infra/terraform); the upload
-          # path is repo-root-relative.
-          path: infra/terraform/tfplan
-          retention-days: 1
-          if-no-files-found: error
-
-  apply:
-    name: terraform apply (gated)
-    needs: plan
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    # The load-bearing safety control: the `infra-prod` environment's required
-    # reviewer (Julian) must approve before this job runs. Because it `needs` the
-    # plan job, the reviewer has already seen the plan summary that job posted —
-    # approval is informed, and `apply tfplan` runs exactly the reviewed diff.
-    environment: infra-prod
-
-    defaults:
-      run:
-        working-directory: infra/terraform
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - id: auth
-        uses: google-github-actions/auth@v3
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
-          service_account: ${{ secrets.GCP_DEPLOY_SA_EMAIL }}
-
-      - uses: google-github-actions/setup-gcloud@v3
-
-      - uses: hashicorp/setup-terraform@v4
-        with:
-          # Same pin as the plan job — the saved tfplan is only appliable with the
-          # terraform version that produced it.
-          terraform_version: "1.14.8"
-          terraform_wrapper: false
-
-      - name: Download tfplan artifact
-        uses: actions/download-artifact@v7
-        with:
-          name: tfplan
-          path: infra/terraform
-
-      - name: terraform init
-        # `apply tfplan` needs an initialized backend (providers + GCS state).
-        # No TF_VAR block: the diff is baked into the saved plan, and init gets
-        # backend/provider auth from the WIF credentials above.
-        run: terraform init -input=false -lock-timeout=120s
-
-      - name: terraform apply
-        run: terraform apply -input=false -lock-timeout=120s tfplan
