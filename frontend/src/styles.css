@@ -1868,6 +1868,15 @@ aside.species-detail-rail .species-detail-rail-close {
   display: flex;
   gap: var(--space-sm);
   align-items: stretch;
+  /* #842: this flex row is the field + [Go]. Its default `min-inline-size: auto`
+     would size it to min-content (≈188px) and refuse to compress, so when the
+     embedded scope form is squeezed into the narrow mobile identity card the row
+     overflowed and [Go] spilled past the card's right edge. `min-inline-size: 0`
+     lets the row shrink (then `.zip-input__field`'s own `min-inline-size: 0`
+     yields the width); `max-inline-size: 100%` clamps it to the available
+     column. No-op in the roomy landing chooser / desktop card. */
+  min-inline-size: 0;
+  max-inline-size: 100%;
 }
 .zip-input__field {
   padding: var(--space-sm) var(--space-md);
@@ -2258,6 +2267,20 @@ aside.species-detail-rail .species-detail-rail-close {
   }
   .scope-control__select {
     flex: 1 1 100%;
+  }
+  /* #842: at the narrow widths the identity card is capped to
+     `calc(100% - 200px)` (line ~594) so it doesn't collide with the controls
+     pill — at 360–404px that leaves the card inner column NARROWER than the ZIP
+     row's intrinsic min-content width (field cap 8rem + gap + [Go] ≈ 188px).
+     The select and exit-group already take their own full-width line here, but
+     the ZIP box kept `flex: 0 1 auto` with the default `min-inline-size: auto`,
+     so it refused to shrink and [Go] spilled ~32px (390px) → ~62px (360px) past
+     the card's right edge. Give the ZIP its own full line and let it shrink so
+     the inner field (already `min-inline-size: 0`) can yield width to stay in
+     the card. */
+  .scope-control__zip {
+    flex: 1 1 100%;
+    min-inline-size: 0;
   }
   .scope-control__exit-group {
     flex: 1 1 100%;
