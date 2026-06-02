@@ -45,6 +45,12 @@ export class EbirdClient {
     const url = new URL(`${this.baseUrl}/data/obs/${regionCode}/recent/notable`);
     url.searchParams.set('back', String(o.back ?? 14));
     url.searchParams.set('detail', 'simple');
+    // #845 — without maxResults eBird caps the notable response at its default
+    // of 100. In busy states at peak migration (200-500 notable sightings/14d)
+    // any notable observation past the top-100 would be missing from this set,
+    // so the intersect in run-ingest leaves its is_notable silently false.
+    // Mirror fetchRecent's 10000 ceiling.
+    url.searchParams.set('maxResults', String(o.maxResults ?? 10_000));
     return this.getJson<EbirdObservation[]>(url);
   }
 
