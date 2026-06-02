@@ -123,6 +123,35 @@ test.describe('Scope disclosure (#828)', () => {
     ).toBeVisible();
   });
 
+  test('on open, the focused state <select> shows the soft accent ring, not the heavy black box (#837)', async ({ page, apiStub }) => {
+    const app = await setup(page, apiStub);
+
+    await app.scopeDisclosureTrigger.click();
+    await expect(app.scopeControlStateSelect).toBeFocused();
+
+    // #837: the embedded scope fields drop the repo's heavy
+    // `outline: 2px solid var(--color-text-strong); outline-offset: 2px` black
+    // offset box (which looked jarring slammed around the select on open) for a
+    // tight accent box-shadow ring. Assert the softened recipe on the focused
+    // select: a transparent outline (HCM fallback), zero offset, and a
+    // box-shadow ring (the accent token, resolved to a real color).
+    const style = await app.scopeControlStateSelect.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return {
+        outlineColor: cs.outlineColor,
+        outlineOffset: cs.outlineOffset,
+        boxShadow: cs.boxShadow,
+      };
+    });
+    // The heavy black outline (rgb(26, 26, 26)) is gone — the outline is now a
+    // forced-colors-only transparent fallback.
+    expect(style.outlineColor).toMatch(/rgba?\(0,\s*0,\s*0,\s*0\)|transparent/);
+    expect(style.outlineOffset).toBe('0px');
+    // A real (non-"none") box-shadow ring conveys the visible focus indicator.
+    expect(style.boxShadow).not.toBe('none');
+    expect(style.boxShadow.length).toBeGreaterThan(0);
+  });
+
   test('Esc collapses the form and restores focus to the trigger', async ({ page, apiStub }) => {
     const app = await setup(page, apiStub);
 

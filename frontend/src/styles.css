@@ -338,10 +338,16 @@ body {
   box-shadow: var(--card-elevation-1);
   padding: var(--card-padding);
 
-  /* Stacked column layout: each row is a block below the previous. */
+  /* Stacked column layout: each row is a block below the previous. One
+     consistent --space-sm (8px) step governs the whole card rhythm — at rest
+     (wordmark → lede) and expanded (lede → divider → scope rows), matching the
+     8px the embedded scope form already uses between its own fields (#828
+     follow-up). The divider carries NO margin so these flex gaps alone own the
+     vertical spacing (no compounding margin+gap), keeping the step even above
+     and below the hairline. */
   display: flex;
   flex-direction: column;
-  gap: var(--space-xs);
+  gap: var(--space-sm);
 }
 
 /* At ≥1440 switch to the wide-gutter corner inset. */
@@ -455,9 +461,13 @@ body {
    below; four-corner contract §4.8). */
 
 /* Hairline divider between the lede content and the revealed scope form.
-   Only present in the DOM when the disclosure is open (#828). */
+   Only present in the DOM when the disclosure is open (#828). margin:0 — the
+   identity-card and scope-rows flex `gap` (both --space-sm) own the spacing, so
+   the hairline gets the SAME 8px breathing room above (card gap, lede → rows)
+   and below (rows gap, divider → select). Adding a margin here would compound
+   with the gap and re-create the cramped/lopsided rhythm this fixes (#837). */
 .app-header-divider {
-  margin: var(--space-xs) 0 0;
+  margin: 0;
   border: none;
   border-top: 1px solid var(--color-border-ui);
 }
@@ -470,7 +480,10 @@ body {
 .app-header-scope-rows {
   display: flex;
   flex-direction: column;
-  gap: var(--space-xs);
+  /* --space-sm (8px) — one even step with the identity-card gap and the
+     embedded scope form's own field gaps, so divider → select reads the same
+     as every other row in the card (#837). */
+  gap: var(--space-sm);
 }
 /* Defensive: `hidden` already collapses it, but assert display:none on the
    closed state so a stray `display` from a future flex rule can't reveal it. */
@@ -1059,6 +1072,26 @@ body:has(.species-detail-sheet--full) .app-header-controls-pill {
   }
   .family-legend-entries {
     max-height: 240px;
+  }
+
+  /* #837 fast-follow — legend ↔ attribution clearance at phone width.
+     The bottom-left legend and the bottom-right .map-attribution island both
+     anchor at bottom: var(--card-inset). The COLLAPSED chevron pill is only
+     ~173px wide and clears the ~129px attribution comfortably, but the EXPANDED
+     legend caps at 280px — on a 390px viewport its bottom-right corner overran
+     the attribution by a ~43×25px band (both at z-index --z-overlay), the exact
+     overlap #837 flagged. Lift the legend above the attribution band ONLY while
+     its entries are actually showing: `:has(.family-legend-entries)` matches
+     precisely when the list is in the DOM (effectiveExpanded && entries.length
+     > 0 in FamilyLegend.tsx), so a collapsed OR force-collapsed legend is
+     untouched and keeps sitting flush at --card-inset. The 28px literal is the
+     attribution island's box height (≈ 2×--space-xs padding + 1.4×--type-xs
+     line + 1px border, rounded up for headroom); keep it synced if the
+     attribution grows a line. This rule's specificity (0,2,0) is below the
+     peek-sheet lift below (0,2,1), so when a peek sheet is also up the larger
+     120px peek lift correctly wins. */
+  .family-legend:has(.family-legend-entries) {
+    bottom: calc(var(--card-inset) + 28px + var(--space-sm));
   }
 }
 
@@ -2140,6 +2173,30 @@ aside.species-detail-rail .species-detail-rail-close {
   background: none;
   border: none;
 }
+
+/* Softer, intentional focus ring for the EMBEDDED scope form fields (#837).
+   On open, focus auto-moves to the first field (the state <select>); the repo's
+   standard heavy `outline: 2px solid var(--color-text-strong); outline-offset:
+   2px` slammed a thick black offset box around it that read as jarring rather
+   than deliberate. Inside the disclosure card we instead use a tight accent
+   ring (`--color-decision-point`, the same orange/cyan interactive cue used for
+   links) via box-shadow — no offset gap, so it hugs the control and looks
+   intentional on mouse-open. A transparent `outline` is kept so Windows High
+   Contrast Mode still paints a visible focus ring (forced-colors strips
+   box-shadow). Scoped to `.app-header-scope-rows` so ONLY the in-card scope
+   form softens — the standalone landing chooser's ZipInput keeps the base
+   heavy ring (it is the primary affordance there, not an on-open auto-focus).
+   Covers the three focusable inputs (state select, ZIP field, ZIP [Go]); the
+   de-emphasized Whole-US / Change-scope links keep the base text-strong ring
+   (they are link-like, not form fields). */
+.app-header-scope-rows .scope-control__select:focus-visible,
+.app-header-scope-rows .zip-input__field:focus-visible,
+.app-header-scope-rows .zip-input__submit:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: 0;
+  box-shadow: 0 0 0 2px var(--color-decision-point);
+}
+
 .scope-control__select {
   flex: 0 1 auto;
   min-inline-size: 0;

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { createRef } from 'react';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { StateSummary } from '@bird-watch/shared-types';
@@ -168,5 +169,20 @@ describe('<ScopeControl>', () => {
     expect(select).toHaveFocus();
     await userEvent.tab();
     expect(zip).toHaveFocus();
+  });
+
+  // #837: a forwarded ref attaches to the FIRST field (the state <select>), so
+  // AppHeader's open-the-disclosure effect can focus it directly rather than via
+  // a fragile `querySelector('select')` DOM-order lookup. This is the mechanism
+  // that keeps focus-on-open robust to future field-order changes.
+  it('forwards a ref to the first field (the state <select>) for robust focus-on-open', () => {
+    const ref = createRef<HTMLSelectElement>();
+    renderControl({ ref } as Partial<React.ComponentProps<typeof ScopeControl>>);
+    const select = screen.getByRole('combobox', { name: /switch state/i });
+    // The forwarded ref resolves to the select element itself (not the wrapper,
+    // not the ZIP field) — focusing ref.current focuses the first field.
+    expect(ref.current).toBe(select);
+    ref.current?.focus();
+    expect(select).toHaveFocus();
   });
 });

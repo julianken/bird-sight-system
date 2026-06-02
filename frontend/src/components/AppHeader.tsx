@@ -158,14 +158,17 @@ export function AppHeader({
   const scopeRegionId = useId();
   const scopeTriggerRef = useRef<HTMLButtonElement>(null);
   const scopeRowsRef = useRef<HTMLDivElement>(null);
+  // #837: ref to the FIRST scope field (the state <select>), forwarded into
+  // ScopeControl. The open-effect focuses this directly instead of a fragile
+  // `scopeRowsRef.querySelector('select')` DOM-order query — focus tracks the
+  // declared first field, immune to future field-order changes in ScopeControl.
+  const firstScopeFieldRef = useRef<HTMLSelectElement>(null);
 
-  // Open → move focus to the first field (the state <select>); spec §7. The
-  // ScopeControl owns the <select> internally, so we reach it through the rows
-  // wrapper rather than threading a ref prop. Runs only on the open edge so
-  // re-renders while open don't steal focus.
+  // Open → move focus to the first field (the state <select>); spec §7. Runs
+  // only on the open edge so re-renders while open don't steal focus.
   useEffect(() => {
     if (scopeOpen) {
-      scopeRowsRef.current?.querySelector('select')?.focus();
+      firstScopeFieldRef.current?.focus();
     }
   }, [scopeOpen]);
 
@@ -311,6 +314,7 @@ export function AppHeader({
                 always resolves to a present target.) */}
             {scopeOpen && <hr className="app-header-divider" aria-hidden="true" />}
             <ScopeControl
+              ref={firstScopeFieldRef}
               scope={scope as ScopedView}
               states={states}
               onPickState={onPickState}
