@@ -191,18 +191,24 @@ test.describe('ZIP scope round-trip + empty-region + error paths (D6, #741)', ()
     await app.gotoRaw('');
     await expect(app.chooser).toBeVisible();
 
-    // A non-5-digit value is malformed. The ZIP `<input>` carries
-    // `pattern="[0-9]{5}"`, so the browser's native HTML5 constraint validation
-    // intercepts the Enter-submit on a malformed value — the value is reported
-    // invalid (`patternMismatch`) and the submit is blocked BEFORE
-    // `lookupZip`/`loadZipIndex` is reached. This is the production-faithful
-    // malformed UX in a real browser (the React "Enter a 5-digit ZIP" hint and
-    // the JS `/^\d{5}$/` gate are the jsdom-unit-test path; in-browser the
-    // native gate fires first — either way the load-bearing D3 contract holds:
-    // a malformed submit triggers NO ZIP-index lookup fetch).
+    // A non-5-digit value is malformed. #827 added a submit `<button>` to the
+    // ZipInput form, which would normally let the browser's native HTML5
+    // constraint validation (`pattern="[0-9]{5}"`) block the submit on a
+    // malformed value — but that would make a malformed click a silent no-op
+    // (a native bubble, never our styled hint), breaking the never-silent
+    // contract. So the form carries `noValidate`: native blocking is off, and
+    // the component's own JS gate (`/^\d{5}$/`) owns the malformed path,
+    // rendering the inline ".zip-input__error" hint. This submits via the "Go"
+    // button (submitChooserZip clicks it) — the iOS-safe pointer path.
     await app.submitChooserZip('123');
 
-    // The native validity flags the value as a pattern mismatch (malformed).
+    // The never-silent contract via the button: the inline "Enter a 5-digit
+    // ZIP" hint is VISIBLE (the AC — a malformed submit is never a silent
+    // no-op). This is now the in-browser path too (was jsdom-only before #827).
+    await expect(app.chooserZipError).toBeVisible();
+
+    // `noValidate` suppresses native *blocking*, not validity *computation*:
+    // the input still reports `patternMismatch` via the validity API.
     const validity = await app.chooserZipInput.evaluate(
       (el: HTMLInputElement) => ({ valid: el.validity.valid, patternMismatch: el.validity.patternMismatch }),
     );
@@ -218,9 +224,8 @@ test.describe('ZIP scope round-trip + empty-region + error paths (D6, #741)', ()
     // D3: the malformed SUBMIT triggers no lookup fetch. `loadZipIndex` warms
     // lazily on FOCUS (an intentional pre-fetch, single-flight memoized), so a
     // focused-then-malformed-submit yields at MOST the one focus warm and never
-    // a per-submit lookup — the regex/native gate short-circuits before
-    // `lookupZip`. (Were the gate after the fetch, a malformed submit would add
-    // a second request.)
+    // a per-submit lookup — the JS regex gate short-circuits before `lookupZip`.
+    // (Were the gate after the fetch, a malformed submit would add a request.)
     await page.waitForTimeout(400);
     expect(zipIndexRequests.length).toBeLessThanOrEqual(1);
     // The input value is retained (never a silent clear).

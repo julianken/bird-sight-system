@@ -1283,7 +1283,14 @@ describe('#740 (C6): scope wiring end-to-end', () => {
       expect(screen.getByRole('option', { name: 'Arizona' })).toBeInTheDocument();
     });
     await userEvent.selectOptions(screen.getByLabelText('State'), 'US-AZ');
-    await userEvent.click(screen.getByRole('button', { name: /^Go$/i }));
+    // #827: the chooser now has TWO "Go" buttons (State + ZIP). Scope to the
+    // State <select>'s own <form> so the click targets the State Go, not the
+    // always-enabled ZIP Go in the sibling role="search" form.
+    {
+      const stateForm = screen.getByLabelText('State').closest('form');
+      if (!stateForm) throw new Error('State <select> is not inside a <form>');
+      await userEvent.click(within(stateForm).getByRole('button', { name: /^Go$/i }));
+    }
     expect(mockUrlState.set).toHaveBeenCalledWith({ scope: { kind: 'state', stateCode: 'US-AZ' } });
   });
 
@@ -1728,7 +1735,14 @@ describe('O9 (#781): scope-gated MapCanvas prefetch wiring', () => {
     });
     expect(mockPrefetchMapCanvas).not.toHaveBeenCalled();
     await userEvent.selectOptions(screen.getByLabelText('State'), 'US-AZ');
-    await userEvent.click(screen.getByRole('button', { name: /^Go$/i }));
+    // #827: the chooser now has TWO "Go" buttons (State + ZIP). Scope to the
+    // State <select>'s own <form> so the click targets the State Go, not the
+    // always-enabled ZIP Go in the sibling role="search" form.
+    {
+      const stateForm = screen.getByLabelText('State').closest('form');
+      if (!stateForm) throw new Error('State <select> is not inside a <form>');
+      await userEvent.click(within(stateForm).getByRole('button', { name: /^Go$/i }));
+    }
     expect(mockPrefetchMapCanvas).toHaveBeenCalled();
   });
 

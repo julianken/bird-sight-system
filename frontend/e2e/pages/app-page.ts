@@ -28,6 +28,9 @@ export class AppPage {
   readonly chooser: Locator;
   /** ZIP `<input>` inside the chooser (`aria-label='ZIP code'`, owned by ZipInput). */
   readonly chooserZipInput: Locator;
+  /** The chooser ZIP-path "Go" submit button (#827 — scoped to the ZipInput
+   *  `role="search"` form so it doesn't collide with the State row's "Go"). */
+  readonly chooserZipGo: Locator;
   /** State `<select>` inside the chooser (`aria-label='State'` via its `<label>`). */
   readonly chooserStateSelect: Locator;
   /** The chooser state-path "Go" submit button. */
@@ -124,8 +127,18 @@ export class AppPage {
     // Chooser (#742) — region accessible name "Choose where to look at birds".
     this.chooser = page.getByRole('region', { name: 'Choose where to look at birds' });
     this.chooserZipInput = this.chooser.getByLabel('ZIP code', { exact: true });
+    // #827: the ZipInput form is the `role="search"` landmark inside the chooser;
+    // its "Go" submit lives there. Scoping to that form disambiguates it from the
+    // State row's "Go" (both read "Go" after the ZIP submit button was added).
+    const chooserZipForm = this.chooser.getByRole('search');
+    this.chooserZipGo = chooserZipForm.getByRole('button', { name: 'Go', exact: true });
     this.chooserStateSelect = this.chooser.getByLabel('State', { exact: true });
-    this.chooserStateGo = this.chooser.getByRole('button', { name: 'Go', exact: true });
+    // The State "Go" is the chooser's "Go" that is NOT inside the ZIP search form.
+    // Scope it to the State <select>'s ancestor <form> so it never matches the
+    // ZIP "Go" (#827).
+    this.chooserStateGo = this.chooser
+      .locator('form', { has: page.getByLabel('State', { exact: true }) })
+      .getByRole('button', { name: 'Go', exact: true });
     this.chooserWholeUs = this.chooser.getByRole('button', { name: 'Explore the whole US map' });
     this.chooserZipError = this.chooser.getByText('Enter a 5-digit ZIP', { exact: true });
     this.chooserZipStatus = this.chooser.getByRole('status');
@@ -267,12 +280,14 @@ export class AppPage {
   }
 
   /**
-   * Enter a ZIP into the chooser ZIP input and submit (the form submits on
-   * Enter; `role=search` form, no separate Go button for the ZIP path). Used by
-   * the D6 ZIP round-trip / empty-region / unknown / malformed cases.
+   * Enter a ZIP into the chooser ZIP input and submit via the "Go" button
+   * (#827 — the ZipInput form now has a visible submit button, the iOS-safe
+   * pointer path; the keyboard Enter path still works but the button is the
+   * canonical affordance, so the e2e round-trip drives it). Used by the D6
+   * ZIP round-trip / empty-region / unknown / malformed cases.
    */
   async submitChooserZip(zip: string): Promise<void> {
     await this.chooserZipInput.fill(zip);
-    await this.chooserZipInput.press('Enter');
+    await this.chooserZipGo.click();
   }
 }
