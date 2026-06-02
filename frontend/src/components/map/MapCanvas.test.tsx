@@ -195,6 +195,30 @@ function makeFakeMap() {
     setRenderWorldCopies: vi.fn((v: boolean) => {
       renderWorldCopiesState = v;
     }),
+    // #848 — mid-motion state→state longitude reassert. The scope-camera
+    // fitBounds branch now reads `cameraForBounds` for the geometry-correct
+    // target, registers a one-shot `once('moveend', …)` corrector, and re-asserts
+    // the target via `jumpTo` if the settled `getCenter()` drifted past EPS.
+    //   - getCenter: overridable per-case via mockReturnValueOnce to simulate a
+    //     stuck-western settle (the bug) vs. a settled-at-target one (no-op).
+    //   - jumpTo: the corrector's reassert spy.
+    //   - cameraForBounds: returns the geometry-correct target (NY here) — the
+    //     value the corrector compares against and jumps to.
+    //   - once: pushes the corrector into `bareHandlersAll['moveend']` (the same
+    //     pool the renderWorldCopies test fires) so a single
+    //     `bareHandlersAll['moveend']?.forEach(cb => cb())` reaches BOTH listeners.
+    //     Production uses `map.once` (self-removing) so jumpTo's own moveend can't
+    //     re-fire the corrector.
+    //   - isMoving: the camera is conceptually mid-flight at switch time.
+    getCenter: vi.fn(() => ({ lng: -110, lat: 34 })),
+    jumpTo: vi.fn(),
+    cameraForBounds: vi.fn(() => ({ center: { lng: -75.8, lat: 42.76 }, zoom: 6 })),
+    once: vi.fn(
+      (event: string, cb: () => void | Promise<void>) => {
+        (bareHandlersAll[event] ??= []).push(cb);
+      },
+    ),
+    isMoving: vi.fn(() => true),
   };
 }
 
@@ -1850,6 +1874,156 @@ describe('MapCanvas controllable camera (#736)', () => {
     const [easeOpts] = fakeMap.easeTo.mock.calls.at(-1);
     expect(easeOpts.center).toEqual([-111, 34]);
     expect(easeOpts.zoom).toBe(12);
+  });
+
+  // ── #848 — mid-motion state→state longitude reassert ──────────────────────
+  //
+  // Switching to a new state WHILE the camera is mid-animation lands center.lng
+  // at the wrong (old-state-edge) longitude. VERIFIED live: the in-flight easeTo
+  // re-`apply`s a CLONE of its start transform every animation frame, clobbering
+  // the new state's `maxBounds`/`lngRange` (which react-map-gl DID apply in its
+  // layout effect) back to the OLD state's — the same #762/#765 clone-replay
+  // class, one axis over. The subsequent `fitBounds` (Mercator `handleEaseTo`,
+  // no `k===1` snap, `renderWorldCopies=false`) then edge-pins center.lng at the
+  // clobbered old-state `lngRange` edge.
+  //
+  // The fix reads the geometry-correct `cameraForBounds` target up front,
+  // registers a one-shot `moveend` corrector BEFORE calling `fitBounds`, and on
+  // the settle moveend (clobbering animation fully ended) RE-ASSERTS the new
+  // scope's `maxBounds` (undoing the clone clobber so the jumpTo is not
+  // re-clamped) then `jumpTo`s the target — iff `getCenter()` drifted past EPS.
+
+  /** New York fit target (far-east of an AZ start) — the bug's worst residual. */
+  const NY_BOUNDS_UNIT: [[number, number], [number, number]] = [
+    [-79.76, 40.5],
+    [-71.86, 45.02],
+  ];
+
+  it('mid-flight state→state: a stuck-western settle reasserts the cameraForBounds target via jumpTo on moveend (#848 CORE)', async () => {
+    stubMatchMedia(null);
+    // cameraForBounds returns the geometry-correct NY target (the value the
+    // corrector compares against and jumps to). Default fakeMap mock already
+    // returns this; pin it explicitly for clarity.
+    fakeMap.cameraForBounds.mockReturnValue({
+      center: { lng: -75.8, lat: 42.76 },
+      zoom: 6,
+    });
+
+    const { rerender } = render(
+      <MapCanvas observations={[]} bounds={AZ_BOUNDS} boundsKey="US-AZ" />,
+    );
+    await waitFor(() => expect(fakeMap.fitBounds).toHaveBeenCalled());
+
+    // The corrector must be registered for the AZ frame too — but the real bug
+    // surfaces on the SWITCH. Re-render to NY (boundsKey change = the in-place
+    // state→state switch; same mask/clampPad shape — none here).
+    rerender(
+      <MapCanvas observations={[]} bounds={NY_BOUNDS_UNIT} boundsKey="US-NY" />,
+    );
+    await waitFor(() =>
+      expect(fakeMap.fitBounds.mock.calls.at(-1)[0]).toEqual(NY_BOUNDS_UNIT),
+    );
+
+    // The corrector for THIS switch was registered via map.once('moveend', …).
+    expect(fakeMap.once).toHaveBeenCalledWith('moveend', expect.any(Function));
+
+    // Simulate the bug: the camera settled at a stuck western longitude (the
+    // un-wrapped interpolation endpoint near the AZ start), zoom/lat ~correct.
+    fakeMap.getCenter.mockReturnValue({ lng: -109.6, lat: 42.76 });
+
+    // Fire moveend (animation finished) → the corrector reasserts the target.
+    act(() => {
+      bareHandlersAll['moveend']?.forEach((cb) => cb());
+    });
+
+    // The corrector first RE-ASSERTS the new scope's clamp (undoing the
+    // in-flight clone's `lngRange` clobber, verified live in the e2e harness —
+    // without it the jumpTo is re-clamped to the old state's edge) — for a plain
+    // state scope (no maskPolygon/clampPad) `clampBounds === bounds`, i.e. the
+    // NY envelope here…
+    expect(fakeMap.setMaxBounds).toHaveBeenCalledWith(NY_BOUNDS_UNIT);
+    // …THEN lands the geometry-correct cameraForBounds target.
+    expect(fakeMap.jumpTo).toHaveBeenCalledWith({
+      center: { lng: -75.8, lat: 42.76 },
+      zoom: 6,
+    });
+  });
+
+  it('settled state→state: getCenter already at the target → jumpTo is NOT called (#848 no-op path)', async () => {
+    stubMatchMedia(null);
+    fakeMap.cameraForBounds.mockReturnValue({
+      center: { lng: -75.8, lat: 42.76 },
+      zoom: 6,
+    });
+
+    const { rerender } = render(
+      <MapCanvas observations={[]} bounds={AZ_BOUNDS} boundsKey="US-AZ" />,
+    );
+    await waitFor(() => expect(fakeMap.fitBounds).toHaveBeenCalled());
+    rerender(
+      <MapCanvas observations={[]} bounds={NY_BOUNDS_UNIT} boundsKey="US-NY" />,
+    );
+    await waitFor(() =>
+      expect(fakeMap.fitBounds.mock.calls.at(-1)[0]).toEqual(NY_BOUNDS_UNIT),
+    );
+
+    // The camera settled exactly at the target (within EPS) — the correct
+    // settled path that is NOT regressed. The corrector must no-op: neither the
+    // maxBounds reassert nor the jumpTo fires when there is no drift.
+    fakeMap.getCenter.mockReturnValue({ lng: -75.8, lat: 42.76 });
+    act(() => {
+      bareHandlersAll['moveend']?.forEach((cb) => cb());
+    });
+
+    expect(fakeMap.jumpTo).not.toHaveBeenCalled();
+    expect(fakeMap.setMaxBounds).not.toHaveBeenCalled();
+  });
+
+  it('ZIP flyTo path attaches NO moveend longitude corrector (untouched branch, #848)', async () => {
+    stubMatchMedia(null);
+    render(
+      <MapCanvas
+        observations={[]}
+        bounds={AZ_BOUNDS}
+        boundsKey="US-AZ"
+        flyTo={{ center: [-110.974, 32.222], zoom: 10, key: 'zip:85701' }}
+      />,
+    );
+    await waitFor(() => expect(fakeMap.flyTo).toHaveBeenCalled());
+    // The flyTo (ZIP) branch is byte-for-byte unchanged: it does NOT read
+    // cameraForBounds and registers no longitude corrector via once().
+    expect(fakeMap.fitBounds).not.toHaveBeenCalled();
+    expect(fakeMap.cameraForBounds).not.toHaveBeenCalled();
+    expect(fakeMap.once).not.toHaveBeenCalledWith('moveend', expect.any(Function));
+  });
+
+  it('fitBounds call contract preserved alongside the corrector (padding {top:80,others:48}, maxZoom 12, essential, duration 600) (#848)', async () => {
+    stubMatchMedia(null);
+    render(<MapCanvas observations={[]} bounds={AZ_BOUNDS} boundsKey="US-AZ" />);
+    await waitFor(() => expect(fakeMap.fitBounds).toHaveBeenCalled());
+    const [bounds, opts] = fakeMap.fitBounds.mock.calls.at(-1);
+    expect(bounds).toEqual(AZ_BOUNDS);
+    expect(opts.padding).toEqual({ top: 80, bottom: 48, left: 48, right: 48 });
+    expect(opts.maxZoom).toBe(12);
+    expect(opts.essential).toBe(true);
+    expect(opts.duration).toBe(600);
+  });
+
+  it('reduced-motion state→state still fires fitBounds duration:0 with the corrector in place (#848)', async () => {
+    stubMatchMedia('(prefers-reduced-motion: reduce)');
+    fakeMap.cameraForBounds.mockReturnValue({
+      center: { lng: -75.8, lat: 42.76 },
+      zoom: 6,
+    });
+    render(<MapCanvas observations={[]} bounds={AZ_BOUNDS} boundsKey="US-AZ" />);
+    await waitFor(() => expect(fakeMap.fitBounds).toHaveBeenCalled());
+    const [, opts] = fakeMap.fitBounds.mock.calls.at(-1);
+    expect(opts.duration).toBe(0);
+    expect(opts.essential).toBe(true);
+    // Ordering invariant: once('moveend', …) is registered BEFORE fitBounds, so
+    // under reduced motion (fitBounds runs duration:0 and fires moveend
+    // SYNCHRONOUSLY inside the call) the listener already exists.
+    expect(fakeMap.once).toHaveBeenCalledWith('moveend', expect.any(Function));
   });
 });
 
