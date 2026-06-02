@@ -70,10 +70,10 @@ describe('handleScheduled', () => {
 
     const result = await handleScheduled('recent', ENV);
 
+    // #840: recent fans out per-state inside runIngest — no regionCode pinned.
     expect(runIngestMock).toHaveBeenCalledWith({
       pool: POOL_SENTINEL,
       apiKey: 'test-key',
-      regionCode: 'US',
     });
     expect(result).toBe(summary);
     expect(closePoolMock).toHaveBeenCalledWith(POOL_SENTINEL);

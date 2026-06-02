@@ -73,7 +73,9 @@ describe('runBackfill', () => {
         HttpResponse.json([TODAY_OBS])   // annhum is notable
       ),
     );
-    await runIngest({ pool: db.pool, apiKey: 'k', regionCode: 'US-AZ' });
+    // runIngest now fans out per-state (#840); scope to US-AZ with no pacing so
+    // this backfill OR-coalesce test still drives a single-state recent ingest.
+    await runIngest({ pool: db.pool, apiKey: 'k', stateCodes: ['US-AZ'], paceMs: 0 });
 
     // Confirm it was stamped notable.
     let { data: obs } = await getObservations(db.pool, {});
