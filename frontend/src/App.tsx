@@ -48,6 +48,22 @@ const apiClient = new ApiClient({ baseUrl: import.meta.env.VITE_API_BASE_URL ?? 
 const CONUS_BOUNDS: [[number, number], [number, number]] = [[-130, 20], [-65, 52]];
 
 /**
+ * #847 — the zoom seeded alongside the scope-envelope bbox on a scope change
+ * (the render-phase reseed below). It forces AGGREGATED mode: the server
+ * aggregates iff `bbox` is present AND `zoom < 6` (services/read-api/src/
+ * app.ts:240). At `zoom >= 6` the per-observation path runs AND applies the
+ * bbox-area cap (services/read-api/src/validate.ts:227-254) — and for
+ * `?scope=us` the seeded CONUS envelope (lng span 65 > the 45° cap) would 400
+ * "bbox too large". `zoom 3` routes to aggregated mode and skips the cap, so
+ * the reseed is safe for the widest possible scope. Mirrors the cold-mount seed
+ * (`debouncedZoom = 3`, below) and #627. Kept near `SCOPE_MOVE_SETTLE_MS` in
+ * spirit (both govern the scope-change camera/data handshake) but declared at
+ * module scope so the render-phase reseed can reference it before the
+ * component-local `SCOPE_MOVE_SETTLE_MS` is evaluated.
+ */
+const AGGREGATED_SEED_ZOOM = 3;
+
+/**
  * O2 (#770): Default-expanded breakpoint for FamilyLegend, moved here from
  * MapSurface so the legend can render as a persistent App-root sibling.
  *
@@ -415,6 +431,61 @@ export function App() {
     return { scopeBounds: undefined, boundsKey: undefined };
   }, [state.scope, states]);
 
+  // #847 — render-phase reseed of the observations fetch inputs on a scope
+  // change. ROOT CAUSE: `debouncedBbox`/`debouncedZoom` (below) feed
+  // `/api/observations` but are ONLY ever rewritten by the `onViewportChange`
+  // idle debounce — nothing resets them on a scope change. So an in-app
+  // state→state switch flips `scopeStateCode` (a fetch dep) and fires the first
+  // fetch with `{ state: NEW, bbox: PREVIOUS scope's settled viewport }`. The
+  // server ANDs `stateCode` (ST_Intersects) with `bbox`
+  // (packages/db-client/src/observations.ts:184), so two disjoint states return
+  // an empty 200 → 0 markers / "No recent sightings" until a manual move/resize/
+  // reload rewrites the bbox (the racy, intermittent recovery #847 documents).
+  //
+  // FIX: when `boundsKey` transitions to a NEW value, re-seed both fetch inputs
+  // to the new scope's envelope (from `scopeBounds`) SYNCHRONOUSLY DURING RENDER
+  // — not in the post-commit scope-framing effect (~below, keyed on boundsKey),
+  // which runs AFTER useBirdData's observations effect and would leave the FIRST
+  // fetch stale (a double-fetch + a broken AC-5 one-fetch count, App.test.tsx
+  // "suppresses scope-change settle idles"). This is React's documented "adjust
+  // state during render" technique: a same-component setState during render
+  // re-renders before committing, so useBirdData reads the consistent
+  // `{state, bbox, zoom}` triple on the FIRST commit of the new scope — one
+  // fetch, correct payload (https://react.dev/reference/react/useState#storing-
+  // information-from-previous-renders).
+  //
+  // `prevBoundsKey` is STATE (not a ref) initialized to the mount `boundsKey`,
+  // for two reasons:
+  //   1. Cold-mount guard: on the FIRST render `prevBoundsKey === boundsKey`, so
+  //      the initial scope is NOT treated as a change — a cold scoped mount stays
+  //      exactly one fetch (App.test.tsx AC-5 `toHaveBeenCalledTimes(1)`).
+  //   2. StrictMode-safety: React 18 StrictMode double-INVOKES the render
+  //      function in dev. A `useRef` mutated during render is NOT idempotent
+  //      under that replay — the first invocation would advance the ref AND queue
+  //      the bbox setState, then the SECOND invocation would see the advanced ref,
+  //      skip the setState, and React keeps the second pass → the reseed is
+  //      silently dropped in dev (the live-verification environment), even though
+  //      it works in the no-StrictMode production build. Storing the guard in
+  //      STATE makes the render-phase update idempotent across the double-invoke
+  //      (queued setStates replay to the same values), so the reseed fires in
+  //      BOTH dev and prod.
+  // The states-table holding→real-envelope transition keeps the SAME boundsKey
+  // (the state code), so it does not re-fire — acceptable, because the CONUS
+  // holding bbox still contains the state. After the scope-move settle window
+  // closes, the genuine post-fit idle refines bbox/zoom to the real viewport
+  // exactly as today; the 1000ms window still swallows the mid-animation settle
+  // idles, so this reseed remains the single fetch trigger per scope change.
+  const [prevBoundsKey, setPrevBoundsKey] = useState<string | undefined>(boundsKey);
+  if (boundsKey !== undefined && boundsKey !== prevBoundsKey) {
+    setPrevBoundsKey(boundsKey);
+    // scopeBounds is `[[w,s],[e,n]]`; it is always defined when boundsKey is.
+    if (scopeBounds) {
+      const [[w, s], [e, n]] = scopeBounds;
+      setDebouncedBbox([w, s, e, n]);
+      setDebouncedZoom(AGGREGATED_SEED_ZOOM);
+    }
+  }
+
   // #760/#762 — state-artboard mask. A `?state=US-XX` scope (and the state a ZIP
   // resolves into, which is also a `state` scope) gets the inverse mask: the
   // exterior is painted flat opaque gray and the camera can zoom out onto that
@@ -498,6 +569,16 @@ export function App() {
   // `fitBounds`/`flyTo` that follows then settles and fires ONE `idle` →
   // `onViewportChange`; without a guard, that settle-frame would write a new
   // bbox/zoom and trigger a SECOND, mid-animation refetch for the same scope.
+  //
+  // #847 INVARIANT: that single scope-change fetch now carries an INTERNALLY
+  // CONSISTENT `{state, bbox, zoom}` triple — the render-phase reseed above
+  // rewrites `debouncedBbox`/`debouncedZoom` to the NEW scope's envelope (at
+  // `AGGREGATED_SEED_ZOOM`) in the SAME render that flips `scopeStateCode`, so
+  // the bbox can never lag a scope behind (the empty-200 de-pairing bug). This
+  // window's role is UNCHANGED: it still swallows the mid-animation settle idles
+  // so they add no second fetch; the post-window idle still refines bbox/zoom to
+  // the real (post-`fitBounds`) viewport. The reseed seeds the consistent triple
+  // at the SOURCE; this window keeps the count at one per scope change.
   //
   // The guard: `scopeMoveUntilRef` holds a timestamp through which idle-driven
   // bbox refetches are suppressed. It is set on every scope-framing change (the

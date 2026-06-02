@@ -57,6 +57,107 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
   ];
 
   /**
+   * #847 — per-state observation rows, each LOCATED INSIDE its state's
+   * STATES_FIXTURE envelope (AZ [-114.82,31.33,-109.04,37.0],
+   * FL [-87.63,24.52,-80.03,31.0], NY [-79.76,40.5,-71.86,45.02]). Fed to
+   * `stubStateAwareObservations`, which returns a state's rows ONLY when the
+   * requested bbox intersects that state's envelope — so an in-app state→state
+   * switch that carried the PREVIOUS state's (disjoint) bbox would get an empty
+   * 200 ("No recent sightings"), exactly the bug #847 fixes.
+   */
+  const ROWS_BY_STATE: Record<string, typeof AZ_OBS> = {
+    'US-AZ': AZ_OBS,
+    'US-FL': [
+      {
+        subId: 'FL1', speciesCode: 'rosspo', comName: 'Roseate Spoonbill',
+        lat: 27.8, lng: -82.6,
+        obsDt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+        locId: 'LFL1', locName: 'Tampa', howMany: 3, isNotable: false,
+        silhouetteId: 'threskiornithidae', familyCode: 'threskiornithidae',
+      },
+      {
+        subId: 'FL2', speciesCode: 'brnpel', comName: 'Brown Pelican',
+        lat: 25.8, lng: -80.2,
+        obsDt: new Date(Date.now() - 90 * 60 * 1000).toISOString(),
+        locId: 'LFL2', locName: 'Miami', howMany: 5, isNotable: false,
+        silhouetteId: 'pelecanidae', familyCode: 'pelecanidae',
+      },
+    ],
+    'US-NY': [
+      {
+        subId: 'NY1', speciesCode: 'amerob', comName: 'American Robin',
+        lat: 42.9, lng: -75.5,
+        obsDt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+        locId: 'LNY1', locName: 'Syracuse', howMany: 2, isNotable: false,
+        silhouetteId: 'turdidae', familyCode: 'turdidae',
+      },
+      {
+        subId: 'NY2', speciesCode: 'norcar', comName: 'Northern Cardinal',
+        lat: 43.0, lng: -76.1,
+        obsDt: new Date(Date.now() - 95 * 60 * 1000).toISOString(),
+        locId: 'LNY2', locName: 'Ithaca', howMany: 1, isNotable: false,
+        silhouetteId: 'cardinalidae', familyCode: 'cardinalidae',
+      },
+    ],
+  };
+
+  /** [w,s,e,n] envelopes mirroring STATES_FIXTURE — used to assert the LAST
+   *  /api/observations request carries a bbox intersecting the NEW scope. */
+  const ENV_BY_STATE: Record<string, [number, number, number, number]> = {
+    'US-AZ': [-114.82, 31.33, -109.04, 37.0],
+    'US-FL': [-87.63, 24.52, -80.03, 31.0],
+    'US-NY': [-79.76, 40.5, -71.86, 45.02],
+  };
+
+  /** Axis-aligned overlap of two [w,s,e,n] boxes. */
+  function bboxIntersects(
+    a: [number, number, number, number],
+    b: [number, number, number, number],
+  ): boolean {
+    return a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
+  }
+
+  /**
+   * #847 — does `bbox` tightly match the scope `envelope` (each edge within
+   * `tol` degrees)? This is the DETERMINISTIC, WebGL-independent differentiator
+   * between the bug and the fix: in this no-WebGL CI the map never settles a
+   * state-tight viewport into `debouncedBbox`, so on UNPATCHED `main` the
+   * post-switch fetch carries the cold-mount CONUS seed (`-125,24,-66,50`),
+   * which `intersects` (but does NOT tightly match) the new state's envelope.
+   * The render-phase reseed sets `debouncedBbox` to the new scope's exact
+   * envelope, so AFTER the fix the post-switch bbox matches within tol — RED on
+   * main (CONUS seed), GREEN after fix (tight envelope). The bug's live recovery
+   * path (a real map idle refining the bbox) is absent here, so the FETCH
+   * payload — not the eventual lede — is the falsifiable signal.
+   */
+  function bboxMatchesEnvelope(
+    bbox: [number, number, number, number],
+    envelope: [number, number, number, number],
+    tol = 0.5,
+  ): boolean {
+    return bbox.every((v, i) => Math.abs(v - envelope[i]) <= tol);
+  }
+
+  /** Pull the bbox off the LAST /api/observations request carrying `state`. */
+  function lastBboxForState(
+    obsRequests: string[],
+    state: string,
+  ): [number, number, number, number] | null {
+    for (let i = obsRequests.length - 1; i >= 0; i--) {
+      const u = new URL(obsRequests[i]);
+      if (u.searchParams.get('state') !== state) continue;
+      const raw = u.searchParams.get('bbox');
+      if (!raw) return null;
+      const parts = raw.split(',').map(Number);
+      if (parts.length === 4 && !parts.some(Number.isNaN)) {
+        return parts as [number, number, number, number];
+      }
+      return null;
+    }
+    return null;
+  }
+
+  /**
    * Register the always-needed scope stubs (`/api/states`, `/api/silhouettes`,
    * `/api/hotspots`, zip-index) and count `/api/observations` requests. Returns
    * a live `obsRequests` array + the typed `AppPage`. Each spec registers its
@@ -349,5 +450,106 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
     const optionTexts = await app.chooserStateSelect.locator('option').allInnerTexts();
     expect(optionTexts[0]).toBe('Choose a state…');
     expect(optionTexts.slice(1)).toEqual(STATES_FIXTURE.map(s => s.name));
+  });
+
+  // #847 — PRIMARY headline guard. An in-app state→state switch (in-card scope
+  // control <select>) must repopulate markers with NO manual move/resize/reload.
+  // Pre-fix, the post-switch fetch carried the stale NY bbox → disjoint from FL
+  // → empty 200 → "No recent sightings". The fix re-seeds the bbox to the FL
+  // envelope at render, so the post-switch fetch intersects FL → rows return.
+  test('#847: in-app NY→FL switch repopulates (no resize/reload); last fetch carries an FL-intersecting bbox', async ({
+    page,
+    apiStub,
+  }) => {
+    const { app, obsRequests } = await setup(page, apiStub);
+    await apiStub.stubStateAwareObservations(ROWS_BY_STATE);
+
+    // Land scoped to NY (a non-empty Template lede).
+    await app.goto('state=US-NY');
+    await app.waitForAppReady();
+    await expect(app.mapLede).toHaveText(/^\d+ species$/);
+
+    // In-app switch to FL via the in-card scope control — NO resize/drag/reload.
+    await app.openScopeDisclosure();
+    await app.scopeControlStateSelect.selectOption('US-FL');
+
+    // (a) The camera flips to FL.
+    await expect(app.mapLayer).toHaveAttribute('data-camera-bounds', 'US-FL');
+    // (b) The lede repopulates and NEVER sticks on the empty copy.
+    await expect(app.mapLede).toHaveText(/^\d+ species$/);
+    await expect(app.mapLede).not.toHaveText(/No recent sightings/);
+    await expect(app.appHeader.locator('.brand-region')).toHaveText('· Florida');
+
+    // (c) The LAST /api/observations carrying state=US-FL has a bbox tightly
+    // matching the FL envelope (the render-phase reseed value) — NOT the stale
+    // bbox. On unpatched main this carries the CONUS cold-mount seed, which
+    // intersects FL but does NOT match its envelope → RED; the fix reseeds it to
+    // the FL envelope → GREEN.
+    await expect.poll(() => lastBboxForState(obsRequests, 'US-FL') !== null).toBe(true);
+    const flBbox = lastBboxForState(obsRequests, 'US-FL')!;
+    expect(bboxIntersects(flBbox, ENV_BY_STATE['US-FL'])).toBe(true);
+    expect(
+      bboxMatchesEnvelope(flBbox, ENV_BY_STATE['US-FL']),
+      `last US-FL bbox=${flBbox.join(',')} must match the FL envelope ${ENV_BY_STATE['US-FL'].join(',')} (reseed); got the stale/CONUS bbox`,
+    ).toBe(true);
+  });
+
+  // #847 — reverse-direction companion: FL→NY self-recovers the same way.
+  test('#847: in-app FL→NY switch repopulates; last fetch carries an NY-intersecting bbox', async ({
+    page,
+    apiStub,
+  }) => {
+    const { app, obsRequests } = await setup(page, apiStub);
+    await apiStub.stubStateAwareObservations(ROWS_BY_STATE);
+
+    await app.goto('state=US-FL');
+    await app.waitForAppReady();
+    await expect(app.mapLede).toHaveText(/^\d+ species$/);
+
+    await app.openScopeDisclosure();
+    await app.scopeControlStateSelect.selectOption('US-NY');
+
+    await expect(app.mapLayer).toHaveAttribute('data-camera-bounds', 'US-NY');
+    await expect(app.mapLede).toHaveText(/^\d+ species$/);
+    await expect(app.mapLede).not.toHaveText(/No recent sightings/);
+    await expect(app.appHeader.locator('.brand-region')).toHaveText('· New York');
+
+    await expect.poll(() => lastBboxForState(obsRequests, 'US-NY') !== null).toBe(true);
+    const nyBbox = lastBboxForState(obsRequests, 'US-NY')!;
+    expect(bboxIntersects(nyBbox, ENV_BY_STATE['US-NY'])).toBe(true);
+    expect(
+      bboxMatchesEnvelope(nyBbox, ENV_BY_STATE['US-NY']),
+      `last US-NY bbox=${nyBbox.join(',')} must match the NY envelope ${ENV_BY_STATE['US-NY'].join(',')} (reseed); got the stale/CONUS bbox`,
+    ).toBe(true);
+  });
+
+  // #847 — whole-US (?scope=us) → state companion: the CONUS-contains-every-state
+  // boundary. From ?scope=us (no state= sent) the in-card switch to AZ must seed
+  // an AZ-intersecting bbox so AZ rows return.
+  test('#847: ?scope=us → AZ switch repopulates; last fetch carries an AZ-intersecting bbox', async ({
+    page,
+    apiStub,
+  }) => {
+    const { app, obsRequests } = await setup(page, apiStub);
+    await apiStub.stubStateAwareObservations(ROWS_BY_STATE);
+
+    await app.goto('scope=us');
+    await app.waitForAppReady();
+
+    await app.openScopeDisclosure();
+    await app.scopeControlStateSelect.selectOption('US-AZ');
+
+    await expect(app.mapLayer).toHaveAttribute('data-camera-bounds', 'US-AZ');
+    await expect(app.mapLede).toHaveText(/^\d+ species$/);
+    await expect(app.mapLede).not.toHaveText(/No recent sightings/);
+    await expect(app.appHeader.locator('.brand-region')).toHaveText('· Arizona');
+
+    await expect.poll(() => lastBboxForState(obsRequests, 'US-AZ') !== null).toBe(true);
+    const azBbox = lastBboxForState(obsRequests, 'US-AZ')!;
+    expect(bboxIntersects(azBbox, ENV_BY_STATE['US-AZ'])).toBe(true);
+    expect(
+      bboxMatchesEnvelope(azBbox, ENV_BY_STATE['US-AZ']),
+      `last US-AZ bbox=${azBbox.join(',')} must match the AZ envelope ${ENV_BY_STATE['US-AZ'].join(',')} (reseed); got the stale/CONUS bbox`,
+    ).toBe(true);
   });
 });
