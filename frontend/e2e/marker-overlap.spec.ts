@@ -189,6 +189,11 @@ async function measureOverlap(page: Page): Promise<OverlapResult> {
     }
 
     const legendBoxes  = queryRects('.family-legend');
+    // #828: the scope form is collapsed behind the 🔍 disclosure by default, so
+    // `.scope-control` is display:none at rest → an empty (zero-area) rect that
+    // contributes no marker overlap. It re-enters the exclusion set only when a
+    // user expands the disclosure (not exercised here). The marker-occlusion
+    // contract still holds: a collapsed control genuinely occludes nothing.
     const scopeBoxes   = queryRects('.scope-control');
     const stripBoxes   = queryRects('.map-context-strip'); // absent on current main (#800)
     const popoverBoxes = queryRects('.observation-popover'); // only when a popover is open

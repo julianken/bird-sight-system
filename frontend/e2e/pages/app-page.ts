@@ -28,6 +28,9 @@ export class AppPage {
   readonly chooser: Locator;
   /** ZIP `<input>` inside the chooser (`aria-label='ZIP code'`, owned by ZipInput). */
   readonly chooserZipInput: Locator;
+  /** The chooser ZIP-path "Go" submit button (#827 — scoped to the ZipInput
+   *  `role="search"` form so it doesn't collide with the State row's "Go"). */
+  readonly chooserZipGo: Locator;
   /** State `<select>` inside the chooser (`aria-label='State'` via its `<label>`). */
   readonly chooserStateSelect: Locator;
   /** The chooser state-path "Go" submit button. */
@@ -39,7 +42,15 @@ export class AppPage {
   /** ZIP `role=status` region inside the chooser ("ZIP not recognized — …"). */
   readonly chooserZipStatus: Locator;
 
-  // --- In-state ScopeControl (on-map re-scope bar, #737) accessors ---
+  // --- In-state ScopeControl (on-map re-scope form, #737 / #828) accessors ---
+  /**
+   * #828: the in-state scope form is collapsed behind a 🔍 disclosure on the
+   * identity card's wordmark row. This is the trigger button (accessible name
+   * "Change region" collapsed / "Close scope options" expanded). Call
+   * `openScopeDisclosure()` before interacting with the fields below — they are
+   * mounted-but-hidden until the disclosure is expanded.
+   */
+  readonly scopeDisclosureTrigger: Locator;
   /** The floating in-state `<ScopeControl>` region (visible only in a scoped view). */
   readonly scopeControl: Locator;
   /** The in-state state-switch `<select>` (`aria-label='Switch state'`). */
@@ -124,13 +135,26 @@ export class AppPage {
     // Chooser (#742) — region accessible name "Choose where to look at birds".
     this.chooser = page.getByRole('region', { name: 'Choose where to look at birds' });
     this.chooserZipInput = this.chooser.getByLabel('ZIP code', { exact: true });
+    // #827: the ZipInput form is the `role="search"` landmark inside the chooser;
+    // its "Go" submit lives there. Scoping to that form disambiguates it from the
+    // State row's "Go" (both read "Go" after the ZIP submit button was added).
+    const chooserZipForm = this.chooser.getByRole('search');
+    this.chooserZipGo = chooserZipForm.getByRole('button', { name: 'Go', exact: true });
     this.chooserStateSelect = this.chooser.getByLabel('State', { exact: true });
-    this.chooserStateGo = this.chooser.getByRole('button', { name: 'Go', exact: true });
+    // The State "Go" is the chooser's "Go" that is NOT inside the ZIP search form.
+    // Scope it to the State <select>'s ancestor <form> so it never matches the
+    // ZIP "Go" (#827).
+    this.chooserStateGo = this.chooser
+      .locator('form', { has: page.getByLabel('State', { exact: true }) })
+      .getByRole('button', { name: 'Go', exact: true });
     this.chooserWholeUs = this.chooser.getByRole('button', { name: 'Explore the whole US map' });
     this.chooserZipError = this.chooser.getByText('Enter a 5-digit ZIP', { exact: true });
     this.chooserZipStatus = this.chooser.getByRole('status');
 
-    // In-state ScopeControl (#737) — region accessible name "Change the map scope".
+    // In-state ScopeControl (#737 / #828) — collapsed behind a 🔍 disclosure on
+    // the identity card. The trigger lives in the header banner; the region
+    // accessible name is still "Change the map scope".
+    this.scopeDisclosureTrigger = this.appHeader.getByRole('button', { name: /change region|close scope options/i });
     this.scopeControl = page.getByRole('region', { name: 'Change the map scope' });
     this.scopeControlStateSelect = this.scopeControl.getByLabel('Switch state', { exact: true });
     this.scopeControlWholeUs = this.scopeControl.getByRole('button', { name: 'Whole US', exact: true });
@@ -188,6 +212,21 @@ export class AppPage {
    */
   async waitForMapLoad(timeout = 10_000): Promise<void> {
     await this.mapCanvas.waitFor({ state: 'visible', timeout });
+  }
+
+  /**
+   * #828: expand the in-state scope disclosure so the scope form (state select,
+   * ZIP, Whole US / Change scope) is revealed. The form is mounted-but-hidden in
+   * a scoped view until the 🔍 trigger is clicked. Idempotent: if already open
+   * (aria-expanded=true) it is a no-op. Any test that interacts with the in-card
+   * scope fields must call this first.
+   */
+  async openScopeDisclosure(): Promise<void> {
+    const expanded = await this.scopeDisclosureTrigger.getAttribute('aria-expanded');
+    if (expanded !== 'true') {
+      await this.scopeDisclosureTrigger.click();
+      await this.scopeControlStateSelect.waitFor({ state: 'visible' });
+    }
   }
 
   /**
@@ -267,12 +306,14 @@ export class AppPage {
   }
 
   /**
-   * Enter a ZIP into the chooser ZIP input and submit (the form submits on
-   * Enter; `role=search` form, no separate Go button for the ZIP path). Used by
-   * the D6 ZIP round-trip / empty-region / unknown / malformed cases.
+   * Enter a ZIP into the chooser ZIP input and submit via the "Go" button
+   * (#827 — the ZipInput form now has a visible submit button, the iOS-safe
+   * pointer path; the keyboard Enter path still works but the button is the
+   * canonical affordance, so the e2e round-trip drives it). Used by the D6
+   * ZIP round-trip / empty-region / unknown / malformed cases.
    */
   async submitChooserZip(zip: string): Promise<void> {
     await this.chooserZipInput.fill(zip);
-    await this.chooserZipInput.press('Enter');
+    await this.chooserZipGo.click();
   }
 }

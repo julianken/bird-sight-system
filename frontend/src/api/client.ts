@@ -44,9 +44,11 @@ export class ApiClient {
     // The bare-Observation[] branch (pre-#456) was REMOVED in #830 (item B,
     // Remedy 1): the live read-api never returns a bare array, and that branch
     // was the only path that could yield non-empty `data` with a fabricated
-    // `freshestObservationAt: null` — which would have broken the licensing
-    // invariant "eBird credit visible ⟺ ≥1 observation marker rendered"
-    // (deriveFreshness(null) → label '' → no eBird credit, despite markers).
+    // `freshestObservationAt: null`. Keeping the normalization is still correct
+    // defensive hygiene. (The licensing invariant that #830 tied to the freshness
+    // label changed under #828: the always-visible eBird credit now lives in the
+    // bottom-right .map-attribution corner, gated on map-visible rather than on a
+    // freshness label, so the deleted deriveFreshness path no longer gates it.)
     type LegacyEnvelope = { data: Observation[]; meta: { freshestObservationAt: string | null } };
     const raw = await this.get<ObservationsResponse | LegacyEnvelope>(
       url.pathname + url.search,

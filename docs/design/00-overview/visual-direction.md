@@ -44,7 +44,7 @@ System-font stack: `-apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Hel
 
 The redesign should feel like a place — Sonoran desert at dawn (light) or under a clear desert night sky (dark) — not a tool. The map *is* the front door (resolves S4). The detail surface leads with the photo as anchor. Loading states are flat skeletons with a 2px sunrise progress bar at the top, not shimmering rectangles.
 
-The voice register is **declarative-direct, never editorialized**. "274 species seen across Arizona in the last 14 days" is the lede; it is a truth claim the runtime defends through 4 enumerated templates (zero-results / single-species / family-filter / default). See [`../01-spec/voice-and-content.md`](../01-spec/voice-and-content.md).
+The voice register is **declarative-direct, never editorialized**. The lede is a count-only truth claim the runtime defends through enumerated templates (zero-results / single-species / family-filter / default / sparse-region) — e.g. "331 species" for the default case; the region rides in the wordmark headline and the time-window dropped (#828). See [`../01-spec/voice-and-content.md`](../01-spec/voice-and-content.md).
 
 ## What this direction is NOT
 

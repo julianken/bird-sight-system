@@ -80,20 +80,42 @@ export function ZipInput({ onResolve }: ZipInputProps): React.JSX.Element {
   }
 
   return (
-    <form className="zip-input" onSubmit={handleSubmit} role="search">
-      <input
-        id={inputId}
-        className="zip-input__field"
-        type="text"
-        inputMode="numeric"
-        pattern="[0-9]{5}"
-        maxLength={5}
-        aria-label="ZIP code"
-        placeholder="ZIP"
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onFocus={handleFocus}
-      />
+    // `noValidate`: with a submit `<button>` present, the browser would run
+    // HTML5 constraint validation on submit and BLOCK a malformed value
+    // (`pattern="[0-9]{5}"` → `patternMismatch`) before `handleSubmit` runs —
+    // which would make a malformed click/Enter a silent no-op (only a native
+    // bubble, never our styled inline hint), breaking the never-silent contract.
+    // The component owns its validation in JS (the `/^\d{5}$/` gate below) and
+    // renders its own inline hint, so we opt out of native blocking. `pattern`
+    // is kept for semantics + the `validity` API (asserted in zip-scope.spec).
+    <form className="zip-input" onSubmit={handleSubmit} role="search" noValidate>
+      {/* Field + [Go] share one horizontal row. The submit button gives the ZIP
+          a POINTER affordance and — critically — a way to submit on iOS, whose
+          numeric keypad (inputMode="numeric") has no Return/Go key, so the
+          implicit "Enter submits a one-input form" path is unreachable there.
+          The button is ALWAYS enabled (not gated on 5 digits): a malformed
+          click still routes through handleSubmit and surfaces the inline hint,
+          preserving the never-silent contract. The feedback <p> elements stay
+          OUTSIDE this row as block siblings (below) so the full-width
+          .zip-input__error box keeps its layout. */}
+      <div className="zip-input__row">
+        <input
+          id={inputId}
+          className="zip-input__field"
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]{5}"
+          maxLength={5}
+          aria-label="ZIP code"
+          placeholder="ZIP"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onFocus={handleFocus}
+        />
+        <button type="submit" className="zip-input__submit">
+          Go
+        </button>
+      </div>
       {feedback.kind === 'malformed' && (
         <p className="zip-input__error">Enter a 5-digit ZIP</p>
       )}

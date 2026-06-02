@@ -352,6 +352,16 @@ body {
   }
 }
 
+/* Row 1: wordmark line — "Bird Maps · {Region}" + the 🔍 scope disclosure.
+   A baseline-aligned flex row so the search trigger rides at the end of the
+   wordmark without a second band (#828). */
+.app-header-wordmark-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
 /* Brand link — suppress UA link chrome; inherit body typography. */
 .app-header-wordmark {
   text-decoration: none;
@@ -360,6 +370,43 @@ body {
   font-size: var(--type-md);
   line-height: 1.2;
   display: block;
+  /* Let the wordmark take the row's leading space; the 🔍 sits at the trailing
+     edge. min-width:0 allows the region suffix to ellipsize rather than push
+     the trigger off the card on a narrow column. */
+  min-inline-size: 0;
+}
+
+/* 🔍/✕ scope disclosure trigger (#828). Icon-only card-level action that
+   reveals the scope form in place. Matches the controls-pill icon-button
+   geometry (transparent resting chrome, ≥36/44px touch target, tint on hover,
+   focus halo) so the two card affordances read as one system. */
+.app-header-scope-toggle {
+  appearance: none;
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--card-radius-inner);
+  padding: var(--space-xs);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  line-height: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  min-width: 36px;
+}
+.app-header-scope-toggle:hover {
+  background: var(--color-bg-tint);
+  color: var(--color-text-strong);
+}
+.app-header-scope-toggle:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+}
+/* Expanded: the trigger reads as active (the ✕ that collapses the form). */
+.app-header-scope-toggle[aria-expanded='true'] {
+  color: var(--color-text-strong);
 }
 .app-header-wordmark:hover {
   opacity: 0.8;
@@ -376,26 +423,24 @@ body {
   color: var(--color-text-muted);
 }
 
-/* Row 2: Region name — PRIMARY heading (spec §5.2). --type-lg semibold.
-   This is the loudest element AND the page's single <h1> on a scoped view.
-   Rendered as <h1> in AppHeader.tsx; margin:0 resets UA h1 margins so the
-   floating-card layout is unaffected by default browser h1 styles. */
+/* Region name — the page's single <h1>, kept for heading structure but ALWAYS
+   visually hidden (#828): the visible region rides in the wordmark line, so the
+   <h1> is .sr-only and these box rules never paint. margin:0 resets UA h1
+   margins defensively in case the sr-only clip is ever lifted. The rule is
+   retained so the className has a matching CSS selector (orphan-className gate)
+   and to document the intentional always-hidden contract. */
 .app-header-region-name {
   margin: 0;
-  font-size: var(--type-lg);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text-strong);
-  line-height: 1.2;
 }
 
-/* Row 3: Lede wrapper containing the sentence + freshness line. */
+/* Row 2: Lede wrapper. #828: freshness line removed — count-only lede. */
 .app-header-lede-row {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-/* Lede sentence — the formerly invisible context-strip content (O3 #779). */
+/* Lede sentence — count-only context (O3 #779 / #828). */
 .app-header-lede {
   margin: 0;
   font-size: var(--type-sm);
@@ -403,40 +448,34 @@ body {
   line-height: 1.4;
 }
 
-/* Freshness / source meta — "Updated 11 min ago · Source: eBird" (the eBird
-   token is a real link; see .app-header-freshness a below). */
-.app-header-freshness {
-  margin: 0;
-  font-size: var(--type-xs);
-  color: var(--color-text-subtle);
-  line-height: 1.4;
-}
-/* The always-visible eBird source credit (#830 item B). Uses the modal-link
-   recipe — var(--color-text-strong) (~17:1 light / ~13.8:1 dark on the
-   identity-card surface --color-bg-surface) + underline. Do NOT use the
-   project link token --color-text-link (orange/cyan --color-decision-point):
-   it is only 2.53:1 on the card surface and fails WCAG 1.4.3. */
-.app-header-freshness a {
-  color: var(--color-text-strong);
-  text-decoration: underline;
-}
-.app-header-freshness a:focus-visible {
-  outline: 2px solid var(--color-text-strong);
-  outline-offset: 2px;
-  border-radius: 2px;
-}
+/* #828: the in-card `.app-header-freshness` line (and its `a` link recipe that
+   #830 added for the in-card eBird credit) was removed — the resting card is two
+   lines (wordmark + count-only lede). The always-visible eBird/OpenFreeMap
+   credit is restored to the bottom-right corner instead (.map-attribution,
+   below; four-corner contract §4.8). */
 
-/* Hairline divider between lede content and scope rows. */
+/* Hairline divider between the lede content and the revealed scope form.
+   Only present in the DOM when the disclosure is open (#828). */
 .app-header-divider {
-  margin: var(--space-xs) 0;
+  margin: var(--space-xs) 0 0;
   border: none;
   border-top: 1px solid var(--color-border-ui);
 }
 
-/* Scope rows container (§4.2 — de-emphasized "change where" affordance). */
+/* Scope rows container (§4.2 / #828) — the scope form, collapsed behind the 🔍
+   disclosure. The `hidden` attribute (display:none) handles the collapsed state;
+   when open it is a stacked flex column flush within the card padding. The
+   `[data-open]` hooks document the state for the orphan-className gate and allow
+   future open/close transitions without a JS class toggle. */
 .app-header-scope-rows {
-  /* The embedded ScopeControl renders its own flex row inside; this wrapper
-     just ensures it sits flush within the card's padding. */
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+/* Defensive: `hidden` already collapses it, but assert display:none on the
+   closed state so a stray `display` from a future flex rule can't reveal it. */
+.app-header-scope-rows[data-open='false'] {
+  display: none;
 }
 
 /* ── TOP-RIGHT: controls pill ───────────────────────────────────────────────
@@ -514,14 +553,13 @@ body {
 /* Touch targets at mobile */
 @media (max-width: 480px) {
   .app-header-attribution,
-  .app-header-filters {
+  .app-header-filters,
+  .app-header-scope-toggle {
     min-height: 44px;
     min-width: 44px;
   }
-  /* At compact, hide the identity card's region-name row (it merges with lede) */
-  .app-header-region-name {
-    display: none;
-  }
+  /* #828: the region-name <h1> is .sr-only at every breakpoint now, so no
+     compact-specific hide is needed (it was visible at roomy/wide pre-#828). */
 
   /* ── Compact header: identity card must not overlap the controls pill ──────
      At <480px the controls pill (3 × 44px touch targets + pill padding + gaps
@@ -537,8 +575,8 @@ body {
      This guarantees ≥ 8px clearance between the card's right edge and the
      pill's left edge at every compact width (360–479px), matching spec §3
      mobile ASCII art: "Bird Maps  ⓘ ⛛ ☀" on one non-overlapping top row.
-     The lede / region / scope rows sit below the wordmark inside the card
-     and wrap naturally within the narrower column. */
+     The lede sits below the wordmark inside the card and wraps naturally
+     within the narrower column; the scope form (when expanded) does too. */
   .app-header-identity-card {
     max-inline-size: calc(100% - var(--card-inset) - 180px - var(--card-gap));
   }
@@ -1042,6 +1080,56 @@ body:has(.species-detail-sheet--full) .app-header-controls-pill {
    strip height); change both together. */
 body:has(.species-detail-sheet--peek) .family-legend {
   bottom: calc(var(--card-inset) + 120px + var(--space-md));
+}
+
+/* Bottom-right always-visible attribution (#828 Option-A rebase over #830).
+   The four-corner contract's bottom-right anchor (spec §4.8): the minimal
+   license-floor credit (OpenFreeMap basemap + eBird data) restored here after
+   #828 deleted the identity-card freshness line that #830 had hosted the
+   always-visible eBird link in. Full credits stay in the top-right ⓘ modal.
+
+   It is a tier-1 resting-chrome floating island (NOT a full-width bar — that is
+   exactly what #830 removed and the spec forbids): a small --color-bg-surface
+   pill at --type-xs, anchored bottom/right: var(--card-inset) to mirror the
+   bottom-left legend. The surface is load-bearing: the credit sits over the map
+   (cream light basemap / near-black dark basemap), so the links need a card
+   backdrop to guarantee contrast on both. Links use --color-text-strong +
+   underline (the #830 modal-link recipe — ~17:1 light / ~13.8:1 dark on
+   --color-bg-surface; do NOT use --color-text-link, which fails WCAG 1.4.3 on
+   this surface). z-index rides --z-overlay (the legend tier) so it never
+   occludes popovers/sheets. Pointer-events auto since the parent .app-header
+   wrapper is none; here the element is an App-root sibling, so it is
+   interactive by default. */
+.map-attribution {
+  position: fixed;
+  bottom: var(--card-inset);
+  right: var(--card-inset);
+  z-index: var(--z-overlay);
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-ui);
+  border-radius: var(--card-radius);
+  box-shadow: var(--shadow-listbox);
+  font-size: var(--type-xs);
+  line-height: 1.4;
+  color: var(--color-text-subtle);
+}
+.map-attribution a {
+  color: var(--color-text-strong);
+  text-decoration: underline;
+}
+.map-attribution a:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+/* At ≥1440 the corner gutter widens to --card-inset-wide (spec §2.1), matching
+   the other four-corner cards. */
+@media (min-width: 1440px) {
+  .map-attribution {
+    bottom: var(--card-inset-wide);
+    right: var(--card-inset-wide);
+  }
 }
 
 /* Observation popover (#246, repositioned in #718). Anchored to the
@@ -1739,6 +1827,15 @@ aside.species-detail-rail .species-detail-rail-close {
   flex-direction: column;
   gap: var(--space-xs);
 }
+/* #827: field + [Go] share one horizontal row; the feedback <p> elements stay
+   block siblings of this row (below it, under the column .zip-input flow), so
+   the full-width .zip-input__error box keeps its layout. align-items:stretch
+   makes the button match the field's height. */
+.zip-input__row {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: stretch;
+}
 .zip-input__field {
   padding: var(--space-sm) var(--space-md);
   font-size: var(--type-sm);
@@ -1747,13 +1844,49 @@ aside.species-detail-rail .species-detail-rail-close {
   border: 1px solid var(--color-border-ui);
   border-radius: 4px;
   /* A 5-digit ZIP needs little width; cap it so the field doesn't sprawl in
-     the wide on-map control or the landing chooser. */
-  inline-size: 100%;
+     the wide on-map control or the landing chooser. Inside the flex row it
+     grows to the cap then yields the rest to the [Go] button. */
+  flex: 1 1 auto;
+  min-inline-size: 0;
   max-inline-size: 8rem;
 }
 .zip-input__field:focus-visible {
   outline: 2px solid var(--color-text-strong);
   outline-offset: 2px;
+}
+/* #827: the ZIP [Go] submit button. Mirrors the chooser State row's
+   .scope-chooser__btn (primary dark fill, white text) so the ZIP row matches
+   the State row directly below it. ALWAYS enabled — no :disabled rule — so a
+   malformed click still routes through handleSubmit and shows the inline hint
+   (never-silent contract). */
+.zip-input__submit {
+  flex: 0 0 auto;
+  padding: var(--space-sm) var(--space-lg);
+  font-size: var(--type-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-white);
+  background: var(--color-text-strong);
+  border: 1px solid var(--color-text-strong);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.zip-input__submit:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+}
+/* #827 / dark-mode fix (PR #834): both Go buttons fill with --color-text-strong,
+   which inverts to near-white (#f5f7fb) in dark mode — so the white label
+   (--color-text-white #fff) would render ~1.07:1 on it (unreadable). The
+   approved Figma dark treatment is a LIGHT button with DARK text; flip the
+   label to --color-bg-surface (#1b2742 → 13.83:1 on the #f5f7fb fill, well past
+   AA). Covering BOTH selectors here is the single place the duplicated-to-match
+   buttons (#827 AC) take the dark fix once, so they can never drift apart in
+   dark mode. :not(:disabled) leaves .scope-chooser__btn:disabled (which sets its
+   own muted color at equal specificity) untouched regardless of source order;
+   .zip-input__submit is always enabled so the guard is a no-op there. */
+[data-theme="dark"] .zip-input__submit,
+[data-theme="dark"] .scope-chooser__btn:not(:disabled) {
+  color: var(--color-bg-surface);
 }
 .zip-input__status {
   margin: 0;
