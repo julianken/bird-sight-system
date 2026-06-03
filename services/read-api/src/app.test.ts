@@ -464,7 +464,16 @@ describe('GET /api/observations', () => {
       expect(res.status).toBe(200);
       const body = await res.json() as {
         mode: string;
-        buckets?: Array<{ count: number; speciesCount: number; families: string[] }>;
+        buckets?: Array<{
+          count: number;
+          speciesCount: number;
+          families: Array<{
+            code: string;
+            count: number;
+            speciesCount: number;
+            species: Array<{ code: string; count: number }>;
+          }>;
+        }>;
         data?: unknown;
         meta: { freshestObservationAt: string | null };
       };
@@ -477,6 +486,19 @@ describe('GET /api/observations', () => {
       const total = body.buckets!.reduce((s, b) => s + b.count, 0);
       expect(total).toBe(2);
       expect(body.meta.freshestObservationAt).not.toBeNull();
+      // #859 — families now nest real species (code+count), not bare codes.
+      const allFamilies = body.buckets!.flatMap(b => b.families);
+      expect(allFamilies.length).toBeGreaterThan(0);
+      for (const fam of allFamilies) {
+        expect(typeof fam.code).toBe('string');
+        expect(Array.isArray(fam.species)).toBe(true);
+        expect(fam.species.length).toBeGreaterThan(0);
+        expect(typeof fam.species[0]!.code).toBe('string');
+        expect(typeof fam.species[0]!.count).toBe('number');
+      }
+      // The seeded species codes ride the wire directly (vermfly/annhum).
+      const speciesCodes = allFamilies.flatMap(f => f.species.map(s => s.code)).sort();
+      expect(speciesCodes).toEqual(['annhum', 'vermfly']);
     });
 
     it('returns per-observation mode at zoom=6 (boundary, #627)', async () => {
@@ -903,6 +925,48 @@ describe('GET /api/states', () => {
 
     const az = body.find(r => r.stateCode === 'US-AZ');
     expect(az?.name).toBe('Arizona');
+  });
+});
+
+describe('GET /api/species (dictionary, #859)', () => {
+  it('returns the flat species dictionary with the long-lived cache header', async () => {
+    // Seed two species; the dictionary projects each as {code,comName,familyCode}.
+    await upsertSpeciesMeta(db.pool, [
+      { speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        sciName: 'Pyrocephalus rubinus', familyCode: 'tyrannidae',
+        familyName: 'Tyrant Flycatchers', taxonOrder: 30501 },
+      { speciesCode: 'annhum', comName: "Anna's Hummingbird",
+        sciName: 'Calypte anna', familyCode: 'trochilidae',
+        familyName: 'Hummingbirds', taxonOrder: 6000 },
+    ]);
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/species');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control'))
+      .toBe('public, s-maxage=86400, stale-while-revalidate=172800');
+    const body = await res.json() as Array<{ code: string; comName: string; familyCode: string }>;
+    const verm = body.find(d => d.code === 'vermfly')!;
+    expect(verm.comName).toBe('Vermilion Flycatcher');
+    expect(verm.familyCode).toBe('tyrannidae');
+    // Only the three wire fields are present on each entry.
+    expect(Object.keys(verm).sort()).toEqual(['code', 'comName', 'familyCode']);
+  });
+
+  it('does NOT shadow the per-code detail route (GET /api/species/:code still resolves)', async () => {
+    // Route-ordering guard: the no-param dictionary route must not capture a
+    // request that carries a :code segment. /api/species/vermfly must still
+    // return the per-species detail (200 with sciName), not the dictionary.
+    await upsertSpeciesMeta(db.pool, [
+      { speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        sciName: 'Pyrocephalus rubinus', familyCode: 'tyrannidae',
+        familyName: 'Tyrant Flycatchers', taxonOrder: 30501 },
+    ]);
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/species/vermfly');
+    expect(res.status).toBe(200);
+    const body = await res.json() as { speciesCode: string; sciName: string };
+    expect(body.speciesCode).toBe('vermfly');
+    expect(body.sciName).toBe('Pyrocephalus rubinus');
   });
 });
 

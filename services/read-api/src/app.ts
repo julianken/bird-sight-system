@@ -5,7 +5,7 @@ import type { Pool } from '@bird-watch/db-client';
 import {
   getHotspots, getObservations, getObservationsAggregated,
   getFreshestObservationAt,
-  getSpeciesMeta, getSilhouettes,
+  getSpeciesMeta, getSpeciesDictionary, getSilhouettes,
   getSpeciesPhenology,
   listStatesWithBbox,
 } from '@bird-watch/db-client';
@@ -351,6 +351,21 @@ export function createApp(deps: AppDeps): Hono {
     const rows = await listStatesWithBbox(deps.pool);
     c.header('Cache-Control', cacheControlFor('states'));
     return c.json(rows);
+  });
+
+  // #859 — the full species dictionary (code → {comName, familyCode}). The
+  // frontend fetches this ONCE and joins it against the species codes carried
+  // in the aggregated buckets, so the low-zoom wire never repeats names per
+  // bucket. Registered BEFORE the `/api/species/:code` detail route: Hono's
+  // trie router only matches `:code` when a non-empty path segment follows
+  // `/api/species/`, so `/api/species` (no trailing segment) cannot be shadowed
+  // by it — but declaring the static route first keeps the precedence explicit
+  // and order-independent of any future router change. Long-lived cache:
+  // names change only on a taxonomy refresh (see the 'species-dict' tier).
+  app.get('/api/species', async c => {
+    const dict = await getSpeciesDictionary(deps.pool);
+    c.header('Cache-Control', cacheControlFor('species-dict'));
+    return c.json(dict);
   });
 
   app.get('/api/species/:code', async c => {

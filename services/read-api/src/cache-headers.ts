@@ -1,4 +1,4 @@
-export type Endpoint = 'observations' | 'hotspots' | 'species' | 'silhouettes' | 'phenology' | 'states';
+export type Endpoint = 'observations' | 'hotspots' | 'species' | 'species-dict' | 'silhouettes' | 'phenology' | 'states';
 
 // Cache-Control TTL table for public read endpoints.
 //
@@ -35,6 +35,15 @@ const TABLE: Record<Endpoint, string> = {
   // never-changing. Not migrated to `s-maxage` under #586 because per-species
   // GETs were not in the high-miss-rate set.
   species:      'public, max-age=604800',
+  // GET /api/species — the full code→{comName,familyCode} dictionary (#859),
+  // fetched once per session and joined client-side against the species codes
+  // carried in the aggregated buckets. Names change only when a taxonomy
+  // refresh ships (rare), so a 1d CDN window + 2d SWR keeps the edge entry
+  // long-lived and cheap; the next deploy/taxonomy refresh is the natural bust
+  // point. `s-maxage` (CDN-only) mirrors the #586 hot-path treatment rather
+  // than the per-code 'species' tier's browser `max-age` — the dictionary is
+  // one shared body, so edge caching is where the win is.
+  'species-dict': 'public, s-maxage=86400, stale-while-revalidate=172800',
   // Family silhouette payload drifts between deploys (curation, Phylopic
   // seed expansion). `s-maxage=3600` keeps a 1h CDN window — short enough
   // that curation pushes reach users quickly without scripts/purge-...sh,
