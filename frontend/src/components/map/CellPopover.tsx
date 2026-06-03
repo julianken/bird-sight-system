@@ -3,6 +3,8 @@ import type { KeyboardEvent } from 'react';
 import type { SpeciesAggregate } from './adaptive-grid.js';
 import { prettyFamily } from '../../derived.js';
 import { isSyntheticCode } from '../../data/use-bird-data.js';
+import type { CellSpeciesState } from '../../data/cell-species.js';
+import { StatusBlock } from '../ds/StatusBlock.js';
 
 /**
  * `<CellPopover>` — full popover for an adaptive-grid cell (epic #556
@@ -26,12 +28,20 @@ export interface CellPopoverProps {
   anchorEl: HTMLElement;
   onDismiss: () => void;
   onSelectSpecies: (speciesCode: string) => void;
+  /**
+   * #859 — low-zoom (aggregated) drill-in. When supplied, the popover renders
+   * REAL species fetched on-open for the clicked cell (loading / error / empty
+   * / success), NOT the synthetic `species` prop (whose `comName` is the Latin
+   * family code and whose `speciesCode` is a dead `agg-…` placeholder). Absent
+   * at zoom >= 6, where `species` already carries real rows.
+   */
+  cellSpecies?: CellSpeciesState;
 }
 
 const POPOVER_CAP = 8;
 
 export function CellPopover(props: CellPopoverProps) {
-  const { familyCode, familyCount, species, anchorEl, onDismiss, onSelectSpecies } = props;
+  const { familyCode, familyCount, species, anchorEl, onDismiss, onSelectSpecies, cellSpecies } = props;
   const headingId = useId();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
@@ -96,43 +106,90 @@ export function CellPopover(props: CellPopoverProps) {
           {prettyFamily(familyCode)} ({familyCount})
         </h2>
       </header>
-      <ul className="cell-popover__rows">
-        {visible.map((s) => {
-          // #715: synthetic `agg-*` codes (aggregated z<6 buckets) are
-          // non-resolvable by /api/species/:code and must render as static
-          // spans, identical to spuh/slash/hybrid rows with a null code.
-          const clickable = s.speciesCode !== null && !isSyntheticCode(s.speciesCode);
-          const code = s.speciesCode;
-          if (clickable && code !== null) {
+      {cellSpecies ? (
+        // #859 — low-zoom drill-in. Render the lazily-fetched REAL species for
+        // this cell instead of the synthetic family-code rows.
+        cellSpecies.loading ? (
+          <StatusBlock state="loading" surface="overlay" title="Loading species…" />
+        ) : cellSpecies.error ? (
+          <StatusBlock
+            state="error"
+            surface="overlay"
+            title="Couldn't load species"
+            body="Please try again."
+          />
+        ) : cellSpecies.species && cellSpecies.species.length > 0 ? (
+          <ul className="cell-popover__rows">
+            {cellSpecies.species.slice(0, POPOVER_CAP).map((s) => {
+              const code = s.speciesCode;
+              if (code !== null) {
+                return (
+                  <li key={code} className="cell-popover__row cell-popover__row--clickable">
+                    <a
+                      role="link"
+                      tabIndex={0}
+                      data-testid="cell-popover-row"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        onSelectSpecies(code);
+                      }}
+                      onKeyDown={(e) => onRowKeyDown(e, code)}
+                    >
+                      {s.count}x {s.comName}
+                    </a>
+                  </li>
+                );
+              }
+              // spuh/slash/hybrid taxa (eBird returns no canonical code).
+              return (
+                <li key={`name:${s.comName}`} className="cell-popover__row" data-testid="cell-popover-row">
+                  <span>{s.count}x {s.comName}</span>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <StatusBlock state="empty" surface="overlay" title="No species in this cell" />
+        )
+      ) : (
+        <ul className="cell-popover__rows">
+          {visible.map((s) => {
+            // #715: synthetic `agg-*` codes (aggregated z<6 buckets) are
+            // non-resolvable by /api/species/:code and must render as static
+            // spans, identical to spuh/slash/hybrid rows with a null code.
+            const clickable = s.speciesCode !== null && !isSyntheticCode(s.speciesCode);
+            const code = s.speciesCode;
+            if (clickable && code !== null) {
+              return (
+                <li key={s.comName} className="cell-popover__row cell-popover__row--clickable">
+                  <a
+                    role="link"
+                    tabIndex={0}
+                    data-testid="cell-popover-row"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      onSelectSpecies(code);
+                    }}
+                    onKeyDown={(e) => onRowKeyDown(e, code)}
+                  >
+                    {s.count}x {s.comName}
+                  </a>
+                </li>
+              );
+            }
             return (
-              <li key={s.comName} className="cell-popover__row cell-popover__row--clickable">
-                <a
-                  role="link"
-                  tabIndex={0}
-                  data-testid="cell-popover-row"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    onSelectSpecies(code);
-                  }}
-                  onKeyDown={(e) => onRowKeyDown(e, code)}
-                >
-                  {s.count}x {s.comName}
-                </a>
+              <li
+                key={s.comName}
+                className="cell-popover__row"
+                data-testid="cell-popover-row"
+              >
+                <span>{s.count}x {s.comName}</span>
               </li>
             );
-          }
-          return (
-            <li
-              key={s.comName}
-              className="cell-popover__row"
-              data-testid="cell-popover-row"
-            >
-              <span>{s.count}x {s.comName}</span>
-            </li>
-          );
-        })}
-      </ul>
-      <div className="cell-popover__footer">{footerText}</div>
+          })}
+        </ul>
+      )}
+      {!cellSpecies && <div className="cell-popover__footer">{footerText}</div>}
     </div>
   );
 }

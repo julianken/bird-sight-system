@@ -357,4 +357,65 @@ describe('<ClusterListPopover>', () => {
     fireEvent.keyDown(firstFocusable, { key: 'Tab', shiftKey: true });
     expect(document.activeElement).toBe(done);
   });
+
+  // #859 — low-zoom (aggregated) drill-in. When `cellSpecies` is supplied the
+  // popover renders the cell's REAL species as a flat list (loading / error /
+  // empty / success), never the synthetic per-family breakdown.
+  describe('cellSpecies (low-zoom drill-in #859)', () => {
+    const synthFamilies = [family('accipitridae', 5)];
+    const synthSpecies = speciesByFamily([
+      ['accipitridae', [species('accipitridae', 5, 'agg-0-accipitridae-0')]],
+    ]);
+
+    function renderWith(cellSpecies: Parameters<typeof ClusterListPopover>[0]['cellSpecies'], onSelect = vi.fn()) {
+      const anchor = makeAnchor();
+      render(
+        <ClusterListPopover
+          families={synthFamilies}
+          speciesByFamily={synthSpecies}
+          totalCount={5}
+          uniqueFamilies={1}
+          anchorEl={anchor}
+          onDismiss={vi.fn()}
+          onSelectSpecies={onSelect}
+          cellSpecies={cellSpecies}
+        />
+      );
+      return onSelect;
+    }
+
+    it('renders a loading StatusBlock and no synthetic rows', () => {
+      renderWith({ loading: true, error: null, species: null });
+      expect(screen.getByRole('status')).toBeInTheDocument();
+      expect(document.body.innerHTML).not.toMatch(/agg-/);
+      expect(screen.queryByTestId('cluster-list-popover-row')).not.toBeInTheDocument();
+    });
+
+    it('renders an error StatusBlock when the cell fetch failed', () => {
+      renderWith({ loading: false, error: new Error('boom'), species: null });
+      expect(screen.getByRole('status').className).toMatch(/status-block--state-error/);
+    });
+
+    it('renders an empty StatusBlock when the cell has no observations', () => {
+      renderWith({ loading: false, error: null, species: [] });
+      expect(screen.getByRole('status').className).toMatch(/status-block--state-empty/);
+    });
+
+    it('renders real species rows with working onSelectSpecies links — no agg- strings', () => {
+      const onSelect = renderWith({
+        loading: false,
+        error: null,
+        species: [
+          { speciesCode: 'corhaw', comName: "Cooper's Hawk", count: 3 },
+          { speciesCode: null, comName: 'hawk sp.', count: 1 },
+        ],
+      });
+      expect(screen.getByText(/Cooper's Hawk/)).toBeInTheDocument();
+      expect(document.body.innerHTML).not.toMatch(/agg-/);
+      const link = screen.getByText(/Cooper's Hawk/).closest('[role="link"]')!;
+      fireEvent.click(link);
+      expect(onSelect).toHaveBeenCalledWith('corhaw');
+      expect(screen.getByText(/hawk sp\./).closest('[role="link"]')).toBeNull();
+    });
+  });
 });

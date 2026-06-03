@@ -3,6 +3,8 @@ import type { KeyboardEvent } from 'react';
 import type { FamilyAggregate, SpeciesAggregate } from './adaptive-grid.js';
 import { prettyFamily } from '../../derived.js';
 import { isSyntheticCode } from '../../data/use-bird-data.js';
+import type { CellSpeciesState } from '../../data/cell-species.js';
+import { StatusBlock } from '../ds/StatusBlock.js';
 
 /**
  * `<ClusterListPopover>` — mobile / coarse-pointer sheet-style popover for
@@ -40,6 +42,14 @@ export interface ClusterListPopoverProps {
   onDismiss: () => void;
   /** Invoked when user clicks a species row with non-null speciesCode. */
   onSelectSpecies: (speciesCode: string) => void;
+  /**
+   * #859 — low-zoom (aggregated) drill-in. When supplied, the popover renders
+   * the clicked grid cell's REAL species as a single flat list fetched on-open
+   * (loading / error / empty / success), NOT the synthetic per-family
+   * breakdown (whose species rows are Latin family codes + dead `agg-…`
+   * links). Absent at zoom >= 6, where the family breakdown carries real rows.
+   */
+  cellSpecies?: CellSpeciesState;
 }
 
 const POPOVER_CAP_PER_FAMILY = 8;
@@ -54,6 +64,7 @@ export function ClusterListPopover(props: ClusterListPopoverProps) {
     anchorEl,
     onDismiss,
     onSelectSpecies,
+    cellSpecies,
   } = props;
   const headingId = useId();
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -161,6 +172,61 @@ export function ClusterListPopover(props: ClusterListPopoverProps) {
           Cluster: {totalCount} observations, {uniqueFamilies} families
         </h2>
       </header>
+      {cellSpecies ? (
+        cellSpecies.loading ? (
+          <StatusBlock state="loading" surface="overlay" title="Loading species…" />
+        ) : cellSpecies.error ? (
+          <StatusBlock
+            state="error"
+            surface="overlay"
+            title="Couldn't load species"
+            body="Please try again."
+          />
+        ) : cellSpecies.species && cellSpecies.species.length > 0 ? (
+          <ul className="cluster-list-popover__rows">
+            {cellSpecies.species.map((s) => {
+              const code = s.speciesCode;
+              if (code !== null) {
+                return (
+                  <li
+                    key={code}
+                    className="cluster-list-popover__row"
+                    data-testid="cluster-list-popover-row"
+                  >
+                    <a
+                      role="link"
+                      tabIndex={0}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        onSpeciesRowClick(code);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onSpeciesRowClick(code);
+                        }
+                      }}
+                    >
+                      {s.count}x {s.comName}
+                    </a>
+                  </li>
+                );
+              }
+              return (
+                <li
+                  key={`name:${s.comName}`}
+                  className="cluster-list-popover__row"
+                  data-testid="cluster-list-popover-row"
+                >
+                  <span>{s.count}x {s.comName}</span>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <StatusBlock state="empty" surface="overlay" title="No species in this cell" />
+        )
+      ) : (
       <div>
         {families.map((fam) => {
           const allSpecies = speciesByFamily.get(fam.familyCode) ?? [];
@@ -241,6 +307,7 @@ export function ClusterListPopover(props: ClusterListPopoverProps) {
           );
         })}
       </div>
+      )}
       <footer className="cluster-list-popover__footer">
         <button
           ref={doneRef}

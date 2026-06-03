@@ -84,6 +84,13 @@ export interface UseCellSpeciesArgs {
   since?: ObservationFilters['since'];
   /** Active state scope, threaded so the cell fetch stays within scope. */
   stateCode?: string;
+  /**
+   * Narrow the cell fetch to a single family. The per-family `<CellPopover>`
+   * passes its tile's family so it lists only that family's real species
+   * (matching its heading); the flat cluster list omits it to drill the whole
+   * cell. Serialized as `?family=` on the wire.
+   */
+  familyCode?: string;
 }
 
 const INACTIVE: CellSpeciesState = { loading: false, error: null, species: null };
@@ -125,7 +132,7 @@ export function useCellSpecies(
   client: ApiClient,
   args: UseCellSpeciesArgs,
 ): CellSpeciesState {
-  const { active, center, gridZoom, since, stateCode } = args;
+  const { active, center, gridZoom, since, stateCode, familyCode } = args;
   const [state, setState] = useState<CellSpeciesState>(INACTIVE);
 
   const bbox = cellBbox(center, gridZoom);
@@ -144,6 +151,7 @@ export function useCellSpecies(
       zoom: 6,
       ...(since ? { since } : {}),
       ...(stateCode ? { stateCode } : {}),
+      ...(familyCode ? { familyCode } : {}),
     };
     client.getObservations(filters)
       .then(envelope => {
@@ -159,7 +167,7 @@ export function useCellSpecies(
       });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client, active, bboxKey, gridZoom, since, stateCode]);
+  }, [client, active, bboxKey, gridZoom, since, stateCode, familyCode]);
 
   return state;
 }

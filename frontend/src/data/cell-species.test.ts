@@ -93,6 +93,25 @@ describe('useCellSpecies', () => {
     });
   });
 
+  it('threads familyCode when the per-family popover narrows the cell fetch', async () => {
+    const getObservations = vi.fn().mockResolvedValue(observationsEnvelope([]));
+    const client = makeClient({ getObservations } as unknown as Partial<ApiClient>);
+    renderHook(() =>
+      useCellSpecies(client, {
+        active: true,
+        center: [-111, 34],
+        gridZoom: 4,
+        familyCode: 'accipitridae',
+      }),
+    );
+    await waitFor(() => expect(getObservations).toHaveBeenCalledTimes(1));
+    expect(getObservations).toHaveBeenCalledWith({
+      bbox: [-111.125, 33.875, -110.875, 34.125],
+      zoom: 6,
+      familyCode: 'accipitridae',
+    });
+  });
+
   it('exposes loading → success and dedupes by speciesCode, count desc', async () => {
     const getObservations = vi.fn().mockResolvedValue(observationsEnvelope([
       obs('vermfly', 'Vermilion Flycatcher', 'tyrannidae'),

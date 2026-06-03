@@ -318,4 +318,100 @@ describe('<CellPopover>', () => {
     );
     expect(document.activeElement?.getAttribute('data-testid')).toBe('cell-popover-heading');
   });
+
+  // #859 — low-zoom (aggregated) drill-in: when `cellSpecies` is supplied the
+  // popover renders REAL fetched species rows, never the synthetic `species`.
+  describe('cellSpecies (low-zoom drill-in #859)', () => {
+    it('renders a loading StatusBlock while the cell fetch is in flight', () => {
+      const anchor = makeAnchor();
+      render(
+        <CellPopover
+          familyCode="accipitridae"
+          familyCount={5}
+          species={[species('accipitridae', 5, 'agg-0-accipitridae-0')]}
+          anchorEl={anchor}
+          onDismiss={vi.fn()}
+          onSelectSpecies={vi.fn()}
+          cellSpecies={{ loading: true, error: null, species: null }}
+        />
+      );
+      expect(screen.getByRole('status')).toBeInTheDocument();
+      // The synthetic agg- placeholder code must NOT leak anywhere.
+      expect(document.body.innerHTML).not.toMatch(/agg-/);
+      // No synthetic species ROW is rendered while loading.
+      expect(screen.queryByTestId('cell-popover-row')).not.toBeInTheDocument();
+    });
+
+    it('renders an error StatusBlock when the cell fetch failed', () => {
+      const anchor = makeAnchor();
+      render(
+        <CellPopover
+          familyCode="accipitridae"
+          familyCount={5}
+          species={[]}
+          anchorEl={anchor}
+          onDismiss={vi.fn()}
+          onSelectSpecies={vi.fn()}
+          cellSpecies={{ loading: false, error: new Error('boom'), species: null }}
+        />
+      );
+      const status = screen.getByRole('status');
+      expect(status.className).toMatch(/status-block--state-error/);
+    });
+
+    it('renders an empty StatusBlock when the cell has no observations', () => {
+      const anchor = makeAnchor();
+      render(
+        <CellPopover
+          familyCode="accipitridae"
+          familyCount={5}
+          species={[]}
+          anchorEl={anchor}
+          onDismiss={vi.fn()}
+          onSelectSpecies={vi.fn()}
+          cellSpecies={{ loading: false, error: null, species: [] }}
+        />
+      );
+      const status = screen.getByRole('status');
+      expect(status.className).toMatch(/status-block--state-empty/);
+    });
+
+    it('renders real species rows with working onSelectSpecies links — no agg- strings', () => {
+      const anchor = makeAnchor();
+      const onSelectSpecies = vi.fn();
+      render(
+        <CellPopover
+          familyCode="accipitridae"
+          familyCount={5}
+          species={[species('accipitridae', 5, 'agg-0-accipitridae-0')]}
+          anchorEl={anchor}
+          onDismiss={vi.fn()}
+          onSelectSpecies={onSelectSpecies}
+          cellSpecies={{
+            loading: false,
+            error: null,
+            species: [
+              { speciesCode: 'corhaw', comName: "Cooper's Hawk", count: 3 },
+              { speciesCode: null, comName: 'hawk sp.', count: 1 },
+            ],
+          }}
+        />
+      );
+      // Real common name is shown.
+      expect(screen.getByText(/Cooper's Hawk/)).toBeInTheDocument();
+      // No synthetic agg- code leaks into the DOM (the heading may show the
+      // real prettified family name — that's correct, only the dead ROWS were
+      // the bug).
+      expect(document.body.innerHTML).not.toMatch(/agg-/);
+      // The rendered rows are the REAL species, not the synthetic ones.
+      const rows = screen.getAllByTestId('cell-popover-row');
+      expect(rows).toHaveLength(2);
+      // Clicking the real species row fires onSelectSpecies with the REAL code.
+      const link = screen.getByText(/Cooper's Hawk/).closest('[role="link"]')!;
+      fireEvent.click(link);
+      expect(onSelectSpecies).toHaveBeenCalledWith('corhaw');
+      // The null-code spuh row is a static span (not a link).
+      expect(screen.getByText(/hawk sp\./).closest('[role="link"]')).toBeNull();
+    });
+  });
 });
