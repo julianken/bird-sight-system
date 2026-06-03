@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import {
   cellBbox,
+  dedupeBySpecies,
   gridMultiplierForZoom,
   useCellSpecies,
 } from './cell-species.js';
@@ -12,7 +13,7 @@ function makeClient(overrides: Partial<ApiClient>): ApiClient {
   return Object.assign(new ApiClient(), overrides);
 }
 
-function obs(speciesCode: string | null, comName: string, family: string | null): Observation {
+function obs(speciesCode: string, comName: string, family: string | null): Observation {
   return {
     subId: `s-${comName}`,
     speciesCode,
@@ -56,6 +57,21 @@ describe('cellBbox', () => {
   });
   it('z5 (mult 8) → ±0.0625° per axis', () => {
     expect(cellBbox([-111, 34], 5)).toEqual([-111.0625, 33.9375, -110.9375, 34.0625]);
+  });
+});
+
+describe('dedupeBySpecies', () => {
+  // A real API `Observation` never carries a null speciesCode (the type forbids
+  // it), so this defensive spuh/slash/hybrid branch is exercised by calling
+  // dedupeBySpecies directly with the nullable shape its signature accepts —
+  // rather than type-lying a null through an Observation[] envelope.
+  it('preserves null speciesCode rows (spuh/slash) keyed by comName', () => {
+    expect(
+      dedupeBySpecies([
+        { speciesCode: null, comName: 'duck sp.' },
+        { speciesCode: null, comName: 'duck sp.' },
+      ]),
+    ).toEqual([{ speciesCode: null, comName: 'duck sp.', count: 2 }]);
   });
 });
 
@@ -128,21 +144,6 @@ describe('useCellSpecies', () => {
     expect(result.current.species).toEqual([
       { speciesCode: 'vermfly', comName: 'Vermilion Flycatcher', count: 2 },
       { speciesCode: 'gambel', comName: "Gambel's Quail", count: 1 },
-    ]);
-  });
-
-  it('preserves null speciesCode rows (spuh/slash) keyed by comName', async () => {
-    const getObservations = vi.fn().mockResolvedValue(observationsEnvelope([
-      obs(null, 'duck sp.', 'anatidae'),
-      obs(null, 'duck sp.', 'anatidae'),
-    ]));
-    const client = makeClient({ getObservations } as unknown as Partial<ApiClient>);
-    const { result } = renderHook(() =>
-      useCellSpecies(client, { active: true, center: [-111, 34], gridZoom: 3 }),
-    );
-    await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(result.current.species).toEqual([
-      { speciesCode: null, comName: 'duck sp.', count: 2 },
     ]);
   });
 

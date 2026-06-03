@@ -101,7 +101,7 @@ const INACTIVE: CellSpeciesState = { loading: false, error: null, species: null 
  * collapse). First non-null code wins. Sorted by count desc, then comName asc
  * for a stable order.
  */
-function dedupeBySpecies(
+export function dedupeBySpecies(
   data: ReadonlyArray<{ speciesCode: string | null; comName: string }>,
 ): CellSpecies[] {
   const byKey = new Map<string, CellSpecies>();
