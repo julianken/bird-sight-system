@@ -1095,6 +1095,36 @@ body:has(.species-detail-sheet--full) .app-header-controls-pill {
   }
 }
 
+/* #853: bound the legend on the 481–1023px 'roomy' band (useBreakpoint's
+   `'roomy'` tier; --overlay-bp-compact 480px → --overlay-bp-wide 1024px). On
+   this band a user with a stored `family-legend-expanded.v2=true` preference
+   (e.g. expanded on a prior desktop session) sees the legend render expanded —
+   the <1024px collapse-default (#809) is correctly overridden by the stored
+   preference — but the ≤480px height cap above (#810) does NOT apply here, so
+   `.family-legend-entries` fell back to the desktop `max-height: 400px`
+   (~:985). The resulting ~440px-tall panel anchored bottom-left occluded the
+   lower-left of the framed state (reproduced live at ~500×844).
+
+   Cap the entries panel to a shorter, scrollable height so a stored-expanded
+   legend's top edge clears the framed state's central content. `min(280px,
+   40vh)` keeps the panel comfortably below the viewport centre on a short
+   tablet-portrait viewport (40vh of 844px ⇒ 280px; total card ≈ toggle + 280px
+   still leaves the upper half clear) and shrinks further on shorter heights.
+   The 280px ceiling mirrors the --card-maxw-legend width contract so the
+   bounded card reads as a balanced square. overflow-y:auto (from the base
+   .family-legend-entries rule, ~:986) makes the surplus rows scrollable — the
+   stored preference is NOT mutated; this is a CSS display cap only, exactly as
+   the ≤480px cap is.
+
+   Scoped strictly to 481–1023px: ≥1024px desktop keeps the 400px fallback
+   (counter-case asserted at 1440×900) and ≤480px keeps its own 240px cap
+   (#810) — both unchanged. Behaviour guarded by legend-roomy-band-cap.spec.ts. */
+@media (min-width: 481px) and (max-width: 1023px) {
+  .family-legend-entries {
+    max-height: min(280px, 40vh);
+  }
+}
+
 /* Force-collapsed treatment (O5 #783): when another overlay holds focus on
    mobile and forceCollapsed=true, FamilyLegend sets data-force-collapsed="true"
    on the <aside>. This suppresses the entries list while keeping the toggle

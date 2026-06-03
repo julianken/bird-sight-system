@@ -395,6 +395,35 @@ describe('Phase 3: mobile-collapsed default', () => {
       'true',
     );
   });
+
+  // #853: on the 481–1023px 'roomy' band, App passes defaultExpanded=false
+  // (the <1024px collapse-default, #809). A stored .v2='true' preference still
+  // overrides that default and renders the entries expanded — this behaviour is
+  // intentional and must be preserved; the occlusion is bounded in CSS (a
+  // shorter scrollable entries max-height on the band, NOT a forced collapse).
+  // jsdom does not evaluate media queries, so the height cap itself is asserted
+  // by legend-roomy-band-cap.spec.ts; this case guards the component contract
+  // that the stored-expanded path keeps rendering entries on the band.
+  it('#853: stored .v2=true keeps entries expanded on the roomy band (defaultExpanded=false)', () => {
+    window.localStorage.setItem('family-legend-expanded.v2', 'true');
+    render(
+      <FamilyLegend
+        silhouettes={baseSilhouettes}
+        observations={baseObservations}
+        familyCode={null}
+        onFamilyToggle={vi.fn()}
+        defaultExpanded={false}
+      />,
+    );
+    // The stored preference wins over the roomy-band collapse-default: entries
+    // render, and the toggle reports expanded. The bounding cap is CSS-only and
+    // does NOT collapse the legend or mutate the stored preference.
+    expect(screen.getAllByTestId('family-legend-entry')).toHaveLength(3);
+    expect(
+      screen.getByRole('button', { name: /Bird families in view/i }),
+    ).toHaveAttribute('aria-expanded', 'true');
+    expect(window.localStorage.getItem('family-legend-expanded.v2')).toBe('true');
+  });
 });
 
 describe('Phase 3: shape-paired swatches', () => {
