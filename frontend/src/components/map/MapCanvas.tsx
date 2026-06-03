@@ -52,6 +52,7 @@ import { ObservationPopover } from './ObservationPopover.js';
 import { AdaptiveGridMarker } from './AdaptiveGridMarker.js';
 import { ClusterListPopover } from './ClusterListPopover.js';
 import { CellFetchClusterListPopover } from './CellFetchClusterListPopover.js';
+import { bboxFromLeaves } from '../../data/cell-species.js';
 import { ClusterPill } from '../ds/ClusterPill.js';
 import { isValidSvgPathData } from './silhouette-fallback.js';
 import {
@@ -731,6 +732,14 @@ export function MapCanvas({
     totalCount: number;
     uniqueFamilies: number;
     anchorEl: HTMLElement;
+    /**
+     * #859: union bbox of the cluster's member leaves. The ClusterPill
+     * aggregates a multi-cell supercluster; the low-zoom species fetch must
+     * cover this whole bbox, not the single centroid cell (which is
+     * empty/partial). `null` when leaves were unavailable (fetch falls back to
+     * the centroid cell).
+     */
+    bbox: [number, number, number, number] | null;
   } | null>(null);
   /**
    * Unified deconflict output (issue #554). One entry per overlap-component
@@ -2128,6 +2137,23 @@ export function MapCanvas({
         if (leaves.length === 0) return;
         const families = aggregateClusterFamilies(leaves);
         const speciesByFamily = aggregateClusterSpecies(leaves);
+        // #859: union bbox of the supercluster's member leaves, so the low-zoom
+        // species fetch covers EVERY member cell rather than the single
+        // (frequently empty) centroid cell. Defensive: skip leaves missing
+        // numeric Point coordinates (returns null → fetch falls back to the
+        // centroid cell rather than crashing).
+        const leafPoints: Array<{ lng: number; lat: number }> = [];
+        for (const l of leaves) {
+          const coords = l.geometry?.coordinates;
+          if (
+            Array.isArray(coords) &&
+            typeof coords[0] === 'number' &&
+            typeof coords[1] === 'number'
+          ) {
+            leafPoints.push({ lng: coords[0], lat: coords[1] });
+          }
+        }
+        const bbox = bboxFromLeaves(leafPoints);
         setClusterList({
           group,
           families,
@@ -2135,6 +2161,7 @@ export function MapCanvas({
           totalCount: group.anchor.point_count,
           uniqueFamilies: group.anchor.uniqueFamilies,
           anchorEl,
+          bbox,
         });
       } catch {
         // getClusterLeaves can reject for recycled cluster_ids — match the
@@ -2637,6 +2664,7 @@ export function MapCanvas({
               clusterList.group.anchor.latitude ?? 0,
             ]}
             gridZoom={Math.floor(mapZoom)}
+            {...(clusterList.bbox ? { bbox: clusterList.bbox } : {})}
             {...(since ? { since } : {})}
             {...(stateCode ? { stateCode } : {})}
             families={clusterList.families}

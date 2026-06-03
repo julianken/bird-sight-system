@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import {
+  bboxFromLeaves,
   cellBbox,
   dedupeBySpecies,
   gridMultiplierForZoom,
@@ -60,6 +61,47 @@ describe('cellBbox', () => {
   });
 });
 
+describe('bboxFromLeaves', () => {
+  const pt = (lng: number, lat: number) => ({ lng, lat });
+
+  it('returns the union bbox of the leaf coordinates, padded outward', () => {
+    // Three leaves spanning ~0.7° lng / ~0.65° lat — a multi-cell supercluster.
+    const bbox = bboxFromLeaves([pt(-90.2, 36.4), pt(-89.5, 37.05), pt(-89.9, 36.7)]);
+    expect(bbox).not.toBeNull();
+    const [w, s, e, n] = bbox!;
+    // Union (before padding) is [-90.2, 36.4, -89.5, 37.05]; padding only widens.
+    expect(w).toBeLessThanOrEqual(-90.2);
+    expect(s).toBeLessThanOrEqual(36.4);
+    expect(e).toBeGreaterThanOrEqual(-89.5);
+    expect(n).toBeGreaterThanOrEqual(37.05);
+    // …but the padding is small (a fraction of a degree), not cell-sized.
+    expect(w).toBeGreaterThan(-90.3);
+    expect(n).toBeLessThan(37.15);
+  });
+
+  it('a single leaf yields a small non-degenerate bbox around the point', () => {
+    const bbox = bboxFromLeaves([pt(-111, 34)]);
+    expect(bbox).not.toBeNull();
+    const [w, s, e, n] = bbox!;
+    expect(w).toBeLessThan(-111);
+    expect(e).toBeGreaterThan(-111);
+    expect(s).toBeLessThan(34);
+    expect(n).toBeGreaterThan(34);
+  });
+
+  it('returns null for an empty leaf list (caller falls back)', () => {
+    expect(bboxFromLeaves([])).toBeNull();
+  });
+
+  it('clamps a bbox that would exceed the area cap (lngSpan<=45, latSpan<=25)', () => {
+    const bbox = bboxFromLeaves([pt(-179, -80), pt(179, 80)]);
+    expect(bbox).not.toBeNull();
+    const [w, s, e, n] = bbox!;
+    expect(e - w).toBeLessThanOrEqual(45);
+    expect(n - s).toBeLessThanOrEqual(25);
+  });
+});
+
 describe('dedupeBySpecies', () => {
   // A real API `Observation` never carries a null speciesCode (the type forbids
   // it), so this defensive spuh/slash/hybrid branch is exercised by calling
@@ -106,6 +148,32 @@ describe('useCellSpecies', () => {
       zoom: 6,
       since: '7d',
       stateCode: 'US-AZ',
+    });
+  });
+
+  it('fetches an explicit bbox (supercluster path) INSTEAD of the centroid cell', async () => {
+    // Regression for #859: a multi-cell supercluster must fetch its union bbox,
+    // not the 0.125° cell at the centroid (which is empty/partial). The caller
+    // passes `bbox`; it must win over the center+gridZoom-derived cell bbox.
+    const clusterBbox: [number, number, number, number] = [-90.2, 36.4, -89.5, 37.05];
+    const getObservations = vi.fn().mockResolvedValue(observationsEnvelope([
+      obs('gadwal', 'Gadwall', 'anatidae'),
+    ]));
+    const client = makeClient({ getObservations } as unknown as Partial<ApiClient>);
+    renderHook(() =>
+      useCellSpecies(client, {
+        active: true,
+        center: [-89.88, 36.74], // centroid — its 0.125° cell would be empty
+        gridZoom: 4,
+        bbox: clusterBbox,
+        since: '14d',
+      }),
+    );
+    await waitFor(() => expect(getObservations).toHaveBeenCalledTimes(1));
+    expect(getObservations).toHaveBeenCalledWith({
+      bbox: clusterBbox,
+      zoom: 6,
+      since: '14d',
     });
   });
 

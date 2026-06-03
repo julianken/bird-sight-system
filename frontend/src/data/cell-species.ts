@@ -54,6 +54,72 @@ export function cellBbox(
   return [lng - half, lat - half, lng + half, lat + half];
 }
 
+/**
+ * Server-side area cap (`assertBboxAreaCap`, `services/read-api/src/validate.ts`):
+ * at `zoom >= 6` the bbox is rejected when `lngSpan > 45 || latSpan > 25`. The
+ * cluster-bbox path fetches at `zoom=6`, so a supercluster spanning more than
+ * this would 400. A real low-zoom supercluster is far under the cap, but we
+ * clamp defensively so a pathological cluster degrades to a (centered) capped
+ * fetch rather than crashing the popover with a 400.
+ */
+const MAX_LNG_SPAN = 45;
+const MAX_LAT_SPAN = 25;
+
+/**
+ * Padding (degrees) added on every side of the leaf union so observations that
+ * sit exactly on a cluster's edge leaf are included. Small relative to a
+ * multi-cell supercluster's own span; large enough to cover float roundtrip
+ * through the GeoJSON source.
+ */
+const LEAF_BBOX_PAD = 0.02;
+
+/**
+ * The union bbox `[west, south, east, north]` of a supercluster's member
+ * leaves (#859). The TOP-LEVEL ClusterPill / coarse-pointer cluster-list
+ * popover aggregates a MULTI-CELL supercluster: fetching the single 0.125°
+ * cell at its centroid (`cellBbox`) misses most/all of its observations and
+ * renders an empty/partial species list. This computes the actual union of the
+ * cluster's leaves so the `zoom=6` fetch covers every member bucket.
+ *
+ * - Returns `null` for an empty list (caller falls back to `cellBbox` / the
+ *   synthetic family list — never crashes).
+ * - Pads outward by {@link LEAF_BBOX_PAD} so edge leaves are included.
+ * - Clamps to the server area cap ({@link MAX_LNG_SPAN}/{@link MAX_LAT_SPAN})
+ *   about the union's center so a pathological cluster never produces a 400.
+ */
+export function bboxFromLeaves(
+  leaves: ReadonlyArray<{ lng: number; lat: number }>,
+): [number, number, number, number] | null {
+  if (leaves.length === 0) return null;
+  let west = Infinity;
+  let south = Infinity;
+  let east = -Infinity;
+  let north = -Infinity;
+  for (const { lng, lat } of leaves) {
+    if (lng < west) west = lng;
+    if (lng > east) east = lng;
+    if (lat < south) south = lat;
+    if (lat > north) north = lat;
+  }
+  west -= LEAF_BBOX_PAD;
+  east += LEAF_BBOX_PAD;
+  south -= LEAF_BBOX_PAD;
+  north += LEAF_BBOX_PAD;
+
+  // Clamp each span to the area cap about the union center.
+  if (east - west > MAX_LNG_SPAN) {
+    const cx = (west + east) / 2;
+    west = cx - MAX_LNG_SPAN / 2;
+    east = cx + MAX_LNG_SPAN / 2;
+  }
+  if (north - south > MAX_LAT_SPAN) {
+    const cy = (south + north) / 2;
+    south = cy - MAX_LAT_SPAN / 2;
+    north = cy + MAX_LAT_SPAN / 2;
+  }
+  return [west, south, east, north];
+}
+
 /** One real species row drilled out of a low-zoom cell. */
 export interface CellSpecies {
   /** Real eBird code, or `null` for spuh/slash/hybrid taxa. */
@@ -80,6 +146,16 @@ export interface UseCellSpeciesArgs {
   center: readonly [number, number];
   /** The integer map zoom the grid buckets were fetched at (drives the cell size). */
   gridZoom: number;
+  /**
+   * Explicit fetch bbox `[west, south, east, north]` that OVERRIDES the
+   * `cellBbox(center, gridZoom)` single-cell derivation (#859). The TOP-LEVEL
+   * supercluster popover (ClusterPill / coarse-pointer cluster-list) passes the
+   * union bbox of the cluster's member leaves ({@link bboxFromLeaves}) so the
+   * fetch covers EVERY member bucket — a multi-cell supercluster's centroid
+   * cell is empty/partial. The single-cell `<CellPopover>` (one grid bucket)
+   * omits this and keeps the correct center+gridZoom cell.
+   */
+  bbox?: [number, number, number, number];
   /** Active `since` filter, threaded so the cell fetch matches the current view. */
   since?: ObservationFilters['since'];
   /** Active state scope, threaded so the cell fetch stays within scope. */
@@ -135,7 +211,9 @@ export function useCellSpecies(
   const { active, center, gridZoom, since, stateCode, familyCode } = args;
   const [state, setState] = useState<CellSpeciesState>(INACTIVE);
 
-  const bbox = cellBbox(center, gridZoom);
+  // Supercluster path passes an explicit union bbox (covers every member cell);
+  // single-cell path falls back to the centroid cell derivation.
+  const bbox = args.bbox ?? cellBbox(center, gridZoom);
   // Serialize the bbox for a stable dep (array identity churns each render).
   const bboxKey = bbox.join(',');
 
