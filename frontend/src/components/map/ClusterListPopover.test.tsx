@@ -367,7 +367,7 @@ describe('<ClusterListPopover>', () => {
       ['accipitridae', [species('accipitridae', 5, 'agg-0-accipitridae-0')]],
     ]);
 
-    function renderWith(cellSpecies: Parameters<typeof ClusterListPopover>[0]['cellSpecies'], onSelect = vi.fn()) {
+    function renderWith(cellSpecies: NonNullable<Parameters<typeof ClusterListPopover>[0]['cellSpecies']>, onSelect = vi.fn()) {
       const anchor = makeAnchor();
       render(
         <ClusterListPopover
