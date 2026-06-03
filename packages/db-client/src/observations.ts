@@ -406,10 +406,26 @@ export async function getObservationsAggregated(
   //                family's rows in the cell, NOT just the capped list.
   //   families   — per bucket: families rolled up into one JSON array ordered
   //                by family count desc, family code asc.
-  // The final SELECT computes the bucket count/speciesCount over `base`
-  // (unfiltered — so NULL-family rows still count toward the totals), then
-  // LEFT JOINs the families rollup (which excludes NULL-family rows). A bucket
-  // whose only observations are NULL-family yields families = '[]'.
+  //   bucket_totals — per bucket: count(*) + count(DISTINCT species_code) over
+  //                `base` (unfiltered — so NULL-family rows still count toward
+  //                the totals), keyed ONLY on (lng_bucket, lat_bucket).
+  // The final SELECT LEFT JOINs the families rollup (which excludes NULL-family
+  // rows) onto bucket_totals. A bucket whose only observations are NULL-family
+  // yields families = '[]'.
+  //
+  // PERF (#862 — national-scale 503 RCA). The original #859 final SELECT
+  // computed the bucket totals by aggregating ALL of `base` while grouping by
+  // (lng_bucket, lat_bucket, f.families). Because `f.families` is a large jsonb
+  // blob, the planner pulled it into the GROUP BY sort key and DUPLICATED it
+  // across every one of the ~467k national `base` rows, forcing a multi-GB
+  // external-merge sort (measured 3.6 GB spill, ~147s — far past the 15s
+  // statement_timeout, so the national low-zoom request 503'd). Splitting the
+  // totals into `bucket_totals` (grouped on the two cheap float keys only, no
+  // jsonb in the sort key) and joining the prebuilt per-bucket jsonb afterward
+  // removes the giant sort entirely: national runtime drops from ~147s to
+  // ~2.3s at prod scale. The result is byte-identical — `f.families` was
+  // always functionally determined by the bucket key, so grouping by it never
+  // changed which rows came back, only the cost.
   const sql = `
     WITH base AS (
       SELECT
@@ -464,17 +480,25 @@ export async function getObservationsAggregated(
         ) AS families
       FROM per_family
       GROUP BY lng_bucket, lat_bucket
+    ),
+    bucket_totals AS (
+      SELECT
+        lng_bucket,
+        lat_bucket,
+        count(*)::int AS observation_count,
+        count(DISTINCT species_code)::int AS species_count
+      FROM base
+      GROUP BY lng_bucket, lat_bucket
     )
     SELECT
-      b.lng_bucket,
-      b.lat_bucket,
-      count(*)::int AS observation_count,
-      count(DISTINCT b.species_code)::int AS species_count,
+      t.lng_bucket,
+      t.lat_bucket,
+      t.observation_count,
+      t.species_count,
       COALESCE(f.families, '[]'::jsonb) AS families
-    FROM base b
+    FROM bucket_totals t
     LEFT JOIN families f
-      ON f.lng_bucket = b.lng_bucket AND f.lat_bucket = b.lat_bucket
-    GROUP BY b.lng_bucket, b.lat_bucket, f.families
+      ON f.lng_bucket = t.lng_bucket AND f.lat_bucket = t.lat_bucket
   `;
 
   const { rows } = await pool.query<{
