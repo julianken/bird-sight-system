@@ -659,7 +659,7 @@ describe('getObservationsAggregated (#627)', () => {
     ]);
   });
 
-  it('groups co-located observations into one bucket and counts species + families', async () => {
+  it('groups co-located observations into one bucket and nests species under families (#859)', async () => {
     const buckets = await getObservationsAggregated(db.pool, {}, 4);
     expect(buckets).toHaveLength(2);
 
@@ -674,11 +674,27 @@ describe('getObservationsAggregated (#627)', () => {
     expect(az.lng).toBeCloseTo(-111, 6);
     expect(az.count).toBe(2);
     expect(az.speciesCount).toBe(2);
-    expect(az.families.sort()).toEqual(['trochilidae', 'tyrannidae']);
+    // #859 — families is now a nested array of {code,count,speciesCount,species}.
+    const azFamCodes = az.families.map(f => f.code).sort();
+    expect(azFamCodes).toEqual(['trochilidae', 'tyrannidae']);
+    // Each family has exactly one species in this cell, count 1.
+    for (const fam of az.families) {
+      expect(fam.count).toBe(1);
+      expect(fam.speciesCount).toBe(1);
+      expect(fam.species).toHaveLength(1);
+      expect(fam.species[0]!.count).toBe(1);
+    }
+    const tyr = az.families.find(f => f.code === 'tyrannidae')!;
+    expect(tyr.species[0]!.code).toBe('vermfly');
+    const tro = az.families.find(f => f.code === 'trochilidae')!;
+    expect(tro.species[0]!.code).toBe('annhum');
 
     expect(ne.count).toBe(1);
     expect(ne.speciesCount).toBe(1);
-    expect(ne.families).toEqual(['tyrannidae']);
+    expect(ne.families).toHaveLength(1);
+    expect(ne.families[0]!.code).toBe('tyrannidae');
+    expect(ne.families[0]!.count).toBe(1);
+    expect(ne.families[0]!.species).toEqual([{ code: 'vermfly', count: 1 }]);
   });
 
   it('respects the bbox filter', async () => {
@@ -705,6 +721,154 @@ describe('getObservationsAggregated (#627)', () => {
     // is separate → 2 buckets total.
     const buckets = await getObservationsAggregated(db.pool, {}, 2);
     expect(buckets.length).toBe(2);
+  });
+});
+
+// #859 — per-family species nesting with the top-8 cap. The compute-on-write
+// re-architecture: each bucket carries the REAL species per family so the
+// frontend renders them directly (no synthetic rows, no lazy per-click fetch).
+// These tests exercise the cap, the per-family + per-bucket ordering, the
+// exact-totals-vs-capped-list distinction, and the NULL-family carve-out.
+describe('getObservationsAggregated species nesting (#859)', () => {
+  // A mega-family with >8 species (exercises the top-8 cap) plus a small
+  // family, all in ONE 0.25° cell. Per-species observation counts are
+  // deliberately skewed so "top-8 by count" has a single correct answer.
+  beforeAll(async () => {
+    // Seed species_meta for a 12-species mega-family + a 2-species family.
+    // mega-001..mega-012 in family 'megafam'; small-A/small-B in 'smallfam'.
+    const megaValues: string[] = [];
+    for (let i = 1; i <= 12; i++) {
+      const code = `mega-${String(i).padStart(3, '0')}`;
+      megaValues.push(`('${code}', 'Mega ${i}', 'Megus ${i}', 'megafam', 'Mega Family', ${40000 + i})`);
+    }
+    await db.pool.query(
+      `INSERT INTO species_meta (species_code, com_name, sci_name, family_code, family_name, taxon_order)
+       VALUES ${megaValues.join(',')},
+         ('small-A', 'Small A', 'Smallus a', 'smallfam', 'Small Family', 50001),
+         ('small-B', 'Small B', 'Smallus b', 'smallfam', 'Small Family', 50002)
+       ON CONFLICT (species_code) DO NOTHING`
+    );
+  });
+
+  beforeEach(async () => {
+    await db.pool.query('TRUNCATE observations');
+    // All rows in the SAME cell (lat ~31.72, lng ~-110.88). Per-species obs
+    // counts: mega-001 → 12 obs, mega-002 → 11, ... mega-012 → 1 (i.e. count =
+    // 13 - i). smallfam: small-A → 3 obs, small-B → 2 obs.
+    const rows: string[] = [];
+    for (let i = 1; i <= 12; i++) {
+      const code = `mega-${String(i).padStart(3, '0')}`;
+      const n = 13 - i; // mega-001 most common (12) … mega-012 least (1)
+      for (let k = 0; k < n; k++) {
+        rows.push(
+          `('S-${code}-${k}', '${code}', 31.72, -110.88, now(), 'L1', 'X', 1, false)`
+        );
+      }
+    }
+    for (let k = 0; k < 3; k++) rows.push(`('S-smA-${k}', 'small-A', 31.72, -110.88, now(), 'L1', 'X', 1, false)`);
+    for (let k = 0; k < 2; k++) rows.push(`('S-smB-${k}', 'small-B', 31.72, -110.88, now(), 'L1', 'X', 1, false)`);
+    await db.pool.query(
+      `INSERT INTO observations
+         (sub_id, species_code, lat, lng, obs_dt, loc_id, loc_name, how_many, is_notable)
+       VALUES ${rows.join(',')}`
+    );
+  });
+
+  it('caps species per family at top-8 by count, keeping speciesCount exact (>8)', async () => {
+    const buckets = await getObservationsAggregated(db.pool, {}, 4);
+    expect(buckets).toHaveLength(1);
+    const mega = buckets[0]!.families.find(f => f.code === 'megafam')!;
+
+    // EXACT family totals: 12 species, sum(1..12) = 78 observations.
+    expect(mega.speciesCount).toBe(12);
+    expect(mega.count).toBe(78);
+
+    // The species LIST is capped to 8 even though speciesCount is 12 — this is
+    // the load-bearing distinction that powers an honest "+4 more".
+    expect(mega.species).toHaveLength(8);
+    expect(mega.speciesCount).toBeGreaterThan(mega.species.length);
+  });
+
+  it('orders the per-family species by count desc, ties broken by code asc', async () => {
+    const buckets = await getObservationsAggregated(db.pool, {}, 4);
+    const mega = buckets[0]!.families.find(f => f.code === 'megafam')!;
+    // mega-001 (12 obs) … mega-008 (5 obs) are the top 8.
+    expect(mega.species).toEqual([
+      { code: 'mega-001', count: 12 },
+      { code: 'mega-002', count: 11 },
+      { code: 'mega-003', count: 10 },
+      { code: 'mega-004', count: 9 },
+      { code: 'mega-005', count: 8 },
+      { code: 'mega-006', count: 7 },
+      { code: 'mega-007', count: 6 },
+      { code: 'mega-008', count: 5 },
+    ]);
+  });
+
+  it('tie-breaks equal-count species by code asc deterministically', async () => {
+    // Two species with the SAME count in one cell: code asc decides order.
+    await db.pool.query('TRUNCATE observations');
+    await db.pool.query(
+      `INSERT INTO observations
+         (sub_id, species_code, lat, lng, obs_dt, loc_id, loc_name, how_many, is_notable)
+       VALUES
+         ('T-1', 'small-B', 31.72, -110.88, now(), 'L', 'X', 1, false),
+         ('T-2', 'small-A', 31.72, -110.88, now(), 'L', 'X', 1, false)`
+    );
+    const buckets = await getObservationsAggregated(db.pool, {}, 4);
+    const small = buckets[0]!.families.find(f => f.code === 'smallfam')!;
+    // Both count 1 → code asc → small-A before small-B.
+    expect(small.species).toEqual([
+      { code: 'small-A', count: 1 },
+      { code: 'small-B', count: 1 },
+    ]);
+  });
+
+  it('orders families by family count desc (ties by code asc)', async () => {
+    const buckets = await getObservationsAggregated(db.pool, {}, 4);
+    const fams = buckets[0]!.families;
+    // megafam (78 obs) before smallfam (5 obs).
+    expect(fams.map(f => f.code)).toEqual(['megafam', 'smallfam']);
+  });
+
+  it('excludes NULL-family species from families[] but still counts them in bucket totals', async () => {
+    // Add observations for a species with NO species_meta row (family unknown)
+    // in the same cell. Per the array_remove(...,NULL) precedent: the unknown-
+    // family species must NOT appear in families[], but its observations MUST
+    // still land in the bucket count/speciesCount totals.
+    await db.pool.query('TRUNCATE observations');
+    await db.pool.query(
+      `INSERT INTO observations
+         (sub_id, species_code, lat, lng, obs_dt, loc_id, loc_name, how_many, is_notable)
+       VALUES
+         ('K-1', 'small-A', 31.72, -110.88, now(), 'L', 'X', 1, false),
+         ('U-1', 'orphan-x', 31.72, -110.88, now(), 'L', 'X', 1, false),
+         ('U-2', 'orphan-x', 31.72, -110.88, now(), 'L', 'X', 1, false)`
+    );
+    const buckets = await getObservationsAggregated(db.pool, {}, 4);
+    expect(buckets).toHaveLength(1);
+    const b = buckets[0]!;
+
+    // Bucket totals count ALL rows (3 obs, 2 distinct species).
+    expect(b.count).toBe(3);
+    expect(b.speciesCount).toBe(2);
+
+    // families[] excludes the unknown-family species entirely — only smallfam.
+    expect(b.families.map(f => f.code)).toEqual(['smallfam']);
+    const small = b.families[0]!;
+    expect(small.count).toBe(1);
+    expect(small.speciesCount).toBe(1);
+    expect(small.species).toEqual([{ code: 'small-A', count: 1 }]);
+  });
+
+  it('still applies the bbox filter under the nested shape', async () => {
+    // A bbox that excludes the seeded cell returns nothing.
+    const out = await getObservationsAggregated(db.pool, { bbox: [-80, 25, -79, 26] }, 4);
+    expect(out).toEqual([]);
+    // A bbox that includes it returns the single cell with the nested families.
+    const inb = await getObservationsAggregated(db.pool, { bbox: [-112, 31, -110, 32] }, 4);
+    expect(inb).toHaveLength(1);
+    expect(inb[0]!.families.find(f => f.code === 'megafam')).toBeDefined();
   });
 });
 
