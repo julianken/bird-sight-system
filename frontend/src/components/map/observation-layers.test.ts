@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { FamilySilhouette, Observation } from '@bird-watch/shared-types';
 import {
   observationsToGeoJson,
+  bucketsToGeoJson,
   buildClusterLayerSpec,
   buildClusterCountLayerSpec,
   buildClustersHitLayerSpec,
@@ -311,6 +312,60 @@ describe('layer specs', () => {
     expect(typeof paint['circle-radius']).toBe('number');
   });
 
+});
+
+describe('bucketsToGeoJson (#859)', () => {
+  function bucket(partial: Partial<import('@bird-watch/shared-types').AggregatedBucket> = {}) {
+    return {
+      lat: partial.lat ?? 31.7,
+      lng: partial.lng ?? -110.9,
+      count: partial.count ?? 5,
+      speciesCount: partial.speciesCount ?? 2,
+      families: partial.families ?? [
+        { code: 'tyrannidae', count: 3, speciesCount: 1, species: [{ code: 'vermfly', count: 3 }] },
+        { code: 'cardinalidae', count: 2, speciesCount: 1, species: [{ code: 'norcar', count: 2 }] },
+      ],
+    };
+  }
+
+  it('emits one feature per bucket, geometry [lng,lat], carrying real count + speciesCount + serialized families', () => {
+    const fc = bucketsToGeoJson([bucket(), bucket({ lat: 40, lng: -100, count: 9 })], []);
+    expect(fc.type).toBe('FeatureCollection');
+    expect(fc.features).toHaveLength(2);
+    const f0 = fc.features[0];
+    expect(f0.geometry.coordinates).toEqual([-110.9, 31.7]);
+    expect(f0.properties.count).toBe(5);
+    expect(f0.properties.speciesCount).toBe(2);
+    // families round-trip as JSON (maplibre cluster leaves only carry scalars
+    // + strings on properties, so the families array is serialized).
+    const fams = JSON.parse(f0.properties.familiesJson);
+    expect(fams[0].code).toBe('tyrannidae');
+    expect(fams[0].species[0].code).toBe('vermfly');
+  });
+
+  it('tags each feature with its DOMINANT family code (first = highest count) for the marker silhouette', () => {
+    const sils = [makeSilhouette({ familyCode: 'tyrannidae', color: '#c3772d', svgData: 'M0 0L1 1' })];
+    const fc = bucketsToGeoJson([bucket()], sils);
+    const props = fc.features[0].properties;
+    // Dominant family (tyrannidae, count 3) drives silhouetteId + color.
+    expect(props.familyCode).toBe('tyrannidae');
+    expect(props.silhouetteId).toBe('tyrannidae');
+    expect(props.color).toBe('#c3772d');
+  });
+
+  it('falls back to _FALLBACK + fallback color when the dominant family has no usable silhouette', () => {
+    const fc = bucketsToGeoJson([bucket()], []);
+    expect(fc.features[0].properties.silhouetteId).toBe(FALLBACK_SILHOUETTE_ID);
+    expect(fc.features[0].properties.color).toBe(FAMILY_COLOR_FALLBACK);
+  });
+
+  it('handles a bucket whose families array is empty (no dominant family)', () => {
+    const fc = bucketsToGeoJson([bucket({ families: [] })], []);
+    const props = fc.features[0].properties;
+    expect(props.familyCode).toBeNull();
+    expect(props.silhouetteId).toBe(FALLBACK_SILHOUETTE_ID);
+    expect(JSON.parse(props.familiesJson)).toEqual([]);
+  });
 });
 
 describe('cluster defaults', () => {

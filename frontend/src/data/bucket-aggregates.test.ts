@@ -6,6 +6,7 @@ import {
   familyCountsFromBuckets,
   deriveFamiliesFromBuckets,
   totalCountFromBuckets,
+  mergeLeafBuckets,
   TOP_SPECIES_PER_FAMILY,
 } from './bucket-aggregates.js';
 
@@ -130,5 +131,47 @@ describe('familyCountsFromBuckets / deriveFamiliesFromBuckets', () => {
 
   it('totalCountFromBuckets sums the exact bucket totals', () => {
     expect(totalCountFromBuckets(buckets)).toBe(15);
+  });
+});
+
+describe('mergeLeafBuckets (cluster of bucket-features → popover data)', () => {
+  // Each "leaf" is a maplibre cluster leaf carrying its bucket's families[]
+  // serialized in `properties.familiesJson` (as bucketsToGeoJson emits).
+  function leaf(families: AggregatedFamily[]) {
+    return { properties: { familiesJson: JSON.stringify(families) } };
+  }
+
+  it('merges member-bucket families, resolves names, and emits families + speciesByFamily + overflow', () => {
+    const leaves = [
+      leaf([fam('tyrannidae', 5, 2, [{ code: 'vermfly', count: 5 }])]),
+      leaf([
+        fam('tyrannidae', 4, 1, [{ code: 'wesfly', count: 4 }]),
+        fam('cardinalidae', 3, 1, [{ code: 'norcar', count: 3 }]),
+      ]),
+    ];
+    const merged = mergeLeafBuckets(leaves, dict);
+
+    // families: ordered by summed count desc — tyrannidae (9) then cardinalidae (3).
+    expect(merged.families.map(f => f.familyCode)).toEqual(['tyrannidae', 'cardinalidae']);
+    expect(merged.families[0]!.count).toBe(9);
+
+    // speciesByFamily: REAL resolved names, working codes.
+    const tyr = merged.speciesByFamily.get('tyrannidae')!;
+    expect(tyr.map(s => s.comName)).toEqual(['Vermilion Flycatcher', 'Western Flycatcher']);
+    expect(tyr[0]!.speciesCode).toBe('vermfly');
+
+    // overflowByFamily: tyrannidae speciesCount 2+1=3, shown 2 → overflow 1.
+    expect(merged.overflowByFamily.get('tyrannidae')).toBe(1);
+  });
+
+  it('tolerates a leaf with malformed/absent familiesJson (never throws)', () => {
+    const leaves = [
+      { properties: { familiesJson: '[' } },     // malformed
+      { properties: {} },                         // missing
+      leaf([fam('tyrannidae', 2, 1, [{ code: 'vermfly', count: 2 }])]),
+    ];
+    const merged = mergeLeafBuckets(leaves, dict);
+    expect(merged.families.map(f => f.familyCode)).toEqual(['tyrannidae']);
+    expect(merged.families[0]!.count).toBe(2);
   });
 });

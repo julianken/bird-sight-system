@@ -1,5 +1,5 @@
 import type { AggregatedBucket, AggregatedFamily } from '@bird-watch/shared-types';
-import type { SpeciesAggregate } from '../components/map/adaptive-grid.js';
+import type { FamilyAggregate, SpeciesAggregate } from '../components/map/adaptive-grid.js';
 import type { SpeciesDictionary } from './use-species-dictionary.js';
 import type { FamilyOption } from '../components/FiltersBar.js';
 import { prettyFamily } from '../derived.js';
@@ -132,4 +132,64 @@ export function totalCountFromBuckets(buckets: ReadonlyArray<AggregatedBucket>):
   let total = 0;
   for (const b of buckets) total += b.count;
   return total;
+}
+
+/** A maplibre cluster leaf — only its serialized bucket families are read. */
+interface LeafWithFamilies {
+  properties?: { familiesJson?: unknown } | null;
+}
+
+/** Resolved data a cluster popover (`ClusterListPopover`) consumes. */
+export interface MergedLeafBuckets {
+  /** Families ordered by summed observation count desc (FamilyAggregate shape). */
+  families: FamilyAggregate[];
+  /** Resolved species rows per family code (real names, working codes). */
+  speciesByFamily: ReadonlyMap<string, ReadonlyArray<SpeciesAggregate>>;
+  /** Distinct species beyond the shown rows, per family code — drives "+N more". */
+  overflowByFamily: ReadonlyMap<string, number>;
+}
+
+/**
+ * Merge the member buckets of a maplibre cluster (read via `getClusterLeaves`)
+ * into the data a `ClusterListPopover` renders. Each leaf carries its bucket's
+ * families serialized in `properties.familiesJson` (per `bucketsToGeoJson`);
+ * this parses them (tolerating malformed/absent JSON), merges via
+ * `mergeBucketFamilies`, and resolves species codes to display rows.
+ *
+ * The merge is client-side because maplibre clustering only sums scalar
+ * `clusterProperties` — it cannot merge the per-family species arrays. The
+ * approximate-across-cells `speciesCount` (see `mergeBucketFamilies`) is fine
+ * here: it only sizes the "+N more" hint.
+ */
+export function mergeLeafBuckets(
+  leaves: ReadonlyArray<LeafWithFamilies>,
+  dictionary: SpeciesDictionary,
+): MergedLeafBuckets {
+  const bucketFamilies: AggregatedFamily[][] = [];
+  for (const leaf of leaves) {
+    const raw = leaf.properties?.familiesJson;
+    if (typeof raw !== 'string') continue;
+    try {
+      const parsed = JSON.parse(raw) as AggregatedFamily[];
+      if (Array.isArray(parsed)) bucketFamilies.push(parsed);
+    } catch {
+      // Malformed leaf — skip it rather than crash the whole popover.
+    }
+  }
+
+  const merged = mergeBucketFamilies(bucketFamilies);
+  const families: FamilyAggregate[] = merged.map(f => ({ familyCode: f.code, count: f.count }));
+  const speciesByFamily = new Map<string, ReadonlyArray<SpeciesAggregate>>();
+  const overflowByFamily = new Map<string, number>();
+  for (const f of merged) {
+    const rows = resolveSpeciesRows(f, dictionary);
+    speciesByFamily.set(f.code, rows);
+    // Overflow = exact distinct species minus the rows actually shown. `f.species`
+    // is already capped to the top-N; `rows.length` is what the popover renders.
+    // (The merged `speciesCount` is an across-cell approximation per #859 — it
+    // only sizes this hint.) Clamp at 0 so a single-cell-undercount can't go
+    // negative.
+    overflowByFamily.set(f.code, Math.max(0, f.speciesCount - rows.length));
+  }
+  return { families, speciesByFamily, overflowByFamily };
 }
