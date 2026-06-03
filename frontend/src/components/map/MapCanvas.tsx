@@ -1823,7 +1823,16 @@ export function MapCanvas({
                 return { kind: 'pill', uniqueFamilies };
               }
               const tiles = merged
-                ? tilesFromAggregates(aggregates, merged.speciesByFamily, silhouettesById, shape)
+                ? tilesFromAggregates(
+                    aggregates,
+                    merged.speciesByFamily,
+                    silhouettesById,
+                    shape,
+                    // #859: thread each family's true distinct-species count so
+                    // the per-family <CellPopover> "+N more" mirrors the
+                    // cluster-list path's active drill-in.
+                    merged.speciesCountByFamily,
+                  )
                 : buildAdaptiveTiles(leaves, silhouettesById, shape);
               // F7 option (a): only mark the marker isNotable when the
               // cluster is strictly 1×1 with a single notable observation.
@@ -2652,6 +2661,15 @@ export function MapCanvas({
                 {...(onSelectSpecies ? {
                   onSelectSpecies: (code: string) => onSelectSpecies(code),
                 } : {})}
+                {...(anchor.longitude !== undefined && anchor.latitude !== undefined
+                  ? {
+                      // #859: the per-family <CellPopover> "+N more" eases the
+                      // camera into this marker's cell center — the SAME active
+                      // drill-in the cluster-list path uses. The marker decides
+                      // (via tile.speciesCount) whether to actually offer it.
+                      onDrillIn: () => handleDrillInToCenter([longitude, latitude]),
+                    }
+                  : {})}
               />
             </PresentationMarker>
           );

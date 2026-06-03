@@ -147,14 +147,22 @@ export type SilhouettesById = ReadonlyMap<
  * `species` is the per-species breakdown for this family in the cluster,
  * threaded onto every variant for Phase 1+ popovers (issue #557, spec §4.1).
  * Sum invariant: `sum(species[].count) === count`.
+ *
+ * `speciesCount` (#859) is the family's TRUE distinct-species count — the
+ * aggregated bucket's `family.speciesCount`, which can EXCEED `species.length`
+ * because `species` is capped to the backend's top-N per family. The per-family
+ * `<CellPopover>` reads it to size the "+N more" overflow and decide whether to
+ * offer the active drill-in. Optional: the per-observation path can't know a
+ * true distinct count beyond the leaves it merged, so it omits the field and
+ * the popover falls back to the rendered-row remainder.
  */
 export type AdaptiveTile =
   | { kind: 'rendered'; familyCode: string; svgData: string; color: string; colorDark: string;
-      count: number; species: ReadonlyArray<SpeciesAggregate> }
+      count: number; species: ReadonlyArray<SpeciesAggregate>; speciesCount?: number }
   | { kind: 'fallback'; familyCode: string; color: string; colorDark: string;
-      count: number; species: ReadonlyArray<SpeciesAggregate> }
+      count: number; species: ReadonlyArray<SpeciesAggregate>; speciesCount?: number }
   | { kind: 'pending'; familyCode: string;
-      count: number; species: ReadonlyArray<SpeciesAggregate> };
+      count: number; species: ReadonlyArray<SpeciesAggregate>; speciesCount?: number };
 
 /**
  * Reduce the leaves of a single cluster into a sorted
@@ -221,18 +229,29 @@ export function buildAdaptiveTiles(
  * `FamilyAggregate[]` + resolved `speciesByFamily` here directly. The
  * resolution-to-tiles logic (cap, silhouette lookup, rendered/fallback/pending)
  * is identical to `buildAdaptiveTiles` — both share this core.
+ *
+ * `speciesCountByFamily` (#859) carries each family's TRUE distinct-species
+ * count (the bucket's `family.speciesCount`), threaded onto each tile as
+ * `speciesCount` so the per-family `<CellPopover>` can size its "+N more"
+ * active drill-in against reality, not the capped row count. Omitted on the
+ * per-observation path (`buildAdaptiveTiles`), where no true count exists.
  */
 export function tilesFromAggregates(
   families: ReadonlyArray<FamilyAggregate>,
   speciesByFamily: ReadonlyMap<string, ReadonlyArray<SpeciesAggregate>>,
   silhouettesById: SilhouettesById,
   shape: ResolvedGrid,
+  speciesCountByFamily?: ReadonlyMap<string, number>,
 ): ReadonlyArray<AdaptiveTile> {
   const visible = families.slice(0, visibleCapacity(shape));
   return visible.map((fam): AdaptiveTile => {
     const species = speciesByFamily.get(fam.familyCode) ?? [];
+    const speciesCount = speciesCountByFamily?.get(fam.familyCode);
+    // Only attach `speciesCount` when the caller supplied one — leaving it
+    // `undefined` keeps the per-observation tiles on the legacy footer path.
+    const countField = speciesCount === undefined ? {} : { speciesCount };
     if (silhouettesById.size === 0) {
-      return { kind: 'pending', familyCode: fam.familyCode, count: fam.count, species };
+      return { kind: 'pending', familyCode: fam.familyCode, count: fam.count, species, ...countField };
     }
     const silhouette = silhouettesById.get(fam.familyCode);
     if (!silhouette || silhouette.svgData === null) {
@@ -245,6 +264,7 @@ export function tilesFromAggregates(
         colorDark: fallbackColorDark,
         count: fam.count,
         species,
+        ...countField,
       };
     }
     return {
@@ -255,6 +275,7 @@ export function tilesFromAggregates(
       colorDark: silhouette.colorDark,
       count: fam.count,
       species,
+      ...countField,
     };
   });
 }

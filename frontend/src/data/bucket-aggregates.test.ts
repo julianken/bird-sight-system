@@ -162,6 +162,12 @@ describe('mergeLeafBuckets (cluster of bucket-features → popover data)', () =>
 
     // overflowByFamily: tyrannidae speciesCount 2+1=3, shown 2 → overflow 1.
     expect(merged.overflowByFamily.get('tyrannidae')).toBe(1);
+
+    // speciesCountByFamily: the merged TRUE distinct-species count per family,
+    // threaded onto tiles so the per-family CellPopover sizes its "+N more"
+    // (#859). tyrannidae 2+1=3; cardinalidae 1.
+    expect(merged.speciesCountByFamily.get('tyrannidae')).toBe(3);
+    expect(merged.speciesCountByFamily.get('cardinalidae')).toBe(1);
   });
 
   it('tolerates a leaf with malformed/absent familiesJson (never throws)', () => {

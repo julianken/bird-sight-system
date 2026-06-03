@@ -91,6 +91,16 @@ export interface AdaptiveGridMarkerProps {
   /** Phase 1 (#558): forwarded from per-cell popover row clicks. */
   onSelectSpecies?: (speciesCode: string) => void;
   /**
+   * #859: invoked when the user activates a per-family `<CellPopover>` "+N more"
+   * drill-in. The caller eases the camera into this marker's cell so the top-N
+   * per-family cap no longer applies (the same active drill-in the cluster-list
+   * path uses). Absent ⇒ the per-family "+N more" stays inert footer text.
+   * A single callback suffices: every cell in one marker shares the marker's
+   * geographic center, so the drill target is identical regardless of which
+   * family's "+N more" was clicked.
+   */
+  onDrillIn?: () => void;
+  /**
    * #761 O6 (#782): true when a detail overlay (SpeciesDetailRail / Sheet)
    * holds focus (App-level `state.detail` under an active scope). When true,
    * the passive `<CellHoverPreview>` mount is SUPPRESSED so a hover tooltip
@@ -111,6 +121,34 @@ const HIT_MIN_FINE = 44;
 const HIT_MIN_COARSE = 48;
 
 const NOTABLE_AMBER = '#f59e0b';
+
+/**
+ * Rows `<CellPopover>` shows per family — mirrors its private `POPOVER_CAP`
+ * (and the backend's `TOP_SPECIES_PER_FAMILY`). Used here to size the active
+ * "+N more" overflow from the tile's TRUE distinct-species count.
+ */
+const CELL_POPOVER_CAP = 8;
+
+/**
+ * #859: derive the per-family `<CellPopover>` drill-in props from a tile.
+ *
+ * When the aggregated path threaded a true `speciesCount` onto the tile AND it
+ * exceeds the rows the popover renders, we pass an EXACT `overflowCount` plus
+ * `onDrillIn` so the "+N more" becomes an active control that eases the camera
+ * into this cell — matching the cluster-list path. When `speciesCount` is
+ * absent (per-observation path) or there's no overflow, we pass nothing and the
+ * popover keeps its legacy static footer.
+ */
+function cellPopoverDrillProps(
+  tile: AdaptiveTile,
+  onDrillIn: (() => void) | undefined,
+): { overflowCount?: number; onDrillIn?: () => void } {
+  if (tile.speciesCount === undefined || typeof onDrillIn !== 'function') return {};
+  const shown = Math.min(tile.species.length, CELL_POPOVER_CAP);
+  const overflowCount = Math.max(0, tile.speciesCount - shown);
+  if (overflowCount === 0) return {};
+  return { overflowCount, onDrillIn };
+}
 
 /**
  * Minimum possible rendered marker width/height, used by the deconflict
@@ -142,6 +180,7 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
     isNotable,
     onClick,
     onSelectSpecies,
+    onDrillIn,
     detailOpen = false,
   } = props;
 
@@ -389,6 +428,7 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
                   onSelectSpecies(code);
                 }
               }}
+              {...cellPopoverDrillProps(activeTile, onDrillIn)}
             />
           ) : null
         )

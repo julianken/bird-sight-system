@@ -147,6 +147,14 @@ export interface MergedLeafBuckets {
   speciesByFamily: ReadonlyMap<string, ReadonlyArray<SpeciesAggregate>>;
   /** Distinct species beyond the shown rows, per family code — drives "+N more". */
   overflowByFamily: ReadonlyMap<string, number>;
+  /**
+   * #859: each family's TRUE distinct-species count (the merged
+   * `family.speciesCount`), keyed by family code. Threaded into
+   * `tilesFromAggregates` so the per-family `<CellPopover>` sizes its "+N more"
+   * active drill-in against reality, not the capped row count. (Across-cell
+   * approximate per `mergeBucketFamilies` — fine for an overflow hint.)
+   */
+  speciesCountByFamily: ReadonlyMap<string, number>;
 }
 
 /**
@@ -181,9 +189,14 @@ export function mergeLeafBuckets(
   const families: FamilyAggregate[] = merged.map(f => ({ familyCode: f.code, count: f.count }));
   const speciesByFamily = new Map<string, ReadonlyArray<SpeciesAggregate>>();
   const overflowByFamily = new Map<string, number>();
+  const speciesCountByFamily = new Map<string, number>();
   for (const f of merged) {
     const rows = resolveSpeciesRows(f, dictionary);
     speciesByFamily.set(f.code, rows);
+    // The family's TRUE distinct-species count (across-cell approximate per
+    // `mergeBucketFamilies`). Threaded onto tiles so the per-family popover can
+    // size its "+N more" the same way the cluster-list path does.
+    speciesCountByFamily.set(f.code, f.speciesCount);
     // Overflow = exact distinct species minus the rows actually shown. `f.species`
     // is already capped to the top-N; `rows.length` is what the popover renders.
     // (The merged `speciesCount` is an across-cell approximation per #859 — it
@@ -191,5 +204,5 @@ export function mergeLeafBuckets(
     // negative.
     overflowByFamily.set(f.code, Math.max(0, f.speciesCount - rows.length));
   }
-  return { families, speciesByFamily, overflowByFamily };
+  return { families, speciesByFamily, overflowByFamily, speciesCountByFamily };
 }

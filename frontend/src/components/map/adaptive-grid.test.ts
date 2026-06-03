@@ -356,6 +356,35 @@ describe('tilesFromAggregates (#859 — bucket-mode tile builder)', () => {
     expect(tiles).toHaveLength(4); // 2x2 capacity
     expect(tiles.every(t => t.kind === 'pending')).toBe(true);
   });
+
+  it('threads the per-family true speciesCount onto each tile when supplied (#859)', () => {
+    const families: FamilyAggregate[] = [
+      { familyCode: 'tyrannidae', count: 9 },
+      { familyCode: 'cardinalidae', count: 4 },
+    ];
+    const speciesByFamily = new Map<string, ReadonlyArray<SpeciesAggregate>>([
+      ['tyrannidae', [{ comName: 'Vermilion Flycatcher', speciesCode: 'vermfly', count: 9 }]],
+      ['cardinalidae', [{ comName: 'Northern Cardinal', speciesCode: 'norcar', count: 4 }]],
+    ]);
+    const speciesCountByFamily = new Map<string, number>([
+      ['tyrannidae', 14], // true distinct count exceeds the single shown row
+      ['cardinalidae', 4],
+    ]);
+    const tiles = tilesFromAggregates(
+      families, speciesByFamily, CAT, SHAPE_2x2, speciesCountByFamily,
+    );
+    expect(tiles[0]?.speciesCount).toBe(14);
+    expect(tiles[1]?.speciesCount).toBe(4);
+  });
+
+  it('omits speciesCount on the tile when no count map is supplied (per-observation path stays legacy)', () => {
+    const families: FamilyAggregate[] = [{ familyCode: 'tyrannidae', count: 9 }];
+    const speciesByFamily = new Map<string, ReadonlyArray<SpeciesAggregate>>([
+      ['tyrannidae', [{ comName: 'Vermilion Flycatcher', speciesCode: 'vermfly', count: 9 }]],
+    ]);
+    const tiles = tilesFromAggregates(families, speciesByFamily, CAT, SHAPE_2x2);
+    expect(tiles[0]?.speciesCount).toBeUndefined();
+  });
 });
 
 // Test fixture helper — local to aggregateClusterSpecies describe block.
