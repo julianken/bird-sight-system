@@ -3,11 +3,13 @@ import {
   aggregateClusterFamilies,
   aggregateClusterSpecies,
   buildAdaptiveTiles,
+  tilesFromAggregates,
   pickGridShape,
   toPositiveInt,
   visibleCapacity,
   type AdaptiveTile,
   type ClusterLeafFeature,
+  type FamilyAggregate,
   type ResolvedGrid,
   type SilhouettesById,
   type SpeciesAggregate,
@@ -317,6 +319,42 @@ describe('buildAdaptiveTiles', () => {
     // Count invariant
     expect(tiles[0]?.count).toBe(3);
     expect(tiles[0]?.species.reduce((s, x) => s + x.count, 0)).toBe(tiles[0]?.count);
+  });
+});
+
+describe('tilesFromAggregates (#859 — bucket-mode tile builder)', () => {
+  const CAT: SilhouettesById = new Map([
+    ['tyrannidae', { svgData: 'M0 0Z', color: '#c3772d', colorDark: '#c3772d' }],
+    ['cardinalidae', { svgData: null, color: '#b5202a', colorDark: '#b5202a' }],
+  ]);
+
+  it('builds tiles directly from pre-merged family aggregates + species map (no leaf re-count)', () => {
+    const families: FamilyAggregate[] = [
+      { familyCode: 'tyrannidae', count: 9 },
+      { familyCode: 'cardinalidae', count: 4 },
+    ];
+    const speciesByFamily = new Map<string, ReadonlyArray<SpeciesAggregate>>([
+      ['tyrannidae', [{ comName: 'Vermilion Flycatcher', speciesCode: 'vermfly', count: 9 }]],
+      ['cardinalidae', [{ comName: 'Northern Cardinal', speciesCode: 'norcar', count: 4 }]],
+    ]);
+    const tiles = tilesFromAggregates(families, speciesByFamily, CAT, SHAPE_2x2);
+    // Counts come straight from the aggregates — NOT a per-leaf recount.
+    expect(tiles.map(t => t.count)).toEqual([9, 4]);
+    expect(tiles[0]?.familyCode).toBe('tyrannidae');
+    expect(tiles[0]?.kind).toBe('rendered');
+    // svgData null → fallback (family-color preserved).
+    expect(tiles[1]?.kind).toBe('fallback');
+    // Real resolved species threaded onto the tile.
+    expect(tiles[0]?.species[0]?.comName).toBe('Vermilion Flycatcher');
+  });
+
+  it('caps to visibleCapacity(shape) and empty catalogue yields pending tiles', () => {
+    const families: FamilyAggregate[] = Array.from({ length: 6 }, (_, i) => ({
+      familyCode: `fam-${i}`, count: 6 - i,
+    }));
+    const tiles = tilesFromAggregates(families, new Map(), new Map(), SHAPE_2x2);
+    expect(tiles).toHaveLength(4); // 2x2 capacity
+    expect(tiles.every(t => t.kind === 'pending')).toBe(true);
   });
 });
 

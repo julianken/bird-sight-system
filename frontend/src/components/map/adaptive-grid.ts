@@ -209,6 +209,25 @@ export function buildAdaptiveTiles(
 ): ReadonlyArray<AdaptiveTile> {
   const families = aggregateClusterFamilies(leaves);
   const speciesByFamily = aggregateClusterSpecies(leaves);
+  return tilesFromAggregates(families, speciesByFamily, silhouettesById, shape);
+}
+
+/**
+ * Tile builder from PRE-AGGREGATED families + species (#859 — aggregated
+ * bucket mode). At low zoom each cluster leaf is a whole BUCKET carrying many
+ * families with real per-family counts, so the per-leaf `aggregateClusterFamilies`
+ * recount (one leaf = one observation) is wrong. The bucket path merges the
+ * member buckets first (`mergeLeafBuckets`) and passes the resulting exact
+ * `FamilyAggregate[]` + resolved `speciesByFamily` here directly. The
+ * resolution-to-tiles logic (cap, silhouette lookup, rendered/fallback/pending)
+ * is identical to `buildAdaptiveTiles` — both share this core.
+ */
+export function tilesFromAggregates(
+  families: ReadonlyArray<FamilyAggregate>,
+  speciesByFamily: ReadonlyMap<string, ReadonlyArray<SpeciesAggregate>>,
+  silhouettesById: SilhouettesById,
+  shape: ResolvedGrid,
+): ReadonlyArray<AdaptiveTile> {
   const visible = families.slice(0, visibleCapacity(shape));
   return visible.map((fam): AdaptiveTile => {
     const species = speciesByFamily.get(fam.familyCode) ?? [];
