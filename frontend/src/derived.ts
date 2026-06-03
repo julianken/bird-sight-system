@@ -64,5 +64,8 @@ export function deriveSpeciesIndex(observations: Observation[]): SpeciesOption[]
 // map codes like "Tyrannidae" → "Tyrant Flycatchers". A future enhancement
 // could add a static map if the display name matters more than simplicity.
 export function prettyFamily(code: string): string {
+  // Defensive: a missing/empty code (malformed data, a stale-shape bucket) must
+  // not crash a render. Return '' rather than throwing on `undefined`/empty.
+  if (!code) return '';
   return code.charAt(0).toUpperCase() + code.slice(1);
 }

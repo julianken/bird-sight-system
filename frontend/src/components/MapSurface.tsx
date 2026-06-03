@@ -3,7 +3,8 @@ import type { LngLatBounds } from 'maplibre-gl';
 // GeoJSON `MultiPolygon` comes from `geojson` (@types/geojson), NOT maplibre-gl
 // (5.x does not re-export it). `import type`, erased at build — see mask.ts.
 import type { MultiPolygon } from 'geojson';
-import type { FamilySilhouette, Observation } from '@bird-watch/shared-types';
+import type { AggregatedBucket, FamilySilhouette, Observation } from '@bird-watch/shared-types';
+import type { SpeciesDictionary } from '../data/use-species-dictionary.js';
 import { ErrorBoundary } from './ErrorBoundary.js';
 
 /**
@@ -19,6 +20,12 @@ const MapCanvas = React.lazy(() =>
 
 export interface MapSurfaceProps {
   observations: Observation[];
+  /** #859: aggregated low-zoom buckets; forwarded VERBATIM to MapCanvas. */
+  buckets?: AggregatedBucket[];
+  /** #859: render path ('aggregated' z<6 / 'observations' z>=6). */
+  mode?: 'observations' | 'aggregated';
+  /** #859: code→{comName} dictionary for resolving bucket species names. */
+  dictionary?: SpeciesDictionary;
   /** Provided by App.tsx via useSilhouettes — single mount per #246.
    *  Forwarded verbatim to MapCanvas for the SDF sprite/symbol layer. */
   silhouettes: FamilySilhouette[];
@@ -95,6 +102,9 @@ export interface MapSurfaceProps {
  */
 export function MapSurface({
   observations,
+  buckets,
+  mode,
+  dictionary,
   silhouettes,
   onSelectSpecies,
   onViewportChange,
@@ -158,6 +168,9 @@ export function MapSurface({
         >
           <MapCanvas
             observations={observations}
+            {...(buckets ? { buckets } : {})}
+            {...(mode ? { mode } : {})}
+            {...(dictionary ? { dictionary } : {})}
             silhouettes={silhouettes}
             {...(onSelectSpecies ? { onSelectSpecies } : {})}
             {...(onViewportChange ? { onViewportChange } : {})}
