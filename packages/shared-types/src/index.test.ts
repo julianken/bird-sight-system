@@ -5,6 +5,9 @@ import type {
   StateCode,
   ObservationFilters,
   StateSummary,
+  AggregatedBucket,
+  AggregatedFamily,
+  SpeciesDictEntry,
 } from './index.js';
 import { CONUS_STATE_CODES } from './index.js';
 
@@ -114,15 +117,54 @@ const _badEnvelope: ObservationsResponse = {
 };
 void _badEnvelope;
 
-// Case 9 (#627): aggregated branch
+// Case 9 (#627, #859): aggregated branch. Post-#859 the wire shape carries
+// nested per-family species (compute-on-write) instead of a bare family-code
+// array: each bucket's `families` is `AggregatedFamily[]`, where every family
+// nests its exact counts plus the top-N species `{ code, count }`.
 const _aggregated: ObservationsResponse = {
   mode: 'aggregated',
   buckets: [
-    { lat: 34.0, lng: -111.0, count: 42, speciesCount: 7, families: ['tyrannidae'] },
+    {
+      lat: 34.0,
+      lng: -111.0,
+      count: 42,
+      speciesCount: 7,
+      families: [
+        {
+          code: 'tyrannidae',
+          count: 30,
+          speciesCount: 5,
+          species: [
+            { code: 'wewpew', count: 18 },
+            { code: 'blkpho', count: 12 },
+          ],
+        },
+      ],
+    },
   ],
   meta: { freshestObservationAt: '2026-05-17T00:00:00.000Z' },
 };
 void _aggregated;
+
+// Case 9b (#859): a bare family-code string is no longer a valid `families`
+// element — the nested per-family object is mandatory. The @ts-expect-error is
+// load-bearing: if `families` ever widens back to `string[]`, tsc flags the
+// directive as unused and fails the build, catching a contract regression.
+const _aggregatedBadFamily: ObservationsResponse = {
+  mode: 'aggregated',
+  buckets: [
+    {
+      lat: 34.0,
+      lng: -111.0,
+      count: 1,
+      speciesCount: 1,
+      // @ts-expect-error — families is AggregatedFamily[], not string[]
+      families: ['tyrannidae'],
+    },
+  ],
+  meta: { freshestObservationAt: null },
+};
+void _aggregatedBadFamily;
 
 // Case 10: discriminator narrows the union — accessing `data` on the
 // aggregated branch is a type error.
@@ -229,6 +271,72 @@ if (_aggTruncated.mode === 'aggregated') {
   const _t: boolean | undefined = _aggTruncated.meta.truncated;
   void _t;
 }
+
+// ── #859 species-aggregation contract type-level tests ─────────────────────
+
+// Case 18 (#859): AggregatedFamily carries exact counts + a top-N species
+// array of `{ code, count }`. A well-formed literal compiles.
+const _family: AggregatedFamily = {
+  code: 'turdidae',
+  count: 21,
+  speciesCount: 3,
+  species: [
+    { code: 'amerob', count: 14 },
+    { code: 'herthr', count: 5 },
+  ],
+};
+void _family;
+// species elements expose exactly `{ code: string; count: number }`. The
+// non-null assertions sidestep noUncheckedIndexedAccess — the literal above
+// guarantees index 0 exists; we are asserting the element's field types, not
+// its presence.
+const _famSpeciesCode: string = _family.species[0]!.code;
+const _famSpeciesCount: number = _family.species[0]!.count;
+void _famSpeciesCode;
+void _famSpeciesCount;
+const _badFamily: AggregatedFamily = {
+  code: 'turdidae',
+  count: 21,
+  speciesCount: 3,
+  // @ts-expect-error — species elements need a numeric `count`, not a string
+  species: [{ code: 'amerob', count: 'many' }],
+};
+void _badFamily;
+
+// Case 19 (#859): AggregatedBucket.families is AggregatedFamily[]; the bucket
+// keeps its own exact `count`/`speciesCount` totals alongside the nested array.
+const _bucket: AggregatedBucket = {
+  lat: 33.4,
+  lng: -112.1,
+  count: 42,
+  speciesCount: 7,
+  families: [_family],
+};
+void _bucket;
+const _bucketFamilies: AggregatedFamily[] = _bucket.families;
+void _bucketFamilies;
+
+// Case 20 (#859): SpeciesDictEntry is the flat `code → { comName, familyCode }`
+// row served by GET /api/species. All three fields are required strings.
+const _dictEntry: SpeciesDictEntry = {
+  code: 'amerob',
+  comName: 'American Robin',
+  familyCode: 'turdidae',
+};
+void _dictEntry;
+const _dictCode: string = _dictEntry.code;
+const _dictComName: string = _dictEntry.comName;
+const _dictFamilyCode: string = _dictEntry.familyCode;
+void _dictCode;
+void _dictComName;
+void _dictFamilyCode;
+const _badDictEntry: SpeciesDictEntry = {
+  code: 'amerob',
+  comName: 'American Robin',
+  // @ts-expect-error — familyCode must be a string, not null
+  familyCode: null,
+};
+void _badDictEntry;
 
 // Case 17: StateSummary — { stateCode; name; bbox:[w,s,e,n] }. The bbox is a
 // 4-number tuple in the same [west,south,east,north] order as

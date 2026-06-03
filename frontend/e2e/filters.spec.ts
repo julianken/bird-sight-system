@@ -5,10 +5,13 @@ test.describe('filter flows', () => {
   let app: AppPage;
 
   test.beforeEach(async ({ page, apiStub }) => {
-    // /api/observations now (#627) returns aggregated buckets at low zoom,
-    // whose synthetic obs carry family-name strings as comName. The species
-    // typeahead requires a real-species observation to resolve
-    // "Vermilion Flycatcher" → "vermfly", so stub before navigation.
+    // /api/observations returns aggregated buckets at low zoom (#627), which
+    // carry no per-observation rows — #859 moved species aggregation
+    // server-side and deleted the synthetic-observation expansion the
+    // frontend used to fabricate from buckets. The species typeahead derives
+    // from per-observation (comName, speciesCode) pairs, so it needs a real
+    // per-observation payload to resolve "Vermilion Flycatcher" → "vermfly";
+    // stub before navigation.
     await apiStub.stubObservations(VERMFLY_OBS);
     app = new AppPage(page);
     await app.goto();

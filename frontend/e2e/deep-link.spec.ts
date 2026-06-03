@@ -33,10 +33,11 @@ test.describe('deep-link restore', () => {
   });
 
   test('species param shows common name in input', async ({ page, apiStub }) => {
-    // /api/observations now (#627) returns aggregated buckets at low zoom —
-    // the default cold-start fetch (CONUS bbox + zoom=3) hits aggregated
-    // mode, whose synthetic observations carry family-name strings as
-    // comName, not real species names. Stub a real observation so the
+    // /api/observations returns aggregated buckets at low zoom (#627) — the
+    // default cold-start fetch (CONUS bbox + zoom=3) hits aggregated mode,
+    // which carries no per-observation rows at all (#859 moved species
+    // aggregation server-side and removed the synthetic-observation expansion
+    // the frontend used to fabricate). Stub a real observation so the
     // speciesIndex contains "Vermilion Flycatcher" → "vermfly".
     await apiStub.stubObservations(VERMFLY_OBS);
     const app = new AppPage(page);
