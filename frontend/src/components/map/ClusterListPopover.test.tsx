@@ -285,14 +285,14 @@ describe('<ClusterListPopover>', () => {
     expect(onSelectSpecies).not.toHaveBeenCalled();
   });
 
-  it('species row with synthetic agg-* speciesCode renders as <span> (no link, no callback) — #715', () => {
+  it('renders REAL common names as working links — never a Latin family code or agg-* (#859)', () => {
     const anchor = makeAnchor();
     const onSelectSpecies = vi.fn();
     render(
       <ClusterListPopover
         families={[family('anatidae', 53)]}
         speciesByFamily={speciesByFamily([
-          ['anatidae', [species('anatidae', 53, 'agg-3-anatidae-2')]],
+          ['anatidae', [species('Mallard', 30, 'mallar3'), species('Wood Duck', 23, 'wooduc')]],
         ])}
         totalCount={53}
         uniqueFamilies={1}
@@ -301,32 +301,51 @@ describe('<ClusterListPopover>', () => {
         onSelectSpecies={onSelectSpecies}
       />
     );
-    expect(screen.getByText(/53x anatidae/)).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /anatidae/ })).toBeNull();
-    fireEvent.click(screen.getByText(/53x anatidae/));
-    expect(onSelectSpecies).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('link', { name: /Mallard/i }));
+    expect(onSelectSpecies).toHaveBeenCalledWith('mallar3');
+    // No Latin family code and no synthetic agg-* code leaks into any row.
+    expect(screen.queryByText(/anatidae/)).toBeNull();
+    expect(screen.queryByText(/agg-/)).toBeNull();
   });
 
-  it('synthetic-code rows ignore Enter / Space activation (#715)', () => {
+  it('renders a per-family "+N more" drill-in button (overflowByFamily) calling onDrillIn(code) — #859', () => {
     const anchor = makeAnchor();
-    const onSelectSpecies = vi.fn();
+    const onDrillIn = vi.fn();
+    const eight = Array.from({ length: 8 }, (_, i) => species(`Species ${i + 1}`, 20 - i, `sp${i}`));
     render(
       <ClusterListPopover
-        families={[family('anatidae', 53)]}
-        speciesByFamily={speciesByFamily([
-          ['anatidae', [species('anatidae', 53, 'agg-3-anatidae-2')]],
-        ])}
-        totalCount={53}
+        families={[family('flycatchers', 150)]}
+        speciesByFamily={speciesByFamily([['flycatchers', eight]])}
+        overflowByFamily={new Map([['flycatchers', 12]])}
+        totalCount={150}
         uniqueFamilies={1}
         anchorEl={anchor}
         onDismiss={vi.fn()}
-        onSelectSpecies={onSelectSpecies}
+        onSelectSpecies={vi.fn()}
+        onDrillIn={onDrillIn}
       />
     );
-    const row = screen.getByText(/53x anatidae/);
-    fireEvent.keyDown(row, { key: 'Enter' });
-    fireEvent.keyDown(row, { key: ' ' });
-    expect(onSelectSpecies).not.toHaveBeenCalled();
+    const more = screen.getByRole('button', { name: /\+12 more/i });
+    fireEvent.click(more);
+    expect(onDrillIn).toHaveBeenCalledWith('flycatchers');
+  });
+
+  it('portals to document.body (escapes the marker transform stacking context, #859 E)', () => {
+    const anchor = makeAnchor();
+    const { container } = render(
+      <ClusterListPopover
+        families={[family('hummingbirds', 5)]}
+        speciesByFamily={speciesByFamily([['hummingbirds', [species("Anna's Hummingbird", 5, 'annhum')]]])}
+        totalCount={5}
+        uniqueFamilies={1}
+        anchorEl={anchor}
+        onDismiss={vi.fn()}
+        onSelectSpecies={vi.fn()}
+      />
+    );
+    const dialog = screen.getByRole('dialog');
+    expect(container.contains(dialog)).toBe(false);
+    expect(document.body.contains(dialog)).toBe(true);
   });
 
   it('focus trap: Tab from last focusable inside popover wraps to first', () => {

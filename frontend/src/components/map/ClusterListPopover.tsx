@@ -1,8 +1,8 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
 import type { FamilyAggregate, SpeciesAggregate } from './adaptive-grid.js';
 import { prettyFamily } from '../../derived.js';
-import { isSyntheticCode } from '../../data/use-bird-data.js';
 
 /**
  * `<ClusterListPopover>` — mobile / coarse-pointer sheet-style popover for
@@ -30,6 +30,12 @@ export interface ClusterListPopoverProps {
   families: ReadonlyArray<FamilyAggregate>;
   /** Species lookup keyed by familyCode. */
   speciesByFamily: ReadonlyMap<string, ReadonlyArray<SpeciesAggregate>>;
+  /**
+   * #859: per-family count of distinct species BEYOND the capped `speciesByFamily`
+   * rows, keyed by familyCode. Drives the active `+N more` drill-in for that
+   * family. Absent / zero ⇒ the static "…and N more species" footer (legacy).
+   */
+  overflowByFamily?: ReadonlyMap<string, number>;
   /** Total point_count for the cluster header. */
   totalCount: number;
   /** Total unique families for the cluster header. */
@@ -40,6 +46,12 @@ export interface ClusterListPopoverProps {
   onDismiss: () => void;
   /** Invoked when user clicks a species row with non-null speciesCode. */
   onSelectSpecies: (speciesCode: string) => void;
+  /**
+   * #859: invoked with a family code when the user activates that family's
+   * `+N more` drill-in — the caller escalates the camera into the cell so the
+   * full species list resolves at higher zoom. Absent ⇒ no active drill-in.
+   */
+  onDrillIn?: (familyCode: string) => void;
 }
 
 const POPOVER_CAP_PER_FAMILY = 8;
@@ -49,11 +61,13 @@ export function ClusterListPopover(props: ClusterListPopoverProps) {
   const {
     families,
     speciesByFamily,
+    overflowByFamily,
     totalCount,
     uniqueFamilies,
     anchorEl,
     onDismiss,
     onSelectSpecies,
+    onDrillIn,
   } = props;
   const headingId = useId();
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -141,7 +155,7 @@ export function ClusterListPopover(props: ClusterListPopoverProps) {
     onSelectSpecies(code);
   }
 
-  return (
+  const content = (
     <div
       ref={rootRef}
       role="dialog"
@@ -165,7 +179,12 @@ export function ClusterListPopover(props: ClusterListPopoverProps) {
         {families.map((fam) => {
           const allSpecies = speciesByFamily.get(fam.familyCode) ?? [];
           const visibleSpecies = allSpecies.slice(0, POPOVER_CAP_PER_FAMILY);
-          const overflow = allSpecies.length - POPOVER_CAP_PER_FAMILY;
+          // #859: prefer the caller-supplied EXACT distinct-species overflow
+          // (true speciesCount minus the shown rows) over the rendered-row
+          // remainder, so the "+N more" reflects reality at low zoom.
+          const overflow =
+            overflowByFamily?.get(fam.familyCode) ?? allSpecies.length - POPOVER_CAP_PER_FAMILY;
+          const drillInActive = overflow > 0 && typeof onDrillIn === 'function';
           const isExpanded = expanded.has(fam.familyCode);
           return (
             <div
@@ -188,13 +207,12 @@ export function ClusterListPopover(props: ClusterListPopoverProps) {
               {isExpanded && (
                 <ul className="cluster-list-popover__rows">
                   {visibleSpecies.map((s) => {
-                    // #715: synthetic `agg-*` codes (aggregated z<6 buckets)
-                    // are non-resolvable by /api/species/:code and must render
-                    // as static spans — second of two entry points to the
-                    // same broken chain that CellPopover guards.
-                    const clickable = s.speciesCode !== null && !isSyntheticCode(s.speciesCode);
+                    // #859: rows carry REAL eBird codes (resolved via the
+                    // species dictionary) — every non-null code links to a
+                    // working detail. Only spuh/slash/hybrid taxa (null code)
+                    // render as static spans.
                     const code = s.speciesCode;
-                    if (clickable && code !== null) {
+                    if (code !== null) {
                       return (
                         <li
                           key={s.comName}
@@ -232,7 +250,18 @@ export function ClusterListPopover(props: ClusterListPopoverProps) {
                   })}
                   {overflow > 0 && (
                     <li className="cluster-list-popover__row">
-                      <span>…and {overflow} more species</span>
+                      {drillInActive ? (
+                        <button
+                          type="button"
+                          className="cell-popover__more"
+                          data-testid={`cluster-list-popover-more-${fam.familyCode}`}
+                          onClick={() => onDrillIn?.(fam.familyCode)}
+                        >
+                          +{overflow} more
+                        </button>
+                      ) : (
+                        <span>…and {overflow} more species</span>
+                      )}
                     </li>
                   )}
                 </ul>
@@ -253,4 +282,12 @@ export function ClusterListPopover(props: ClusterListPopoverProps) {
       </footer>
     </div>
   );
+
+  // #859 E: portal to <body> so the maplibre marker <div>'s transform (a
+  // stacking context) can't let cluster pills paint over the popover. The
+  // structural parent changes; flip/shift/clamp positioning is unaffected.
+  if (typeof document !== 'undefined') {
+    return createPortal(content, document.body);
+  }
+  return content;
 }
