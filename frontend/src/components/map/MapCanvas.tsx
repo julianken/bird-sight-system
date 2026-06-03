@@ -20,7 +20,8 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 // GeoJSON structural types come from `geojson` (@types/geojson), NOT maplibre-gl
 // (5.x does not re-export them). `import type`, erased at build — see mask.ts.
 import type { MultiPolygon } from 'geojson';
-import type { FamilySilhouette, Observation } from '@bird-watch/shared-types';
+import type { FamilySilhouette, Observation, ObservationFilters } from '@bird-watch/shared-types';
+import type { ApiClient } from '../../api/client.js';
 import { BASEMAP_LIGHT, BASEMAP_DARK } from './basemap-style.js';
 import {
   buildMaskFeature,
@@ -50,6 +51,7 @@ import {
 import { ObservationPopover } from './ObservationPopover.js';
 import { AdaptiveGridMarker } from './AdaptiveGridMarker.js';
 import { ClusterListPopover } from './ClusterListPopover.js';
+import { CellFetchClusterListPopover } from './CellFetchClusterListPopover.js';
 import { ClusterPill } from '../ds/ClusterPill.js';
 import { isValidSvgPathData } from './silhouette-fallback.js';
 import {
@@ -388,6 +390,20 @@ export interface MapCanvasProps {
    * to `false` (legacy/test callers keep the pre-O6 always-mount behavior).
    */
   detailOpen?: boolean;
+  /**
+   * #859 — low-zoom (aggregated) drill-in. When `mode === 'aggregated'` (map
+   * zoom < 6) AND a `client` is supplied, the grid markers' cell/cluster
+   * popovers fetch the clicked cell's REAL species on-open (via
+   * `useCellSpecies`) instead of rendering the synthetic family-code rows the
+   * aggregated payload fabricates. `since`/`stateCode` are threaded into the
+   * cell fetch so it matches the active view. Absent / `mode === 'observations'`
+   * ⇒ popovers render the real per-observation `species` already on the wire
+   * (close-zoom path, unchanged).
+   */
+  mode?: 'observations' | 'aggregated';
+  client?: ApiClient;
+  since?: ObservationFilters['since'];
+  stateCode?: string;
 }
 
 /**
@@ -625,6 +641,10 @@ export function MapCanvas({
   maskPolygon,
   clampPad,
   detailOpen = false,
+  mode = 'observations',
+  client,
+  since,
+  stateCode,
 }: MapCanvasProps) {
   const mapRef = useRef<MapRef>(null);
   /**
@@ -1327,6 +1347,12 @@ export function MapCanvas({
   // on top of the cluster circles and steal the click). Updated via `zoomend`
   // so mid-pan-zoom doesn't churn React.
   const [mapZoom, setMapZoom] = useState<number>(INITIAL_VIEW.zoom);
+
+  // #859 — low-zoom (aggregated) drill-in is wired only when the last resolved
+  // response was aggregated AND a client is available to do the lazy per-cell
+  // fetch. At zoom >= 6 (`mode === 'observations'`) the markers already carry
+  // real per-observation species, so the cell fetch is never attached.
+  const cellFetchActive = mode === 'aggregated' && Boolean(client);
 
   // Build layer specs once — they read CSS tokens at construction time.
   const clusterLayer = useMemo(() => buildClusterLayerSpec(), []);
@@ -2479,6 +2505,15 @@ export function MapCanvas({
                 {...(onSelectSpecies ? {
                   onSelectSpecies: (code: string) => onSelectSpecies(code),
                 } : {})}
+                {...(cellFetchActive && client ? {
+                  cellFetch: {
+                    client,
+                    center: [longitude, latitude] as const,
+                    gridZoom: Math.floor(mapZoom),
+                    ...(since ? { since } : {}),
+                    ...(stateCode ? { stateCode } : {}),
+                  },
+                } : {})}
               />
             </PresentationMarker>
           );
@@ -2594,6 +2629,30 @@ export function MapCanvas({
           ClusterListPopover instance and is unaffected — this mount only
           fires when `handleGroupClick`'s else branch ran. */}
       {clusterList && (
+        cellFetchActive && client ? (
+          <CellFetchClusterListPopover
+            client={client}
+            center={[
+              clusterList.group.anchor.longitude ?? 0,
+              clusterList.group.anchor.latitude ?? 0,
+            ]}
+            gridZoom={Math.floor(mapZoom)}
+            {...(since ? { since } : {})}
+            {...(stateCode ? { stateCode } : {})}
+            families={clusterList.families}
+            speciesByFamily={clusterList.speciesByFamily}
+            totalCount={clusterList.totalCount}
+            uniqueFamilies={clusterList.uniqueFamilies}
+            anchorEl={clusterList.anchorEl}
+            onDismiss={() => setClusterList(null)}
+            onSelectSpecies={(code) => {
+              if (onSelectSpecies) {
+                onSelectSpecies(code);
+              }
+              setClusterList(null);
+            }}
+          />
+        ) : (
         <ClusterListPopover
           families={clusterList.families}
           speciesByFamily={clusterList.speciesByFamily}
@@ -2608,6 +2667,7 @@ export function MapCanvas({
             setClusterList(null);
           }}
         />
+        )
       )}
     </div>
   );

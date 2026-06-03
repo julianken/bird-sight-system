@@ -1197,6 +1197,10 @@ export function App() {
             {...(statePolygon != null ? { maskPolygon: statePolygon } : {})}
             {...(isStateScope ? { clampPad: ARTBOARD_PAD } : {})}
             detailOpen={!!(scopeActive && state.detail)}
+            mode={mode}
+            client={apiClient}
+            since={state.since}
+            {...(scopeStateCode ? { stateCode: scopeStateCode } : {})}
           />
         </div>
       )}

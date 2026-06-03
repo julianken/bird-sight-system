@@ -3,7 +3,8 @@ import type { LngLatBounds } from 'maplibre-gl';
 // GeoJSON `MultiPolygon` comes from `geojson` (@types/geojson), NOT maplibre-gl
 // (5.x does not re-export it). `import type`, erased at build — see mask.ts.
 import type { MultiPolygon } from 'geojson';
-import type { FamilySilhouette, Observation } from '@bird-watch/shared-types';
+import type { FamilySilhouette, Observation, ObservationFilters } from '@bird-watch/shared-types';
+import type { ApiClient } from '../api/client.js';
 import { ErrorBoundary } from './ErrorBoundary.js';
 
 /**
@@ -76,6 +77,17 @@ export interface MapSurfaceProps {
    * defaults to `false` for legacy/test callers.
    */
   detailOpen?: boolean;
+  /**
+   * #859 — low-zoom (aggregated) drill-in, forwarded VERBATIM to <MapCanvas>.
+   * App.tsx passes the last-resolved render `mode`, the shared `ApiClient`, and
+   * the active `since`/`stateCode` filters so a cell/cluster popover opened at
+   * zoom < 6 can lazily fetch the clicked cell's REAL species. All optional —
+   * legacy/test callers that omit them keep the synthetic-row behavior.
+   */
+  mode?: 'observations' | 'aggregated';
+  client?: ApiClient;
+  since?: ObservationFilters['since'];
+  stateCode?: string;
 }
 
 /**
@@ -104,6 +116,10 @@ export function MapSurface({
   maskPolygon,
   clampPad,
   detailOpen = false,
+  mode,
+  client,
+  since,
+  stateCode,
 }: MapSurfaceProps) {
   /**
    * O7 (#786): GL-recovery counter. Bumping this key clears the ErrorBoundary's
@@ -167,6 +183,10 @@ export function MapSurface({
             {...(maskPolygon != null ? { maskPolygon } : {})}
             {...(clampPad !== undefined ? { clampPad } : {})}
             detailOpen={detailOpen}
+            {...(mode ? { mode } : {})}
+            {...(client ? { client } : {})}
+            {...(since ? { since } : {})}
+            {...(stateCode ? { stateCode } : {})}
           />
         </React.Suspense>
       </div>

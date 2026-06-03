@@ -8,6 +8,9 @@ import { useTheme } from '../../hooks/use-theme.js';
 import { CellHoverPreview } from './CellHoverPreview.js';
 import { CellPopover } from './CellPopover.js';
 import { ClusterListPopover } from './ClusterListPopover.js';
+import { useCellSpecies } from '../../data/cell-species.js';
+import type { ApiClient } from '../../api/client.js';
+import type { ObservationFilters } from '@bird-watch/shared-types';
 
 /**
  * `<AdaptiveGridMarker>` — pure display component for the adaptive cluster
@@ -100,6 +103,20 @@ export interface AdaptiveGridMarkerProps {
    * user actions, not unbidden surfaces). Defaults to `false`.
    */
   detailOpen?: boolean;
+  /**
+   * #859 — low-zoom (aggregated) drill-in. When supplied (mode === 'aggregated',
+   * map zoom < 6) the marker's popovers fetch the clicked cell's REAL species
+   * via {@link useCellSpecies} instead of rendering the synthetic family-code
+   * rows. `center` is the cell's `[lng, lat]` (the marker anchor); `gridZoom`
+   * is the integer map zoom the buckets were fetched at. Absent at zoom >= 6.
+   */
+  cellFetch?: {
+    client: ApiClient;
+    center: readonly [number, number];
+    gridZoom: number;
+    since?: ObservationFilters['since'];
+    stateCode?: string;
+  };
 }
 
 // Layout constants — match MosaicMarker's 22px tile / 2px gap (issue #248).
@@ -111,6 +128,13 @@ const HIT_MIN_FINE = 44;
 const HIT_MIN_COARSE = 48;
 
 const NOTABLE_AMBER = '#f59e0b';
+
+// #859 — placeholder client used only when `cellFetch` is absent (close-zoom)
+// or its popover is closed. `useCellSpecies` is inert (`active === false`) in
+// those cases, so this object is never dereferenced for a network call; it
+// exists solely to satisfy the hook's non-optional ApiClient parameter without
+// breaking the Rules of Hooks (the hook must be called unconditionally).
+const NULL_CLIENT = {} as unknown as ApiClient;
 
 /**
  * Minimum possible rendered marker width/height, used by the deconflict
@@ -143,6 +167,7 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
     onClick,
     onSelectSpecies,
     detailOpen = false,
+    cellFetch,
   } = props;
 
   const isPointerFine = useMediaQuery('(pointer: fine)');
@@ -264,6 +289,36 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
   const previewId = activeTile
     ? `cell-${markerId}-${activeTile.familyCode}-preview`
     : undefined;
+
+  // #859 — low-zoom drill-in. When `cellFetch` is supplied (aggregated mode),
+  // fetch the clicked cell's REAL species on-open. Two hook calls, always
+  // invoked (Rules of Hooks): one for the per-family `<CellPopover>` (narrowed
+  // to the active tile's family) and one for the flat `<ClusterListPopover>`
+  // (whole cell). Each is `active` only while its popover is actually open, so
+  // no fetch fires until the user opens the surface.
+  const cellCenter = cellFetch?.center ?? ([0, 0] as const);
+  const cellGridZoom = cellFetch?.gridZoom ?? 0;
+  const cellPopoverFetch = useCellSpecies(
+    cellFetch?.client ?? NULL_CLIENT,
+    {
+      active: Boolean(cellFetch) && activeCell?.mode === 'popover' && activeTile !== null,
+      center: cellCenter,
+      gridZoom: cellGridZoom,
+      ...(cellFetch?.since ? { since: cellFetch.since } : {}),
+      ...(cellFetch?.stateCode ? { stateCode: cellFetch.stateCode } : {}),
+      ...(activeTile ? { familyCode: activeTile.familyCode } : {}),
+    },
+  );
+  const clusterListFetch = useCellSpecies(
+    cellFetch?.client ?? NULL_CLIENT,
+    {
+      active: Boolean(cellFetch) && isClusterListOpen,
+      center: cellCenter,
+      gridZoom: cellGridZoom,
+      ...(cellFetch?.since ? { since: cellFetch.since } : {}),
+      ...(cellFetch?.stateCode ? { stateCode: cellFetch.stateCode } : {}),
+    },
+  );
 
   // Fix: when per-cell interaction is active, the outer element must NOT be a
   // <button> because each TileCell is already a <button> — nested interactive
@@ -389,6 +444,7 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
                   onSelectSpecies(code);
                 }
               }}
+              {...(cellFetch ? { cellSpecies: cellPopoverFetch } : {})}
             />
           ) : null
         )
@@ -409,6 +465,7 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
             // surface. The species detail route will mount on top.
             setIsClusterListOpen(false);
           }}
+          {...(cellFetch ? { cellSpecies: clusterListFetch } : {})}
         />
       )}
     </OuterTag>
