@@ -1081,3 +1081,154 @@ describe('cell button chrome-reset cascade (badge-anchor bugfix)', () => {
     expect(cell.getAttribute('style') ?? '').not.toMatch(/\ball\s*:/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// #859 — coarse-tap cluster-list fetch uses the CLUSTER UNION BBOX
+// ---------------------------------------------------------------------------
+// The coarse-pointer outer-tap whole-cluster drill-in (`clusterListFetch`) used
+// to fetch only the single 0.125° centroid cell (center + gridZoom). But an
+// aggregated-mode marker is a MULTI-BUCKET supercluster: its centroid cell is
+// frequently empty/partial, so the popover showed empty/wrong species on mobile.
+// The fix threads a precomputed union bbox (cellFetch.bbox) into the cluster-
+// list `useCellSpecies` call. These tests mock `useCellSpecies` and assert the
+// coarse-tap call passes the cluster bbox (not the centroid cell) and renders
+// the real species the bbox fetch returns.
+// ---------------------------------------------------------------------------
+
+describe('AdaptiveGridMarker — coarse-tap cluster bbox fetch (#859)', () => {
+  const CLUSTER_BBOX: [number, number, number, number] = [-112.5, 33.1, -111.9, 33.7];
+
+  type CapturedCall = {
+    active: boolean;
+    center: readonly [number, number];
+    gridZoom: number;
+    bbox?: [number, number, number, number];
+    familyCode?: string;
+  };
+
+  function setup() {
+    vi.resetModules();
+    window.matchMedia = vi.fn().mockImplementation((q: string) => ({
+      matches: q === '(pointer: coarse)',
+      media: q,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      onchange: null,
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
+  }
+
+  it('coarse + multi-bucket: the cluster-list fetch issues the CLUSTER UNION BBOX (not the centroid cell) and renders real species', async () => {
+    setup();
+    const calls: CapturedCall[] = [];
+    vi.doMock('../../data/cell-species.js', async () => {
+      const actual = await vi.importActual<typeof import('../../data/cell-species.js')>(
+        '../../data/cell-species.js',
+      );
+      return {
+        ...actual,
+        useCellSpecies: (_client: unknown, args: CapturedCall) => {
+          calls.push(args);
+          // The cluster-list call (whole cell — no familyCode). When open, return
+          // real species so the popover renders them.
+          if (args.familyCode === undefined && args.active) {
+            return {
+              loading: false,
+              error: null,
+              species: [
+                { speciesCode: 'verdin', comName: 'Verdin', count: 9 },
+                { speciesCode: 'gambelsquail', comName: "Gambel's Quail", count: 4 },
+              ],
+            };
+          }
+          return { loading: false, error: null, species: null };
+        },
+      };
+    });
+
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    const fakeClient = {} as never;
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_2x2}
+        tiles={[
+          rendered('remizidae', 9, 'M0 0L24 24Z', '#888', '#888', [
+            { comName: 'family remizidae', count: 9, speciesCode: 'agg-remizidae' },
+          ]),
+          rendered('odontophoridae', 4, 'M0 0L24 24Z', '#aaa', '#aaa', [
+            { comName: 'family odontophoridae', count: 4, speciesCode: 'agg-odontophoridae' },
+          ]),
+        ]}
+        totalCount={13}
+        uniqueFamilies={2}
+        ariaLabel="Cluster: 13 observations, 2 families."
+        isCoarsePointer={true}
+        onClick={noop}
+        cellFetch={{
+          client: fakeClient,
+          center: [-112.2, 33.4],
+          gridZoom: 4,
+          bbox: CLUSTER_BBOX,
+        }}
+      />,
+    );
+
+    // Open the coarse cluster-list popover.
+    fireEvent.click(screen.getByTestId('adaptive-grid-marker'));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    // The whole-cluster (no familyCode) fetch must be active AND carry the
+    // cluster union bbox — NOT just the centroid center/gridZoom.
+    const clusterListCall = calls.find((c) => c.familyCode === undefined && c.active);
+    expect(clusterListCall).toBeDefined();
+    expect(clusterListCall!.bbox).toEqual(CLUSTER_BBOX);
+
+    // Real species fetched via the bbox render in the popover.
+    expect(screen.getByText(/Verdin/)).toBeInTheDocument();
+    expect(screen.getByText(/Gambel's Quail/)).toBeInTheDocument();
+  });
+
+  it('omits bbox when cellFetch.bbox is absent (centroid-cell fallback preserved)', async () => {
+    setup();
+    const calls: CapturedCall[] = [];
+    vi.doMock('../../data/cell-species.js', async () => {
+      const actual = await vi.importActual<typeof import('../../data/cell-species.js')>(
+        '../../data/cell-species.js',
+      );
+      return {
+        ...actual,
+        useCellSpecies: (_client: unknown, args: CapturedCall) => {
+          calls.push(args);
+          return { loading: false, error: null, species: null };
+        },
+      };
+    });
+
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_2x2}
+        tiles={[
+          rendered('remizidae', 9, 'M0 0L24 24Z', '#888', '#888', []),
+          rendered('odontophoridae', 4, 'M0 0L24 24Z', '#aaa', '#aaa', []),
+        ]}
+        totalCount={13}
+        uniqueFamilies={2}
+        ariaLabel="Cluster: 13 observations, 2 families."
+        isCoarsePointer={true}
+        onClick={noop}
+        cellFetch={{
+          client: {} as never,
+          center: [-112.2, 33.4],
+          gridZoom: 4,
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('adaptive-grid-marker'));
+    const clusterListCall = calls.find((c) => c.familyCode === undefined && c.active);
+    expect(clusterListCall).toBeDefined();
+    expect(clusterListCall!.bbox).toBeUndefined();
+  });
+});

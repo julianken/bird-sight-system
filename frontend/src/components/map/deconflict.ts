@@ -90,6 +90,15 @@ export interface DeconflictInput {
   latitude?: number;
   /** Optional render-only: AdaptiveGrid tile array (anchor's resolved data). */
   tiles?: ReadonlyArray<AdaptiveTile>;
+  /**
+   * Optional render-only (#859): union bbox of this cluster's member leaves
+   * (`bboxFromLeaves`). Threaded onto the anchor marker's `cellFetch.bbox` so
+   * the coarse-tap whole-cluster species fetch covers EVERY member bucket
+   * rather than the (frequently empty) centroid cell. `null`/undefined → the
+   * marker falls back to the centroid cell. Pure pass-through — `buildGroups`
+   * carries it on the anchor only and never inspects it.
+   */
+  clusterBbox?: [number, number, number, number] | null;
   /** Optional render-only: whether this anchor is a single notable observation. */
   isNotable?: boolean;
   /**

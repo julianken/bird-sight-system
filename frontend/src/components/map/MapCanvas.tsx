@@ -125,6 +125,15 @@ type ResolvedAdaptiveData =
       tiles: ReadonlyArray<AdaptiveTile>;
       uniqueFamilies: number;
       isNotablePoint: boolean;
+      /**
+       * #859 — union bbox of this cluster's member leaves (`bboxFromLeaves`).
+       * Threaded onto the marker's `cellFetch.bbox` so the coarse-tap
+       * whole-cluster species fetch covers EVERY member bucket (the marker is a
+       * multi-bucket supercluster; its centroid cell is empty/partial). `null`
+       * when the leaves lack usable geometry — the marker then falls back to the
+       * centroid cell rather than fetching a bad bbox.
+       */
+      clusterBbox: [number, number, number, number] | null;
     };
 
 const leafCache = new Map<string, Promise<ResolvedAdaptiveData>>();
@@ -1791,6 +1800,26 @@ export function MapCanvas({
                 silhouettesById,
                 shape,
               );
+              // #859 — union bbox of the cluster's member leaves, computed here
+              // (the only place a marker's leaves are already fetched) and
+              // threaded onto the marker's `cellFetch.bbox`. The coarse-tap
+              // whole-cluster species fetch then covers EVERY member bucket
+              // rather than the single (frequently empty) centroid cell.
+              // Defensive (#717 fixtures lack geometry): skip leaves without
+              // numeric Point coordinates; bboxFromLeaves returns null for an
+              // empty list, and the marker falls back to the centroid cell.
+              const leafPoints: Array<{ lng: number; lat: number }> = [];
+              for (const l of leaves) {
+                const coords = l.geometry?.coordinates;
+                if (
+                  Array.isArray(coords) &&
+                  typeof coords[0] === 'number' &&
+                  typeof coords[1] === 'number'
+                ) {
+                  leafPoints.push({ lng: coords[0], lat: coords[1] });
+                }
+              }
+              const clusterBbox = bboxFromLeaves(leafPoints);
               // F7 option (a): only mark the marker isNotable when the
               // cluster is strictly 1×1 with a single notable observation.
               // Per-tile isNotable is the future-extension path (option b).
@@ -1804,6 +1833,7 @@ export function MapCanvas({
                 tiles,
                 uniqueFamilies,
                 isNotablePoint,
+                clusterBbox,
               };
             })();
             // Rejected-Promise eviction (spec §5.3 Concern B). The
@@ -1856,6 +1886,7 @@ export function MapCanvas({
                 latitude,
                 tiles: resolved.tiles,
                 isNotable: resolved.isNotablePoint,
+                clusterBbox: resolved.clusterBbox,
               });
             }
           } catch {
@@ -2537,6 +2568,12 @@ export function MapCanvas({
                     client,
                     center: [longitude, latitude] as const,
                     gridZoom: Math.floor(mapZoom),
+                    // #859 — the coarse-tap whole-cluster fetch covers a
+                    // multi-bucket supercluster, so thread the precomputed leaf
+                    // union bbox (computed in the reconciler where the anchor's
+                    // leaves are already fetched). Absent/null → the marker falls
+                    // back to the centroid cell.
+                    ...(anchor.clusterBbox ? { bbox: anchor.clusterBbox } : {}),
                     ...(since ? { since } : {}),
                     ...(stateCode ? { stateCode } : {}),
                   },

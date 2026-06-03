@@ -114,6 +114,18 @@ export interface AdaptiveGridMarkerProps {
     client: ApiClient;
     center: readonly [number, number];
     gridZoom: number;
+    /**
+     * #859 — precomputed union bbox of the supercluster's member leaves
+     * ({@link bboxFromLeaves}, computed in MapCanvas's reconciler where the
+     * leaves are already fetched). When present it is threaded into the
+     * WHOLE-CLUSTER coarse-tap `<ClusterListPopover>` fetch so the `zoom=6`
+     * cell query covers EVERY member bucket. A coarse-tap marker is a
+     * multi-bucket supercluster, so its centroid cell (`cellBbox`) is
+     * frequently empty/partial. Absent → the fetch falls back to the centroid
+     * cell. The per-family single-bucket `<CellPopover>` deliberately ignores
+     * this (one grid bucket is correctly served by the centroid cell).
+     */
+    bbox?: [number, number, number, number];
     since?: ObservationFilters['since'];
     stateCode?: string;
   };
@@ -315,6 +327,12 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
       active: Boolean(cellFetch) && isClusterListOpen,
       center: cellCenter,
       gridZoom: cellGridZoom,
+      // #859 — the coarse-tap whole-cluster drill-in covers a MULTI-BUCKET
+      // supercluster, so it fetches the precomputed union bbox (which OVERRIDES
+      // the centroid cell) when MapCanvas threaded one. The per-family
+      // <CellPopover> above intentionally omits bbox (single bucket = centroid
+      // cell). Absent bbox → useCellSpecies falls back to cellBbox(center,gridZoom).
+      ...(cellFetch?.bbox ? { bbox: cellFetch.bbox } : {}),
       ...(cellFetch?.since ? { since: cellFetch.since } : {}),
       ...(cellFetch?.stateCode ? { stateCode: cellFetch.stateCode } : {}),
     },
