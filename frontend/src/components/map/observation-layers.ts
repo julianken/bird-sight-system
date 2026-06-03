@@ -1,4 +1,4 @@
-import type { FamilySilhouette, Observation } from '@bird-watch/shared-types';
+import type { AggregatedBucket, FamilySilhouette, Observation } from '@bird-watch/shared-types';
 import type { LayerProps } from 'react-map-gl/maplibre';
 import { FAMILY_COLOR_FALLBACK } from '../../data/family-color.js';
 import { CLUSTER_TIER_BOUNDARIES } from '../../config/cluster.js';
@@ -115,6 +115,76 @@ export function observationsToGeoJson(
           familyCode: o.familyCode ?? null,
           // NEW (issue #557):
           speciesCode: o.speciesCode ?? null,
+          silhouetteId,
+          color,
+        },
+      };
+    }),
+  };
+}
+
+/**
+ * GeoJSON FeatureCollection for the aggregated low-zoom render path (#859).
+ * One feature per `AggregatedBucket`. Unlike the synthetic-observation
+ * expansion this REPLACES, each feature carries the bucket's REAL data:
+ *
+ *   - `count` / `speciesCount`: exact bucket totals. Fed into the cluster
+ *     source's `clusterProperties` summing accumulators so a cluster of buckets
+ *     knows its true observation/species totals (the cluster `point_count`
+ *     counts buckets, not observations).
+ *   - `familiesJson`: the bucket's `families` (with per-family species + counts)
+ *     serialized to JSON. maplibre cluster leaves only preserve scalar/string
+ *     properties through `getClusterLeaves`, so the array must be a string; the
+ *     popover code parses it back when merging a cluster's member buckets.
+ *   - `familyCode` / `silhouetteId` / `color`: the DOMINANT family (first in the
+ *     count-desc `families` list) drives the marker silhouette + tint, mirroring
+ *     `observationsToGeoJson`'s per-observation resolution.
+ */
+export interface BucketFeatureCollection {
+  type: 'FeatureCollection';
+  features: Array<{
+    type: 'Feature';
+    geometry: { type: 'Point'; coordinates: [number, number] };
+    properties: {
+      count: number;
+      speciesCount: number;
+      familiesJson: string;
+      familyCode: string | null;
+      silhouetteId: string;
+      color: string;
+    };
+  }>;
+}
+
+export function bucketsToGeoJson(
+  buckets: AggregatedBucket[],
+  silhouettes: readonly FamilySilhouette[] = [],
+): BucketFeatureCollection {
+  const byFamily = new Map<string, FamilySilhouette>();
+  for (const s of silhouettes) byFamily.set(s.familyCode.toLowerCase(), s);
+
+  return {
+    type: 'FeatureCollection',
+    features: buckets.map((b) => {
+      // The dominant family (highest count) — families arrive count-desc from
+      // the wire — drives the single marker silhouette for the bucket.
+      const dominant = b.families[0]?.code ?? null;
+      const familyKey = dominant?.toLowerCase() ?? null;
+      const sil = familyKey ? byFamily.get(familyKey) : undefined;
+      const silhouetteId =
+        sil && sil.svgData !== null && dominant ? sil.familyCode : FALLBACK_SILHOUETTE_ID;
+      const color = sil?.color ?? FAMILY_COLOR_FALLBACK;
+      return {
+        type: 'Feature' as const,
+        geometry: {
+          type: 'Point' as const,
+          coordinates: [b.lng, b.lat] as [number, number],
+        },
+        properties: {
+          count: b.count,
+          speciesCount: b.speciesCount,
+          familiesJson: JSON.stringify(b.families),
+          familyCode: dominant,
           silhouetteId,
           color,
         },

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { startTestDb, type TestDb } from './test-helpers.js';
 import {
   getSpeciesMeta,
+  getSpeciesDictionary,
   upsertSpeciesMeta,
   findMissingSpeciesMeta,
   insertSpeciesPhoto,
@@ -43,6 +44,37 @@ describe('species meta', () => {
     expect(meta).toBeDefined();
     expect(typeof meta!.taxonOrder).toBe('number');
     expect(meta!.taxonOrder).toBe(30501);
+  });
+});
+
+describe('getSpeciesDictionary (#859)', () => {
+  it('returns every species as a flat {code,comName,familyCode}, sorted by code', async () => {
+    await upsertSpeciesMeta(db.pool, [
+      { speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        sciName: 'Pyrocephalus rubinus', familyCode: 'tyrannidae',
+        familyName: 'Tyrant Flycatchers', taxonOrder: 30501 },
+      { speciesCode: 'annhum', comName: "Anna's Hummingbird",
+        sciName: 'Calypte anna', familyCode: 'trochilidae',
+        familyName: 'Hummingbirds', taxonOrder: 6000 },
+      { speciesCode: 'mallar3', comName: 'Mallard',
+        sciName: 'Anas platyrhynchos', familyCode: 'anatidae',
+        familyName: 'Ducks, Geese, and Waterfowl', taxonOrder: 261 },
+    ]);
+    const dict = await getSpeciesDictionary(db.pool);
+    // Sorted by species_code asc: annhum, mallar3, vermfly.
+    expect(dict.map(d => d.code)).toEqual(['annhum', 'mallar3', 'vermfly']);
+    const anna = dict.find(d => d.code === 'annhum')!;
+    expect(anna.comName).toBe("Anna's Hummingbird");
+    expect(anna.familyCode).toBe('trochilidae');
+    // The dictionary projects EXACTLY the three wire fields — no sci_name,
+    // family_name, taxon_order, photos, or descriptions leak onto the wire.
+    expect(Object.keys(anna).sort()).toEqual(['code', 'comName', 'familyCode']);
+  });
+
+  it('returns an empty array when species_meta is empty', async () => {
+    // beforeEach truncates species_meta — no seed here.
+    const dict = await getSpeciesDictionary(db.pool);
+    expect(dict).toEqual([]);
   });
 });
 

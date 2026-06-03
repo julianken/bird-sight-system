@@ -134,13 +134,17 @@ describe('useSpeciesDetail', () => {
     expect(result2.current.error).toBeNull();
   });
 
-  it('does not fetch when speciesCode is a synthetic agg-* code (#715)', () => {
-    const getSpecies = vi.fn();
+  it('fetches for any non-null real code (no synthetic agg-* gating remains, #859)', async () => {
+    // #859 deleted the synthetic-observation subsystem, so every code reaching
+    // this hook is a real eBird code that resolves against /api/species/:code.
+    const getSpecies = vi.fn().mockResolvedValue(VERMFLY);
     const client = makeClient({ getSpecies } as unknown as Partial<ApiClient>);
 
-    const { result } = renderHook(() => useSpeciesDetail(client, 'agg-3-anatidae-2'));
-    expect(result.current).toEqual({ loading: false, error: null, data: null });
-    expect(getSpecies).not.toHaveBeenCalled();
+    const { result } = renderHook(() => useSpeciesDetail(client, 'vermfly'));
+    expect(result.current.loading).toBe(true);
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(getSpecies).toHaveBeenCalledWith('vermfly');
+    expect(result.current.data).toEqual(VERMFLY);
   });
 
   it('surfaces error state and does not cache failures', async () => {

@@ -47,6 +47,16 @@ describe('cacheControlFor', () => {
       .toBe('public, s-maxage=3600, stale-while-revalidate=7200');
   });
 
+  it('returns a long 1d CDN window for /species (dictionary, #859)', () => {
+    // GET /api/species (the full code→name dictionary) is fetched once per
+    // session and names change rarely (only when a taxonomy refresh ships).
+    // A 1d s-maxage + 2d SWR keeps the edge entry long-lived; a deploy/taxonomy
+    // refresh is the natural bust point. Distinct from the 'species' (per-code
+    // detail) tier above, which carries monthly-refreshed photo_url.
+    expect(cacheControlFor('species-dict'))
+      .toBe('public, s-maxage=86400, stale-while-revalidate=172800');
+  });
+
   it('returns a 7d immutable header for /states (build-time-stable seed)', () => {
     // The state_boundaries seed is build-time-stable: it only changes when the
     // generator is re-run and a new migration ships, which is a fresh deploy

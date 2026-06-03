@@ -1,5 +1,5 @@
 import type { Pool } from './pool.js';
-import type { SpeciesMeta } from '@bird-watch/shared-types';
+import type { SpeciesMeta, SpeciesDictEntry } from '@bird-watch/shared-types';
 
 /**
  * One row of `species_photos`. Mirrors the column shape verbatim — used by
@@ -234,6 +234,35 @@ export async function getSpeciesMeta(
     meta.descriptionAttributionUrl = r.description_attribution_url;
   }
   return meta;
+}
+
+/**
+ * The full species dictionary (#859): every `species_meta` row projected to the
+ * flat wire shape `{ code, comName, familyCode }`, sorted by `species_code`.
+ * Served once via `GET /api/species` and cached aggressively (names change
+ * rarely). The frontend joins it against the species codes carried in the
+ * aggregated buckets (`AggregatedFamily.species`) so the low-zoom wire never
+ * has to repeat names per bucket — a single ~9KB-gzip dictionary covers the
+ * whole map. Only the three wire columns are selected; sci_name / family_name /
+ * taxon_order / photos / descriptions never leave the server through this path.
+ */
+export async function getSpeciesDictionary(
+  pool: Pool
+): Promise<SpeciesDictEntry[]> {
+  const { rows } = await pool.query<{
+    code: string;
+    com_name: string;
+    family_code: string;
+  }>(
+    `SELECT species_code AS code, com_name, family_code
+       FROM species_meta
+      ORDER BY species_code`
+  );
+  return rows.map(r => ({
+    code: r.code,
+    comName: r.com_name,
+    familyCode: r.family_code,
+  }));
 }
 
 /**

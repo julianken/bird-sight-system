@@ -214,57 +214,88 @@ describe('<CellPopover>', () => {
     expect(onSelectSpecies).not.toHaveBeenCalled();
   });
 
-  it('renders rows as <span> with NO link role when speciesCode is synthetic (#715 — agg-*)', () => {
+  it('renders REAL common-name rows as working links — never a Latin family code or agg-* (#859)', () => {
     const anchor = makeAnchor();
+    const onSelectSpecies = vi.fn();
     render(
       <CellPopover
         familyCode="anatidae"
         familyCount={53}
-        species={[species('anatidae', 53, 'agg-3-anatidae-2')]}
+        species={[species('Mallard', 30, 'mallar3'), species('Wood Duck', 23, 'wooduc')]}
+        anchorEl={anchor}
+        onDismiss={vi.fn()}
+        onSelectSpecies={onSelectSpecies}
+      />
+    );
+    // Real common names render as clickable links wired to the REAL code.
+    fireEvent.click(screen.getByRole('link', { name: /Mallard/i }));
+    expect(onSelectSpecies).toHaveBeenCalledWith('mallar3');
+    // No Latin family code leaks into a row, and no synthetic agg-* code.
+    expect(screen.queryByText(/anatidae/)).toBeNull();
+    expect(screen.queryByText(/agg-/)).toBeNull();
+  });
+
+  describe('+N more drill-in (#859)', () => {
+    function manyResolved() {
+      // 8 resolved (capped) rows, but the family has 20 distinct species.
+      return Array.from({ length: 8 }, (_, i) => species(`Species ${i + 1}`, 20 - i, `sp${i}`));
+    }
+
+    it('renders "+N more" as an ACTIVE button (driven by overflowCount) calling onDrillIn', () => {
+      const anchor = makeAnchor();
+      const onDrillIn = vi.fn();
+      render(
+        <CellPopover
+          familyCode="flycatchers"
+          familyCount={150}
+          species={manyResolved()}
+          overflowCount={12}
+          anchorEl={anchor}
+          onDismiss={vi.fn()}
+          onSelectSpecies={vi.fn()}
+          onDrillIn={onDrillIn}
+        />
+      );
+      const more = screen.getByRole('button', { name: /\+12 more/i });
+      fireEvent.click(more);
+      expect(onDrillIn).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT render the drill-in button when overflowCount is 0', () => {
+      const anchor = makeAnchor();
+      render(
+        <CellPopover
+          familyCode="hummingbirds"
+          familyCount={5}
+          species={[species("Anna's Hummingbird", 5, 'annhum')]}
+          overflowCount={0}
+          anchorEl={anchor}
+          onDismiss={vi.fn()}
+          onSelectSpecies={vi.fn()}
+          onDrillIn={vi.fn()}
+        />
+      );
+      expect(screen.queryByRole('button', { name: /more/i })).toBeNull();
+    });
+  });
+
+  it('renders into a portal at document.body (escapes the marker transform stacking context, #859 E)', () => {
+    const anchor = makeAnchor();
+    const { container } = render(
+      <CellPopover
+        familyCode="hummingbirds"
+        familyCount={5}
+        species={[species("Anna's Hummingbird", 5, 'annhum')]}
         anchorEl={anchor}
         onDismiss={vi.fn()}
         onSelectSpecies={vi.fn()}
       />
     );
-    expect(screen.getByText(/53x anatidae/)).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /anatidae/ })).toBeNull();
-  });
-
-  it('does NOT call onSelectSpecies when a synthetic-code row is clicked (#715)', () => {
-    const anchor = makeAnchor();
-    const onSelectSpecies = vi.fn();
-    render(
-      <CellPopover
-        familyCode="anatidae"
-        familyCount={53}
-        species={[species('anatidae', 53, 'agg-3-anatidae-2')]}
-        anchorEl={anchor}
-        onDismiss={vi.fn()}
-        onSelectSpecies={onSelectSpecies}
-      />
-    );
-    fireEvent.click(screen.getByText(/53x anatidae/));
-    expect(onSelectSpecies).not.toHaveBeenCalled();
-  });
-
-  it('does NOT call onSelectSpecies on Enter for a synthetic-code row (#715)', () => {
-    const anchor = makeAnchor();
-    const onSelectSpecies = vi.fn();
-    render(
-      <CellPopover
-        familyCode="anatidae"
-        familyCount={53}
-        species={[species('anatidae', 53, 'agg-3-anatidae-2')]}
-        anchorEl={anchor}
-        onDismiss={vi.fn()}
-        onSelectSpecies={onSelectSpecies}
-      />
-    );
-    // Synthetic rows render as <span> not <a>; there is nothing keyboard-
-    // focusable to receive Enter, and an Enter on the static span is a no-op.
-    const row = screen.getByText(/53x anatidae/);
-    fireEvent.keyDown(row, { key: 'Enter' });
-    expect(onSelectSpecies).not.toHaveBeenCalled();
+    const dialog = screen.getByRole('dialog');
+    // The dialog is a child of <body>, NOT of the React render container (which
+    // stands in for the maplibre marker <div> whose transform traps z-index).
+    expect(container.contains(dialog)).toBe(false);
+    expect(document.body.contains(dialog)).toBe(true);
   });
 
   it('calls onDismiss + returns focus to anchorEl when Escape is pressed', () => {

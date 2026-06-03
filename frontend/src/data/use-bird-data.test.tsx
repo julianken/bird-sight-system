@@ -1,31 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
-import { useBirdData, isSyntheticCode } from './use-bird-data.js';
+import { useBirdData } from './use-bird-data.js';
 import { ApiClient } from '../api/client.js';
-
-describe('isSyntheticCode', () => {
-  it('returns true for codes produced by expandBucketsToSyntheticObservations (#715)', () => {
-    // Family-bearing buckets emit `agg-${bucketIndex}-${family}-${speciesIndex}`.
-    expect(isSyntheticCode('agg-0-tyrannidae-0')).toBe(true);
-    expect(isSyntheticCode('agg-3-anatidae-2')).toBe(true);
-    // Family-less buckets emit `agg-${bucketIndex}-${rowIndex}`.
-    expect(isSyntheticCode('agg-7-12')).toBe(true);
-  });
-
-  it('returns false for real eBird species codes', () => {
-    expect(isSyntheticCode('norcar')).toBe(false);
-    expect(isSyntheticCode('vermfly')).toBe(false);
-    expect(isSyntheticCode('wlsfly')).toBe(false);
-    // Real codes that happen to contain "agg" anywhere but at the start
-    // (defensive — eBird codes are 6–8 lowercase letters, so this should
-    // never occur in practice, but the prefix-match contract is explicit).
-    expect(isSyntheticCode('zagger')).toBe(false);
-  });
-
-  it('returns false for null', () => {
-    expect(isSyntheticCode(null)).toBe(false);
-  });
-});
 
 function makeClient(overrides: Partial<ApiClient>): ApiClient {
   return Object.assign(new ApiClient(), overrides);
@@ -114,13 +90,26 @@ describe('useBirdData', () => {
     expect(getObservations.mock.calls[1][0]).toMatchObject({ zoom: 8 });
   });
 
-  it('expands aggregated buckets to synthetic observations (#627)', async () => {
+  it('stores aggregated buckets DIRECTLY (no synthetic observations) and flags mode (#859)', async () => {
+    const buckets = [
+      {
+        lat: 31.75, lng: -111, count: 3, speciesCount: 1,
+        families: [{
+          code: 'tyrannidae', count: 3, speciesCount: 1,
+          species: [{ code: 'vermfly', count: 3 }],
+        }],
+      },
+      {
+        lat: 40, lng: -100, count: 2, speciesCount: 1,
+        families: [{
+          code: 'trochilidae', count: 2, speciesCount: 1,
+          species: [{ code: 'rufhum', count: 2 }],
+        }],
+      },
+    ];
     const getObservations = vi.fn().mockResolvedValue({
       mode: 'aggregated',
-      buckets: [
-        { lat: 31.75, lng: -111, count: 3, speciesCount: 1, families: ['tyrannidae'] },
-        { lat: 40, lng: -100, count: 2, speciesCount: 1, families: ['trochilidae'] },
-      ],
+      buckets,
       meta: { freshestObservationAt: '2026-05-17T00:00:00.000Z' },
     });
     const client = makeClient({
@@ -130,47 +119,48 @@ describe('useBirdData', () => {
 
     const { result } = renderHook(() =>
       useBirdData(client, { since: '14d', notable: false, zoom: 3 }));
-    await waitFor(() => expect(result.current.observations.length).toBe(5));
-    const byFamily = result.current.observations.reduce<Record<string, number>>((acc, o) => {
-      const k = o.familyCode ?? 'null';
-      acc[k] = (acc[k] ?? 0) + 1;
-      return acc;
-    }, {});
-    expect(byFamily['tyrannidae']).toBe(3);
-    expect(byFamily['trochilidae']).toBe(2);
+    await waitFor(() => expect(result.current.mode).toBe('aggregated'));
+
+    // Real buckets are stored verbatim — no Observation[] fabrication.
+    expect(result.current.buckets).toHaveLength(2);
+    expect(result.current.buckets[0]?.families[0]?.species[0]?.code).toBe('vermfly');
+    // The per-observation array stays EMPTY in aggregated mode (no synthetics).
+    expect(result.current.observations).toHaveLength(0);
     expect(result.current.freshestObservationAt).toBe('2026-05-17T00:00:00.000Z');
   });
 
-  it('synthesises unique speciesCodes across buckets sharing a family (#630 fix)', async () => {
-    // Two distinct buckets both contain family `tyrannidae` with speciesCount=3.
-    // Before fix: both buckets emit `agg-tyrannidae-1`/`agg-tyrannidae-2` codes
-    // and any DISTINCT-species count across the viewport undercounts.
-    const getObservations = vi.fn().mockResolvedValue({
-      mode: 'aggregated',
-      buckets: [
-        { lat: 31.75, lng: -111, count: 3, speciesCount: 3, families: ['tyrannidae'] },
-        { lat: 40, lng: -100, count: 3, speciesCount: 3, families: ['tyrannidae'] },
-      ],
-      meta: { freshestObservationAt: null },
-    });
+  it('clears buckets and uses observations when a per-observation response lands (zoom >= 6)', async () => {
+    const getObservations = vi.fn()
+      .mockResolvedValueOnce({
+        mode: 'aggregated',
+        buckets: [{
+          lat: 31, lng: -111, count: 3, speciesCount: 1,
+          families: [{ code: 'tyrannidae', count: 3, speciesCount: 1, species: [{ code: 'vermfly', count: 3 }] }],
+        }],
+        meta: { freshestObservationAt: null },
+      })
+      .mockResolvedValue({
+        mode: 'observations',
+        data: [{ subId: 's1', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher', familyCode: 'tyrannidae' }],
+        meta: { freshestObservationAt: null },
+      });
     const client = makeClient({
       getHotspots: vi.fn().mockResolvedValue([]),
       getObservations,
     } as unknown as Partial<ApiClient>);
 
-    const { result } = renderHook(() =>
-      useBirdData(client, { since: '14d', notable: false, zoom: 3 }));
-    await waitFor(() => expect(result.current.observations.length).toBe(6));
+    const { result, rerender } = renderHook(
+      ({ filters }: { filters: import('@bird-watch/shared-types').ObservationFilters }) =>
+        useBirdData(client, filters),
+      { initialProps: { filters: { since: '14d', notable: false, zoom: 3 } } },
+    );
+    await waitFor(() => expect(result.current.buckets).toHaveLength(1));
 
-    // Distinct speciesCodes across the two buckets must be 6 (3 per bucket),
-    // not 3 (collapsed by collision). Also assert the index `0` slot is
-    // actually emitted (regression for the `i % n || 1` fallthrough bug).
-    const distinctCodes = new Set(result.current.observations.map(o => o.speciesCode));
-    expect(distinctCodes.size).toBe(6);
-    const firstBucketCodes = result.current.observations
-      .filter(o => o.subId.startsWith('agg:0:'))
-      .map(o => o.speciesCode);
-    expect(firstBucketCodes).toContain('agg-0-tyrannidae-0');
+    rerender({ filters: { since: '14d', notable: false, zoom: 8 } });
+    await waitFor(() => expect(result.current.mode).toBe('observations'));
+    expect(result.current.observations).toHaveLength(1);
+    // Stale buckets must be cleared so the legend / map don't double-render.
+    expect(result.current.buckets).toHaveLength(0);
   });
 
   // --- O7 (#786) refetch tests ---

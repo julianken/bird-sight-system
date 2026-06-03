@@ -20,7 +20,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 // GeoJSON structural types come from `geojson` (@types/geojson), NOT maplibre-gl
 // (5.x does not re-export them). `import type`, erased at build — see mask.ts.
 import type { MultiPolygon } from 'geojson';
-import type { FamilySilhouette, Observation } from '@bird-watch/shared-types';
+import type { AggregatedBucket, FamilySilhouette, Observation } from '@bird-watch/shared-types';
 import { BASEMAP_LIGHT, BASEMAP_DARK } from './basemap-style.js';
 import {
   buildMaskFeature,
@@ -38,6 +38,7 @@ import {
 } from './artboard-layers.js';
 import {
   observationsToGeoJson,
+  bucketsToGeoJson,
   buildClusterLayerSpec,
   buildClusterCountLayerSpec,
   buildClustersHitLayerSpec,
@@ -47,6 +48,8 @@ import {
   CLUSTER_RADIUS,
   FALLBACK_SILHOUETTE_ID,
 } from './observation-layers.js';
+import { mergeLeafBuckets } from '../../data/bucket-aggregates.js';
+import type { SpeciesDictionary } from '../../data/use-species-dictionary.js';
 import { ObservationPopover } from './ObservationPopover.js';
 import { AdaptiveGridMarker } from './AdaptiveGridMarker.js';
 import { ClusterListPopover } from './ClusterListPopover.js';
@@ -56,6 +59,7 @@ import {
   aggregateClusterFamilies,
   aggregateClusterSpecies,
   buildAdaptiveTiles,
+  tilesFromAggregates,
   pickGridShape,
   type AdaptiveTile,
   type ClusterLeafFeature,
@@ -277,6 +281,26 @@ function PresentationMarker({ longitude, latitude, anchor, children }: Presentat
 
 export interface MapCanvasProps {
   observations: Observation[];
+  /**
+   * Aggregated low-zoom buckets (#859). Populated only in `mode === 'aggregated'`
+   * (z < 6); the map renders ONE clustered feature per bucket carrying its real
+   * families/species, instead of per-observation rows. Empty / unused in
+   * per-observation mode. Defaults to `[]` for legacy/test callers.
+   */
+  buckets?: AggregatedBucket[];
+  /**
+   * Which render path is active (#859). `'aggregated'` ⇒ feed `buckets` to the
+   * cluster source + bucket-aware popovers; `'observations'` ⇒ the unchanged
+   * per-observation path. Defaults to `'observations'`.
+   */
+  mode?: 'observations' | 'aggregated';
+  /**
+   * Species code→{comName} dictionary (#859) used to resolve the real species
+   * names carried (as codes) in aggregated buckets. Tolerates a cold/empty Map
+   * (rows fall back to the bare code, never crash). Unused in per-observation
+   * mode. Defaults to an empty Map.
+   */
+  dictionary?: SpeciesDictionary;
   /**
    * Family silhouettes from `/api/silhouettes`. Threaded down from App.tsx
    * via MapSurface (see App.tsx — single mount of `useSilhouettes`, then
@@ -614,8 +638,17 @@ interface SelectedObsState {
   pos: { x: number; y: number };
 }
 
+const EMPTY_DICT: SpeciesDictionary = new Map();
+// Stable empty-bucket default — a fresh `[]` literal in the destructuring
+// default would change identity every render and thrash the reconciler effect
+// (whose dep array includes `buckets`), spinning an infinite re-register loop.
+const EMPTY_BUCKETS: AggregatedBucket[] = [];
+
 export function MapCanvas({
   observations,
+  buckets = EMPTY_BUCKETS,
+  mode = 'observations',
+  dictionary = EMPTY_DICT,
   silhouettes = [],
   onSelectSpecies,
   onViewportChange,
@@ -626,6 +659,7 @@ export function MapCanvas({
   clampPad,
   detailOpen = false,
 }: MapCanvasProps) {
+  const aggregated = mode === 'aggregated';
   const mapRef = useRef<MapRef>(null);
   /**
    * Wrapper element the `map.resize()` ResizeObserver watches (#737, S3 of
@@ -708,9 +742,14 @@ export function MapCanvas({
     group: DeconflictGroup;
     families: FamilyAggregate[];
     speciesByFamily: ReadonlyMap<string, ReadonlyArray<SpeciesAggregate>>;
+    // #859: per-family distinct-species overflow (drives the active "+N more"
+    // drill-in). Present only on the aggregated-bucket path; absent ⇒ static.
+    overflowByFamily?: ReadonlyMap<string, number>;
     totalCount: number;
     uniqueFamilies: number;
     anchorEl: HTMLElement;
+    /** Camera center the "+N more" drill-in escalates into (the group anchor). */
+    drillCenter?: [number, number];
   } | null>(null);
   /**
    * Unified deconflict output (issue #554). One entry per overlap-component
@@ -1312,9 +1351,16 @@ export function MapCanvas({
    * grid shapes carry the family-color signal without an animated fan.
    */
 
+  // In aggregated mode (#859) the cluster source is fed ONE feature per bucket
+  // carrying real count/speciesCount + serialized families; otherwise it's the
+  // per-observation FeatureCollection. Both share the `'observations'` source id
+  // so every getSource('observations') / clustering call below is path-agnostic.
   const geojson = useMemo(
-    () => observationsToGeoJson(observations, silhouettes),
-    [observations, silhouettes],
+    () =>
+      aggregated
+        ? bucketsToGeoJson(buckets, silhouettes)
+        : observationsToGeoJson(observations, silhouettes),
+    [aggregated, buckets, observations, silhouettes],
   );
 
   // Tracks the map's current zoom for hit-target gating. The hit-layer
@@ -1648,6 +1694,11 @@ export function MapCanvas({
 
     const reconcile = async () => {
       const myGen = cacheGeneration;
+      // #859: a coarse dictionary "generation" folded into the leaf-cache key so
+      // a cluster resolved with a cold (empty) dictionary re-resolves once the
+      // names load. `0` while empty, `1` once populated — enough granularity
+      // because the dictionary is loaded once and never shrinks.
+      const dictGen = dictionary.size > 0 ? 1 : 0;
       // Cluster-shape tier (feeds pickGridShape below). Reads the GL container's
       // measured width against the 768px breakpoint. Post-#761/S2 the map fills
       // the full viewport (`#map-layer` is `position: fixed; inset: 0`), so this
@@ -1710,7 +1761,14 @@ export function MapCanvas({
       await Promise.all(
         candidates.map(async (feature) => {
           const clusterId = feature.properties?.['cluster_id'] as number;
-          const pointCount = feature.properties?.['point_count'] as number;
+          const rawPointCount = feature.properties?.['point_count'] as number;
+          // #859: in aggregated mode the marker total is the SUMMED real
+          // observation count across the cluster's buckets (`sumCount` cluster
+          // property), NOT supercluster's `point_count` (which counts buckets).
+          // Per-observation mode keeps `point_count` (1 feature = 1 observation).
+          const sumCount = feature.properties?.['sumCount'];
+          const pointCount =
+            aggregated && typeof sumCount === 'number' ? sumCount : rawPointCount;
           const geom = feature.geometry as
             | { type: 'Point'; coordinates: [number, number] }
             | { type: string };
@@ -1721,8 +1779,10 @@ export function MapCanvas({
 
           // Concern B cache key — zoom-prefixed per spec §5.3 to prevent
           // collisions across zoom levels (supercluster's integer
-          // cluster_id values are recycled across zoom strata).
-          const key = `${floorZoom}:${clusterId}:${pointCount}`;
+          // cluster_id values are recycled across zoom strata). The mode +
+          // dictionary-size suffix evicts the cache when the data path flips or
+          // the dictionary first resolves (so cold-dictionary tiles re-resolve).
+          const key = `${aggregated ? 'agg' : 'obs'}:${dictGen}:${floorZoom}:${clusterId}:${pointCount}`;
           currentKeys.add(key);
 
           // Build (or reuse) the resolved adaptive-data Promise for this
@@ -1738,7 +1798,18 @@ export function MapCanvas({
                 64, // MAX_OBSERVATIONS — see adaptive-grid.ts spec §4.1
                 0,
               )) as ClusterLeafFeature[];
-              const aggregates = aggregateClusterFamilies(leaves);
+              // #859: in aggregated mode each leaf is a whole BUCKET carrying
+              // many families (serialized in `familiesJson`). Merge them
+              // client-side ONCE into exact per-family aggregates + resolved
+              // species, then build tiles from those — NOT the per-leaf
+              // one-observation recount the per-observation path uses.
+              const merged = aggregated
+                ? mergeLeafBuckets(
+                    leaves as unknown as Array<{ properties?: { familiesJson?: unknown } }>,
+                    dictionary,
+                  )
+                : null;
+              const aggregates = merged ? merged.families : aggregateClusterFamilies(leaves);
               const uniqueFamilies = aggregates.length;
               const shape = pickGridShape(
                 uniqueFamilies,
@@ -1751,15 +1822,25 @@ export function MapCanvas({
                 // without re-fetching leaves.
                 return { kind: 'pill', uniqueFamilies };
               }
-              const tiles = buildAdaptiveTiles(
-                leaves,
-                silhouettesById,
-                shape,
-              );
+              const tiles = merged
+                ? tilesFromAggregates(
+                    aggregates,
+                    merged.speciesByFamily,
+                    silhouettesById,
+                    shape,
+                    // #859: thread each family's true distinct-species count so
+                    // the per-family <CellPopover> "+N more" mirrors the
+                    // cluster-list path's active drill-in.
+                    merged.speciesCountByFamily,
+                  )
+                : buildAdaptiveTiles(leaves, silhouettesById, shape);
               // F7 option (a): only mark the marker isNotable when the
               // cluster is strictly 1×1 with a single notable observation.
               // Per-tile isNotable is the future-extension path (option b).
+              // Aggregated buckets carry no per-observation `isNotable`, so this
+              // stays false there (the notable ring is a per-observation signal).
               const isNotablePoint =
+                !aggregated &&
                 pointCount === 1 &&
                 uniqueFamilies === 1 &&
                 Boolean(leaves[0]?.properties['isNotable']);
@@ -1990,7 +2071,10 @@ export function MapCanvas({
     // catalogue replacements that don't change array identity (defensive —
     // useMemo already keys silhouettesById on [silhouettes], so this is
     // a belt-and-braces guard the spec §5.3 commit-race tests assert).
-  }, [silhouettes, silhouettesById, silhouettesVersion, mapReady]);
+    // #859: `aggregated`, `buckets`, and `dictionary` are deps too — flipping
+    // the data path (z<6 ↔ z>=6), swapping the bucket set, or the dictionary
+    // first resolving must re-run the reconciler so markers reflect real data.
+  }, [silhouettes, silhouettesById, silhouettesVersion, mapReady, aggregated, buckets, dictionary]);
 
   // Phase 1: [data-theme] observer — swap basemap when user toggles theme.
   // Registered after mapReady so the map instance is guaranteed to exist.
@@ -2100,6 +2184,26 @@ export function MapCanvas({
         );
         const leaves = leafBatches.flat();
         if (leaves.length === 0) return;
+        if (aggregated) {
+          // #859: leaves are buckets — merge their real families/species.
+          const merged = mergeLeafBuckets(
+            leaves as unknown as Array<{ properties?: { familiesJson?: unknown } }>,
+            dictionary,
+          );
+          setClusterList({
+            group,
+            families: merged.families,
+            speciesByFamily: merged.speciesByFamily,
+            overflowByFamily: merged.overflowByFamily,
+            totalCount: group.anchor.point_count,
+            uniqueFamilies: merged.families.length,
+            anchorEl,
+            ...(group.anchor.longitude !== undefined && group.anchor.latitude !== undefined
+              ? { drillCenter: [group.anchor.longitude, group.anchor.latitude] as [number, number] }
+              : {}),
+          });
+          return;
+        }
         const families = aggregateClusterFamilies(leaves);
         const speciesByFamily = aggregateClusterSpecies(leaves);
         setClusterList({
@@ -2116,12 +2220,56 @@ export function MapCanvas({
         // alternative is a console-warn spam on every fast pan.
       }
     },
-    [],
+    [aggregated, dictionary],
   );
 
   const handleGroupClick = useCallback(
     async (group: DeconflictGroup, anchorEl?: HTMLElement | null) => {
       const { anchor, memberIds } = group;
+
+      // #859: in aggregated (low-zoom) mode there are NO per-observation rows —
+      // every marker is one or more buckets. A click must show the bucket's
+      // REAL species (route to the merged cluster-list popover), never the
+      // old synthetic single-observation path. We still try to escalate the
+      // camera first (so a click zooms in where possible); the terminal
+      // fallback opens the species list with real data + "+N more" drill-in.
+      if (aggregated) {
+        const map = mapRef.current?.getMap();
+        if (!map) return;
+        const source = map.getSource('observations');
+        const clusterMemberIds = memberIds.filter((id) => id > 0);
+        if (
+          clusterMemberIds.length > 0 &&
+          source &&
+          'getClusterExpansionZoom' in source
+        ) {
+          const src = source as { getClusterExpansionZoom: (id: number) => Promise<number> };
+          try {
+            const zooms = await Promise.all(
+              clusterMemberIds.map((id) => src.getClusterExpansionZoom(id)),
+            );
+            const targetZoom = Math.min(Math.max(...zooms), CLUSTER_MAX_ZOOM);
+            const currentZoom = map.getZoom();
+            const shouldEase =
+              Number.isFinite(targetZoom) &&
+              targetZoom > currentZoom &&
+              anchor.longitude !== undefined &&
+              anchor.latitude !== undefined;
+            if (shouldEase) {
+              map.easeTo({
+                center: [anchor.longitude!, anchor.latitude!],
+                zoom: targetZoom,
+                ...(prefersReducedMotion ? { duration: 0 } : {}),
+              });
+              return;
+            }
+          } catch {
+            // recycled cluster_id — fall through to the species list.
+          }
+        }
+        if (anchorEl) await openClusterListFromGroup(group, anchorEl);
+        return;
+      }
 
       // Singleton: open the obs popover directly. The cluster's single
       // observation is resolvable by lng/lat against obsLookup (within ε
@@ -2209,7 +2357,7 @@ export function MapCanvas({
         // the prior err-swallow pattern.
       }
     },
-    [observations, prefersReducedMotion, openClusterListFromGroup],
+    [aggregated, observations, prefersReducedMotion, openClusterListFromGroup],
   );
 
   const handleClosePopover = useCallback(() => setSelectedObs(null), []);
@@ -2241,6 +2389,29 @@ export function MapCanvas({
       setSelectedObs(null);
     },
     [onSelectSpecies],
+  );
+
+  /**
+   * #859: "+N more" drill-in. Eases the camera into the clicked cell so the
+   * per-family top-8 cap no longer applies — the read-api stops aggregating at
+   * zoom 6, so we ease to the cell center at `DRILL_IN_ZOOM` (one past the
+   * aggregation boundary), which re-fetches real per-observation rows there.
+   * Closes the cluster-list popover after escalating (its data is now stale).
+   */
+  const handleDrillInToCenter = useCallback(
+    (center: [number, number] | undefined) => {
+      setClusterList(null);
+      const map = mapRef.current?.getMap();
+      if (!map || !center) return;
+      const DRILL_IN_ZOOM = 6; // aggregation threshold — z>=6 returns real rows
+      const targetZoom = Math.max(map.getZoom() + 1, DRILL_IN_ZOOM);
+      map.easeTo({
+        center,
+        zoom: targetZoom,
+        ...(prefersReducedMotion ? { duration: 0 } : {}),
+      });
+    },
+    [prefersReducedMotion],
   );
 
   /* Hit-target layer: render hit targets at zoom >= CLUSTER_MAX_ZOOM
@@ -2385,6 +2556,25 @@ export function MapCanvas({
           cluster
           clusterMaxZoom={CLUSTER_MAX_ZOOM}
           clusterRadius={CLUSTER_RADIUS}
+          // #860: in aggregated mode (z < 6) every feature is a BUCKET carrying
+          // real per-cell species (#859). maplibre's default clusterMinPoints (2)
+          // emits a bucket with no neighbour within `clusterRadius` (50px) as an
+          // UNCLUSTERED point — no cluster_id / point_count. Bucket features carry
+          // `count`/`speciesCount`/`familiesJson` but NEVER a `subId`, so every
+          // interaction path keys on `subId` (the reconciler's clustered + the
+          // unclustered-silhouette input passes, and the canvas unclustered-point
+          // click handler) DROPS that lone bucket — it still canvas-paints a
+          // dominant-family silhouette, so the user gets a marker that does
+          // nothing on click. That is the "dead cell at low zoom" #859 set out to
+          // kill, reintroduced via a different mechanism (reachable at national
+          // zoom in sparse states — MT/WY/NV). Forcing clusterMinPoints=1 makes
+          // EVERY bucket a (degenerate) 1-point cluster, so even a lone one flows
+          // through the existing clustered/reconciler + bucket-popover path
+          // (getClusterLeaves → mergeLeafBuckets → grid/pill → real-species
+          // popover). Gated on `aggregated`: per-observation mode keeps maplibre's
+          // default (2), so real Observation rows — which legitimately use `subId`
+          // + the unclustered silhouette layer — are completely unchanged.
+          clusterMinPoints={aggregated ? 1 : 2}
           // Phase 0 finding F4: when clusterMaxZoom rises to 22 (epic #539
           // cutover), maplibre warns that source `maxzoom` (default 18)
           // must exceed clusterMaxZoom. Setting maxzoom=24 lifts the
@@ -2397,7 +2587,18 @@ export function MapCanvas({
           // The silhouette-displacement path (issue #554 scope expansion)
           // uses this to set `hidden: true` on canvas-painted silhouettes
           // whose displaced React twins are rendered via <PresentationMarker>.
+          // (Aggregated bucket features carry no subId — promoteId is a no-op
+          // there; the bucket path doesn't use feature-state displacement.)
           promoteId="subId"
+          // #859: sum the REAL observation/species totals across the buckets in
+          // a cluster. supercluster's `point_count` counts FEATURES (= buckets),
+          // not observations, so the marker/pill reads `sumCount` instead in
+          // aggregated mode. Harmless in per-observation mode (each obs feature
+          // has no `count`/`speciesCount`, so the sums stay 0 and are unread).
+          clusterProperties={{
+            sumCount: ['+', ['coalesce', ['get', 'count'], 0]],
+            sumSpeciesCount: ['+', ['coalesce', ['get', 'speciesCount'], 0]],
+          }}
         >
           <Layer {...clusterLayer} />
           <Layer {...clusterCountLayer} />
@@ -2479,6 +2680,15 @@ export function MapCanvas({
                 {...(onSelectSpecies ? {
                   onSelectSpecies: (code: string) => onSelectSpecies(code),
                 } : {})}
+                {...(anchor.longitude !== undefined && anchor.latitude !== undefined
+                  ? {
+                      // #859: the per-family <CellPopover> "+N more" eases the
+                      // camera into this marker's cell center — the SAME active
+                      // drill-in the cluster-list path uses. The marker decides
+                      // (via tile.speciesCount) whether to actually offer it.
+                      onDrillIn: () => handleDrillInToCenter([longitude, latitude]),
+                    }
+                  : {})}
               />
             </PresentationMarker>
           );
@@ -2597,6 +2807,7 @@ export function MapCanvas({
         <ClusterListPopover
           families={clusterList.families}
           speciesByFamily={clusterList.speciesByFamily}
+          {...(clusterList.overflowByFamily ? { overflowByFamily: clusterList.overflowByFamily } : {})}
           totalCount={clusterList.totalCount}
           uniqueFamilies={clusterList.uniqueFamilies}
           anchorEl={clusterList.anchorEl}
@@ -2607,6 +2818,9 @@ export function MapCanvas({
             }
             setClusterList(null);
           }}
+          {...(clusterList.drillCenter
+            ? { onDrillIn: () => handleDrillInToCenter(clusterList.drillCenter) }
+            : {})}
         />
       )}
     </div>

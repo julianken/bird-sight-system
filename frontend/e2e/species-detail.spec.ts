@@ -41,9 +41,11 @@ test.describe('species detail surface (#151)', () => {
   // path is covered by map-cell-popover.spec.ts (scenarios 1, 6).
 
   test('FiltersBar species commit narrows the map without opening detail', async ({ page, apiStub }) => {
-    // /api/observations now (#627) returns aggregated buckets at low zoom;
-    // synthetic obs carry family names as comName, so the species typeahead
-    // needs a real-species observation stubbed in to resolve
+    // /api/observations returns aggregated buckets at low zoom (#627), which
+    // carry no per-observation rows — #859 moved species aggregation
+    // server-side and deleted the synthetic-observation expansion. The
+    // species typeahead derives from per-observation (comName, speciesCode)
+    // pairs, so it needs a real-species observation stubbed in to resolve
     // "Vermilion Flycatcher" → "vermfly".
     await apiStub.stubObservations(VERMFLY_OBS);
     const app = new AppPage(page);

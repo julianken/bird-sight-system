@@ -1,6 +1,6 @@
 import type { Pool } from './pool.js';
 import type {
-  Observation, ObservationFilters, AggregatedBucket,
+  Observation, ObservationFilters, AggregatedBucket, AggregatedFamily,
 } from '@bird-watch/shared-types';
 
 export interface ObservationInput {
@@ -295,17 +295,42 @@ export async function getObservations(
 }
 
 /**
- * Coarse-grid aggregation for low-zoom views (#627). Buckets observations
+ * Top-N species carried per family in each aggregated bucket (#859). The cap
+ * keeps the national grid payload bounded: species are thin per family (most
+ * families have 1–4 species in a cell), so 8 shows almost every family in full
+ * and only mega-families (warblers, sparrows, ducks) truncate — with an honest
+ * "+N more" drawn from the EXACT `speciesCount`, not this capped list. Measured
+ * national gzip at top-8 sits in the ~130–160KB range (acceptable ceiling
+ * 180KB); raising the cap re-inflates the payload roughly linearly in the
+ * mega-family tail. Tunable: bump here and re-measure with the gzip probe
+ * before changing it.
+ */
+export const TOP_SPECIES_PER_FAMILY = 8;
+
+/**
+ * Coarse-grid aggregation for low-zoom views (#627, #859). Buckets observations
  * onto a `round(coord * gridMultiplier) / gridMultiplier` lat/lng grid and
- * returns count/species-count/families per cell. Used when the read-api
- * sees `zoom < 6` to keep CONUS-view payload below the Phase 2 <2 MB gate.
+ * returns, per cell, the total count/species-count plus the species nested
+ * UNDER each family (compute-on-write). Used when the read-api sees `zoom < 6`
+ * to keep CONUS-view payload below the Phase 2 <2 MB gate while still letting
+ * the frontend render real species names directly (no synthetic rows, no lazy
+ * per-click fetch — the bug class #859 deletes).
  *
  * `gridMultiplier` controls bucket size — higher = finer grid:
  *   2  → 0.5°   (~55 km @ AZ latitude) — zoom 3
  *   4  → 0.25°  (~28 km)               — zoom 4
  *   8  → 0.125° (~14 km)               — zoom 5
  *
- * Filters mirror getObservations (since / notable / species / family / bbox).
+ * Filters mirror getObservations (since / notable / species / family / bbox /
+ * stateCode + the #733 state polygon clip), applied identically.
+ *
+ * NULL-family handling (#859, matching the prior `array_remove(..., NULL)`
+ * intent): a species absent from `species_meta` has an unknown family. Its
+ * observations STILL count toward the bucket `count` / `speciesCount` totals
+ * (true totals over ALL rows), but the species is EXCLUDED from `families[]`
+ * because there is no family to nest it under — the per-family CTE filters
+ * `sm.family_code IS NOT NULL`, while the bucket totals are computed over the
+ * unfiltered base set.
  */
 export async function getObservationsAggregated(
   pool: Pool,
@@ -361,22 +386,95 @@ export async function getObservationsAggregated(
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   const gIdx = params.length + 1;
   params.push(gridMultiplier);
+  const capIdx = params.length + 1;
+  params.push(TOP_SPECIES_PER_FAMILY);
 
-  // The grid multiplier is parameterised, not interpolated, so callers can't
-  // inject SQL via gridMultiplier. The read-api validates zoom → multiplier
-  // through a closed switch (2/4/8) so even an upstream tamper attempt lands
-  // on a numeric value.
+  // The grid multiplier and top-N cap are parameterised, not interpolated, so
+  // callers can't inject SQL through them. The read-api validates zoom →
+  // multiplier through a closed switch (2/4/8) so even an upstream tamper
+  // attempt lands on a numeric value; the cap is a module const.
+  //
+  // Pipeline (#859, compute-on-write nesting):
+  //   base       — filtered observations, bucketed, with family_code joined.
+  //                Carries NULL family rows (species absent from species_meta).
+  //   per_species— count(*) per (bucket, family, species), family NOT NULL only.
+  //   ranked     — ROW_NUMBER() per (bucket, family) ordered by species count
+  //                desc, species_code asc → deterministic top-N selection.
+  //   per_family — per (bucket, family): exact family count + distinct species
+  //                count, plus the top-N species (rn <= cap) as an ordered JSON
+  //                array. family count/speciesCount are over ALL of that
+  //                family's rows in the cell, NOT just the capped list.
+  //   families   — per bucket: families rolled up into one JSON array ordered
+  //                by family count desc, family code asc.
+  // The final SELECT computes the bucket count/speciesCount over `base`
+  // (unfiltered — so NULL-family rows still count toward the totals), then
+  // LEFT JOINs the families rollup (which excludes NULL-family rows). A bucket
+  // whose only observations are NULL-family yields families = '[]'.
   const sql = `
+    WITH base AS (
+      SELECT
+        round(ST_X(o.geom) * $${gIdx}) / $${gIdx} AS lng_bucket,
+        round(ST_Y(o.geom) * $${gIdx}) / $${gIdx} AS lat_bucket,
+        o.species_code,
+        sm.family_code
+      FROM observations o
+      LEFT JOIN species_meta sm ON sm.species_code = o.species_code
+      ${where}
+    ),
+    per_species AS (
+      SELECT
+        lng_bucket, lat_bucket, family_code, species_code,
+        count(*)::int AS species_count
+      FROM base
+      WHERE family_code IS NOT NULL
+      GROUP BY lng_bucket, lat_bucket, family_code, species_code
+    ),
+    ranked AS (
+      SELECT
+        lng_bucket, lat_bucket, family_code, species_code, species_count,
+        ROW_NUMBER() OVER (
+          PARTITION BY lng_bucket, lat_bucket, family_code
+          ORDER BY species_count DESC, species_code ASC
+        ) AS rn
+      FROM per_species
+    ),
+    per_family AS (
+      SELECT
+        lng_bucket, lat_bucket, family_code,
+        sum(species_count)::int AS family_count,
+        count(*)::int AS family_species_count,
+        jsonb_agg(
+          jsonb_build_object('code', species_code, 'count', species_count)
+          ORDER BY species_count DESC, species_code ASC
+        ) FILTER (WHERE rn <= $${capIdx}) AS top_species
+      FROM ranked
+      GROUP BY lng_bucket, lat_bucket, family_code
+    ),
+    families AS (
+      SELECT
+        lng_bucket, lat_bucket,
+        jsonb_agg(
+          jsonb_build_object(
+            'code', family_code,
+            'count', family_count,
+            'speciesCount', family_species_count,
+            'species', top_species
+          )
+          ORDER BY family_count DESC, family_code ASC
+        ) AS families
+      FROM per_family
+      GROUP BY lng_bucket, lat_bucket
+    )
     SELECT
-      round(ST_X(geom) * $${gIdx}) / $${gIdx} AS lng_bucket,
-      round(ST_Y(geom) * $${gIdx}) / $${gIdx} AS lat_bucket,
+      b.lng_bucket,
+      b.lat_bucket,
       count(*)::int AS observation_count,
-      count(DISTINCT o.species_code)::int AS species_count,
-      array_remove(array_agg(DISTINCT sm.family_code), NULL) AS families
-    FROM observations o
-    LEFT JOIN species_meta sm ON sm.species_code = o.species_code
-    ${where}
-    GROUP BY 1, 2
+      count(DISTINCT b.species_code)::int AS species_count,
+      COALESCE(f.families, '[]'::jsonb) AS families
+    FROM base b
+    LEFT JOIN families f
+      ON f.lng_bucket = b.lng_bucket AND f.lat_bucket = b.lat_bucket
+    GROUP BY b.lng_bucket, b.lat_bucket, f.families
   `;
 
   const { rows } = await pool.query<{
@@ -384,7 +482,7 @@ export async function getObservationsAggregated(
     lat_bucket: number;
     observation_count: number;
     species_count: number;
-    families: string[] | null;
+    families: AggregatedFamily[] | null;
   }>(sql, params);
 
   return rows.map(r => ({
@@ -392,6 +490,8 @@ export async function getObservationsAggregated(
     lat: Number(r.lat_bucket),
     count: r.observation_count,
     speciesCount: r.species_count,
+    // jsonb deserialises to a JS array already; `?? []` guards the COALESCE
+    // result and the theoretical all-NULL-family bucket.
     families: r.families ?? [],
   }));
 }

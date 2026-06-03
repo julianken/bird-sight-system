@@ -4,65 +4,6 @@ import type {
   Hotspot, Observation, ObservationFilters, AggregatedBucket,
 } from '@bird-watch/shared-types';
 
-/**
- * Expand each aggregated bucket (#627) into `count` synthetic Observation
- * rows sharing the same lat/lng, so the existing supercluster/adaptive-grid
- * render path stays unchanged. The wire payload is the optimization target —
- * a few thousand synthetic objects in memory is cheap; serializing them
- * across the wire is what wasn't.
- *
- * The synthetic `speciesCode` rotates through `bucket.families` so the
- * cluster pill's species/family counts approximate the truth at zoom levels
- * where the user can't drill down anyway. Drilling in past zoom 6 swaps to
- * `mode === 'observations'` and shows real rows.
- */
-/**
- * True when `code` is one of the synthetic `agg-…` species codes fabricated
- * by `expandBucketsToSyntheticObservations` at aggregated (z < 6) zoom (#715).
- *
- * Synthetic codes are non-resolvable by `/api/species/:code` — passing one to
- * `useSpeciesDetail` produces a 404 and the SpeciesDetailSurface renders only
- * the error StatusBlock with no body content. Callers that route a `speciesCode`
- * into the detail panel (cluster popovers, deep-link hydration) must gate on
- * this helper to avoid the broken-detail-render UX.
- *
- * Real eBird species codes are 6–8 lowercase letters and never start with
- * `agg-`; the prefix-match contract is exact.
- */
-export const isSyntheticCode = (code: string | null): boolean =>
-  code !== null && code.startsWith('agg-');
-
-export function expandBucketsToSyntheticObservations(
-  buckets: AggregatedBucket[],
-): Observation[] {
-  const out: Observation[] = [];
-  const nowIso = new Date().toISOString();
-  for (let bi = 0; bi < buckets.length; bi++) {
-    const b = buckets[bi]!;
-    const families = b.families.length > 0 ? b.families : [null];
-    for (let i = 0; i < b.count; i++) {
-      const family = families[i % families.length] ?? null;
-      out.push({
-        subId: `agg:${bi}:${i}`,
-        speciesCode: family
-          ? `agg-${bi}-${family}-${i % Math.max(b.speciesCount, 1)}`
-          : `agg-${bi}-${i}`,
-        comName: family ?? 'Aggregated observation',
-        lat: b.lat,
-        lng: b.lng,
-        obsDt: nowIso,
-        locId: `agg-loc-${bi}`,
-        locName: null,
-        howMany: null,
-        isNotable: false,
-        silhouetteId: family,
-        familyCode: family,
-      });
-    }
-  }
-  return out;
-}
-
 export interface BirdDataState {
   /**
    * Combined loading flag — true while EITHER hotspots OR observations is in
@@ -91,20 +32,30 @@ export interface BirdDataState {
   hotspotsLoading: boolean;
   error: Error | null;
   hotspots: Hotspot[];
+  /**
+   * Per-observation rows. POPULATED ONLY in `mode === 'observations'` (z >= 6).
+   * In aggregated mode this is EMPTY (#859 deleted the synthetic-observation
+   * fabrication) — read `buckets` instead.
+   */
   observations: Observation[];
   /**
-   * Render mode of the most recently resolved /api/observations response
-   * (#627). `'aggregated'` at low zoom (z < 6, whole-state/regional view) where
-   * `observations` are SYNTHETIC rows expanded from coarse-grid buckets;
-   * `'observations'` at z >= 6 where they are real per-observation rows.
+   * Real coarse-grid aggregation buckets (#859). POPULATED ONLY in
+   * `mode === 'aggregated'` (z < 6); EMPTY in per-observation mode. Each bucket
+   * carries its exact family counts and the top-8 species per family (codes
+   * only — names resolve via the species dictionary), so the map markers,
+   * popovers, and family legend all read REAL data without fabricating
+   * Observations or lazily re-fetching per click.
+   */
+  buckets: AggregatedBucket[];
+  /**
+   * Render mode of the most recently resolved /api/observations response.
+   * `'aggregated'` at low zoom (z < 6) ⇒ read `buckets`; `'observations'` at
+   * z >= 6 ⇒ read `observations`. The two arrays are mutually exclusive: when
+   * one is populated the other is empty.
    *
-   * #852: consumers that derive a distinct-species count from `observations`
-   * (e.g. the MapLede "{N} species" copy) MUST gate on this — in aggregated
-   * mode the synthetic `agg-{bi}-…` codes are PREFIXED by bucket index, so the
-   * same species across N cells yields N distinct codes and
-   * `new Set(speciesCode).size` counts buckets, not species (the "4257 species"
-   * overcount). The total sightings count (`observations.length`) stays correct
-   * in both modes; the distinct-species count does not in aggregated mode.
+   * #852: consumers deriving a distinct-species count MUST gate on this — in
+   * aggregated mode the count comes from `bucket.speciesCount` aggregates, not
+   * from counting rows.
    */
   mode: 'observations' | 'aggregated';
   /**
@@ -140,6 +91,7 @@ export function useBirdData(
 ): BirdDataState {
   const [hotspots, setHotspots] = useState<Hotspot[]>([]);
   const [observations, setObservations] = useState<Observation[]>([]);
+  const [buckets, setBuckets] = useState<AggregatedBucket[]>([]);
   // #852 — mode of the last resolved response. Seeded 'observations' so a
   // never-resolved/disabled hook reports the per-observation default (no
   // overcount risk before any aggregated response lands).
@@ -186,6 +138,7 @@ export function useBirdData(
       // mounted underneath it.
       setObservationsLoading(false);
       setObservations([]);
+      setBuckets([]);
       return;
     }
     let cancelled = false;
@@ -194,10 +147,18 @@ export function useBirdData(
       .then(envelope => {
         if (cancelled) return;
         if (envelope.mode === 'aggregated') {
-          setObservations(expandBucketsToSyntheticObservations(envelope.buckets));
+          // #859: store the REAL buckets directly — no synthetic Observation
+          // fabrication. Clear `observations` so a zoom-out from the
+          // per-observation path doesn't leave stale rows behind the buckets.
+          setBuckets(envelope.buckets);
+          setObservations([]);
           setMode('aggregated');
         } else {
+          // Per-observation mode (z >= 6) is unchanged. Clear `buckets` so a
+          // zoom-in past the aggregation threshold drops the stale low-zoom
+          // aggregates (the legend/map otherwise double-count).
           setObservations(envelope.data);
+          setBuckets([]);
           setMode('observations');
         }
         setFreshestObservationAt(envelope.meta.freshestObservationAt);
@@ -244,6 +205,7 @@ export function useBirdData(
     error,
     hotspots,
     observations,
+    buckets,
     mode,
     freshestObservationAt,
     refetch,

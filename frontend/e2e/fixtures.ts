@@ -45,11 +45,14 @@ export const VERMFLY_WITH_PHOTO: SpeciesMeta = {
  * "Vermilion Flycatcher" → "vermfly" if an observation with that
  * (comName, speciesCode) pair is in the list.
  *
- * Required because /api/observations now (#627) returns aggregated buckets
- * at low zoom — the default cold-start fetch (CONUS bbox + zoom=3) hits
- * aggregated mode, and the synthetic observations expanded from buckets
- * carry family-name strings as `comName`, not real species names. Tests
- * that rely on real-species typeahead must stub observations explicitly.
+ * Required because /api/observations returns aggregated buckets at low zoom
+ * (#627) — the default cold-start fetch (CONUS bbox + zoom=3) hits aggregated
+ * mode, which carries no per-observation rows. #859 moved species aggregation
+ * server-side (each bucket now nests real `AggregatedFamily.species` codes)
+ * and deleted the synthetic-observation expansion the frontend used to
+ * fabricate from buckets. Tests that rely on the real-species typeahead — which
+ * derives from per-observation (comName, speciesCode) pairs — must therefore
+ * stub a per-observation payload explicitly.
  */
 export const VERMFLY_OBS: Observation[] = [
   {

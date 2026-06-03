@@ -15,6 +15,15 @@ export interface FamilyLegendProps {
   silhouettes: FamilySilhouetteData[];
   /** Observations currently in scope — drives per-family counts. */
   observations: Observation[];
+  /**
+   * #859 F: EXACT per-family observation counts (familyCode → count), used in
+   * aggregated (low-zoom) mode where there are no per-observation rows. When
+   * provided this is the authoritative count source — summed from
+   * `bucket.families[].count`, NEVER the capped species list — and
+   * `observations` is ignored for counting. Absent (per-observation mode) ⇒
+   * counts derive from `observations` as before.
+   */
+  familyCounts?: ReadonlyMap<string, number>;
   /** Currently active family filter (drives the toggle/aria-pressed state). */
   familyCode: string | null;
   /**
@@ -79,13 +88,20 @@ interface LegendEntry {
 function buildEntries(
   silhouettes: FamilySilhouetteData[],
   observations: Observation[],
+  familyCounts?: ReadonlyMap<string, number>,
 ): LegendEntry[] {
-  // Per-family observation counts. familyCode is nullable on Observation —
-  // skip rows without one (they cannot be filtered by family anyway).
+  // Per-family counts. In aggregated mode (#859 F) the caller supplies EXACT
+  // counts summed from bucket.families[].count — use them verbatim. Otherwise
+  // count the per-observation rows (familyCode is nullable on Observation —
+  // skip rows without one; they cannot be filtered by family anyway).
   const counts = new Map<string, number>();
-  for (const o of observations) {
-    if (!o.familyCode) continue;
-    counts.set(o.familyCode, (counts.get(o.familyCode) ?? 0) + 1);
+  if (familyCounts) {
+    for (const [code, count] of familyCounts) counts.set(code, count);
+  } else {
+    for (const o of observations) {
+      if (!o.familyCode) continue;
+      counts.set(o.familyCode, (counts.get(o.familyCode) ?? 0) + 1);
+    }
   }
   const byCode = new Map<string, FamilySilhouetteData>();
   for (const s of silhouettes) byCode.set(s.familyCode, s);
@@ -111,6 +127,7 @@ function buildEntries(
 function FamilyLegendImpl({
   silhouettes,
   observations,
+  familyCounts,
   familyCode,
   onFamilyToggle,
   defaultExpanded,
@@ -134,8 +151,8 @@ function FamilyLegendImpl({
   }, [expanded]);
 
   const entries = useMemo(
-    () => buildEntries(silhouettes, observations),
-    [silhouettes, observations],
+    () => buildEntries(silhouettes, observations, familyCounts),
+    [silhouettes, observations, familyCounts],
   );
 
   // Phase 1 contrast (#578, F3): read [data-theme] so legend swatches use the

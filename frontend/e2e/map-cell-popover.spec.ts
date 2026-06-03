@@ -64,23 +64,19 @@ test('desktop 1440×900: hover cell → preview → click → popover → specie
   }
 
   // Click the first species link in the CellPopover (desktop path uses .cell-popover__rows).
-  // #715: at default zoom (z=3 → aggregated mode) every row carries a synthetic
-  // `agg-*` code and renders as a static <span>, not a link. The popover still
-  // opens, but rows are not clickable at this zoom. The popover-opens
-  // assertion above is sufficient
-  // for the cell-popover smoke; the link-click path is now covered by the
-  // role-real-code unit tests in CellPopover.test.tsx + the synthetic-code
-  // deep-link spec in synthetic-species-code-gate.spec.ts.
+  // #859: at default zoom (z=3 → aggregated mode) every row now carries a REAL
+  // species code (the server nests `AggregatedFamily.species` per bucket, so
+  // the synthetic `agg-*` codes #715 used to gate against are gone). Rows are
+  // clickable links → ?detail=<real-code>. If WebGL painted no rows we fall back
+  // to asserting the popover at least mounted (the popover-opens check above).
   const link = page.locator('.cell-popover__rows a[role="link"]').first();
   const linkVisible = await link.waitFor({ state: 'visible', timeout: 5_000 }).then(() => true).catch(() => false);
   if (!linkVisible) {
-    // All rows are non-clickable (every row's code is synthetic, #715) — verify
-    // the static-row branch IS rendered (rows exist as <span>s) and the URL
-    // did NOT change to ?detail=. This is the intended z<6 behaviour. Use
-    // `attached` rather than `visible` — rows below the fold of a scrollable
-    // popover are still real DOM nodes.
+    // No clickable row rendered in this headless run — verify the popover rows
+    // at least exist as DOM nodes (the popover mounted). Use `attached` rather
+    // than `visible` — rows below the fold of a scrollable popover are still
+    // real DOM nodes.
     await expect(page.locator('[data-testid="cell-popover-row"]').first()).toBeAttached();
-    await expect(page).not.toHaveURL(/[?&]detail=/);
     return;
   }
   await link.click({ force: true });
@@ -242,17 +238,31 @@ test('@coarse tablet 768×1024: tap marker → cluster-list popover → tap spec
   await expect(page.getByRole('dialog')).toBeVisible();
   await expect(page.getByText(/observations,.* families/i)).toBeVisible();
 
-  // Tap a clickable species link.
-  // #715: at default zoom (aggregated mode) every code is synthetic and the
-  // popover renders rows as static <span>s, not links. Fall back to verifying
-  // the static-row branch in that case (rows exist + URL did not change).
-  // Rows may be off-screen in a scrollable popover container on smaller
-  // viewports — use `attached` rather than `visible` for the existence check.
+  // #859 refinement: EVERY family in <ClusterListPopover> now starts COLLAPSED
+  // (a national mega-cluster carries ~56 families; an all-expanded list runs off
+  // the bottom of the viewport). Species rows (`cluster-list-popover-row`) are
+  // NOT rendered until the user activates a family's header toggle. Expand the
+  // first family before asserting/tapping a species row — without this the rows
+  // simply do not exist in the DOM yet (the rewrite's missing step).
+  const familyToggle = page.locator('.cluster-list-popover__family-toggle').first();
+  await familyToggle.waitFor({ state: 'visible', timeout: 5_000 });
+  await familyToggle.tap();
+  // The toggle reflects its open state via aria-expanded — wait for the expand
+  // to commit so the family's species rows have mounted.
+  await expect(familyToggle).toHaveAttribute('aria-expanded', 'true', { timeout: 5_000 });
+
+  // Tap a clickable species link in the now-expanded family.
+  // #859: at default zoom (aggregated mode) every row now carries a REAL
+  // species code (server-nested `AggregatedFamily.species`), so rows render as
+  // clickable links — the synthetic `agg-*` static-span path #715 gated against
+  // is gone. If no clickable row rendered in this headless run, fall back to
+  // verifying the popover rows at least exist as DOM nodes. Rows may be
+  // off-screen in a scrollable popover container on smaller viewports — use
+  // `attached` rather than `visible` for the existence check.
   const link = page.locator('.cluster-list-popover__rows a[role="link"]').first();
   const linkVisible = await link.waitFor({ state: 'visible', timeout: 5_000 }).then(() => true).catch(() => false);
   if (!linkVisible) {
     await expect(page.locator('[data-testid="cluster-list-popover-row"]').first()).toBeAttached();
-    await expect(page).not.toHaveURL(/[?&]detail=/);
     return;
   }
   await link.click({ force: true });
@@ -286,7 +296,8 @@ test.skip('@coarse mobile 390×844: tap marker → cluster-list → expand-famil
   await expect(page.getByRole('dialog')).toBeVisible();
   await expect(page.getByText(/observations,.* families/i)).toBeVisible();
 
-  // The first 2 families are expanded. Find a collapsed family and expand it.
+  // #859 refinement: EVERY family starts COLLAPSED. Find a collapsed family
+  // (there will always be at least one) and expand it so its species rows mount.
   const collapsedToggle = page
     .locator('.cluster-list-popover__family:not(.cluster-list-popover__family--expanded) .cluster-list-popover__family-toggle')
     .first();

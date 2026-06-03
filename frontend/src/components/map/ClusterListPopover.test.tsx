@@ -87,7 +87,7 @@ describe('<ClusterListPopover>', () => {
     expect(screen.getByText(/2 families/)).toBeInTheDocument();
   });
 
-  it('initially expands the top 2 families and collapses the rest', () => {
+  it('starts with EVERY family collapsed — no species rows visible until a header is activated (#859)', () => {
     const anchor = makeAnchor();
     const fams = [
       family('flycatchers', 30),
@@ -111,12 +111,16 @@ describe('<ClusterListPopover>', () => {
         onSelectSpecies={vi.fn()}
       />
     );
-    // Top 2 expanded: species rows visible.
-    expect(screen.getByText(/Black Phoebe/)).toBeInTheDocument();
-    expect(screen.getByText(/Anna's Hummingbird/)).toBeInTheDocument();
-    // Bottom 2 collapsed: species rows NOT in DOM.
+    // ALL families collapsed by default: zero species rows in the DOM.
+    expect(screen.queryByText(/Black Phoebe/)).toBeNull();
+    expect(screen.queryByText(/Anna's Hummingbird/)).toBeNull();
     expect(screen.queryByText(/Sandpiper sp\./)).toBeNull();
     expect(screen.queryByText(/Cooper's Hawk/)).toBeNull();
+    // Every family still renders its header toggle with aria-expanded=false.
+    for (const name of [/Flycatchers/i, /Hummingbirds/i, /Sandpipers/i, /Hawks/i]) {
+      const toggle = screen.getByRole('button', { name });
+      expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    }
   });
 
   it('caps species at top 8 per family and renders "…and N more species" footer when > 8', () => {
@@ -133,6 +137,8 @@ describe('<ClusterListPopover>', () => {
         onSelectSpecies={vi.fn()}
       />
     );
+    // #859: families start collapsed — expand this one before asserting rows.
+    fireEvent.click(screen.getByRole('button', { name: /Flycatchers/i }));
     // Eight rows visible; ninth onward suppressed.
     expect(screen.queryByText(/Species 1\b/)).toBeInTheDocument();
     expect(screen.queryByText(/Species 8\b/)).toBeInTheDocument();
@@ -154,6 +160,8 @@ describe('<ClusterListPopover>', () => {
         onSelectSpecies={vi.fn()}
       />
     );
+    // #859: expand the family first — the footer only renders when expanded.
+    fireEvent.click(screen.getByRole('button', { name: /Hummingbirds/i }));
     expect(screen.queryByText(/more species/)).toBeNull();
   });
 
@@ -260,6 +268,8 @@ describe('<ClusterListPopover>', () => {
         onSelectSpecies={onSelectSpecies}
       />
     );
+    // #859: expand the family before clicking its (now-revealed) species row.
+    fireEvent.click(screen.getByRole('button', { name: /Hummingbirds/i }));
     fireEvent.click(screen.getByRole('link', { name: /Anna's Hummingbird/i }));
     expect(onSelectSpecies).toHaveBeenCalledWith('annhum');
     expect(onSelectSpecies).toHaveBeenCalledTimes(1);
@@ -279,20 +289,22 @@ describe('<ClusterListPopover>', () => {
         onSelectSpecies={onSelectSpecies}
       />
     );
+    // #859: expand the family before asserting on its species row.
+    fireEvent.click(screen.getByRole('button', { name: /Sandpipers/i }));
     expect(screen.getByText(/Sandpiper sp\./)).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Sandpiper sp\./ })).toBeNull();
     fireEvent.click(screen.getByText(/Sandpiper sp\./));
     expect(onSelectSpecies).not.toHaveBeenCalled();
   });
 
-  it('species row with synthetic agg-* speciesCode renders as <span> (no link, no callback) — #715', () => {
+  it('renders REAL common names as working links — never a Latin family code or agg-* (#859)', () => {
     const anchor = makeAnchor();
     const onSelectSpecies = vi.fn();
     render(
       <ClusterListPopover
         families={[family('anatidae', 53)]}
         speciesByFamily={speciesByFamily([
-          ['anatidae', [species('anatidae', 53, 'agg-3-anatidae-2')]],
+          ['anatidae', [species('Mallard', 30, 'mallar3'), species('Wood Duck', 23, 'wooduc')]],
         ])}
         totalCount={53}
         uniqueFamilies={1}
@@ -301,32 +313,56 @@ describe('<ClusterListPopover>', () => {
         onSelectSpecies={onSelectSpecies}
       />
     );
-    expect(screen.getByText(/53x anatidae/)).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /anatidae/ })).toBeNull();
-    fireEvent.click(screen.getByText(/53x anatidae/));
-    expect(onSelectSpecies).not.toHaveBeenCalled();
+    // #859: expand the family before its REAL-named species links resolve.
+    fireEvent.click(screen.getByRole('button', { name: /Anatidae/i }));
+    fireEvent.click(screen.getByRole('link', { name: /Mallard/i }));
+    expect(onSelectSpecies).toHaveBeenCalledWith('mallar3');
+    // No Latin family code and no synthetic agg-* code leaks into any row.
+    expect(screen.queryByText(/anatidae/)).toBeNull();
+    expect(screen.queryByText(/agg-/)).toBeNull();
   });
 
-  it('synthetic-code rows ignore Enter / Space activation (#715)', () => {
+  it('renders a per-family "+N more" drill-in button (overflowByFamily) calling onDrillIn(code) — #859', () => {
     const anchor = makeAnchor();
-    const onSelectSpecies = vi.fn();
+    const onDrillIn = vi.fn();
+    const eight = Array.from({ length: 8 }, (_, i) => species(`Species ${i + 1}`, 20 - i, `sp${i}`));
     render(
       <ClusterListPopover
-        families={[family('anatidae', 53)]}
-        speciesByFamily={speciesByFamily([
-          ['anatidae', [species('anatidae', 53, 'agg-3-anatidae-2')]],
-        ])}
-        totalCount={53}
+        families={[family('flycatchers', 150)]}
+        speciesByFamily={speciesByFamily([['flycatchers', eight]])}
+        overflowByFamily={new Map([['flycatchers', 12]])}
+        totalCount={150}
         uniqueFamilies={1}
         anchorEl={anchor}
         onDismiss={vi.fn()}
-        onSelectSpecies={onSelectSpecies}
+        onSelectSpecies={vi.fn()}
+        onDrillIn={onDrillIn}
       />
     );
-    const row = screen.getByText(/53x anatidae/);
-    fireEvent.keyDown(row, { key: 'Enter' });
-    fireEvent.keyDown(row, { key: ' ' });
-    expect(onSelectSpecies).not.toHaveBeenCalled();
+    // #859: expand the family first — the "+N more" control lives in the
+    // expanded body, not the collapsed header.
+    fireEvent.click(screen.getByRole('button', { name: /Flycatchers/i }));
+    const more = screen.getByRole('button', { name: /\+12 more/i });
+    fireEvent.click(more);
+    expect(onDrillIn).toHaveBeenCalledWith('flycatchers');
+  });
+
+  it('portals to document.body (escapes the marker transform stacking context, #859 E)', () => {
+    const anchor = makeAnchor();
+    const { container } = render(
+      <ClusterListPopover
+        families={[family('hummingbirds', 5)]}
+        speciesByFamily={speciesByFamily([['hummingbirds', [species("Anna's Hummingbird", 5, 'annhum')]]])}
+        totalCount={5}
+        uniqueFamilies={1}
+        anchorEl={anchor}
+        onDismiss={vi.fn()}
+        onSelectSpecies={vi.fn()}
+      />
+    );
+    const dialog = screen.getByRole('dialog');
+    expect(container.contains(dialog)).toBe(false);
+    expect(document.body.contains(dialog)).toBe(true);
   });
 
   it('focus trap: Tab from last focusable inside popover wraps to first', () => {

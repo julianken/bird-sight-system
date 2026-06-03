@@ -1,5 +1,5 @@
 import type { LngLatBounds } from 'maplibre-gl';
-import type { Observation } from '@bird-watch/shared-types';
+import type { AggregatedBucket, Observation } from '@bird-watch/shared-types';
 
 /**
  * Filter observations to those whose `[lng, lat]` falls inside a MapLibre
@@ -27,4 +27,18 @@ export function filterObservationsByBounds(
 ): Observation[] {
   if (bounds === null) return observations;
   return observations.filter((o) => bounds.contains([o.lng, o.lat]));
+}
+
+/**
+ * Aggregated-mode analogue (#859): filter `AggregatedBucket`s to those whose
+ * grid-center `[lng, lat]` falls inside the bounds. Same null/identity and
+ * order-preservation contract as `filterObservationsByBounds`. Feeds the family
+ * legend's EXACT per-family counts (via `familyCountsFromBuckets`) at low zoom.
+ */
+export function filterBucketsByBounds(
+  buckets: AggregatedBucket[],
+  bounds: LngLatBounds | null,
+): AggregatedBucket[] {
+  if (bounds === null) return buckets;
+  return buckets.filter((b) => bounds.contains([b.lng, b.lat]));
 }

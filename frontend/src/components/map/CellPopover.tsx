@@ -1,45 +1,72 @@
 import { useEffect, useId, useRef } from 'react';
 import type { KeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
 import type { SpeciesAggregate } from './adaptive-grid.js';
 import { prettyFamily } from '../../derived.js';
-import { isSyntheticCode } from '../../data/use-bird-data.js';
 
 /**
- * `<CellPopover>` — full popover for an adaptive-grid cell (epic #556
- * Phase 1, issue #558, spec
- * `docs/specs/2026-05-15-cell-species-popover-design.md` §4.4).
+ * `<CellPopover>` — full popover for one family within an adaptive-grid cell
+ * (epic #556 Phase 1, issue #558; species data now real per #859).
  *
- * Top 8 species per family with "…and N more species" footer when
- * species.length > 8. Clickable rows (role="link") when speciesCode is
- * non-null; static <span> for spuh/slash/hybrid taxa where eBird returns
- * no canonical code. Non-modal `role="dialog"`. ESC + click-outside
- * dismiss, focus returns to the triggering cell.
+ * Renders the family's species rows as `{count}× {comName}`. With #859 the
+ * `species` rows carry REAL eBird codes resolved against the species dictionary
+ * (no more synthetic `agg-*` rows / Latin family-code names), so every row with
+ * a non-null `speciesCode` is a working `role="link"` into the species detail.
+ * Spuh/slash/hybrid taxa (`speciesCode === null`) render as a static `<span>`.
  *
- * Phase 1 signature: `onSelectSpecies(speciesCode)`. Phase 3 (#560) will
- * widen to `(speciesCode, bbox)` for the SpeciesDetailSurface bbox-scoped
- * variant.
+ * `+N more` is an ACTIVE DRILL-IN (#859 D): when a family has more distinct
+ * species than the popover shows (`overflowCount > 0`), the footer is a button
+ * that calls `onDrillIn` — the caller zooms the map into this cell where the
+ * top-8 cap no longer applies. When there is no overflow, the footer is the
+ * static "Click or tap for full list" hint.
+ *
+ * #859 E (structural z-index): the popover PORTALS to `document.body` so the
+ * maplibre marker `<div>`'s `transform` (a stacking context) can't let the
+ * cluster pills paint over it. Positioning/flip/shift/clamp is owned by the
+ * caller via the anchor; the portal only changes the DOM parent, not the visual
+ * placement. Mirrors the `<CellHoverPreview>` portal.
  */
 export interface CellPopoverProps {
   familyCode: string;
   familyCount: number;
   species: ReadonlyArray<SpeciesAggregate>;
+  /**
+   * #859: number of distinct species beyond the shown rows — drives the active
+   * `+N more` drill-in. Defaults to `species.length - POPOVER_CAP` (legacy
+   * behaviour) when omitted, so existing per-observation callers are unchanged.
+   */
+  overflowCount?: number;
   anchorEl: HTMLElement;
   onDismiss: () => void;
   onSelectSpecies: (speciesCode: string) => void;
+  /**
+   * #859: invoked when the user activates `+N more` — the caller escalates the
+   * camera into this cell so the full species list resolves at higher zoom.
+   * When omitted the `+N more` footer is inert text (legacy callers).
+   */
+  onDrillIn?: () => void;
 }
 
 const POPOVER_CAP = 8;
 
 export function CellPopover(props: CellPopoverProps) {
-  const { familyCode, familyCount, species, anchorEl, onDismiss, onSelectSpecies } = props;
+  const {
+    familyCode, familyCount, species, overflowCount, anchorEl,
+    onDismiss, onSelectSpecies, onDrillIn,
+  } = props;
   const headingId = useId();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
 
   const visible = species.slice(0, POPOVER_CAP);
-  const overflow = species.length - POPOVER_CAP;
-  const footerText =
-    overflow > 0 ? `…and ${overflow} more species` : 'Click or tap for full list';
+  // Overflow is the EXACT distinct-species remainder when the caller supplies
+  // it (#859 — driven by the family's true speciesCount, not the capped row
+  // count); otherwise fall back to the rendered-row remainder.
+  const overflow = overflowCount ?? species.length - POPOVER_CAP;
+  const hasOverflow = overflow > 0;
+  // The drill-in is active only when the caller wired a handler AND there is
+  // overflow to drill into.
+  const drillInActive = hasOverflow && typeof onDrillIn === 'function';
 
   // Move focus to the heading on mount (spec §4.8 — popover focus management).
   useEffect(() => {
@@ -77,7 +104,7 @@ export function CellPopover(props: CellPopoverProps) {
     }
   }
 
-  return (
+  const content = (
     <div
       ref={rootRef}
       role="dialog"
@@ -98,12 +125,8 @@ export function CellPopover(props: CellPopoverProps) {
       </header>
       <ul className="cell-popover__rows">
         {visible.map((s) => {
-          // #715: synthetic `agg-*` codes (aggregated z<6 buckets) are
-          // non-resolvable by /api/species/:code and must render as static
-          // spans, identical to spuh/slash/hybrid rows with a null code.
-          const clickable = s.speciesCode !== null && !isSyntheticCode(s.speciesCode);
           const code = s.speciesCode;
-          if (clickable && code !== null) {
+          if (code !== null) {
             return (
               <li key={s.comName} className="cell-popover__row cell-popover__row--clickable">
                 <a
@@ -121,6 +144,7 @@ export function CellPopover(props: CellPopoverProps) {
               </li>
             );
           }
+          // Spuh/slash/hybrid taxa with no canonical code: static, non-clickable.
           return (
             <li
               key={s.comName}
@@ -132,7 +156,25 @@ export function CellPopover(props: CellPopoverProps) {
           );
         })}
       </ul>
-      <div className="cell-popover__footer">{footerText}</div>
+      {drillInActive ? (
+        <button
+          type="button"
+          className="cell-popover__more"
+          data-testid="cell-popover-more"
+          onClick={() => onDrillIn?.()}
+        >
+          +{overflow} more
+        </button>
+      ) : (
+        <div className="cell-popover__footer">
+          {hasOverflow ? `…and ${overflow} more species` : 'Click or tap for full list'}
+        </div>
+      )}
     </div>
   );
+
+  if (typeof document !== 'undefined') {
+    return createPortal(content, document.body);
+  }
+  return content;
 }

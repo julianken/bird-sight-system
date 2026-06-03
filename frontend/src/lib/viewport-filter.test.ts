@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { LngLatBounds } from 'maplibre-gl';
-import type { Observation } from '@bird-watch/shared-types';
-import { filterObservationsByBounds } from './viewport-filter.js';
+import type { AggregatedBucket, Observation } from '@bird-watch/shared-types';
+import { filterObservationsByBounds, filterBucketsByBounds } from './viewport-filter.js';
 
 /**
  * Test helper: build an Observation with the bare minimum fields the
@@ -102,5 +102,23 @@ describe('filterObservationsByBounds', () => {
     const b = obs('B', 32.25, -111.00);
     const c = obs('C', 32.30, -110.85);
     expect(filterObservationsByBounds([c, a, b], bounds)).toEqual([c, a, b]);
+  });
+});
+
+function bucket(lat: number, lng: number): AggregatedBucket {
+  return { lat, lng, count: 1, speciesCount: 1, families: [] };
+}
+
+describe('filterBucketsByBounds (#859)', () => {
+  it('returns the input unchanged when bounds is null', () => {
+    const buckets = [bucket(32, -110), bucket(40, -100)];
+    expect(filterBucketsByBounds(buckets, null)).toBe(buckets);
+  });
+
+  it('keeps only buckets whose center falls inside the bounds', () => {
+    const bounds = new LngLatBounds([-112, 31], [-109, 33]);
+    const inside = bucket(32, -110);
+    const outside = bucket(45, -90);
+    expect(filterBucketsByBounds([inside, outside], bounds)).toEqual([inside]);
   });
 });

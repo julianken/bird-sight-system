@@ -843,6 +843,78 @@ describe('AdaptiveGridMarker — cell popover (Phase 1, #558)', () => {
     expect(cell.getAttribute('aria-expanded')).toBe('true');
   });
 
+  // --- #859: per-family CellPopover "+N more" ACTIVE drill-in ---------------
+
+  it('pointer:fine: tile.speciesCount > shown rows + onDrillIn → "+N more" is an ACTIVE button that drills in', async () => {
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    const onDrillIn = vi.fn();
+    // 8 shown rows + a true distinct count of 20 ⇒ overflow 12.
+    const eight: SpeciesAggregate[] = Array.from({ length: 8 }, (_, i) => ({
+      comName: `Species ${i + 1}`,
+      count: 20 - i,
+      speciesCode: `sp${i}`,
+    }));
+    const tile: AdaptiveTile = {
+      kind: 'rendered',
+      familyCode: 'flycatchers',
+      count: 150,
+      svgData: 'M0 0L24 24Z',
+      color: '#888',
+      colorDark: '#888',
+      species: eight,
+      speciesCount: 20,
+    };
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[tile]}
+        totalCount={150}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 150 observations."
+        isCoarsePointer={false}
+        onClick={noop}
+        onDrillIn={onDrillIn}
+      />
+    );
+    const cell = screen.getByTestId('adaptive-grid-marker-cell-rendered');
+    cell.focus();
+    fireEvent.keyDown(cell, { key: 'Enter' });
+    const more = screen.getByTestId('cell-popover-more');
+    expect(more.tagName).toBe('BUTTON');
+    expect(more).toHaveTextContent(/\+12 more/);
+    fireEvent.click(more);
+    expect(onDrillIn).toHaveBeenCalledTimes(1);
+  });
+
+  it('pointer:fine: tile WITHOUT speciesCount keeps the legacy static footer (no active drill-in)', async () => {
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    const onDrillIn = vi.fn();
+    const twelve: SpeciesAggregate[] = Array.from({ length: 12 }, (_, i) => ({
+      comName: `Species ${i + 1}`,
+      count: 20 - i,
+      speciesCode: `sp${i}`,
+    }));
+    // No `speciesCount` ⇒ per-observation path ⇒ legacy "…and N more species"
+    // footer derived from the rendered-row remainder, never an active button.
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[rendered('flycatchers', 150, 'M0 0L24 24Z', '#888', '#888', twelve)]}
+        totalCount={150}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 150 observations."
+        isCoarsePointer={false}
+        onClick={noop}
+        onDrillIn={onDrillIn}
+      />
+    );
+    const cell = screen.getByTestId('adaptive-grid-marker-cell-rendered');
+    cell.focus();
+    fireEvent.keyDown(cell, { key: 'Enter' });
+    expect(screen.queryByTestId('cell-popover-more')).toBeNull();
+    expect(screen.getByText(/…and 4 more species/)).toBeInTheDocument();
+  });
+
   // --- Fix 1: outer element tag per perCellInteractive state (nested-button guard) ---
 
   it('pointer:fine → outer is <div role="group" data-testid="adaptive-grid-marker"> (no nested buttons)', async () => {

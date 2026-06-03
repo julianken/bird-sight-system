@@ -7,7 +7,13 @@ import type { Scope } from './state/url-state.js';
 import type { ScopeResolution } from './state/scope-types.js';
 import { useBirdData } from './data/use-bird-data.js';
 import { useSilhouettes } from './data/use-silhouettes.js';
+import { useSpeciesDictionary } from './data/use-species-dictionary.js';
 import { useStates } from './data/use-states.js';
+import {
+  familyCountsFromBuckets,
+  deriveFamiliesFromBuckets,
+  totalCountFromBuckets,
+} from './data/bucket-aggregates.js';
 import { useStatePolygon } from './data/state-polygons.js';
 import { useSpeciesDetail } from './data/use-species-detail.js';
 // ARTBOARD_PAD lives in the map's mask util but mask.ts imports only `geojson`
@@ -26,7 +32,7 @@ import { useIsCompact } from './lib/use-is-compact.js';
 import { useIsPhone } from './lib/use-is-phone.js';
 import { AttributionModal } from './components/AttributionModal.js';
 import { deriveFamilies, deriveSpeciesIndex } from './derived.js';
-import { filterObservationsByBounds } from './lib/viewport-filter.js';
+import { filterObservationsByBounds, filterBucketsByBounds } from './lib/viewport-filter.js';
 import { regionLabelFor } from './config/region.js';
 import { prefetchMapCanvas } from './prefetch.js';
 import { SurfaceTitleSync } from './components/SurfaceTitleSync.js';
@@ -333,7 +339,7 @@ export function App() {
   // server clips via ST_Intersects). UNSCOPED and `?scope=us` both leave
   // `stateCode` unset, so the backend stays untouched (data invariant, #735).
   const scopeStateCode = state.scope.kind === 'state' ? state.scope.stateCode : undefined;
-  const { loading, observationsLoading, error, observations, mode, refetch } = useBirdData(
+  const { loading, observationsLoading, error, observations, buckets, mode, refetch } = useBirdData(
     apiClient,
     {
       since: state.since,
@@ -374,7 +380,14 @@ export function App() {
   // `states` stays empty, so the loading copy would otherwise stick forever.
   const { states, loading: statesLoading, error: statesError } = useStates(apiClient);
 
-  const families = useMemo(() => deriveFamilies(observations), [observations]);
+  // #859: in aggregated mode the per-observation array is empty, so the family
+  // filter options derive from the buckets' families instead (the species
+  // autocomplete index has no aggregated analogue — codes carry no names on the
+  // wire — so it stays observation-only and is simply empty at low zoom).
+  const families = useMemo(
+    () => (mode === 'aggregated' ? deriveFamiliesFromBuckets(buckets) : deriveFamilies(observations)),
+    [mode, buckets, observations],
+  );
   const speciesIndex = useMemo(() => deriveSpeciesIndex(observations), [observations]);
 
   // #738/C5: runtime region label for the active scope (#735). `null` ⟺
@@ -549,6 +562,18 @@ export function App() {
         : observations,
     [observations, viewportBounds, mapVisible],
   );
+  // #859 F: in aggregated (low-zoom) mode the family legend reads EXACT
+  // per-family counts summed from the in-view buckets' families[].count — never
+  // the capped species list, never the (empty) observations array. Undefined in
+  // per-observation mode so the legend falls back to counting observations.
+  const legendFamilyCounts = useMemo<ReadonlyMap<string, number> | undefined>(() => {
+    if (mode !== 'aggregated') return undefined;
+    const inView =
+      mapVisible && viewportBounds
+        ? filterBucketsByBounds(buckets, viewportBounds)
+        : buckets;
+    return familyCountsFromBuckets(inView);
+  }, [mode, buckets, viewportBounds, mapVisible]);
   // Debounced bbox derivation: MapLibre's `idle` event already fires once
   // per camera settle (not per-frame), but we add a 250ms trailing-edge
   // debounce on top so rapid pan→zoom→pan sequences only trigger a single
@@ -708,6 +733,13 @@ export function App() {
     loading: silhouettesLoading,
     error: silhouettesError,
   } = useSilhouettes(apiClient);
+
+  // #859: species code→{comName} dictionary. Loaded once (tab-lifetime cache,
+  // immutable Cache-Control) and threaded to MapSurface → MapCanvas so the
+  // aggregated low-zoom popovers can resolve the real common names carried (as
+  // codes) in the buckets. A cold dictionary is tolerated everywhere (rows fall
+  // back to the bare code) so this never gates the map render.
+  const { dictionary } = useSpeciesDictionary(apiClient);
 
   // Active species meta for the detail view (issue #327 task-11). The
   // hook fires only when state.view === 'detail' AND state.detail is set
@@ -923,7 +955,12 @@ export function App() {
   const ledeText = useMemo<string | null>(() => {
     if (region === null) return null;
     const speciesCount = new Set(observations.map(o => o.speciesCode).filter(Boolean)).size;
-    const observationCount = observations.length;
+    // #859: aggregated mode no longer fabricates synthetic observations, so the
+    // sightings count comes from the EXACT bucket totals (sum of bucket.count),
+    // not `observations.length` (which is empty at low zoom). Per-observation
+    // mode keeps `observations.length`.
+    const observationCount =
+      mode === 'aggregated' ? totalCountFromBuckets(buckets) : observations.length;
     // Cold-load guard (#716/#720): suppress Template 1 while the first fetch is
     // in flight. Same discipline as MapLede's `loading` guard.
     if (observationsLoading && observationCount === 0 && speciesCount === 0) return null;
@@ -936,15 +973,13 @@ export function App() {
         ? 'No recent sightings'
         : 'No matches for these filters';
     }
-    // #852: in aggregated (low-zoom / whole-state) mode the `observations` are
-    // SYNTHETIC rows whose `speciesCode`s are fabricated per-bucket — the same
-    // species across N cells yields N distinct codes, so `speciesCount` counts
-    // buckets, not species (the live "AZ 4257 species" overcount). The total
-    // SIGHTINGS count (observations.length = sum of bucket.count) IS correct in
-    // both modes, so aggregated mode reports sightings instead of a species
-    // count. The per-observation (z >= 6) "{N} species" / "{N} species of
-    // {family}" copy below is unchanged. (Second consumer derived.ts
-    // deriveSpeciesIndex is also synthetic-code-polluted — tracked separately.)
+    // #852/#859: in aggregated (low-zoom / whole-state) mode there are no
+    // per-observation rows to count distinct species from — the buckets carry an
+    // EXACT total sightings count but only a capped per-family species sample.
+    // So aggregated mode reports the exact SIGHTINGS count (sum of bucket.count)
+    // rather than a species count (which would require the full distinct-species
+    // set the wire intentionally omits). The per-observation (z >= 6) "{N}
+    // species" / "{N} species of {family}" copy below is unchanged.
     if (mode === 'aggregated') {
       return `${observationCount} sightings`;
     }
@@ -959,6 +994,7 @@ export function App() {
   }, [
     region,
     observations,
+    buckets,
     mode,
     observationsLoading,
     noFiltersActive,
@@ -1188,6 +1224,9 @@ export function App() {
               is also deleted: corner cards have nothing to dodge. */}
           <MapSurface
             observations={observations}
+            buckets={buckets}
+            mode={mode}
+            dictionary={dictionary}
             silhouettes={silhouettes}
             onSelectSpecies={onSelectSpecies}
             onViewportChange={onViewportChange}
@@ -1291,6 +1330,7 @@ export function App() {
         <FamilyLegend
           silhouettes={silhouettes}
           observations={viewportObservations}
+          {...(legendFamilyCounts ? { familyCounts: legendFamilyCounts } : {})}
           familyCode={state.familyCode}
           onFamilyToggle={onFamilyToggle}
           defaultExpanded={legendDefaultExpanded}

@@ -113,7 +113,13 @@ describe('ApiClient', () => {
   it('passes through aggregated envelope unchanged (#627)', async () => {
     const agg = JSON.stringify({
       mode: 'aggregated',
-      buckets: [{ lat: 31.75, lng: -111, count: 5, speciesCount: 2, families: ['tyrannidae'] }],
+      buckets: [{
+        lat: 31.75, lng: -111, count: 5, speciesCount: 2,
+        families: [{
+          code: 'tyrannidae', count: 5, speciesCount: 2,
+          species: [{ code: 'vermfly', count: 3 }, { code: 'wesfly', count: 2 }],
+        }],
+      }],
       meta: { freshestObservationAt: null },
     });
     vi.spyOn(global, 'fetch').mockResolvedValue(new Response(agg, { status: 200 }));
@@ -124,6 +130,22 @@ describe('ApiClient', () => {
       expect(res.buckets).toHaveLength(1);
       expect(res.buckets[0]?.count).toBe(5);
     }
+  });
+
+  it('fetches the species dictionary from GET /api/species (#859)', async () => {
+    const dict = JSON.stringify([
+      { code: 'norcar', comName: 'Northern Cardinal', familyCode: 'cardinalidae' },
+      { code: 'vermfly', comName: 'Vermilion Flycatcher', familyCode: 'tyrannidae' },
+    ]);
+    vi.spyOn(global, 'fetch').mockResolvedValue(new Response(dict, { status: 200 }));
+    const client = new ApiClient({ baseUrl: '' });
+    const rows = await client.getSpeciesDictionary();
+    const call = (fetch as unknown as { mock: { calls: [string, unknown][] } }).mock.calls[0]!;
+    expect(call[0]).toContain('/api/species');
+    // Must hit the dictionary route, NOT the per-species detail route.
+    expect(call[0]).not.toMatch(/\/api\/species\/[^/]/);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toEqual({ code: 'norcar', comName: 'Northern Cardinal', familyCode: 'cardinalidae' });
   });
 
   it('throws on non-2xx response', async () => {

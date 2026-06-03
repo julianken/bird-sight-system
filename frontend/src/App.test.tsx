@@ -267,6 +267,11 @@ vi.mock('./api/client.js', async () => {
       getSpecies = vi.fn().mockResolvedValue({
         speciesCode: 'vermfly', comName: 'Vermilion Flycatcher', sciName: 'Pyrocephalus rubinus',
       });
+      // #859: App mounts useSpeciesDictionary → client.getSpeciesDictionary.
+      // Stub it (resolves an empty dictionary) so the hook doesn't throw; the
+      // dictionary only affects low-zoom popover NAME resolution, which these
+      // scope/legend/lede tests don't assert on.
+      getSpeciesDictionary = vi.fn().mockResolvedValue([]);
     },
   };
 });
@@ -274,12 +279,14 @@ vi.mock('./api/client.js', async () => {
 import { App } from './App.js';
 import { ApiError } from './api/client.js';
 import { __resetSilhouettesCache } from './data/use-silhouettes.js';
+import { __resetSpeciesDictionaryCache } from './data/use-species-dictionary.js';
 import { __resetStatesCache } from './data/use-states.js';
 import { __resetZipIndexCache } from './data/zip-lookup.js';
 
 describe('App error screen', () => {
   beforeEach(() => {
     __resetSilhouettesCache();
+    __resetSpeciesDictionaryCache();
     __resetStatesCache();
     mockGetStates.mockResolvedValue([]);
     mapSurfaceRef.renderCount = 0;
@@ -448,6 +455,7 @@ describe('App error screen', () => {
 describe('App aria-busy', () => {
   beforeEach(() => {
     __resetSilhouettesCache();
+    __resetSpeciesDictionaryCache();
     __resetStatesCache();
     mockGetStates.mockResolvedValue([]);
     mapSurfaceRef.renderCount = 0;
@@ -500,6 +508,7 @@ describe('App aria-busy', () => {
 describe('Phase 6: Footer removal + Attribution via AppHeader (issue #250 → Phase 6)', () => {
   beforeEach(() => {
     __resetSilhouettesCache();
+    __resetSpeciesDictionaryCache();
     __resetStatesCache();
     mockGetStates.mockResolvedValue([]);
     mapSurfaceRef.renderCount = 0;
@@ -610,6 +619,7 @@ describe('Phase 6: Footer removal + Attribution via AppHeader (issue #250 → Ph
 describe('Phase 3: AppHeader + Filters panel', () => {
   beforeEach(() => {
     __resetSilhouettesCache();
+    __resetSpeciesDictionaryCache();
     __resetStatesCache();
     mockGetStates.mockResolvedValue([]);
     mapSurfaceRef.renderCount = 0;
@@ -675,6 +685,7 @@ describe('O4 (#780): Filters floating sheet — modality, dismiss, inert, aria',
 
   beforeEach(() => {
     __resetSilhouettesCache();
+    __resetSpeciesDictionaryCache();
     __resetStatesCache();
     mockGetStates.mockResolvedValue([]);
     mapSurfaceRef.renderCount = 0;
@@ -844,6 +855,7 @@ describe('O4 (#780): Filters floating sheet — modality, dismiss, inert, aria',
 describe('Clarity view tagging (#657-followup)', () => {
   beforeEach(() => {
     __resetSilhouettesCache();
+    __resetSpeciesDictionaryCache();
     __resetStatesCache();
     mockGetStates.mockResolvedValue([]);
     mapSurfaceRef.renderCount = 0;
@@ -898,6 +910,7 @@ describe('Zoom/bbox state-race regression (#690)', () => {
 
   beforeEach(() => {
     __resetSilhouettesCache();
+    __resetSpeciesDictionaryCache();
     __resetStatesCache();
     mockGetStates.mockResolvedValue([]);
     mapSurfaceRef.renderCount = 0;
@@ -1010,6 +1023,7 @@ describe('S4 (#769): onViewportChange scope-gate', () => {
 
   beforeEach(() => {
     __resetSilhouettesCache();
+    __resetSpeciesDictionaryCache();
     __resetStatesCache();
     mockGetStates.mockResolvedValue([]);
     mockGetHotspots.mockResolvedValue([]);
@@ -1122,6 +1136,7 @@ describe('#740 (C6): scope wiring end-to-end', () => {
 
   beforeEach(() => {
     __resetSilhouettesCache();
+    __resetSpeciesDictionaryCache();
     __resetStatesCache();
     __resetZipIndexCache();
     mockGetHotspots.mockResolvedValue([]);
@@ -1531,6 +1546,7 @@ describe('#847: state→state switch re-seeds debouncedBbox/zoom (render-phase)'
 
   beforeEach(() => {
     __resetSilhouettesCache();
+    __resetSpeciesDictionaryCache();
     __resetStatesCache();
     __resetZipIndexCache();
     mockGetHotspots.mockResolvedValue([]);
@@ -1746,6 +1762,7 @@ describe('#847: state→state switch re-seeds debouncedBbox/zoom (render-phase)'
 describe('#761 (S2): map hoisted to a viewport-root #map-layer sibling of <main>', () => {
   beforeEach(() => {
     __resetSilhouettesCache();
+    __resetSpeciesDictionaryCache();
     __resetStatesCache();
     __resetZipIndexCache();
     mockGetHotspots.mockResolvedValue([]);
@@ -1842,6 +1859,7 @@ describe('O9 (#781): scope-gated MapCanvas prefetch wiring', () => {
 
   beforeEach(() => {
     __resetSilhouettesCache();
+    __resetSpeciesDictionaryCache();
     __resetStatesCache();
     __resetZipIndexCache();
     mockGetHotspots.mockResolvedValue([]);
@@ -1983,6 +2001,7 @@ describe('O9 (#781): scope-gated MapCanvas prefetch wiring', () => {
 describe('O1 (#776): inert retarget to #map-layer', () => {
   beforeEach(() => {
     __resetSilhouettesCache();
+    __resetSpeciesDictionaryCache();
     __resetStatesCache();
     __resetZipIndexCache();
     mockGetHotspots.mockResolvedValue([]);
@@ -2085,6 +2104,7 @@ describe('O2 (#770): skip-link + FamilyLegend hoisted to App-root siblings', () 
 
   beforeEach(() => {
     __resetSilhouettesCache();
+    __resetSpeciesDictionaryCache();
     __resetStatesCache();
     mockGetHotspots.mockResolvedValue([]);
     mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
@@ -2197,6 +2217,7 @@ describe('O8 (#784): React.memo render-count regression — FamilyLegend + Scope
 
   beforeEach(() => {
     __resetSilhouettesCache();
+    __resetSpeciesDictionaryCache();
     __resetStatesCache();
     mockGetHotspots.mockResolvedValue([]);
     mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
@@ -2354,6 +2375,7 @@ describe('#828: lede dedupe — count-only copy, no region, no time-window', () 
 
   beforeEach(() => {
     __resetSilhouettesCache();
+    __resetSpeciesDictionaryCache();
     __resetStatesCache();
     __resetZipIndexCache();
     mockGetHotspots.mockResolvedValue([]);
@@ -2398,15 +2420,19 @@ describe('#828: lede dedupe — count-only copy, no region, no time-window', () 
       view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
     };
     // Three cells, each holding the SAME single species (1 distinct species
-    // total across the region). The synthetic expansion fabricates one code per
-    // bucket (`agg-0-picidae-0`, `agg-1-…`, `agg-2-…`) → Set size 3, even though
-    // the truth is 1 species. Total sightings = 50 + 50 + 50 = 150.
+    // total across the region). The aggregated lede reports total SIGHTINGS
+    // (sum of bucket.count = 50 + 50 + 50 = 150) — the wire (#859) carries no
+    // distinct-species set, so a species count is intentionally not shown.
+    const pic = (count: number) => ({
+      code: 'picidae', count, speciesCount: 1,
+      species: [{ code: 'gilwoo', count }],
+    });
     mockGetObservations.mockResolvedValue({
       mode: 'aggregated',
       buckets: [
-        { lat: 32.2, lng: -110.9, count: 50, speciesCount: 1, families: ['picidae'] },
-        { lat: 33.4, lng: -111.9, count: 50, speciesCount: 1, families: ['picidae'] },
-        { lat: 34.5, lng: -112.4, count: 50, speciesCount: 1, families: ['picidae'] },
+        { lat: 32.2, lng: -110.9, count: 50, speciesCount: 1, families: [pic(50)] },
+        { lat: 33.4, lng: -111.9, count: 50, speciesCount: 1, families: [pic(50)] },
+        { lat: 34.5, lng: -112.4, count: 50, speciesCount: 1, families: [pic(50)] },
       ],
       meta: { freshestObservationAt: new Date().toISOString() },
     });

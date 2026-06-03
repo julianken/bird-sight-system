@@ -171,6 +171,27 @@ describe('FamilyLegend', () => {
     expect(within(trochEntry).getByText('1')).toBeInTheDocument();
   });
 
+  it('uses EXACT familyCounts (aggregated mode) instead of counting observations (#859 F)', () => {
+    // In aggregated (low-zoom) mode the legend reads exact per-family totals
+    // summed from bucket.families[].count — NOT the (empty) observations array,
+    // and NEVER the capped species list. A family present with a true count of
+    // 137 must show 137 even though `observations` is empty.
+    render(
+      <FamilyLegend
+        silhouettes={baseSilhouettes}
+        observations={[]}
+        familyCounts={new Map([['tyrannidae', 137], ['trochilidae', 42]])}
+        familyCode={null}
+        onFamilyToggle={() => {}}
+        defaultExpanded={true}
+      />
+    );
+    const tyrEntry = screen.getByRole('button', { name: /Tyrant Flycatchers/ });
+    expect(within(tyrEntry).getByText('137')).toBeInTheDocument();
+    const trochEntry = screen.getByRole('button', { name: /Hummingbirds/ });
+    expect(within(trochEntry).getByText('42')).toBeInTheDocument();
+  });
+
   it('per-entry aria-label reads "{count} observations in view" (issue #351)', () => {
     // Screen-reader text mirrors the title's "in view" framing so the
     // count is unambiguously a viewport snapshot, not a global total.

@@ -222,18 +222,68 @@ export type ObservationFilters = {
 };
 
 /**
+ * One family's slice of an aggregated grid cell (#859). Carries its own exact
+ * counts plus the top-N species by observation count, so a low-zoom popover can
+ * render REAL species names (resolved against the GET /api/species dictionary)
+ * without a per-click fetch. The previous wire shape carried only the family
+ * CODE (`families: string[]`); the frontend then fabricated synthetic
+ * per-observation rows and lazily refetched species per click — the bug class
+ * #859 deletes by moving species aggregation server-side (compute-on-write).
+ *
+ * - `count` / `speciesCount` are EXACT for this family in this cell (the
+ *   "+N more" affordance and the family legend both read the exact counts, never
+ *   the capped `species` array length).
+ * - `species` is capped to the top-8 by observation count (ties broken by
+ *   `code` asc for determinism). See `getObservationsAggregated`
+ *   (`TOP_SPECIES_PER_FAMILY`) for the cap const + payload rationale.
+ */
+export interface AggregatedFamily {
+  /** Family code (e.g. "turdidae"); drives silhouette + legend color. */
+  code: string;
+  /** Observations of this family in this cell — EXACT, never capped. */
+  count: number;
+  /** Distinct species of this family in this cell — EXACT; powers "+N more". */
+  speciesCount: number;
+  /** Top-8 species of this family in this cell, by observation count desc. */
+  species: Array<{ code: string; count: number }>;
+}
+
+/**
  * One coarse-grid bucket returned by the aggregated /api/observations mode
- * (zoom < 6). The bucket lat/lng is the grid center; `count` is the total
- * observations in the cell; `families` is the de-duplicated list of family
- * codes (may include nulls collapsed out, per the SQL `FILTER (WHERE family IS NOT NULL)`).
- * Issue #627.
+ * (zoom < 6). The bucket lat/lng is the grid center.
+ *
+ * - `count` is the EXACT total observation count in the cell (over ALL rows,
+ *   including species whose family is unknown — see the NULL-family note in
+ *   `getObservationsAggregated`).
+ * - `speciesCount` is the EXACT total distinct species in the cell.
+ * - `families` nests each family's exact counts + top-8 species (#859), ordered
+ *   by family observation count desc (ties by code asc). Species whose family is
+ *   unknown (no `species_meta` row) are EXCLUDED from `families` but still
+ *   counted in the bucket `count`/`speciesCount` totals — mirroring the prior
+ *   `array_remove(..., NULL)` behavior.
+ *
+ * Issue #627 (grid), #859 (nested species).
  */
 export interface AggregatedBucket {
   lat: number;
   lng: number;
   count: number;
   speciesCount: number;
-  families: string[];
+  families: AggregatedFamily[];
+}
+
+/**
+ * One row of the species dictionary returned by `GET /api/species` (#859). A
+ * flat, long-lived `code → { comName, familyCode }` lookup the frontend fetches
+ * once and joins against the species codes carried in `AggregatedFamily.species`
+ * (and anywhere else a code needs a display name without a per-species fetch).
+ * Names change rarely, so the endpoint is cached aggressively (see the
+ * 'species-dict' tier in cache-headers.ts).
+ */
+export interface SpeciesDictEntry {
+  code: string;
+  comName: string;
+  familyCode: string;
 }
 
 /**
