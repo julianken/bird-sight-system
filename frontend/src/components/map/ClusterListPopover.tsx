@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import type { FamilyAggregate, SpeciesAggregate } from './adaptive-grid.js';
@@ -9,11 +9,14 @@ import { prettyFamily } from '../../derived.js';
  * the full cluster (epic #556 Phase 2, issue #559, spec
  * `docs/specs/2026-05-15-cell-species-popover-design.md` §4.4, §5.3).
  *
- * Non-modal `role="dialog"`. Collapsible family sections — initially the top
- * 2 families (highest count) are expanded; the rest are collapsed. Each
- * expanded family shows the top 8 species + "…and N more species" footer
- * when that family has more. Spuh/slash/hybrid taxa with `speciesCode ===
- * null` render as static `<span>` (no link); otherwise as `<a role="link">`.
+ * Non-modal `role="dialog"`. Collapsible family sections — EVERY family
+ * starts COLLAPSED (#859 refinement): a national mega-cluster carries ~56
+ * families, and an all-expanded list runs off the bottom of the viewport.
+ * Each family renders as a header row `{prettyFamily(code)} ({count})` and
+ * expands to its top 8 species + per-family "+N more" drill-in (or the legacy
+ * "…and N more species" footer) ONLY when the user clicks/activates its
+ * header. Spuh/slash/hybrid taxa with `speciesCode === null` render as static
+ * `<span>` (no link); otherwise as `<a role="link">`.
  *
  * Dismiss surfaces: "Done" button at bottom, ESC, click-outside. Each
  * returns focus to the supplied `anchorEl` (the outer marker `<button>`).
@@ -55,7 +58,6 @@ export interface ClusterListPopoverProps {
 }
 
 const POPOVER_CAP_PER_FAMILY = 8;
-const INITIAL_EXPANDED_FAMILIES = 2;
 
 export function ClusterListPopover(props: ClusterListPopoverProps) {
   const {
@@ -74,15 +76,12 @@ export function ClusterListPopover(props: ClusterListPopoverProps) {
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   const doneRef = useRef<HTMLButtonElement | null>(null);
 
-  // Collapse-state: top 2 families expanded, rest collapsed. Per the spec's
-  // §10 plan-body open question: state resets each time the popover opens
-  // (no persistence). Component-local useState achieves this — when the
-  // marker unmounts/re-mounts the popover, fresh defaults apply.
-  const initialExpanded = useMemo<ReadonlySet<string>>(() => {
-    const top = families.slice(0, INITIAL_EXPANDED_FAMILIES).map((f) => f.familyCode);
-    return new Set(top);
-  }, [families]);
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(initialExpanded));
+  // Collapse-state: EVERY family starts collapsed (#859 refinement — a
+  // national mega-cluster has ~56 families, so an all-expanded list overflows
+  // the viewport). The user expands one family at a time by activating its
+  // header. State resets each time the popover opens (no persistence): the
+  // empty-Set default applies fresh every time the marker mounts the popover.
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
 
   function toggleFamily(familyCode: string) {
     setExpanded((prev) => {
@@ -202,6 +201,9 @@ export function ClusterListPopover(props: ClusterListPopoverProps) {
                 aria-expanded={isExpanded ? 'true' : 'false'}
                 onClick={() => toggleFamily(fam.familyCode)}
               >
+                {/* The collapsed/expanded caret (▶ / ▼) is a CSS ::before
+                    pseudo-element driven by the `--expanded` modifier on the
+                    parent `.cluster-list-popover__family` (ds-primitives.css). */}
                 {prettyFamily(fam.familyCode)} ({fam.count})
               </button>
               {isExpanded && (
