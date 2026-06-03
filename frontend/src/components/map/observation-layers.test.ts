@@ -332,7 +332,7 @@ describe('bucketsToGeoJson (#859)', () => {
     const fc = bucketsToGeoJson([bucket(), bucket({ lat: 40, lng: -100, count: 9 })], []);
     expect(fc.type).toBe('FeatureCollection');
     expect(fc.features).toHaveLength(2);
-    const f0 = fc.features[0];
+    const f0 = fc.features[0]!;
     expect(f0.geometry.coordinates).toEqual([-110.9, 31.7]);
     expect(f0.properties.count).toBe(5);
     expect(f0.properties.speciesCount).toBe(2);
@@ -346,7 +346,7 @@ describe('bucketsToGeoJson (#859)', () => {
   it('tags each feature with its DOMINANT family code (first = highest count) for the marker silhouette', () => {
     const sils = [makeSilhouette({ familyCode: 'tyrannidae', color: '#c3772d', svgData: 'M0 0L1 1' })];
     const fc = bucketsToGeoJson([bucket()], sils);
-    const props = fc.features[0].properties;
+    const props = fc.features[0]!.properties;
     // Dominant family (tyrannidae, count 3) drives silhouetteId + color.
     expect(props.familyCode).toBe('tyrannidae');
     expect(props.silhouetteId).toBe('tyrannidae');
@@ -355,13 +355,13 @@ describe('bucketsToGeoJson (#859)', () => {
 
   it('falls back to _FALLBACK + fallback color when the dominant family has no usable silhouette', () => {
     const fc = bucketsToGeoJson([bucket()], []);
-    expect(fc.features[0].properties.silhouetteId).toBe(FALLBACK_SILHOUETTE_ID);
-    expect(fc.features[0].properties.color).toBe(FAMILY_COLOR_FALLBACK);
+    expect(fc.features[0]!.properties.silhouetteId).toBe(FALLBACK_SILHOUETTE_ID);
+    expect(fc.features[0]!.properties.color).toBe(FAMILY_COLOR_FALLBACK);
   });
 
   it('handles a bucket whose families array is empty (no dominant family)', () => {
     const fc = bucketsToGeoJson([bucket({ families: [] })], []);
-    const props = fc.features[0].properties;
+    const props = fc.features[0]!.properties;
     expect(props.familyCode).toBeNull();
     expect(props.silhouetteId).toBe(FALLBACK_SILHOUETTE_ID);
     expect(JSON.parse(props.familiesJson)).toEqual([]);

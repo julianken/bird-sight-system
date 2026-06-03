@@ -876,6 +876,34 @@ button.adaptive-grid-marker__cell {
   font-style: italic;
 }
 
+/* #859 — active "+N more" drill-in control. Shared by the cell popover footer
+   and each ClusterListPopover family overflow row. Reads as an actionable link
+   (matches the clickable species rows' link color/underline affordance) but is
+   a real <button> so it carries button semantics for AT. The parent popover
+   owns the elevation/shadow (tier-2 on-canvas transient); this control inherits
+   it and only adds the interactive affordance. */
+.cell-popover__more {
+  display: inline-block;
+  margin-top: var(--space-xs);
+  padding: 2px 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--color-text-link);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.cell-popover__more:hover,
+.cell-popover__more:focus-visible {
+  text-decoration-thickness: 2px;
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
 /* Dark theme override. */
 [data-theme="dark"] .cell-popover {
   background: var(--color-bg-surface);
@@ -893,6 +921,9 @@ button.adaptive-grid-marker__cell {
     box-shadow: none;
   }
   .cell-popover__row--clickable a[role="link"] {
+    color: LinkText;
+  }
+  .cell-popover__more {
     color: LinkText;
   }
   .cell-popover__footer {
