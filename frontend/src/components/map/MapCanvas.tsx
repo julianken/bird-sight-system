@@ -2556,6 +2556,25 @@ export function MapCanvas({
           cluster
           clusterMaxZoom={CLUSTER_MAX_ZOOM}
           clusterRadius={CLUSTER_RADIUS}
+          // #860: in aggregated mode (z < 6) every feature is a BUCKET carrying
+          // real per-cell species (#859). maplibre's default clusterMinPoints (2)
+          // emits a bucket with no neighbour within `clusterRadius` (50px) as an
+          // UNCLUSTERED point — no cluster_id / point_count. Bucket features carry
+          // `count`/`speciesCount`/`familiesJson` but NEVER a `subId`, so every
+          // interaction path keys on `subId` (the reconciler's clustered + the
+          // unclustered-silhouette input passes, and the canvas unclustered-point
+          // click handler) DROPS that lone bucket — it still canvas-paints a
+          // dominant-family silhouette, so the user gets a marker that does
+          // nothing on click. That is the "dead cell at low zoom" #859 set out to
+          // kill, reintroduced via a different mechanism (reachable at national
+          // zoom in sparse states — MT/WY/NV). Forcing clusterMinPoints=1 makes
+          // EVERY bucket a (degenerate) 1-point cluster, so even a lone one flows
+          // through the existing clustered/reconciler + bucket-popover path
+          // (getClusterLeaves → mergeLeafBuckets → grid/pill → real-species
+          // popover). Gated on `aggregated`: per-observation mode keeps maplibre's
+          // default (2), so real Observation rows — which legitimately use `subId`
+          // + the unclustered silhouette layer — are completely unchanged.
+          clusterMinPoints={aggregated ? 1 : 2}
           // Phase 0 finding F4: when clusterMaxZoom rises to 22 (epic #539
           // cutover), maplibre warns that source `maxzoom` (default 18)
           // must exceed clusterMaxZoom. Setting maxzoom=24 lifts the

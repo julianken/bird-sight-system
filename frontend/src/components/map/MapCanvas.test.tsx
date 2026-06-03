@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { forwardRef, useEffect, useImperativeHandle } from 'react';
-import type { FamilySilhouette, Observation } from '@bird-watch/shared-types';
+import type { AggregatedBucket, FamilySilhouette, Observation } from '@bird-watch/shared-types';
 import type { MultiPolygon as MultiPolygonGeom } from 'geojson';
 // #762: assert the padded clamp / colors / built mask feature against mask.ts as
 // the single source of truth — never re-literal the padded value or colors.
@@ -1215,6 +1215,256 @@ describe('MapCanvas', () => {
       });
       expect(fakeMap.easeTo).not.toHaveBeenCalled();
     });
+  });
+});
+
+/* ── #860: lone low-zoom bucket must be clickable (no dead silhouette) ─────
+ *
+ * #859 re-architected the aggregated (zoom < 6) path so each marker carries a
+ * bucket's REAL species. The cluster <Source> defaulted clusterMinPoints to 2
+ * (maplibre's default), so a bucket with no neighbour within the 50px
+ * clusterRadius was emitted as an UNCLUSTERED point — no cluster_id /
+ * point_count. Bucket features carry `count`/`speciesCount`/`familiesJson` but
+ * never a `subId`, so every interaction path (the reconciler's clustered-input
+ * pass, the unclustered-input silhouette loop, and the canvas
+ * `unclustered-point` click handler) — all keyed on `subId` — DROPPED that lone
+ * bucket. It still canvas-painted a dominant-family silhouette, so the user saw
+ * a marker that did nothing on click: the "dead cell at low zoom" #859 set out
+ * to kill, via a new mechanism. Reachable at national zoom in sparse states
+ * (MT/WY/NV) where a grid cell routinely has no neighbour within 50px.
+ *
+ * Fix: set clusterMinPoints={1} on the aggregated <Source> so EVERY bucket (even
+ * a lone one) becomes a degenerate 1-point cluster and flows through the
+ * existing clustered/reconciler + bucket-popover path. Gated on aggregated mode
+ * — per-observation mode keeps the maplibre default (2), so real Observation
+ * rows (which legitimately use `subId` + the unclustered silhouette) are
+ * unchanged.
+ */
+describe('#860 — lone low-zoom bucket is clickable, not a dead silhouette', () => {
+  beforeEach(() => {
+    capturedSourceProps = {};
+    capturedLayerFilters = {};
+    capturedSourcesById = {};
+    capturedLayerPaint = {};
+    registeredHandlers = {};
+    bareHandlers = {};
+    bareHandlersAll = {};
+    deferMapLoad = false;
+    deferredOnLoad = null;
+    fakeMap = makeFakeMap();
+    document.documentElement.removeAttribute('data-theme');
+    __resetAdaptiveGridCacheForTesting();
+  });
+
+  // One isolated bucket: a single coarse grid cell with real families/species,
+  // no neighbours. This is what a sparse-state national-zoom viewport produces.
+  const LONE_BUCKET: AggregatedBucket = {
+    lat: 46.0,
+    lng: -110.0,
+    count: 7,
+    speciesCount: 2,
+    families: [
+      {
+        code: 'tyrannidae',
+        count: 7,
+        speciesCount: 2,
+        species: [
+          { code: 'wewp', count: 5 },
+          { code: 'sayphoebe', count: 2 },
+        ],
+      },
+    ],
+  };
+
+  // Dictionary so the popover renders REAL common names (not bare codes).
+  const DICT = new Map<string, { comName: string; familyCode: string }>([
+    ['wewp', { comName: 'Western Wood-Pewee', familyCode: 'tyrannidae' }],
+    ['sayphoebe', { comName: "Say's Phoebe", familyCode: 'tyrannidae' }],
+  ]);
+
+  it('aggregated <Source> sets clusterMinPoints=1 so a lone bucket still clusters', () => {
+    // The regression guard. With clusterMinPoints unset (maplibre default 2),
+    // maplibre emits a neighbour-less bucket as an unclustered point that the
+    // subId-keyed interaction paths drop. clusterMinPoints=1 forces every bucket
+    // through the clustered (interactive) path.
+    render(
+      <MapCanvas
+        observations={[]}
+        buckets={[LONE_BUCKET]}
+        mode="aggregated"
+        dictionary={DICT}
+        silhouettes={SILHOUETTES}
+      />,
+    );
+    expect(capturedSourceProps['cluster']).toBe(true);
+    expect(capturedSourceProps['clusterMinPoints']).toBe(1);
+  });
+
+  it('per-observation <Source> does NOT force clusterMinPoints=1 (silhouette path unchanged)', () => {
+    // The per-observation path legitimately emits lone observations as
+    // unclustered silhouettes (clickable via the subId-keyed handler). It must
+    // keep maplibre's default minimum (2) — forcing 1 here would turn every
+    // single observation into a degenerate cluster and break the silhouette
+    // render + click path. We assert the prop is NOT 1 (undefined ⇒ default 2).
+    render(<MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />);
+    expect(capturedSourceProps['cluster']).toBe(true);
+    expect(capturedSourceProps['clusterMinPoints']).not.toBe(1);
+  });
+
+});
+
+/* ── #860 (behavioral): a lone bucket, once clustered, opens its real species ──
+ *
+ * Runs in its own describe so it can stub a COARSE pointer (module reset) — that
+ * makes `AdaptiveGridMarker.clusterListInteractive` true, so the lone bucket's
+ * outer tap opens the marker's own `<ClusterListPopover>` populated from the
+ * tiles the reconciler built (real comNames resolved via the dictionary). This
+ * proves the end-to-end "lone bucket → real-species popover" the fix delivers,
+ * NOT a dead silhouette.
+ */
+describe('#860 — lone clustered bucket opens its real species (coarse pointer)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let MapCanvasFresh: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let resetCacheFresh: any;
+
+  const LONE_BUCKET: AggregatedBucket = {
+    lat: 46.0,
+    lng: -110.0,
+    count: 7,
+    speciesCount: 2,
+    families: [
+      {
+        code: 'tyrannidae',
+        count: 7,
+        speciesCount: 2,
+        species: [
+          { code: 'wewp', count: 5 },
+          { code: 'sayphoebe', count: 2 },
+        ],
+      },
+    ],
+  };
+  const DICT = new Map<string, { comName: string; familyCode: string }>([
+    ['wewp', { comName: 'Western Wood-Pewee', familyCode: 'tyrannidae' }],
+    ['sayphoebe', { comName: "Say's Phoebe", familyCode: 'tyrannidae' }],
+  ]);
+
+  beforeEach(async () => {
+    capturedSourceProps = {};
+    capturedLayerFilters = {};
+    capturedSourcesById = {};
+    capturedLayerPaint = {};
+    registeredHandlers = {};
+    bareHandlers = {};
+    bareHandlersAll = {};
+    fakeMap = makeFakeMap();
+    document.documentElement.removeAttribute('data-theme');
+
+    // Coarse pointer ⇒ AdaptiveGridMarker.clusterListInteractive = true, so the
+    // marker's outer tap opens its self-contained ClusterListPopover.
+    window.matchMedia = vi.fn().mockImplementation((q: string) => ({
+      matches: q === '(pointer: coarse)',
+      media: q,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      onchange: null,
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
+
+    vi.resetModules();
+    const mod = await import('./MapCanvas.js');
+    MapCanvasFresh = mod.MapCanvas;
+    resetCacheFresh = mod.__resetAdaptiveGridCacheForTesting;
+    resetCacheFresh();
+  });
+
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it('outer tap on a lone clustered bucket shows the real common name (no dead cell)', async () => {
+    // The clustered feature maplibre emits for a lone bucket ONCE
+    // clusterMinPoints=1 is set: cluster_id + point_count=1 + the summed
+    // sumCount/sumSpeciesCount cluster props #859 reads.
+    const loneClustered = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [LONE_BUCKET.lng, LONE_BUCKET.lat] },
+      properties: {
+        cluster: true,
+        cluster_id: 501,
+        point_count: 1,
+        sumCount: LONE_BUCKET.count,
+        sumSpeciesCount: LONE_BUCKET.speciesCount,
+      },
+    };
+    fakeMap.queryRenderedFeatures.mockImplementation(
+      (_: unknown, opts?: { layers?: string[] }) =>
+        opts?.layers?.includes('clusters-hit') ? [loneClustered] : [],
+    );
+    // The single member-bucket leaf carries its families serialized in
+    // `familiesJson` (exactly what bucketsToGeoJson writes); mergeLeafBuckets
+    // parses + resolves them via the dictionary into the tiles' species rows.
+    fakeMap.getSource.mockReturnValue({
+      getClusterLeaves: vi.fn().mockResolvedValue([
+        {
+          type: 'Feature',
+          properties: { familiesJson: JSON.stringify(LONE_BUCKET.families) },
+        },
+      ]),
+      getClusterExpansionZoom: vi.fn().mockResolvedValue(11),
+    });
+    fakeMap.getZoom.mockReturnValue(4); // national (low) zoom
+
+    render(
+      <MapCanvasFresh
+        observations={[]}
+        buckets={[LONE_BUCKET]}
+        mode="aggregated"
+        dictionary={DICT}
+        silhouettes={SILHOUETTES}
+      />,
+    );
+
+    await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+    await act(async () => { await fireAllIdleHandlers(); });
+    await act(async () => { await Promise.resolve(); });
+
+    // The lone bucket materializes as an interactive AdaptiveGridMarker button —
+    // NOT a dead canvas silhouette.
+    const marker = await waitFor(() => {
+      const btn = screen
+        .queryAllByRole('button')
+        .find((b) => b.className.includes('adaptive-grid-marker'));
+      if (!btn) throw new Error('lone bucket did not render an interactive marker');
+      return btn;
+    });
+
+    await act(async () => {
+      fireEvent.click(marker);
+      await Promise.resolve();
+    });
+
+    // The marker's ClusterListPopover opens with the bucket's REAL family + count.
+    const popover = await waitFor(() =>
+      screen.getByTestId('cluster-list-popover'),
+    );
+    expect(popover).toBeInTheDocument();
+    const familyToggle = screen.getByTestId(
+      'cluster-list-popover-family-tyrannidae',
+    );
+    expect(familyToggle).toHaveTextContent('Tyrannidae (7)');
+
+    // Expand the family → the REAL common name resolved via the dictionary
+    // appears, proving the bucket's species reached the user (#859), not a
+    // silent dead cell.
+    await act(async () => {
+      fireEvent.click(familyToggle.querySelector('button') ?? familyToggle);
+      await Promise.resolve();
+    });
+    expect(screen.getByText(/Western Wood-Pewee/)).toBeInTheDocument();
   });
 });
 
