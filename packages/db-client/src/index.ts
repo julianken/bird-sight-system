@@ -8,6 +8,7 @@ export {
 } from './observations.js';
 export {
   getSpeciesMeta,
+  getSpeciesDictionary,
   upsertSpeciesMeta,
   findMissingSpeciesMeta,
   insertSpeciesPhoto,
