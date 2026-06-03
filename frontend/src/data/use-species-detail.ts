@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { ApiClient } from '../api/client.js';
 import type { SpeciesMeta } from '@bird-watch/shared-types';
-import { isSyntheticCode } from './use-bird-data.js';
 
 export interface SpeciesDetailState {
   loading: boolean;
@@ -57,12 +56,10 @@ export function useSpeciesDetail(
 
   useEffect(() => {
     // Null code — panel closed / no selection. Surface a clean resting state.
-    // Synthetic `agg-*` codes (#715) are statically known to 404 against
-    // /api/species/:code; short-circuit to avoid the network RTT and the
-    // loading/error state flap. Fix A at the popover gates already prevents
-    // user-driven entry; this guards non-UI entry points (URL paste, history
-    // restore, external links bookmarked at aggregated zoom).
-    if (speciesCode === null || isSyntheticCode(speciesCode)) {
+    // #859: the synthetic `agg-*` short-circuit is gone — every code reaching
+    // this hook is now a real eBird code (the aggregated buckets carry real
+    // species codes), so each resolves normally against /api/species/:code.
+    if (speciesCode === null) {
       setState({ loading: false, error: null, data: null });
       return;
     }
