@@ -1,6 +1,6 @@
 import type {
   Hotspot, Observation, ObservationsResponse, SpeciesMeta, ObservationFilters,
-  FamilySilhouette, StateSummary,
+  FamilySilhouette, StateSummary, SpeciesDictEntry,
 } from '@bird-watch/shared-types';
 
 export interface ApiClientOptions {
@@ -61,6 +61,16 @@ export class ApiClient {
 
   getSpecies(code: string): Promise<SpeciesMeta> {
     return this.get<SpeciesMeta>(`/api/species/${encodeURIComponent(code)}`);
+  }
+
+  // #859 — the long-lived `code → { comName, familyCode }` dictionary served
+  // at GET /api/species (no trailing segment, distinct from the per-species
+  // detail route above). The frontend fetches this once and joins it against
+  // the species codes carried in aggregated buckets so low-zoom popovers can
+  // render real common names without a per-click fetch. Immutable-cached
+  // server-side (~9 KB gzip); the consuming hook caches it for the tab.
+  getSpeciesDictionary(): Promise<SpeciesDictEntry[]> {
+    return this.get<SpeciesDictEntry[]>('/api/species');
   }
 
   getSilhouettes(): Promise<FamilySilhouette[]> {
