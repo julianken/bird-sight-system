@@ -238,7 +238,20 @@ test('@coarse tablet 768×1024: tap marker → cluster-list popover → tap spec
   await expect(page.getByRole('dialog')).toBeVisible();
   await expect(page.getByText(/observations,.* families/i)).toBeVisible();
 
-  // Tap a clickable species link.
+  // #859 refinement: EVERY family in <ClusterListPopover> now starts COLLAPSED
+  // (a national mega-cluster carries ~56 families; an all-expanded list runs off
+  // the bottom of the viewport). Species rows (`cluster-list-popover-row`) are
+  // NOT rendered until the user activates a family's header toggle. Expand the
+  // first family before asserting/tapping a species row — without this the rows
+  // simply do not exist in the DOM yet (the rewrite's missing step).
+  const familyToggle = page.locator('.cluster-list-popover__family-toggle').first();
+  await familyToggle.waitFor({ state: 'visible', timeout: 5_000 });
+  await familyToggle.tap();
+  // The toggle reflects its open state via aria-expanded — wait for the expand
+  // to commit so the family's species rows have mounted.
+  await expect(familyToggle).toHaveAttribute('aria-expanded', 'true', { timeout: 5_000 });
+
+  // Tap a clickable species link in the now-expanded family.
   // #859: at default zoom (aggregated mode) every row now carries a REAL
   // species code (server-nested `AggregatedFamily.species`), so rows render as
   // clickable links — the synthetic `agg-*` static-span path #715 gated against
@@ -283,7 +296,8 @@ test.skip('@coarse mobile 390×844: tap marker → cluster-list → expand-famil
   await expect(page.getByRole('dialog')).toBeVisible();
   await expect(page.getByText(/observations,.* families/i)).toBeVisible();
 
-  // The first 2 families are expanded. Find a collapsed family and expand it.
+  // #859 refinement: EVERY family starts COLLAPSED. Find a collapsed family
+  // (there will always be at least one) and expand it so its species rows mount.
   const collapsedToggle = page
     .locator('.cluster-list-popover__family:not(.cluster-list-popover__family--expanded) .cluster-list-popover__family-toggle')
     .first();
