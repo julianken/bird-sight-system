@@ -1,5 +1,5 @@
-import { useEffect, useId, useRef } from 'react';
-import type { KeyboardEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import type { CSSProperties, KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import type { SpeciesAggregate } from './adaptive-grid.js';
 import { prettyFamily } from '../../derived.js';
@@ -22,10 +22,63 @@ import { prettyFamily } from '../../derived.js';
  *
  * #859 E (structural z-index): the popover PORTALS to `document.body` so the
  * maplibre marker `<div>`'s `transform` (a stacking context) can't let the
- * cluster pills paint over it. Positioning/flip/shift/clamp is owned by the
- * caller via the anchor; the portal only changes the DOM parent, not the visual
- * placement. Mirrors the `<CellHoverPreview>` portal.
+ * cluster pills paint over it. The portal escapes that context — but a portal to
+ * `document.body` has NO positioned ancestor, so the bare CSS `position: absolute`
+ * would collapse to the body origin (bottom-left).
+ *
+ * #863 fix: because the card is portaled out of the marker, it must compute its
+ * own on-screen placement from `anchorEl.getBoundingClientRect()` and apply it as
+ * an inline `position: fixed; top; left` (the inline style wins over the CSS
+ * `position: absolute`). It anchors just below the clicked cell, left-aligned to
+ * the cell, with edge handling: flip above when it would overflow the bottom and
+ * clamp horizontally so it never runs off the right/left edge. This mirrors the
+ * `<CellHoverPreview>` pattern (inline `position: fixed` + computed `left`/`top` +
+ * portal). One-shot compute on mount is sufficient: the popover only lives while a
+ * cell is in `popover` mode and dismisses on map interaction (pan/zoom), so the
+ * anchor rect cannot go stale underneath an open card.
  */
+
+/** Gap between the anchor cell and the popover card, in CSS px. */
+const ANCHOR_GAP = 6;
+/** Viewport inset kept around the clamped card so it never kisses the edge. */
+const VIEWPORT_MARGIN = 8;
+/**
+ * Fallback card box used before the real rendered rect is measurable (and in
+ * jsdom, where layout is not computed). Mirrors `.cell-popover`'s CSS
+ * `min-width: 240px`; the height is a conservative estimate for the flip check.
+ */
+const FALLBACK_CARD_WIDTH = 240;
+const FALLBACK_CARD_HEIGHT = 200;
+
+/**
+ * Compute the popover's fixed-position `left`/`top` (viewport coordinates) from
+ * the anchor cell's rect and the card's own size, clamping/flipping so the card
+ * stays fully on screen.
+ */
+function computePopoverPosition(
+  anchorRect: DOMRect,
+  cardWidth: number,
+  cardHeight: number,
+  viewportWidth: number,
+  viewportHeight: number,
+): { left: number; top: number } {
+  // Horizontal: left-align to the cell, then clamp into the viewport so the
+  // card never overflows the right (flips effectively become a right-shift) or
+  // left edge.
+  const maxLeft = Math.max(VIEWPORT_MARGIN, viewportWidth - cardWidth - VIEWPORT_MARGIN);
+  const left = Math.min(Math.max(anchorRect.left, VIEWPORT_MARGIN), maxLeft);
+
+  // Vertical: prefer below the cell. If that would overflow the bottom, flip to
+  // above the cell. Clamp into the viewport as a final fallback.
+  const belowTop = anchorRect.bottom + ANCHOR_GAP;
+  const aboveTop = anchorRect.top - ANCHOR_GAP - cardHeight;
+  const overflowsBottom = belowTop + cardHeight > viewportHeight - VIEWPORT_MARGIN;
+  let top = overflowsBottom && aboveTop >= VIEWPORT_MARGIN ? aboveTop : belowTop;
+  const maxTop = Math.max(VIEWPORT_MARGIN, viewportHeight - cardHeight - VIEWPORT_MARGIN);
+  top = Math.min(Math.max(top, VIEWPORT_MARGIN), maxTop);
+
+  return { left, top };
+}
 export interface CellPopoverProps {
   familyCode: string;
   familyCount: number;
@@ -57,6 +110,9 @@ export function CellPopover(props: CellPopoverProps) {
   const headingId = useId();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
+  // #863: the portaled card's fixed-position placement, computed from the
+  // anchor rect on mount. `null` until the layout effect runs (one paint).
+  const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
 
   const visible = species.slice(0, POPOVER_CAP);
   // Overflow is the EXACT distinct-species remainder when the caller supplies
@@ -67,6 +123,22 @@ export function CellPopover(props: CellPopoverProps) {
   // The drill-in is active only when the caller wired a handler AND there is
   // overflow to drill into.
   const drillInActive = hasOverflow && typeof onDrillIn === 'function';
+
+  // #863: compute the fixed-position placement from the anchor rect before the
+  // browser paints (useLayoutEffect avoids a one-frame flash at the body origin).
+  // The card's own rendered size is read from rootRef when available; otherwise
+  // we fall back to the CSS min-width / an estimated height (jsdom, first pass).
+  useLayoutEffect(() => {
+    const anchorRect = anchorEl.getBoundingClientRect();
+    const cardRect = rootRef.current?.getBoundingClientRect();
+    const cardWidth = cardRect && cardRect.width > 0 ? cardRect.width : FALLBACK_CARD_WIDTH;
+    const cardHeight = cardRect && cardRect.height > 0 ? cardRect.height : FALLBACK_CARD_HEIGHT;
+    const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1024;
+    const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 768;
+    setPosition(
+      computePopoverPosition(anchorRect, cardWidth, cardHeight, viewportWidth, viewportHeight),
+    );
+  }, [anchorEl]);
 
   // Move focus to the heading on mount (spec §4.8 — popover focus management).
   useEffect(() => {
@@ -104,6 +176,15 @@ export function CellPopover(props: CellPopoverProps) {
     }
   }
 
+  // #863: the inline `position: fixed` wins over the CSS `.cell-popover`'s
+  // `position: absolute`, anchoring the portaled card to the clicked cell. Until
+  // the layout effect has measured (one pre-paint pass), keep it off-screen so it
+  // never flashes at the body origin — `position` is set synchronously before the
+  // browser paints, so users only ever see the anchored placement.
+  const positionStyle: CSSProperties = position
+    ? { position: 'fixed', left: position.left, top: position.top }
+    : { position: 'fixed', left: -9999, top: -9999, visibility: 'hidden' };
+
   const content = (
     <div
       ref={rootRef}
@@ -111,6 +192,7 @@ export function CellPopover(props: CellPopoverProps) {
       aria-labelledby={headingId}
       className="cell-popover"
       data-testid="cell-popover"
+      style={positionStyle}
     >
       <header className="cell-popover__header">
         <h2

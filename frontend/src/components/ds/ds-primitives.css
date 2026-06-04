@@ -801,17 +801,27 @@ button.adaptive-grid-marker__cell {
    ───────────────────────────────────────────────────────────────────────────── */
 
 .cell-popover {
-  position: absolute;
-  /* #761 P1, #778 — above the rail, below the cluster popover.
+  /* POSITIONING: #859 portals this card to document.body (to escape the
+     transformed MapLibre marker's stacking context — the z-index fix). A portal
+     to <body> has NO positioned ancestor, so this `position: absolute` floor is
+     NOT what places the card. #863: CellPopover.tsx sets an INLINE
+     `position: fixed; left; top` (computed from anchorEl.getBoundingClientRect()),
+     which wins over this declaration and anchors the card to the clicked cell with
+     edge flip/clamp. This `absolute` floor is only the pre-mount / non-JS fallback;
+     the inline fixed style is the authority once mounted. (Pre-#863 this said
+     `position: absolute` with "no portal needed" — both stale: the portal landed
+     in #859 and, without a computed position, the absolute card collapsed to the
+     body origin / bottom-left, which #863 fixes.)
+     #761 P1, #778 — above the rail, below the cluster popover.
      #761 O6 (#782) ORDERING CONTRACT vs the detail rail: --z-cell-popover (44)
      resolves ABOVE the rail's current --z-rail (43), so this click-driven popover
      temporarily paints over an open SpeciesDetailRail. Re-tiering the rail ABOVE
      the popovers (into --z-modal with the #663 inert work) is O5's job (report R3);
      O6 does NOT move the rail's z value and leaves the temporary popover-over-rail
-     state as expected. Verified live (O6): this popover, though mounted inside the
-     transformed MapLibre marker container, escapes to a higher stacking context and
-     paints above the map-assist overlays (legend/scope at --z-overlay 40,
-     observation-popover at --z-popover 41) as the token intends — no portal needed. */
+     state as expected. Verified live (O6): this popover escapes to a higher
+     stacking context (via the #859 portal) and paints above the map-assist overlays
+     (legend/scope at --z-overlay 40, observation-popover at --z-popover 41). */
+  position: absolute;
   z-index: var(--z-cell-popover);
   background: var(--color-bg-surface);
   border: 1px solid var(--color-border-strong);

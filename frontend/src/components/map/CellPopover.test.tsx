@@ -15,6 +15,26 @@ function makeAnchor(): HTMLElement {
   return btn;
 }
 
+/**
+ * Anchor whose `getBoundingClientRect()` returns a fixed, known rect — lets the
+ * positioning tests assert the popover's computed `top`/`left` deterministically
+ * (jsdom otherwise reports all-zero rects for every element). The rect is in
+ * viewport coordinates, which is exactly what the `position: fixed` math reads.
+ */
+function makeAnchorAt(rect: {
+  left: number; top: number; right: number; bottom: number; width: number; height: number;
+}): HTMLElement {
+  const btn = makeAnchor();
+  btn.getBoundingClientRect = () =>
+    ({
+      ...rect,
+      x: rect.left,
+      y: rect.top,
+      toJSON: () => ({}),
+    }) as DOMRect;
+  return btn;
+}
+
 describe('<CellPopover>', () => {
   it('renders role="dialog" on the root element', () => {
     const anchor = makeAnchor();
@@ -348,5 +368,71 @@ describe('<CellPopover>', () => {
       />
     );
     expect(document.activeElement?.getAttribute('data-testid')).toBe('cell-popover-heading');
+  });
+
+  // #863: the portaled popover (to document.body, #859) MUST compute its own
+  // on-screen position from the anchor's rect. Without it, `position: absolute`
+  // collapses to the body origin and the card lands in the bottom-left corner.
+  // The fix mirrors <CellHoverPreview>: inline `position: fixed` + computed
+  // left/top from `anchorEl.getBoundingClientRect()`, with edge flip/clamp.
+  describe('positioning (#863)', () => {
+    function renderAt(anchor: HTMLElement) {
+      render(
+        <CellPopover
+          familyCode="hummingbirds"
+          familyCount={5}
+          species={[species("Anna's Hummingbird", 5, 'annhum')]}
+          anchorEl={anchor}
+          onDismiss={vi.fn()}
+          onSelectSpecies={vi.fn()}
+        />
+      );
+      return screen.getByTestId('cell-popover');
+    }
+
+    it('anchors next to the clicked cell via position: fixed + computed left/top (not the static/absolute body origin)', () => {
+      // A cell comfortably inside the jsdom viewport (1024×768).
+      const anchor = makeAnchorAt({ left: 300, top: 200, right: 322, bottom: 222, width: 22, height: 22 });
+      const card = renderAt(anchor);
+
+      // The fix sets an INLINE position: fixed (wins over the CSS position:absolute).
+      expect(card.style.position).toBe('fixed');
+
+      // left/top are explicit pixel values derived from the anchor rect — NOT
+      // empty (which is what the bug produced) and NOT 0 (the body origin).
+      expect(card.style.left).not.toBe('');
+      expect(card.style.top).not.toBe('');
+      const left = parseFloat(card.style.left);
+      const top = parseFloat(card.style.top);
+
+      // Anchored adjacent to the cell: horizontally aligned with the cell's left
+      // edge (within the card width) and vertically just below the cell.
+      expect(left).toBeGreaterThanOrEqual(300 - 1);
+      expect(left).toBeLessThan(300 + 320); // within one card-width of the anchor left
+      expect(top).toBeGreaterThanOrEqual(222 - 1); // at or below the cell's bottom edge
+      expect(top).toBeLessThan(222 + 40);
+    });
+
+    it('flips/clamps so a right-edge anchor never overflows the right of the viewport', () => {
+      // Cell hugging the right edge of the 1024-wide jsdom viewport.
+      const anchor = makeAnchorAt({ left: 1010, top: 200, right: 1024, bottom: 222, width: 14, height: 22 });
+      const card = renderAt(anchor);
+      expect(card.style.position).toBe('fixed');
+      const left = parseFloat(card.style.left);
+      // Min card width is 240px; left must leave room for the card inside 1024.
+      expect(left).toBeGreaterThanOrEqual(0);
+      expect(left).toBeLessThanOrEqual(1024 - 240);
+    });
+
+    it('flips above so a bottom-edge anchor never overflows the bottom of the viewport', () => {
+      // Cell near the bottom of the 768-tall jsdom viewport.
+      const anchor = makeAnchorAt({ left: 300, top: 750, right: 322, bottom: 766, width: 22, height: 16 });
+      const card = renderAt(anchor);
+      expect(card.style.position).toBe('fixed');
+      const top = parseFloat(card.style.top);
+      // Flipped above the anchor: top must sit at or above the anchor's top edge.
+      expect(top).toBeLessThanOrEqual(750);
+      expect(top).toBeGreaterThanOrEqual(0);
+    });
   });
 });
