@@ -739,7 +739,10 @@ export function MapCanvas({
    * the bottom of the function.
    */
   const [clusterList, setClusterList] = useState<{
-    group: DeconflictGroup;
+    // The DeconflictGroup whose pill/marker click opened this popover. Absent on
+    // the #864 unclustered-bucket-silhouette path (a bare canvas click has no
+    // group); the mount never reads `group`, so it stays informational.
+    group?: DeconflictGroup;
     families: FamilyAggregate[];
     speciesByFamily: ReadonlyMap<string, ReadonlyArray<SpeciesAggregate>>;
     // #859: per-family distinct-species overflow (drives the active "+N more"
@@ -1333,6 +1336,15 @@ export function MapCanvas({
   const onViewportChangeRef = useRef(onViewportChange);
   onViewportChangeRef.current = onViewportChange;
 
+  // #864: the `unclustered-point` click handler is registered once in handleLoad
+  // ([] deps), so — like onViewportChange above — it reads `aggregated` and the
+  // species `dictionary` through refs to see the live values when a lone bucket
+  // silhouette is clicked, not the values captured at map-load time.
+  const aggregatedRef = useRef(aggregated);
+  aggregatedRef.current = aggregated;
+  const dictionaryRef = useRef(dictionary);
+  dictionaryRef.current = dictionary;
+
   // Sprite-registration completion gate. Flips true after `Promise.all`
   // in the sprite-registration effect resolves. The symbol layer JSX is
   // conditioned on this so MapLibre never tries to paint icons before
@@ -1499,7 +1511,54 @@ export function MapCanvas({
       if (subId) {
         const obs = obsLookupRef.current[subId];
         if (obs) openPopover(obs);
+        return;
       }
+
+      // #864: no subId ⇒ this is an aggregated BUCKET painted unclustered (a
+      // lone bucket past clusterRadius / clusterMaxZoom that #860's
+      // clusterMinPoints=1 didn't fold into a degenerate cluster). It carries
+      // its real families/species in `familiesJson` — open the SAME real-species
+      // popover the cluster path opens (mergeLeafBuckets on this one bucket →
+      // ClusterListPopover), so a click resolves names + working links instead
+      // of no-op'ing on a dead silhouette. Gated on aggregated mode + presence
+      // of familiesJson so the per-observation path is untouched.
+      const familiesJson = feature.properties?.familiesJson as
+        | string
+        | undefined;
+      if (!aggregatedRef.current || typeof familiesJson !== 'string') return;
+
+      // One-bucket "merge": mergeLeafBuckets reads `properties.familiesJson` off
+      // each leaf, so the clicked feature IS a valid single-element leaf array.
+      // Reuses the exact bucket→popover machinery the cluster path uses (#859).
+      const merged = mergeLeafBuckets(
+        [feature as unknown as { properties?: { familiesJson?: unknown } }],
+        dictionaryRef.current,
+      );
+      if (merged.families.length === 0) return;
+
+      const totalCount =
+        typeof feature.properties?.count === 'number'
+          ? (feature.properties.count as number)
+          : merged.families.reduce((s, f) => s + f.count, 0);
+
+      const geom = feature.geometry;
+      const center: [number, number] | undefined =
+        geom.type === 'Point'
+          ? (geom.coordinates as [number, number])
+          : undefined;
+
+      setClusterList({
+        families: merged.families,
+        speciesByFamily: merged.speciesByFamily,
+        overflowByFamily: merged.overflowByFamily,
+        totalCount,
+        uniqueFamilies: merged.families.length,
+        // No DOM anchor exists for a bare canvas click; the map canvas is a
+        // stable, focusable focus-return target (ClusterListPopover only uses
+        // anchorEl for .focus() on dismiss — positioning is sheet-style CSS).
+        anchorEl: map.getCanvas(),
+        ...(center ? { drillCenter: center } : {}),
+      });
     });
 
     // Cluster click — the 'clusters' layer's filter is `['boolean', false]`
