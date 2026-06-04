@@ -31,6 +31,8 @@
  *     × 10s = 50 in the bucket vs cap of 10 → guaranteed 429s).
  */
 
+import { snapFetchBboxParam, type Bbox } from '@bird-watch/geo';
+
 /**
  * Static metro center list. The 25 entries below cover the top US metros by
  * population × birding activity. Manual list — revisit quarterly. A future
@@ -94,32 +96,48 @@ const ZOOM_HALFW: Record<number, readonly [number, number]> = {
 };
 
 /**
- * The two CONUS-wide queries every user hits on initial page load. These two
- * dominate cold-cache cost so they're warmed first each cycle.
+ * The CONUS-wide bbox every user hits on initial page load — the frontend's
+ * `DEFAULT_BBOX_CONUS` (App.tsx). Mobile opens this view at z=3, desktop at
+ * z=4. Both layouts' first fetch goes through the shared `snapFetchBbox` grid
+ * (#866), so warming the SAME snapped bbox at BOTH zooms makes the initial
+ * paint a cache HIT in either layout — previously the desktop z=4 paint hit a
+ * different, unwarmed bbox and missed (issue #866 root-cause note).
+ *
+ * The default is integer-aligned, so snapping is a no-op on the value at z3
+ * (1.0° step) and z4 (0.5° step); the warmed value is just its canonical
+ * `.toFixed(2)` form, identical to what the snapped client emits.
  */
-const CONUS_BBOXES: ReadonlyArray<{ zoom: number; bbox: string }> = [
-  { zoom: 3, bbox: '-125,24,-66,50' },
-  { zoom: 4, bbox: '-126,27,-71,51' },
-];
+const DEFAULT_BBOX_CONUS: Bbox = [-125, 24, -66, 50];
+const CONUS_ZOOMS: readonly number[] = [3, 4];
 
 /**
  * Builds the deterministic 77-entry URL list: 2 CONUS aggregated queries plus
  * 25 metros × 3 zoom levels. Exported for testability — the URL count + shape
  * are the most error-prone surface area in this helper.
+ *
+ * #866 — every bbox is serialized through the shared `@bird-watch/geo`
+ * `snapFetchBboxParam`, so the warmed query value is byte-identical to what the
+ * frontend requests for the same anchor. In the aggregated tiers (CONUS z3/z4,
+ * metro z5) this snaps the bbox OUTWARD to the shared grid; at z6/z7
+ * (per-observation mode) `snapFetchBbox` is a passthrough, so those entries
+ * keep their raw `.toFixed(2)` value and stay disjoint from client keys until
+ * the per-observation follow-up.
  */
 export function buildCacheWarmUrls(baseUrl: string): string[] {
   const urls: string[] = [];
-  for (const c of CONUS_BBOXES) {
-    urls.push(`${baseUrl}/api/observations?since=14d&bbox=${c.bbox}&zoom=${c.zoom}`);
+  for (const zoom of CONUS_ZOOMS) {
+    const bbox = snapFetchBboxParam(DEFAULT_BBOX_CONUS, zoom);
+    urls.push(`${baseUrl}/api/observations?since=14d&bbox=${bbox}&zoom=${zoom}`);
   }
   for (const m of METROS) {
     for (const z of [5, 6, 7]) {
       const halfW = ZOOM_HALFW[z];
       if (!halfW) continue;
       const [hw, hh] = halfW;
-      const bbox =
-        `${(m.lng - hw).toFixed(2)},${(m.lat - hh).toFixed(2)},` +
-        `${(m.lng + hw).toFixed(2)},${(m.lat + hh).toFixed(2)}`;
+      const raw: Bbox = [m.lng - hw, m.lat - hh, m.lng + hw, m.lat + hh];
+      // z5 → snapped to the shared grid (agrees with the client); z6/z7 →
+      // passthrough inside snapFetchBboxParam (raw value, .toFixed(2)).
+      const bbox = snapFetchBboxParam(raw, z);
       urls.push(`${baseUrl}/api/observations?since=14d&bbox=${bbox}&zoom=${z}`);
     }
   }
