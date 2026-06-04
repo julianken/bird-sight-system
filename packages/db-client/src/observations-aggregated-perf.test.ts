@@ -290,4 +290,59 @@ describe('getObservationsAggregated national perf guard (#862)', () => {
     },
     120_000,
   );
+
+  it(
+    'the full CONUS_BOUNDS canonical bbox query is ⊆ the no-bbox national query and well under the timeout (#868)',
+    async () => {
+      // #868 perf guard for Lever 1: the canonical z3/z4 cold-load key is the
+      // ENTIRE CONUS envelope (CONUS_BOUNDS = the @bird-watch/geo constant, =
+      // the camera maxBounds, = the prod-MISSed desktop bbox). It is the LARGEST
+      // canonical bbox query the read-api can ever receive at gridMultiplier=2.
+      // Adding a bbox can only ADD a `geom && ST_MakeEnvelope` predicate that
+      // PRUNES rows (it never adds work vs the unfiltered national scan), so the
+      // bounded query must run no slower than the no-bbox national query and stay
+      // comfortably under the 15s statement_timeout. This pins the issue's claim
+      // (#3) that over-fetch is not a cost tradeoff once clamped: the largest
+      // canonical query ⊆ the no-bbox national query → net-reduces DB load.
+      const CONUS_BOUNDS: [number, number, number, number] = [-130, 20, -65, 52];
+
+      // Baseline: the no-bbox national query time (the #862 worst case).
+      const tNat0 = performance.now();
+      const national = await getObservationsAggregated(pool, { since: '14d' }, 2);
+      const nationalMs = performance.now() - tNat0;
+
+      // The full-CONUS canonical bbox query.
+      const tConus0 = performance.now();
+      const bounded = await getObservationsAggregated(
+        pool,
+        { since: '14d', bbox: CONUS_BOUNDS },
+        2,
+      );
+      const conusMs = performance.now() - tConus0;
+
+      // eslint-disable-next-line no-console
+      console.log(
+        `[#868 perf guard] CONUS_BOUNDS canonical query: ${conusMs.toFixed(0)}ms vs no-bbox national ${nationalMs.toFixed(0)}ms over ${TARGET_ROWS} rows → ${bounded.length}/${national.length} buckets (threshold ${PERF_THRESHOLD_MS}ms)`,
+      );
+
+      // Well under the timeout (same conservative guard as the national test).
+      expect(conusMs).toBeLessThan(PERF_THRESHOLD_MS);
+      // ≤ the no-bbox national time, with a slack factor for container/CI noise:
+      // the bounded query is a strict subset of the national scan's work, so it
+      // must not be materially slower. 1.5× absorbs measurement jitter while
+      // still failing if the bbox predicate ever made the plan pathologically
+      // worse (e.g. a bad index choice).
+      expect(conusMs).toBeLessThanOrEqual(Math.max(nationalMs * 1.5, 1500));
+
+      // The CONUS bbox covers the whole seed (all rows are inside CONUS by
+      // construction), so the bounded result is non-empty and carries real
+      // totals — not a degenerate empty box.
+      expect(bounded.length).toBeGreaterThan(100);
+      for (const b of bounded) {
+        expect(b.count).toBeGreaterThan(0);
+        expect(b.speciesCount).toBeGreaterThan(0);
+      }
+    },
+    120_000,
+  );
 });
