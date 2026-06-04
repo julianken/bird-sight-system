@@ -1,5 +1,6 @@
 import { test, expect, STATES_FIXTURE } from './fixtures.js';
 import { AppPage } from './pages/app-page.js';
+import { snapFetchBbox, type Bbox } from '@bird-watch/geo';
 
 /**
  * C9 (#741) — chooser-first scope IA: chooser landing, state-select, `?scope=us`
@@ -118,24 +119,36 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
   }
 
   /**
-   * #847 — does `bbox` tightly match the scope `envelope` (each edge within
-   * `tol` degrees)? This is the DETERMINISTIC, WebGL-independent differentiator
+   * The aggregated seed zoom the #847 reseed writes alongside the scope
+   * envelope (App.tsx `AGGREGATED_SEED_ZOOM`). The reseed fetch is therefore an
+   * aggregated (zoom < 6) request, so #866's fetch-time snapping applies to it.
+   */
+  const AGGREGATED_SEED_ZOOM = 3;
+
+  /**
+   * #847 — does `bbox` match the scope `envelope` (each edge within `tol`
+   * degrees)? This is the DETERMINISTIC, WebGL-independent differentiator
    * between the bug and the fix: in this no-WebGL CI the map never settles a
    * state-tight viewport into `debouncedBbox`, so on UNPATCHED `main` the
    * post-switch fetch carries the cold-mount CONUS seed (`-125,24,-66,50`),
-   * which `intersects` (but does NOT tightly match) the new state's envelope.
+   * which `intersects` (but does NOT match) the new state's envelope.
    * The render-phase reseed sets `debouncedBbox` to the new scope's exact
    * envelope, so AFTER the fix the post-switch bbox matches within tol — RED on
-   * main (CONUS seed), GREEN after fix (tight envelope). The bug's live recovery
-   * path (a real map idle refining the bbox) is absent here, so the FETCH
-   * payload — not the eventual lede — is the falsifiable signal.
+   * main (CONUS seed), GREEN after fix.
+   *
+   * #866 — `client.ts` now snaps the FETCH bbox OUTWARD to the shared grid at
+   * zoom < 6, so the reseed fetch carries `snapFetchBbox(envelope, seedZoom)`,
+   * NOT the raw envelope. Compare against the SNAPPED envelope so the assertion
+   * tracks the real on-the-wire contract. (The CONUS seed snapped at z3 is still
+   * `-125,24,-66,50` — integer-aligned — so the RED-on-main property holds.)
    */
   function bboxMatchesEnvelope(
     bbox: [number, number, number, number],
     envelope: [number, number, number, number],
     tol = 0.5,
   ): boolean {
-    return bbox.every((v, i) => Math.abs(v - envelope[i]) <= tol);
+    const snapped = snapFetchBbox(envelope as Bbox, AGGREGATED_SEED_ZOOM);
+    return bbox.every((v, i) => Math.abs(v - snapped[i]) <= tol);
   }
 
   /** Pull the bbox off the LAST /api/observations request carrying `state`. */
