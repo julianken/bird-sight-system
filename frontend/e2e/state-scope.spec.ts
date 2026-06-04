@@ -1,6 +1,6 @@
 import { test, expect, STATES_FIXTURE } from './fixtures.js';
 import { AppPage } from './pages/app-page.js';
-import { snapFetchBbox, type Bbox } from '@bird-watch/geo';
+import { canonicalFetchBbox, type Bbox } from '@bird-watch/geo';
 
 /**
  * C9 (#741) — chooser-first scope IA: chooser landing, state-select, `?scope=us`
@@ -121,7 +121,8 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
   /**
    * The aggregated seed zoom the #847 reseed writes alongside the scope
    * envelope (App.tsx `AGGREGATED_SEED_ZOOM`). The reseed fetch is therefore an
-   * aggregated (zoom < 6) request, so #866's fetch-time snapping applies to it.
+   * aggregated (zoom < 6) request, so #868's fetch-time canonicalization applies
+   * to it (the bbox is reconstructed from the envelope midpoint, not edge-snapped).
    */
   const AGGREGATED_SEED_ZOOM = 3;
 
@@ -136,19 +137,29 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
    * envelope, so AFTER the fix the post-switch bbox matches within tol — RED on
    * main (CONUS seed), GREEN after fix.
    *
-   * #866 — `client.ts` now snaps the FETCH bbox OUTWARD to the shared grid at
-   * zoom < 6, so the reseed fetch carries `snapFetchBbox(envelope, seedZoom)`,
-   * NOT the raw envelope. Compare against the SNAPPED envelope so the assertion
-   * tracks the real on-the-wire contract. (The CONUS seed snapped at z3 is still
-   * `-125,24,-66,50` — integer-aligned — so the RED-on-main property holds.)
+   * #868 — `client.ts` now reconstructs a CANONICAL fetch bbox from the
+   * (snapped-midpoint, zoom) + a fixed per-zoom half-extent, clamped to
+   * CONUS_BOUNDS, so the reseed fetch carries `canonicalFetchBbox(envelope,
+   * seedZoom)`, NOT the raw or edge-snapped envelope. Compare against the
+   * CANONICAL envelope so the assertion tracks the real on-the-wire contract.
+   *
+   * The RED-on-main / GREEN-after-fix discriminator is preserved: each state's
+   * canonical box is distinct from the CONUS cold-mount seed's canonical box
+   * (`canonicalFetchBbox([-125,24,-66,50], 3) = -129,20,-65,52`), which is what
+   * an UNPATCHED post-switch fetch carries. The state canonical boxes are
+   * AZ `-130,20,-78,52` / FL `-118,20,-65,52` / NY `-110,20,-65,52` — none equal
+   * the `-129,…` CONUS-seed box, so a missing reseed still fails this assertion.
+   * (`bboxIntersects` above stays a separate, weaker guard: the canonical box is
+   * a CONUS-clamped superset that always intersects the target state, which is
+   * what the server `?state=` ST_Intersects clip relies on for correctness.)
    */
   function bboxMatchesEnvelope(
     bbox: [number, number, number, number],
     envelope: [number, number, number, number],
     tol = 0.5,
   ): boolean {
-    const snapped = snapFetchBbox(envelope as Bbox, AGGREGATED_SEED_ZOOM);
-    return bbox.every((v, i) => Math.abs(v - snapped[i]) <= tol);
+    const canonical = canonicalFetchBbox(envelope as Bbox, AGGREGATED_SEED_ZOOM);
+    return bbox.every((v, i) => Math.abs(v - canonical[i]) <= tol);
   }
 
   /** Pull the bbox off the LAST /api/observations request carrying `state`. */
