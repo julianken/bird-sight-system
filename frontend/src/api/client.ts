@@ -2,7 +2,7 @@ import type {
   Hotspot, Observation, ObservationsResponse, SpeciesMeta, ObservationFilters,
   FamilySilhouette, StateSummary, SpeciesDictEntry,
 } from '@bird-watch/shared-types';
-import { snapFetchBboxParam, serializeBbox } from '@bird-watch/geo';
+import { canonicalFetchBboxParam, serializeBbox } from '@bird-watch/geo';
 
 export interface ApiClientOptions {
   baseUrl?: string;
@@ -32,20 +32,24 @@ export class ApiClient {
     if (f.speciesCode) url.searchParams.set('species', f.speciesCode);
     if (f.familyCode) url.searchParams.set('family', f.familyCode);
     if (f.bbox) {
-      // #866 — snap the FETCH bbox to a shared, coarse grid so nearby viewports
-      // collapse to one Cloudflare cache key (and warmed keys become a subset of
-      // requestable ones). Snapping is OUTWARD (superset) and applies only in
-      // the aggregated path (zoom < 6); at zoom >= 6 `snapFetchBboxParam` is a
-      // passthrough — outward-snapping a bbox already at the validate.ts area cap
-      // would 400. Done here at fetch-time (not App.tsx state) so it also covers
-      // the #847 scope-change reseed, which writes the RAW scopeBounds envelope.
+      // #868 — reconstruct a CANONICAL fetch bbox from (snapped-midpoint, zoom)
+      // so every device at the same view collapses to ONE Cloudflare cache key
+      // (scheme a, fixed-size). This supersedes the #866/#867 edge-snap (scheme
+      // b), whose key still depended on the pixel-viewport extent — a 390px
+      // phone and a 1440px desktop at the same center minted different keys, so
+      // the warmer's anchors never matched real device-derived keys (prod MISS
+      // confirmed 2026-06-04). Canonicalization applies only in the aggregated
+      // path (zoom < 6); at zoom >= 6 `canonicalFetchBboxParam` is a passthrough
+      // — reconstructing a fixed box past the validate.ts area cap would 400.
+      // Done at fetch-time (not App.tsx state) so it also covers the #847
+      // scope-change reseed, which writes the RAW scopeBounds envelope.
       //
       // No count inflation: the lede / family-legend "in view" totals derive from
       // filterBucketsByBounds(buckets, viewportBounds) against the RAW map bounds
-      // (App.tsx, frontend/src/lib/viewport-filter.ts) — the snapped superset's
+      // (App.tsx, frontend/src/lib/viewport-filter.ts) — the canonical superset's
       // extra buckets fall outside viewportBounds and are clipped before counting.
       const bboxParam = f.zoom !== undefined
-        ? snapFetchBboxParam(f.bbox, f.zoom)
+        ? canonicalFetchBboxParam(f.bbox, f.zoom)
         : serializeBbox(f.bbox);
       url.searchParams.set('bbox', bboxParam);
     }
