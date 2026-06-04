@@ -1468,6 +1468,160 @@ describe('#860 — lone clustered bucket opens its real species (coarse pointer)
   });
 });
 
+/* ── #864: a lone UNCLUSTERED bucket silhouette is clickable at low zoom ──────
+ *
+ * #860 set clusterMinPoints=1 so most lone buckets become degenerate clusters,
+ * but maplibre still emits TRULY isolated buckets (no neighbour AND/or past
+ * clusterMaxZoom) as UNCLUSTERED points. Those paint a bare family silhouette
+ * via the `unclustered-point` SDF symbol layer. The canvas click handler keys
+ * solely on `subId`; bucket features carry `count`/`speciesCount`/`familiesJson`
+ * but never a `subId`, so the handler no-ops and the silhouette is a dead click.
+ *
+ * Fix: when the clicked `unclustered-point` feature has NO `subId` but carries
+ * `familiesJson` (an aggregated bucket), open the SAME real-species popover the
+ * cluster path opens — parse the one bucket via `mergeLeafBuckets` and mount the
+ * `<ClusterListPopover>` anchored at the click. The per-observation `subId`
+ * branch is untouched.
+ */
+describe('#864 — lone unclustered bucket silhouette opens its real species', () => {
+  const LONE_BUCKET: AggregatedBucket = {
+    lat: 46.0,
+    lng: -110.0,
+    count: 7,
+    speciesCount: 2,
+    families: [
+      {
+        code: 'tyrannidae',
+        count: 7,
+        speciesCount: 2,
+        species: [
+          { code: 'wewp', count: 5 },
+          { code: 'sayphoebe', count: 2 },
+        ],
+      },
+    ],
+  };
+  const DICT = new Map<string, { comName: string; familyCode: string }>([
+    ['wewp', { comName: 'Western Wood-Pewee', familyCode: 'tyrannidae' }],
+    ['sayphoebe', { comName: "Say's Phoebe", familyCode: 'tyrannidae' }],
+  ]);
+
+  beforeEach(() => {
+    capturedSourceProps = {};
+    capturedLayerFilters = {};
+    capturedSourcesById = {};
+    capturedLayerPaint = {};
+    registeredHandlers = {};
+    bareHandlers = {};
+    bareHandlersAll = {};
+    deferMapLoad = false;
+    deferredOnLoad = null;
+    fakeMap = makeFakeMap();
+    document.documentElement.removeAttribute('data-theme');
+    __resetAdaptiveGridCacheForTesting();
+  });
+
+  it('clicking an unclustered bucket (familiesJson, no subId) opens the real-species popover', async () => {
+    render(
+      <MapCanvas
+        observations={[]}
+        buckets={[LONE_BUCKET]}
+        mode="aggregated"
+        dictionary={DICT}
+        silhouettes={SILHOUETTES}
+      />,
+    );
+    await waitFor(() =>
+      expect(registeredHandlers['click:unclustered-point']).toBeTypeOf('function'),
+    );
+
+    // The unclustered bucket feature: dominant family silhouette properties +
+    // serialized real families, NO subId (exactly what bucketsToGeoJson writes
+    // for a bucket that maplibre never clustered).
+    const bucketFeature = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [LONE_BUCKET.lng, LONE_BUCKET.lat] },
+      properties: {
+        count: LONE_BUCKET.count,
+        speciesCount: LONE_BUCKET.speciesCount,
+        familiesJson: JSON.stringify(LONE_BUCKET.families),
+        familyCode: 'tyrannidae',
+        silhouetteId: 'tyrannidae',
+        color: '#c3772d',
+      },
+    };
+    fakeMap.queryRenderedFeatures.mockImplementation(
+      (_: unknown, opts?: { layers?: string[] }) =>
+        opts?.layers?.includes('unclustered-point') ? [bucketFeature] : [],
+    );
+
+    const handler = registeredHandlers['click:unclustered-point'];
+    if (!handler) throw new Error('click:unclustered-point handler missing');
+    await act(async () => {
+      handler({ point: [120, 120] });
+      await Promise.resolve();
+    });
+
+    // The bucket's REAL families/species reach the user via the cluster-list
+    // popover — not a dead click.
+    const popover = await waitFor(() =>
+      screen.getByTestId('cluster-list-popover'),
+    );
+    expect(popover).toBeInTheDocument();
+    const familyToggle = screen.getByTestId(
+      'cluster-list-popover-family-tyrannidae',
+    );
+    expect(familyToggle).toHaveTextContent('Tyrannidae (7)');
+
+    // Expand → the real common name (resolved via the dictionary) renders, with
+    // a working species link (non-null code ⇒ <a role="link">).
+    await act(async () => {
+      fireEvent.click(familyToggle.querySelector('button') ?? familyToggle);
+      await Promise.resolve();
+    });
+    const link = screen.getByText(/Western Wood-Pewee/);
+    expect(link).toBeInTheDocument();
+    expect(link.closest('[role="link"]')).not.toBeNull();
+  });
+
+  it('clicking an unclustered feature WITH a subId still opens the observation popover (unchanged)', async () => {
+    // Per-observation mode: a real Observation row legitimately carries a subId
+    // and must still open the ObservationPopover. The #864 fix must NOT touch
+    // this branch.
+    const obs = makeObs({ subId: 'S864', comName: 'Vermilion Flycatcher' });
+    render(<MapCanvas observations={[obs]} silhouettes={SILHOUETTES} />);
+    await waitFor(() =>
+      expect(registeredHandlers['click:unclustered-point']).toBeTypeOf('function'),
+    );
+
+    fakeMap.queryRenderedFeatures.mockImplementation(
+      (_: unknown, opts?: { layers?: string[] }) =>
+        opts?.layers?.includes('unclustered-point')
+          ? [
+              {
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [obs.lng, obs.lat] },
+                properties: { subId: 'S864' },
+              },
+            ]
+          : [],
+    );
+
+    const handler = registeredHandlers['click:unclustered-point'];
+    if (!handler) throw new Error('click:unclustered-point handler missing');
+    await act(async () => {
+      handler({ point: [120, 120] });
+      await Promise.resolve();
+    });
+
+    // The observation popover (not the cluster-list popover) opens.
+    expect(
+      await screen.findByRole('dialog', { name: /Details for Vermilion Flycatcher/ }),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId('cluster-list-popover')).toBeNull();
+  });
+});
+
 // Popover-originated onSelectSpecies wire.
 // These tests run in a separate describe block that resets modules to
 // pick up the pointer:fine matchMedia stub for AdaptiveGridMarker.
