@@ -95,3 +95,112 @@ export function serializeBbox(bbox: Bbox): string {
 export function snapFetchBboxParam(bbox: Bbox, zoom: number): string {
   return serializeBbox(snapFetchBbox(bbox, zoom));
 }
+
+// ── #868 — canonical-extent cache keys ──────────────────────────────────────
+//
+// `snapFetchBbox` (above, #866/#867) snaps the viewport *edges* outward to a
+// shared grid. That is scheme (b) "cell-aligned": it collapses pan/float
+// cardinality but the key still depends on the pixel-viewport EXTENT — a 390px
+// phone and a 1440px desktop at the same center mint different keys (different
+// edges → different snapped edges). Prod validation (2026-06-04) confirmed the
+// MISS persists: the desktop cold load requested `-130,20,-65,52` but the
+// warmer had warmed `-125,24,-66,50`.
+//
+// `canonicalFetchBbox` is scheme (a) "fixed-size": it DISCARDS the viewport
+// edges and reconstructs the box from `(snapped-center, integer-zoom)` + a
+// per-zoom fixed half-extent. Every device at the same view → ONE key. The
+// cold-load keyspace collapses to 2 keys (z3 narrow-device tier, z4 wide-device
+// tier) because `MapCanvas.tsx` uses a fixed CONUS center + a breakpoint-driven
+// zoom. Organic caching then carries the load across device classes.
+//
+// Applies ONLY at `zoom < 6` (aggregated mode). At z>=6 it is a passthrough,
+// exactly like `snapFetchBbox`: `validate.ts` enforces the 45×25 area cap only
+// at z>=6, and reconstructing a fixed box there would either 400 (too large) or
+// drop on-screen observations (too small). Per-observation canonicalization is
+// a tracked non-goal.
+
+/**
+ * The camera `maxBounds` envelope in `MapCanvas.tsx` (`CONUS_BOUNDS` there) —
+ * the outer clamp for every canonical box, and the named prod-MISSed desktop
+ * bbox. The reconstructed box is clamped to this first (so it never fetches
+ * off-CONUS ocean) and then to the globe.
+ *
+ * NB this is NOT centered on the snapped CONUS view center: the z3 snapped
+ * center is `[-99, 40]`, whose distance to the east edge `-65` is 34° while the
+ * distance to the west edge `-130` is only 31°. `CANONICAL_HALF_EXTENTS[3]`'s
+ * `HALF_W = 34` is what makes the clamped z3 box land EXACTLY on `CONUS_BOUNDS`
+ * (the CONUS-binding test); a `31` would under-reach the east edge to `-68`.
+ */
+export const CONUS_BOUNDS: Bbox = [-130, 20, -65, 52];
+
+/**
+ * Per-integer-zoom fixed half-extents `[HALF_W, HALF_H]` in degrees. Each is a
+ * multiple of `SNAP_STEP_DEG(zoom)` (1.0 / 0.5 / 0.25) so the reconstructed
+ * edges serialize losslessly under `.toFixed(2)`.
+ *
+ * Pinned by the #868 tests (the constants are tuned to PASS the superset +
+ * device-independence + CONUS-binding ACs, not guessed):
+ *
+ *  - z3 `[34.0, 38.0]`: HALF_W=34 makes the clamped z3 box === `CONUS_BOUNDS`
+ *    exactly (see the note above); HALF_H=38 over-reaches lat so the N/S clamp
+ *    to `CONUS_BOUNDS` binds (snapped center lat 40 → 40±38 = [2, 78] → clamp).
+ *  - z4 `[43.0, 24.5]`: collapses every wide-device view to `CONUS_BOUNDS` too
+ *    (snapped center [-99, 40] at 0.5° step → 40±24.5 covers [15.5, 64.5] →
+ *    clamp to [20, 52]; -99±43 covers [-142, -56] → clamp to [-130, -65]).
+ *  - z5 `[22.25, 12.25]`: metro tier (centers are interior, no CONUS clamp).
+ *    The widest canonical device (2560×1440) frames ±22°/±12° under the repo's
+ *    tile→bbox heuristic. HALF_W is 22.25 (not a flat 22) because snapping the
+ *    center to the 0.25° grid can shift it up to half a step (0.125°) away from
+ *    the true center, which would leave the FAR edge of a ±22° view 0.125°
+ *    under-fetched; 22.25 absorbs that snap shift (next 0.25° multiple above
+ *    22.125) so the superset genuinely holds, while the canonical-z5 / phone
+ *    over-fetch ratio stays at ~7.96× — still under the 8× budget. The superset
+ *    and the budget pull in opposite directions at z5, so this is the tight
+ *    pinned value, not a guess.
+ */
+export const CANONICAL_HALF_EXTENTS: Record<number, readonly [number, number]> = {
+  3: [34.0, 38.0],
+  4: [43.0, 24.5],
+  5: [22.25, 12.25],
+};
+
+/** Clamp `v` into `[lo, hi]`. */
+function clampTo(v: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, v));
+}
+
+/**
+ * Reconstruct the canonical FETCH bbox from `(snapped-center, integer-zoom)`.
+ *
+ * 1. `zoom >= 6` → passthrough (the input bbox, unchanged).
+ * 2. center = the bbox MIDPOINT `[(w+e)/2, (s+n)/2]` — NOT `map.getCenter()`,
+ *    whose Mercator skew would re-introduce per-device key variation at z5.
+ * 3. snap the center to `SNAP_STEP_DEG(zoom)`.
+ * 4. expand the snapped center by `CANONICAL_HALF_EXTENTS[zoom]`.
+ * 5. clamp to `CONUS_BOUNDS`, then to the globe `[-180,180]×[-90,90]`.
+ *
+ * Pure: no I/O, no mutation of the input.
+ */
+export function canonicalFetchBbox(bbox: Bbox, zoom: number): Bbox {
+  if (zoom >= 6) return bbox;
+  const [w, s, e, n] = bbox;
+  const step = SNAP_STEP_DEG(zoom);
+  const cLng = Math.round((w + e) / 2 / step) * step;
+  const cLat = Math.round((s + n) / 2 / step) * step;
+  const [halfW, halfH] = CANONICAL_HALF_EXTENTS[zoom] ?? CANONICAL_HALF_EXTENTS[5]!;
+  // Expand, then clamp to CONUS, then to the globe.
+  const cw = clampTo(Math.max(cLng - halfW, CONUS_BOUNDS[0]), -180, 180);
+  const cs = clampTo(Math.max(cLat - halfH, CONUS_BOUNDS[1]), -90, 90);
+  const ce = clampTo(Math.min(cLng + halfW, CONUS_BOUNDS[2]), -180, 180);
+  const cn = clampTo(Math.min(cLat + halfH, CONUS_BOUNDS[3]), -90, 90);
+  return [cw, cs, ce, cn];
+}
+
+/**
+ * `canonicalFetchBbox` then `serializeBbox`. The value both `client.ts`
+ * (`getObservations`, fetch-time) and `run-cache-warm.ts` put in `?bbox=` so
+ * they collide on ONE canonical key per (snapped-center, zoom).
+ */
+export function canonicalFetchBboxParam(bbox: Bbox, zoom: number): string {
+  return serializeBbox(canonicalFetchBbox(bbox, zoom));
+}
