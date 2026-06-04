@@ -18,6 +18,12 @@ ENV NODE_ENV=production
 COPY --from=build /repo/package.json /repo/package-lock.json ./
 COPY --from=build /repo/packages/db-client ./packages/db-client
 COPY --from=build /repo/packages/shared-types ./packages/shared-types
+# #866 — @bird-watch/geo is source-only (no dist build): its exports.default
+# points at src/index.ts, which Node strips-and-runs natively (node:24-alpine).
+# The runtime image must carry the geo source so the cache-warmer's
+# `import '@bird-watch/geo'` resolves at runtime AND the workspace install below
+# can link it.
+COPY --from=build /repo/packages/geo ./packages/geo
 COPY --from=build /repo/services/ingestor/package.json ./services/ingestor/
 COPY --from=build /repo/services/ingestor/dist ./services/ingestor/dist
 

@@ -2,6 +2,7 @@ import type {
   Hotspot, Observation, ObservationsResponse, SpeciesMeta, ObservationFilters,
   FamilySilhouette, StateSummary, SpeciesDictEntry,
 } from '@bird-watch/shared-types';
+import { snapFetchBboxParam, serializeBbox } from '@bird-watch/geo';
 
 export interface ApiClientOptions {
   baseUrl?: string;
@@ -30,7 +31,24 @@ export class ApiClient {
     if (f.notable === true) url.searchParams.set('notable', 'true');
     if (f.speciesCode) url.searchParams.set('species', f.speciesCode);
     if (f.familyCode) url.searchParams.set('family', f.familyCode);
-    if (f.bbox) url.searchParams.set('bbox', f.bbox.join(','));
+    if (f.bbox) {
+      // #866 — snap the FETCH bbox to a shared, coarse grid so nearby viewports
+      // collapse to one Cloudflare cache key (and warmed keys become a subset of
+      // requestable ones). Snapping is OUTWARD (superset) and applies only in
+      // the aggregated path (zoom < 6); at zoom >= 6 `snapFetchBboxParam` is a
+      // passthrough — outward-snapping a bbox already at the validate.ts area cap
+      // would 400. Done here at fetch-time (not App.tsx state) so it also covers
+      // the #847 scope-change reseed, which writes the RAW scopeBounds envelope.
+      //
+      // No count inflation: the lede / family-legend "in view" totals derive from
+      // filterBucketsByBounds(buckets, viewportBounds) against the RAW map bounds
+      // (App.tsx, frontend/src/lib/viewport-filter.ts) — the snapped superset's
+      // extra buckets fall outside viewportBounds and are clipped before counting.
+      const bboxParam = f.zoom !== undefined
+        ? snapFetchBboxParam(f.bbox, f.zoom)
+        : serializeBbox(f.bbox);
+      url.searchParams.set('bbox', bboxParam);
+    }
     if (f.zoom !== undefined) url.searchParams.set('zoom', String(f.zoom));
     // #735 — the data invariant: only send `?state=` when a state is scoped.
     // UNSCOPED and the explicit `?scope=us` escape hatch BOTH leave

@@ -12,6 +12,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@bird-watch/geo": "*",
     "@bird-watch/shared-types": "*",
     "@microsoft/clarity": "^1.0.2",
     "@turf/buffer": "^7.3.5",

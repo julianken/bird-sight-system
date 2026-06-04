@@ -251,6 +251,7 @@ const config: KnipConfig = {
       ignoreDependencies: ['@bird-watch/shared-types'],
     },
     'packages/db-client': {},
+    'packages/geo': {},
     'packages/shared-types': {},
   },
 };

@@ -1,0 +1,18 @@
+{
+  "name": "@bird-watch/geo",
+  "version": "0.0.1",
+  "type": "module",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.7"
+  }
+}

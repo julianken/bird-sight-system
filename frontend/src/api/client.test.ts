@@ -25,11 +25,48 @@ describe('ApiClient', () => {
     const envelope = JSON.stringify({ data: [], meta: { freshestObservationAt: null } });
     vi.spyOn(global, 'fetch').mockResolvedValue(new Response(envelope, { status: 200 }));
     const client = new ApiClient({ baseUrl: '' });
+    // No zoom ⇒ per-observation mode ⇒ no snapping, but the canonical
+    // serializer still emits .toFixed(2) values (#866). The integer-aligned
+    // CONUS default serializes to its 2-decimal form.
     await client.getObservations({ bbox: [-125, 24, -66, 50] });
     const call = (fetch as unknown as { mock: { calls: [string, unknown][] } }).mock.calls[0]!;
     const url = call[0];
     // URLSearchParams encodes "," as "%2C"; either form is acceptable.
-    expect(url).toMatch(/bbox=-125(?:%2C|,)24(?:%2C|,)-66(?:%2C|,)50/);
+    expect(url).toMatch(/bbox=-125\.00(?:%2C|,)24\.00(?:%2C|,)-66\.00(?:%2C|,)50\.00/);
+  });
+
+  it('snaps the fetch bbox to the shared cache grid at zoom < 6 (#866)', async () => {
+    // A jittered z5 metro viewport snaps OUTWARD to the 0.25° grid and
+    // serializes via the canonical .toFixed(2) form — the cache-key lever.
+    // Snapping happens at FETCH time (not App.tsx state) so it covers both the
+    // #847 scope-reseed path and the idle path. Displayed counts stay correct
+    // because they derive from filterBucketsByBounds(buckets, viewportBounds)
+    // against the RAW map bounds, not this snapped fetch bbox.
+    const envelope = JSON.stringify({ data: [], meta: { freshestObservationAt: null } });
+    vi.spyOn(global, 'fetch').mockResolvedValue(new Response(envelope, { status: 200 }));
+    const client = new ApiClient({ baseUrl: '' });
+    await client.getObservations({ bbox: [-118.241, 33.998, -107.237, 40.051], zoom: 5 });
+    const call = (fetch as unknown as { mock: { calls: [string, unknown][] } }).mock.calls[0]!;
+    const url = call[0];
+    // raw → snap(z5) → [-118.25, 33.75, -107.00, 40.25] → .toFixed(2)
+    expect(url).toMatch(
+      /bbox=-118\.25(?:%2C|,)33\.75(?:%2C|,)-107\.00(?:%2C|,)40\.25/,
+    );
+  });
+
+  it('passes the bbox through unchanged at zoom >= 6 (per-observation mode, #866)', async () => {
+    const envelope = JSON.stringify({
+      mode: 'observations', data: [], meta: { freshestObservationAt: null },
+    });
+    vi.spyOn(global, 'fetch').mockResolvedValue(new Response(envelope, { status: 200 }));
+    const client = new ApiClient({ baseUrl: '' });
+    await client.getObservations({ bbox: [-118.241, 33.998, -107.237, 40.051], zoom: 7 });
+    const call = (fetch as unknown as { mock: { calls: [string, unknown][] } }).mock.calls[0]!;
+    const url = call[0];
+    // Passthrough: only the canonical serializer applies, no grid snap.
+    expect(url).toMatch(
+      /bbox=-118\.24(?:%2C|,)34\.00(?:%2C|,)-107\.24(?:%2C|,)40\.05/,
+    );
   });
 
   it('maps stateCode to ?state= on /api/observations (#735)', async () => {
