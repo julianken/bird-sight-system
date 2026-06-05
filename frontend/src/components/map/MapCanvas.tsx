@@ -1953,13 +1953,13 @@ export function MapCanvas({
               // with "No cluster with the specified id: NNNN" (trailing period +
               // appended id — so `includes`, NOT `===`). That is an EXPECTED,
               // self-healing post-reindex rejection (the next idle resolves the
-              // current ids), so swallow it — but ONLY in aggregated mode (the
-              // path that re-clusters on every state-overview load) and ONLY for
-              // this exact message. Any other rejection — or the same message in
-              // per-observation mode — still warns, so a genuinely broken cluster
+              // current ids), so swallow it — in BOTH render modes. QA confirmed
+              // the flood fires at z<6 aggregated (`agg:…`) AND z≥6
+              // per-observation (`obs:…`); the message is the benign
+              // discriminator, so we key off it ALONE — no render-mode gate. Any
+              // OTHER rejection message still warns, so a genuinely broken cluster
               // surfaces. Eviction above is unconditional either way.
               const isStaleClusterId =
-                aggregated &&
                 String(err?.message).includes('No cluster with the specified id');
               if (!isStaleClusterId && !warnedRejections.has(key)) {
                 console.warn(

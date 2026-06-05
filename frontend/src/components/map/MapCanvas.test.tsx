@@ -885,10 +885,12 @@ describe('MapCanvas', () => {
 
   // #875 — after `setData` re-indexes the supercluster, the idle-tick reconciler
   // can pass cluster_ids from the PRIOR generation into getClusterLeaves, which
-  // rejects with "No cluster with the specified id: NNNN". In aggregated mode
-  // that expected post-reindex rejection must be swallowed (zero console.warn);
-  // any OTHER rejection must still warn once via the existing warnedRejections
-  // path. Rendered in `mode='aggregated'` because the swallow is agg-only.
+  // rejects with "No cluster with the specified id: NNNN". That expected
+  // post-reindex rejection must be swallowed (zero console.warn) in BOTH render
+  // modes — QA confirmed the flood fires at z<6 aggregated (`agg:…`) AND z≥6
+  // per-observation (`obs:…`). Any OTHER rejection must still warn once via the
+  // existing warnedRejections path. This first case pins the AGGREGATED path
+  // (cache key prefix `agg:`); the per-observation case follows below.
   it('#875: swallows "No cluster with the specified id" rejection in aggregated mode, still warns on others', async () => {
     const DICT = new Map<string, { comName: string; familyCode: string }>([
       ['wewp', { comName: 'Western Wood-Pewee', familyCode: 'tyrannidae' }],
@@ -955,6 +957,67 @@ describe('MapCanvas', () => {
       (c) => typeof c[1] === 'string' && c[1].includes('9001'),
     );
     // The "No cluster with the specified id" rejection is swallowed entirely.
+    expect(noClusterWarns).toHaveLength(0);
+    // The unrelated rejection still surfaces exactly once.
+    expect(boomWarns).toHaveLength(1);
+    warnSpy.mockRestore();
+  });
+
+  // #875 (per-observation half) — the SAME benign post-reindex flood fires at
+  // z≥6 in per-observation mode (cache key prefix `obs:`). The widened swallow
+  // keys off the message ALONE (no render-mode gate), so the `No cluster with
+  // the specified id` rejection must be swallowed here too (zero console.warn),
+  // while an unrelated rejection still warns once. This is the case that the
+  // original agg-only scoping missed — it guards against a regression to the
+  // narrower `aggregated && …` condition.
+  it('#875: swallows "No cluster with the specified id" rejection in per-observation mode, still warns on others', async () => {
+    // Default render mode (per-observation): clustered point features, no
+    // buckets. One feature rejects with the EXPECTED post-reindex message, the
+    // other with an unrelated error.
+    const staleNoCluster = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [-110.9, 32.2] },
+      properties: { cluster: true, cluster_id: 7777, point_count: 3 },
+    };
+    const staleBoom = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [-111.9, 31.2] },
+      properties: { cluster: true, cluster_id: 8888, point_count: 3 },
+    };
+    fakeMap.queryRenderedFeatures.mockImplementation(
+      (_: unknown, opts?: { layers?: string[] }) =>
+        opts?.layers?.includes('clusters-hit') ? [staleNoCluster, staleBoom] : [],
+    );
+    const getClusterLeaves = vi.fn().mockImplementation((id: number) => {
+      if (id === 7777) {
+        return Promise.reject(new Error('No cluster with the specified id: 7777'));
+      }
+      return Promise.reject(new Error('boom'));
+    });
+    fakeMap.getSource.mockReturnValue({ getClusterLeaves });
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    render(<MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />);
+    await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+
+    await act(async () => {
+      await fireAllIdleHandlers();
+    });
+    // Allow the rejection microtasks (the `.catch` cleanup) to run.
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const noClusterWarns = warnSpy.mock.calls.filter(
+      (c) => typeof c[1] === 'string' && c[1].includes('7777'),
+    );
+    const boomWarns = warnSpy.mock.calls.filter(
+      (c) => typeof c[1] === 'string' && c[1].includes('8888'),
+    );
+    // The "No cluster with the specified id" rejection is swallowed entirely,
+    // even in per-observation mode (the `obs:` cache-key path).
     expect(noClusterWarns).toHaveLength(0);
     // The unrelated rejection still surfaces exactly once.
     expect(boomWarns).toHaveLength(1);
