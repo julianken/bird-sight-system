@@ -220,6 +220,51 @@ resource "google_monitoring_alert_policy" "read_api_latency" {
   }
 }
 
+# ── S4b: Read-API p95 latency near statement_timeout (#873) ──────────────
+#
+# Near-timeout guard for the state-scope `/api/observations` path that #873
+# fixes. In prod, state-scoped low-zoom requests ran 12-14s against the
+# pool's 15s `statement_timeout` (packages/db-client/src/pool.ts:35,
+# `statement_timeout: opts.statement_timeout ?? 15_000`) — masked by green
+# 200s, one slow cold buffer away from a 504. This alert fires BEFORE that
+# cliff so the silent near-misses become visible.
+#
+# THRESHOLD: 0.6 × statement_timeout. The DURABLE part is the 0.6 fraction
+# (60% of the hard query ceiling = "getting dangerous, not yet failing"); the
+# absolute 9000ms is DERIVED from the currently-configured 15_000ms timeout.
+# If pool.ts's statement_timeout changes, recompute this as 0.6 × the new
+# value — do NOT treat 9000 as a standalone constant. The S4 policy above
+# (2s, "user tabs away") catches everyday UX degradation; this one catches the
+# distinct, rarer "about to trip the DB timeout" failure mode, so both exist.
+#
+# SCOPE NOTE: Cloud Run's `request_latencies` metric is not broken out per
+# URL route, so this is service-wide p95. That is acceptable and conservative
+# here: no other read-api route runs anywhere near 9s, so a 9s p95 IS the
+# observations near-timeout signal. A per-route refinement would need a
+# log-based duration distribution emitted by the handler (a follow-up if the
+# service-wide proxy ever proves too coarse).
+
+resource "google_monitoring_alert_policy" "read_api_near_statement_timeout" {
+  display_name          = "Read API p95 latency > 0.6 x statement_timeout (9s) (S4b #873)"
+  combiner              = "OR"
+  notification_channels = [google_monitoring_notification_channel.email_julian.id]
+
+  conditions {
+    display_name = "p95 > 9000ms (0.6 x 15s statement_timeout) over 10min"
+    condition_threshold {
+      filter          = "metric.type=\"run.googleapis.com/request_latencies\" AND resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"bird-read-api\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 9000 # 0.6 x 15_000ms statement_timeout (pool.ts:35). Recompute if the timeout changes.
+      duration        = "600s"
+      aggregations {
+        alignment_period     = "60s"
+        per_series_aligner   = "ALIGN_PERCENTILE_95"
+        cross_series_reducer = "REDUCE_MAX"
+      }
+    }
+  }
+}
+
 # ── S5: Cloud Run instance crash / OOM ───────────────────────────────────
 #
 # Log-based metric: counts severity>=ERROR messages matching the

@@ -2,7 +2,7 @@ import type {
   Hotspot, Observation, ObservationsResponse, SpeciesMeta, ObservationFilters,
   FamilySilhouette, StateSummary, SpeciesDictEntry,
 } from '@bird-watch/shared-types';
-import { canonicalFetchBboxParam, serializeBbox } from '@bird-watch/geo';
+import { canonicalFetchBboxParam, serializeBbox, snapFetchBboxParam } from '@bird-watch/geo';
 
 export interface ApiClientOptions {
   baseUrl?: string;
@@ -16,6 +16,24 @@ export class ApiError extends Error {
 
 export class ApiClient {
   private readonly baseUrl: string;
+
+  // #874 — in-flight /api/observations dedup + cancellation. Rapid scope/pan
+  // changes (CA→NV→TX) fire several observations fetches in quick succession;
+  // without this a superseded fetch keeps running (wasted origin work, and the
+  // late one can resolve AFTER an earlier one and race the rendered state), and
+  // a byte-identical concurrent request issues a redundant second network call.
+  //
+  //  - `observationsInFlight` tracks the CURRENTLY-live observations request:
+  //    its full request key, its AbortController (so a superseding fetch can
+  //    cancel it), and the shared promise (so a concurrent byte-identical key
+  //    coalesces onto it instead of hitting the network again).
+  //
+  // Scoped to /api/observations ONLY — other endpoints (hotspots, states,
+  // species, silhouettes) are immutable/idempotent and never superseded, so
+  // they keep the plain `get<T>` path with no signal.
+  private observationsInFlight:
+    | { key: string; controller: AbortController; promise: Promise<ObservationsResponse> }
+    | null = null;
 
   constructor(opts: ApiClientOptions = {}) {
     this.baseUrl = opts.baseUrl ?? '';
@@ -48,9 +66,30 @@ export class ApiClient {
       // filterBucketsByBounds(buckets, viewportBounds) against the RAW map bounds
       // (App.tsx, frontend/src/lib/viewport-filter.ts) — the canonical superset's
       // extra buckets fall outside viewportBounds and are clipped before counting.
-      const bboxParam = f.zoom !== undefined
-        ? canonicalFetchBboxParam(f.bbox, f.zoom)
-        : serializeBbox(f.bbox);
+      //
+      // #873 — STATE-SCOPE FIXED ENVELOPE (aggregated path only). When a state is
+      // scoped AND we know its fixed envelope (`stateBbox` from /api/states) AND
+      // we're in aggregated mode (`zoom < 6`), send the state's FIXED envelope
+      // (snapped outward to the cache grid) instead of the center-varying
+      // canonical viewport box. Every viewport/pan of a state then collapses to
+      // ONE Cloudflare key per (state, zoom, filters) → CF HIT after the first
+      // load (and warmable), and the origin query becomes state-tight (killing
+      // the 12-14s CONUS scan-then-clip). Render is unchanged: the server already
+      // clips the result to the state polygon via ST_Intersects (response is
+      // viewport-independent), and the frontend clips display to the viewport via
+      // filterBucketsByBounds. STRICTLY zoom < 6 — at zoom >= 6 the per-obs path
+      // applies a 10k-row truncation brake (observations.ts:241) that relies on
+      // the viewport bbox narrowing a dense state; substituting the whole-state
+      // envelope there would flip `truncated:true` and change what renders. So we
+      // mirror #868/#869 and touch only the aggregated branch.
+      const useStateEnvelope =
+        f.stateCode !== undefined && f.stateBbox !== undefined &&
+        f.zoom !== undefined && f.zoom < 6;
+      const bboxParam = useStateEnvelope
+        ? snapFetchBboxParam(f.stateBbox!, f.zoom!)
+        : f.zoom !== undefined
+          ? canonicalFetchBboxParam(f.bbox, f.zoom)
+          : serializeBbox(f.bbox);
       url.searchParams.set('bbox', bboxParam);
     }
     if (f.zoom !== undefined) url.searchParams.set('zoom', String(f.zoom));
@@ -59,22 +98,57 @@ export class ApiClient {
     // `stateCode` unset, so the backend stays byte-for-byte untouched (no
     // `?state=` ⇒ unclipped national query, locked decision #4).
     if (f.stateCode) url.searchParams.set('state', f.stateCode);
-    // Tolerate two shapes — (a) { data, meta } without `mode` (post-#456,
-    // pre-#627) and (b) the discriminated union (#627) — normalizing both to the
-    // discriminated union so callers can switch on `mode` unconditionally.
-    //
-    // The bare-Observation[] branch (pre-#456) was REMOVED in #830 (item B,
-    // Remedy 1): the live read-api never returns a bare array, and that branch
-    // was the only path that could yield non-empty `data` with a fabricated
-    // `freshestObservationAt: null`. Keeping the normalization is still correct
-    // defensive hygiene. (The licensing invariant that #830 tied to the freshness
-    // label changed under #828: the always-visible eBird credit now lives in the
-    // bottom-right .map-attribution corner, gated on map-visible rather than on a
-    // freshness label, so the deleted deriveFreshness path no longer gates it.)
+
+    const key = url.pathname + url.search;
+
+    // #874 — coalesce a concurrent byte-identical request onto the in-flight
+    // promise (no second network call). The key is the full path+search, so two
+    // invocations with identical filters share one fetch; a different key falls
+    // through to supersede-cancel below.
+    if (this.observationsInFlight && this.observationsInFlight.key === key) {
+      return this.observationsInFlight.promise;
+    }
+
+    // #874 — supersede-cancel: a NEW, distinct observations request aborts the
+    // prior in-flight one (rapid scope/pan change). The aborted promise rejects
+    // with a DOMException `AbortError`; callers (use-bird-data.ts) ignore that
+    // name so a deliberately-cancelled fetch never surfaces as a UI error.
+    this.observationsInFlight?.controller.abort();
+
+    const controller = new AbortController();
+    const promise = this.fetchObservations(key, controller.signal)
+      .finally(() => {
+        // Clear the slot only if it still points at THIS request — a later
+        // supersede may have already replaced it.
+        if (this.observationsInFlight?.controller === controller) {
+          this.observationsInFlight = null;
+        }
+      });
+    this.observationsInFlight = { key, controller, promise };
+    return promise;
+  }
+
+  /**
+   * #874 — the single network leg for /api/observations, isolated so the dedup
+   * bookkeeping in `getObservations` stays readable. Passes the abort `signal`
+   * to `fetch` and normalizes the (legacy | discriminated) envelope.
+   *
+   * Tolerates two shapes — (a) `{ data, meta }` without `mode` (post-#456,
+   * pre-#627) and (b) the discriminated union (#627) — normalizing both to the
+   * discriminated union so callers can switch on `mode` unconditionally.
+   *
+   * The bare-Observation[] branch (pre-#456) was REMOVED in #830 (item B,
+   * Remedy 1): the live read-api never returns a bare array, and that branch
+   * was the only path that could yield non-empty `data` with a fabricated
+   * `freshestObservationAt: null`. Keeping the normalization is still correct
+   * defensive hygiene.
+   */
+  private async fetchObservations(
+    path: string,
+    signal: AbortSignal,
+  ): Promise<ObservationsResponse> {
     type LegacyEnvelope = { data: Observation[]; meta: { freshestObservationAt: string | null } };
-    const raw = await this.get<ObservationsResponse | LegacyEnvelope>(
-      url.pathname + url.search,
-    );
+    const raw = await this.get<ObservationsResponse | LegacyEnvelope>(path, signal);
     if (!('mode' in raw)) {
       return { mode: 'observations', data: raw.data, meta: raw.meta };
     }
@@ -108,9 +182,12 @@ export class ApiClient {
     return this.get<StateSummary[]>('/api/states');
   }
 
-  private async get<T>(path: string): Promise<T> {
+  private async get<T>(path: string, signal?: AbortSignal): Promise<T> {
     const url = `${this.baseUrl}${path}`;
-    const res = await fetch(url, { method: 'GET' });
+    // `RequestInit.signal` is `AbortSignal | null`; only attach the property
+    // when a signal exists (exactOptionalPropertyTypes forbids `signal: undefined`).
+    const init: RequestInit = signal ? { method: 'GET', signal } : { method: 'GET' };
+    const res = await fetch(url, init);
     if (!res.ok) {
       throw new ApiError(res.status, await res.text());
     }

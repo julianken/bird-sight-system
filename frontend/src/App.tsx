@@ -376,6 +376,32 @@ export function App() {
   // server clips via ST_Intersects). UNSCOPED and `?scope=us` both leave
   // `stateCode` unset, so the backend stays untouched (data invariant, #735).
   const scopeStateCode = state.scope.kind === 'state' ? state.scope.stateCode : undefined;
+
+  // #740 (C6) — the CONUS state name + envelope table (#732/#748). Drives the
+  // chooser/control `<select>` display names AND the per-state camera
+  // `fitBounds`/`maxBounds` envelope. Cached for the tab lifetime (see
+  // useStates). Threaded into regionLabelFor (state name) below.
+  // #758: `error` is threaded into <ScopeChooser> so a terminal /api/states
+  // outage shows an honest "Couldn't load states" placeholder instead of a
+  // perpetual "Loading states…" — on failure `statesLoading` flips false but
+  // `states` stays empty, so the loading copy would otherwise stick forever.
+  // (Hoisted above useBirdData so #873 can thread the active state's fixed
+  // envelope into the observations filters; useStates depends only on the
+  // apiClient, so the hoist is order-independent.)
+  const { states, loading: statesLoading, error: statesError } = useStates(apiClient);
+
+  // #873 — the active state's FIXED bounding envelope (`StateSummary.bbox`),
+  // looked up from the cached `/api/states` table. Threaded into the
+  // observations filters so the client can collapse every viewport/pan of a
+  // state to ONE cache key in the aggregated path (see client.ts getObservations
+  // / ObservationFilters.stateBbox). `undefined` until the states table has
+  // loaded OR when not state-scoped — the client falls back to the canonical
+  // viewport key in that window.
+  const scopeStateBbox = useMemo<[number, number, number, number] | undefined>(() => {
+    if (!scopeStateCode) return undefined;
+    return states.find(s => s.stateCode === scopeStateCode)?.bbox;
+  }, [scopeStateCode, states]);
+
   const { loading, observationsLoading, error, observations, buckets, mode, refetch } = useBirdData(
     apiClient,
     {
@@ -384,6 +410,7 @@ export function App() {
       ...(state.speciesCode ? { speciesCode: state.speciesCode } : {}),
       ...(state.familyCode ? { familyCode: state.familyCode } : {}),
       ...(scopeStateCode ? { stateCode: scopeStateCode } : {}),
+      ...(scopeStateBbox ? { stateBbox: scopeStateBbox } : {}),
       bbox: debouncedBbox,
       zoom: debouncedZoom,
     },
@@ -406,16 +433,6 @@ export function App() {
     if (!scopeActive) return;
     prefetchMapCanvas();
   }, [scopeActive]);
-
-  // #740 (C6) — the CONUS state name + envelope table (#732/#748). Drives the
-  // chooser/control `<select>` display names AND the per-state camera
-  // `fitBounds`/`maxBounds` envelope. Cached for the tab lifetime (see
-  // useStates). Threaded into regionLabelFor (state name) below.
-  // #758: `error` is threaded into <ScopeChooser> so a terminal /api/states
-  // outage shows an honest "Couldn't load states" placeholder instead of a
-  // perpetual "Loading states…" — on failure `statesLoading` flips false but
-  // `states` stays empty, so the loading copy would otherwise stick forever.
-  const { states, loading: statesLoading, error: statesError } = useStates(apiClient);
 
   // #859: in aggregated mode the per-observation array is empty, so the family
   // filter options derive from the buckets' families instead (the species

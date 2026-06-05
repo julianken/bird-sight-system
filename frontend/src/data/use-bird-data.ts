@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ApiClient } from '../api/client.js';
 import type {
   Hotspot, Observation, ObservationFilters, AggregatedBucket,
@@ -107,6 +107,20 @@ export function useBirdData(
   // remount. Added to both dep arrays below.
   const [reloadKey, setReloadKey] = useState(0);
 
+  // #873 — latest fixed state envelope (`filters.stateBbox`), held in a ref so
+  // the observations effect can read the FRESHEST value at fetch time WITHOUT
+  // taking it as a trigger dep. The envelope arrives asynchronously (once the
+  // /api/states table loads), often a tick AFTER the scope change that fires the
+  // fetch; if it were a dep, that late arrival would mint a SECOND fetch per
+  // scope change and break the #849/#740 single-fetch invariant. By reading it
+  // through a ref instead, the first fetch uses whatever envelope is known then
+  // (the canonical viewport key if states hasn't loaded yet), and the NEXT real
+  // trigger (a pan/zoom, or a return to the state once states is cached) sends
+  // the collapsed fixed-envelope key — exactly the "CF HIT on the second
+  // distinct-viewport load" the issue targets. Updated on every render.
+  const stateBboxRef = useRef(filters.stateBbox);
+  stateBboxRef.current = filters.stateBbox;
+
   // One-time load (gated — no hotspots fetch while unscoped)
   useEffect(() => {
     if (!enabled) {
@@ -143,7 +157,15 @@ export function useBirdData(
     }
     let cancelled = false;
     setObservationsLoading(true);
-    client.getObservations(filters)
+    // #873 — merge the freshest fixed state envelope (read from the ref, not a
+    // dep) so a state scope sends the collapsed cache key as soon as the states
+    // table is known, without that late arrival forcing an extra fetch. Spread
+    // conditionally — `exactOptionalPropertyTypes` forbids `stateBbox: undefined`.
+    client.getObservations(
+      stateBboxRef.current
+        ? { ...filters, stateBbox: stateBboxRef.current }
+        : filters,
+    )
       .then(envelope => {
         if (cancelled) return;
         if (envelope.mode === 'aggregated') {
@@ -163,7 +185,15 @@ export function useBirdData(
         }
         setFreshestObservationAt(envelope.meta.freshestObservationAt);
       })
-      .catch(err => { if (!cancelled) setError(err as Error); })
+      .catch(err => {
+        // #874 — a fetch the client deliberately superseded rejects with a
+        // DOMException `AbortError`; it is not a real failure, so never surface
+        // it as a UI error (the replacing fetch owns the state). The effect's
+        // `cancelled` guard already covers the cross-effect-run case; this also
+        // covers any same-run abort defensively.
+        if ((err as { name?: string }).name === 'AbortError') return;
+        if (!cancelled) setError(err as Error);
+      })
       .finally(() => { if (!cancelled) setObservationsLoading(false); });
     return () => { cancelled = true; };
     // bbox is an array — serialize to a stable string for the dep list so
@@ -179,6 +209,9 @@ export function useBirdData(
     filters.speciesCode,
     filters.familyCode,
     filters.stateCode,
+    // #873 — filters.stateBbox is deliberately NOT a trigger dep (read via
+    // stateBboxRef at fetch time): it arrives async with the /api/states table
+    // and must not mint a second fetch per scope change. See the ref above.
     filters.bbox?.join(','),
     filters.zoom,
     reloadKey,
