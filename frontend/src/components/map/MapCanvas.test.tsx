@@ -832,12 +832,14 @@ describe('MapCanvas', () => {
   // deliberately OMITS `observations` (the EMPTY_BUCKETS/EMPTY_DICT
   // infinite-re-register hazard), so the async DOM markers from the PRIOR scope
   // stay mounted until the next idle re-clusters — leaking the previous state's
-  // markers outside the new outline. The fix is an `observations`-keyed effect
-  // that SYNCHRONOUSLY clears the marker state the instant `observations`
-  // identity changes. This test asserts: a fresh `observations` array clears the
+  // markers outside the new outline. The fix is a `boundsKey`-keyed render-phase
+  // clear that SYNCHRONOUSLY drops the marker state the instant the scope
+  // (`boundsKey`) changes — `boundsKey` is the canonical scope-transition signal
+  // (it changes on every national→state / state→state switch and is STABLE under
+  // same-scope pan/zoom). This test asserts: a `boundsKey` change clears the
   // old-scope markers WITHOUT firing a new idle (the synchronous clear, not the
   // next reconcile pass).
-  it('#872: a fresh observations array synchronously clears prior-scope DOM markers', async () => {
+  it('#872: a boundsKey change synchronously clears prior-scope DOM markers', async () => {
     const cluster = {
       id: 1,
       properties: { cluster_id: 1, point_count: 3 },
@@ -855,7 +857,7 @@ describe('MapCanvas', () => {
 
     const obsA = [makeObs({ subId: 'A1' })];
     const { rerender } = render(
-      <MapCanvas observations={obsA} silhouettes={SILHOUETTES} />,
+      <MapCanvas observations={obsA} boundsKey="US-AZ" silhouettes={SILHOUETTES} />,
     );
     await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
 
@@ -869,18 +871,75 @@ describe('MapCanvas', () => {
       ).toBe(1);
     });
 
-    // State→state transition: a NEW observations array (fresh identity).
-    // The synchronous `observations`-keyed clear must drop the prior markers on
-    // this commit — BEFORE any new idle re-populates them.
+    // State→state transition: a NEW boundsKey (the scope-change signal), with a
+    // fresh observations array as the live app always sends. The synchronous
+    // `boundsKey`-keyed clear must drop the prior markers on this commit —
+    // BEFORE any new idle re-populates them.
     const obsB = [makeObs({ subId: 'B1', lat: 40.7, lng: -74.0 })];
     await act(async () => {
-      rerender(<MapCanvas observations={obsB} silhouettes={SILHOUETTES} />);
+      rerender(<MapCanvas observations={obsB} boundsKey="US-NY" silhouettes={SILHOUETTES} />);
     });
 
     // No idle fired since the rerender → the prior-scope markers must be gone.
     expect(
       document.querySelectorAll('[data-testid="adaptive-grid-marker"]').length,
     ).toBe(0);
+  });
+
+  // #872 flicker guard — the scope-transition clear must NOT fire on a
+  // same-scope refetch. At z≥6 (per-obs mode) a same-scope pan/zoom refetches
+  // and `use-bird-data` hands MapCanvas a FRESH `observations` array each time,
+  // but `boundsKey` is unchanged. Gating the clear on `observations` identity
+  // (the original #872 fix) blanked the adaptive-grid markers on every such pan
+  // until the next idle (~0.3–1.2s flicker on the most common interaction).
+  // Gating on `boundsKey` confines the clear to real scope changes: a fresh
+  // `observations` array with an UNCHANGED `boundsKey` must leave the markers
+  // mounted (no `setGroups([])`).
+  it('#872: a fresh observations array under an UNCHANGED boundsKey does NOT clear markers (flicker guard)', async () => {
+    const cluster = {
+      id: 1,
+      properties: { cluster_id: 1, point_count: 3 },
+      geometry: { type: 'Point', coordinates: [-110.9, 32.2] },
+    };
+    fakeMap.queryRenderedFeatures.mockImplementation(
+      (_: unknown, opts?: { layers?: string[] }) =>
+        opts?.layers?.includes('clusters-hit') ? [cluster] : [],
+    );
+    fakeMap.getSource.mockReturnValue({
+      getClusterLeaves: vi.fn().mockResolvedValue([
+        { type: 'Feature', properties: { familyCode: 'tyrannidae' } },
+      ]),
+    });
+
+    const obsA = [makeObs({ subId: 'A1' })];
+    const { rerender } = render(
+      <MapCanvas observations={obsA} boundsKey="US-AZ" silhouettes={SILHOUETTES} />,
+    );
+    await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+
+    // Drive one idle so the reconciler commits the marker.
+    await act(async () => {
+      await bareHandlers['idle']?.();
+    });
+    await waitFor(() => {
+      expect(
+        document.querySelectorAll('[data-testid="adaptive-grid-marker"]').length,
+      ).toBe(1);
+    });
+
+    // Same-scope pan/zoom refetch: a NEW observations array (fresh identity),
+    // but the SAME boundsKey. The clear must NOT fire — markers stay mounted
+    // (no flicker), WITHOUT relying on a new idle to re-populate.
+    const obsB = [makeObs({ subId: 'A2' })];
+    await act(async () => {
+      rerender(<MapCanvas observations={obsB} boundsKey="US-AZ" silhouettes={SILHOUETTES} />);
+    });
+
+    // No idle fired since the rerender → if the clear were still keyed on
+    // observations identity this would be 0; gated on boundsKey it stays 1.
+    expect(
+      document.querySelectorAll('[data-testid="adaptive-grid-marker"]').length,
+    ).toBe(1);
   });
 
   // #875 — after `setData` re-indexes the supercluster, the idle-tick reconciler

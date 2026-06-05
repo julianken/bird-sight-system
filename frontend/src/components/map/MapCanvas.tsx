@@ -1309,7 +1309,7 @@ export function MapCanvas({
   const silhouettesVersion = silhouettesVersionRef.current;
 
   /**
-   * #872 — synchronous DOM-marker invalidation on scope change. The
+   * #872 — synchronous DOM-marker invalidation on SCOPE change. The
    * adaptive-grid reconciler effect (below) deliberately OMITS `observations`
    * from its dep array — adding the raw array would reopen the
    * EMPTY_BUCKETS/EMPTY_DICT infinite-re-register loop (a fresh `[]` per render
@@ -1319,19 +1319,30 @@ export function MapCanvas({
    * leaving the PRIOR scope's markers mounted outside the new outline until the
    * next reconcile pass lands (~0.3–1.2s later).
    *
-   * Fix: detect a fresh `observations` identity during render and clear the
-   * marker slices immediately — the same "store-previous-prop, compare-in-render"
-   * pattern the `silhouettesVersion` ref above uses (React supports calling
-   * setState during render to adjust state in response to a changed prop; it
-   * discards the in-progress output and re-renders synchronously, so the stale
-   * markers never paint). Skips the initial mount (groups already empty) and
-   * any render where `observations` is identity-stable, so there is no loop and
-   * no churn under pan. The reconciler's next `idle` repopulates from the new
-   * scope's clusters; the `cacheGeneration` race-guard is untouched.
+   * Fix: detect a `boundsKey` change during render and clear the marker slices
+   * immediately — the same "store-previous-prop, compare-in-render" pattern the
+   * `silhouettesVersion` ref above uses (React supports calling setState during
+   * render to adjust state in response to a changed prop; it discards the
+   * in-progress output and re-renders synchronously, so the stale markers never
+   * paint). `boundsKey` is the canonical scope-change signal — it changes on
+   * every national→state / state→state transition (see the camera-effect note
+   * at the `renderWorldCopies` reassertion below) and is STABLE under
+   * same-scope pan/zoom.
+   *
+   * Keying on `boundsKey` rather than on `observations` identity is load-bearing
+   * for the FLICKER guard: at z≥6 (per-obs mode) a same-scope pan/zoom refetches
+   * and `use-bird-data` hands us a FRESH `observations` array each time. Gating
+   * on that identity fired the clear on EVERY such pan, blanking the
+   * adaptive-grid markers until the next idle (~0.3–1.2s flicker on the most
+   * common interaction). `boundsKey` confines the clear to real scope changes.
+   * Skips the initial mount (groups already empty) and any same-scope render, so
+   * there is no loop and no churn under pan. The reconciler's next `idle`
+   * repopulates from the new scope's clusters; the `cacheGeneration` race-guard
+   * is untouched.
    */
-  const prevObservationsRef = useRef<typeof observations>(observations);
-  if (prevObservationsRef.current !== observations) {
-    prevObservationsRef.current = observations;
+  const prevBoundsKeyRef = useRef<typeof boundsKey>(boundsKey);
+  if (prevBoundsKeyRef.current !== boundsKey) {
+    prevBoundsKeyRef.current = boundsKey;
     setGroups([]);
     setSilhouetteOffsets(new Map());
     prevHiddenSubIdsRef.current = new Set();
