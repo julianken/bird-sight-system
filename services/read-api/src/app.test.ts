@@ -98,7 +98,7 @@ describe('GET /api/observations', () => {
     const res = await app.request(`/api/observations?since=14d&bbox=${BBOX_AZ}`);
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control'))
-      .toBe('public, s-maxage=1800, stale-while-revalidate=1800');
+      .toBe('public, s-maxage=2400, stale-while-revalidate=2400');
     const body = await res.json() as ObsEnvelope;
     // Only S1 falls within 14d (S2 is 20d old).
     expect(body.data).toHaveLength(1);
@@ -541,14 +541,14 @@ describe('GET /api/observations', () => {
       expect(res.status).toBe(400);
     });
 
-    it('preserves the s-maxage=1800 cache header when bbox present', async () => {
+    it('preserves the s-maxage=2400 cache header when bbox present', async () => {
       const app = createApp({ pool: db.pool });
       const res = await app.request(
         '/api/observations?bbox=-112,31,-110,33'
       );
       expect(res.status).toBe(200);
       expect(res.headers.get('cache-control'))
-        .toBe('public, s-maxage=1800, stale-while-revalidate=1800');
+        .toBe('public, s-maxage=2400, stale-while-revalidate=2400');
     });
   });
 
@@ -722,12 +722,13 @@ describe('GET /api/observations', () => {
     it('(f) ?state= request rides the shared observations cache header (#734 B7)', async () => {
       // #734 B7 — `?state=` rides the existing full-URL cache key exactly like
       // `?bbox=`. The observations TTL is the shared cache-headers.ts value
-      // (raised to s-maxage=1800/SWR=1800 in #868); `?state=` does not special-case it.
+      // (raised to s-maxage=1800/SWR=1800 in #868, then 2400/2400 in #870);
+      // `?state=` does not special-case it.
       const app = createApp({ pool: db.pool });
       const res = await app.request('/api/observations?state=US-AZ');
       expect(res.status).toBe(200);
       expect(res.headers.get('cache-control'))
-        .toBe('public, s-maxage=1800, stale-while-revalidate=1800');
+        .toBe('public, s-maxage=2400, stale-while-revalidate=2400');
     });
 
     // Restore the canonical S1/S2 fixture for any later describe that assumes

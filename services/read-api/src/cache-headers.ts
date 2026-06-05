@@ -15,16 +15,21 @@ export type Endpoint = 'observations' | 'hotspots' | 'species' | 'species-dict' 
 // rarely, and was already long-cached on both browser + CDN via `max-age`.
 const TABLE: Record<Endpoint, string> = {
   // Freshest surface — observation rows roll forward every ingest cycle
-  // (~30min). #868 raised this from 300/600 to a 30min CDN window + equal SWR
-  // to cover the full ingest cadence. There is NO ingest cache-purge
-  // (run-ingest.ts issues zero CF purge calls), so the prior 5min window left
-  // warmed/organic keys cold ~13min of every 30min cycle — which is why the
-  // warmer measured hit=0/run. 1800/1800 keeps a key fresh from t+2min through
-  // the next ingest tick. Bodies are viewport-independent for a given canonical
-  // key (#868; meta.freshestObservationAt is a whole-table MAX), so co-keyed
-  // devices get byte-identical responses. The ~30min staleness on the displayed
-  // freshness (0.15% of the 14-day window) is an accepted product call.
-  observations: 'public, s-maxage=1800, stale-while-revalidate=1800',
+  // (~30min). #868 raised this from 300/600 to 1800/1800 to cover the full
+  // ingest cadence. There is NO ingest cache-purge (run-ingest.ts issues zero CF
+  // purge calls), so the cache lives on TTL alone.
+  // #870 raised it 1800→2400: `s-maxage=1800` exactly EQUALS the 30min warm
+  // cadence, so a warmed object hits its TTL boundary right as the cycle ends —
+  // a real cold-load late in a cycle lands on a just-expired object and
+  // stale-serves (`EXPIRED`) instead of a clean HIT (the #869 prod validation
+  // caught this on the *correct* `-130` key). `2400s (40min) > 1800s (30min
+  // cadence)` gives a ~10min margin so a warmed/organic object stays fresh
+  // through the whole cycle until the next warm refreshes it. Bodies are
+  // viewport-independent for a given canonical key (#868;
+  // meta.freshestObservationAt is a whole-table MAX), so co-keyed devices get
+  // byte-identical responses. The ~40min edge staleness (0.2% of the 14-day
+  // window) is an accepted product call (#868/#870 staleness decision).
+  observations: 'public, s-maxage=2400, stale-while-revalidate=2400',
   // Hotspot list shifts only on backfill — a 10min CDN window with 20min
   // SWR is conservative; the data is effectively static between rebuilds.
   hotspots:     'public, s-maxage=600, stale-while-revalidate=1200',
