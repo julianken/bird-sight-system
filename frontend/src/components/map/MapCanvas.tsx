@@ -1309,6 +1309,46 @@ export function MapCanvas({
   const silhouettesVersion = silhouettesVersionRef.current;
 
   /**
+   * #872 — synchronous DOM-marker invalidation on SCOPE change. The
+   * adaptive-grid reconciler effect (below) deliberately OMITS `observations`
+   * from its dep array — adding the raw array would reopen the
+   * EMPTY_BUCKETS/EMPTY_DICT infinite-re-register loop (a fresh `[]` per render
+   * thrashes the effect). But that omission means the async DOM markers
+   * (`groups`/`silhouetteOffsets`, committed on the next map `idle`) LAG the
+   * synchronously-updated GeoJSON `<Source>` on a state→state transition,
+   * leaving the PRIOR scope's markers mounted outside the new outline until the
+   * next reconcile pass lands (~0.3–1.2s later).
+   *
+   * Fix: detect a `boundsKey` change during render and clear the marker slices
+   * immediately — the same "store-previous-prop, compare-in-render" pattern the
+   * `silhouettesVersion` ref above uses (React supports calling setState during
+   * render to adjust state in response to a changed prop; it discards the
+   * in-progress output and re-renders synchronously, so the stale markers never
+   * paint). `boundsKey` is the canonical scope-change signal — it changes on
+   * every national→state / state→state transition (see the camera-effect note
+   * at the `renderWorldCopies` reassertion below) and is STABLE under
+   * same-scope pan/zoom.
+   *
+   * Keying on `boundsKey` rather than on `observations` identity is load-bearing
+   * for the FLICKER guard: at z≥6 (per-obs mode) a same-scope pan/zoom refetches
+   * and `use-bird-data` hands us a FRESH `observations` array each time. Gating
+   * on that identity fired the clear on EVERY such pan, blanking the
+   * adaptive-grid markers until the next idle (~0.3–1.2s flicker on the most
+   * common interaction). `boundsKey` confines the clear to real scope changes.
+   * Skips the initial mount (groups already empty) and any same-scope render, so
+   * there is no loop and no churn under pan. The reconciler's next `idle`
+   * repopulates from the new scope's clusters; the `cacheGeneration` race-guard
+   * is untouched.
+   */
+  const prevBoundsKeyRef = useRef<typeof boundsKey>(boundsKey);
+  if (prevBoundsKeyRef.current !== boundsKey) {
+    prevBoundsKeyRef.current = boundsKey;
+    setGroups([]);
+    setSilhouetteOffsets(new Map());
+    prevHiddenSubIdsRef.current = new Set();
+  }
+
+  /**
    * Pure per-family lookup used by `buildAdaptiveTiles` (spec §5.3 Concern
    * C, point 3). Resolved once per reconcile from the silhouettes prop —
    * the tile-builder MUST NOT read from a ref, so we thread this
@@ -1918,7 +1958,21 @@ export function MapCanvas({
             // key — persistently-broken clusters don't spam.
             fresh.catch((err) => {
               leafCache.delete(key);
-              if (!warnedRejections.has(key)) {
+              // #875: after `setData` re-indexes the supercluster, the idle-tick
+              // reconciler can race the worker re-cluster and pass cluster_ids
+              // from the PRIOR generation into getClusterLeaves, which rejects
+              // with "No cluster with the specified id: NNNN" (trailing period +
+              // appended id — so `includes`, NOT `===`). That is an EXPECTED,
+              // self-healing post-reindex rejection (the next idle resolves the
+              // current ids), so swallow it — in BOTH render modes. QA confirmed
+              // the flood fires at z<6 aggregated (`agg:…`) AND z≥6
+              // per-observation (`obs:…`); the message is the benign
+              // discriminator, so we key off it ALONE — no render-mode gate. Any
+              // OTHER rejection message still warns, so a genuinely broken cluster
+              // surfaces. Eviction above is unconditional either way.
+              const isStaleClusterId =
+                String(err?.message).includes('No cluster with the specified id');
+              if (!isStaleClusterId && !warnedRejections.has(key)) {
                 console.warn(
                   '[adaptive-grid] getClusterLeaves rejected',
                   key,

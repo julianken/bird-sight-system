@@ -828,6 +828,261 @@ describe('MapCanvas', () => {
     ).toBe(0);
   });
 
+  // #872 — on a state→state scope change the reconciler effect's dep array
+  // deliberately OMITS `observations` (the EMPTY_BUCKETS/EMPTY_DICT
+  // infinite-re-register hazard), so the async DOM markers from the PRIOR scope
+  // stay mounted until the next idle re-clusters — leaking the previous state's
+  // markers outside the new outline. The fix is a `boundsKey`-keyed render-phase
+  // clear that SYNCHRONOUSLY drops the marker state the instant the scope
+  // (`boundsKey`) changes — `boundsKey` is the canonical scope-transition signal
+  // (it changes on every national→state / state→state switch and is STABLE under
+  // same-scope pan/zoom). This test asserts: a `boundsKey` change clears the
+  // old-scope markers WITHOUT firing a new idle (the synchronous clear, not the
+  // next reconcile pass).
+  it('#872: a boundsKey change synchronously clears prior-scope DOM markers', async () => {
+    const cluster = {
+      id: 1,
+      properties: { cluster_id: 1, point_count: 3 },
+      geometry: { type: 'Point', coordinates: [-110.9, 32.2] },
+    };
+    fakeMap.queryRenderedFeatures.mockImplementation(
+      (_: unknown, opts?: { layers?: string[] }) =>
+        opts?.layers?.includes('clusters-hit') ? [cluster] : [],
+    );
+    fakeMap.getSource.mockReturnValue({
+      getClusterLeaves: vi.fn().mockResolvedValue([
+        { type: 'Feature', properties: { familyCode: 'tyrannidae' } },
+      ]),
+    });
+
+    const obsA = [makeObs({ subId: 'A1' })];
+    const { rerender } = render(
+      <MapCanvas observations={obsA} boundsKey="US-AZ" silhouettes={SILHOUETTES} />,
+    );
+    await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+
+    // Drive one idle so the reconciler commits the prior-scope marker.
+    await act(async () => {
+      await bareHandlers['idle']?.();
+    });
+    await waitFor(() => {
+      expect(
+        document.querySelectorAll('[data-testid="adaptive-grid-marker"]').length,
+      ).toBe(1);
+    });
+
+    // State→state transition: a NEW boundsKey (the scope-change signal), with a
+    // fresh observations array as the live app always sends. The synchronous
+    // `boundsKey`-keyed clear must drop the prior markers on this commit —
+    // BEFORE any new idle re-populates them.
+    const obsB = [makeObs({ subId: 'B1', lat: 40.7, lng: -74.0 })];
+    await act(async () => {
+      rerender(<MapCanvas observations={obsB} boundsKey="US-NY" silhouettes={SILHOUETTES} />);
+    });
+
+    // No idle fired since the rerender → the prior-scope markers must be gone.
+    expect(
+      document.querySelectorAll('[data-testid="adaptive-grid-marker"]').length,
+    ).toBe(0);
+  });
+
+  // #872 flicker guard — the scope-transition clear must NOT fire on a
+  // same-scope refetch. At z≥6 (per-obs mode) a same-scope pan/zoom refetches
+  // and `use-bird-data` hands MapCanvas a FRESH `observations` array each time,
+  // but `boundsKey` is unchanged. Gating the clear on `observations` identity
+  // (the original #872 fix) blanked the adaptive-grid markers on every such pan
+  // until the next idle (~0.3–1.2s flicker on the most common interaction).
+  // Gating on `boundsKey` confines the clear to real scope changes: a fresh
+  // `observations` array with an UNCHANGED `boundsKey` must leave the markers
+  // mounted (no `setGroups([])`).
+  it('#872: a fresh observations array under an UNCHANGED boundsKey does NOT clear markers (flicker guard)', async () => {
+    const cluster = {
+      id: 1,
+      properties: { cluster_id: 1, point_count: 3 },
+      geometry: { type: 'Point', coordinates: [-110.9, 32.2] },
+    };
+    fakeMap.queryRenderedFeatures.mockImplementation(
+      (_: unknown, opts?: { layers?: string[] }) =>
+        opts?.layers?.includes('clusters-hit') ? [cluster] : [],
+    );
+    fakeMap.getSource.mockReturnValue({
+      getClusterLeaves: vi.fn().mockResolvedValue([
+        { type: 'Feature', properties: { familyCode: 'tyrannidae' } },
+      ]),
+    });
+
+    const obsA = [makeObs({ subId: 'A1' })];
+    const { rerender } = render(
+      <MapCanvas observations={obsA} boundsKey="US-AZ" silhouettes={SILHOUETTES} />,
+    );
+    await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+
+    // Drive one idle so the reconciler commits the marker.
+    await act(async () => {
+      await bareHandlers['idle']?.();
+    });
+    await waitFor(() => {
+      expect(
+        document.querySelectorAll('[data-testid="adaptive-grid-marker"]').length,
+      ).toBe(1);
+    });
+
+    // Same-scope pan/zoom refetch: a NEW observations array (fresh identity),
+    // but the SAME boundsKey. The clear must NOT fire — markers stay mounted
+    // (no flicker), WITHOUT relying on a new idle to re-populate.
+    const obsB = [makeObs({ subId: 'A2' })];
+    await act(async () => {
+      rerender(<MapCanvas observations={obsB} boundsKey="US-AZ" silhouettes={SILHOUETTES} />);
+    });
+
+    // No idle fired since the rerender → if the clear were still keyed on
+    // observations identity this would be 0; gated on boundsKey it stays 1.
+    expect(
+      document.querySelectorAll('[data-testid="adaptive-grid-marker"]').length,
+    ).toBe(1);
+  });
+
+  // #875 — after `setData` re-indexes the supercluster, the idle-tick reconciler
+  // can pass cluster_ids from the PRIOR generation into getClusterLeaves, which
+  // rejects with "No cluster with the specified id: NNNN". That expected
+  // post-reindex rejection must be swallowed (zero console.warn) in BOTH render
+  // modes — QA confirmed the flood fires at z<6 aggregated (`agg:…`) AND z≥6
+  // per-observation (`obs:…`). Any OTHER rejection must still warn once via the
+  // existing warnedRejections path. This first case pins the AGGREGATED path
+  // (cache key prefix `agg:`); the per-observation case follows below.
+  it('#875: swallows "No cluster with the specified id" rejection in aggregated mode, still warns on others', async () => {
+    const DICT = new Map<string, { comName: string; familyCode: string }>([
+      ['wewp', { comName: 'Western Wood-Pewee', familyCode: 'tyrannidae' }],
+    ]);
+    const BUCKET: AggregatedBucket = {
+      lat: 46.0,
+      lng: -110.0,
+      count: 7,
+      speciesCount: 1,
+      families: [
+        { code: 'tyrannidae', count: 7, speciesCount: 1, species: [{ code: 'wewp', count: 7 }] },
+      ],
+    };
+    // Two stale clustered features: one rejects with the EXPECTED post-reindex
+    // message (id appended + trailing period), the other with an unrelated error.
+    const staleNoCluster = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [-110.0, 46.0] },
+      properties: { cluster: true, cluster_id: 5642, point_count: 3, sumCount: 7 },
+    };
+    const staleBoom = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [-111.0, 45.0] },
+      properties: { cluster: true, cluster_id: 9001, point_count: 3, sumCount: 7 },
+    };
+    fakeMap.queryRenderedFeatures.mockImplementation(
+      (_: unknown, opts?: { layers?: string[] }) =>
+        opts?.layers?.includes('clusters-hit') ? [staleNoCluster, staleBoom] : [],
+    );
+    const getClusterLeaves = vi.fn().mockImplementation((id: number) => {
+      if (id === 5642) {
+        return Promise.reject(new Error('No cluster with the specified id: 5642'));
+      }
+      return Promise.reject(new Error('boom'));
+    });
+    fakeMap.getSource.mockReturnValue({ getClusterLeaves });
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    render(
+      <MapCanvas
+        observations={[]}
+        buckets={[BUCKET]}
+        mode="aggregated"
+        dictionary={DICT}
+        silhouettes={SILHOUETTES}
+      />,
+    );
+    await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+
+    await act(async () => {
+      await fireAllIdleHandlers();
+    });
+    // Allow the rejection microtasks (the `.catch` cleanup) to run.
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const noClusterWarns = warnSpy.mock.calls.filter(
+      (c) => typeof c[1] === 'string' && c[1].includes('5642'),
+    );
+    const boomWarns = warnSpy.mock.calls.filter(
+      (c) => typeof c[1] === 'string' && c[1].includes('9001'),
+    );
+    // The "No cluster with the specified id" rejection is swallowed entirely.
+    expect(noClusterWarns).toHaveLength(0);
+    // The unrelated rejection still surfaces exactly once.
+    expect(boomWarns).toHaveLength(1);
+    warnSpy.mockRestore();
+  });
+
+  // #875 (per-observation half) — the SAME benign post-reindex flood fires at
+  // z≥6 in per-observation mode (cache key prefix `obs:`). The widened swallow
+  // keys off the message ALONE (no render-mode gate), so the `No cluster with
+  // the specified id` rejection must be swallowed here too (zero console.warn),
+  // while an unrelated rejection still warns once. This is the case that the
+  // original agg-only scoping missed — it guards against a regression to the
+  // narrower `aggregated && …` condition.
+  it('#875: swallows "No cluster with the specified id" rejection in per-observation mode, still warns on others', async () => {
+    // Default render mode (per-observation): clustered point features, no
+    // buckets. One feature rejects with the EXPECTED post-reindex message, the
+    // other with an unrelated error.
+    const staleNoCluster = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [-110.9, 32.2] },
+      properties: { cluster: true, cluster_id: 7777, point_count: 3 },
+    };
+    const staleBoom = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [-111.9, 31.2] },
+      properties: { cluster: true, cluster_id: 8888, point_count: 3 },
+    };
+    fakeMap.queryRenderedFeatures.mockImplementation(
+      (_: unknown, opts?: { layers?: string[] }) =>
+        opts?.layers?.includes('clusters-hit') ? [staleNoCluster, staleBoom] : [],
+    );
+    const getClusterLeaves = vi.fn().mockImplementation((id: number) => {
+      if (id === 7777) {
+        return Promise.reject(new Error('No cluster with the specified id: 7777'));
+      }
+      return Promise.reject(new Error('boom'));
+    });
+    fakeMap.getSource.mockReturnValue({ getClusterLeaves });
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    render(<MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />);
+    await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+
+    await act(async () => {
+      await fireAllIdleHandlers();
+    });
+    // Allow the rejection microtasks (the `.catch` cleanup) to run.
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const noClusterWarns = warnSpy.mock.calls.filter(
+      (c) => typeof c[1] === 'string' && c[1].includes('7777'),
+    );
+    const boomWarns = warnSpy.mock.calls.filter(
+      (c) => typeof c[1] === 'string' && c[1].includes('8888'),
+    );
+    // The "No cluster with the specified id" rejection is swallowed entirely,
+    // even in per-observation mode (the `obs:` cache-key path).
+    expect(noClusterWarns).toHaveLength(0);
+    // The unrelated rejection still surfaces exactly once.
+    expect(boomWarns).toHaveLength(1);
+    warnSpy.mockRestore();
+  });
+
   it('silhouettesVersion bump invalidates memo even when silhouettes.length is unchanged', async () => {
     // Spec §5.3 Concern C, point 2: in-place catalogue replacement (same
     // length, different rows) must invalidate the cache. We assert this

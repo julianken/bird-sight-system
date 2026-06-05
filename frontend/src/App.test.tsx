@@ -2354,6 +2354,7 @@ describe('O8 (#784): React.memo render-count regression — FamilyLegend + Scope
 describe('#828: lede dedupe — count-only copy, no region, no time-window', () => {
   const STATES = [
     { stateCode: 'US-AZ', name: 'Arizona', bbox: [-114.82, 31.33, -109.05, 37.0] as [number, number, number, number] },
+    { stateCode: 'US-CA', name: 'California', bbox: [-124.41, 32.53, -114.13, 42.01] as [number, number, number, number] },
   ];
 
   function obs(overrides: Partial<{ speciesCode: string; comName: string; familyCode: string | null }> = {}) {
@@ -2539,5 +2540,54 @@ describe('#828: lede dedupe — count-only copy, no region, no time-window', () 
     const lede = await screen.findByTestId('map-lede');
     expect(lede).not.toHaveTextContent(/in the last/i);
     expect(lede).not.toHaveTextContent(/14 days/i);
+  });
+
+  // #872 — state→state stale-count guard. On a state→state scope change,
+  // use-bird-data keeps the PRIOR state's `observations` mounted while the new
+  // fetch is in flight (it only clears on resolve), so `observationCount` is
+  // NONZERO during the load. The cold-load guard (`:1003`) only fires at
+  // `observationCount === 0`, so it misses this case and the lede would show
+  // the stale prior count. The fix: a placeholder branch keyed on
+  // `observationsLoading` alone — the lede must NOT show the stale number while
+  // a refetch is in flight, even when the carried-over count is nonzero.
+  it('#872: shows a loading placeholder (not the stale count) during a state→state refetch', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
+    };
+    // First state resolves a NONZERO species count.
+    mockGetObservations.mockResolvedValue({
+      data: [
+        obs({ speciesCode: 'vermfly' }),
+        obs({ speciesCode: 'gilwoo', comName: 'Gila Woodpecker' }),
+      ],
+      meta: { freshestObservationAt: new Date().toISOString() },
+    });
+    const { rerender } = render(<App />);
+    const lede = await screen.findByTestId('map-lede');
+    expect(lede).toHaveTextContent('2 species');
+
+    // Transition to a new state whose observations fetch never resolves —
+    // observationsLoading flips true while the prior (nonzero) observations are
+    // still mounted. This is the exact state→state window #872 describes.
+    mockGetObservations.mockReturnValue(new Promise(() => {}));
+    await act(async () => {
+      mockUrlState.state = {
+        since: '14d', notable: false, speciesCode: null, familyCode: null,
+        view: 'map', scope: { kind: 'state', stateCode: 'US-CA' },
+      };
+      rerender(<App />);
+    });
+
+    // The lede must NOT show the stale prior count while the new fetch loads.
+    await waitFor(() => {
+      const ledeNow = screen.queryByTestId('map-lede');
+      // Either the row is gone OR it shows a count-free placeholder — never the
+      // stale "2 species".
+      if (ledeNow) {
+        expect(ledeNow).not.toHaveTextContent(/\d+\s+species/i);
+        expect(ledeNow).not.toHaveTextContent(/\d+\s+sightings/i);
+      }
+    });
   });
 });
