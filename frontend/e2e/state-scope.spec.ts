@@ -131,8 +131,9 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
    * degrees)? This is the DETERMINISTIC, WebGL-independent differentiator
    * between the bug and the fix: in this no-WebGL CI the map never settles a
    * state-tight viewport into `debouncedBbox`, so on UNPATCHED `main` the
-   * post-switch fetch carries the cold-mount CONUS seed (`-125,24,-66,50`),
-   * which `intersects` (but does NOT match) the new state's envelope.
+   * post-switch fetch carries the cold-mount CONUS seed (`INITIAL_BBOX_SEED`,
+   * `-130,20,-65,52` since #870), which `intersects` (but does NOT match) the
+   * new state's envelope.
    * The render-phase reseed sets `debouncedBbox` to the new scope's exact
    * envelope, so AFTER the fix the post-switch bbox matches within tol — RED on
    * main (CONUS seed), GREEN after fix.
@@ -145,10 +146,12 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
    *
    * The RED-on-main / GREEN-after-fix discriminator is preserved: each state's
    * canonical box is distinct from the CONUS cold-mount seed's canonical box
-   * (`canonicalFetchBbox([-125,24,-66,50], 3) = -129,20,-65,52`), which is what
-   * an UNPATCHED post-switch fetch carries. The state canonical boxes are
+   * (`canonicalFetchBbox(INITIAL_BBOX_SEED, 3) = -130,20,-65,52` since #870; was
+   * `-129,…` while the seed was the legacy `[-125,24,-66,50]`), which is what an
+   * UNPATCHED post-switch fetch carries. The state canonical boxes are
    * AZ `-130,20,-78,52` / FL `-118,20,-65,52` / NY `-110,20,-65,52` — none equal
-   * the `-129,…` CONUS-seed box, so a missing reseed still fails this assertion.
+   * the `-130,20,-65,52` CONUS-seed box (AZ shares only the W/S/N edges; its E
+   * edge -78 differs), so a missing reseed still fails this assertion.
    * (`bboxIntersects` above stays a separate, weaker guard: the canonical box is
    * a CONUS-clamped superset that always intersects the target state, which is
    * what the server `?state=` ST_Intersects clip relies on for correctness.)

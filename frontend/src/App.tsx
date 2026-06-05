@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { LngLatBounds } from 'maplibre-gl';
+// #870 — the canonical-key CONUS envelope (`[-130, 20, -65, 52]`) shared with
+// the cache-warmer. Aliased because App keeps a separate MapLibre-shaped
+// `CONUS_BOUNDS` (nested `[[w,s],[e,n]]`) for the camera below; this flat geo
+// one seeds the initial `/api/observations` bbox so it lands on the warmed key.
+import { CONUS_BOUNDS as GEO_CONUS_BOUNDS } from '@bird-watch/geo';
 import { analytics } from './analytics.js';
 import { ApiClient, ApiError } from './api/client.js';
 import { useUrlState, DEFAULTS } from './state/url-state.js';
@@ -52,6 +57,37 @@ const apiClient = new ApiClient({ baseUrl: import.meta.env.VITE_API_BASE_URL ?? 
  * chunk into the entry bundle just to read a constant.
  */
 const CONUS_BOUNDS: [[number, number], [number, number]] = [[-130, 20], [-65, 52]];
+
+/**
+ * #870 — the initial `debouncedBbox` seed for the first `/api/observations`
+ * call, flat `[west, south, east, north]`. It is the SAME canonical-key CONUS
+ * envelope the cache-warmer warms (`CONUS_BOUNDS` in `@bird-watch/geo`,
+ * `[-130, 20, -65, 52]`), and the same envelope the map inits/clamps at (the
+ * MapLibre nested-pair `CONUS_BOUNDS` above). Sourcing it from the geo constant
+ * (rather than re-typing the literal) makes the seed canonicalize to the WARMED
+ * `-130.00,20.00,-65.00,52.00` key at the initial aggregated zoom
+ * (`INITIAL_ZOOM_SEED` = 3), so no pre-settle request can ever mint the cold
+ * `-129`/`-125` key.
+ *
+ * Replaces the legacy `DEFAULT_BBOX_CONUS = [-125, 24, -66, 50]` seed, which
+ * canonicalized to the cold `-129` key at z3 — a latent foot-gun for any future
+ * code path that fetches off `debouncedBbox` before the map's first `idle`. The
+ * map fires `idle` shortly after mount with the actual fitted bounds, which then
+ * drives the bbox state via `onViewportChange` below. Exported (with
+ * `INITIAL_ZOOM_SEED`) so App.seed.test.ts can assert the canonical-key landing.
+ */
+export const INITIAL_BBOX_SEED: [number, number, number, number] = [...GEO_CONUS_BOUNDS];
+
+/**
+ * #870/#627 — the zoom seeded alongside `INITIAL_BBOX_SEED`. Mirrors MapCanvas's
+ * CONUS framing (zoom 3 narrow / 4 desktop). The actual map reports a real value
+ * on first `idle`; meanwhile 3 keeps the very first `/api/observations` call in
+ * aggregated mode (`zoom < 6` → the canonical-key path), so it never pulls the
+ * full CONUS observation set on cold start AND it collides on the warmed
+ * canonical key. (At z4 the legacy seed also collapsed to `-130`, but z3 is the
+ * actual pre-settle zoom and is where the legacy seed diverged to `-129`.)
+ */
+export const INITIAL_ZOOM_SEED = 3;
 
 /**
  * #847 — the zoom seeded alongside the scope-envelope bbox on a scope change
@@ -288,17 +324,18 @@ export function App() {
     (state.speciesCode ? 1 : 0) +
     (state.familyCode ? 1 : 0);
   // CONUS bbox [west, south, east, north] — initial-mount default for
-  // /api/observations. Matches MapCanvas's CONUS_LONGITUDE/CONUS_LATITUDE
-  // initial view (zoom 3–4 framing); the map fires `idle` shortly after
-  // mount with the actual fitted bounds, which then drives the bbox state
-  // via `onViewportChange` below.
-  const DEFAULT_BBOX_CONUS: [number, number, number, number] = [-125, 24, -66, 50];
-  const [debouncedBbox, setDebouncedBbox] = useState<[number, number, number, number]>(DEFAULT_BBOX_CONUS);
+  // /api/observations. #870: seeded from `INITIAL_BBOX_SEED` (the geo
+  // `CONUS_BOUNDS` envelope) so it canonicalizes to the WARMED `-130` key, not
+  // the legacy `-129`. Matches MapCanvas's CONUS framing; the map fires `idle`
+  // shortly after mount with the actual fitted bounds, which then drives the
+  // bbox state via `onViewportChange` below.
+  const [debouncedBbox, setDebouncedBbox] = useState<[number, number, number, number]>(INITIAL_BBOX_SEED);
   // Initial zoom mirrors MapCanvas's CONUS framing (zoom 3 narrow / 4 desktop).
   // The actual map reports a real value on first `idle`; meanwhile we send
-  // 3 so the very first /api/observations call hits aggregated mode and never
-  // pulls the full CONUS observation set on cold start. Issue #627.
-  const [debouncedZoom, setDebouncedZoom] = useState<number>(3);
+  // 3 (`INITIAL_ZOOM_SEED`) so the very first /api/observations call hits
+  // aggregated mode and never pulls the full CONUS observation set on cold
+  // start. Issue #627.
+  const [debouncedZoom, setDebouncedZoom] = useState<number>(INITIAL_ZOOM_SEED);
 
   // hotspots intentionally fetched but unused — cheap insurance for v2
   // hotspot-marker layer (Plan 7 decision 5, docs/plans/2026-04-22-plan-7-map-v1.md).
@@ -307,7 +344,7 @@ export function App() {
   // observation set on every map load. The bbox is held in a debounced
   // state (250ms) below; the value passed here is the debounced one so
   // continuous panning doesn't hammer the API. Initial value frames CONUS
-  // (`DEFAULT_BBOX_CONUS`) rather than `undefined` — passing `undefined`
+  // (`INITIAL_BBOX_SEED`) rather than `undefined` — passing `undefined`
   // would degrade to a full-region fetch on first paint, exactly the
   // failure mode this wiring exists to prevent.
   // Issue #720: split loading into hotspots- vs observations-specific flags
