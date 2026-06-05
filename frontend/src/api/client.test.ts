@@ -35,26 +35,47 @@ describe('ApiClient', () => {
     expect(url).toMatch(/bbox=-125\.00(?:%2C|,)24\.00(?:%2C|,)-66\.00(?:%2C|,)50\.00/);
   });
 
-  it('snaps the fetch bbox to the shared cache grid at zoom < 6 (#866)', async () => {
-    // A jittered z5 metro viewport snaps OUTWARD to the 0.25° grid and
-    // serializes via the canonical .toFixed(2) form — the cache-key lever.
-    // Snapping happens at FETCH time (not App.tsx state) so it covers both the
-    // #847 scope-reseed path and the idle path. Displayed counts stay correct
-    // because they derive from filterBucketsByBounds(buckets, viewportBounds)
-    // against the RAW map bounds, not this snapped fetch bbox.
+  it('reconstructs a CANONICAL fetch bbox from (snapped-midpoint, zoom) at zoom < 6 (#868)', async () => {
+    // #868 — at zoom < 6 the fetch bbox is no longer the viewport edges snapped
+    // outward (#866 scheme b); it is RECONSTRUCTED from the bbox midpoint snapped
+    // to the grid + a fixed per-zoom half-extent, then clamped to CONUS. Every
+    // device at the same view collapses to ONE cache key. This happens at FETCH
+    // time (not App.tsx state) so it covers both the #847 scope-reseed path and
+    // the idle path. Displayed counts stay correct because they derive from
+    // filterBucketsByBounds(buckets, viewportBounds) against the RAW map bounds.
     const envelope = JSON.stringify({ data: [], meta: { freshestObservationAt: null } });
     vi.spyOn(global, 'fetch').mockResolvedValue(new Response(envelope, { status: 200 }));
     const client = new ApiClient({ baseUrl: '' });
+    // raw midpoint (-112.74, 37.02) → snap z5 (0.25°) → (-112.75, 37.00) →
+    // ±[22.25, 12.25] = [-135.00, 24.75, -90.50, 49.25] → west clamps to
+    // CONUS_BOUNDS → [-130.00, 24.75, -90.50, 49.25].
     await client.getObservations({ bbox: [-118.241, 33.998, -107.237, 40.051], zoom: 5 });
     const call = (fetch as unknown as { mock: { calls: [string, unknown][] } }).mock.calls[0]!;
     const url = call[0];
-    // raw → snap(z5) → [-118.25, 33.75, -107.00, 40.25] → .toFixed(2)
     expect(url).toMatch(
-      /bbox=-118\.25(?:%2C|,)33\.75(?:%2C|,)-107\.00(?:%2C|,)40\.25/,
+      /bbox=-130\.00(?:%2C|,)24\.75(?:%2C|,)-90\.50(?:%2C|,)49\.25/,
     );
   });
 
-  it('passes the bbox through unchanged at zoom >= 6 (per-observation mode, #866)', async () => {
+  it('collapses every wide CONUS default view to the SAME canonical key at z4 (#868)', async () => {
+    // Two very different device viewports framing the CONUS default center must
+    // mint ONE key at z4 — the core device-independence guarantee. Both
+    // serialize to CONUS_BOUNDS.
+    const envelope = JSON.stringify({ data: [], meta: { freshestObservationAt: null } });
+    vi.spyOn(global, 'fetch')
+      .mockResolvedValueOnce(new Response(envelope, { status: 200 }))
+      .mockResolvedValueOnce(new Response(envelope, { status: 200 }));
+    const client = new ApiClient({ baseUrl: '' });
+    // A narrow phone bbox and a wide desktop bbox, same CONUS center.
+    await client.getObservations({ bbox: [-138, 14, -59, 65], zoom: 4 });
+    await client.getObservations({ bbox: [-128, 30, -69, 49], zoom: 4 });
+    const calls = (fetch as unknown as { mock: { calls: [string, unknown][] } }).mock.calls;
+    const bbox = (u: string) => new URL(u, 'http://x').searchParams.get('bbox');
+    expect(bbox(calls[0]![0])).toBe('-130.00,20.00,-65.00,52.00');
+    expect(bbox(calls[1]![0])).toBe('-130.00,20.00,-65.00,52.00');
+  });
+
+  it('passes the bbox through unchanged at zoom >= 6 (per-observation mode, #868)', async () => {
     const envelope = JSON.stringify({
       mode: 'observations', data: [], meta: { freshestObservationAt: null },
     });

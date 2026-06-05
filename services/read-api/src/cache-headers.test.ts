@@ -10,9 +10,17 @@ describe('cacheControlFor', () => {
   // and lets the CDN serve stale-while-revalidate windows without hammering
   // Cloud Run / Neon. Browsers are not asked to hold stale copies.
 
-  it('returns short s-maxage with 2× SWR for /observations (~5min freshness)', () => {
+  it('returns a 30-min s-maxage with equal SWR for /observations (#868 Lever 3)', () => {
+    // #868 — raised from s-maxage=300/SWR=600 to 1800/1800 so a warmed/organic
+    // canonical key stays fresh from t+2min through the next ~30-min ingest tick
+    // (there is no ingest cache-purge, so the prior 5-min window left keys cold
+    // ~13min of every 30-min cycle → the warmer measured hit=0/run). Response
+    // bodies are viewport-independent for a given canonical key
+    // (meta.freshestObservationAt is a whole-table MAX), so two devices on one
+    // key get byte-identical bodies. Accepted ~30-min staleness (0.15% of the
+    // 14-day window) is a logged product call.
     expect(cacheControlFor('observations'))
-      .toBe('public, s-maxage=300, stale-while-revalidate=600');
+      .toBe('public, s-maxage=1800, stale-while-revalidate=1800');
   });
 
   it('returns medium s-maxage with 2× SWR for /hotspots (~10min freshness)', () => {

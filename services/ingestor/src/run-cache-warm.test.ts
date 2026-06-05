@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach, vi } from 'vitest';
 import { setupServer } from 'msw/node';
 import { http, HttpResponse } from 'msw';
-import { snapFetchBboxParam, type Bbox } from '@bird-watch/geo';
+import { canonicalFetchBboxParam, CONUS_BOUNDS, type Bbox } from '@bird-watch/geo';
 import { runCacheWarm, buildCacheWarmUrls } from './run-cache-warm.js';
 
 const server = setupServer();
@@ -16,19 +16,19 @@ describe('buildCacheWarmUrls', () => {
     expect(urls).toHaveLength(77);
   });
 
-  it('builds the two CONUS aggregated z=3 / z=4 queries first, snapped (#866)', () => {
+  it('builds the two CONUS aggregated z=3 / z=4 queries first, CANONICAL (#868)', () => {
     const urls = buildCacheWarmUrls('https://api.bird-maps.com');
-    // #866 — both CONUS entries derive from the frontend's DEFAULT_BBOX_CONUS
-    // ([-125,24,-66,50]) snapped through the shared grid, so they are
-    // value-identical to the initial-paint fetch in BOTH layouts (mobile opens
-    // at z3, desktop at z4 — previously a different, unwarmed bbox). The CONUS
-    // default is integer-aligned, so snapping is a no-op on the value; the only
-    // change is the canonical .toFixed(2) serialization.
+    // #868 — both CONUS entries feed CONUS_BOUNDS ([-130,20,-65,52]) through the
+    // shared canonicalFetchBboxParam, so each mints the SAME canonical key the
+    // client mints for the default cold load in BOTH layouts (mobile z3,
+    // desktop z4). Feeding the legacy DEFAULT_BBOX_CONUS would snap to center
+    // -95 → west -129 → key `-129,…`, the prod MISS; CONUS_BOUNDS snaps to the
+    // map center by construction and both tiers clamp to CONUS_BOUNDS exactly.
     expect(urls[0]).toBe(
-      'https://api.bird-maps.com/api/observations?since=14d&bbox=-125.00,24.00,-66.00,50.00&zoom=3'
+      'https://api.bird-maps.com/api/observations?since=14d&bbox=-130.00,20.00,-65.00,52.00&zoom=3'
     );
     expect(urls[1]).toBe(
-      'https://api.bird-maps.com/api/observations?since=14d&bbox=-125.00,24.00,-66.00,50.00&zoom=4'
+      'https://api.bird-maps.com/api/observations?since=14d&bbox=-130.00,20.00,-65.00,52.00&zoom=4'
     );
   });
 
@@ -37,18 +37,19 @@ describe('buildCacheWarmUrls', () => {
     expect(urls[0]).toMatch(/^http:\/\/localhost:8080\/api\/observations\?/);
   });
 
-  it('snaps z=5 metro entries; passes z=6/z=7 per-observation entries through (#866)', () => {
+  it('canonicalizes z=5 metro entries; passes z=6/z=7 per-observation entries through (#868)', () => {
     const urls = buildCacheWarmUrls('https://api.bird-maps.com');
-    // LA at (-118.24, 34.05); z=5 half-widths (11, 6).
-    // raw bbox = (-129.24, 28.05, -107.24, 40.05); snapped OUTWARD to the 0.25°
-    // grid = (-129.25, 28.00, -107.00, 40.25) — value-identical to what a
-    // client viewing LA at z5 requests (both go through snapFetchBbox).
+    // LA at (-118.24, 34.05); z=5 half-widths (11, 6) → raw midpoint
+    // (-118.24, 34.05) → snap z5 (0.25°) → (-118.25, 34.00) → ±[22.25, 12.25]
+    // = (-140.50, 21.75, -96.00, 46.25) → west clamps to CONUS_BOUNDS →
+    // (-130.00, 21.75, -96.00, 46.25) — value-identical to what a client viewing
+    // LA at z5 mints (both go through canonicalFetchBbox).
     expect(urls).toContain(
-      'https://api.bird-maps.com/api/observations?since=14d&bbox=-129.25,28.00,-107.00,40.25&zoom=5'
+      'https://api.bird-maps.com/api/observations?since=14d&bbox=-130.00,21.75,-96.00,46.25&zoom=5'
     );
     // z=6 / z=7 are per-observation mode → snapFetchBbox passthrough → raw
-    // .toFixed(2) value, UNCHANGED from the pre-#866 contract (these warmed
-    // keys stay disjoint from clients until the per-observation follow-up).
+    // .toFixed(2) value, UNCHANGED (these warmed keys stay disjoint from clients
+    // and are retired in PR2's measurement-driven trim).
     // LA z=6: half-widths (5.5, 3) → bbox = (-123.74, 31.05, -112.74, 37.05)
     expect(urls).toContain(
       'https://api.bird-maps.com/api/observations?since=14d&bbox=-123.74,31.05,-112.74,37.05&zoom=6'
@@ -59,19 +60,19 @@ describe('buildCacheWarmUrls', () => {
     );
   });
 
-  it('warmer/client agreement: the z=5 metro param-set matches the frontend request (#866)', () => {
+  it('warmer/client agreement: the z=5 metro param-set matches the frontend request (#868)', () => {
     // The AC's core invariant: for a representative metro anchor at z=5, the
     // FULL query param-set the warmer emits must equal what the frontend builds
-    // for a viewport centered there under the default scope — bbox (snapped),
+    // for a viewport centered there under the default scope — bbox (canonical),
     // zoom, AND since=14d, with no filter params. Any missing/extra param forks
     // the cache key.
     //
     // Reconstruct the frontend side independently: ApiClient.getObservations
     // (client.ts) emits `since` (default state.since='14d' is truthy), the
-    // snapped bbox via the SAME snapFetchBboxParam, and `zoom`, with no
+    // canonical bbox via the SAME canonicalFetchBboxParam, and `zoom`, with no
     // notable/species/family/state params for the default scope.
     const urls = buildCacheWarmUrls('https://api.bird-maps.com');
-    const laZ5 = urls.find((u) => u.includes('&zoom=5') && u.includes('-129.25'));
+    const laZ5 = urls.find((u) => u.includes('&zoom=5') && u.includes('-130.00,21.75'));
     expect(laZ5).toBeDefined();
 
     // LA at (-118.24, 34.05) with z=5 half-widths (11, 6) — the viewport a
@@ -79,7 +80,7 @@ describe('buildCacheWarmUrls', () => {
     const clientBbox: Bbox = [-118.24 - 11, 34.05 - 6, -118.24 + 11, 34.05 + 6];
     const clientParams = new URLSearchParams();
     clientParams.set('since', '14d');
-    clientParams.set('bbox', snapFetchBboxParam(clientBbox, 5));
+    clientParams.set('bbox', canonicalFetchBboxParam(clientBbox, 5));
     clientParams.set('zoom', '5');
 
     const warmerParams = new URL(laZ5!).searchParams;
@@ -92,6 +93,52 @@ describe('buildCacheWarmUrls', () => {
     // Symmetric: warmer has no param the client lacks.
     for (const k of warmerParams.keys()) {
       expect(clientParams.has(k)).toBe(true);
+    }
+  });
+
+  it('warmer/client identical CONUS key: CONUS_BOUNDS, the mobile default getBounds, and the warmer input all collide at z3 AND z4 (#868)', () => {
+    // The headline #868 AC: the prod-MISSed bbox CONUS_BOUNDS ([-130,20,-65,52]),
+    // a realistic mobile default-view getBounds() centered on the MAP center
+    // (-98.5795), AND the warmer's CONUS input must all serialize to the
+    // IDENTICAL full param-set (incl. since=14d) at z3 and z4. One assertion over
+    // all three catches snapped-center divergence (the DEFAULT_BBOX_CONUS -95.5
+    // midpoint that mints `-129,…` instead of `-130,…`).
+    const urls = buildCacheWarmUrls('https://api.bird-maps.com');
+
+    // A realistic mobile default-view getBounds(), centered on the live
+    // MapCanvas.tsx CONUS center (-98.5795, 39.8283), wide enough to frame CONUS.
+    const mobileDefaultBounds: Bbox = [
+      -98.5795 - 40,
+      39.8283 - 26,
+      -98.5795 + 40,
+      39.8283 + 26,
+    ];
+
+    for (const zoom of [3, 4] as const) {
+      // Warmer side: pull the actual emitted CONUS entry for this zoom.
+      const warmerUrl = urls.find((u) => u.endsWith(`&zoom=${zoom}`) && u.includes('since=14d') && u.includes('-130.00,20.00,-65.00,52.00'));
+      expect(warmerUrl, `warmer must emit a CONUS z${zoom} entry`).toBeDefined();
+      const warmerParams = new URL(warmerUrl!).searchParams;
+
+      // Client side, two independent inputs that must collide with the warmer:
+      const fromConusBounds = canonicalFetchBboxParam(CONUS_BOUNDS, zoom);
+      const fromMobileGetBounds = canonicalFetchBboxParam(
+        mobileDefaultBounds,
+        zoom,
+      );
+
+      // All three bbox values are byte-identical.
+      expect(warmerParams.get('bbox')).toBe('-130.00,20.00,-65.00,52.00');
+      expect(fromConusBounds).toBe('-130.00,20.00,-65.00,52.00');
+      expect(fromMobileGetBounds).toBe('-130.00,20.00,-65.00,52.00');
+
+      // And the full param-set matches (since + zoom + no filters).
+      const client = new URLSearchParams();
+      client.set('since', '14d');
+      client.set('bbox', fromMobileGetBounds);
+      client.set('zoom', String(zoom));
+      expect([...warmerParams.keys()].sort()).toEqual(['bbox', 'since', 'zoom']);
+      for (const [k, v] of client) expect(warmerParams.get(k)).toBe(v);
     }
   });
 });

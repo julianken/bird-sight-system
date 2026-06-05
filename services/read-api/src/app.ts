@@ -175,14 +175,15 @@ export function createApp(deps: AppDeps): Hono {
     const stateCode = stateResult.value;
     // #734 (plan task B7) — `?state=` rides the existing full-URL cache key
     // exactly like `?bbox=`, so no cache-headers.ts change is needed: a
-    // `?state=` observations response keeps `s-maxage=300` (asserted in
-    // app.test.ts B5 case (f)). No new Endpoint value, no Vary change.
+    // `?state=` observations response rides the shared observations TTL
+    // (s-maxage=1800/SWR=1800 since #868; asserted in app.test.ts B5 case (f)).
+    // No new Endpoint value, no Vary change.
 
     // #619 — optional viewport-bbox filter, Phase 2 going-national
     // pre-condition. Format: bbox=minLon,minLat,maxLon,maxLat (EPSG:4326).
     // Backward-compatible: no bbox param → full set unchanged. The bbox
     // becomes part of the canonical URL so Cloudflare caches per-bbox under
-    // the existing s-maxage=300.
+    // the shared observations TTL (s-maxage=1800/SWR=1800 since #868).
     const bboxRaw = c.req.query('bbox');
     let bbox: [number, number, number, number] | undefined;
     if (bboxRaw !== undefined) {

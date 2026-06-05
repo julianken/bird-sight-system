@@ -3,8 +3,9 @@
 #
 # Cloudflare's default cache key already includes the full URI with query
 # string, so we only need `ignore_query_strings_order` here. Both ttl modes
-# use `respect_origin` so the origin's `Cache-Control: public, s-maxage=300,
-# stale-while-revalidate=600` is the single source of truth for TTLs.
+# use `respect_origin` so the origin's `Cache-Control` (e.g. observations'
+# `public, s-maxage=1800, stale-while-revalidate=1800` since #868) is the
+# single source of truth for TTLs.
 #
 # The expression mirrors infra/terraform/rate-limit.tf exactly — same scope,
 # excluding /api/admin/. Phase is http_request_cache_settings; rate-limit
