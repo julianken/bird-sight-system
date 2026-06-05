@@ -106,6 +106,16 @@ export const INITIAL_ZOOM_SEED = 3;
 const AGGREGATED_SEED_ZOOM = 3;
 
 /**
+ * #872: count-free lede placeholder shown while a refetch is in flight. On a
+ * state→state transition use-bird-data keeps the prior scope's nonzero
+ * `observations` mounted until the new fetch resolves, so the lede must show
+ * this neutral "updating" copy rather than the stale count. Count-free by
+ * design — no number can be trusted mid-refetch. The cold-load case (count 0)
+ * still returns null upstream so the row stays hidden until the first paint.
+ */
+const LEDE_LOADING_PLACEHOLDER = 'Updating…';
+
+/**
  * O2 (#770): Default-expanded breakpoint for FamilyLegend, moved here from
  * MapSurface so the legend can render as a persistent App-root sibling.
  *
@@ -1018,6 +1028,15 @@ export function App() {
     // Cold-load guard (#716/#720): suppress Template 1 while the first fetch is
     // in flight. Same discipline as MapLede's `loading` guard.
     if (observationsLoading && observationCount === 0 && speciesCount === 0) return null;
+    // #872: state→state stale-count guard. use-bird-data keeps the PRIOR scope's
+    // `observations` mounted while the new fetch is in flight (it clears only on
+    // resolve), so during a state→state transition `observationCount` is NONZERO
+    // and the cold-load guard above (which only fires at count === 0) misses it —
+    // leaking the previous state's number until the new data lands. Branch on
+    // `observationsLoading` alone so any in-flight refetch shows a count-free
+    // placeholder rather than the stale number. (The cold-load case still
+    // returns null above so the row stays hidden until the first data arrives.)
+    if (observationsLoading) return LEDE_LOADING_PLACEHOLDER;
     // #828: the lede is count-only. The region moved into the wordmark headline
     // (no longer repeated in the sentence) and the time-window dropped entirely
     // (it's discoverable via Filters). No period clause, no `${region}` — see the

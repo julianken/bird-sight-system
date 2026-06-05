@@ -1309,6 +1309,35 @@ export function MapCanvas({
   const silhouettesVersion = silhouettesVersionRef.current;
 
   /**
+   * #872 — synchronous DOM-marker invalidation on scope change. The
+   * adaptive-grid reconciler effect (below) deliberately OMITS `observations`
+   * from its dep array — adding the raw array would reopen the
+   * EMPTY_BUCKETS/EMPTY_DICT infinite-re-register loop (a fresh `[]` per render
+   * thrashes the effect). But that omission means the async DOM markers
+   * (`groups`/`silhouetteOffsets`, committed on the next map `idle`) LAG the
+   * synchronously-updated GeoJSON `<Source>` on a state→state transition,
+   * leaving the PRIOR scope's markers mounted outside the new outline until the
+   * next reconcile pass lands (~0.3–1.2s later).
+   *
+   * Fix: detect a fresh `observations` identity during render and clear the
+   * marker slices immediately — the same "store-previous-prop, compare-in-render"
+   * pattern the `silhouettesVersion` ref above uses (React supports calling
+   * setState during render to adjust state in response to a changed prop; it
+   * discards the in-progress output and re-renders synchronously, so the stale
+   * markers never paint). Skips the initial mount (groups already empty) and
+   * any render where `observations` is identity-stable, so there is no loop and
+   * no churn under pan. The reconciler's next `idle` repopulates from the new
+   * scope's clusters; the `cacheGeneration` race-guard is untouched.
+   */
+  const prevObservationsRef = useRef<typeof observations>(observations);
+  if (prevObservationsRef.current !== observations) {
+    prevObservationsRef.current = observations;
+    setGroups([]);
+    setSilhouetteOffsets(new Map());
+    prevHiddenSubIdsRef.current = new Set();
+  }
+
+  /**
    * Pure per-family lookup used by `buildAdaptiveTiles` (spec §5.3 Concern
    * C, point 3). Resolved once per reconcile from the silhouettes prop —
    * the tile-builder MUST NOT read from a ref, so we thread this
@@ -1918,7 +1947,21 @@ export function MapCanvas({
             // key — persistently-broken clusters don't spam.
             fresh.catch((err) => {
               leafCache.delete(key);
-              if (!warnedRejections.has(key)) {
+              // #875: after `setData` re-indexes the supercluster, the idle-tick
+              // reconciler can race the worker re-cluster and pass cluster_ids
+              // from the PRIOR generation into getClusterLeaves, which rejects
+              // with "No cluster with the specified id: NNNN" (trailing period +
+              // appended id — so `includes`, NOT `===`). That is an EXPECTED,
+              // self-healing post-reindex rejection (the next idle resolves the
+              // current ids), so swallow it — but ONLY in aggregated mode (the
+              // path that re-clusters on every state-overview load) and ONLY for
+              // this exact message. Any other rejection — or the same message in
+              // per-observation mode — still warns, so a genuinely broken cluster
+              // surfaces. Eviction above is unconditional either way.
+              const isStaleClusterId =
+                aggregated &&
+                String(err?.message).includes('No cluster with the specified id');
+              if (!isStaleClusterId && !warnedRejections.has(key)) {
                 console.warn(
                   '[adaptive-grid] getClusterLeaves rejected',
                   key,
