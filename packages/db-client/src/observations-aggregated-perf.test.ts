@@ -205,6 +205,10 @@ beforeAll(async () => {
   // numbers are not representative of prod (which runs autovacuum/ANALYZE).
   await pool.query('ANALYZE observations');
   await pool.query('ANALYZE species_meta');
+  // #873 — the state-scope perf guard below clips against state_boundaries
+  // (seeded by migration 50). ANALYZE it too so the planner sizes the GIST
+  // state-polygon `&&` join realistically.
+  await pool.query('ANALYZE state_boundaries');
   // Sanity-check the seed actually reached prod scale and the `since` filter is
   // selective (not an all-time scan, not a no-op).
   const { rows: tot } = await pool.query<{ c: string }>('SELECT count(*)::text AS c FROM observations');
@@ -342,6 +346,104 @@ describe('getObservationsAggregated national perf guard (#862)', () => {
         expect(b.count).toBeGreaterThan(0);
         expect(b.speciesCount).toBeGreaterThan(0);
       }
+    },
+    120_000,
+  );
+});
+
+// ── #873 — STATE-SCOPE aggregated perf guard ────────────────────────────────
+//
+// Mirrors the #862/#868 national guards but for a STATE scope — the path #873
+// fixes. In prod, state-scoped low-zoom `/api/observations` requests took
+// 12-14s (CA z5 12.6s; TX z5 13.6/12.9/12.4/13.6s) — sitting on the 15s
+// `statement_timeout` cliff, masked by green 200s. The #873 fix makes the
+// client send the state's FIXED envelope (instead of the center-varying
+// canonical CONUS box) so the origin query is state-tight and the CF key
+// collapses. This guard pins that the state-scoped aggregated query — shaped
+// EXACTLY as the client now sends it (stateCode + the fixed state envelope as
+// bbox) — runs well under the timeout at prod scale, so a future change that
+// re-broadens the state scan trips here.
+//
+// The perf suite previously covered only national (#862) and full-CONUS (#868),
+// never a state scope — this fills that gap (issue AC).
+describe('getObservationsAggregated state-scope perf guard (#873)', () => {
+  // Texas — a large, dense state and one of the prod-observed 12-14s offenders.
+  // Envelope = state_boundaries min/max (migration 50), i.e. the StateSummary
+  // bbox the client threads as ObservationFilters.stateBbox.
+  const TX = 'US-TX';
+  const TX_ENVELOPE: [number, number, number, number] = [-106.64548, 25.84012, -93.50829, 36.50044];
+
+  it(
+    'runs the state-scoped aggregated query (stateCode + fixed envelope, since=14d, z5 grid) well under the timeout',
+    async () => {
+      // gridMultiplier 8 = the z5 metro grid (the read-api maps zoom 5 → mult 8),
+      // the finest aggregated tier and the level a state view actually requests.
+      const GRID = 8;
+
+      // Shape — exactly what the #873 client now sends for a state scope at
+      // zoom < 6: the state clip AND the fixed state envelope as bbox. The
+      // envelope is co-extensive with the state's bounding box, so it adds no
+      // meaningful scan work over the state clip alone (both are GIST-backed).
+      const t0 = performance.now();
+      const buckets = await getObservationsAggregated(
+        pool,
+        { since: '14d', stateCode: TX, bbox: TX_ENVELOPE },
+        GRID,
+      );
+      const elapsedMs = performance.now() - t0;
+
+      // eslint-disable-next-line no-console
+      console.log(
+        `[#873 perf guard] TX state-scope query (fixed envelope): ${elapsedMs.toFixed(0)}ms over ${TARGET_ROWS} rows → ${buckets.length} buckets (threshold ${PERF_THRESHOLD_MS}ms, pool statement_timeout 15000ms)`,
+      );
+
+      // PERF GUARD — comfortably under the timeout (same conservative 8s ceiling
+      // as the national guards; the state scope is a strict subset of CONUS).
+      expect(elapsedMs).toBeLessThan(PERF_THRESHOLD_MS);
+
+      // The seed spreads observations across CONUS, so a TX clip is non-empty
+      // and carries real totals — not a degenerate empty box.
+      expect(buckets.length).toBeGreaterThan(0);
+      for (const b of buckets) {
+        expect(b.count).toBeGreaterThan(0);
+        expect(b.speciesCount).toBeGreaterThan(0);
+        expect(b.speciesCount).toBeLessThanOrEqual(b.count);
+        // Every returned bucket centroid must sit within ~1° of the TX envelope
+        // — proves the clip actually bounds the result (the render byte-identity
+        // rests on the server clipping to the state, not the wide bbox). The 1°
+        // pad absorbs the 0.125° grid-bucket centroid rounding at mult 8.
+        expect(b.lng).toBeGreaterThanOrEqual(TX_ENVELOPE[0] - 1);
+        expect(b.lng).toBeLessThanOrEqual(TX_ENVELOPE[2] + 1);
+        expect(b.lat).toBeGreaterThanOrEqual(TX_ENVELOPE[1] - 1);
+        expect(b.lat).toBeLessThanOrEqual(TX_ENVELOPE[3] + 1);
+      }
+    },
+    120_000,
+  );
+
+  it(
+    'is render-equivalent with vs without the fixed envelope — the ST_Intersects state clip bounds the result either way (#873)',
+    async () => {
+      // The core #873 correctness claim: adding the fixed envelope as bbox does
+      // NOT change which buckets come back, because the state polygon clip
+      // already bounds the result. So the two queries (state clip alone vs state
+      // clip + fixed envelope) must be byte-identical — render is unchanged, the
+      // envelope only collapses the cache key. (This is the DB-side guarantee
+      // behind "Screenshots: N/A — no visual change".)
+      const GRID = 8;
+      const withoutEnvelope = await getObservationsAggregated(
+        pool,
+        { since: '14d', stateCode: TX },
+        GRID,
+      );
+      const withEnvelope = await getObservationsAggregated(
+        pool,
+        { since: '14d', stateCode: TX, bbox: TX_ENVELOPE },
+        GRID,
+      );
+      expect(fingerprint(withEnvelope)).toBe(fingerprint(withoutEnvelope));
+      // And the result is real (non-empty), so the equality is meaningful.
+      expect(withEnvelope.length).toBeGreaterThan(0);
     },
     120_000,
   );

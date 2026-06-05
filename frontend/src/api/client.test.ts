@@ -99,6 +99,93 @@ describe('ApiClient', () => {
     expect(call[0]).toContain('state=US-AZ');
   });
 
+  // ── #873 — state-scope FIXED-ENVELOPE cache key (aggregated path) ──────────
+  //
+  // Before #873 a state-scoped aggregated request transmitted the canonical
+  // CONUS-centered box reconstructed from the *viewport* midpoint, so every
+  // state and every pan minted a NEW Cloudflare key (100% MISS, 12-14s CONUS
+  // scans). After #873, when a fixed state envelope is known we send THAT
+  // envelope (snapped outward to the cache grid) as the bbox in aggregated mode
+  // — so all viewports of a state collapse to ONE key per (state, zoom, filters)
+  // and the origin query is state-tight. The ST_Intersects state clip makes the
+  // response viewport-independent, so the frontend's viewport bucket-clip keeps
+  // render byte-identical. Scoped to zoom < 6 ONLY (the zoom >= 6 10k-truncation
+  // brake stays untouched, exactly as #868/#869).
+
+  it('sends the FIXED state envelope (snapped) as bbox when state-scoped at zoom < 6 (#873)', async () => {
+    const envelope = JSON.stringify({ data: [], meta: { freshestObservationAt: null } });
+    vi.spyOn(global, 'fetch').mockResolvedValue(new Response(envelope, { status: 200 }));
+    const client = new ApiClient({ baseUrl: '' });
+    // California's fixed envelope (StateSummary.bbox). The VIEWPORT bbox below is
+    // an off-center pan inside CA — pre-#873 it would canonicalize to a
+    // CONUS-centered box; post-#873 the bbox === the snapped CA envelope.
+    await client.getObservations({
+      stateCode: 'US-CA',
+      stateBbox: [-124.41, 32.53, -114.13, 42.01],
+      bbox: [-122.5, 36.8, -120.1, 38.9],
+      zoom: 5,
+    });
+    const call = (fetch as unknown as { mock: { calls: [string, unknown][] } }).mock.calls[0]!;
+    const got = new URL(call[0], 'http://x').searchParams.get('bbox');
+    // snapFetchBbox at z5 (0.25° step): floor W/S, ceil E/N →
+    // [-124.50, 32.50, -114.00, 42.25].
+    expect(got).toBe('-124.50,32.50,-114.00,42.25');
+    expect(call[0]).toContain('state=US-CA');
+  });
+
+  it('collapses two different viewport pans of the SAME state to ONE bbox key at zoom < 6 (#873)', async () => {
+    const envelope = JSON.stringify({ data: [], meta: { freshestObservationAt: null } });
+    vi.spyOn(global, 'fetch')
+      .mockResolvedValueOnce(new Response(envelope, { status: 200 }))
+      .mockResolvedValueOnce(new Response(envelope, { status: 200 }));
+    const client = new ApiClient({ baseUrl: '' });
+    const stateBbox: [number, number, number, number] = [-106.65, 25.84, -93.51, 36.5]; // TX
+    // Two genuinely different viewport pans within Texas at z5.
+    await client.getObservations({ stateCode: 'US-TX', stateBbox, bbox: [-100, 30, -97, 32], zoom: 5 });
+    await client.getObservations({ stateCode: 'US-TX', stateBbox, bbox: [-103, 28, -99, 31], zoom: 5 });
+    const calls = (fetch as unknown as { mock: { calls: [string, unknown][] } }).mock.calls;
+    const bbox = (u: string) => new URL(u, 'http://x').searchParams.get('bbox');
+    expect(bbox(calls[0]![0])).toBe(bbox(calls[1]![0]));
+  });
+
+  it('does NOT apply the fixed envelope at zoom >= 6 — viewport bbox passes through (state-scoped, #873)', async () => {
+    const envelope = JSON.stringify({
+      mode: 'observations', data: [], meta: { freshestObservationAt: null },
+    });
+    vi.spyOn(global, 'fetch').mockResolvedValue(new Response(envelope, { status: 200 }));
+    const client = new ApiClient({ baseUrl: '' });
+    // zoom >= 6: the 10k-truncation brake (observations.ts:241) relies on the
+    // viewport bbox narrowing a dense state — the fixed envelope must NOT apply.
+    await client.getObservations({
+      stateCode: 'US-CA',
+      stateBbox: [-124.41, 32.53, -114.13, 42.01],
+      bbox: [-118.241, 33.998, -117.237, 34.5],
+      zoom: 7,
+    });
+    const call = (fetch as unknown as { mock: { calls: [string, unknown][] } }).mock.calls[0]!;
+    const got = new URL(call[0], 'http://x').searchParams.get('bbox');
+    // Passthrough of the VIEWPORT bbox (canonical serializer only, no envelope).
+    expect(got).toBe('-118.24,34.00,-117.24,34.50');
+  });
+
+  it('falls back to the canonical viewport key when state-scoped but no stateBbox is known (#873)', async () => {
+    // The states table may not be loaded yet on the very first scoped paint;
+    // without a fixed envelope we keep the prior canonical-viewport behavior
+    // rather than dropping the bbox (correctness floor).
+    const envelope = JSON.stringify({ data: [], meta: { freshestObservationAt: null } });
+    vi.spyOn(global, 'fetch').mockResolvedValue(new Response(envelope, { status: 200 }));
+    const client = new ApiClient({ baseUrl: '' });
+    await client.getObservations({
+      stateCode: 'US-CA',
+      bbox: [-118.241, 33.998, -107.237, 40.051],
+      zoom: 5,
+    });
+    const call = (fetch as unknown as { mock: { calls: [string, unknown][] } }).mock.calls[0]!;
+    const got = new URL(call[0], 'http://x').searchParams.get('bbox');
+    // Same canonical box the pre-#873 path produced for this viewport at z5.
+    expect(got).toBe('-130.00,24.75,-90.50,49.25');
+  });
+
   it('sends NO ?state= for unscoped/whole-US queries (data invariant, #735)', async () => {
     // Both the unscoped landing and the explicit ?scope=us escape hatch leave
     // ObservationFilters.stateCode unset, so the backend stays byte-for-byte
@@ -228,6 +315,100 @@ describe('ApiClient', () => {
       expect(apiErr.status).toBe(503);
       expect(apiErr.body).toBe('internal database pool exhausted');
     }
+  });
+
+  // ── #874 — in-flight /api/observations dedup + cancellation ────────────────
+  //
+  // `getObservations` is the single network boundary every caller funnels
+  // through. During a rapid scope/pan change (CA→NV→TX) several fetches fire in
+  // quick succession; without dedup all of them hit the network and the late
+  // (settle) one can resolve AFTER an earlier one, racing the rendered state.
+  // #874 adds (1) supersede-cancel — a new /api/observations aborts the prior
+  // in-flight one (passing an AbortSignal to fetch); and (2) concurrent-key
+  // coalesce — a byte-identical request already in flight returns the SHARED
+  // promise instead of issuing a second network call. The #849 reseed is NOT
+  // touched.
+
+  /** A fetch mock whose Responses resolve only when we say so. */
+  function deferredFetch() {
+    const resolvers: Array<(r: Response) => void> = [];
+    const calls: { url: string; signal: AbortSignal | undefined }[] = [];
+    const fn = vi.fn((url: string, init?: RequestInit) => {
+      calls.push({ url, signal: init?.signal ?? undefined });
+      return new Promise<Response>((resolve, reject) => {
+        const signal = init?.signal;
+        if (signal) {
+          signal.addEventListener('abort', () =>
+            reject(signal.reason ?? new DOMException('Aborted', 'AbortError')),
+          );
+        }
+        resolvers.push(resolve);
+      });
+    });
+    return { fn, resolvers, calls };
+  }
+  const okBody = () =>
+    new Response(JSON.stringify({ data: [], meta: { freshestObservationAt: null } }), { status: 200 });
+
+  it('passes an AbortSignal to fetch for /api/observations (#874)', async () => {
+    const d = deferredFetch();
+    vi.spyOn(global, 'fetch').mockImplementation(d.fn as unknown as typeof fetch);
+    const client = new ApiClient({ baseUrl: '' });
+    const p = client.getObservations({ stateCode: 'US-AZ' });
+    expect(d.calls[0]!.signal).toBeInstanceOf(AbortSignal);
+    d.resolvers[0]!(okBody());
+    await p;
+  });
+
+  it('aborts the prior in-flight /api/observations when a new one supersedes it (#874)', async () => {
+    const d = deferredFetch();
+    vi.spyOn(global, 'fetch').mockImplementation(d.fn as unknown as typeof fetch);
+    const client = new ApiClient({ baseUrl: '' });
+    // Three rapid scope changes (CA → NV → TX), none resolved yet.
+    const pCA = client.getObservations({ stateCode: 'US-CA' });
+    const pNV = client.getObservations({ stateCode: 'US-NV' });
+    const pTX = client.getObservations({ stateCode: 'US-TX' });
+    // The two superseded promises reject with AbortError.
+    await expect(pCA).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(pNV).rejects.toMatchObject({ name: 'AbortError' });
+    // Their underlying fetch signals are aborted; only the latest stays live.
+    expect(d.calls[0]!.signal!.aborted).toBe(true);
+    expect(d.calls[1]!.signal!.aborted).toBe(true);
+    expect(d.calls[2]!.signal!.aborted).toBe(false);
+    // The latest resolves normally.
+    d.resolvers[2]!(okBody());
+    await expect(pTX).resolves.toMatchObject({ mode: 'observations' });
+  });
+
+  it('coalesces a concurrent byte-identical /api/observations into ONE network call (#874)', async () => {
+    const d = deferredFetch();
+    vi.spyOn(global, 'fetch').mockImplementation(d.fn as unknown as typeof fetch);
+    const client = new ApiClient({ baseUrl: '' });
+    const f = { stateCode: 'US-AZ', bbox: [-114.82, 31.33, -109.05, 37.0] as [number, number, number, number], zoom: 5 };
+    const p1 = client.getObservations(f);
+    const p2 = client.getObservations({ ...f });
+    // Only ONE underlying network call despite two getObservations() invocations.
+    expect(d.fn).toHaveBeenCalledTimes(1);
+    d.resolvers[0]!(okBody());
+    const [r1, r2] = await Promise.all([p1, p2]);
+    expect(r1).toEqual(r2);
+  });
+
+  it('does NOT abort a different concurrent endpoint (getHotspots) (#874)', async () => {
+    const d = deferredFetch();
+    vi.spyOn(global, 'fetch').mockImplementation(d.fn as unknown as typeof fetch);
+    const client = new ApiClient({ baseUrl: '' });
+    const pHot = client.getHotspots();
+    // A superseding observations fetch must not abort the unrelated hotspots one.
+    const pObs1 = client.getObservations({ stateCode: 'US-CA' });
+    const pObs2 = client.getObservations({ stateCode: 'US-NV' });
+    await expect(pObs1).rejects.toMatchObject({ name: 'AbortError' });
+    // hotspots call (index 0) was never aborted.
+    expect(d.calls[0]!.url).toContain('/api/hotspots');
+    expect(d.calls[0]!.signal?.aborted ?? false).toBe(false);
+    d.resolvers[0]!(new Response(JSON.stringify([]), { status: 200 }));
+    d.resolvers[2]!(okBody());
+    await Promise.all([pHot, pObs2]);
   });
 
 });

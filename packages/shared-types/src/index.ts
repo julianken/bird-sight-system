@@ -219,6 +219,20 @@ export type ObservationFilters = {
    * `CONUS_STATE_CODES` before it reaches the data layer (plan task B1).
    */
   stateCode?: string;
+  /**
+   * #873 — the active state's FIXED bounding envelope (`StateSummary.bbox`,
+   * `[west, south, east, north]`), threaded from the `/api/states` table when a
+   * `US-XX` scope is active. CLIENT-ONLY: it is NEVER serialized to the wire as
+   * its own param — instead, in the AGGREGATED path (`zoom < 6`) the client
+   * substitutes this envelope (snapped to the cache grid) for the center-varying
+   * viewport bbox, so every viewport/pan of a state collapses to ONE Cloudflare
+   * cache key per `(state, zoom, filters)` and the origin query is state-tight.
+   * At `zoom >= 6` it is ignored (the viewport bbox keeps narrowing the dense
+   * per-observation query, preserving the 10k-truncation brake). Absent until
+   * the states table has loaded — the client falls back to the canonical
+   * viewport key in that window.
+   */
+  stateBbox?: [number, number, number, number];
 };
 
 /**

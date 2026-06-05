@@ -1,6 +1,6 @@
 import { test, expect, STATES_FIXTURE } from './fixtures.js';
 import { AppPage } from './pages/app-page.js';
-import { canonicalFetchBbox, type Bbox } from '@bird-watch/geo';
+import { snapFetchBbox, type Bbox } from '@bird-watch/geo';
 
 /**
  * C9 (#741) — chooser-first scope IA: chooser landing, state-select, `?scope=us`
@@ -138,31 +138,34 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
    * envelope, so AFTER the fix the post-switch bbox matches within tol — RED on
    * main (CONUS seed), GREEN after fix.
    *
-   * #868 — `client.ts` now reconstructs a CANONICAL fetch bbox from the
-   * (snapped-midpoint, zoom) + a fixed per-zoom half-extent, clamped to
-   * CONUS_BOUNDS, so the reseed fetch carries `canonicalFetchBbox(envelope,
-   * seedZoom)`, NOT the raw or edge-snapped envelope. Compare against the
-   * CANONICAL envelope so the assertion tracks the real on-the-wire contract.
+   * #873 — for a STATE scope in the aggregated path (`zoom < 6`), `client.ts`
+   * now sends the state's FIXED envelope (`StateSummary.bbox`) snapped OUTWARD
+   * to the cache grid via `snapFetchBbox(envelope, seedZoom)` — NOT the
+   * center-varying `canonicalFetchBbox` of the viewport (that center-varying box
+   * was the 100%-MISS defect #873 fixes). So the reseed/settle fetch for a state
+   * now carries the snapped fixed envelope; assert against that. (Before #873
+   * this compared against `canonicalFetchBbox(envelope, seedZoom)`; the contract
+   * changed with the fixed-envelope key.)
    *
    * The RED-on-main / GREEN-after-fix discriminator is preserved: each state's
-   * canonical box is distinct from the CONUS cold-mount seed's canonical box
-   * (`canonicalFetchBbox(INITIAL_BBOX_SEED, 3) = -130,20,-65,52` since #870; was
-   * `-129,…` while the seed was the legacy `[-125,24,-66,50]`), which is what an
-   * UNPATCHED post-switch fetch carries. The state canonical boxes are
-   * AZ `-130,20,-78,52` / FL `-118,20,-65,52` / NY `-110,20,-65,52` — none equal
-   * the `-130,20,-65,52` CONUS-seed box (AZ shares only the W/S/N edges; its E
-   * edge -78 differs), so a missing reseed still fails this assertion.
-   * (`bboxIntersects` above stays a separate, weaker guard: the canonical box is
-   * a CONUS-clamped superset that always intersects the target state, which is
-   * what the server `?state=` ST_Intersects clip relies on for correctness.)
+   * snapped fixed envelope is distinct from the CONUS cold-mount seed's canonical
+   * box (`canonicalFetchBbox(INITIAL_BBOX_SEED, 3) = -130,20,-65,52`), which is
+   * what an UNPATCHED post-switch fetch carries. The state snapped envelopes are
+   * AZ `-115,31,-109,37` / FL `-88,24,-80,31` / NY `-80,40,-71,46` (each axis
+   * floored W/S, ceiled E/N to the z3 1.0° grid) — none equal the
+   * `-130,20,-65,52` CONUS-seed box, so a missing reseed/envelope still fails
+   * this assertion. (`bboxIntersects` above stays a separate, weaker guard: the
+   * state envelope always intersects the target state, which is what the server
+   * `?state=` ST_Intersects clip relies on for correctness.)
    */
   function bboxMatchesEnvelope(
     bbox: [number, number, number, number],
     envelope: [number, number, number, number],
     tol = 0.5,
   ): boolean {
-    const canonical = canonicalFetchBbox(envelope as Bbox, AGGREGATED_SEED_ZOOM);
-    return bbox.every((v, i) => Math.abs(v - canonical[i]) <= tol);
+    // #873 — state scopes transmit the fixed envelope snapped to the grid.
+    const expected = snapFetchBbox(envelope as Bbox, AGGREGATED_SEED_ZOOM);
+    return bbox.every((v, i) => Math.abs(v - expected[i]) <= tol);
   }
 
   /** Pull the bbox off the LAST /api/observations request carrying `state`. */
