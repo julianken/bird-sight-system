@@ -2,33 +2,97 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type RefObject,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import type { ApiClient } from '../api/client.js';
-import { SpeciesDetailSurface } from './SpeciesDetailSurface.js';
 import { useSpeciesDetail } from '../data/use-species-detail.js';
+import { useSilhouettes } from '../data/use-silhouettes.js';
+import {
+  buildFamilyColorResolver,
+  buildFamilyPathResolver,
+  buildFamilyImgUrlResolver,
+} from '../data/family-color.js';
+import { SpeciesDescription } from './SpeciesDescription.js';
+import { Photo } from './ds/Photo.js';
+import type { FamilyCode } from '../config/family-palette.js';
 
 export type SnapState = 'peek' | 'half' | 'full';
 
-// MOB-6: PEEK_PX raised from 96 → 120 so the peek strip is comfortably
-// reachable by a thumb at the bottom of a 390×844 screen (96px was tight
-// against the safe-area-inset-bottom on notched devices). DISMISS_THRESHOLD_PX
-// lowered from 160 → 80 so a short downward flick dismisses the sheet — the
-// old 160px required a deliberate two-thirds swipe that felt sluggish.
-const PEEK_PX = 120;
+export type ContentTier = 'compact' | 'mid' | 'full';
+
+// PEEK_PX — the identity-row detent: tall enough for the handle + a compact
+// header (thumbnail + name + family), short enough to keep the map visible.
+const PEEK_PX = 104;
 // half + full are computed at runtime against window.innerHeight so they
 // honor the actual viewport (post safe-area, post URL-bar collapse on
 // mobile Safari). Constants here are the FRACTIONS:
 const HALF_FRACTION = 0.6;
 const FULL_INSET_PX = 8;
-// Drag dismissal: dragging the handle down past peek by this many pixels
-// dismisses the sheet (calls onClose). 80px ≈ one thumb's travel.
-const DISMISS_THRESHOLD_PX = 80;
-// Drag transition thresholds — half travel between adjacent snaps flips.
-const SNAP_TRANSITION_RATIO = 0.5;
+// A flick faster than this (>500px/s) advances or retracts a detent on release,
+// independent of where the drag settled by position.
+const VELOCITY_FLICK_PX_PER_MS = 0.5;
+// The sheet can shrink below peek during a downward drag toward the dismiss
+// threshold; it never renders shorter than this.
+const DRAG_MIN_HEIGHT_PX = 56;
+const order: SnapState[] = ['peek', 'half', 'full'];
+
+// Content-tier hysteresis. The visible content tier ([data-content]) is driven
+// by the LIVE sheet height so content blooms during the drag — but a single
+// boundary thrashes when the finger hovers near it. resolveContentTier applies
+// a ±HYSTERESIS_PX dead-band around each boundary: a tier only changes once the
+// height crosses the boundary by more than the band, and within the band the
+// previous tier holds. Pure + exported so it is unit-testable in isolation.
+const HYSTERESIS_PX = 24;
+// compact↔mid boundary: just above the peek detent height.
+const COMPACT_MID_BOUNDARY_PX = PEEK_PX + 64;
+
+/**
+ * Map a live sheet height to a content tier with a ±24px hysteresis dead-band.
+ *
+ * Boundaries:
+ *   compact ↔ mid  at COMPACT_MID_BOUNDARY_PX (PEEK_PX + 64)
+ *   mid     ↔ full at the midpoint between the half and full detent heights
+ *                  (derived from `vh` so it tracks the live viewport)
+ *
+ * Hysteresis: ascending, the tier promotes only once height exceeds a boundary
+ * by more than HYSTERESIS_PX; descending, it demotes only once height drops
+ * below the boundary by more than HYSTERESIS_PX. Inside the ±band the tier
+ * holds at `prevTier` — so a finger oscillating around a boundary does not
+ * thrash the layout.
+ */
+export function resolveContentTier(
+  height: number,
+  prevTier: ContentTier,
+  vh: number,
+): ContentTier {
+  const half = Math.round(vh * HALF_FRACTION);
+  const full = vh - FULL_INSET_PX;
+  const midFullBoundary = (half + full) / 2;
+
+  // Order the tiers low→high so we can reason about promote/demote uniformly.
+  const tiers: ContentTier[] = ['compact', 'mid', 'full'];
+  const boundaries = [COMPACT_MID_BOUNDARY_PX, midFullBoundary];
+
+  const prevIdx = tiers.indexOf(prevTier);
+  // Defensive: an unrecognized prevTier collapses to the position-only result.
+  const safePrevIdx = prevIdx < 0 ? 0 : prevIdx;
+
+  // Promote upward as long as the height clears the next boundary by the band.
+  let idx = safePrevIdx;
+  while (idx < boundaries.length && height >= boundaries[idx]! + HYSTERESIS_PX) {
+    idx++;
+  }
+  // Demote downward as long as the height falls below the current lower
+  // boundary by the band.
+  while (idx > 0 && height < boundaries[idx - 1]! - HYSTERESIS_PX) {
+    idx--;
+  }
+  return tiers[idx]!;
+}
 
 export interface SpeciesDetailSheetProps {
   speciesCode: string;
@@ -46,11 +110,13 @@ export interface SpeciesDetailSheetProps {
 }
 
 /**
- * Mobile bottom-sheet detail surface (Sky Atlas Phase 4). Apple Maps
- * "Look Up" idiom: three snap points (peek 120px / half 60vh / full
- * 100vh−8px). The sheet is NOT a <dialog> at peek/half — peek/half
- * leave the map underneath interactive, which a modal <dialog> by
- * definition cannot. The role flips with snap state per
+ * Mobile bottom-sheet detail surface (field-guide direction). Apple Maps
+ * "Look Up" idiom: three detents (peek 104px identity row / half 60vh
+ * plate card / full 100vh−8px field-guide entry). Opens at `half` for
+ * immediate readability; `peek` is the map-preserving collapsed state
+ * reached by dragging down. The sheet is NOT a <dialog> at peek/half —
+ * peek/half leave the map underneath interactive, which a modal <dialog>
+ * by definition cannot. The role flips with snap state per
  * accessibility.md §New contract — bottom-sheet ARIA:
  *
  *   peek/half → role="region", aria-label="Selected sighting"
@@ -70,15 +136,29 @@ export interface SpeciesDetailSheetProps {
  * Drag implementation uses native Pointer Events — no third-party
  * gesture library. touch-action discipline:
  *   - .sheet-handle: touch-action: none (we own the gesture)
- *   - .species-detail-body: touch-action: pan-y (browser owns scroll)
+ *   - .sheet-fg: touch-action: pan-y (browser owns scroll)
  */
 export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
   const { speciesCode, apiClient, onClose, mainRef, onSnapChange } = props;
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const handleRef = useRef<HTMLButtonElement | null>(null);
-  const [snap, setSnap] = useState<SnapState>('peek');
-  const [dragOffset, setDragOffset] = useState<number>(0); // px: positive = pulled down
-  const dragStartRef = useRef<{ y: number; snap: SnapState } | null>(null);
+  // Open at `half` (the plate-card detent) for immediate readability; the
+  // identity-row detent (`peek`) is the map-preserving collapsed state,
+  // reached by dragging down.
+  const [snap, setSnap] = useState<SnapState>('half');
+  const [dragging, setDragging] = useState<boolean>(false);
+  // During a drag we drive the sheet HEIGHT directly (1:1 with the finger);
+  // null means "use the detent height for `snap`".
+  const [liveHeight, setLiveHeight] = useState<number | null>(null);
+  const dragRef = useRef<{
+    startY: number;
+    startHeight: number;
+    lastY: number;
+    lastT: number;
+    vy: number; // px/ms, positive = moving down
+    moved: boolean;
+  } | null>(null);
+  const didDragRef = useRef<boolean>(false);
 
   // O5 (#783) — notify App.tsx of snap changes so it can drive forceCollapsed
   // on FamilyLegend. Fires on every snap transition (peek→half→full and back).
@@ -92,6 +172,15 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
   // a no-op second mount.
   const { data } = useSpeciesDetail(apiClient, speciesCode);
   const speciesName = data?.comName;
+  // Family-resolvers for the accent rule / dot and the <Photo> silhouette
+  // fallback. useSilhouettes is module-cached — no extra network call. The
+  // color/path/imgUrl trio mirrors SpeciesDetailSurface so the sheet's
+  // masthead fallback renders the operator-curated family shape, not the
+  // generic glyph.
+  const { silhouettes } = useSilhouettes(apiClient);
+  const resolveColor = useMemo(() => buildFamilyColorResolver(silhouettes), [silhouettes]);
+  const resolvePath = useMemo(() => buildFamilyPathResolver(silhouettes), [silhouettes]);
+  const resolveImgUrl = useMemo(() => buildFamilyImgUrlResolver(silhouettes), [silhouettes]);
 
   // Compute snap heights against the live viewport. Recompute on
   // resize so an orientation change or mobile-Safari URL-bar collapse
@@ -193,67 +282,107 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
     return () => document.removeEventListener('keydown', handler);
   }, [collapse]);
 
-  // Pointer Events drag handlers. Bound on the handle, NOT the sheet
-  // body — touch-action discipline requires the sheet body to keep its
-  // native pan-y scroll behavior.
+  // Height-driven 1:1 drag. Bound on the handle only (touch-action discipline
+  // unchanged — .sheet-handle owns the gesture; .sheet-fg keeps native pan-y).
+  // We drive `liveHeight` directly so the sheet tracks the finger in BOTH
+  // directions, then settle to a detent on release using velocity + position.
+  // The CSS height transition is gated off while `dragging` (via
+  // [data-dragging="true"]) so the drag is 1:1, not eased.
+  const settleTo = useCallback(
+    (next: SnapState) => {
+      const main = mainRef.current;
+      // Preserve inert sequencing: write inert BEFORE the snap/role commit.
+      if (next === 'full' && main && !main.hasAttribute('inert')) {
+        main.setAttribute('inert', '');
+      }
+      setLiveHeight(null);
+      setSnap(next);
+    },
+    [mainRef],
+  );
+
   const onPointerDown = useCallback(
     (e: ReactPointerEvent<HTMLButtonElement>) => {
       // setPointerCapture is not available in JSDOM (only real browsers).
       if (typeof e.currentTarget.setPointerCapture === 'function') {
         e.currentTarget.setPointerCapture(e.pointerId);
       }
-      dragStartRef.current = { y: e.clientY, snap };
-      setDragOffset(0);
+      dragRef.current = {
+        startY: e.clientY,
+        startHeight: heightFor(snap),
+        lastY: e.clientY,
+        lastT: performance.now(),
+        vy: 0,
+        moved: false,
+      };
+      didDragRef.current = false;
+      setDragging(true);
     },
-    [snap],
+    [snap, heightFor],
   );
 
-  const onPointerMove = useCallback((e: ReactPointerEvent<HTMLButtonElement>) => {
-    const start = dragStartRef.current;
-    if (!start) return;
-    setDragOffset(e.clientY - start.y);
-  }, []);
+  const onPointerMove = useCallback(
+    (e: ReactPointerEvent<HTMLButtonElement>) => {
+      const d = dragRef.current;
+      if (!d) return;
+      const now = performance.now();
+      const dt = Math.max(1, now - d.lastT);
+      d.vy = (e.clientY - d.lastY) / dt; // px/ms, positive = moving down
+      d.lastY = e.clientY;
+      d.lastT = now;
+      if (Math.abs(e.clientY - d.startY) > 4) d.moved = true;
+      // Drag up (clientY decreases) grows the sheet; drag down shrinks it.
+      const grow = d.startY - e.clientY;
+      const maxH = heightFor('full');
+      const next = Math.min(maxH, Math.max(DRAG_MIN_HEIGHT_PX, d.startHeight + grow));
+      setLiveHeight(next);
+    },
+    [heightFor],
+  );
 
   const onPointerUp = useCallback(
     (e: ReactPointerEvent<HTMLButtonElement>) => {
       if (typeof e.currentTarget.releasePointerCapture === 'function') {
         e.currentTarget.releasePointerCapture(e.pointerId);
       }
-      const start = dragStartRef.current;
-      dragStartRef.current = null;
-      const delta = e.clientY - (start?.y ?? e.clientY);
-      setDragOffset(0);
+      const d = dragRef.current;
+      dragRef.current = null;
+      setDragging(false);
+      if (!d) return;
+      didDragRef.current = d.moved;
 
-      // Dismiss path: dragging down from peek by more than
-      // DISMISS_THRESHOLD_PX dismisses the sheet entirely.
-      if (snap === 'peek' && delta > DISMISS_THRESHOLD_PX) {
+      const maxH = heightFor('full');
+      const finalH = Math.min(
+        maxH,
+        Math.max(DRAG_MIN_HEIGHT_PX, d.startHeight + (d.startY - d.lastY)),
+      );
+
+      // Dismiss: released well below peek while not flicking back upward.
+      if (finalH < PEEK_PX * 0.6 && d.vy >= 0) {
+        setLiveHeight(null);
         onClose();
         return;
       }
 
-      // Snap-transition: which adjacent snap is closest, after the drag?
-      // We measure delta against the height-difference between the
-      // current snap and the adjacent snap in the drag direction.
-      const order: SnapState[] = ['peek', 'half', 'full'];
-      const currentIdx = order.indexOf(snap);
-
-      if (delta < 0) {
-        // Drag up: maybe advance.
-        const nextIdx = Math.min(order.length - 1, currentIdx + 1);
-        if (nextIdx === currentIdx) return;
-        const nextSnap = order[nextIdx]!;
-        const span = heightFor(nextSnap) - heightFor(snap);
-        if (-delta > span * SNAP_TRANSITION_RATIO) goToSnap(nextSnap);
-      } else if (delta > 0) {
-        // Drag down: maybe retract.
-        const prevIdx = Math.max(0, currentIdx - 1);
-        if (prevIdx === currentIdx) return; // already at peek
-        const prevSnap = order[prevIdx]!;
-        const span = heightFor(snap) - heightFor(prevSnap);
-        if (delta > span * SNAP_TRANSITION_RATIO) goToSnap(prevSnap);
+      // Settle to the nearest detent by height, then bias by flick velocity:
+      // a fast upward flick advances a detent, a fast downward flick retracts.
+      let nearest: SnapState = order[0]!;
+      let best = Infinity;
+      for (const s of order) {
+        const diff = Math.abs(heightFor(s) - finalH);
+        if (diff < best) {
+          best = diff;
+          nearest = s;
+        }
       }
+      let target = nearest;
+      const idx = order.indexOf(nearest);
+      if (d.vy < -VELOCITY_FLICK_PX_PER_MS) target = order[Math.min(order.length - 1, idx + 1)]!;
+      else if (d.vy > VELOCITY_FLICK_PX_PER_MS) target = order[Math.max(0, idx - 1)]!;
+
+      settleTo(target);
     },
-    [snap, heightFor, goToSnap, onClose],
+    [heightFor, onClose, settleTo],
   );
 
   // Initial focus on mount: heading first only when the sheet opens at
@@ -270,8 +399,25 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
   }, [snap]);
 
   const isFull = snap === 'full';
-  const height = heightFor(snap);
-  const translate = Math.max(0, dragOffset);
+  const height = liveHeight ?? heightFor(snap);
+  // Three size-appropriate content tiers, chosen by LIVE height so content
+  // blooms DURING the drag. compact → identity row; mid → plate card; full →
+  // field-guide entry. resolveContentTier hysteresizes the boundaries (±24px
+  // dead-band) so a finger near a threshold doesn't thrash the layout; the
+  // previous tier is carried across renders in prevTierRef.
+  const prevTierRef = useRef<ContentTier>('mid');
+  const content = resolveContentTier(height, prevTierRef.current, vh);
+  prevTierRef.current = content;
+  const famColor = resolveColor(data?.familyCode);
+  // descriptionBody is sanitized HTML (rendered via SpeciesDescription at full);
+  // the mid teaser wants a plain-text 2-line clamp, so strip tags for it.
+  const descPlain = data?.descriptionBody
+    ? data.descriptionBody
+        .replace(/<\/(p|div|li|h\d)>/gi, ' ') // block-close → a single space
+        .replace(/<[^>]+>/g, '') // strip inline tags WITHOUT a space (no " ," artifact)
+        .replace(/\s+/g, ' ')
+        .trim()
+    : '';
 
   return (
     <div
@@ -279,12 +425,18 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
       data-testid="species-detail-sheet"
       className={`species-detail-sheet species-detail-sheet--${snap}`}
       data-snap-state={snap}
+      data-dragging={dragging ? 'true' : 'false'}
+      data-content={content}
       role={isFull ? 'dialog' : 'region'}
       aria-label={isFull ? (speciesName ?? 'Species detail') : 'Selected sighting'}
       {...(isFull ? { 'aria-modal': 'true' as const } : {})}
       style={{
-        height: `${height}px`,
-        transform: `translateY(${translate}px)`,
+        // Reserve the bottom safe-area BELOW the detent content so the collapsed
+        // row is neither clipped by the home indicator nor padded with slack.
+        // Not added at full — full already spans to the inset.
+        height: isFull
+          ? `${height}px`
+          : `calc(${height}px + env(safe-area-inset-bottom, 0px))`,
       }}
     >
       <button
@@ -293,7 +445,15 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
         data-testid="species-detail-sheet-handle"
         className="sheet-handle"
         aria-label={isFull ? 'Collapse species detail' : 'Expand species detail'}
-        onClick={isFull ? collapse : expand}
+        onClick={() => {
+          // Suppress the click that fires after a drag (pointerup → click).
+          // A pure tap (no movement) still expands/collapses as a fallback.
+          if (didDragRef.current) {
+            didDragRef.current = false;
+            return;
+          }
+          (isFull ? collapse : expand)();
+        }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -301,17 +461,105 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
       >
         <span aria-hidden="true" className="sheet-handle-grip" />
       </button>
-      {/* axe `scrollable-region-focusable` (WCAG 2.1.1): .sheet-scroll has
-          overflow-y: auto so it can scroll when species detail content
-          (photo + prose) exceeds the sheet height. Keyboard users must be
-          able to focus the scrollable region itself — tabIndex={0} adds
-          it to the tab order. Mirrors the same fix on #main-surface in
-          App.tsx. */}
-      <div className="sheet-scroll" tabIndex={0}>
-        <SpeciesDetailSurface
-          speciesCode={speciesCode}
-          apiClient={apiClient}
-        />
+      {/* Field-guide layout: three size-appropriate tiers in one grid that
+          re-templates per [data-content]. The photo is a SINGLE <Photo>
+          element kept mounted across detents; only its frame morphs via CSS.
+          The grid scrolls (tabIndex=0 satisfies axe scrollable-region-focusable). */}
+      <div className="sheet-fg" tabIndex={0}>
+        <div className="sheet-fg-photo">
+          {/* Decorative photo (alt=""): the species name always sits adjacent
+              and we have no plumage metadata, so a non-empty alt would triple-
+              announce. <Photo> owns the no-photo silhouette fallback (emits
+              .photo--silhouette) and the family shape/color via the resolvers. */}
+          <Photo
+            src={data?.photoUrl ?? null}
+            alt=""
+            family={(data?.familyCode as FamilyCode | null) ?? null}
+            color={resolveColor(data?.familyCode)}
+            pathD={resolvePath(data?.familyCode)}
+            imgUrl={resolveImgUrl(data?.familyCode)}
+            priority
+            layout="masthead"
+          />
+        </div>
+
+        <div className="sheet-fg-identity">
+          {/* h2: the map identity ("Bird Maps") owns the page h1; the species
+              name is the top heading INSIDE the dialog. */}
+          <h2 id="detail-title" tabIndex={-1} className="sheet-fg-name">
+            {data?.comName ?? 'Loading…'}
+          </h2>
+          <p className="sheet-fg-sci">
+            <em>{data?.sciName}</em>
+          </p>
+          <p className="sheet-fg-family">
+            <span
+              className="sheet-fg-family-dot"
+              aria-hidden="true"
+              style={{ background: famColor }}
+            />
+            {data?.familyName}
+          </p>
+        </div>
+
+        <div className="sheet-fg-rule" aria-hidden="true" style={{ background: famColor }} />
+
+        {/* MID tier — labeled field record (real <dl> so AT ties label→value) */}
+        <dl className="sheet-fg-record">
+          <div className="sheet-fg-cell">
+            <dt className="sheet-fg-label">Family</dt>
+            <dd className="sheet-fg-value">{data?.familyName ?? '—'}</dd>
+          </div>
+          <div className="sheet-fg-cell">
+            <dt className="sheet-fg-label">eBird taxonomic order</dt>
+            <dd className="sheet-fg-value">
+              {data?.taxonOrder != null ? `#${data.taxonOrder}` : '—'}
+            </dd>
+          </div>
+        </dl>
+        <div className="sheet-fg-teaser">
+          <p className="sheet-fg-teaser-text">
+            {descPlain || 'No description available.'}
+          </p>
+          <button
+            type="button"
+            className="sheet-fg-readaccount"
+            aria-expanded={isFull}
+            aria-controls="sheet-fg-account"
+            onClick={() => goToSnap('full')}
+          >
+            Read account <span aria-hidden="true">⌄</span>
+          </button>
+        </div>
+
+        {/* FULL tier — taxonomy table + ABOUT prose + credits */}
+        <dl className="sheet-fg-taxonomy">
+          <div className="sheet-fg-taxrow">
+            <dt>Scientific name</dt>
+            <dd><em>{data?.sciName}</em></dd>
+          </div>
+          <div className="sheet-fg-taxrow">
+            <dt>Family</dt>
+            <dd>{data?.familyName}</dd>
+          </div>
+          <div className="sheet-fg-taxrow">
+            <dt>eBird taxonomic order</dt>
+            <dd>{data?.taxonOrder != null ? `#${data.taxonOrder}` : '—'}</dd>
+          </div>
+        </dl>
+        <div className="sheet-fg-about" id="sheet-fg-account">
+          {data?.descriptionBody ? (
+            <>
+              <h3 className="sheet-fg-about-eyebrow">About</h3>
+              <SpeciesDescription
+                descriptionBody={data.descriptionBody}
+                descriptionAttributionUrl={data.descriptionAttributionUrl}
+              />
+            </>
+          ) : (
+            <p className="sheet-fg-prose">No description available.</p>
+          )}
+        </div>
       </div>
     </div>
   );

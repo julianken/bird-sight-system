@@ -217,7 +217,11 @@ export function App() {
     isPhone && (
       state.scope.kind === 'unscoped' ||
       filtersOpen ||
-      (sheetSnap === 'half' || sheetSnap === 'full')
+      (sheetSnap === 'half' || sheetSnap === 'full') ||
+      // Also collapse at the identity-row detent — whenever a detail sheet is
+      // open at all — so the small sheet's preserved map is not buried under
+      // the legend card.
+      !!state.detail
     );
 
   // O4 (#780) — ref to the floating filters sheet panel. Focus moves into the

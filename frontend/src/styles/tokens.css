@@ -122,6 +122,26 @@
    * Named for what it is (the cluster height), NOT --header-height which is a
    * retired layout-reservation token. Added 2026-05-30 (#801). */
   --controls-cluster-h: 54px;
+
+  /* ── transitions-dev recipe tokens ──────────────────────────────────────
+   * Semantic motion vars consumed by the field-guide sheet reveals
+   * (SpeciesDetailSheet / styles.css). Values are the live transitions.dev
+   * tunings. recipe-18 (texts-reveal) drives the mid-tier sci/record/teaser;
+   * recipe-07 (panel-reveal) drives the full-tier taxonomy/About. Reduced-
+   * motion is handled globally in motion.css — no per-recipe guard here. */
+  --stagger-dur:         600ms;
+  --stagger-distance:    12px;
+  --stagger-stagger:     40ms;
+  --stagger-blur:        3px;
+  --stagger-ease:        cubic-bezier(0.22, 1, 0.36, 1);
+  --panel-open-dur:      400ms;
+  --panel-blur:          2px;
+  --panel-ease:          cubic-bezier(0.22, 1, 0.36, 1);
+  /* Half-travel for the full-tier panel slide; the sheet's own height already
+     supplies most of the open distance so a short translate reads as a full
+     open (recipe-07 note). Named -sheet so it doesn't collide if the canonical
+     --panel-translate-y (100px) is later imported wholesale. */
+  --panel-translate-y-sheet: 32px;
 }
 
 /* ── Layer 2: Semantic — light mode ─────────────────────────────────── */

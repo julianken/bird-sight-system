@@ -305,10 +305,15 @@ test.describe('species detail surface — photo rendering (#327 task-12)', () =>
         await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' }))
           .toBeVisible({ timeout: 10_000 });
 
-        // The photo render branch produces an <img> with alt="<comName> photo".
-        // Ends-with match (`alt$=` style) via getByAltText regex avoids
-        // collisions with any future alt text containing the species name.
-        const photo = page.getByAltText('Vermilion Flycatcher photo');
+        // The photo render branch produces an <img> inside the <Photo>
+        // primitive (.photo__img). On DESKTOP the surface gives it a descriptive
+        // alt ("<comName> photo"); on MOBILE the field-guide sheet renders the
+        // photo DECORATIVELY (alt="") because the species name sits adjacent —
+        // so the alt-text locator only works on desktop. Locate by the stable
+        // .photo__img class on mobile.
+        const photo = viewport.label === 'mobile'
+          ? page.locator('.sheet-fg-photo .photo__img')
+          : page.getByAltText('Vermilion Flycatcher photo');
         await expect(photo).toBeVisible();
         await expect(photo).toHaveAttribute('src', 'https://photos.bird-maps.com/vermfly.jpg');
         // The IMG must have actually loaded (naturalWidth>0). The stubbed

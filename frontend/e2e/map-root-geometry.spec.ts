@@ -312,18 +312,18 @@ test.describe('#761 (S2): full-viewport map root geometry', () => {
   });
 
   // ───────────────────────────────────────────────────────────────────────────
-  // #830 — peek-snap detail sheet clearance vs the family legend.
+  // #830 / #907 — peek-snap detail sheet clearance vs the family legend.
   //
   // The bottom-right MapLibre attribution bar was removed (#830 item A), so the
-  // old legend-vs-attribution guard is gone (it asserted a control that no
-  // longer renders). The only remaining bottom-left collision risk is the
-  // species-detail bottom sheet at its PEEK snap on phones: at half/full the
-  // legend is already force-collapsed (App.tsx legendForceCollapsed), so peek is
-  // the one state where the un-collapsed legend shares the bottom band with the
-  // sheet. The `body:has(.species-detail-sheet--peek) .family-legend` rule lifts
-  // the legend by calc(--card-inset + 120px + --space-md) so the two never
-  // overlap. This guard asserts the legend's bottom edge sits at or ABOVE the
-  // peek sheet's top edge at 390×844 (the AC viewport).
+  // old legend-vs-attribution guard is gone. The remaining bottom-left collision
+  // risk is the species-detail bottom sheet at its PEEK (identity-row) snap on
+  // phones. #907 made the sheet open at HALF and force-collapse the legend
+  // whenever a detail sheet is open at all (App.tsx `!!state.detail`), so the
+  // legend is force-collapsed (header-pill height) at every detent including
+  // peek. The `body:has(.species-detail-sheet--peek) .family-legend` clearance
+  // rule still lifts it clear of the peek band. This guard drags the sheet down
+  // to peek and asserts the legend's bottom edge sits at or ABOVE the peek
+  // sheet's top edge at 390×844 (the AC viewport) — no overlap.
   // ───────────────────────────────────────────────────────────────────────────
   test.describe('#830: peek-snap detail sheet clearance vs family legend', () => {
     test.use({ viewport: { width: 390, height: 844 } });
@@ -335,8 +335,9 @@ test.describe('#761 (S2): full-viewport map root geometry', () => {
       await setupRoutes(page, apiStub);
       await stubSilhouettesForLegend(page);
       await apiStub.stubSpecies('vermfly', VERMFLY);
-      // Start from a known (expanded) legend state regardless of prior
-      // persistence — the expanded legend is the taller box and the harder case.
+      // Start from a known (expanded) legend preference regardless of prior
+      // persistence. The detail sheet force-collapses it anyway (#907), but this
+      // keeps the test's starting state deterministic.
       await page.addInitScript(() => {
         try {
           window.localStorage.removeItem('family-legend-expanded');
@@ -348,25 +349,32 @@ test.describe('#761 (S2): full-viewport map root geometry', () => {
 
       const app = new AppPage(page);
       // Scope to AZ (so the legend mounts with AZ silhouettes) AND deep-link the
-      // detail param so the bottom sheet opens. At 390×844 it lands at peek.
+      // detail param so the bottom sheet opens. At 390×844 it lands at half.
       await app.goto('state=US-AZ&detail=vermfly&view=detail');
       await app.waitForAppReady();
 
-      // The sheet mounts at peek (data-snap-state="peek" → the
-      // .species-detail-sheet--peek class that the :has() rule keys on).
       const sheet = page.locator('[data-testid=species-detail-sheet]');
       await expect(sheet).toBeVisible({ timeout: 10_000 });
-      await expect(sheet).toHaveAttribute('data-snap-state', 'peek');
+      await expect(sheet).toHaveAttribute('data-snap-state', 'half');
 
       // The legend mounts once silhouettes resolve (App-root sibling — no WebGL
-      // dependency). At peek it is NOT force-collapsed, so it renders normally.
+      // dependency).
       await expect(page.locator('.family-legend')).toBeVisible({ timeout: 10_000 });
-      // Ensure the legend is expanded (the taller, harder case).
-      const toggle = page.locator('.family-legend [aria-expanded]');
-      if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
-        await toggle.click();
-        await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-      }
+
+      // Drag the sheet down from half to the peek (identity-row) detent so the
+      // .species-detail-sheet--peek clearance rule is exercised. Travel ≈
+      // (half height − peek) so it settles at peek, not dismiss.
+      const handle = page.locator('[data-testid=species-detail-sheet-handle]');
+      const hb = await handle.boundingBox();
+      const sb = await sheet.boundingBox();
+      if (!hb || !sb) throw new Error('handle/sheet bounding box unavailable');
+      const cx = hb.x + hb.width / 2;
+      const cy = hb.y + hb.height / 2;
+      await page.mouse.move(cx, cy);
+      await page.mouse.down();
+      await page.mouse.move(cx, cy + (sb.height - 140), { steps: 20 });
+      await page.mouse.up();
+      await expect(sheet).toHaveAttribute('data-snap-state', 'peek');
 
       const m = await measureLegendVsSheet(page);
       expect(m, '.species-detail-sheet / .family-legend not found').not.toBeNull();

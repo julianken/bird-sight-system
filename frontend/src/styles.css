@@ -1390,14 +1390,25 @@ aside.species-detail-rail .species-detail-rail-close {
   z-index: 10;
   display: flex;
   flex-direction: column;
-  /* MOB-5: notched devices need env(safe-area-inset-top) so the sheet
-     handle clears the Dynamic Island / status bar when fully expanded.
-     max() keeps the sheet from losing its rounded-corner top edge if
-     the safe-area inset is larger than the default padding. */
-  padding-top: max(var(--space-xs, 4px), env(safe-area-inset-top, 0px));
+  /* The safe-area-inset-top clearance is only needed at FULL, when the sheet
+     covers the notch. Applying it at every detent added ~47px of dead space
+     above the handle on notched phones at peek/half — moved to
+     .species-detail-sheet--full below. */
+  padding-top: var(--space-xs, 4px);
   padding-bottom: env(safe-area-inset-bottom, 0);
-  transition: height 200ms ease, transform 200ms ease;
-  will-change: height, transform;
+  /* Settle tween uses the transitions-dev card-resize tuning (recipe
+     01-card-resize). The transition is gated OFF during an active drag via
+     [data-dragging='true'] below so the drag tracks the finger 1:1.
+     Reduced-motion is owned globally by motion.css (collapses this to 0ms);
+     no per-element guard here, per repo convention. */
+  --sheet-settle-dur: 300ms;
+  --sheet-settle-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  transition: height var(--sheet-settle-dur) var(--sheet-settle-ease);
+  will-change: height;
+}
+
+.species-detail-sheet[data-dragging='true'] {
+  transition: none;
 }
 
 .species-detail-sheet--full {
@@ -1410,6 +1421,10 @@ aside.species-detail-rail .species-detail-rail-close {
      controls tiers so the map remains interactive while the sheet is partially
      open (see styles.css for --peek/--half comments). */
   z-index: var(--z-modal);
+  /* Only the full sheet reaches the notch — clear it here. */
+  padding-top: max(var(--space-xs, 4px), env(safe-area-inset-top, 0px));
+  /* Clip the full-bleed masthead to the sheet's rounded top. */
+  overflow: hidden;
 }
 
 /* #761 (S2/O5): the AppHeader is `position: fixed` floating chrome on
@@ -1451,17 +1466,380 @@ aside.species-detail-rail .species-detail-rail-close {
   background: var(--color-text-muted);
 }
 
-.sheet-scroll {
-  /* Body: native vertical scroll; handle owns horizontal/vertical
-     gesture decisions at the top. */
-  touch-action: pan-y;
+/* ── Field-guide detent layouts ────────────────────────────────────────────
+   One grid (.sheet-fg) re-templates per [data-content] (compact|mid|full),
+   driven by live sheet height in SpeciesDetailSheet.tsx (resolveContentTier,
+   hysteresed). The photo (.sheet-fg-photo) is a single <Photo> kept mounted
+   across detents; only its frame morphs (44px thumb -> 120px plate -> full-
+   bleed masthead). Hairlines use a theme-neutral translucent grey. */
+.sheet-fg {
   flex: 1;
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-lg) var(--space-md);
   overflow-y: auto;
-  /* The detail body's full-bleed hero photo bleeds ±16px; contain it
-     explicitly rather than relying on overflow-y:auto implicitly promoting
-     overflow-x. (julianken-bot suggestion, PR #820.) */
   overflow-x: clip;
+  touch-action: pan-y;
   -webkit-overflow-scrolling: touch;
+}
+
+.sheet-fg-photo {
+  grid-area: photo;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--color-bg-tint);
+}
+/* §1.2 inner-node sizing — make the <Photo> primitive fill the morphing frame
+   so the per-tier width/height on .sheet-fg-photo (44px → 120px → masthead) is
+   what drives the photo size. <Photo> defaults to its own aspect-ratio
+   (4/3 inline, 16/10 masthead); override that to auto + 100%/100% here so the
+   frame, not the primitive, owns the box. The <img> and the no-photo
+   <FamilySilhouette> both inherit the frame the same way. */
+.sheet-fg-photo .photo {
+  aspect-ratio: auto;
+  width: 100%;
+  height: 100%;
+}
+.sheet-fg-photo .photo__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.sheet-fg-photo .family-silhouette {
+  width: 100%;
+  height: 100%;
+}
+
+.sheet-fg-identity { grid-area: identity; min-width: 0; }
+.sheet-fg-name {
+  margin: 0;
+  font-size: var(--type-md);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.15;
+  color: var(--color-text-strong);
+}
+/* Programmatic focus (AT context on open) paints NO box; keyboard focus gets a
+   tokenized high-contrast ring — fixes the stray focus box on the name. */
+.sheet-fg-name:focus { outline: none; }
+.sheet-fg-name:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+.sheet-fg-sci {
+  margin: 2px 0 0;
+  font-size: var(--type-sm);
+  color: var(--color-text-muted);
+}
+.sheet-fg-family {
+  margin: var(--space-xs) 0 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--type-sm);
+  color: var(--color-text-muted);
+}
+.sheet-fg-family-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  /* 1px ring so the dot's boundary is perceivable on any family hue / theme
+     (a11y: non-text contrast, family color must not be the only signal). */
+  box-shadow: 0 0 0 1px rgba(128, 128, 128, 0.55);
+}
+
+.sheet-fg-rule {
+  grid-area: rule;
+  height: 3px;
+  border-radius: 2px;
+  align-self: start;
+}
+
+/* MID-only + FULL-only blocks hidden by default; placed per data-content below */
+.sheet-fg-record,
+.sheet-fg-teaser,
+.sheet-fg-taxonomy,
+.sheet-fg-about { display: none; }
+.sheet-fg-record { grid-area: record; }
+.sheet-fg-teaser { grid-area: teaser; }
+.sheet-fg-taxonomy { grid-area: taxonomy; }
+.sheet-fg-about { grid-area: about; }
+
+/* MID field record strip — borderless, inter-cell gap (not a heavy boxed table) */
+.sheet-fg-record { margin: 0; }
+.sheet-fg-cell { margin: 0; }
+.sheet-fg-label {
+  display: block;
+  margin: 0;
+  font-size: var(--type-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}
+.sheet-fg-value {
+  display: block;
+  margin: 2px 0 0;
+  font-size: var(--type-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-strong);
+}
+
+/* MID teaser — 2-line clamp + read-account button */
+.sheet-fg-teaser-text {
+  margin: 0;
+  font-size: var(--type-base);
+  line-height: 1.5;
+  color: var(--color-text-body);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.sheet-fg-readaccount {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px; /* WCAG 2.5.8 touch target */
+  padding: 8px 0;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: var(--type-sm);
+  /* AA-safe link recipe (#830): --color-text-strong + underline reads as a
+     link on the white sheet surface (~17:1 light / ~13.8:1 dark). NOT
+     --color-text-link — that orange (#f5853b) is only 2.53:1 on #fff and fails
+     WCAG 1.4.3 (tokens.css §decision-point note). NOT the family accent either. */
+  color: var(--color-text-strong);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.sheet-fg-readaccount:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* FULL taxonomy table */
+.sheet-fg-taxonomy { margin: 0; }
+.sheet-fg-taxrow {
+  display: grid;
+  grid-template-columns: 132px 1fr;
+  gap: var(--space-md);
+  padding: var(--space-sm) 0;
+  border-bottom: 1px solid rgba(127, 127, 127, 0.22);
+}
+.sheet-fg-taxrow:first-child { border-top: 1px solid rgba(127, 127, 127, 0.22); }
+.sheet-fg-taxrow dt {
+  margin: 0;
+  font-size: var(--type-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}
+.sheet-fg-taxrow dd { margin: 0; font-size: var(--type-sm); color: var(--color-text-strong); }
+
+/* FULL about + credits */
+.sheet-fg-about-eyebrow {
+  margin: 0 0 var(--space-xs);
+  font-size: var(--type-xs);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+}
+.sheet-fg-prose {
+  margin: 0;
+  font-size: var(--type-base);
+  line-height: 1.6;
+  color: var(--color-text-body);
+}
+.sheet-fg-credits {
+  margin: var(--space-md) 0 0;
+  font-size: var(--type-xs);
+  color: var(--color-text-subtle);
+}
+/* AA-safe link recipe (#830) — see .sheet-fg-readaccount note. */
+.sheet-fg-credits a { color: var(--color-text-strong); text-decoration: underline; }
+
+/* ── COMPACT layout (identity row): photo 44px left, identity right ──────── */
+.species-detail-sheet[data-content='compact'] .sheet-fg {
+  grid-template-columns: 44px 1fr;
+  grid-template-areas: 'photo identity';
+  align-items: center;
+  column-gap: var(--space-md);
+  /* Small-mode padding rebalance: tight at the top (the name sits close under
+     the handle), breathing room at the bottom. Total height stays PEEK_PX. */
+  padding-top: 0;
+  padding-bottom: var(--space-lg);
+}
+/* Shorter handle in compact so the centered grip doesn't push the name down a
+   full 44px; still ≥24px (WCAG 2.5.8 AA) as a drag/tap target. */
+.species-detail-sheet[data-content='compact'] .sheet-handle { min-height: 30px; }
+.species-detail-sheet[data-content='compact'] .sheet-fg-photo { width: 44px; height: 44px; }
+.species-detail-sheet[data-content='compact'] .sheet-fg-sci,
+.species-detail-sheet[data-content='compact'] .sheet-fg-rule { display: none; }
+
+/* ── MID layout (plate card) ─────────────────────────────────────────────── */
+.species-detail-sheet[data-content='mid'] .sheet-fg {
+  grid-template-columns: 120px 1fr;
+  grid-template-areas:
+    'photo identity'
+    'rule  rule'
+    'record record'
+    'teaser teaser';
+  align-items: start;
+  column-gap: var(--space-md);
+}
+.species-detail-sheet[data-content='mid'] .sheet-fg-photo { width: 120px; height: 120px; }
+.species-detail-sheet[data-content='mid'] .sheet-fg-record {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: var(--space-md);
+}
+.species-detail-sheet[data-content='mid'] .sheet-fg-teaser { display: block; }
+/* Center the name/sci/family stack against the 120px plate; bump name to lg. */
+.species-detail-sheet[data-content='mid'] .sheet-fg-identity { align-self: center; }
+.species-detail-sheet[data-content='mid'] .sheet-fg-name { font-size: var(--type-lg); }
+
+/* ── FULL layout (field-guide entry) ─────────────────────────────────────── */
+.species-detail-sheet[data-content='full'] .sheet-fg {
+  grid-template-columns: 1fr;
+  grid-template-areas:
+    'photo'
+    'identity'
+    'rule'
+    'taxonomy'
+    'about';
+  gap: var(--space-md);
+  padding-top: 0;
+}
+.species-detail-sheet[data-content='full'] .sheet-fg-photo {
+  /* full-bleed masthead — cancel the .sheet-fg side padding. Use an EXPLICIT
+     height (not aspect-ratio): aspect-ratio on a grid item with negative
+     margins doesn't reliably feed back into auto-track sizing, so the row
+     collapses and the name overlaps the photo. 62.5vw ≈ 16/10 of full width. */
+  margin: 0 calc(-1 * var(--space-lg));
+  width: auto;
+  height: min(62.5vw, 300px);
+  border-radius: 0;
+}
+/* Lift the subject out of the vertical center so the masthead doesn't crop low
+   with empty sky up top (a11y/design punch-list). Targets the <Photo> primitive's
+   inner <img> (.photo__img). */
+.species-detail-sheet[data-content='full'] .sheet-fg-photo .photo__img { object-position: center 35%; }
+.species-detail-sheet[data-content='full'] .sheet-fg-name {
+  font-size: var(--type-hero);
+  font-weight: var(--font-weight-bold);
+  line-height: 1.1;
+}
+.species-detail-sheet[data-content='full'] .sheet-fg-taxonomy { display: block; }
+.species-detail-sheet[data-content='full'] .sheet-fg-about { display: block; }
+
+/* ── Field-guide motion: photo morph + tier content reveals ────────────────
+   Reduced-motion is owned globally by motion.css (collapses every transition /
+   animation here to 0ms); each rule's resting end-state is the correct static
+   state, so there are no per-element prefers-reduced-motion guards.
+
+   Photo morph. The photo reads as ONE continuous element across detents
+   because the properties that change its rendered box all tween together:
+   width/height/border-radius on the frame, the full-bleed negative `margin` at
+   full, AND `grid-template-columns` on the parent grid (the column track that
+   holds the photo: 44px → 120px → 1fr). grid-template-AREAS is NOT animatable —
+   the mid→full reposition (photo moves from the left column to a top masthead)
+   is the one accepted discontinuity; aspect-ratio is never animated. */
+.sheet-fg {
+  transition: grid-template-columns var(--sheet-settle-dur) var(--sheet-settle-ease);
+}
+.sheet-fg-photo {
+  transition:
+    width var(--sheet-settle-dur) var(--sheet-settle-ease),
+    height var(--sheet-settle-dur) var(--sheet-settle-ease),
+    border-radius var(--sheet-settle-dur) var(--sheet-settle-ease),
+    margin var(--sheet-settle-dur) var(--sheet-settle-ease);
+}
+/* 1:1 during drag — the photo + grid snap to the tier size at the threshold,
+   no lag behind the finger. */
+.species-detail-sheet[data-dragging='true'] .sheet-fg,
+.species-detail-sheet[data-dragging='true'] .sheet-fg-photo { transition: none; }
+
+/* MID-tier reveal — transitions-dev recipe 18 (texts-reveal). The sci-name,
+   the field-record strip, and the teaser rise in with a staggered blur as they
+   enter the mid detent. Each starts translated-down + blurred + invisible; the
+   [data-content='mid'] state flips them to rest. The name+family SPINE is NOT
+   in this channel (it is always present, never display:none'd).
+
+   record/teaser are display:none in other tiers, so the channel also tweens the
+   discrete `display` change (transition-behavior: allow-discrete) and seeds the
+   entrance from-state with @starting-style — without these the show would snap.
+   sci-name is never display:none'd (it stays in the spine), so it tweens with
+   the plain opacity/transform/filter set. */
+.sheet-fg-sci,
+.sheet-fg-record,
+.sheet-fg-teaser {
+  opacity: 0;
+  transform: translateY(var(--stagger-distance, 12px));
+  filter: blur(var(--stagger-blur, 3px));
+  transition:
+    opacity var(--stagger-dur, 600ms) var(--stagger-ease, cubic-bezier(0.22, 1, 0.36, 1)),
+    transform var(--stagger-dur, 600ms) var(--stagger-ease, cubic-bezier(0.22, 1, 0.36, 1)),
+    filter var(--stagger-dur, 600ms) var(--stagger-ease, cubic-bezier(0.22, 1, 0.36, 1)),
+    display var(--stagger-dur, 600ms) allow-discrete;
+  will-change: transform, opacity, filter;
+}
+/* Stagger: record holds 1 step, teaser 2 steps, so the eye lands on the
+   sci-name first then walks down the card. */
+.sheet-fg-record { transition-delay: var(--stagger-stagger, 40ms); }
+.sheet-fg-teaser { transition-delay: calc(var(--stagger-stagger, 40ms) * 2); }
+.species-detail-sheet[data-content='mid'] .sheet-fg-sci,
+.species-detail-sheet[data-content='mid'] .sheet-fg-record,
+.species-detail-sheet[data-content='mid'] .sheet-fg-teaser,
+.species-detail-sheet[data-content='full'] .sheet-fg-sci {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
+}
+@starting-style {
+  .species-detail-sheet[data-content='mid'] .sheet-fg-record,
+  .species-detail-sheet[data-content='mid'] .sheet-fg-teaser {
+    opacity: 0;
+    transform: translateY(var(--stagger-distance, 12px));
+    filter: blur(var(--stagger-blur, 3px));
+  }
+}
+
+/* FULL-tier reveal — transitions-dev recipe 07 (panel-reveal). The taxonomy
+   table and the About panel slide up from a half-travel with a cross-blur so a
+   short translate still reads as a full open. Both are display:none until the
+   full detent, so the channel tweens `display` (allow-discrete) and seeds the
+   from-state via @starting-style, mirroring the mid channel. */
+.sheet-fg-taxonomy,
+.sheet-fg-about {
+  transform: translateY(var(--panel-translate-y-sheet, 32px));
+  opacity: 0;
+  filter: blur(var(--panel-blur, 2px));
+  transition:
+    transform var(--panel-open-dur, 400ms) var(--panel-ease, cubic-bezier(0.22, 1, 0.36, 1)),
+    opacity var(--panel-open-dur, 400ms) var(--panel-ease, cubic-bezier(0.22, 1, 0.36, 1)),
+    filter var(--panel-open-dur, 400ms) var(--panel-ease, cubic-bezier(0.22, 1, 0.36, 1)),
+    display var(--panel-open-dur, 400ms) allow-discrete;
+  will-change: transform, opacity, filter;
+}
+.species-detail-sheet[data-content='full'] .sheet-fg-taxonomy,
+.species-detail-sheet[data-content='full'] .sheet-fg-about {
+  transform: translateY(0);
+  opacity: 1;
+  filter: blur(0);
+}
+@starting-style {
+  .species-detail-sheet[data-content='full'] .sheet-fg-taxonomy,
+  .species-detail-sheet[data-content='full'] .sheet-fg-about {
+    opacity: 0;
+    transform: translateY(var(--panel-translate-y-sheet, 32px));
+    filter: blur(var(--panel-blur, 2px));
+  }
 }
 
 /* ==========================================================================
@@ -1558,7 +1936,7 @@ aside.species-detail-rail .species-detail-rail-close {
 .species-detail-sheet--half {
   /* Half-height state — above the map (z-15) but intentionally BELOW the
      overlay band so map overlays remain interactive around the sheet.
-     Overflow hidden keeps the sheet clean at the snap boundary; .sheet-scroll
+     Overflow hidden keeps the sheet clean at the snap boundary; .sheet-fg
      inside handles scrollable content via its own touch-action. */
   z-index: 15;
   overflow: hidden;

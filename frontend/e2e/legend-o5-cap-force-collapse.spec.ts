@@ -164,7 +164,7 @@ test.describe('R6 — legend width cap at 390px (O5 #783)', () => {
 test.describe('force-collapsed — detail sheet at half/full (O5 #783)', () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test('legend is data-force-collapsed when sheet advances to half snap', async ({
+  test('legend is data-force-collapsed whenever the detail sheet is open on mobile', async ({
     page,
     apiStub,
   }) => {
@@ -182,27 +182,39 @@ test.describe('force-collapsed — detail sheet at half/full (O5 #783)', () => {
     await app.waitForAppReady();
 
     const sheet = page.locator('[data-testid=species-detail-sheet]');
-    await expect(sheet).toHaveAttribute('data-snap-state', 'peek');
-
-    // At peek: legend should NOT be force-collapsed (peek is below overlay band)
-    await expect(page.locator('.family-legend')).not.toHaveAttribute(
-      'data-force-collapsed',
-      'true',
-    );
-
-    // Advance to half — force-collapse kicks in
-    const expand = page.getByRole('button', { name: /expand/i });
-    await expand.click();
+    // The field-guide sheet opens at half — already past the overlay band.
     await expect(sheet).toHaveAttribute('data-snap-state', 'half');
 
-    // Legend must be force-collapsed at half snap on mobile
+    // #907: App.tsx now force-collapses the legend whenever a detail sheet is
+    // open AT ALL (the `!!state.detail` signal) — the small sheet preserves the
+    // map and the legend would otherwise bury it. So the legend is force-
+    // collapsed at the open (half) detent.
     await expect(page.locator('.family-legend')).toHaveAttribute(
       'data-force-collapsed',
       'true',
     );
-
     // Entries must not render while force-collapsed
     await expect(page.locator('.family-legend-entries')).not.toBeVisible();
+
+    // Dragging down to the peek (identity-row) detent keeps it force-collapsed:
+    // the sheet is still open (state.detail set), so the `!!state.detail` signal
+    // holds even though peek itself is below the half/full overlay band.
+    const handle = page.locator('[data-testid=species-detail-sheet-handle]');
+    const hb = await handle.boundingBox();
+    const sb = await sheet.boundingBox();
+    if (!hb || !sb) throw new Error('handle/sheet bounding box unavailable');
+    const cx = hb.x + hb.width / 2;
+    const cy = hb.y + hb.height / 2;
+    // Drag down by ~ (half height − peek) so it settles at peek, not dismiss.
+    await page.mouse.move(cx, cy);
+    await page.mouse.down();
+    await page.mouse.move(cx, cy + (sb.height - 140), { steps: 20 });
+    await page.mouse.up();
+    await expect(sheet).toHaveAttribute('data-snap-state', 'peek');
+    await expect(page.locator('.family-legend')).toHaveAttribute(
+      'data-force-collapsed',
+      'true',
+    );
 
     // The stored preference must be intact (not mutated to false)
     const stored = await page.evaluate(() =>
@@ -239,13 +251,13 @@ test.describe('force-collapsed counter-case — iPad landscape 1024×768 (O5 #78
     const sheet = page.locator('[data-testid=species-detail-sheet]');
     await expect(sheet).toBeVisible({ timeout: 10_000 });
 
-    // Advance to half snap
-    const expand = page.getByRole('button', { name: /expand/i });
-    await expand.click();
+    // The sheet opens at half snap (field-guide default).
     await expect(sheet).toHaveAttribute('data-snap-state', 'half');
 
     // At 1024px (>480px, isPhone=false) the legend must NOT be force-collapsed
-    // even though the sheet is at half snap — locks in the ≤480px scope.
+    // even though the sheet is open at half snap — locks in the ≤480px scope.
+    // (The #907 `!!state.detail` force-collapse is also gated on isPhone, so it
+    // does not fire here.)
     const legendEl = page.locator('.family-legend');
     const hasForceCollapsed = await legendEl.getAttribute('data-force-collapsed');
     expect(
