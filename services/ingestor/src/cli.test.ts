@@ -526,6 +526,99 @@ describe('runCli', () => {
     await expect(runCli('bogus', deps)).rejects.toThrow(/prune/);
   });
 
+  // ── #878 — precompute grid refresh hook ───────────────────────────────────
+  // refreshGridAgg must fire after a `recent` ingest+reconcile AND after a
+  // `prune` (the "no stale cells" Must-NOT needs BOTH: recent adds rows, prune
+  // drops aged-out cells). It must NOT fire on other kinds, and must be skipped
+  // on a failed run (observations unchanged → prior grid still correct).
+  describe('precompute grid refresh (#878)', () => {
+    const recentSuccess: RunSummary = {
+      status: 'success', fetched: 10, upserted: 10, statesSucceeded: 49, statesFailed: 0,
+    };
+    const pruneSuccess = {
+      status: 'success' as const, deleted: 5, archived: 5,
+      archivedDays: 1, gcsPaths: ['gs://x'], retentionDays: 14,
+    };
+
+    it("fires refreshGridAgg after a successful 'recent' run, with the pool", async () => {
+      const refreshSpy = vi.fn().mockResolvedValue(150);
+      const deps = makeDeps({
+        runIngest: vi.fn().mockResolvedValue(recentSuccess),
+        refreshGridAgg: refreshSpy,
+      });
+      await runCli('recent', deps);
+      expect(refreshSpy).toHaveBeenCalledTimes(1);
+      expect(refreshSpy).toHaveBeenCalledWith(POOL_SENTINEL);
+    });
+
+    it("fires refreshGridAgg after a successful 'prune' run", async () => {
+      delete process.env.OBSERVATIONS_RETENTION_DAYS;
+      const refreshSpy = vi.fn().mockResolvedValue(150);
+      const deps = makeDeps({
+        runPrune: vi.fn().mockResolvedValue(pruneSuccess),
+        refreshGridAgg: refreshSpy,
+      });
+      await runCli('prune', deps);
+      expect(refreshSpy).toHaveBeenCalledTimes(1);
+      expect(refreshSpy).toHaveBeenCalledWith(POOL_SENTINEL);
+    });
+
+    it("fires after a 'partial' recent run (forward progress landed rows)", async () => {
+      const refreshSpy = vi.fn().mockResolvedValue(150);
+      const deps = makeDeps({
+        runIngest: vi.fn().mockResolvedValue({
+          ...recentSuccess, status: 'partial', statesFailed: 2,
+          failures: [{ state: 'US-CA', error: 'x' }, { state: 'US-TX', error: 'y' }],
+        }),
+        refreshGridAgg: refreshSpy,
+      });
+      await runCli('recent', deps);
+      expect(refreshSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("does NOT fire on a FAILED recent run (observations unchanged → grid still valid)", async () => {
+      const refreshSpy = vi.fn().mockResolvedValue(150);
+      const deps = makeDeps({
+        runIngest: vi.fn().mockResolvedValue({
+          status: 'failure', fetched: 0, upserted: 0,
+          statesSucceeded: 0, statesFailed: 49, error: 'boom',
+        }),
+        refreshGridAgg: refreshSpy,
+      });
+      await runCli('recent', deps);
+      expect(refreshSpy).not.toHaveBeenCalled();
+    });
+
+    it("does NOT fire on a non-recent/non-prune kind ('taxonomy')", async () => {
+      const refreshSpy = vi.fn().mockResolvedValue(150);
+      const deps = makeDeps({
+        runTaxonomy: vi.fn().mockResolvedValue({
+          status: 'success', totalFetched: 1, speciesInserted: 1,
+          nonSpeciesFiltered: 0, reconciled: 0,
+        } satisfies RunTaxonomySummary),
+        refreshGridAgg: refreshSpy,
+      });
+      await runCli('taxonomy', deps);
+      expect(refreshSpy).not.toHaveBeenCalled();
+    });
+
+    it("a refresh failure is non-fatal: the recent run still succeeds (exitCode untouched)", async () => {
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const refreshSpy = vi.fn().mockRejectedValue(new Error('grid boom'));
+      const deps = makeDeps({
+        runIngest: vi.fn().mockResolvedValue(recentSuccess),
+        refreshGridAgg: refreshSpy,
+      });
+      await runCli('recent', deps);
+      expect(refreshSpy).toHaveBeenCalledTimes(1);
+      // The ingest landed rows; a grid-refresh failure must not fail the job.
+      expect(process.exitCode).toBeUndefined();
+      // It is surfaced loudly so a persistently-stale grid is visible.
+      expect(errSpy).toHaveBeenCalled();
+      errSpy.mockRestore();
+    });
+  });
+
   // ── cache-warm kind (issue #711) ──────────────────────────────────────
   // The cache-warm kind is pure HTTP — no DB pool, no eBird API. Its early
   // return must precede the EBIRD_API_KEY / DATABASE_URL guards so a manual

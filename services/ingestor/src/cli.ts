@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url';
 import {
   createPool as realCreatePool,
   closePool as realClosePool,
+  refreshGridAgg as realRefreshGridAgg,
   type Pool,
 } from '@bird-watch/db-client';
 import { runIngest as realRunIngest, type RunSummary } from './run-ingest.js';
@@ -69,6 +70,15 @@ export interface CliDeps {
   runPhotos: typeof realRunPhotos;
   runDescriptions: typeof realRunDescriptions;
   runPrune: typeof realRunPrune;
+  /**
+   * #878 — recomputes the precomputed per-scope aggregation grid
+   * (observation_grid_agg) after a `recent` ingest+reconcile AND after a
+   * `prune`. Off the request path (ingestor-side). Optional + injectable so
+   * tests can assert it fires exactly on those two kinds (and is skipped on a
+   * failed run) without standing up a real grid rebuild. Production wires the
+   * real `refreshGridAgg`.
+   */
+  refreshGridAgg?: typeof realRefreshGridAgg;
   runCacheWarm: typeof realRunCacheWarm;
   runDigest?: typeof realRunDigest;
   fetchWikipediaSummary: typeof realFetchWikipediaSummary;
@@ -380,6 +390,44 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
     } else {
       throw new Error(`Unknown kind: ${kind}. Try recent | hotspots | backfill | backfill-extended | taxonomy | photos | descriptions | prune | cache-warm | digest | probe-taxon | probe-wiki`);
     }
+
+    // #878 — recompute the precomputed per-scope aggregation grid after a
+    // `recent` ingest+reconcile AND after a `prune`. BOTH are required by the
+    // "no stale cells" Must-NOT: `recent` adds/updates rows (the grid must
+    // reflect new sightings) and `prune` deletes the 14-day tail (the grid must
+    // drop the aged-out cells). It runs ONLY on those two kinds, and only when
+    // the run did not fail — a failed `recent` (e.g. a 429 circuit-break that
+    // wrote zero rows) leaves observations unchanged, so the prior grid is still
+    // correct and rebuilding it would only waste a 14d aggregation pass. This is
+    // off the request path (ingestor-side), inside the shared Cloud Run job's
+    // 900s budget; a single set-based 14d rebuild is the same volume the live
+    // national query already does in ~2.3s at prod scale. A refresh failure is
+    // logged and downgrades the run to non-fatal degraded (the next cycle
+    // retries) — it does NOT mask the upstream ingest/prune success, because the
+    // observations themselves did land.
+    if ((kind === 'recent' || kind === 'prune') && summary.status !== 'failure') {
+      const refreshGridAgg = deps.refreshGridAgg ?? realRefreshGridAgg;
+      try {
+        const gridRows = await refreshGridAgg(pool);
+        console.log(JSON.stringify({
+          severity: 'INFO',
+          message: 'bird_grid_agg_refreshed',
+          kind,
+          grid_rows: gridRows,
+        }));
+      } catch (err) {
+        // Non-fatal: the ingest/prune already committed. Surface it loudly so a
+        // persistently-stale grid is visible, but do not fail the job — the next
+        // cycle re-refreshes.
+        console.error(JSON.stringify({
+          severity: 'ERROR',
+          message: 'bird_grid_agg_refresh_failed',
+          kind,
+          error: err instanceof Error ? err.message : String(err),
+        }));
+      }
+    }
+
     // Cloud Run / Cloud Logging splits stdout on newlines and treats each
     // resulting line as its own `textPayload` entry — pretty-printed JSON
     // therefore shreds into N rows with zero `jsonPayload.*` coverage, and
@@ -491,6 +539,7 @@ if (isEntrypoint) {
     runPhotos: realRunPhotos,
     runDescriptions: realRunDescriptions,
     runPrune: realRunPrune,
+    refreshGridAgg: realRefreshGridAgg,
     runCacheWarm: realRunCacheWarm,
     runDigest: realRunDigest,
     sendDigestEmail,
