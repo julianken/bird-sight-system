@@ -178,7 +178,7 @@ structural changes. The shared body component stays exactly as it is for the rai
   wrap first↔last). Active **only at full** (`snap==='full'`), torn down when leaving full or
   unmounting. Keep it inside `SpeciesDetailSheet` (the handle is the first focusable). Install the
   Tab handler WITHOUT touching `inert`/`role` timing so the MutationObserver sequencing tests stay
-  green. Delete the stale `styles.css:1414–1421` comment claiming chrome is "non-interactive" — true
+  green. Delete the stale `styles.css:1435` comment (block ~1429–1436) claiming chrome is "non-interactive" — true
   for pointer, false for Tab.
 - **F9 — focus restore on close. `[R2-fix]` resolve the fallback selector to a REAL rendered id.**
   The sheet has no `previouslyFocusedRef`. Mirror `SpeciesDetailModal.tsx:55–167` /
@@ -446,7 +446,7 @@ mock away, and analytics were silently dropped once before): at 390×844, open t
 **Files:** `SpeciesDetailSheet.tsx` (focus trap at full; `previouslyFocusedRef` + restore on every
 close path with the **`#main-surface`** fallback; in-sheet live-region announce), `styles.css`
 (masthead scrim, compact/mid/full tuning deltas, delete legacy `.sheet-compact`/`.sheet-scroll` +
-unused `.sheet-fg-credits`, fix the stale `1414–1421` comment). **No `App.tsx` change needed for the
+unused `.sheet-fg-credits`, fix the stale "non-interactive" comment (styles.css ~1429–1436, key line 1435)). **No `App.tsx` change needed for the
 fallback** — `#main-surface` already exists and is focusable (`App.tsx:1361`/`1380`), so the sheet
 just targets it; do NOT add a new landmark.
 
