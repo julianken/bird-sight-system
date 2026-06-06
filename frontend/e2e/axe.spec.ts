@@ -4,6 +4,36 @@ import { AppPage } from './pages/app-page.js';
 
 const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 
+/**
+ * Wait until the field-guide sheet's reveal transitions (#907 recipe-18 /
+ * recipe-07) have settled to full opacity. axe color-contrast reads the
+ * alpha-blended computed color, so a mid-transition snapshot of opacity:0→1
+ * text reports false sub-contrast. We poll the most-muted revealed element
+ * (the teaser text) until its computed opacity is 1 — deterministic, not a
+ * fixed timeout. Resolves immediately when no sheet/teaser is present.
+ */
+async function waitForRevealSettled(
+  page: import('@playwright/test').Page,
+): Promise<void> {
+  await page
+    .waitForFunction(() => {
+      const sheet = document.querySelector('.species-detail-sheet');
+      if (!sheet) return true;
+      const revealed = sheet.querySelectorAll(
+        '.sheet-fg-sci, .sheet-fg-record, .sheet-fg-teaser, .sheet-fg-teaser-text, .sheet-fg-taxonomy, .sheet-fg-about',
+      );
+      // Every reveal element that is laid out (not display:none in this tier)
+      // must have reached full opacity.
+      for (const el of Array.from(revealed)) {
+        const cs = getComputedStyle(el as Element);
+        if (cs.display === 'none') continue;
+        if (Number(cs.opacity) < 0.999) return false;
+      }
+      return true;
+    }, undefined, { timeout: 5_000 })
+    .catch(() => { /* best-effort settle; the assertions below still run */ });
+}
+
 test.describe('axe-core WCAG scans', () => {
   test('initial load has no WCAG 2/2.1 A/AA violations', async ({ page }) => {
     const app = new AppPage(page);
@@ -237,6 +267,12 @@ test.describe('axe-core WCAG scans', () => {
       await app.waitForAppReady();
       await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' }))
         .toBeVisible({ timeout: 10_000 });
+      // #907: the field-guide sheet reveals mid-tier content with an
+      // opacity/transform/blur transition (recipe-18). axe color-contrast reads
+      // the computed (alpha-blended) color, so it must scan the SETTLED state —
+      // wait until the revealed teaser text reaches full opacity before
+      // analyzing, otherwise a mid-transition snapshot reports false sub-contrast.
+      await waitForRevealSettled(page);
       const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
       if (results.violations.length) {
         await test.info().attach('axe-violations', {
@@ -260,7 +296,11 @@ test.describe('axe-core WCAG scans', () => {
       await app.waitForAppReady();
       await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' }))
         .toBeVisible({ timeout: 10_000 });
-      await expect(page.getByAltText('Vermilion Flycatcher photo')).toBeVisible();
+      // #907: the field-guide sheet photo is DECORATIVE on mobile (alt="") — the
+      // species name sits adjacent — so locate the rendered <img> by its stable
+      // .photo__img class, not by alt text.
+      await expect(page.locator('.sheet-fg-photo .photo__img')).toBeVisible();
+      await waitForRevealSettled(page);
       const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
       if (results.violations.length) {
         await test.info().attach('axe-violations', {
@@ -287,12 +327,11 @@ test.describe('axe-core WCAG scans', () => {
       const sheet = page.locator('.species-detail-sheet');
       await expect(sheet).toBeVisible();
 
-      // The sheet opens at peek by default. Drive it to full via the
-      // exposed test handle — the implementation MUST expose either a
-      // `data-snap-state` attribute (preferred — declarative) or a
-      // testing-only setter on `window` for the snap state. Phase 4 uses
-      // `data-snap-state="peek|half|full"` on the sheet root.
-      await sheet.getByRole('button', { name: /expand/i }).click();
+      // The field-guide sheet opens at `half` by default; one expand tap drives
+      // it to `full` (peek is reached by dragging down, not the expand button).
+      // The implementation exposes a declarative `data-snap-state` attribute
+      // ("peek|half|full") on the sheet root.
+      await expect(sheet).toHaveAttribute('data-snap-state', 'half');
       await sheet.getByRole('button', { name: /expand/i }).click();
       await expect(sheet).toHaveAttribute('data-snap-state', 'full');
 

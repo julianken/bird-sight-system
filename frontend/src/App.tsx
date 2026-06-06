@@ -176,8 +176,11 @@ export function App() {
   const { state, set } = useUrlState();
   const isCompact = useIsCompact();
   // O5 (#783): phone-only hook keyed to ≤480px (P1's overlay breakpoint).
-  // Deliberately separate from isCompact (1199px) so force-collapse does NOT
-  // trigger on tablet (768×1024) or laptop (1024×768) viewports.
+  // Distinct from isCompact (≤1199px): the phone-scoped force-collapse signals
+  // (unscoped chooser, filters, sheet half/full) only collide with the legend
+  // at ≤480px. The detail-sheet-open signal, by contrast, fires across the
+  // whole compact range (≤1199px) because the bottom-docked sheet overlaps the
+  // bottom-left legend at 768/1024 too — see `legendForceCollapsed` below.
   const isPhone = useIsPhone();
   // Tag the current Clarity session with the active view so dashboards can
   // filter sessions by surface (map | detail). Fires on initial mount
@@ -204,21 +207,36 @@ export function App() {
   const [sheetSnap, setSheetSnap] = useState<SnapState>('peek');
 
   // O5 (#783) — forceCollapsed: collapse the legend while another overlay holds
-  // focus on mobile (≤480px). Scoped to isPhone so it does NOT fire at 1024×768
-  // (iPad landscape) or 1440×900 (laptop) — those use isCompact/rail, not isPhone.
-  // Three overlay signals:
-  //   - !scopeActive: S1 chooser scrim is open (unscoped landing)
-  //   - filtersOpen: O4 filters sheet is open
-  //   - sheetSnap !== 'peek': detail sheet is at half or full (not just peeking)
+  // focus. Two scopes, by signal:
+  //
+  //   Phone-only (≤480px, isPhone) — P1's overlay breakpoint. These overlays
+  //   only render the bottom-band collision risk on phones; at tablet/laptop
+  //   the legend and these overlays don't overlap, so we keep them phone-scoped:
+  //     - state.scope.kind === 'unscoped': S1 chooser scrim is open
+  //     - filtersOpen: O4 filters sheet is open
+  //     - sheetSnap half/full: detail sheet advanced past peek
+  //
+  //   Compact (≤1199px, isCompact) — the breakpoint at which the field-guide
+  //   sheet renders instead of the desktop rail (useIsCompact). The sheet is
+  //   bottom-docked and the legend auto-expands at ≥1024px
+  //   (LEGEND_EXPAND_MIN_WIDTH), so at 768/1024 an open sheet collides with the
+  //   expanded "Bird families in view" legend — occluding the sheet's photo
+  //   plate / hero name / Read-account button (#907 design-review finding 1).
+  //   The sheet renders exactly when `scopeActive && state.detail && isCompact`,
+  //   so `isCompact && !!state.detail` is the correct "sheet is open" signal and
+  //   must force-collapse the legend across the whole compact range — not just
+  //   on phones.
+  //
   // forceCollapsed is derived here (at render time) — no extra state needed.
   // The `scopeActive` ref is not yet available at this point; use
   // `state.scope.kind !== 'unscoped'` directly (same derivation as line 269).
   const legendForceCollapsed =
-    isPhone && (
-      state.scope.kind === 'unscoped' ||
-      filtersOpen ||
-      (sheetSnap === 'half' || sheetSnap === 'full')
-    );
+    (isPhone &&
+      (state.scope.kind === 'unscoped' ||
+        filtersOpen ||
+        sheetSnap === 'half' ||
+        sheetSnap === 'full')) ||
+    (isCompact && !!state.detail);
 
   // O4 (#780) — ref to the floating filters sheet panel. Focus moves into the
   // panel on open (specifically the close button, first focusable element).
