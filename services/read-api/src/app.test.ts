@@ -7,6 +7,7 @@ import {
   upsertObservations,
   insertSpeciesPhoto,
   insertSpeciesDescription,
+  refreshGridAgg,
 } from '@bird-watch/db-client';
 import { createApp } from './app.js';
 
@@ -744,6 +745,117 @@ describe('GET /api/observations', () => {
           locId: 'L2', locName: 'Y', howMany: 1, isNotable: true },
       ]);
     });
+  });
+});
+
+// ── #878 — precompute read-path routing ─────────────────────────────────────
+//
+// The aggregated low-zoom default view (state scope or national, default since,
+// no filters, standard multiplier) must route to the PRECOMPUTE LOOKUP
+// (observation_grid_agg); any filter / non-default since routes to the live CTE
+// FALLBACK. The discriminator: refresh the grid, then mutate `observations`
+// WITHOUT refreshing. An eligible request returns the STALE precomputed grid
+// (proving it read the cache); an ineligible request reflects the live mutated
+// table (proving it ran the CTE). Both paths return mode=aggregated, identical
+// envelope shape.
+describe('GET /api/observations precompute routing (#878)', () => {
+  const AZ_ENVELOPE = '-114.81651,31.33218,-109.04528,37.00426';
+  const seedAzRows = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      subId: `G${i}`, speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+      lat: 33.45, lng: -112.07,
+      obsDt: new Date(Date.now() - (i % 10) * 86400_000).toISOString(),
+      locId: 'L1', locName: 'X', howMany: 1, isNotable: i % 4 === 0,
+    }));
+
+  beforeAll(async () => {
+    await upsertSpeciesMeta(db.pool, [
+      { speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        sciName: 'Pyrocephalus rubinus', familyCode: 'tyrannidae',
+        familyName: 'Tyrant Flycatchers', taxonOrder: 30501 },
+    ]);
+    await db.pool.query('TRUNCATE observations');
+    await upsertObservations(db.pool, seedAzRows(40));
+    // Build the precompute grid for the current table state.
+    await refreshGridAgg(db.pool);
+  });
+
+  afterAll(async () => {
+    await db.pool.query('TRUNCATE observations');
+    await db.pool.query('DELETE FROM observation_grid_agg');
+    await upsertObservations(db.pool, [
+      { subId: 'S1', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 31.72, lng: -110.88, obsDt: new Date(Date.now() - 5*86400_000).toISOString(),
+        locId: 'L1', locName: 'X', howMany: 1, isNotable: false },
+    ]);
+  });
+
+  type AggEnvelope = { mode: string; buckets: Array<{ count: number }> };
+  const totalCount = (b: AggEnvelope) => b.buckets.reduce((s, x) => s + x.count, 0);
+
+  it('default state scope (state + envelope bbox, default since, z5) routes to the LOOKUP and is sub-second', async () => {
+    const app = createApp({ pool: db.pool });
+    const t0 = performance.now();
+    const res = await app.request(
+      `/api/observations?state=US-AZ&bbox=${AZ_ENVELOPE}&zoom=5&since=14d`,
+    );
+    const elapsedMs = performance.now() - t0;
+    expect(res.status).toBe(200);
+    const body = await res.json() as AggEnvelope;
+    expect(body.mode).toBe('aggregated');
+    // The precompute carries all 40 seeded AZ rows.
+    expect(totalCount(body)).toBe(40);
+    // Cheap PK lookup — comfortably sub-second.
+    expect(elapsedMs).toBeLessThan(1000);
+  });
+
+  it('the default lookup returns the STALE grid after an unrefreshed mutation (proves it read the cache, not the live CTE)', async () => {
+    // Mutate observations WITHOUT refreshing the grid: delete half the rows.
+    await db.pool.query(`DELETE FROM observations WHERE sub_id LIKE 'G2%' OR sub_id LIKE 'G3%'`);
+    const app = createApp({ pool: db.pool });
+    const res = await app.request(
+      `/api/observations?state=US-AZ&bbox=${AZ_ENVELOPE}&zoom=5&since=14d`,
+    );
+    const body = await res.json() as AggEnvelope;
+    // Still 40 — the lookup served the pre-mutation precompute, NOT the live
+    // (now-smaller) table. This is the load-bearing proof the default routes to
+    // the cache.
+    expect(totalCount(body)).toBe(40);
+    // Re-seed so the next test's fallback math is from a known state.
+    await db.pool.query('TRUNCATE observations');
+    await upsertObservations(db.pool, seedAzRows(40));
+  });
+
+  it('a notable filter routes to the live FALLBACK (reflects the live table, ignores the cache)', async () => {
+    // Grid was last refreshed with 40 rows; the live notable subset is the
+    // i%4===0 rows = 10 of 40. A notable request must NOT use the cache (the
+    // precompute carries no notable-only variant), so it must report the live
+    // notable count, not the 40-row cached total.
+    const app = createApp({ pool: db.pool });
+    const res = await app.request(
+      `/api/observations?state=US-AZ&bbox=${AZ_ENVELOPE}&zoom=5&since=14d&notable=true`,
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json() as AggEnvelope;
+    expect(body.mode).toBe('aggregated');
+    expect(totalCount(body)).toBe(10);
+  });
+
+  it('a non-default since routes to the live FALLBACK', async () => {
+    // since=7d keeps only rows aged 0..6 days = ages {0,1,2,3,4,5,6} of the i%10
+    // cycle → 4 full decades of 7 + remainder. We assert it differs from the
+    // cached 40 by reflecting the live since-filtered subset (i.e. < 40), which
+    // only the live CTE can produce.
+    const app = createApp({ pool: db.pool });
+    const res = await app.request(
+      `/api/observations?state=US-AZ&bbox=${AZ_ENVELOPE}&zoom=5&since=7d`,
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json() as AggEnvelope;
+    expect(body.mode).toBe('aggregated');
+    // 7d window prunes the 7,8,9-day-old rows → strictly fewer than 40.
+    expect(totalCount(body)).toBeLessThan(40);
+    expect(totalCount(body)).toBeGreaterThan(0);
   });
 });
 

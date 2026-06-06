@@ -4,6 +4,9 @@ export { getHotspots, upsertHotspots, type HotspotInput } from './hotspots.js';
 export {
   getObservations, getObservationsAggregated, upsertObservations,
   runReconcileStamping, getFreshestObservationAt,
+  // #878 — precomputed per-scope aggregation grid.
+  refreshGridAgg, getAggregatedGridFromCache, isPrecomputeEligible,
+  resolveScopeKey, NATIONAL_SCOPE_KEY, STANDARD_GRID_MULTIPLIERS,
   type ObservationInput,
 } from './observations.js';
 export {

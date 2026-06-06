@@ -43,7 +43,11 @@ import { performance } from 'node:perf_hooks';
 import pg from 'pg';
 // Side-effect import: registers pool-wide type parsers (NUMERIC → number).
 import './pool.js';
-import { getObservationsAggregated } from './observations.js';
+import {
+  getObservationsAggregated,
+  refreshGridAgg,
+  getAggregatedGridFromCache,
+} from './observations.js';
 
 // Prod-scale target. bird-maps.com carries ~550k observations nationally; the
 // failing request is the coarsest grid over the whole set. 550k reproduces the
@@ -141,6 +145,25 @@ beforeAll(async () => {
     richness: 100 + Math.floor(rng() * 97),
   }));
 
+  // #878 — single-high-volume-STATE concentration. The prior seed spread 550k
+  // rows across CONUS, which DILUTED per-state density: the heaviest state still
+  // only carried a thin slice, so the state-scope guard passed at ~5.8s instead
+  // of reproducing the 12–15s prod CA/TX cold-fill. To make the guard a real
+  // RED→GREEN discriminator we pin a large share of the seed INSIDE the Texas
+  // polygon interior so the live TX aggregation processes a prod-shaped in-state
+  // row count. TX interior box (well clear of every border so every point falls
+  // unambiguously in the US-TX polygon AND on an integer-indexed bucket
+  // interior): lng -101.0..-97.0 (idx -202..-194), lat 29.0..33.0 (idx 58..66).
+  const TX_LNG_IDX_MIN = -202, TX_LNG_IDX_SPAN = 8; // -101.0 .. -97.0
+  const TX_LAT_IDX_MIN = 58, TX_LAT_IDX_SPAN = 8; //   29.0 .. 33.0
+  // Dense TX hotspots inside that interior box (rich cells so the WindowAgg /
+  // jsonb_agg path is exercised at state scale, matching the prod offender).
+  const txHotspots = Array.from({ length: 40 }, () => ({
+    lngIdx: TX_LNG_IDX_MIN + Math.floor(rng() * TX_LNG_IDX_SPAN),
+    latIdx: TX_LAT_IDX_MIN + Math.floor(rng() * TX_LAT_IDX_SPAN),
+    richness: 120 + Math.floor(rng() * 77),
+  }));
+
   const now = Date.now();
   const BATCH = 20_000;
   let inserted = 0;
@@ -152,7 +175,18 @@ beforeAll(async () => {
     const hows: (number | null)[] = [], notables: boolean[] = [];
     for (let i = 0; i < n; i++) {
       let lngIdx: number, latIdx: number, sp: string;
-      if (rng() < 0.55) {
+      const roll = rng();
+      if (roll < 0.45) {
+        // #878 — TX-interior concentration (~45% of the seed). Jitter ±1 bucket
+        // index around a TX hotspot, staying inside the interior box so every
+        // point falls in the US-TX polygon. This is what makes a single state
+        // carry prod-shaped volume so the live state query reproduces the
+        // 12–15s cold cost (RED) that the precompute lookup then kills (GREEN).
+        const hs = txHotspots[Math.floor(rng() * txHotspots.length)]!;
+        lngIdx = hs.lngIdx + (Math.floor(rng() * 3) - 1);
+        latIdx = hs.latIdx + (Math.floor(rng() * 3) - 1);
+        sp = speciesMeta[Math.floor(Math.pow(rng(), 0.5) * Math.min(hs.richness, SPECIES))]!.code;
+      } else if (roll < 0.7) {
         // Dense hotspot cluster: jitter ±2 bucket indices around a hotspot, so
         // the cluster spans a few cells but every point still lands on an
         // integer-indexed bucket interior.
@@ -374,34 +408,35 @@ describe('getObservationsAggregated state-scope perf guard (#873)', () => {
   const TX_ENVELOPE: [number, number, number, number] = [-106.64548, 25.84012, -93.50829, 36.50044];
 
   it(
-    'runs the state-scoped aggregated query (stateCode + fixed envelope, since=14d, z5 grid) well under the timeout',
+    'serves the default TX state view (since=14d, z5 grid) well under the timeout via the precompute (#878)',
     async () => {
       // gridMultiplier 8 = the z5 metro grid (the read-api maps zoom 5 → mult 8),
       // the finest aggregated tier and the level a state view actually requests.
       const GRID = 8;
 
-      // Shape — exactly what the #873 client now sends for a state scope at
-      // zoom < 6: the state clip AND the fixed state envelope as bbox. The
-      // envelope is co-extensive with the state's bounding box, so it adds no
-      // meaningful scan work over the state clip alone (both are GIST-backed).
+      // #878 — the DEFAULT TX state view (stateCode + fixed envelope, default
+      // since, no filters) is now served by the precompute, not the live CTE.
+      // At the re-seeded single-state volume the LIVE TX aggregation runs ~9–15s
+      // (reproducing the prod cold-fill — see the #878 lookup guard below for the
+      // before/after), so the path that actually serves this view must be the
+      // precompute lookup. Build it as the ingestor would, then measure the
+      // lookup (what the read-api takes for this eligible request).
+      await refreshGridAgg(pool);
       const t0 = performance.now();
-      const buckets = await getObservationsAggregated(
-        pool,
-        { since: '14d', stateCode: TX, bbox: TX_ENVELOPE },
-        GRID,
-      );
+      const buckets = await getAggregatedGridFromCache(pool, TX, GRID);
       const elapsedMs = performance.now() - t0;
 
       // eslint-disable-next-line no-console
       console.log(
-        `[#873 perf guard] TX state-scope query (fixed envelope): ${elapsedMs.toFixed(0)}ms over ${TARGET_ROWS} rows → ${buckets.length} buckets (threshold ${PERF_THRESHOLD_MS}ms, pool statement_timeout 15000ms)`,
+        `[#878 state-scope guard] TX default view via precompute lookup: ${elapsedMs.toFixed(0)}ms over ${TARGET_ROWS} rows → ${buckets.length} buckets (threshold ${PERF_THRESHOLD_MS}ms, pool statement_timeout 15000ms)`,
       );
 
-      // PERF GUARD — comfortably under the timeout (same conservative 8s ceiling
-      // as the national guards; the state scope is a strict subset of CONUS).
+      // PERF GUARD — the served path is comfortably under the timeout. (Same 8s
+      // conservative ceiling; the lookup is in fact sub-second — the dedicated
+      // #878 guard pins the tighter 1s bound and the live-vs-lookup delta.)
       expect(elapsedMs).toBeLessThan(PERF_THRESHOLD_MS);
 
-      // The seed spreads observations across CONUS, so a TX clip is non-empty
+      // The seed concentrates observations inside TX, so the grid is non-empty
       // and carries real totals — not a degenerate empty box.
       expect(buckets.length).toBeGreaterThan(0);
       for (const b of buckets) {
@@ -444,6 +479,69 @@ describe('getObservationsAggregated state-scope perf guard (#873)', () => {
       expect(fingerprint(withEnvelope)).toBe(fingerprint(withoutEnvelope));
       // And the result is real (non-empty), so the equality is meaningful.
       expect(withEnvelope.length).toBeGreaterThan(0);
+    },
+    120_000,
+  );
+});
+
+// ── #878 — PRECOMPUTE perf guard (RED→GREEN discriminator) ───────────────────
+//
+// The #873 guard above pins that the LIVE state query is "under the timeout" at
+// 8s — but prod proved the cold CA/TX live aggregation actually runs 12–15s,
+// because the prior seed under-represented single-state volume (rows spread thin
+// over CONUS). With the TX-interior concentration added to the seed above, the
+// live TX aggregation now processes a prod-shaped in-state row count. This guard
+// asserts the FIX: the precompute lookup (getAggregatedGridFromCache after
+// refreshGridAgg) returns the same buckets as the live path but SUB-SECOND —
+// the AC's "comparable to AZ" target. It is the RED→GREEN discriminator: on
+// `main` (no precompute) the default TX view pays the full live aggregation;
+// after the fix it pays a PK lookup.
+describe('getObservationsAggregated precompute lookup perf guard (#878)', () => {
+  const TX = 'US-TX';
+  const TX_ENVELOPE: [number, number, number, number] = [-106.64548, 25.84012, -93.50829, 36.50044];
+  // The precompute lookup is a single PK range scan — it must be FAR under a
+  // second even on noisy CI. 1000ms is a generous ceiling vs the live 12–15s.
+  const LOOKUP_THRESHOLD_MS = 1_000;
+
+  it(
+    'the precomputed TX grid is byte-identical to the live CTE AND served sub-second (the cold-state fix)',
+    async () => {
+      const GRID = 8;
+
+      // Build the precompute exactly as the ingestor would after a recent/prune.
+      await refreshGridAgg(pool);
+
+      // RED baseline: time the LIVE TX aggregation (the path #878 replaces). At
+      // the re-seeded single-state volume this is the heavy aggregate the prod
+      // 12–15s cold-fill measured; logged so the PR can quote before/after.
+      const tLive0 = performance.now();
+      const live = await getObservationsAggregated(
+        pool,
+        { since: '14d', stateCode: TX, bbox: TX_ENVELOPE },
+        GRID,
+      );
+      const liveMs = performance.now() - tLive0;
+
+      // GREEN: the precompute LOOKUP for the same default TX view.
+      const tLookup0 = performance.now();
+      const cached = await getAggregatedGridFromCache(pool, TX, GRID);
+      const lookupMs = performance.now() - tLookup0;
+
+      // eslint-disable-next-line no-console
+      console.log(
+        `[#878 perf guard] TX default view — live aggregate: ${liveMs.toFixed(0)}ms vs precompute lookup: ${lookupMs.toFixed(0)}ms over ${TARGET_ROWS} rows → ${cached.length} buckets (lookup threshold ${LOOKUP_THRESHOLD_MS}ms)`,
+      );
+
+      // PERF GUARD — the lookup is sub-second (the AC's "comparable to AZ"
+      // target) regardless of how heavy the live aggregation got.
+      expect(lookupMs).toBeLessThan(LOOKUP_THRESHOLD_MS);
+      // And materially faster than the live path it replaces (the whole point).
+      expect(lookupMs).toBeLessThan(liveMs);
+
+      // CORRECTNESS — the lookup returns EXACTLY what the live CTE would, so the
+      // read-path swap is invisible to the frontend.
+      expect(cached.length).toBeGreaterThan(0);
+      expect(fingerprint(cached)).toBe(fingerprint(live));
     },
     120_000,
   );
