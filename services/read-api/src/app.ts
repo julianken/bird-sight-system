@@ -8,6 +8,8 @@ import {
   getSpeciesMeta, getSpeciesDictionary, getSilhouettes,
   getSpeciesPhenology,
   listStatesWithBbox,
+  // #878 — precomputed per-scope aggregation grid.
+  isPrecomputeEligible, getAggregatedGridFromCache, resolveScopeKey,
 } from '@bird-watch/db-client';
 import type { ObservationsResponse } from '@bird-watch/shared-types';
 import { cacheControlFor } from './cache-headers.js';
@@ -240,8 +242,28 @@ export function createApp(deps: AppDeps): Hono {
     // grids. Multiplier choice rationale lives in getObservationsAggregated.
     if (bbox !== undefined && zoom !== undefined && zoom < 6) {
       const gridMultiplier = zoom <= 3 ? 2 : zoom === 4 ? 4 : 8;
+      // #878 — precompute lookup for the DEFAULT low-zoom view. The predicate is
+      // POSITIVE: a resolvable scope (state code or national) + default since
+      // (14d) + no notable/species/family filter + a standard multiplier. The
+      // bbox is deliberately ignored — a scoped state view ALWAYS sends the
+      // snapped state-envelope bbox, which is co-extensive with the server's
+      // ST_Intersects polygon clip and adds no row-reducing work; routing on
+      // "bbox present" would send the exact default view this fix targets back
+      // to the 12-15s live aggregation. The precompute is refreshed ingestor-
+      // side after each /recent and after the prune (off the request path), so
+      // the grid is byte-identical to what the live CTE would return for this
+      // { since:'14d', stateCode? } request. Anything ineligible (any filter,
+      // non-default since, non-standard multiplier) falls through to the live
+      // CTE below, unchanged. An eligible scope with no precomputed rows yet
+      // (e.g. immediately post-deploy before the first refresh) also falls back
+      // so the response is never spuriously empty.
+      const precomputed = isPrecomputeEligible(filters, gridMultiplier)
+        ? await getAggregatedGridFromCache(deps.pool, resolveScopeKey(filters), gridMultiplier)
+        : null;
       const [buckets, freshestObservationAt] = await Promise.all([
-        getObservationsAggregated(deps.pool, filters, gridMultiplier),
+        precomputed !== null && precomputed.length > 0
+          ? Promise.resolve(precomputed)
+          : getObservationsAggregated(deps.pool, filters, gridMultiplier),
         getFreshestObservationAt(deps.pool),
       ]);
       c.header('Cache-Control', cacheControlFor('observations'));
