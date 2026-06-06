@@ -289,3 +289,58 @@ describe('refreshGridAgg correctness across ingest delta + prune (#878)', () => 
     expect(fingerprint(afterPrune)).toBe(fingerprint(live));
   });
 });
+
+describe('refreshGridAgg statement_timeout exemption (#878 prod-timeout regression)', () => {
+  // Prod regression: pool.ts sets a 15s statement_timeout on every connection
+  // (#822) to protect the read-api request path. refreshGridAgg's populate is
+  // one heavy batch statement (14d `recent` CTE × 2/4/8 multipliers × national +
+  // 50-state ST_Intersects join) that exceeds 15s at prod scale, so Postgres
+  // cancelled it (SQLSTATE 57014), the txn rolled back, and zero grid rows
+  // committed — leaving every state scope on the 12–15s live fallback (CA 503s).
+  // The fix mirrors the #845 precedent: `SET LOCAL statement_timeout = 0`
+  // immediately after BEGIN, scoping the exemption to this transaction only.
+  // This test fails against the pre-fix code (no SET LOCAL) and passes after.
+  it("issues `SET LOCAL statement_timeout = 0` after BEGIN, before the populate", async () => {
+    const log: string[] = [];
+    // Wrap pool.connect so the returned client records every query text. We
+    // delegate to the real client (so the populate runs for real against the
+    // testcontainers DB) and only observe the call sequence.
+    const realConnect = pool.connect.bind(pool);
+    const spied = {
+      connect: async () => {
+        const client = await realConnect();
+        const realQuery = client.query.bind(client);
+        // pg's query() is heavily overloaded; capture the SQL text from the
+        // first arg (string, or { text } config object) and forward verbatim.
+        (client as unknown as { query: (...a: unknown[]) => unknown }).query = (
+          ...args: unknown[]
+        ) => {
+          const first = args[0];
+          const text =
+            typeof first === 'string'
+              ? first
+              : (first as { text?: string })?.text ?? '';
+          log.push(text);
+          return (realQuery as (...a: unknown[]) => unknown)(...args);
+        };
+        return client;
+      },
+    } as unknown as pg.Pool;
+
+    const n = await refreshGridAgg(spied);
+    expect(n).toBeGreaterThan(0);
+
+    const beginIdx = log.findIndex(q => /^\s*BEGIN/i.test(q));
+    const setLocalIdx = log.findIndex(q =>
+      /SET\s+LOCAL\s+statement_timeout\s*=\s*0/i.test(q),
+    );
+    const deleteIdx = log.findIndex(q => /DELETE\s+FROM\s+observation_grid_agg/i.test(q));
+
+    expect(beginIdx).toBeGreaterThanOrEqual(0);
+    expect(setLocalIdx).toBeGreaterThanOrEqual(0);
+    // The exemption must land AFTER BEGIN (so it's inside the txn and SET LOCAL
+    // is valid) and BEFORE the heavy DELETE/INSERT populate it's protecting.
+    expect(setLocalIdx).toBeGreaterThan(beginIdx);
+    expect(setLocalIdx).toBeLessThan(deleteIdx);
+  });
+});
