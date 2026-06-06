@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SpeciesDetailSheet, resolveContentTier } from './SpeciesDetailSheet.js';
 import { ApiClient } from '../api/client.js';
 import type { SpeciesMeta } from '@bird-watch/shared-types';
 import { __resetSpeciesDetailCache } from '../data/use-species-detail.js';
+import { analytics } from '../analytics.js';
 
 const VERMFLY_WITH_PHOTO: SpeciesMeta = {
   speciesCode: 'vermfly',
@@ -355,6 +356,240 @@ describe('<SpeciesDetailSheet>', () => {
 
     // Cleanup must have removed inert — the modal that takes over starts clean.
     expect(mainEl).not.toHaveAttribute('inert');
+  });
+
+  // ─── Analytics instrumentation (T3 #909, re-wired off SpeciesDetailSurface) ──
+  //
+  // T1 (#907) stopped composing <SpeciesDetailSurface> inside the sheet, which
+  // silently dropped the three detail-panel analytics events. T3 re-wires them
+  // IN the sheet with the SAME event names + prop shapes as the surface
+  // (SpeciesDetailSurface.tsx:78-115):
+  //
+  //   - `panel_opened` on species data-arrival, props {species_code, has_description}
+  //   - `panel_dwell_ms` on unmount (effect cleanup), props {species_code, dwell_ms}
+  //   - `panel_scrolled_to_bottom` on first IntersectionObserver hit on the
+  //     bottom sentinel, prop {species_code}
+  //
+  // `analytics.capture` flows through `safeClarity` (clarity.ts); in jsdom
+  // `window.clarity` is undefined so the wrapper no-ops. We spy on
+  // `analytics.capture` directly to assert the events fire with the right shape.
+
+  describe('analytics instrumentation', () => {
+    function makeClientWith(meta: SpeciesMeta): ApiClient {
+      const client = new ApiClient({ baseUrl: '' });
+      client.getSpecies = vi.fn().mockResolvedValue(meta);
+      client.getSilhouettes = vi.fn().mockResolvedValue([]);
+      return client;
+    }
+
+    it('fires panel_opened once on data resolve with has_description=false when no description', async () => {
+      const captureSpy = vi.spyOn(analytics, 'capture');
+      render(
+        <SpeciesDetailSheet
+          speciesCode="vermfly"
+          apiClient={makeClient()}
+          onClose={vi.fn()}
+          mainRef={{ current: mainEl }}
+        />,
+      );
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeInTheDocument(),
+      );
+      const openCalls = captureSpy.mock.calls.filter(([name]) => name === 'panel_opened');
+      expect(openCalls).toHaveLength(1);
+      expect(captureSpy).toHaveBeenCalledWith('panel_opened', {
+        species_code: 'vermfly',
+        has_description: false,
+      });
+      captureSpy.mockRestore();
+    });
+
+    it('fires panel_opened with has_description=true when descriptionBody is present', async () => {
+      const captureSpy = vi.spyOn(analytics, 'capture');
+      render(
+        <SpeciesDetailSheet
+          speciesCode="vermfly"
+          apiClient={makeClientWith({
+            ...VERMFLY_WITH_PHOTO,
+            descriptionBody: '<p>Body.</p>',
+            descriptionAttributionUrl: 'https://en.wikipedia.org/wiki/Vermilion_flycatcher',
+          })}
+          onClose={vi.fn()}
+          mainRef={{ current: mainEl }}
+        />,
+      );
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeInTheDocument(),
+      );
+      expect(captureSpy).toHaveBeenCalledWith('panel_opened', {
+        species_code: 'vermfly',
+        has_description: true,
+      });
+      captureSpy.mockRestore();
+    });
+
+    it('does NOT fire panel_opened before species data resolves', async () => {
+      const captureSpy = vi.spyOn(analytics, 'capture');
+      const client = new ApiClient({ baseUrl: '' });
+      // getSpecies never resolves — the effect's data-arrival guard means
+      // panel_opened must not fire while the sheet is still loading.
+      client.getSpecies = vi.fn().mockReturnValue(new Promise(() => {}));
+      client.getSilhouettes = vi.fn().mockResolvedValue([]);
+      render(
+        <SpeciesDetailSheet
+          speciesCode="vermfly"
+          apiClient={client}
+          onClose={vi.fn()}
+          mainRef={{ current: mainEl }}
+        />,
+      );
+      const sheet = await screen.findByTestId('species-detail-sheet');
+      expect(sheet).toBeInTheDocument();
+      const openCalls = captureSpy.mock.calls.filter(([name]) => name === 'panel_opened');
+      expect(openCalls).toHaveLength(0);
+      captureSpy.mockRestore();
+    });
+
+    it('fires panel_dwell_ms on unmount with species_code and a numeric dwell_ms', async () => {
+      const captureSpy = vi.spyOn(analytics, 'capture');
+      const { unmount } = render(
+        <SpeciesDetailSheet
+          speciesCode="vermfly"
+          apiClient={makeClient()}
+          onClose={vi.fn()}
+          mainRef={{ current: mainEl }}
+        />,
+      );
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeInTheDocument(),
+      );
+      // panel_opened fired on data resolve; clear so we isolate the unmount call.
+      captureSpy.mockClear();
+      unmount();
+      expect(captureSpy).toHaveBeenCalledWith(
+        'panel_dwell_ms',
+        expect.objectContaining({
+          species_code: 'vermfly',
+          dwell_ms: expect.any(Number),
+        }),
+      );
+      // The dwell payload carries no has_description (analyst groups on the
+      // open-event property at query time) — mirror of the surface contract.
+      const dwellCalls = captureSpy.mock.calls.filter(([name]) => name === 'panel_dwell_ms');
+      for (const [, payload] of dwellCalls) {
+        expect(payload as Record<string, unknown>).not.toHaveProperty('has_description');
+      }
+      captureSpy.mockRestore();
+    });
+
+    it('renders the bottom sentinel as a direct child of .sheet-fg AFTER the About block (no display:none)', async () => {
+      const { container } = render(
+        <SpeciesDetailSheet
+          speciesCode="vermfly"
+          apiClient={makeClient()}
+          onClose={vi.fn()}
+          mainRef={{ current: mainEl }}
+        />,
+      );
+      const sentinel = await screen.findByTestId('detail-bottom-sentinel');
+      // aria-hidden so SR users don't perceive an empty element at the end.
+      expect(sentinel).toHaveAttribute('aria-hidden', 'true');
+      // CRITICAL: the sentinel must be a DIRECT child of the scroll container
+      // (.sheet-fg) — the tier-gated .sheet-fg-about block is display:none until
+      // full and never intersects. Direct-child placement keeps it in layout.
+      const scroller = container.querySelector('.sheet-fg');
+      expect(scroller).not.toBeNull();
+      expect(sentinel.parentElement).toBe(scroller);
+      // Must sit AFTER the About block so it only intersects once the user has
+      // scrolled past every content node.
+      const about = container.querySelector('.sheet-fg-about');
+      expect(about).not.toBeNull();
+      expect(
+        about!.compareDocumentPosition(sentinel) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      // The sentinel itself must NOT carry a tier-gated display:none class — it
+      // is the only .sheet-fg child that is intersectable at every detent.
+      expect(sentinel.className).not.toMatch(/sheet-fg-about|sheet-fg-taxonomy/);
+    });
+
+    it('fires panel_scrolled_to_bottom once on first sentinel intersection then disconnects', async () => {
+      // jsdom has no IntersectionObserver; install a controllable class mock
+      // that records each registered callback for manual triggering — same
+      // pattern as SpeciesDetailSurface.test.tsx.
+      type IOInstance = {
+        callback: IntersectionObserverCallback;
+        observe: ReturnType<typeof vi.fn>;
+        disconnect: ReturnType<typeof vi.fn>;
+        unobserve: ReturnType<typeof vi.fn>;
+        takeRecords: ReturnType<typeof vi.fn>;
+      };
+      const observers: IOInstance[] = [];
+      class IOMock {
+        callback: IntersectionObserverCallback;
+        observe = vi.fn();
+        disconnect = vi.fn();
+        unobserve = vi.fn();
+        takeRecords = vi.fn(() => []);
+        constructor(callback: IntersectionObserverCallback) {
+          this.callback = callback;
+          observers.push(this as unknown as IOInstance);
+        }
+      }
+      const originalIO = (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver;
+      (globalThis as { IntersectionObserver: unknown }).IntersectionObserver = IOMock;
+
+      try {
+        const captureSpy = vi.spyOn(analytics, 'capture');
+        const { container } = render(
+          <SpeciesDetailSheet
+            speciesCode="vermfly"
+            apiClient={makeClient()}
+            onClose={vi.fn()}
+            mainRef={{ current: mainEl }}
+          />,
+        );
+        const sentinel = await screen.findByTestId('detail-bottom-sentinel');
+        expect(container).toBeTruthy();
+        expect(observers.length).toBeGreaterThan(0);
+        // Find the observer wired to the sentinel.
+        const wired = observers.find(o =>
+          o.observe.mock.calls.some(call => call[0] === sentinel),
+        );
+        expect(wired).toBeDefined();
+
+        captureSpy.mockClear();
+        act(() => {
+          wired!.callback(
+            [{ isIntersecting: true } as IntersectionObserverEntry],
+            wired as unknown as IntersectionObserver,
+          );
+        });
+        expect(captureSpy).toHaveBeenCalledWith('panel_scrolled_to_bottom', {
+          species_code: 'vermfly',
+        });
+        const fires = captureSpy.mock.calls.filter(([name]) => name === 'panel_scrolled_to_bottom');
+        expect(fires).toHaveLength(1);
+        expect(wired!.disconnect).toHaveBeenCalled();
+
+        // Second intersection must NOT re-fire (binary-only contract).
+        captureSpy.mockClear();
+        act(() => {
+          wired!.callback(
+            [{ isIntersecting: true } as IntersectionObserverEntry],
+            wired as unknown as IntersectionObserver,
+          );
+        });
+        const reFires = captureSpy.mock.calls.filter(([name]) => name === 'panel_scrolled_to_bottom');
+        expect(reFires).toHaveLength(0);
+        captureSpy.mockRestore();
+      } finally {
+        if (originalIO === undefined) {
+          delete (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver;
+        } else {
+          (globalThis as { IntersectionObserver: unknown }).IntersectionObserver = originalIO;
+        }
+      }
+    });
   });
 });
 

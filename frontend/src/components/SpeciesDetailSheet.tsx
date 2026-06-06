@@ -16,6 +16,7 @@ import {
   buildFamilyPathResolver,
   buildFamilyImgUrlResolver,
 } from '../data/family-color.js';
+import { analytics } from '../analytics.js';
 import { SpeciesDescription } from './SpeciesDescription.js';
 import { Photo } from './ds/Photo.js';
 import type { FamilyCode } from '../config/family-palette.js';
@@ -181,6 +182,63 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
   const resolveColor = useMemo(() => buildFamilyColorResolver(silhouettes), [silhouettes]);
   const resolvePath = useMemo(() => buildFamilyPathResolver(silhouettes), [silhouettes]);
   const resolveImgUrl = useMemo(() => buildFamilyImgUrlResolver(silhouettes), [silhouettes]);
+
+  // ── Analytics (T3 #909) ──────────────────────────────────────────────────
+  // Re-wired off SpeciesDetailSurface (SpeciesDetailSurface.tsx:73-115): T1
+  // (#907) stopped composing the surface inside this sheet and silently dropped
+  // these three events. They are reproduced here verbatim — same event names
+  // and prop shapes — so the mobile funnel keeps emitting them. The sheet must
+  // NOT import SpeciesDetailSurface (it owns its own layout); only the analytics
+  // contract is shared.
+  //
+  // panel_opened / panel_dwell_ms — fire on species data-arrival, dwell on
+  // effect cleanup. Keyed on data?.speciesCode so a species change re-fires the
+  // pair (dwell for the old, open for the new).
+  useEffect(() => {
+    if (!data?.speciesCode) return;
+    const t0 = Date.now();
+    const code = data.speciesCode;
+    analytics.capture('panel_opened', {
+      species_code: code,
+      has_description: !!data.descriptionBody,
+    });
+    return () => {
+      analytics.capture('panel_dwell_ms', {
+        species_code: code,
+        dwell_ms: Date.now() - t0,
+      });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.speciesCode]);
+
+  // panel_scrolled_to_bottom — first IntersectionObserver hit on the bottom
+  // sentinel, once per species. The sentinel is a DIRECT child of .sheet-fg
+  // (the only detent scroll container) AFTER the About block, with no tier-gated
+  // display:none — a display:none element has a zero box and never intersects,
+  // so it must stay in layout to be observable. firedRef + observer.disconnect()
+  // is the no-double-fire guard (no re-fire across detent changes).
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const firedRef = useRef<boolean>(false);
+  const speciesCodeForObserver = data?.speciesCode;
+  useEffect(() => {
+    if (!speciesCodeForObserver) return;
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    if (typeof IntersectionObserver === 'undefined') return;
+    firedRef.current = false;
+    const observer = new IntersectionObserver(entries => {
+      const intersected = entries.some(entry => entry.isIntersecting);
+      if (intersected && !firedRef.current) {
+        firedRef.current = true;
+        analytics.capture('panel_scrolled_to_bottom', {
+          species_code: speciesCodeForObserver,
+        });
+        observer.disconnect();
+      }
+    });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [speciesCodeForObserver]);
 
   // Compute snap heights against the live viewport. Recompute on
   // resize so an orientation change or mobile-Safari URL-bar collapse
@@ -573,6 +631,19 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
             <p className="sheet-fg-prose">No description available.</p>
           )}
         </div>
+
+        {/* Bottom sentinel for panel_scrolled_to_bottom (T3 #909). A DIRECT
+            child of .sheet-fg AFTER the About block with NO tier-gated
+            display:none: the .sheet-fg-about/.sheet-fg-taxonomy blocks are
+            display:none until full, and a display:none element has a zero box
+            that never intersects. The sentinel must stay in layout so the
+            IntersectionObserver can fire when the user scrolls the About prose
+            into view at the full detent (the only detent .sheet-fg scrolls). */}
+        <div
+          ref={sentinelRef}
+          data-testid="detail-bottom-sentinel"
+          aria-hidden="true"
+        />
       </div>
     </div>
   );
