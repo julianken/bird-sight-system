@@ -520,6 +520,280 @@ export async function getObservationsAggregated(
   }));
 }
 
+// ── #878 — PRECOMPUTED PER-SCOPE AGGREGATION GRID ───────────────────────────
+//
+// getObservationsAggregated aggregates EVERY in-scope observation at request
+// time. For high-volume states (CA/TX) the cost is the HashAggregate/WindowAgg/
+// Sort over the in-scope row set, not row-finding — ~12-15s cold, one bad scan
+// from the 15s statement_timeout. The fix precomputes the aggregated grid per
+// scope at ingest time (refreshGridAgg, ingestor-side) and serves the DEFAULT
+// low-zoom view as a cheap PK lookup (getAggregatedGridFromCache) on the
+// observation_grid_agg table (migration 1700000051000). Filtered / non-default
+// requests keep the exact live CTE path (getObservationsAggregated) unchanged.
+
+/**
+ * The national scope key in `observation_grid_agg.scope_key` (the unclipped,
+ * whole-US grid). State scopes use their `US-XX` code as the key.
+ */
+export const NATIONAL_SCOPE_KEY = 'US';
+
+/**
+ * The standard grid multipliers the read-api's closed zoom→grid switch emits
+ * (`services/read-api/src/app.ts`: zoom <= 3 → 2, zoom === 4 → 4, else → 8).
+ * Only these tiers are precomputed; any other multiplier (an upstream tamper,
+ * a future tier) falls through to the live CTE. Kept here, beside the populate
+ * + lookup that consume it, so the precompute set and the read-path predicate
+ * never drift from one list.
+ */
+export const STANDARD_GRID_MULTIPLIERS: readonly number[] = [2, 4, 8];
+
+/**
+ * Resolves the `scope_key` for a precompute lookup from the request filters:
+ * a `US-XX` state code when one is scoped, the national key otherwise. This is
+ * a pure function of the SCOPE — never of the bbox. A scoped state view ALWAYS
+ * sends the deterministic snapped state-envelope bbox (frontend client.ts), so
+ * "a bbox is present" must NOT route to the fallback or it defeats the whole
+ * fix; the server already clips to the state polygon, so the envelope bbox is a
+ * function of the scope, not a row-reducing filter.
+ */
+export function resolveScopeKey(f: ObservationFilters): string {
+  return f.stateCode ?? NATIONAL_SCOPE_KEY;
+}
+
+/**
+ * POSITIVE read-path predicate (#878). Use the precompute lookup ONLY when the
+ * request is the default unfiltered low-zoom view:
+ *   - a resolvable scope (a state code OR national — always true here, but kept
+ *     explicit so the intent reads in one place),
+ *   - the default `since` window (14d, or unset which defaults to 14d),
+ *   - NO `notable` / `speciesCode` / `familyCode` filter,
+ *   - a standard grid multiplier (2/4/8).
+ * The bbox is deliberately IGNORED — a scoped state view always carries the
+ * snapped state-envelope bbox, which is co-extensive with the state's polygon
+ * clip and adds no row-reducing work. Everything else (any filter, non-default
+ * `since`, a non-standard multiplier) falls through to the live CTE.
+ */
+export function isPrecomputeEligible(
+  f: ObservationFilters,
+  gridMultiplier: number,
+): boolean {
+  // Default `since` = 14d (unset defaults to 14d at the populate level too).
+  const sinceIsDefault = f.since === undefined || f.since === '14d';
+  const hasNoFilters =
+    f.notable !== true && f.speciesCode === undefined && f.familyCode === undefined;
+  const standardMultiplier = STANDARD_GRID_MULTIPLIERS.includes(gridMultiplier);
+  return sinceIsDefault && hasNoFilters && standardMultiplier;
+}
+
+/**
+ * Cheap PK lookup into `observation_grid_agg` for the default low-zoom view.
+ * Returns the precomputed buckets in the SAME shape getObservationsAggregated
+ * returns (so the read-api branch is a drop-in). The rows are byte-identical to
+ * what the live CTE would produce for `{ since: '14d', stateCode? }` at this
+ * multiplier (guaranteed by refreshGridAgg sharing the live pipeline).
+ *
+ * A scope/multiplier with no precomputed rows yields []. The caller decides
+ * whether an empty grid means "genuinely empty scope" or "not yet populated";
+ * in practice refreshGridAgg runs every ingest cycle so a live scope is never
+ * absent for long, and the read-path only takes this branch when eligible.
+ */
+export async function getAggregatedGridFromCache(
+  pool: Pool,
+  scopeKey: string,
+  gridMultiplier: number,
+): Promise<AggregatedBucket[]> {
+  const { rows } = await pool.query<{
+    lng_bucket: number;
+    lat_bucket: number;
+    observation_count: number;
+    species_count: number;
+    families: AggregatedFamily[] | null;
+  }>(
+    `SELECT lng_bucket, lat_bucket, observation_count, species_count, families
+       FROM observation_grid_agg
+      WHERE scope_key = $1 AND grid_multiplier = $2`,
+    [scopeKey, gridMultiplier],
+  );
+  return rows.map(r => ({
+    lng: Number(r.lng_bucket),
+    lat: Number(r.lat_bucket),
+    count: r.observation_count,
+    speciesCount: r.species_count,
+    families: r.families ?? [],
+  }));
+}
+
+/**
+ * Recomputes the ENTIRE `observation_grid_agg` table — all scopes (national +
+ * every CONUS state) × all standard grid multipliers (2/4/8) — and atomically
+ * swaps it in (#878). Runs ingestor-side after each /recent ingest+reconcile
+ * AND after the 14-day prune (never on the request path), so a state's grid
+ * always reflects the current observations table (no stale cells across an
+ * ingest delta or a prune — the table is fully rebuilt each call).
+ *
+ * State-assignment decision: each observation is assigned to its state with ONE
+ * GIST-backed `ST_Intersects` join against `state_boundaries` (the `&&`
+ * bounding-box prefilter uses obs_geom_idx), NOT 49 separate per-state polygon
+ * passes and NOT a denormalized `state_code` column on `observations`. A single
+ * spatial join over the pruned 14d table is far cheaper than 49 repeated scans
+ * AND avoids a schema change + per-ingest backfill of a state_code column (which
+ * would also have to be kept correct on every upsert). The national grid needs
+ * no join at all. The whole rebuild is one set-based statement per CTE chain, so
+ * the populate cost is a single 14d-window aggregation pass (the same volume the
+ * live national query already does in ~2.3s at prod scale) — comfortably inside
+ * the ingestor's 900s job budget and off the request path entirely.
+ *
+ * Byte-identity: this shares the EXACT pipeline shape getObservationsAggregated
+ * uses (base → per_species → ranked → per_family → families + bucket_totals),
+ * extended with a `scope_key` grouping key. For `scope_key = 'US'` the base is
+ * all 14d rows (= the live national query). For `scope_key = 'US-XX'` the base
+ * is the rows whose geom ST_Intersects that state polygon (= the live state
+ * query's clip). So a precomputed cell equals what the live CTE returns for the
+ * matching `{ since: '14d', stateCode? }` request, cell-for-cell.
+ *
+ * The grid multipliers and top-N cap are bound parameters / a CROSS JOIN over a
+ * fixed VALUES list — never interpolated — so the populate carries no injection
+ * surface. The rebuild runs in one transaction (TRUNCATE + INSERT) so a reader
+ * never sees a half-populated table.
+ */
+export async function refreshGridAgg(pool: Pool): Promise<number> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // Clear inside the transaction so a reader never sees a half-populated grid
+    // (the INSERT below repopulates before COMMIT). DELETE not TRUNCATE: TRUNCATE
+    // takes an ACCESS EXCLUSIVE lock that would block concurrent read-path
+    // lookups for the rebuild's duration; a DELETE + INSERT under MVCC lets
+    // lookups keep serving the previous snapshot until COMMIT.
+    await client.query('DELETE FROM observation_grid_agg');
+    // The full per-scope/per-multiplier aggregation. `scoped` tags every 14d
+    // observation with each scope it belongs to: 'US' (national, no clip) UNION
+    // ALL its containing state ('US-XX', via the GIST ST_Intersects join).
+    // `mult(m)` CROSS JOINs the standard multipliers so one statement covers all
+    // tiers. The rest mirrors getObservationsAggregated exactly, with scope_key
+    // + grid_multiplier threaded through every GROUP BY / PARTITION BY.
+    const result = await client.query<{ n: string }>(
+      `
+      WITH recent AS (
+        SELECT o.geom, o.species_code, sm.family_code
+        FROM observations o
+        LEFT JOIN species_meta sm ON sm.species_code = o.species_code
+        WHERE o.obs_dt >= now() - (14 * interval '1 day')
+      ),
+      mult(grid_multiplier) AS (
+        VALUES (2::int), (4::int), (8::int)
+      ),
+      scoped AS (
+        -- National scope: every recent row, no clip.
+        SELECT $1::text AS scope_key, r.geom, r.species_code, r.family_code
+        FROM recent r
+        UNION ALL
+        -- State scope: each recent row tagged with the state polygon it falls
+        -- in. ST_Intersects (NOT ST_Contains) matches the live state clip
+        -- inclusive border idiom; the && prefilter uses obs_geom_idx.
+        SELECT sb.state_code AS scope_key, r.geom, r.species_code, r.family_code
+        FROM recent r
+        JOIN state_boundaries sb
+          ON r.geom && sb.geom AND ST_Intersects(sb.geom, r.geom)
+      ),
+      base AS (
+        SELECT
+          s.scope_key,
+          m.grid_multiplier,
+          round(ST_X(s.geom) * m.grid_multiplier) / m.grid_multiplier AS lng_bucket,
+          round(ST_Y(s.geom) * m.grid_multiplier) / m.grid_multiplier AS lat_bucket,
+          s.species_code,
+          s.family_code
+        FROM scoped s
+        CROSS JOIN mult m
+      ),
+      per_species AS (
+        SELECT
+          scope_key, grid_multiplier, lng_bucket, lat_bucket, family_code, species_code,
+          count(*)::int AS species_count
+        FROM base
+        WHERE family_code IS NOT NULL
+        GROUP BY scope_key, grid_multiplier, lng_bucket, lat_bucket, family_code, species_code
+      ),
+      ranked AS (
+        SELECT
+          scope_key, grid_multiplier, lng_bucket, lat_bucket, family_code, species_code, species_count,
+          ROW_NUMBER() OVER (
+            PARTITION BY scope_key, grid_multiplier, lng_bucket, lat_bucket, family_code
+            ORDER BY species_count DESC, species_code ASC
+          ) AS rn
+        FROM per_species
+      ),
+      per_family AS (
+        SELECT
+          scope_key, grid_multiplier, lng_bucket, lat_bucket, family_code,
+          sum(species_count)::int AS family_count,
+          count(*)::int AS family_species_count,
+          jsonb_agg(
+            jsonb_build_object('code', species_code, 'count', species_count)
+            ORDER BY species_count DESC, species_code ASC
+          ) FILTER (WHERE rn <= $2) AS top_species
+        FROM ranked
+        GROUP BY scope_key, grid_multiplier, lng_bucket, lat_bucket, family_code
+      ),
+      families AS (
+        SELECT
+          scope_key, grid_multiplier, lng_bucket, lat_bucket,
+          jsonb_agg(
+            jsonb_build_object(
+              'code', family_code,
+              'count', family_count,
+              'speciesCount', family_species_count,
+              'species', top_species
+            )
+            ORDER BY family_count DESC, family_code ASC
+          ) AS families
+        FROM per_family
+        GROUP BY scope_key, grid_multiplier, lng_bucket, lat_bucket
+      ),
+      bucket_totals AS (
+        SELECT
+          scope_key, grid_multiplier, lng_bucket, lat_bucket,
+          count(*)::int AS observation_count,
+          count(DISTINCT species_code)::int AS species_count
+        FROM base
+        GROUP BY scope_key, grid_multiplier, lng_bucket, lat_bucket
+      ),
+      grid AS (
+        SELECT
+          t.scope_key, t.grid_multiplier, t.lng_bucket, t.lat_bucket,
+          t.observation_count, t.species_count,
+          COALESCE(f.families, '[]'::jsonb) AS families
+        FROM bucket_totals t
+        LEFT JOIN families f
+          ON  f.scope_key = t.scope_key
+          AND f.grid_multiplier = t.grid_multiplier
+          AND f.lng_bucket = t.lng_bucket
+          AND f.lat_bucket = t.lat_bucket
+      ),
+      ins AS (
+        INSERT INTO observation_grid_agg
+          (scope_key, grid_multiplier, lng_bucket, lat_bucket,
+           observation_count, species_count, families)
+        SELECT scope_key, grid_multiplier, lng_bucket, lat_bucket,
+               observation_count, species_count, families
+        FROM grid
+        RETURNING 1
+      )
+      SELECT count(*)::text AS n FROM ins
+      `,
+      [NATIONAL_SCOPE_KEY, TOP_SPECIES_PER_FAMILY],
+    );
+    await client.query('COMMIT');
+    return Number(result.rows[0]?.n ?? 0);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 /**
  * Returns the ISO string of the most recently ingested observation
  * (MAX(ingested_at)), or null when the observations table is empty.
