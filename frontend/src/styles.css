@@ -1542,8 +1542,12 @@ aside.species-detail-rail .species-detail-rail-close {
   border-radius: 50%;
   flex: none;
   /* 1px ring so the dot's boundary is perceivable on any family hue / theme
-     (a11y: non-text contrast, family color must not be the only signal). */
-  box-shadow: 0 0 0 1px rgba(128, 128, 128, 0.55);
+     (a11y: non-text contrast, family color must not be the only signal).
+     The old rgba(128,128,128,.55) ring composited to only ~1.96:1 on the
+     white card / ~2.08:1 on the navy card — BOTH failing WCAG 2.2 SC 1.4.11.
+     --sheet-dot-ring is a solid per-theme color (tokens.css) clearing ≥3:1 on
+     each surface; the audit is falsified by family-dot-ring-contrast.test.ts. */
+  box-shadow: 0 0 0 1px var(--sheet-dot-ring);
 }
 
 .sheet-fg-rule {

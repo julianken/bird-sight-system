@@ -18,9 +18,28 @@ const VERMFLY_WITH_PHOTO: SpeciesMeta = {
   photoLicense: 'CC-BY-4.0',
 };
 
+// No-photo VERMFLY: photoUrl omitted (it is optional on SpeciesMeta), so the
+// sheet passes src=null to <Photo> and the family-silhouette fallback renders.
+// Mirrors the canonical e2e VERMFLY fixture (frontend/e2e/fixtures.ts).
+const VERMFLY_NO_PHOTO: SpeciesMeta = {
+  speciesCode: 'vermfly',
+  comName: 'Vermilion Flycatcher',
+  sciName: 'Pyrocephalus rubinus',
+  familyCode: 'songbird',
+  familyName: 'Tyrant Flycatchers',
+  taxonOrder: 4400,
+};
+
 function makeClient(): ApiClient {
   const client = new ApiClient({ baseUrl: '' });
   client.getSpecies = vi.fn().mockResolvedValue(VERMFLY_WITH_PHOTO);
+  client.getSilhouettes = vi.fn().mockResolvedValue([]);
+  return client;
+}
+
+function makeNoPhotoClient(): ApiClient {
+  const client = new ApiClient({ baseUrl: '' });
+  client.getSpecies = vi.fn().mockResolvedValue(VERMFLY_NO_PHOTO);
   client.getSilhouettes = vi.fn().mockResolvedValue([]);
   return client;
 }
@@ -336,6 +355,110 @@ describe('<SpeciesDetailSheet>', () => {
 
     // Cleanup must have removed inert — the modal that takes over starts clean.
     expect(mainEl).not.toHaveAttribute('inert');
+  });
+});
+
+describe('<SpeciesDetailSheet> — photoless silhouette fallback (#908 T2)', () => {
+  let mainEl: HTMLElement;
+
+  beforeEach(() => {
+    while (document.body.firstChild) {
+      document.body.removeChild(document.body.firstChild);
+    }
+    mainEl = document.createElement('main');
+    mainEl.id = 'main-surface';
+    document.body.appendChild(mainEl);
+    __resetSpeciesDetailCache();
+  });
+
+  // The silhouette is a SINGLE <Photo> kept mounted across detents; only its
+  // frame morphs per [data-content]. So .photo--silhouette must be present at
+  // EVERY tier for a no-photo species — never a flat block. We assert presence
+  // within .sheet-fg-photo (the morphing frame) at compact / mid / full.
+  const silhouetteInFrame = (sheet: HTMLElement) =>
+    sheet.querySelector('.sheet-fg-photo .photo--silhouette');
+
+  it('renders .photo--silhouette at the MID tier (mount default = half snap)', async () => {
+    render(
+      <SpeciesDetailSheet
+        speciesCode="vermfly"
+        apiClient={makeNoPhotoClient()}
+        onClose={vi.fn()}
+        mainRef={{ current: mainEl }}
+      />
+    );
+    const sheet = await screen.findByTestId('species-detail-sheet');
+    // Opens at half → MID content tier.
+    await waitFor(() => expect(sheet).toHaveAttribute('data-content', 'mid'));
+    // The no-photo branch renders the family silhouette glyph, not the <img>.
+    expect(silhouetteInFrame(sheet)).not.toBeNull();
+    expect(sheet.querySelector('.sheet-fg-photo .family-silhouette')).not.toBeNull();
+    expect(sheet.querySelector('.sheet-fg-photo svg')).not.toBeNull();
+    expect(sheet.querySelector('.sheet-fg-photo img')).toBeNull();
+  });
+
+  it('renders .photo--silhouette at the FULL tier (masthead detent)', async () => {
+    render(
+      <SpeciesDetailSheet
+        speciesCode="vermfly"
+        apiClient={makeNoPhotoClient()}
+        onClose={vi.fn()}
+        mainRef={{ current: mainEl }}
+      />
+    );
+    const sheet = await screen.findByTestId('species-detail-sheet');
+    // One expand tap advances half → full → FULL (masthead) content tier.
+    const expand = await screen.findByRole('button', { name: /expand/i });
+    await userEvent.click(expand);
+    await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'full'));
+    await waitFor(() => expect(sheet).toHaveAttribute('data-content', 'full'));
+    expect(silhouetteInFrame(sheet)).not.toBeNull();
+    expect(sheet.querySelector('.sheet-fg-photo img')).toBeNull();
+  });
+
+  it('renders .photo--silhouette at the COMPACT tier (peek / 44px identity row)', async () => {
+    render(
+      <SpeciesDetailSheet
+        speciesCode="vermfly"
+        apiClient={makeNoPhotoClient()}
+        onClose={vi.fn()}
+        mainRef={{ current: mainEl }}
+      />
+    );
+    const sheet = await screen.findByTestId('species-detail-sheet');
+    const handle = await screen.findByTestId('species-detail-sheet-handle');
+    // Drag down from half toward peek (settles to the peek detent — 104px —
+    // which resolves to the COMPACT content tier) WITHOUT crossing the dismiss
+    // floor. A slow, short downward drag keeps velocity under the flick
+    // threshold so it settles by position to the nearest detent (peek).
+    handle.dispatchEvent(new PointerEvent('pointerdown', { clientY: 400, pointerId: 9, bubbles: true }));
+    handle.dispatchEvent(new PointerEvent('pointermove', { clientY: 600, pointerId: 9, bubbles: true }));
+    handle.dispatchEvent(new PointerEvent('pointermove', { clientY: 740, pointerId: 9, bubbles: true }));
+    handle.dispatchEvent(new PointerEvent('pointerup', { clientY: 740, pointerId: 9, bubbles: true }));
+    await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'peek'));
+    await waitFor(() => expect(sheet).toHaveAttribute('data-content', 'compact'));
+    expect(silhouetteInFrame(sheet)).not.toBeNull();
+    expect(sheet.querySelector('.sheet-fg-photo img')).toBeNull();
+  });
+
+  it('with-photo species renders the <img>, NOT the silhouette', async () => {
+    render(
+      <SpeciesDetailSheet
+        speciesCode="vermfly"
+        apiClient={makeClient()}
+        onClose={vi.fn()}
+        mainRef={{ current: mainEl }}
+      />
+    );
+    const sheet = await screen.findByTestId('species-detail-sheet');
+    // The <img> mounts immediately (loading state) for a species with photoUrl.
+    await waitFor(() => expect(sheet.querySelector('.sheet-fg-photo img')).not.toBeNull());
+    expect(sheet.querySelector('.sheet-fg-photo .photo__img')).toHaveAttribute(
+      'src',
+      'https://photos.bird-maps.com/vermfly.jpg'
+    );
+    // No silhouette on the photo branch.
+    expect(silhouetteInFrame(sheet)).toBeNull();
   });
 });
 
