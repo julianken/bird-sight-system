@@ -385,16 +385,23 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
     [heightFor, onClose, settleTo],
   );
 
-  // Initial focus on mount: heading first only when the sheet opens at
-  // full (not peek/half — at peek/half the user expects map focus to
-  // persist so they can keep clicking clusters). At full the heading
-  // gets focus exactly like the desktop modal.
+  // Initial focus on mount: move focus to the DIALOG CONTAINER (not the visible
+  // species name) only when the sheet opens at full — at peek/half the user
+  // expects map focus to persist so they can keep clicking clusters.
+  //
+  // #907 design-review finding 2: focusing the visible `#detail-title` heading
+  // painted a stray `:focus-visible` ring around the species name on
+  // keyboard-driven open. Focus the sheet root instead (tabIndex={-1} makes it
+  // programmatically focusable without a tab stop). The dialog's accessible
+  // name is still the species name via `aria-label`, so AT announces the same
+  // thing on entry; the visible name no longer rings on either pointer or
+  // keyboard open.
   useEffect(() => {
     if (snap !== 'full') return;
     const sheet = sheetRef.current;
     if (!sheet) return;
     queueMicrotask(() => {
-      sheet.querySelector<HTMLElement>('#detail-title')?.focus();
+      sheetRef.current?.focus();
     });
   }, [snap]);
 
@@ -427,6 +434,10 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
       data-snap-state={snap}
       data-dragging={dragging ? 'true' : 'false'}
       data-content={content}
+      // #907 finding 2 — programmatically focusable (no tab stop) so open-focus
+      // can land on the dialog container instead of the visible species name,
+      // which avoided a stray :focus-visible ring on the title.
+      tabIndex={-1}
       role={isFull ? 'dialog' : 'region'}
       aria-label={isFull ? (speciesName ?? 'Species detail') : 'Selected sighting'}
       {...(isFull ? { 'aria-modal': 'true' as const } : {})}
@@ -485,8 +496,10 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
 
         <div className="sheet-fg-identity">
           {/* h2: the map identity ("Bird Maps") owns the page h1; the species
-              name is the top heading INSIDE the dialog. */}
-          <h2 id="detail-title" tabIndex={-1} className="sheet-fg-name">
+              name is the top heading INSIDE the dialog. Not a focus target:
+              open-focus lands on the dialog container (#907 finding 2), so this
+              heading carries no tabIndex and never paints a focus ring. */}
+          <h2 id="detail-title" className="sheet-fg-name">
             {data?.comName ?? 'Loading…'}
           </h2>
           <p className="sheet-fg-sci">

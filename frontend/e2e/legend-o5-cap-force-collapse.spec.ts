@@ -7,9 +7,12 @@ import type { Observation } from '@bird-watch/shared-types';
  *
  * Covers:
  *   - Width cap: at 390px the legend renders ≤280px regardless of expanded state
- *   - force-collapsed: data-force-collapsed="true" when another overlay holds
- *     focus on mobile (detail sheet at half/full; filters sheet)
- *   - Counter-case: iPad landscape (1024×768) does NOT force-collapse
+ *   - force-collapsed (phone ≤480px): data-force-collapsed="true" when another
+ *     overlay holds focus on mobile (detail sheet at half/full; filters sheet)
+ *   - force-collapsed (compact ≤1199px, #907): data-force-collapsed="true"
+ *     whenever a detail sheet is open at 1024 / 768 — the bottom-docked sheet
+ *     would otherwise collide with the auto-expanded bottom-left legend
+ *   - Counter-case: at compact widths with NO detail open, NOT force-collapsed
  *   - Stored expanded preference is NOT mutated by force-collapse
  *
  * Repo e2e conventions:
@@ -225,47 +228,82 @@ test.describe('force-collapsed — detail sheet at half/full (O5 #783)', () => {
 
 });
 
-// ─── force-collapsed counter-case: 1024×768 (iPad landscape) ─────────────────
+// ─── force-collapsed at compact widths when the detail sheet is open ─────────
+//
+// #907 design-review finding 1: the bottom-docked field-guide sheet renders at
+// the whole compact range (≤1199px, useIsCompact), and the legend auto-expands
+// at ≥1024px (LEGEND_EXPAND_MIN_WIDTH). At tablet/small-laptop widths the open
+// sheet collided with the expanded bottom-left legend, occluding the photo
+// plate / hero name / Read-account button. The `isCompact && !!state.detail`
+// signal in App.tsx now force-collapses the legend across the compact range —
+// not just on phones. These cases lock that in at 1024 AND 768.
 
-test.describe('force-collapsed counter-case — iPad landscape 1024×768 (O5 #783)', () => {
-  // Must be in its own describe block to use test.use at the file scope level
-  test.use({ viewport: { width: 1024, height: 768 } });
+for (const { width, height, label } of [
+  { width: 1024, height: 768, label: 'iPad landscape / small laptop' },
+  { width: 768, height: 1024, label: 'iPad portrait' },
+]) {
+  test.describe(`force-collapsed — detail sheet open at ${width}×${height} (${label}) (#907)`, () => {
+    test.use({ viewport: { width, height } });
 
-  test('legend is NOT force-collapsed at 1024×768 when sheet advances to half snap', async ({
-    page,
-    apiStub,
-  }) => {
-    await setupRoutes(page, apiStub);
-    await apiStub.stubSpecies('vermfly', VERMFLY_WITH_PHOTO);
-    await apiStub.stubPhotoImage();
-    await page.addInitScript(() => {
-      try {
-        window.localStorage.setItem('family-legend-expanded.v2', 'true');
-      } catch { /* noop */ }
+    test(`legend is force-collapsed at ${width}×${height} when a detail sheet is open`, async ({
+      page,
+      apiStub,
+    }) => {
+      await setupRoutes(page, apiStub);
+      await apiStub.stubSpecies('vermfly', VERMFLY_WITH_PHOTO);
+      await apiStub.stubPhotoImage();
+      await page.addInitScript(() => {
+        try {
+          window.localStorage.setItem('family-legend-expanded.v2', 'true');
+        } catch { /* noop */ }
+      });
+      const app = new AppPage(page);
+      // At these widths isCompact=true so the sheet renders (not the rail).
+      await app.goto('detail=vermfly&view=detail');
+      await app.waitForAppReady();
+
+      const sheet = page.locator('[data-testid=species-detail-sheet]');
+      await expect(sheet).toBeVisible({ timeout: 10_000 });
+      // The sheet opens at half snap (field-guide default).
+      await expect(sheet).toHaveAttribute('data-snap-state', 'half');
+
+      // The open sheet must force-collapse the legend so it cannot bury the
+      // sheet's photo plate / hero name / Read-account button.
+      const legendEl = page.locator('.family-legend');
+      await expect(legendEl).toHaveAttribute('data-force-collapsed', 'true');
+      // Entries must not render while force-collapsed.
+      await expect(page.locator('.family-legend-entries')).not.toBeVisible();
+
+      // The stored expanded preference is NOT mutated by force-collapse.
+      const stored = await page.evaluate(() =>
+        window.localStorage.getItem('family-legend-expanded.v2'),
+      );
+      expect(stored).toBe('true');
     });
-    const app = new AppPage(page);
-    // At 1024px isCompact=true so the sheet renders (not the rail)
-    await app.goto('detail=vermfly&view=detail');
-    await app.waitForAppReady();
 
-    const sheet = page.locator('[data-testid=species-detail-sheet]');
-    await expect(sheet).toBeVisible({ timeout: 10_000 });
+    test(`legend is NOT force-collapsed at ${width}×${height} with no detail open`, async ({
+      page,
+      apiStub,
+    }) => {
+      await setupRoutes(page, apiStub);
+      await page.addInitScript(() => {
+        try {
+          window.localStorage.setItem('family-legend-expanded.v2', 'true');
+        } catch { /* noop */ }
+      });
+      const app = new AppPage(page);
+      await app.goto('view=map');
+      await app.waitForAppReady();
 
-    // The sheet opens at half snap (field-guide default).
-    await expect(sheet).toHaveAttribute('data-snap-state', 'half');
+      const legendEl = page.locator('.family-legend');
+      await expect(legendEl).toBeVisible({ timeout: 10_000 });
 
-    // At 1024px (>480px, isPhone=false) the legend must NOT be force-collapsed
-    // even though the sheet is open at half snap — locks in the ≤480px scope.
-    // (The #907 `!!state.detail` force-collapse is also gated on isPhone, so it
-    // does not fire here.)
-    const legendEl = page.locator('.family-legend');
-    const hasForceCollapsed = await legendEl.getAttribute('data-force-collapsed');
-    expect(
-      hasForceCollapsed,
-      'Legend must NOT be force-collapsed at 1024×768 — isPhone is false above 480px',
-    ).not.toBe('true');
+      // No detail sheet open → the compact-scoped signal does not fire, and the
+      // phone-scoped signals are off above 480px. Legend stays expandable.
+      await expect(legendEl).not.toHaveAttribute('data-force-collapsed', 'true');
+    });
   });
-});
+}
 
 // ─── force-collapsed: filters sheet open on mobile ───────────────────────────
 

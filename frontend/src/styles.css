@@ -1520,14 +1520,9 @@ aside.species-detail-rail .species-detail-rail-close {
   line-height: 1.15;
   color: var(--color-text-strong);
 }
-/* Programmatic focus (AT context on open) paints NO box; keyboard focus gets a
-   tokenized high-contrast ring — fixes the stray focus box on the name. */
-.sheet-fg-name:focus { outline: none; }
-.sheet-fg-name:focus-visible {
-  outline: 2px solid var(--color-text-strong);
-  outline-offset: 2px;
-  border-radius: 2px;
-}
+/* #907 finding 2 — the species name is no longer a focus target (open-focus
+   lands on the dialog container), so it needs no focus / :focus-visible ring.
+   The container's own focus is invisible (programmatic, tabIndex={-1}). */
 .sheet-fg-sci {
   margin: 2px 0 0;
   font-size: var(--type-sm);

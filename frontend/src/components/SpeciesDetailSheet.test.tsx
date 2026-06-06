@@ -89,6 +89,35 @@ describe('<SpeciesDetailSheet>', () => {
     expect(mainEl).toHaveAttribute('inert', '');
   });
 
+  it('open-focus at full lands on the dialog CONTAINER, not the visible name (#907 finding 2)', async () => {
+    // Regression guard: focusing the visible #detail-title heading painted a
+    // stray :focus-visible ring around the species name on keyboard-driven
+    // open. Open-focus must land on the sheet root (role="dialog",
+    // tabIndex=-1) so neither pointer nor keyboard open rings the name. The
+    // dialog's accessible name is still the species name via aria-label.
+    render(
+      <SpeciesDetailSheet
+        speciesCode="vermfly"
+        apiClient={makeClient()}
+        onClose={vi.fn()}
+        mainRef={{ current: mainEl }}
+      />
+    );
+    const sheet = await screen.findByTestId('species-detail-sheet');
+    const expand = await screen.findByRole('button', { name: /expand/i });
+    await userEvent.click(expand);
+    await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'full'));
+
+    // The focus microtask runs after the snap commit — wait for it to land on
+    // the dialog container.
+    await waitFor(() => expect(sheet).toHaveFocus());
+    // The visible species name must NOT be the focus target.
+    const heading = sheet.querySelector('#detail-title');
+    expect(heading).not.toBe(document.activeElement);
+    // Container is programmatically focusable (no tab stop).
+    expect(sheet).toHaveAttribute('tabindex', '-1');
+  });
+
   it('inert is set BEFORE the role flips (sequencing contract)', async () => {
     // We observe via a MutationObserver: the inert attribute must appear
     // on mainEl before the role attribute on the sheet flips to "dialog".
