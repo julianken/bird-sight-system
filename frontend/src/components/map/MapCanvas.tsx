@@ -2078,6 +2078,36 @@ export function MapCanvas({
       // mid-flight, drop this commit — the new effect-registration's
       // reconcile will produce the right tiles.
       if (cancelled || myGen !== cacheGeneration) return;
+
+      // #901 re-tile empty-commit guard. On a z≥6 same-scope pan the refetch's
+      // `setData` swaps the GeoJSON source and the GL worker re-tiles
+      // asynchronously. A STALE prior-settle `idle` can land after the swap but
+      // before the worker emits the new `sourcedata`, so `queryRenderedFeatures`
+      // returns an EMPTY set → `inputs === []` → committing here would
+      // `setGroups([])` and blank the markers ~360ms until the next idle
+      // recovers. When `inputs` is empty BECAUSE the source is still re-tiling
+      // (`!isSourceLoaded('observations')`), SKIP this commit and keep the prior
+      // markers — the next idle (after the re-tile completes) reconciles. This
+      // mirrors the existing "next idle tick will reconcile" precedents (the
+      // getClusterLeaves catch, the spritesReady/getLayer guard).
+      //
+      // The discriminator is the SOURCE-LOADED signal, NOT `observations.length`:
+      // `observations` is the whole bbox-debounced/quantized fetch fed wholesale
+      // into the source (~:1410), covering a region LARGER than the exact
+      // viewport — so `observations.length > 0 && inputs === []` is ALSO true for
+      // a settled source panned to a bird-free corner, which MUST still clear.
+      // Only `isSourceLoaded` disambiguates "re-tiling" from "settled-but-empty".
+      // Bounded strictly to "source still loading": a settled-but-empty source
+      // (genuine empty viewport, or a source that errored and finished) reports
+      // loaded → falls through and commits `[]` as today, so markers never strand.
+      if (
+        inputs.length === 0 &&
+        typeof map.isSourceLoaded === 'function' &&
+        !map.isSourceLoaded('observations')
+      ) {
+        return;
+      }
+
       // Run deconflict (pure, sync). Output: one group per overlap component.
       const nextGroups = buildGroups(inputs, floorZoom);
       setGroups(nextGroups);
