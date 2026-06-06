@@ -122,6 +122,13 @@ function makeFakeMap() {
     queryRenderedFeatures: vi.fn(),
     querySourceFeatures: vi.fn(() => []),
     getSource: vi.fn(),
+    // #901 — source-loaded signals. Default `true` (a settled source) so the
+    // empty-inputs commit still clears genuinely-empty viewports in every
+    // existing test. The #901 re-tile test overrides isSourceLoaded → false to
+    // simulate the GL worker re-indexing window where queryRenderedFeatures is
+    // transiently empty and the empty commit must be SKIPPED.
+    isSourceLoaded: vi.fn(() => true),
+    areTilesLoaded: vi.fn(() => true),
     // #763 — getLayer resolves against the in-memory style layer list so the
     // moveLayer/float guards and original-filter capture are testable. (The
     // #762 cluster tests that call getLayer.mockReturnValue still override it.)
@@ -940,6 +947,118 @@ describe('MapCanvas', () => {
     expect(
       document.querySelectorAll('[data-testid="adaptive-grid-marker"]').length,
     ).toBe(1);
+  });
+
+  // #901 — on a z≥6 same-scope pan, the pan refetch's `setData` swaps the
+  // GeoJSON source and the GL worker re-tiles asynchronously. A STALE
+  // prior-settle `idle` can land after the swap but before the worker emits the
+  // new `sourcedata`, so `queryRenderedFeatures` returns an EMPTY set →
+  // `inputs = []` → without a guard the reconciler commits `setGroups([])` and
+  // the markers blank ~360ms until the next idle recovers. The fix discriminates
+  // on the source-loaded signal: when `inputs` is empty AND the source is still
+  // re-tiling (`isSourceLoaded('observations') === false`), SKIP the commit and
+  // keep the prior markers — the next idle reconciles. This test encodes the
+  // ORDERING: a populated idle commits the marker, then a stale empty idle fires
+  // mid re-tile (source NOT loaded) and must NOT blank it.
+  it('#901: an empty idle while the source is re-tiling (isSourceLoaded → false) keeps prior markers (no mid-pan blank)', async () => {
+    const cluster = {
+      id: 1,
+      properties: { cluster_id: 1, point_count: 3 },
+      geometry: { type: 'Point', coordinates: [-110.9, 32.2] },
+    };
+    // First reconcile: the source is settled and a cluster is present.
+    fakeMap.queryRenderedFeatures.mockImplementation(
+      (_: unknown, opts?: { layers?: string[] }) =>
+        opts?.layers?.includes('clusters-hit') ? [cluster] : [],
+    );
+    fakeMap.getSource.mockReturnValue({
+      getClusterLeaves: vi.fn().mockResolvedValue([
+        { type: 'Feature', properties: { familyCode: 'tyrannidae' } },
+      ]),
+    });
+    fakeMap.getZoom.mockReturnValue(7);
+
+    render(
+      <MapCanvas observations={[makeObs({ subId: 'A1' })]} boundsKey="US-AZ" silhouettes={SILHOUETTES} />,
+    );
+    await waitFor(() => expect(bareHandlersAll['idle']?.length ?? 0).toBeGreaterThan(0));
+
+    // Drive one idle so the reconciler commits the prior-scope marker.
+    await act(async () => {
+      await fireAllIdleHandlers();
+    });
+    await waitFor(() => {
+      expect(
+        document.querySelectorAll('[data-testid="adaptive-grid-marker"]').length,
+      ).toBe(1);
+    });
+
+    // Now simulate the mid-pan re-tile window: setData swapped the source, the
+    // worker is still re-indexing, so queryRenderedFeatures returns EMPTY and
+    // isSourceLoaded('observations') reports false.
+    fakeMap.queryRenderedFeatures.mockImplementation(() => []);
+    fakeMap.isSourceLoaded.mockReturnValue(false);
+
+    await act(async () => {
+      await fireAllIdleHandlers();
+    });
+
+    // The empty commit must be SKIPPED — the prior marker persists (no blank).
+    expect(
+      document.querySelectorAll('[data-testid="adaptive-grid-marker"]').length,
+    ).toBe(1);
+  });
+
+  // #901 complement — the guard must be bounded STRICTLY to "source still
+  // loading". When the source IS loaded (`isSourceLoaded → true`) and
+  // `queryRenderedFeatures` is empty, the viewport is GENUINELY bird-free (e.g.
+  // a settled source panned to an empty corner) and must still commit `[]` so
+  // stale markers don't strand. This guards against over-skipping.
+  it('#901: an empty idle with the source LOADED still commits [] (genuine empty clears)', async () => {
+    const cluster = {
+      id: 1,
+      properties: { cluster_id: 1, point_count: 3 },
+      geometry: { type: 'Point', coordinates: [-110.9, 32.2] },
+    };
+    fakeMap.queryRenderedFeatures.mockImplementation(
+      (_: unknown, opts?: { layers?: string[] }) =>
+        opts?.layers?.includes('clusters-hit') ? [cluster] : [],
+    );
+    fakeMap.getSource.mockReturnValue({
+      getClusterLeaves: vi.fn().mockResolvedValue([
+        { type: 'Feature', properties: { familyCode: 'tyrannidae' } },
+      ]),
+    });
+    fakeMap.getZoom.mockReturnValue(7);
+
+    render(
+      <MapCanvas observations={[makeObs({ subId: 'A1' })]} boundsKey="US-AZ" silhouettes={SILHOUETTES} />,
+    );
+    await waitFor(() => expect(bareHandlersAll['idle']?.length ?? 0).toBeGreaterThan(0));
+
+    await act(async () => {
+      await fireAllIdleHandlers();
+    });
+    await waitFor(() => {
+      expect(
+        document.querySelectorAll('[data-testid="adaptive-grid-marker"]').length,
+      ).toBe(1);
+    });
+
+    // Genuine empty: queryRenderedFeatures empty, but the source IS loaded
+    // (default true / explicit here). The commit must fire and clear the marker.
+    fakeMap.queryRenderedFeatures.mockImplementation(() => []);
+    fakeMap.isSourceLoaded.mockReturnValue(true);
+
+    await act(async () => {
+      await fireAllIdleHandlers();
+    });
+
+    await waitFor(() => {
+      expect(
+        document.querySelectorAll('[data-testid="adaptive-grid-marker"]').length,
+      ).toBe(0);
+    });
   });
 
   // #875 — after `setData` re-indexes the supercluster, the idle-tick reconciler
