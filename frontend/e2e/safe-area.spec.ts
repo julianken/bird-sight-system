@@ -129,9 +129,13 @@ test.describe('SpeciesDetailSheet safe-area inset guard (MOB-5 / V1 #788)', () =
 
     // ── 2. padding-top authored CSS source-string assertion ───────────────────
     //
-    // The production declaration at styles.css:1218:
-    //   padding-top: max(var(--space-xs, 4px), env(safe-area-inset-top, 0px));
-    // must also appear — this clears the Dynamic Island / status bar at full snap.
+    // The production declaration on the FULL modifier:
+    //   .species-detail-sheet--full { padding-top:
+    //     max(var(--space-xs, 4px), env(safe-area-inset-top, 0px)); }
+    // must appear — this clears the Dynamic Island / status bar at full snap.
+    // (#907 moved it OFF the base rule: applying it at every detent added ~47px
+    //  of dead space above the handle at peek/half; only the full sheet reaches
+    //  the notch.)
     const safeAreaTopResult = await page.evaluate(() => {
       const matchedPaddingTopValues: string[] = [];
 
@@ -144,7 +148,8 @@ test.describe('SpeciesDetailSheet safe-area inset guard (MOB-5 / V1 #788)', () =
         }
         for (const rule of Array.from(rules)) {
           if (!(rule instanceof CSSStyleRule)) continue;
-          if (rule.selectorText !== '.species-detail-sheet') continue;
+          // #907: safe-area-inset-top now lives on the --full modifier, not base.
+          if (rule.selectorText !== '.species-detail-sheet--full') continue;
           const paddingTop = rule.style.getPropertyValue('padding-top');
           if (paddingTop) matchedPaddingTopValues.push(paddingTop);
         }
@@ -157,10 +162,10 @@ test.describe('SpeciesDetailSheet safe-area inset guard (MOB-5 / V1 #788)', () =
       safeAreaTopResult.matchedPaddingTopValues.some((v) =>
         v.includes('env(safe-area-inset-top'),
       ),
-      `Expected at least one .species-detail-sheet CSS rule to have ` +
+      `Expected the .species-detail-sheet--full CSS rule to have ` +
       `padding-top containing env(safe-area-inset-top). ` +
       `Found: ${JSON.stringify(safeAreaTopResult.matchedPaddingTopValues)}. ` +
-      `This fails if styles.css:1218 (padding-top: max(..., env(safe-area-inset-top, 0px))) is removed.`,
+      `This fails if the --full modifier's padding-top: max(..., env(safe-area-inset-top, 0px)) is removed.`,
     ).toBe(true);
 
     // ── 3. Optional computed-style probe (informational, not falsifiable) ─────
