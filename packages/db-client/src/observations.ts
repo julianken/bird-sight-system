@@ -660,6 +660,20 @@ export async function refreshGridAgg(pool: Pool): Promise<number> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    // #878 — exempt THIS transaction from the session statement_timeout.
+    // pool.ts defaults every connection to a 15s statement_timeout (#822, to
+    // protect the read-api from runaway queries). The populate below is one
+    // heavy batch statement (the 14d `recent` CTE × the 2/4/8 multipliers ×
+    // the national + 50-state `ST_Intersects` spatial join) that legitimately
+    // exceeds 15s at prod scale, so Postgres cancels it (SQLSTATE 57014), the
+    // txn rolls back, and zero grid rows commit — leaving every state scope on
+    // the 12–15s live-query fallback (the bug observed in the 04:02 ingest
+    // cycle, logged as bird_grid_agg_refresh_failed). `SET LOCAL` is
+    // transaction-scoped: it applies ONLY to the statements below and
+    // auto-reverts on COMMIT/ROLLBACK, so the read-api pool and every other
+    // query keep their 15s guard. Mirrors the #845 precedent above; the Cloud
+    // Run job's timeout remains the outer kill switch for the populate.
+    await client.query('SET LOCAL statement_timeout = 0');
     // Clear inside the transaction so a reader never sees a half-populated grid
     // (the INSERT below repopulates before COMMIT). DELETE not TRUNCATE: TRUNCATE
     // takes an ACCESS EXCLUSIVE lock that would block concurrent read-path
