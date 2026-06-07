@@ -143,6 +143,21 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
   const { speciesCode, apiClient, onClose, mainRef, onSnapChange } = props;
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const handleRef = useRef<HTMLButtonElement | null>(null);
+  // F9 (#910) — focus restore on close. Capture document.activeElement on mount
+  // so EVERY close path (button, ESC, drag-dismiss) can return focus to whatever
+  // opened the sheet. Mirrors SpeciesDetailRail/AttributionModal's
+  // document.contains-guarded restore; the fallback is #main-surface (a real,
+  // focusable <main tabIndex={0}>, App.tsx) — NOT the dead #surface-tab-map.
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+  // F10 (#910) — visually-hidden polite live region. At HALF the identity
+  // becomes legible but, unlike full, no focus moves into the dialog, so AT
+  // gets no entry announcement. We announce the species into this region on the
+  // FIRST readable detent (peek→half) only — never at peek (map focus must
+  // persist) and never again on full→half (the full focus-move owns the full
+  // announce; re-announcing would double-fire). `announcedRef` is the
+  // once-per-readable-detent latch.
+  const [liveMessage, setLiveMessage] = useState<string>('');
+  const announcedRef = useRef<boolean>(false);
   // Open at `half` (the plate-card detent) for immediate readability; the
   // identity-row detent (`peek`) is the map-preserving collapsed state,
   // reached by dragging down.
@@ -215,8 +230,17 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
   // sentinel, once per species. The sentinel is a DIRECT child of .sheet-fg
   // (the only detent scroll container) AFTER the About block, with no tier-gated
   // display:none — a display:none element has a zero box and never intersects,
-  // so it must stay in layout to be observable. firedRef + observer.disconnect()
-  // is the no-double-fire guard (no re-fire across detent changes).
+  // so it must stay in layout to be observable. firedForSpeciesRef +
+  // observer.disconnect() is the no-double-fire guard.
+  //
+  // ONCE PER SPECIES (#910 T3 bot finding): the latch is keyed on speciesCode,
+  // NOT a plain boolean that resets on every full re-arm. A full→half→full
+  // round-trip re-arms the observer (the effect re-runs on the snap change), but
+  // the latch must NOT reset for the SAME species — otherwise a second
+  // intersection re-fires `panel_scrolled_to_bottom` for a species we already
+  // counted. We reset the latch only when the species changes (the stored code
+  // differs from the current one), so each species fires the event at most once
+  // across the whole detail session.
   //
   // DETENT GATE (#914 bot finding): the observer is armed ONLY at the `full`
   // snap. At peek/half the About + taxonomy blocks are display:none, so the
@@ -232,7 +256,10 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
   // into the scroller's box, not merely that it overlaps the layout viewport.
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
-  const firedRef = useRef<boolean>(false);
+  // Stores the speciesCode that already fired `panel_scrolled_to_bottom`. The
+  // latch is "has THIS species fired?" — keyed on the code, not a boolean that
+  // resets on every full re-arm (#910). null = nothing fired yet.
+  const firedForSpeciesRef = useRef<string | null>(null);
   const speciesCodeForObserver = data?.speciesCode;
   useEffect(() => {
     if (!speciesCodeForObserver) return;
@@ -243,12 +270,14 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
     if (typeof IntersectionObserver === 'undefined') return;
-    firedRef.current = false;
+    // Already fired for THIS species? Don't re-arm — a full→half→full round-trip
+    // for the same species must not re-fire the event (#910 once-per-species).
+    if (firedForSpeciesRef.current === speciesCodeForObserver) return;
     const observer = new IntersectionObserver(
       entries => {
         const intersected = entries.some(entry => entry.isIntersecting);
-        if (intersected && !firedRef.current) {
-          firedRef.current = true;
+        if (intersected && firedForSpeciesRef.current !== speciesCodeForObserver) {
+          firedForSpeciesRef.current = speciesCodeForObserver;
           analytics.capture('panel_scrolled_to_bottom', {
             species_code: speciesCodeForObserver,
           });
@@ -338,6 +367,25 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
     [mainRef],
   );
 
+  // F9 (#910) — close + restore focus. Restore to the previously-focused
+  // element if it's still attached (calling .focus() on a detached node is a
+  // silent no-op that drops focus onto <body>), otherwise fall back to the
+  // stable #main-surface landmark. Used by every close path so keyboard users
+  // never lose their place when the sheet dismisses.
+  const closeWithRestore = useCallback(() => {
+    const previous = previouslyFocusedRef.current;
+    const isAttached =
+      previous !== null &&
+      typeof previous.focus === 'function' &&
+      document.contains(previous);
+    if (isAttached) {
+      previous!.focus();
+    } else {
+      document.querySelector<HTMLElement>('#main-surface')?.focus();
+    }
+    onClose();
+  }, [onClose]);
+
   const expand = useCallback(() => {
     if (snap === 'peek') goToSnap('half');
     else if (snap === 'half') goToSnap('full');
@@ -346,8 +394,8 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
   const collapse = useCallback(() => {
     if (snap === 'full') goToSnap('half');
     else if (snap === 'half') goToSnap('peek');
-    else onClose();
-  }, [snap, goToSnap, onClose]);
+    else closeWithRestore();
+  }, [snap, goToSnap, closeWithRestore]);
 
   // ESC scoped: only collapse when focus is inside the sheet. If focus
   // is on a map element (cluster button), MapLibre handles ESC itself.
@@ -442,7 +490,8 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
       // Dismiss: released well below peek while not flicking back upward.
       if (finalH < PEEK_PX * 0.6 && d.vy >= 0) {
         setLiveHeight(null);
-        onClose();
+        // F9 (#910) — drag-dismiss is a close path; restore focus.
+        closeWithRestore();
         return;
       }
 
@@ -464,8 +513,19 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
 
       settleTo(target);
     },
-    [heightFor, onClose, settleTo],
+    [heightFor, closeWithRestore, settleTo],
   );
+
+  // F9 (#910) — capture the element that had focus when the sheet mounted so
+  // every close path can restore to it. Mount-only: the sheet is keyed on
+  // state.detail in App.tsx (remounts per species), so a fresh capture per
+  // species is correct. queueMicrotask is NOT used — we want the activeElement
+  // as it stands at mount, before the sheet moves focus anywhere.
+  useEffect(() => {
+    previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
+    // Mount-only effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Initial focus on mount: move focus to the DIALOG CONTAINER (not the visible
   // species name) only when the sheet opens at full — at peek/half the user
@@ -486,6 +546,99 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
       sheetRef.current?.focus();
     });
   }, [snap]);
+
+  // F8 (#910) — real focus trap at FULL. At full the sheet is
+  // role="dialog"/aria-modal, but `inert` only covers #map-layer (the O1
+  // unified target); the AppHeader floating chrome sits above the backdrop and
+  // stays tabbable, so Tab used to escape the dialog into AppHeader controls.
+  // Mirror the filters-panel Tab-wrap (App.tsx ~L287): collect focusables with
+  // the same selector and wrap first↔last. Active ONLY at snap==='full' and
+  // torn down when leaving full or unmounting. This is a PURE keydown handler —
+  // it does NOT touch the inert/role timing (goToSnap/settleTo/useLayoutEffect
+  // own that sequencing; the MutationObserver tests stay green).
+  useEffect(() => {
+    if (snap !== 'full') return;
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+
+    const focusableSelector =
+      'a[href], button:not([disabled]), input:not([disabled]), ' +
+      'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    // Exclude tier-hidden controls so the wrap lands on a focusable element.
+    // At full the mid-only .sheet-fg-teaser (and its "Read account" button)
+    // stays in the DOM but is hidden by the reveal channel (display + opacity:0
+    // / visibility), so .focus() on it is a silent no-op that would break the
+    // wrap. We can't use offsetParent (always null in jsdom → would exclude
+    // everything in unit tests); instead walk up to the sheet checking computed
+    // display/visibility/opacity. The real browser resolves these from the
+    // stylesheet (excluding the opacity:0 teaser at full); jsdom does NOT apply
+    // the stylesheet cascade to getComputedStyle, so every control stays
+    // included there — which keeps the unit Tab-wrap tests meaningful.
+    const isVisible = (el: HTMLElement): boolean => {
+      let node: HTMLElement | null = el;
+      while (node && node !== sheet.parentElement) {
+        const cs = getComputedStyle(node);
+        if (
+          cs.display === 'none' ||
+          cs.visibility === 'hidden' ||
+          cs.opacity === '0'
+        ) {
+          return false;
+        }
+        node = node.parentElement;
+      }
+      return true;
+    };
+    const focusables = (): HTMLElement[] =>
+      Array.from(sheet.querySelectorAll<HTMLElement>(focusableSelector)).filter(
+        isVisible,
+      );
+
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key !== 'Tab') return;
+      const items = focusables();
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (!first || !last) {
+        e.preventDefault();
+        return;
+      }
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey) {
+        // Backward from the first control (or from outside the sheet) → last.
+        if (active === first || !sheet.contains(active)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        // Forward from the last control (or from outside the sheet) → first.
+        if (active === last || !sheet.contains(active)) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    sheet.addEventListener('keydown', onKeyDown);
+    return () => sheet.removeEventListener('keydown', onKeyDown);
+  }, [snap]);
+
+  // F10 (#910) — announce the species the first time a READABLE detent is
+  // reached. `half` is the first readable detent (the identity card is legible)
+  // and it does NOT move focus, so the polite live region is the only entry
+  // announcement AT gets there. Fire exactly once, on the first time we are at
+  // half with a resolved species name:
+  //   • peek  → no announce (the map keeps focus; the row is too compact)
+  //   • half  → announce once (first peek→half), latched so full→half won't
+  //             re-fire
+  //   • full  → no live-region push (the dialog focus-move announces via
+  //             aria-label; a second push here would double-fire)
+  useEffect(() => {
+    if (snap !== 'half') return;
+    if (announcedRef.current) return;
+    if (!speciesName) return;
+    announcedRef.current = true;
+    setLiveMessage(speciesName);
+  }, [snap, speciesName]);
 
   const isFull = snap === 'full';
   const height = liveHeight ?? heightFor(snap);
@@ -532,6 +685,18 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
           : `calc(${height}px + env(safe-area-inset-bottom, 0px))`,
       }}
     >
+      {/* F10 (#910) — visually-hidden polite live region. A DESCENDANT of the
+          sheet root so it is announced under aria-modal at full. It carries the
+          species name once a readable detent (half) is first reached; at full
+          the dialog focus-move owns the announce, so this is not re-pushed. */}
+      <div
+        data-testid="sheet-live-region"
+        className="sr-only"
+        role="status"
+        aria-live="polite"
+      >
+        {liveMessage}
+      </div>
       <button
         ref={handleRef}
         type="button"

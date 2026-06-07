@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -657,6 +659,518 @@ describe('<SpeciesDetailSheet>', () => {
         restore();
       }
     });
+
+    it('fires panel_scrolled_to_bottom AT MOST ONCE per species across a full→half→full round-trip (#910 once-per-species latch)', async () => {
+      // T3 bot finding: firedRef reset on every full re-arm, so a full→half→full
+      // round-trip re-fired the event for the SAME species (an over-count). The
+      // latch is now keyed on speciesCode — it does NOT reset when merely
+      // re-entering full for the same species (resets only on a species change).
+      const { observers, restore } = installIOMock();
+      try {
+        const captureSpy = vi.spyOn(analytics, 'capture');
+        render(
+          <SpeciesDetailSheet
+            speciesCode="vermfly"
+            apiClient={makeClient()}
+            onClose={vi.fn()}
+            mainRef={{ current: mainEl }}
+          />,
+        );
+        const sheet = await screen.findByTestId('species-detail-sheet');
+        const sentinel = await screen.findByTestId('detail-bottom-sentinel');
+
+        // First full: arm + intersect → fire once.
+        const expand = await screen.findByRole('button', { name: /expand/i });
+        await userEvent.click(expand);
+        await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'full'));
+        const wired1 = observers.find(o =>
+          o.observe.mock.calls.some(call => call[0] === sentinel),
+        );
+        expect(wired1).toBeDefined();
+        captureSpy.mockClear();
+        act(() => {
+          wired1!.callback(
+            [{ isIntersecting: true } as IntersectionObserverEntry],
+            wired1 as unknown as IntersectionObserver,
+          );
+        });
+        expect(
+          captureSpy.mock.calls.filter(([name]) => name === 'panel_scrolled_to_bottom'),
+        ).toHaveLength(1);
+
+        // full → half (the observer disarms) ...
+        const collapse = await screen.findByRole('button', { name: /collapse/i });
+        await userEvent.click(collapse);
+        await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'half'));
+
+        // ... then back to full (re-arm for the SAME species). The latch must NOT
+        // reset — a second intersection must not re-fire.
+        const expand2 = await screen.findByRole('button', { name: /expand/i });
+        await userEvent.click(expand2);
+        await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'full'));
+        captureSpy.mockClear();
+        for (const o of observers) {
+          act(() => {
+            o.callback(
+              [{ isIntersecting: true } as IntersectionObserverEntry],
+              o as unknown as IntersectionObserver,
+            );
+          });
+        }
+        expect(
+          captureSpy.mock.calls.filter(([name]) => name === 'panel_scrolled_to_bottom'),
+        ).toHaveLength(0);
+        captureSpy.mockRestore();
+      } finally {
+        restore();
+      }
+    });
+  });
+});
+
+// ─── F8/F9/F10 a11y contract (T4 #910) ──────────────────────────────────────
+//
+// F8 — real focus trap at full. At full the sheet is role=dialog/aria-modal but
+//   inert only covers #map-layer; Tab used to escape into the still-tabbable
+//   AppHeader. The sheet now installs a Tab/Shift+Tab wrap (mirror of the
+//   filters-panel trap in App.tsx) active ONLY at snap==='full'.
+// F9 — focus restore on close. The sheet captures document.activeElement on
+//   mount and restores it (if still attached) on EVERY close path; else falls
+//   back to #main-surface.
+// F10 — announce on reaching a readable detent. A visually-hidden
+//   aria-live="polite" region inside the sheet root announces once per readable
+//   detent (first peek→half), not re-firing on full→half, and never at peek.
+
+describe('<SpeciesDetailSheet> — F8 focus trap at full (#910)', () => {
+  let mainEl: HTMLElement;
+  let headerBtn: HTMLButtonElement;
+
+  beforeEach(() => {
+    while (document.body.firstChild) {
+      document.body.removeChild(document.body.firstChild);
+    }
+    // A real <main id="main-surface"> so the F9 fallback (and its non-null
+    // assertion) resolves; an AppHeader control sibling so the trap has an
+    // off-sheet focusable to (not) escape to.
+    mainEl = document.createElement('main');
+    mainEl.id = 'main-surface';
+    mainEl.tabIndex = 0;
+    document.body.appendChild(mainEl);
+    headerBtn = document.createElement('button');
+    headerBtn.type = 'button';
+    headerBtn.textContent = 'Filters';
+    document.body.appendChild(headerBtn);
+    __resetSpeciesDetailCache();
+  });
+
+  it('F9 fallback target #main-surface is present in the DOM (cannot silently no-op)', () => {
+    // The restore fallback queries #main-surface; if that element is ever
+    // renamed/removed the fallback drops focus onto <body> silently. This guard
+    // asserts the fallback selector resolves in the test harness DOM.
+    expect(document.querySelector('#main-surface')).not.toBeNull();
+  });
+
+  it('Tab from the LAST focusable in the sheet wraps to the first (stays in sheet, AppHeader not reachable)', async () => {
+    render(
+      <SpeciesDetailSheet
+        speciesCode="vermfly"
+        apiClient={makeClient()}
+        onClose={vi.fn()}
+        mainRef={{ current: mainEl }}
+      />,
+    );
+    const sheet = await screen.findByTestId('species-detail-sheet');
+    const expand = await screen.findByRole('button', { name: /expand/i });
+    await userEvent.click(expand);
+    await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'full'));
+
+    const focusableSelector =
+      'a[href], button:not([disabled]), input:not([disabled]), ' +
+      'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const items = Array.from(sheet.querySelectorAll<HTMLElement>(focusableSelector));
+    expect(items.length).toBeGreaterThan(0);
+    const first = items[0]!;
+    const last = items[items.length - 1]!;
+
+    // Land on the last focusable, then Tab forward — the wrap must return focus
+    // to the first sheet focusable, never to the AppHeader Filters button.
+    last.focus();
+    expect(last).toHaveFocus();
+    await userEvent.tab();
+    expect(sheet.contains(document.activeElement)).toBe(true);
+    expect(headerBtn).not.toHaveFocus();
+    expect(first).toHaveFocus();
+  });
+
+  it('Shift+Tab from the FIRST focusable wraps to the last (stays in sheet)', async () => {
+    render(
+      <SpeciesDetailSheet
+        speciesCode="vermfly"
+        apiClient={makeClient()}
+        onClose={vi.fn()}
+        mainRef={{ current: mainEl }}
+      />,
+    );
+    const sheet = await screen.findByTestId('species-detail-sheet');
+    const expand = await screen.findByRole('button', { name: /expand/i });
+    await userEvent.click(expand);
+    await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'full'));
+
+    const focusableSelector =
+      'a[href], button:not([disabled]), input:not([disabled]), ' +
+      'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const items = Array.from(sheet.querySelectorAll<HTMLElement>(focusableSelector));
+    const first = items[0]!;
+    const last = items[items.length - 1]!;
+
+    first.focus();
+    expect(first).toHaveFocus();
+    await userEvent.tab({ shift: true });
+    expect(sheet.contains(document.activeElement)).toBe(true);
+    expect(headerBtn).not.toHaveFocus();
+    expect(last).toHaveFocus();
+  });
+
+  it('the trap is NOT installed at half (Tab can leave the sheet) and not at peek', async () => {
+    render(
+      <SpeciesDetailSheet
+        speciesCode="vermfly"
+        apiClient={makeClient()}
+        onClose={vi.fn()}
+        mainRef={{ current: mainEl }}
+      />,
+    );
+    const sheet = await screen.findByTestId('species-detail-sheet');
+    // Opens at half — NOT full. At half the map underneath is interactive, so
+    // a trap would be wrong (and the role is region, not dialog).
+    await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'half'));
+
+    const focusableSelector =
+      'a[href], button:not([disabled]), input:not([disabled]), ' +
+      'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const items = Array.from(sheet.querySelectorAll<HTMLElement>(focusableSelector));
+    const last = items[items.length - 1]!;
+    last.focus();
+    // No wrap handler at half → Tab is NOT preventDefault'd. We assert the
+    // sheet did NOT force focus back to its first element (the half-detent
+    // behavior is the browser's native order; the trap must be absent).
+    await userEvent.tab();
+    expect(items[0]).not.toHaveFocus();
+  });
+
+  it('the trap tears down when leaving full → half (Tab no longer wrapped)', async () => {
+    render(
+      <SpeciesDetailSheet
+        speciesCode="vermfly"
+        apiClient={makeClient()}
+        onClose={vi.fn()}
+        mainRef={{ current: mainEl }}
+      />,
+    );
+    const sheet = await screen.findByTestId('species-detail-sheet');
+    const expand = await screen.findByRole('button', { name: /expand/i });
+    await userEvent.click(expand);
+    await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'full'));
+
+    // Collapse back to half — the trap must be removed.
+    const collapse = await screen.findByRole('button', { name: /collapse/i });
+    await userEvent.click(collapse);
+    await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'half'));
+
+    const focusableSelector =
+      'a[href], button:not([disabled]), input:not([disabled]), ' +
+      'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const items = Array.from(sheet.querySelectorAll<HTMLElement>(focusableSelector));
+    const last = items[items.length - 1]!;
+    last.focus();
+    await userEvent.tab();
+    // No wrap at half → focus is not forced back to the first item.
+    expect(items[0]).not.toHaveFocus();
+  });
+});
+
+describe('<SpeciesDetailSheet> — F9 focus restore on close (#910)', () => {
+  let mainEl: HTMLElement;
+  let opener: HTMLButtonElement;
+
+  beforeEach(() => {
+    while (document.body.firstChild) {
+      document.body.removeChild(document.body.firstChild);
+    }
+    mainEl = document.createElement('main');
+    mainEl.id = 'main-surface';
+    mainEl.tabIndex = 0;
+    document.body.appendChild(mainEl);
+    // The element that "opened" the sheet — focus on mount, restored on close.
+    opener = document.createElement('button');
+    opener.type = 'button';
+    opener.textContent = 'Open detail';
+    document.body.appendChild(opener);
+    __resetSpeciesDetailCache();
+  });
+
+  it('restores focus on the keyboard close path (ESC at peek collapses → onClose → restore)', async () => {
+    // The sheet has no dedicated close BUTTON — the handle toggles
+    // expand/collapse and closing is the collapse() call at the peek detent,
+    // reached by ESC (keyboard) or drag-dismiss (pointer). This covers the
+    // keyboard close: ESC with focus inside the sheet at peek → collapse() →
+    // closeWithRestore() → onClose, restoring focus to the opener.
+    const onClose = vi.fn();
+    opener.focus();
+    expect(opener).toHaveFocus();
+    render(
+      <SpeciesDetailSheet
+        speciesCode="vermfly"
+        apiClient={makeClient()}
+        onClose={onClose}
+        mainRef={{ current: mainEl }}
+      />,
+    );
+    const sheet = await screen.findByTestId('species-detail-sheet');
+    await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'half'));
+    const handle = await screen.findByTestId('species-detail-sheet-handle');
+    // Drag half → peek (a slow short downward drag settles to the nearest detent).
+    handle.dispatchEvent(new PointerEvent('pointerdown', { clientY: 400, pointerId: 1, bubbles: true }));
+    handle.dispatchEvent(new PointerEvent('pointermove', { clientY: 600, pointerId: 1, bubbles: true }));
+    handle.dispatchEvent(new PointerEvent('pointermove', { clientY: 740, pointerId: 1, bubbles: true }));
+    handle.dispatchEvent(new PointerEvent('pointerup', { clientY: 740, pointerId: 1, bubbles: true }));
+    await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'peek'));
+    // ESC with focus inside the sheet at peek → collapse() → onClose.
+    handle.focus();
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    await waitFor(() => expect(opener).toHaveFocus());
+  });
+
+  it('restores focus on ESC close stepping down from half (ESC half→peek, ESC peek→onClose → restore)', async () => {
+    const onClose = vi.fn();
+    opener.focus();
+    render(
+      <SpeciesDetailSheet
+        speciesCode="vermfly"
+        apiClient={makeClient()}
+        onClose={onClose}
+        mainRef={{ current: mainEl }}
+      />,
+    );
+    const sheet = await screen.findByTestId('species-detail-sheet');
+    const handle = await screen.findByTestId('species-detail-sheet-handle');
+    await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'half'));
+    // Pure-keyboard close: ESC with focus inside the sheet steps the detent down
+    // (collapse): half → peek, then peek → onClose. No pointer drag involved.
+    handle.focus();
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'peek'));
+    handle.focus();
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    await waitFor(() => expect(opener).toHaveFocus());
+  });
+
+  it('restores focus on drag-dismiss close', async () => {
+    const onClose = vi.fn();
+    opener.focus();
+    render(
+      <SpeciesDetailSheet
+        speciesCode="vermfly"
+        apiClient={makeClient()}
+        onClose={onClose}
+        mainRef={{ current: mainEl }}
+      />,
+    );
+    const handle = await screen.findByTestId('species-detail-sheet-handle');
+    // A long drag-down past the dismiss floor calls onClose directly.
+    handle.dispatchEvent(new PointerEvent('pointerdown', { clientY: 100, pointerId: 3, bubbles: true }));
+    handle.dispatchEvent(new PointerEvent('pointermove', { clientY: 700, pointerId: 3, bubbles: true }));
+    handle.dispatchEvent(new PointerEvent('pointerup', { clientY: 700, pointerId: 3, bubbles: true }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    await waitFor(() => expect(opener).toHaveFocus());
+  });
+
+  it('falls back to #main-surface when the previously-focused element is detached at close', async () => {
+    const onClose = vi.fn();
+    opener.focus();
+    render(
+      <SpeciesDetailSheet
+        speciesCode="vermfly"
+        apiClient={makeClient()}
+        onClose={onClose}
+        mainRef={{ current: mainEl }}
+      />,
+    );
+    const handle = await screen.findByTestId('species-detail-sheet-handle');
+    // Detach the opener BEFORE close so document.contains(previous) is false →
+    // the restore must fall back to #main-surface, not silently drop to <body>.
+    opener.remove();
+    handle.dispatchEvent(new PointerEvent('pointerdown', { clientY: 100, pointerId: 4, bubbles: true }));
+    handle.dispatchEvent(new PointerEvent('pointermove', { clientY: 700, pointerId: 4, bubbles: true }));
+    handle.dispatchEvent(new PointerEvent('pointerup', { clientY: 700, pointerId: 4, bubbles: true }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    await waitFor(() => expect(mainEl).toHaveFocus());
+  });
+});
+
+describe('<SpeciesDetailSheet> — F10 announce on readable detent (#910)', () => {
+  let mainEl: HTMLElement;
+
+  beforeEach(() => {
+    while (document.body.firstChild) {
+      document.body.removeChild(document.body.firstChild);
+    }
+    mainEl = document.createElement('main');
+    mainEl.id = 'main-surface';
+    mainEl.tabIndex = 0;
+    document.body.appendChild(mainEl);
+    __resetSpeciesDetailCache();
+  });
+
+  /** The visually-hidden live region is a descendant of the sheet root so it is
+   *  announced under aria-modal at full. It carries aria-live="polite". */
+  const liveRegion = (sheet: HTMLElement) =>
+    sheet.querySelector<HTMLElement>('[data-testid="sheet-live-region"]');
+
+  it('renders an aria-live="polite" region inside the sheet root (sr-only)', async () => {
+    render(
+      <SpeciesDetailSheet
+        speciesCode="vermfly"
+        apiClient={makeClient()}
+        onClose={vi.fn()}
+        mainRef={{ current: mainEl }}
+      />,
+    );
+    const sheet = await screen.findByTestId('species-detail-sheet');
+    const region = liveRegion(sheet);
+    expect(region).not.toBeNull();
+    expect(region).toHaveAttribute('aria-live', 'polite');
+    // Must be a DESCENDANT of the sheet root so it is announced under aria-modal.
+    expect(sheet.contains(region)).toBe(true);
+    // Visually hidden — the sr-only convention used app-wide.
+    expect(region!.className).toMatch(/sr-only/);
+  });
+
+  it('announces the species once on opening at the readable half detent', async () => {
+    render(
+      <SpeciesDetailSheet
+        speciesCode="vermfly"
+        apiClient={makeClient()}
+        onClose={vi.fn()}
+        mainRef={{ current: mainEl }}
+      />,
+    );
+    const sheet = await screen.findByTestId('species-detail-sheet');
+    await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'half'));
+    // The species name resolves and the half detent is readable → announce.
+    await waitFor(() =>
+      expect(liveRegion(sheet)!.textContent).toMatch(/vermilion flycatcher/i),
+    );
+  });
+
+  it('does NOT re-announce on full→half (single announce per readable detent)', async () => {
+    render(
+      <SpeciesDetailSheet
+        speciesCode="vermfly"
+        apiClient={makeClient()}
+        onClose={vi.fn()}
+        mainRef={{ current: mainEl }}
+      />,
+    );
+    const sheet = await screen.findByTestId('species-detail-sheet');
+    await waitFor(() =>
+      expect(liveRegion(sheet)!.textContent).toMatch(/vermilion flycatcher/i),
+    );
+    // Advance half → full. At full the heading-focus move owns the announce
+    // (we do NOT double-fire the live region at full).
+    const expand = await screen.findByRole('button', { name: /expand/i });
+    await userEvent.click(expand);
+    await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'full'));
+    // Clear the live region's text via a re-read marker: capture the current
+    // text, return to half, and assert the live region content did NOT change
+    // (no re-announce on full→half — the half detent was already announced).
+    const before = liveRegion(sheet)!.textContent;
+    const collapse = await screen.findByRole('button', { name: /collapse/i });
+    await userEvent.click(collapse);
+    await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'half'));
+    // The re-entry to half must NOT push a fresh announce (same text reference).
+    expect(liveRegion(sheet)!.textContent).toBe(before);
+  });
+
+  it('does NOT announce at the peek detent (map focus is preserved)', async () => {
+    render(
+      <SpeciesDetailSheet
+        speciesCode="vermfly"
+        apiClient={makeNoPhotoClient()}
+        onClose={vi.fn()}
+        mainRef={{ current: mainEl }}
+      />,
+    );
+    const sheet = await screen.findByTestId('species-detail-sheet');
+    const handle = await screen.findByTestId('species-detail-sheet-handle');
+    await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'half'));
+    // The half open already announced; drag to peek and assert peek did not add
+    // a fresh announce beyond the half one (text unchanged) — peek is below the
+    // readable threshold. (We assert peek itself doesn't push an announce by
+    // checking the announce count via the text not flipping to empty/peek-only.)
+    const halfText = liveRegion(sheet)!.textContent;
+    handle.dispatchEvent(new PointerEvent('pointerdown', { clientY: 400, pointerId: 5, bubbles: true }));
+    handle.dispatchEvent(new PointerEvent('pointermove', { clientY: 600, pointerId: 5, bubbles: true }));
+    handle.dispatchEvent(new PointerEvent('pointermove', { clientY: 740, pointerId: 5, bubbles: true }));
+    handle.dispatchEvent(new PointerEvent('pointerup', { clientY: 740, pointerId: 5, bubbles: true }));
+    await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'peek'));
+    expect(liveRegion(sheet)!.textContent).toBe(halfText);
+  });
+});
+
+describe('<SpeciesDetailSheet> — F14 reduced-motion resting end-state (#910)', () => {
+  // motion.css collapses all transition/animation durations to 0ms under
+  // prefers-reduced-motion. The reveal channels (sci/record/teaser/taxonomy/
+  // about) start at opacity:0 + translateY + blur and only reach the resting
+  // end-state via a [data-content='<tier>'] selector. This asserts that for
+  // each tier the resting end-state RULE exists in the authored CSS — so under
+  // reduced-motion (instant transition) the content lands at its resting state,
+  // never stuck invisible.
+  // import.meta.url is not always a file:// URL under jsdom; resolve via
+  // import.meta.dirname + join like tokens.css.test.ts (release-1 note).
+  const css = readFileSync(join(import.meta.dirname, '../styles.css'), 'utf8');
+
+  it('global reduced-motion policy collapses transitions/animations to 0ms', () => {
+    const motion = readFileSync(
+      join(import.meta.dirname, '../styles/motion.css'),
+      'utf8',
+    );
+    expect(motion).toMatch(/@media\s*\(prefers-reduced-motion:\s*reduce\)/);
+    expect(motion).toMatch(/transition-duration:\s*0ms\s*!important/);
+    expect(motion).toMatch(/animation-duration:\s*0ms\s*!important/);
+  });
+
+  it('every reveal channel has a resting end-state (opacity:1) at its tier', () => {
+    // MID reveal channels resolve to opacity:1 under [data-content='mid'].
+    expect(css).toMatch(
+      /\[data-content='mid'\][^{]*\.sheet-fg-record[\s\S]*?opacity:\s*1/,
+    );
+    // FULL reveal channels resolve to opacity:1 under [data-content='full'].
+    expect(css).toMatch(
+      /\[data-content='full'\][^{]*\.sheet-fg-about[\s\S]*?opacity:\s*1/,
+    );
+    expect(css).toMatch(
+      /\[data-content='full'\][^{]*\.sheet-fg-taxonomy[\s\S]*?opacity:\s*1/,
+    );
+  });
+});
+
+describe('<SpeciesDetailSheet> — F8 false-comment cleanup + dead CSS (#910)', () => {
+  const css = readFileSync(join(import.meta.dirname, '../styles.css'), 'utf8');
+
+  it('the false "non-interactive" chrome comment is removed', () => {
+    // The block claimed "chrome remains visible but non-interactive while the
+    // modal sheet is open." — false once the AppHeader is reachable by Tab. F8
+    // installs a real trap; the comment must go (the --z-modal rationale stays).
+    expect(css).not.toMatch(/non-interactive\s+while the modal sheet is open/);
+  });
+
+  it('dead .sheet-fg-credits CSS is removed (credit comes from <SpeciesDescription>)', () => {
+    // No `sheet-fg-credits` className is rendered; the credit is the
+    // .species-detail-description-credit paragraph inside <SpeciesDescription>.
+    expect(css).not.toMatch(/\.sheet-fg-credits\b/);
   });
 });
 
