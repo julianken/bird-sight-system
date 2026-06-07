@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
 import { SpeciesDetailSurface } from './SpeciesDetailSurface.js';
 import { ApiClient } from '../api/client.js';
 import type { SpeciesMeta, FamilySilhouette } from '@bird-watch/shared-types';
@@ -57,13 +57,106 @@ describe('SpeciesDetailSurface', () => {
       getSpecies: vi.fn().mockResolvedValue(VERMFLY),
       getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
     } as unknown as Partial<ApiClient>);
-    render(<SpeciesDetailSurface speciesCode="vermfly" apiClient={client} />);
+    const { container } = render(
+      <SpeciesDetailSurface speciesCode="vermfly" apiClient={client} />,
+    );
     await waitFor(() =>
       expect(screen.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeInTheDocument()
     );
-    const sci = screen.getByText('Pyrocephalus rubinus');
+
+    // #918 Restated-data decision: the identity block (B–D) shows the
+    // scientific + family names once as IDENTITY; the taxonomy <dl> (F) restates
+    // them as formal labeled REFERENCE data — by design (matches the mobile
+    // field-guide entry page). So each text now appears in exactly TWO nodes:
+    // the identity row and the taxonomy row. Scope to the identity block for the
+    // identity-tagline assertion (and assert the count is 2, not de-duplicated).
+    const identityBlock = container.querySelector('.detail-fg-identity') as HTMLElement;
+    expect(identityBlock).not.toBeNull();
+    const sci = within(identityBlock).getByText('Pyrocephalus rubinus');
     expect(sci.tagName).toBe('EM');
-    expect(screen.getByText('Tyrant Flycatchers')).toBeInTheDocument();
+    expect(within(identityBlock).getByText('Tyrant Flycatchers')).toBeInTheDocument();
+    // Restated, not de-duplicated: 2 nodes each (identity row + taxonomy row).
+    expect(screen.getAllByText('Pyrocephalus rubinus')).toHaveLength(2);
+    expect(screen.getAllByText('Tyrant Flycatchers')).toHaveLength(2);
+  });
+
+  // #918 — the taxonomy <dl> is the field-guide reference block. It must be a
+  // real <dl> with three label→value rows (Scientific name / Family / eBird
+  // taxonomic order) so the restated data is COVERED, not merely tolerated.
+  it('renders a taxonomy <dl> with labeled Scientific-name, Family, and taxon-order rows', async () => {
+    const client = makeClient({
+      getSpecies: vi.fn().mockResolvedValue(VERMFLY),
+      getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
+    } as unknown as Partial<ApiClient>);
+    const { container } = render(
+      <SpeciesDetailSurface speciesCode="vermfly" apiClient={client} />,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeInTheDocument()
+    );
+    const dl = container.querySelector('dl.detail-fg-taxonomy') as HTMLElement;
+    expect(dl).not.toBeNull();
+    const rows = dl.querySelectorAll('.detail-fg-taxrow');
+    expect(rows).toHaveLength(3);
+    // Labels (dt) and the values they tie to (dd).
+    const labels = Array.from(dl.querySelectorAll('dt')).map((el) => el.textContent);
+    expect(labels).toEqual(['Scientific name', 'Family', 'eBird taxonomic order']);
+    const tax = within(dl);
+    // Scientific name restated in the dl (italic <em>) — the second of the 2 nodes.
+    expect(tax.getByText('Pyrocephalus rubinus').tagName).toBe('EM');
+    // Family restated in the dl.
+    expect(tax.getByText('Tyrant Flycatchers')).toBeInTheDocument();
+    // taxonOrder rendered as #4400.
+    expect(tax.getByText('#4400')).toBeInTheDocument();
+  });
+
+  // #918 — the identity block carries the family dot (inline family-color bg +
+  // aria-hidden) and the family-accent rule; both are field-guide structural
+  // signals. The dot's inline background comes from resolveColor(familyCode).
+  it('renders the family dot (inline color, aria-hidden) and the accent rule', async () => {
+    const client = makeClient({
+      getSpecies: vi.fn().mockResolvedValue(VERMFLY),
+      getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
+    } as unknown as Partial<ApiClient>);
+    const { container } = render(
+      <SpeciesDetailSurface speciesCode="vermfly" apiClient={client} />,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeInTheDocument()
+    );
+    const dot = container.querySelector('.detail-fg-family-dot') as HTMLElement;
+    expect(dot).not.toBeNull();
+    expect(dot).toHaveAttribute('aria-hidden', 'true');
+    // Inline background resolved from the family color (#C77A2E in the fixture).
+    // jsdom normalizes the hex to its rgb() form.
+    expect(dot.style.background).toBe('rgb(199, 122, 46)');
+    // The 3px family-accent rule carries the same inline color.
+    const rule = container.querySelector('.detail-fg-rule') as HTMLElement;
+    expect(rule).not.toBeNull();
+    expect(rule).toHaveAttribute('aria-hidden', 'true');
+    expect(rule.style.background).toBe('rgb(199, 122, 46)');
+  });
+
+  // #918 — the About section leads with an "About" eyebrow heading when a
+  // description is present (the field-guide section divider).
+  it('renders the "About" eyebrow heading when descriptionBody is present', async () => {
+    const client = makeClient({
+      getSpecies: vi.fn().mockResolvedValue({
+        ...VERMFLY,
+        descriptionBody: '<p>Body.</p>',
+        descriptionAttributionUrl: 'https://en.wikipedia.org/wiki/Vermilion_flycatcher',
+      }),
+      getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
+    } as unknown as Partial<ApiClient>);
+    const { container } = render(
+      <SpeciesDetailSurface speciesCode="vermfly" apiClient={client} />,
+    );
+    const eyebrow = await waitFor(() => {
+      const el = container.querySelector('.detail-fg-about-eyebrow');
+      if (!el) throw new Error('About eyebrow not yet rendered');
+      return el;
+    });
+    expect(eyebrow.textContent).toBe('About');
   });
 
   it('shows loading state initially', () => {

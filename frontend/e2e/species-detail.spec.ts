@@ -24,10 +24,15 @@ test.describe('species detail surface (#151)', () => {
     // container rather than <main>. The AttributionModal family names are in a
     // separate dialog.attribution-modal — use getByRole to avoid collisions.
     await expect(page.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText('Pyrocephalus rubinus')).toBeVisible();
-    // Family name appears in the detail surface; scope to species-detail-family
-    // class to avoid hitting the AttributionModal Phylopic section.
-    await expect(page.locator('.species-detail-family')).toHaveText(/Tyrant Flycatchers/);
+    // #918 Restated-data decision: the scientific name appears TWICE — once in
+    // the identity spine (.detail-fg-sci) and again in the taxonomy <dl> as
+    // labeled reference data — so a bare getByText is strict-mode-ambiguous.
+    // Scope to the identity spine.
+    await expect(page.locator('.detail-fg-sci')).toContainText('Pyrocephalus rubinus');
+    // Family name likewise appears in the identity dot+name row AND the taxonomy
+    // <dl> Family row; scope to .detail-fg-family (the field-guide dot+name row)
+    // to avoid the taxonomy row AND the AttributionModal Phylopic section.
+    await expect(page.locator('.detail-fg-family')).toHaveText(/Tyrant Flycatchers/);
 
     // URL carries detail and view params.
     await expect.poll(() => new URL(page.url()).searchParams.get('detail'), { timeout: 5_000 })
