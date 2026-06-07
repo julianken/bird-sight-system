@@ -1747,104 +1747,175 @@ aside.species-detail-rail .species-detail-rail-close {
 .species-detail-sheet[data-content='full'] .sheet-fg-taxonomy { display: block; }
 .species-detail-sheet[data-content='full'] .sheet-fg-about { display: block; }
 
-/* ── Field-guide motion: photo morph + tier content reveals ────────────────
-   Reduced-motion is owned globally by motion.css (collapses every transition /
-   animation here to 0ms); each rule's resting end-state is the correct static
-   state, so there are no per-element prefers-reduced-motion guards.
+/* ── Field-guide motion: ONE-BEAT catalog morph (#916) ─────────────────────
+   Pure transitions-dev catalog. Replaces the prior two-stage reveals (recipe-18
+   stagger + recipe-07 panel) and the grid-template-columns/margin photo morph.
+   Every moving property reads ONE clock — --sheet-settle-dur (300ms) /
+   --sheet-settle-ease — so the whole detent change starts and finishes on one
+   frame: no two-stage snap. There is NO FLIP, NO View Transitions, NO clip-path,
+   NO WAAPI element.animate, NO getBoundingClientRect — pure CSS.
 
-   Photo morph. The photo reads as ONE continuous element across detents
-   because the properties that change its rendered box all tween together:
-   width/height/border-radius on the frame, the full-bleed negative `margin` at
-   full, AND `grid-template-columns` on the parent grid (the column track that
-   holds the photo: 44px → 120px → 1fr). grid-template-AREAS is NOT animatable —
-   the mid→full reposition (photo moves from the left column to a top masthead)
-   is the one accepted discontinuity; aspect-ratio is never animated. */
-.sheet-fg {
-  transition: grid-template-columns var(--sheet-settle-dur) var(--sheet-settle-ease);
-}
-.sheet-fg-photo {
+   ONE gate: [data-settled='true'] (the sheet root carries data-settled, set in
+   SpeciesDetailSheet.tsx = !dragging). Every transition/animation below fires
+   ONLY when settled, so it never plays during the 1:1 drag and never re-fires as
+   the hysteresis boundary is crossed mid-drag.
+
+   Reduced-motion is owned globally by motion.css (its `*` rule zeroes BOTH
+   transition-duration AND animation-duration, covering the transitions AND the
+   focus-pull @keyframes below). No per-element prefers-reduced-motion guards —
+   each rule's resting end-state is the correct static state. */
+
+/* PHOTO — leg-dependent.
+   compact↔mid: true #01 card-resize. width 44↔120 + height 44↔120 are BOTH
+   fixed px so both axes truly tween (corner-pinned by the grid origin — no
+   translate). border-radius is 10px at compact AND mid so it is inert on this
+   leg; it tweens 10→0 on mid↔full.
+   mid↔full: HEIGHT (120 → min(62.5vw,300px)) and border-radius (10→0) DO tween.
+   WIDTH (120px → auto) is NON-interpolatable and the reposition (left column →
+   full-bleed-top via grid-template-areas + negative margin) is NON-animatable —
+   so width+position is a SINGLE INSTANT change, masked by the focus-pull
+   @keyframes below. grid-template-columns / grid-template-areas / margin are
+   DELIBERATELY OUT of every transition list (MUST-FIX #6): listing width+height
+   (+border-radius) only is what makes this card-resize, not a grid morph. */
+.species-detail-sheet[data-settled='true'] .sheet-fg-photo {
   transition:
     width var(--sheet-settle-dur) var(--sheet-settle-ease),
     height var(--sheet-settle-dur) var(--sheet-settle-ease),
-    border-radius var(--sheet-settle-dur) var(--sheet-settle-ease),
-    margin var(--sheet-settle-dur) var(--sheet-settle-ease);
+    border-radius var(--sheet-settle-dur) var(--sheet-settle-ease);
 }
-/* 1:1 during drag — the photo + grid snap to the tier size at the threshold,
-   no lag behind the finger. */
-.species-detail-sheet[data-dragging='true'] .sheet-fg,
-.species-detail-sheet[data-dragging='true'] .sheet-fg-photo { transition: none; }
+/* 1:1 during drag — the photo snaps to the tier size at the threshold, no lag
+   behind the finger. Belt-and-braces: both the legacy [data-dragging] gate and
+   the [data-settled='false'] gate pin transition:none. */
+.species-detail-sheet[data-dragging='true'] .sheet-fg-photo,
+.species-detail-sheet[data-settled='false'] .sheet-fg-photo {
+  transition: none;
+}
 
-/* MID-tier reveal — transitions-dev recipe 18 (texts-reveal). The sci-name,
-   the field-record strip, and the teaser rise in with a staggered blur as they
-   enter the mid detent. Each starts translated-down + blurred + invisible; the
-   [data-content='mid'] state flips them to rest. The name+family SPINE is NOT
-   in this channel (it is always present, never display:none'd).
+/* PHOTO focus-pull — masks the mid↔full instant width+reposition jump.
+   The catalog has no path-translation recipe (that is what FLIP is for), so the
+   non-interpolatable jump is hidden behind a hand-authored 19th @keyframes that
+   pulls focus blur(--sheet-photo-mask-blur)→0 over the shared clock. This reads
+   as a focus-pull / cross-dissolve, NOT a glide and NOT a travel. Applied on
+   BOTH directions of the mid↔full leg (forward into full, reverse back to mid);
+   compact↔mid stays a clean #01 card-resize (the photo card-resizes both axes
+   there — its faint settle is dominated by the smooth box tween, so the small
+   pull on the mid side is unobtrusive and motion.css zeroes it under RM).
+   --sheet-photo-mask-blur falls back to 2px; the orchestrator tunes it live. */
+@keyframes sheet-photo-focuspull {
+  from { filter: blur(var(--sheet-photo-mask-blur, 2px)); }
+  to   { filter: blur(0); }
+}
+.species-detail-sheet[data-settled='true'][data-content='full'] .sheet-fg-photo,
+.species-detail-sheet[data-settled='true'][data-content='mid'] .sheet-fg-photo {
+  animation: sheet-photo-focuspull var(--sheet-settle-dur) var(--sheet-settle-ease);
+}
 
-   record/teaser are display:none in other tiers, so the channel also tweens the
-   discrete `display` change (transition-behavior: allow-discrete) and seeds the
-   entrance from-state with @starting-style — without these the show would snap.
-   sci-name is never display:none'd (it stays in the spine), so it tweens with
-   the plain opacity/transform/filter set. */
+/* SPINE re-anchor — #07 panel-reveal IN PLACE (the cross-killer).
+   The spine (name / sci / family) re-anchors right-of-plate (mid) ↔
+   below-masthead (full). It must NEVER trace a diagonal across the photo, so it
+   does NOT travel: it fades out at its old anchor and in at its new anchor via a
+   short opacity dip + cross-blur keyed on [data-content], gated to settle. With
+   the travel removed, the cross is structurally impossible.
+
+   The NAME ALSO length-tweens its font-size on the same clock (--type-md 17px
+   compact ↔ --type-lg 22px mid ↔ --type-hero 34px full — an #01-adjacent length
+   tween, NOT #04 text-states-swap: the text content is unchanged). font-size is
+   folded into the name's own transition list (a single `transition:` per element
+   replaces, not merges — so the name list must carry opacity+filter+font-size
+   together).
+
+   RESTING state (MUST-FIX #3) = opacity:1; transform:none; filter:none — so the
+   spine is PRESENT during drag and lands VISIBLE under reduced-motion. The dip
+   from-state is seeded ONLY via @starting-style under the settled-AND-at-tier
+   selector, so it plays once on a settled tier change, never during the drag and
+   never as an unconditional opacity:0 base. Name/sci/family visibility ties to
+   [data-content] only (MUST-FIX #10) so late-resolving species text appears at
+   rest without a settle. */
+.sheet-fg-name,
 .sheet-fg-sci,
-.sheet-fg-record,
-.sheet-fg-teaser {
-  opacity: 0;
-  transform: translateY(var(--stagger-distance, 12px));
-  filter: blur(var(--stagger-blur, 3px));
-  transition:
-    opacity var(--stagger-dur, 600ms) var(--stagger-ease, cubic-bezier(0.22, 1, 0.36, 1)),
-    transform var(--stagger-dur, 600ms) var(--stagger-ease, cubic-bezier(0.22, 1, 0.36, 1)),
-    filter var(--stagger-dur, 600ms) var(--stagger-ease, cubic-bezier(0.22, 1, 0.36, 1)),
-    display var(--stagger-dur, 600ms) allow-discrete;
-  will-change: transform, opacity, filter;
-}
-/* Stagger: record holds 1 step, teaser 2 steps, so the eye lands on the
-   sci-name first then walks down the card. */
-.sheet-fg-record { transition-delay: var(--stagger-stagger, 40ms); }
-.sheet-fg-teaser { transition-delay: calc(var(--stagger-stagger, 40ms) * 2); }
-.species-detail-sheet[data-content='mid'] .sheet-fg-sci,
-.species-detail-sheet[data-content='mid'] .sheet-fg-record,
-.species-detail-sheet[data-content='mid'] .sheet-fg-teaser,
-.species-detail-sheet[data-content='full'] .sheet-fg-sci {
+.sheet-fg-family {
   opacity: 1;
-  transform: translateY(0);
+  transform: none;
   filter: blur(0);
 }
+.species-detail-sheet[data-settled='true'] .sheet-fg-name {
+  transition:
+    opacity var(--sheet-settle-dur) var(--sheet-settle-ease),
+    filter var(--sheet-settle-dur) var(--sheet-settle-ease),
+    font-size var(--sheet-settle-dur) var(--sheet-settle-ease);
+  will-change: opacity, filter, font-size;
+}
+.species-detail-sheet[data-settled='true'] .sheet-fg-sci,
+.species-detail-sheet[data-settled='true'] .sheet-fg-family {
+  transition:
+    opacity var(--sheet-settle-dur) var(--sheet-settle-ease),
+    filter var(--sheet-settle-dur) var(--sheet-settle-ease);
+  will-change: opacity, filter;
+}
 @starting-style {
-  .species-detail-sheet[data-content='mid'] .sheet-fg-record,
-  .species-detail-sheet[data-content='mid'] .sheet-fg-teaser {
+  .species-detail-sheet[data-settled='true'][data-content='mid'] .sheet-fg-name,
+  .species-detail-sheet[data-settled='true'][data-content='mid'] .sheet-fg-sci,
+  .species-detail-sheet[data-settled='true'][data-content='mid'] .sheet-fg-family,
+  .species-detail-sheet[data-settled='true'][data-content='full'] .sheet-fg-name,
+  .species-detail-sheet[data-settled='true'][data-content='full'] .sheet-fg-sci,
+  .species-detail-sheet[data-settled='true'][data-content='full'] .sheet-fg-family {
     opacity: 0;
-    transform: translateY(var(--stagger-distance, 12px));
-    filter: blur(var(--stagger-blur, 3px));
+    filter: blur(var(--panel-blur, 2px));
   }
 }
 
-/* FULL-tier reveal — transitions-dev recipe 07 (panel-reveal). The taxonomy
-   table and the About panel slide up from a half-travel with a cross-blur so a
-   short translate still reads as a full open. Both are display:none until the
-   full detent, so the channel tweens `display` (allow-discrete) and seeds the
-   from-state via @starting-style, mirroring the mid channel. */
+/* TIER BLOCKS — #07 panel-reveal, each cross-fading IN ITS OWN grid area.
+   mid owns record + teaser; full owns taxonomy + about. They live in different
+   grid areas (not one absolute slot — #14 cited only as the cross-blur idiom,
+   NOT installed verbatim) and the full scroll-height feeds the IO sentinel, so
+   they cross-fade in place: opacity + cross-blur + a short panel translate.
+   display:none→block can't transition in pure CSS, so the channel tweens the
+   discrete `display` (transition-behavior: allow-discrete) and seeds the
+   from-state via @starting-style (MUST-FIX #2 — standard CSS, the required
+   pure-CSS answer; T1 already used this pattern).
+
+   RESTING / OFF-TIER authoring (MUST-FIX #3): a block at ITS tier rests at
+   opacity:1; transform:none — PRESENT during drag and VISIBLE under RM. A block
+   OFF its tier rests at opacity:0 (keyed on the NEGATIVE :not([data-content…]),
+   NOT an unconditional opacity:0 base) — this is what keeps the mid-only teaser
+   computing opacity:0 at the full detent so the focus-trap isVisible() walk
+   excludes it (sheet-focus-trap.spec.ts). The reveal DELTA (translate+blur+
+   opacity:0 from-state) exists only on the settled-AND-entering selector via
+   @starting-style, so it never thrashes during the drag. */
+.sheet-fg-record,
+.sheet-fg-teaser,
 .sheet-fg-taxonomy,
 .sheet-fg-about {
-  transform: translateY(var(--panel-translate-y-sheet, 32px));
-  opacity: 0;
-  filter: blur(var(--panel-blur, 2px));
-  transition:
-    transform var(--panel-open-dur, 400ms) var(--panel-ease, cubic-bezier(0.22, 1, 0.36, 1)),
-    opacity var(--panel-open-dur, 400ms) var(--panel-ease, cubic-bezier(0.22, 1, 0.36, 1)),
-    filter var(--panel-open-dur, 400ms) var(--panel-ease, cubic-bezier(0.22, 1, 0.36, 1)),
-    display var(--panel-open-dur, 400ms) allow-discrete;
-  will-change: transform, opacity, filter;
-}
-.species-detail-sheet[data-content='full'] .sheet-fg-taxonomy,
-.species-detail-sheet[data-content='full'] .sheet-fg-about {
-  transform: translateY(0);
   opacity: 1;
+  transform: translateY(0);
   filter: blur(0);
 }
+.species-detail-sheet[data-settled='true'] .sheet-fg-record,
+.species-detail-sheet[data-settled='true'] .sheet-fg-teaser,
+.species-detail-sheet[data-settled='true'] .sheet-fg-taxonomy,
+.species-detail-sheet[data-settled='true'] .sheet-fg-about {
+  transition:
+    opacity var(--sheet-settle-dur) var(--sheet-settle-ease),
+    transform var(--sheet-settle-dur) var(--sheet-settle-ease),
+    filter var(--sheet-settle-dur) var(--sheet-settle-ease),
+    display var(--sheet-settle-dur) allow-discrete;
+  will-change: opacity, transform, filter;
+}
+/* Off-tier resting hidden state (negative selectors). record/teaser belong to
+   mid; taxonomy/about belong to full. The layout blocks above set display:none
+   off-tier; these set opacity:0 so the focus-trap visibility walk excludes them
+   even on the frame before display resolves. */
+.species-detail-sheet:not([data-content='mid']) .sheet-fg-record,
+.species-detail-sheet:not([data-content='mid']) .sheet-fg-teaser,
+.species-detail-sheet:not([data-content='full']) .sheet-fg-taxonomy,
+.species-detail-sheet:not([data-content='full']) .sheet-fg-about {
+  opacity: 0;
+}
 @starting-style {
-  .species-detail-sheet[data-content='full'] .sheet-fg-taxonomy,
-  .species-detail-sheet[data-content='full'] .sheet-fg-about {
+  .species-detail-sheet[data-settled='true'][data-content='mid'] .sheet-fg-record,
+  .species-detail-sheet[data-settled='true'][data-content='mid'] .sheet-fg-teaser,
+  .species-detail-sheet[data-settled='true'][data-content='full'] .sheet-fg-taxonomy,
+  .species-detail-sheet[data-settled='true'][data-content='full'] .sheet-fg-about {
     opacity: 0;
     transform: translateY(var(--panel-translate-y-sheet, 32px));
     filter: blur(var(--panel-blur, 2px));

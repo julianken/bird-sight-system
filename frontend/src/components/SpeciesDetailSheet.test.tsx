@@ -1142,18 +1142,118 @@ describe('<SpeciesDetailSheet> — F14 reduced-motion resting end-state (#910)',
     expect(motion).toMatch(/animation-duration:\s*0ms\s*!important/);
   });
 
-  it('every reveal channel has a resting end-state (opacity:1) at its tier', () => {
-    // MID reveal channels resolve to opacity:1 under [data-content='mid'].
+  it('every reveal channel rests at opacity:1 / transform:none (present during drag, visible under RM)', () => {
+    // #916 MUST-FIX #3 — the RESTING state is opacity:1; transform:none, NOT an
+    // unconditional opacity:0 base. The tier blocks (record/teaser/taxonomy/
+    // about) and the spine (name/sci/family) all share one resting declaration
+    // so content is PRESENT during the drag and lands VISIBLE under reduced-
+    // motion (motion.css zeroes the transition). The hidden from-state lives
+    // ONLY in @starting-style (asserted below), never as a flat opacity:0 base.
     expect(css).toMatch(
-      /\[data-content='mid'\][^{]*\.sheet-fg-record[\s\S]*?opacity:\s*1/,
-    );
-    // FULL reveal channels resolve to opacity:1 under [data-content='full'].
-    expect(css).toMatch(
-      /\[data-content='full'\][^{]*\.sheet-fg-about[\s\S]*?opacity:\s*1/,
+      /\.sheet-fg-record,\s*\.sheet-fg-teaser,\s*\.sheet-fg-taxonomy,\s*\.sheet-fg-about\s*\{[^}]*opacity:\s*1/,
     );
     expect(css).toMatch(
-      /\[data-content='full'\][^{]*\.sheet-fg-taxonomy[\s\S]*?opacity:\s*1/,
+      /\.sheet-fg-name,\s*\.sheet-fg-sci,\s*\.sheet-fg-family\s*\{[^}]*opacity:\s*1/,
     );
+  });
+});
+
+describe('<SpeciesDetailSheet> — F14 INVERTED: photo carries card-resize, grid/margin stay out (#916)', () => {
+  // #916 MUST-FIX #6 inverts the FLIP-era invariant (which asserted NO
+  // width/height transition on .sheet-fg-photo). The pure-catalog morph REQUIRES
+  // a true #01 card-resize on the photo box, and DELIBERATELY excludes the grid
+  // template + margin from every transition list (those are the discontinuities
+  // the focus-pull @keyframes masks — animating them would re-introduce the
+  // glide the catalog has no recipe for).
+  const css = readFileSync(join(import.meta.dirname, '../styles.css'), 'utf8');
+
+  // The photo transition list, gated to settle, scoped to .sheet-fg-photo.
+  const photoTransition =
+    css.match(
+      /\[data-settled='true'\]\s+\.sheet-fg-photo\s*\{\s*transition:([\s\S]*?)\}/,
+    )?.[1] ?? '';
+
+  it('the photo box DOES carry a width + height card-resize transition (recipe #01)', () => {
+    expect(photoTransition).toMatch(/\bwidth\b/);
+    expect(photoTransition).toMatch(/\bheight\b/);
+    // border-radius tweens 10→0 on mid↔full on the same clock.
+    expect(photoTransition).toMatch(/\bborder-radius\b/);
+    // Every tweened property reads the shared 300ms settle clock.
+    expect(photoTransition).toMatch(/var\(--sheet-settle-dur\)/);
+  });
+
+  it('grid-template-columns / grid-template-areas / margin are OUT of every photo transition list', () => {
+    expect(photoTransition).not.toMatch(/grid-template/);
+    expect(photoTransition).not.toMatch(/\bmargin\b/);
+    // And no .sheet-fg parent grid-template transition remains anywhere
+    // (the old grid-template-columns morph is deleted).
+    expect(css).not.toMatch(/transition:\s*grid-template-columns/);
+  });
+
+  it('the mid↔full photo reposition is masked by the focus-pull @keyframes, not a glide', () => {
+    // The blur-mask is a hand-authored @keyframes (CSS cannot pulse blur on an
+    // attribute flip) scoped to the settled full/mid photo (MUST-FIX #5).
+    expect(css).toMatch(/@keyframes\s+sheet-photo-focuspull/);
+    expect(css).toMatch(
+      /\[data-settled='true'\]\[data-content='full'\]\s+\.sheet-fg-photo[\s\S]*?animation:\s*sheet-photo-focuspull/,
+    );
+    expect(css).toMatch(/var\(--sheet-photo-mask-blur/);
+  });
+});
+
+describe('<SpeciesDetailSheet> — data-settled gates the morph off during drag (#916)', () => {
+  let mainEl: HTMLElement;
+
+  beforeEach(() => {
+    while (document.body.firstChild) {
+      document.body.removeChild(document.body.firstChild);
+    }
+    mainEl = document.createElement('main');
+    mainEl.id = 'main-surface';
+    document.body.appendChild(mainEl);
+    __resetSpeciesDetailCache();
+  });
+
+  it("sets data-settled='true' at rest and 'false' while dragging", async () => {
+    render(
+      <SpeciesDetailSheet
+        speciesCode="vermfly"
+        apiClient={makeClient()}
+        onClose={vi.fn()}
+        mainRef={{ current: mainEl }}
+      />
+    );
+    const sheet = await screen.findByTestId('species-detail-sheet');
+    // At rest (mount, half snap): settled.
+    expect(sheet).toHaveAttribute('data-settled', 'true');
+
+    // Begin a drag on the handle → settled flips false (alongside data-dragging).
+    const handle = await screen.findByTestId('species-detail-sheet-handle');
+    handle.dispatchEvent(
+      new PointerEvent('pointerdown', { clientY: 400, pointerId: 7, bubbles: true }),
+    );
+    handle.dispatchEvent(
+      new PointerEvent('pointermove', { clientY: 360, pointerId: 7, bubbles: true }),
+    );
+    await waitFor(() => expect(sheet).toHaveAttribute('data-dragging', 'true'));
+    expect(sheet).toHaveAttribute('data-settled', 'false');
+
+    // Release → settled true again.
+    handle.dispatchEvent(
+      new PointerEvent('pointerup', { clientY: 360, pointerId: 7, bubbles: true }),
+    );
+    await waitFor(() => expect(sheet).toHaveAttribute('data-dragging', 'false'));
+    expect(sheet).toHaveAttribute('data-settled', 'true');
+  });
+
+  it('every reveal/morph transition is scoped behind [data-settled=true] (off during drag)', () => {
+    const css = readFileSync(join(import.meta.dirname, '../styles.css'), 'utf8');
+    // The photo card-resize, the name font-size tween, the spine dip, and the
+    // tier-block cross-fade all gate behind [data-settled='true'].
+    expect(css).toMatch(/\[data-settled='true'\]\s+\.sheet-fg-photo\s*\{\s*transition:/);
+    expect(css).toMatch(/\[data-settled='true'\]\s+\.sheet-fg-name\s*\{\s*transition:/);
+    // During drag the photo transition is pinned to none.
+    expect(css).toMatch(/\[data-settled='false'\]\s+\.sheet-fg-photo\s*\{\s*\n?\s*transition:\s*none/);
   });
 });
 

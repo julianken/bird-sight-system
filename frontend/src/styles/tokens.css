@@ -124,11 +124,18 @@
   --controls-cluster-h: 54px;
 
   /* ── transitions-dev recipe tokens ──────────────────────────────────────
-   * Semantic motion vars consumed by the field-guide sheet reveals
+   * Semantic motion vars consumed by the field-guide sheet morph (#916)
    * (SpeciesDetailSheet / styles.css). Values are the live transitions.dev
-   * tunings. recipe-18 (texts-reveal) drives the mid-tier sci/record/teaser;
-   * recipe-07 (panel-reveal) drives the full-tier taxonomy/About. Reduced-
-   * motion is handled globally in motion.css — no per-recipe guard here. */
+   * tunings. The detent morph is ONE-BEAT, pure catalog: #01 card-resize drives
+   * the compact↔mid photo box (+ a name font-size length-tween); #07
+   * panel-reveal drives the spine re-anchor (in-place opacity dip + cross-blur,
+   * the cross-killer) AND the tier-block cross-fade (record/teaser ↔
+   * taxonomy/about). The mid↔full photo width+reposition is a single instant
+   * change masked by the focus-pull @keyframes (--sheet-photo-mask-blur).
+   * Everything reads --sheet-settle-* (the 300ms shared clock on the sheet
+   * root). Reduced-motion is handled globally in motion.css — no per-recipe
+   * guard here. (--stagger-* are retired from the sheet by #916 but kept for any
+   * other recipe-18 consumer.) */
   --stagger-dur:         600ms;
   --stagger-distance:    12px;
   --stagger-stagger:     40ms;
@@ -142,6 +149,12 @@
      open (recipe-07 note). Named -sheet so it doesn't collide if the canonical
      --panel-translate-y (100px) is later imported wholesale. */
   --panel-translate-y-sheet: 32px;
+  /* Focus-pull blur depth that masks the mid↔full photo width+reposition jump
+     (the catalog has no path-translation recipe). 2px is the floor — light
+     enough to read as a focus-pull, not a smear. The orchestrator tunes this
+     2-4px live on a real device (#916 "honest residue"): too light and the jump
+     shows; too heavy and it muddies. */
+  --sheet-photo-mask-blur: 2px;
 }
 
 /* ── Layer 2: Semantic — light mode ─────────────────────────────────── */

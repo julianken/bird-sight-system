@@ -668,6 +668,16 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
       className={`species-detail-sheet species-detail-sheet--${snap}`}
       data-snap-state={snap}
       data-dragging={dragging ? 'true' : 'false'}
+      // #916 — pure-CSS catalog morph gate. `data-settled` is the SINGLE new
+      // state-derived attr (not an animation/measure/reflow): it is `false`
+      // while a drag is live and `true` at rest. Every catalog reveal/morph
+      // transition (#01 card-resize photo, #07 panel-reveal spine + tier
+      // blocks, the focus-pull @keyframes) gates behind [data-settled='true']
+      // so it fires ONLY on settle — never during the 1:1 drag, never
+      // re-firing as the hysteresis boundary is crossed. At rest the at-tier
+      // content is PRESENT (opacity:1) regardless of this attr; the from-state
+      // delta only exists on the entering-AND-settled selector (MUST-FIX #3).
+      data-settled={dragging ? 'false' : 'true'}
       data-content={content}
       // #907 finding 2 — programmatically focusable (no tab stop) so open-focus
       // can land on the dialog container instead of the visible species name,
