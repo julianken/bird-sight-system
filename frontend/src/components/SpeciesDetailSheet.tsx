@@ -217,28 +217,52 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
   // display:none — a display:none element has a zero box and never intersects,
   // so it must stay in layout to be observable. firedRef + observer.disconnect()
   // is the no-double-fire guard (no re-fire across detent changes).
+  //
+  // DETENT GATE (#914 bot finding): the observer is armed ONLY at the `full`
+  // snap. At peek/half the About + taxonomy blocks are display:none, so the
+  // .sheet-fg content is short enough that the trailing sentinel can already sit
+  // within the viewport the moment data resolves — a viewport-rooted observer
+  // would then fire `panel_scrolled_to_bottom` ON OPEN with no actual scroll
+  // (an over-count). The surface (SpeciesDetailSurface.tsx) never collapses, so
+  // its sentinel is reliably below the fold and it can arm on data-resolve; the
+  // sheet's detent collapse breaks that invariant, so we gate on snap === 'full'
+  // — the only detent where the About content is shown and .sheet-fg scrolls.
+  // We also root the observer on the .sheet-fg scroll container (not the
+  // viewport) so "intersecting" means the sentinel has actually been scrolled
+  // into the scroller's box, not merely that it overlaps the layout viewport.
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
   const firedRef = useRef<boolean>(false);
   const speciesCodeForObserver = data?.speciesCode;
   useEffect(() => {
     if (!speciesCodeForObserver) return;
+    // Only count a real scroll-to-bottom at the full detent — peek/half keep the
+    // About/taxonomy blocks display:none, so the sentinel can be visible on open
+    // (over-count). Not arming the observer outside full is the fix.
+    if (snap !== 'full') return;
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
     if (typeof IntersectionObserver === 'undefined') return;
     firedRef.current = false;
-    const observer = new IntersectionObserver(entries => {
-      const intersected = entries.some(entry => entry.isIntersecting);
-      if (intersected && !firedRef.current) {
-        firedRef.current = true;
-        analytics.capture('panel_scrolled_to_bottom', {
-          species_code: speciesCodeForObserver,
-        });
-        observer.disconnect();
-      }
-    });
+    const observer = new IntersectionObserver(
+      entries => {
+        const intersected = entries.some(entry => entry.isIntersecting);
+        if (intersected && !firedRef.current) {
+          firedRef.current = true;
+          analytics.capture('panel_scrolled_to_bottom', {
+            species_code: speciesCodeForObserver,
+          });
+          observer.disconnect();
+        }
+      },
+      // Root on the scroll container so the intersection is relative to the
+      // .sheet-fg box, not the layout viewport. Falls back to the viewport if
+      // the ref is not yet attached.
+      { root: scrollerRef.current ?? null },
+    );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [speciesCodeForObserver]);
+  }, [speciesCodeForObserver, snap]);
 
   // Compute snap heights against the live viewport. Recompute on
   // resize so an orientation change or mobile-Safari URL-bar collapse
@@ -533,8 +557,10 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
       {/* Field-guide layout: three size-appropriate tiers in one grid that
           re-templates per [data-content]. The photo is a SINGLE <Photo>
           element kept mounted across detents; only its frame morphs via CSS.
-          The grid scrolls (tabIndex=0 satisfies axe scrollable-region-focusable). */}
-      <div className="sheet-fg" tabIndex={0}>
+          The grid scrolls (tabIndex=0 satisfies axe scrollable-region-focusable).
+          scrollerRef is the IntersectionObserver root for the bottom sentinel
+          at the full detent — see the panel_scrolled_to_bottom effect. */}
+      <div className="sheet-fg" tabIndex={0} ref={scrollerRef}>
         <div className="sheet-fg-photo">
           {/* Decorative photo (alt=""): the species name always sits adjacent
               and we have no plumage metadata, so a non-empty alt would triple-

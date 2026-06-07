@@ -512,17 +512,18 @@ describe('<SpeciesDetailSheet>', () => {
       expect(sentinel.className).not.toMatch(/sheet-fg-about|sheet-fg-taxonomy/);
     });
 
-    it('fires panel_scrolled_to_bottom once on first sentinel intersection then disconnects', async () => {
-      // jsdom has no IntersectionObserver; install a controllable class mock
-      // that records each registered callback for manual triggering — same
-      // pattern as SpeciesDetailSurface.test.tsx.
-      type IOInstance = {
-        callback: IntersectionObserverCallback;
-        observe: ReturnType<typeof vi.fn>;
-        disconnect: ReturnType<typeof vi.fn>;
-        unobserve: ReturnType<typeof vi.fn>;
-        takeRecords: ReturnType<typeof vi.fn>;
-      };
+    // jsdom has no IntersectionObserver; install a controllable class mock that
+    // records each registered callback for manual triggering — same pattern as
+    // SpeciesDetailSurface.test.tsx. Returns the observer list + a restore fn so
+    // both the full-detent and mid-detent cases can share the harness.
+    type IOInstance = {
+      callback: IntersectionObserverCallback;
+      observe: ReturnType<typeof vi.fn>;
+      disconnect: ReturnType<typeof vi.fn>;
+      unobserve: ReturnType<typeof vi.fn>;
+      takeRecords: ReturnType<typeof vi.fn>;
+    };
+    function installIOMock(): { observers: IOInstance[]; restore: () => void } {
       const observers: IOInstance[] = [];
       class IOMock {
         callback: IntersectionObserverCallback;
@@ -537,7 +538,20 @@ describe('<SpeciesDetailSheet>', () => {
       }
       const originalIO = (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver;
       (globalThis as { IntersectionObserver: unknown }).IntersectionObserver = IOMock;
+      return {
+        observers,
+        restore: () => {
+          if (originalIO === undefined) {
+            delete (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver;
+          } else {
+            (globalThis as { IntersectionObserver: unknown }).IntersectionObserver = originalIO;
+          }
+        },
+      };
+    }
 
+    it('fires panel_scrolled_to_bottom once on first sentinel intersection then disconnects (at FULL)', async () => {
+      const { observers, restore } = installIOMock();
       try {
         const captureSpy = vi.spyOn(analytics, 'capture');
         const { container } = render(
@@ -550,6 +564,14 @@ describe('<SpeciesDetailSheet>', () => {
         );
         const sentinel = await screen.findByTestId('detail-bottom-sentinel');
         expect(container).toBeTruthy();
+
+        // Advance half → full: the observer is gated on snap === 'full' (#914),
+        // so it only arms once the About content is shown and .sheet-fg scrolls.
+        const expand = await screen.findByRole('button', { name: /expand/i });
+        await userEvent.click(expand);
+        const sheet = await screen.findByTestId('species-detail-sheet');
+        await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'full'));
+
         expect(observers.length).toBeGreaterThan(0);
         // Find the observer wired to the sentinel.
         const wired = observers.find(o =>
@@ -583,11 +605,56 @@ describe('<SpeciesDetailSheet>', () => {
         expect(reFires).toHaveLength(0);
         captureSpy.mockRestore();
       } finally {
-        if (originalIO === undefined) {
-          delete (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver;
-        } else {
-          (globalThis as { IntersectionObserver: unknown }).IntersectionObserver = originalIO;
+        restore();
+      }
+    });
+
+    it('does NOT arm panel_scrolled_to_bottom at the MID detent — no over-count on open (#914)', async () => {
+      // The bug: the observer used to arm the moment species data resolved, which
+      // is the MID (half) detent on open. At mid the About/taxonomy blocks are
+      // display:none, so .sheet-fg content is short and the trailing sentinel can
+      // already sit within the viewport → the observer fired on open with no real
+      // scroll (an over-count). The detent gate (snap === 'full') means no
+      // observer is wired to the sentinel at mid, so even a simulated intersection
+      // cannot fire the event.
+      const { observers, restore } = installIOMock();
+      try {
+        const captureSpy = vi.spyOn(analytics, 'capture');
+        render(
+          <SpeciesDetailSheet
+            speciesCode="vermfly"
+            apiClient={makeClient()}
+            onClose={vi.fn()}
+            mainRef={{ current: mainEl }}
+          />,
+        );
+        const sheet = await screen.findByTestId('species-detail-sheet');
+        const sentinel = await screen.findByTestId('detail-bottom-sentinel');
+        // Sheet opens at half → MID content tier; the observer must NOT be armed.
+        await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'half'));
+
+        // No observer is wired to the sentinel at the mid detent.
+        const wired = observers.find(o =>
+          o.observe.mock.calls.some(call => call[0] === sentinel),
+        );
+        expect(wired).toBeUndefined();
+
+        // Even if some pre-existing observer's callback is triggered against the
+        // sentinel, the event must not fire — nothing armed it at mid.
+        captureSpy.mockClear();
+        for (const o of observers) {
+          act(() => {
+            o.callback(
+              [{ isIntersecting: true } as IntersectionObserverEntry],
+              o as unknown as IntersectionObserver,
+            );
+          });
         }
+        const fires = captureSpy.mock.calls.filter(([name]) => name === 'panel_scrolled_to_bottom');
+        expect(fires).toHaveLength(0);
+        captureSpy.mockRestore();
+      } finally {
+        restore();
       }
     });
   });
