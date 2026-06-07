@@ -242,7 +242,7 @@ function FamilyLegendImpl({
                     {...(entry.silhouette.svgUrl != null ? { imgUrl: entry.silhouette.svgUrl } : {})}
                     {...(entry.silhouette.svgData != null ? { pathD: entry.silhouette.svgData } : {})}
                   />
-                  <span className="family-legend-entry-label">{entry.label}</span>
+                  <span className="family-legend-entry-label" title={entry.label}>{entry.label}</span>
                   <span
                     className="family-legend-entry-count"
                     aria-label={`${entry.count} observations in view`}

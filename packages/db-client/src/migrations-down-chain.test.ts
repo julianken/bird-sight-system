@@ -65,7 +65,13 @@ describe('Down(14000→17000) rollback chain', () => {
   it('runs Down(17000) without leaving any NULL svg_data on the 25 seeded families', async () => {
     const migrationsDir = resolve(process.cwd(), '../../migrations');
 
-    // Roll down from 48000 → 14000 in reverse numeric order.
+    // Roll down from 52000 → 14000 in reverse numeric order.
+    // Migration 52000 (#922 family-name hygiene) DELETEs the spelling-variant
+    // `ptiliogonatidae` row (one of the svg_data=NULL skip-family rows from
+    // 34000). Its Up runs in beforeAll, so it must be rolled down FIRST or the
+    // deleted NULL row would deflate test 1's NULL count (6 not 7) and test 2's
+    // total count (53 not 54). Down(52000) re-inserts it, restoring the
+    // historical invariants. (Mirrors `node-pg-migrate down`: latest first.)
     // Migration 48000 (Phase 3a national-coverage flip) inserts 32 rows,
     // 15 of them with svg_data=NULL — must be rolled down first or its
     // NULL rows would (a) inflate test 1's NULL count past the 7 the
@@ -77,6 +83,7 @@ describe('Down(14000→17000) rollback chain', () => {
     // We only need to go back as far as 14000 to exercise the bug; rolling
     // all the way keeps the test realistic (matches `node-pg-migrate down`).
     const downSequence = [
+      '1700000052000_dedupe_ptiliogonatidae_silhouette.sql',
       '1700000048000_national_coverage_silhouettes.sql',
       '1700000046000_family_silhouettes_dual_palette.sql',
       '1700000019700_seed_fallback_common_name.sql',

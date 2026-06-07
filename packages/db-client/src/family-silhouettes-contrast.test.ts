@@ -147,6 +147,9 @@ describe('family palette WCAG 1.4.11 (3:1 non-text contrast) — dual-palette co
   // (#51665e, 2.76), podicipedidae (#406a65, 2.80), ptiliogonatidae (#73596a, 2.72),
   // ptilogonatidae (#5b5b9c, 2.77), rallidae (#63605a, 2.71), strigidae (#725e35, 2.72),
   // sturnidae (#6b5885, 2.72), trochilidae (#9637ad, 2.79), troglodytidae (#86582c, 2.79).
+  // (Historical snapshot from #570; migration 52000 (#922) since removed the
+  // spelling-variant `ptiliogonatidae` row, so only the canonical
+  // `ptilogonatidae` remains of that pair.)
   //
   // Re-enable to `it(...)` once migration 1700000047000 lands. See #583.
   it.todo('every family_silhouettes.color_dark is ≥ 3:1 against the dark legend card surface (#131C30) — pending migration 1700000047000 (tracked in #583)');

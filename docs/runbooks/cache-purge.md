@@ -13,39 +13,44 @@ the `family_silhouettes` table reaches production. Common triggers:
 ## What the purge does (and does not) invalidate
 
 There are two caches between the database and the user's screen. The
-script only touches one of them.
+header `/api/silhouettes` emits now scopes staleness almost entirely to
+the CDN, and the script touches exactly that tier.
 
-| Tier              | What it is                                            | TTL                        | Touched by `purge-silhouettes-cache.sh`? |
-| ----------------- | ----------------------------------------------------- | -------------------------- | ---------------------------------------- |
-| **Cloudflare CDN** | Edge copy at the colo nearest the requesting user     | Honors `Cache-Control`     | **Yes** — purged within ~30s             |
-| **User browser**   | Per-user copy in each visitor's HTTP cache            | `max-age=604800` (7 days)  | **No** — held until that user's clock ticks |
+| Tier              | What it is                                            | TTL                                          | Touched by `purge-silhouettes-cache.sh`? |
+| ----------------- | ----------------------------------------------------- | -------------------------------------------- | ---------------------------------------- |
+| **Cloudflare CDN** | Edge copy at the colo nearest the requesting user     | `s-maxage=3600` (1h) + `stale-while-revalidate=7200` (2h grace) | **Yes** — purged within ~30s             |
+| **User browser**   | Per-user copy in each visitor's HTTP cache            | None — `s-maxage` is CDN-only; a reload always hits the CDN | **No** — but there is effectively nothing to hold |
 
-`/api/silhouettes` is served with `Cache-Control: public, max-age=604800`
-(see `services/read-api/src/cache-headers.ts`). Notably, that header
-**no longer carries `immutable`** — issue #252 removed it precisely so
-browsers will revalidate when their per-user `max-age` clock expires
-instead of holding the response untouchably for the full week.
+`/api/silhouettes` is served with
+`Cache-Control: public, s-maxage=3600, stale-while-revalidate=7200`
+(see `services/read-api/src/cache-headers.ts`). This is the #586 hot-path
+treatment: `s-maxage` is a **CDN-only** directive — it does not apply to
+private (browser) caches — so browsers are intentionally NOT asked to hold
+stale copies. The CDN serves a cached object for up to 1h, then a further
+2h of `stale-while-revalidate` grace while it refreshes from origin in the
+background. (This supersedes the old `max-age=604800` / 7-day browser-hold
+header this runbook was originally written against; issue #586 migrated the
+hot read endpoints to `s-maxage` and #252's `immutable` discussion no longer
+applies here.)
 
 The cause-effect chain for a curation update is therefore:
 
 1. The migration lands; the API now returns the new SVG/color/attribution.
 2. The operator runs `purge-silhouettes-cache.sh`. Within ~30s the
    Cloudflare edge copy is gone.
-3. The next time a user's browser actually goes to the network for
-   `/api/silhouettes` (either a cold fetch or a conditional revalidation
-   after `max-age` expiry), the request reaches the API and gets the
-   fresh bytes. Without the purge, the edge would still hand back the
-   stale copy until its own TTL ticked.
-4. **Browser caches turn over per response `max-age` regardless of the
-   purge.** Most users see fresh data within hours (whenever their
-   browser's TTL next ticks); a worst-case user who fetched right before
-   the migration holds stale bytes for up to 7 days from their last
-   request, then revalidates and picks up the new copy.
+3. The next request for `/api/silhouettes` reaches origin and the CDN
+   caches the fresh bytes. Because browsers don't hold a private copy
+   (no `max-age`), users pick up the new data on their next fetch — a hard
+   reload always reaches the (now-fresh) CDN.
+4. **Even without a purge, edge staleness self-heals within ~1h** (the
+   `s-maxage` window), with up to 2h of SWR grace during which the edge
+   serves the old copy while revalidating. The purge just collapses that
+   ~1–3h tail to ~30s.
 
-If you need a hard guarantee that every user sees the new data
-immediately, neither the CDN purge nor the existing `max-age` window can
-provide it — that would require a versioned URL (e.g. `/api/silhouettes?v=2`)
-which we deliberately do not use.
+If you need a hard guarantee that every user sees the new data immediately,
+the CDN purge is the lever — it drops the only meaningful cache tier in ~30s.
+(There is no per-user browser `max-age` window left to wait out; a versioned
+URL like `/api/silhouettes?v=2` remains a deliberate non-goal.)
 
 ## How to run
 

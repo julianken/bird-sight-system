@@ -60,9 +60,17 @@ export function deriveSpeciesIndex(observations: Observation[]): SpeciesOption[]
 // headers; that component was deleted but the function still has 9+ live
 // consumers across kept surfaces.
 //
-// We only capitalize the family code — we have no vernacular dictionary to
-// map codes like "Tyrannidae" → "Tyrant Flycatchers". A future enhancement
-// could add a static map if the display name matters more than simplicity.
+// This is the TERMINAL FALLBACK in the family-name resolver chain, NOT the
+// primary display path. A vernacular dictionary DOES exist: every observed
+// family has a curated colloquial name in `family_silhouettes.common_name`
+// (e.g. `tyrannidae` → "Tyrant Flycatchers"), reachable on the map via the
+// `/api/silhouettes` payload the app already fetches; the longer official
+// eBird name lives in `species_meta.family_name`. The shared `resolveFamilyName`
+// helper (issue #920) resolves `family.name ?? silhouette.commonName ??
+// prettyFamily(familyCode)`, so `prettyFamily` only runs when neither dictionary
+// has an entry — e.g. a brand-new family observed before its silhouette row
+// exists. It just capitalizes the lowercased `family_code` so that last-resort
+// case still renders something legible instead of `tyrannidae`.
 export function prettyFamily(code: string): string {
   // Defensive: a missing/empty code (malformed data, a stale-shape bucket) must
   // not crash a render. Return '' rather than throwing on `undefined`/empty.
