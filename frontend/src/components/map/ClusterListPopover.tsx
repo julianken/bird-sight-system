@@ -31,6 +31,14 @@ import { prettyFamily } from '../../derived.js';
 export interface ClusterListPopoverProps {
   /** All families in the cluster, descending count order (from `aggregateClusterFamilies`). */
   families: ReadonlyArray<FamilyAggregate>;
+  /**
+   * #920: per-family resolved colloquial display name, keyed by familyCode
+   * (`resolveFamilyName(familyCode, { commonName })`). The family-toggle header
+   * reads it; a missing entry falls back to `prettyFamily(familyCode)`, so a
+   * caller that omits the map (or a family absent from it) still renders the
+   * capitalized scientific label.
+   */
+  familyNames?: ReadonlyMap<string, string>;
   /** Species lookup keyed by familyCode. */
   speciesByFamily: ReadonlyMap<string, ReadonlyArray<SpeciesAggregate>>;
   /**
@@ -62,6 +70,7 @@ const POPOVER_CAP_PER_FAMILY = 8;
 export function ClusterListPopover(props: ClusterListPopoverProps) {
   const {
     families,
+    familyNames,
     speciesByFamily,
     overflowByFamily,
     totalCount,
@@ -204,7 +213,7 @@ export function ClusterListPopover(props: ClusterListPopoverProps) {
                 {/* The collapsed/expanded caret (▶ / ▼) is a CSS ::before
                     pseudo-element driven by the `--expanded` modifier on the
                     parent `.cluster-list-popover__family` (ds-primitives.css). */}
-                {prettyFamily(fam.familyCode)} ({fam.count})
+                {familyNames?.get(fam.familyCode) ?? prettyFamily(fam.familyCode)} ({fam.count})
               </button>
               {isExpanded && (
                 <ul className="cluster-list-popover__rows">

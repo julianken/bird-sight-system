@@ -79,6 +79,7 @@ import {
   type DeconflictGroup,
   type DeconflictInput,
 } from './deconflict.js';
+import { resolveFamilyName } from '../../derived.js';
 
 /**
  * Adaptive-grid reconciler memoization (epic #539 spec §5.3).
@@ -1356,16 +1357,47 @@ export function MapCanvas({
    * produces all-`pending` tiles.
    */
   const silhouettesById = useMemo<SilhouettesById>(() => {
-    const map = new Map<string, { svgData: string | null; color: string; colorDark: string }>();
+    const map = new Map<
+      string,
+      { svgData: string | null; color: string; colorDark: string; commonName: string | null }
+    >();
     for (const s of silhouettes) {
       map.set(s.familyCode.toLowerCase(), {
         svgData: s.svgData,
         color: s.color,
         colorDark: s.colorDark,
+        // #920: carry the curated colloquial name so the tile builders can
+        // resolve each tile's `displayName` and the popovers show
+        // "Tyrant Flycatchers" instead of the scientific "Tyrannidae".
+        commonName: s.commonName,
       });
     }
     return map;
   }, [silhouettes]);
+
+  /**
+   * #920: resolved colloquial display name per family for the standalone
+   * `<ClusterListPopover>` opened from a `<ClusterPill>` outer-tap (the
+   * `clusterList` state path). That path's `families` come from
+   * `aggregateClusterFamilies` / `mergeLeafBuckets` and carry no name, so we
+   * resolve each here from the silhouette catalogue — the same "resolve once
+   * from the catalogue" rule the tile builders follow. The AdaptiveGridMarker's
+   * OWN internal ClusterListPopover gets its names from the tiles' `displayName`
+   * and does not use this map.
+   */
+  const clusterListFamilyNames = useMemo<ReadonlyMap<string, string>>(() => {
+    const map = new Map<string, string>();
+    if (!clusterList) return map;
+    for (const fam of clusterList.families) {
+      map.set(
+        fam.familyCode,
+        resolveFamilyName(fam.familyCode, {
+          commonName: silhouettesById.get(fam.familyCode)?.commonName,
+        }),
+      );
+    }
+    return map;
+  }, [clusterList, silhouettesById]);
 
   // Issue #351: ref to the current onViewportChange prop. handleLoad has
   // [] deps (registers listeners exactly once per maplibre instance), so
@@ -2949,6 +2981,7 @@ export function MapCanvas({
       {clusterList && (
         <ClusterListPopover
           families={clusterList.families}
+          familyNames={clusterListFamilyNames}
           speciesByFamily={clusterList.speciesByFamily}
           {...(clusterList.overflowByFamily ? { overflowByFamily: clusterList.overflowByFamily } : {})}
           totalCount={clusterList.totalCount}

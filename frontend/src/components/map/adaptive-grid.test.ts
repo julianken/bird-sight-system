@@ -320,6 +320,27 @@ describe('buildAdaptiveTiles', () => {
     expect(tiles[0]?.count).toBe(3);
     expect(tiles[0]?.species.reduce((s, x) => s + x.count, 0)).toBe(tiles[0]?.count);
   });
+
+  it('resolves a colloquial displayName per tile from the catalogue commonName (#920)', () => {
+    const leaves = [leaf('fam-00'), leaf('fam-01')];
+    const catalogue: SilhouettesById = new Map([
+      ['fam-00', { svgData: 'M0 0Z', color: '#111', colorDark: '#111', commonName: 'Tyrant Flycatchers' }],
+      // No commonName → resolver falls through to prettyFamily(familyCode).
+      ['fam-01', { svgData: 'M1 1Z', color: '#222', colorDark: '#222', commonName: null }],
+    ]);
+    const tiles = buildAdaptiveTiles(leaves, catalogue, SHAPE_2x2);
+    const byFam = new Map(tiles.map((t) => [t.familyCode, t]));
+    expect(byFam.get('fam-00')?.displayName).toBe('Tyrant Flycatchers');
+    expect(byFam.get('fam-01')?.displayName).toBe('Fam-01');
+  });
+
+  it('pending tiles still carry a displayName from the resolver (#920)', () => {
+    // Empty catalogue → pending, but the header must NOT be blank: it falls
+    // through to prettyFamily(familyCode).
+    const tiles = buildAdaptiveTiles([leaf('fam-00')], new Map(), SHAPE_2x2);
+    expect(tiles[0]?.kind).toBe('pending');
+    expect(tiles[0]?.displayName).toBe('Fam-00');
+  });
 });
 
 describe('tilesFromAggregates (#859 — bucket-mode tile builder)', () => {
@@ -384,6 +405,22 @@ describe('tilesFromAggregates (#859 — bucket-mode tile builder)', () => {
     ]);
     const tiles = tilesFromAggregates(families, speciesByFamily, CAT, SHAPE_2x2);
     expect(tiles[0]?.speciesCount).toBeUndefined();
+  });
+
+  it('resolves a colloquial displayName per tile from the catalogue commonName (#920)', () => {
+    const families: FamilyAggregate[] = [
+      { familyCode: 'tyrannidae', count: 9 },
+      { familyCode: 'cardinalidae', count: 4 },
+    ];
+    const cat: SilhouettesById = new Map([
+      ['tyrannidae', { svgData: 'M0 0Z', color: '#c3772d', colorDark: '#c3772d', commonName: 'Tyrant Flycatchers' }],
+      // fallback kind (svgData null) still resolves a display name.
+      ['cardinalidae', { svgData: null, color: '#b5202a', colorDark: '#b5202a', commonName: 'Cardinals & Allies' }],
+    ]);
+    const tiles = tilesFromAggregates(families, new Map(), cat, SHAPE_2x2);
+    expect(tiles[0]?.displayName).toBe('Tyrant Flycatchers');
+    expect(tiles[1]?.kind).toBe('fallback');
+    expect(tiles[1]?.displayName).toBe('Cardinals & Allies');
   });
 });
 

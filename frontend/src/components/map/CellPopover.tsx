@@ -81,6 +81,13 @@ function computePopoverPosition(
 }
 export interface CellPopoverProps {
   familyCode: string;
+  /**
+   * #920: pre-resolved colloquial family name (the tile's `displayName`,
+   * `resolveFamilyName(familyCode, { commonName })`). When omitted, the header
+   * falls back to `prettyFamily(familyCode)` so legacy/test callers that pass
+   * only a code still render the capitalized scientific label.
+   */
+  familyName?: string;
   familyCount: number;
   species: ReadonlyArray<SpeciesAggregate>;
   /**
@@ -104,7 +111,7 @@ const POPOVER_CAP = 8;
 
 export function CellPopover(props: CellPopoverProps) {
   const {
-    familyCode, familyCount, species, overflowCount, anchorEl,
+    familyCode, familyName, familyCount, species, overflowCount, anchorEl,
     onDismiss, onSelectSpecies, onDrillIn,
   } = props;
   const headingId = useId();
@@ -202,7 +209,7 @@ export function CellPopover(props: CellPopoverProps) {
           tabIndex={-1}
           data-testid="cell-popover-heading"
         >
-          {prettyFamily(familyCode)} ({familyCount})
+          {familyName ?? prettyFamily(familyCode)} ({familyCount})
         </h2>
       </header>
       <ul className="cell-popover__rows">

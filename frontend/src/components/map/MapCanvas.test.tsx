@@ -1829,7 +1829,10 @@ describe('#860 — lone clustered bucket opens its real species (coarse pointer)
     const familyToggle = screen.getByTestId(
       'cluster-list-popover-family-tyrannidae',
     );
-    expect(familyToggle).toHaveTextContent('Tyrannidae (7)');
+    // #920: header shows the curated colloquial name (from the silhouette
+    // catalogue's commonName), NOT the scientific `Tyrannidae`. The testid stays
+    // code-keyed — only the visible text resolves through resolveFamilyName.
+    expect(familyToggle).toHaveTextContent('Tyrant Flycatchers (7)');
 
     // Expand the family → the REAL common name resolved via the dictionary
     // appears, proving the bucket's species reached the user (#859), not a
@@ -1945,7 +1948,8 @@ describe('#864 — lone unclustered bucket silhouette opens its real species', (
     const familyToggle = screen.getByTestId(
       'cluster-list-popover-family-tyrannidae',
     );
-    expect(familyToggle).toHaveTextContent('Tyrannidae (7)');
+    // #920: curated colloquial header, not the scientific `Tyrannidae`.
+    expect(familyToggle).toHaveTextContent('Tyrant Flycatchers (7)');
 
     // Expand → the real common name (resolved via the dictionary) renders, with
     // a working species link (non-null code ⇒ <a role="link">).

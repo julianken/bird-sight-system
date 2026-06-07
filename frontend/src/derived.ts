@@ -93,7 +93,11 @@ export function prettyFamily(code: string): string {
  */
 export function resolveFamilyName(
   familyCode: string,
-  opts?: { name?: string | null; commonName?: string | null },
+  // The value types include `undefined` (not just the `?` presence flag) so a
+  // direct `silhouette?.commonName` access — which is `string | null | undefined`
+  // — type-checks under `exactOptionalPropertyTypes: true` without forcing every
+  // caller to coalesce first.
+  opts?: { name?: string | null | undefined; commonName?: string | null | undefined },
 ): string {
   return opts?.name ?? opts?.commonName ?? prettyFamily(familyCode);
 }
