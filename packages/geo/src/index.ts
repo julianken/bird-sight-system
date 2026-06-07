@@ -3,13 +3,22 @@
  * path and the ingestor cache-warmer (issue #866).
  *
  * The single job of this package is to make `/api/observations` cache keys
- * COLLIDE. The frontend serializes the full-precision float viewport bbox
- * straight into the query string, so every pan/zoom mints a unique Cloudflare
- * cache key → guaranteed MISS by construction (zone-wide HIT ratio was 0.67%).
+ * COLLIDE. BEFORE this package, the frontend serialized the full-precision
+ * float viewport bbox straight into the query string, so every pan/zoom minted
+ * a unique Cloudflare cache key → guaranteed MISS by construction. That was the
+ * pre-fix baseline (~0.67% zone-wide / ~5% /api HIT ratio measured 2026-06-03).
  * `snapFetchBbox` rounds the *fetch* bbox to a coarse, shared, deterministic
  * grid so nearby viewports resolve to one key, and `serializeBbox` emits the
  * one canonical decimal string both call sites produce — the actual collision
  * lever.
+ *
+ * **This collision layer is SHIPPED and prod-validated** (#866/#867 float-snap →
+ * #868/#869 canonical-extent keys → #870/#871 s-maxage→cadence tune): organic
+ * caching is live and cold-load national views hit a warmed key. The snapping
+ * is wired into BOTH call sites (`client.ts` getObservations + the cache-warmer),
+ * so the 0.67% figure above is HISTORY, not current state. The only remaining
+ * raw-float path is the `zoom >= 6` per-observation passthrough (see
+ * `snapFetchBbox` below) — a tracked v1 non-goal, not regressed by this package.
  *
  * **Source-only, consumer-compiled.** This package ships no `dist` build: its
  * `package.json` `exports.default` points at `./src/index.ts`. The frontend's

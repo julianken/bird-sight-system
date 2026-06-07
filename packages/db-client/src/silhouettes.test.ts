@@ -7,16 +7,18 @@ beforeAll(async () => { db = await startTestDb(); }, 90_000);
 afterAll(async () => { await db?.stop(); });
 
 describe('getSilhouettes', () => {
-  it('returns all 97 seeded families (96 real + _FALLBACK)', async () => {
+  it('returns all 96 seeded families (95 real + _FALLBACK)', async () => {
     // 15 from migration 9000 + 10 AZ-family expansion from migration 15000
     // (#244) + the `_FALLBACK` row from migration 18000 (#246) + icteridae
     // from migration 33000 (#482) + 38 observed-family backfill from
     // migration 34000 (#495) + 32 national-coverage rows from migration
-    // 48000 (Phase 3a US-wide flip). The _FALLBACK row backs the SDF symbol
+    // 48000 (Phase 3a US-wide flip) − 1 spelling-variant dedupe from
+    // migration 52000 (#922: dropped the extra-`i` `ptiliogonatidae`, leaving
+    // the canonical `ptilogonatidae`). The _FALLBACK row backs the SDF symbol
     // layer's fallback rendering for observations whose family has no
     // usable Phylopic silhouette.
     const rows = await getSilhouettes(db.pool);
-    expect(rows).toHaveLength(97);
+    expect(rows).toHaveLength(96);
     // _FALLBACK row exists with sentinel family_code.
     const fallback = rows.find(r => r.familyCode === '_FALLBACK');
     expect(fallback).toBeDefined();
@@ -185,7 +187,8 @@ describe('getSilhouettes', () => {
       polioptilidae: '#788ca0', // was #A8B5C2 (light-failing, darkened)
       psittacidae: '#3b9d4b',   // was #3FA850 (light-failing, darkened)
       psittaculidae: '#3d9790', // was #4FB8B0 (light-failing, darkened)
-      ptiliogonatidae: '#73596a', // was #1A1418
+      // ptiliogonatidae removed by migration 52000 (#922 dedupe) — the
+      // canonical `ptilogonatidae` (#5b5b9c, above) is the surviving row.
       rallidae: '#63605a',      // was #403E3A
       recurvirostridae: '#c47484', // was #E1B8C0 (light-failing, darkened)
       regulidae: '#68964b',     // was #6FA050 (light-failing, darkened)
@@ -246,12 +249,13 @@ describe('getSilhouettes', () => {
     expect(nullCommon).toEqual([]);
   });
 
-  it('common-name snapshot for all 97 seeded families (incl. _FALLBACK)', async () => {
+  it('common-name snapshot for all 96 seeded families (incl. _FALLBACK)', async () => {
     // Curated English common names per migration 1700000019500 (original 27
     // families) plus migration 1700000034000 (38 backfill families per
     // issue #495) plus migration 1700000048000 (32 national-coverage
-    // families, Phase 3a US-wide flip). Update both sides together if the
-    // seed text changes.
+    // families, Phase 3a US-wide flip) minus migration 1700000052000 (#922:
+    // dropped the spelling-variant `ptiliogonatidae`). Update both sides
+    // together if the seed text changes.
     const rows = await getSilhouettes(db.pool);
     const byFamily = Object.fromEntries(rows.map(r => [r.familyCode, r.commonName]));
     expect(byFamily).toEqual({
@@ -318,7 +322,8 @@ describe('getSilhouettes', () => {
       polioptilidae: 'Gnatcatchers',
       psittacidae: 'African & New World Parrots',
       psittaculidae: 'Old World Parrots',
-      ptiliogonatidae: 'Silky-flycatchers',
+      // ptiliogonatidae removed by migration 52000 (#922 dedupe); the
+      // canonical `ptilogonatidae: 'Silky-Flycatchers'` (above) survives.
       rallidae: 'Rails, Gallinules & Coots',
       recurvirostridae: 'Stilts & Avocets',
       regulidae: 'Kinglets',
