@@ -213,6 +213,14 @@
   --color-error-bg:     #fdecec;
   --color-error-border: #d48e8e;
   --color-error-text:   #8a1f1f;
+
+  /* Family-dot ring (#908) — the perceivable BOUNDARY of the species-sheet
+     family dot (.sheet-fg-family-dot). The accent fill alone can't clear
+     WCAG 2.2 SC 1.4.11 (≥3:1 non-text) on both surfaces, so a solid per-theme
+     ring carries the boundary. #767676 → 4.54:1 on the #ffffff card surface.
+     Single-sourced with src/config/family-dot-ring.ts, which the falsifiable
+     contrast audit (family-dot-ring-contrast.test.ts) iterates. */
+  --sheet-dot-ring: #767676;
 }
 
 /* ── Layer 2: Semantic — dark mode ──────────────────────────────────── */
@@ -294,6 +302,13 @@
   --color-error-bg:     #3a1a1a;
   --color-error-border: #6a3030;
   --color-error-text:   #f5b8a8;
+
+  /* Family-dot ring (#908) — dark override. A grey ring (the light value
+     #767676) only reads ~1.x:1 on the #1b2742 navy card; a light blue-grey
+     ring is the perceivable boundary instead. #aeb6c2 → 7.26:1 on #1b2742,
+     well past the 3:1 SC 1.4.11 floor. Single-sourced with
+     src/config/family-dot-ring.ts (SHEET_DOT_RING.dark). */
+  --sheet-dot-ring: #aeb6c2;
 }
 
 /* ── Layer 3: Component aliases ─────────────────────────────────────── */
