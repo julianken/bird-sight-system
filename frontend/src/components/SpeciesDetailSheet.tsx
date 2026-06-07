@@ -16,6 +16,7 @@ import {
   buildFamilyPathResolver,
   buildFamilyImgUrlResolver,
 } from '../data/family-color.js';
+import { analytics } from '../analytics.js';
 import { SpeciesDescription } from './SpeciesDescription.js';
 import { Photo } from './ds/Photo.js';
 import type { FamilyCode } from '../config/family-palette.js';
@@ -181,6 +182,87 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
   const resolveColor = useMemo(() => buildFamilyColorResolver(silhouettes), [silhouettes]);
   const resolvePath = useMemo(() => buildFamilyPathResolver(silhouettes), [silhouettes]);
   const resolveImgUrl = useMemo(() => buildFamilyImgUrlResolver(silhouettes), [silhouettes]);
+
+  // ── Analytics (T3 #909) ──────────────────────────────────────────────────
+  // Re-wired off SpeciesDetailSurface (SpeciesDetailSurface.tsx:73-115): T1
+  // (#907) stopped composing the surface inside this sheet and silently dropped
+  // these three events. They are reproduced here verbatim — same event names
+  // and prop shapes — so the mobile funnel keeps emitting them. The sheet must
+  // NOT import SpeciesDetailSurface (it owns its own layout); only the analytics
+  // contract is shared.
+  //
+  // panel_opened / panel_dwell_ms — fire on species data-arrival, dwell on
+  // effect cleanup. Keyed on data?.speciesCode so a species change re-fires the
+  // pair (dwell for the old, open for the new).
+  useEffect(() => {
+    if (!data?.speciesCode) return;
+    const t0 = Date.now();
+    const code = data.speciesCode;
+    analytics.capture('panel_opened', {
+      species_code: code,
+      has_description: !!data.descriptionBody,
+    });
+    return () => {
+      analytics.capture('panel_dwell_ms', {
+        species_code: code,
+        dwell_ms: Date.now() - t0,
+      });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.speciesCode]);
+
+  // panel_scrolled_to_bottom — first IntersectionObserver hit on the bottom
+  // sentinel, once per species. The sentinel is a DIRECT child of .sheet-fg
+  // (the only detent scroll container) AFTER the About block, with no tier-gated
+  // display:none — a display:none element has a zero box and never intersects,
+  // so it must stay in layout to be observable. firedRef + observer.disconnect()
+  // is the no-double-fire guard (no re-fire across detent changes).
+  //
+  // DETENT GATE (#914 bot finding): the observer is armed ONLY at the `full`
+  // snap. At peek/half the About + taxonomy blocks are display:none, so the
+  // .sheet-fg content is short enough that the trailing sentinel can already sit
+  // within the viewport the moment data resolves — a viewport-rooted observer
+  // would then fire `panel_scrolled_to_bottom` ON OPEN with no actual scroll
+  // (an over-count). The surface (SpeciesDetailSurface.tsx) never collapses, so
+  // its sentinel is reliably below the fold and it can arm on data-resolve; the
+  // sheet's detent collapse breaks that invariant, so we gate on snap === 'full'
+  // — the only detent where the About content is shown and .sheet-fg scrolls.
+  // We also root the observer on the .sheet-fg scroll container (not the
+  // viewport) so "intersecting" means the sentinel has actually been scrolled
+  // into the scroller's box, not merely that it overlaps the layout viewport.
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const firedRef = useRef<boolean>(false);
+  const speciesCodeForObserver = data?.speciesCode;
+  useEffect(() => {
+    if (!speciesCodeForObserver) return;
+    // Only count a real scroll-to-bottom at the full detent — peek/half keep the
+    // About/taxonomy blocks display:none, so the sentinel can be visible on open
+    // (over-count). Not arming the observer outside full is the fix.
+    if (snap !== 'full') return;
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    if (typeof IntersectionObserver === 'undefined') return;
+    firedRef.current = false;
+    const observer = new IntersectionObserver(
+      entries => {
+        const intersected = entries.some(entry => entry.isIntersecting);
+        if (intersected && !firedRef.current) {
+          firedRef.current = true;
+          analytics.capture('panel_scrolled_to_bottom', {
+            species_code: speciesCodeForObserver,
+          });
+          observer.disconnect();
+        }
+      },
+      // Root on the scroll container so the intersection is relative to the
+      // .sheet-fg box, not the layout viewport. Falls back to the viewport if
+      // the ref is not yet attached.
+      { root: scrollerRef.current ?? null },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [speciesCodeForObserver, snap]);
 
   // Compute snap heights against the live viewport. Recompute on
   // resize so an orientation change or mobile-Safari URL-bar collapse
@@ -475,8 +557,10 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
       {/* Field-guide layout: three size-appropriate tiers in one grid that
           re-templates per [data-content]. The photo is a SINGLE <Photo>
           element kept mounted across detents; only its frame morphs via CSS.
-          The grid scrolls (tabIndex=0 satisfies axe scrollable-region-focusable). */}
-      <div className="sheet-fg" tabIndex={0}>
+          The grid scrolls (tabIndex=0 satisfies axe scrollable-region-focusable).
+          scrollerRef is the IntersectionObserver root for the bottom sentinel
+          at the full detent — see the panel_scrolled_to_bottom effect. */}
+      <div className="sheet-fg" tabIndex={0} ref={scrollerRef}>
         <div className="sheet-fg-photo">
           {/* Decorative photo (alt=""): the species name always sits adjacent
               and we have no plumage metadata, so a non-empty alt would triple-
@@ -573,6 +657,19 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
             <p className="sheet-fg-prose">No description available.</p>
           )}
         </div>
+
+        {/* Bottom sentinel for panel_scrolled_to_bottom (T3 #909). A DIRECT
+            child of .sheet-fg AFTER the About block with NO tier-gated
+            display:none: the .sheet-fg-about/.sheet-fg-taxonomy blocks are
+            display:none until full, and a display:none element has a zero box
+            that never intersects. The sentinel must stay in layout so the
+            IntersectionObserver can fire when the user scrolls the About prose
+            into view at the full detent (the only detent .sheet-fg scrolls). */}
+        <div
+          ref={sentinelRef}
+          data-testid="detail-bottom-sentinel"
+          aria-hidden="true"
+        />
       </div>
     </div>
   );
