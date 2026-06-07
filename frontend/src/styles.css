@@ -1427,13 +1427,6 @@ aside.species-detail-rail .species-detail-rail-close {
   overflow: hidden;
 }
 
-/* #761 (S2/O5): the AppHeader is `position: fixed` floating chrome on
-   `--z-chrome` (42). The full-snap sheet is now on `--z-modal` (50) via
-   the .species-detail-sheet--full modifier above, so at full snap the sheet
-   correctly outranks the chrome. The pointer-events arrangement is unchanged:
-   the floating header click-through at full snap is preserved by the modal
-   `inert` on #map-layer (O1, O4) — chrome remains visible but non-interactive
-   while the modal sheet is open. */
 .sheet-handle {
   /* Drag-region: own the gesture entirely; do not pan-scroll the page.
      min-height: 44px satisfies Apple HIG / WCAG 2.5.5 touch-target (MOB-7).
@@ -1642,7 +1635,10 @@ aside.species-detail-rail .species-detail-rail-close {
 
 /* FULL about + credits */
 .sheet-fg-about-eyebrow {
-  margin: 0 0 var(--space-xs);
+  /* #910 eyebrow rhythm — more breathing room ABOVE the "About" label (it
+     starts a new section after the taxonomy table) and a tighter gap BELOW so
+     the label hugs the prose it introduces. */
+  margin: var(--space-sm) 0 2px;
   font-size: var(--type-xs);
   font-weight: var(--font-weight-semibold);
   text-transform: uppercase;
@@ -1655,13 +1651,10 @@ aside.species-detail-rail .species-detail-rail-close {
   line-height: 1.6;
   color: var(--color-text-body);
 }
-.sheet-fg-credits {
-  margin: var(--space-md) 0 0;
-  font-size: var(--type-xs);
-  color: var(--color-text-subtle);
-}
-/* AA-safe link recipe (#830) — see .sheet-fg-readaccount note. */
-.sheet-fg-credits a { color: var(--color-text-strong); text-decoration: underline; }
+/* #910: dead credit-block CSS removed — no matching className is rendered. The
+   inline Wikipedia credit comes from <SpeciesDescription>
+   (.species-detail-description-credit), styled in its own section below. Folds
+   the T1+T2-era bot dead-CSS suggestions. */
 
 /* ── COMPACT layout (identity row): photo 44px left, identity right ──────── */
 .species-detail-sheet[data-content='compact'] .sheet-fg {
@@ -1724,6 +1717,23 @@ aside.species-detail-rail .species-detail-rail-close {
   width: auto;
   height: min(62.5vw, 300px);
   border-radius: 0;
+  /* position context for the bottom-edge scrim pseudo-element below. */
+  position: relative;
+}
+/* #910 masthead bottom-edge scrim — a transparent→~12%-black gradient over the
+   lower ~64px of the full-bleed masthead. It grounds the photo against the
+   light identity card below so a bright/low-contrast bird image doesn't bleed
+   into the heading region. Decorative + non-interactive (pointer-events:none),
+   theme-neutral (a black wash reads correctly on both the white and navy card),
+   and below the photo's own children only by stacking after the <img>. */
+.species-detail-sheet[data-content='full'] .sheet-fg-photo::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 64px;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.12));
+  pointer-events: none;
 }
 /* Lift the subject out of the vertical center so the masthead doesn't crop low
    with empty sky up top (a11y/design punch-list). Targets the <Photo> primitive's
