@@ -69,3 +69,35 @@ export function prettyFamily(code: string): string {
   if (!code) return '';
   return code.charAt(0).toUpperCase() + code.slice(1);
 }
+
+/**
+ * Resolve a family's display name from the unified colloquial-name chain
+ * (issue #920, epic #924):
+ *
+ *   family.name ?? silhouette.commonName ?? prettyFamily(familyCode)
+ *
+ * - `name` (`AggregatedFamily.name`) is the drift-proof server projection
+ *   `COALESCE(family_silhouettes.common_name, species_meta.family_name)`. It is
+ *   undefined until PR4 populates it — accepting the arg NOW means PR4 is a pure
+ *   server-side upgrade with zero call-site churn.
+ * - `commonName` (`FamilySilhouette.commonName`, from `/api/silhouettes` which
+ *   the app already fetches) covers all 95 observed families today and delivers
+ *   the entire visible win — exactly what `FamilyLegend.tsx` already does.
+ * - `prettyFamily(familyCode)` stays the terminal fallback. It must never return
+ *   `''` for a real code (its existing empty-code guard is preserved), so an
+ *   unseeded family still gets a capitalized scientific label rather than a
+ *   blank header.
+ *
+ * Both name inputs are nullish-coalesced, so an explicit `null` (the DB / wire
+ * absence value) falls through identically to `undefined`.
+ */
+export function resolveFamilyName(
+  familyCode: string,
+  // The value types include `undefined` (not just the `?` presence flag) so a
+  // direct `silhouette?.commonName` access — which is `string | null | undefined`
+  // — type-checks under `exactOptionalPropertyTypes: true` without forcing every
+  // caller to coalesce first.
+  opts?: { name?: string | null | undefined; commonName?: string | null | undefined },
+): string {
+  return opts?.name ?? opts?.commonName ?? prettyFamily(familyCode);
+}

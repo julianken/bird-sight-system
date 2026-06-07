@@ -14,8 +14,13 @@ import { prettyFamily } from '../../derived.js';
  * management (tooltips don't take focus per WAI-ARIA tooltip pattern).
  */
 export interface CellHoverPreviewProps {
-  /** Family code; resolved to display name via `prettyFamily`. */
+  /** Family code; resolved to display name via `prettyFamily` when `familyName` is absent. */
   familyCode: string;
+  /**
+   * #920: pre-resolved colloquial family name (the tile's `displayName`).
+   * When omitted, the header falls back to `prettyFamily(familyCode)`.
+   */
+  familyName?: string;
   /** Total observations of this family in the cluster (badge value). */
   familyCount: number;
   /** Species in descending count order; consumer slices to ≤ 3 if desired. */
@@ -34,7 +39,7 @@ export interface CellHoverPreviewProps {
 const PREVIEW_CAP = 3;
 
 export function CellHoverPreview(props: CellHoverPreviewProps) {
-  const { familyCode, familyCount, species, id, cursorPos } = props;
+  const { familyCode, familyName, familyCount, species, id, cursorPos } = props;
   const visible = species.slice(0, PREVIEW_CAP);
   const hasMore = species.length > PREVIEW_CAP;
 
@@ -63,7 +68,7 @@ export function CellHoverPreview(props: CellHoverPreviewProps) {
       style={positionStyle}
     >
       <div className="cell-hover-preview__header">
-        {prettyFamily(familyCode)} ({familyCount})
+        {familyName ?? prettyFamily(familyCode)} ({familyCount})
       </div>
       <ul className="cell-hover-preview__rows">
         {visible.map((s) => (

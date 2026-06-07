@@ -23,6 +23,8 @@
  *     ascending familyCode tie-break, null-familyCode dropout.
  */
 
+import { resolveFamilyName } from '../../derived.js';
+
 export type PositiveInt = number & { readonly __brand: 'PositiveInt' };
 
 export function toPositiveInt(n: number): PositiveInt {
@@ -129,10 +131,17 @@ export interface FamilyAggregate {
  * silhouette-resolution rule from spec §5.3 Concern C). An empty map
  * signals "catalogue not loaded yet" — distinct from "loaded but no art
  * for this family" — and produces `kind: 'pending'` tiles.
+ *
+ * `commonName` (#920) is the curated colloquial family name from
+ * `family_silhouettes.common_name` (carried on `FamilySilhouette.commonName`
+ * via `/api/silhouettes`). Optional so pre-#920 test fixtures that build the
+ * map without it still type-check; the production memo in `MapCanvas` always
+ * supplies it. `buildAdaptiveTiles`/`tilesFromAggregates` resolve each tile's
+ * `displayName` from it via `resolveFamilyName`.
  */
 export type SilhouettesById = ReadonlyMap<
   string,
-  { svgData: string | null; color: string; colorDark: string }
+  { svgData: string | null; color: string; colorDark: string; commonName?: string | null }
 >;
 
 /**
@@ -155,13 +164,19 @@ export type SilhouettesById = ReadonlyMap<
  * offer the active drill-in. Optional: the per-observation path can't know a
  * true distinct count beyond the leaves it merged, so it omits the field and
  * the popover falls back to the rendered-row remainder.
+ *
+ * `displayName` (#920) is the resolved colloquial family name shown in the
+ * cell popover / hover-preview headers — `resolveFamilyName(familyCode,
+ * { commonName })`. Threaded onto EVERY variant (incl. `pending`) so the
+ * header is never blank during a cold load; the resolver's terminal
+ * `prettyFamily` fallback guarantees a non-empty label for a real code.
  */
 export type AdaptiveTile =
-  | { kind: 'rendered'; familyCode: string; svgData: string; color: string; colorDark: string;
+  | { kind: 'rendered'; familyCode: string; displayName: string; svgData: string; color: string;
+      colorDark: string; count: number; species: ReadonlyArray<SpeciesAggregate>; speciesCount?: number }
+  | { kind: 'fallback'; familyCode: string; displayName: string; color: string; colorDark: string;
       count: number; species: ReadonlyArray<SpeciesAggregate>; speciesCount?: number }
-  | { kind: 'fallback'; familyCode: string; color: string; colorDark: string;
-      count: number; species: ReadonlyArray<SpeciesAggregate>; speciesCount?: number }
-  | { kind: 'pending'; familyCode: string;
+  | { kind: 'pending'; familyCode: string; displayName: string;
       count: number; species: ReadonlyArray<SpeciesAggregate>; speciesCount?: number };
 
 /**
@@ -250,16 +265,24 @@ export function tilesFromAggregates(
     // Only attach `speciesCount` when the caller supplied one — leaving it
     // `undefined` keeps the per-observation tiles on the legacy footer path.
     const countField = speciesCount === undefined ? {} : { speciesCount };
-    if (silhouettesById.size === 0) {
-      return { kind: 'pending', familyCode: fam.familyCode, count: fam.count, species, ...countField };
-    }
     const silhouette = silhouettesById.get(fam.familyCode);
+    // #920: resolve the colloquial display name once per tile. The chain falls
+    // through to prettyFamily(familyCode) when the catalogue carries no
+    // commonName (and on the pending path where the catalogue is empty), so a
+    // cold-load header is never blank.
+    const displayName = resolveFamilyName(fam.familyCode, {
+      commonName: silhouette?.commonName,
+    });
+    if (silhouettesById.size === 0) {
+      return { kind: 'pending', familyCode: fam.familyCode, displayName, count: fam.count, species, ...countField };
+    }
     if (!silhouette || silhouette.svgData === null) {
       const fallbackColor = silhouette?.color ?? '#888888';
       const fallbackColorDark = silhouette?.colorDark ?? fallbackColor;
       return {
         kind: 'fallback',
         familyCode: fam.familyCode,
+        displayName,
         color: fallbackColor,
         colorDark: fallbackColorDark,
         count: fam.count,
@@ -270,6 +293,7 @@ export function tilesFromAggregates(
     return {
       kind: 'rendered',
       familyCode: fam.familyCode,
+      displayName,
       svgData: silhouette.svgData,
       color: silhouette.color,
       colorDark: silhouette.colorDark,

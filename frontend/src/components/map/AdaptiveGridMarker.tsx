@@ -203,6 +203,11 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
   // already threads `species` per tile; no re-aggregation needed).
   const families = tiles.map((t) => ({ familyCode: t.familyCode, count: t.count }));
   const speciesByFamily = new Map(tiles.map((t) => [t.familyCode, t.species]));
+  // #920: each tile already carries its resolved colloquial `displayName`
+  // (`resolveFamilyName(familyCode, { commonName })`). Thread it to the
+  // <ClusterListPopover> so the family-toggle headers show the curated name
+  // instead of the scientific `prettyFamily(code)`.
+  const familyNames = new Map(tiles.map((t) => [t.familyCode, t.displayName]));
 
   // Single-leaf preservation (spec §4.10): clusters with totalCount === 1 fall
   // through to the existing onClick handler (which routes to setSelectedObs in
@@ -409,6 +414,7 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
           detailOpen ? null : (
             <CellHoverPreview
               familyCode={activeTile.familyCode}
+              familyName={activeTile.displayName}
               familyCount={activeTile.count}
               species={activeTile.species}
               id={previewId!}
@@ -419,6 +425,7 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
           cellRefs.current[activeCell.index] ? (
             <CellPopover
               familyCode={activeTile.familyCode}
+              familyName={activeTile.displayName}
               familyCount={activeTile.count}
               species={activeTile.species}
               anchorEl={cellRefs.current[activeCell.index]!}
@@ -436,6 +443,7 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
       {clusterListInteractive && isClusterListOpen && outerRef.current && (
         <ClusterListPopover
           families={families}
+          familyNames={familyNames}
           speciesByFamily={speciesByFamily}
           totalCount={props.totalCount}
           uniqueFamilies={props.uniqueFamilies}

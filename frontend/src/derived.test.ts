@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Observation } from '@bird-watch/shared-types';
-import { deriveFamilies, deriveSpeciesIndex } from './derived.js';
+import { deriveFamilies, deriveSpeciesIndex, resolveFamilyName } from './derived.js';
 
 function obs(partial: Partial<Observation>): Observation {
   return {
@@ -119,5 +119,55 @@ describe('deriveFamilies', () => {
       obs({ speciesCode: 'mystery', familyCode: null, silhouetteId: null }),
     ]);
     expect(families).toEqual([]);
+  });
+});
+
+describe('resolveFamilyName', () => {
+  // The 3-way precedence chain (issue #920): family.name (server, PR4) wins,
+  // then silhouette.commonName (the entire visible win today), then the
+  // prettyFamily capitalized-code fallback.
+  it('prefers `name` over `commonName` over `prettyFamily`', () => {
+    expect(
+      resolveFamilyName('tyrannidae', {
+        name: 'Tyrant Flycatchers (server)',
+        commonName: 'Tyrant Flycatchers (silhouette)',
+      }),
+    ).toBe('Tyrant Flycatchers (server)');
+  });
+
+  it('falls through to `commonName` when `name` is absent', () => {
+    expect(
+      resolveFamilyName('tyrannidae', { commonName: 'Tyrant Flycatchers' }),
+    ).toBe('Tyrant Flycatchers');
+  });
+
+  it('falls through to `commonName` when `name` is null/undefined', () => {
+    expect(
+      resolveFamilyName('tyrannidae', { name: null, commonName: 'Tyrant Flycatchers' }),
+    ).toBe('Tyrant Flycatchers');
+    expect(
+      resolveFamilyName('tyrannidae', { name: undefined, commonName: 'Tyrant Flycatchers' }),
+    ).toBe('Tyrant Flycatchers');
+  });
+
+  it('falls through to `prettyFamily(familyCode)` when both names are absent', () => {
+    expect(resolveFamilyName('tyrannidae')).toBe('Tyrannidae');
+    expect(resolveFamilyName('tyrannidae', {})).toBe('Tyrannidae');
+    expect(
+      resolveFamilyName('tyrannidae', { name: null, commonName: null }),
+    ).toBe('Tyrannidae');
+  });
+
+  it('returns "" for empty/undefined familyCode when no names are supplied — matching prettyFamily', () => {
+    expect(resolveFamilyName('')).toBe('');
+    expect(resolveFamilyName('', {})).toBe('');
+    expect(resolveFamilyName('', { name: null, commonName: null })).toBe('');
+  });
+
+  it('a supplied name still wins even when the familyCode is empty', () => {
+    // Defensive: the resolver trusts the explicit name over the (empty) code.
+    expect(resolveFamilyName('', { commonName: 'Tyrant Flycatchers' })).toBe(
+      'Tyrant Flycatchers',
+    );
   });
 });
