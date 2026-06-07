@@ -38,16 +38,18 @@ test.describe('SpeciesDetailSheet focus trap at full (#910)', () => {
     await expect(sheet).toHaveAttribute('role', 'dialog');
     await expect(app.mapLayer).toHaveAttribute('inert', '');
 
-    // Wait for the mid→full reveal to settle: at full the mid-only teaser
-    // ("Read account") transitions to opacity:0 (recipe-18). Until it settles,
-    // the teaser button still computes as visible, so the focusable set (and the
-    // wrap target) is non-deterministic. Poll the teaser to opacity:0 — the same
-    // settle discipline axe.spec.ts uses — so first/last are stable.
+    // Wait for the mid→full #08 cross-fade to settle: at full the card PAGE
+    // (which holds the mid-only "Read account" teaser button) transitions to
+    // opacity:0 and inert. Until it settles, the read-account button still
+    // computes as visible, so the focusable set (and the wrap target) is
+    // non-deterministic. Poll the card page to opacity:0 — the ancestor that
+    // actually fades — so first/last are stable. (The teaser ELEMENT'S own
+    // opacity stays 1 at rest; it's the page-level cross-fade that hides it.)
     await page
       .waitForFunction(() => {
-        const teaser = document.querySelector('.sheet-fg-teaser');
-        if (!teaser) return true;
-        return Number(getComputedStyle(teaser).opacity) === 0;
+        const cardPage = document.querySelector('.sheet-page--card');
+        if (!cardPage) return true;
+        return Number(getComputedStyle(cardPage).opacity) === 0;
       }, undefined, { timeout: 5_000 })
       .catch(() => {
         /* best-effort settle; assertions below still run */

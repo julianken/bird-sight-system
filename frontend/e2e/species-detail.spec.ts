@@ -310,9 +310,13 @@ test.describe('species detail surface — photo rendering (#327 task-12)', () =>
         // alt ("<comName> photo"); on MOBILE the field-guide sheet renders the
         // photo DECORATIVELY (alt="") because the species name sits adjacent —
         // so the alt-text locator only works on desktop. Locate by the stable
-        // .photo__img class on mobile.
+        // .photo__img class on mobile. The sheet now renders the photo in BOTH
+        // page-side-by-side (#08) pages (card + entry); the sheet opens at the
+        // mid detent, so scope to the active .sheet-page--card (the inactive
+        // entry page also carries a .sheet-fg-photo, which would make a bare
+        // .sheet-fg-photo locator strict-mode-ambiguous).
         const photo = viewport.label === 'mobile'
-          ? page.locator('.sheet-fg-photo .photo__img')
+          ? page.locator('.sheet-page--card .sheet-fg-photo .photo__img')
           : page.getByAltText('Vermilion Flycatcher photo');
         await expect(photo).toBeVisible();
         await expect(photo).toHaveAttribute('src', 'https://photos.bird-maps.com/vermfly.jpg');
@@ -322,7 +326,7 @@ test.describe('species detail surface — photo rendering (#327 task-12)', () =>
         // — which would mean the photo render branch is silently broken.
         await expect.poll(() => photo.evaluate((img: HTMLImageElement) => img.naturalWidth))
           .toBeGreaterThan(0);
-        // Silhouette is NOT rendered on the photo branch.
+        // Silhouette is NOT rendered on the photo branch (neither page).
         // photo--silhouette class is present only when <Photo> is in the
         // fallback state (src=null or onError). Using the CSS class as the
         // locator avoids a test-only prop on the shared DS primitive.
@@ -346,8 +350,12 @@ test.describe('species detail surface — photo rendering (#327 task-12)', () =>
         // Silhouette IS visible. Use the CSS class-based locator — the
         // silhouetteTestId prop was removed from the shared DS Photo
         // primitive; .photo--silhouette is the stable, production-present
-        // selector for the fallback state.
-        const silhouette = page.locator('.photo--silhouette');
+        // selector for the fallback state. On mobile the sheet renders the photo
+        // in BOTH #08 pages (card + entry), so scope to the active
+        // .sheet-page--card (mid detent) to avoid a strict-mode ambiguity.
+        const silhouette = viewport.label === 'mobile'
+          ? page.locator('.sheet-page--card .photo--silhouette')
+          : page.locator('.photo--silhouette');
         await expect(silhouette).toBeVisible();
       });
     });

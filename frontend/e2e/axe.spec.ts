@@ -5,12 +5,17 @@ import { AppPage } from './pages/app-page.js';
 const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 
 /**
- * Wait until the field-guide sheet's reveal transitions (#907 recipe-18 /
- * recipe-07) have settled to full opacity. axe color-contrast reads the
- * alpha-blended computed color, so a mid-transition snapshot of opacity:0→1
- * text reports false sub-contrast. We poll the most-muted revealed element
- * (the teaser text) until its computed opacity is 1 — deterministic, not a
- * fixed timeout. Resolves immediately when no sheet/teaser is present.
+ * Wait until the field-guide sheet's reveal transitions have settled to full
+ * opacity. axe color-contrast reads the alpha-blended computed color, so a
+ * mid-transition snapshot of opacity:0→1 text reports false sub-contrast. We
+ * poll the revealed elements until their computed opacity is 1 — deterministic,
+ * not a fixed timeout. Resolves immediately when no sheet is present.
+ *
+ * Page-side-by-side (#08): the sheet body is two cross-fading pages. Only the
+ * ACTIVE page's reveals matter for the scan — the inactive page is opacity:0 +
+ * inert (axe skips it). We scope the poll to the active page (.sheet-page whose
+ * own computed opacity is 1) so the inactive page's not-yet-revealed elements
+ * never stall the wait.
  */
 async function waitForRevealSettled(
   page: import('@playwright/test').Page,
@@ -19,7 +24,12 @@ async function waitForRevealSettled(
     .waitForFunction(() => {
       const sheet = document.querySelector('.species-detail-sheet');
       if (!sheet) return true;
-      const revealed = sheet.querySelectorAll(
+      // The active page is the one the #08 cross-fade has resolved to opacity:1.
+      const activePage = Array.from(
+        sheet.querySelectorAll('.sheet-page'),
+      ).find((p) => Number(getComputedStyle(p as Element).opacity) >= 0.999);
+      if (!activePage) return true;
+      const revealed = activePage.querySelectorAll(
         '.sheet-fg-sci, .sheet-fg-record, .sheet-fg-teaser, .sheet-fg-teaser-text, .sheet-fg-taxonomy, .sheet-fg-about',
       );
       // Every reveal element that is laid out (not display:none in this tier)
@@ -298,8 +308,11 @@ test.describe('axe-core WCAG scans', () => {
         .toBeVisible({ timeout: 10_000 });
       // #907: the field-guide sheet photo is DECORATIVE on mobile (alt="") — the
       // species name sits adjacent — so locate the rendered <img> by its stable
-      // .photo__img class, not by alt text.
-      await expect(page.locator('.sheet-fg-photo .photo__img')).toBeVisible();
+      // .photo__img class, not by alt text. The sheet renders the photo in BOTH
+      // page-side-by-side (#08) pages; scope to the active .sheet-page--card
+      // (mid detent on open) to avoid a strict-mode match on the inactive entry
+      // page's duplicate photo.
+      await expect(page.locator('.sheet-page--card .sheet-fg-photo .photo__img')).toBeVisible();
       await waitForRevealSettled(page);
       const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
       if (results.violations.length) {

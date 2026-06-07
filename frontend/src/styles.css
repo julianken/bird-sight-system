@@ -1459,19 +1459,71 @@ aside.species-detail-rail .species-detail-rail-close {
   background: var(--color-text-muted);
 }
 
-/* ── Field-guide detent layouts ────────────────────────────────────────────
-   One grid (.sheet-fg) re-templates per [data-content] (compact|mid|full),
-   driven by live sheet height in SpeciesDetailSheet.tsx (resolveContentTier,
-   hysteresed). The photo (.sheet-fg-photo) is a single <Photo> kept mounted
-   across detents; only its frame morphs (44px thumb -> 120px plate -> full-
-   bleed masthead). Hairlines use a theme-neutral translucent grey. */
-.sheet-fg {
+/* ── Field-guide detent layouts (page-side-by-side, recipe #08) ─────────────
+   The sheet body is TWO stable, separately-rendered layout pages cross-
+   dissolved by recipe #08, driven by [data-page] on .sheet-pages
+   (SpeciesDetailSheet.tsx, resolveContentTier → page):
+     • .sheet-page--card  — photo-LEFT; serves compact AND mid. compact↔mid is
+       an IN-PAGE card-resize (#01) on the photo (44↔120) + panel-reveal (#07)
+       for sci/rule/record/teaser — NO page swap (this page stays active).
+     • .sheet-page--entry — photo-TOP masthead; serves full. The only scrolling
+       page (carries .sheet-fg) + the IO bottom sentinel.
+   mid↔full is the #08 cross-dissolve between the two pages PLUS the container
+   height card-resize (#01) on the sheet root. NOTHING re-templates and nothing
+   travels — one clean motion. Each page's grid is STABLE; the photo cross-fades
+   plate↔masthead within the dissolve (accepted: a dissolve, not a glide).
+   Hairlines use a theme-neutral translucent grey. */
+
+/* The pages container fills the sheet under the handle and stacks the two
+   absolutely-positioned pages so #08 can cross-fade them in place. */
+.sheet-pages {
+  position: relative;
   flex: 1;
   min-height: 0;
+}
+
+/* recipe #08 base — every page starts hidden + offset + blurred; the active
+   page (selected by [data-page] on the container) resolves to visible. Pages
+   are ALWAYS rendered (never display:none) so the cross-fade has no
+   display→block entry problem (no @starting-style needed for the page swap).
+   The card page exits left, the entry page exits right (#08 convention). */
+.sheet-pages .sheet-page {
+  position: absolute;
+  inset: 0;
   display: grid;
   align-content: start;
   gap: var(--space-sm);
   padding: var(--space-xs) var(--space-lg) var(--space-md);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity   var(--page-fade-dur)  var(--page-fade-ease),
+    transform var(--page-slide-dur) var(--page-slide-ease),
+    filter    var(--page-slide-dur) var(--page-slide-ease);
+  will-change: opacity, transform, filter;
+}
+.sheet-pages .sheet-page--card {
+  --t-page-from-x: calc(var(--page-slide-distance) * -1);
+  transform: translateX(var(--t-page-from-x));
+  filter: blur(var(--page-blur));
+}
+.sheet-pages .sheet-page--entry {
+  --t-page-from-x: var(--page-slide-distance);
+  transform: translateX(var(--t-page-from-x));
+  filter: blur(var(--page-blur));
+}
+.sheet-pages[data-page='card'] .sheet-page--card,
+.sheet-pages[data-page='entry'] .sheet-page--entry {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
+  filter: blur(0);
+}
+
+/* The entry page is the only scroll container (full detent). Side padding is
+   already supplied by the shared .sheet-page rule above; .sheet-fg adds the
+   scroll behaviour only. */
+.sheet-fg {
   overflow-y: auto;
   overflow-x: clip;
   touch-action: pan-y;
@@ -1550,11 +1602,12 @@ aside.species-detail-rail .species-detail-rail-close {
   align-self: start;
 }
 
-/* MID-only + FULL-only blocks hidden by default; placed per data-content below */
+/* Card-page record/teaser are MID-only: display:none at compact, shown at mid
+   (an in-page #07 panel-reveal — see the motion section). taxonomy/about live in
+   the entry page, which only renders at full, so they need no per-tier display
+   gate — they are always laid out within their (cross-fading) page. */
 .sheet-fg-record,
-.sheet-fg-teaser,
-.sheet-fg-taxonomy,
-.sheet-fg-about { display: none; }
+.sheet-fg-teaser { display: none; }
 .sheet-fg-record { grid-area: record; }
 .sheet-fg-teaser { grid-area: teaser; }
 .sheet-fg-taxonomy { grid-area: taxonomy; }
@@ -1656,27 +1709,15 @@ aside.species-detail-rail .species-detail-rail-close {
    (.species-detail-description-credit), styled in its own section below. Folds
    the T1+T2-era bot dead-CSS suggestions. */
 
-/* ── COMPACT layout (identity row): photo 44px left, identity right ──────── */
-.species-detail-sheet[data-content='compact'] .sheet-fg {
-  grid-template-columns: 44px 1fr;
-  grid-template-areas: 'photo identity';
-  align-items: center;
-  column-gap: var(--space-md);
-  /* Small-mode padding rebalance: tight at the top (the name sits close under
-     the handle), breathing room at the bottom. Total height stays PEEK_PX. */
-  padding-top: 0;
-  padding-bottom: var(--space-lg);
-}
-/* Shorter handle in compact so the centered grip doesn't push the name down a
-   full 44px; still ≥24px (WCAG 2.5.8 AA) as a drag/tap target. */
-.species-detail-sheet[data-content='compact'] .sheet-handle { min-height: 30px; }
-.species-detail-sheet[data-content='compact'] .sheet-fg-photo { width: 44px; height: 44px; }
-.species-detail-sheet[data-content='compact'] .sheet-fg-sci,
-.species-detail-sheet[data-content='compact'] .sheet-fg-rule { display: none; }
-
-/* ── MID layout (plate card) ─────────────────────────────────────────────── */
-.species-detail-sheet[data-content='mid'] .sheet-fg {
-  grid-template-columns: 120px 1fr;
+/* ── CARD PAGE grid (photo-LEFT) — serves compact AND mid ──────────────────
+   ONE stable grid for both detents (it never re-templates — the morph between
+   compact and mid is an in-page card-resize + reveal, not a re-template). The
+   photo column is `auto` so it tracks the photo's own card-resize width
+   (44↔120) without the template changing. In compact, rule/record/teaser are
+   display:none (their rows collapse) and sci is hidden, so the stable 4-row
+   template visually reduces to the `photo identity` identity row. */
+.sheet-page--card {
+  grid-template-columns: auto 1fr;
   grid-template-areas:
     'photo identity'
     'rule  rule'
@@ -1685,19 +1726,52 @@ aside.species-detail-rail .species-detail-rail-close {
   align-items: start;
   column-gap: var(--space-md);
 }
-.species-detail-sheet[data-content='mid'] .sheet-fg-photo { width: 120px; height: 120px; }
-.species-detail-sheet[data-content='mid'] .sheet-fg-record {
+.sheet-page--card .sheet-fg-photo { width: 120px; height: 120px; }
+.sheet-page--card .sheet-fg-record {
   display: grid;
   grid-template-columns: 1fr 1fr;
   column-gap: var(--space-md);
 }
-.species-detail-sheet[data-content='mid'] .sheet-fg-teaser { display: block; }
+.sheet-page--card .sheet-fg-teaser { display: block; }
 /* Center the name/sci/family stack against the 120px plate; bump name to lg. */
-.species-detail-sheet[data-content='mid'] .sheet-fg-identity { align-self: center; }
-.species-detail-sheet[data-content='mid'] .sheet-fg-name { font-size: var(--type-lg); }
+.sheet-page--card .sheet-fg-identity { align-self: center; }
+.sheet-page--card .sheet-fg-name { font-size: var(--type-lg); }
 
-/* ── FULL layout (field-guide entry) ─────────────────────────────────────── */
-.species-detail-sheet[data-content='full'] .sheet-fg {
+/* COMPACT specialisation of the card page (identity row). Same grid, but the
+   photo shrinks to 44px (card-resize tweens this on settle), the top padding
+   tightens, and sci/rule/record/teaser hide (their rows collapse to nothing,
+   leaving the bare identity row). */
+.species-detail-sheet[data-content='compact'] .sheet-page--card {
+  align-items: center;
+  /* Small-mode padding rebalance: tight at the top (the name sits close under
+     the handle), breathing room at the bottom. Total height stays PEEK_PX. */
+  padding-top: 0;
+  padding-bottom: var(--space-lg);
+}
+/* Shorter handle in compact so the centered grip doesn't push the name down a
+   full 44px; still ≥24px (WCAG 2.5.8 AA) as a drag/tap target. */
+.species-detail-sheet[data-content='compact'] .sheet-handle { min-height: 30px; }
+.species-detail-sheet[data-content='compact'] .sheet-page--card .sheet-fg-photo {
+  width: 44px;
+  height: 44px;
+}
+.species-detail-sheet[data-content='compact'] .sheet-page--card .sheet-fg-identity {
+  align-self: center;
+}
+.species-detail-sheet[data-content='compact'] .sheet-page--card .sheet-fg-name {
+  font-size: var(--type-md);
+}
+.species-detail-sheet[data-content='compact'] .sheet-page--card .sheet-fg-sci,
+.species-detail-sheet[data-content='compact'] .sheet-page--card .sheet-fg-rule,
+.species-detail-sheet[data-content='compact'] .sheet-page--card .sheet-fg-record,
+.species-detail-sheet[data-content='compact'] .sheet-page--card .sheet-fg-teaser {
+  display: none;
+}
+
+/* ── ENTRY PAGE grid (photo-TOP masthead) — serves full ────────────────────
+   Stable single-column grid; only renders/cross-fades at full so it needs no
+   per-tier gating. padding-top:0 lets the masthead sit flush under the handle. */
+.sheet-page--entry {
   grid-template-columns: 1fr;
   grid-template-areas:
     'photo'
@@ -1708,11 +1782,11 @@ aside.species-detail-rail .species-detail-rail-close {
   gap: var(--space-md);
   padding-top: 0;
 }
-.species-detail-sheet[data-content='full'] .sheet-fg-photo {
-  /* full-bleed masthead — cancel the .sheet-fg side padding. Use an EXPLICIT
-     height (not aspect-ratio): aspect-ratio on a grid item with negative
-     margins doesn't reliably feed back into auto-track sizing, so the row
-     collapses and the name overlaps the photo. 62.5vw ≈ 16/10 of full width. */
+.sheet-page--entry .sheet-fg-photo {
+  /* full-bleed masthead — cancel the page side padding. Use an EXPLICIT height
+     (not aspect-ratio): aspect-ratio on a grid item with negative margins
+     doesn't reliably feed back into auto-track sizing, so the row collapses and
+     the name overlaps the photo. 62.5vw ≈ 16/10 of full width. */
   margin: 0 calc(-1 * var(--space-lg));
   width: auto;
   height: min(62.5vw, 300px);
@@ -1726,7 +1800,7 @@ aside.species-detail-rail .species-detail-rail-close {
    into the heading region. Decorative + non-interactive (pointer-events:none),
    theme-neutral (a black wash reads correctly on both the white and navy card),
    and below the photo's own children only by stacking after the <img>. */
-.species-detail-sheet[data-content='full'] .sheet-fg-photo::after {
+.sheet-page--entry .sheet-fg-photo::after {
   content: '';
   position: absolute;
   inset-inline: 0;
@@ -1738,118 +1812,84 @@ aside.species-detail-rail .species-detail-rail-close {
 /* Lift the subject out of the vertical center so the masthead doesn't crop low
    with empty sky up top (a11y/design punch-list). Targets the <Photo> primitive's
    inner <img> (.photo__img). */
-.species-detail-sheet[data-content='full'] .sheet-fg-photo .photo__img { object-position: center 35%; }
-.species-detail-sheet[data-content='full'] .sheet-fg-name {
+.sheet-page--entry .sheet-fg-photo .photo__img { object-position: center 35%; }
+.sheet-page--entry .sheet-fg-name {
   font-size: var(--type-hero);
   font-weight: var(--font-weight-bold);
   line-height: 1.1;
 }
-.species-detail-sheet[data-content='full'] .sheet-fg-taxonomy { display: block; }
-.species-detail-sheet[data-content='full'] .sheet-fg-about { display: block; }
 
-/* ── Field-guide motion: photo morph + tier content reveals ────────────────
-   Reduced-motion is owned globally by motion.css (collapses every transition /
-   animation here to 0ms); each rule's resting end-state is the correct static
-   state, so there are no per-element prefers-reduced-motion guards.
+/* ── Field-guide motion ────────────────────────────────────────────────────
+   ONE clock for every leg: --sheet-settle-dur (300ms) / --sheet-settle-ease.
+   recipe #08 (page cross-dissolve) reads --page-* (retuned to 300ms in
+   tokens.css); recipe #01 (photo card-resize + the container height tween) and
+   recipe #07 (card-page reveals) read --sheet-settle-*. All start+finish on one
+   frame → no two-stage. Reduced-motion is owned globally by motion.css
+   (collapses every transition here to 0ms); each rule's resting end-state is
+   the correct static state, so there are no per-element prefers-reduced-motion
+   guards.
 
-   Photo morph. The photo reads as ONE continuous element across detents
-   because the properties that change its rendered box all tween together:
-   width/height/border-radius on the frame, the full-bleed negative `margin` at
-   full, AND `grid-template-columns` on the parent grid (the column track that
-   holds the photo: 44px → 120px → 1fr). grid-template-AREAS is NOT animatable —
-   the mid→full reposition (photo moves from the left column to a top masthead)
-   is the one accepted discontinuity; aspect-ratio is never animated. */
-.sheet-fg {
-  transition: grid-template-columns var(--sheet-settle-dur) var(--sheet-settle-ease);
-}
-.sheet-fg-photo {
+   SETTLE GATE. The page cross-fade + the in-page reveals + the photo card-
+   resize fire ONLY at settle ([data-settled='true']). During an active drag
+   [data-settled='false'] pins them transition:none, so the drag is 1:1 and the
+   mid/full page swap is an instant hard-cut at the boundary (acceptable mid-
+   finger); the cross-fade plays on release. The container height has its own
+   [data-dragging] gate on the sheet root (unchanged).
+
+   compact↔mid PHOTO — true card-resize (#01). Both axes are fixed px (44↔120),
+   top-left anchored by the grid origin, so the box genuinely tweens; no
+   translate, no re-template. The masthead photo lives in a SEPARATE page and is
+   reached only by the #08 cross-dissolve, so width:120px↔auto is never
+   interpolated. */
+.species-detail-sheet[data-settled='true'] .sheet-page--card .sheet-fg-photo {
   transition:
     width var(--sheet-settle-dur) var(--sheet-settle-ease),
-    height var(--sheet-settle-dur) var(--sheet-settle-ease),
-    border-radius var(--sheet-settle-dur) var(--sheet-settle-ease),
-    margin var(--sheet-settle-dur) var(--sheet-settle-ease);
+    height var(--sheet-settle-dur) var(--sheet-settle-ease);
 }
-/* 1:1 during drag — the photo + grid snap to the tier size at the threshold,
-   no lag behind the finger. */
-.species-detail-sheet[data-dragging='true'] .sheet-fg,
-.species-detail-sheet[data-dragging='true'] .sheet-fg-photo { transition: none; }
-
-/* MID-tier reveal — transitions-dev recipe 18 (texts-reveal). The sci-name,
-   the field-record strip, and the teaser rise in with a staggered blur as they
-   enter the mid detent. Each starts translated-down + blurred + invisible; the
-   [data-content='mid'] state flips them to rest. The name+family SPINE is NOT
-   in this channel (it is always present, never display:none'd).
-
-   record/teaser are display:none in other tiers, so the channel also tweens the
-   discrete `display` change (transition-behavior: allow-discrete) and seeds the
-   entrance from-state with @starting-style — without these the show would snap.
-   sci-name is never display:none'd (it stays in the spine), so it tweens with
-   the plain opacity/transform/filter set. */
-.sheet-fg-sci,
-.sheet-fg-record,
-.sheet-fg-teaser {
-  opacity: 0;
-  transform: translateY(var(--stagger-distance, 12px));
-  filter: blur(var(--stagger-blur, 3px));
-  transition:
-    opacity var(--stagger-dur, 600ms) var(--stagger-ease, cubic-bezier(0.22, 1, 0.36, 1)),
-    transform var(--stagger-dur, 600ms) var(--stagger-ease, cubic-bezier(0.22, 1, 0.36, 1)),
-    filter var(--stagger-dur, 600ms) var(--stagger-ease, cubic-bezier(0.22, 1, 0.36, 1)),
-    display var(--stagger-dur, 600ms) allow-discrete;
-  will-change: transform, opacity, filter;
+/* 1:1 during drag — the photo snaps to the tier size at the threshold, the page
+   swap is instant; the cross-fade + reveals play on release. */
+.species-detail-sheet[data-settled='false'] .sheet-pages .sheet-page,
+.species-detail-sheet[data-settled='false'] .sheet-page--card .sheet-fg-photo,
+.species-detail-sheet[data-settled='false'] .sheet-fg-sci,
+.species-detail-sheet[data-settled='false'] .sheet-fg-record,
+.species-detail-sheet[data-settled='false'] .sheet-fg-teaser {
+  transition: none;
 }
-/* Stagger: record holds 1 step, teaser 2 steps, so the eye lands on the
-   sci-name first then walks down the card. */
-.sheet-fg-record { transition-delay: var(--stagger-stagger, 40ms); }
-.sheet-fg-teaser { transition-delay: calc(var(--stagger-stagger, 40ms) * 2); }
-.species-detail-sheet[data-content='mid'] .sheet-fg-sci,
-.species-detail-sheet[data-content='mid'] .sheet-fg-record,
-.species-detail-sheet[data-content='mid'] .sheet-fg-teaser,
-.species-detail-sheet[data-content='full'] .sheet-fg-sci {
+
+/* compact↔mid REVEALS — recipe #07 (panel-reveal) retuned to the settle clock.
+   sci/rule/record/teaser rise in with a short translate + cross-blur as the
+   card page grows compact→mid. RESTING state is opacity:1 / transform:none so
+   reduced-motion (motion.css 0ms) lands VISIBLE; the hidden from-state keys on
+   [data-content='compact'] (NOT an unconditional base) so live content is
+   PRESENT at every settled tier. record/teaser also toggle display:none in
+   compact — the reveal is not load-bearing for the leg feel (the card-resize
+   carries it), so a plain show is fine without @starting-style. */
+.sheet-page--card .sheet-fg-sci,
+.sheet-page--card .sheet-fg-rule,
+.sheet-page--card .sheet-fg-record,
+.sheet-page--card .sheet-fg-teaser {
   opacity: 1;
   transform: translateY(0);
   filter: blur(0);
+  transition:
+    opacity   var(--sheet-settle-dur) var(--sheet-settle-ease),
+    transform var(--sheet-settle-dur) var(--sheet-settle-ease),
+    filter    var(--sheet-settle-dur) var(--sheet-settle-ease);
+  will-change: transform, opacity, filter;
 }
-@starting-style {
-  .species-detail-sheet[data-content='mid'] .sheet-fg-record,
-  .species-detail-sheet[data-content='mid'] .sheet-fg-teaser {
-    opacity: 0;
-    transform: translateY(var(--stagger-distance, 12px));
-    filter: blur(var(--stagger-blur, 3px));
-  }
-}
-
-/* FULL-tier reveal — transitions-dev recipe 07 (panel-reveal). The taxonomy
-   table and the About panel slide up from a half-travel with a cross-blur so a
-   short translate still reads as a full open. Both are display:none until the
-   full detent, so the channel tweens `display` (allow-discrete) and seeds the
-   from-state via @starting-style, mirroring the mid channel. */
-.sheet-fg-taxonomy,
-.sheet-fg-about {
+.species-detail-sheet[data-content='compact'] .sheet-page--card .sheet-fg-sci,
+.species-detail-sheet[data-content='compact'] .sheet-page--card .sheet-fg-rule,
+.species-detail-sheet[data-content='compact'] .sheet-page--card .sheet-fg-record,
+.species-detail-sheet[data-content='compact'] .sheet-page--card .sheet-fg-teaser {
+  opacity: 0;
   transform: translateY(var(--panel-translate-y-sheet, 32px));
-  opacity: 0;
   filter: blur(var(--panel-blur, 2px));
-  transition:
-    transform var(--panel-open-dur, 400ms) var(--panel-ease, cubic-bezier(0.22, 1, 0.36, 1)),
-    opacity var(--panel-open-dur, 400ms) var(--panel-ease, cubic-bezier(0.22, 1, 0.36, 1)),
-    filter var(--panel-open-dur, 400ms) var(--panel-ease, cubic-bezier(0.22, 1, 0.36, 1)),
-    display var(--panel-open-dur, 400ms) allow-discrete;
-  will-change: transform, opacity, filter;
 }
-.species-detail-sheet[data-content='full'] .sheet-fg-taxonomy,
-.species-detail-sheet[data-content='full'] .sheet-fg-about {
-  transform: translateY(0);
-  opacity: 1;
-  filter: blur(0);
-}
-@starting-style {
-  .species-detail-sheet[data-content='full'] .sheet-fg-taxonomy,
-  .species-detail-sheet[data-content='full'] .sheet-fg-about {
-    opacity: 0;
-    transform: translateY(var(--panel-translate-y-sheet, 32px));
-    filter: blur(var(--panel-blur, 2px));
-  }
-}
+
+/* The entry page's taxonomy + About need no separate reveal: the whole entry
+   page cross-dissolves in via recipe #08 as one unit (opacity + translate +
+   blur), so the blocks arrive together with the page. Resting state (opacity:1)
+   is the page-active state above — reduced-motion lands them visible. */
 
 /* ==========================================================================
    W2 orphan-CSS sweep — 8 classNames referenced in JSX with no rule.

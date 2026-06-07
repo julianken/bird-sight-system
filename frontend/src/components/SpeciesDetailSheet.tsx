@@ -650,6 +650,21 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
   const prevTierRef = useRef<ContentTier>('mid');
   const content = resolveContentTier(height, prevTierRef.current, vh);
   prevTierRef.current = content;
+  // ── Page-side-by-side (#08) page selection ────────────────────────────────
+  // The sheet body is split into two STABLE, separately-rendered layout pages
+  // (the catalog `.t-page` model) that cross-dissolve on the mid↔full leg:
+  //   • card page  — photo-LEFT layout; serves compact AND mid (same structure,
+  //                  compact just hides sci/rule/record/teaser). compact↔mid is
+  //                  therefore an IN-PAGE card-resize (#01) + panel-reveal (#07),
+  //                  NO cross-fade (the card page stays active across both).
+  //   • entry page — photo-TOP masthead; serves full (taxonomy + About + the IO
+  //                  sentinel; the only scrolling layout).
+  // `page` drives data-page on the .sheet-pages container: compact|mid → 'card',
+  // full → 'entry'. The mid↔full cross-dissolve and the container-height tween
+  // both read the single --sheet-settle clock, so they start+finish on one frame.
+  const page: 'card' | 'entry' = content === 'full' ? 'entry' : 'card';
+  const cardActive = page === 'card';
+  const entryActive = page === 'entry';
   const famColor = resolveColor(data?.familyCode);
   // descriptionBody is sanitized HTML (rendered via SpeciesDescription at full);
   // the mid teaser wants a plain-text 2-line clamp, so strip tags for it.
@@ -669,6 +684,14 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
       data-snap-state={snap}
       data-dragging={dragging ? 'true' : 'false'}
       data-content={content}
+      // #08 settle gate. Pure state-derived attr (NOT a measure/reflow): the
+      // page cross-dissolve + the in-page reveals fire ONLY at settle. During a
+      // drag [data-settled='false'] pins them transition:none (alongside the
+      // existing [data-dragging] height gate) so the drag is 1:1 and the
+      // mid/full page swap is an instant hard-cut; the cross-fade plays on
+      // release. resolveContentTier still blooms content DURING the drag — only
+      // the MOTION is gated, never the presence.
+      data-settled={dragging ? 'false' : 'true'}
       // #907 finding 2 — programmatically focusable (no tab stop) so open-focus
       // can land on the dialog container instead of the visible species name,
       // which avoided a stray :focus-visible ring on the title.
@@ -719,122 +742,194 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
       >
         <span aria-hidden="true" className="sheet-handle-grip" />
       </button>
-      {/* Field-guide layout: three size-appropriate tiers in one grid that
-          re-templates per [data-content]. The photo is a SINGLE <Photo>
-          element kept mounted across detents; only its frame morphs via CSS.
-          The grid scrolls (tabIndex=0 satisfies axe scrollable-region-focusable).
-          scrollerRef is the IntersectionObserver root for the bottom sentinel
-          at the full detent — see the panel_scrolled_to_bottom effect. */}
-      <div className="sheet-fg" tabIndex={0} ref={scrollerRef}>
-        <div className="sheet-fg-photo">
-          {/* Decorative photo (alt=""): the species name always sits adjacent
-              and we have no plumage metadata, so a non-empty alt would triple-
-              announce. <Photo> owns the no-photo silhouette fallback (emits
-              .photo--silhouette) and the family shape/color via the resolvers. */}
-          <Photo
-            src={data?.photoUrl ?? null}
-            alt=""
-            family={(data?.familyCode as FamilyCode | null) ?? null}
-            color={resolveColor(data?.familyCode)}
-            pathD={resolvePath(data?.familyCode)}
-            imgUrl={resolveImgUrl(data?.familyCode)}
-            priority
-            layout="masthead"
-          />
-        </div>
-
-        <div className="sheet-fg-identity">
-          {/* h2: the map identity ("Bird Maps") owns the page h1; the species
-              name is the top heading INSIDE the dialog. Not a focus target:
-              open-focus lands on the dialog container (#907 finding 2), so this
-              heading carries no tabIndex and never paints a focus ring. */}
-          <h2 id="detail-title" className="sheet-fg-name">
-            {data?.comName ?? 'Loading…'}
-          </h2>
-          <p className="sheet-fg-sci">
-            <em>{data?.sciName}</em>
-          </p>
-          <p className="sheet-fg-family">
-            <span
-              className="sheet-fg-family-dot"
-              aria-hidden="true"
-              style={{ background: famColor }}
+      {/* Field-guide body: TWO stable layout pages cross-dissolved by recipe #08
+          (page-side-by-side). data-page selects the active page; the inactive
+          page is opacity:0 + pointer-events:none + a short translate/blur per
+          #08 (CSS). Each page owns its OWN grid that NEVER re-templates — the
+          mid→full morph is a genuine cross-fade between two stable layouts, not
+          a grid re-template snap. The container height still card-resize-tweens
+          on the sheet root, so mid→full reads as: height grows + card fades out
+          + entry fades in, one clean motion. */}
+      <div className="sheet-pages" data-page={page}>
+        {/* ── CARD PAGE (photo-LEFT) — compact + mid ─────────────────────────
+            Same structure for both detents; compact just hides sci/rule/record/
+            teaser. compact↔mid is an in-page card-resize (#01) on the photo
+            (44↔120, both fixed px, top-left anchored) + panel-reveal (#07) for
+            sci/rule/record/teaser. NO page swap on compact↔mid (this page stays
+            active). Inert + aria-hidden when the entry page is active so its
+            DUPLICATED name/sci/family are not tabbable or double-announced. */}
+        <section
+          className="sheet-page sheet-page--card"
+          data-page-id="card"
+          aria-hidden={cardActive ? undefined : 'true'}
+          // `inert` removes the inactive page from tab order + pointer + the
+          // a11y tree; React renders the boolean attribute when true only.
+          {...(cardActive ? {} : { inert: '' })}
+        >
+          <div className="sheet-fg-photo">
+            {/* Decorative photo (alt=""): the species name always sits adjacent
+                and we have no plumage metadata, so a non-empty alt would triple-
+                announce. <Photo> owns the no-photo silhouette fallback (emits
+                .photo--silhouette) and the family shape/color via the resolvers.
+                The SAME cached photoUrl is rendered in both pages — no double
+                network load (the <img> src is identical + browser-cached). */}
+            <Photo
+              src={data?.photoUrl ?? null}
+              alt=""
+              family={(data?.familyCode as FamilyCode | null) ?? null}
+              color={resolveColor(data?.familyCode)}
+              pathD={resolvePath(data?.familyCode)}
+              imgUrl={resolveImgUrl(data?.familyCode)}
+              priority
+              layout="masthead"
             />
-            {data?.familyName}
-          </p>
-        </div>
+          </div>
 
-        <div className="sheet-fg-rule" aria-hidden="true" style={{ background: famColor }} />
-
-        {/* MID tier — labeled field record (real <dl> so AT ties label→value) */}
-        <dl className="sheet-fg-record">
-          <div className="sheet-fg-cell">
-            <dt className="sheet-fg-label">Family</dt>
-            <dd className="sheet-fg-value">{data?.familyName ?? '—'}</dd>
-          </div>
-          <div className="sheet-fg-cell">
-            <dt className="sheet-fg-label">eBird taxonomic order</dt>
-            <dd className="sheet-fg-value">
-              {data?.taxonOrder != null ? `#${data.taxonOrder}` : '—'}
-            </dd>
-          </div>
-        </dl>
-        <div className="sheet-fg-teaser">
-          <p className="sheet-fg-teaser-text">
-            {descPlain || 'No description available.'}
-          </p>
-          <button
-            type="button"
-            className="sheet-fg-readaccount"
-            aria-expanded={isFull}
-            aria-controls="sheet-fg-account"
-            onClick={() => goToSnap('full')}
-          >
-            Read account <span aria-hidden="true">⌄</span>
-          </button>
-        </div>
-
-        {/* FULL tier — taxonomy table + ABOUT prose + credits */}
-        <dl className="sheet-fg-taxonomy">
-          <div className="sheet-fg-taxrow">
-            <dt>Scientific name</dt>
-            <dd><em>{data?.sciName}</em></dd>
-          </div>
-          <div className="sheet-fg-taxrow">
-            <dt>Family</dt>
-            <dd>{data?.familyName}</dd>
-          </div>
-          <div className="sheet-fg-taxrow">
-            <dt>eBird taxonomic order</dt>
-            <dd>{data?.taxonOrder != null ? `#${data.taxonOrder}` : '—'}</dd>
-          </div>
-        </dl>
-        <div className="sheet-fg-about" id="sheet-fg-account">
-          {data?.descriptionBody ? (
-            <>
-              <h3 className="sheet-fg-about-eyebrow">About</h3>
-              <SpeciesDescription
-                descriptionBody={data.descriptionBody}
-                descriptionAttributionUrl={data.descriptionAttributionUrl}
+          <div className="sheet-fg-identity">
+            {/* No id here — #detail-title lives on the ENTRY page (the full
+                dialog heading) so the two pages don't collide on a duplicate id
+                (axe duplicate-id). The dialog's accessible name comes from
+                aria-label on the root, not aria-labelledby, so the card heading
+                needs no id. */}
+            <h2 className="sheet-fg-name">{data?.comName ?? 'Loading…'}</h2>
+            <p className="sheet-fg-sci">
+              <em>{data?.sciName}</em>
+            </p>
+            <p className="sheet-fg-family">
+              <span
+                className="sheet-fg-family-dot"
+                aria-hidden="true"
+                style={{ background: famColor }}
               />
-            </>
-          ) : (
-            <p className="sheet-fg-prose">No description available.</p>
-          )}
-        </div>
+              {data?.familyName}
+            </p>
+          </div>
 
-        {/* Bottom sentinel for panel_scrolled_to_bottom (T3 #909). A DIRECT
-            child of .sheet-fg AFTER the About block with NO tier-gated
-            display:none: the .sheet-fg-about/.sheet-fg-taxonomy blocks are
-            display:none until full, and a display:none element has a zero box
-            that never intersects. The sentinel must stay in layout so the
-            IntersectionObserver can fire when the user scrolls the About prose
-            into view at the full detent (the only detent .sheet-fg scrolls). */}
-        <div
-          ref={sentinelRef}
-          data-testid="detail-bottom-sentinel"
-          aria-hidden="true"
-        />
+          <div className="sheet-fg-rule" aria-hidden="true" style={{ background: famColor }} />
+
+          {/* MID tier — labeled field record (real <dl> so AT ties label→value) */}
+          <dl className="sheet-fg-record">
+            <div className="sheet-fg-cell">
+              <dt className="sheet-fg-label">Family</dt>
+              <dd className="sheet-fg-value">{data?.familyName ?? '—'}</dd>
+            </div>
+            <div className="sheet-fg-cell">
+              <dt className="sheet-fg-label">eBird taxonomic order</dt>
+              <dd className="sheet-fg-value">
+                {data?.taxonOrder != null ? `#${data.taxonOrder}` : '—'}
+              </dd>
+            </div>
+          </dl>
+          <div className="sheet-fg-teaser">
+            <p className="sheet-fg-teaser-text">
+              {descPlain || 'No description available.'}
+            </p>
+            <button
+              type="button"
+              className="sheet-fg-readaccount"
+              aria-expanded={isFull}
+              aria-controls="sheet-fg-account"
+              onClick={() => goToSnap('full')}
+            >
+              Read account <span aria-hidden="true">⌄</span>
+            </button>
+          </div>
+        </section>
+
+        {/* ── ENTRY PAGE (photo-TOP masthead) — full ─────────────────────────
+            The only scrolling layout: scrollerRef is the IntersectionObserver
+            root and the bottom sentinel is its direct child (after About).
+            tabIndex=0 satisfies axe scrollable-region-focusable. The focus trap
+            queries focusables in THIS page. Inert + aria-hidden when the card
+            page is active so its duplicated content stays out of the a11y tree
+            and the tab order until full. */}
+        <section
+          className="sheet-page sheet-page--entry sheet-fg"
+          data-page-id="entry"
+          tabIndex={entryActive ? 0 : -1}
+          ref={scrollerRef}
+          aria-hidden={entryActive ? undefined : 'true'}
+          {...(entryActive ? {} : { inert: '' })}
+        >
+          <div className="sheet-fg-photo">
+            <Photo
+              src={data?.photoUrl ?? null}
+              alt=""
+              family={(data?.familyCode as FamilyCode | null) ?? null}
+              color={resolveColor(data?.familyCode)}
+              pathD={resolvePath(data?.familyCode)}
+              imgUrl={resolveImgUrl(data?.familyCode)}
+              priority
+              layout="masthead"
+            />
+          </div>
+
+          <div className="sheet-fg-identity">
+            {/* h2: the map identity ("Bird Maps") owns the page h1; the species
+                name is the top heading INSIDE the dialog. Not a focus target:
+                open-focus lands on the dialog container (#907 finding 2), so this
+                heading carries no tabIndex and never paints a focus ring.
+                #detail-title is unique to the entry page (the card heading has no
+                id) so the two always-rendered pages never duplicate the id. */}
+            <h2 id="detail-title" className="sheet-fg-name">
+              {data?.comName ?? 'Loading…'}
+            </h2>
+            <p className="sheet-fg-sci">
+              <em>{data?.sciName}</em>
+            </p>
+            <p className="sheet-fg-family">
+              <span
+                className="sheet-fg-family-dot"
+                aria-hidden="true"
+                style={{ background: famColor }}
+              />
+              {data?.familyName}
+            </p>
+          </div>
+
+          <div className="sheet-fg-rule" aria-hidden="true" style={{ background: famColor }} />
+
+          {/* FULL tier — taxonomy table + ABOUT prose + credits */}
+          <dl className="sheet-fg-taxonomy">
+            <div className="sheet-fg-taxrow">
+              <dt>Scientific name</dt>
+              <dd><em>{data?.sciName}</em></dd>
+            </div>
+            <div className="sheet-fg-taxrow">
+              <dt>Family</dt>
+              <dd>{data?.familyName}</dd>
+            </div>
+            <div className="sheet-fg-taxrow">
+              <dt>eBird taxonomic order</dt>
+              <dd>{data?.taxonOrder != null ? `#${data.taxonOrder}` : '—'}</dd>
+            </div>
+          </dl>
+          <div className="sheet-fg-about" id="sheet-fg-account">
+            {data?.descriptionBody ? (
+              <>
+                <h3 className="sheet-fg-about-eyebrow">About</h3>
+                <SpeciesDescription
+                  descriptionBody={data.descriptionBody}
+                  descriptionAttributionUrl={data.descriptionAttributionUrl}
+                />
+              </>
+            ) : (
+              <p className="sheet-fg-prose">No description available.</p>
+            )}
+          </div>
+
+          {/* Bottom sentinel for panel_scrolled_to_bottom (T3 #909). A DIRECT
+              child of the entry page (.sheet-fg, the only scroll container)
+              AFTER the About block. The entry page is always rendered (the #08
+              cross-fade keeps both pages mounted), so the sentinel stays in
+              layout; the observer is still armed only at snap==='full' (#914),
+              the only detent the entry page is active and .sheet-fg scrolls. */}
+          <div
+            ref={sentinelRef}
+            data-testid="detail-bottom-sentinel"
+            aria-hidden="true"
+          />
+        </section>
       </div>
     </div>
   );
