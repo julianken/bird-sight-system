@@ -151,10 +151,14 @@
      frame (no two-stage desync). --page-slide-distance is kept SMALL (8px) so
      the cross-fade reads as a dissolve, not a slide; the photo cross-fades
      plate↔masthead within it. Reduced-motion is owned globally by motion.css. */
-  --page-slide-dur:      300ms;
-  --page-fade-dur:       300ms;
+  --page-slide-dur:      240ms;
+  --page-fade-dur:       240ms;
   --page-slide-distance: 8px;
-  --page-blur:           3px;
+  /* Heavier blur (14px) is deliberate: cross-fading two *different* layouts
+     double-exposes at the crossover; a strong blur on both layers mushes the
+     midpoint into a soft dissolve instead of a readable double-image. Tuned
+     live (#916) — 3px showed a ghost; 14px reads as one soft beat. */
+  --page-blur:           14px;
   --page-slide-ease:     cubic-bezier(0.22, 1, 0.36, 1);
   --page-fade-ease:      cubic-bezier(0.22, 1, 0.36, 1);
 }

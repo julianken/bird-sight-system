@@ -1401,7 +1401,7 @@ aside.species-detail-rail .species-detail-rail-close {
      [data-dragging='true'] below so the drag tracks the finger 1:1.
      Reduced-motion is owned globally by motion.css (collapses this to 0ms);
      no per-element guard here, per repo convention. */
-  --sheet-settle-dur: 300ms;
+  --sheet-settle-dur: 240ms;
   --sheet-settle-ease: cubic-bezier(0.22, 1, 0.36, 1);
   transition: height var(--sheet-settle-dur) var(--sheet-settle-ease);
   will-change: height;
