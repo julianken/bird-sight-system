@@ -260,6 +260,16 @@ export interface AggregatedFamily {
   speciesCount: number;
   /** Top-8 species of this family in this cell, by observation count desc. */
   species: Array<{ code: string; count: number }>;
+  /**
+   * Colloquial family display name (issue #920, epic #924) —
+   * `COALESCE(family_silhouettes.common_name, species_meta.family_name)`.
+   * OPTIONAL for back-compat with pre-PR4 cached payloads: no producer projects
+   * it until PR4 wires the live + precompute CTEs, and stale CDN bodies predating
+   * that change deserialize with `name === undefined`. The frontend resolver
+   * (`resolveFamilyName`) treats `undefined`/`null` identically and falls through
+   * to the silhouette `commonName`, so a name-less payload renders correctly.
+   */
+  name?: string | null;
 }
 
 /**
