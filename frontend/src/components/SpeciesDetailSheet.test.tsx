@@ -1122,12 +1122,13 @@ describe('<SpeciesDetailSheet> — F10 announce on readable detent (#910)', () =
 
 describe('<SpeciesDetailSheet> — F14 reduced-motion resting end-state (#910)', () => {
   // motion.css collapses all transition/animation durations to 0ms under
-  // prefers-reduced-motion. The reveal channels (sci/record/teaser/taxonomy/
-  // about) start at opacity:0 + translateY + blur and only reach the resting
-  // end-state via a [data-content='<tier>'] selector. This asserts that for
-  // each tier the resting end-state RULE exists in the authored CSS — so under
-  // reduced-motion (instant transition) the content lands at its resting state,
-  // never stuck invisible.
+  // prefers-reduced-motion. Under the page-side-by-side (#08) architecture the
+  // RESTING state of every reveal/page is opacity:1 (the hidden from-state keys
+  // on a NON-resting selector: [data-content='compact'] for the card-page
+  // reveals, and the inactive-page base for the cross-fade). So under reduced-
+  // motion (instant transition) live-tier content always lands VISIBLE, never
+  // stuck invisible (F14 invariant). This asserts the resting end-states exist
+  // in the authored CSS.
   // import.meta.url is not always a file:// URL under jsdom; resolve via
   // import.meta.dirname + join like tokens.css.test.ts (release-1 note).
   const css = readFileSync(join(import.meta.dirname, '../styles.css'), 'utf8');
@@ -1142,17 +1143,27 @@ describe('<SpeciesDetailSheet> — F14 reduced-motion resting end-state (#910)',
     expect(motion).toMatch(/animation-duration:\s*0ms\s*!important/);
   });
 
-  it('every reveal channel has a resting end-state (opacity:1) at its tier', () => {
-    // MID reveal channels resolve to opacity:1 under [data-content='mid'].
+  it('card-page reveals rest at opacity:1 (hidden from-state keys on compact, not the resting tier)', () => {
+    // The unconditional card-page reveal channel is the RESTING state: opacity:1.
     expect(css).toMatch(
-      /\[data-content='mid'\][^{]*\.sheet-fg-record[\s\S]*?opacity:\s*1/,
+      /\.sheet-page--card\s+\.sheet-fg-record[\s\S]*?opacity:\s*1/,
     );
-    // FULL reveal channels resolve to opacity:1 under [data-content='full'].
+    // The HIDDEN from-state is keyed on [data-content='compact'] (NOT on the
+    // resting mid tier) so mid content is present + visible at rest.
     expect(css).toMatch(
-      /\[data-content='full'\][^{]*\.sheet-fg-about[\s\S]*?opacity:\s*1/,
+      /\[data-content='compact'\][^{]*\.sheet-page--card[^{]*\.sheet-fg-record[\s\S]*?opacity:\s*0/,
+    );
+  });
+
+  it('the active page rests at opacity:1 via the #08 page-active selector', () => {
+    // recipe #08: the page selected by [data-page] resolves to opacity:1, so the
+    // entry page (taxonomy + About) + the card page land visible at rest under
+    // reduced-motion — there is no display:none→block entry to get stuck on.
+    expect(css).toMatch(
+      /\.sheet-pages\[data-page='card'\]\s+\.sheet-page--card[\s\S]*?opacity:\s*1/,
     );
     expect(css).toMatch(
-      /\[data-content='full'\][^{]*\.sheet-fg-taxonomy[\s\S]*?opacity:\s*1/,
+      /\.sheet-pages\[data-page='entry'\]\s+\.sheet-page--entry[\s\S]*?opacity:\s*1/,
     );
   });
 });

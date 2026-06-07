@@ -142,6 +142,25 @@
      open (recipe-07 note). Named -sheet so it doesn't collide if the canonical
      --panel-translate-y (100px) is later imported wholesale. */
   --panel-translate-y-sheet: 32px;
+
+  /* recipe-08 (page-side-by-side) — drives the mid↔full cross-dissolve between
+     the two stable sheet pages (.sheet-page--card ↔ .sheet-page--entry). The
+     catalog default is 200ms; the sheet retunes to the single 300ms settle
+     clock (--sheet-settle-dur/-ease) so the page cross-fade, the in-page
+     reveals (#07), and the container-height tween (#01) all start+finish on one
+     frame (no two-stage desync). --page-slide-distance is kept SMALL (8px) so
+     the cross-fade reads as a dissolve, not a slide; the photo cross-fades
+     plate↔masthead within it. Reduced-motion is owned globally by motion.css. */
+  --page-slide-dur:      240ms;
+  --page-fade-dur:       240ms;
+  --page-slide-distance: 8px;
+  /* Heavier blur (14px) is deliberate: cross-fading two *different* layouts
+     double-exposes at the crossover; a strong blur on both layers mushes the
+     midpoint into a soft dissolve instead of a readable double-image. Tuned
+     live (#916) — 3px showed a ghost; 14px reads as one soft beat. */
+  --page-blur:           14px;
+  --page-slide-ease:     cubic-bezier(0.22, 1, 0.36, 1);
+  --page-fade-ease:      cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* ── Layer 2: Semantic — light mode ─────────────────────────────────── */
