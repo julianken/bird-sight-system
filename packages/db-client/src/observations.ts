@@ -432,14 +432,26 @@ export async function getObservationsAggregated(
         round(ST_X(o.geom) * $${gIdx}) / $${gIdx} AS lng_bucket,
         round(ST_Y(o.geom) * $${gIdx}) / $${gIdx} AS lat_bucket,
         o.species_code,
-        sm.family_code
+        sm.family_code,
+        -- #924 PR4: thread both COALESCE source columns to family level. The
+        -- family display name is functionally determined by family_code, so
+        -- it survives the GROUP BY via min() in per_family. fs.common_name is
+        -- the curated short house style (first arm, matches the frontend's
+        -- silhouette.commonName); sm.family_name is the eBird long-name drift
+        -- fallback (second arm). family_silhouettes.family_code is UNIQUE, so
+        -- this LEFT JOIN cannot multiply rows.
+        sm.family_name,
+        fs.common_name AS family_common_name
       FROM observations o
       LEFT JOIN species_meta sm ON sm.species_code = o.species_code
+      LEFT JOIN family_silhouettes fs ON fs.family_code = sm.family_code
       ${where}
     ),
     per_species AS (
       SELECT
         lng_bucket, lat_bucket, family_code, species_code,
+        min(family_common_name) AS family_common_name,
+        min(family_name) AS family_name,
         count(*)::int AS species_count
       FROM base
       WHERE family_code IS NOT NULL
@@ -448,6 +460,7 @@ export async function getObservationsAggregated(
     ranked AS (
       SELECT
         lng_bucket, lat_bucket, family_code, species_code, species_count,
+        family_common_name, family_name,
         ROW_NUMBER() OVER (
           PARTITION BY lng_bucket, lat_bucket, family_code
           ORDER BY species_count DESC, species_code ASC
@@ -457,6 +470,8 @@ export async function getObservationsAggregated(
     per_family AS (
       SELECT
         lng_bucket, lat_bucket, family_code,
+        min(family_common_name) AS family_common_name,
+        min(family_name) AS family_name,
         sum(species_count)::int AS family_count,
         count(*)::int AS family_species_count,
         jsonb_agg(
@@ -474,7 +489,8 @@ export async function getObservationsAggregated(
             'code', family_code,
             'count', family_count,
             'speciesCount', family_species_count,
-            'species', top_species
+            'species', top_species,
+            'name', COALESCE(family_common_name, family_name)
           )
           ORDER BY family_count DESC, family_code ASC
         ) AS families
@@ -689,9 +705,16 @@ export async function refreshGridAgg(pool: Pool): Promise<number> {
     const result = await client.query<{ n: string }>(
       `
       WITH recent AS (
-        SELECT o.geom, o.species_code, sm.family_code
+        -- #924 PR4: carry both COALESCE source columns from the read side so
+        -- the precompute path projects family.name byte-identically to the live
+        -- getObservationsAggregated CTE (the #878 byte-identity guard enforces
+        -- this). The NEW join is only family_silhouettes (UNIQUE family_code →
+        -- single row per family); species_meta was already LEFT-JOINed here.
+        SELECT o.geom, o.species_code, sm.family_code, sm.family_name,
+               fs.common_name AS family_common_name
         FROM observations o
         LEFT JOIN species_meta sm ON sm.species_code = o.species_code
+        LEFT JOIN family_silhouettes fs ON fs.family_code = sm.family_code
         WHERE o.obs_dt >= now() - (14 * interval '1 day')
       ),
       mult(grid_multiplier) AS (
@@ -699,13 +722,15 @@ export async function refreshGridAgg(pool: Pool): Promise<number> {
       ),
       scoped AS (
         -- National scope: every recent row, no clip.
-        SELECT $1::text AS scope_key, r.geom, r.species_code, r.family_code
+        SELECT $1::text AS scope_key, r.geom, r.species_code, r.family_code,
+               r.family_name, r.family_common_name
         FROM recent r
         UNION ALL
         -- State scope: each recent row tagged with the state polygon it falls
         -- in. ST_Intersects (NOT ST_Contains) matches the live state clip
         -- inclusive border idiom; the && prefilter uses obs_geom_idx.
-        SELECT sb.state_code AS scope_key, r.geom, r.species_code, r.family_code
+        SELECT sb.state_code AS scope_key, r.geom, r.species_code, r.family_code,
+               r.family_name, r.family_common_name
         FROM recent r
         JOIN state_boundaries sb
           ON r.geom && sb.geom AND ST_Intersects(sb.geom, r.geom)
@@ -717,13 +742,17 @@ export async function refreshGridAgg(pool: Pool): Promise<number> {
           round(ST_X(s.geom) * m.grid_multiplier) / m.grid_multiplier AS lng_bucket,
           round(ST_Y(s.geom) * m.grid_multiplier) / m.grid_multiplier AS lat_bucket,
           s.species_code,
-          s.family_code
+          s.family_code,
+          s.family_name,
+          s.family_common_name
         FROM scoped s
         CROSS JOIN mult m
       ),
       per_species AS (
         SELECT
           scope_key, grid_multiplier, lng_bucket, lat_bucket, family_code, species_code,
+          min(family_common_name) AS family_common_name,
+          min(family_name) AS family_name,
           count(*)::int AS species_count
         FROM base
         WHERE family_code IS NOT NULL
@@ -732,6 +761,7 @@ export async function refreshGridAgg(pool: Pool): Promise<number> {
       ranked AS (
         SELECT
           scope_key, grid_multiplier, lng_bucket, lat_bucket, family_code, species_code, species_count,
+          family_common_name, family_name,
           ROW_NUMBER() OVER (
             PARTITION BY scope_key, grid_multiplier, lng_bucket, lat_bucket, family_code
             ORDER BY species_count DESC, species_code ASC
@@ -741,6 +771,8 @@ export async function refreshGridAgg(pool: Pool): Promise<number> {
       per_family AS (
         SELECT
           scope_key, grid_multiplier, lng_bucket, lat_bucket, family_code,
+          min(family_common_name) AS family_common_name,
+          min(family_name) AS family_name,
           sum(species_count)::int AS family_count,
           count(*)::int AS family_species_count,
           jsonb_agg(
@@ -758,7 +790,8 @@ export async function refreshGridAgg(pool: Pool): Promise<number> {
               'code', family_code,
               'count', family_count,
               'speciesCount', family_species_count,
-              'species', top_species
+              'species', top_species,
+              'name', COALESCE(family_common_name, family_name)
             )
             ORDER BY family_count DESC, family_code ASC
           ) AS families
