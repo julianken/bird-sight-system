@@ -120,6 +120,36 @@ describe('deriveFamilies', () => {
     ]);
     expect(families).toEqual([]);
   });
+
+  it('resolves the curated colloquial name from the name source (#921)', () => {
+    const names = new Map<string, string | null>([
+      ['tyrannidae', 'Tyrant Flycatchers'],
+      ['ardeidae', 'Herons & Egrets'],
+    ]);
+    const families = deriveFamilies(
+      [
+        obs({ speciesCode: 'vermfly', familyCode: 'tyrannidae' }),
+        obs({ speciesCode: 'greheR', familyCode: 'ardeidae' }),
+      ],
+      names,
+    );
+    // Sorted by display name: Herons & Egrets (H) before Tyrant Flycatchers (T).
+    expect(families.map(f => f.code)).toEqual(['ardeidae', 'tyrannidae']);
+    expect(families.find(f => f.code === 'tyrannidae')?.name).toBe('Tyrant Flycatchers');
+    expect(families.find(f => f.code === 'ardeidae')?.name).toBe('Herons & Egrets');
+  });
+
+  it('falls back to prettyFamily when the name source is absent or lacks the family (#921 cold load)', () => {
+    // No name source at all.
+    const cold = deriveFamilies([obs({ speciesCode: 'vermfly', familyCode: 'tyrannidae' })]);
+    expect(cold.find(f => f.code === 'tyrannidae')?.name).toBe('Tyrannidae');
+    // Name source present but missing this family.
+    const partial = deriveFamilies(
+      [obs({ speciesCode: 'vermfly', familyCode: 'tyrannidae' })],
+      new Map<string, string | null>([['ardeidae', 'Herons & Egrets']]),
+    );
+    expect(partial.find(f => f.code === 'tyrannidae')?.name).toBe('Tyrannidae');
+  });
 });
 
 describe('resolveFamilyName', () => {

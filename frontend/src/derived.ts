@@ -19,7 +19,20 @@ import type { FamilyOption, SpeciesOption } from './components/FiltersBar.js';
 //     `familyCode === undefined`; the falsy guards below treat `null`
 //     and `undefined` identically, so no cache bump is required.
 
-export function deriveFamilies(observations: Observation[]): FamilyOption[] {
+/**
+ * #921: optional `familyCode → colloquial commonName` source threaded from the
+ * `/api/silhouettes` catalogue (built in App.tsx). When supplied, each option's
+ * display name resolves through `resolveFamilyName` so the FiltersBar `<select>`
+ * and the count lede read the curated `Tyrant Flycatchers` instead of the
+ * scientific `Tyrannidae`. Absent / cold (catalogue not yet loaded), every
+ * option falls back to `prettyFamily(code)` — a label is never blank.
+ */
+export type FamilyNameSource = ReadonlyMap<string, string | null | undefined>;
+
+export function deriveFamilies(
+  observations: Observation[],
+  names?: FamilyNameSource,
+): FamilyOption[] {
   const set = new Map<string, string>();
   for (const o of observations) {
     // Skip observations with no resolvable family — do NOT bucket them
@@ -28,7 +41,10 @@ export function deriveFamilies(observations: Observation[]): FamilyOption[] {
     set.set(o.familyCode, o.familyCode);
   }
   return Array.from(set.entries())
-    .map(([code]) => ({ code, name: prettyFamily(code) }))
+    .map(([code]) => ({ code, name: resolveFamilyName(code, { commonName: names?.get(code) }) }))
+    // Sort by the RESOLVED display name: switching scientific→colloquial
+    // intentionally reorders the FiltersBar options (e.g. `Ardeidae` under A
+    // moves to `Herons & Egrets` under H).
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 

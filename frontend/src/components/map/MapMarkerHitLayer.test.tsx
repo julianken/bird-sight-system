@@ -12,6 +12,7 @@ function makeMarker(partial: Partial<HitTargetMarker> = {}): HitTargetMarker {
     subId: partial.subId ?? 'S001',
     comName: partial.comName ?? 'House Finch',
     familyCode: 'familyCode' in partial ? partial.familyCode! : 'fringillidae',
+    familyName: 'familyName' in partial ? partial.familyName! : undefined,
     locName: 'locName' in partial ? partial.locName! : 'Sabino Canyon',
     obsDt: partial.obsDt ?? '2026-04-15T10:00:00Z',
     isNotable: partial.isNotable ?? false,
@@ -83,11 +84,12 @@ describe('MapMarkerHitLayer', () => {
     expect(btn.style.height).toBe('40px');
   });
 
-  it('emits a full aria-label including comName, family, location, date, notable flag', () => {
+  it('emits a full aria-label including comName, colloquial family, location, date, notable flag', () => {
     const markers = [
       makeMarker({
         comName: 'Vermilion Flycatcher',
         familyCode: 'tyrannidae',
+        familyName: 'Tyrant Flycatchers',
         locName: 'Sweetwater Wetlands',
         obsDt: '2026-04-15T10:00:00Z',
         isNotable: true,
@@ -103,9 +105,34 @@ describe('MapMarkerHitLayer', () => {
     const btn = screen.getByRole('button');
     const label = btn.getAttribute('aria-label') ?? '';
     expect(label).toContain('Vermilion Flycatcher');
-    expect(label).toContain('tyrannidae');
+    // #921: the colloquial name is announced, NOT the raw lowercase scientific
+    // code that used to leak (worse than the visible popover ever was).
+    expect(label).toContain('Tyrant Flycatchers');
+    expect(label).not.toContain('tyrannidae');
     expect(label).toContain('Sweetwater Wetlands');
     expect(label).toContain('notable');
+  });
+
+  it('falls back to prettyFamily(familyCode) when familyName is absent (#921 cold load)', () => {
+    // No resolved familyName yet (silhouette catalogue not loaded) — the label
+    // must show the capitalized scientific code, never the raw lowercase code
+    // and never blank.
+    const markers = [makeMarker({ familyCode: 'tyrannidae' })];
+    render(
+      <MapMarkerHitLayer map={makeFakeMap()} markers={markers} onSelect={vi.fn()} />,
+    );
+    const label = screen.getByRole('button').getAttribute('aria-label') ?? '';
+    expect(label).toContain('Tyrannidae');
+    expect(label).not.toContain('tyrannidae');
+  });
+
+  it('falls back to "unknown family" when both familyName and familyCode are null (#921)', () => {
+    const markers = [makeMarker({ familyCode: null })];
+    render(
+      <MapMarkerHitLayer map={makeFakeMap()} markers={markers} onSelect={vi.fn()} />,
+    );
+    const label = screen.getByRole('button').getAttribute('aria-label') ?? '';
+    expect(label).toContain('unknown family');
   });
 
   it('renders hit-target buttons with tabIndex=-1 (skip-link is the keyboard entry, not Tab cycling)', () => {

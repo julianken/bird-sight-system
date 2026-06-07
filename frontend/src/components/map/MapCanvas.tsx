@@ -2609,17 +2609,30 @@ export function MapCanvas({
       const lngLat: [number, number] = displaced
         ? [displaced.longitude, displaced.latitude]
         : [o.lng, o.lat];
+      // #921: resolve the colloquial family name UPSTREAM, where the silhouette
+      // catalogue (`silhouettesById`) is in scope. The leaf `MapMarkerHitLayer`
+      // gets no catalogue, so without this it fell back to the RAW lowercase
+      // `familyCode` in the screen-reader aria-label (`…, tyrannidae, …`). The
+      // resolver chain stays `name ?? commonName ?? prettyFamily`; `name`
+      // (AggregatedFamily.name) has no per-observation analogue, so only the
+      // silhouette `commonName` participates here.
+      const familyName = o.familyCode
+        ? resolveFamilyName(o.familyCode, {
+            commonName: silhouettesById.get(o.familyCode.toLowerCase())?.commonName,
+          })
+        : undefined;
       return {
         subId: o.subId,
         comName: o.comName,
         familyCode: o.familyCode,
+        familyName,
         locName: o.locName,
         obsDt: o.obsDt,
         isNotable: o.isNotable,
         lngLat,
       };
     });
-  }, [observations, mapZoom, silhouetteOffsets]);
+  }, [observations, mapZoom, silhouetteOffsets, silhouettesById]);
 
   const handleHitSelect = useCallback(
     (subId: string) => {

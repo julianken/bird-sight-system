@@ -125,7 +125,42 @@ describe('familyCountsFromBuckets / deriveFamiliesFromBuckets', () => {
   it('a family present in ANY bucket appears in the derived legend options', () => {
     const fams = deriveFamiliesFromBuckets(buckets);
     expect(fams.map(f => f.code).sort()).toEqual(['cardinalidae', 'tyrannidae']);
-    // prettyFamily-capitalised display name.
+    // Cold call (no name source): prettyFamily-capitalised scientific code is
+    // the terminal fallback — never blank.
+    expect(fams.find(f => f.code === 'tyrannidae')?.name).toBe('Tyrannidae');
+  });
+
+  it('resolves the curated colloquial name from the silhouette name source (#921)', () => {
+    const names = new Map<string, string | null>([
+      ['tyrannidae', 'Tyrant Flycatchers'],
+      ['cardinalidae', 'Cardinals & Allies'],
+    ]);
+    const fams = deriveFamiliesFromBuckets(buckets, names);
+    expect(fams.find(f => f.code === 'tyrannidae')?.name).toBe('Tyrant Flycatchers');
+    expect(fams.find(f => f.code === 'cardinalidae')?.name).toBe('Cardinals & Allies');
+    // Switching scientific→colloquial reorders the options (sort is by display
+    // name): Cardinals & Allies (C) before Tyrant Flycatchers (T).
+    expect(fams.map(f => f.code)).toEqual(['cardinalidae', 'tyrannidae']);
+  });
+
+  it('prefers the server AggregatedFamily.name over the silhouette name source (#921 PR4 forward-compat)', () => {
+    // A bucket family carrying a server-projected `name` (PR4) wins over the
+    // silhouette commonName, per the chain name ?? commonName ?? prettyFamily.
+    const serverNamed: AggregatedBucket[] = [
+      {
+        lat: 31, lng: -111, count: 5, speciesCount: 1,
+        families: [{ code: 'tyrannidae', count: 5, speciesCount: 1, species: [], name: 'Server Flycatchers' }],
+      },
+    ];
+    const names = new Map<string, string | null>([['tyrannidae', 'Tyrant Flycatchers']]);
+    const fams = deriveFamiliesFromBuckets(serverNamed, names);
+    expect(fams.find(f => f.code === 'tyrannidae')?.name).toBe('Server Flycatchers');
+  });
+
+  it('falls back to prettyFamily when the name source lacks the family (#921 cold load)', () => {
+    const names = new Map<string, string | null>([['cardinalidae', 'Cardinals & Allies']]);
+    const fams = deriveFamiliesFromBuckets(buckets, names);
+    // tyrannidae absent from the name source → terminal prettyFamily fallback.
     expect(fams.find(f => f.code === 'tyrannidae')?.name).toBe('Tyrannidae');
   });
 
