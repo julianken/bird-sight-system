@@ -688,12 +688,19 @@ describe('getObservationsAggregated (#627)', () => {
     expect(tyr.species[0]!.code).toBe('vermfly');
     const tro = az.families.find(f => f.code === 'trochilidae')!;
     expect(tro.species[0]!.code).toBe('annhum');
+    // #924 PR4 — family.name is projected from
+    // COALESCE(family_silhouettes.common_name, species_meta.family_name). No
+    // family_silhouettes rows are seeded in this test, so both resolve via the
+    // SECOND arm (sm.family_name, seeded at lines 17-18).
+    expect(tyr.name).toBe('Tyrant Flycatchers');
+    expect(tro.name).toBe('Hummingbirds');
 
     expect(ne.count).toBe(1);
     expect(ne.speciesCount).toBe(1);
     expect(ne.families).toHaveLength(1);
     expect(ne.families[0]!.code).toBe('tyrannidae');
     expect(ne.families[0]!.count).toBe(1);
+    expect(ne.families[0]!.name).toBe('Tyrant Flycatchers');
     expect(ne.families[0]!.species).toEqual([{ code: 'vermfly', count: 1 }]);
   });
 

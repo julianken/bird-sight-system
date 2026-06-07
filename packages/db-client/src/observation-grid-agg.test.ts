@@ -126,6 +126,17 @@ beforeAll(async () => {
        ('sp-0004','Com 4','Sci 4','fam-b','Fam B',10004)`,
   );
 
+  // #924 PR4: seed a family_silhouettes row for fam-a ONLY, with a curated
+  // common_name ('Antbirds') distinct from sm.family_name ('Fam A'). This makes
+  // the server COALESCE(fs.common_name, sm.family_name) projection observable on
+  // both arms: fam-a resolves via the silhouette FIRST arm ('Antbirds'), fam-b
+  // has no silhouette row so it falls through to the family_name SECOND arm
+  // ('Fam B'). id/svg_data/color/color_dark are NOT NULL — values are arbitrary.
+  await pool.query(
+    `INSERT INTO family_silhouettes (id, family_code, svg_data, color, color_dark, common_name) VALUES
+       ('fam-a','fam-a','<svg/>','#abc','#abc','Antbirds')`,
+  );
+
   await seedObservations(0, 600);
   await pool.query('ANALYZE observations');
   await pool.query('ANALYZE species_meta');
@@ -177,6 +188,28 @@ describe('refreshGridAgg ↔ getObservationsAggregated byte-identity (#878)', ()
         expect(fingerprint(cached)).toBe(fingerprint(live));
         expect(cached.length).toBeGreaterThan(0);
       }
+    }
+  });
+
+  it('projects COALESCE(family_silhouettes.common_name, species_meta.family_name) as family.name on both paths (#924 PR4)', async () => {
+    await refreshGridAgg(pool);
+    for (const m of STANDARD_GRID_MULTIPLIERS) {
+      const live = await getObservationsAggregated(pool, { since: '14d' }, m);
+      const cached = await getAggregatedGridFromCache(pool, NATIONAL_SCOPE_KEY, m);
+
+      // First arm (silhouette wins): fam-a has a family_silhouettes row with
+      // common_name 'Antbirds', distinct from its sm.family_name 'Fam A'.
+      const liveFamA = live.flatMap(b => b.families).find(f => f.code === 'fam-a');
+      const cachedFamA = cached.flatMap(b => b.families).find(f => f.code === 'fam-a');
+      expect(liveFamA?.name).toBe('Antbirds');
+      expect(cachedFamA?.name).toBe('Antbirds');
+
+      // Second arm (family_name fallback): fam-b has NO silhouette row, so it
+      // resolves via sm.family_name 'Fam B'.
+      const liveFamB = live.flatMap(b => b.families).find(f => f.code === 'fam-b');
+      const cachedFamB = cached.flatMap(b => b.families).find(f => f.code === 'fam-b');
+      expect(liveFamB?.name).toBe('Fam B');
+      expect(cachedFamB?.name).toBe('Fam B');
     }
   });
 
