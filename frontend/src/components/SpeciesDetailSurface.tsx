@@ -12,6 +12,15 @@ import type { FamilyCode } from '../config/family-palette.js';
 export interface SpeciesDetailSurfaceProps {
   speciesCode: string;
   apiClient: ApiClient;
+  /**
+   * Drives the recipe #18 (texts-reveal) entrance on the identity block.
+   * The wrapper (SpeciesDetailRail) starts this `false` on mount and flips
+   * it `true` in a post-paint effect so the staggered name/sci/family lines
+   * play from their resting off-state. Defaults to `true` so any consumer
+   * that does NOT orchestrate the reveal (a direct render, a future modal,
+   * the unit tests) shows the resting end-state immediately.
+   */
+  revealed?: boolean;
 }
 
 /**
@@ -37,7 +46,7 @@ export interface SpeciesDetailSurfaceProps {
  * inside the wrapper's scroll container (modal or sheet), not <main>.
  */
 export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
-  const { speciesCode, apiClient } = props;
+  const { speciesCode, apiClient, revealed = true } = props;
   const detail = useSpeciesDetail(apiClient, speciesCode);
   const { loading, error, data } = detail;
   // useSilhouettes provides the family-color payload. The data is cached at
@@ -138,27 +147,90 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
     return null;
   }
 
+  const famColor = resolveColor(data.familyCode);
+
   return (
     <div className="species-detail-body">
-      <Photo
-        src={data.photoUrl ?? null}
-        alt={`${data.comName} photo`}
-        family={data.familyCode as FamilyCode | null}
-        color={resolveColor(data.familyCode)}
-        pathD={resolvePath(data.familyCode)}
-        imgUrl={resolveImgUrl(data.familyCode)}
-        priority={true}
-        layout="masthead"
+      {/* A. Masthead photo — full-bleed hero (the .species-detail-body > .photo
+          rule cancels the body gutter; .detail-fg-masthead pins the 232px
+          height + scrim + object-position). */}
+      <div className="detail-fg-masthead">
+        <Photo
+          src={data.photoUrl ?? null}
+          alt={`${data.comName} photo`}
+          family={data.familyCode as FamilyCode | null}
+          color={famColor}
+          pathD={resolvePath(data.familyCode)}
+          imgUrl={resolveImgUrl(data.familyCode)}
+          priority={true}
+          layout="masthead"
+        />
+      </div>
+
+      {/* B–D. Identity block — recipe #18 (texts-reveal): name=line1, sci=line2,
+          family-row=line3. `.is-shown` is added post-paint by the wrapper
+          (SpeciesDetailRail) so the stagger plays from the resting off-state on
+          mount + per-species remount. */}
+      <div className={`detail-fg-identity t-stagger${revealed ? ' is-shown' : ''}`}>
+        <h1
+          id="detail-title"
+          tabIndex={-1}
+          className="detail-name detail-fg-name t-stagger-line t-stagger-line--1"
+        >
+          {data.comName}
+        </h1>
+        <p className="detail-fg-sci t-stagger-line t-stagger-line--2">
+          <em>{data.sciName}</em>
+        </p>
+        <p className="detail-fg-family t-stagger-line t-stagger-line--3">
+          <span
+            className="detail-fg-family-dot"
+            aria-hidden="true"
+            style={{ background: famColor }}
+          />
+          {data.familyName}
+        </p>
+      </div>
+
+      {/* E. Family-accent rule — the strongest field-guide signal. */}
+      <div
+        className="detail-fg-rule"
+        aria-hidden="true"
+        style={{ background: famColor }}
       />
-      <h1 id="detail-title" tabIndex={-1} className="detail-name">
-        {data.comName}
-      </h1>
-      <p className="species-detail-sci-name"><em>{data.sciName}</em></p>
-      <p className="species-detail-family">{data.familyName}</p>
-      <SpeciesDescription
-        descriptionBody={data.descriptionBody}
-        descriptionAttributionUrl={data.descriptionAttributionUrl}
-      />
+
+      {/* F. Taxonomy — real <dl> so AT ties label→value. Intentionally restates
+          Scientific name + Family as formal labeled reference data (matches the
+          mobile field-guide entry page); do NOT de-duplicate against B–D. */}
+      <dl className="detail-fg-taxonomy">
+        <div className="detail-fg-taxrow">
+          <dt>Scientific name</dt>
+          <dd><em>{data.sciName}</em></dd>
+        </div>
+        <div className="detail-fg-taxrow">
+          <dt>Family</dt>
+          <dd>{data.familyName}</dd>
+        </div>
+        <div className="detail-fg-taxrow">
+          <dt>eBird taxonomic order</dt>
+          <dd>{data.taxonOrder != null ? `#${data.taxonOrder}` : '—'}</dd>
+        </div>
+      </dl>
+
+      {/* G. About — eyebrow + Wikipedia-credited prose. */}
+      <div className="detail-fg-about">
+        {data.descriptionBody ? (
+          <>
+            <h2 className="detail-fg-about-eyebrow">About</h2>
+            <SpeciesDescription
+              descriptionBody={data.descriptionBody}
+              descriptionAttributionUrl={data.descriptionAttributionUrl}
+            />
+          </>
+        ) : null}
+      </div>
+
+      {/* H. Sentinel — must remain the LAST child for the IntersectionObserver. */}
       <div
         ref={sentinelRef}
         data-testid="detail-bottom-sentinel"

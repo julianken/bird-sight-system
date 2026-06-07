@@ -108,6 +108,46 @@ describe('<SpeciesDetailRail>', () => {
     document.body.removeChild(trigger);
   });
 
+  // #911 — the default fallbackFocusSelector was the dead `#surface-tab-map`
+  // (deleted in the map-first re-architecture), so on close — when the trigger
+  // is gone — focus restore was a silent no-op that dropped focus onto <body>
+  // (WCAG 2.4.3 regression). The default is now `#main-surface`, the real
+  // focusable <main tabIndex={0}> in App.tsx.
+  it('#911: restores focus to the default #main-surface when trigger is detached and no fallback prop is passed', async () => {
+    const trigger = document.createElement('button');
+    trigger.textContent = 'Trigger (will be detached)';
+    document.body.appendChild(trigger);
+    trigger.focus();
+
+    // The real App.tsx landmark: <main id="main-surface" tabIndex={0}>.
+    const mainSurface = document.createElement('main');
+    mainSurface.id = 'main-surface';
+    mainSurface.tabIndex = 0;
+    document.body.appendChild(mainSurface);
+
+    const onClose = vi.fn();
+    render(
+      <SpeciesDetailRail
+        speciesCode="vermfly"
+        apiClient={makeClient()}
+        onClose={onClose}
+        triggerRef={{ current: trigger }}
+        // NO fallbackFocusSelector — assert the DEFAULT resolves to #main-surface.
+      />
+    );
+    await screen.findByRole('complementary');
+
+    // Detach the trigger so the close handler must use the fallback selector.
+    document.body.removeChild(trigger);
+    expect(document.contains(trigger)).toBe(false);
+
+    await userEvent.keyboard('{Escape}');
+
+    await waitFor(() => expect(document.activeElement).toBe(mainSurface));
+
+    document.body.removeChild(mainSurface);
+  });
+
   it('falls back to fallbackFocusSelector when trigger is detached from document', async () => {
     const trigger = document.createElement('button');
     trigger.textContent = 'Trigger (will be detached)';

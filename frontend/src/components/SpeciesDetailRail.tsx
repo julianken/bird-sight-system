@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import type { ApiClient } from '../api/client.js';
 import { SpeciesDetailSurface } from './SpeciesDetailSurface.js';
 
@@ -14,9 +14,14 @@ export interface SpeciesDetailRailProps {
   triggerRef?: RefObject<HTMLElement | null>;
   /**
    * CSS selector for the stable focus target to use when the original
-   * trigger is no longer in the document. Defaults to `#surface-tab-map`
-   * — the in-place rail coexists with the Map, so on close the user is
-   * still on the map surface and the Map tab is the right landmark.
+   * trigger is no longer in the document. Defaults to `#main-surface`
+   * — the real focusable `<main tabIndex={0}>` (App.tsx). The in-place
+   * rail coexists with the Map, so on close the user is still on the map
+   * surface and the main landmark is the right place to land focus.
+   *
+   * (#911: the prior default `#surface-tab-map` was deleted in the
+   * map-first re-architecture, so focus-restore was a silent no-op that
+   * dropped focus onto <body> — a WCAG 2.4.3 regression. Restored here.)
    */
   fallbackFocusSelector?: string;
 }
@@ -49,11 +54,21 @@ export function SpeciesDetailRail(props: SpeciesDetailRailProps) {
     apiClient,
     onClose,
     triggerRef,
-    fallbackFocusSelector = '#surface-tab-map',
+    fallbackFocusSelector = '#main-surface',
   } = props;
   const asideRef = useRef<HTMLElement | null>(null);
   const closeBtnRef = useRef<HTMLButtonElement | null>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+  // recipe #07 (panel-reveal) + recipe #18 (texts-reveal): start in the
+  // resting OFF-state, then flip ON in a post-paint mount effect so the
+  // entrance plays. The rail remounts per species (key={state.detail} in
+  // App.tsx), so this single flag drives BOTH the aside slide-in (data-open)
+  // AND the identity stagger (passed down as `revealed`) on open + species
+  // switch — no reflow-replay machinery needed. The close tween is skipped
+  // by design: the rail unmounts via React conditional render, so there is
+  // no exit frame to animate (animating close would need an unmount-defer
+  // state machine — out of scope; the entrance is the win).
+  const [revealed, setRevealed] = useState(false);
 
   const doClose = useCallback(() => {
     // Focus return discipline: restore to the original trigger if it's
@@ -89,6 +104,22 @@ export function SpeciesDetailRail(props: SpeciesDetailRailProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Post-paint reveal: flip ON after the browser has painted the resting
+  // OFF-state at least once so the CSS transition actually runs (a same-frame
+  // flip would jump straight to the end-state with no tween). A double rAF is
+  // the portable way to land on the frame after first paint. Mount-only.
+  useEffect(() => {
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => setRevealed(true));
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ESC handler — document-level so it catches the key regardless of
   // current focus location (focus may have moved into the Map by the
   // time the user presses ESC).
@@ -106,7 +137,8 @@ export function SpeciesDetailRail(props: SpeciesDetailRailProps) {
   return (
     <aside
       ref={asideRef}
-      className="species-detail-rail"
+      className="species-detail-rail t-panel-slide"
+      data-open={revealed ? 'true' : 'false'}
       role="complementary"
       aria-labelledby="detail-title"
     >
@@ -122,6 +154,7 @@ export function SpeciesDetailRail(props: SpeciesDetailRailProps) {
       <SpeciesDetailSurface
         speciesCode={speciesCode}
         apiClient={apiClient}
+        revealed={revealed}
       />
     </aside>
   );

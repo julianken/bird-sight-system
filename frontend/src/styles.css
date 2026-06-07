@@ -697,24 +697,151 @@ body:has(.species-detail-sheet--full) .app-header-controls-pill {
   display: block;
   margin: 0 0 12px 0;
 }
-/* Renamed from .species-detail-common-name to match JSX className="detail-name" (#443).
-   Font-size promoted from --type-lg (22px) to --type-hero (34px) per
-   tokens.md:135 "detail-surface species name". */
-.detail-name {
-  margin: 0 0 4px 0;
+/* ==========================================================================
+   #918 — Desktop detail card field-guide restyle (.detail-fg-*).
+   SpeciesDetailSurface (desktop rail body) was a flat stacked card; this
+   block brings the mobile sheet's field-guide entry shape to the desktop:
+   masthead + scrim → 34px hero name → italic sci → family dot(+ring)+name
+   → 3px family-accent rule → 3-row taxonomy <dl> → About eyebrow + prose.
+   Tokens are REUSED from tokens.css (--type-hero/-sm/-xs, --space-*,
+   --sheet-dot-ring, --font-weight-*); these are NEW selectors so they don't
+   inherit the sheet's detent/drag/grid machinery (.sheet-fg-* stays mobile).
+   The .detail-fg-identity stagger is recipe #18 (texts-reveal); the rail
+   slide-in is recipe #07 (panel-reveal) — both in the motion section below.
+
+   .detail-name keeps its id/class hooks (rail aria-labelledby + tests). */
+
+/* A. Masthead — full-bleed hero with a fixed 232px height (NOT aspect-ratio
+   /vw: an explicit height avoids the auto-track collapse + the 38vw rail
+   width clamp over-growing the photo at 1920). The body gutter is cancelled
+   by the shared `.species-detail-body > .photo` rule; this wrapper just owns
+   the height, the object-position lift, and the bottom-edge scrim. */
+.detail-fg-masthead {
+  margin-inline: calc(-1 * var(--space-lg));
+  width: calc(100% + 2 * var(--space-lg));
+  height: 232px;
+  margin-bottom: var(--space-md);
+  position: relative;
+  overflow: hidden;
+}
+.detail-fg-masthead .photo {
+  --photo-radius: 0;
+  aspect-ratio: auto;
+  width: 100%;
+  height: 100%;
+}
+.detail-fg-masthead .photo__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Lift the subject so the masthead doesn't crop low with empty sky up top
+     (matches the sheet entry masthead). */
+  object-position: center 35%;
+}
+.detail-fg-masthead .family-silhouette {
+  width: 100%;
+  height: 100%;
+}
+/* Bottom-edge scrim — transparent→~12%-black over the lower 64px. Grounds a
+   bright/low-contrast photo against the card below so it doesn't bleed into
+   the heading region. Decorative + non-interactive; a black wash reads on
+   both light and dark cards (mirrors .sheet-page--entry .sheet-fg-photo::after). */
+.detail-fg-masthead::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 64px;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.12));
+  pointer-events: none;
+}
+
+/* B–D. Identity block. */
+.detail-fg-identity {
+  margin: 0;
+}
+/* .detail-name keeps the promoted --type-hero (34px) size + bold weight from
+   the pre-#918 rule (tokens.md "detail-surface species name") and the id/class
+   hooks the rail/tests depend on. */
+.detail-name,
+.detail-fg-name {
+  margin: 0 0 2px 0;
   font-size: var(--type-hero);
   font-weight: var(--font-weight-bold);
   line-height: 1.1;
 }
-.species-detail-sci-name {
-  margin: 0 0 12px 0;
+.detail-fg-sci {
+  margin: 2px 0 0;
   font-size: var(--type-sm);
   color: var(--color-text-muted);
 }
-.species-detail-family {
+.detail-fg-family {
+  margin: var(--space-xs) 0 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--type-sm);
+  color: var(--color-text-muted);
+}
+.detail-fg-family-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  /* 1px contrast ring so the family hue isn't the only signal (WCAG 1.4.11
+     non-text contrast). --sheet-dot-ring is the SAME per-theme solid color the
+     sheet dot uses (≥3:1 on both card surfaces); reuse it verbatim. */
+  box-shadow: 0 0 0 1px var(--sheet-dot-ring);
+}
+
+/* E. Family-accent rule — the strongest field-guide signal (color set inline). */
+.detail-fg-rule {
+  height: 3px;
+  border-radius: 2px;
+  margin: var(--space-md) 0 0;
+}
+
+/* F. Taxonomy <dl> — 132px label / value grid, uppercase --type-xs labels,
+   hairline borders (mirrors .sheet-fg-taxonomy / -taxrow). Intentionally
+   restates Scientific name + Family as formal labeled reference data. */
+.detail-fg-taxonomy {
+  margin: var(--space-md) 0 0;
+}
+.detail-fg-taxrow {
+  display: grid;
+  grid-template-columns: 132px 1fr;
+  gap: var(--space-md);
+  padding: var(--space-sm) 0;
+  border-bottom: 1px solid rgba(127, 127, 127, 0.22);
+}
+.detail-fg-taxrow:first-child {
+  border-top: 1px solid rgba(127, 127, 127, 0.22);
+}
+.detail-fg-taxrow dt {
+  margin: 0;
+  font-size: var(--type-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}
+.detail-fg-taxrow dd {
   margin: 0;
   font-size: var(--type-sm);
-  color: var(--color-text-body);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-strong);
+}
+
+/* G. About — eyebrow + prose (SpeciesDescription carries the Wikipedia credit). */
+.detail-fg-about {
+  margin: var(--space-md) 0 0;
+}
+.detail-fg-about-eyebrow {
+  margin: var(--space-sm) 0 2px;
+  font-size: var(--type-xs);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
 }
 .species-detail-loading { color: var(--color-text-muted); font-size: var(--type-sm); margin: 8px 0 0 0; }
 .species-detail-error {
@@ -1360,6 +1487,89 @@ aside.species-detail-rail .species-detail-rail-close {
   cursor: pointer;
   color: var(--color-text-strong);
   z-index: 1;
+}
+
+/* ==========================================================================
+   #918 — Desktop detail card entrance motion (transitions-dev catalog only).
+
+   Recipe #07 (panel-reveal) on the rail itself + recipe #18 (texts-reveal)
+   on the identity block. Catalog snippets pasted verbatim from
+   ~/.claude/skills/transitions-dev/{07-panel-reveal,18-texts-reveal}.md:
+   exact enumerated properties, will-change, and the required
+   @media (prefers-reduced-motion: reduce) guards kept. NO FLIP, NO
+   View-Transitions API, NO clip-path, NO WAAPI morph, NO getBoundingClientRect.
+
+   The rail uses #07 (NOT modal #06): it slides into the top-right region of a
+   still-interactive map (role="complementary"), so a panel slide — not a
+   centered scale — is the right surface. The exit/close tween is intentionally
+   skipped: the rail unmounts via React conditional render (App.tsx
+   `{scopeActive && state.detail && !isCompact && <SpeciesDetailRail/>}`), so
+   there is no exit frame to animate without an unmount-defer state machine
+   (out of scope; the entrance is the win).
+
+   The rail remounts per species (key={state.detail}), so ONE post-paint mount
+   effect in SpeciesDetailRail.tsx sets BOTH data-open="true" (here) and the
+   identity .is-shown — the stagger plays from the resting off-state on open
+   and on every species switch, no reflow-replay needed.
+
+   --panel-translate-y is overridden to 16px (a docked card travels a short
+   distance, not a full panel); --panel-open-dur (400ms), --panel-ease, and
+   --panel-blur (2px) are reused from tokens.css.
+   ========================================================================== */
+
+/* Recipe #07 — panel-reveal (verbatim CSS; --panel-translate-y → 16px). */
+aside.species-detail-rail.t-panel-slide {
+  --panel-translate-y: 16px;
+  transform: translateY(var(--panel-translate-y));
+  opacity: 0;
+  filter: blur(var(--panel-blur));
+  transition:
+    transform var(--panel-open-dur) var(--panel-ease),
+    opacity   var(--panel-open-dur) var(--panel-ease),
+    filter    var(--panel-open-dur) var(--panel-ease);
+  will-change: transform, opacity, filter;
+}
+aside.species-detail-rail.t-panel-slide[data-open='true'] {
+  transform: translateY(0);
+  opacity: 1;
+  filter: blur(0);
+  transition:
+    transform var(--panel-open-dur) var(--panel-ease),
+    opacity   var(--panel-open-dur) var(--panel-ease),
+    filter    var(--panel-open-dur) var(--panel-ease);
+}
+/* The catalog snippet sets pointer-events on the resting/open states to gate
+   interaction during a full panel reveal. The rail is keyboard-focused on
+   mount (close button) and the entrance is short, so pointer-events stay
+   default here — gating them would briefly swallow clicks on the open card. */
+@media (prefers-reduced-motion: reduce) {
+  aside.species-detail-rail.t-panel-slide { transition: none !important; }
+}
+
+/* Recipe #18 — texts-reveal (verbatim CSS) on the identity block. Lines:
+   name=--1, sci=--2, family-row=--3 (the --3 delay is added below). */
+.detail-fg-identity.t-stagger .t-stagger-line {
+  display: block;
+  opacity: 0;
+  transform: translateY(var(--stagger-distance));
+  filter: blur(var(--stagger-blur));
+  transition:
+    opacity   var(--stagger-dur) var(--stagger-ease),
+    transform var(--stagger-dur) var(--stagger-ease),
+    filter    var(--stagger-dur) var(--stagger-ease);
+  will-change: transform, opacity, filter;
+}
+.detail-fg-identity .t-stagger-line--1 { transition-delay: 0s; }
+.detail-fg-identity .t-stagger-line--2 { transition-delay: var(--stagger-stagger); }
+.detail-fg-identity .t-stagger-line--3 { transition-delay: calc(var(--stagger-stagger) * 2); }
+
+.detail-fg-identity.t-stagger.is-shown .t-stagger-line {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
+}
+@media (prefers-reduced-motion: reduce) {
+  .detail-fg-identity.t-stagger .t-stagger-line { transition: none !important; }
 }
 
 /* ==========================================================================
