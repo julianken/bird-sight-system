@@ -462,13 +462,46 @@ export function App() {
     prefetchMapCanvas();
   }, [scopeActive]);
 
+  // Family color + silhouette SOT (issue #55 option (a)): colors and
+  // silhouette payloads resolve via the DB-backed `/api/silhouettes`
+  // endpoint. The hook caches aggressively (response is static per deploy
+  // + 1-week immutable Cache-Control) so mounting it here is effectively
+  // free. Issue #249 threads the resulting `silhouettes` value to
+  // MapSurface → FamilyLegend; descendants that need a color resolver
+  // can still compose `buildFamilyColorResolver` from
+  // `./data/family-color.js`. Single mount, prop-thread to consumers
+  // (per #246's strict-mount discipline). Hoisted above the family-options
+  // derivation (#921) so `silhouettes` is in scope to resolve colloquial
+  // family names for the FiltersBar `<select>` + count lede.
+  const {
+    silhouettes,
+    loading: silhouettesLoading,
+    error: silhouettesError,
+  } = useSilhouettes(apiClient);
+
+  // #921: familyCode → curated colloquial name, from the `/api/silhouettes`
+  // catalogue the app already fetches. Threaded into both derive functions so
+  // the FiltersBar `<select>` options AND the count lede read `Tyrant
+  // Flycatchers` instead of the scientific `Tyrannidae`. Keys are lowercased to
+  // match the server's lowercase family_code on both the observation and bucket
+  // paths. A cold catalogue yields an empty map → both functions fall back to
+  // `prettyFamily` (never a blank label).
+  const familyNamesByCode = useMemo(() => {
+    const map = new Map<string, string | null>();
+    for (const s of silhouettes) map.set(s.familyCode.toLowerCase(), s.commonName);
+    return map;
+  }, [silhouettes]);
+
   // #859: in aggregated mode the per-observation array is empty, so the family
   // filter options derive from the buckets' families instead (the species
   // autocomplete index has no aggregated analogue — codes carry no names on the
   // wire — so it stays observation-only and is simply empty at low zoom).
   const families = useMemo(
-    () => (mode === 'aggregated' ? deriveFamiliesFromBuckets(buckets) : deriveFamilies(observations)),
-    [mode, buckets, observations],
+    () =>
+      mode === 'aggregated'
+        ? deriveFamiliesFromBuckets(buckets, familyNamesByCode)
+        : deriveFamilies(observations, familyNamesByCode),
+    [mode, buckets, observations, familyNamesByCode],
   );
   const speciesIndex = useMemo(() => deriveSpeciesIndex(observations), [observations]);
 
@@ -800,21 +833,6 @@ export function App() {
       });
     }, 250);
   }, []);
-
-  // Family color + silhouette SOT (issue #55 option (a)): colors and
-  // silhouette payloads resolve via the DB-backed `/api/silhouettes`
-  // endpoint. The hook caches aggressively (response is static per deploy
-  // + 1-week immutable Cache-Control) so mounting it here is effectively
-  // free. Issue #249 threads the resulting `silhouettes` value to
-  // MapSurface → FamilyLegend; descendants that need a color resolver
-  // can still compose `buildFamilyColorResolver` from
-  // `./data/family-color.js`. Single mount, prop-thread to consumers
-  // (per #246's strict-mount discipline).
-  const {
-    silhouettes,
-    loading: silhouettesLoading,
-    error: silhouettesError,
-  } = useSilhouettes(apiClient);
 
   // #859: species code→{comName} dictionary. Loaded once (tab-lifetime cache,
   // immutable Cache-Control) and threaded to MapSurface → MapCanvas so the

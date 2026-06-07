@@ -2,7 +2,7 @@ import type { AggregatedBucket, AggregatedFamily } from '@bird-watch/shared-type
 import type { FamilyAggregate, SpeciesAggregate } from '../components/map/adaptive-grid.js';
 import type { SpeciesDictionary } from './use-species-dictionary.js';
 import type { FamilyOption } from '../components/FiltersBar.js';
-import { prettyFamily } from '../derived.js';
+import { prettyFamily, resolveFamilyName, type FamilyNameSource } from '../derived.js';
 
 /**
  * Pure aggregation helpers for the #859 low-zoom (aggregated) render path.
@@ -116,14 +116,40 @@ export function familyCountsFromBuckets(
  * Family options (code + display name) for every family present in any bucket,
  * sorted by display name — the aggregated-mode analogue of
  * `deriveFamilies(observations)`.
+ *
+ * #921: `names` is the optional `familyCode → colloquial commonName` source
+ * threaded from the `/api/silhouettes` catalogue. Each option resolves its
+ * display name through the unified chain
+ * `AggregatedFamily.name ?? silhouette.commonName ?? prettyFamily(code)` — so
+ * the aggregated-mode FiltersBar options and the count lede read the curated
+ * `Tyrant Flycatchers`. The bucket family's own `name` (server-projected by PR4,
+ * undefined until then) wins when present; otherwise the silhouette `commonName`
+ * carries the entire visible win today; `prettyFamily` is the terminal fallback
+ * so a label is never blank on a cold catalogue.
  */
 export function deriveFamiliesFromBuckets(
   buckets: ReadonlyArray<AggregatedBucket>,
+  names?: FamilyNameSource,
 ): FamilyOption[] {
+  // First non-null server `name` per code wins (a family can span buckets; a
+  // later bucket missing the name must not clobber an earlier one carrying it).
+  const serverName = new Map<string, string>();
   const codes = new Set<string>();
-  for (const b of buckets) for (const f of b.families) codes.add(f.code);
+  for (const b of buckets)
+    for (const f of b.families) {
+      codes.add(f.code);
+      if (f.name != null && !serverName.has(f.code)) serverName.set(f.code, f.name);
+    }
   return Array.from(codes)
-    .map(code => ({ code, name: prettyFamily(code) }))
+    .map(code => ({
+      code,
+      name: resolveFamilyName(code, {
+        name: serverName.get(code),
+        commonName: names?.get(code),
+      }),
+    }))
+    // Sort by the RESOLVED display name — switching scientific→colloquial
+    // intentionally reorders the options.
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 

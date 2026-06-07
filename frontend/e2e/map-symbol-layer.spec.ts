@@ -160,6 +160,14 @@ test.describe('Map symbol layer + popover detail link', () => {
       test.skip(true, 'hit-layer mounted but no markers projected (no observations after geo filter)');
       return;
     }
+
+    // #921: the marker aria-label announces the curated colloquial family name
+    // (from the silhouette catalogue's `commonName`), NOT the raw lowercase
+    // scientific code that used to leak (`…, tyrannidae, …`).
+    const ariaLabel = (await hitButton.getAttribute('aria-label')) ?? '';
+    expect(ariaLabel).toContain('Tyrant Flycatchers');
+    expect(ariaLabel).not.toContain('tyrannidae');
+
     await hitButton.click();
 
     // ObservationPopover dialog opens with the species name + detail link.

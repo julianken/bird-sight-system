@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { prettyFamily } from '../../derived.js';
 
 /**
  * Per-marker hit-target overlay rendered above the map canvas.
@@ -25,6 +26,19 @@ export interface HitTargetMarker {
   subId: string;
   comName: string;
   familyCode: string | null;
+  /**
+   * #921: the resolved colloquial family name (e.g. `Tyrant Flycatchers`),
+   * resolved UPSTREAM in MapCanvas's `hitMarkers` memo where the silhouette
+   * catalogue is in scope. Optional so legacy/test callers passing only a code
+   * still type-check; `formatAriaLabel` falls back to `prettyFamily(familyCode)`
+   * when absent (cold catalogue) — never the raw lowercase code that used to
+   * leak into the screen-reader label.
+   *
+   * The value type includes `undefined` (not just the `?` presence flag) so the
+   * `hitMarkers` memo can assign a `string | undefined` from the resolver
+   * directly under `exactOptionalPropertyTypes: true` without coalescing first.
+   */
+  familyName?: string | null | undefined;
   locName: string | null;
   obsDt: string;
   isNotable: boolean;
@@ -58,12 +72,16 @@ const HIT_SIZE_COARSE = 48;
  * Build the per-marker `aria-label`. Format:
  *   "{comName}, {family}, {location}, {date}[, notable]"
  *
- * Family fallback: "unknown family" when familyCode is null. Location
- * fallback: "unknown location" when locName is null. Notable suffix appears
- * only when isNotable is true. Date is locale-formatted to a short form.
+ * Family resolution (#921): the colloquial `familyName` (resolved upstream from
+ * the silhouette catalogue) when present; else `prettyFamily(familyCode)` (a
+ * CAPITALIZED scientific code on a cold catalogue — never the raw lowercase
+ * code that used to leak); else "unknown family" when familyCode is null too.
+ * Location fallback: "unknown location" when locName is null. Notable suffix
+ * appears only when isNotable is true. Date is locale-formatted to a short form.
  */
 function formatAriaLabel(m: HitTargetMarker): string {
-  const family = m.familyCode ?? 'unknown family';
+  const family =
+    m.familyName ?? (m.familyCode ? prettyFamily(m.familyCode) : null) ?? 'unknown family';
   const location = m.locName ?? 'unknown location';
   let dateStr = m.obsDt;
   try {
