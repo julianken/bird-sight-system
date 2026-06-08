@@ -1563,6 +1563,18 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
 .detail-fg-identity .t-stagger-line--2 { transition-delay: var(--stagger-stagger); }
 .detail-fg-identity .t-stagger-line--3 { transition-delay: calc(var(--stagger-stagger) * 2); }
 
+/* The family row is the one stagger line that must stay a flex row: its
+   color dot (.detail-fg-family-dot) is an inline <span> that only gets its
+   8×8 size by being a flex *item*. The texts-reveal rule above forces every
+   line to `display: block` (specificity 0,3,0), which outranks
+   `.detail-fg-family { display: flex }` (0,1,0) — collapsing the dot to a
+   0px-wide box whose 1px box-shadow ring paints as a hairline next to the
+   family name. Restore flex on the family line specifically (0,4,0 wins);
+   transform/opacity/filter still animate normally on a flex container. */
+.detail-fg-identity.t-stagger .detail-fg-family.t-stagger-line {
+  display: flex;
+}
+
 .detail-fg-identity.t-stagger.is-shown .t-stagger-line {
   opacity: 1;
   transform: translateY(0);
