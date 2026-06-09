@@ -33,10 +33,14 @@ import {
 import { mergeLeafBuckets } from '../../data/bucket-aggregates.js';
 import type { SpeciesDictionary } from '../../data/use-species-dictionary.js';
 import { ObservationPopover } from './ObservationPopover.js';
-import { AdaptiveGridMarker } from './AdaptiveGridMarker.js';
-import { PresentationMarker } from './PresentationMarker.js';
 import { ClusterListPopover } from './ClusterListPopover.js';
-import { ClusterPill } from '../ds/ClusterPill.js';
+// Marker render-tree dispatch extracted to two presentational layers
+// (epic #884 · U11 / #896). MapCanvas keeps every handler + derived state and
+// threads them as props; the layers hold no map ref and render only.
+// `AdaptiveGridMarker`, `PresentationMarker`, `ClusterPill`, `MapMarkerHitLayer`
+// and the `SILHOUETTE_PX` constant now live in those layers, not here.
+import { GroupMarkerLayer } from './GroupMarkerLayer.js';
+import { DisplacedSilhouetteLayer } from './DisplacedSilhouetteLayer.js';
 import { registerSilhouetteSprite } from './silhouette-sprite.js';
 import { useSilhouetteCatalogue } from './use-silhouette-catalogue.js';
 import { useMapResize } from './use-map-resize.js';
@@ -52,13 +56,9 @@ import {
   type FamilyAggregate,
   type SpeciesAggregate,
 } from './adaptive-grid.js';
-import {
-  MapMarkerHitLayer,
-  type HitTargetMarker,
-} from './MapMarkerHitLayer.js';
+import { type HitTargetMarker } from './MapMarkerHitLayer.js';
 import {
   hashSubId,
-  SILHOUETTE_PX,
   type DeconflictGroup,
   type DeconflictInput,
 } from './deconflict.js';
@@ -1837,174 +1837,44 @@ export function MapCanvas({
           {spritesReady && <Layer {...unclusteredLayer} />}
         </Source>
         {/*
-          Unified deconflict render (issue #554). Iterates the
-          `groups` slice — one entry per overlap component — and
-          dispatches to <AdaptiveGridMarker> or <ClusterPill> based
-          on the anchor's rendered.kind. The spatial-bucket key
-          (group.key) is stable when the anchor stays in the same
-          ~14px bucket, so React's reconciler doesn't churn under pan.
-        */}
-        {groups.map((g) => {
-          const { anchor } = g;
-          // longitude/latitude are populated for every production input
-          // (the reconciler push above); fall back to 0 only to satisfy
-          // the optional-typed signature for unit-test consumers.
-          const longitude = anchor.longitude ?? 0;
-          const latitude = anchor.latitude ?? 0;
-          if (anchor.rendered.kind === 'pill') {
-            return (
-              <PresentationMarker
-                key={g.key}
-                longitude={longitude}
-                latitude={latitude}
-                anchor="center"
-              >
-                <ClusterPill
-                  count={anchor.point_count}
-                  onClick={(e) => handleGroupClick(g, e.currentTarget)}
-                />
-              </PresentationMarker>
-            );
-          }
-          if (anchor.rendered.kind === 'silhouette') {
-            // Silhouette-only group (no cluster overlaps this silhouette).
-            // The canvas-painted symbol layer already paints it at the
-            // correct lng/lat — no React marker needed. Returning null
-            // keeps the loop's render output sparse so React doesn't
-            // reconcile an empty marker.
-            return null;
-          }
-          return (
-            <PresentationMarker
-              key={g.key}
-              longitude={longitude}
-              latitude={latitude}
-            >
-              <AdaptiveGridMarker
-                shape={anchor.rendered.shape}
-                tiles={anchor.tiles ?? []}
-                totalCount={anchor.point_count}
-                uniqueFamilies={anchor.uniqueFamilies}
-                ariaLabel={g.ariaLabel}
-                isCoarsePointer={isCoarsePointer}
-                isNotable={anchor.isNotable ?? false}
-                detailOpen={detailOpen}
-                onClick={() => handleGroupClick(g)}
-                {...(onSelectSpecies ? {
-                  onSelectSpecies: (code: string) => onSelectSpecies(code),
-                } : {})}
-                {...(anchor.longitude !== undefined && anchor.latitude !== undefined
-                  ? {
-                      // #859: the per-family <CellPopover> "+N more" eases the
-                      // camera into this marker's cell center — the SAME active
-                      // drill-in the cluster-list path uses. The marker decides
-                      // (via tile.speciesCount) whether to actually offer it.
-                      onDrillIn: () => handleDrillInToCenter([longitude, latitude]),
-                    }
-                  : {})}
-              />
-            </PresentationMarker>
-          );
-        })}
+          Unified deconflict render (issue #554). Iterates the `groups`
+          slice — one entry per overlap component — and dispatches to
+          <AdaptiveGridMarker> or <ClusterPill> based on the anchor's
+          rendered.kind. The spatial-bucket key (group.key) is stable when
+          the anchor stays in the same ~14px bucket, so React's reconciler
+          doesn't churn under pan. Extracted to `GroupMarkerLayer.tsx`
+          (epic #884 · U11 / #896) — presentational; MapCanvas keeps the
+          handlers and threads them as props. */}
+        <GroupMarkerLayer
+          groups={groups}
+          isCoarsePointer={isCoarsePointer}
+          detailOpen={detailOpen}
+          onGroupClick={handleGroupClick}
+          {...(onSelectSpecies ? { onSelectSpecies } : {})}
+          onDrillIn={handleDrillInToCenter}
+        />
         {/*
-          Displaced silhouettes (issue #554 scope expansion 2026-05-15).
-          Per user direction silhouettes MUST REMAIN VISIBLE; when one
-          would overlap a cluster anchor, deconflict pushes it ≤20px
-          aside (in pixel space, unprojected to lng/lat here). The
-          canvas-painted twin is hidden via feature-state on the
-          unclustered-point symbol layer — see the reconciler loop.
-        */}
-        {Array.from(silhouetteOffsets.entries()).map(([subId, entry]) => {
-          const obs = obsLookup[subId];
-          if (!obs) return null;
-          const sil = silhouetteRenderById.get(subId);
-          const color = sil?.color ?? '#555';
-          const svgData = sil?.svgData ?? null;
-          // Displaced silhouettes are rendered as accessible <button>
-          // wrappers so a click opens the obs popover even though the
-          // canvas-painted twin is hidden. The PresentationMarker outer
-          // div has role="presentation" (see PresentationMarker effect),
-          // so the inner <button> remains the canonical interactive
-          // element with full keyboard + AT support.
-          return (
-            <PresentationMarker
-              key={`displaced-${subId}`}
-              longitude={entry.longitude}
-              latitude={entry.latitude}
-              anchor="center"
-            >
-              <button
-                type="button"
-                data-testid="displaced-silhouette"
-                data-subid={subId}
-                aria-label={`${obs.comName} observation`}
-                // Issue #718: project the popover from `entry.longitude/
-                // entry.latitude` — the DISPLACED visual position — not
-                // from `obs.lng/obs.lat`. The obs survey point is hidden
-                // beneath the canvas-painted twin; projecting from it
-                // would land the popover next to the invisible original
-                // instead of the silhouette the user actually clicked,
-                // defeating the fix at this site.
-                onClick={() => openPopoverAt(obs, [entry.longitude, entry.latitude])}
-                style={{
-                  display: 'inline-block',
-                  width: SILHOUETTE_PX,
-                  height: SILHOUETTE_PX,
-                  padding: 0,
-                  margin: 0,
-                  border: 'none',
-                  background: 'transparent',
-                  cursor: 'pointer',
-                }}
-              >
-                {svgData ? (
-                  <svg
-                    viewBox="0 0 24 24"
-                    width={SILHOUETTE_PX}
-                    height={SILHOUETTE_PX}
-                    aria-hidden="true"
-                  >
-                    {/* Halo (white stroke) painted first so the colored
-                        body sits on top, mirroring the SDF symbol layer's
-                        icon-halo-color #ffffff / icon-halo-width 1.5. */}
-                    <path
-                      d={svgData}
-                      fill="none"
-                      stroke="#ffffff"
-                      strokeWidth="2"
-                      strokeLinejoin="round"
-                    />
-                    <path d={svgData} fill={color} />
-                  </svg>
-                ) : (
-                  // Fallback circle when the family has no Phylopic
-                  // silhouette — matches the _FALLBACK opacity tinting.
-                  <svg
-                    viewBox="0 0 24 24"
-                    width={SILHOUETTE_PX}
-                    height={SILHOUETTE_PX}
-                    aria-hidden="true"
-                  >
-                    <circle cx="12" cy="12" r="8" fill={color} opacity="0.5" />
-                  </svg>
-                )}
-              </button>
-            </PresentationMarker>
-          );
-        })}
-      </MapView>
-      {/* Issue #247 (original hit-layer) / #277 (Spider v2 narrowed to auto-spider stacks +
-          unclustered): HTML overlay for stacked and unclustered markers, mounted as a sibling
-          of the maplibre canvas inside the relatively-positioned wrapper. */}
-      {map && (
-        <MapMarkerHitLayer
+          Displaced silhouettes (issue #554 scope expansion 2026-05-15) +
+          the co-located hit-target overlay (#247/#277). Both are overlay
+          siblings of the maplibre canvas: the twins keep a deconflicted
+          silhouette VISIBLE (its canvas-painted original is hidden via
+          feature-state), and the hit layer hosts the wider clickable hit
+          targets. Extracted to `DisplacedSilhouetteLayer.tsx` (epic #884 ·
+          U11 / #896) — presentational; MapCanvas keeps openPopoverAt /
+          handleHitSelect and threads them as props. The `map && (...)`
+          guard on the hit-layer mount is preserved inside the component. */}
+        <DisplacedSilhouetteLayer
+          silhouetteOffsets={silhouetteOffsets}
+          obsLookup={obsLookup}
+          silhouetteRenderById={silhouetteRenderById}
+          onOpen={openPopoverAt}
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           map={map as any}
-          markers={hitMarkers}
+          hitMarkers={hitMarkers}
           onSelect={handleHitSelect}
           isCoarsePointer={isCoarsePointer}
         />
-      )}
+      </MapView>
       <ObservationPopover
         observation={selectedObs?.obs ?? null}
         position={selectedObs?.pos ?? null}
