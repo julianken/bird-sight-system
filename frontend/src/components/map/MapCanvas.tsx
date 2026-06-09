@@ -79,6 +79,7 @@ import {
 import {
   buildGroups,
   displaceSilhouettes,
+  hashSubId,
   SILHOUETTE_PX,
   type DeconflictGroup,
   type DeconflictInput,
@@ -221,20 +222,6 @@ export function handleMapError(e: MapErrorEvent): void {
     return;
   }
   console.error(e.error);
-}
-
-/**
- * Stable string hash for observation subIds (issue #554 silhouette
- * deconflict). Used to derive a NEGATIVE pseudo-cluster_id so silhouette
- * inputs can be carried through `buildGroups` alongside real clusters
- * without collision. djb2-style — same algorithm as the unit tests'
- * `hashForTest`. The return value is wrapped through `Math.abs` so
- * negation in the caller produces a deterministic negative id.
- */
-function hashSubId(s: string): number {
-  let h = 5381;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
-  return Math.abs(h);
 }
 
 /**

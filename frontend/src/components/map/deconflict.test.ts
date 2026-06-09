@@ -6,6 +6,7 @@ import {
   bucketKey,
   buildGroups,
   displaceSilhouettes,
+  hashSubId,
   SILHOUETTE_PX,
   type DeconflictInput,
 } from './deconflict.js';
@@ -221,7 +222,7 @@ describe('deconflict', () => {
     py: number,
   ): DeconflictInput {
     return {
-      cluster_id: -hashForTest(subId),
+      cluster_id: -hashSubId(subId),
       px,
       py,
       rendered: { kind: 'silhouette' },
@@ -230,12 +231,47 @@ describe('deconflict', () => {
       subId,
     };
   }
-  function hashForTest(s: string): number {
-    // Stable test-only hash; matches the production djb2-style helper.
-    let h = 5381;
-    for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
-    return Math.abs(h);
-  }
+
+  // ---- hashSubId (U4 extraction from MapCanvas.tsx, #888) ----
+  //
+  // djb2-style string hash → positive int. Callers negate the result to derive
+  // a NEGATIVE pseudo-cluster_id (e.g. `-hashSubId(subId)`) so silhouette inputs
+  // can ride through `buildGroups` alongside real (positive) supercluster ids
+  // without collision. Previously mirrored as a test-only `hashForTest`; this
+  // unit moved the helper to `deconflict.ts` so its contract lives next to the
+  // negative-pseudo-id consumers, and the duplicate was deleted.
+  describe('hashSubId', () => {
+    it('is deterministic — same input yields the same hash', () => {
+      expect(hashSubId('OBS1')).toBe(hashSubId('OBS1'));
+      expect(hashSubId('S12345678')).toBe(hashSubId('S12345678'));
+    });
+
+    it('returns a positive integer (caller negates for the pseudo-id)', () => {
+      for (const subId of ['OBS1', 'OBS2', 'S12345678', 'L9876543', 'a', '']) {
+        const h = hashSubId(subId);
+        expect(Number.isInteger(h)).toBe(true);
+        expect(h).toBeGreaterThanOrEqual(0);
+        // Negated form is the value actually fed into DeconflictInput.cluster_id.
+        expect(-h).toBeLessThanOrEqual(0);
+      }
+    });
+
+    it('distinguishes distinct subIds (no trivial collision on common eBird ids)', () => {
+      expect(hashSubId('OBS1')).not.toBe(hashSubId('OBS2'));
+      expect(hashSubId('S12345678')).not.toBe(hashSubId('S12345679'));
+    });
+
+    it('matches the djb2 reference (5381 seed, h<<5 + h + c, |0, Math.abs)', () => {
+      const ref = (s: string): number => {
+        let h = 5381;
+        for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+        return Math.abs(h);
+      };
+      for (const subId of ['OBS1', 'OBS_E', 'OBS_W', 'S12345678', '']) {
+        expect(hashSubId(subId)).toBe(ref(subId));
+      }
+    });
+  });
 
   it('aabbForShape({kind:"silhouette"}) at (100,100) → 28×28 box centered there', () => {
     expect(aabbForShape({ kind: 'silhouette' }, 100, 100)).toEqual({

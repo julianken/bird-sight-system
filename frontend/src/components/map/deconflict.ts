@@ -413,3 +413,21 @@ export function displaceSilhouettes(
 
   return offsets;
 }
+
+/**
+ * Stable string hash for observation subIds (issue #554 silhouette
+ * deconflict). Used to derive a NEGATIVE pseudo-`cluster_id` (callers negate
+ * the result, e.g. `-hashSubId(subId)`) so silhouette inputs can be carried
+ * through `buildGroups` alongside real (positive) supercluster `cluster_id`s
+ * without collision. djb2-style. The return value is wrapped through
+ * `Math.abs` so negation in the caller produces a deterministic negative id.
+ *
+ * Extracted from `MapCanvas.tsx` (#888, U4): its negative-pseudo-id contract
+ * lives here next to `DeconflictInput.cluster_id` and `buildGroups`, which is
+ * where the sign convention is enforced.
+ */
+export function hashSubId(s: string): number {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
