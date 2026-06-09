@@ -85,6 +85,14 @@ import {
   type DeconflictInput,
 } from './deconflict.js';
 import { resolveFamilyName } from '../../derived.js';
+// Pure observation derives extracted to obs-derive.ts (epic #884 · U8, #892).
+// The fresh-closure `obsLookupRef` latch below stays in the component (it's
+// the indirection, not the memo).
+import {
+  buildObsLookup,
+  buildSilhouetteRenderById,
+  buildHitMarkers,
+} from './obs-derive.js';
 // Type-only declarations extracted to MapCanvas.types.ts (epic #884, U1 / #885).
 // `MapCanvasProps` is re-exported from there and back-imported here; this keeps
 // the export knip-clean (its in-file consumer at the destructuring below is
@@ -1035,12 +1043,9 @@ export function MapCanvas({
   const notableRingLayer = useMemo(() => buildNotableRingLayerSpec(), []);
   const unclusteredLayer = useMemo(() => buildUnclusteredPointLayerSpec(), []);
 
-  // Observation lookup by subId for click handler.
-  const obsLookup = useMemo(() => {
-    const lookup: Record<string, Observation> = Object.create(null);
-    for (const o of observations) lookup[o.subId] = o;
-    return lookup;
-  }, [observations]);
+  // Observation lookup by subId for click handler. Pure derive extracted to
+  // obs-derive.ts (#892); prototype-free record built there.
+  const obsLookup = useMemo(() => buildObsLookup(observations), [observations]);
 
   /**
    * Per-subId silhouette-render lookup (issue #554 scope expansion 2026-05-15).
@@ -1049,21 +1054,13 @@ export function MapCanvas({
    * visually matches the symbol-layer rendering it replaces.
    * `svgData === null` means the family has no usable Phylopic silhouette —
    * the displaced marker falls through to the _FALLBACK shape.
+   * Pure derive extracted to obs-derive.ts (#892).
    */
-  const silhouetteRenderById = useMemo(() => {
-    const lookup = new Map<string, { svgData: string | null; color: string }>();
-    for (const o of observations) {
-      const key = o.familyCode?.toLowerCase();
-      const sil = key ? silhouettesById.get(key) : undefined;
-      lookup.set(o.subId, {
-        svgData: sil?.svgData ?? null,
-        color: sil?.color ?? '#555',
-      });
-    }
-    return lookup;
-  // silhouettesById captures the silhouettes prop transitively (see
-  // useSilhouetteCatalogue — keyed on [silhouettes]).
-  }, [observations, silhouettesById]);
+  const silhouetteRenderById = useMemo(
+    () => buildSilhouetteRenderById(observations, silhouettesById),
+    // silhouettesById captures the silhouettes prop transitively (see its useMemo above).
+    [observations, silhouettesById],
+  );
 
   // Ref keeps the click handler's closure fresh when observations change.
   // `onLoad` only fires once, so a plain closure over `obsLookup` would go
@@ -2166,44 +2163,14 @@ export function MapCanvas({
      hit layer is the wider clickable surface that survives small marker
      sizes. Below CLUSTER_MAX_ZOOM, observations are clustered, so the
      overlay is suppressed and cluster-marker clicks (AdaptiveGridMarker /
-     ClusterPill) drive the interaction. */
-  const hitMarkers: HitTargetMarker[] = useMemo(() => {
-    if (mapZoom < CLUSTER_MAX_ZOOM) {
-      return [];
-    }
-    return observations.map((o) => {
-      // If this subId is currently displaced (silhouette deconflict),
-      // anchor the hit target at the displaced lng/lat so clicks land on
-      // where the user actually sees the silhouette, not the canvas-
-      // hidden original position.
-      const displaced = silhouetteOffsets.get(o.subId);
-      const lngLat: [number, number] = displaced
-        ? [displaced.longitude, displaced.latitude]
-        : [o.lng, o.lat];
-      // #921: resolve the colloquial family name UPSTREAM, where the silhouette
-      // catalogue (`silhouettesById`) is in scope. The leaf `MapMarkerHitLayer`
-      // gets no catalogue, so without this it fell back to the RAW lowercase
-      // `familyCode` in the screen-reader aria-label (`…, tyrannidae, …`). The
-      // resolver chain stays `name ?? commonName ?? prettyFamily`; `name`
-      // (AggregatedFamily.name) has no per-observation analogue, so only the
-      // silhouette `commonName` participates here.
-      const familyName = o.familyCode
-        ? resolveFamilyName(o.familyCode, {
-            commonName: silhouettesById.get(o.familyCode.toLowerCase())?.commonName,
-          })
-        : undefined;
-      return {
-        subId: o.subId,
-        comName: o.comName,
-        familyCode: o.familyCode,
-        familyName,
-        locName: o.locName,
-        obsDt: o.obsDt,
-        isNotable: o.isNotable,
-        lngLat,
-      };
-    });
-  }, [observations, mapZoom, silhouetteOffsets, silhouettesById]);
+     ClusterPill) drive the interaction.
+     Pure derive extracted to obs-derive.ts (#892); the #921 upstream
+     colloquial-family-name resolution + #247/#277 displaced re-anchoring
+     live in buildHitMarkers. */
+  const hitMarkers: HitTargetMarker[] = useMemo(
+    () => buildHitMarkers(observations, mapZoom, silhouetteOffsets, silhouettesById),
+    [observations, mapZoom, silhouetteOffsets, silhouettesById],
+  );
 
   const handleHitSelect = useCallback(
     (subId: string) => {
