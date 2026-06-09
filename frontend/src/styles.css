@@ -473,11 +473,15 @@ body {
   border-top: 1px solid var(--color-border-ui);
 }
 
-/* Scope rows container (§4.2 / #828) — the scope form, collapsed behind the 🔍
-   disclosure. The `hidden` attribute (display:none) handles the collapsed state;
-   when open it is a stacked flex column flush within the card padding. The
-   `[data-open]` hooks document the state for the orphan-className gate and allow
-   future open/close transitions without a JS class toggle. */
+/* Scope rows container (§4.2 / #828 / #951) — the scope form, collapsed behind
+   the 🔍 disclosure. Opening it plays catalog recipe #07 (panel-reveal): the
+   form slides a short distance into the card with transform/opacity/blur,
+   compositing cleanly (the identity card is position:absolute, so its growth
+   does not reflow the map canvas — #01 height-tween rejected, see #951). The
+   `[data-open]` hook drives the reveal with no JS class toggle. The container
+   itself is always `display:flex` — the open/close gating now lives on the
+   .t-panel-slide rules below (the old `hidden` prop + `display:none` rule are
+   removed; either left in force would clip the start frame and kill the tween). */
 .app-header-scope-rows {
   display: flex;
   flex-direction: column;
@@ -486,10 +490,47 @@ body {
      as every other row in the card (#837). */
   gap: var(--space-sm);
 }
-/* Defensive: `hidden` already collapses it, but assert display:none on the
-   closed state so a stray `display` from a future flex rule can't reveal it. */
-.app-header-scope-rows[data-open='false'] {
-  display: none;
+
+/* ── #951: scope disclosure open → recipe #07 (panel-reveal) ────────────────
+   Catalog snippet (~/.claude/skills/transitions-dev/07-panel-reveal.md) pasted
+   with the enumerated properties, will-change, and the same in-card overrides
+   the SpeciesDetailRail precedent uses (styles.css §#918): --panel-translate-y
+   shortened to a small in-card travel (this is a brief reveal of two/three
+   rows, not a full-height panel), --panel-open-dur / --panel-ease / --panel-blur
+   reused from tokens.css.
+
+   REST = the VISIBLE open end-state (translateY(0)/opacity:1/blur(0)). The rows
+   are only offset while CLOSED ([data-open='false']) — that ordering is what
+   makes the GLOBAL reduced-motion guard (motion.css zeroes the INTERPOLATION,
+   not the start value) land the form fully visible on open instead of stuck
+   off-screen. No per-element prefers-reduced-motion query here (house policy).
+
+   Closed-state visibility:hidden (NOT inert alone, NOT opacity:0 alone): pulls
+   the collapsed form out of the a11y tree + tab order AND satisfies the e2e
+   `toBeHidden()` asserts (scope-disclosure.spec.ts :96/:97/:164/:178) — an
+   inert element still occupies layout and would fail toBeHidden(). visibility is
+   discrete (no tween), so the form's interactive surface flips on/off cleanly at
+   the open/close edges while transform/opacity/filter carry the visible motion.
+   The element is always painted (visibility, not display:none), so the
+   synchronous data-open flip tweens without a post-paint rAF. */
+.app-header-scope-rows.t-panel-slide {
+  /* A short in-card travel — a few rows revealing, not a full panel. */
+  --panel-translate-y: 14px;
+  transform: translateY(0);
+  opacity: 1;
+  filter: blur(0);
+  visibility: visible;
+  transition:
+    transform var(--panel-open-dur) var(--panel-ease),
+    opacity   var(--panel-open-dur) var(--panel-ease),
+    filter    var(--panel-open-dur) var(--panel-ease);
+  will-change: transform, opacity, filter;
+}
+.app-header-scope-rows.t-panel-slide[data-open='false'] {
+  transform: translateY(var(--panel-translate-y));
+  opacity: 0;
+  filter: blur(var(--panel-blur));
+  visibility: hidden;
 }
 
 /* ── TOP-RIGHT: controls pill ───────────────────────────────────────────────
