@@ -1,10 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-// ZIP_FLYTO_ZOOM is the single shared metro-framing zoom (= 10) owned by
-// Stream D's scope-types. The ZIP `flyTo` move carries its own `zoom` in the
-// prop (App.tsx builds it via `zipResolutionToScope`), but importing the
-// constant here keeps the contract single-sourced — `MapCanvas` never
-// re-literals 10 and asserts the incoming flyTo zoom against the shared value.
-import { ZIP_FLYTO_ZOOM } from '../../state/scope-types.js';
 // Aliasing the react-map-gl/maplibre Map component to MapView so the
 // global ES Map constructor remains available inside this module — otherwise
 // `new Map()` inside e.g. `leafCache = new Map<string, Promise<...>>()`
@@ -21,15 +15,9 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import type { MultiPolygon } from 'geojson';
 import type { AggregatedBucket, Observation } from '@bird-watch/shared-types';
 import { BASEMAP_LIGHT, BASEMAP_DARK } from './basemap-style.js';
-import {
-  CONUS_BOUNDS,
-  FIT_BOUNDS_PADDING,
-  INITIAL_VIEW,
-  MIN_ZOOM,
-} from './camera-config.js';
+import { INITIAL_VIEW, MIN_ZOOM } from './camera-config.js';
 import {
   buildMaskFeature,
-  padBounds,
   MASK_FILL_LIGHT,
   MASK_FILL_DARK,
 } from './mask.js';
@@ -63,6 +51,7 @@ import { ClusterPill } from '../ds/ClusterPill.js';
 import { registerSilhouetteSprite } from './silhouette-sprite.js';
 import { useSilhouetteCatalogue } from './use-silhouette-catalogue.js';
 import { useMapResize } from './use-map-resize.js';
+import { useScopeCamera } from './use-scope-camera.js';
 import {
   aggregateClusterFamilies,
   aggregateClusterSpecies,
@@ -244,8 +233,12 @@ export function handleMapError(e: MapErrorEvent): void {
 // Camera / viewport config (CONUS framing constants, pan/zoom bounds,
 // `pickInitialZoom`, `INITIAL_VIEW`, `FIT_BOUNDS_PADDING`) was extracted to
 // `camera-config.ts` (epic #884, unit U2 / #886) — imported at the top of this
-// file. Behavior-preserving move; the imperative camera machinery
-// (clampBounds/padBounds/cameraForBounds/setMaxBounds) stays here for U12.
+// file. The imperative camera machinery that consumed those constants
+// (the scope bounds-math + the flyTo/fitBounds/cameraForBounds/setMaxBounds
+// effect with its #848 moveend corrector) was then extracted to
+// `use-scope-camera.ts` (epic #884, unit U12 / #897); this file calls the hook
+// and consumes its `{ clampBounds, initialViewState }` return. Both moves are
+// behavior-preserving.
 
 /**
  * MapLibre GL JS map instance wrapped via react-map-gl/maplibre.
@@ -301,59 +294,14 @@ export function MapCanvas({
    * `map.resize()` ResizeObserver effect.
    */
   const mapWrapperRef = useRef<HTMLDivElement>(null);
-  /**
-   * Scope-selector camera (#736). `activeBounds` is the FIT TARGET — the
-   * envelope the camera frames on entry (`fitBounds` + the mount
-   * `initialViewState`): the scope `bounds` prop when present, else the CONUS
-   * fallback. This stays TIGHT on the state (never padded) so entry framing
-   * lands you on the state (#760 AC: "entry still frames tightly"). The
-   * reactive `maxBounds` CLAMP is `clampBounds` below — a distinct value.
-   */
-  const activeBounds = bounds ?? CONUS_BOUNDS;
-  /**
-   * Scope-selector clamp (#736 finding (a) + #760/#762 artboard). `clampBounds`
-   * is the REACTIVE `maxBounds` prop — distinct from the fit target above. For a
-   * state scope with `clampPad`, it is the state envelope PADDED outward by
-   * `clampPad`× per side (the single authoritative zoom-out gate), so the user
-   * can zoom out and watch the state shrink on the gray artboard before the
-   * clamp halts the move. For `?scope=us` and legacy callers (no `clampPad`) it
-   * stays the raw `bounds ?? CONUS_BOUNDS` — unchanged behavior. Passed straight
-   * to `<MapView maxBounds={clampBounds}>`; react-map-gl re-applies a changed
-   * `maxBounds` with no `<Map>` remount.
-   *
-   * Finding-(a) invariant: imperative `setMaxBounds` during REACTIVE
-   * RECONCILIATION — i.e. as the PRIMARY clamp mechanism, driven by a
-   * mount/`maxBounds`-prop change — is FORBIDDEN. `maxBounds` is the reactive
-   * `<Map>` prop above; that is the single authoritative clamp. There is ONE
-   * sanctioned imperative `setMaxBounds` site: the #848 `moveend` corrector
-   * below (~`:868`), a defensive IDEMPOTENT reassert of this same declarative
-   * `clampBounds` value that an in-flight animation's transform-clone clobbered
-   * (mirrors the accepted #762/#765 `renderWorldCopies`-on-`moveend` reassert).
-   * It runs only behind a `moveend`, never during reconciliation, so it does
-   * NOT make `maxBounds` imperative. The finding-(a) test guards the forbidden
-   * path: it fires NO `moveend`, leaving the corrector registered-but-not-fired,
-   * so any `setMaxBounds` it observes would necessarily be a reconciliation-time
-   * primary-clamp call (the thing this invariant forbids).
-   */
-  const clampBounds =
-    bounds && clampPad ? padBounds(bounds, clampPad) : activeBounds;
-  /**
-   * First-paint frame (#736, contract item 2). When a scope `bounds` is
-   * present AT MOUNT, frame the first paint to those bounds (uncontrolled
-   * `{ bounds, fitBoundsOptions }`) so there is no flash of the CONUS overview
-   * before the load-gated `fitBounds` effect runs — mirrors the C0 prototype.
-   * Otherwise keep the legacy CONUS `{ longitude, latitude, zoom }`. Read once
-   * at mount via a ref so a later `bounds` prop change re-frames through the
-   * imperative effect (the single camera model), not by mutating
-   * `initialViewState` (which is construction-only and would not re-apply
-   * anyway). The camera model stays UNCONTROLLED + imperative — no controlled
-   * longitude/latitude/zoom props are added (ctx7 §4).
-   */
-  const initialViewStateRef = useRef(
-    bounds
-      ? { bounds, fitBoundsOptions: { padding: FIT_BOUNDS_PADDING, maxZoom: 12 } }
-      : INITIAL_VIEW,
-  );
+  // Scope-camera bounds-math (`activeBounds`/`clampBounds`/the mount
+  // `initialViewState`) + the SINGLE scope-driven camera-intent effect (the
+  // flyTo-vs-fitBounds chooser + the #848 moveend longitude corrector) were
+  // extracted to `use-scope-camera.ts` (epic #884 · U12 / #897). The hook is
+  // called below (after `mapReady` + `prefersReducedMotion` are in scope) and
+  // returns `{ clampBounds, initialViewState }` consumed by the `<MapView>` JSX.
+  // Behaviour-preserving move; the load-bearing `clampBounds` guard form and the
+  // effect deps are 1:1 with the pre-extraction code.
   /**
    * Issue #718: ObservationPopover anchors to the clicked marker's screen
    * coordinates. The state carries both the observation and the
@@ -483,167 +431,22 @@ export function MapCanvas({
   // negligible gain.
   const prefersReducedMotion = usePrefersReducedMotion();
 
-  /**
-   * SINGLE scope-driven camera-intent effect (#736 — Task C3), ported verbatim
-   * from the C0 prototype's `ScopedMap` (frontend/prototypes/scope-prototype/
-   * ScopedMap.tsx). Keyed on `[mapReady, boundsKey, flyTo?.key]` (+ the
-   * reduced-motion value). Load-bearing properties:
-   *
-   *  - Gated on `mapReady` (the maplibre `load` event), NOT on
-   *    `mapRef.current` being non-null. The chooser-first model (#740)
-   *    remounts the `<Map>` on every scope pick, so an imperative call on the
-   *    first commit races GL init — `mapRef.current` exists but `load` hasn't
-   *    fired and the call is dropped or overridden by `initialViewState`
-   *    (findings (b)/(f), ctx7 §4 mount-timing caveat).
-   *  - PREFERS `flyTo` over `fitBounds`: a ZIP entry is a "point inside the
-   *    state" intent and must win over the whole-state framing on the same
-   *    chooser→map mount. The naive two-effect version let the state
-   *    `fitBounds` clobber the metro-zoom ZIP `flyTo` (finding (f)).
-   *  - `essential: true` is the reduced-motion bypass (ctx7 §3): the scope
-   *    reframe changes what data the user sees, so the move must always LAND;
-   *    we pass `duration: 0` under reduced motion to make the instant landing
-   *    deterministic rather than relying on MapLibre's implicit zeroing.
-   *
-   * Legacy callers (no `boundsKey` AND no `flyTo`) get no scope reframe — the
-   * uncontrolled `initialViewState` keeps the legacy CONUS framing.
-   */
-  useEffect(() => {
-    if (!mapReady) return;
-    if (boundsKey === undefined && flyTo === undefined) return;
-    const map = mapRef.current?.getMap();
-    if (!map) return;
-    if (flyTo) {
-      // The incoming `flyTo.zoom` is built from the shared `ZIP_FLYTO_ZOOM`
-      // by App.tsx (`zipResolutionToScope`); we pass it through rather than
-      // re-literaling 10. The void reference below keeps the import live as
-      // the documented single-source contract even though the value rides in
-      // on the prop.
-      void ZIP_FLYTO_ZOOM;
-      map.flyTo({
-        center: flyTo.center,
-        zoom: flyTo.zoom,
-        essential: true,
-        duration: prefersReducedMotion ? 0 : 800,
-      });
-      // The ZIP `flyTo` branch is IMMUNE to the #848 mid-flight longitude bug:
-      // flyTo's easeFunc snaps to the exact targetCenter at `k===1`, so an
-      // interrupted in-flight flyTo still lands the requested center. No
-      // corrector is registered here — the branch is untouched.
-      return;
-    }
-
-    // #848 — Switching to a new state WHILE the camera is mid-animation frames
-    // the new state at the wrong longitude (zoom + latitude land correctly).
-    // VERIFIED live + traced into maplibre-gl 5.24.0: this is the SAME in-flight
-    // transform-clone replay class as the #762/#765 `renderWorldCopies` clobber
-    // (:864-897) — on the `maxBounds`/`lngRange` axis.
-    //
-    // Sequence (verified frame-by-frame in the e2e harness):
-    //   1. The state switch re-renders; react-map-gl's layout effect runs FIRST
-    //      and `setMaxBounds(newState)` → `transform.lngRange` momentarily holds
-    //      the NEW state envelope ("Not a stale-maxBounds clamp" is true at this
-    //      instant — react-map-gl DID apply the new bounds).
-    //   2. But the still-in-flight `easeTo` from before the switch re-`apply`s a
-    //      CLONE of its start transform (with the OLD state's `lngRange`) on its
-    //      next animation frame — clobbering `lngRange` back to the OLD state
-    //      BEFORE this passive effect even runs (passive effects fire after a
-    //      paint, i.e. after ≥1 animation frame).
-    //   3. So by the time this effect calls `fitBounds`, `transform.lngRange` is
-    //      the OLD (e.g. western) state's. `fitBounds` → Mercator `handleEaseTo`
-    //      captures its `from`-basis against that clobbered transform; with no
-    //      `k===1` target snap (unlike flyTo) and `renderWorldCopies=false` (no
-    //      world-copy wrap), the camera lands edge-pinned at the OLD state's
-    //      eastern `lngRange` edge — the wrong, western-ish longitude.
-    //
-    // `cameraForBounds` returns the geometry-correct target even mid-flight (it
-    // derives from absolute world geometry, independent of the live transform).
-    // So we read the target up front and, on the settle `moveend` (after the
-    // clobbering animation has fully ended so the clone no longer re-applies),
-    // RE-ASSERT the new state's `maxBounds` (undoing the clone clobber of
-    // `lngRange`) and `jumpTo` the target. This mirrors #762/#765's
-    // imperative-reassert-on-moveend exactly, one axis over.
-    //
-    // Why the maxBounds reassert is REQUIRED (not just jumpTo): the clobbered
-    // `lngRange` would clamp the corrective `jumpTo` straight back to the OLD
-    // state's edge — verified live. The reassert is the ONE sanctioned imperative
-    // `setMaxBounds` site (an idempotent reassert of the same declarative
-    // `clampBounds`), NOT the reactive clamp mechanism: `maxBounds` remains a
-    // reactive `<Map>` prop (finding-(a), invariant documented at the clampBounds
-    // block ~`:580`). It runs only behind this `moveend`, never during reactive
-    // reconciliation; the finding-(a) guard fires no `moveend`, so it stays green.
-    // NOT a bare `map.stop()` in the effect: `easeTo` already self-`_stop`s,
-    // freezing the western basis — stop alone fixes neither the longitude nor
-    // the `lngRange` clobber.
-    const target = map.cameraForBounds(activeBounds, {
-      padding: FIT_BOUNDS_PADDING,
-      maxZoom: 12,
-    });
-    let corrector: (() => void) | undefined;
-    // `fitBounds` first `stop()`s the in-flight `easeTo` — which fires a
-    // SYNCHRONOUS cancellation `moveend` (at the frozen western position) DURING
-    // the `fitBounds()` call, before fitBounds starts its own animation. We must
-    // NOT correct on that cancellation moveend: a `jumpTo` there is immediately
-    // clobbered by fitBounds's subsequent animation (verified live). We correct
-    // only on fitBounds's OWN settle moveend, which fires asynchronously AFTER
-    // `fitBounds()` returns. `fitBoundsDispatched` gates that: a moveend that
-    // fires while it is still `false` is the synchronous cancellation (or, under
-    // reduced motion, the instant settle that needs no correction) — re-arm and
-    // skip.
-    let fitBoundsDispatched = false;
-    if (target) {
-      const EPS = 1e-3; // ≈100 m — far below the 15–41° bug magnitude, above float noise.
-      corrector = () => {
-        if (!fitBoundsDispatched) {
-          // Synchronous cancellation moveend (still inside the fitBounds call) —
-          // re-arm for the real settle rather than correcting prematurely.
-          if (corrector) map.once('moveend', corrector);
-          return;
-        }
-        const c = map.getCenter();
-        if (
-          Math.abs(c.lng - target.center.lng) > EPS ||
-          Math.abs(c.lat - target.center.lat) > EPS
-        ) {
-          // Re-assert the new scope's clamp (undo the in-flight clone's
-          // `lngRange` clobber) so the corrective jumpTo is not re-clamped back
-          // to the old state's edge, THEN land the geometry-correct target.
-          map.setMaxBounds(clampBounds);
-          map.jumpTo({ center: target.center, zoom: target.zoom });
-        }
-      };
-      // Register the one-shot corrector BEFORE calling fitBounds — ordering is
-      // load-bearing: under prefers-reduced-motion `fitBounds` runs `duration: 0`
-      // and fires `moveend` SYNCHRONOUSLY inside the call, so the listener must
-      // already exist. `map.once` is self-removing, so `jumpTo`'s own `moveend`
-      // cannot re-fire the corrector (no loop).
-      map.once('moveend', corrector);
-    }
-
-    map.fitBounds(activeBounds, {
-      // Asymmetric top inset (FIT_BOUNDS_PADDING) clears the floating header +
-      // scope-control chrome that stacks over the full-bleed canvas top edge
-      // post-#761/S2 — resolves the deferred TODO(#737). top > bottom/left/right.
-      padding: FIT_BOUNDS_PADDING,
-      maxZoom: 12,
-      essential: true,
-      duration: prefersReducedMotion ? 0 : 600,
-    });
-    // fitBounds has returned: any synchronous cancellation moveend it fired
-    // (while stopping the in-flight easeTo) is now past. From here, the next
-    // moveend is fitBounds's own settle — the corrector may act.
-    fitBoundsDispatched = true;
-
-    // Belt-and-suspenders: detach the corrector on cleanup so a re-fired effect
-    // (next boundsKey change) cannot leave a stale listener (mirrors :894-896).
-    return () => {
-      if (corrector) map.off('moveend', corrector);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- boundsKey +
-    // flyTo?.key are the intentional triggers; `activeBounds` identity derives
-    // from boundsKey and re-running on its reference churn is undesirable
-    // (prototype documents this exact disable). prefersReducedMotion is mount-
-    // stable (useMemo []).
-  }, [mapReady, boundsKey, flyTo?.key, prefersReducedMotion]);
+  // SINGLE scope-driven camera-intent hook (#736 — Task C3; extracted to
+  // `use-scope-camera.ts`, epic #884 · U12 / #897). Owns the flyTo-vs-fitBounds
+  // chooser, the #848 moveend longitude corrector, and the derived bounds-math.
+  // `clampBounds` is the REACTIVE `<MapView maxBounds>` prop; `initialViewState`
+  // is the mount first-paint frame. Both feed the JSX below. The hook's JSDoc
+  // carries the full rationale (mapReady load-gating, flyTo-preference,
+  // essential:true reduced-motion bypass, and the #848 transform-clone clobber).
+  const { clampBounds, initialViewState } = useScopeCamera(
+    mapRef,
+    mapReady,
+    bounds,
+    boundsKey,
+    flyTo,
+    clampPad,
+    prefersReducedMotion,
+  );
 
   // Corrective `map.resize()` on the S2 flex→fixed container transition (#737,
   // gap 8 of #761). Extracted to `use-map-resize.ts` (epic #884 · U9): the
@@ -2122,7 +1925,7 @@ export function MapCanvas({
     <div ref={mapWrapperRef} data-testid="map-canvas" style={{ width: '100%', height: '100%', position: 'relative' }}>
       <MapView
         ref={mapRef}
-        initialViewState={initialViewStateRef.current}
+        initialViewState={initialViewState}
         minZoom={MIN_ZOOM}
         // Reactive scope clamp (#736 finding (a) + #760/#762 artboard):
         // `clampBounds` is the state envelope PADDED by `clampPad` (state scope)
