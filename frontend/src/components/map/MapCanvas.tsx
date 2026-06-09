@@ -62,6 +62,7 @@ import { ClusterListPopover } from './ClusterListPopover.js';
 import { ClusterPill } from '../ds/ClusterPill.js';
 import { registerSilhouetteSprite } from './silhouette-sprite.js';
 import { useSilhouetteCatalogue } from './use-silhouette-catalogue.js';
+import { useMapResize } from './use-map-resize.js';
 import {
   aggregateClusterFamilies,
   aggregateClusterSpecies,
@@ -292,7 +293,9 @@ export function MapCanvas({
    * Wrapper element the `map.resize()` ResizeObserver watches (#737, S3 of
    * #761). This is the `data-testid="map-canvas"` div — the box whose containing
    * block flipped from a padded `<main>` flex child to the `position: fixed;
-   * inset: 0` `#map-layer` viewport sibling in S2. See the resize effect below.
+   * inset: 0` `#map-layer` viewport sibling in S2. The ref is consumed by the
+   * `useMapResize` hook (`use-map-resize.ts`), which owns the corrective
+   * `map.resize()` ResizeObserver effect.
    */
   const mapWrapperRef = useRef<HTMLDivElement>(null);
   /**
@@ -639,62 +642,14 @@ export function MapCanvas({
     // stable (useMemo []).
   }, [mapReady, boundsKey, flyTo?.key, prefersReducedMotion]);
 
-  /**
-   * Corrective `map.resize()` on the S2 flex→fixed container transition (#737,
-   * gap 8 of #761). Before S2 the map was a `flex: 1; min-height: 0` child of a
-   * padded `<main>`; S2 hoisted it into `#map-layer` (`position: fixed; inset: 0`)
-   * and `.map-surface` became `position: absolute; inset: 0`. That swaps the
-   * CONTAINING BLOCK (a reparent/reflow), and maplibre's built-in observer on the
-   * inner GL container does not always re-read `_containerDimensions` for the new
-   * full-viewport box on the first paint — leaving a one-frame mis-sized canvas
-   * (clipped tiles, off-by-padding marker projection). S2 demonstrated the fallout
-   * test-side: the coarse-pointer cluster-tap spec saw the marker DOM node
-   * re-created ~600ms post-tap (`sameMarkerNode === false`) because the canvas was
-   * still settling, and worked around it with an extra idle+rAF wait it deferred
-   * to this PR.
-   *
-   * Fix: a `ResizeObserver` on the `data-testid="map-canvas"` wrapper (the box
-   * whose containing block changed). It is the robust form because the box can
-   * change AGAIN after the one-time reparent (theme-toggle reflow, the detail
-   * rail/sheet opening alongside the fixed map, mobile URL-bar show/hide changing
-   * 100vh). The observer is:
-   *   - CAMERA-NEUTRAL: it only calls `map.resize()` — never `fitBounds`/`flyTo`/
-   *     a refetch — so it cannot schedule a bbox `/api/observations` (the S4
-   *     scope-gate invariant, report R1).
-   *   - IDEMPOTENT / debounced: coalesced to the next animation frame so a burst
-   *     of observer fires (including maplibre's own internal observer churn during
-   *     the same reflow) collapses to a single `resize()`; a pending frame is
-   *     guarded so we never stack rAFs.
-   *   - DISCONNECTED on cleanup (observer + any pending rAF), so a `<Map>` remount
-   *     across a scope pick leaks neither.
-   * `mapReady`-gated so `getMap()` is live. The first observe-callback fire (which
-   * ResizeObserver delivers on `observe()`) doubles as the one-shot post-`mapReady`
-   * correction for the initial reparent.
-   */
-  useEffect(() => {
-    if (!mapReady) return;
-    const map = mapRef.current?.getMap();
-    const wrapper = mapWrapperRef.current;
-    if (!map || !wrapper || typeof ResizeObserver === 'undefined') return;
-
-    let frame = 0;
-    const observer = new ResizeObserver(() => {
-      // Coalesce a burst of box changes (and maplibre's own internal observer
-      // churn during the same reflow) into a single rAF-batched resize. Camera-
-      // neutral: resize() recomputes the canvas/transform for the new box only.
-      if (frame !== 0) return;
-      frame = requestAnimationFrame(() => {
-        frame = 0;
-        map.resize();
-      });
-    });
-    observer.observe(wrapper);
-
-    return () => {
-      observer.disconnect();
-      if (frame !== 0) cancelAnimationFrame(frame);
-    };
-  }, [mapReady]);
+  // Corrective `map.resize()` on the S2 flex→fixed container transition (#737,
+  // gap 8 of #761). Extracted to `use-map-resize.ts` (epic #884 · U9): the
+  // `mapWrapperRef` ref + its JSX stay here, only the rAF-debounced
+  // CAMERA-NEUTRAL ResizeObserver effect moved. The hook's JSDoc carries the
+  // full rationale (containing-block reparent, the IDEMPOTENT debounce, the
+  // DISCONNECTED-on-cleanup `<Map>`-remount guard, and the S4 scope-gate
+  // invariant that the observer only ever calls `map.resize()`).
+  useMapResize(mapRef, mapWrapperRef, mapReady);
 
   // #762/#765 — `renderWorldCopies` reassertion across an IN-PLACE scope change.
   //
