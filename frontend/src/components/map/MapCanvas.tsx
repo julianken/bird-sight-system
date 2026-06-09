@@ -78,13 +78,16 @@ import {
   type HitTargetMarker,
 } from './MapMarkerHitLayer.js';
 import {
-  buildGroups,
-  displaceSilhouettes,
   hashSubId,
   SILHOUETTE_PX,
   type DeconflictGroup,
   type DeconflictInput,
 } from './deconflict.js';
+// Reconciler pure middle (deconflict → displace → unproject → feature-state
+// diff) extracted to reconcile-viewport.ts (epic #884 · U10, #895). The shell
+// in the adaptive-grid reconciler effect below assembles `inputs` (owning both
+// `map.project` calls), calls this with an injected `unproject`, then commits.
+import { reconcileToGroups } from './reconcile-viewport.js';
 import { resolveFamilyName } from '../../derived.js';
 // Pure observation derives extracted to obs-derive.ts (epic #884 · U8, #892).
 // The fresh-closure `obsLookupRef` latch below stays in the component (it's
@@ -1663,37 +1666,21 @@ export function MapCanvas({
         return;
       }
 
-      // Run deconflict (pure, sync). Output: one group per overlap component.
-      const nextGroups = buildGroups(inputs, floorZoom);
+      // Pure middle (epic #884 · U10, #895): deconflict → displace →
+      // unproject-round-trip → feature-state diff, lifted into
+      // reconcile-viewport.ts. The map dependency injected is `unproject`
+      // ONLY — the caller owns projection (both `map.project` calls above ran
+      // while assembling `inputs`, whose px/py are already projected). The
+      // pure fn returns the feature-state diff as DATA; the shell applies it
+      // and owns the `prevHiddenSubIdsRef` write-back.
+      const { groups: nextGroups, offsets: nextOffsets, featureStateDiff } =
+        reconcileToGroups(
+          inputs,
+          floorZoom,
+          (point) => map.unproject(point),
+          prevHiddenSubIdsRef.current,
+        );
       setGroups(nextGroups);
-
-      // Compute per-subId pixel offsets for silhouettes that overlap a
-      // cluster anchor, then unproject the offset to lng/lat for the
-      // render block. The unproject is a tiny per-displaced-silhouette
-      // computation — bounded by silhouette count, typically <20.
-      const pxOffsets = displaceSilhouettes(nextGroups, inputs);
-      const nextOffsets = new Map<
-        string,
-        { dx: number; dy: number; longitude: number; latitude: number }
-      >();
-      // Build a quick subId → input lookup for the projection round-trip.
-      const inputBySubId = new Map<string, DeconflictInput>();
-      for (const inp of inputs) {
-        if (inp.subId) inputBySubId.set(inp.subId, inp);
-      }
-      for (const [subId, off] of pxOffsets) {
-        const inp = inputBySubId.get(subId);
-        if (!inp || inp.longitude === undefined || inp.latitude === undefined) continue;
-        const displacedPx = inp.px + off.dx;
-        const displacedPy = inp.py + off.dy;
-        const ll = map.unproject([displacedPx, displacedPy]);
-        nextOffsets.set(subId, {
-          dx: off.dx,
-          dy: off.dy,
-          longitude: ll.lng,
-          latitude: ll.lat,
-        });
-      }
       setSilhouetteOffsets(nextOffsets);
 
       // Feature-state sync: hide the canvas-painted twin for every
@@ -1701,27 +1688,21 @@ export function MapCanvas({
       // were displaced last pass but aren't now. promoteId="subId" on
       // the Source ensures setFeatureState({id: subId}) targets the
       // right feature.
-      const nextHidden = new Set<string>(nextOffsets.keys());
-      const prevHidden = prevHiddenSubIdsRef.current;
-      // Hide newly-displaced silhouettes.
-      for (const subId of nextHidden) {
-        if (!prevHidden.has(subId)) {
-          map.setFeatureState(
-            { source: 'observations', id: subId },
-            { hidden: true },
-          );
-        }
+      for (const subId of featureStateDiff.toHide) {
+        map.setFeatureState(
+          { source: 'observations', id: subId },
+          { hidden: true },
+        );
       }
-      // Clear feature-state for silhouettes that are no longer displaced.
-      for (const subId of prevHidden) {
-        if (!nextHidden.has(subId)) {
-          map.removeFeatureState(
-            { source: 'observations', id: subId },
-            'hidden',
-          );
-        }
+      for (const subId of featureStateDiff.toClear) {
+        map.removeFeatureState(
+          { source: 'observations', id: subId },
+          'hidden',
+        );
       }
-      prevHiddenSubIdsRef.current = nextHidden;
+      // The pure fn computes the diff against the PASSED-IN hidden set but does
+      // NOT own the ref — the shell advances it after applying the diff.
+      prevHiddenSubIdsRef.current = new Set<string>(nextOffsets.keys());
 
       // End-of-idle eviction (spec §5.3 Concern B): drop cache entries
       // for clusters that no longer appear in the viewport. Bounds
