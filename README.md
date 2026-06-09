@@ -38,10 +38,18 @@ when you're zoomed out, individual family-coloured markers when you're zoomed in
 npm install
 npm run db:up        # local Postgres + PostGIS via Docker
 npm run db:migrate
+npm run db:seed      # ~400 sample sightings so the map isn't empty
 npm run dev --workspace @bird-watch/frontend
 ```
 
 To also run the API the map reads from, see [`services/read-api/README.md`](services/read-api/README.md).
+
+`db:seed` writes a deterministic, idempotent spread of ~400 observations across
+~24 bird families and ~20 states — enough to render a realistic map without an
+eBird API key. (Migrations only seed reference data: family silhouettes, state
+boundaries, and a small species set; real sightings otherwise come from a live
+eBird ingest.) Re-run it any time; it reads `DATABASE_URL` and defaults to the
+local Docker database.
 
 ## Architecture
 
