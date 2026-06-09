@@ -61,6 +61,7 @@ import { PresentationMarker } from './PresentationMarker.js';
 import { ClusterListPopover } from './ClusterListPopover.js';
 import { ClusterPill } from '../ds/ClusterPill.js';
 import { registerSilhouetteSprite } from './silhouette-sprite.js';
+import { useSilhouetteCatalogue } from './use-silhouette-catalogue.js';
 import {
   aggregateClusterFamilies,
   aggregateClusterSpecies,
@@ -69,7 +70,6 @@ import {
   pickGridShape,
   type ClusterLeafFeature,
   type FamilyAggregate,
-  type SilhouettesById,
   type SpeciesAggregate,
 } from './adaptive-grid.js';
 import {
@@ -892,24 +892,18 @@ export function MapCanvas({
   }, []);
 
   /**
-   * Monotonic `silhouettesVersion` (spec §5.3 Concern C, point 2). This is
-   * a strict integer counter, NOT `silhouettes.length` — a length-only
-   * proxy misses in-place row replacement (same count, different svgData
-   * — Phylopic refreshes, low-res→hi-res swaps). The counter increments
-   * each time the silhouettes prop changes by reference, which is the same
-   * point where the supercluster catalogue is rebuilt.
-   *
-   * Carried into the per-grid memo key + the cache-generation effect so
-   * an in-place catalogue refresh invalidates render-pass identity and the
-   * Concern B promise cache together.
+   * Silhouette catalogue derives (epic #884, U7 / #891). The monotonic
+   * `silhouettesVersion` render-phase counter + the `silhouettesById` lookup
+   * memo (keyed `[silhouettes]`, referentially stable) are extracted into
+   * `use-silhouette-catalogue.ts` — behavior-preserving. The version counter
+   * is NOT `silhouettes.length` (a length-only proxy misses in-place row
+   * replacement — Phylopic refreshes, low-res→hi-res swaps); it bumps on a
+   * silhouettes-prop reference change, which is where the supercluster
+   * catalogue is rebuilt. Carried into the per-grid memo key + the
+   * cache-generation effect; `silhouettesById` (an empty map signals
+   * "catalogue not loaded yet") threads into `buildAdaptiveTiles`.
    */
-  const silhouettesVersionRef = useRef(0);
-  const prevSilhouettesRef = useRef<typeof silhouettes>(silhouettes);
-  if (prevSilhouettesRef.current !== silhouettes) {
-    silhouettesVersionRef.current += 1;
-    prevSilhouettesRef.current = silhouettes;
-  }
-  const silhouettesVersion = silhouettesVersionRef.current;
+  const { silhouettesById, silhouettesVersion } = useSilhouetteCatalogue(silhouettes);
 
   /**
    * #872 — synchronous DOM-marker invalidation on SCOPE change. The
@@ -950,32 +944,6 @@ export function MapCanvas({
     setSilhouetteOffsets(new Map());
     prevHiddenSubIdsRef.current = new Set();
   }
-
-  /**
-   * Pure per-family lookup used by `buildAdaptiveTiles` (spec §5.3 Concern
-   * C, point 3). Resolved once per reconcile from the silhouettes prop —
-   * the tile-builder MUST NOT read from a ref, so we thread this
-   * explicitly. An empty map signals "catalogue not loaded yet" and
-   * produces all-`pending` tiles.
-   */
-  const silhouettesById = useMemo<SilhouettesById>(() => {
-    const map = new Map<
-      string,
-      { svgData: string | null; color: string; colorDark: string; commonName: string | null }
-    >();
-    for (const s of silhouettes) {
-      map.set(s.familyCode.toLowerCase(), {
-        svgData: s.svgData,
-        color: s.color,
-        colorDark: s.colorDark,
-        // #920: carry the curated colloquial name so the tile builders can
-        // resolve each tile's `displayName` and the popovers show
-        // "Tyrant Flycatchers" instead of the scientific "Tyrannidae".
-        commonName: s.commonName,
-      });
-    }
-    return map;
-  }, [silhouettes]);
 
   /**
    * #920: resolved colloquial display name per family for the standalone
@@ -1093,7 +1061,8 @@ export function MapCanvas({
       });
     }
     return lookup;
-  // silhouettesById captures the silhouettes prop transitively (see its useMemo above).
+  // silhouettesById captures the silhouettes prop transitively (see
+  // useSilhouetteCatalogue — keyed on [silhouettes]).
   }, [observations, silhouettesById]);
 
   // Ref keeps the click handler's closure fresh when observations change.
