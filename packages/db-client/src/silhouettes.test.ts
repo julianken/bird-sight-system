@@ -13,8 +13,9 @@ describe('getSilhouettes', () => {
     // from migration 33000 (#482) + 38 observed-family backfill from
     // migration 34000 (#495) + 32 national-coverage rows from migration
     // 48000 (Phase 3a US-wide flip) − 1 spelling-variant dedupe from
-    // migration 52000 (#922: dropped the extra-`i` `ptiliogonatidae`, leaving
-    // the canonical `ptilogonatidae`). The _FALLBACK row backs the SDF symbol
+    // migration 52000 (#922, inverted-spelling fix: dropped the no-`i` orphan
+    // `ptilogonatidae`, kept eBird-canonical `ptiliogonatidae`). The _FALLBACK
+    // row backs the SDF symbol
     // layer's fallback rendering for observations whose family has no
     // usable Phylopic silhouette.
     const rows = await getSilhouettes(db.pool);
@@ -151,7 +152,6 @@ describe('getSilhouettes', () => {
       mimidae: '#8E7B5A',       // unchanged (passes both)
       paridae: '#4A6FA5',       // unchanged (passes both)
       parulidae: '#958b23',     // was #D4C84A (light-failing, darkened)
-      ptilogonatidae: '#5b5b9c', // was #1F1F35
       remizidae: '#789166',     // was #9AAE8C (light-failing, darkened)
       threskiornithidae: '#C56B9D', // unchanged (passes both)
       // --- migration 18000 (issue #246 fallback) ---
@@ -187,8 +187,10 @@ describe('getSilhouettes', () => {
       polioptilidae: '#788ca0', // was #A8B5C2 (light-failing, darkened)
       psittacidae: '#3b9d4b',   // was #3FA850 (light-failing, darkened)
       psittaculidae: '#3d9790', // was #4FB8B0 (light-failing, darkened)
-      // ptiliogonatidae removed by migration 52000 (#922 dedupe) — the
-      // canonical `ptilogonatidae` (#5b5b9c, above) is the surviving row.
+      // ptiliogonatidae is the silky-flycatcher survivor of migration 52000
+      // (#922 dedupe, inverted-spelling fix): the no-`i` `ptilogonatidae`
+      // orphan was deleted and its #5b5b9c palette transferred onto this row.
+      ptiliogonatidae: '#5b5b9c',
       rallidae: '#63605a',      // was #403E3A
       recurvirostridae: '#c47484', // was #E1B8C0 (light-failing, darkened)
       regulidae: '#68964b',     // was #6FA050 (light-failing, darkened)
@@ -280,7 +282,6 @@ describe('getSilhouettes', () => {
       mimidae: 'Mockingbirds & Thrashers',
       columbidae: 'Pigeons & Doves',
       parulidae: 'New World Warblers',
-      ptilogonatidae: 'Silky-Flycatchers',
       paridae: 'Tits, Chickadees & Titmice',
       fringillidae: 'Finches',
       caprimulgidae: 'Nightjars',
@@ -322,8 +323,10 @@ describe('getSilhouettes', () => {
       polioptilidae: 'Gnatcatchers',
       psittacidae: 'African & New World Parrots',
       psittaculidae: 'Old World Parrots',
-      // ptiliogonatidae removed by migration 52000 (#922 dedupe); the
-      // canonical `ptilogonatidae: 'Silky-Flycatchers'` (above) survives.
+      // ptiliogonatidae is the silky-flycatcher survivor of migration 52000
+      // (#922 dedupe, inverted-spelling fix); the no-`i` `ptilogonatidae`
+      // orphan was deleted and its title-case common_name transferred here.
+      ptiliogonatidae: 'Silky-Flycatchers',
       rallidae: 'Rails, Gallinules & Coots',
       recurvirostridae: 'Stilts & Avocets',
       regulidae: 'Kinglets',
