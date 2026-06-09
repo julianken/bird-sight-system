@@ -298,15 +298,10 @@ export async function seedDevData(pool: Pool, nowMs: number = Date.now()): Promi
   return { speciesMetaUpserted, observationsUpserted, gridRows, families, states };
 }
 
-/** CLI entry: reads DATABASE_URL, seeds, prints a coverage summary. */
+/** CLI entry: reads DATABASE_URL (defaults to the local docker-compose DB), seeds, prints a coverage summary. */
 async function main(): Promise<void> {
-  const url = process.env.DATABASE_URL;
-  if (!url) {
-    console.error('DATABASE_URL is not set. Example:');
-    console.error('  DATABASE_URL=postgres://birdwatch:birdwatch@localhost:5432/birdwatch npm run db:seed');
-    process.exit(1);
-    return;
-  }
+  const url = process.env.DATABASE_URL ?? 'postgres://birdwatch:birdwatch@localhost:5432/birdwatch';
+  console.log(`Seeding: ${url}`);
 
   const pool = createPool({ databaseUrl: url });
   try {
