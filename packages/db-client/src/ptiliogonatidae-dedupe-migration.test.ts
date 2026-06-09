@@ -3,19 +3,27 @@
  * dedupe the spelling-variant duplicate in family_silhouettes for the
  * silky-flycatcher family (`ptilogonatidae` vs `ptiliogonatidae`).
  *
- * Issue #922 (family-name hygiene). The table historically carried two rows for
- * one family: the project-canonical `ptilogonatidae` (`lower(familySciName)`,
- * the key observations/species_meta resolve against) and an extra-`i`
- * `ptiliogonatidae` variant (matching eBird's own spelling), inserted by
- * migration 34000. Both have a common_name so rendering is fine today, but the
- * duplicate is latent taxonomy drift and would let PR4's `family_silhouettes`
- * LEFT JOIN match two rows for the family.
+ * Issue #922 (family-name hygiene), CORRECTED. The table historically carried
+ * two rows for one family. The ORIGINAL migration deleted `ptiliogonatidae`
+ * believing `ptilogonatidae` (no `i`) was the canonical `lower(familySciName)`
+ * key. Production proved that inverted: eBird's familySciName is
+ * "Ptiliogonatidae" (extra `i`), so species_meta.family_code =
+ * 'ptiliogonatidae', the silhouette-stamp join writes
+ * observations.silhouette_id = 'ptiliogonatidae', and deleting that row
+ * violated observations_silhouette_id_fkey — failing every prod deploy while
+ * passing CI (testcontainers have an empty observations table). The no-`i`
+ * `ptilogonatidae` row is the orphaned seed (migration 15000) that nothing
+ * joins to.
+ *
+ * The corrected migration KEEPS `ptiliogonatidae` (eBird-canonical,
+ * prod-referenced), transfers the orphan's maintained palette + title-case
+ * common_name onto it, and deletes the orphan `ptilogonatidae`.
  *
  * Invariants exercised here:
- *   - Up leaves exactly ONE silky-flycatcher row, the canonical
- *     `ptilogonatidae`, and it still has a non-null common_name.
- *   - Up does not touch the canonical row's common_name.
- *   - Down re-inserts the `ptiliogonatidae` variant (rollback restores the
+ *   - Up leaves exactly ONE silky-flycatcher row, the eBird-canonical
+ *     `ptiliogonatidae`, with the title-case common_name 'Silky-Flycatchers'.
+ *   - Up removes the orphan `ptilogonatidae` row entirely.
+ *   - Down re-inserts the `ptilogonatidae` orphan (rollback restores the
  *     pre-migration two-row state).
  *
  * No DB mocks — runs against a real PostGIS testcontainer per the project-wide
@@ -37,9 +45,9 @@ let pool: pg.Pool;
 
 const MIGRATION_FILE = '1700000052000_dedupe_ptiliogonatidae_silhouette.sql';
 
-// The two spellings of the Ptilogonatidae (silky-flycatcher) family.
-const CANONICAL = 'ptilogonatidae'; // lower(familySciName) — kept
-const VARIANT = 'ptiliogonatidae'; // extra `i`, eBird spelling — removed
+// The two spellings of the Ptiliogonatidae (silky-flycatcher) family.
+const CANONICAL = 'ptiliogonatidae'; // eBird familySciName / lower() — kept (prod-referenced)
+const VARIANT = 'ptilogonatidae'; // no-`i` orphaned seed row — removed
 
 function parseMigration(filePath: string): { up: string; down: string } {
   const sql = readFileSync(filePath, 'utf-8');
@@ -87,7 +95,7 @@ describe('migration 1700000052000_dedupe_ptiliogonatidae_silhouette — Up', () 
     expect(rows[0]?.common_name).not.toBeNull();
   });
 
-  it('removes the extra-`i` variant row entirely', async () => {
+  it('removes the no-`i` orphan row entirely', async () => {
     const { rows } = await pool.query<{ count: string }>(
       `SELECT COUNT(*) AS count FROM family_silhouettes WHERE family_code = $1`,
       [VARIANT]
@@ -108,7 +116,7 @@ describe('migration 1700000052000_dedupe_ptiliogonatidae_silhouette — Up', () 
 });
 
 describe('migration 1700000052000_dedupe_ptiliogonatidae_silhouette — Down', () => {
-  it('re-inserts the variant row (restores the two-row pre-migration state)', async () => {
+  it('re-inserts the orphan row (restores the two-row pre-migration state)', async () => {
     const migrationsDir = resolve(process.cwd(), '../../migrations');
     const { down, up } = parseMigration(join(migrationsDir, MIGRATION_FILE));
     expect(down).toBeTruthy();
@@ -127,9 +135,11 @@ describe('migration 1700000052000_dedupe_ptiliogonatidae_silhouette — Down', (
       [VARIANT]
     );
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.common_name).toBe('Silky-flycatchers');
-    expect(rows[0]?.color).toBe('#73596a');
-    expect(rows[0]?.color_dark).toBe('#73596a');
+    // Down restores the no-`i` orphan with its pre-Up values (migration 19500
+    // title-case name, migration 46000 dual palette #5b5b9c).
+    expect(rows[0]?.common_name).toBe('Silky-Flycatchers');
+    expect(rows[0]?.color).toBe('#5b5b9c');
+    expect(rows[0]?.color_dark).toBe('#5b5b9c');
     expect(rows[0]?.svg_data).toBeNull();
 
     // Both spellings present again after Down.
@@ -141,5 +151,49 @@ describe('migration 1700000052000_dedupe_ptiliogonatidae_silhouette — Down', (
 
     // Re-apply Up so the container is left in forward state for any shared run.
     await pool.query(up);
+  });
+});
+
+describe('migration 1700000052000 — FK safety (regression for the prod failure)', () => {
+  // The ORIGINAL migration failed every prod deploy with
+  // observations_silhouette_id_fkey because it deleted a family_silhouettes row
+  // that observations referenced. CI never caught it: testcontainers run against
+  // an empty observations table, so the FK check never fired. This test closes
+  // that gap by stamping a real observation onto the row the migration deletes,
+  // then asserting Up succeeds (repoints, not FK-errors).
+  it('Up succeeds and repoints observations when a row references the orphan spelling', async () => {
+    const migrationsDir = resolve(process.cwd(), '../../migrations');
+    const { down, up } = parseMigration(join(migrationsDir, MIGRATION_FILE));
+
+    // Restore the two-row state so the orphan `ptilogonatidae` exists to be
+    // referenced (mirrors prod, where both rows were present pre-dedupe).
+    await pool.query(down);
+
+    // Stamp an observation onto the orphan row — the exact FK hazard. (region_id
+    // was dropped in migration 43000; geom is generated from lat/lng.)
+    await pool.query(
+      `INSERT INTO observations (sub_id, species_code, lat, lng, obs_dt, loc_id, silhouette_id)
+       VALUES ('FKTEST_SUB', 'phaino', 33.45, -112.07, now(), 'FKTEST_LOC', $1)`,
+      [VARIANT]
+    );
+
+    // The corrected Up must NOT throw an FK violation here.
+    await expect(pool.query(up)).resolves.toBeDefined();
+
+    // The observation was repointed onto the surviving canonical spelling…
+    const obs = await pool.query<{ silhouette_id: string }>(
+      `SELECT silhouette_id FROM observations WHERE sub_id = 'FKTEST_SUB' AND species_code = 'phaino'`
+    );
+    expect(obs.rows[0]?.silhouette_id).toBe(CANONICAL);
+
+    // …and the orphan row is gone.
+    const orphan = await pool.query<{ count: string }>(
+      `SELECT COUNT(*) AS count FROM family_silhouettes WHERE family_code = $1`,
+      [VARIANT]
+    );
+    expect(Number(orphan.rows[0]?.count)).toBe(0);
+
+    // Cleanup the test observation so it doesn't leak into a shared container.
+    await pool.query(`DELETE FROM observations WHERE sub_id = 'FKTEST_SUB'`);
   });
 });

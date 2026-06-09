@@ -1,48 +1,67 @@
 -- Up Migration
--- Issue #922 (family-name hygiene). Dedupe the spelling-variant duplicate in
--- family_silhouettes for the silky-flycatcher family.
+-- Issue #922 (family-name hygiene) — CORRECTED (inverted-spelling fix).
+-- Dedupe the spelling-variant duplicate in family_silhouettes for the
+-- silky-flycatcher family, keeping the spelling production actually resolves
+-- against.
 --
--- The table carries BOTH spellings of the Ptilogonatidae family:
---   * `ptilogonatidae`  — the PROJECT CANONICAL key, which is
---     `lower(familySciName)` (the same shape every other family_code uses,
---     and the key observations.family_code / species_meta.family_code resolve
---     against). Seeded in migration 15000, named 'Silky-Flycatchers' in 19500,
---     dual-palette colored in 46000.
---   * `ptiliogonatidae` — an extra-`i` variant matching eBird's own family
---     scientific-name spelling (`Ptiliogonatidae`). Inserted as a separate row
---     in migration 34000 (issue #495 AZ backfill) with common_name
---     'Silky-flycatchers' (note the lowercase `f` — a casing inconsistency too).
+-- The table carries BOTH spellings of the silky-flycatcher family:
+--   * `ptiliogonatidae` — eBird's family scientific-name spelling
+--     ("Ptiliogonatidae", extra `i`). Because family_code is
+--     `lower(familySciName)`, this is what species_meta.family_code holds for
+--     Phainopepla, so the silhouette-stamp join (db-client observations.ts)
+--     writes observations.silhouette_id = 'ptiliogonatidae'. THE LOAD-BEARING
+--     ROW. Inserted by migration 34000, palette set in 46000 (#73596a).
+--   * `ptilogonatidae` — a no-`i` spelling seeded in migration 15000 before the
+--     eBird-derived family_code convention existed. NOTHING joins to it: it is
+--     an orphan. Named 'Silky-Flycatchers' in 19500, palette set in 46000
+--     (#5b5b9c).
 --
--- Both rows currently carry a common_name, so rendering is fine TODAY. But two
--- rows for one family is latent taxonomy drift, and once a `family_silhouettes`
--- join is added on the read path (PR4 / issue #925), a `LEFT JOIN` on
--- family_code could match two rows for this family. Removing the variant now
--- keeps that join single-row-per-family.
+-- WHY THE ORIGINAL 52000 FAILED: it deleted `ptiliogonatidae` (the load-bearing
+-- row) on the inverted belief that `ptilogonatidae` was canonical. In
+-- production that DELETE hit observations_silhouette_id_fkey (real observation
+-- rows reference 'ptiliogonatidae'), so it errored on every deploy
+-- (deploy-migrations red since 2026-06-07) — yet passed CI, because
+-- testcontainers run against an empty observations table where the FK check
+-- never fires. The premise in the old comment ("no observation references the
+-- extra-`i` spelling") was the exact inversion of prod reality.
 --
--- We keep `ptilogonatidae` (the project canonical) and delete the
--- `ptiliogonatidae` variant. No observation or species_meta row references the
--- extra-`i` spelling (family_code is `lower(familySciName)` = `ptilogonatidae`),
--- so nothing is orphaned. The surviving canonical row keeps its non-null
--- common_name ('Silky-Flycatchers') unchanged.
---
--- eBird-join normalization note (scoped to a comment, NOT live code): the
--- project's family_code is `lower(familySciName)`, while eBird's taxonomy
--- spells this family `Ptiliogonatidae` (extra `i`) — so a future
--- `lower(familySciName)` join against eBird's `familyComName` would need the
--- alias `ptiliogonatidae -> ptilogonatidae`. No eBird name-refresh consumer
--- ships in this work, so the alias stays documented-only until one exists; see
--- docs/analyses/2026-06-07-family-colloquial-names/report.md (Authoritative
--- source) for the full normalization gotcha.
-DELETE FROM family_silhouettes WHERE family_code = 'ptiliogonatidae';
+-- FIX: keep `ptiliogonatidae` (eBird-canonical, prod-referenced), transfer the
+-- orphan's maintained palette + title-case common_name onto it, then delete the
+-- orphan `ptilogonatidae`. No ingest alias is ever needed because the surviving
+-- spelling already matches what eBird ingest produces — the alias the old
+-- comment worried about was an artifact of keeping the wrong row.
+
+-- 1. FK safety: repoint any observation stamped with the orphan spelling onto
+--    the survivor before deleting it. In prod this matches zero rows (the orphan
+--    is unreferenced), but it makes the migration correct under any data state
+--    and lets the DELETE below never violate the FK.
+UPDATE observations SET silhouette_id = 'ptiliogonatidae' WHERE silhouette_id = 'ptilogonatidae';
+
+-- 2. Transfer the orphan's maintained palette (migration 46000) and title-case
+--    common_name (migration 19500) onto the survivor, so the surviving row
+--    keeps the WCAG-calibrated colors and the 'Silky-Flycatchers' casing.
+--    UPDATE...FROM becomes a no-op once the orphan is gone (idempotent re-run).
+UPDATE family_silhouettes AS keep
+   SET color = src.color, color_dark = src.color_dark, common_name = src.common_name
+  FROM family_silhouettes AS src
+ WHERE keep.family_code = 'ptiliogonatidae' AND src.family_code = 'ptilogonatidae';
+
+-- 3. Drop the orphan spelling. Idempotent (no-op if already absent).
+DELETE FROM family_silhouettes WHERE family_code = 'ptilogonatidae';
 
 -- Down Migration
--- Re-insert the `ptiliogonatidae` variant exactly as it stood in the
--- fully-migrated forward state: NULL svg_data/source/license/creator (it was a
--- skip-family row in 34000), common_name 'Silky-flycatchers', and the
--- dual-palette colors set by migration 46000 (color/color_dark = #73596a).
--- ON CONFLICT keeps this idempotent if the row somehow already exists.
+-- Restore the two-row pre-migration state: re-insert the `ptilogonatidae` orphan
+-- with its pre-Up values (NULL svg_data/source/license/creator, migration 19500
+-- title-case 'Silky-Flycatchers', migration 46000 dual palette #5b5b9c), and
+-- revert the survivor `ptiliogonatidae` to its own pre-Up values (#73596a,
+-- migration 34000 'Silky-flycatchers' lowercase `f`). ON CONFLICT keeps the
+-- INSERT idempotent.
 INSERT INTO family_silhouettes
   (id, family_code, svg_data, color, color_dark, source, license, creator, common_name)
 VALUES
-  ('ptiliogonatidae', 'ptiliogonatidae', NULL, '#73596a', '#73596a', NULL, NULL, NULL, 'Silky-flycatchers')
+  ('ptilogonatidae', 'ptilogonatidae', NULL, '#5b5b9c', '#5b5b9c', NULL, NULL, NULL, 'Silky-Flycatchers')
 ON CONFLICT (id) DO NOTHING;
+
+UPDATE family_silhouettes
+   SET color = '#73596a', color_dark = '#73596a', common_name = 'Silky-flycatchers'
+ WHERE family_code = 'ptiliogonatidae';
