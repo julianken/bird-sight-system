@@ -60,7 +60,7 @@ import { ObservationPopover } from './ObservationPopover.js';
 import { AdaptiveGridMarker } from './AdaptiveGridMarker.js';
 import { ClusterListPopover } from './ClusterListPopover.js';
 import { ClusterPill } from '../ds/ClusterPill.js';
-import { isValidSvgPathData } from './silhouette-fallback.js';
+import { registerSilhouetteSprite } from './silhouette-sprite.js';
 import {
   aggregateClusterFamilies,
   aggregateClusterSpecies,
@@ -277,79 +277,6 @@ function PresentationMarker({ longitude, latitude, anchor, children }: Presentat
 // `camera-config.ts` (epic #884, unit U2 / #886) — imported at the top of this
 // file. Behavior-preserving move; the imperative camera machinery
 // (clampBounds/padBounds/cameraForBounds/setMaxBounds) stays here for U12.
-
-/**
- * Convert a `family_silhouettes` row into a complete SVG document string
- * suitable for `<img src="data:image/svg+xml,...">`. The svgData column
- * stores a single path-`d` string (24-viewBox); we wrap it in a minimal
- * `<svg>` shell with `fill="black"` so the rendered raster is a single-
- * channel alpha mask that maplibre's SDF tinter can color-shift via the
- * symbol layer's `icon-color` paint property.
- *
- * Returns `null` when `svgData` fails the SVG path-data charset check
- * (issue #271). A literal `"`, `<`, `>`, `&`, or any other XML-breaking
- * character would either silently corrupt the surrounding `<svg>` document
- * — making `image.decode()` reject and the family fall back to `_FALLBACK`
- * with no diagnostic — or, in a worse regression, open an XSS surface if
- * the SVG ever rendered through an `innerHTML` path. The caller treats
- * `null` the same way it treats a `null` `svgData` upstream: skip the
- * sprite registration, log a warn naming the family code, fall back to
- * the `_FALLBACK` sprite via the GeoJSON join.
- */
-function silhouettePathToSvg(svgData: string, familyCode: string): string | null {
-  if (!isValidSvgPathData(svgData)) {
-    console.warn(
-      `[silhouette] invalid svgData for family ${familyCode}; falling back to _FALLBACK sprite`,
-    );
-    return null;
-  }
-  return (
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="64" height="64">` +
-    `<path d="${svgData}" fill="black"/>` +
-    `</svg>`
-  );
-}
-
-/**
- * Promise-wrap the SVG → HTMLImageElement → addImage pipeline for one
- * silhouette. Resolves once the sprite is registered; rejects on image-
- * load failure (which surfaces upstream as a Promise.all rejection).
- *
- * No-op (resolves immediately) when `svgData` fails the charset check —
- * `silhouettePathToSvg` returns `null` and we skip registration so the
- * family's observations join to the `_FALLBACK` sprite instead.
- */
-async function registerSilhouetteSprite(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  map: any,
-  id: string,
-  svgData: string,
-): Promise<void> {
-  const svgString = silhouettePathToSvg(svgData, id);
-  if (svgString === null) return;
-  const blob = new Blob([svgString], { type: 'image/svg+xml' });
-  const url = URL.createObjectURL(blob);
-  try {
-    const img = new Image();
-    img.src = url;
-    // image.decode() returns a Promise that resolves when the image is
-    // ready to render (no `onload` race). Fall back to a manual onload
-    // listener for environments (jsdom) where decode is a stub.
-    if (typeof img.decode === 'function') {
-      await img.decode().catch(() => {
-        // jsdom Image polyfill rejects decode immediately; the FakeImage
-        // shim in tests resolves. Either way we proceed — the addImage
-        // call below tolerates a half-decoded image in tests, and in
-        // production the data: URI loads synchronously.
-      });
-    }
-    if (!map.hasImage(id)) {
-      map.addImage(id, img, { sdf: true });
-    }
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
 
 /**
  * MapLibre GL JS map instance wrapped via react-map-gl/maplibre.
