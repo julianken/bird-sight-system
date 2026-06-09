@@ -966,8 +966,9 @@ describe('GET /api/silhouettes', () => {
     // + 38 observed-family backfill rows from migration 34000 (issue #495)
     // + 32 national-coverage rows from migration 48000 (Phase 3a US-wide
     // flip — 17 with svg_data, 15 with NULL svg_data) − 1 spelling-variant
-    // dedupe from migration 52000 (#922: dropped the extra-`i`
-    // `ptiliogonatidae`) → 96 total.
+    // dedupe from migration 52000 (#922, inverted-spelling fix: dropped the
+    // no-`i` orphan `ptilogonatidae`, kept eBird-canonical `ptiliogonatidae`)
+    // → 96 total.
     expect(body).toHaveLength(96);
     // Spot-check the _FALLBACK row round-trips through the Hono response
     // so the frontend's symbol-layer fallback path can rely on it.
