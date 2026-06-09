@@ -98,6 +98,8 @@ import type {
 // module before the U1 extraction. Re-export it so any importer of
 // `./MapCanvas.js` (none today — zero importers repo-wide) keeps resolving.
 export type { MapCanvasProps } from './MapCanvas.types.js';
+import { useCoarsePointer } from '../../lib/use-coarse-pointer.js';
+import { usePrefersReducedMotion } from '../../lib/use-prefers-reduced-motion.js';
 
 /**
  * Adaptive-grid reconciler memoization (epic #539 spec §5.3).
@@ -585,32 +587,16 @@ export function MapCanvas({
   // halo/outline until the next unrelated render.
   const [styleEpoch, setStyleEpoch] = useState(0);
   /* Coarse-pointer detection (#247, mobile; also used by auto-spider hit
-     targets in #277). matchMedia is the canonical way; we read it on mount
-     and listen for changes. */
-  const [isCoarsePointer, setIsCoarsePointer] = useState<boolean>(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
-    return window.matchMedia('(pointer: coarse)').matches;
-  });
+     targets in #277). Extracted to a generic sensor hook in #889 (epic #884);
+     reactive — reads on mount and listens for `change`. */
+  const isCoarsePointer = useCoarsePointer();
 
-  useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
-    const mql = window.matchMedia('(pointer: coarse)');
-    const handler = (e: MediaQueryListEvent) => setIsCoarsePointer(e.matches);
-    mql.addEventListener('change', handler);
-    return () => mql.removeEventListener('change', handler);
-  }, []);
-
-  // Phase 0: read prefers-reduced-motion once at mount. useMemo with an empty
-  // dep array captures the value once — intentional. The user must reload to
-  // fully apply other reduced-motion changes anyway, and re-checking adds
-  // complexity for negligible gain.
-  const prefersReducedMotion = useMemo(
-    () =>
-      typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-        ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
-        : false,
-    [],
-  );
+  // Phase 0: read prefers-reduced-motion once at mount. Extracted to a generic
+  // mount-once sensor hook in #889 (epic #884). It deliberately captures the
+  // value once (no `change` listener) — the user must reload to fully apply
+  // other reduced-motion changes anyway, and re-checking adds complexity for
+  // negligible gain.
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   /**
    * SINGLE scope-driven camera-intent effect (#736 — Task C3), ported verbatim
