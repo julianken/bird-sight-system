@@ -93,7 +93,7 @@
     var(--color-bg-skeleton)           100%
   );
   background-size: 200% 100%;
-  animation: ds-shimmer 1.6s ease-in-out infinite;
+  animation: ds-shimmer var(--ds-shimmer-dur) ease-in-out infinite;
 }
 
 /* Title — primary text */
@@ -302,7 +302,7 @@
     var(--color-bg-skeleton)           100%
   );
   background-size: 200% 100%;
-  animation: ds-shimmer 1.6s ease-in-out infinite;
+  animation: ds-shimmer var(--ds-shimmer-dur) ease-in-out infinite;
   border-radius: var(--photo-radius);
 }
 
