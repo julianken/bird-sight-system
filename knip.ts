@@ -145,12 +145,14 @@ const config: KnipConfig = {
     //             same dynamic-require reason; same risk profile.
     'testcontainers',
 
-    // 2026-04-28: tsx is used by services/{read-api,ingestor}/package.json scripts
-    //             ("dev"/"ingest:local") that invoke `tsx src/...`. Knip can't trace
-    //             npm-script bin invocations. NOT a knip dependency — keep this
-    //             ignore until those scripts migrate to a different runner
-    //             (e.g., bun, ts-node, native node --import).
-    'tsx',
+    // 2026-06-09: tsx ignore REMOVED. The root `db:seed` script
+    //             (`tsx packages/db-client/src/dev-seed.ts`) now invokes tsx
+    //             directly from the root package.json, so knip traces it as a
+    //             used root devDependency. The prior 2026-04-28 ignore (added
+    //             because only workspace scripts referenced tsx) is now
+    //             redundant — knip emits a "Remove from ignoreDependencies"
+    //             hint for it. Re-add only if `db:seed` stops using tsx AND no
+    //             other root script does.
 
     // 2026-05-29: geojson — `import type { Feature, MultiPolygon, Polygon,
     //             Position } from 'geojson'` (#760/#762 state-artboard mask:
