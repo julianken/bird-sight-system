@@ -49,8 +49,6 @@ export function ThemeToggle() {
     setTheme(next);
   }, [theme]);
 
-  const icon = theme === 'light' ? '☀' : '☾';
-
   return (
     <>
       <button
@@ -58,8 +56,28 @@ export function ThemeToggle() {
         onClick={toggle}
         aria-label="Toggle color theme"
         aria-pressed={theme === 'dark'}
+        className="theme-toggle"
       >
-        {icon}
+        {/* Recipe #09 — icon-swap: two stacked glyph spans occupy one slot.
+            The visible span has data-active; the hidden span is the outgoing
+            glyph. CSS cross-fades opacity+blur+scale on [data-active] via a
+            transition — the global motion.css guard zeros the duration for
+            reduced-motion users, leaving glyphs at their end-state (visible
+            active glyph) with no sticking. */}
+        <span
+          className="theme-toggle-glyph"
+          data-active={theme === 'light' ? true : undefined}
+          aria-hidden="true"
+        >
+          ☀
+        </span>
+        <span
+          className="theme-toggle-glyph"
+          data-active={theme === 'dark' ? true : undefined}
+          aria-hidden="true"
+        >
+          ☾
+        </span>
       </button>
       {/* Visually-hidden live region — must be a SIBLING of the button,
           NOT a child. See #416. */}
