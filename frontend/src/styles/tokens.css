@@ -145,7 +145,7 @@
 
   /* recipe-08 (page-side-by-side) — drives the mid↔full cross-dissolve between
      the two stable sheet pages (.sheet-page--card ↔ .sheet-page--entry). The
-     catalog default is 200ms; the sheet retunes to the single 300ms settle
+     catalog default is 200ms; the sheet retunes to the single 240ms settle
      clock (--sheet-settle-dur/-ease) so the page cross-fade, the in-page
      reveals (#07), and the container-height tween (#01) all start+finish on one
      frame (no two-stage desync). --page-slide-distance is kept SMALL (8px) so
@@ -161,6 +161,12 @@
   --page-blur:           14px;
   --page-slide-ease:     cubic-bezier(0.22, 1, 0.36, 1);
   --page-fade-ease:      cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* ds-shimmer duration — shared by .status-block__skeleton + .photo__skeleton
+     (both use the same ds-shimmer keyframe; #948). adaptive-grid-pending-shimmer
+     (1.4s, reverse-direction) and skeleton-shimmer (opacity-pulse technique) are
+     intentionally excluded — different techniques, different tempos. */
+  --ds-shimmer-dur: 1.6s;
 }
 
 /* ── Layer 2: Semantic — light mode ─────────────────────────────────── */

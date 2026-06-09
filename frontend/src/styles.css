@@ -452,6 +452,7 @@ body {
   font-size: var(--type-sm);
   color: var(--color-text-body);
   line-height: 1.4;
+  font-variant-numeric: tabular-nums;
 }
 
 /* #828: the in-card `.app-header-freshness` line (and its `a` link recipe that
@@ -2042,8 +2043,8 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
 }
 
 /* ── Field-guide motion ────────────────────────────────────────────────────
-   ONE clock for every leg: --sheet-settle-dur (300ms) / --sheet-settle-ease.
-   recipe #08 (page cross-dissolve) reads --page-* (retuned to 300ms in
+   ONE clock for every leg: --sheet-settle-dur (240ms) / --sheet-settle-ease.
+   recipe #08 (page cross-dissolve) reads --page-* (retuned to 240ms in
    tokens.css); recipe #01 (photo card-resize + the container height tween) and
    recipe #07 (card-page reveals) read --sheet-settle-*. All start+finish on one
    frame → no two-stage. Reduced-motion is owned globally by motion.css
