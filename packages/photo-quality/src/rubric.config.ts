@@ -9,39 +9,14 @@
  * The `version` is bumped on every calibration tune so SQLite-cached scores
  * (keyed by content hash + rubricVersion) are invalidated when the rubric moves.
  *
- * SCOPE NOTE (Slice 1): this file declares the minimal `CriteriaScores` /
- * `RubricConfig` types it needs locally. Slice 2 authors `src/index.ts` with the
- * full public interface set (`ImageInput`, `QualityReport`, `VisionJudge`,
- * `scoreImage`, …) and aligns `CriteriaScores` / `RubricConfig` to these exact
- * shapes. Keep the field names/types here identical to the pinned contract.
+ * SCOPE NOTE: Slice 1 declared minimal `CriteriaScores` / `RubricConfig` types
+ * here locally; Slice 2 authored `src/types.ts` (the full pinned contract) and
+ * this file now imports both from there, so the rubric literal and every
+ * scoring function (`composeReport`, `assessDeterministic`, `scoreImage`) are
+ * typed against ONE canonical definition — no structurally-twin types.
  */
 
-/** Stage-2 per-criterion sub-scores, each 0–10. Pinned interface contract. */
-export interface CriteriaScores {
-  framing: number;
-  subjectClarity: number;
-  liveness: number;
-  naturalness: number;
-  pose: number;
-  background: number;
-  lighting: number;
-}
-
-/** Tunable, version-stamped rubric contract. Pinned interface contract. */
-export interface RubricConfig {
-  version: string;
-  deterministic: {
-    minMegapixels: number;
-    minSharpness: number;
-    allowedAspect: [number, number];
-  };
-  /** Per-criterion weights; SUM TO 1.0 (convex combination). composeOverall =
-   *  (Σ weightᵢ·criteriaᵢ)·10 → 0..100 (criteria 0..10, weights sum to 1). */
-  weights: Record<keyof CriteriaScores, number>;
-  disqualifiers: { flag: string; cap: number }[];
-  thresholds: { autoAccept: number; review: number; reject: number };
-  judgePrompt: string;
-}
+import type { RubricConfig } from './types.js';
 
 /**
  * The researched rubric the vision judge receives. Enumerates all seven scored
@@ -81,13 +56,15 @@ photo even if technically sharp — flag it ("in-hand" / "captive" / "specimen")
 score naturalness low.`;
 
 export const defaultRubricConfig: RubricConfig = {
-  version: '2026-06-10.0',
+  // semver-shaped (QualityReport.rubricVersion keys the content-hash score
+  // cache; a tune bumps this and invalidates cached scores).
+  version: '0.1.0',
   deterministic: {
     // ~0.3 MP floor — below this the bird can't be read at panel size.
     minMegapixels: 0.3,
     // Normalized Laplacian-variance floor; calibrated in Slice 10. Conservative
     // draft so obviously soft images gate before the LLM (the hybrid cost saving).
-    minSharpness: 0.04,
+    minSharpness: 0.005,
     // Reject extreme panoramas/strips; typical bird crops are 0.5–2.0 aspect.
     allowedAspect: [0.4, 2.5],
   },

@@ -255,21 +255,7 @@ const config: KnipConfig = {
     'packages/db-client': {},
     'packages/geo': {},
     'packages/shared-types': {},
-    'packages/photo-quality': {
-      // 2026-06-10: sharp is declared NOW (Slice 1, #962) but first USED in
-      //             Slice 2 (#971), which adds src/deterministic.ts (the sharp
-      //             decode + Laplacian-variance gate). The Phase-0 slice ships
-      //             only rubric.config.ts, so knip correctly reports sharp as an
-      //             unused dependency of this workspace. The dep is declared up
-      //             front so Slice 2 lands by adding src/ files only, never
-      //             touching the manifest (the package's emit-dist contract).
-      //             Risk: masks a genuine unused-dep if Slice 2 is abandoned and
-      //             sharp never gets a consumer. SELF-HEALING — remove this
-      //             ignore once src/deterministic.ts imports sharp. Re-audit
-      //             2026-07-27 by confirming either packages/photo-quality/src
-      //             imports 'sharp' OR Slice 2 (#971) is still in flight.
-      ignoreDependencies: ['sharp'],
-    },
+    'packages/photo-quality': {},
   },
 };
 
