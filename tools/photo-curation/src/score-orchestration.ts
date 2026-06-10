@@ -1,8 +1,13 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type Database from 'better-sqlite3';
-import type { CriteriaScores, QualityReport, DeterministicReport } from '@bird-watch/photo-quality';
-import { composeReport, defaultRubricConfig } from '@bird-watch/photo-quality';
+import type {
+  CriteriaScores, QualityReport, DeterministicReport, ImageInput, RubricConfig,
+} from '@bird-watch/photo-quality';
+import {
+  composeReport, defaultRubricConfig,
+  assessDeterministic as realAssessDeterministic,
+} from '@bird-watch/photo-quality';
 import type { InatCandidate, DenyContext } from '@bird-watch/ingestor';
 import { fetchInatCandidates as realFetchInatCandidates } from '@bird-watch/ingestor';
 import { sha8 } from './hash.js';
@@ -63,12 +68,28 @@ export interface PrepareDeps {
    * spacing is still asserted via the injected clock, not wall-time.
    */
   paceMs?: number;
+  /**
+   * The FREE deterministic gate (#994). Run on each downloaded image BEFORE it
+   * reaches the (paid) judge: a tiny/blurry/wrong-aspect image gate-fails and is
+   * auto-rejected here, never entering the manifest the judge agents read.
+   * Injected so unit tests can drive the gate-fail/gate-pass branches without a
+   * real sharp decode. Defaults to the package's real `assessDeterministic`.
+   */
+  assessDeterministic?: (
+    img: ImageInput, det: RubricConfig['deterministic'],
+  ) => Promise<DeterministicReport>;
 }
 
 export interface PrepareResult {
   picked: number;
   /** How many were skipped because their current content-hash is already scored. */
   skipped: number;
+  /**
+   * How many were auto-rejected by the deterministic gate (#994) — a reject
+   * report was persisted (role='current') + the species marked reviewed, and the
+   * image was EXCLUDED from the manifest so it never reaches a (paid) judge.
+   */
+  gateRejected: number;
   /** External edge downloads actually performed (for the batch usage log). */
   downloads: number;
   /** Absolute path to the manifest JSON the operator hands to the score agents. */
@@ -105,9 +126,11 @@ export async function scorePrepare(
 
   const clock = deps.clock ?? realClock;
   const pacer = new Pacer(deps.paceMs ?? EDGE_PACE_MS, clock);
+  const assessDet = deps.assessDeterministic ?? realAssessDeterministic;
 
   const manifest: ManifestEntry[] = [];
   let skipped = 0;
+  let gateRejected = 0;
   let downloads = 0;
   for (const row of rows) {
     // No-rework: if this species already carries a stamped current content_hash
@@ -128,6 +151,25 @@ export async function scorePrepare(
     // Record the real content_hash now (hash-only update — preserves the
     // attribution/license sync populated). score-commit keys the score row by it.
     updateCurrentPhotoHash(db, row.species_code, hash);
+
+    // FREE deterministic pre-filter (#994): the bytes are already on disk, so run
+    // the same gate scoreImage runs (assessDeterministic). A gate-FAILING image
+    // (tiny/blurry/wrong-aspect) is auto-rejected HERE — a reject report is
+    // persisted the same way score-commit writes (upsertScore role='current' +
+    // markReviewed) — and is EXCLUDED from the manifest, so it never reaches a
+    // (paid) judge. A gate-PASSING image continues to the manifest as before.
+    const deterministic = await assessDet({ buffer: bytes, mime }, defaultRubricConfig.deterministic);
+    if (!deterministic.passedGate) {
+      const report = gateRejectReport(deterministic);
+      upsertScore(db, {
+        speciesCode: row.species_code, role: 'current', candidateInatId: null,
+        contentHash: hash, report,
+      });
+      markReviewed(db, row.species_code);
+      gateRejected++;
+      continue;
+    }
+
     manifest.push({
       speciesCode: row.species_code,
       comName: row.com_name,
@@ -141,8 +183,8 @@ export async function scorePrepare(
   const manifestPath = join(deps.thumbDir, 'manifest.json');
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
   // eslint-disable-next-line no-console
-  console.log(`[score-prepare] external calls: ${downloads} edge download(s); skipped ${skipped} already-scored`);
-  return { picked: manifest.length, skipped, downloads, manifestPath, manifest };
+  console.log(`[score-prepare] external calls: ${downloads} edge download(s); judged ${manifest.length} / gate-rejected ${gateRejected} / already-scored skipped ${skipped}`);
+  return { picked: manifest.length, skipped, gateRejected, downloads, manifestPath, manifest };
 }
 
 /** One agent scoring result — the score-commit input shape. */
@@ -166,6 +208,30 @@ function neutralDeterministic(): DeterministicReport {
   return {
     width: 0, height: 0, megapixels: 0, sharpness: 0, exposure: 0, aspectRatio: 0,
     passedGate: true, failReasons: [],
+  };
+}
+
+const ZERO_CRITERIA: CriteriaScores = {
+  framing: 0, subjectClarity: 0, liveness: 0, naturalness: 0,
+  pose: 0, background: 0, lighting: 0,
+};
+
+/**
+ * The deterministic-gate auto-reject report (#994), mirroring the gate-fail
+ * short-circuit in @bird-watch/photo-quality's scoreImage: zeroed criteria, no
+ * judge flags, overall 0 / verdict 'reject', and a rationale that names the
+ * failed gate reasons. score-prepare persists this for a gate-failing image so
+ * the image is rejected WITHOUT a (paid) judge call.
+ */
+function gateRejectReport(deterministic: DeterministicReport): QualityReport {
+  return {
+    overall: 0,
+    verdict: 'reject',
+    deterministic,
+    criteria: { ...ZERO_CRITERIA },
+    flags: [],
+    rationale: `deterministic gate failed: ${deterministic.failReasons.join(', ')}`,
+    rubricVersion: defaultRubricConfig.version,
   };
 }
 

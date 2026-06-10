@@ -52,7 +52,7 @@ program
     try {
       const limit = scoreBatch.clampLimit(Number(opts.limit));
       const result = await scorePrepare(db, limit, { download: downloadBytes, thumbDir: THUMB_DIR });
-      console.log(`[score-prepare] picked ${result.picked} photo(s) — ${result.downloads} edge download(s), ${result.skipped} already-scored skipped; manifest at ${result.manifestPath}`);
+      console.log(`[score-prepare] judged ${result.picked} / gate-rejected ${result.gateRejected} / already-scored skipped ${result.skipped} — ${result.downloads} edge download(s); manifest at ${result.manifestPath}`);
       // The manifest path on its own line so the Workflow's prepare agent can
       // grep it out of stdout and hand it to the parallel score agents.
       console.log(result.manifestPath);
