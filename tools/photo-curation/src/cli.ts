@@ -1,8 +1,11 @@
 #!/usr/bin/env node
+import { createInterface } from 'node:readline/promises';
+import { stdin as input, stdout as output } from 'node:process';
 import { Command } from 'commander';
 import { openDb, DEFAULT_DB_PATH } from './db.js';
 import { sync } from './sources.js';
 import { startServer } from './server/serve.js';
+import { resolveAdminEnv, runApplySwaps } from './apply-swaps.js';
 
 const API_BASE = process.env.READ_API_BASE ?? 'https://api.bird-maps.com';
 
@@ -43,10 +46,39 @@ program
 
 program
   .command('apply-swaps')
-  .description('Push approved photo_decision rows to the admin endpoint')
-  .action(() => {
-    console.error('[apply-swaps] not implemented in Slice 4 — the batched apply ships in Slice 8.');
-    process.exit(0);
+  .description('Push approved photo_decision rows to the admin endpoint (confirm-gated)')
+  .action(async () => {
+    const env = resolveAdminEnv(process.env);
+    if (!env.ok) {
+      console.error(env.error);
+      process.exit(2); // mirrors scripts/silhouette.mjs missing-env exit code
+    }
+    const db = openDb(DEFAULT_DB_PATH); // opens ./review.sqlite (Slice 4 helper)
+    try {
+      const result = await runApplySwaps({
+        db,
+        adminBase: env.adminBase,
+        adminToken: env.adminToken,
+        fetch: globalThis.fetch,
+        log: line => console.log(line),
+        confirm: async () => {
+          const rl = createInterface({ input, output });
+          try {
+            const answer = await rl.question('Apply these swaps to PROD? [y/N] ');
+            return /^y(es)?$/i.test(answer.trim());
+          } finally {
+            rl.close();
+          }
+        },
+        now: () => new Date().toISOString(),
+      });
+      // Non-zero exit when any species failed, so a wrapping shell script / CI
+      // step can detect partial failure and re-run (idempotent — applied rows
+      // are skipped on the retry).
+      process.exit(result.failed.length > 0 ? 1 : 0);
+    } finally {
+      db.close();
+    }
   });
 
 program.parseAsync(process.argv);
