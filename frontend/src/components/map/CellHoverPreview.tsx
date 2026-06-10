@@ -63,7 +63,7 @@ export function CellHoverPreview(props: CellHoverPreviewProps) {
     <div
       role="tooltip"
       id={id}
-      className="cell-hover-preview"
+      className="cell-hover-preview t-tt-enter"
       data-testid="cell-hover-preview"
       style={positionStyle}
     >

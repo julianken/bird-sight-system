@@ -87,7 +87,7 @@ export function ScopeChooser({
 
   return (
     <div className="scope-chooser" role="region" aria-label="Choose where to look at birds">
-      <div className="scope-chooser__card">
+      <div className="scope-chooser__card t-modal-grow">
         <h1 className="scope-chooser__title">Where do you want to look at birds?</h1>
         <p className="scope-chooser__subtitle">
           Enter a ZIP code or pick a state to see recent sightings near you.
