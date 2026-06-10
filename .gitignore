@@ -59,3 +59,14 @@ terraform.tfstate.backup
 
 # Throwaway directory for Phase 0 prototype gating — deleted in Task 0.4.
 prototype/
+
+# Local photo-curation tool workspace (photo-quality epic, Slice 4).
+# review.sqlite holds scored reports + staged decisions; thumb-cache/ holds
+# downloaded candidate thumbnails. Operator-local and regenerable — never
+# commit. dist/ is the tsc build output.
+tools/photo-curation/review.sqlite
+tools/photo-curation/review.sqlite-journal
+tools/photo-curation/review.sqlite-wal
+tools/photo-curation/review.sqlite-shm
+tools/photo-curation/thumb-cache/
+tools/photo-curation/dist/
