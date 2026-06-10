@@ -77,3 +77,98 @@ export function validateSvg(body: Buffer): ValidatedSvg {
 
   return { pathD, source: body };
 }
+
+// ── Species-photo validation ────────────────────────────────────────────────
+
+/** Min bytes a real photo should clear — guards against fetching an HTML error
+ *  page or a 1px tracking pixel where a JPEG was expected. */
+const MIN_PHOTO_BYTES = 1024;
+
+/** Accepted image MIME → file extension. Anything else is rejected; the R2 key
+ *  ext and the served Content-Type both come from this map. */
+const MIME_TO_EXT: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/avif': 'avif',
+};
+
+/** First bytes that must be present for each accepted mime (format magic). */
+const MAGIC: Record<string, number[]> = {
+  'image/jpeg': [0xff, 0xd8, 0xff],
+  'image/png': [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+  // WEBP is RIFF-wrapped: bytes 0-3 are "RIFF" AND bytes 8-11 are "WEBP".
+  // Checked explicitly below (a non-WEBP RIFF container — a .wav, an AVI —
+  // must NOT pass), so it carries an empty leading-magic entry here.
+  'image/webp': [],
+  // AVIF is ISO-BMFF: bytes 4-7 are "ftyp"; check that offset.
+  'image/avif': [],
+};
+
+export interface ValidatedPhoto {
+  /** File extension for the R2 key (jpg/png/webp/avif). */
+  ext: string;
+  /** Verbatim source bytes the caller uploads to R2. */
+  source: Buffer;
+}
+
+/**
+ * Validate a fetched image body against its declared content-type:
+ * - non-empty, ≥ MIN_PHOTO_BYTES
+ * - mime is on the accepted list (→ ext)
+ * - format magic bytes match the declared mime (defends against an HTML
+ *   error page mislabeled image/jpeg, or a content-type/extension mismatch).
+ *   jpeg/png check a leading prefix; webp requires RIFF at 0-3 AND WEBP at
+ *   8-11; avif requires the ftyp box marker at offset 4.
+ *
+ * Returns the ext and the verbatim source for the R2 upload. Throws
+ * ValidationError on any failure so the handler returns 400.
+ */
+export function validatePhotoImage(body: Buffer, mime: string): ValidatedPhoto {
+  if (body.length === 0) throw new ValidationError('empty image body');
+  const ext = MIME_TO_EXT[mime];
+  if (!ext) throw new ValidationError(`unsupported image mime: ${mime}`);
+  if (body.length < MIN_PHOTO_BYTES) {
+    throw new ValidationError(`image too small (${body.length} bytes; min ${MIN_PHOTO_BYTES})`);
+  }
+  if (mime === 'image/webp') {
+    // RIFF container: 'RIFF' at bytes 0-3 AND 'WEBP' fourCC at bytes 8-11.
+    // Requiring both rejects a non-WEBP RIFF file (a .wav, an AVI) mislabeled
+    // image/webp — checking only the RIFF prefix would let those through.
+    const riff = body.subarray(0, 4).toString('ascii');
+    const fourCC = body.subarray(8, 12).toString('ascii');
+    if (riff !== 'RIFF' || fourCC !== 'WEBP') {
+      throw new ValidationError('image magic bytes do not match image/webp');
+    }
+  } else if (mime === 'image/avif') {
+    // ISO-BMFF: 'ftyp' box marker at byte offset 4.
+    const ftyp = body.subarray(4, 8).toString('ascii');
+    if (ftyp !== 'ftyp') throw new ValidationError('image magic bytes do not match image/avif');
+  } else {
+    const magic = MAGIC[mime]!;
+    const head = Array.from(body.subarray(0, magic.length));
+    if (magic.some((b, i) => head[i] !== b)) {
+      throw new ValidationError(`image magic bytes do not match ${mime}`);
+    }
+  }
+  return { ext, source: body };
+}
+
+/**
+ * Canonical CC allowlist — the SAME set the ingestor's iNat client filters on
+ * (`services/ingestor/src/inat/client.ts` `CC_LICENSES`). NC (non-commercial)
+ * and ND (no-derivatives) variants are excluded. This is the server-side
+ * backstop (spec §8/§9): the local curation tool already filters at source,
+ * but a mis-tagged image must never go live through this public endpoint.
+ *
+ * Returns the normalized (lowercased) license on success; throws on deny.
+ */
+const CC_ALLOWLIST = new Set(['cc-by', 'cc-by-sa', 'cc0']);
+
+export function validateLicense(license: string): string {
+  const normalized = license.trim().toLowerCase();
+  if (!CC_ALLOWLIST.has(normalized)) {
+    throw new ValidationError(`license not on CC allowlist (cc-by, cc-by-sa, cc0): "${license}"`);
+  }
+  return normalized;
+}

@@ -91,10 +91,53 @@ For sourcing the SVG art itself, see the `curating-fallback-silhouettes` skill
 | `GET` | `/health` | none | `{"ok":true}` |
 | `PUT` | `/admin/silhouettes/family/:code` | Bearer | Multipart `file` (SVG) → validate → R2 `PUT` → `UPDATE family_silhouettes SET svg_url, svg_data` → Cloudflare purge. Returns `{ url, key, pathD }`. |
 | `DELETE` | `/admin/silhouettes/family/:code` | Bearer | R2 `DELETE` of the prior object → `UPDATE family_silhouettes SET svg_url = NULL, svg_data = NULL` → Cloudflare purge. Returns `{ ok:true }`. |
+| `PUT` | `/admin/species-photos/:speciesCode` | Bearer | JSON `{ sourceUrl, attribution, license }` → license + species-existence check → server-side fetch of `sourceUrl` → image validate → R2 `PUT` (photos bucket) → `insertSpeciesPhoto` upsert → Cloudflare purge. Returns `{ url, key }`. |
 
-`:code` must match `^[a-z]+$` (lowercase letters only) — otherwise `400`.
-The family row must already exist in `family_silhouettes` or the request `404`s
-(the admin-api overrides existing rows, it does not create families).
+`:code` (silhouettes) must match `^[a-z]+$` (lowercase letters only) and
+`:speciesCode` (photos) must match `^[a-z0-9]+$` — otherwise `400`.
+The family row must already exist in `family_silhouettes`, and the species row
+in `species_meta`, or the request `404`s (the admin-api overrides existing
+rows, it does not create families or species).
+
+### Species-photo swap (`PUT /admin/species-photos/:speciesCode`)
+
+Pushes an operator-approved replacement **detail-panel** photo live. The
+**curation tool's `apply-swaps` step** (Slice 8) calls this per species after an
+operator approves a candidate; it ships a `sourceUrl`, not bytes, so the
+admin-api fetches and re-validates the image itself. Write sequence (mirrors the
+silhouette handler's **R2-before-DB** ordering):
+
+1. **License backstop** — `license` must re-pass the `cc-by` / `cc-by-sa` /
+   `cc0` allowlist (case-insensitive; NC/ND denied). This is a server-side
+   re-check even though the local tool already filtered — the endpoint is a
+   public surface and a mis-tagged image must never go live (`400` on deny,
+   before any fetch).
+2. **Species existence** — `species_code` must exist in `species_meta`
+   (`404` otherwise; no R2 write).
+3. **Server-side fetch** of `sourceUrl` (15s timeout) — must `200` and carry an
+   image content-type; the body is validated for magic bytes (jpeg/png/webp/avif
+   incl. the `WEBP` fourCC at bytes 8-11) and a ≥1 KB floor (`400` otherwise).
+4. **R2 `PUT`** to the `birdwatch-photos` bucket at a content-hashed key
+   `species/<code>.<sha8>.<ext>`, served `immutable, max-age=1yr`.
+5. **`insertSpeciesPhoto` upsert** on `(species_code, 'detail-panel')` — only
+   `url`/`attribution`/`license` are written; taxonomy columns are untouched.
+   On a DB failure *after* the R2 upload the request `5xx`s and the uploaded
+   object is left orphaned (hygiene, not breakage) — no broken-image row.
+6. **Prior R2 object** (if any) is best-effort deleted (content-hashed keys
+   never collide, so the old immutable object would otherwise leak per swap).
+7. **Cloudflare purge** of `https://<API_HOST>/api/species/<code>`; a failure is
+   non-fatal (`X-Purge-Status: failed` header, still `200`).
+
+```sh
+curl -X PUT "https://admin.bird-maps.com/admin/species-photos/norcar" \
+  -H "Authorization: Bearer $ADMIN_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"sourceUrl":"https://static.inaturalist.org/photos/12345/medium.jpg","attribution":"(c) photographer, CC-BY","license":"cc-by"}'
+# {"url":"https://photos.bird-maps.com/species/norcar.<sha>.jpg","key":"species/norcar.<sha>.jpg"}
+```
+
+The apply step is driven by the curation tool's `apply-swaps` action (Slice 8),
+which reuses the `ADMIN_API_URL` / `ADMIN_API_TOKEN` env precedent.
 
 ### Auth model (`src/auth.ts`)
 
@@ -151,8 +194,10 @@ written to `family_silhouettes.svg_data`.
 | `ADMIN_API_TOKEN` | yes | — | bearer auth; empty → boot fails |
 | `R2_ENDPOINT` | yes | — | R2 S3 client |
 | `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | yes (prod) | — | R2 credentials |
-| `R2_BUCKET_NAME` | no | `bird-maps-silhouettes` | R2 target bucket |
-| `SILHOUETTES_PUBLIC_PREFIX` | no | `https://silhouettes.bird-maps.com` | public URL prefix written to DB |
+| `R2_BUCKET_NAME` | no | `bird-maps-silhouettes` | R2 target bucket (silhouettes) |
+| `SILHOUETTES_PUBLIC_PREFIX` | no | `https://silhouettes.bird-maps.com` | public URL prefix written to DB (silhouettes) |
+| `R2_PHOTOS_BUCKET` | no | `birdwatch-photos` | R2 target bucket (species photos) |
+| `SPECIES_PHOTOS_PUBLIC_PREFIX` | no | `https://photos.bird-maps.com` | public URL prefix written to DB (species photos) |
 | `CLOUDFLARE_ZONE_ID` / `CLOUDFLARE_API_TOKEN` | for purge | — | `purge_cache` call |
 | `API_HOST` | no | `api.bird-maps.com` | purge target host |
 | `PORT` | no | `8788` (local) / `8080` (container) | listen port |

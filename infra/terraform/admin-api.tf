@@ -158,6 +158,25 @@ resource "google_cloud_run_v2_service" "admin_api" {
         value = "https://silhouettes.${var.domain}"
       }
 
+      # Photos bucket for the species-photo swap endpoint (PUT
+      # /admin/species-photos/:code). The cloudflare_r2_bucket.photos resource
+      # is declared in photos.tf (issue #327). The bird-admin-api SA writes to
+      # R2 via the account-scoped S3-compatible access key already wired through
+      # R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY — R2 access keys are
+      # account-scoped, so the existing credentials already authorize this
+      # bucket and no new GCP IAM binding is required. If the underlying
+      # Cloudflare R2 API token is ever bucket-scoped, widen it to include
+      # birdwatch-photos (a cloudflare_api_token / dashboard change).
+      env {
+        name  = "R2_PHOTOS_BUCKET"
+        value = cloudflare_r2_bucket.photos.name
+      }
+
+      env {
+        name  = "SPECIES_PHOTOS_PUBLIC_PREFIX"
+        value = "https://photos.${var.domain}"
+      }
+
       env {
         name = "CLOUDFLARE_ZONE_ID"
         value_source {
