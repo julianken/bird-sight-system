@@ -44,6 +44,15 @@ Across ~715 observed species (99% photo coverage), a meaningful fraction need re
 | 7 | Rubric calibration | **Calibrate on a ~30–40 photo sample first**, tune, then run all ~715 |
 | 8 | Review server styling | **Adopts `DESIGN.md`** (colors, type ramp, elevation, 12px cards, light/dark via `[data-theme]`) — minus the four-corner map contract, which is map-specific |
 
+## 3a. Design revision (2026-06-10) — supersedes parts of §4–§6
+
+After the initial spec landed, three decisions changed the scoring/automation model. Where this section conflicts with §4–§6 below, **this section wins**. The implementation issues (epic #974) reflect it.
+
+- **R1 — Scoring runs in Claude Code; no API key.** The vision judge is a **Claude Code agent** that uses the `Read` tool to look at a locally-downloaded image and apply the rubric. There is **no `@anthropic-ai/sdk` / `ANTHROPIC_API_KEY`** anywhere. `packages/photo-quality` stays pure — it exports `assessDeterministic` (sharp gate), `composeOverall` (composite math), `scoreImage` (injected `VisionJudge`), the `VisionJudge` interface, a `FakeJudge` test double, `defaultRubricConfig` (no `model` field), and the `judgePrompt`. The production judge is supplied by a committed Claude Code **workflow**, not an SDK call. (This replaces the `ClaudeVisionJudge`/SDK references in §4 and §5.1.)
+- **R2 — Scoring is batched and resumable (default 10, max 100) via a `reviewed` column.** `photo_current` gains `reviewed INTEGER NOT NULL DEFAULT 0`. A cheap `sync` CLI (no tokens) pulls the species inventory + current photo URLs into the store with `reviewed=0`; a Claude Code `score` workflow then processes the next N `reviewed=0` rows (default 10, `--limit` ≤ 100), marking `reviewed=1`. Resume across sessions. Re-running `sync` later picks up newly-ingested photos as `reviewed=0`.
+- **R3 — No automated ingestor gate.** §5.7 (inline ingestor gate) and §5.8 (prod `quality_score`/`needs_review` migration) are **dropped** (issues #968 and #965 closed). New photos are handled by re-running `sync` + the batched `score` pass — an on-demand manual scan, not an unattended prod job. Scoring state lives only in the local SQLite store.
+- **R4 — Deny → re-source is async.** The local Express review server is plain Node and cannot invoke Claude Code agents, so it never scores inline. The `source-candidates` workflow **pre-scores a deep candidate pool** per flagged species; in the server, **Deny** advances to the next already-scored alternate instantly, and only when the pool is exhausted does it queue a deny-biased re-source (a `photo_decision.resource_requested` flag) for the next `source-candidates` run.
+
 ## 4. Architecture (Approach A: shared rubric core)
 
 The linchpin is a **shared scoring package** that both the review tool and the ingestor import — so "same criteria for new photos" is structural, not a copy.
@@ -190,9 +199,13 @@ A `apply-swaps` action in the curation tool reads all `photo_decision` rows wher
 
 ### 5.7 Ingestor new-photo gate
 
+> **SUPERSEDED by §3a (R3) — dropped.** There is no automated ingestor gate. New photos are scored on demand by re-running `sync` + the batched `score` workflow (issue #968 closed). The original design is retained below for context only.
+
 Refactor `run-photos.ts` to import `packages/photo-quality` and the top-N sourcer. For a species needing a photo: fetch top-N → score each → pick the best. If best `overall ≥ thresholds.autoAccept`, write it (as today, now with a content-hashed key). If none clear the bar, write the best available **but** set `needs_review=true` and `quality_score`, so the species still shows a photo and the curation tool surfaces it for human attention on next sync. (Keeping a photo rather than leaving a gap preserves current coverage behavior; the flag is the queue.)
 
 ### 5.8 Prod schema change (minimal)
+
+> **SUPERSEDED by §3a (R3) — dropped.** These columns existed only to persist the (now-removed) ingestor gate's decision in prod. With scoring state held in the local SQLite store and no gate, prod `species_photos` is unchanged (issue #965 closed). The local store instead gains a `reviewed` flag on `photo_current` (§3a R2). The original is retained below for context only.
 
 A single migration adds two columns to `species_photos`:
 ```sql
