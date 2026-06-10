@@ -311,6 +311,26 @@ export interface SpeciesDictEntry {
 }
 
 /**
+ * One row of `GET /api/species/with-photos` (#992). The complete set of
+ * species that currently have a `species_photos(purpose='detail-panel')` row,
+ * returned in ONE response so the photo-curation `sync` tool can enumerate the
+ * ~715 observed-with-photos species without walking the full 17.8k taxonomy and
+ * issuing a per-species detail call. An INNER JOIN against `species_photos`
+ * guarantees `photoUrl`/`photoAttribution`/`photoLicense` are always present
+ * (unlike the optional projection on `SpeciesMeta`), so these are required
+ * (non-optional) fields here.
+ */
+export interface SpeciesWithPhoto {
+  code: string;
+  comName: string;
+  sciName: string;
+  family: string;
+  photoUrl: string;
+  photoAttribution: string;
+  photoLicense: string;
+}
+
+/**
  * Discriminated-union response from GET /api/observations.
  *
  * - `mode === 'observations'` (default; also when zoom >= 6 with bbox):

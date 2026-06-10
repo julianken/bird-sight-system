@@ -1,71 +1,79 @@
 // tools/photo-curation/workflows/source-candidates.mjs
-// Run via the Workflow tool. Token-spending. Pre-scores a DEEP iNat pool (~15)
-// per FLAGGED species (current overall < defaultRubricConfig.thresholds.review)
-// so Slice 5's deny route can advance to an already-scored alternate instantly.
+// A REAL Claude Code Workflow-tool script (Bug 1, #992). Run via the Workflow
+// tool — NEVER via `node`. Token-spending. Pre-scores a DEEP iNat pool per
+// FLAGGED species (current overall < defaultRubricConfig.thresholds.review) so
+// Slice 5's deny route can advance to an already-scored alternate instantly.
 //
-// NOT a vitest target — it wires the real Claude Code agent() judge and live
-// fetch/sharp. The testable surface is sourceCandidates in ../src/sources.ts,
-// unit-tested with FakeJudge + injected fetch/download/scoreImage. No
-// @anthropic-ai/sdk, no ANTHROPIC_API_KEY: the judge Reads the local image.
-import { openDb, DEFAULT_DB_PATH } from '../dist/db.js';
-import { sourceCandidates } from '../dist/sources.js';
-import { scoreImage, defaultRubricConfig } from '@bird-watch/photo-quality';
-import { fetchInatCandidates } from '@bird-watch/ingestor';
-import { writeFile, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+// CONTRACT: the body uses the Workflow primitives (`agent()`, `parallel()`)
+// ONLY — NO `node:fs`, NO `better-sqlite3`, NO `@bird-watch/ingestor` fetch.
+// All filesystem + SQLite + iNat-fetch work happens inside the Node CLI halves
+// the agents shell out to:
+//
+//   photo-curate source-prepare --pool N    → finds flagged species, fetches +
+//                                              downloads a deep iNat pool each,
+//                                              inserts candidate rows, writes a
+//                                              manifest JSON, prints its path.
+//   <parallel score agents>                 → each Reads one candidate imagePath,
+//                                              applies the judge prompt, returns
+//                                              {speciesCode, inatId, contentHash,
+//                                               criteria, flags, rationale}.
+//   photo-curate source-commit results.json → composeReport → upsertScore
+//                                              (role='candidate').
+//
+// The testable surface is sourcePrepare/sourceCommit in
+// ../src/score-orchestration.ts (unit-tested with a temp sqlite + stubbed
+// fetch/download). See docs/runbooks/photo-curation-scoring.md.
+import { defaultRubricConfig } from '@bird-watch/photo-quality';
 
-const POOL = 15; // deep pool per flagged species (same batch cap as scoring)
-const THUMB_DIR = './thumb-cache';
-await mkdir(THUMB_DIR, { recursive: true });
+const POOL = Number(process.env.POOL ?? 15);
 
-// download writes bytes to a local file so the agent can Read it.
-const download = async (url) => {
-  const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
-  if (!res.ok) throw new Error(`download ${res.status} for ${url}`);
-  return Buffer.from(await res.arrayBuffer());
-};
+// 1) PREPARE — a Bash agent shells out to the Node `source-prepare` half.
+const prepared = await agent({
+  prompt: `Run \`npx photo-curate source-prepare --pool ${POOL}\` in tools/photo-curation.
+It prints a human summary line then, on its own final line, the absolute path to a
+manifest JSON of shape
+[{ speciesCode, comName, sciName, family, inatId, imagePath, contentHash, attribution, license }].
+Read that manifest file and return its parsed contents as \`manifest\` plus the
+\`manifestPath\`. If the manifest is empty, return manifest: [] — no flagged species.`,
+  tools: ['Bash', 'Read'],
+  schema: { manifestPath: 'string', manifest: 'object[]' },
+});
 
-// The real judge: a Claude Code agent that Reads the local image + applies the
-// rubric prompt and returns StructuredOutput {criteria, flags, rationale}.
-const judge = {
-  async judge(img, ctx, prompt) {
-    const path = join(THUMB_DIR, `${ctx.speciesCode}-cand.jpg`);
-    await writeFile(path, img.buffer);
-    return await agent({
-      prompt: `${prompt}\n\nRead the image at ${path} for ${ctx.comName} (${ctx.sciName}).`,
-      schema: { criteria: 'object', flags: 'string[]', rationale: 'string' },
-    });
-  },
-};
+// 2) SCORE — one agent PER candidate, fanned out with parallel(). Each Reads
+//    its own imagePath and applies the rubric prompt, echoing speciesCode,
+//    inatId and contentHash back so source-commit can re-key the score row.
+const results = await parallel(
+  (prepared.manifest ?? []).map(entry => agent({
+    prompt: `${defaultRubricConfig.judgePrompt}
 
-const db = openDb(DEFAULT_DB_PATH);
-
-// Flagged species: a scored current photo below the review threshold, joined to
-// photo_current for the sciName the iNat sourcer keys on.
-const flagged = db.prepare(
-  `SELECT c.species_code AS speciesCode, c.com_name AS comName,
-          c.sci_name AS sciName, c.family AS family
-     FROM photo_score s
-     JOIN photo_current c ON c.species_code = s.species_code
-    WHERE s.role = 'current' AND s.overall < ?
-    ORDER BY s.overall ASC`,
-).all(defaultRubricConfig.thresholds.review);
-
-const results = [];
-for (const sp of flagged) {
-  const summary = await sourceCandidates(
-    db,
-    { speciesCode: sp.speciesCode, sciName: sp.sciName, comName: sp.comName, family: sp.family, limit: POOL },
-    {
-      fetchInatCandidates,
-      download,
-      scoreImage,
-      judge,
-      config: defaultRubricConfig,
-      thumbDir: THUMB_DIR,
+Read the candidate image at ${entry.imagePath} for ${entry.comName} (${entry.sciName}),
+family ${entry.family}. Return structured output: an integer 0–10 for each of the
+seven criteria (framing, subjectClarity, liveness, naturalness, pose, background,
+lighting), a \`flags\` array of any applicable disqualifier strings, and a
+one-sentence \`rationale\`. Echo back unchanged: speciesCode "${entry.speciesCode}",
+inatId ${entry.inatId}, contentHash "${entry.contentHash}".`,
+    tools: ['Read'],
+    schema: {
+      speciesCode: 'string',
+      inatId: 'number',
+      contentHash: 'string',
+      criteria: 'object',
+      flags: 'string[]',
+      rationale: 'string',
     },
-  );
-  results.push(summary);
-}
-console.log(`[source-candidates] ${JSON.stringify({ flagged: flagged.length, results }, null, 2)}`);
-db.close();
+  })),
+);
+
+// 3) COMMIT — a Bash agent writes results.json and shells out to source-commit.
+const commit = await agent({
+  prompt: `Write this JSON to tools/photo-curation/candidate-results.json, then run
+\`npx photo-curate source-commit candidate-results.json\` in tools/photo-curation
+and return its summary line:
+
+${JSON.stringify(results, null, 2)}`,
+  tools: ['Write', 'Bash'],
+  schema: { summary: 'string' },
+});
+
+console.log(`[source-candidates] sourced ${prepared.manifest?.length ?? 0} candidate(s); committed via source-commit:`);
+console.log(commit.summary);

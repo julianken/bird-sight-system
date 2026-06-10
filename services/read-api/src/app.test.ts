@@ -1087,6 +1087,74 @@ describe('GET /api/species (dictionary, #859)', () => {
   });
 });
 
+describe('GET /api/species/with-photos (#992)', () => {
+  it('returns ONLY species with a detail-panel photo in one response with the species cache header', async () => {
+    // Seed three species; give two a detail-panel photo. The INNER JOIN must
+    // drop the photo-less one so the photo-curation `sync` tool enumerates the
+    // observed-with-photos set in ONE call (no per-species detail walk).
+    await upsertSpeciesMeta(db.pool, [
+      { speciesCode: 'wpvermfly', comName: 'Vermilion Flycatcher',
+        sciName: 'Pyrocephalus rubinus', familyCode: 'tyrannidae',
+        familyName: 'Tyrant Flycatchers', taxonOrder: 30501 },
+      { speciesCode: 'wpannhum', comName: "Anna's Hummingbird",
+        sciName: 'Calypte anna', familyCode: 'trochilidae',
+        familyName: 'Hummingbirds', taxonOrder: 6000 },
+      { speciesCode: 'wpmallar', comName: 'Mallard',
+        sciName: 'Anas platyrhynchos', familyCode: 'anatidae',
+        familyName: 'Ducks, Geese, and Waterfowl', taxonOrder: 261 },
+    ]);
+    await insertSpeciesPhoto(db.pool, {
+      speciesCode: 'wpvermfly', purpose: 'detail-panel',
+      url: 'https://photos.bird-maps.com/species/wpvermfly.jpg',
+      attribution: '(c) A (CC BY)', license: 'cc-by',
+    });
+    await insertSpeciesPhoto(db.pool, {
+      speciesCode: 'wpmallar', purpose: 'detail-panel',
+      url: 'https://photos.bird-maps.com/species/wpmallar.jpg',
+      attribution: '(c) B (CC BY-NC)', license: 'cc-by-nc',
+    });
+    // wpannhum has NO photo row → absent from the response.
+
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/species/with-photos');
+    expect(res.status).toBe(200);
+    // Rides the per-species 'species' cache tier (photo_url is a
+    // monthly-refreshed field — see cache-headers.ts).
+    expect(res.headers.get('cache-control')).toBe('public, max-age=604800');
+
+    const body = await res.json() as Array<{
+      code: string; comName: string; sciName: string; family: string;
+      photoUrl: string; photoAttribution: string; photoLicense: string;
+    }>;
+    const codes = body.map(r => r.code);
+    expect(codes).toContain('wpvermfly');
+    expect(codes).toContain('wpmallar');
+    expect(codes).not.toContain('wpannhum');
+
+    const verm = body.find(r => r.code === 'wpvermfly')!;
+    expect(verm.comName).toBe('Vermilion Flycatcher');
+    expect(verm.sciName).toBe('Pyrocephalus rubinus');
+    expect(verm.family).toBe('Tyrant Flycatchers');
+    expect(verm.photoUrl).toBe('https://photos.bird-maps.com/species/wpvermfly.jpg');
+    expect(verm.photoAttribution).toBe('(c) A (CC BY)');
+    expect(verm.photoLicense).toBe('cc-by');
+    // Exactly the seven wire fields.
+    expect(Object.keys(verm).sort())
+      .toEqual(['code', 'comName', 'family', 'photoAttribution', 'photoLicense', 'photoUrl', 'sciName']);
+  });
+
+  it('is NOT shadowed by the /api/species/:code detail route', async () => {
+    // Route-ordering guard: /api/species/with-photos must resolve to the
+    // with-photos endpoint (an ARRAY), not the :code detail route treating
+    // 'with-photos' as a species code (a 404 object).
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/species/with-photos');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(Array.isArray(body)).toBe(true);
+  });
+});
+
 describe('GET /api/species/:code', () => {
   it('returns species meta for a known code', async () => {
     const app = createApp({ pool: db.pool });

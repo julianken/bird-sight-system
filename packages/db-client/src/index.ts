@@ -12,6 +12,7 @@ export {
 export {
   getSpeciesMeta,
   getSpeciesDictionary,
+  getSpeciesWithPhotos,
   upsertSpeciesMeta,
   findMissingSpeciesMeta,
   insertSpeciesPhoto,

@@ -272,16 +272,21 @@ const config: KnipConfig = {
       //             2026-07-27 — drop this if sharp gains a direct import or is
       //             removed from package.json.
       ignoreDependencies: ['sharp'],
-      // 2026-06-10: the two committed workflows under workflows/*.mjs are
-      //             Claude Code Workflow-tool entries — run via the Workflow
-      //             tool against ../dist, never imported by any TS/JS module, so
+      // 2026-06-10 (rewired #992): the two committed workflows under
+      //             workflows/*.mjs are Claude Code Workflow-tool entries — run
+      //             via the Workflow tool, never imported by any TS/JS module, so
       //             static analysis can't see a reference and flags them as
-      //             unused files. They wire the real agent() judge + live fetch
-      //             and are intentionally NOT vitest targets (the testable
-      //             surface is sources.ts). Risk: masks a genuinely orphaned
-      //             workflow if one is deleted from the runbook but left on
-      //             disk. Re-audit 2026-07-27 — confirm both are still
-      //             referenced by the photo-curation runbook / epic #974.
+      //             unused files. After #992 their bodies use the Workflow
+      //             primitives (agent()/parallel()) ONLY and import just
+      //             defaultRubricConfig — the filesystem/SQLite/iNat work moved
+      //             to the runnable Node CLI halves (score-prepare/score-commit,
+      //             source-prepare/source-commit in src/score-orchestration.ts,
+      //             which ARE vitest targets). The .mjs scripts stay intentionally
+      //             NOT vitest targets (they wire the real agent() judge). Risk:
+      //             masks a genuinely orphaned workflow if one is deleted from the
+      //             runbook but left on disk. Re-audit 2026-07-27 — confirm both
+      //             are still referenced by docs/runbooks/photo-curation-scoring.md
+      //             / epic #974.
       //
       // 2026-06-10 (Slice 5b, #973): the three public/*.js files are browser ES
       //             modules served verbatim by the review server's
