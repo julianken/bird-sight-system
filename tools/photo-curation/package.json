@@ -1,0 +1,27 @@
+{
+  "name": "@bird-watch/photo-curation",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "bin": { "photo-curate": "dist/cli.js" },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "curate": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "@bird-watch/ingestor": "*",
+    "@bird-watch/photo-quality": "*",
+    "@bird-watch/shared-types": "*",
+    "better-sqlite3": "^11.8.1",
+    "commander": "^13.1.0",
+    "sharp": "^0.34.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^24.12.4",
+    "msw": "^2.14.6",
+    "tsx": "^4.22.3",
+    "vitest": "^4.1.7"
+  }
+}
