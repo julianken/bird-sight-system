@@ -1,9 +1,10 @@
 import { Hono } from 'hono';
 import type { Pool } from '@bird-watch/db-client';
+import { insertSpeciesPhoto, getSpeciesPhotos } from '@bird-watch/db-client';
 import { bearerAuth } from './auth.js';
-import { validateSvg, ValidationError } from './validate.js';
+import { validateSvg, validatePhotoImage, validateLicense, ValidationError } from './validate.js';
 import type { Storage } from './storage.js';
-import { purgeSilhouettesJson } from './purge.js';
+import { purgeSilhouettesJson, purgeSpeciesJson } from './purge.js';
 
 export interface AppDeps {
   pool: Pool;
@@ -12,6 +13,8 @@ export interface AppDeps {
 }
 
 const FAMILY_CODE = /^[a-z]+$/;
+// eBird species codes are lowercase alphanumerics (e.g. norcar, x00013).
+const SPECIES_CODE = /^[a-z0-9]+$/;
 
 export function createApp(deps: AppDeps): Hono {
   const app = new Hono();
@@ -128,6 +131,109 @@ export function createApp(deps: AppDeps): Hono {
     }
 
     return c.json({ ok: true });
+  });
+
+  app.put('/admin/species-photos/:speciesCode', async c => {
+    const speciesCode = c.req.param('speciesCode');
+    if (!SPECIES_CODE.test(speciesCode)) {
+      return c.json({ error: 'invalid species code' }, 400);
+    }
+
+    let payload: { sourceUrl?: unknown; attribution?: unknown; license?: unknown };
+    try {
+      payload = await c.req.json();
+    } catch {
+      return c.json({ error: 'body must be JSON' }, 400);
+    }
+    const { sourceUrl, attribution, license } = payload;
+    if (typeof sourceUrl !== 'string' || typeof attribution !== 'string' || typeof license !== 'string') {
+      return c.json({ error: 'sourceUrl, attribution, license are required strings' }, 400);
+    }
+
+    // License backstop FIRST — cheapest deny, before any network fetch.
+    let normalizedLicense: string;
+    try {
+      normalizedLicense = validateLicense(license);
+    } catch (err) {
+      if (err instanceof ValidationError) return c.json({ error: err.message }, 400);
+      throw err;
+    }
+
+    // Confirm the species row exists before any side effect (mirrors the
+    // silhouette 404-existence check — a photo for an unknown species would
+    // FK-fail on insert and leave an orphaned R2 object).
+    const existing = await deps.pool.query<{ count: string }>(
+      `SELECT count(*) AS count FROM species_meta WHERE species_code = $1`,
+      [speciesCode],
+    );
+    if (existing.rows[0]!.count === '0') {
+      return c.json({ error: `unknown species_code: ${speciesCode}` }, 404);
+    }
+
+    // Fetch the source image server-side (the local tool ships a URL, not
+    // bytes). Must 200 and be image/*.
+    let body: Buffer;
+    let mime: string;
+    try {
+      const fetched = await fetch(sourceUrl, { signal: AbortSignal.timeout(15_000) });
+      if (!fetched.ok) {
+        return c.json({ error: `source fetch failed: status ${fetched.status}` }, 400);
+      }
+      mime = (fetched.headers.get('content-type') ?? '').split(';')[0]!.trim();
+      body = Buffer.from(await fetched.arrayBuffer());
+    } catch (err) {
+      return c.json({ error: `source fetch error: ${err instanceof Error ? err.message : String(err)}` }, 400);
+    }
+
+    let validated;
+    try {
+      validated = validatePhotoImage(body, mime);
+    } catch (err) {
+      if (err instanceof ValidationError) return c.json({ error: err.message }, 400);
+      throw err;
+    }
+
+    // ── R2 BEFORE DB ──────────────────────────────────────────────────────
+    // Upload first; only write the DB url if R2 succeeded. A DB row pointing
+    // at a not-yet-uploaded key would render a broken image; a failed DB write
+    // after upload only leaks an unreferenced R2 object (hygiene). The
+    // species-photo.test.ts ordering case asserts this directly: a forced
+    // insert failure leaves exactly one PutObject and zero live rows.
+    const put = await deps.storage.putSpeciesPhoto(speciesCode, validated.source, mime, validated.ext);
+
+    // Read the prior object key BEFORE the upsert overwrites the url, so we can
+    // best-effort delete it after (content-hashed keys never collide, so the
+    // old immutable object would otherwise leak on every swap).
+    const prior = await getSpeciesPhotos(deps.pool, speciesCode);
+    const priorDetail = prior.find(p => p.purpose === 'detail-panel');
+
+    await insertSpeciesPhoto(deps.pool, {
+      speciesCode,
+      purpose: 'detail-panel',
+      url: put.url,
+      attribution,
+      license: normalizedLicense,
+    });
+
+    if (priorDetail) {
+      try {
+        const priorUrl = new URL(priorDetail.url);
+        const priorKey = priorUrl.pathname.replace(/^\//, '');
+        if (priorKey !== put.key && priorKey.startsWith('species/')) {
+          await deps.storage.deleteSpeciesPhoto(priorKey);
+        }
+      } catch (err) {
+        console.warn(`[admin-api] R2 cleanup of prior photo failed: ${err}`);
+      }
+    }
+
+    const purge = await purgeSpeciesJson(speciesCode);
+    if (!purge.ok) {
+      c.header('X-Purge-Status', 'failed');
+      console.warn(`[admin-api] species purge failed: ${purge.error}`);
+    }
+
+    return c.json({ url: put.url, key: put.key });
   });
 
   app.onError((err, c) => {
