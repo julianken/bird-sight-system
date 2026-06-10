@@ -1,4 +1,5 @@
 import { initTheme, toggleTheme } from '/theme.js';
+import { esc, safeImg } from './safe.js';
 initTheme();
 document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
 
@@ -14,19 +15,19 @@ function scoreClass(overall) {
 function card(row) {
   const el = document.createElement('article');
   el.className = 'card' + (row.overall !== null && row.overall < 50 ? ' below-threshold' : '');
-  const flags = row.flags.map(f => `<span class="flag-chip">${f}</span>`).join('');
-  const subs = SUBSCORE_KEYS.map(k => `<span class="subscore"><span>${k}</span><span>${row.criteria[k]}</span></span>`).join('');
+  const flags = row.flags.map(f => `<span class="flag-chip">${esc(f)}</span>`).join('');
+  const subs = SUBSCORE_KEYS.map(k => `<span class="subscore"><span>${esc(k)}</span><span>${esc(row.criteria[k])}</span></span>`).join('');
   el.innerHTML = `
-    <img class="card-photo" src="${row.url}" alt="${row.comName}" loading="lazy" />
+    <img class="card-photo" src="${safeImg(row.url)}" alt="${esc(row.comName)}" loading="lazy" />
     <div class="card-body">
-      <p class="card-name">${row.comName}</p>
-      <p class="card-sci">${row.sciName}</p>
-      <span class="score-badge ${scoreClass(row.overall)}">${row.overall ?? '—'}</span>
+      <p class="card-name">${esc(row.comName)}</p>
+      <p class="card-sci">${esc(row.sciName)}</p>
+      <span class="score-badge ${scoreClass(row.overall)}">${esc(row.overall ?? '—')}</span>
       <div class="flag-chips">${flags}</div>
       <div class="subscores">${subs}</div>
       <div class="card-actions">
         <label class="mark-swap"><input type="checkbox" class="mark-cb" ${row.markedForSwap ? 'checked' : ''}/> Mark for swap</label>
-        <a class="swap-link" href="/swap/${row.speciesCode}">Review →</a>
+        <a class="swap-link" href="/swap/${esc(row.speciesCode)}">Review →</a>
       </div>
     </div>`;
   el.querySelector('.mark-cb').addEventListener('change', async (e) => {

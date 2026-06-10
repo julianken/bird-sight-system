@@ -296,6 +296,15 @@ const config: KnipConfig = {
       //             confirm public/index.html + public/swap.html still reference
       //             these three scripts (grep `src="/overview.js"`, `/swap.js`,
       //             and an `import .* '/theme.js'` in the two client modules).
+      //
+      // 2026-06-10 (#973 security addendum): public/safe.js — the shared
+      //             XSS-hardening helper (esc + safeImg) imported by overview.js
+      //             + swap.js — is deliberately NOT ignored here: its sibling
+      //             public/safe.test.ts is a real vitest target that imports it,
+      //             so knip already traces safe.js as used (an ignore entry is
+      //             flagged redundant). If that test is ever removed, knip will
+      //             report safe.js as unused — re-add it to this ignore list
+      //             (with the overview/swap import rationale above) at that time.
       ignore: [
         'workflows/score-current.mjs', 'workflows/source-candidates.mjs',
         'public/overview.js', 'public/swap.js', 'public/theme.js',

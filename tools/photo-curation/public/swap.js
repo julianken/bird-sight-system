@@ -1,4 +1,5 @@
 import { initTheme, toggleTheme } from '/theme.js';
+import { esc, safeImg } from './safe.js';
 initTheme();
 document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
 
@@ -8,10 +9,10 @@ const code = location.pathname.split('/').pop();
 let featured = null; // candidateId
 
 function subscoresHtml(criteria) {
-  return `<div class="subscores">${SUBSCORE_KEYS.map(k => `<span class="subscore"><span>${k}</span><span>${criteria[k]}</span></span>`).join('')}</div>`;
+  return `<div class="subscores">${SUBSCORE_KEYS.map(k => `<span class="subscore"><span>${esc(k)}</span><span>${esc(criteria[k])}</span></span>`).join('')}</div>`;
 }
 function flagsHtml(flags) {
-  return `<div class="flag-chips">${flags.map(f => `<span class="flag-chip">${f}</span>`).join('')}</div>`;
+  return `<div class="flag-chips">${flags.map(f => `<span class="flag-chip">${esc(f)}</span>`).join('')}</div>`;
 }
 
 function toast(msg) {
@@ -29,31 +30,31 @@ async function render() {
 
   const proposedPane = v.proposed ? `
     <div class="pane">
-      <div class="pane-label">Proposed replacement · ${v.proposed.overall ?? '—'}</div>
-      <img class="pane-photo" src="${v.proposed.photoUrl}" alt="proposed" />
+      <div class="pane-label">Proposed replacement · ${esc(v.proposed.overall ?? '—')}</div>
+      <img class="pane-photo" src="${safeImg(v.proposed.photoUrl)}" alt="proposed" />
       <div class="pane-body">
         ${flagsHtml(v.proposed.flags)}${subscoresHtml(v.proposed.criteria)}
-        <p class="attribution">${v.proposed.attribution} · ${v.proposed.license}</p>
+        <p class="attribution">${esc(v.proposed.attribution)} · ${esc(v.proposed.license)}</p>
       </div>
     </div>` : `<div class="pane"><div class="pane-label">Proposed replacement</div><p class="empty">No scored candidate left — re-source queued; run <code>source-candidates</code> then refresh.</p></div>`;
 
   const alts = v.alternates.map(a => `
-    <div class="alt ${a.candidateId === featured ? 'selected' : ''}" data-id="${a.candidateId}">
-      <img src="${a.photoUrl}" alt="alt" />
-      <div class="alt-score">${a.overall ?? '—'}</div>
+    <div class="alt ${a.candidateId === featured ? 'selected' : ''}" data-id="${esc(a.candidateId)}">
+      <img src="${safeImg(a.photoUrl)}" alt="alt" />
+      <div class="alt-score">${esc(a.overall ?? '—')}</div>
     </div>`).join('');
 
-  const chips = QUICK_CHIPS.map(c => `<button type="button" class="quick-chip" data-tag="${c}">${c}</button>`).join('');
+  const chips = QUICK_CHIPS.map(c => `<button type="button" class="quick-chip" data-tag="${esc(c)}">${esc(c)}</button>`).join('');
 
   document.getElementById('root').innerHTML = `
-    <div class="swap-head"><span class="com">${v.comName}</span><span class="sci">${v.sciName}</span></div>
+    <div class="swap-head"><span class="com">${esc(v.comName)}</span><span class="sci">${esc(v.sciName)}</span></div>
     <div class="compare">
       <div class="pane">
-        <div class="pane-label">Current (live) · ${v.current.overall ?? '—'}</div>
-        <img class="pane-photo" src="${v.current.url}" alt="current" />
+        <div class="pane-label">Current (live) · ${esc(v.current.overall ?? '—')}</div>
+        <img class="pane-photo" src="${safeImg(v.current.url)}" alt="current" />
         <div class="pane-body">
           ${flagsHtml(v.current.flags)}${subscoresHtml(v.current.criteria)}
-          <p class="attribution">${v.current.attribution} · ${v.current.license}</p>
+          <p class="attribution">${esc(v.current.attribution)} · ${esc(v.current.license)}</p>
         </div>
       </div>
       ${proposedPane}
