@@ -10,7 +10,7 @@ import {
 } from '@bird-watch/photo-quality';
 import type { InatCandidate, DenyContext } from '@bird-watch/ingestor';
 import { fetchInatCandidates as realFetchInatCandidates } from '@bird-watch/ingestor';
-import type { SpeciesMeta } from '@bird-watch/shared-types';
+import type { SpeciesMeta, SpeciesWithPhoto } from '@bird-watch/shared-types';
 import { sha8 } from './hash.js';
 import {
   insertCandidate, upsertScore, getScoreByHash, maxSourceRound, upsertCurrentPhoto,
@@ -60,14 +60,14 @@ export interface SourceSummary {
   errors: Array<{ inatId: number; reason: string }>;
 }
 
-function mimeFromUrl(url: string): string {
+export function mimeFromUrl(url: string): string {
   const path = url.split('?')[0]?.toLowerCase() ?? url;
   if (path.endsWith('.png')) return 'image/png';
   if (path.endsWith('.webp')) return 'image/webp';
   return 'image/jpeg';
 }
 
-function extFromMime(mime: string): string {
+export function extFromMime(mime: string): string {
   if (mime === 'image/png') return 'png';
   if (mime === 'image/webp') return 'webp';
   return 'jpg';
@@ -288,6 +288,53 @@ export async function sync(
     } catch (err) {
       summary.failed++;
       summary.errors.push({ speciesCode: code, reason: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  return summary;
+}
+
+/**
+ * The whole-backlog snapshot (#992). Calls `GET /api/species/with-photos` ONCE
+ * — the read-api endpoint that INNER-JOINs `species_meta` to
+ * `species_photos(purpose='detail-panel')` and returns the ~715
+ * observed-with-photos species in a single body — and upserts every row into
+ * `photo_current` with reviewed = 0.
+ *
+ * This replaces the old no-`--species` path, which fetched `/api/species` (the
+ * full 17.8k-code eBird taxonomy, no photoUrl) and then issued a per-species
+ * `/api/species/:code` detail call each — ~17.8k requests, almost all `noPhoto`.
+ * Because the endpoint already filters to species WITH a photo, there is no
+ * `skipped` count here: every returned row carries a `photoUrl` and is upserted.
+ *
+ * Same idempotent, NO-token, reviewed=0 contract as `sync` (which the
+ * `--species <code>` single path still uses via `/api/species/:code`).
+ * content_hash is left empty at sync time; `scoreOne` re-stamps the real hash
+ * when it downloads the bytes.
+ */
+export async function syncAll(
+  db: Database.Database, deps: SyncDeps,
+): Promise<SyncSummary> {
+  const res = await fetch(`${deps.apiBase}/api/species/with-photos`, {
+    headers: { accept: 'application/json' },
+  });
+  if (!res.ok) throw new Error(`read-api ${res.status} for /api/species/with-photos`);
+  const rows = (await res.json()) as SpeciesWithPhoto[];
+
+  const summary: SyncSummary = {
+    total: rows.length, upserted: 0, skipped: 0, failed: 0, errors: [],
+  };
+  for (const row of rows) {
+    try {
+      upsertCurrentPhoto(db, {
+        speciesCode: row.code, comName: row.comName, sciName: row.sciName,
+        family: row.family, url: row.photoUrl,
+        attribution: row.photoAttribution ?? '', license: row.photoLicense ?? '',
+        contentHash: '', // hash is computed at score time, not sync time
+      });
+      summary.upserted++;
+    } catch (err) {
+      summary.failed++;
+      summary.errors.push({ speciesCode: row.code, reason: err instanceof Error ? err.message : String(err) });
     }
   }
   return summary;

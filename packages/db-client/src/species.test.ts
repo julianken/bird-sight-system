@@ -7,6 +7,7 @@ import {
   findMissingSpeciesMeta,
   insertSpeciesPhoto,
   getSpeciesPhotos,
+  getSpeciesWithPhotos,
   getSpeciesPhenology,
   insertSpeciesDescription,
 } from './species.js';
@@ -731,5 +732,93 @@ describe('species descriptions', () => {
     expect(rows[0]?.source).toBe('inat');
     expect(rows[0]?.body).toBe(body);
     expect(rows[0]?.attribution_url).toBe('https://www.inaturalist.org/taxa/9083');
+  });
+});
+
+describe('getSpeciesWithPhotos (#992)', () => {
+  it('returns ONLY species with a detail-panel photo, INNER JOINed, sorted by code', async () => {
+    // Three species in species_meta; only two have a detail-panel photo row.
+    // The INNER JOIN must drop the photo-less one (annhum) entirely — the
+    // photo-curation `sync` tool relies on this to enumerate the ~715
+    // observed-with-photos species without walking the full taxonomy.
+    await upsertSpeciesMeta(db.pool, [
+      { speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        sciName: 'Pyrocephalus rubinus', familyCode: 'tyrannidae',
+        familyName: 'Tyrant Flycatchers', taxonOrder: 30501 },
+      { speciesCode: 'annhum', comName: "Anna's Hummingbird",
+        sciName: 'Calypte anna', familyCode: 'trochilidae',
+        familyName: 'Hummingbirds', taxonOrder: 6000 },
+      { speciesCode: 'mallar3', comName: 'Mallard',
+        sciName: 'Anas platyrhynchos', familyCode: 'anatidae',
+        familyName: 'Ducks, Geese, and Waterfowl', taxonOrder: 261 },
+    ]);
+    await insertSpeciesPhoto(db.pool, {
+      speciesCode: 'vermfly', purpose: 'detail-panel',
+      url: 'https://photos.bird-maps.com/species/vermfly.jpg',
+      attribution: '(c) A (CC BY)', license: 'cc-by',
+    });
+    await insertSpeciesPhoto(db.pool, {
+      speciesCode: 'mallar3', purpose: 'detail-panel',
+      url: 'https://photos.bird-maps.com/species/mallar3.jpg',
+      attribution: '(c) B (CC BY-NC)', license: 'cc-by-nc',
+    });
+    // annhum gets NO photo row → must be absent from the result.
+
+    const rows = await getSpeciesWithPhotos(db.pool);
+    // Sorted by species_code asc: mallar3, vermfly (annhum dropped).
+    expect(rows.map(r => r.code)).toEqual(['mallar3', 'vermfly']);
+
+    const verm = rows.find(r => r.code === 'vermfly')!;
+    expect(verm.comName).toBe('Vermilion Flycatcher');
+    expect(verm.sciName).toBe('Pyrocephalus rubinus');
+    expect(verm.family).toBe('Tyrant Flycatchers');
+    expect(verm.photoUrl).toBe('https://photos.bird-maps.com/species/vermfly.jpg');
+    expect(verm.photoAttribution).toBe('(c) A (CC BY)');
+    expect(verm.photoLicense).toBe('cc-by');
+    // Exactly the seven wire fields — no taxon_order / family_code leak.
+    expect(Object.keys(verm).sort())
+      .toEqual(['code', 'comName', 'family', 'photoAttribution', 'photoLicense', 'photoUrl', 'sciName']);
+  });
+
+  it('ignores non-detail-panel photo purposes (only detail-panel counts)', async () => {
+    // A photo row exists for the species, but with a non-detail-panel purpose.
+    // The (species_code, purpose) UNIQUE means a species can carry other
+    // purposes in future; this endpoint is detail-panel-scoped, so a species
+    // whose ONLY photo is a different purpose must NOT appear.
+    await upsertSpeciesMeta(db.pool, [
+      { speciesCode: 'galleryonly', comName: 'Gallery Only',
+        sciName: 'Solus galleria', familyCode: 'tyrannidae',
+        familyName: 'Tyrant Flycatchers', taxonOrder: 99100 },
+    ]);
+    // Drop the purpose CHECK so we can seed a non-detail-panel row directly
+    // (insertSpeciesPhoto only writes detail-panel via its caller contract).
+    await db.pool.query(`ALTER TABLE species_photos DROP CONSTRAINT species_photos_purpose_check`);
+    try {
+      await db.pool.query(
+        `INSERT INTO species_photos (species_code, purpose, url, attribution, license)
+         VALUES ('galleryonly', 'gallery', 'https://x/g.jpg', '(c) G', 'cc-by')`
+      );
+      const rows = await getSpeciesWithPhotos(db.pool);
+      expect(rows.map(r => r.code)).not.toContain('galleryonly');
+    } finally {
+      await db.pool.query(`DELETE FROM species_photos WHERE purpose = 'gallery'`);
+      await db.pool.query(
+        `ALTER TABLE species_photos
+         ADD CONSTRAINT species_photos_purpose_check
+         CHECK (purpose IN ('detail-panel'))`
+      );
+    }
+  });
+
+  it('returns an empty array when no species has a detail-panel photo', async () => {
+    // beforeEach truncates species_meta CASCADE (drops photos too) — seed a
+    // photo-less species so the JOIN produces zero rows.
+    await upsertSpeciesMeta(db.pool, [
+      { speciesCode: 'nophoto', comName: 'No Photo',
+        sciName: 'Nullus avis', familyCode: 'tyrannidae',
+        familyName: 'Tyrant Flycatchers', taxonOrder: 99200 },
+    ]);
+    const rows = await getSpeciesWithPhotos(db.pool);
+    expect(rows).toEqual([]);
   });
 });

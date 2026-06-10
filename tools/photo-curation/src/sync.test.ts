@@ -4,7 +4,7 @@ import { http, HttpResponse } from 'msw';
 import type Database from 'better-sqlite3';
 import { openDb } from './db.js';
 import { getScoreByHash, selectUnreviewed } from './store.js';
-import { sync, scoreBatch } from './sources.js';
+import { sync, syncAll, scoreBatch } from './sources.js';
 import { FakeJudge } from './judge.js';
 import type { RubricConfig } from '@bird-watch/photo-quality';
 
@@ -53,6 +53,54 @@ describe('sync (cheap, NO tokens)', () => {
     const summary = await sync(db, ['nopho'], { apiBase: API });
     expect(summary.skipped).toBe(1);
     expect(selectUnreviewed(db, 10)).toEqual([]);
+  });
+});
+
+describe('syncAll (#992 — one call to /api/species/with-photos, no per-species walk)', () => {
+  it('upserts every with-photos row into photo_current (reviewed=0) from ONE endpoint call', async () => {
+    let detailHits = 0;
+    server.use(
+      // The new bulk endpoint: returns the observed-with-photos set in one body.
+      http.get(`${API}/api/species/with-photos`, () =>
+        HttpResponse.json([
+          { code: 'amerob', comName: 'American Robin', sciName: 'Turdus migratorius',
+            family: 'Turdidae', photoUrl: 'https://photos.bird-maps.com/species/amerob.jpg',
+            photoAttribution: '(c) X (CC BY)', photoLicense: 'cc-by' },
+          { code: 'annhum', comName: "Anna's Hummingbird", sciName: 'Calypte anna',
+            family: 'Hummingbirds', photoUrl: 'https://photos.bird-maps.com/species/annhum.jpg',
+            photoAttribution: '(c) Y (CC BY-NC)', photoLicense: 'cc-by-nc' },
+        ]),
+      ),
+      // If the rewire regressed to a per-species walk, this would fire — the
+      // test fails loudly because onUnhandledRequest is 'error', but we also
+      // count to assert ZERO detail calls explicitly.
+      http.get(`${API}/api/species/:code`, ({ params }) => {
+        detailHits++;
+        return HttpResponse.json({ speciesCode: params.code });
+      }),
+    );
+
+    const summary = await syncAll(db, { apiBase: API });
+    expect(summary.upserted).toBe(2);
+    expect(summary.total).toBe(2);
+    expect(detailHits).toBe(0); // NO per-species detail call
+
+    const rob = db.prepare(`SELECT * FROM photo_current WHERE species_code=?`).get('amerob') as any;
+    expect(rob.com_name).toBe('American Robin');
+    expect(rob.sci_name).toBe('Turdus migratorius');
+    expect(rob.family).toBe('Turdidae');
+    expect(rob.attribution).toBe('(c) X (CC BY)');
+    expect(rob.license).toBe('cc-by');
+    expect(rob.reviewed).toBe(0);
+    // Both are visible to the batched scorer, oldest-first by code.
+    expect(selectUnreviewed(db, 10).map((r: any) => r.species_code)).toEqual(['amerob', 'annhum']);
+  });
+
+  it('throws when the bulk endpoint is unavailable', async () => {
+    server.use(
+      http.get(`${API}/api/species/with-photos`, () => new HttpResponse(null, { status: 503 })),
+    );
+    await expect(syncAll(db, { apiBase: API })).rejects.toThrow(/503/);
   });
 });
 

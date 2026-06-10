@@ -1,5 +1,5 @@
 import type { Pool } from './pool.js';
-import type { SpeciesMeta, SpeciesDictEntry } from '@bird-watch/shared-types';
+import type { SpeciesMeta, SpeciesDictEntry, SpeciesWithPhoto } from '@bird-watch/shared-types';
 
 /**
  * One row of `species_photos`. Mirrors the column shape verbatim — used by
@@ -262,6 +262,57 @@ export async function getSpeciesDictionary(
     code: r.code,
     comName: r.com_name,
     familyCode: r.family_code,
+  }));
+}
+
+/**
+ * Every species that currently has a detail-panel photo, returned in ONE
+ * response (#992). An INNER JOIN against `species_photos (purpose='detail-panel')`
+ * drops every species WITHOUT such a photo, so the result is the ~715
+ * observed-with-photos set — not the full 17.8k taxonomy. The
+ * `tools/photo-curation` `sync` tool calls this once to enumerate the curation
+ * backlog instead of walking `/api/species` then issuing a per-species
+ * `/api/species/:code` detail call (~17.8k requests, almost all `noPhoto`).
+ *
+ * `family` projects `family_name` (the human-readable family, mirroring what
+ * `sync` stored from `meta.familyName`), NOT `family_code`. The three photo
+ * fields are non-NULL by construction (the INNER JOIN guarantees a matching
+ * `species_photos` row), so unlike `getSpeciesMeta`'s LEFT-JOIN projection they
+ * are always present. Sorted by `species_code` for a stable wire order.
+ */
+export async function getSpeciesWithPhotos(
+  pool: Pool
+): Promise<SpeciesWithPhoto[]> {
+  const { rows } = await pool.query<{
+    code: string;
+    com_name: string;
+    sci_name: string;
+    family_name: string;
+    photo_url: string;
+    photo_attribution: string;
+    photo_license: string;
+  }>(
+    `SELECT sm.species_code AS code,
+            sm.com_name      AS com_name,
+            sm.sci_name      AS sci_name,
+            sm.family_name   AS family_name,
+            sp.url           AS photo_url,
+            sp.attribution   AS photo_attribution,
+            sp.license       AS photo_license
+       FROM species_meta sm
+       JOIN species_photos sp
+         ON sp.species_code = sm.species_code
+        AND sp.purpose = 'detail-panel'
+      ORDER BY sm.species_code`
+  );
+  return rows.map(r => ({
+    code: r.code,
+    comName: r.com_name,
+    sciName: r.sci_name,
+    family: r.family_name,
+    photoUrl: r.photo_url,
+    photoAttribution: r.photo_attribution,
+    photoLicense: r.photo_license,
   }));
 }
 

@@ -5,7 +5,7 @@ import type { Pool } from '@bird-watch/db-client';
 import {
   getHotspots, getObservations, getObservationsAggregated,
   getFreshestObservationAt,
-  getSpeciesMeta, getSpeciesDictionary, getSilhouettes,
+  getSpeciesMeta, getSpeciesDictionary, getSpeciesWithPhotos, getSilhouettes,
   getSpeciesPhenology,
   listStatesWithBbox,
   // #878 — precomputed per-scope aggregation grid.
@@ -389,6 +389,23 @@ export function createApp(deps: AppDeps): Hono {
     const dict = await getSpeciesDictionary(deps.pool);
     c.header('Cache-Control', cacheControlFor('species-dict'));
     return c.json(dict);
+  });
+
+  // #992 — every species with a detail-panel photo, in ONE response. The
+  // `tools/photo-curation` `sync` tool calls this once to enumerate the ~715
+  // observed-with-photos species instead of walking /api/species (full 17.8k
+  // taxonomy) then issuing a per-species /api/species/:code detail call.
+  // Registered BEFORE the `/api/species/:code` detail route: Hono's trie
+  // prefers a static segment over `:code`, but declaring the static route first
+  // keeps the precedence explicit and order-independent of any future router
+  // change (mirrors the /api/species dictionary precedence comment above).
+  // Rides the per-species 'species' cache tier — photo_url is a
+  // monthly-refreshed field (see cache-headers.ts), so the same 7-day max-age
+  // and re-validate-at-expiry semantics apply to this projection.
+  app.get('/api/species/with-photos', async c => {
+    const rows = await getSpeciesWithPhotos(deps.pool);
+    c.header('Cache-Control', cacheControlFor('species'));
+    return c.json(rows);
   });
 
   app.get('/api/species/:code', async c => {
