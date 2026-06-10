@@ -313,6 +313,7 @@
   height: 100%;
   object-fit: cover;
   border-radius: var(--photo-radius);
+  transition: opacity var(--dur-base) ease;
 }
 
 .photo__img--pending {

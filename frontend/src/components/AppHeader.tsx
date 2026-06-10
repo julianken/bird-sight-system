@@ -295,19 +295,28 @@ export function AppHeader({
           </div>
         )}
 
-        {/* Scope disclosure body (§4.2 / #828) — MOUNTED whenever scope is active
-            (so aria-controls has a valid target) but CSS-collapsed until the 🔍
-            trigger opens it. `data-open` drives the reveal; the Esc handler lives
-            here so a press from any field (or the trigger) collapses + restores
-            focus. NO click-outside (a stray map click must not lose a typed ZIP).
-            The divider only renders when open — the resting card is two lines. */}
+        {/* Scope disclosure body (§4.2 / #828 / #951) — MOUNTED whenever scope is
+            active (so aria-controls has a valid target) but CSS-collapsed until
+            the 🔍 trigger opens it. `data-open` drives the catalog #07
+            panel-reveal (.t-panel-slide, styles.css): the rows REST at the
+            VISIBLE open end-state and are only offset (translate/opacity/blur +
+            visibility:hidden) while closed, so the global reduced-motion guard —
+            which zeroes the interpolation, not the start value — lands them
+            fully visible on open. The element is always painted (visibility,
+            not display:none), so the synchronous data-open flip tweens without a
+            post-paint rAF. visibility:hidden at rest keeps the closed form out of
+            the a11y tree + tab order AND satisfies Playwright toBeHidden() (an
+            `inert`-only rest would still occupy layout and fail those #951 asserts).
+            The Esc handler lives here so a press from any field (or the trigger)
+            collapses + restores focus. NO click-outside (a stray map click must
+            not lose a typed ZIP). The divider only renders when open — the
+            resting card is two lines. */}
         {scopeActive && (
           <div
             id={scopeRegionId}
             ref={scopeRowsRef}
-            className="app-header-scope-rows"
+            className="app-header-scope-rows t-panel-slide"
             data-open={scopeOpen}
-            hidden={!scopeOpen}
           >
             {/* Divider only renders when open — the resting card is two lines.
                 (The ScopeControl below stays mounted regardless so aria-controls
