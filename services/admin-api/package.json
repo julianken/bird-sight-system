@@ -14,7 +14,8 @@
     "@bird-watch/db-client": "*",
     "@bird-watch/shared-types": "*",
     "@hono/node-server": "^2.0.4",
-    "hono": "^4.12.23"
+    "hono": "^4.12.23",
+    "ipaddr.js": "^2.4.0"
   },
   "devDependencies": {
     "@testcontainers/postgresql": "^10.7.0",
