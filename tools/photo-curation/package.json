@@ -3,7 +3,9 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "bin": { "photo-curate": "dist/cli.js" },
+  "bin": {
+    "photo-curate": "dist/cli.js"
+  },
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
@@ -15,12 +17,16 @@
     "@bird-watch/shared-types": "*",
     "better-sqlite3": "^11.8.1",
     "commander": "^13.1.0",
+    "express": "^5.2.1",
     "sharp": "^0.34.1"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
+    "@types/express": "^5.0.6",
     "@types/node": "^24.12.4",
+    "@types/supertest": "^6.0.3",
     "msw": "^2.14.6",
+    "supertest": "^7.2.2",
     "tsx": "^4.22.3",
     "vitest": "^4.1.7"
   }

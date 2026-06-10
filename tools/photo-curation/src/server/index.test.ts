@@ -1,0 +1,132 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import request from 'supertest';
+import Database from 'better-sqlite3';
+import { createServer } from './index.js';
+
+function seedDb(): Database.Database {
+  const db = new Database(':memory:');
+  // Canonical schema (matches src/db.ts openDb): photo_current carries `reviewed`
+  // and photo_decision carries `resource_requested` — denyAndAdvance writes the
+  // latter when the pre-scored pool is exhausted, so the column must exist here.
+  db.exec(`
+    CREATE TABLE photo_current(species_code TEXT PRIMARY KEY, com_name TEXT, sci_name TEXT, family TEXT, url TEXT, attribution TEXT, license TEXT, content_hash TEXT, reviewed INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE photo_score(id INTEGER PRIMARY KEY, species_code TEXT, role TEXT, candidate_inat_id INTEGER, content_hash TEXT, overall REAL, verdict TEXT, criteria_json TEXT, flags_json TEXT, rationale TEXT, rubric_version TEXT, scored_at TEXT);
+    CREATE TABLE photo_candidate(id INTEGER PRIMARY KEY, species_code TEXT, inat_id INTEGER, photo_url TEXT, thumb_path TEXT, attribution TEXT, license TEXT, excluded INTEGER DEFAULT 0, source_round INTEGER);
+    CREATE TABLE photo_decision(species_code TEXT PRIMARY KEY, action TEXT, chosen_candidate_id INTEGER, deny_reason TEXT, deny_tags_json TEXT, resource_requested INTEGER NOT NULL DEFAULT 0, decided_at TEXT, applied INTEGER DEFAULT 0, applied_at TEXT);
+  `);
+  const crit = JSON.stringify({ framing: 8, subjectClarity: 9, liveness: 10, naturalness: 9, pose: 7, background: 6, lighting: 8 });
+  db.prepare(`INSERT INTO photo_current (species_code,com_name,sci_name,family,url,attribution,license,content_hash,reviewed) VALUES ('houspa','House Sparrow','Passer domesticus','passeridae','https://photos/houspa.jpg','(c) B','cc0','hashB',1)`).run();
+  db.prepare(`INSERT INTO photo_score (species_code,role,candidate_inat_id,content_hash,overall,verdict,criteria_json,flags_json,rationale,rubric_version,scored_at) VALUES ('houspa','current',NULL,'hashB',18,'reject',?, '["dead","distant"]','dead','v1','2026-06-11T00:00:00Z')`).run(crit);
+  // Pre-scored candidate pool (source-candidates already scored these). 5001 is the
+  // top-ranked (shown as `proposed`); 5002 is the next-best already-scored alternate.
+  db.prepare(`INSERT INTO photo_candidate (species_code,inat_id,photo_url,thumb_path,attribution,license,excluded,source_round) VALUES ('houspa',5001,'https://inat/5001.jpg','thumb-cache/5001.jpg','(c) C','cc-by',0,1)`).run();
+  db.prepare(`INSERT INTO photo_score (species_code,role,candidate_inat_id,content_hash,overall,verdict,criteria_json,flags_json,rationale,rubric_version,scored_at) VALUES ('houspa','candidate',5001,'hashC',79,'good',?, '[]','clean','v1','2026-06-11T00:00:00Z')`).run(crit);
+  db.prepare(`INSERT INTO photo_candidate (species_code,inat_id,photo_url,thumb_path,attribution,license,excluded,source_round) VALUES ('houspa',5002,'https://inat/5002.jpg','thumb-cache/5002.jpg','(c) D','cc0',0,1)`).run();
+  db.prepare(`INSERT INTO photo_score (species_code,role,candidate_inat_id,content_hash,overall,verdict,criteria_json,flags_json,rationale,rubric_version,scored_at) VALUES ('houspa','candidate',5002,'hashD',64,'good',?, '[]','clean','v1','2026-06-11T00:00:00Z')`).run(crit);
+  return db;
+}
+
+describe('review-server API', () => {
+  let db: Database.Database;
+  afterEach(() => db.close());
+  beforeEach(() => { db = seedDb(); });
+
+  it('GET /api/overview returns rows honoring sort/filter', async () => {
+    const app = createServer(db);
+    const res = await request(app).get('/api/overview?sort=worst-first&filter=flagged');
+    expect(res.status).toBe(200);
+    expect(res.body.rows).toHaveLength(1);
+    expect(res.body.rows[0].speciesCode).toBe('houspa');
+    expect(res.body.stagedApproved).toBe(0);
+  });
+
+  it('GET /api/swap/:code returns the swap view', async () => {
+    const app = createServer(db);
+    const res = await request(app).get('/api/swap/houspa');
+    expect(res.status).toBe(200);
+    expect(res.body.current.overall).toBe(18);
+    expect(res.body.proposed.inatId).toBe(5001);
+  });
+
+  it('GET /api/swap/:code 404s unknown species', async () => {
+    const app = createServer(db);
+    const res = await request(app).get('/api/swap/nope');
+    expect(res.status).toBe(404);
+  });
+
+  it('POST /api/decision approve persists a staged decision', async () => {
+    const app = createServer(db);
+    const res = await request(app).post('/api/decision')
+      .send({ speciesCode: 'houspa', action: 'approve', chosenCandidateId: 5001 });
+    expect(res.status).toBe(200);
+    const row = db.prepare(`SELECT action, chosen_candidate_id FROM photo_decision WHERE species_code='houspa'`).get() as { action: string; chosen_candidate_id: number | null };
+    expect(row.action).toBe('approve');
+    expect(row.chosen_candidate_id).toBe(5001);
+  });
+
+  it('POST /api/decision approve without a chosenCandidateId is rejected 400', async () => {
+    const app = createServer(db);
+    const res = await request(app).post('/api/decision').send({ speciesCode: 'houspa', action: 'approve' });
+    expect(res.status).toBe(400);
+    // nothing persisted: a null approve would defeat the swap
+    const row = db.prepare(`SELECT action FROM photo_decision WHERE species_code='houspa'`).get() as { action: string } | undefined;
+    expect(row).toBeUndefined();
+  });
+
+  it('POST /api/deny records the deny, excludes the shown candidate, and advances to the next pre-scored alternate', async () => {
+    // Common case: the pre-scored pool still has an alternate (5002). Deny the
+    // shown candidate (5001) via excludeIds; denyAndAdvance excludes it and
+    // returns the next already-scored alternate as `result.next` — instant, NO
+    // scoring. The route surfaces it as `proposed`.
+    const app = createServer(db);
+    const res = await request(app).post('/api/deny')
+      .send({ speciesCode: 'houspa', reason: 'still distant', tags: ['still-distant'], excludeIds: [5001] });
+    expect(res.status).toBe(200);
+    expect(res.body.resourceQueued).toBe(false);
+    // denyAndAdvance returned the next pre-scored alternate as `result.next`,
+    // which the route forwards as `proposed` (instant advance — no agent, no scoring)
+    expect(res.body.proposed.inatId).toBe(5002);
+
+    // deny recorded
+    const dec = db.prepare(`SELECT action, deny_reason, deny_tags_json, resource_requested FROM photo_decision WHERE species_code='houspa'`).get() as { action: string; deny_reason: string; deny_tags_json: string; resource_requested: number };
+    expect(dec.action).toBe('deny');
+    expect(dec.deny_reason).toBe('still distant');
+    expect(JSON.parse(dec.deny_tags_json)).toEqual(['still-distant']);
+    // pool not exhausted → no re-source queued
+    expect(dec.resource_requested).toBe(0);
+    // shown candidate excluded
+    const ex = db.prepare(`SELECT excluded FROM photo_candidate WHERE inat_id=5001`).get() as { excluded: number };
+    expect(ex.excluded).toBe(1);
+    // and a follow-up swap fetch agrees: the next pre-scored alternate is now proposed
+    const view = await request(app).get('/api/swap/houspa');
+    expect(view.body.proposed.inatId).toBe(5002);
+  });
+
+  it('POST /api/deny queues a re-source when the pre-scored pool is exhausted', async () => {
+    // Deny everything in the pool. Exclude 5002 up front and pass 5001 via
+    // excludeIds so denyAndAdvance has no scored alternate left to advance to.
+    db.prepare(`UPDATE photo_candidate SET excluded=1 WHERE inat_id=5002`).run();
+    const app = createServer(db);
+    const res = await request(app).post('/api/deny')
+      .send({ speciesCode: 'houspa', reason: 'all wrong sex/morph', tags: ['wrong-sex-morph'], excludeIds: [5001] });
+    expect(res.status).toBe(200);
+    // pool exhausted → result.next is null, resourceRequested true; route forwards
+    // as proposed:null, resourceQueued:true (UI shows "run source-candidates")
+    expect(res.body.proposed).toBeNull();
+    expect(res.body.resourceQueued).toBe(true);
+    // the re-source-requested flag is persisted for the next source-candidates run
+    const dec = db.prepare(`SELECT action, resource_requested, deny_tags_json FROM photo_decision WHERE species_code='houspa'`).get() as { action: string; resource_requested: number; deny_tags_json: string };
+    expect(dec.action).toBe('deny');
+    expect(dec.resource_requested).toBe(1);
+    expect(JSON.parse(dec.deny_tags_json)).toEqual(['wrong-sex-morph']);
+    // shown candidate still excluded
+    const ex = db.prepare(`SELECT excluded FROM photo_candidate WHERE inat_id=5001`).get() as { excluded: number };
+    expect(ex.excluded).toBe(1);
+  });
+
+  it('POST /api/decision rejects an unknown action with 400', async () => {
+    const app = createServer(db);
+    const res = await request(app).post('/api/decision').send({ speciesCode: 'houspa', action: 'bogus' });
+    expect(res.status).toBe(400);
+  });
+});
