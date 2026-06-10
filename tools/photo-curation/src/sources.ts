@@ -16,6 +16,11 @@ import {
   insertCandidate, upsertScore, getScoreByHash, maxSourceRound, upsertCurrentPhoto,
   updateCurrentPhotoHash, selectUnreviewed, markReviewed,
 } from './store.js';
+import {
+  Pacer, withBackoff, clampPool, realClock,
+  EDGE_PACE_MS, INAT_PACE_MS,
+  type Clock,
+} from './pacing.js';
 
 /** Default thumb-cache dir for the production deny-loop entry point. */
 const DEFAULT_THUMB_DIR = './thumb-cache';
@@ -38,6 +43,12 @@ export interface SourceDeps {
   judge: VisionJudge;
   config: RubricConfig;
   thumbDir: string;
+  /** Injected clock so unit tests assert pacing WITHOUT a real wall-clock wait. */
+  clock?: Clock;
+  /** Min ms between iNat fetches (≤1 req/sec). Defaults to INAT_PACE_MS (1100). */
+  inatPaceMs?: number;
+  /** Min ms between bird-maps.com edge downloads. Defaults to EDGE_PACE_MS (1100). */
+  edgePaceMs?: number;
 }
 
 export interface SourceArgs {
@@ -91,10 +102,22 @@ export async function sourceCandidates(
     fetched: 0, scored: 0, cached: 0, failed: 0, sourceRound: round, errors: [],
   };
 
-  const fetchOpts: { limit: number; excludeIds?: number[]; denyContext?: DenyContext } = { limit: args.limit };
+  const clock = deps.clock ?? realClock;
+  const inatPacer = new Pacer(deps.inatPaceMs ?? INAT_PACE_MS, clock);
+  const edgePacer = new Pacer(deps.edgePaceMs ?? EDGE_PACE_MS, clock);
+
+  // Bound the iNat pool to the top ~12 (clamp the caller's limit) so no path
+  // fans out an unbounded fetch.
+  const cappedLimit = clampPool(args.limit);
+  const fetchOpts: { limit: number; excludeIds?: number[]; denyContext?: DenyContext } = { limit: cappedLimit };
   if (args.excludeIds) fetchOpts.excludeIds = args.excludeIds;
   if (args.denyContext) fetchOpts.denyContext = args.denyContext;
-  const candidates = await deps.fetchInatCandidates(args.sciName, fetchOpts);
+  // iNat is third-party: pace + jittered backoff on 429/5xx (bounded retries).
+  await inatPacer.gate();
+  const fetched = await withBackoff(
+    () => deps.fetchInatCandidates(args.sciName, fetchOpts), { clock },
+  );
+  const candidates = fetched.slice(0, cappedLimit);
   summary.fetched = candidates.length;
 
   await mkdir(deps.thumbDir, { recursive: true });
@@ -108,7 +131,9 @@ export async function sourceCandidates(
 
   for (const cand of candidates) {
     try {
-      const bytes = await deps.download(cand.photoUrl);
+      // Pace the edge download (serial, ≥1.1 s) with jittered backoff on 429/5xx.
+      await edgePacer.gate();
+      const bytes = await withBackoff(() => deps.download(cand.photoUrl), { clock });
       const mime = mimeFromUrl(cand.photoUrl);
       const hash = sha8(bytes);
       const thumbPath = join(deps.thumbDir, `${args.speciesCode}-${cand.inatId}.${extFromMime(mime)}`);
@@ -146,6 +171,8 @@ export async function sourceCandidates(
       // continue — one candidate's failure must not abort the species
     }
   }
+  // eslint-disable-next-line no-console
+  console.log(`[source-candidates] ${args.speciesCode}: external calls: 1 iNat fetch + ${candidates.length} edge download(s)`);
   return summary;
 }
 
@@ -203,7 +230,9 @@ export async function scoreAndCacheCandidates(
 
   // The judge is required from the caller (the workflow's agent-judge / a test's
   // FakeJudge); the remaining IO defaults to the production implementation but
-  // every field stays overridable for a unit test.
+  // every field stays overridable for a unit test. The pacing seam (clock +
+  // pace overrides) is forwarded only when the caller supplies it — production
+  // omits it and sourceCandidates defaults to realClock + the spec pacing.
   const resolved: SourceDeps = {
     fetchInatCandidates: deps.fetchInatCandidates ?? realFetchInatCandidates,
     download: deps.download ?? downloadBytes,
@@ -211,6 +240,9 @@ export async function scoreAndCacheCandidates(
     judge: deps.judge,
     config: deps.config ?? defaultRubricConfig,
     thumbDir: deps.thumbDir ?? DEFAULT_THUMB_DIR,
+    ...(deps.clock !== undefined ? { clock: deps.clock } : {}),
+    ...(deps.inatPaceMs !== undefined ? { inatPaceMs: deps.inatPaceMs } : {}),
+    ...(deps.edgePaceMs !== undefined ? { edgePaceMs: deps.edgePaceMs } : {}),
   };
 
   const comName = deps.comName ?? row?.com_name ?? undefined;
@@ -222,7 +254,8 @@ export async function scoreAndCacheCandidates(
       sciName,
       ...(comName !== undefined ? { comName } : {}),
       ...(family !== undefined ? { family } : {}),
-      limit: deps.limit ?? 15,
+      // Bounded pool (clamped to ~12 inside sourceCandidates). Default to the cap.
+      limit: deps.limit ?? clampPool(15),
       denyContext,
       excludeIds,
     },
@@ -350,10 +383,16 @@ export interface ScoreBatchDeps {
   download: (url: string) => Promise<Buffer>;
   config: RubricConfig;
   scoreImage?: SourceDeps['scoreImage']; // test seam; defaults to the agent-free composer
+  /** Injected clock so unit tests assert download pacing WITHOUT a real wait. */
+  clock?: Clock;
+  /** Min ms between bird-maps.com edge downloads. Defaults to EDGE_PACE_MS (1100). */
+  edgePaceMs?: number;
 }
 
 export interface ScoreBatchSummary {
   picked: number; scored: number; gatedOut: number; cached: number; failed: number;
+  /** External edge downloads actually performed (for the batch usage log). */
+  downloads: number;
   errors: Array<{ speciesCode: string; reason: string }>;
 }
 
@@ -404,7 +443,9 @@ async function composeWithJudge(
 export async function scoreOne(
   db: Database.Database, row: UnreviewedRow, deps: ScoreBatchDeps,
 ): Promise<'scored' | 'gated' | 'cached'> {
-  const bytes = await deps.download(row.url);
+  // Jittered backoff on a transient (429/5xx) edge download; the caller
+  // (scoreBatch) gates the serial pacing between rows.
+  const bytes = await withBackoff(() => deps.download(row.url), { clock: deps.clock ?? realClock });
   const mime = mimeFromUrl(row.url);
   const hash = sha8(bytes);
 
@@ -472,11 +513,16 @@ export async function scoreBatch(
   // query; its rows carry the snake_case aliases scoreOne consumes directly.
   const rows: UnreviewedRow[] = selectUnreviewed(db, clampLimit(limit));
   const summary: ScoreBatchSummary = {
-    picked: rows.length, scored: 0, gatedOut: 0, cached: 0, failed: 0, errors: [],
+    picked: rows.length, scored: 0, gatedOut: 0, cached: 0, failed: 0, downloads: 0, errors: [],
   };
+  const clock = deps.clock ?? realClock;
+  const edgePacer = new Pacer(deps.edgePaceMs ?? EDGE_PACE_MS, clock);
   for (const row of rows) {
     try {
+      // Serial edge pacing (≥1.1 s) between per-species downloads — gate first.
+      await edgePacer.gate();
       const outcome = await scoreOne(db, row, deps);
+      summary.downloads++; // scoreOne performed exactly one edge download
       if (outcome === 'scored') summary.scored++;
       else if (outcome === 'gated') summary.gatedOut++;
       else summary.cached++;
@@ -486,6 +532,8 @@ export async function scoreBatch(
       summary.errors.push({ speciesCode: row.species_code, reason: err instanceof Error ? err.message : String(err) });
     }
   }
+  // eslint-disable-next-line no-console
+  console.log(`[score] external calls: ${summary.downloads} edge download(s)`);
   return summary;
 }
 // Expose the clamp so the CLI / workflow share one source of truth.

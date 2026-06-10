@@ -4,6 +4,7 @@ import { openDb } from './db.js';
 import { listCandidates, getScoreByHash, upsertCurrentPhoto } from './store.js';
 import { sourceCandidates, scoreAndCacheCandidates } from './sources.js';
 import { FakeJudge } from './judge.js';
+import { makeFakeClock } from './test-clock.js';
 import type { RubricConfig } from '@bird-watch/photo-quality';
 import type { InatCandidate, DenyContext } from '@bird-watch/ingestor';
 
@@ -40,6 +41,8 @@ function deps(fetchSpy: (sci: string, o: { limit: number; excludeIds?: number[];
     judge: new FakeJudge({}),
     config,
     thumbDir: '/tmp/photo-curation-test-thumbs',
+    // Instant clock so iNat/edge pacing advances virtual time only — no real wait.
+    clock: makeFakeClock(),
   };
 }
 

@@ -8,9 +8,14 @@ import { fetchInatCandidates as realFetchInatCandidates } from '@bird-watch/inge
 import { sha8 } from './hash.js';
 import {
   selectUnreviewed, updateCurrentPhotoHash, upsertScore, markReviewed,
-  insertCandidate, maxSourceRound,
+  insertCandidate, maxSourceRound, getScoreByHash,
 } from './store.js';
 import { scoreBatch, mimeFromUrl, extFromMime } from './sources.js';
+import {
+  Pacer, withBackoff, clampPool, realClock,
+  EDGE_PACE_MS, INAT_PACE_MS, CANDIDATE_POOL_CAP,
+  type Clock,
+} from './pacing.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Bug 1 (#992) — orchestrator-driven scoring, split into two runnable Node
@@ -47,10 +52,25 @@ export interface PrepareDeps {
   download: (url: string) => Promise<Buffer>;
   /** Cache dir for downloaded thumbs + the manifest. */
   thumbDir: string;
+  /**
+   * Injected clock so unit tests assert download pacing WITHOUT a real wait.
+   * Defaults to the real `setTimeout`-backed clock.
+   */
+  clock?: Clock;
+  /**
+   * Min ms between successive bird-maps.com edge downloads (Cloudflare limits
+   * 60 req/min/IP). Defaults to EDGE_PACE_MS (1100). Tests may lower it, but the
+   * spacing is still asserted via the injected clock, not wall-time.
+   */
+  paceMs?: number;
 }
 
 export interface PrepareResult {
   picked: number;
+  /** How many were skipped because their current content-hash is already scored. */
+  skipped: number;
+  /** External edge downloads actually performed (for the batch usage log). */
+  downloads: number;
   /** Absolute path to the manifest JSON the operator hands to the score agents. */
   manifestPath: string;
   manifest: ManifestEntry[];
@@ -64,6 +84,18 @@ export interface PrepareResult {
  * and write a manifest JSON to `<thumbDir>/manifest.json`. Returns the manifest
  * + its path. Per-row download failures abort the prepare (a bad URL is an
  * operator-visible signal — unlike a single bad candidate in the deny loop).
+ *
+ * Conservative external-API usage (#992 addendum):
+ *   • No-rework: BEFORE downloading, skip any row whose already-stamped current
+ *     content_hash is already scored (getScoreByHash) — never re-download or
+ *     re-score an unchanged image.
+ *   • Edge pacing: downloads are SERIAL and paced ≥ EDGE_PACE_MS (1.1 s) apart
+ *     because the bird-maps.com edge (Cloudflare) limits 60 req/min/IP. The
+ *     pacing is injectable (`deps.clock`/`deps.paceMs`) so tests assert spacing
+ *     deterministically without a real wait.
+ *   • Transient (429/5xx) downloads get jittered exponential backoff with a
+ *     bounded retry count.
+ *   • The batch logs how many external downloads it made.
  */
 export async function scorePrepare(
   db: Database.Database, limit: number, deps: PrepareDeps,
@@ -71,9 +103,24 @@ export async function scorePrepare(
   const rows = selectUnreviewed(db, scoreBatch.clampLimit(limit));
   await mkdir(deps.thumbDir, { recursive: true });
 
+  const clock = deps.clock ?? realClock;
+  const pacer = new Pacer(deps.paceMs ?? EDGE_PACE_MS, clock);
+
   const manifest: ManifestEntry[] = [];
+  let skipped = 0;
+  let downloads = 0;
   for (const row of rows) {
-    const bytes = await deps.download(row.url);
+    // No-rework: if this species already carries a stamped current content_hash
+    // that is already scored, skip it — never re-download an unchanged image.
+    if (row.contentHash && getScoreByHash(db, row.species_code, 'current', row.contentHash)) {
+      skipped++;
+      continue;
+    }
+
+    // Pace the edge download (serial, ≥1.1 s) — gate BEFORE the request.
+    await pacer.gate();
+    const bytes = await withBackoff(() => deps.download(row.url), { clock });
+    downloads++;
     const mime = mimeFromUrl(row.url);
     const hash = sha8(bytes);
     const imagePath = join(deps.thumbDir, `${row.species_code}.${extFromMime(mime)}`);
@@ -93,7 +140,9 @@ export async function scorePrepare(
 
   const manifestPath = join(deps.thumbDir, 'manifest.json');
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
-  return { picked: rows.length, manifestPath, manifest };
+  // eslint-disable-next-line no-console
+  console.log(`[score-prepare] external calls: ${downloads} edge download(s); skipped ${skipped} already-scored`);
+  return { picked: manifest.length, skipped, downloads, manifestPath, manifest };
 }
 
 /** One agent scoring result — the score-commit input shape. */
@@ -197,11 +246,21 @@ export interface SourcePrepareDeps {
   ) => Promise<InatCandidate[]>;
   download: (url: string) => Promise<Buffer>;
   thumbDir: string;
+  /** Injected clock so unit tests assert pacing WITHOUT a real wait. */
+  clock?: Clock;
+  /** Min ms between iNat species fetches (≤1 req/sec). Defaults to INAT_PACE_MS (1100). */
+  inatPaceMs?: number;
+  /** Min ms between bird-maps.com edge downloads. Defaults to EDGE_PACE_MS (1100). */
+  edgePaceMs?: number;
 }
 
 export interface SourcePrepareResult {
   /** number of candidates sourced across all flagged species */
   picked: number;
+  /** iNat species fetches actually performed (for the batch usage log). */
+  inatFetches: number;
+  /** External edge downloads actually performed (for the batch usage log). */
+  downloads: number;
   manifestPath: string;
   manifest: SourceManifestEntry[];
 }
@@ -216,12 +275,29 @@ interface FlaggedRow {
  * download + write each thumb to `<thumbDir>/<code>-<inatId>.<ext>`, persist a
  * `photo_candidate` row (next source_round), and write a manifest the score
  * agents Read. NO judge call here — scoring is the agent + commit step.
+ *
+ * Conservative external-API usage (#992 addendum):
+ *   • iNat is third-party: the per-species fetch is paced ≥ INAT_PACE_MS
+ *     (1.1 s, ≤1 req/sec) and the pool is capped to CANDIDATE_POOL_CAP (~12) so
+ *     it never fans out unbounded.
+ *   • Each iNat fetch and each edge download gets jittered exponential backoff
+ *     on 429/5xx; a species whose iNat fetch fails persistently is ABORTED
+ *     (recorded + skipped), not the whole batch.
+ *   • Edge downloads are serial + paced ≥ EDGE_PACE_MS (Cloudflare 60/min/IP).
+ *   • Pacing is injectable (`deps.clock`/`deps.inatPaceMs`/`deps.edgePaceMs`)
+ *     so tests assert spacing deterministically without a real wait.
+ *   • The batch logs how many external calls (iNat fetches + downloads) it made.
  */
 export async function sourcePrepare(
   db: Database.Database, pool: number, deps: SourcePrepareDeps,
 ): Promise<SourcePrepareResult> {
   const fetchInat = deps.fetchInatCandidates ?? realFetchInatCandidates;
   await mkdir(deps.thumbDir, { recursive: true });
+
+  const clock = deps.clock ?? realClock;
+  const inatPacer = new Pacer(deps.inatPaceMs ?? INAT_PACE_MS, clock);
+  const edgePacer = new Pacer(deps.edgePaceMs ?? EDGE_PACE_MS, clock);
+  const cappedPool = clampPool(pool);
 
   const flagged = db.prepare(
     `SELECT c.species_code, c.com_name, c.sci_name, c.family
@@ -232,12 +308,32 @@ export async function sourcePrepare(
   ).all(defaultRubricConfig.thresholds.review) as FlaggedRow[];
 
   const manifest: SourceManifestEntry[] = [];
+  let inatFetches = 0;
+  let downloads = 0;
   for (const sp of flagged) {
     if (!sp.sci_name) continue; // can't source without a scientific name
+    const sciName = sp.sci_name;
     const round = maxSourceRound(db, sp.species_code) + 1;
-    const candidates = await fetchInat(sp.sci_name, { limit: pool });
-    for (const cand of candidates) {
-      const bytes = await deps.download(cand.photoUrl);
+
+    // iNat is third-party: pace ≤1 req/sec between species AND bound the pool.
+    // A persistent iNat failure aborts THIS species, not the batch.
+    await inatPacer.gate();
+    let candidates: InatCandidate[];
+    try {
+      candidates = await withBackoff(
+        () => fetchInat(sciName, { limit: cappedPool }), { clock },
+      );
+      inatFetches++;
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(`[source-prepare] iNat fetch failed for ${sp.species_code} — skipping species: ${err instanceof Error ? err.message : String(err)}`);
+      continue;
+    }
+
+    for (const cand of candidates.slice(0, cappedPool)) {
+      await edgePacer.gate();
+      const bytes = await withBackoff(() => deps.download(cand.photoUrl), { clock });
+      downloads++;
       const mime = mimeFromUrl(cand.photoUrl);
       const hash = sha8(bytes);
       const imagePath = join(deps.thumbDir, `${sp.species_code}-${cand.inatId}.${extFromMime(mime)}`);
@@ -250,7 +346,7 @@ export async function sourcePrepare(
       manifest.push({
         speciesCode: sp.species_code,
         comName: sp.com_name ?? '',
-        sciName: sp.sci_name,
+        sciName,
         family: sp.family ?? '',
         inatId: cand.inatId,
         imagePath,
@@ -263,7 +359,9 @@ export async function sourcePrepare(
 
   const manifestPath = join(deps.thumbDir, 'candidates-manifest.json');
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
-  return { picked: manifest.length, manifestPath, manifest };
+  // eslint-disable-next-line no-console
+  console.log(`[source-prepare] external calls: ${inatFetches} iNat fetch(es) + ${downloads} edge download(s)`);
+  return { picked: manifest.length, inatFetches, downloads, manifestPath, manifest };
 }
 
 /** One agent candidate-scoring result. Carries the inat id + content hash. */

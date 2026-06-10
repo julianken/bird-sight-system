@@ -52,7 +52,7 @@ program
     try {
       const limit = scoreBatch.clampLimit(Number(opts.limit));
       const result = await scorePrepare(db, limit, { download: downloadBytes, thumbDir: THUMB_DIR });
-      console.log(`[score-prepare] picked ${result.picked} photo(s); manifest at ${result.manifestPath}`);
+      console.log(`[score-prepare] picked ${result.picked} photo(s) — ${result.downloads} edge download(s), ${result.skipped} already-scored skipped; manifest at ${result.manifestPath}`);
       // The manifest path on its own line so the Workflow's prepare agent can
       // grep it out of stdout and hand it to the parallel score agents.
       console.log(result.manifestPath);
@@ -88,7 +88,7 @@ program
     const db = openDb(DEFAULT_DB_PATH);
     try {
       const result = await sourcePrepare(db, Number(opts.pool), { download: downloadBytes, thumbDir: THUMB_DIR });
-      console.log(`[source-prepare] sourced ${result.picked} candidate(s); manifest at ${result.manifestPath}`);
+      console.log(`[source-prepare] sourced ${result.picked} candidate(s) — ${result.inatFetches} iNat fetch(es) + ${result.downloads} edge download(s); manifest at ${result.manifestPath}`);
       console.log(result.manifestPath);
     } finally {
       db.close();

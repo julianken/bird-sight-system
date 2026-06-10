@@ -6,7 +6,13 @@ import { openDb } from './db.js';
 import { getScoreByHash, selectUnreviewed } from './store.js';
 import { sync, syncAll, scoreBatch } from './sources.js';
 import { FakeJudge } from './judge.js';
+import { makeFakeClock } from './test-clock.js';
 import type { RubricConfig } from '@bird-watch/photo-quality';
+
+// Instant clock: scoreBatch paces edge downloads ≥1.1 s in prod, but the unit
+// tests must never incur a real wait — the fake clock advances virtual time
+// only (no setTimeout). Pacing spacing is asserted separately in pacing tests.
+const instant = () => makeFakeClock();
 
 const server = setupServer();
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
@@ -121,11 +127,11 @@ describe('scoreBatch (token-spending, resumable)', () => {
     const download = vi.fn(async (url: string) => Buffer.from(url));
     const judge = new FakeJudge({});
     // batch of 2 → first two scored + marked, one left
-    const first = await scoreBatch(db, 2, { judge, download, config });
+    const first = await scoreBatch(db, 2, { judge, download, config, clock: instant() });
     expect(first.scored).toBe(2);
     expect(selectUnreviewed(db, 10)).toHaveLength(1);
     // resume → the remaining one
-    const second = await scoreBatch(db, 2, { judge, download, config });
+    const second = await scoreBatch(db, 2, { judge, download, config, clock: instant() });
     expect(second.scored).toBe(1);
     expect(selectUnreviewed(db, 10)).toEqual([]);
   });
@@ -148,7 +154,7 @@ describe('scoreBatch (token-spending, resumable)', () => {
 
     const download = vi.fn(async (url: string) => Buffer.from(url));
     const judge = new FakeJudge({});
-    const summary = await scoreBatch(db, 10, { judge, download, config });
+    const summary = await scoreBatch(db, 10, { judge, download, config, clock: instant() });
     expect(summary.scored).toBe(1);
 
     // scoreBatch re-stamps content_hash but MUST leave attribution/license intact
