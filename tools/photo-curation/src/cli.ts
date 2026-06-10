@@ -2,6 +2,7 @@
 import { Command } from 'commander';
 import { openDb, DEFAULT_DB_PATH } from './db.js';
 import { sync } from './sources.js';
+import { startServer } from './server/serve.js';
 
 const API_BASE = process.env.READ_API_BASE ?? 'https://api.bird-maps.com';
 
@@ -32,9 +33,12 @@ program
 program
   .command('serve')
   .description('Start the local review server (default http://localhost:5180)')
-  .action(() => {
-    console.error('[serve] not implemented in Slice 4 — the review server ships in Slice 5.');
-    process.exit(0);
+  .option('--port <port>', 'port to bind', '5180')
+  .option('--db <path>', 'review store path', DEFAULT_DB_PATH)
+  .action((opts: { port: string; db: string }) => {
+    // startServer opens the store via openDb and starts Express; the http server
+    // holds the event loop open, so the process stays alive until Ctrl-C.
+    startServer({ dbPath: opts.db, port: Number(opts.port) });
   });
 
 program

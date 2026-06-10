@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Photo Curation — Overview</title>
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1 class="app-title">Photo Curation</h1>
+    <button class="theme-toggle" id="theme-toggle" type="button">Theme</button>
+    <span class="staged-indicator" id="staged">staged: 0 approved</span>
+  </header>
+  <div class="toolbar">
+    <label>Sort
+      <select id="sort">
+        <option value="worst-first">Worst first</option>
+        <option value="best-first">Best first</option>
+        <option value="has-better-candidate">Has better candidate</option>
+        <option value="recently-scored">Recently scored</option>
+      </select>
+    </label>
+    <label>Filter
+      <select id="filter">
+        <option value="all">All</option>
+        <option value="flagged">Flagged</option>
+        <option value="dead-sick">Dead / sick</option>
+        <option value="distant">Distant</option>
+        <option value="in-hand">In-hand</option>
+        <option value="soft">Soft</option>
+        <option value="marked-for-swap">Marked for swap</option>
+      </select>
+    </label>
+  </div>
+  <main class="grid" id="grid"></main>
+  <script type="module" src="/overview.js"></script>
+</body>
+</html>

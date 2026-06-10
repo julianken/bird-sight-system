@@ -197,6 +197,16 @@ export function getSwapView(db: Database.Database, speciesCode: string): SwapVie
     rationale: r.rationale, sourceRound: r.source_round,
   }));
 
+  // `proposed` must be a SCORED candidate so the UI's proposed pick agrees with
+  // denyAndAdvance, which only ever advances to an already-scored alternate
+  // (overall NOT NULL). alternates[0] could be an unscored candidate (overall
+  // null) — surfacing it as `proposed` would let the UI offer a replacement the
+  // deny path would never advance to. Pick the top-ranked scored alternate; if
+  // the pool is unscored-only, propose nothing until `source-candidates` scores
+  // it. alternates is already ORDER BY cs.overall DESC, so the first one with a
+  // non-null overall is the top scored candidate.
+  const proposed = alternates.find(a => a.overall !== null) ?? null;
+
   return {
     speciesCode, comName: cur.com_name, sciName: cur.sci_name, family: cur.family,
     current: {
@@ -205,7 +215,7 @@ export function getSwapView(db: Database.Database, speciesCode: string): SwapVie
       flags: parseFlags(cur.flags_json), criteria: parseCriteria(cur.criteria_json),
       rationale: cur.rationale,
     },
-    proposed: alternates[0] ?? null,
+    proposed,
     alternates,
   };
 }

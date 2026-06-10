@@ -282,7 +282,33 @@ const config: KnipConfig = {
       //             workflow if one is deleted from the runbook but left on
       //             disk. Re-audit 2026-07-27 — confirm both are still
       //             referenced by the photo-curation runbook / epic #974.
-      ignore: ['workflows/score-current.mjs', 'workflows/source-candidates.mjs'],
+      //
+      // 2026-06-10 (Slice 5b, #973): the three public/*.js files are browser ES
+      //             modules served verbatim by the review server's
+      //             express.static (Screen 1 = overview.js, Screen 2 = swap.js,
+      //             both `import` theme.js). They are loaded at runtime via the
+      //             HTML `<script type="module" src="/overview.js">` /
+      //             `/swap.js` tags + a bare `/theme.js` specifier resolved by
+      //             the browser, never imported by any TS/JS module knip can
+      //             trace, so static analysis flags all three as unused files.
+      //             Risk: masks a genuinely orphaned public asset if a screen is
+      //             deleted but its script left on disk. Re-audit 2026-07-27 —
+      //             confirm public/index.html + public/swap.html still reference
+      //             these three scripts (grep `src="/overview.js"`, `/swap.js`,
+      //             and an `import .* '/theme.js'` in the two client modules).
+      //
+      // 2026-06-10 (#973 security addendum): public/safe.js — the shared
+      //             XSS-hardening helper (esc + safeImg) imported by overview.js
+      //             + swap.js — is deliberately NOT ignored here: its sibling
+      //             public/safe.test.ts is a real vitest target that imports it,
+      //             so knip already traces safe.js as used (an ignore entry is
+      //             flagged redundant). If that test is ever removed, knip will
+      //             report safe.js as unused — re-add it to this ignore list
+      //             (with the overview/swap import rationale above) at that time.
+      ignore: [
+        'workflows/score-current.mjs', 'workflows/source-candidates.mjs',
+        'public/overview.js', 'public/swap.js', 'public/theme.js',
+      ],
     },
   },
 };
