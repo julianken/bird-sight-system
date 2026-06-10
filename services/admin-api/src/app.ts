@@ -5,12 +5,22 @@ import { bearerAuth } from './auth.js';
 import { validateSvg, validatePhotoImage, validateLicense, ValidationError } from './validate.js';
 import type { Storage } from './storage.js';
 import { purgeSilhouettesJson, purgeSpeciesJson } from './purge.js';
+import { assertSafePhotoSource, SsrfError, type DnsLookupAll } from './ssrf-guard.js';
 
 export interface AppDeps {
   pool: Pool;
   storage: Storage;
   token: string;
+  /**
+   * Override for the SSRF guard's `dns.lookup(host, { all: true })`. Injectable
+   * so tests drive the resolved-to-private-IP cases without real DNS; defaults
+   * to node:dns inside `assertSafePhotoSource`.
+   */
+  dnsLookup?: DnsLookupAll;
 }
+
+/** Max 3xx hops the species-photo fetch follows (each re-validated). */
+const MAX_PHOTO_REDIRECTS = 2;
 
 const FAMILY_CODE = /^[a-z]+$/;
 // eBird species codes are lowercase alphanumerics (e.g. norcar, x00013).
@@ -172,16 +182,48 @@ export function createApp(deps: AppDeps): Hono {
 
     // Fetch the source image server-side (the local tool ships a URL, not
     // bytes). Must 200 and be image/*.
+    //
+    // SSRF GUARD (issue #966 security addendum): validate the URL BEFORE every
+    // fetch — https-only, host allowlist, and reject any host that DNS-resolves
+    // to an internal range. Redirects are followed manually (redirect:
+    // 'manual') so a 3xx Location pointing at internal space is re-validated
+    // before we re-issue, capped at MAX_PHOTO_REDIRECTS hops.
     let body: Buffer;
     let mime: string;
     try {
-      const fetched = await fetch(sourceUrl, { signal: AbortSignal.timeout(15_000) });
-      if (!fetched.ok) {
-        return c.json({ error: `source fetch failed: status ${fetched.status}` }, 400);
+      let currentUrl = sourceUrl;
+      let response: Response | undefined;
+      for (let hop = 0; hop <= MAX_PHOTO_REDIRECTS; hop++) {
+        await assertSafePhotoSource(currentUrl, { lookup: deps.dnsLookup });
+        const fetched = await fetch(currentUrl, {
+          redirect: 'manual',
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (fetched.status >= 300 && fetched.status < 400) {
+          const location = fetched.headers.get('location');
+          if (!location) {
+            return c.json({ error: `source fetch redirect (${fetched.status}) without Location` }, 400);
+          }
+          // Resolve relative redirects against the current URL, then re-guard
+          // on the next loop iteration.
+          currentUrl = new URL(location, currentUrl).toString();
+          continue;
+        }
+        response = fetched;
+        break;
       }
-      mime = (fetched.headers.get('content-type') ?? '').split(';')[0]!.trim();
-      body = Buffer.from(await fetched.arrayBuffer());
+      if (!response) {
+        return c.json({ error: `source fetch exceeded ${MAX_PHOTO_REDIRECTS} redirects` }, 400);
+      }
+      if (!response.ok) {
+        return c.json({ error: `source fetch failed: status ${response.status}` }, 400);
+      }
+      mime = (response.headers.get('content-type') ?? '').split(';')[0]!.trim();
+      body = Buffer.from(await response.arrayBuffer());
     } catch (err) {
+      if (err instanceof SsrfError) {
+        return c.json({ error: `source URL rejected: ${err.message}` }, 400);
+      }
       return c.json({ error: `source fetch error: ${err instanceof Error ? err.message : String(err)}` }, 400);
     }
 

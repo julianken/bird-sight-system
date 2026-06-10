@@ -12,6 +12,12 @@ const s3Mock = mockClient(S3Client);
 const JPEG_BODY = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(4096, 0x11)]);
 const SOURCE_URL = 'https://static.inaturalist.org/photos/12345/medium.jpg';
 
+// Default SSRF-guard DNS stub: every allowlisted host resolves to one public
+// (unicast) IPv4. Tests that need a private/loopback resolution override it.
+// Using an injected lookup keeps the whole suite off real DNS.
+const PUBLIC_IP = [{ address: '151.101.0.1', family: 4 }];
+const publicLookup = async () => PUBLIC_IP;
+
 describe('admin-api PUT /admin/species-photos/:speciesCode', () => {
   let db: TestDb;
   let app: ReturnType<typeof createApp>;
@@ -31,7 +37,7 @@ describe('admin-api PUT /admin/species-photos/:speciesCode', () => {
     process.env.CLOUDFLARE_ZONE_ID = 'zone';
     process.env.CLOUDFLARE_API_TOKEN = 'cftoken';
     process.env.API_HOST = 'api.bird-maps.com';
-    app = createApp({ pool: db.pool, storage: createStorage(), token: TOKEN });
+    app = createApp({ pool: db.pool, storage: createStorage(), token: TOKEN, dnsLookup: publicLookup });
   }, 120_000);
 
   afterAll(async () => {
@@ -166,7 +172,7 @@ describe('admin-api PUT /admin/species-photos/:speciesCode', () => {
       }) as typeof realPool.query,
     } as typeof realPool;
 
-    const failingApp = createApp({ pool: failingPool, storage: createStorage(), token: TOKEN });
+    const failingApp = createApp({ pool: failingPool, storage: createStorage(), token: TOKEN, dnsLookup: publicLookup });
     const res = await put('norcar', { Authorization: `Bearer ${TOKEN}` }, VALID_BODY, failingApp);
 
     // Handler surfaces the DB failure as a 5xx (onError default).
@@ -189,5 +195,99 @@ describe('admin-api PUT /admin/species-photos/:speciesCode', () => {
     const res = await put('norcar', { Authorization: `Bearer ${TOKEN}` }, VALID_BODY);
     expect(res.status).toBe(200);
     expect(res.headers.get('X-Purge-Status')).toBe('failed');
+  });
+
+  // ── SSRF guard (issue #966 security addendum) ───────────────────────────────
+  // The handler fetches `sourceUrl` server-side; assertSafePhotoSource must run
+  // BEFORE any fetch. Each case must return 4xx AND perform zero R2 writes. DNS
+  // is always stubbed (publicLookup by default, overridden per-case) — no real
+  // DNS hits the network.
+  describe('SSRF guard', () => {
+    it('rejects an http:// (non-https) sourceUrl: 400, no R2, no fetch', async () => {
+      // Fresh spy with no implementation; assert it is never invoked — the
+      // guard rejects before any fetch (source download or CF purge).
+      vi.restoreAllMocks();
+      const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(new Response(null));
+      const res = await put('norcar', { Authorization: `Bearer ${TOKEN}` }, {
+        ...VALID_BODY,
+        sourceUrl: 'http://static.inaturalist.org/photos/1/medium.jpg',
+      });
+      expect(res.status).toBe(400);
+      expect(s3Mock.commandCalls(PutObjectCommand)).toHaveLength(0);
+      // Guard runs before fetch — the source fetch never happens.
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('rejects a non-allowlisted host: 400, no R2', async () => {
+      stubFetch();
+      const res = await put('norcar', { Authorization: `Bearer ${TOKEN}` }, {
+        ...VALID_BODY,
+        sourceUrl: 'https://evil.example.com/x.jpg',
+      });
+      expect(res.status).toBe(400);
+      expect(s3Mock.commandCalls(PutObjectCommand)).toHaveLength(0);
+    });
+
+    it('rejects the IMDS host http://169.254.169.254/latest/meta-data/: 400, no R2', async () => {
+      stubFetch();
+      const res = await put('norcar', { Authorization: `Bearer ${TOKEN}` }, {
+        ...VALID_BODY,
+        sourceUrl: 'http://169.254.169.254/latest/meta-data/',
+      });
+      expect(res.status).toBe(400);
+      expect(s3Mock.commandCalls(PutObjectCommand)).toHaveLength(0);
+    });
+
+    it('rejects an allowlisted host whose DNS resolves to a private/loopback IP: 400, no R2', async () => {
+      stubFetch();
+      // Build an app whose injected DNS resolves the allowlisted host to a
+      // loopback address — the DNS-rebinding / repointed-host case.
+      const loopbackApp = createApp({
+        pool: db.pool,
+        storage: createStorage(),
+        token: TOKEN,
+        dnsLookup: async () => [{ address: '127.0.0.1', family: 4 }],
+      });
+      const res = await put(
+        'norcar',
+        { Authorization: `Bearer ${TOKEN}` },
+        VALID_BODY,
+        loopbackApp,
+      );
+      expect(res.status).toBe(400);
+      expect(s3Mock.commandCalls(PutObjectCommand)).toHaveLength(0);
+    });
+
+    it('rejects a 3xx whose Location points at an internal host: 400, no R2', async () => {
+      // First fetch: an allowlisted host that 302-redirects to an internal IP.
+      // The guard must re-run on the Location before re-issuing and reject it,
+      // so the second (image) fetch never returns bytes to R2.
+      vi.spyOn(global, 'fetch').mockImplementation(async (input: any) => {
+        const u = typeof input === 'string' ? input : input.url;
+        if (u.includes('api.cloudflare.com')) {
+          return new Response(JSON.stringify({ success: true }), { status: 200 });
+        }
+        if (u.startsWith('https://static.inaturalist.org')) {
+          return new Response(null, {
+            status: 302,
+            headers: { Location: 'http://169.254.169.254/latest/meta-data/' },
+          });
+        }
+        // Should never be reached — the redirect target is rejected first.
+        return new Response(JPEG_BODY, { status: 200, headers: { 'Content-Type': 'image/jpeg' } });
+      });
+      const res = await put('norcar', { Authorization: `Bearer ${TOKEN}` }, VALID_BODY);
+      expect(res.status).toBe(400);
+      expect(s3Mock.commandCalls(PutObjectCommand)).toHaveLength(0);
+    });
+
+    it('an IMDS HTML/JSON body that somehow reaches validatePhotoImage is rejected by MIME (no R2)', async () => {
+      // Defense-in-depth: even if a body reaches validation, a non-image MIME
+      // (what IMDS returns) is rejected before R2 — asserting the MIME floor.
+      stubFetch({ imageBody: Buffer.from('{"AccessKeyId":"x"}'), imageMime: 'application/json' });
+      const res = await put('norcar', { Authorization: `Bearer ${TOKEN}` }, VALID_BODY);
+      expect(res.status).toBe(400);
+      expect(s3Mock.commandCalls(PutObjectCommand)).toHaveLength(0);
+    });
   });
 });
