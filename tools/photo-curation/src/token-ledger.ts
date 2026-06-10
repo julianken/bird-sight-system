@@ -33,10 +33,15 @@ export const PRICE_TABLE = {
   'claude-haiku-4-5': { input: 1, output: 5 },
 } as const satisfies Record<string, { input: number; output: number }>;
 
-/** Cache-rate multipliers relative to a model's input rate (#996 convention). */
+/**
+ * Cache-rate multipliers relative to a model's input rate (#996 convention).
+ * The exact-split path prices `cacheCreate` at the 5-minute write rate (the
+ * common case). The 1-hour write multiplier is 2× input (#996) — not wired into
+ * a split column here; extend TokenSplit if a 1-hour-cached run needs exact
+ * pricing.
+ */
 export const CACHE_READ_MULT = 0.1; // cache-read
 export const CACHE_WRITE_5M_MULT = 1.25; // 5-minute cache-write
-export const CACHE_WRITE_1H_MULT = 2; // 1-hour cache-write
 
 /** Blended-rate mix: photo scoring is input-heavy (image+rubric in, verdict out). */
 export const BLEND_INPUT_SHARE = 0.85;
@@ -77,9 +82,9 @@ export interface LedgerInput {
   totalTokens: number;
   toolUses: number;
   durationMs: number;
-  batch?: boolean;
-  split?: TokenSplit;
-  notes?: string;
+  batch?: boolean | undefined;
+  split?: TokenSplit | undefined;
+  notes?: string | undefined;
 }
 
 export interface LedgerRow {

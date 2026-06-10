@@ -151,6 +151,12 @@ LIMIT=10   # batch size; re-run the Workflow until the backlog is empty
 Repeat steps 1–3 (or re-run the Workflow) in batches of 10 until
 `score-prepare` returns an empty manifest.
 
+4. **Log the spend (REQUIRED).** Append one row to the token-spend ledger
+   ([#996](https://github.com/julianken/bird-sight-system/issues/996)) — see
+   [Step 5](#step-5--log-token-spend-required-after-every-run). This is **not
+   optional**: every `score_batch` run must be recorded before you start the
+   next one, or the ledger stops being comparable.
+
 ## Step 3 — source alternates for flagged species (optional)
 
 `source-candidates` pre-scores a deep iNat pool for every **flagged** species (a
@@ -168,6 +174,10 @@ agents → commit shape:
   npx photo-curate source-commit candidate-results.json
   ```
 
+After a `source-candidates` run, **log the spend (REQUIRED)** with
+`op=source_candidates` — see
+[Step 5](#step-5--log-token-spend-required-after-every-run).
+
 ## Step 4 — review + apply
 
 Start the local review server and apply approved swaps to prod:
@@ -176,6 +186,47 @@ Start the local review server and apply approved swaps to prod:
 npx photo-curate serve                  # http://localhost:5180
 npx photo-curate apply-swaps            # confirm-gated push to the admin-api
 ```
+
+## Step 5 — log token spend (REQUIRED after every run)
+
+**This step is mandatory and runs after EVERY `score`, `source-candidates`, and
+`calibration` operation — no exceptions.** Recording each run's token spend in
+the ledger ([#996](https://github.com/julianken/bird-sight-system/issues/996))
+is what makes `$/item` comparable as we change the judge model, the agent
+design, and the deterministic pre-filter. Skipping it silently breaks the
+comparison the ledger exists to enable.
+
+When the Workflow (or your manual dispatch) completes, it reports
+`subagent_tokens`, `agent_count`, `tool_uses`, and `duration_ms`. Feed those —
+plus the op metadata — straight into `log-run`, which computes the derived
+columns (`scored`, `tokens/item`, `est_$`, `$/item`) per the ledger's cost
+model and appends one formatted row directly above the
+`<!-- APPEND-ROWS-ABOVE-THIS-LINE -->` marker in #996:
+
+```bash
+npx photo-curate log-run \
+  --run-id "$RUN_ID" \
+  --op score_batch \                  # or source_candidates | calibration
+  --judge-model claude-fable-5 \      # the EXACT model the judge agents ran on
+  --agent-design generic \            # or lean_photo_judge (#994)
+  --prefilter no \                    # yes if the #994 deterministic gate ran
+  --items-in 10 \
+  --gate-rejected 0 \                 # photos the pre-filter auto-rejected (#994)
+  --agents "$AGENT_COUNT" \           # Workflow agent_count
+  --total-tokens "$SUBAGENT_TOKENS" \ # Workflow subagent_tokens
+  --tool-uses "$TOOL_USES" \          # Workflow tool_uses
+  --duration-ms "$DURATION_MS" \      # Workflow duration_ms
+  --notes "what changed this run"
+# Add --batch if the run used the Batch API (applies the 0.5x discount).
+# For an EXACT cost (when you parsed per-agent transcripts) pass all four:
+#   --input <n> --output <n> --cache-read <n> --cache-create <n>
+```
+
+`est_$` defaults to the blended 85%-input / 15%-output rate from the embedded
+price table (Fable 5 ≈ $16/MTok). `log-run` warns and does **not** append a
+duplicate if a row with the same `--run-id` already exists, so a re-run after a
+transient `gh` failure is safe. It exits non-zero on a duplicate or a
+validation error.
 
 ## Notes
 
@@ -192,3 +243,12 @@ npx photo-curate apply-swaps            # confirm-gated push to the admin-api
   structurally (`node --check`: valid JS; no `fs` / `better-sqlite3` imports).
 - The read-api `GET /api/species/with-photos` endpoint deploys on merge via the
   `deploy-read-api` workflow.
+- **Calibration runs log too.** A calibration pass (re-scoring a fixed set to
+  check judge drift) is a token-spending operation like the others — run
+  [Step 5](#step-5--log-token-spend-required-after-every-run) with
+  `--op calibration` when it finishes. The post-run `log-run` is required after
+  **score**, **source-candidates**, AND **calibration**, with no exceptions.
+- The cost math (blended + exact-split + batch discount) and the marker-splice
+  live in `tools/photo-curation/src/token-ledger.ts`, unit-tested in
+  `src/token-ledger.test.ts`; the price table is one dated constant
+  (`PRICE_TABLE`) updatable as Anthropic pricing moves.
