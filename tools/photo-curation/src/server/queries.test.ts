@@ -156,6 +156,21 @@ describe('getSwapView', () => {
   it('returns null for unknown species', () => {
     expect(getSwapView(db, 'nope')).toBeNull();
   });
+
+  it('proposes only a SCORED candidate — an unscored-only pool yields proposed:null', () => {
+    // Consistency with denyAndAdvance (advances only to scored alternates):
+    // the proposed candidate the UI shows must have a non-null score. Replace
+    // houspa's scored candidate (5001) with an unscored one — proposed must be
+    // null until `source-candidates` scores it, even though a non-excluded
+    // candidate row exists.
+    db.prepare(`UPDATE photo_candidate SET excluded = 1 WHERE inat_id = 5001`).run();
+    db.prepare(`INSERT INTO photo_candidate (species_code,inat_id,photo_url,thumb_path,attribution,license,excluded,source_round) VALUES ('houspa',5009,'https://inat/5009.jpg','thumb-cache/5009.jpg','(c) U','cc0',0,2)`).run();
+    const view = getSwapView(db, 'houspa');
+    expect(view!.proposed).toBeNull();
+    // the unscored candidate still appears in the alternates strip (overall null)
+    expect(view!.alternates.map(a => a.inatId)).toEqual([5009]);
+    expect(view!.alternates[0]!.overall).toBeNull();
+  });
 });
 
 describe('writeDecision', () => {
