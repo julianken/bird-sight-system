@@ -209,3 +209,71 @@ describe('fetchInatCandidates — exclude ids', () => {
     expect(out.map((c) => c.inatId)).toEqual([1]);
   });
 });
+
+describe('fetchInatCandidates — deny-tag biasing', () => {
+  // Regression-lock (expected GREEN on first run): the no-denyContext path is
+  // identity and was already correct from Task 3. Pins that re-rank never
+  // perturbs the votes order when no deny feedback is supplied.
+  it('no denyContext preserves iNat votes order (identity)', async () => {
+    server.use(
+      http.get(INAT_OBSERVATIONS_URL, () =>
+        HttpResponse.json(
+          obs([
+            { id: 1, photo: 'https://ex.org/photos/1/square.jpg', attr: '(c) Ann, CC0', lic: 'cc0' },
+            { id: 2, photo: 'https://ex.org/photos/2/square.jpg', attr: '(c) Bob at the backyard feeder, CC0', lic: 'cc0' },
+            { id: 3, photo: 'https://ex.org/photos/3/square.jpg', attr: '(c) Cal, CC0', lic: 'cc0' },
+          ])
+        )
+      )
+    );
+    const out = await fetchInatCandidates('Cardinalis cardinalis', {
+      limit: 10,
+      tiers: SINGLE_TIER,
+    });
+    expect(out.map((c) => c.inatId)).toEqual([1, 2, 3]);
+  });
+
+  it('captive-feeder deny down-ranks feeder-attributed candidates', async () => {
+    server.use(
+      http.get(INAT_OBSERVATIONS_URL, () =>
+        HttpResponse.json(
+          obs([
+            { id: 1, photo: 'https://ex.org/photos/1/square.jpg', attr: '(c) Bob at the backyard feeder, CC0', lic: 'cc0' },
+            { id: 2, photo: 'https://ex.org/photos/2/square.jpg', attr: '(c) Ann, CC0', lic: 'cc0' },
+            { id: 3, photo: 'https://ex.org/photos/3/square.jpg', attr: '(c) Cal, CC0', lic: 'cc0' },
+          ])
+        )
+      )
+    );
+    const out = await fetchInatCandidates('Cardinalis cardinalis', {
+      limit: 10,
+      denyContext: { reason: 'all on a feeder', tags: ['captive-feeder'] },
+      tiers: SINGLE_TIER,
+    });
+    // The feeder-attributed candidate (id 1) sinks below the natural ones,
+    // even though iNat ranked it first by votes.
+    expect(out.map((c) => c.inatId)).toEqual([2, 3, 1]);
+  });
+
+  it('wrong-sex-morph deny de-dupes same-photographer near-duplicates to surface variety', async () => {
+    server.use(
+      http.get(INAT_OBSERVATIONS_URL, () =>
+        HttpResponse.json(
+          obs([
+            { id: 1, photo: 'https://ex.org/photos/1/square.jpg', attr: '(c) Ann, CC0', lic: 'cc0' },
+            { id: 2, photo: 'https://ex.org/photos/2/square.jpg', attr: '(c) Ann, CC0', lic: 'cc0' },
+            { id: 3, photo: 'https://ex.org/photos/3/square.jpg', attr: '(c) Bob, CC0', lic: 'cc0' },
+          ])
+        )
+      )
+    );
+    const out = await fetchInatCandidates('Cardinalis cardinalis', {
+      limit: 10,
+      denyContext: { reason: 'wrong morph, want variety', tags: ['wrong-sex-morph'] },
+      tiers: SINGLE_TIER,
+    });
+    // Ann's first frame and Bob lead; Ann's duplicate is pushed to the tail so
+    // the operator sees a different photographer before a near-dup.
+    expect(out.map((c) => c.inatId)).toEqual([1, 3, 2]);
+  });
+});
