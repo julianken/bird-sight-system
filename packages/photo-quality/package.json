@@ -1,0 +1,27 @@
+{
+  "name": "@bird-watch/photo-quality",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./rubric.config": {
+      "types": "./dist/rubric.config.d.ts",
+      "default": "./dist/rubric.config.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "sharp": "^0.34.5"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.7"
+  }
+}
