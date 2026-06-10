@@ -8,6 +8,12 @@ import {
   type Tier,
 } from './inat-shared.js';
 
+// Client-side backstop for the CC allowlist. iNat filters by photo_license
+// server-side, but a malformed/legacy payload occasionally leaks an NC/ND or
+// null code; never offer one as a candidate (the admin endpoint re-validates
+// too, but filtering here keeps it out of the review UI entirely).
+const ALLOWED_LICENSES = new Set(CC_LICENSES.split(','));
+
 /** A single sourced replacement candidate. inatId is the observation id (used
  *  to exclude already-shown candidates on re-source). */
 export interface InatCandidate {
@@ -95,13 +101,12 @@ export async function fetchInatCandidates(
       if (excludeIds.has(result.id)) continue; // client-side belt-and-suspenders
       const photo = result.photos[0];
       if (!photo) continue;
+      const license = photo.license_code ?? '';
+      if (!ALLOWED_LICENSES.has(license)) continue; // backstop: drop NC/ND/ARR/null
       candidates.push({
         inatId: result.id,
         photoUrl: toMediumUrl(photo.url),
-        // photo_license filtering at the API level guarantees a non-null
-        // code; fall back to '' on a malformed payload so a downstream NOT
-        // NULL column surfaces the schema violation loudly.
-        license: photo.license_code ?? '',
+        license,
         attribution: photo.attribution,
       });
     }
