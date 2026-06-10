@@ -92,6 +92,12 @@ export function ObservationPopover({
   });
 
   let style: CSSProperties = {};
+  // #950: recipe-05 transform-origin tracks the flip decision so the scale-in
+  // grows from the corner nearest the click. Default (below-right of click) →
+  // the click sits at the popover's top-left corner; flipX/flipY move the
+  // origin to the corner the popover grew toward. Defaults to 'top left' for
+  // the legacy no-anchor path (position === null).
+  let origin = 'top left';
   if (position) {
     const vw = typeof window !== 'undefined' ? window.innerWidth : 1440;
     const vh = typeof window !== 'undefined' ? window.innerHeight : 900;
@@ -106,12 +112,14 @@ export function ObservationPopover({
         ? `${Math.max(8, position.y - OFFSET - measuredH)}px`
         : `${position.y + OFFSET}px`,
     };
+    origin = `${flipY ? 'bottom' : 'top'} ${flipX ? 'right' : 'left'}`;
   }
 
   return (
     <div
       ref={rootRef}
-      className="observation-popover"
+      className="observation-popover t-popover-grow"
+      data-origin={origin}
       role="dialog"
       aria-label={`Details for ${observation.comName}`}
       style={style}

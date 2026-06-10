@@ -210,9 +210,10 @@ export function ClusterListPopover(props: ClusterListPopoverProps) {
                 aria-expanded={isExpanded ? 'true' : 'false'}
                 onClick={() => toggleFamily(fam.familyCode)}
               >
-                {/* The collapsed/expanded caret (▶ / ▼) is a CSS ::before
-                    pseudo-element driven by the `--expanded` modifier on the
-                    parent `.cluster-list-popover__family` (ds-primitives.css). */}
+                {/* #950: the caret is a single ▶ CSS ::before glyph that rotates
+                    90° (transform) to point down when the `--expanded` modifier
+                    is set on the parent `.cluster-list-popover__family`
+                    (ds-primitives.css) — a smooth rotate, not a ▶/▼ content swap. */}
                 {familyNames?.get(fam.familyCode) ?? prettyFamily(fam.familyCode)} ({fam.count})
               </button>
               {isExpanded && (

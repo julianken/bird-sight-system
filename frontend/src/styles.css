@@ -473,11 +473,15 @@ body {
   border-top: 1px solid var(--color-border-ui);
 }
 
-/* Scope rows container (§4.2 / #828) — the scope form, collapsed behind the 🔍
-   disclosure. The `hidden` attribute (display:none) handles the collapsed state;
-   when open it is a stacked flex column flush within the card padding. The
-   `[data-open]` hooks document the state for the orphan-className gate and allow
-   future open/close transitions without a JS class toggle. */
+/* Scope rows container (§4.2 / #828 / #951) — the scope form, collapsed behind
+   the 🔍 disclosure. Opening it plays catalog recipe #07 (panel-reveal): the
+   form slides a short distance into the card with transform/opacity/blur,
+   compositing cleanly (the identity card is position:absolute, so its growth
+   does not reflow the map canvas — #01 height-tween rejected, see #951). The
+   `[data-open]` hook drives the reveal with no JS class toggle. The container
+   itself is always `display:flex` — the open/close gating now lives on the
+   .t-panel-slide rules below (the old `hidden` prop + `display:none` rule are
+   removed; either left in force would clip the start frame and kill the tween). */
 .app-header-scope-rows {
   display: flex;
   flex-direction: column;
@@ -486,10 +490,47 @@ body {
      as every other row in the card (#837). */
   gap: var(--space-sm);
 }
-/* Defensive: `hidden` already collapses it, but assert display:none on the
-   closed state so a stray `display` from a future flex rule can't reveal it. */
-.app-header-scope-rows[data-open='false'] {
-  display: none;
+
+/* ── #951: scope disclosure open → recipe #07 (panel-reveal) ────────────────
+   Catalog snippet (~/.claude/skills/transitions-dev/07-panel-reveal.md) pasted
+   with the enumerated properties, will-change, and the same in-card overrides
+   the SpeciesDetailRail precedent uses (styles.css §#918): --panel-translate-y
+   shortened to a small in-card travel (this is a brief reveal of two/three
+   rows, not a full-height panel), --panel-open-dur / --panel-ease / --panel-blur
+   reused from tokens.css.
+
+   REST = the VISIBLE open end-state (translateY(0)/opacity:1/blur(0)). The rows
+   are only offset while CLOSED ([data-open='false']) — that ordering is what
+   makes the GLOBAL reduced-motion guard (motion.css zeroes the INTERPOLATION,
+   not the start value) land the form fully visible on open instead of stuck
+   off-screen. No per-element prefers-reduced-motion query here (house policy).
+
+   Closed-state visibility:hidden (NOT inert alone, NOT opacity:0 alone): pulls
+   the collapsed form out of the a11y tree + tab order AND satisfies the e2e
+   `toBeHidden()` asserts (scope-disclosure.spec.ts :96/:97/:164/:178) — an
+   inert element still occupies layout and would fail toBeHidden(). visibility is
+   discrete (no tween), so the form's interactive surface flips on/off cleanly at
+   the open/close edges while transform/opacity/filter carry the visible motion.
+   The element is always painted (visibility, not display:none), so the
+   synchronous data-open flip tweens without a post-paint rAF. */
+.app-header-scope-rows.t-panel-slide {
+  /* A short in-card travel — a few rows revealing, not a full panel. */
+  --panel-translate-y: 14px;
+  transform: translateY(0);
+  opacity: 1;
+  filter: blur(0);
+  visibility: visible;
+  transition:
+    transform var(--panel-open-dur) var(--panel-ease),
+    opacity   var(--panel-open-dur) var(--panel-ease),
+    filter    var(--panel-open-dur) var(--panel-ease);
+  will-change: transform, opacity, filter;
+}
+.app-header-scope-rows.t-panel-slide[data-open='false'] {
+  transform: translateY(var(--panel-translate-y));
+  opacity: 0;
+  filter: blur(var(--panel-blur));
+  visibility: hidden;
 }
 
 /* ── TOP-RIGHT: controls pill ───────────────────────────────────────────────
@@ -614,6 +655,27 @@ body {
   font-size: 11px;
   font-weight: var(--font-weight-semibold);
   line-height: 1;
+  /* Recipe #03 — notification-badge: one-shot @keyframes entrance on mount.
+     MUST be @keyframes + animation, NOT a transition — a CSS transition does
+     not fire on first paint of a freshly-mounted node (silent no-op).
+     animation-fill-mode: backwards ensures the start-state (scale 0.6 +
+     opacity 0) holds until the animation begins so there's no flash.
+     Digit changes stay instant hard-cuts (no animation on value change).
+     The global motion.css guard sets animation-duration: 0ms for
+     prefers-reduced-motion, resolving instantly to the end-state — no
+     stuck-hidden risk because the end-state is fully visible. */
+  animation: badge-pop 200ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes badge-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 /* ThemeToggle button inside the controls pill (plain <button> via ThemeToggle). */
@@ -625,6 +687,38 @@ body {
     min-height: 44px;
     min-width: 44px;
   }
+}
+
+/* Recipe #09 — icon-swap: cross-fade + blur + scale between ☀ and ☾.
+   The button positions its content as a single stack; both glyph spans
+   share the same grid cell so they overlay each other.
+
+   Resting state: opacity 0, scale 0.85, blur 4px (outgoing glyph).
+   Active state ([data-active]): opacity 1, scale 1, blur 0px (incoming glyph).
+   Transition fires in both directions on every toggle.
+
+   The global motion.css guard sets transition-duration: 0ms for
+   prefers-reduced-motion users — both glyphs then resolve instantly to
+   their end-state. The active glyph ends at opacity:1 (fully visible) so
+   reduced-motion users are never stuck-hidden. */
+.theme-toggle {
+  display: inline-grid;
+}
+.theme-toggle-glyph {
+  grid-area: 1 / 1;         /* stack both spans in the same cell */
+  opacity: 0;
+  transform: scale(0.85);
+  filter: blur(4px);
+  transition:
+    opacity   160ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter    160ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform, filter;
+}
+.theme-toggle-glyph[data-active] {
+  opacity: 1;
+  transform: scale(1);
+  filter: blur(0px);
 }
 
 /* Full-snap sheet: the identity card and controls pill become pointer-events:none
@@ -1093,6 +1187,18 @@ body:has(.species-detail-sheet--full) .app-header-controls-pill {
 .family-legend-chevron {
   font-size: var(--type-xs);
   color: var(--color-text-muted);
+  /* Chevron rotate: ▸ stays as the single glyph; data-expanded drives
+     rotate(90deg). CHEVRON ROTATE ONLY — do NOT animate the entries <ul>
+     (hard guard: always-mounted list reintroduces the #837 corner overlap,
+     breaks e2e not.toBeVisible(), drifts toward FLIP pattern).
+     The global motion.css guard zeroes transition-duration for
+     prefers-reduced-motion so the chevron snaps instantly to end-state. */
+  transform: rotate(0deg);
+  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  display: inline-block;
+}
+.family-legend-chevron[data-expanded='true'] {
+  transform: rotate(90deg);
 }
 .family-legend-entries {
   list-style: none;
@@ -1345,6 +1451,36 @@ body:has(.species-detail-sheet--peek) .family-legend {
   font-size: var(--type-sm);
   color: var(--color-text-strong);
   max-width: 280px;
+}
+
+/* #950 — recipe-05 (menu-dropdown) origin-aware enter. Shared by the transient
+   popovers that grow from a click point: ObservationPopover here, CellPopover
+   in ds-primitives.css (which gates the enter behind data-placed). The element
+   RESTS at the visible end-state (scale 1, opacity 1); the scale(0.96)+opacity:0
+   offset lives in @starting-style so it plays only on the enter pass — the
+   global reduced-motion guard (motion.css) then leaves the surface fully visible
+   (never stuck hidden). transform/opacity ONLY — the inline top/left placement
+   is NEVER transitioned (animating it would fight the flip math). data-origin
+   sets the transform-origin to the corner nearest the click (derived from the
+   flipX/flipY decision). The popover unmounts on close (movestart for
+   ObservationPopover) so the exit stays instant. */
+.t-popover-grow {
+  transform: scale(1);
+  opacity: 1;
+  transform-origin: top left;
+  transition:
+    transform var(--dropdown-open-dur) var(--dropdown-ease),
+    opacity   var(--dropdown-open-dur) var(--dropdown-ease);
+  will-change: transform, opacity;
+}
+.t-popover-grow[data-origin='top right']    { transform-origin: top right; }
+.t-popover-grow[data-origin='bottom left']  { transform-origin: bottom left; }
+.t-popover-grow[data-origin='bottom right'] { transform-origin: bottom right; }
+@starting-style {
+  .t-popover-grow {
+    transform: scale(var(--dropdown-pre-scale));
+    opacity: 0;
+  }
 }
 .observation-popover-header {
   display: flex;
@@ -2466,6 +2602,53 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
   }
 }
 
+/* #950 — Filters panel enter. The panel is conditionally mounted (App.tsx:
+   `{filtersOpen && …}`) so it RESTS at the visible end-state and the enter
+   offset lives in @starting-style — the global reduced-motion guard (motion.css)
+   then leaves it fully visible on open (never stuck hidden). No exit tween: the
+   panel unmounts on close (the inert/focus-restore useLayoutEffect stays keyed
+   on [filtersOpen] and is untouched — @starting-style needs no deferred unmount).
+
+   Desktop default: recipe-05 (menu-dropdown) — scale(0.96→1) + opacity, grown
+   from the top-right under the Filters trigger (transform-origin: top right).
+   transform/opacity ONLY — the fixed top/right anchor is never transitioned. */
+.filters-panel.t-filters-enter {
+  transform: scale(1);
+  opacity: 1;
+  transform-origin: top right;
+  transition:
+    transform var(--dropdown-open-dur) var(--dropdown-ease),
+    opacity   var(--dropdown-open-dur) var(--dropdown-ease);
+  will-change: transform, opacity;
+}
+@starting-style {
+  .filters-panel.t-filters-enter {
+    transform: scale(var(--dropdown-pre-scale));
+    opacity: 0;
+  }
+}
+
+/* Mobile ≤639px: recipe-07 (panel-reveal) bottom-sheet — a short translateY
+   slide-up + opacity + cross-blur (the sheet's own height supplies the rest of
+   the open distance, so a 24px travel reads as a full open). transform-origin
+   resets to the sheet's own box; transform/opacity/filter ONLY. */
+@media (max-width: 639px) {
+  .filters-panel.t-filters-enter {
+    transform-origin: bottom center;
+    transition:
+      transform var(--panel-open-dur) var(--panel-ease),
+      opacity   var(--panel-open-dur) var(--panel-ease),
+      filter    var(--panel-open-dur) var(--panel-ease);
+  }
+  @starting-style {
+    .filters-panel.t-filters-enter {
+      transform: translateY(var(--panel-translate-y-filters));
+      opacity: 0;
+      filter: blur(var(--panel-blur));
+    }
+  }
+}
+
 /* ── O4 (#780): .filters-backdrop — transparent click-catch ─────────────────
    The backdrop covers the full viewport so clicking outside the filters panel
    dismisses it (see App.tsx — onClick handler). It carries no role/label
@@ -2625,6 +2808,25 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
   border: 1px solid var(--color-error-border);
   border-radius: 4px;
   line-height: 1.3;
+  /* #950 — recipe-12 (error-state-shake) on the ERROR BOX only (never the input
+     field, never the role=status "not recognized" path). The box is
+     conditionally mounted by ZipInput.tsx (malformed / fetchError), so the
+     shake fires once on mount via `animation:` (NOT a transition, and no JS
+     reflow needed — a fresh element mounts each time the error appears). The
+     box rests at its normal painted position; the keyframe is a self-contained
+     translateX oscillation that returns to 0, so reduced-motion users (global
+     guard zeroes animation-duration) see the static error box, never a stuck
+     offset. Per-segment ease per the catalog (each leg follows its own bezier). */
+  animation: zip-input-shake calc(
+      var(--shake-dur-a) * 2 + var(--shake-dur-b) * 2
+    ) linear;
+}
+@keyframes zip-input-shake {
+  0%     { transform: translateX(0);                                animation-timing-function: var(--shake-ease); }
+  28.57% { transform: translateX(var(--shake-distance));            animation-timing-function: var(--shake-ease); }
+  57.14% { transform: translateX(calc(var(--shake-distance) * -1)); animation-timing-function: var(--shake-ease); }
+  78.57% { transform: translateX(var(--shake-overshoot));           animation-timing-function: var(--shake-ease); }
+  100%   { transform: translateX(0); }
 }
 
 /* ── ScopeChooser scrim (#761 S1) ─────────────────────────────────────────
@@ -2691,6 +2893,30 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
   border: 1px solid var(--color-border-ui);
   border-radius: var(--radius-lg, 12px);
   box-shadow: var(--shadow-listbox);
+}
+
+/* #950 — recipe-06 (modal) enter on the landing card ONLY (never the scrim
+   wash, never the native <select>: transform on a native select is a no-op
+   trap). The card RESTS at the visible end-state (scale 1, opacity 1); the
+   scale(0.96)+opacity:0 offset lives in @starting-style, so it plays only on
+   the enter pass. Reduced-motion is satisfied for free: the global guard
+   (motion.css) zeroes the duration and the card is already at its visible end-
+   state — never stuck hidden. The card unmounts when scope resolves, so the
+   exit stays instant (no close tween). transform-origin: center (modal). */
+.scope-chooser__card.t-modal-grow {
+  transform: scale(1);
+  opacity: 1;
+  transform-origin: center;
+  transition:
+    transform var(--modal-open-dur) var(--modal-ease),
+    opacity   var(--modal-open-dur) var(--modal-ease);
+  will-change: transform, opacity;
+}
+@starting-style {
+  .scope-chooser__card.t-modal-grow {
+    transform: scale(var(--modal-scale));
+    opacity: 0;
+  }
 }
 .scope-chooser__title {
   margin: 0;

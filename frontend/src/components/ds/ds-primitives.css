@@ -313,6 +313,7 @@
   height: 100%;
   object-fit: cover;
   border-radius: var(--photo-radius);
+  transition: opacity var(--dur-base) ease;
 }
 
 .photo__img--pending {
@@ -784,12 +785,30 @@ button.adaptive-grid-marker__cell {
   }
 }
 
-/* Reduced-motion: no fade animation. The default render is instant;
-   no JS animation lib in use. This block documents the contract for
-   future authors. */
-@media (prefers-reduced-motion: reduce) {
-  .cell-hover-preview {
-    /* No-op currently; reserved for future fade-in. */
+/* #950 — recipe-17 (tooltip) delayed fade+scale IN. The preview mounts on
+   hover (desktop-only surface) and unmounts on leave, so the exit is instant
+   (free via unmount) and only the enter is animated. The tooltip RESTS at the
+   visible end-state (opacity 1, scale 1); @starting-style supplies the
+   opacity:0 + scale(0.96) offset for the enter pass — the global reduced-motion
+   guard (motion.css) then leaves the tooltip fully visible immediately (never
+   stuck hidden). The transition lists transform/opacity ONLY: the cursor-follow
+   left/top (inline, from cursorPos) MUST stay out of the transition or the
+   tooltip would lag the pointer. The --tt-delay makes it a *delayed* appear so a
+   quick mouse-over doesn't flash a tooltip. transform-origin: top left keeps the
+   scale anchored toward the cursor (the preview sits down-right of the pointer). */
+.cell-hover-preview.t-tt-enter {
+  opacity: 1;
+  transform: scale(1);
+  transform-origin: top left;
+  transition:
+    opacity   var(--tt-in-dur) var(--tt-in-ease) var(--tt-delay),
+    transform var(--tt-in-dur) var(--tt-in-ease) var(--tt-delay);
+  will-change: transform, opacity;
+}
+@starting-style {
+  .cell-hover-preview.t-tt-enter {
+    opacity: 0;
+    transform: scale(var(--tt-scale));
   }
 }
 
@@ -941,11 +960,28 @@ button.adaptive-grid-marker__cell {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .cell-popover {
-    /* No animation in v1; reserved for future scale-in/fade-in. */
-  }
+/* #950 — recipe-05 (menu-dropdown) enter. The shared `.t-popover-grow` rule
+   (styles.css) carries the transition + the scale(1)/opacity(1) visible REST
+   state; this block supplies CellPopover's data-placed GATE and the
+   transform-origin that tracks the flip. The card mounts parked off-screen
+   (left:-9999; visibility:hidden) for one pre-paint pass while CellPopover.tsx
+   measures the anchor rect, so it CANNOT use @starting-style (the enter would
+   play against the off-screen park and surface as a hard cut). Instead the
+   offset lives on the UN-placed state and the visible end-state is reached when
+   `data-placed="true"` flips on — set in the SAME useLayoutEffect as the
+   position. Resting at the visible end-state once placed keeps the global
+   reduced-motion guard (motion.css) from leaving the card stuck hidden. The
+   card unmounts on dismiss (pan/zoom/ESC/click-out), so the exit stays instant. */
+.cell-popover.t-popover-grow:not([data-placed]) {
+  transform: scale(var(--dropdown-pre-scale));
+  opacity: 0;
 }
+.cell-popover.t-popover-grow[data-placed='true'] {
+  transform: scale(1);
+  opacity: 1;
+}
+.cell-popover.t-popover-grow[data-placement='above'] { transform-origin: bottom left; }
+.cell-popover.t-popover-grow[data-placement='below'] { transform-origin: top left; }
 
 /* ─────────────────────────────────────────────────────────────────────────────
    <ClusterListPopover> — Phase 2 (#559)
@@ -955,9 +991,14 @@ button.adaptive-grid-marker__cell {
 
 .cluster-list-popover {
   position: fixed;
-  /* Slide up from the bottom of the viewport on mobile. On tablet portrait
-     (768×1024), the popover sizes to its content and centers within the
-     bottom 60% of the viewport. */
+  /* Anchored to the bottom strip of the viewport (left/right/bottom =
+     --space-md); on tablet portrait (768×1024) it sizes to its content within
+     that strip. NOTE (#950): there is NO slide-up enter animation here — the
+     prior comment documented motion that never shipped. The recipe-07 slide-up
+     is DEFERRED: it collides with map-cell-popover.spec.ts:265,307 and is the
+     most acute rest-state-hidden trap (a popover resting at translateY(100%)
+     would be stuck off-screen for reduced-motion users). Only the per-family
+     caret animates (rotate, above). */
   left: var(--space-md);
   right: var(--space-md);
   bottom: var(--space-md);
@@ -1033,16 +1074,26 @@ button.adaptive-grid-marker__cell {
   border-radius: 2px;
 }
 
+/* #950 — caret is ONE glyph (▶) that rotates 90° to point down on expand,
+   replacing the prior ▶/▼ content swap so the open/close reads as a smooth
+   rotate instead of a hard glyph cut. transform: rotate ONLY (no layout
+   property animates); the global reduced-motion guard (motion.css) zeroes the
+   duration so reduced-motion users still get the correct ▶/▼ direction with no
+   motion. The #07 slide-up for the whole popover stays DEFERRED (#950): it
+   collides with map-cell-popover.spec.ts:265,307 and is the most acute rest-
+   state-hidden trap; only the caret animates here. */
 .cluster-list-popover__family-toggle::before {
   content: "▶ ";
   font-size: 10px;
   display: inline-block;
   width: 12px;
   color: var(--color-text-muted);
+  transform-origin: 40% 50%;
+  transition: transform var(--dropdown-open-dur) var(--dropdown-ease);
 }
 
 .cluster-list-popover__family--expanded > .cluster-list-popover__family-toggle::before {
-  content: "▼ ";
+  transform: rotate(90deg);
 }
 
 .cluster-list-popover__rows {

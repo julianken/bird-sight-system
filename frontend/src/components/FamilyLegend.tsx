@@ -200,8 +200,15 @@ function FamilyLegendImpl({
         }}
       >
         <span className="family-legend-title">Bird families in view</span>
-        <span className="family-legend-chevron" aria-hidden="true">
-          {effectiveExpanded ? '▾' : '▸'}
+        {/* Single glyph + rotate transition — chevron rotate only.
+            data-expanded drives the CSS rotate(90deg) on .family-legend-chevron.
+            List mount behavior is byte-identical (hard guard: no always-mount). */}
+        <span
+          className="family-legend-chevron"
+          data-expanded={effectiveExpanded ? 'true' : 'false'}
+          aria-hidden="true"
+        >
+          ▸
         </span>
       </button>
       {effectiveExpanded && entries.length > 0 && (

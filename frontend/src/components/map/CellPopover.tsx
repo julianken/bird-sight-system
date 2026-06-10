@@ -61,7 +61,7 @@ function computePopoverPosition(
   cardHeight: number,
   viewportWidth: number,
   viewportHeight: number,
-): { left: number; top: number } {
+): { left: number; top: number; placement: 'above' | 'below' } {
   // Horizontal: left-align to the cell, then clamp into the viewport so the
   // card never overflows the right (flips effectively become a right-shift) or
   // left edge.
@@ -73,11 +73,15 @@ function computePopoverPosition(
   const belowTop = anchorRect.bottom + ANCHOR_GAP;
   const aboveTop = anchorRect.top - ANCHOR_GAP - cardHeight;
   const overflowsBottom = belowTop + cardHeight > viewportHeight - VIEWPORT_MARGIN;
-  let top = overflowsBottom && aboveTop >= VIEWPORT_MARGIN ? aboveTop : belowTop;
+  const placedAbove = overflowsBottom && aboveTop >= VIEWPORT_MARGIN;
+  let top = placedAbove ? aboveTop : belowTop;
   const maxTop = Math.max(VIEWPORT_MARGIN, viewportHeight - cardHeight - VIEWPORT_MARGIN);
   top = Math.min(Math.max(top, VIEWPORT_MARGIN), maxTop);
 
-  return { left, top };
+  // #950: surface the flip decision so the recipe-05 transform-origin tracks
+  // it — a card placed below the cell grows from its top edge, one placed above
+  // grows from its bottom edge.
+  return { left, top, placement: placedAbove ? 'above' : 'below' };
 }
 export interface CellPopoverProps {
   familyCode: string;
@@ -119,7 +123,11 @@ export function CellPopover(props: CellPopoverProps) {
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   // #863: the portaled card's fixed-position placement, computed from the
   // anchor rect on mount. `null` until the layout effect runs (one paint).
-  const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
+  // #950: `placement` ('above'|'below') drives the recipe-05 transform-origin
+  // so the scale-in grows from the cell-facing edge.
+  const [position, setPosition] = useState<
+    { left: number; top: number; placement: 'above' | 'below' } | null
+  >(null);
 
   const visible = species.slice(0, POPOVER_CAP);
   // Overflow is the EXACT distinct-species remainder when the caller supplies
@@ -197,8 +205,15 @@ export function CellPopover(props: CellPopoverProps) {
       ref={rootRef}
       role="dialog"
       aria-labelledby={headingId}
-      className="cell-popover"
+      className="cell-popover t-popover-grow"
       data-testid="cell-popover"
+      // #950: gate the recipe-05 scale-in on data-placed — it flips to "true"
+      // in the SAME useLayoutEffect that sets `position`, so the enter never
+      // plays while the card is parked off-screen at left:-9999/visibility:hidden
+      // (which would surface as a hard cut on first paint). data-placement
+      // ('above'|'below') sets the transform-origin to the cell-facing edge.
+      data-placed={position ? 'true' : undefined}
+      data-placement={position?.placement}
       style={positionStyle}
     >
       <header className="cell-popover__header">

@@ -1271,7 +1271,7 @@ export function App() {
           />
           <div
             ref={filtersPanelRef}
-            className="filters-panel"
+            className="filters-panel t-filters-enter"
             role="region"
             aria-label="Filters"
           >
