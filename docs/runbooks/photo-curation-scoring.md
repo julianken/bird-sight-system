@@ -85,15 +85,33 @@ rows; scoring is the separate token-spending pass below.
 
 Scoring runs in **batches of 10** (`--limit`, clamped to `[1,100]`) and is
 **resumable**: each committed species is marked `reviewed=1` and drops out of
-the next batch, so you re-run until the backlog clears. Two ways to drive it:
+the next batch, so you re-run until the backlog clears.
+
+**Canonical flow (orchestrator-driven).** The validated run path is three
+orchestrator steps: **(1)** run the CLI `score-prepare` to select + download the
+batch and emit the manifest; **(2)** dispatch the score Workflow with the rubric
+prompt + that manifest, so its agents `Read` each manifest image and apply the
+rubric via the `photo-judge` agent; **(3)** run the CLI `score-commit` to persist
+the results. This is the flow Option A drives end-to-end and Option B spells out
+by hand.
+
+> **The `.mjs` files are an embedded-logic reference, not a standalone program.**
+> `workflows/score-current.mjs` (and `source-candidates.mjs`) show the exact
+> three-phase shape — including the `agent(promptString, { agentType, model,
+> schema })` dispatch shape — but the Workflow sandbox has no module `import` and
+> no filesystem access, so their `import { defaultRubricConfig }` and fs use are
+> conceptual. The runbook steps below are the canonical procedure; the `.mjs` are
+> the reference for what each dispatched agent must do.
 
 ### Option A — the score-current Workflow (recommended)
 
-Run `tools/photo-curation/workflows/score-current.mjs` via the **Workflow
-tool** (never `node`). It performs the three-phase flow for you:
+Drive the three-phase flow with `tools/photo-curation/workflows/score-current.mjs`
+as the **reference template** for the Workflow dispatch (run via the **Workflow
+tool**, never `node` — see the reference-vs-runnable note above):
 
 1. a **prepare agent** shells out to `score-prepare` (Bash);
-2. **parallel score agents** each `Read` one image and apply the rubric;
+2. **parallel score agents** each `Read` one image and apply the rubric via the
+   lean `photo-judge` agent;
 3. a **commit agent** writes `results.json` and shells out to `score-commit`.
 
 ```bash
@@ -168,7 +186,9 @@ npx photo-curate apply-swaps            # confirm-gated push to the admin-api
   `source-prepare` / `source-commit`) are unit-tested in
   `src/score-orchestration.test.ts` with a temp sqlite + a stubbed download.
   The `.mjs` Workflow scripts are intentionally **not** vitest targets — they
-  wire the real `agent()` judge and are validated structurally (no `fs` /
-  `better-sqlite3` imports, valid JS).
+  are the embedded-logic **reference template** for the orchestrator-driven
+  dispatch (the canonical run path is the CLI prepare → score Workflow → CLI
+  commit flow in Step 2, not executing the `.mjs` standalone). They are validated
+  structurally (`node --check`: valid JS; no `fs` / `better-sqlite3` imports).
 - The read-api `GET /api/species/with-photos` endpoint deploys on merge via the
   `deploy-read-api` workflow.

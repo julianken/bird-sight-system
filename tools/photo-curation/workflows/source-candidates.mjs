@@ -1,8 +1,24 @@
 // tools/photo-curation/workflows/source-candidates.mjs
-// A REAL Claude Code Workflow-tool script (Bug 1, #992). Run via the Workflow
-// tool — NEVER via `node`. Token-spending. Pre-scores a DEEP iNat pool per
-// FLAGGED species (current overall < defaultRubricConfig.thresholds.review) so
-// Slice 5's deny route can advance to an already-scored alternate instantly.
+//
+// ┌─ REFERENCE TEMPLATE — NOT STANDALONE-RUNNABLE ────────────────────────────┐
+// │ This file is the embedded-logic REFERENCE for the operator-run sourcing    │
+// │ flow. It is NOT a script you can hand to the Workflow tool verbatim: the   │
+// │ Workflow sandbox has NO module `import` and NO filesystem access, so the   │
+// │ `import { defaultRubricConfig }` line and any fs use here only work        │
+// │ CONCEPTUALLY — they show what the dispatched agents must do, not code the  │
+// │ sandbox executes. The CANONICAL, validated run path is                     │
+// │ docs/runbooks/photo-curation-scoring.md: the operator runs the CLI         │
+// │ `source-prepare`, then dispatches the source Workflow whose agents `Read`  │
+// │ the manifest images and apply the rubric via the `photo-judge` agent, then │
+// │ runs the CLI `source-commit`. Treat the `agent(...)` calls below as the    │
+// │ reference shape for that dispatch, not as a literal runnable program.      │
+// └────────────────────────────────────────────────────────────────────────────┘
+//
+// A Claude Code Workflow-tool reference script (Bug 1, #992). The dispatch is
+// driven via the Workflow tool — NEVER via `node`. Token-spending. Pre-scores a
+// DEEP iNat pool per FLAGGED species (current overall <
+// defaultRubricConfig.thresholds.review) so Slice 5's deny route can advance to
+// an already-scored alternate instantly.
 //
 // CONTRACT: the body uses the Workflow primitives (`agent()`, `parallel()`)
 // ONLY — NO `node:fs`, NO `better-sqlite3`, NO `@bird-watch/ingestor` fetch.
@@ -35,16 +51,18 @@ const POOL = Number(process.env.POOL ?? 15);
 const JUDGE_MODEL = process.env.PHOTO_JUDGE_MODEL ?? 'haiku';
 
 // 1) PREPARE — a Bash agent shells out to the Node `source-prepare` half.
-const prepared = await agent({
-  prompt: `Run \`npx photo-curate source-prepare --pool ${POOL}\` in tools/photo-curation.
+const prepared = await agent(
+  `Run \`npx photo-curate source-prepare --pool ${POOL}\` in tools/photo-curation.
 It prints a human summary line then, on its own final line, the absolute path to a
 manifest JSON of shape
 [{ speciesCode, comName, sciName, family, inatId, imagePath, contentHash, attribution, license }].
 Read that manifest file and return its parsed contents as \`manifest\` plus the
 \`manifestPath\`. If the manifest is empty, return manifest: [] — no flagged species.`,
-  tools: ['Bash', 'Read'],
-  schema: { manifestPath: 'string', manifest: 'object[]' },
-});
+  {
+    tools: ['Bash', 'Read'],
+    schema: { manifestPath: 'string', manifest: 'object[]' },
+  },
+);
 
 // 2) SCORE — one judge PER candidate, fanned out with parallel(). Each is the
 //    lean `photo-judge` subagent (Read-only, short system prompt, `haiku` tier)
@@ -78,15 +96,17 @@ inatId ${entry.inatId}, contentHash "${entry.contentHash}".`,
 );
 
 // 3) COMMIT — a Bash agent writes results.json and shells out to source-commit.
-const commit = await agent({
-  prompt: `Write this JSON to tools/photo-curation/candidate-results.json, then run
+const commit = await agent(
+  `Write this JSON to tools/photo-curation/candidate-results.json, then run
 \`npx photo-curate source-commit candidate-results.json\` in tools/photo-curation
 and return its summary line:
 
 ${JSON.stringify(results, null, 2)}`,
-  tools: ['Write', 'Bash'],
-  schema: { summary: 'string' },
-});
+  {
+    tools: ['Write', 'Bash'],
+    schema: { summary: 'string' },
+  },
+);
 
 console.log(`[source-candidates] sourced ${prepared.manifest?.length ?? 0} candidate(s); committed via source-commit:`);
 console.log(commit.summary);
