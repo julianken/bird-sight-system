@@ -12,7 +12,7 @@ import {
 import { startServer } from './server/serve.js';
 import { resolveAdminEnv, runApplySwaps } from './apply-swaps.js';
 import {
-  runLogRun, PRICE_TABLE, LEDGER_ISSUE,
+  runLogRun, logRunExitCode, isIsoDate, LOG_RUN_EXIT, PRICE_TABLE, LEDGER_ISSUE,
   type LedgerInput, type Op, type AgentDesign, type YesNo, type JudgeModel, type TokenSplit,
 } from './token-ledger.js';
 import { ghLedgerDeps } from './gh-ledger.js';
@@ -223,6 +223,16 @@ program
       };
     }
 
+    // --date is the only free-string operator input; validate the override so a
+    // malformed value (`2026-13-40`, `june10`) never lands verbatim in the date
+    // column. Omitted → today's UTC date. Exit 2 mirrors num()/oneOf().
+    if (opts.date !== undefined && !isIsoDate(String(opts.date))) {
+      console.error(
+        `--date must be an ISO-8601 date (YYYY-MM-DD, optionally with time) (got ${String(opts.date)})`,
+      );
+      process.exit(LOG_RUN_EXIT.BAD_ARG);
+    }
+
     const ledgerInput: LedgerInput = {
       runId: String(opts.runId),
       date: opts.date ? String(opts.date) : new Date().toISOString().slice(0, 10),
@@ -244,12 +254,23 @@ program
     const deps = ghLedgerDeps({ repo: String(opts.repo), log: line => console.log(`[log-run] ${line}`) });
     try {
       const result = await runLogRun(ledgerInput, deps);
-      // Non-zero exit on a skipped duplicate so a wrapping script can tell the
-      // append did not happen (the row already existed).
-      process.exit(result.appended ? 0 : 1);
+      // Distinct exit codes so a wrapper can tell a benign already-logged
+      // duplicate (3 — nothing more to do, safe) from a real write failure
+      // (the catch below, 1 — nothing was recorded, must retry). See
+      // LOG_RUN_EXIT for the full contract.
+      const code = logRunExitCode(result);
+      if (code === LOG_RUN_EXIT.DUPLICATE) {
+        console.error(
+          `[log-run] run "${ledgerInput.runId}" was already logged — nothing appended (exit ${LOG_RUN_EXIT.DUPLICATE}, safe to ignore).`,
+        );
+      }
+      process.exit(code);
     } catch (err) {
+      // A genuine failure — gh read/write error, missing append marker, etc.
+      // Nothing was recorded; exit 1 signals the operator/wrapper must retry.
       console.error(`[log-run] ${err instanceof Error ? err.message : String(err)}`);
-      process.exit(1);
+      console.error(`[log-run] nothing was recorded — retry (exit ${LOG_RUN_EXIT.FAILED}).`);
+      process.exit(LOG_RUN_EXIT.FAILED);
     }
   });
 

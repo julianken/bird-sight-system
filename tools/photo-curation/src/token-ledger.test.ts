@@ -7,6 +7,9 @@ import {
   spliceRowAboveMarker,
   hasRunId,
   runLogRun,
+  logRunExitCode,
+  isIsoDate,
+  LOG_RUN_EXIT,
   APPEND_MARKER,
   type LedgerInput,
 } from './token-ledger.js';
@@ -232,5 +235,77 @@ describe('runLogRun', () => {
     expect(Object.keys(PRICE_TABLE).sort()).toEqual(
       ['claude-fable-5', 'claude-haiku-4-5', 'claude-opus-4-8', 'claude-sonnet-4-6'].sort(),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// logRunExitCode — the CLI's 0-vs-3 mapping (#998). A benign duplicate must
+// NOT share an exit code with a real write failure, or a wrapper that treats
+// "exit 1 = already logged, safe" silently skips re-logging after a true
+// failure (data loss).
+// ---------------------------------------------------------------------------
+describe('logRunExitCode', () => {
+  it('maps an appended row to exit 0', () => {
+    expect(logRunExitCode({ appended: true, row: '| r |' })).toBe(LOG_RUN_EXIT.APPENDED);
+    expect(logRunExitCode({ appended: true, row: '| r |' })).toBe(0);
+  });
+
+  it('maps a skipped duplicate to its own distinct exit code 3 (not 1)', () => {
+    expect(logRunExitCode({ appended: false, row: '| r |' })).toBe(LOG_RUN_EXIT.DUPLICATE);
+    expect(logRunExitCode({ appended: false, row: '| r |' })).toBe(3);
+  });
+
+  it('keeps the duplicate code separate from the failure and bad-arg codes', () => {
+    // The whole point of #998: a benign duplicate is distinguishable from a
+    // real write failure (1) and from a validation error (2).
+    expect(LOG_RUN_EXIT.DUPLICATE).not.toBe(LOG_RUN_EXIT.FAILED);
+    expect(LOG_RUN_EXIT.DUPLICATE).not.toBe(LOG_RUN_EXIT.BAD_ARG);
+    expect(LOG_RUN_EXIT.DUPLICATE).not.toBe(LOG_RUN_EXIT.APPENDED);
+  });
+
+  it('returns the duplicate code for a real runLogRun duplicate skip (no network)', async () => {
+    const dupBody = spliceRowAboveMarker(FIXTURE_BODY, formatRow(computeRow(baseInput)));
+    const readIssueBody = vi.fn().mockResolvedValue(dupBody);
+    const writeIssueBody = vi.fn().mockResolvedValue(undefined);
+    const log = vi.fn();
+
+    const result = await runLogRun(baseInput, { readIssueBody, writeIssueBody, log });
+
+    expect(result.appended).toBe(false);
+    expect(writeIssueBody).not.toHaveBeenCalled();
+    expect(logRunExitCode(result)).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isIsoDate — the --date override guard (#998). Mirrors the exit-2 validation
+// the numeric/enum flags already get so a malformed date never lands verbatim
+// in the ledger's date column.
+// ---------------------------------------------------------------------------
+describe('isIsoDate', () => {
+  it('accepts a plain YYYY-MM-DD date', () => {
+    expect(isIsoDate('2026-06-10')).toBe(true);
+    expect(isIsoDate('2026-01-01')).toBe(true);
+    expect(isIsoDate('2026-12-31')).toBe(true);
+  });
+
+  it('accepts a date with an ISO time suffix (T or space separator)', () => {
+    expect(isIsoDate('2026-06-10T12:34:56Z')).toBe(true);
+    expect(isIsoDate('2026-06-10 12:34:56')).toBe(true);
+  });
+
+  it('rejects an impossible calendar date (month/day out of range)', () => {
+    expect(isIsoDate('2026-13-40')).toBe(false); // the finding's example
+    expect(isIsoDate('2026-00-10')).toBe(false);
+    expect(isIsoDate('2026-02-30')).toBe(false); // Feb 30 rolls over
+    expect(isIsoDate('2026-04-31')).toBe(false); // April has 30 days
+  });
+
+  it('rejects a structurally malformed value', () => {
+    expect(isIsoDate('june10')).toBe(false); // the finding's example
+    expect(isIsoDate('2026/06/10')).toBe(false);
+    expect(isIsoDate('26-6-1')).toBe(false);
+    expect(isIsoDate('')).toBe(false);
+    expect(isIsoDate('2026-06')).toBe(false);
   });
 });

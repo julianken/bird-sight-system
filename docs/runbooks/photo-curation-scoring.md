@@ -225,8 +225,26 @@ npx photo-curate log-run \
 `est_$` defaults to the blended 85%-input / 15%-output rate from the embedded
 price table (Fable 5 ≈ $16/MTok). `log-run` warns and does **not** append a
 duplicate if a row with the same `--run-id` already exists, so a re-run after a
-transient `gh` failure is safe. It exits non-zero on a duplicate or a
-validation error.
+transient `gh` failure is safe.
+
+### `log-run` exit codes
+
+The exit code distinguishes a benign re-run from a real failure, so a wrapping
+script can act on it. `--date`, if supplied, must be an ISO-8601 date
+(`YYYY-MM-DD`, optionally with a time); a malformed value is rejected before any
+write. Omit `--date` to default to today's UTC date.
+
+| Code | Meaning | Wrapper action |
+|---|---|---|
+| `0` | **Appended** — a new row was written. | Done. |
+| `3` | **Already logged** — this `--run-id` was already in the ledger; the append was a safe no-op (nothing was lost). | Safe to ignore — proceed. |
+| `1` | **Failed** — a genuine error (`gh` read/write failure, missing append marker, …). **Nothing was recorded.** | Must retry. |
+| `2` | **Bad argument** — a missing/malformed flag (bad `--date`, non-numeric count, unknown enum). Rejected before any write. | Fix the invocation. |
+
+The load-bearing distinction is `3` vs `1`: a script must NOT treat the benign
+duplicate (`3`) and a real write failure (`1`) the same way — exit `1` means the
+row is **not** in the ledger and the run must be re-logged, while exit `3` means
+it already is.
 
 ## Notes
 

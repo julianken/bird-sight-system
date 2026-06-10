@@ -268,6 +268,61 @@ export interface LogRunResult {
 }
 
 /**
+ * Process exit codes for the `log-run` CLI action. These are a contract a
+ * wrapping script depends on, so they live next to the logic that produces
+ * them rather than as bare literals in cli.ts:
+ *
+ *   0 = APPENDED  — a new row was spliced + written; nothing more to do.
+ *   3 = DUPLICATE — this run_id was already in the ledger; the append was a
+ *       safe no-op (nothing was lost), so a wrapper may proceed.
+ *   1 = FAILED    — a genuine error (a gh read/write failure, a missing append
+ *       marker, …); NOTHING was recorded, so the operator/wrapper MUST retry.
+ *   2 = BAD_ARG   — a malformed / missing argument; rejected before any write.
+ *
+ * The 0/3 split is the load-bearing one: before #998, a benign duplicate and a
+ * real write failure both exited 1, so a wrapper that treated exit 1 as
+ * "already logged, safe" would silently skip re-logging after a true write
+ * failure — the exact data-loss case the idempotency guard exists to prevent.
+ */
+export const LOG_RUN_EXIT = {
+  APPENDED: 0,
+  FAILED: 1,
+  BAD_ARG: 2,
+  DUPLICATE: 3,
+} as const;
+
+/** Map a successful runLogRun result to its process exit code (0 vs 3). */
+export function logRunExitCode(result: LogRunResult): number {
+  return result.appended ? LOG_RUN_EXIT.APPENDED : LOG_RUN_EXIT.DUPLICATE;
+}
+
+/**
+ * Is `value` an ISO-8601 calendar date (YYYY-MM-DD), optionally followed by a
+ * time? Used to validate the operator-supplied `--date` override before it
+ * lands verbatim in the ledger's date column, mirroring the exit-2 validation
+ * the numeric/enum flags already get. Rejects structurally-wrong strings
+ * (`june10`) AND impossible calendar dates (`2026-13-40`, `2026-02-30`) by
+ * round-tripping through Date and checking the parts survive unchanged.
+ */
+export function isIsoDate(value: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$/.exec(value);
+  if (!m) return false;
+  const [, y, mo, d] = m;
+  const year = Number(y);
+  const month = Number(mo);
+  const day = Number(d);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+  // Reject impossible day-of-month (e.g. 2026-02-30) by round-tripping the
+  // Y/M/D through a UTC Date and confirming nothing rolled over.
+  const dt = new Date(Date.UTC(year, month - 1, day));
+  return (
+    dt.getUTCFullYear() === year &&
+    dt.getUTCMonth() === month - 1 &&
+    dt.getUTCDate() === day
+  );
+}
+
+/**
  * End-to-end: read the ledger body, compute + format the row, and (unless the
  * run_id is already present) splice it above the marker and write back. The
  * read/write are injected so unit tests never hit GitHub.
