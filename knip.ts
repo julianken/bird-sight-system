@@ -256,6 +256,38 @@ const config: KnipConfig = {
     'packages/geo': {},
     'packages/shared-types': {},
     'packages/photo-quality': {},
+
+    'tools/photo-curation': {
+      // 2026-06-10: Part A (#970) scaffolds this workspace + its SQLite store /
+      //             data layer / decision machine / FakeJudge. Several declared
+      //             deps and one store helper are not CONSUMED until Part B
+      //             (#971) lands sources.ts / score-current / cli.ts. They are
+      //             pinned in Part A's package.json on purpose (Part A is the
+      //             sole scaffolder), so knip flags them as unused until Part B
+      //             imports them. These are intentionally self-healing: each
+      //             entry should drop out of this list once #971 wires it.
+      //             Re-audit 2026-07-27 — if any entry is still here AND #971
+      //             has merged, it is a genuine orphan; delete the dep instead.
+      ignoreDependencies: [
+        // CLI flag parser for cli.ts (Part B, #971 — four subcommands).
+        'commander',
+        // Image decode/thumbnail in sources.ts download path (Part B, #971);
+        // Part A's data layer never decodes an image.
+        'sharp',
+        // Shared DB/API DTOs imported by Part B's sources.ts + cli.ts wiring;
+        // mirrors the services/admin-api shared-types Dockerfile-only ignore.
+        '@bird-watch/shared-types',
+        // MSW network mocks for Part B's sources.ts iNat-fetch unit tests; no
+        // network in Part A's :memory: SQLite tests.
+        'msw',
+      ],
+      // 2026-06-10: maxSourceRound (store.ts) is the re-source round counter
+      //             Part B's denyAndAdvance / sources.ts read to land new
+      //             candidates in a higher source_round. Exported in Part A so
+      //             Part B imports it without re-touching store.ts. Self-healing:
+      //             remove once #971 imports it. Re-audit 2026-07-27.
+      ignore: ['src/store.ts'],
+    },
   },
 };
 
