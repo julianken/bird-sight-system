@@ -258,35 +258,31 @@ const config: KnipConfig = {
     'packages/photo-quality': {},
 
     'tools/photo-curation': {
-      // 2026-06-10: Part A (#970) scaffolds this workspace + its SQLite store /
-      //             data layer / decision machine / FakeJudge. Several declared
-      //             deps and one store helper are not CONSUMED until Part B
-      //             (#971) lands sources.ts / score-current / cli.ts. They are
-      //             pinned in Part A's package.json on purpose (Part A is the
-      //             sole scaffolder), so knip flags them as unused until Part B
-      //             imports them. These are intentionally self-healing: each
-      //             entry should drop out of this list once #971 wires it.
-      //             Re-audit 2026-07-27 — if any entry is still here AND #971
-      //             has merged, it is a genuine orphan; delete the dep instead.
-      ignoreDependencies: [
-        // CLI flag parser for cli.ts (Part B, #971 — four subcommands).
-        'commander',
-        // Image decode/thumbnail in sources.ts download path (Part B, #971);
-        // Part A's data layer never decodes an image.
-        'sharp',
-        // Shared DB/API DTOs imported by Part B's sources.ts + cli.ts wiring;
-        // mirrors the services/admin-api shared-types Dockerfile-only ignore.
-        '@bird-watch/shared-types',
-        // MSW network mocks for Part B's sources.ts iNat-fetch unit tests; no
-        // network in Part A's :memory: SQLite tests.
-        'msw',
-      ],
-      // 2026-06-10: maxSourceRound (store.ts) is the re-source round counter
-      //             Part B's denyAndAdvance / sources.ts read to land new
-      //             candidates in a higher source_round. Exported in Part A so
-      //             Part B imports it without re-touching store.ts. Self-healing:
-      //             remove once #971 imports it. Re-audit 2026-07-27.
-      ignore: ['src/store.ts'],
+      // 2026-06-10: Part B (#971) wired the four Part A self-healing entries —
+      //             commander (cli.ts), @bird-watch/shared-types + msw
+      //             (sources.ts / sync.test.ts), and src/store.ts (sources.ts
+      //             imports maxSourceRound + the rest) — so those ignores were
+      //             REMOVED here per their self-healing intent; knip now sees
+      //             them consumed. Only `sharp` remains: it is a transitive
+      //             decode dep used inside @bird-watch/photo-quality's
+      //             assessDeterministic, not imported directly by any
+      //             tools/photo-curation/src file, so knip still flags it as an
+      //             unused direct dependency. Risk: masks a genuine unused
+      //             `sharp` if the package ever stops decoding. Re-audit
+      //             2026-07-27 — drop this if sharp gains a direct import or is
+      //             removed from package.json.
+      ignoreDependencies: ['sharp'],
+      // 2026-06-10: the two committed workflows under workflows/*.mjs are
+      //             Claude Code Workflow-tool entries — run via the Workflow
+      //             tool against ../dist, never imported by any TS/JS module, so
+      //             static analysis can't see a reference and flags them as
+      //             unused files. They wire the real agent() judge + live fetch
+      //             and are intentionally NOT vitest targets (the testable
+      //             surface is sources.ts). Risk: masks a genuinely orphaned
+      //             workflow if one is deleted from the runbook but left on
+      //             disk. Re-audit 2026-07-27 — confirm both are still
+      //             referenced by the photo-curation runbook / epic #974.
+      ignore: ['workflows/score-current.mjs', 'workflows/source-candidates.mjs'],
     },
   },
 };
