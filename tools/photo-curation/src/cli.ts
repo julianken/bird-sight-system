@@ -11,9 +11,15 @@ import {
 } from './score-orchestration.js';
 import { startServer } from './server/serve.js';
 import { resolveAdminEnv, runApplySwaps } from './apply-swaps.js';
+import {
+  runLogRun, PRICE_TABLE, LEDGER_ISSUE,
+  type LedgerInput, type Op, type AgentDesign, type YesNo, type JudgeModel, type TokenSplit,
+} from './token-ledger.js';
+import { ghLedgerDeps } from './gh-ledger.js';
 
 const API_BASE = process.env.READ_API_BASE ?? 'https://api.bird-maps.com';
 const THUMB_DIR = process.env.THUMB_DIR ?? './thumb-cache';
+const LEDGER_REPO = process.env.LEDGER_REPO ?? 'julianken/bird-sight-system';
 
 /** Live thumbnail download for the prepare CLI (unit tests inject a stub). */
 async function downloadBytes(url: string): Promise<Buffer> {
@@ -156,6 +162,94 @@ program
       process.exit(result.failed.length > 0 ? 1 : 0);
     } finally {
       db.close();
+    }
+  });
+
+program
+  .command('log-run')
+  .description(
+    `Append one token-spend row to ledger issue #${LEDGER_ISSUE}. REQUIRED final step after every score / source-candidates / calibration run (#997). Computes scored, tokens/item, est_$ (blended 85/15 by default, exact when the four split flags are given, x0.5 with --batch), and $/item, then splices the row above the marker.`,
+  )
+  .requiredOption('--run-id <id>', 'Workflow run/task id (row identity + join key)')
+  .requiredOption('--op <op>', 'score_batch | source_candidates | calibration')
+  .requiredOption('--judge-model <model>', `exact judge model (one of: ${Object.keys(PRICE_TABLE).join(', ')})`)
+  .requiredOption('--items-in <n>', 'photos submitted to the run')
+  .requiredOption('--total-tokens <n>', 'aggregate tokens (Workflow subagent_tokens)')
+  .requiredOption('--agents <n>', 'subagents spawned (Workflow agent_count)')
+  .requiredOption('--tool-uses <n>', 'total tool invocations (Workflow tool_uses)')
+  .requiredOption('--duration-ms <n>', 'wall-clock ms (Workflow duration_ms)')
+  .option('--agent-design <design>', 'generic | lean_photo_judge', 'generic')
+  .option('--prefilter <yesno>', 'yes | no — was the #994 deterministic gate run', 'no')
+  .option('--gate-rejected <n>', 'photos auto-rejected by the pre-filter, never judged', '0')
+  .option('--date <yyyy-mm-dd>', 'run date (UTC); defaults to today')
+  .option('--batch', 'run used the Batch API (applies the 0.5x discount)')
+  .option('--notes <text>', 'run context / what changed')
+  .option('--input <n>', 'EXACT split: input tokens (requires all four split flags)')
+  .option('--output <n>', 'EXACT split: output tokens')
+  .option('--cache-read <n>', 'EXACT split: cache-read tokens')
+  .option('--cache-create <n>', 'EXACT split: cache-creation (5m write) tokens')
+  .option('--repo <owner/name>', 'ledger repo', LEDGER_REPO)
+  .action(async (opts: Record<string, string | boolean | undefined>) => {
+    const num = (v: string | boolean | undefined, name: string): number => {
+      const n = Number(v);
+      if (!Number.isFinite(n)) {
+        console.error(`--${name} must be a number (got ${String(v)})`);
+        process.exit(2);
+      }
+      return n;
+    };
+    const oneOf = <T extends string>(v: string, name: string, allowed: readonly T[]): T => {
+      if (!allowed.includes(v as T)) {
+        console.error(`--${name} must be one of: ${allowed.join(', ')} (got ${v})`);
+        process.exit(2);
+      }
+      return v as T;
+    };
+
+    // Exact split is all-or-nothing — partial flags are an operator error.
+    const splitKeys = ['input', 'output', 'cacheRead', 'cacheCreate'] as const;
+    const splitGiven = splitKeys.filter(k => opts[k] !== undefined);
+    let split: TokenSplit | undefined;
+    if (splitGiven.length > 0 && splitGiven.length < 4) {
+      console.error('--input/--output/--cache-read/--cache-create must be given together (all four) for an exact cost, or none.');
+      process.exit(2);
+    }
+    if (splitGiven.length === 4) {
+      split = {
+        input: num(opts.input, 'input'),
+        output: num(opts.output, 'output'),
+        cacheRead: num(opts.cacheRead, 'cache-read'),
+        cacheCreate: num(opts.cacheCreate, 'cache-create'),
+      };
+    }
+
+    const ledgerInput: LedgerInput = {
+      runId: String(opts.runId),
+      date: opts.date ? String(opts.date) : new Date().toISOString().slice(0, 10),
+      op: oneOf(String(opts.op), 'op', ['score_batch', 'source_candidates', 'calibration'] as const) as Op,
+      judgeModel: oneOf(String(opts.judgeModel), 'judge-model', Object.keys(PRICE_TABLE) as JudgeModel[]),
+      agentDesign: oneOf(String(opts.agentDesign), 'agent-design', ['generic', 'lean_photo_judge'] as const) as AgentDesign,
+      prefilter: oneOf(String(opts.prefilter), 'prefilter', ['yes', 'no'] as const) as YesNo,
+      itemsIn: num(opts.itemsIn, 'items-in'),
+      gateRejected: num(opts.gateRejected, 'gate-rejected'),
+      agents: num(opts.agents, 'agents'),
+      totalTokens: num(opts.totalTokens, 'total-tokens'),
+      toolUses: num(opts.toolUses, 'tool-uses'),
+      durationMs: num(opts.durationMs, 'duration-ms'),
+      batch: opts.batch === true,
+      split,
+      notes: opts.notes ? String(opts.notes) : undefined,
+    };
+
+    const deps = ghLedgerDeps({ repo: String(opts.repo), log: line => console.log(`[log-run] ${line}`) });
+    try {
+      const result = await runLogRun(ledgerInput, deps);
+      // Non-zero exit on a skipped duplicate so a wrapping script can tell the
+      // append did not happen (the row already existed).
+      process.exit(result.appended ? 0 : 1);
+    } catch (err) {
+      console.error(`[log-run] ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
     }
   });
 
