@@ -153,13 +153,18 @@ export interface MapCanvasProps {
    */
   clampPad?: number;
   /**
-   * #761 O6 (#782): true when a detail overlay (SpeciesDetailRail / Sheet) is
-   * open under an active scope (App-level `scopeActive && state.detail`).
-   * Forwarded VERBATIM to every `<AdaptiveGridMarker>` so the passive
-   * `<CellHoverPreview>` mount is suppressed while the overlay holds focus —
-   * a hover tooltip must not appear unbidden over/under a focused detail
-   * surface. The click-driven cell/cluster popovers are unaffected. Defaults
-   * to `false` (legacy/test callers keep the pre-O6 always-mount behavior).
+   * #761 O6 (#782) → reversed by #976: true when a detail overlay
+   * (SpeciesDetailRail / Sheet) is open under an active scope (App-level
+   * `scopeActive && state.detail`). Forwarded VERBATIM to every
+   * `<AdaptiveGridMarker>`. #782 originally SUPPRESSED the passive
+   * `<CellHoverPreview>` mount in this state; #976 reverses that product
+   * decision (hover-to-compare must work with a detail open). The preview now
+   * ALWAYS mounts and this flag is forwarded as `belowDetail`, which DEMOTES
+   * the tooltip beneath every detail surface (z `--z-under-detail`, below sheet
+   * peek/half/full AND the rail) so it stays visible on the map but is occluded
+   * wherever it overlaps the detail — honoring #782's anti-clutter intent
+   * without suppression. The click-driven cell/cluster popovers are unaffected.
+   * Defaults to `false` (legacy/test callers).
    */
   detailOpen?: boolean;
 }
