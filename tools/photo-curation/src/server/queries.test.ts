@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { listOverview, type OverviewRow } from './queries.js';
+import { getSwapView, writeDecision, denyAndAdvance, selectUnreviewed, markReviewed, type DenyInput } from './queries.js';
 
 /** Open an in-memory db with the canonical schema and a tiny seed. */
 function seedDb(): Database.Database {
@@ -125,5 +126,153 @@ describe('listOverview', () => {
     expect(rows.map(r => r.speciesCode)).toEqual(['bewwre']);
     expect(rows[0]!.reviewed).toBe(false);
     expect(rows[0]!.overall).toBeNull();
+  });
+});
+
+describe('getSwapView', () => {
+  let db: Database.Database;
+  beforeEach(() => { db = seedDb(); });
+  afterEach(() => db.close());
+
+  it('returns current + top candidate + ranked alternates', () => {
+    // add a second, lower-scoring candidate
+    db.prepare(`INSERT INTO photo_candidate (species_code,inat_id,photo_url,thumb_path,attribution,license,excluded,source_round) VALUES ('houspa',5002,'https://inat/5002.jpg','thumb-cache/5002.jpg','(c) D','cc0',0,1)`).run();
+    db.prepare(`INSERT INTO photo_score (species_code,role,candidate_inat_id,content_hash,overall,verdict,criteria_json,flags_json,rationale,rubric_version,scored_at) VALUES ('houspa','candidate',5002,'hashD',61,'mediocre','{"framing":5,"subjectClarity":6,"liveness":7,"naturalness":6,"pose":5,"background":5,"lighting":6}','[]','ok','v1','2026-06-11T00:00:00Z')`).run();
+
+    const view = getSwapView(db, 'houspa');
+    expect(view).not.toBeNull();
+    expect(view!.current.overall).toBe(18);
+    expect(view!.proposed!.inatId).toBe(5001);       // 79 is top
+    expect(view!.alternates.map(a => a.inatId)).toEqual([5001, 5002]); // votes desc
+  });
+
+  it('excludes excluded candidates from proposed + alternates', () => {
+    db.prepare(`UPDATE photo_candidate SET excluded = 1 WHERE inat_id = 5001`).run();
+    const view = getSwapView(db, 'houspa');
+    expect(view!.proposed).toBeNull();
+    expect(view!.alternates).toEqual([]);
+  });
+
+  it('returns null for unknown species', () => {
+    expect(getSwapView(db, 'nope')).toBeNull();
+  });
+});
+
+describe('writeDecision', () => {
+  let db: Database.Database;
+  beforeEach(() => { db = seedDb(); });
+  afterEach(() => db.close());
+
+  it('approve records the chosen candidate', () => {
+    writeDecision(db, { speciesCode: 'houspa', action: 'approve', chosenCandidateId: 5001 });
+    const row = db.prepare(`SELECT action, chosen_candidate_id, applied FROM photo_decision WHERE species_code='houspa'`).get() as { action: string; chosen_candidate_id: number; applied: number };
+    expect(row.action).toBe('approve');
+    expect(row.chosen_candidate_id).toBe(5001);
+    expect(row.applied).toBe(0); // staged, not applied
+  });
+
+  it('keep records action=keep with no candidate', () => {
+    writeDecision(db, { speciesCode: 'amerob', action: 'keep' });
+    const row = db.prepare(`SELECT action, chosen_candidate_id FROM photo_decision WHERE species_code='amerob'`).get() as { action: string; chosen_candidate_id: number | null };
+    expect(row.action).toBe('keep');
+    expect(row.chosen_candidate_id).toBeNull();
+  });
+
+  it('re-deciding upserts on species_code (PK)', () => {
+    writeDecision(db, { speciesCode: 'amerob', action: 'keep' });
+    writeDecision(db, { speciesCode: 'amerob', action: 'approve', chosenCandidateId: 9 });
+    const n = db.prepare(`SELECT COUNT(*) AS c FROM photo_decision WHERE species_code='amerob'`).get() as { c: number };
+    expect(n.c).toBe(1);
+  });
+});
+
+describe('denyAndAdvance', () => {
+  let db: Database.Database;
+  beforeEach(() => { db = seedDb(); });
+  afterEach(() => db.close());
+
+  it('advances to the next pre-scored alternate when one remains (no re-source)', () => {
+    // second candidate, scored 61 — denying the top (5001) should advance to it
+    db.prepare(`INSERT INTO photo_candidate (species_code,inat_id,photo_url,thumb_path,attribution,license,excluded,source_round) VALUES ('houspa',5002,'https://inat/5002.jpg','thumb-cache/5002.jpg','(c) D','cc0',0,1)`).run();
+    db.prepare(`INSERT INTO photo_score (species_code,role,candidate_inat_id,content_hash,overall,verdict,criteria_json,flags_json,rationale,rubric_version,scored_at) VALUES ('houspa','candidate',5002,'hashD',61,'mediocre','{"framing":5,"subjectClarity":6,"liveness":7,"naturalness":6,"pose":5,"background":5,"lighting":6}','[]','ok','v1','2026-06-11T00:00:00Z')`).run();
+
+    const input: DenyInput = {
+      speciesCode: 'houspa',
+      reason: 'top pick still too far',
+      tags: ['still-distant'],
+      excludeIds: [5001], // the shown candidate(s) the reviewer rejected
+    };
+    const out = denyAndAdvance(db, input);
+
+    const dec = db.prepare(`SELECT action, deny_reason, deny_tags_json FROM photo_decision WHERE species_code='houspa'`).get() as { action: string; deny_reason: string; deny_tags_json: string };
+    expect(dec.action).toBe('deny');
+    expect(dec.deny_reason).toBe('top pick still too far');
+    expect(JSON.parse(dec.deny_tags_json)).toEqual(['still-distant']);
+
+    // 5001 is hidden; 5002 stays in the pool
+    const excluded = db.prepare(`SELECT inat_id FROM photo_candidate WHERE species_code='houspa' AND excluded=1`).all() as { inat_id: number }[];
+    expect(excluded.map(e => e.inat_id)).toEqual([5001]);
+
+    // instant advance to the next already-scored alternate; no re-source queued
+    expect(out.next!.inatId).toBe(5002);
+    expect(out.next!.overall).toBe(61);
+    expect(out.resourceRequested).toBe(false);
+    const flag = db.prepare(`SELECT resource_requested FROM photo_decision WHERE species_code='houspa'`).get() as { resource_requested: number };
+    expect(flag.resource_requested).toBe(0);
+
+    // DenyContext is still surfaced for the route to log / future source-candidates run
+    expect(out.denyContext).toEqual({ reason: 'top pick still too far', tags: ['still-distant'] });
+  });
+
+  it('sets resource_requested when the pre-scored pool is exhausted', () => {
+    // seed has only candidate 5001 for houspa; denying it empties the pool
+    const input: DenyInput = {
+      speciesCode: 'houspa',
+      reason: 'still too far and dim',
+      tags: ['still-distant', 'too-dark'],
+      excludeIds: [5001],
+    };
+    const out = denyAndAdvance(db, input);
+
+    const excluded = db.prepare(`SELECT inat_id FROM photo_candidate WHERE species_code='houspa' AND excluded=1`).all() as { inat_id: number }[];
+    expect(excluded.map(e => e.inat_id)).toEqual([5001]);
+
+    // no scored alternate left → advance is null and the re-source flag is set
+    expect(out.next).toBeNull();
+    expect(out.resourceRequested).toBe(true);
+    const flag = db.prepare(`SELECT resource_requested FROM photo_decision WHERE species_code='houspa'`).get() as { resource_requested: number };
+    expect(flag.resource_requested).toBe(1);
+
+    expect(out.denyContext).toEqual({ reason: 'still too far and dim', tags: ['still-distant', 'too-dark'] });
+  });
+
+  it('treats an unscored candidate as not a valid advance (pool effectively exhausted)', () => {
+    // a non-excluded candidate exists but has NO photo_score row → not yet scored
+    db.prepare(`INSERT INTO photo_candidate (species_code,inat_id,photo_url,thumb_path,attribution,license,excluded,source_round) VALUES ('houspa',5003,'https://inat/5003.jpg','thumb-cache/5003.jpg','(c) E','cc0',0,1)`).run();
+    const out = denyAndAdvance(db, { speciesCode: 'houspa', reason: 'nope', tags: [], excludeIds: [5001] });
+    expect(out.next).toBeNull();           // 5003 is unscored, so it can't be the instant advance
+    expect(out.resourceRequested).toBe(true);
+  });
+});
+
+describe('selectUnreviewed / markReviewed (scoring-pass cursor)', () => {
+  let db: Database.Database;
+  beforeEach(() => { db = seedDb(); });
+  afterEach(() => db.close());
+
+  it('selectUnreviewed returns up to `limit` reviewed=0 species', () => {
+    db.prepare(`INSERT INTO photo_current (species_code,com_name,sci_name,family,url,attribution,license,content_hash,reviewed) VALUES ('bewwre','Bewick''s Wren','Thryomanes bewickii','troglodytidae','https://photos/bewwre.jpg','(c) E','cc0','hashE',0)`).run();
+    db.prepare(`INSERT INTO photo_current (species_code,com_name,sci_name,family,url,attribution,license,content_hash,reviewed) VALUES ('bushti','Bushtit','Psaltriparus minimus','aegithalidae','https://photos/bushti.jpg','(c) F','cc0','hashF',0)`).run();
+    // seeded amerob/houspa are reviewed=1, so only the two new rows qualify
+    expect(selectUnreviewed(db, 10).map(r => r.speciesCode).sort()).toEqual(['bewwre', 'bushti']);
+    expect(selectUnreviewed(db, 1).length).toBe(1); // limit is honored
+  });
+
+  it('markReviewed flips a row to reviewed=1 and drops it from the next select', () => {
+    db.prepare(`INSERT INTO photo_current (species_code,com_name,sci_name,family,url,attribution,license,content_hash,reviewed) VALUES ('bewwre','Bewick''s Wren','Thryomanes bewickii','troglodytidae','https://photos/bewwre.jpg','(c) E','cc0','hashE',0)`).run();
+    markReviewed(db, 'bewwre');
+    const row = db.prepare(`SELECT reviewed FROM photo_current WHERE species_code='bewwre'`).get() as { reviewed: number };
+    expect(row.reviewed).toBe(1);
+    expect(selectUnreviewed(db, 10).map(r => r.speciesCode)).toEqual([]);
   });
 });
