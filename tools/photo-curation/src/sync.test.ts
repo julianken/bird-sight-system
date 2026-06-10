@@ -82,6 +82,34 @@ describe('scoreBatch (token-spending, resumable)', () => {
     expect(selectUnreviewed(db, 10)).toEqual([]);
   });
 
+  it('preserves the attribution + license that sync stored (a scoring pass must not clobber CC-BY metadata)', async () => {
+    server.use(
+      http.get(`${API}/api/species/amerob`, () =>
+        HttpResponse.json({
+          speciesCode: 'amerob', comName: 'American Robin', sciName: 'Turdus migratorius',
+          familyCode: 'turdid', familyName: 'Turdidae',
+          photoUrl: 'https://photos.bird-maps.com/species/amerob.aaaaaaaa.jpg',
+          photoAttribution: '(c) Jane Doe (CC BY 4.0)', photoLicense: 'cc-by-4.0',
+        }),
+      ),
+    );
+    await sync(db, ['amerob'], { apiBase: API });
+    const before = db.prepare(`SELECT attribution, license FROM photo_current WHERE species_code=?`).get('amerob') as any;
+    expect(before.attribution).toBe('(c) Jane Doe (CC BY 4.0)');
+    expect(before.license).toBe('cc-by-4.0');
+
+    const download = vi.fn(async (url: string) => Buffer.from(url));
+    const judge = new FakeJudge({});
+    const summary = await scoreBatch(db, 10, { judge, download, config });
+    expect(summary.scored).toBe(1);
+
+    // scoreBatch re-stamps content_hash but MUST leave attribution/license intact
+    const after = db.prepare(`SELECT attribution, license, content_hash FROM photo_current WHERE species_code=?`).get('amerob') as any;
+    expect(after.attribution).toBe('(c) Jane Doe (CC BY 4.0)');
+    expect(after.license).toBe('cc-by-4.0');
+    expect(after.content_hash).not.toBe(''); // the real hash was recorded
+  });
+
   it('clamps --limit into [1,100]', async () => {
     expect(() => scoreBatch.clampLimit?.(0)).not.toThrow();
     expect(scoreBatch.clampLimit?.(0)).toBe(1);

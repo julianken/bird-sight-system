@@ -14,7 +14,7 @@ import type { SpeciesMeta } from '@bird-watch/shared-types';
 import { sha8 } from './hash.js';
 import {
   insertCandidate, upsertScore, getScoreByHash, maxSourceRound, upsertCurrentPhoto,
-  selectUnreviewed, markReviewed,
+  updateCurrentPhotoHash, selectUnreviewed, markReviewed,
 } from './store.js';
 
 /** Default thumb-cache dir for the production deny-loop entry point. */
@@ -150,12 +150,12 @@ export async function sourceCandidates(
 }
 
 /**
- * The dep + arg bundle scoreAndCacheCandidates builds internally. Production
- * needs NONE from the caller — constructed here (real fetchInatCandidates,
- * live download, scoreImage, default thumb dir) and sciName is read from
- * photo_current. The judge is supplied by the caller (the source-candidates
- * workflow's agent-judge) or, in a unit test, via the `deps` seam. Every field
- * optional so a unit test can override exactly what it needs.
+ * The dep + arg bundle scoreAndCacheCandidates builds internally. The CALLER
+ * must supply the `judge` (see below — it cannot be constructed in plain Node);
+ * the remaining IO (fetchInatCandidates, download, scoreImage, thumb dir,
+ * config) defaults to the production implementation but stays overridable so a
+ * unit test can stub exactly what it needs. `sciName`/`comName`/`family`
+ * default to the photo_current row.
  */
 export interface ScoreAndCacheDeps extends SourceDeps {
   sciName: string;
@@ -168,49 +168,53 @@ interface CurrentRow { sci_name: string | null; com_name: string | null; family:
 
 /**
  * Slice-5 deny-loop entry point. When the pre-scored candidate pool is
- * exhausted, a re-source reaches a fresh batch through the 4-arg form
- * `scoreAndCacheCandidates(db, speciesCode, denyContext, excludeIds)`; the
+ * exhausted, a re-source reaches a fresh batch via
+ * `scoreAndCacheCandidates(db, speciesCode, denyContext, excludeIds, deps)`; the
  * helper reads `sciName` from the `photo_current` row keyed by `speciesCode`
- * and INTERNALLY constructs the production deps (real fetchInatCandidates, live
- * download, scoreImage, the thumb-cache dir). The caller passes NO IO. Returns
- * the COUNT of freshly sourced+scored candidates (a number), landing them in
- * the next source_round biased by the operator's reason/tags.
+ * and constructs the production IO (real fetchInatCandidates, live download,
+ * scoreImage, the thumb-cache dir) for any field the caller does not override.
+ * Returns the COUNT of freshly sourced+scored candidates (a number), landing
+ * them in the next source_round biased by the operator's reason/tags.
  *
- * The optional 5th `deps?: Partial<ScoreAndCacheDeps>` is ONLY a unit-test seam
- * (stub fetch/judge/sciName/download/scoreImage). Production callers pass the
- * judge via that seam in-workflow; the server's deny route reaches it only when
- * the pre-scored pool is exhausted. Signature fixed by the round-2 resolution.
+ * `deps` is REQUIRED and MUST carry a `judge`. The vision judge is a Claude
+ * Code `agent()` available ONLY inside the committed `.mjs` workflow — it
+ * cannot be constructed in plain Node, so there is no production-default judge
+ * and no no-IO standalone form. The caller (the source-candidates `.mjs`
+ * workflow's agent-judge, or a unit test's FakeJudge) always supplies it.
+ * Note: the Slice-5 review server (#972/#973) does NOT call this — its deny
+ * loop queues a re-source via `photo_decision.resource_requested` — so the
+ * required `deps` breaks no consumer.
  */
 export async function scoreAndCacheCandidates(
   db: Database.Database,
   speciesCode: string,
   denyContext: DenyContext,
   excludeIds: number[],
-  deps?: Partial<ScoreAndCacheDeps>,
+  deps: Partial<ScoreAndCacheDeps> & Pick<ScoreAndCacheDeps, 'judge'>,
 ): Promise<number> {
   // sciName comes from the store (photo_current) unless a test overrides it.
   const row = db.prepare(
     `SELECT sci_name, com_name, family FROM photo_current WHERE species_code=?`,
   ).get(speciesCode) as CurrentRow | undefined;
-  const sciName = deps?.sciName ?? row?.sci_name ?? undefined;
+  const sciName = deps.sciName ?? row?.sci_name ?? undefined;
   if (!sciName) {
     throw new Error(`no photo_current row (sci_name) for ${speciesCode} — run sync first`);
   }
 
-  // Production deps are constructed here; the caller passes no IO. The judge is
-  // supplied via the deps seam (the workflow's agent-judge); a unit test may
-  // override any field.
+  // The judge is required from the caller (the workflow's agent-judge / a test's
+  // FakeJudge); the remaining IO defaults to the production implementation but
+  // every field stays overridable for a unit test.
   const resolved: SourceDeps = {
-    fetchInatCandidates: deps?.fetchInatCandidates ?? realFetchInatCandidates,
-    download: deps?.download ?? downloadBytes,
-    scoreImage: deps?.scoreImage ?? realScoreImage,
-    judge: deps!.judge!,
-    config: deps?.config ?? defaultRubricConfig,
-    thumbDir: deps?.thumbDir ?? DEFAULT_THUMB_DIR,
+    fetchInatCandidates: deps.fetchInatCandidates ?? realFetchInatCandidates,
+    download: deps.download ?? downloadBytes,
+    scoreImage: deps.scoreImage ?? realScoreImage,
+    judge: deps.judge,
+    config: deps.config ?? defaultRubricConfig,
+    thumbDir: deps.thumbDir ?? DEFAULT_THUMB_DIR,
   };
 
-  const comName = deps?.comName ?? row?.com_name ?? undefined;
-  const family = deps?.family ?? row?.family ?? undefined;
+  const comName = deps.comName ?? row?.com_name ?? undefined;
+  const family = deps.family ?? row?.family ?? undefined;
   const summary = await sourceCandidates(
     db,
     {
@@ -218,7 +222,7 @@ export async function scoreAndCacheCandidates(
       sciName,
       ...(comName !== undefined ? { comName } : {}),
       ...(family !== undefined ? { family } : {}),
-      limit: deps?.limit ?? 15,
+      limit: deps.limit ?? 15,
       denyContext,
       excludeIds,
     },
@@ -357,11 +361,11 @@ export async function scoreOne(
   const mime = mimeFromUrl(row.url);
   const hash = sha8(bytes);
 
-  // re-stamp the real content hash now that we have the bytes
-  upsertCurrentPhoto(db, {
-    speciesCode: row.species_code, comName: row.com_name, sciName: row.sci_name,
-    family: row.family, url: row.url, attribution: '', license: '', contentHash: hash,
-  });
+  // Record the real content hash now that we have the bytes. A hash-ONLY update
+  // (not a full upsertCurrentPhoto) so the attribution/license that `sync`
+  // populated survive — the UnreviewedRow carries no attribution/license, so a
+  // full re-stamp would clobber that load-bearing CC-BY metadata to ''.
+  updateCurrentPhotoHash(db, row.species_code, hash);
   if (getScoreByHash(db, row.species_code, 'current', hash)) return 'cached';
 
   const img: ImageInput = { buffer: bytes, mime, sourceUrl: row.url };

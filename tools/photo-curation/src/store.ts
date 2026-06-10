@@ -131,6 +131,22 @@ export function markReviewed(db: Database.Database, speciesCode: string): void {
 }
 
 /**
+ * Hash-only update of an existing photo_current row. `scoreOne` calls this to
+ * record the real `content_hash` once it has the bytes, WITHOUT touching
+ * `attribution`/`license` — those were populated by `sync` from
+ * `meta.photoAttribution`/`meta.photoLicense` and are load-bearing CC-BY
+ * metadata that must survive a scoring pass. A full `upsertCurrentPhoto`
+ * re-stamp here would clobber them to empty strings (the UnreviewedRow carries
+ * no attribution/license), so the score path uses this narrow update instead.
+ */
+export function updateCurrentPhotoHash(
+  db: Database.Database, speciesCode: string, contentHash: string,
+): void {
+  db.prepare(`UPDATE photo_current SET content_hash=? WHERE species_code=?`)
+    .run(contentHash, speciesCode);
+}
+
+/**
  * Upsert a scoring report keyed by (species_code, role, content_hash). The
  * unique index makes this the idempotent cache row: a re-score of the same
  * image overwrites in place. JSON columns hold criteria + flags.
