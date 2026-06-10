@@ -58,10 +58,11 @@ export function CellHoverPreview(props: CellHoverPreviewProps) {
   // tooltip's z drops below every detail surface (rail/sheet) — see
   // ds-primitives.css. The base class still carries the resting --z-modal tier;
   // the modifier overrides z only. This is purely a stacking change and does not
-  // touch the transform/opacity enter animation (recipe #17 t-tt-enter).
+  // touch the transform/opacity enter animation (recipe #17 t-tt-enter), whose
+  // `t-tt-enter` class (#960) rides along on every render path.
   const className = belowDetail
-    ? 'cell-hover-preview cell-hover-preview--under-detail'
-    : 'cell-hover-preview';
+    ? 'cell-hover-preview t-tt-enter cell-hover-preview--under-detail'
+    : 'cell-hover-preview t-tt-enter';
 
   // #761 O6 (#782): the cursor-following branch keeps `position: fixed` +
   // `left`/`top`/`pointerEvents` inline (computed from `cursorPos`, cannot move

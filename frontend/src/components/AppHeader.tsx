@@ -312,26 +312,38 @@ export function AppHeader({
             not lose a typed ZIP). The divider only renders when open — the
             resting card is two lines. */}
         {scopeActive && (
-          <div
-            id={scopeRegionId}
-            ref={scopeRowsRef}
-            className="app-header-scope-rows t-panel-slide"
-            data-open={scopeOpen}
-          >
-            {/* Divider only renders when open — the resting card is two lines.
-                (The ScopeControl below stays mounted regardless so aria-controls
-                always resolves to a present target.) */}
-            {scopeOpen && <hr className="app-header-divider" aria-hidden="true" />}
-            <ScopeControl
-              ref={firstScopeFieldRef}
-              scope={scope as ScopedView}
-              states={states}
-              onPickState={onPickState}
-              onPickWholeUs={onPickWholeUs}
-              onExit={onExitScope}
-              onResolve={onResolveZip}
-              embedded
-            />
+          /* #975: grid 0fr↔1fr CLIP wrapper. The inner .t-panel-slide keeps the
+             UNCHANGED #07 reveal (transform/opacity/blur + visibility); this
+             wrapper is the height-collapse mechanism. Closed → 0fr track →
+             the in-flow form contributes ZERO layout height, so the identity
+             card shrinks to wordmark + lede + padding (no empty band). The
+             id/ref/aria-controls target stays on the INNER element so the a11y
+             contract + Page-Object selectors are untouched. The residual parent
+             flex `gap` band below the lede (which would survive a 0fr collapse)
+             is cancelled by a negative top-margin on the clip WHEN CLOSED — see
+             styles.css `.app-header-scope-clip[data-open='false']`. */
+          <div className="app-header-scope-clip" data-open={scopeOpen}>
+            <div
+              id={scopeRegionId}
+              ref={scopeRowsRef}
+              className="app-header-scope-rows t-panel-slide"
+              data-open={scopeOpen}
+            >
+              {/* Divider only renders when open — the resting card is two lines.
+                  (The ScopeControl below stays mounted regardless so aria-controls
+                  always resolves to a present target.) */}
+              {scopeOpen && <hr className="app-header-divider" aria-hidden="true" />}
+              <ScopeControl
+                ref={firstScopeFieldRef}
+                scope={scope as ScopedView}
+                states={states}
+                onPickState={onPickState}
+                onPickWholeUs={onPickWholeUs}
+                onExit={onExitScope}
+                onResolve={onResolveZip}
+                embedded
+              />
+            </div>
           </div>
         )}
       </div>

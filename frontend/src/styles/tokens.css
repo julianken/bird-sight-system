@@ -167,6 +167,40 @@
      (1.4s, reverse-direction) and skeleton-shimmer (opacity-pulse technique) are
      intentionally excluded — different techniques, different tempos. */
   --ds-shimmer-dur: 1.6s;
+
+  /* ── transient-popover enter family (#950) ──────────────────────────────
+   * Catalog tunings consumed by the transient-layer entrances:
+   *   recipe-05 (menu-dropdown) — ObservationPopover, CellPopover, Filters
+   *     panel (desktop). Origin-aware scale(0.96→1) + opacity.
+   *   recipe-06 (modal)         — ScopeChooser landing card scale-up.
+   *   recipe-12 (error-state-shake) — ZipInput error box.
+   *   recipe-17 (tooltip)       — CellHoverPreview delayed fade+scale in.
+   * Every surface here is ENTER-ONLY (instant exit via React unmount) and
+   * rests at the VISIBLE end-state — the offset lives in @starting-style or a
+   * post-paint data-open flip, NOT the resting rule, so the global reduced-
+   * motion guard (motion.css zeroes only the duration) never leaves a surface
+   * stuck hidden. No per-recipe reduced-motion guard here. */
+  --dropdown-open-dur:   180ms;
+  --dropdown-pre-scale:  0.96;
+  --dropdown-ease:       cubic-bezier(0.22, 1, 0.36, 1);
+  --modal-open-dur:      180ms;
+  --modal-scale:         0.96;
+  --modal-ease:          cubic-bezier(0.22, 1, 0.36, 1);
+  --shake-distance:      6px;
+  --shake-overshoot:     4px;
+  --shake-dur-a:         80ms;
+  --shake-dur-b:         60ms;
+  --shake-ease:          cubic-bezier(0.22, 1, 0.36, 1);
+  --tt-in-dur:           140ms;
+  --tt-scale:            0.96;
+  --tt-delay:            120ms;
+  --tt-in-ease:          ease-out;
+  /* Mobile (≤639px) Filters bottom-sheet travel for the recipe-07 slide-up;
+     the sheet's own height supplies the rest of the open distance so a short
+     translate reads as a full open (recipe-07 note). Named -filters so it
+     doesn't collide with the canonical --panel-translate-y (100px) or the
+     field-guide sheet's --panel-translate-y-sheet (32px). */
+  --panel-translate-y-filters: 24px;
 }
 
 /* ── Layer 2: Semantic — light mode ─────────────────────────────────── */
