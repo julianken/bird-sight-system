@@ -3,3 +3,4 @@ export { runIngest, type RunSummary } from './run-ingest.js';
 export { runHotspotIngest, type RunHotspotSummary } from './run-hotspots.js';
 export { runBackfill, type RunBackfillSummary } from './run-backfill.js';
 export { runPhotos, type RunPhotosSummary, type RunPhotosArgs } from './run-photos.js';
+export { fetchInatCandidates, type InatCandidate, type DenyContext } from './inat/candidates.js';
