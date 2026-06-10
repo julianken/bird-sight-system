@@ -717,10 +717,14 @@ button.adaptive-grid-marker__cell {
      "above the popovers it overlaps" rank — the cursor tooltip can still float
      over an open cell/cluster popover, matching the pre-O6 inline-1000 intent.
      This is safe against real --z-modal surfaces (detail sheet 50, scope-chooser
-     scrim 50) because O6 also GATES the hover-preview mount: AdaptiveGridMarker
-     suppresses it whenever a detail overlay holds focus (detailOpen), and the
-     chooser scrim only shows when there are no markers to hover. So the tooltip
-     can never coexist with a --z-modal surface despite sharing the tier value.
+     scrim 50). The base --z-modal value here only applies when NO detail is open:
+     #976 reverses O6's original suppression, so when a detail overlay holds focus
+     (detailOpen) AdaptiveGridMarker no longer suppresses the preview — it DEMOTES
+     it to --z-under-detail (5) via the `--under-detail` modifier below, far beneath
+     every detail tier (sheet peek 10 / half 15 / full 50, rail 43). The chooser
+     scrim only shows when there are no markers to hover. So the tooltip never
+     shares or contests the --z-modal (50) tier with a detail surface — the safety
+     is preserved by DEMOTION now, not suppression.
 
      ORDERING CONTRACT vs the detail rail (handoff to O5 / #783):
      P1's `--z-cell-popover`/`--z-cluster-popover` (44/45) resolve ABOVE the
