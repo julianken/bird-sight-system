@@ -101,13 +101,17 @@ export interface AdaptiveGridMarkerProps {
    */
   onDrillIn?: () => void;
   /**
-   * #761 O6 (#782): true when a detail overlay (SpeciesDetailRail / Sheet)
-   * holds focus (App-level `state.detail` under an active scope). When true,
-   * the passive `<CellHoverPreview>` mount is SUPPRESSED so a hover tooltip
-   * cannot appear unbidden over/under a focused detail overlay. Only the
-   * passive hover preview is gated — the click-driven `<CellPopover>` and
-   * `<ClusterListPopover>` are intentionally UNAFFECTED (they are explicit
-   * user actions, not unbidden surfaces). Defaults to `false`.
+   * #761 O6 (#782) → reversed by #976: true when a detail overlay
+   * (SpeciesDetailRail / Sheet) holds focus (App-level `state.detail` under an
+   * active scope). #782 originally SUPPRESSED the passive `<CellHoverPreview>`
+   * mount in this state; #976 reverses that product decision (Julian wants
+   * hover-to-compare to work with a detail open). The preview now ALWAYS mounts
+   * in the preview branch and this flag is forwarded as `belowDetail`, which
+   * DEMOTES the tooltip beneath every detail surface (z `--z-under-detail` = 5,
+   * below sheet peek/half/full AND the rail) so it stays visible on the map but
+   * is occluded wherever it overlaps the detail — honoring #782's anti-clutter
+   * intent without suppression. The click-driven `<CellPopover>` /
+   * `<ClusterListPopover>` remain UNAFFECTED. Defaults to `false`.
    */
   detailOpen?: boolean;
 }
@@ -407,20 +411,21 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
       )}
       {perCellInteractive && activeCell !== null && activeTile && (
         activeCell.mode === 'preview' ? (
-          // #761 O6 (#782): suppress the passive hover preview while a detail
-          // overlay holds focus (detailOpen) so an unbidden tooltip can't appear
-          // over/under a focused SpeciesDetailRail/Sheet. The click-driven
-          // popover branch below is deliberately NOT gated.
-          detailOpen ? null : (
-            <CellHoverPreview
-              familyCode={activeTile.familyCode}
-              familyName={activeTile.displayName}
-              familyCount={activeTile.count}
-              species={activeTile.species}
-              id={previewId!}
-              cursorPos={cursorPos}
-            />
-          )
+          // #761 O6 (#782) → #976: the passive hover preview ALWAYS mounts now
+          // (hover-to-compare must work with a detail open). When a detail
+          // overlay holds focus we pass `belowDetail` so the tooltip is DEMOTED
+          // beneath every detail surface (z `--z-under-detail` 5 < sheet/rail)
+          // instead of suppressed — visible on the map, occluded over the
+          // detail. The click-driven popover branch below stays ungated.
+          <CellHoverPreview
+            familyCode={activeTile.familyCode}
+            familyName={activeTile.displayName}
+            familyCount={activeTile.count}
+            species={activeTile.species}
+            id={previewId!}
+            cursorPos={cursorPos}
+            belowDetail={detailOpen}
+          />
         ) : (
           cellRefs.current[activeCell.index] ? (
             <CellPopover

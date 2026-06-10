@@ -75,12 +75,16 @@ export interface MapSurfaceProps {
   maskPolygon?: MultiPolygon | null;
   clampPad?: number;
   /**
-   * #761 O6 (#782): true when a detail overlay (SpeciesDetailRail / Sheet) is
-   * open under an active scope. App.tsx derives this from `scopeActive &&
-   * state.detail` — the same gate that mounts the rail/sheet. Forwarded
-   * VERBATIM to <MapCanvas> (thin pass-through) so the passive cell-hover
-   * preview is suppressed while the detail overlay holds focus. Optional;
-   * defaults to `false` for legacy/test callers.
+   * #761 O6 (#782) → reversed by #976: true when a detail overlay
+   * (SpeciesDetailRail / Sheet) is open under an active scope. App.tsx derives
+   * this from `scopeActive && state.detail` — the same gate that mounts the
+   * rail/sheet. Forwarded VERBATIM to <MapCanvas> (thin pass-through). #782
+   * originally SUPPRESSED the passive cell-hover preview in this state; #976
+   * reverses that — the preview is no longer suppressed. The flag is now
+   * forwarded down (eventually as `belowDetail` on the hover preview) so the
+   * tooltip is DEMOTED beneath the detail overlay (z `--z-under-detail` = 5)
+   * rather than suppressed, keeping hover-to-compare working with a detail
+   * open. Optional; defaults to `false` for legacy/test callers.
    */
   detailOpen?: boolean;
 }

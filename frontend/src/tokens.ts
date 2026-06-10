@@ -71,6 +71,14 @@ export const iconSize = {
 export const zIndex = {
   /** Persistent map canvas base layer. */
   map: 0,
+  /**
+   * #976: passive cell-hover preview demoted while a species detail is open.
+   * Sits ABOVE the map canvas/markers (5 > map's 0) but BELOW every detail
+   * surface — sheet peek (10) / half (15) / full (modal 50) AND the rail (43)
+   * — so hover-to-compare works with a detail open without the tooltip
+   * occluding it.
+   */
+  underDetail: 5,
   /** Map-assist overlays: family legend, scope-control. */
   overlay: 40,
   /** On-canvas popovers above map-assist overlays (observation popover). */

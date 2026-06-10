@@ -34,14 +34,35 @@ export interface CellHoverPreviewProps {
    * preview falls back to its CSS-anchored position (legacy / test).
    */
   cursorPos?: { x: number; y: number } | null;
+  /**
+   * #976: true when a species detail (rail / sheet) is open. The preview is
+   * no longer suppressed in that state (hover-to-compare); instead it is
+   * DEMOTED beneath every detail surface via the
+   * `cell-hover-preview--under-detail` modifier (z `--z-under-detail` = 5,
+   * below sheet peek/half/full AND the rail, above the map). Defaults to
+   * `false` ⇒ the tooltip rides its resting `--z-modal` tier. The z change is
+   * orthogonal to the `t-tt-enter` recipe-#17 enter animation.
+   */
+  belowDetail?: boolean;
 }
 
 const PREVIEW_CAP = 3;
 
 export function CellHoverPreview(props: CellHoverPreviewProps) {
-  const { familyCode, familyName, familyCount, species, id, cursorPos } = props;
+  const { familyCode, familyName, familyCount, species, id, cursorPos, belowDetail } =
+    props;
   const visible = species.slice(0, PREVIEW_CAP);
   const hasMore = species.length > PREVIEW_CAP;
+
+  // #976: when a detail is open, append the `--under-detail` modifier so the
+  // tooltip's z drops below every detail surface (rail/sheet) — see
+  // ds-primitives.css. The base class still carries the resting --z-modal tier;
+  // the modifier overrides z only. This is purely a stacking change and does not
+  // touch the transform/opacity enter animation (recipe #17 t-tt-enter), whose
+  // `t-tt-enter` class (#960) rides along on every render path.
+  const className = belowDetail
+    ? 'cell-hover-preview t-tt-enter cell-hover-preview--under-detail'
+    : 'cell-hover-preview t-tt-enter';
 
   // #761 O6 (#782): the cursor-following branch keeps `position: fixed` +
   // `left`/`top`/`pointerEvents` inline (computed from `cursorPos`, cannot move
@@ -63,7 +84,7 @@ export function CellHoverPreview(props: CellHoverPreviewProps) {
     <div
       role="tooltip"
       id={id}
-      className="cell-hover-preview t-tt-enter"
+      className={className}
       data-testid="cell-hover-preview"
       style={positionStyle}
     >

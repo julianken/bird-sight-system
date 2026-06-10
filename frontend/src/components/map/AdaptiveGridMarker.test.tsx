@@ -774,9 +774,11 @@ describe('AdaptiveGridMarker — cell popover (Phase 1, #558)', () => {
     expect(screen.getByText(/Hummingbirds \(5\)/)).toBeInTheDocument();
   });
 
-  // --- #761 O6 (#782): detailOpen gates the passive hover preview mount -------
+  // --- #976 (reverses #761 O6 / #782): detailOpen no longer SUPPRESSES the
+  //     passive hover preview — it DEMOTES it beneath the detail surface so
+  //     hover-to-compare works with a detail open. ------------------------------
 
-  it('pointer:fine + detailOpen: mouseenter does NOT mount <CellHoverPreview> (gated by a focused detail overlay)', async () => {
+  it('pointer:fine + detailOpen: mouseenter MOUNTS <CellHoverPreview>, demoted below the detail (--under-detail)', async () => {
     const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
     render(
       <AdaptiveGridMarker
@@ -794,8 +796,16 @@ describe('AdaptiveGridMarker — cell popover (Phase 1, #558)', () => {
     );
     const cell = screen.getByTestId('adaptive-grid-marker-cell-rendered');
     fireEvent.mouseEnter(cell);
-    // The passive hover preview must NOT appear while a detail overlay holds focus.
-    expect(screen.queryByRole('tooltip')).toBeNull();
+    // #976: the preview NOW appears while a detail overlay holds focus —
+    // hover-to-compare. It is not suppressed.
+    const tooltip = screen.getByRole('tooltip');
+    expect(tooltip).toBeInTheDocument();
+    expect(screen.getByText(/Hummingbirds \(5\)/)).toBeInTheDocument();
+    // …and it carries the z-demote modifier so it renders BENEATH the detail
+    // surface (z `--z-under-detail`, below sheet peek/half/full + rail). The
+    // load-bearing z-order resolution is asserted in
+    // CellHoverPreview.test.tsx + tokens.css.test.ts against the ACTIVE surface.
+    expect(tooltip).toHaveClass('cell-hover-preview--under-detail');
   });
 
   it('pointer:fine + detailOpen=false (default): existing hover-preview behavior is unchanged', async () => {
@@ -819,7 +829,7 @@ describe('AdaptiveGridMarker — cell popover (Phase 1, #558)', () => {
     expect(screen.getByRole('tooltip')).toBeInTheDocument();
   });
 
-  it('pointer:fine + detailOpen: the click-driven <CellPopover> is UNAFFECTED by the gate', async () => {
+  it('pointer:fine + detailOpen: the click-driven <CellPopover> is UNAFFECTED by detailOpen', async () => {
     const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
     render(
       <AdaptiveGridMarker
@@ -838,7 +848,7 @@ describe('AdaptiveGridMarker — cell popover (Phase 1, #558)', () => {
     const cell = screen.getByTestId('adaptive-grid-marker-cell-rendered');
     cell.focus();
     fireEvent.keyDown(cell, { key: 'Enter' });
-    // Only the passive preview is gated; the click-driven popover still opens.
+    // The click-driven popover has never been gated by detailOpen and still opens.
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(cell.getAttribute('aria-expanded')).toBe('true');
   });
