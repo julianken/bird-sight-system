@@ -2,67 +2,20 @@ import type {
   InatObservationsResponse,
   InatPhoto,
 } from './types.js';
+import {
+  INAT_USER_AGENT,
+  INAT_BASE_URL,
+  CC_LICENSES,
+  buildTiers,
+  toMediumUrl,
+  type Tier,
+} from './inat-shared.js';
 
-// User-Agent header value identifying the app to iNaturalist's API. iNat's
-// API recommended-practices doc (https://www.inaturalist.org/pages/api+recommended+practices)
-// asks for meaningful UA strings so they can contact the app maintainer if a
-// problem is observed. Anonymous UAs may be throttled or blocked outright.
-// Exported so sibling iNat clients (taxon-client.ts) can present the same
-// identity — iNat's per-UA throttle bucketing depends on it.
-export const INAT_USER_AGENT = 'bird-maps.com/1.0 (https://bird-maps.com)';
-
-// Tier 1 place_id defaults to '40' (iNaturalist's canonical "Arizona" Place,
-// confirmed via `GET https://api.inaturalist.org/v1/places/40` →
-// `name='Arizona'`, `place_type=8`, `admin_level=10`). This default preserves
-// AZ-launch production behavior — changing it without re-verifying other
-// AZ-shaped places (county, NWR, etc.) would silently narrow or skew the
-// photo pool.
-//
-// `INAT_PLACE_ID` env var overrides Tier 1 for non-AZ deployments. Set to a
-// different iNat Place ID (e.g. '14' for California) to narrow Tier 1 to a
-// different region. Set to empty string (`INAT_PLACE_ID=`) to drop Tier 1
-// entirely — the cascade then starts at Tier 2 (US). National expansion
-// (umbrella plan Phase 2) sets this to '' so we don't penalize species
-// photographed outside AZ.
-const DEFAULT_TIER1_PLACE_ID = '40';
-
-// place_id=1 is iNaturalist's canonical "United States" Place. Confirmed via
-// `GET https://api.inaturalist.org/v1/places/1` returning `name='United States'`,
-// `place_type=12` (country), `admin_level=0`. Used as Tier 2 in the photo
-// fallback cascade for region-rare/vagrant species (e.g. Cave Swallow,
-// Glossy Ibis) that have plenty of US research-grade observations elsewhere
-// but no Tier-1 hits.
-const UNITED_STATES_PLACE_ID = '1';
-
-// Tier cascade for the photo lookup. Tier 1 is the region-narrowed filter
-// (configurable via INAT_PLACE_ID); Tier 2 widens to the US; Tier 3 drops the
-// place filter entirely. Each tier keeps the same
-// quality_grade/license/order_by constraints — only the geographic filter
-// relaxes.
-export type Tier = { label: 'region' | 'us' | 'global'; placeId: string | null };
-
-function buildTiers(): readonly Tier[] {
-  // env read at module init time is correct here: ingestor process lifetime
-  // is short (single backfill / cron tick), and tests opt-in via the
-  // `opts.tiers` override below rather than mutating process.env mid-run.
-  const envVal = process.env.INAT_PLACE_ID;
-  const tier1 = envVal === undefined ? DEFAULT_TIER1_PLACE_ID : envVal;
-  const tiers: Tier[] = [];
-  if (tier1 !== '') {
-    tiers.push({ label: 'region', placeId: tier1 });
-  }
-  tiers.push({ label: 'us', placeId: UNITED_STATES_PLACE_ID });
-  tiers.push({ label: 'global', placeId: null });
-  return tiers;
-}
-
-// CC license codes accepted by `photo_license`. CC-BY-NC* variants are
-// excluded because they forbid commercial use; while bird-maps.com is
-// non-commercial today, a future donations/grants tier could change that
-// classification, and re-licensing every backfilled photo would be painful.
-const CC_LICENSES = 'cc-by,cc-by-sa,cc0';
-
-const INAT_BASE_URL = 'https://api.inaturalist.org/v1';
+// Re-exported for backward compatibility: taxon-client.ts and the existing
+// client.test.ts import these from './client.js'. The definitions now live in
+// inat-shared.ts (Slice 3 extraction); re-exporting keeps every existing
+// import path valid.
+export { INAT_USER_AGENT, type Tier };
 
 export interface FetchInatPhotoOptions {
   baseUrl?: string;
@@ -124,13 +77,10 @@ export async function fetchInatPhoto(
     const firstPhoto = firstResult.photos[0];
     if (!firstPhoto) continue;
 
-    // iNat's `photo.url` returns a 75px square thumbnail by convention. The
-    // URL contains the literal segment 'square' (e.g.
-    // .../photos/12345/square.jpg); substituting 'medium' yields the
-    // ~500-800px variant suitable for a detail panel. iNat publishes the size
-    // token convention at https://www.inaturalist.org/pages/help#photos —
-    // supported values are square, small, medium, large, original.
-    const mediumUrl = firstPhoto.url.replace('square', 'medium');
+    // iNat's `photo.url` returns a 75px square thumbnail by convention; the
+    // shared toMediumUrl helper substitutes 'medium' to get the ~500-800px
+    // variant suitable for a detail panel (see inat-shared.ts).
+    const mediumUrl = toMediumUrl(firstPhoto.url);
 
     // photo_license filtering at the API level guarantees a non-null code,
     // but defend against a malformed payload by falling back to an empty
