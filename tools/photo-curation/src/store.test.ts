@@ -4,7 +4,7 @@ import { openDb } from './db.js';
 import {
   upsertCurrentPhoto, upsertScore, getScoreByHash,
   insertCandidate, listCandidates, markCandidatesExcluded,
-  selectUnreviewed, markReviewed,
+  selectUnreviewed, markReviewed, updateCurrentPhotoHash,
 } from './store.js';
 import type { QualityReport } from '@bird-watch/photo-quality';
 
@@ -113,5 +113,18 @@ describe('store', () => {
     markReviewed(db, 'amerob');
     markReviewed(db, 'amerob'); // idempotent
     expect(selectUnreviewed(db, 10)).toEqual([]);
+  });
+
+  it('updateCurrentPhotoHash sets content_hash WITHOUT touching attribution/license', () => {
+    upsertCurrentPhoto(db, {
+      speciesCode: 'amerob', comName: 'American Robin', sciName: 'Turdus migratorius',
+      family: 'Turdidae', url: 'https://photos.bird-maps.com/species/amerob.aaaaaaaa.jpg',
+      attribution: '(c) Jane Doe (CC BY 4.0)', license: 'cc-by-4.0', contentHash: '',
+    });
+    updateCurrentPhotoHash(db, 'amerob', 'cafebabe');
+    const row = db.prepare(`SELECT attribution, license, content_hash FROM photo_current WHERE species_code=?`).get('amerob') as any;
+    expect(row.content_hash).toBe('cafebabe');
+    expect(row.attribution).toBe('(c) Jane Doe (CC BY 4.0)');
+    expect(row.license).toBe('cc-by-4.0');
   });
 });
