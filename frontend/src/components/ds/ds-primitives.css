@@ -727,8 +727,10 @@ button.adaptive-grid-marker__cell {
      rail's current `--z-rail` (43), so the click-driven popovers temporarily
      paint over the rail. Re-tiering the rail/sheet ABOVE the popovers (into the
      --z-modal band with the compensating #663 inert work) is O5's job (report R3);
-     O6 does NOT move the rail's z value. This tooltip at --z-modal (50) is moot to
-     that contract because its mount is gated off while the rail is open. */
+     O6 does NOT move the rail's z value. This tooltip at --z-modal (50) is the
+     RESTING tier (no detail open): the cursor tooltip can still float over an
+     open cell/cluster popover. While a detail IS open, the `--under-detail`
+     modifier below demotes it (see #976). */
   z-index: var(--z-modal);
   background: var(--color-bg-surface);
   border: 1px solid var(--color-border-strong);
@@ -741,6 +743,26 @@ button.adaptive-grid-marker__cell {
   /* Smart-flip positioning is consumer-supplied via inline style; defaults
      to below-cell when not specified. Phase 1 uses CSS-only positioning
      (left/top inline); Phase 3 may add Floating-UI for collision detection. */
+}
+
+/* #976: hover-to-compare while a species detail is open. #782/#799 USED to gate
+   the passive hover preview off entirely while a detail held focus (so an
+   unbidden tooltip could not paint over the rail/sheet). Julian wants hover to
+   keep working with a detail open, so AdaptiveGridMarker now ALWAYS mounts the
+   preview and passes `belowDetail={detailOpen}`, which adds this modifier. Rather
+   than suppress the tooltip we DEMOTE it below every detail surface so it stays
+   visible on the map but is occluded wherever it overlaps the detail.
+
+   --z-under-detail (5) is below the LOWEST detail tier in play — the sheet's
+   peek detent (z-10), its half detent (z-15, the default snap), its full detent
+   (--z-modal 50) AND the desktop rail (--z-rail 43) — while staying ABOVE the
+   map canvas/markers (--z-map 0). It must NOT use --z-overlay (40): 40 > the
+   default half-sheet's 15, so a tooltip there would paint OVER the sheet on
+   narrow/mobile viewports (the rail↔sheet split is viewport-WIDTH-driven, so a
+   narrow fine-pointer desktop window shows the sheet + allows hover). The
+   t-tt-enter fade+scale enter (recipe #17) is orthogonal to z and unaffected. */
+.cell-hover-preview--under-detail {
+  z-index: var(--z-under-detail);
 }
 
 .cell-hover-preview__header {

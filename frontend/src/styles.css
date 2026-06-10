@@ -22,6 +22,11 @@
      migrate those refs and remove this alias in a #761 follow-up.
      Added 2026-05-30 (#761 P1). */
   --z-map:             0;    /* persistent map canvas base layer                       */
+  --z-under-detail:    5;    /* #976: passive cell-hover preview while a detail is open —
+                                ABOVE the map canvas/markers (5 > 0) but BELOW every
+                                detail surface: sheet peek (10), half (15), full (50) AND
+                                the rail (43). Lets hover-to-compare work with a detail
+                                open without the tooltip painting over it. */
   --z-overlay:         40;   /* map-assist overlays: legend, scope-control             */
   --z-popover:         41;   /* on-canvas popovers above map-assist overlays           */
   --z-chrome:          42;   /* DEFINED for S2 (#775) — floating app-header chrome; NOT adopted in P1 */
