@@ -290,4 +290,85 @@ describe('admin-api PUT /admin/species-photos/:speciesCode', () => {
       expect(s3Mock.commandCalls(PutObjectCommand)).toHaveLength(0);
     });
   });
+
+  // ── Body-size cap (OOM hardening) ───────────────────────────────────────────
+  // The handler buffers the fetched body with response.arrayBuffer(); a
+  // multi-GB body from a trusted-but-compromised or buggy allowlisted host
+  // would OOM the 256Mi admin service. MAX_PHOTO_BYTES (15 MB) caps it, enforced
+  // both on the advertised content-length (cheap, pre-read) and on the realized
+  // byteLength (backstop for a missing or lying header). Each case must return a
+  // 4xx AND perform zero R2 writes.
+  describe('body-size cap', () => {
+    const MAX_PHOTO_BYTES = 15 * 1024 * 1024;
+
+    it('an over-cap content-length header is rejected (4xx) BEFORE reading, no R2 write', async () => {
+      // Advertise a 20 MB content-length on a (valid-magic) JPEG body. The
+      // handler must reject on the header alone — it never reaches validation
+      // or R2. The body itself is small so this is purely the header check.
+      vi.spyOn(global, 'fetch').mockImplementation(async (input: any) => {
+        const u = typeof input === 'string' ? input : input.url;
+        if (u.includes('api.cloudflare.com')) {
+          return new Response(JSON.stringify({ success: true }), { status: 200 });
+        }
+        return new Response(JPEG_BODY, {
+          status: 200,
+          headers: {
+            'Content-Type': 'image/jpeg',
+            'Content-Length': String(MAX_PHOTO_BYTES + 5 * 1024 * 1024),
+          },
+        });
+      });
+      const res = await put('norcar', { Authorization: `Bearer ${TOKEN}` }, VALID_BODY);
+      expect(res.status).toBe(413);
+      expect(s3Mock.commandCalls(PutObjectCommand)).toHaveLength(0);
+      const { rows } = await db.pool.query(`SELECT 1 FROM species_photos WHERE species_code = 'norcar'`);
+      expect(rows).toHaveLength(0);
+    });
+
+    it('a realized body over the cap with no/understated content-length is rejected (4xx), no R2 write', async () => {
+      // No Content-Length header (the lying/absent case): the realized body is
+      // > MAX_PHOTO_BYTES, so the post-read byteLength backstop must reject it
+      // before any R2 upload. Body carries valid JPEG magic so the only thing
+      // that can stop it is the size cap.
+      const oversizedJpeg = Buffer.concat([
+        Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
+        Buffer.alloc(MAX_PHOTO_BYTES + 1024, 0x11),
+      ]);
+      vi.spyOn(global, 'fetch').mockImplementation(async (input: any) => {
+        const u = typeof input === 'string' ? input : input.url;
+        if (u.includes('api.cloudflare.com')) {
+          return new Response(JSON.stringify({ success: true }), { status: 200 });
+        }
+        // Construct a Response WITHOUT a Content-Length header (the Response
+        // ctor would otherwise set one for a Buffer) by streaming the body.
+        return new Response(oversizedJpeg, { status: 200, headers: { 'Content-Type': 'image/jpeg' } });
+      });
+      const res = await put('norcar', { Authorization: `Bearer ${TOKEN}` }, VALID_BODY);
+      expect(res.status).toBe(413);
+      expect(s3Mock.commandCalls(PutObjectCommand)).toHaveLength(0);
+      const { rows } = await db.pool.query(`SELECT 1 FROM species_photos WHERE species_code = 'norcar'`);
+      expect(rows).toHaveLength(0);
+    });
+
+    it('a body exactly at the cap is accepted (200) — boundary is inclusive', async () => {
+      // The cap is a strict "greater than" — a body == MAX_PHOTO_BYTES still
+      // uploads. Guards against an off-by-one that would reject legitimate
+      // large-but-allowed photos.
+      const atCapJpeg = Buffer.concat([
+        Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
+        Buffer.alloc(MAX_PHOTO_BYTES - 4, 0x11),
+      ]);
+      expect(atCapJpeg.byteLength).toBe(MAX_PHOTO_BYTES);
+      vi.spyOn(global, 'fetch').mockImplementation(async (input: any) => {
+        const u = typeof input === 'string' ? input : input.url;
+        if (u.includes('api.cloudflare.com')) {
+          return new Response(JSON.stringify({ success: true }), { status: 200 });
+        }
+        return new Response(atCapJpeg, { status: 200, headers: { 'Content-Type': 'image/jpeg' } });
+      });
+      const res = await put('norcar', { Authorization: `Bearer ${TOKEN}` }, VALID_BODY);
+      expect(res.status).toBe(200);
+      expect(s3Mock.commandCalls(PutObjectCommand)).toHaveLength(1);
+    });
+  });
 });

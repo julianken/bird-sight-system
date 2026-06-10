@@ -22,6 +22,18 @@ export interface AppDeps {
 /** Max 3xx hops the species-photo fetch follows (each re-validated). */
 const MAX_PHOTO_REDIRECTS = 2;
 
+/**
+ * Upper bound on the fetched photo body (15 MB — generous for a species photo;
+ * the largest real iNat/Wikimedia originals sit well under this). The admin
+ * service runs on a 256Mi container, so an uncapped `response.arrayBuffer()`
+ * against a trusted-but-compromised or buggy allowlisted host could buffer a
+ * multi-GB body and OOM the process. Enforced twice: against the advertised
+ * `content-length` (cheap reject BEFORE reading), and against the realized
+ * `byteLength` after the read (a missing or lying content-length still can't
+ * exceed the cap). Both rejections happen before any R2 write.
+ */
+const MAX_PHOTO_BYTES = 15 * 1024 * 1024;
+
 const FAMILY_CODE = /^[a-z]+$/;
 // eBird species codes are lowercase alphanumerics (e.g. norcar, x00013).
 const SPECIES_CODE = /^[a-z0-9]+$/;
@@ -218,8 +230,28 @@ export function createApp(deps: AppDeps): Hono {
       if (!response.ok) {
         return c.json({ error: `source fetch failed: status ${response.status}` }, 400);
       }
+      // Size cap, pass 1: reject on the advertised content-length BEFORE
+      // reading the body, so an honestly-large response never allocates. A
+      // multi-GB body against the 256Mi admin service would otherwise OOM.
+      const declaredLength = Number(response.headers.get('content-length'));
+      if (Number.isFinite(declaredLength) && declaredLength > MAX_PHOTO_BYTES) {
+        return c.json(
+          { error: `source body too large (${declaredLength} bytes; max ${MAX_PHOTO_BYTES})` },
+          413,
+        );
+      }
       mime = (response.headers.get('content-type') ?? '').split(';')[0]!.trim();
       body = Buffer.from(await response.arrayBuffer());
+      // Size cap, pass 2: a missing or understated content-length can't slip a
+      // larger body past pass 1 — re-check the realized size before any R2
+      // write. (arrayBuffer() has already buffered the bytes; this is the
+      // backstop for a lying header, not the primary defense.)
+      if (body.byteLength > MAX_PHOTO_BYTES) {
+        return c.json(
+          { error: `source body too large (${body.byteLength} bytes; max ${MAX_PHOTO_BYTES})` },
+          413,
+        );
+      }
     } catch (err) {
       if (err instanceof SsrfError) {
         return c.json({ error: `source URL rejected: ${err.message}` }, 400);
