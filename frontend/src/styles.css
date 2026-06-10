@@ -533,6 +533,56 @@ body {
   visibility: hidden;
 }
 
+/* ── #975: grid 0fr↔1fr CLIP wrapper — collapse the card height when closed ──
+   #958 swapped the closed scope-rows lock from `display:none` to
+   `visibility:hidden` so the #07 reveal stays animatable + toBeHidden() passes.
+   But `visibility:hidden` keeps the element IN FLOW: a closed in-flow flex child
+   of the vertical-column `.app-header-identity-card` still reserves the full
+   ScopeControl box, so the card froze at its OPEN height — an empty band below
+   the lede (#975). This wrapper animates `grid-template-rows: 0fr → 1fr` (the
+   catalog-only, JS-free "tween to content height" technique — the concrete
+   answer to #01's "can't tween to auto"); closed → a 0-height track, so the
+   inner form contributes ZERO layout height. The inner .t-panel-slide keeps the
+   UNCHANGED #07 transform/opacity/blur reveal on the SAME clock
+   (--panel-open-dur / --panel-ease), so both the height collapse and the visible
+   slide play together. No new per-element prefers-reduced-motion query — the
+   global motion.css guard zeroes BOTH transitions, so reduced-motion jumps the
+   track to 1fr and lands the form fully visible (rest = open). */
+.app-header-scope-clip {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows var(--panel-open-dur) var(--panel-ease);
+}
+.app-header-scope-clip[data-open='false'] {
+  grid-template-rows: 0fr;
+  /* The card's `gap: var(--space-sm)` puts an 8px band between the lede-row and
+     this wrapper. A rendered (even 0fr-track) flex item still paints that gap, so
+     a naive clip leaves a residual ~8px empty band below the lede when closed
+     (#975 review amendment). Cancel the card's gap above THIS child WHILE it is
+     collapsed with a negative top-margin equal to the gap. When OPEN the margin
+     is dropped, so the card's --space-sm gap provides the lede→divider spacing
+     (unchanged #837 rhythm): the 8px only exists when there is content to space,
+     and fully disappears when the track collapses. The inner element carries NO
+     block padding, so the `0fr` track floors at a TRUE 0 — block-axis padding on
+     a grid item is NOT subject to `min-height:0` and would otherwise hold the
+     track open ~8px, re-creating the very band this removes. Result: a closed
+     card = wordmark + lede + padding, no slack (AC #1). */
+  margin-block-start: calc(-1 * var(--space-sm));
+}
+/* min-height:0 lets the grid item shrink below its content's min-content height
+   so the 0fr track collapses to a true 0. `overflow` IS the grid-rows clip — but
+   it also clips `outline` focus rings (drawn OUTSIDE the border-box) on the
+   first/last fields, so scope it to the CLOSED state only: once open the track is
+   content-height, nothing block-axis overflows, and dropping overflow lets a
+   keyboard focus ring paint in full. (The native <select> dropdown renders in the
+   browser top layer, immune to ancestor overflow either way.) */
+.app-header-scope-clip > .app-header-scope-rows {
+  min-height: 0;
+}
+.app-header-scope-clip[data-open='false'] > .app-header-scope-rows {
+  overflow: hidden;
+}
+
 /* ── TOP-RIGHT: controls pill ───────────────────────────────────────────────
    Filters · Attribution · Theme toggle — compact content-width floating card.
    Spec §4.1. */
