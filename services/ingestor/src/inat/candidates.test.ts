@@ -161,3 +161,51 @@ describe('fetchInatCandidates — license filtering', () => {
     expect(out.map((c) => c.inatId)).toEqual([9]);
   });
 });
+
+describe('fetchInatCandidates — exclude ids', () => {
+  it('sends excludeIds as not_id AND filters them client-side', async () => {
+    server.use(
+      http.get(INAT_OBSERVATIONS_URL, ({ request }) => {
+        const url = new URL(request.url);
+        // The exclude set is sent to iNat as a comma-joined not_id.
+        expect(url.searchParams.get('not_id')).toBe('101,102');
+        // Simulate iNat ignoring not_id (it sometimes does on place cascades):
+        // return id 101 anyway and confirm the client drops it.
+        return HttpResponse.json(
+          obs([
+            { id: 101, photo: 'https://ex.org/photos/101/square.jpg', attr: '(c) A, CC0', lic: 'cc0' },
+            { id: 103, photo: 'https://ex.org/photos/103/square.jpg', attr: '(c) C, CC0', lic: 'cc0' },
+            { id: 104, photo: 'https://ex.org/photos/104/square.jpg', attr: '(c) D, CC0', lic: 'cc0' },
+          ])
+        );
+      })
+    );
+
+    const out = await fetchInatCandidates('Cardinalis cardinalis', {
+      limit: 10,
+      excludeIds: [101, 102],
+      tiers: SINGLE_TIER,
+    });
+
+    // 101 leaked from iNat but is dropped client-side; 102 was never returned.
+    expect(out.map((c) => c.inatId)).toEqual([103, 104]);
+  });
+
+  it('omits not_id entirely when excludeIds is empty/undefined', async () => {
+    server.use(
+      http.get(INAT_OBSERVATIONS_URL, ({ request }) => {
+        const url = new URL(request.url);
+        expect(url.searchParams.has('not_id')).toBe(false);
+        return HttpResponse.json(
+          obs([{ id: 1, photo: 'https://ex.org/photos/1/square.jpg', attr: '(c) A, CC0', lic: 'cc0' }])
+        );
+      })
+    );
+
+    const out = await fetchInatCandidates('Cardinalis cardinalis', {
+      limit: 10,
+      tiers: SINGLE_TIER,
+    });
+    expect(out.map((c) => c.inatId)).toEqual([1]);
+  });
+});
