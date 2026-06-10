@@ -18,6 +18,7 @@ export interface InatObservationPhoto {
 }
 
 export interface InatObservation {
+  id: number; // iNat observation id; projected to InatCandidate.inatId for exclude/re-source bookkeeping
   photos: InatObservationPhoto[];
 }
 
