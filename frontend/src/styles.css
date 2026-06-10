@@ -575,9 +575,16 @@ body {
    first/last fields, so scope it to the CLOSED state only: once open the track is
    content-height, nothing block-axis overflows, and dropping overflow lets a
    keyboard focus ring paint in full. (The native <select> dropdown renders in the
-   browser top layer, immune to ancestor overflow either way.) */
+   browser top layer, immune to ancestor overflow either way.)
+   min-width:0 is the horizontal twin: making this a grid item gave it the default
+   `min-width:auto`, which refuses to shrink below the embedded ScopeControl's
+   min-content width (ZIP input + [Go] button row). Without it, that row spills
+   past the 360px identity-card cap at mobile 390px (#842, scope-zip-overflow).
+   This applies in BOTH disclosure states — the overflow only manifests OPEN, but
+   constraining the item unconditionally is harmless when closed and correct. */
 .app-header-scope-clip > .app-header-scope-rows {
   min-height: 0;
+  min-width: 0;
 }
 .app-header-scope-clip[data-open='false'] > .app-header-scope-rows {
   overflow: hidden;
