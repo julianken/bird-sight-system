@@ -26,6 +26,14 @@ import { defaultRubricConfig } from '@bird-watch/photo-quality';
 
 const LIMIT = Number(process.env.LIMIT ?? 10);
 
+// Cheaper scoring (#994): the per-photo judge runs as the lean `photo-judge`
+// subagent (tools: Read only, short system prompt) on the `haiku` model tier —
+// NOT the generic Workflow agent on the session model. The model defaults to the
+// `haiku` alias (NOT a hardcoded id) and is overridable via PHOTO_JUDGE_MODEL so
+// #969 calibration can lock the tier (score the labeled sample with Haiku → keep
+// iff ≥90% agreement with operator labels, else step up to Sonnet).
+const JUDGE_MODEL = process.env.PHOTO_JUDGE_MODEL ?? 'haiku';
+
 // 1) PREPARE — a Bash agent shells out to the Node `score-prepare` half, which
 //    selects the next LIMIT reviewed=0 photos, downloads each to ./thumb-cache,
 //    and writes a manifest JSON. The agent returns the manifest contents +
@@ -40,27 +48,34 @@ Read that manifest file and return its parsed contents as \`manifest\` plus the
   schema: { manifestPath: 'string', manifest: 'object[]' },
 });
 
-// 2) SCORE — one agent PER photo, fanned out with parallel(). Each Reads its
-//    own imagePath and applies the SAME rubric prompt the FakeJudge stands in
-//    for in tests, returning the judge sub-scores/flags/rationale. No DB, no
-//    download — the bytes are already on disk from prepare.
+// 2) SCORE — one judge PER photo, fanned out with parallel(). Each is the lean
+//    `photo-judge` subagent (Read-only, short system prompt, `haiku` tier) — NOT
+//    the generic agent — Reads its own imagePath and applies the SAME rubric
+//    prompt the FakeJudge stands in for in tests, returning the judge
+//    sub-scores/flags/rationale. The rubric still arrives in the per-call prompt
+//    as defaultRubricConfig.judgePrompt (single-sourced in rubric.config.ts — no
+//    copy in the agent to drift). No DB, no download — the bytes are already on
+//    disk from prepare (and a deterministic gate-fail never reaches here).
 const results = await parallel(
-  (prepared.manifest ?? []).map(entry => agent({
-    prompt: `${defaultRubricConfig.judgePrompt}
+  (prepared.manifest ?? []).map(entry => agent(
+    `${defaultRubricConfig.judgePrompt}
 
 Read the image at ${entry.imagePath} for ${entry.comName} (${entry.sciName}), family ${entry.family}.
 Return structured output: an integer 0–10 for each of the seven criteria
 (framing, subjectClarity, liveness, naturalness, pose, background, lighting), a
 \`flags\` array of any applicable disqualifier strings, and a one-sentence
 \`rationale\`. Echo the \`speciesCode\` "${entry.speciesCode}" back unchanged.`,
-    tools: ['Read'],
-    schema: {
-      speciesCode: 'string',
-      criteria: 'object',
-      flags: 'string[]',
-      rationale: 'string',
+    {
+      agentType: 'photo-judge',
+      model: JUDGE_MODEL,
+      schema: {
+        speciesCode: 'string',
+        criteria: 'object',
+        flags: 'string[]',
+        rationale: 'string',
+      },
     },
-  })),
+  )),
 );
 
 // 3) COMMIT — a Bash agent writes the collected results to results.json and

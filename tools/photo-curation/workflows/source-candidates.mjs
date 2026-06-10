@@ -27,6 +27,13 @@ import { defaultRubricConfig } from '@bird-watch/photo-quality';
 
 const POOL = Number(process.env.POOL ?? 15);
 
+// Cheaper scoring (#994): the per-candidate judge runs as the lean `photo-judge`
+// subagent (tools: Read only, short system prompt) on the `haiku` model tier —
+// NOT the generic Workflow agent on the session model. The model defaults to the
+// `haiku` alias (NOT a hardcoded id) and is overridable via PHOTO_JUDGE_MODEL so
+// #969 calibration can lock the tier (Haiku iff ≥90% agreement, else Sonnet).
+const JUDGE_MODEL = process.env.PHOTO_JUDGE_MODEL ?? 'haiku';
+
 // 1) PREPARE — a Bash agent shells out to the Node `source-prepare` half.
 const prepared = await agent({
   prompt: `Run \`npx photo-curate source-prepare --pool ${POOL}\` in tools/photo-curation.
@@ -39,12 +46,15 @@ Read that manifest file and return its parsed contents as \`manifest\` plus the
   schema: { manifestPath: 'string', manifest: 'object[]' },
 });
 
-// 2) SCORE — one agent PER candidate, fanned out with parallel(). Each Reads
-//    its own imagePath and applies the rubric prompt, echoing speciesCode,
-//    inatId and contentHash back so source-commit can re-key the score row.
+// 2) SCORE — one judge PER candidate, fanned out with parallel(). Each is the
+//    lean `photo-judge` subagent (Read-only, short system prompt, `haiku` tier)
+//    — NOT the generic agent — Reads its own imagePath and applies the rubric
+//    prompt, echoing speciesCode, inatId and contentHash back so source-commit
+//    can re-key the score row. The rubric still arrives in the per-call prompt as
+//    defaultRubricConfig.judgePrompt (single-sourced in rubric.config.ts).
 const results = await parallel(
-  (prepared.manifest ?? []).map(entry => agent({
-    prompt: `${defaultRubricConfig.judgePrompt}
+  (prepared.manifest ?? []).map(entry => agent(
+    `${defaultRubricConfig.judgePrompt}
 
 Read the candidate image at ${entry.imagePath} for ${entry.comName} (${entry.sciName}),
 family ${entry.family}. Return structured output: an integer 0–10 for each of the
@@ -52,16 +62,19 @@ seven criteria (framing, subjectClarity, liveness, naturalness, pose, background
 lighting), a \`flags\` array of any applicable disqualifier strings, and a
 one-sentence \`rationale\`. Echo back unchanged: speciesCode "${entry.speciesCode}",
 inatId ${entry.inatId}, contentHash "${entry.contentHash}".`,
-    tools: ['Read'],
-    schema: {
-      speciesCode: 'string',
-      inatId: 'number',
-      contentHash: 'string',
-      criteria: 'object',
-      flags: 'string[]',
-      rationale: 'string',
+    {
+      agentType: 'photo-judge',
+      model: JUDGE_MODEL,
+      schema: {
+        speciesCode: 'string',
+        inatId: 'number',
+        contentHash: 'string',
+        criteria: 'object',
+        flags: 'string[]',
+        rationale: 'string',
+      },
     },
-  })),
+  )),
 );
 
 // 3) COMMIT — a Bash agent writes results.json and shells out to source-commit.

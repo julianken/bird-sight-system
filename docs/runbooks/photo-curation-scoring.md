@@ -10,6 +10,41 @@ queue better alternates. The vision judge is a **Claude Code agent** that
 Node halves do all filesystem + SQLite work, and a Claude Code **Workflow-tool
 script** dispatches the agents between them (issue #992, epic #974).
 
+## Cheaper scoring (#994)
+
+Three measures cut the per-photo cost without losing judging quality. They are
+already wired into the Workflow scripts and `score-prepare` — nothing extra to
+run:
+
+- **Lean `photo-judge` subagent.** The per-photo judge dispatches as the
+  `.claude/agents/photo-judge.md` project subagent (`tools: Read` only, a short
+  judge-role system prompt) instead of the generic Workflow agent (which carries
+  the full default system prompt + the entire tool registry + the session
+  model). The rubric is **not** baked into the agent — it still arrives in the
+  per-call prompt as `defaultRubricConfig.judgePrompt`, single-sourced in
+  `packages/photo-quality/src/rubric.config.ts`, so there is no rubric copy to
+  drift.
+- **Haiku model tier, calibration-locked.** The `photo-judge` model defaults to
+  the **`haiku`** alias (bulk structured vision-rating fits a small model). It is
+  overridable via the `PHOTO_JUDGE_MODEL` env var so **#969 calibration locks the
+  tier**: score the labeled sample with Haiku and keep it iff agreement with the
+  operator labels is **≥90%**; otherwise step the override up to Sonnet. The
+  alias (not a hardcoded model id) is deliberate — see the `claude-api`
+  model-alias rule.
+
+  ```bash
+  PHOTO_JUDGE_MODEL=sonnet   # override the Haiku default, e.g. if calibration < 90%
+  ```
+
+- **Deterministic pre-filter (free rejects).** `score-prepare` already has the
+  downloaded bytes, so it runs `assessDeterministic(img, config.deterministic)`
+  there. A gate failure (too small / too blurry / wrong aspect) is **auto-rejected
+  with zero agent calls** — a reject report is persisted the same way
+  `score-commit` writes (`upsertScore` role='current' + `markReviewed`), and the
+  species is **excluded from the manifest** the judge agents read, so a junk image
+  never reaches a (paid) judge. The prepare log reports
+  `judged N / gate-rejected M / already-scored skipped K`.
+
 This split exists because the judge can only run inside Claude Code (not plain
 Node), while the SQLite store + photo download can only run in plain Node (not
 the Workflow sandbox). A single hybrid `.mjs` that imports `better-sqlite3`
@@ -68,8 +103,11 @@ LIMIT=10   # batch size; re-run the Workflow until the backlog is empty
 ### Option B — the 3 steps by hand (prepare → dispatch agents → commit)
 
 1. **Prepare** — select the next N `reviewed=0` photos, download each to
-   `./thumb-cache/<code>.<ext>`, and emit a manifest. The last stdout line is
-   the manifest path.
+   `./thumb-cache/<code>.<ext>`, run the **deterministic gate** (#994), and emit a
+   manifest of the gate-PASSING photos. Gate failures are auto-rejected here
+   (persisted + `reviewed=1`) and never appear in the manifest. The last stdout
+   line is the manifest path; the summary line reports
+   `judged N / gate-rejected M / already-scored skipped K`.
 
    ```bash
    npx photo-curate score-prepare --limit 10
@@ -77,8 +115,9 @@ LIMIT=10   # batch size; re-run the Workflow until the backlog is empty
    #   [{ speciesCode, comName, sciName, family, imagePath, contentHash }, …]
    ```
 
-2. **Dispatch agents** — for each manifest entry, have a Claude Code agent
-   `Read` the `imagePath`, apply `defaultRubricConfig.judgePrompt`, and return
+2. **Dispatch agents** — for each manifest entry, dispatch the lean
+   `photo-judge` subagent (`agentType: 'photo-judge'`, Read-only, `haiku` tier)
+   to `Read` the `imagePath`, apply `defaultRubricConfig.judgePrompt`, and return
    `{ speciesCode, criteria, flags, rationale }`. Collect all results into a
    `results.json` array.
 

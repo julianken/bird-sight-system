@@ -10,7 +10,17 @@ import {
 } from './score-orchestration.js';
 import type { ScoreResult, SourceResult } from './score-orchestration.js';
 import { makeFakeClock } from './test-clock.js';
-import type { QualityReport } from '@bird-watch/photo-quality';
+import type { DeterministicReport, ImageInput, QualityReport, RubricConfig } from '@bird-watch/photo-quality';
+
+/** A deterministic-gate stub that PASSES every image (default prepare behaviour). */
+function passGate(): DeterministicReport {
+  return { width: 1200, height: 1000, megapixels: 1.2, sharpness: 0.5, exposure: 0.9, aspectRatio: 1.2, passedGate: true, failReasons: [] };
+}
+
+/** A deterministic-gate stub that FAILS the given image (tiny / blurry / wrong-aspect). */
+function failGate(reasons: string[] = ['below-min-megapixels']): DeterministicReport {
+  return { width: 100, height: 100, megapixels: 0.01, sharpness: 0, exposure: 0, aspectRatio: 1, passedGate: false, failReasons: reasons };
+}
 
 // Instant clock so the prepare paths never incur a real ≥1.1 s pacing wait in
 // the fast unit suite (the spacing itself is asserted in the dedicated pacing
@@ -46,8 +56,9 @@ describe('scorePrepare (Node, testable — Bug 1)', () => {
     // Stub download: distinct bytes per url so contentHashes differ.
     const download = vi.fn(async (url: string) => Buffer.from(url));
 
-    // limit 0 clamps up to 1 → only the oldest-by-code row (aaa).
-    const result = await scorePrepare(db, 0, { download, thumbDir: workDir, clock: instant() });
+    // limit 0 clamps up to 1 → only the oldest-by-code row (aaa). Gate passes so
+    // this test stays focused on the download/manifest behaviour (no sharp decode).
+    const result = await scorePrepare(db, 0, { download, thumbDir: workDir, clock: instant(), assessDeterministic: async () => passGate() });
     expect(result.picked).toBe(1);
     expect(existsSync(result.manifestPath)).toBe(true);
 
@@ -78,7 +89,7 @@ describe('scorePrepare (Node, testable — Bug 1)', () => {
   it('uses the correct file extension from the photo url (png/webp/jpg)', async () => {
     seedCurrent('pngsp', 'https://photos.example/pngsp.png');
     const download = vi.fn(async () => Buffer.from('png-bytes'));
-    const result = await scorePrepare(db, 1, { download, thumbDir: workDir, clock: instant() });
+    const result = await scorePrepare(db, 1, { download, thumbDir: workDir, clock: instant(), assessDeterministic: async () => passGate() });
     const manifest = JSON.parse(readFileSync(result.manifestPath, 'utf8')) as Array<{ imagePath: string }>;
     expect(manifest[0]!.imagePath).toBe(join(workDir, 'pngsp.png'));
   });
@@ -87,9 +98,9 @@ describe('scorePrepare (Node, testable — Bug 1)', () => {
 describe('scoreCommit (Node, testable — Bug 1)', () => {
   it('composes the report, upserts the score (role=current), and marks the species reviewed', async () => {
     seedCurrent('aaa', 'https://photos.example/aaa.jpg');
-    // Simulate a prepare pass having stamped the content hash.
+    // Simulate a prepare pass having stamped the content hash (gate passes).
     const download = vi.fn(async (url: string) => Buffer.from(url));
-    await scorePrepare(db, 1, { download, thumbDir: workDir, clock: instant() });
+    await scorePrepare(db, 1, { download, thumbDir: workDir, clock: instant(), assessDeterministic: async () => passGate() });
     const hash = (db.prepare(`SELECT content_hash FROM photo_current WHERE species_code=?`).get('aaa') as { content_hash: string }).content_hash;
 
     // A strong photo → 'great'/'good'; a flagged one → capped reject.
@@ -119,7 +130,7 @@ describe('scoreCommit (Node, testable — Bug 1)', () => {
   it('applies disqualifier caps via composeReport (a flagged photo is capped low)', async () => {
     seedCurrent('inhand', 'https://photos.example/inhand.jpg');
     const download = vi.fn(async (url: string) => Buffer.from(url));
-    await scorePrepare(db, 1, { download, thumbDir: workDir, clock: instant() });
+    await scorePrepare(db, 1, { download, thumbDir: workDir, clock: instant(), assessDeterministic: async () => passGate() });
     const hash = (db.prepare(`SELECT content_hash FROM photo_current WHERE species_code=?`).get('inhand') as { content_hash: string }).content_hash;
 
     // High sub-scores but an 'in-hand' flag → capped to a reject-ish overall.
@@ -255,7 +266,7 @@ describe('scorePrepare — conservative edge usage (#992)', () => {
       return Buffer.from(url);
     });
 
-    const result = await scorePrepare(db, 3, { download, thumbDir: workDir, clock });
+    const result = await scorePrepare(db, 3, { download, thumbDir: workDir, clock, assessDeterministic: async () => passGate() });
     expect(result.picked).toBe(3);
     expect(result.downloads).toBe(3);
     // Serial: never more than one download in flight.
@@ -274,7 +285,7 @@ describe('scorePrepare — conservative edge usage (#992)', () => {
 
     // First pass: download + score 'done' so its content-hash lands in photo_score.
     const download1 = vi.fn(async (url: string) => Buffer.from(url));
-    const first = await scorePrepare(db, 10, { download: download1, thumbDir: workDir, clock: instant() });
+    const first = await scorePrepare(db, 10, { download: download1, thumbDir: workDir, clock: instant(), assessDeterministic: async () => passGate() });
     expect(first.downloads).toBe(2);
     // Commit a score for 'done' (its stamped current hash), leave 'todo' unscored.
     const doneHash = (db.prepare(`SELECT content_hash FROM photo_current WHERE species_code=?`).get('done') as { content_hash: string }).content_hash;
@@ -290,7 +301,7 @@ describe('scorePrepare — conservative edge usage (#992)', () => {
 
     // Second pass: 'done' already has a scored content-hash → skipped, no download.
     const download2 = vi.fn(async (url: string) => Buffer.from(url));
-    const second = await scorePrepare(db, 10, { download: download2, thumbDir: workDir, clock: instant() });
+    const second = await scorePrepare(db, 10, { download: download2, thumbDir: workDir, clock: instant(), assessDeterministic: async () => passGate() });
     expect(second.skipped).toBe(1);
     expect(second.picked).toBe(1); // only 'todo' was prepared
     // 'done' was never re-downloaded.
@@ -298,6 +309,111 @@ describe('scorePrepare — conservative edge usage (#992)', () => {
     expect(downloadedUrls).not.toContain('https://photos.example/done.jpg');
     expect(downloadedUrls).toContain('https://photos.example/todo.jpg');
     expect(second.manifest.map(m => m.speciesCode)).toEqual(['todo']);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Deterministic pre-filter in score-prepare (#994). After downloading each
+// image's bytes, scorePrepare runs the FREE deterministic gate; a gate-FAILING
+// image is auto-rejected (a reject report is persisted the same way score-commit
+// would, role='current', the species is marked reviewed) and EXCLUDED from the
+// manifest, so a tiny/blurry/wrong-aspect photo never reaches a (paid) judge.
+// assessDeterministic is injected so the tests stay fast (no sharp decode).
+// ─────────────────────────────────────────────────────────────────────────────
+describe('scorePrepare — deterministic pre-filter (#994)', () => {
+  it('(a) auto-rejects a gate-FAILING image: writes a reject report, marks reviewed, and KEEPS it out of the manifest — no judge dispatch', async () => {
+    seedCurrent('bad', 'https://photos.example/bad.jpg');
+
+    const download = vi.fn(async (url: string) => Buffer.from(url));
+    // Gate fails for every image.
+    const assessDeterministic = vi.fn(async () => failGate(['below-min-megapixels', 'below-min-sharpness']));
+
+    const result = await scorePrepare(db, 1, { download, thumbDir: workDir, clock: instant(), assessDeterministic });
+
+    // It was downloaded + gate-checked, but NOT placed in the manifest the judge agents read.
+    expect(assessDeterministic).toHaveBeenCalledTimes(1);
+    expect(result.manifest.map(m => m.speciesCode)).toEqual([]);
+    expect(result.picked).toBe(0);
+    expect(result.gateRejected).toBe(1);
+
+    // A reject report was persisted (role='current') keyed by the stamped content hash.
+    const hash = (db.prepare(`SELECT content_hash FROM photo_current WHERE species_code=?`).get('bad') as { content_hash: string }).content_hash;
+    const stored = getScoreByHash(db, 'bad', 'current', hash);
+    expect(stored).not.toBeNull();
+    expect(stored!.overall).toBe(0);
+    expect(stored!.verdict).toBe('reject');
+    expect(stored!.rationale).toMatch(/deterministic gate failed/);
+    expect(stored!.rationale).toMatch(/below-min-megapixels/);
+
+    // The species is cleared from the backlog (reviewed=1) just like a committed score.
+    expect(selectUnreviewed(db, 10).map(r => r.species_code)).not.toContain('bad');
+
+    // The manifest JSON written to disk is empty too.
+    const manifestOnDisk = JSON.parse(readFileSync(result.manifestPath, 'utf8')) as unknown[];
+    expect(manifestOnDisk).toEqual([]);
+  });
+
+  it('(b) a gate-PASSING image goes to the manifest (and is NOT pre-rejected)', async () => {
+    seedCurrent('good', 'https://photos.example/good.jpg');
+
+    const download = vi.fn(async (url: string) => Buffer.from(url));
+    const assessDeterministic = vi.fn(async () => passGate());
+
+    const result = await scorePrepare(db, 1, { download, thumbDir: workDir, clock: instant(), assessDeterministic });
+
+    expect(result.manifest.map(m => m.speciesCode)).toEqual(['good']);
+    expect(result.picked).toBe(1);
+    expect(result.gateRejected).toBe(0);
+
+    // No score row was pre-written — scoring happens at the judge + commit step.
+    const hash = (db.prepare(`SELECT content_hash FROM photo_current WHERE species_code=?`).get('good') as { content_hash: string }).content_hash;
+    expect(getScoreByHash(db, 'good', 'current', hash)).toBeNull();
+    // Still in the backlog until the judge commit marks it reviewed.
+    expect(selectUnreviewed(db, 10).map(r => r.species_code)).toContain('good');
+  });
+
+  it('(c) returns/logs judged N / gate-rejected M / already-scored skipped K across a mixed batch', async () => {
+    // already-scored 'done', gate-fail 'bad', gate-pass 'good'.
+    seedCurrent('done', 'https://photos.example/done.jpg');
+    seedCurrent('bad', 'https://photos.example/bad.jpg');
+    seedCurrent('good', 'https://photos.example/good.jpg');
+
+    // Pre-stamp + pre-score 'done' so the no-rework skip fires.
+    const firstDownload = vi.fn(async (url: string) => Buffer.from(url));
+    await scorePrepare(db, 10, { download: firstDownload, thumbDir: workDir, clock: instant(), assessDeterministic: async () => passGate() });
+    const doneHash = (db.prepare(`SELECT content_hash FROM photo_current WHERE species_code=?`).get('done') as { content_hash: string }).content_hash;
+    upsertScore(db, {
+      speciesCode: 'done', role: 'current', candidateInatId: null, contentHash: doneHash,
+      report: {
+        overall: 80, verdict: 'good',
+        deterministic: { width: 0, height: 0, megapixels: 0, sharpness: 0, exposure: 0, aspectRatio: 0, passedGate: true, failReasons: [] },
+        criteria: { framing: 8, subjectClarity: 8, liveness: 8, naturalness: 8, pose: 8, background: 8, lighting: 8 },
+        flags: [], rationale: 'already scored', rubricVersion: '0.1.0',
+      },
+    });
+
+    const logs: string[] = [];
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg?: unknown) => { logs.push(String(msg)); });
+
+    const download = vi.fn(async (url: string) => Buffer.from(url));
+    // 'bad' fails the gate, 'good' passes.
+    const assessDeterministic = vi.fn(async (img: ImageInput, _det: RubricConfig['deterministic']) =>
+      img.buffer.toString().includes('bad') ? failGate() : passGate());
+
+    const second = await scorePrepare(db, 10, { download, thumbDir: workDir, clock: instant(), assessDeterministic });
+    logSpy.mockRestore();
+
+    expect(second.picked).toBe(1);        // 'good' judged
+    expect(second.gateRejected).toBe(1);  // 'bad' rejected
+    expect(second.skipped).toBe(1);       // 'done' already scored
+    expect(second.manifest.map(m => m.speciesCode)).toEqual(['good']);
+
+    // The batch log surfaces all three counts.
+    const line = logs.find(l => l.includes('judged') && l.includes('gate-rejected'));
+    expect(line).toBeTruthy();
+    expect(line).toMatch(/judged 1/);
+    expect(line).toMatch(/gate-rejected 1/);
+    expect(line).toMatch(/skipped 1/);
   });
 });
 
