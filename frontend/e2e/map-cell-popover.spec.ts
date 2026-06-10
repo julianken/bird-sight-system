@@ -151,15 +151,17 @@ test('desktop 1440×900: keyboard skip-link → cell → Enter → popover → E
   await expect(page).not.toHaveURL(/[?&]detail=/);
 });
 
-// ─── #761 O6 (#782): detail-overlay gate — hovering a cell with a detail
-//     overlay open does NOT surface the passive hover preview ──────────────────
+// ─── #976 (reverses #761 O6 / #782): hover-to-compare with a detail open ──────
 //
-// The detail rail/sheet stays the topmost interactive surface; the unbidden
-// hover tooltip is suppressed (AdaptiveGridMarker's `detailOpen` gate, threaded
-// App → MapSurface → MapCanvas → AdaptiveGridMarker). WebGL-guarded like the
-// other live-marker scenarios. No @coarse → dev-server, 1440×900.
+// #782 SUPPRESSED the passive hover preview while a detail overlay held focus.
+// #976 reverses that product decision: hovering a cell with the detail rail open
+// now DOES surface the preview (hover-to-compare). To honor #782's anti-clutter
+// intent the tooltip is DEMOTED beneath the detail surface (the `belowDetail`
+// path adds `cell-hover-preview--under-detail`, z `--z-under-detail`), so the
+// rail stays the topmost surface and the tooltip never paints over it. WebGL-
+// guarded like the other live-marker scenarios. No @coarse → dev-server, 1440×900.
 
-test('desktop 1440×900: with the detail rail open, hovering a cell does NOT surface the hover preview', async ({ page }) => {
+test('desktop 1440×900: with the detail rail open, hovering a cell DOES surface the hover preview, beneath the rail', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   // Open a detail overlay alongside the live map (rail mounts at ≥1200px).
   await page.goto('/?scope=us&detail=vermfly&view=detail');
@@ -172,11 +174,11 @@ test('desktop 1440×900: with the detail rail open, hovering a cell does NOT sur
     return;
   }
 
-  // The detail rail/sheet must be the topmost interactive surface.
+  // The detail rail must be present (and stays the topmost interactive surface).
   const detailSurface = page.locator('aside.species-detail-rail, .species-detail-sheet');
   await expect(detailSurface.first()).toBeVisible({ timeout: 10_000 });
 
-  // Hover a cell — under the gate, the passive preview must NOT mount.
+  // Hover a cell — the passive preview must NOW mount (hover-to-compare).
   const cell = page.locator('[data-testid^="adaptive-grid-marker-cell"]').first();
   const cellVisible = await cell.waitFor({ state: 'visible', timeout: 8_000 }).then(() => true).catch(() => false);
   if (!cellVisible) {
@@ -185,11 +187,28 @@ test('desktop 1440×900: with the detail rail open, hovering a cell does NOT sur
   }
   await cell.hover();
 
-  // Give the preview the chance it would normally have to appear, then assert
-  // it never did (the gate suppresses the mount while the overlay holds focus).
-  await expect(page.locator('[data-testid="cell-hover-preview"]')).toHaveCount(0);
-  await expect(page.getByRole('tooltip')).toHaveCount(0);
-  // Detail surface still present (it remained the topmost interactive surface).
+  // The preview appears (exactly one) while the detail is open.
+  const preview = page.locator('[data-testid="cell-hover-preview"]');
+  await expect(preview).toHaveCount(1);
+  await expect(page.getByRole('tooltip')).toHaveCount(1);
+
+  // …and it carries the z-demote modifier so it cannot occlude the rail.
+  await expect(preview).toHaveClass(/cell-hover-preview--under-detail/);
+
+  // Load-bearing: the tooltip's EFFECTIVE z resolves BELOW the active detail
+  // surface (the rail). Compare computed z-index values directly so a future
+  // z bump that lifts the tooltip above the rail fails here, not just visually.
+  const tooltipZ = await preview.evaluate((el) =>
+    Number(getComputedStyle(el).zIndex),
+  );
+  const railZ = await detailSurface.first().evaluate((el) =>
+    Number(getComputedStyle(el).zIndex),
+  );
+  expect(Number.isFinite(tooltipZ)).toBe(true);
+  expect(Number.isFinite(railZ)).toBe(true);
+  expect(tooltipZ).toBeLessThan(railZ);
+
+  // Detail surface still the topmost surface (unchanged, not covered).
   await expect(detailSurface.first()).toBeVisible();
 });
 

@@ -39,6 +39,7 @@ describe('tokens', () => {
     it('named-tier chain is strictly monotonic', () => {
       const ranks = [
         zIndex.map,
+        zIndex.underDetail,
         zIndex.overlay,
         zIndex.popover,
         zIndex.chrome,

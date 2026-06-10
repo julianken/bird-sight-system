@@ -337,6 +337,9 @@ describe('styles.css — W1 conformance', () => {
   describe('named z-index scale — #761 P1 (#778)', () => {
     it('declares every named tier with its rank-preserving value', () => {
       expect(STYLES_CSS).toMatch(/--z-map:\s*0\b/);
+      // #976: passive hover preview demoted while a detail is open — above the
+      // map (5 > 0) but below every detail tier (sheet 10/15/50, rail 43).
+      expect(STYLES_CSS).toMatch(/--z-under-detail:\s*5\b/);
       expect(STYLES_CSS).toMatch(/--z-overlay:\s*40\b/);
       expect(STYLES_CSS).toMatch(/--z-popover:\s*41\b/);
       expect(STYLES_CSS).toMatch(/--z-chrome:\s*42\b/);
@@ -354,6 +357,50 @@ describe('styles.css — W1 conformance', () => {
     });
   });
 
+  // ── #976: load-bearing z-order guard for the under-detail hover preview. ─────
+  //    When a species detail is open, the demoted cell-hover preview must resolve
+  //    BELOW whichever detail surface can be showing — the desktop RAIL (43) AND
+  //    EVERY mobile SHEET detent (peek 10, half 15 [the default], full/modal 50)
+  //    — while staying ABOVE the map canvas (0). Asserting only against the rail
+  //    (43) would pass GREEN while occluding the default half-sheet (15) on
+  //    narrow/mobile viewports, the exact gap the bot amendment flagged. A future
+  //    "bump the z-index" change that lifts --z-under-detail to/above any detail
+  //    tier fails HERE.
+  describe('under-detail hover preview z-order — #976', () => {
+    // Pull the literal --z-* values straight out of styles.css :root.
+    const z = (name: string): number => {
+      const m = STYLES_CSS.match(new RegExp(`--${name}:\\s*(\\d+)\\b`));
+      if (!m) throw new Error(`--${name} not found / not a literal in styles.css`);
+      return Number(m[1]);
+    };
+    // The sheet detents are literal z-index declarations in styles.css, NOT
+    // :root tokens — read them from their modifier rules so the guard tracks the
+    // values that actually render (styles.css:2310 / :2319).
+    const sheetDetent = (modifier: string): number => {
+      const m = STYLES_CSS.match(
+        new RegExp(`\\.species-detail-sheet--${modifier}\\s*\\{[^}]*z-index:\\s*(\\d+)\\b`, 's'),
+      );
+      if (!m) throw new Error(`.species-detail-sheet--${modifier} z-index not found`);
+      return Number(m[1]);
+    };
+
+    it('--z-under-detail sits BELOW the desktop rail (43)', () => {
+      expect(z('z-under-detail')).toBeLessThan(z('z-rail'));
+    });
+
+    it('--z-under-detail sits BELOW every mobile sheet detent (peek 10, half 15, full/modal)', () => {
+      // half (15) is the DEFAULT snap — the tier the bot amendment proved a
+      // demote to --z-overlay (40) would wrongly paint over.
+      expect(z('z-under-detail')).toBeLessThan(sheetDetent('peek'));
+      expect(z('z-under-detail')).toBeLessThan(sheetDetent('half'));
+      expect(z('z-under-detail')).toBeLessThan(z('z-modal')); // full sheet rides --z-modal
+    });
+
+    it('--z-under-detail stays ABOVE the map canvas/markers (0) so the tooltip is still visible', () => {
+      expect(z('z-under-detail')).toBeGreaterThan(z('z-map'));
+    });
+  });
+
   // ── #761 O6 (#782): the three on-canvas cell popovers consume P1's NAMED
   //    popover tokens — no `z-index: calc(var(--z-panel) + N)` arithmetic
   //    survives on any of them.
@@ -367,6 +414,12 @@ describe('styles.css — W1 conformance', () => {
     it('.cell-hover-preview consumes the named --z-modal tier (above the cell/cluster popovers it can overlap)', () => {
       expect(DS_PRIMITIVES_CSS).toMatch(
         /\.cell-hover-preview\s*\{[^}]*z-index:\s*var\(--z-modal\)/s,
+      );
+    });
+
+    it('#976: .cell-hover-preview--under-detail demotes to --z-under-detail (below every detail tier)', () => {
+      expect(DS_PRIMITIVES_CSS).toMatch(
+        /\.cell-hover-preview--under-detail\s*\{[^}]*z-index:\s*var\(--z-under-detail\)/s,
       );
     });
 
