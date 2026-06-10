@@ -24,8 +24,10 @@ export function createServer(db: Database.Database): Express {
   const publicDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'public');
   app.use(express.static(publicDir));
   // Screen 2 is one HTML file; the :code is read client-side from the path.
+  // Use sendFile's { root } option (relative filename) — the canonical Express 5
+  // form; passing a bare absolute path trips `send`'s NotFoundError on some paths.
   app.get('/swap/:code', (_req: Request, res: Response) => {
-    res.sendFile(join(publicDir, 'swap.html'));
+    res.sendFile('swap.html', { root: publicDir });
   });
 
   // ── JSON API ──
