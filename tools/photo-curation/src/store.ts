@@ -64,6 +64,13 @@ export function upsertCurrentPhoto(db: Database.Database, p: CurrentPhotoInput):
   ).run(p);
 }
 
+/**
+ * A reviewed=0 backlog row. Carries BOTH casings: the camelCase fields are the
+ * Part A contract; the snake_case aliases (`species_code`, `com_name`,
+ * `sci_name`) match the raw DB column names so Slice-4b's batched scorer
+ * (`scoreOne`/`scoreBatch`) and its `sync.test.ts` can consume `selectUnreviewed`
+ * rows directly without a casing remap. Both views are always present and equal.
+ */
 export interface UnreviewedPhoto {
   speciesCode: string;
   comName: string;
@@ -73,6 +80,10 @@ export interface UnreviewedPhoto {
   attribution: string;
   license: string;
   contentHash: string;
+  // snake_case aliases (raw column names) — kept in sync with the camelCase view.
+  species_code: string;
+  com_name: string;
+  sci_name: string;
 }
 
 interface CurrentPhotoRow {
@@ -107,6 +118,10 @@ export function selectUnreviewed(db: Database.Database, limit: number): Unreview
     attribution: r.attribution,
     license: r.license,
     contentHash: r.content_hash,
+    // snake_case aliases for the Slice-4b batched scorer.
+    species_code: r.species_code,
+    com_name: r.com_name,
+    sci_name: r.sci_name,
   }));
 }
 
