@@ -166,6 +166,56 @@ test.describe('Scope disclosure (#828)', () => {
     await expect(app.scopeDisclosureTrigger).toBeFocused();
   });
 
+  test('the identity card COLLAPSES to its two-line height when the disclosure is closed (#975)', async ({ page, apiStub }) => {
+    // #975 regression guard: #958 swapped the closed scope-rows lock to
+    // `visibility:hidden`, which keeps the form IN FLOW — the card froze at its
+    // OPEN height with an empty band below the lede. The existing `toBeHidden()`
+    // asserts pass on `visibility:hidden` alone (they never measure layout), so
+    // they could NOT catch this. This test measures the CARD'S TOTAL HEIGHT
+    // (per the review amendment — NOT just `.app-header-scope-rows ≤ 1px`, which
+    // would still pass with an 8px residual flex `gap` band present): the closed
+    // card must be MATERIALLY SHORTER than the open card.
+    const app = await setup(page, apiStub);
+
+    // Read the card's rendered border-box height directly in the page so each
+    // poll re-measures a fresh frame (a Playwright Locator boundingBox snapshots
+    // once). Returns 0 if absent so `expect.poll` can retry rather than throw.
+    const cardHeight = () =>
+      page.evaluate(() => {
+        const el = document.querySelector('.app-header-identity-card');
+        return el ? el.getBoundingClientRect().height : 0;
+      });
+
+    // --- At REST (disclosure closed) ---
+    await expect(app.scopeDisclosureTrigger).toHaveAttribute('aria-expanded', 'false');
+    const restingHeight = await cardHeight();
+
+    // --- OPEN the disclosure and let the grid-rows tween SETTLE ---
+    // The grid-rows + #07 tweens run for --panel-open-dur; poll the SETTLED open
+    // height rather than reading a mid-animation frame. `expect.poll` retries the
+    // measurement until the card has grown materially (the full scope form: state
+    // <select> + ZIP row + Whole US / Change scope links + divider), which only
+    // holds once the tween lands — so `openHeight` below is the settled value.
+    await app.openScopeDisclosure();
+    await expect(app.scopeControlStateSelect).toBeVisible();
+    await expect.poll(cardHeight).toBeGreaterThan(restingHeight + 40);
+    const openHeight = await cardHeight();
+
+    // --- Esc-CLOSE and assert the card COLLAPSES back to its resting height ---
+    await page.keyboard.press('Escape');
+    await expect(app.scopeDisclosureTrigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(app.scopeControlStateSelect).toBeHidden();
+    // Poll until the collapse tween has fully settled back to ≈the resting
+    // (two-line) height — NO empty region below the lede, no residual flex `gap`
+    // band. The closed card must be ≈ wordmark + lede + padding (≤2px sub-pixel
+    // rounding slack), MATERIALLY less than its open height — which the per-row
+    // `scope-rows ≤ 1px` guard would NOT catch (it passes with the gap band
+    // present). This is the missing #975 regression guard.
+    await expect.poll(cardHeight).toBeLessThanOrEqual(restingHeight + 2);
+    const collapsedHeight = await cardHeight();
+    expect(collapsedHeight).toBeLessThan(openHeight - 40);
+  });
+
   test('clicking ✕ collapses the form', async ({ page, apiStub }) => {
     const app = await setup(page, apiStub);
 
