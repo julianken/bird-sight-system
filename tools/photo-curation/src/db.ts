@@ -26,10 +26,17 @@ CREATE TABLE IF NOT EXISTS photo_score (
   role              TEXT,           -- 'current' | 'candidate'
   candidate_inat_id INTEGER,
   content_hash      TEXT,
-  overall           REAL,
-  verdict           TEXT,
+  overall           REAL,           -- composite (ADVISORY ranking, NOT the gate)
+  verdict           TEXT,           -- derived from overall (ADVISORY)
   criteria_json     TEXT,
   flags_json        TEXT,
+  -- #969 Opus field-mark judge: the GATE is \`keep\` (1 = keep as the species'
+  -- guide photo, 0 = needs replacement), NOT overall < threshold. quality_score
+  -- is the judge's own 0–100 estimate; field_marks is the JSON array of the
+  -- diagnostic marks it named.
+  keep              INTEGER,
+  quality_score     REAL,
+  field_marks       TEXT,
   rationale         TEXT,
   rubric_version    TEXT,
   scored_at         TEXT

@@ -415,7 +415,8 @@ async function composeWithJudge(
   deterministic: DeterministicReport,
 ): Promise<QualityReport> {
   const { judge, config } = opts;
-  const { criteria, flags, rationale } = await judge.judge(img, ctx, config.judgePrompt ?? '');
+  const { fieldMarks, criteria, flags, keep, qualityScore, rationale } =
+    await judge.judge(img, ctx, config.judgePrompt ?? '');
   let overall = 0;
   if (config.weights) {
     overall = composeOverall(criteria, config.weights);
@@ -425,12 +426,17 @@ async function composeWithJudge(
     overall = Math.round(overall * 10) / 10;
   }
   const t = config.thresholds;
+  // overall/verdict are ADVISORY ranking; the GATE is the judge's `keep` (#969).
   const verdict: QualityReport['verdict'] = !t
     ? 'reject'
     : overall >= t.autoAccept ? 'great'
       : overall >= t.review ? 'good'
         : overall >= t.reject ? 'mediocre' : 'reject';
-  return { overall, verdict, deterministic, criteria, flags, rationale, rubricVersion: config.version };
+  return {
+    overall, verdict, deterministic, criteria, flags,
+    fieldMarks, keep, qualityScore,
+    rationale, rubricVersion: config.version,
+  };
 }
 
 /**
@@ -481,6 +487,8 @@ export async function scoreOne(
       overall: 0, verdict: 'reject', deterministic,
       criteria: { framing: 0, subjectClarity: 0, liveness: 0, naturalness: 0, pose: 0, background: 0, lighting: 0 },
       flags: ['gate-fail'],
+      // #994 pre-filter reject: keep:false is the gate, no judge ran.
+      fieldMarks: [], keep: false, qualityScore: 0,
       rationale: `deterministic gate failed: ${deterministic.failReasons.join(', ')}`,
       rubricVersion: deps.config.version,
     };

@@ -13,8 +13,10 @@ import {
 // Deny advances to the next already-scored alternate from that pool, or — when
 // the pool is exhausted — queues a re-source for the next `source-candidates` run.
 
-const VALID_SORTS: SortMode[] = ['worst-first', 'best-first', 'has-better-candidate', 'recently-scored'];
-const VALID_FILTERS: FilterMode[] = ['all', 'flagged', 'dead-sick', 'distant', 'in-hand', 'soft', 'marked-for-swap', 'unscored'];
+// 'quality-score' ranks by the judge's own 0–100 estimate; 'needs-swap' filters
+// to the judge's direct keep/replace gate (keep=0) — both #969.
+const VALID_SORTS: SortMode[] = ['worst-first', 'best-first', 'has-better-candidate', 'recently-scored', 'quality-score'];
+const VALID_FILTERS: FilterMode[] = ['all', 'flagged', 'dead-sick', 'distant', 'in-hand', 'soft', 'marked-for-swap', 'unscored', 'needs-swap'];
 
 export function createServer(db: Database.Database): Express {
   const app = express();

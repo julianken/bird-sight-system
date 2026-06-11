@@ -6,24 +6,31 @@ const img: ImageInput = { buffer: Buffer.from('x'), mime: 'image/jpeg' };
 const ctx: SpeciesContext = { speciesCode: 'amerob', comName: 'American Robin', sciName: 'Turdus migratorius', family: 'Turdidae' };
 
 describe('FakeJudge', () => {
-  it('returns the canned criteria/flags/rationale for a registered key', async () => {
+  it('returns the canned field-mark-aware output for a registered key (#969)', async () => {
     const judge = new FakeJudge({
       'image/jpeg': {
+        fieldMarks: ['rufous breast', 'gray head'],
         criteria: { framing: 8, subjectClarity: 9, liveness: 10, naturalness: 9, pose: 7, background: 8, lighting: 8 },
         flags: [],
+        keep: true,
+        qualityScore: 85,
         rationale: 'canned good',
       },
     });
     const out = await judge.judge(img, ctx, 'prompt');
     expect(out.criteria.subjectClarity).toBe(9);
     expect(out.flags).toEqual([]);
+    expect(out.keep).toBe(true);
+    expect(out.qualityScore).toBe(85);
+    expect(out.fieldMarks).toEqual(['rufous breast', 'gray head']);
     expect(out.rationale).toBe('canned good');
   });
 
-  it('falls back to a neutral mid response for an unregistered key', async () => {
+  it('falls back to a neutral mid response (keep:true) for an unregistered key', async () => {
     const judge = new FakeJudge({});
     const out = await judge.judge(img, ctx, 'prompt');
     expect(out.criteria.framing).toBe(5);
     expect(out.flags).toEqual([]);
+    expect(out.keep).toBe(true);
   });
 });

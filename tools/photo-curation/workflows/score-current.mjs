@@ -30,7 +30,8 @@
 //                                             + a manifest JSON, prints its path.
 //   <parallel score agents>                → each Reads one imagePath, applies
 //                                             the rubric judge prompt, returns
-//                                             {speciesCode, criteria, flags, rationale}.
+//                                             {speciesCode, fieldMarks, criteria,
+//                                              flags, keep, qualityScore, rationale}.
 //   photo-curate score-commit results.json → composeReport → upsertScore +
 //                                             markReviewed (clears the backlog).
 //
@@ -41,13 +42,15 @@ import { defaultRubricConfig } from '@bird-watch/photo-quality';
 
 const LIMIT = Number(process.env.LIMIT ?? 10);
 
-// Cheaper scoring (#994): the per-photo judge runs as the lean `photo-judge`
-// subagent (tools: Read only, short system prompt) on the `haiku` model tier —
-// NOT the generic Workflow agent on the session model. The model defaults to the
-// `haiku` alias (NOT a hardcoded id) and is overridable via PHOTO_JUDGE_MODEL so
-// #969 calibration can lock the tier (score the labeled sample with Haiku → keep
-// iff ≥90% agreement with operator labels, else step up to Sonnet).
-const JUDGE_MODEL = process.env.PHOTO_JUDGE_MODEL ?? 'haiku';
+// Scoring judge (#994 lean agent + #969 calibration): the per-photo judge runs
+// as the lean `photo-judge` subagent (tools: Read only, short system prompt) —
+// NOT the generic Workflow agent (full system prompt + entire tool registry).
+// The model defaults to the `opus` alias (NOT a hardcoded id) and is overridable
+// via PHOTO_JUDGE_MODEL. #969 calibration (80 photos vs an Opus oracle) picked
+// Opus + the field-mark prompt: the cheaper Haiku/Sonnet judges were
+// mis-calibrated (Haiku rated an insect 86/100 as a "Bank Swallow"), and the
+// production GATE is the judge's DIRECT `keep`, not a composite threshold.
+const JUDGE_MODEL = process.env.PHOTO_JUDGE_MODEL ?? 'opus';
 
 // 1) PREPARE — a Bash agent shells out to the Node `score-prepare` half, which
 //    selects the next LIMIT reviewed=0 photos, downloads each to ./thumb-cache,
@@ -66,10 +69,11 @@ Read that manifest file and return its parsed contents as \`manifest\` plus the
 );
 
 // 2) SCORE — one judge PER photo, fanned out with parallel(). Each is the lean
-//    `photo-judge` subagent (Read-only, short system prompt, `haiku` tier) — NOT
-//    the generic agent — Reads its own imagePath and applies the SAME rubric
-//    prompt the FakeJudge stands in for in tests, returning the judge
-//    sub-scores/flags/rationale. The rubric still arrives in the per-call prompt
+//    `photo-judge` subagent (Read-only, short system prompt, `opus` tier) — NOT
+//    the generic agent — Reads its own imagePath and applies the SAME field-mark
+//    rubric prompt the FakeJudge stands in for in tests, returning the judge's
+//    field marks + sub-scores + flags + DIRECT keep/replace decision (the gate)
+//    + qualityScore + rationale. The rubric still arrives in the per-call prompt
 //    as defaultRubricConfig.judgePrompt (single-sourced in rubric.config.ts — no
 //    copy in the agent to drift). No DB, no download — the bytes are already on
 //    disk from prepare (and a deterministic gate-fail never reaches here).
@@ -78,17 +82,21 @@ const results = await parallel(
     `${defaultRubricConfig.judgePrompt}
 
 Read the image at ${entry.imagePath} for ${entry.comName} (${entry.sciName}), family ${entry.family}.
-Return structured output: an integer 0–10 for each of the seven criteria
-(framing, subjectClarity, liveness, naturalness, pose, background, lighting), a
-\`flags\` array of any applicable disqualifier strings, and a one-sentence
+Return structured output: \`fieldMarks\` (the diagnostic field marks), an integer 0–10
+for each of the seven criteria (framing, subjectClarity, liveness, naturalness, pose,
+background, lighting), a \`flags\` array of any applicable disqualifier strings, \`keep\`
+(boolean — the keep/replace gate), \`qualityScore\` (0–100), and a one-sentence
 \`rationale\`. Echo the \`speciesCode\` "${entry.speciesCode}" back unchanged.`,
     {
       agentType: 'photo-judge',
       model: JUDGE_MODEL,
       schema: {
         speciesCode: 'string',
+        fieldMarks: 'string[]',
         criteria: 'object',
         flags: 'string[]',
+        keep: 'boolean',
+        qualityScore: 'number',
         rationale: 'string',
       },
     },

@@ -70,4 +70,30 @@ describe('composeReport', () => {
     expect(r.overall).toBe(20);
     expect(r.verdict).toBe('reject');
   });
+
+  it('passes the judge keep/qualityScore through unchanged (the gate is keep, not the composite)', () => {
+    // A HIGH composite but the judge said replace (keep:false) → the gate is
+    // keep:false regardless of overall. composeReport only ranks; it never
+    // overrides the judge's decision.
+    const r = composeReport(perfect, [], defaultRubricConfig, { keep: false, qualityScore: 40 });
+    expect(r.overall).toBe(100);          // composite still high (ranking)
+    expect(r.verdict).toBe('great');       // verdict still derived from composite
+    expect(r.keep).toBe(false);            // but the GATE is the judge's keep
+    expect(r.qualityScore).toBe(40);
+  });
+
+  it('passes keep:true through for a low-composite photo (the gate can keep a mediocre snapshot)', () => {
+    const lowish: CriteriaScores = { ...zero, framing: 5, subjectClarity: 5 };
+    const r = composeReport(lowish, [], defaultRubricConfig, { keep: true, qualityScore: 55 });
+    expect(r.keep).toBe(true);
+    expect(r.qualityScore).toBe(55);
+  });
+
+  it('defaults keep:true / qualityScore to the composite when no judge decision is supplied', () => {
+    // Back-compat: a caller that omits the decision (e.g. a synthetic report)
+    // gets keep:true and qualityScore = overall.
+    const r = composeReport(perfect, [], defaultRubricConfig);
+    expect(r.keep).toBe(true);
+    expect(r.qualityScore).toBe(r.overall);
+  });
 });

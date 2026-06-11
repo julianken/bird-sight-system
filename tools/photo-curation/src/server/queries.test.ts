@@ -8,21 +8,21 @@ function seedDb(): Database.Database {
   const db = new Database(':memory:');
   db.exec(`
     CREATE TABLE photo_current(species_code TEXT PRIMARY KEY, com_name TEXT, sci_name TEXT, family TEXT, url TEXT, attribution TEXT, license TEXT, content_hash TEXT, reviewed INTEGER NOT NULL DEFAULT 0);
-    CREATE TABLE photo_score(id INTEGER PRIMARY KEY, species_code TEXT, role TEXT, candidate_inat_id INTEGER, content_hash TEXT, overall REAL, verdict TEXT, criteria_json TEXT, flags_json TEXT, rationale TEXT, rubric_version TEXT, scored_at TEXT);
+    CREATE TABLE photo_score(id INTEGER PRIMARY KEY, species_code TEXT, role TEXT, candidate_inat_id INTEGER, content_hash TEXT, overall REAL, verdict TEXT, criteria_json TEXT, flags_json TEXT, keep INTEGER, quality_score REAL, field_marks TEXT, rationale TEXT, rubric_version TEXT, scored_at TEXT);
     CREATE TABLE photo_candidate(id INTEGER PRIMARY KEY, species_code TEXT, inat_id INTEGER, photo_url TEXT, thumb_path TEXT, attribution TEXT, license TEXT, excluded INTEGER DEFAULT 0, source_round INTEGER);
     CREATE TABLE photo_decision(species_code TEXT PRIMARY KEY, action TEXT, chosen_candidate_id INTEGER, deny_reason TEXT, deny_tags_json TEXT, resource_requested INTEGER NOT NULL DEFAULT 0, decided_at TEXT, applied INTEGER DEFAULT 0, applied_at TEXT);
   `);
   const crit = JSON.stringify({ framing: 8, subjectClarity: 9, liveness: 10, naturalness: 9, pose: 7, background: 6, lighting: 8 });
   const critBad = JSON.stringify({ framing: 2, subjectClarity: 3, liveness: 1, naturalness: 2, pose: 2, background: 2, lighting: 3 });
-  // good current photo (AI-scored → reviewed=1)
+  // good current photo (AI-scored → reviewed=1; judge kept it, keep=1)
   db.prepare(`INSERT INTO photo_current (species_code,com_name,sci_name,family,url,attribution,license,content_hash,reviewed) VALUES ('amerob','American Robin','Turdus migratorius','turdidae','https://photos/amerob.jpg','(c) A','cc-by','hashA',1)`).run();
-  db.prepare(`INSERT INTO photo_score (species_code,role,candidate_inat_id,content_hash,overall,verdict,criteria_json,flags_json,rationale,rubric_version,scored_at) VALUES ('amerob','current',NULL,'hashA',86,'great',?, '[]','sharp wild bird','v1','2026-06-10T00:00:00Z')`).run(crit);
-  // bad current photo (dead + distant; AI-scored → reviewed=1)
+  db.prepare(`INSERT INTO photo_score (species_code,role,candidate_inat_id,content_hash,overall,verdict,criteria_json,flags_json,keep,quality_score,field_marks,rationale,rubric_version,scored_at) VALUES ('amerob','current',NULL,'hashA',86,'great',?, '[]',1,88,'["rufous breast","gray head"]','sharp wild bird','v1','2026-06-10T00:00:00Z')`).run(crit);
+  // bad current photo (dead + distant; judge said replace, keep=0)
   db.prepare(`INSERT INTO photo_current (species_code,com_name,sci_name,family,url,attribution,license,content_hash,reviewed) VALUES ('houspa','House Sparrow','Passer domesticus','passeridae','https://photos/houspa.jpg','(c) B','cc0','hashB',1)`).run();
-  db.prepare(`INSERT INTO photo_score (species_code,role,candidate_inat_id,content_hash,overall,verdict,criteria_json,flags_json,rationale,rubric_version,scored_at) VALUES ('houspa','current',NULL,'hashB',18,'reject',?, '["dead","distant"]','dead specimen, distant','v1','2026-06-11T00:00:00Z')`).run(critBad);
-  // candidate for houspa (round 1)
+  db.prepare(`INSERT INTO photo_score (species_code,role,candidate_inat_id,content_hash,overall,verdict,criteria_json,flags_json,keep,quality_score,field_marks,rationale,rubric_version,scored_at) VALUES ('houspa','current',NULL,'hashB',18,'reject',?, '["dead","distant"]',0,15,'[]','dead specimen, distant','v1','2026-06-11T00:00:00Z')`).run(critBad);
+  // candidate for houspa (round 1; kept, keep=1)
   db.prepare(`INSERT INTO photo_candidate (species_code,inat_id,photo_url,thumb_path,attribution,license,excluded,source_round) VALUES ('houspa',5001,'https://inat/5001.jpg','thumb-cache/5001.jpg','(c) C','cc-by',0,1)`).run();
-  db.prepare(`INSERT INTO photo_score (species_code,role,candidate_inat_id,content_hash,overall,verdict,criteria_json,flags_json,rationale,rubric_version,scored_at) VALUES ('houspa','candidate',5001,'hashC',79,'good',?, '[]','clean wild perch','v1','2026-06-11T00:00:00Z')`).run(crit);
+  db.prepare(`INSERT INTO photo_score (species_code,role,candidate_inat_id,content_hash,overall,verdict,criteria_json,flags_json,keep,quality_score,field_marks,rationale,rubric_version,scored_at) VALUES ('houspa','candidate',5001,'hashC',79,'good',?, '[]',1,81,'[]','clean wild perch','v1','2026-06-11T00:00:00Z')`).run(crit);
   return db;
 }
 
@@ -117,6 +117,48 @@ describe('listOverview', () => {
   it('exposes reviewed status; seeded rows are reviewed=1', () => {
     const rows = listOverview(db, { sort: 'worst-first', filter: 'all' });
     expect(rows.every(r => r.reviewed === true)).toBe(true);
+  });
+
+  it('exposes the #969 judge keep/qualityScore/fieldMarks', () => {
+    const rows = listOverview(db, { sort: 'worst-first', filter: 'all' });
+    const amerob = rows.find(r => r.speciesCode === 'amerob')!;
+    const houspa = rows.find(r => r.speciesCode === 'houspa')!;
+    expect(amerob.keep).toBe(true);
+    expect(amerob.qualityScore).toBe(88);
+    expect(amerob.fieldMarks).toEqual(['rufous breast', 'gray head']);
+    expect(houspa.keep).toBe(false);          // the gate: needs replacement
+    expect(houspa.qualityScore).toBe(15);
+  });
+
+  it('filter=needs-swap returns only rows the judge gated keep=0 (#969 gate, not a threshold)', () => {
+    const rows = listOverview(db, { sort: 'worst-first', filter: 'needs-swap' });
+    expect(rows.map(r => r.speciesCode)).toEqual(['houspa']); // keep=0
+  });
+
+  it('filter=needs-swap excludes a high-composite row the judge KEPT, and includes a low-composite row only if keep=0', () => {
+    // amerob has a HIGH composite (86) but keep=1 → must NOT be in needs-swap.
+    // Flip amerob's keep to 0 while leaving its high overall: it must now appear.
+    db.prepare(`UPDATE photo_score SET keep=0 WHERE species_code='amerob' AND role='current'`).run();
+    const rows = listOverview(db, { sort: 'best-first', filter: 'needs-swap' });
+    expect(rows.map(r => r.speciesCode).sort()).toEqual(['amerob', 'houspa']);
+    // amerob is keep=0 despite overall 86 — the gate is keep, not the composite.
+    expect(rows.find(r => r.speciesCode === 'amerob')!.overall).toBe(86);
+    expect(rows.find(r => r.speciesCode === 'amerob')!.keep).toBe(false);
+  });
+
+  it('sort=quality-score ranks by the judge qualityScore descending (nulls last)', () => {
+    const rows = listOverview(db, { sort: 'quality-score', filter: 'all' });
+    // amerob qs 88 > houspa qs 15
+    expect(rows.map(r => r.speciesCode)).toEqual(['amerob', 'houspa']);
+  });
+
+  it('treats a legacy pre-#969 row (keep NULL) as kept — not in needs-swap', () => {
+    // a row written before the keep column existed comes back NULL → kept.
+    db.prepare(`UPDATE photo_score SET keep=NULL WHERE species_code='houspa' AND role='current'`).run();
+    const all = listOverview(db, { sort: 'worst-first', filter: 'all' });
+    expect(all.find(r => r.speciesCode === 'houspa')!.keep).toBeNull();
+    const swap = listOverview(db, { sort: 'worst-first', filter: 'needs-swap' });
+    expect(swap.map(r => r.speciesCode)).toEqual([]); // NULL is not keep===false
   });
 
   it('filter=unscored returns only rows with reviewed=0 (no current score yet)', () => {

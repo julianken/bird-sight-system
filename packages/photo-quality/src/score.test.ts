@@ -31,6 +31,10 @@ describe('scoreImage', () => {
       framing: 0, subjectClarity: 0, liveness: 0,
       naturalness: 0, pose: 0, background: 0, lighting: 0,
     });
+    // #994 pre-filter reject: keep:false is the gate, no judge ran.
+    expect(report.keep).toBe(false);
+    expect(report.qualityScore).toBe(0);
+    expect(report.fieldMarks).toEqual([]);
     expect(spy).not.toHaveBeenCalled();
     expect(report.rationale).toMatch(/gate/i);
   });
@@ -47,6 +51,35 @@ describe('scoreImage', () => {
     expect(report.verdict).toBe('great');
     expect(report.criteria).toEqual(great);
     expect(report.rubricVersion).toBe(defaultRubricConfig.version);
+  });
+
+  it('GATE is the judge keep, not the composite: a HIGH-composite photo the judge said replace is keep:false', async () => {
+    // Judge returns great sub-scores (high composite) but keep:false — a sharp
+    // photo whose diagnostic marks are hidden. The gate (keep) must be false
+    // even though overall is auto-accept-high.
+    const judge = new FakeJudge({ criteria: great, keep: false, qualityScore: 38 });
+    const img = await checkerboardJpeg(1200, 1000);
+    const report = await scoreImage(img, ctx, { judge, config: defaultRubricConfig });
+
+    expect(report.overall).toBeGreaterThanOrEqual(defaultRubricConfig.thresholds.autoAccept);
+    expect(report.keep).toBe(false);          // needs-replacement
+    expect(report.qualityScore).toBe(38);
+  });
+
+  it('GATE is the judge keep, not the composite: a LOW-composite photo the judge kept is keep:true', async () => {
+    // Mediocre sub-scores (low composite) but keep:true — the judge decided the
+    // diagnostic marks are readable. The gate must keep it despite the low overall.
+    const mediocre: CriteriaScores = {
+      framing: 4, subjectClarity: 4, liveness: 6,
+      naturalness: 5, pose: 4, background: 4, lighting: 4,
+    };
+    const judge = new FakeJudge({ criteria: mediocre, keep: true, qualityScore: 62 });
+    const img = await checkerboardJpeg(1200, 1000);
+    const report = await scoreImage(img, ctx, { judge, config: defaultRubricConfig });
+
+    expect(report.overall).toBeLessThan(defaultRubricConfig.thresholds.autoAccept);
+    expect(report.keep).toBe(true);           // kept despite low composite
+    expect(report.fieldMarks.length).toBeGreaterThan(0);
   });
 
   it('applies the disqualifier cap when the judge flags dead', async () => {
