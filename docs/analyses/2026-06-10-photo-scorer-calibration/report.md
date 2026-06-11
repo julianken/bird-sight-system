@@ -59,3 +59,41 @@ configuration's keep/replace call matched the oracle.
 - **Unchanged:** the #994 deterministic pre-filter still gates a free reject
   (tiny/blurry/wrong-aspect) before any Opus call; a gate-fail is persisted as
   `keep: false` with no judge dispatch.
+
+## Deterministic-gate recalibration (2026-06-11)
+
+The #994 deterministic pre-filter, as shipped, **rejected 100% of the production
+photo catalog** before a single image reached the Opus judge. Measured, not
+theoretical: bird-maps.com serves a **uniform 500px-long-edge** display catalog
+(spot-checked across the first 10 species, representative because the catalog is
+uniform). Running the gate's exact algorithms over that real catalog:
+
+- **Resolution:** every photo is 500px on its long edge (500×375, 500×333,
+  431×500, …) ⇒ **0.12–0.22 MP** — every one below the old `minMegapixels: 0.3`.
+- **Sharpness** (the gate's normalized variance-of-Laplacian, `variance / 1020²`):
+  **0.00019–0.00218**, median ~0.00055 — every one below the old
+  `minSharpness: 0.005` by 2–25×.
+
+So every real photo failed with `below-min-megapixels, below-min-sharpness` and
+was persisted `keep: false` without ever reaching the judge. The 0.3 MP "can't be
+read at panel size" assumption was never validated against the served resolution
+(500px renders fine on the panel), and the #969 judge calibration bypassed this
+gate entirely, so the regression went unmeasured until now.
+
+**Root principle.** With Opus as the judge, the deterministic gate's only job is
+to cheaply reject genuinely **BROKEN** files — corrupt, blank/solid-color,
+microscopic, extreme aspect. Image *quality* (softness, distance, framing) is the
+Opus judge's responsibility, via its criteria (`subjectClarity`, `framing`, …)
+and flags. The floors were therefore lowered to pass the real catalog and gate
+only true junk:
+
+| Floor | Old | New | Rationale |
+|---|---|---|---|
+| `minMegapixels` | 0.3 | **0.05** | ~300×170; the 500px catalog at 0.12+ MP passes comfortably; truly tiny/broken downloads still gate. |
+| `minSharpness` | 0.005 | **0.00005** | Below the observed catalog minimum (0.00019); only near-zero-variance blank/solid/corrupt images gate. |
+| `allowedAspect` | [0.4, 2.5] | [0.4, 2.5] | Unchanged — the catalog is 0.86–1.33 aspect, well within. |
+
+`rubricVersion` bumped **0.2.0 → 0.2.1**, which invalidates the content-hash +
+version-keyed cached scores so the backlog re-scores under the corrected gate.
+This unblocks the production Opus scoring run, which the original floors would
+have starved of every input.

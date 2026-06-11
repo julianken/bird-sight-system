@@ -61,3 +61,30 @@ export async function clippedWhitePng(
 ): Promise<ImageInput> {
   return flatPng(width, height, [255, 255, 255]);
 }
+
+/**
+ * Build a per-pixel random-noise JPEG → very high variance-of-Laplacian →
+ * high sharpness. Models a real photo's high-frequency content (the live
+ * 500px catalog), as opposed to the synthetic regular checkerboard, so the
+ * deterministic gate's pass branch is exercised at the actual served
+ * resolution. `seed` makes the noise deterministic across runs.
+ */
+export async function noiseJpeg(
+  width: number,
+  height: number,
+  seed = 1,
+): Promise<ImageInput> {
+  const channels = 3;
+  const raw = Buffer.alloc(width * height * channels);
+  // Tiny deterministic LCG — enough entropy for a high-frequency field.
+  let state = seed >>> 0;
+  const next = (): number => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return state >>> 24; // top 8 bits → 0–255
+  };
+  for (let i = 0; i < raw.length; i++) raw[i] = next();
+  const buffer = await sharp(raw, { raw: { width, height, channels } })
+    .jpeg({ quality: 95 })
+    .toBuffer();
+  return { buffer, mime: 'image/jpeg' };
+}
