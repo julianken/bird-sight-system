@@ -24,6 +24,9 @@ const report: QualityReport = {
     pose: 7, background: 8, lighting: 8,
   },
   flags: [],
+  fieldMarks: ['rufous breast', 'gray head', 'yellow bill'],
+  keep: true,
+  qualityScore: 84,
   rationale: 'Sharp perched adult, natural perch, good light.',
   rubricVersion: '1.0.0',
 };
@@ -51,7 +54,23 @@ describe('store', () => {
     expect(found!.verdict).toBe('good');
     expect(found!.criteria.subjectClarity).toBe(9);
     expect(found!.flags).toEqual([]);
+    // #969: keep is the gate, fieldMarks + qualityScore round-trip too.
+    expect(found!.keep).toBe(true);
+    expect(found!.qualityScore).toBe(84);
+    expect(found!.fieldMarks).toEqual(['rufous breast', 'gray head', 'yellow bill']);
     expect(found!.rubricVersion).toBe('1.0.0');
+  });
+
+  it('round-trips keep=false (the needs-replacement gate) and missing fieldMarks as []', () => {
+    upsertScore(db, {
+      speciesCode: 'badsp', role: 'current', candidateInatId: null,
+      contentHash: 'cafef00d',
+      report: { ...report, keep: false, qualityScore: 31, fieldMarks: [] },
+    });
+    const found = getScoreByHash(db, 'badsp', 'current', 'cafef00d');
+    expect(found!.keep).toBe(false);
+    expect(found!.qualityScore).toBe(31);
+    expect(found!.fieldMarks).toEqual([]);
   });
 
   it('getScoreByHash returns null for an unscored hash (drives the cache miss path)', () => {

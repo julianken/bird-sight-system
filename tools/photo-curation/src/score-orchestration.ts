@@ -187,11 +187,18 @@ export async function scorePrepare(
   return { picked: manifest.length, skipped, gateRejected, downloads, manifestPath, manifest };
 }
 
-/** One agent scoring result — the score-commit input shape. */
+/**
+ * One agent scoring result — the score-commit input shape. The Opus field-mark
+ * judge (#969) returns the diagnostic `fieldMarks`, its DIRECT `keep` (the gate),
+ * and its own `qualityScore` alongside the criteria/flags/rationale.
+ */
 export interface ScoreResult {
   speciesCode: string;
+  fieldMarks: string[];
   criteria: CriteriaScores;
   flags: string[];
+  keep: boolean;
+  qualityScore: number;
   rationale: string;
 }
 
@@ -230,6 +237,10 @@ function gateRejectReport(deterministic: DeterministicReport): QualityReport {
     deterministic,
     criteria: { ...ZERO_CRITERIA },
     flags: [],
+    // #994 pre-filter reject: junk image, never judged. keep:false is the gate.
+    fieldMarks: [],
+    keep: false,
+    qualityScore: 0,
     rationale: `deterministic gate failed: ${deterministic.failReasons.join(', ')}`,
     rubricVersion: defaultRubricConfig.version,
   };
@@ -258,12 +269,18 @@ export async function scoreCommit(
         throw new Error(`no prepared photo_current row (content_hash) for ${r.speciesCode} — run score-prepare first`);
       }
 
-      const { overall, verdict } = composeReport(r.criteria, r.flags, defaultRubricConfig);
+      // overall/verdict rank for the review UI; the GATE is the judge's `keep`.
+      const { overall, verdict } = composeReport(r.criteria, r.flags, defaultRubricConfig, {
+        keep: r.keep, qualityScore: r.qualityScore,
+      });
       const report: QualityReport = {
         overall, verdict,
         deterministic: neutralDeterministic(),
         criteria: r.criteria,
         flags: r.flags,
+        fieldMarks: r.fieldMarks,
+        keep: r.keep,
+        qualityScore: r.qualityScore,
         rationale: r.rationale,
         rubricVersion: defaultRubricConfig.version,
       };
@@ -435,8 +452,11 @@ export interface SourceResult {
   speciesCode: string;
   inatId: number;
   contentHash: string;
+  fieldMarks: string[];
   criteria: CriteriaScores;
   flags: string[];
+  keep: boolean;
+  qualityScore: number;
   rationale: string;
 }
 
@@ -455,12 +475,17 @@ export async function sourceCommit(
       if (!r.contentHash) {
         throw new Error(`missing contentHash for ${r.speciesCode} candidate ${r.inatId} — re-run source-prepare`);
       }
-      const { overall, verdict } = composeReport(r.criteria, r.flags, defaultRubricConfig);
+      const { overall, verdict } = composeReport(r.criteria, r.flags, defaultRubricConfig, {
+        keep: r.keep, qualityScore: r.qualityScore,
+      });
       const report: QualityReport = {
         overall, verdict,
         deterministic: neutralDeterministic(),
         criteria: r.criteria,
         flags: r.flags,
+        fieldMarks: r.fieldMarks,
+        keep: r.keep,
+        qualityScore: r.qualityScore,
         rationale: r.rationale,
         rubricVersion: defaultRubricConfig.version,
       };

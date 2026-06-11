@@ -10,7 +10,7 @@ function seedDb(): Database.Database {
   // latter when the pre-scored pool is exhausted, so the column must exist here.
   db.exec(`
     CREATE TABLE photo_current(species_code TEXT PRIMARY KEY, com_name TEXT, sci_name TEXT, family TEXT, url TEXT, attribution TEXT, license TEXT, content_hash TEXT, reviewed INTEGER NOT NULL DEFAULT 0);
-    CREATE TABLE photo_score(id INTEGER PRIMARY KEY, species_code TEXT, role TEXT, candidate_inat_id INTEGER, content_hash TEXT, overall REAL, verdict TEXT, criteria_json TEXT, flags_json TEXT, rationale TEXT, rubric_version TEXT, scored_at TEXT);
+    CREATE TABLE photo_score(id INTEGER PRIMARY KEY, species_code TEXT, role TEXT, candidate_inat_id INTEGER, content_hash TEXT, overall REAL, verdict TEXT, criteria_json TEXT, flags_json TEXT, keep INTEGER, quality_score REAL, field_marks TEXT, rationale TEXT, rubric_version TEXT, scored_at TEXT);
     CREATE TABLE photo_candidate(id INTEGER PRIMARY KEY, species_code TEXT, inat_id INTEGER, photo_url TEXT, thumb_path TEXT, attribution TEXT, license TEXT, excluded INTEGER DEFAULT 0, source_round INTEGER);
     CREATE TABLE photo_decision(species_code TEXT PRIMARY KEY, action TEXT, chosen_candidate_id INTEGER, deny_reason TEXT, deny_tags_json TEXT, resource_requested INTEGER NOT NULL DEFAULT 0, decided_at TEXT, applied INTEGER DEFAULT 0, applied_at TEXT);
   `);
@@ -38,6 +38,21 @@ describe('review-server API', () => {
     expect(res.body.rows).toHaveLength(1);
     expect(res.body.rows[0].speciesCode).toBe('houspa');
     expect(res.body.stagedApproved).toBe(0);
+  });
+
+  it('GET /api/overview accepts the #969 needs-swap filter + quality-score sort', async () => {
+    // Mark houspa's current photo as the judge's keep=0 (needs replacement gate).
+    db.prepare(`UPDATE photo_score SET keep=0, quality_score=15 WHERE species_code='houspa' AND role='current'`).run();
+    const app = createServer(db);
+
+    const needsSwap = await request(app).get('/api/overview?sort=quality-score&filter=needs-swap');
+    expect(needsSwap.status).toBe(200);
+    expect(needsSwap.body.rows.map((r: { speciesCode: string }) => r.speciesCode)).toEqual(['houspa']);
+    expect(needsSwap.body.rows[0].keep).toBe(false);
+
+    // A bad sort/filter is still rejected.
+    expect((await request(app).get('/api/overview?sort=nope')).status).toBe(400);
+    expect((await request(app).get('/api/overview?filter=nope')).status).toBe(400);
   });
 
   it('GET /api/swap/:code returns the swap view', async () => {

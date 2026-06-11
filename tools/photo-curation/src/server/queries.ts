@@ -1,8 +1,10 @@
 import type Database from 'better-sqlite3';
 import type { DenyContext } from '@bird-watch/ingestor';
 
-export type SortMode = 'worst-first' | 'best-first' | 'has-better-candidate' | 'recently-scored';
-export type FilterMode = 'all' | 'flagged' | 'dead-sick' | 'distant' | 'in-hand' | 'soft' | 'marked-for-swap' | 'unscored';
+export type SortMode = 'worst-first' | 'best-first' | 'has-better-candidate' | 'recently-scored' | 'quality-score';
+// 'needs-swap' = the judge's direct keep/replace gate (#969): keep=0. This is
+// the canonical "needs replacement" set, NOT a composite threshold.
+export type FilterMode = 'all' | 'flagged' | 'dead-sick' | 'distant' | 'in-hand' | 'soft' | 'marked-for-swap' | 'unscored' | 'needs-swap';
 
 export interface Criteria {
   framing: number; subjectClarity: number; liveness: number;
@@ -17,10 +19,16 @@ export interface OverviewRow {
   url: string;
   attribution: string;
   license: string;
-  overall: number | null;
-  verdict: string | null;
+  overall: number | null;     // composite (ADVISORY ranking, NOT the gate)
+  verdict: string | null;      // derived from overall (ADVISORY)
   flags: string[];
   criteria: Criteria;
+  // #969 Opus field-mark judge. `keep` is the GATE (false = needs replacement);
+  // `qualityScore` is the judge's own 0–100 estimate; `fieldMarks` the diagnostic
+  // marks it named. `keep` is null only for a legacy pre-#969 row (treated as kept).
+  keep: boolean | null;
+  qualityScore: number | null;
+  fieldMarks: string[];
   rationale: string | null;
   scoredAt: string | null;
   bestCandidateOverall: number | null;
@@ -38,6 +46,7 @@ interface RawRow {
   url: string; attribution: string; license: string;
   overall: number | null; verdict: string | null; criteria_json: string | null;
   flags_json: string | null; rationale: string | null; scored_at: string | null;
+  keep: number | null; quality_score: number | null; field_marks: string | null;
   best_candidate_overall: number | null;
   decision_action: string | null;
   reviewed: number;
@@ -52,10 +61,16 @@ function mapRow(r: RawRow): OverviewRow {
   if (r.flags_json) { try { flags = JSON.parse(r.flags_json) as string[]; } catch { flags = []; } }
   let criteria = ZERO_CRITERIA;
   if (r.criteria_json) { try { criteria = JSON.parse(r.criteria_json) as Criteria; } catch { /* keep zeros */ } }
+  let fieldMarks: string[] = [];
+  if (r.field_marks) { try { fieldMarks = JSON.parse(r.field_marks) as string[]; } catch { fieldMarks = []; } }
+  // keep is null only when the row predates the #969 columns (or is unscored) →
+  // treat null as kept (true). An explicit 0 = needs replacement.
+  const keep = r.keep === null ? null : r.keep === 1;
   return {
     speciesCode: r.species_code, comName: r.com_name, sciName: r.sci_name, family: r.family,
     url: r.url, attribution: r.attribution, license: r.license,
     overall: r.overall, verdict: r.verdict, flags, criteria,
+    keep, qualityScore: r.quality_score, fieldMarks,
     rationale: r.rationale, scoredAt: r.scored_at,
     bestCandidateOverall: r.best_candidate_overall,
     markedForSwap: r.decision_action === 'approve' || r.decision_action === 'pending',
@@ -72,6 +87,7 @@ export function listOverview(
     SELECT pc.species_code, pc.com_name, pc.sci_name, pc.family,
            pc.url, pc.attribution, pc.license, pc.reviewed,
            ps.overall, ps.verdict, ps.criteria_json, ps.flags_json, ps.rationale, ps.scored_at,
+           ps.keep, ps.quality_score, ps.field_marks,
            (SELECT MAX(cs.overall)
               FROM photo_score cs
               JOIN photo_candidate cand
@@ -100,6 +116,9 @@ export function listOverview(
       case 'soft': return row.criteria.subjectClarity > 0 && row.criteria.subjectClarity <= SOFT_CLARITY_MAX;
       case 'marked-for-swap': return row.markedForSwap;
       case 'unscored': return !row.reviewed;
+      // #969 gate: the judge's direct keep/replace. keep===false is the
+      // needs-replacement set (a scored row only — null/undefined is not "needs swap").
+      case 'needs-swap': return row.keep === false;
     }
   });
 
@@ -109,6 +128,10 @@ export function listOverview(
   switch (opts.sort) {
     case 'worst-first': rows.sort(byOverallAsc); break;
     case 'best-first': rows.sort(byOverallDesc); break;
+    // #969: rank by the judge's own quality estimate, desc (nulls last).
+    case 'quality-score':
+      rows.sort((a, b) => (b.qualityScore ?? -Infinity) - (a.qualityScore ?? -Infinity));
+      break;
     case 'recently-scored':
       rows.sort((a, b) => (b.scoredAt ?? '').localeCompare(a.scoredAt ?? ''));
       break;

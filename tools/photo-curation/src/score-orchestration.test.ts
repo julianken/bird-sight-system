@@ -107,8 +107,11 @@ describe('scoreCommit (Node, testable — Bug 1)', () => {
     const results: ScoreResult[] = [
       {
         speciesCode: 'aaa',
+        fieldMarks: ['rufous breast', 'gray head'],
         criteria: { framing: 9, subjectClarity: 10, liveness: 10, naturalness: 9, pose: 8, background: 8, lighting: 9 },
         flags: [],
+        keep: true,
+        qualityScore: 90,
         rationale: 'Tack-sharp wild adult on a natural perch.',
       },
     ];
@@ -121,6 +124,10 @@ describe('scoreCommit (Node, testable — Bug 1)', () => {
     expect(stored).not.toBeNull();
     expect(stored!.overall).toBeGreaterThan(0);
     expect(['great', 'good']).toContain(stored!.verdict);
+    // #969: the gate (keep), qualityScore, and fieldMarks all persist.
+    expect(stored!.keep).toBe(true);
+    expect(stored!.qualityScore).toBe(90);
+    expect(stored!.fieldMarks).toEqual(['rufous breast', 'gray head']);
     expect(stored!.rationale).toBe('Tack-sharp wild adult on a natural perch.');
 
     // The species is now reviewed (cleared from the backlog).
@@ -137,8 +144,11 @@ describe('scoreCommit (Node, testable — Bug 1)', () => {
     const results: ScoreResult[] = [
       {
         speciesCode: 'inhand',
+        fieldMarks: ['streaked flanks'],
         criteria: { framing: 9, subjectClarity: 10, liveness: 10, naturalness: 2, pose: 9, background: 9, lighting: 9 },
         flags: ['in-hand'],
+        keep: false,
+        qualityScore: 35,
         rationale: 'Sharp but held in a banding grip — not a field-guide photo.',
       },
     ];
@@ -150,12 +160,68 @@ describe('scoreCommit (Node, testable — Bug 1)', () => {
     expect(stored!.flags).toContain('in-hand');
   });
 
+  it('GATE is the judge keep, not the composite: a HIGH-composite result with keep:false stores keep=false (needs replacement)', async () => {
+    seedCurrent('hidden', 'https://photos.example/hidden.jpg');
+    const download = vi.fn(async (url: string) => Buffer.from(url));
+    await scorePrepare(db, 1, { download, thumbDir: workDir, clock: instant(), assessDeterministic: async () => passGate() });
+    const hash = (db.prepare(`SELECT content_hash FROM photo_current WHERE species_code=?`).get('hidden') as { content_hash: string }).content_hash;
+
+    // Tack-sharp, well-framed (great composite) but the judge said replace —
+    // diagnostic marks hidden by pose. The stored gate must be keep=false even
+    // though overall is auto-accept-high.
+    const results: ScoreResult[] = [
+      {
+        speciesCode: 'hidden',
+        fieldMarks: ['undertail pattern (NOT visible — tail-on)'],
+        criteria: { framing: 9, subjectClarity: 10, liveness: 10, naturalness: 9, pose: 9, background: 9, lighting: 9 },
+        flags: [],
+        keep: false,
+        qualityScore: 40,
+        rationale: 'Sharp but tail-on — the diagnostic undertail pattern is not readable.',
+      },
+    ];
+    await scoreCommit(db, results);
+    const stored = getScoreByHash(db, 'hidden', 'current', hash);
+    expect(stored).not.toBeNull();
+    expect(stored!.overall).toBeGreaterThanOrEqual(75); // high composite (ranking)
+    expect(stored!.keep).toBe(false);                   // but the gate says replace
+    expect(stored!.qualityScore).toBe(40);
+  });
+
+  it('GATE is the judge keep, not the composite: a LOW-composite result with keep:true stores keep=true (kept)', async () => {
+    seedCurrent('okay', 'https://photos.example/okay.jpg');
+    const download = vi.fn(async (url: string) => Buffer.from(url));
+    await scorePrepare(db, 1, { download, thumbDir: workDir, clock: instant(), assessDeterministic: async () => passGate() });
+    const hash = (db.prepare(`SELECT content_hash FROM photo_current WHERE species_code=?`).get('okay') as { content_hash: string }).content_hash;
+
+    // Mediocre sub-scores (low composite) but the judge kept it — marks readable.
+    const results: ScoreResult[] = [
+      {
+        speciesCode: 'okay',
+        fieldMarks: ['eye-ring', 'wing bars'],
+        criteria: { framing: 5, subjectClarity: 5, liveness: 6, naturalness: 5, pose: 5, background: 4, lighting: 4 },
+        flags: [],
+        keep: true,
+        qualityScore: 60,
+        rationale: 'Soft snapshot but the eye-ring and wing bars are clearly readable.',
+      },
+    ];
+    await scoreCommit(db, results);
+    const stored = getScoreByHash(db, 'okay', 'current', hash);
+    expect(stored).not.toBeNull();
+    expect(stored!.overall).toBeLessThan(75); // low composite (ranking)
+    expect(stored!.keep).toBe(true);          // but the gate kept it
+  });
+
   it('records a failure for a result whose species has no photo_current row', async () => {
     const results: ScoreResult[] = [
       {
         speciesCode: 'ghost',
+        fieldMarks: [],
         criteria: { framing: 5, subjectClarity: 5, liveness: 5, naturalness: 5, pose: 5, background: 5, lighting: 5 },
         flags: [],
+        keep: true,
+        qualityScore: 50,
         rationale: 'n/a',
       },
     ];
@@ -172,7 +238,8 @@ function seedFlaggedScore(code: string): void {
     overall: 30, verdict: 'reject',
     deterministic: { width: 0, height: 0, megapixels: 0, sharpness: 0, exposure: 0, aspectRatio: 0, passedGate: true, failReasons: [] },
     criteria: { framing: 3, subjectClarity: 3, liveness: 5, naturalness: 4, pose: 3, background: 3, lighting: 3 },
-    flags: [], rationale: 'soft + cluttered', rubricVersion: '0.1.0',
+    flags: [], fieldMarks: [], keep: false, qualityScore: 30,
+    rationale: 'soft + cluttered', rubricVersion: '0.2.0',
   };
   upsertScore(db, { speciesCode: code, role: 'current', candidateInatId: null, contentHash: 'cur00000', report });
 }
@@ -226,8 +293,11 @@ describe('sourceCommit (Node, testable — Bug 1 source-candidates split)', () =
     const results: SourceResult[] = [
       {
         speciesCode: 'flag1', inatId: 11, contentHash: hash,
+        fieldMarks: ['clean wild perch'],
         criteria: { framing: 9, subjectClarity: 9, liveness: 10, naturalness: 9, pose: 8, background: 8, lighting: 9 },
         flags: [],
+        keep: true,
+        qualityScore: 88,
         rationale: 'A much sharper wild alternate.',
       },
     ];
@@ -239,6 +309,8 @@ describe('sourceCommit (Node, testable — Bug 1 source-candidates split)', () =
     expect(stored).not.toBeNull();
     expect(stored!.candidateInatId).toBe(11);
     expect(['great', 'good']).toContain(stored!.verdict);
+    expect(stored!.keep).toBe(true);
+    expect(stored!.qualityScore).toBe(88);
   });
 });
 
@@ -295,7 +367,8 @@ describe('scorePrepare — conservative edge usage (#992)', () => {
         overall: 80, verdict: 'good',
         deterministic: { width: 0, height: 0, megapixels: 0, sharpness: 0, exposure: 0, aspectRatio: 0, passedGate: true, failReasons: [] },
         criteria: { framing: 8, subjectClarity: 8, liveness: 8, naturalness: 8, pose: 8, background: 8, lighting: 8 },
-        flags: [], rationale: 'already scored', rubricVersion: '0.1.0',
+        flags: [], fieldMarks: [], keep: true, qualityScore: 80,
+        rationale: 'already scored', rubricVersion: '0.2.0',
       },
     });
 
@@ -342,6 +415,9 @@ describe('scorePrepare — deterministic pre-filter (#994)', () => {
     expect(stored).not.toBeNull();
     expect(stored!.overall).toBe(0);
     expect(stored!.verdict).toBe('reject');
+    // #994 pre-filter runs BEFORE the judge: keep:false with no judge output.
+    expect(stored!.keep).toBe(false);
+    expect(stored!.fieldMarks).toEqual([]);
     expect(stored!.rationale).toMatch(/deterministic gate failed/);
     expect(stored!.rationale).toMatch(/below-min-megapixels/);
 
@@ -388,7 +464,8 @@ describe('scorePrepare — deterministic pre-filter (#994)', () => {
         overall: 80, verdict: 'good',
         deterministic: { width: 0, height: 0, megapixels: 0, sharpness: 0, exposure: 0, aspectRatio: 0, passedGate: true, failReasons: [] },
         criteria: { framing: 8, subjectClarity: 8, liveness: 8, naturalness: 8, pose: 8, background: 8, lighting: 8 },
-        flags: [], rationale: 'already scored', rubricVersion: '0.1.0',
+        flags: [], fieldMarks: [], keep: true, qualityScore: 80,
+        rationale: 'already scored', rubricVersion: '0.2.0',
       },
     });
 

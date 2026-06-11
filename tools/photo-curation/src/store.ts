@@ -31,6 +31,9 @@ export interface StoredScore {
   verdict: Verdict;
   criteria: CriteriaScores;
   flags: string[];
+  fieldMarks: string[];   // #969 diagnostic marks the judge named (ranking/display)
+  keep: boolean;          // #969 THE GATE — false = needs replacement
+  qualityScore: number;   // #969 judge's own 0–100 estimate (advisory)
   rationale: string;
   rubricVersion: string;
   scoredAt: string;
@@ -155,13 +158,17 @@ export function upsertScore(db: Database.Database, s: ScoreInput): void {
   db.prepare(
     `INSERT INTO photo_score
        (species_code, role, candidate_inat_id, content_hash, overall, verdict,
-        criteria_json, flags_json, rationale, rubric_version, scored_at)
+        criteria_json, flags_json, keep, quality_score, field_marks,
+        rationale, rubric_version, scored_at)
      VALUES (@species_code, @role, @candidate_inat_id, @content_hash, @overall, @verdict,
-        @criteria_json, @flags_json, @rationale, @rubric_version, @scored_at)
+        @criteria_json, @flags_json, @keep, @quality_score, @field_marks,
+        @rationale, @rubric_version, @scored_at)
      ON CONFLICT(species_code, role, content_hash) DO UPDATE SET
        candidate_inat_id=excluded.candidate_inat_id, overall=excluded.overall,
        verdict=excluded.verdict, criteria_json=excluded.criteria_json,
-       flags_json=excluded.flags_json, rationale=excluded.rationale,
+       flags_json=excluded.flags_json, keep=excluded.keep,
+       quality_score=excluded.quality_score, field_marks=excluded.field_marks,
+       rationale=excluded.rationale,
        rubric_version=excluded.rubric_version, scored_at=excluded.scored_at`,
   ).run({
     species_code: s.speciesCode,
@@ -172,6 +179,9 @@ export function upsertScore(db: Database.Database, s: ScoreInput): void {
     verdict: s.report.verdict,
     criteria_json: JSON.stringify(s.report.criteria),
     flags_json: JSON.stringify(s.report.flags),
+    keep: s.report.keep ? 1 : 0,
+    quality_score: s.report.qualityScore,
+    field_marks: JSON.stringify(s.report.fieldMarks),
     rationale: s.report.rationale,
     rubric_version: s.report.rubricVersion,
     scored_at: new Date().toISOString(),
@@ -187,6 +197,9 @@ interface ScoreRow {
   verdict: Verdict;
   criteria_json: string;
   flags_json: string;
+  keep: number | null;
+  quality_score: number | null;
+  field_marks: string | null;
   rationale: string;
   rubric_version: string;
   scored_at: string;
@@ -213,6 +226,11 @@ export function getScoreByHash(
     verdict: row.verdict,
     criteria: JSON.parse(row.criteria_json) as CriteriaScores,
     flags: JSON.parse(row.flags_json) as string[],
+    // keep defaults to true (kept) and quality_score to overall for any
+    // legacy row written before the #969 columns existed.
+    fieldMarks: row.field_marks ? (JSON.parse(row.field_marks) as string[]) : [],
+    keep: row.keep === null ? true : row.keep === 1,
+    qualityScore: row.quality_score ?? row.overall,
     rationale: row.rationale,
     rubricVersion: row.rubric_version,
     scoredAt: row.scored_at,
