@@ -14,9 +14,12 @@
     <span class="staged-indicator" id="summary">…</span>
   </header>
   <p class="readout-note">
-    Read-only pre-commit readout: for each needs-replacement species, the best
-    sourced candidate is proposed only when it <em>outscores</em> the current
-    photo. Nothing here is applied — run <code>apply-swaps</code> to commit.
+    For each needs-replacement species the best non-duplicate candidate is
+    auto-proposed only when it beats the current photo by <em>Δ ≥ 20</em>
+    (same-picture iNat re-serves are filtered out). <strong>Click any candidate
+    thumbnail</strong> to override the pick — it persists; use <em>Use auto
+    pick</em> to revert or <em>No swap</em> to keep the original. Nothing is
+    applied here — run <code>apply-swaps</code> to commit the selected picks.
   </p>
   <main class="swap-list" id="list"></main>
   <script type="module" src="/pending-swaps.js"></script>

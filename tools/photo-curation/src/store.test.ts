@@ -5,6 +5,7 @@ import {
   upsertCurrentPhoto, upsertScore, getScoreByHash,
   insertCandidate, listCandidates, markCandidatesExcluded,
   selectUnreviewed, markReviewed, updateCurrentPhotoHash,
+  setSwapSelection, getSwapSelection,
 } from './store.js';
 import type { QualityReport } from '@bird-watch/photo-quality';
 
@@ -145,5 +146,33 @@ describe('store', () => {
     expect(row.content_hash).toBe('cafebabe');
     expect(row.attribution).toBe('(c) Jane Doe (CC BY 4.0)');
     expect(row.license).toBe('cc-by-4.0');
+  });
+});
+
+describe('swap_selection (operator override)', () => {
+  it('getSwapSelection returns null when no override exists', () => {
+    expect(getSwapSelection(db, 'norcar')).toBeNull();
+  });
+
+  it('setSwapSelection upserts a chosen candidate, then clears to "no swap" (null)', () => {
+    // Operator picks candidate 4242 for norcar.
+    setSwapSelection(db, 'norcar', 4242);
+    const picked = getSwapSelection(db, 'norcar');
+    expect(picked).not.toBeNull();
+    expect(picked!.chosenInatId).toBe(4242);
+    expect(typeof picked!.decidedAt).toBe('string');
+
+    // Re-pick a different candidate — upsert in place (PK species_code).
+    setSwapSelection(db, 'norcar', 9001);
+    expect(getSwapSelection(db, 'norcar')!.chosenInatId).toBe(9001);
+    expect(
+      (db.prepare(`SELECT COUNT(*) AS n FROM swap_selection WHERE species_code='norcar'`).get() as { n: number }).n,
+    ).toBe(1);
+
+    // Explicit "no swap": chosen_inat_id NULL is recorded (NOT a delete).
+    setSwapSelection(db, 'norcar', null);
+    const noSwap = getSwapSelection(db, 'norcar');
+    expect(noSwap).not.toBeNull();
+    expect(noSwap!.chosenInatId).toBeNull();
   });
 });

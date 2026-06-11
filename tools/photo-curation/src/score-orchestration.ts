@@ -345,12 +345,21 @@ export interface SourcePrepareResult {
   inatFetches: number;
   /** External edge downloads actually performed (for the batch usage log). */
   downloads: number;
+  /**
+   * How many candidates were SKIPPED because their downloaded bytes hash to the
+   * species' CURRENT live photo content_hash (same-picture dedup, swap-review
+   * v2 §2). A skipped dup is never inserted and never enters the manifest, so
+   * the (paid) judge never scores a photo we already have.
+   */
+  skippedDuplicates: number;
   manifestPath: string;
   manifest: SourceManifestEntry[];
 }
 
 interface FlaggedRow {
   species_code: string; com_name: string | null; sci_name: string | null; family: string | null;
+  /** The species' CURRENT live photo content hash — same-picture dups match it. */
+  content_hash: string | null;
 }
 
 /**
@@ -383,6 +392,12 @@ interface FlaggedRow {
  *   • Pacing is injectable (`deps.clock`/`deps.inatPaceMs`/`deps.edgePaceMs`)
  *     so tests assert spacing deterministically without a real wait.
  *   • The batch logs how many external calls (iNat fetches + downloads) it made.
+ *   • Same-picture dedup (swap-review v2 §2): after a candidate is downloaded
+ *     and its sha8 computed, if it equals the species' CURRENT live photo
+ *     content_hash (iNat re-served the byte-identical image already live), the
+ *     candidate is SKIPPED — not inserted, not added to the manifest — so the
+ *     (paid) judge never scores a photo we already have. `skippedDuplicates`
+ *     counts these (≈20% of candidates in a real run).
  */
 /** Optional caps for a source-prepare run. */
 export interface SourcePrepareOpts {
@@ -422,7 +437,7 @@ export async function sourcePrepare(
       ? Math.floor(rawLimit)
       : null;
   const flagged = db.prepare(
-    `SELECT c.species_code, c.com_name, c.sci_name, c.family
+    `SELECT c.species_code, c.com_name, c.sci_name, c.family, c.content_hash
        FROM photo_score s
        JOIN photo_current c ON c.species_code = s.species_code
       WHERE s.role = 'current' AND s.keep = 0
@@ -433,10 +448,14 @@ export async function sourcePrepare(
   const manifest: SourceManifestEntry[] = [];
   let inatFetches = 0;
   let downloads = 0;
+  let skippedDuplicates = 0;
   for (const sp of flagged) {
     if (!sp.sci_name) continue; // can't source without a scientific name
     const sciName = sp.sci_name;
     const round = maxSourceRound(db, sp.species_code) + 1;
+    // The species' live photo hash (read once) — a candidate whose bytes match
+    // it is the SAME picture iNat already served us; skip it (swap-review v2 §2).
+    const currentHash = sp.content_hash;
 
     // iNat is third-party: pace ≤1 req/sec between species AND bound the pool.
     // A persistent iNat failure aborts THIS species, not the batch.
@@ -459,6 +478,13 @@ export async function sourcePrepare(
       downloads++;
       const mime = mimeFromUrl(cand.photoUrl);
       const hash = sha8(bytes);
+      // Same-picture dedup (#974): iNat re-served the byte-identical live photo.
+      // A swap to the same bytes is never an improvement, so do NOT insert it and
+      // do NOT add it to the manifest — the judge never scores a photo we have.
+      if (currentHash && hash === currentHash) {
+        skippedDuplicates++;
+        continue;
+      }
       const imagePath = join(deps.thumbDir, `${sp.species_code}-${cand.inatId}.${extFromMime(mime)}`);
       await writeFile(imagePath, bytes);
       insertCandidate(db, {
@@ -483,8 +509,8 @@ export async function sourcePrepare(
   const manifestPath = join(deps.thumbDir, 'candidates-manifest.json');
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
   // eslint-disable-next-line no-console
-  console.log(`[source-prepare] external calls: ${inatFetches} iNat fetch(es) + ${downloads} edge download(s)`);
-  return { picked: manifest.length, inatFetches, downloads, manifestPath, manifest };
+  console.log(`[source-prepare] external calls: ${inatFetches} iNat fetch(es) + ${downloads} edge download(s); sourced ${manifest.length} / same-picture skipped ${skippedDuplicates}`);
+  return { picked: manifest.length, inatFetches, downloads, skippedDuplicates, manifestPath, manifest };
 }
 
 /** One agent candidate-scoring result. Carries the inat id + content hash. */

@@ -226,6 +226,74 @@ describe('runApplySwaps', () => {
   });
 });
 
+import { selectAppliableSwaps } from './apply-swaps.js';
+import { openDb } from './db.js';
+import { upsertCurrentPhoto, upsertScore, insertCandidate, setSwapSelection } from './store.js';
+import type { QualityReport } from '@bird-watch/photo-quality';
+
+/**
+ * swap-review v2 §3: the operator-override-aware apply source. selectAppliableSwaps
+ * derives the appliable swaps from selectSwaps (whose `proposed` already reflects
+ * the swap_selection override), so apply-swaps and the pending-swaps page never
+ * diverge. This is the bridge until the photo_decision approve path is unified
+ * with the override path (follow-up noted in apply-swaps.ts).
+ */
+describe('selectAppliableSwaps (operator override → apply target)', () => {
+  function seedCur(db: ReturnType<typeof openDb>, code: string, hash: string, qs: number): void {
+    upsertCurrentPhoto(db, {
+      speciesCode: code, comName: `Com ${code}`, sciName: `Sci ${code}`, family: `Fam ${code}`,
+      url: `https://photos.bird-maps.com/${code}.jpg`, attribution: `(c) live ${code}`,
+      license: 'cc-by', contentHash: hash,
+    });
+    const report: QualityReport = {
+      overall: qs, verdict: 'reject',
+      deterministic: { width: 0, height: 0, megapixels: 0, sharpness: 0, exposure: 0, aspectRatio: 0, passedGate: true, failReasons: [] },
+      criteria: { framing: 5, subjectClarity: 5, liveness: 5, naturalness: 5, pose: 5, background: 5, lighting: 5 },
+      flags: [], fieldMarks: [], keep: false, qualityScore: qs, rationale: 'flagged', rubricVersion: '0.2.0',
+    };
+    upsertScore(db, { speciesCode: code, role: 'current', candidateInatId: null, contentHash: hash, report });
+  }
+  function seedCand(db: ReturnType<typeof openDb>, code: string, inatId: number, qs: number): void {
+    insertCandidate(db, {
+      speciesCode: code, inatId, photoUrl: `https://inat.example/${inatId}.jpg`,
+      thumbPath: `t/${inatId}.jpg`, attribution: `(c) cand ${inatId}`, license: 'cc-by', sourceRound: 1,
+    });
+    const report: QualityReport = {
+      overall: qs, verdict: 'good',
+      deterministic: { width: 0, height: 0, megapixels: 0, sharpness: 0, exposure: 0, aspectRatio: 0, passedGate: true, failReasons: [] },
+      criteria: { framing: 7, subjectClarity: 7, liveness: 7, naturalness: 7, pose: 7, background: 7, lighting: 7 },
+      flags: [], fieldMarks: [], keep: true, qualityScore: qs, rationale: `cand ${inatId}`, rubricVersion: '0.2.0',
+    };
+    upsertScore(db, { speciesCode: code, role: 'candidate', candidateInatId: inatId, contentHash: `c-${code}-${inatId}`, report });
+  }
+
+  it('targets the OVERRIDDEN candidate, not the auto-best, when an operator override is set', () => {
+    const db = openDb(':memory:');
+    seedCur(db, 'norcar', 'live-hash', 30);
+    seedCand(db, 'norcar', 8001, 90); // auto-best (Δ60)
+    seedCand(db, 'norcar', 8002, 60); // operator's pick (Δ30, still ≥20)
+
+    // No override → auto-best 8001 is the apply target.
+    const auto = selectAppliableSwaps(db);
+    expect(auto).toHaveLength(1);
+    expect(auto[0]!.speciesCode).toBe('norcar');
+    expect(auto[0]!.newUrl).toBe('https://inat.example/8001.jpg');
+
+    // Operator overrides to 8002 → apply target follows the override.
+    setSwapSelection(db, 'norcar', 8002);
+    const overridden = selectAppliableSwaps(db);
+    expect(overridden).toHaveLength(1);
+    expect(overridden[0]!.newUrl).toBe('https://inat.example/8002.jpg');
+    expect(overridden[0]!.attribution).toBe('(c) cand 8002');
+    expect(overridden[0]!.oldUrl).toBe('https://photos.bird-maps.com/norcar.jpg');
+
+    // Explicit "no swap" → species drops out of the apply set entirely.
+    setSwapSelection(db, 'norcar', null);
+    expect(selectAppliableSwaps(db)).toHaveLength(0);
+    db.close();
+  });
+});
+
 import { resolveAdminEnv } from './apply-swaps.js';
 
 describe('resolveAdminEnv', () => {

@@ -72,6 +72,17 @@ CREATE TABLE IF NOT EXISTS photo_decision (
   resource_requested  INTEGER NOT NULL DEFAULT 0
 );
 
+-- Operator override for the pending-swaps screen (swap-review v2). One row per
+-- species the curator has explicitly picked for. chosen_inat_id NULL is an
+-- EXPLICIT "no swap" (distinct from no row = "fall back to the auto gate"); a
+-- non-null id names the candidate the operator promoted over the auto pick.
+-- selectSwaps reads this; POST /api/select-swap upserts/clears it.
+CREATE TABLE IF NOT EXISTS swap_selection (
+  species_code   TEXT PRIMARY KEY,
+  chosen_inat_id INTEGER,            -- NULL = explicit "no swap"
+  decided_at     TEXT
+);
+
 -- One report per (subject, content_hash): re-scoring an unchanged image is a
 -- no-op the orchestrator can detect before calling the judge.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_photo_score_subject

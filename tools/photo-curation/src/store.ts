@@ -306,3 +306,64 @@ export function maxSourceRound(db: Database.Database, speciesCode: string): numb
   ).get(speciesCode) as { r: number };
   return row.r;
 }
+
+/** A persisted operator override for one species (swap-review v2). */
+export interface SwapSelection {
+  speciesCode: string;
+  /** The candidate inat id the operator promoted; null = explicit "no swap". */
+  chosenInatId: number | null;
+  decidedAt: string;
+}
+
+interface SwapSelectionRow {
+  species_code: string;
+  chosen_inat_id: number | null;
+  decided_at: string;
+}
+
+/**
+ * Upsert (or clear-to-no-swap) the operator's pending-swaps override for a
+ * species. `inatId` = a candidate's inat id promotes that candidate; `null`
+ * records an EXPLICIT "no swap" (a row with chosen_inat_id NULL) — distinct from
+ * having no row at all, which selectSwaps treats as "use the auto gate".
+ * Keyed on species_code (PK), so a re-pick overwrites in place. Idempotent.
+ */
+export function setSwapSelection(
+  db: Database.Database, speciesCode: string, inatId: number | null,
+): void {
+  db.prepare(
+    `INSERT INTO swap_selection (species_code, chosen_inat_id, decided_at)
+     VALUES (@speciesCode, @chosenInatId, @decidedAt)
+     ON CONFLICT(species_code) DO UPDATE SET
+       chosen_inat_id=excluded.chosen_inat_id, decided_at=excluded.decided_at`,
+  ).run({
+    speciesCode,
+    chosenInatId: inatId,
+    decidedAt: new Date().toISOString(),
+  });
+}
+
+/**
+ * Delete a species' operator override entirely — reverts to the auto gate
+ * (selectSwaps treats "no row" as "use the Δ≥20 auto pick"). Distinct from
+ * setSwapSelection(db, code, null), which records an EXPLICIT "no swap" row.
+ * Idempotent (a no-op when no row exists).
+ */
+export function clearSwapSelection(db: Database.Database, speciesCode: string): void {
+  db.prepare(`DELETE FROM swap_selection WHERE species_code=?`).run(speciesCode);
+}
+
+/** Read a species' operator override, or null when none is recorded. */
+export function getSwapSelection(
+  db: Database.Database, speciesCode: string,
+): SwapSelection | null {
+  const row = db.prepare(
+    `SELECT species_code, chosen_inat_id, decided_at FROM swap_selection WHERE species_code=?`,
+  ).get(speciesCode) as SwapSelectionRow | undefined;
+  if (!row) return null;
+  return {
+    speciesCode: row.species_code,
+    chosenInatId: row.chosen_inat_id,
+    decidedAt: row.decided_at,
+  };
+}
