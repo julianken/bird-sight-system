@@ -102,6 +102,7 @@ export class EbirdClient {
           headers: { 'x-ebirdapitoken': this.apiKey, accept: 'application/json' },
           signal: AbortSignal.timeout(this.requestTimeoutMs),
         });
+        this.logAttempt(url, attempt, { status: res.status });
         if (res.status >= 500) {
           throw new EbirdServerError(res.status, await res.text());
         }
@@ -116,6 +117,15 @@ export class EbirdClient {
         return (await res.json()) as T;
       } catch (err) {
         lastError = err;
+        // EbirdClientError / EbirdServerError mean fetch resolved and the
+        // attempt was already logged above with its HTTP status. Anything
+        // else is a transport-level failure (network error, timeout) — emit
+        // the attempt line with the error class since no status exists.
+        if (!(err instanceof EbirdClientError) && !(err instanceof EbirdServerError)) {
+          this.logAttempt(url, attempt, {
+            errorClass: err instanceof Error ? err.name : typeof err,
+          });
+        }
         if (err instanceof EbirdClientError) throw err; // 4xx — don't retry
         if (attempt === this.maxRetries) break;
         // Full-jitter exponential backoff (AWS write-up variant).
@@ -130,6 +140,31 @@ export class EbirdClient {
       throw new EbirdServerError(0, `Request timed out after ${this.requestTimeoutMs}ms`);
     }
     throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  }
+
+  /**
+   * One structured line per outbound eBird HTTP attempt — including retries
+   * (#999). eBird's limits effective 2026-06-10 (10k req/day + 1 req/sec
+   * burst) made ground-truth request counts operationally necessary: before
+   * this, a successful run logged ZERO per-request lines, so quota
+   * consumption was invisible in Cloud Logging. ~4,700 lines/day at current
+   * cadence — acceptable volume. Single-line compact JSON on stdout, same
+   * convention as cli.ts's bird_ingest_run_completed. Logs ONLY the URL path
+   * — never headers (the API key travels in `x-ebirdapitoken`) and never the
+   * query string, so no key material can leak into logs.
+   */
+  private logAttempt(
+    url: URL,
+    attempt: number,
+    outcome: { status?: number; errorClass?: string }
+  ): void {
+    console.log(JSON.stringify({
+      severity: 'INFO',
+      message: 'bird_ebird_request',
+      endpoint: url.pathname,
+      attempt: attempt + 1, // 1-based for triage readability ("attempt 3")
+      ...outcome,
+    }));
   }
 }
 
