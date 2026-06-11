@@ -310,9 +310,21 @@ const config: KnipConfig = {
       //             flagged redundant). If that test is ever removed, knip will
       //             report safe.js as unused — re-add it to this ignore list
       //             (with the overview/swap import rationale above) at that time.
+      //
+      // 2026-06-10 (photo-swap epic): public/pending-swaps.js — Screen 3, the
+      //             read-only swap readout. Same profile as overview.js/swap.js:
+      //             a browser ES module loaded at runtime via pending-swaps.html's
+      //             `<script type="module" src="/pending-swaps.js">` (it `import`s
+      //             /theme.js + ./safe.js), never imported by any TS/JS module
+      //             knip can trace, so it is flagged as an unused file. Risk:
+      //             masks a genuinely orphaned public asset if the screen is
+      //             deleted but its script left on disk. Re-audit 2026-07-27 —
+      //             confirm public/pending-swaps.html still references it (grep
+      //             `src="/pending-swaps.js"`).
       ignore: [
         'workflows/score-current.mjs', 'workflows/source-candidates.mjs',
         'public/overview.js', 'public/swap.js', 'public/theme.js',
+        'public/pending-swaps.js',
       ],
     },
   },

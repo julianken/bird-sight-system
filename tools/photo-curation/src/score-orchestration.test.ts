@@ -328,6 +328,54 @@ describe('sourcePrepare (Node, testable — Bug 1 source-candidates split)', () 
     // The kept (keep=1) species got NO candidates sourced, low composite notwithstanding.
     expect(listCandidates(db, 'keep1')).toHaveLength(0);
   });
+
+  // Photo-swap epic: a species `--limit <n>` caps how many keep=0 species are
+  // sourced per run (so an operator can source the N worst before scoring),
+  // honoring the existing worst-first order (quality_score ASC, species_code ASC).
+  // No limit (the default) = ALL keep=0 species (backward-compatible).
+  it('species --limit sources only the N WORST-scored keep=0 species (quality_score ASC), leaving the rest untouched', async () => {
+    // Three flagged (keep=0) species with distinct quality scores. Worst → best:
+    // worst(10) < mid(40) < best(70). A fourth species is kept (keep=1) — never
+    // a candidate for sourcing regardless of limit.
+    seedCurrent('worst', 'https://photos.example/worst.jpg'); seedScore('worst', { overall: 10, keep: false, qualityScore: 10 });
+    seedCurrent('mid', 'https://photos.example/mid.jpg'); seedScore('mid', { overall: 40, keep: false, qualityScore: 40 });
+    seedCurrent('best', 'https://photos.example/best.jpg'); seedScore('best', { overall: 70, keep: false, qualityScore: 70 });
+    seedCurrent('kept', 'https://photos.example/kept.jpg'); seedScore('kept', { overall: 20, keep: true, qualityScore: 25 });
+
+    const fetchInatCandidates = vi.fn(async (sci: string) => {
+      const id = sci.includes('worst') ? 1 : sci.includes('mid') ? 2 : 3;
+      return [{ inatId: id, photoUrl: `https://inat.example/${id}.jpg`, attribution: '(c) P (CC BY)', license: 'cc-by' }];
+    });
+    const download = vi.fn(async (url: string) => Buffer.from(url));
+
+    // limit 2 → only the two worst keep=0 species (worst=10, mid=40) are sourced.
+    const result = await sourcePrepare(db, 5, { fetchInatCandidates, download, thumbDir: workDir, clock: instant() }, { limit: 2 });
+    expect(fetchInatCandidates).toHaveBeenCalledTimes(2);
+    const manifest = JSON.parse(readFileSync(result.manifestPath, 'utf8')) as Array<{ speciesCode: string }>;
+    expect([...new Set(manifest.map(m => m.speciesCode))].sort()).toEqual(['mid', 'worst']);
+    // The best-scored keep=0 species (just outside the limit) got NO candidates.
+    expect(listCandidates(db, 'best')).toHaveLength(0);
+    // The kept species is never sourced.
+    expect(listCandidates(db, 'kept')).toHaveLength(0);
+  });
+
+  it('no species limit (default) sources ALL keep=0 species — backward-compatible', async () => {
+    seedCurrent('a', 'https://photos.example/a.jpg'); seedScore('a', { overall: 10, keep: false, qualityScore: 10 });
+    seedCurrent('b', 'https://photos.example/b.jpg'); seedScore('b', { overall: 40, keep: false, qualityScore: 40 });
+    seedCurrent('c', 'https://photos.example/c.jpg'); seedScore('c', { overall: 70, keep: false, qualityScore: 70 });
+
+    const fetchInatCandidates = vi.fn(async (sci: string) => {
+      const id = sci.includes('a') ? 1 : sci.includes('b') ? 2 : 3;
+      return [{ inatId: id, photoUrl: `https://inat.example/${id}.jpg`, attribution: '(c) P (CC BY)', license: 'cc-by' }];
+    });
+    const download = vi.fn(async (url: string) => Buffer.from(url));
+
+    // No opts → every keep=0 species sourced (3 fetches).
+    const result = await sourcePrepare(db, 5, { fetchInatCandidates, download, thumbDir: workDir, clock: instant() });
+    expect(fetchInatCandidates).toHaveBeenCalledTimes(3);
+    const manifest = JSON.parse(readFileSync(result.manifestPath, 'utf8')) as Array<{ speciesCode: string }>;
+    expect([...new Set(manifest.map(m => m.speciesCode))].sort()).toEqual(['a', 'b', 'c']);
+  });
 });
 
 describe('sourceCommit (Node, testable — Bug 1 source-candidates split)', () => {

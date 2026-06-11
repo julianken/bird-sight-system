@@ -384,8 +384,20 @@ interface FlaggedRow {
  *     so tests assert spacing deterministically without a real wait.
  *   • The batch logs how many external calls (iNat fetches + downloads) it made.
  */
+/** Optional caps for a source-prepare run. */
+export interface SourcePrepareOpts {
+  /**
+   * Cap on how many keep=0 species to source this run. Undefined (the default)
+   * sources ALL keep=0 species (backward-compatible). When set, applies
+   * `LIMIT <limit>` to the worst-first (quality_score ASC) flagged query, so the
+   * operator sources the N worst-scored needs-replacement species per run.
+   */
+  limit?: number;
+}
+
 export async function sourcePrepare(
   db: Database.Database, pool: number, deps: SourcePrepareDeps,
+  opts: SourcePrepareOpts = {},
 ): Promise<SourcePrepareResult> {
   const fetchInat = deps.fetchInatCandidates ?? realFetchInatCandidates;
   await mkdir(deps.thumbDir, { recursive: true });
@@ -400,13 +412,23 @@ export async function sourcePrepare(
   // server's `needs-swap` filter (queries.ts). `overall` is advisory-only now, so
   // order by the judge's own quality estimate (worst first); gate-rejected #994
   // rows carry quality_score = 0 and so sort first.
+  // An optional species `--limit` caps how many keep=0 species are sourced this
+  // run (worst-first). A positive integer applies `LIMIT ?`; anything else (the
+  // default) sources ALL keep=0 species. Clamp to a non-negative integer so a
+  // stray 0/negative/NaN never produces a malformed LIMIT.
+  const rawLimit = opts.limit;
+  const speciesLimit =
+    typeof rawLimit === 'number' && Number.isFinite(rawLimit) && rawLimit >= 1
+      ? Math.floor(rawLimit)
+      : null;
   const flagged = db.prepare(
     `SELECT c.species_code, c.com_name, c.sci_name, c.family
        FROM photo_score s
        JOIN photo_current c ON c.species_code = s.species_code
       WHERE s.role = 'current' AND s.keep = 0
-      ORDER BY s.quality_score ASC, c.species_code ASC`,
-  ).all() as FlaggedRow[];
+      ORDER BY s.quality_score ASC, c.species_code ASC
+      ${speciesLimit !== null ? 'LIMIT ?' : ''}`,
+  ).all(...(speciesLimit !== null ? [speciesLimit] : [])) as FlaggedRow[];
 
   const manifest: SourceManifestEntry[] = [];
   let inatFetches = 0;
