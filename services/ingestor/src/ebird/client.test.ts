@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi, type MockInstance } from 'vitest';
 import { setupServer } from 'msw/node';
 import { http, HttpResponse } from 'msw';
 import { EbirdClient, EbirdClientError, EbirdServerError } from './client.js';
@@ -216,6 +216,101 @@ describe('EbirdClient.fetchTaxonomy', () => {
     // rejects with EbirdClientError(400) — so this test fails loudly if the
     // param is re-added.
     await expect(client.fetchTaxonomy()).resolves.toEqual([]);
+  });
+});
+
+describe('EbirdClient — structured per-attempt request logging (#999)', () => {
+  // eBird's limits effective 2026-06-10 (10k req/day + 1 req/sec burst) made
+  // ground-truth request counts operationally necessary — before this,
+  // successful runs logged ZERO per-request lines, so there was no way to
+  // monitor quota consumption from Cloud Logging. One compact line per HTTP
+  // attempt (including retries), message `bird_ebird_request`, same
+  // single-line JSON convention as bird_ingest_run_completed in cli.ts.
+
+  function loggedRequests(spy: MockInstance<typeof console.log>) {
+    return spy.mock.calls
+      .map(([a]) => { try { return JSON.parse(String(a)); } catch { return null; } })
+      .filter((o): o is Record<string, unknown> =>
+        !!o && (o as Record<string, unknown>)['message'] === 'bird_ebird_request');
+  }
+
+  it('emits one bird_ebird_request line per attempt with endpoint path, 1-based attempt and status', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    let calls = 0;
+    server.use(
+      http.get('https://api.ebird.org/v2/data/obs/US-AZ/recent', () => {
+        calls++;
+        if (calls < 3) return new HttpResponse('boom', { status: 503 });
+        return HttpResponse.json(SAMPLE_OBS);
+      })
+    );
+    const client = new EbirdClient({ apiKey: 'k', retryBaseMs: 1, maxRetries: 5 });
+    await client.fetchRecent('US-AZ');
+
+    const lines = loggedRequests(logSpy);
+    expect(lines).toHaveLength(3); // 2 failed attempts + the success — retries included
+    expect(lines[0]).toMatchObject({
+      severity: 'INFO',
+      message: 'bird_ebird_request',
+      endpoint: '/v2/data/obs/US-AZ/recent',
+      attempt: 1,
+      status: 503,
+    });
+    expect(lines[1]).toMatchObject({ attempt: 2, status: 503 });
+    expect(lines[2]).toMatchObject({ attempt: 3, status: 200 });
+    logSpy.mockRestore();
+  });
+
+  it('logs non-OK terminal statuses too (429 visible for quota triage)', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    server.use(
+      http.get('https://api.ebird.org/v2/data/obs/US-AZ/recent', () =>
+        new HttpResponse('rate limited', { status: 429 })
+      )
+    );
+    const client = new EbirdClient({ apiKey: 'k', retryBaseMs: 1, maxRetries: 5 });
+    await expect(client.fetchRecent('US-AZ')).rejects.toThrow(/429/);
+
+    const lines = loggedRequests(logSpy);
+    expect(lines).toHaveLength(1); // 4xx is not retried — exactly one attempt
+    expect(lines[0]).toMatchObject({ attempt: 1, status: 429 });
+    logSpy.mockRestore();
+  });
+
+  it('logs an errorClass (no status) when the attempt fails at the transport layer (timeout)', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    server.use(
+      http.get('https://api.ebird.org/v2/data/obs/US-AZ/recent', async () => {
+        await new Promise(r => setTimeout(r, 50));
+        return HttpResponse.json([]);
+      })
+    );
+    const client = new EbirdClient({ apiKey: 'k', maxRetries: 0, retryBaseMs: 1, requestTimeoutMs: 5 });
+    await expect(client.fetchRecent('US-AZ')).rejects.toThrow();
+
+    const lines = loggedRequests(logSpy);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).not.toHaveProperty('status');
+    expect(String(lines[0]?.['errorClass'])).toMatch(/TimeoutError|AbortError/);
+    logSpy.mockRestore();
+  });
+
+  it('never logs the API key (travels only in the x-ebirdapitoken header)', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    server.use(
+      http.get('https://api.ebird.org/v2/data/obs/US-AZ/recent', () =>
+        HttpResponse.json(SAMPLE_OBS)
+      )
+    );
+    const SECRET = 'sekrit-api-key-do-not-log-31337';
+    const client = new EbirdClient({ apiKey: SECRET });
+    await client.fetchRecent('US-AZ');
+
+    expect(loggedRequests(logSpy).length).toBeGreaterThan(0);
+    for (const call of logSpy.mock.calls) {
+      expect(String(call[0])).not.toContain(SECRET);
+    }
+    logSpy.mockRestore();
   });
 });
 
