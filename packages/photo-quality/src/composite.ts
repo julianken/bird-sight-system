@@ -59,14 +59,29 @@ export function toVerdict(
  * Full composite step: weighted overall → disqualifier caps → verdict. Pure;
  * scoreImage wires it after the judge returns. Returned overall is rounded to
  * one decimal for stable storage/display.
+ *
+ * GATE NOTE (calibration #969): `overall`/`verdict` are RANKING/display signals,
+ * not the gate. The production gate is the judge's DIRECT `keep`, which this
+ * function passes through unchanged (it NEVER overrides the judge's decision —
+ * a high-composite photo the judge said replace stays keep:false, and a
+ * low-composite photo the judge kept stays keep:true). `qualityScore` is the
+ * judge's own 0–100 estimate, also passed through. When no judge decision is
+ * supplied (a synthetic/back-compat caller) `keep` defaults to true and
+ * `qualityScore` to the composite `overall`.
  */
 export function composeReport(
   criteria: CriteriaScores,
   flags: string[],
   config: RubricConfig,
-): { overall: number; verdict: Verdict } {
+  decision?: { keep: boolean; qualityScore: number },
+): { overall: number; verdict: Verdict; keep: boolean; qualityScore: number } {
   const raw = composeOverall(criteria, config.weights);
   const capped = applyCaps(raw, flags, config.disqualifiers);
   const overall = Math.round(capped * 10) / 10;
-  return { overall, verdict: toVerdict(overall, config.thresholds) };
+  return {
+    overall,
+    verdict: toVerdict(overall, config.thresholds),
+    keep: decision?.keep ?? true,
+    qualityScore: decision?.qualityScore ?? overall,
+  };
 }

@@ -44,13 +44,48 @@ export interface DeterministicReport {
 }
 
 export interface QualityReport {
-  overall: number;        // 0–100 composite
-  verdict: Verdict;
+  overall: number;        // 0–100 composite (RANKING/display only — NOT the gate)
+  verdict: Verdict;       // derived from overall (RANKING/display only — advisory)
   deterministic: DeterministicReport;
   criteria: CriteriaScores;
   flags: string[];
+  /**
+   * The 3–6 diagnostic field marks the judge named for this species (Step 1 of
+   * the field-mark-aware prompt). Surfaced in the review UI; not used by the
+   * gate. Empty for a deterministic-gate pre-reject (no judge ran).
+   */
+  fieldMarks: string[];
+  /**
+   * THE GATE (calibration #969). The Opus judge's DIRECT keep/replace decision:
+   * `true` = keep as the species' guide photo, `false` = replace. Downstream
+   * "needs replacement" = `keep === false`, NOT `overall < threshold`. A
+   * deterministic-gate pre-reject is `keep: false` (junk, never judged).
+   */
+  keep: boolean;
+  /**
+   * The judge's own 0–100 quality estimate (advisory; for review-UI ranking
+   * alongside `overall`). The gate is `keep`, not this number.
+   */
+  qualityScore: number;
   rationale: string;      // one-line judge explanation
   rubricVersion: string;
+}
+
+/**
+ * The judge's structured output. The Opus field-mark-aware judge (#969) returns
+ * the per-criterion sub-scores AND its own holistic decision: the diagnostic
+ * `fieldMarks` it identified, a DIRECT `keep` (the GATE), and a `qualityScore`.
+ * The composite `overall` + `verdict` are still computed deterministically in
+ * this package (composite.ts) for ranking/display — but the production gate is
+ * the judge's `keep`, not a composite threshold.
+ */
+export interface JudgeOutput {
+  fieldMarks: string[];
+  criteria: CriteriaScores;
+  flags: string[];
+  keep: boolean;
+  qualityScore: number;
+  rationale: string;
 }
 
 /**
@@ -58,16 +93,17 @@ export interface QualityReport {
  * production passes a Claude Code agent-backed judge supplied by the Slice-4b
  * scoring workflow (#971) — a `.mjs` workflow that `Read`s the downloaded image
  * and applies defaultRubricConfig.judgePrompt. This package never depends on an
- * SDK. The judge returns ONLY the sub-scores/flags/rationale; the composite
- * `overall` + `verdict` are computed deterministically in this package
- * (composite.ts), never by the model.
+ * SDK. The judge returns the sub-scores/flags/rationale PLUS its field-mark
+ * reasoning and direct keep/replace decision (#969); the composite `overall` +
+ * `verdict` are computed deterministically in this package (composite.ts) for
+ * ranking, never as the gate.
  */
 export interface VisionJudge {
   judge(
     img: ImageInput,
     ctx: SpeciesContext,
     prompt: string,
-  ): Promise<{ criteria: CriteriaScores; flags: string[]; rationale: string }>;
+  ): Promise<JudgeOutput>;
 }
 
 export interface RubricConfig {

@@ -15,6 +15,7 @@ export type {
   Verdict,
   DeterministicReport,
   QualityReport,
+  JudgeOutput,
   VisionJudge,
   RubricConfig,
   DisqualifierFlag,

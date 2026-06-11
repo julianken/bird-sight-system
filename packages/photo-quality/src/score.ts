@@ -36,26 +36,35 @@ export async function scoreImage(
   const deterministic = await assessDeterministic(img, config.deterministic);
 
   if (!deterministic.passedGate) {
+    // #994 pre-filter reject: junk image, never judged. keep:false is the gate.
     return {
       overall: 0,
       verdict: 'reject',
       deterministic,
       criteria: { ...ZERO_CRITERIA },
       flags: [],
+      fieldMarks: [],
+      keep: false,
+      qualityScore: 0,
       rationale: `deterministic gate failed: ${deterministic.failReasons.join(', ')}`,
       rubricVersion: config.version,
     };
   }
 
-  const { criteria, flags, rationale } = await judge.judge(img, ctx, config.judgePrompt);
-  const { overall, verdict } = composeReport(criteria, flags, config);
+  const { fieldMarks, criteria, flags, keep, qualityScore, rationale } =
+    await judge.judge(img, ctx, config.judgePrompt);
+  // overall/verdict rank for the review UI; `keep` is the GATE (#969).
+  const composed = composeReport(criteria, flags, config, { keep, qualityScore });
 
   return {
-    overall,
-    verdict,
+    overall: composed.overall,
+    verdict: composed.verdict,
     deterministic,
     criteria,
     flags,
+    fieldMarks,
+    keep: composed.keep,
+    qualityScore: composed.qualityScore,
     rationale,
     rubricVersion: config.version,
   };
