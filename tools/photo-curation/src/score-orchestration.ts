@@ -302,11 +302,12 @@ export async function scoreCommit(
 
 // ─────────────────────────────────────────────────────────────────────────────
 // source-candidates split (analogous to score-prepare / score-commit). The
-// prepare half fetches a DEEP iNat pool per FLAGGED species (current overall <
-// thresholds.review), downloads + inserts each candidate, and emits a manifest
-// the parallel score agents Read; the commit half persists the agent scores as
-// role='candidate' so Slice 5's deny route can advance to an already-scored
-// alternate. Same no-`agent()`-in-Node discipline as the score halves.
+// prepare half fetches a DEEP iNat pool per species the gate flagged for
+// replacement (current photo_score.keep = 0), downloads + inserts each
+// candidate, and emits a manifest the parallel score agents Read; the commit
+// half persists the agent scores as role='candidate' so Slice 5's deny route
+// can advance to an already-scored alternate. Same no-`agent()`-in-Node
+// discipline as the score halves.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** One row of the source-prepare manifest — one iNat candidate per entry. */
@@ -353,11 +354,23 @@ interface FlaggedRow {
 }
 
 /**
- * source-prepare: find every FLAGGED species (a scored current photo below the
- * rubric review threshold), fetch up to `pool` fresh iNat candidates for each,
+ * source-prepare: find every species the gate flagged for replacement (a scored
+ * current photo with `keep = 0` — the SAME "needs replacement" predicate the
+ * review server's `needs-swap` filter uses, NOT the advisory `overall <
+ * review` composite), fetch up to `pool` fresh iNat candidates for each,
  * download + write each thumb to `<thumbDir>/<code>-<inatId>.<ext>`, persist a
  * `photo_candidate` row (next source_round), and write a manifest the score
  * agents Read. NO judge call here — scoring is the agent + commit step.
+ *
+ * Why `keep = 0`, not `overall < review` (#969 / PR #1004): the gate is the
+ * judge's direct keep/replace boolean, and the review UI surfaces exactly the
+ * `keep = 0` set as `needs-swap`. Sourcing MUST key on the same predicate or it
+ * is incoherent — a technically-sharp photo with hidden field marks (HIGH
+ * composite but `keep = 0`) appears in the reviewer's needs-swap queue yet, on
+ * the old composite predicate, would never get replacement candidates sourced,
+ * leaving an empty candidate pool. `keep = 1` is never re-sourced (we're keeping
+ * it); a legacy/unscored NULL `keep` is treated as kept and likewise skipped —
+ * matching `needs-swap` (which also excludes NULL).
  *
  * Conservative external-API usage (#992 addendum):
  *   • iNat is third-party: the per-species fetch is paced ≥ INAT_PACE_MS
@@ -382,13 +395,18 @@ export async function sourcePrepare(
   const edgePacer = new Pacer(deps.edgePaceMs ?? EDGE_PACE_MS, clock);
   const cappedPool = clampPool(pool);
 
+  // Gate-coherent sourcing (#969 / PR #1004): select the species whose current
+  // photo the judge flagged for replacement (keep = 0) — IDENTICAL to the review
+  // server's `needs-swap` filter (queries.ts). `overall` is advisory-only now, so
+  // order by the judge's own quality estimate (worst first); gate-rejected #994
+  // rows carry quality_score = 0 and so sort first.
   const flagged = db.prepare(
     `SELECT c.species_code, c.com_name, c.sci_name, c.family
        FROM photo_score s
        JOIN photo_current c ON c.species_code = s.species_code
-      WHERE s.role = 'current' AND s.overall < ?
-      ORDER BY s.overall ASC`,
-  ).all(defaultRubricConfig.thresholds.review) as FlaggedRow[];
+      WHERE s.role = 'current' AND s.keep = 0
+      ORDER BY s.quality_score ASC, c.species_code ASC`,
+  ).all() as FlaggedRow[];
 
   const manifest: SourceManifestEntry[] = [];
   let inatFetches = 0;

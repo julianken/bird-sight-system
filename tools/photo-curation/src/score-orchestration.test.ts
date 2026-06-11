@@ -244,6 +244,23 @@ function seedFlaggedScore(code: string): void {
   upsertScore(db, { speciesCode: code, role: 'current', candidateInatId: null, contentHash: 'cur00000', report });
 }
 
+/**
+ * Seed a current-role score with an INDEPENDENTLY chosen composite (`overall`)
+ * and gate (`keep`) so a test can construct the field-mark failure mode: HIGH
+ * composite + keep=0 (PR #1004). content_hash is derived from the code so each
+ * species gets its own row.
+ */
+function seedScore(code: string, s: { overall: number; keep: boolean; qualityScore: number }): void {
+  const report: QualityReport = {
+    overall: s.overall, verdict: s.keep ? 'good' : 'reject',
+    deterministic: { width: 0, height: 0, megapixels: 0, sharpness: 0, exposure: 0, aspectRatio: 0, passedGate: true, failReasons: [] },
+    criteria: { framing: 5, subjectClarity: 5, liveness: 5, naturalness: 5, pose: 5, background: 5, lighting: 5 },
+    flags: [], fieldMarks: [], keep: s.keep, qualityScore: s.qualityScore,
+    rationale: 'seed', rubricVersion: '0.2.0',
+  };
+  upsertScore(db, { speciesCode: code, role: 'current', candidateInatId: null, contentHash: `cur-${code}`, report });
+}
+
 describe('sourcePrepare (Node, testable — Bug 1 source-candidates split)', () => {
   it('fetches iNat candidates for FLAGGED species, downloads each, inserts candidate rows, and writes a manifest', async () => {
     seedCurrent('flag1', 'https://photos.example/flag1.jpg');
@@ -276,6 +293,40 @@ describe('sourcePrepare (Node, testable — Bug 1 source-candidates split)', () 
     // Candidate rows were persisted (so the deny-loop can advance to them).
     const cands = listCandidates(db, 'flag1');
     expect(cands.map(c => c.inatId).sort()).toEqual([11, 12]);
+  });
+
+  // PR #1004: source-prepare's flagged-species predicate must MATCH the review
+  // server's `needs-swap` filter (queries.ts: keep === false), NOT the advisory
+  // composite threshold. The headline failure mode this guards: a technically
+  // sharp photo with hidden field marks (HIGH overall but keep=0) appears in the
+  // reviewer's needs-swap queue yet, on the old `overall < review` predicate,
+  // would never get candidates sourced → empty pool.
+  it('keys sourcing on the gate (keep=0), not the composite: sources a HIGH-composite keep=0 species and SKIPS a keep=1 species regardless of composite', async () => {
+    // (a) HIGH composite (90) but the gate flagged it for replacement (keep=0):
+    //     hidden field marks. This MUST be sourced — the old `overall < review`
+    //     predicate would have excluded it (the bug PR #1004 fixes).
+    seedCurrent('sharp1', 'https://photos.example/sharp1.jpg');
+    seedScore('sharp1', { overall: 90, keep: false, qualityScore: 88 });
+    // (b) LOW composite (20) but the gate KEPT it (keep=1): we're keeping it, so
+    //     it must NOT be re-sourced even though the old composite predicate would
+    //     have flagged it.
+    seedCurrent('keep1', 'https://photos.example/keep1.jpg');
+    seedScore('keep1', { overall: 20, keep: true, qualityScore: 25 });
+
+    const fetchInatCandidates = vi.fn(async () => [
+      { inatId: 21, photoUrl: 'https://inat.example/21.jpg', attribution: '(c) P (CC BY)', license: 'cc-by' },
+    ]);
+    const download = vi.fn(async (url: string) => Buffer.from(url));
+
+    const result = await sourcePrepare(db, 5, { fetchInatCandidates, download, thumbDir: workDir, clock: instant() });
+
+    // Exactly one species sourced — the keep=0 one — and only for it.
+    expect(fetchInatCandidates).toHaveBeenCalledTimes(1);
+    const manifest = JSON.parse(readFileSync(result.manifestPath, 'utf8')) as Array<{ speciesCode: string }>;
+    expect(manifest.every(m => m.speciesCode === 'sharp1')).toBe(true);
+    expect(listCandidates(db, 'sharp1').map(c => c.inatId)).toEqual([21]);
+    // The kept (keep=1) species got NO candidates sourced, low composite notwithstanding.
+    expect(listCandidates(db, 'keep1')).toHaveLength(0);
   });
 });
 

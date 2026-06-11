@@ -29,10 +29,17 @@ scripts and `score-prepare` — nothing extra to run:
   "needs replacement" = **`keep === false`**, NOT `overall < threshold`. The
   rubric's seven criteria, the composite `overall`/`verdict`, the disqualifier
   caps, and the `thresholds` are now **advisory** — kept only for review-UI
-  ranking/badges and to pick which flagged species `source-candidates` sources
-  alternates for (current `overall < review`). The judge also returns
-  `fieldMarks` (the diagnostic marks it named) and its own `qualityScore`
-  (0–100), both surfaced in the review UI.
+  ranking/badges. The judge also returns `fieldMarks` (the diagnostic marks it
+  named) and its own `qualityScore` (0–100), both surfaced in the review UI.
+- **Sourcing keys on the gate, not the composite (PR #1004).**
+  `source-candidates` sources iNat alternates for exactly the species the gate
+  flagged — current **`keep = 0`** — the SAME predicate the review server's
+  `needs-swap` filter (`tools/photo-curation/src/server/queries.ts`) surfaces.
+  This was previously `overall < review`, which was incoherent: a sharp photo
+  with hidden field marks (HIGH composite, `keep = 0`) showed up in the
+  reviewer's needs-swap queue but never got candidates sourced, leaving an empty
+  pool. A `keep = 1` photo is never re-sourced; a legacy/unscored NULL `keep` is
+  treated as kept and skipped — matching `needs-swap` exactly.
 - **Lean `photo-judge` subagent on the `opus` tier.** The per-photo judge
   dispatches as the `.claude/agents/photo-judge.md` project subagent
   (`tools: Read` only, a short judge-role system prompt) instead of the generic
