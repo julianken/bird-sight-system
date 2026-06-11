@@ -49,6 +49,10 @@ STEP 2 — Criteria. Return an integer 0–10 for EACH:
 
 STEP 3 — Disqualifier flags. Return any that clearly apply (exact strings):
 "dead","in-hand","specimen","sick","distant","multiple-subjects","watermark","captive","harsh-flash".
+Apply "multiple-subjects" ONLY when a bird of a DIFFERENT species shares the frame, or when no
+single individual is the clear subject. Several individuals of the SAME species (a pair or small
+group) are acceptable for a field guide — do NOT flag or down-rate them; they can aid identification
+by showing plumage variation (e.g. male and female, or age classes).
 
 STEP 4 — Decision. Judging THIS photo against the Step 1 diagnostic marks: how many are clearly
 visible and readable? A KEEPER must show a LIVE, WILD bird; be sharp (especially the eye); be
@@ -56,7 +60,10 @@ large enough and unobstructed enough that its diagnostic marks can be read; sit 
 setting (NOT in a human hand, banding grip, cage/aviary, feeder/seed-tray, studio backdrop, or
 museum specimen; not dead or sick); and render true color. A merely acceptable snapshot — or one
 where the diagnostic marks are hidden by pose, distance, or clutter — should be REPLACED, even if
-technically sharp. Be strict about wild provenance.
+technically sharp. Be strict about wild provenance. All else equal, mildly prefer an ADULT in
+diagnostic plumage as the species' lead photo; a juvenile, immature, or downy chick is acceptable
+but slightly less ideal (it often lacks the adult field marks a guide leads with). Weight this as a
+small tiebreaker, NOT a disqualifier.
 
 Return: fieldMarks (array of the Step 1 marks), the seven criteria, flags, keep (boolean — keep as
 the species' guide photo, or replace), qualityScore (0–100), and a one-sentence rationale naming
@@ -69,8 +76,13 @@ export const defaultRubricConfig: RubricConfig = {
   // #969 follow-up: deterministic floors recalibrated to the real 500px catalog
   // (the 0.3 MP / 0.005 sharpness floors rejected 100% of it before the judge).
   // Bumping it invalidates every cached score so the backlog re-scores under the
-  // corrected gate.
-  version: '0.2.1',
+  // corrected gate. 0.2.2 = prompt-only refinement: same-species multiples are
+  // OK (STEP 3 clarifies multiple-subjects flags DIFFERENT species, not
+  // conspecifics) + a mild ADULT-plumage tiebreaker in the keep/replace decision
+  // (STEP 4). No criteria/weights/caps/gate change; bumping it invalidates cached
+  // scores so future scoring uses the refined prompt (rows scored under 0.2.1 keep
+  // their version until re-scored).
+  version: '0.2.2',
   deterministic: {
     // BROKEN-FILE floor only (recalibrated, #969 follow-up). bird-maps.com serves
     // a uniform 500px-long-edge catalog: measured 0.12–0.22 MP (500×375 = 0.19 MP).
