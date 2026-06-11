@@ -10,39 +10,52 @@ queue better alternates. The vision judge is a **Claude Code agent** that
 Node halves do all filesystem + SQLite work, and a Claude Code **Workflow-tool
 script** dispatches the agents between them (issue #992, epic #974).
 
-## Cheaper scoring (#994)
+## The judge and the gate (#969 calibration)
 
-Three measures cut the per-photo cost without losing judging quality. They are
-already wired into the Workflow scripts and `score-prepare` — nothing extra to
-run:
+The judge is **Opus**, applies a **field-mark-aware** prompt, and its **DIRECT
+keep/replace decision is the gate**. A five-experiment, 80-photo calibration
+against an Opus "premium field-guide editor" oracle settled this (record:
+`docs/analyses/2026-06-10-photo-scorer-calibration/report.md`): the cheap Haiku
+gate was too weak (it rated an insect 86/100 as a "Bank Swallow") and
+decomposition didn't rescue it; Sonnet's holistic verdict was mis-calibrated; the
+field-mark framing — name the species' diagnostic marks FIRST, then decide —
+recovered the species-aware reasoning, and Opus is the chosen ceiling.
 
-- **Lean `photo-judge` subagent.** The per-photo judge dispatches as the
-  `.claude/agents/photo-judge.md` project subagent (`tools: Read` only, a short
-  judge-role system prompt) instead of the generic Workflow agent (which carries
-  the full default system prompt + the entire tool registry + the session
-  model). The rubric is **not** baked into the agent — it still arrives in the
-  per-call prompt as `defaultRubricConfig.judgePrompt`, single-sourced in
+Three things shape each per-photo score; all are already wired into the Workflow
+scripts and `score-prepare` — nothing extra to run:
+
+- **`keep` is the gate, not a threshold.** The judge returns a boolean `keep`
+  (keep this as the species' guide photo, or replace it). Downstream
+  "needs replacement" = **`keep === false`**, NOT `overall < threshold`. The
+  rubric's seven criteria, the composite `overall`/`verdict`, the disqualifier
+  caps, and the `thresholds` are now **advisory** — kept only for review-UI
+  ranking/badges and to pick which flagged species `source-candidates` sources
+  alternates for (current `overall < review`). The judge also returns
+  `fieldMarks` (the diagnostic marks it named) and its own `qualityScore`
+  (0–100), both surfaced in the review UI.
+- **Lean `photo-judge` subagent on the `opus` tier.** The per-photo judge
+  dispatches as the `.claude/agents/photo-judge.md` project subagent
+  (`tools: Read` only, a short judge-role system prompt) instead of the generic
+  Workflow agent (full default system prompt + entire tool registry). The model
+  defaults to the **`opus`** alias (not a hardcoded id — see the `claude-api`
+  model-alias rule) and is overridable via `PHOTO_JUDGE_MODEL`. The rubric is
+  **not** baked into the agent — it arrives in the per-call prompt as
+  `defaultRubricConfig.judgePrompt`, single-sourced in
   `packages/photo-quality/src/rubric.config.ts`, so there is no rubric copy to
   drift.
-- **Haiku model tier, calibration-locked.** The `photo-judge` model defaults to
-  the **`haiku`** alias (bulk structured vision-rating fits a small model). It is
-  overridable via the `PHOTO_JUDGE_MODEL` env var so **#969 calibration locks the
-  tier**: score the labeled sample with Haiku and keep it iff agreement with the
-  operator labels is **≥90%**; otherwise step the override up to Sonnet. The
-  alias (not a hardcoded model id) is deliberate — see the `claude-api`
-  model-alias rule.
 
   ```bash
-  PHOTO_JUDGE_MODEL=sonnet   # override the Haiku default, e.g. if calibration < 90%
+  PHOTO_JUDGE_MODEL=sonnet   # override the Opus default (e.g. a cheap re-score pass)
   ```
 
-- **Deterministic pre-filter (free rejects).** `score-prepare` already has the
-  downloaded bytes, so it runs `assessDeterministic(img, config.deterministic)`
-  there. A gate failure (too small / too blurry / wrong aspect) is **auto-rejected
-  with zero agent calls** — a reject report is persisted the same way
-  `score-commit` writes (`upsertScore` role='current' + `markReviewed`), and the
-  species is **excluded from the manifest** the judge agents read, so a junk image
-  never reaches a (paid) judge. The prepare log reports
+- **Deterministic pre-filter (free rejects) — STAYS.** `score-prepare` already
+  has the downloaded bytes, so it runs `assessDeterministic(img,
+  config.deterministic)` there, **before any vision call**. A gate failure (too
+  small / too blurry / wrong aspect) is **auto-rejected with zero agent calls** —
+  a `keep: false` reject report is persisted the same way `score-commit` writes
+  (`upsertScore` role='current' + `markReviewed`), and the species is **excluded
+  from the manifest** the judge agents read, so a junk image never reaches the
+  (paid) Opus judge. The prepare log reports
   `judged N / gate-rejected M / already-scored skipped K`.
 
 This split exists because the judge can only run inside Claude Code (not plain
@@ -134,14 +147,15 @@ LIMIT=10   # batch size; re-run the Workflow until the backlog is empty
    ```
 
 2. **Dispatch agents** — for each manifest entry, dispatch the lean
-   `photo-judge` subagent (`agentType: 'photo-judge'`, Read-only, `haiku` tier)
-   to `Read` the `imagePath`, apply `defaultRubricConfig.judgePrompt`, and return
-   `{ speciesCode, criteria, flags, rationale }`. Collect all results into a
-   `results.json` array.
+   `photo-judge` subagent (`agentType: 'photo-judge'`, Read-only, `opus` tier) to
+   `Read` the `imagePath`, apply `defaultRubricConfig.judgePrompt`, and return
+   `{ speciesCode, fieldMarks, criteria, flags, keep, qualityScore, rationale }`
+   — where `keep` is the judge's direct keep/replace **gate**. Collect all
+   results into a `results.json` array.
 
-3. **Commit** — `composeReport` each result and persist it as `role='current'`
-   (keyed by the content hash `score-prepare` stamped), then mark each species
-   reviewed.
+3. **Commit** — `composeReport` each result (the composite is advisory ranking;
+   the gate is the result's `keep`) and persist it as `role='current'` (keyed by
+   the content hash `score-prepare` stamped), then mark each species reviewed.
 
    ```bash
    npx photo-curate score-commit results.json
@@ -170,7 +184,7 @@ agents → commit shape:
   ```bash
   npx photo-curate source-prepare --pool 15     # → ./thumb-cache/candidates-manifest.json
   # dispatch one Read-agent per candidate → candidate-results.json
-  #   [{ speciesCode, inatId, contentHash, criteria, flags, rationale }, …]
+  #   [{ speciesCode, inatId, contentHash, fieldMarks, criteria, flags, keep, qualityScore, rationale }, …]
   npx photo-curate source-commit candidate-results.json
   ```
 
