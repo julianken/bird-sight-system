@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi, type MockInstance } from 'vitest';
 import { setupServer } from 'msw/node';
 import { http, HttpResponse } from 'msw';
 import { EbirdClient, EbirdClientError, EbirdServerError } from './client.js';
@@ -227,7 +227,7 @@ describe('EbirdClient — structured per-attempt request logging (#999)', () => 
   // attempt (including retries), message `bird_ebird_request`, same
   // single-line JSON convention as bird_ingest_run_completed in cli.ts.
 
-  function loggedRequests(spy: ReturnType<typeof vi.spyOn>) {
+  function loggedRequests(spy: MockInstance<typeof console.log>) {
     return spy.mock.calls
       .map(([a]) => { try { return JSON.parse(String(a)); } catch { return null; } })
       .filter((o): o is Record<string, unknown> =>

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach, vi } from 'vitest';
 import { setupServer } from 'msw/node';
-import { http, HttpResponse } from 'msw';
+import { http, HttpResponse, type JsonBodyType } from 'msw';
 import { CONUS_STATE_CODES } from '@bird-watch/shared-types';
 import { startTestDb, type TestDb } from '@bird-watch/db-client/dist/test-helpers.js';
 import { upsertSpeciesMeta, getObservations, getRecentIngestRuns } from '@bird-watch/db-client';
@@ -25,7 +25,7 @@ const NOTABLE = [
 ];
 
 /** Stub /recent + /recent/notable for a single state. */
-function stateHandlers(state: string, recent: unknown, notable: unknown) {
+function stateHandlers(state: string, recent: JsonBodyType, notable: JsonBodyType) {
   return [
     http.get(`https://api.ebird.org/v2/data/obs/${state}/recent`, () => HttpResponse.json(recent)),
     http.get(`https://api.ebird.org/v2/data/obs/${state}/recent/notable`, () => HttpResponse.json(notable)),
