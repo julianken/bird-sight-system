@@ -52,6 +52,16 @@ describe('defaultRubricConfig', () => {
     for (const flag of DISQUALIFIER_FLAGS) expect(p).toContain(flag);
   });
 
+  it('judge prompt carries the v0.2.2 same-species + adult-preference refinements', () => {
+    const p = defaultRubricConfig.judgePrompt;
+    // multiple-subjects clarification: flag DIFFERENT species, never conspecifics.
+    expect(p).toMatch(/DIFFERENT species/i);
+    expect(p).toMatch(/SAME species/i);
+    // mild adult-plumage tiebreaker in the decision step.
+    expect(p).toMatch(/adult/i);
+    expect(p).toMatch(/tiebreaker|juvenile|immature/i);
+  });
+
   it('has deterministic-gate minimums', () => {
     const d = defaultRubricConfig.deterministic;
     expect(d.minMegapixels).toBeGreaterThan(0);

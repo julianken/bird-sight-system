@@ -10,7 +10,7 @@ describe('public surface', () => {
     expect(typeof pkg.contentHash).toBe('function');
     expect(typeof pkg.scoreCacheKey).toBe('function');
     expect(typeof pkg.FakeJudge).toBe('function');
-    expect(pkg.defaultRubricConfig.version).toBe('0.2.1');
+    expect(pkg.defaultRubricConfig.version).toBe('0.2.2');
     // No SDK judge, no model field — the production judge is a Claude Code agent (#971).
     expect('model' in pkg.defaultRubricConfig).toBe(false);
     expect((pkg as Record<string, unknown>).ClaudeVisionJudge).toBeUndefined();
