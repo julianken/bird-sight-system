@@ -1,10 +1,11 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach, vi } from 'vitest';
 import { setupServer } from 'msw/node';
 import { http, HttpResponse } from 'msw';
 import { CONUS_STATE_CODES } from '@bird-watch/shared-types';
 import { startTestDb, type TestDb } from '@bird-watch/db-client/dist/test-helpers.js';
 import { upsertSpeciesMeta, getObservations, getRecentIngestRuns } from '@bird-watch/db-client';
 import { runIngest } from './run-ingest.js';
+import type { EbirdClient } from './ebird/client.js';
 
 const server = setupServer();
 let db: TestDb;
@@ -157,6 +158,94 @@ describe('runIngest — per-state fan-out across all CONUS states (#840)', () =>
     const nmAnna = obs.find(o => o.subId === 'S201')!;
     expect(azAnna.isNotable).toBe(true);  // AZ's S101 is in AZ's notable set
     expect(nmAnna.isNotable).toBe(false); // NM's S201 is NOT — keyset is per-state
+  });
+});
+
+describe('runIngest — eBird 1 rps burst pacing (#999)', () => {
+  // eBird enforced new limits effective 2026-06-10: 10k req/day AND a
+  // 1 req/sec burst cap (429 on breach). The pre-#999 Promise.all fired a
+  // state's /recent + /recent/notable in the same instant, draining eBird's
+  // burst bucket ~13 states into every sweep. These tests pin the fix:
+  // the pair is strictly sequential and EVERY call (not every state round)
+  // is paced.
+
+  it('serializes the per-state pair — fetchNotable does not start until fetchRecent has resolved', async () => {
+    const events: string[] = [];
+    const fakeClient = {
+      async fetchRecent(state: string) {
+        events.push(`recent:start:${state}`);
+        // Hold the recent call open long enough that a concurrent notable
+        // call (the pre-#999 Promise.all shape) would observably start first.
+        await new Promise(r => setTimeout(r, 20));
+        events.push(`recent:resolve:${state}`);
+        return [];
+      },
+      async fetchNotable(state: string) {
+        events.push(`notable:start:${state}`);
+        return [];
+      },
+    } as unknown as EbirdClient;
+
+    const summary = await runIngest({
+      pool: db.pool, apiKey: 'k', stateCodes: ['US-AZ', 'US-NM'], paceMs: 0,
+      client: fakeClient,
+    });
+
+    expect(summary.status).toBe('success');
+    for (const state of ['US-AZ', 'US-NM']) {
+      const recentResolved = events.indexOf(`recent:resolve:${state}`);
+      const notableStarted = events.indexOf(`notable:start:${state}`);
+      expect(recentResolved).toBeGreaterThanOrEqual(0);
+      expect(notableStarted).toBeGreaterThan(recentResolved);
+    }
+  });
+
+  it('paces EVERY eBird call, skipping only the very first call of the run (per-call, not per-round)', async () => {
+    const fakeClient = {
+      async fetchRecent() { return []; },
+      async fetchNotable() { return []; },
+    } as unknown as EbirdClient;
+
+    // Spy on setTimeout instead of asserting wall-clock bounds (flake-prone on
+    // slow CI runners under the repo's retries:0 policy). Fake timers are not
+    // an option here: node-postgres needs real timers for I/O. Filtering on
+    // `delay === 25` isolates the pacing sleeps from pg/infra timers — the
+    // same pattern as run-backfill.test.ts's pacing test.
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+    const summary = await runIngest({
+      pool: db.pool, apiKey: 'k', stateCodes: ['US-AZ', 'US-NM'], paceMs: 25,
+      client: fakeClient,
+    });
+
+    expect(summary.status).toBe('success');
+    const pacingCalls = setTimeoutSpy.mock.calls.filter(([, delay]) => delay === 25);
+    // 2 states × 2 calls = 4 eBird calls; per-call pacing sleeps before every
+    // call except the run's first → exactly 3. The pre-#999 per-round pacing
+    // would have slept exactly once (between the two state rounds).
+    expect(pacingCalls).toHaveLength(3);
+    setTimeoutSpy.mockRestore();
+  });
+
+  it('defaults paceMs to 1500 when not injected (eBird burst cap headroom)', async () => {
+    const fakeClient = {
+      async fetchRecent() { return []; },
+      async fetchNotable() { return []; },
+    } as unknown as EbirdClient;
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+    // One state = 2 calls = exactly 1 pacing sleep at the default. This test
+    // pays one real 1.5s wait to pin the default without exporting the
+    // constant (knip flags test-only exports).
+    const summary = await runIngest({
+      pool: db.pool, apiKey: 'k', stateCodes: ['US-AZ'],
+      client: fakeClient,
+    });
+
+    expect(summary.status).toBe('success');
+    const pacingCalls = setTimeoutSpy.mock.calls.filter(([, delay]) => delay === 1_500);
+    expect(pacingCalls).toHaveLength(1);
+    setTimeoutSpy.mockRestore();
   });
 });
 

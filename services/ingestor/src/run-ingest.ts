@@ -32,12 +32,15 @@ export interface RunIngestOptions {
    */
   stateCodes?: readonly string[];
   /**
-   * Min millis between successive per-state fetch rounds. 49 states × 2 calls
-   * (recent + notable) = ~98 eBird calls/run, every 30 min — without pacing this
-   * bursts one key/IP into eBird's (opaque) rate limit. Default 1000ms (codebase
-   * precedent: cli.ts:323's backfill-extended path); at ~98 calls × 1000ms ≈ 98s
-   * this fits comfortably under the 900s Cloud Run job timeout. Tests pass 0.
-   * First-call-skip pattern mirrors run-backfill.ts:64.
+   * Min millis between successive eBird calls — applied PER CALL (#999):
+   * every /recent and /recent/notable request sleeps `paceMs` first, except
+   * the very first call of the run. eBird enforces a 1 req/sec burst cap
+   * (effective 2026-06-10; 429 on breach), so a state's pair must never fire
+   * in the same instant — the pre-#999 per-round pacing let exactly that
+   * happen and depleted the burst bucket ~13 states into every sweep.
+   * Default 1500ms: 49 states × 2 calls = 98 calls/run, ≈ 98 × (1.5s pace +
+   * latency) ≈ 3–4 min — comfortably under the 900s Cloud Run job timeout
+   * and the 30-min cron interval. Tests pass 0.
    */
   paceMs?: number;
   /**
@@ -70,7 +73,7 @@ export interface RunSummary {
   error?: string;
 }
 
-const DEFAULT_PACE_MS = 1_000;
+const DEFAULT_PACE_MS = 1_500;
 const DEFAULT_PARTIAL_THRESHOLD = 5;
 const DEFAULT_MAX_429_STREAK = 3;
 
@@ -123,22 +126,29 @@ export async function runIngest(opts: RunIngestOptions): Promise<RunSummary> {
   let consecutive429 = 0;
 
   try {
-    let firstRound = true;
-    for (const state of states) {
-      // Pace successive per-state rounds; skip the wait before the first.
-      // Mirrors run-backfill.ts:64 / run-photos.ts.
-      if (!firstRound && paceMs > 0) await sleep(paceMs);
-      firstRound = false;
+    // Per-call pacing (#999): sleep before EVERY eBird call except the very
+    // first of the run. eBird's 1 req/sec burst cap (effective 2026-06-10)
+    // counts individual requests, so pacing per state ROUND while the pair
+    // fired concurrently drained the burst bucket two tokens at a time.
+    let firstCall = true;
+    const paceBeforeCall = async () => {
+      if (!firstCall && paceMs > 0) await sleep(paceMs);
+      firstCall = false;
+    };
 
+    for (const state of states) {
       try {
         // Per-state notable intersection: `is_notable` requires BOTH this
         // state's /recent AND its /recent/notable. Keysets are built per state
         // and NOT intersected across states (a subId/speciesCode pair is
-        // state-local).
-        const [recent, notable] = await Promise.all([
-          client.fetchRecent(state, { back }),
-          client.fetchNotable(state, { back }),
-        ]);
+        // state-local). The pair is fetched SEQUENTIALLY — recent, then
+        // notable — never concurrently, so the per-call pacing above actually
+        // bounds the instantaneous request rate (#999). A 429 on either call
+        // marks the whole state rate-limited, same as the concurrent shape did.
+        await paceBeforeCall();
+        const recent = await client.fetchRecent(state, { back });
+        await paceBeforeCall();
+        const notable = await client.fetchNotable(state, { back });
         const notableKeys = notableKeyset(notable);
         for (const o of recent) inputs.push(toObservationInput(o, notableKeys));
         statesSucceeded++;
