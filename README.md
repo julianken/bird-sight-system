@@ -19,14 +19,10 @@ coloured and shaped by bird family. Live at **[bird-maps.com](https://bird-maps.
 
 ## What it is
 
-A single-page map over the [eBird](https://ebird.org) observation feed — the map
-*is* the interface, with no tabs, feed, or dashboard. Choose a scope (a state, a
-ZIP, or the whole country) and recent sightings render in place: aggregated counts
-when you're zoomed out, individual family-coloured markers when you're zoomed in.
+A single-page map over the [eBird](https://ebird.org) observation feed.
 
 ## Why it's built this way
 
-- **One always-mounted map, nothing to navigate into** — the map owns the screen and the controls float in its four corners; there's no nav bar and no second view.
 - **The server clusters, not the browser** — the API returns zoom-aware aggregated buckets at low zoom and clips to the chosen state with a PostGIS `ST_Intersects` query, so a national point set never lands in the client all at once.
 - **Bird family is the visual key** — each observation is coloured and shaped by family (silhouettes from [PhyloPic](https://www.phylopic.org)), so the map reads at a glance instead of as a wall of identical pins.
 - **Geography lives in the URL** — the selected state is in the URL, so every view is a shareable link; a ZIP resolves to its state through a vendored Census index, no server round-trip.
