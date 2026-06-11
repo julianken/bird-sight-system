@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { assessDeterministic } from './deterministic.js';
 import { defaultRubricConfig } from './rubric.config.js';
-import { flatPng, checkerboardJpeg, clippedWhitePng } from './fixtures.js';
+import { flatPng, checkerboardJpeg, clippedWhitePng, noiseJpeg } from './fixtures.js';
 
 const det = defaultRubricConfig.deterministic;
 
@@ -51,5 +51,37 @@ describe('assessDeterministic', () => {
     const good = await assessDeterministic(await checkerboardJpeg(1200, 1000), det);
     expect(good.passedGate).toBe(true);
     expect(good.failReasons).toEqual([]);
+  });
+
+  // Regression for the #969 follow-up: the deterministic floors were recalibrated
+  // (0.3→0.05 MP, 0.005→0.00005 sharpness) after measuring that bird-maps.com
+  // serves a uniform 500px-long-edge catalog (0.12–0.22 MP, 0.0002–0.002 sharpness).
+  // The old floors rejected 100% of the real catalog before it ever reached the
+  // Opus judge; quality (softness/distance/framing) is the judge's job now, so the
+  // gate must only reject genuinely BROKEN files.
+  it('passes the gate for a real-resolution 500px photo with high-frequency content', async () => {
+    // 500×375 = 0.1875 MP, mid of the measured catalog; per-pixel noise gives the
+    // high sharpness a real photo has. Under the OLD 0.3 MP / 0.005 floors this
+    // fails on both — the production bug. Under the recalibrated floors it passes.
+    const photo = await assessDeterministic(await noiseJpeg(500, 375), det);
+    expect(photo.passedGate).toBe(true);
+    expect(photo.failReasons).not.toContain('below-min-megapixels');
+    expect(photo.failReasons).not.toContain('below-min-sharpness');
+    expect(photo.failReasons).toEqual([]);
+  });
+
+  it('still gates a genuinely tiny image below the recalibrated megapixel floor', async () => {
+    // ~200×120 = 0.024 MP, below the new 0.05 floor — a broken/microscopic download.
+    const tiny = await assessDeterministic(await noiseJpeg(200, 120), det);
+    expect(tiny.passedGate).toBe(false);
+    expect(tiny.failReasons).toContain('below-min-megapixels');
+  });
+
+  it('still gates a flat solid-color image below the recalibrated sharpness floor', async () => {
+    // 500×375 catalog-sized but flat → ~zero variance-of-Laplacian; a blank/solid
+    // (corrupt or empty) render must still gate even at real resolution.
+    const blank = await assessDeterministic(await flatPng(500, 375), det);
+    expect(blank.passedGate).toBe(false);
+    expect(blank.failReasons).toContain('below-min-sharpness');
   });
 });

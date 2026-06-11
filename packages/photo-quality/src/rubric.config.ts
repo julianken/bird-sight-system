@@ -65,17 +65,30 @@ which diagnostic marks are visible or missing.`;
 export const defaultRubricConfig: RubricConfig = {
   // semver-shaped (QualityReport.rubricVersion keys the content-hash score
   // cache; a tune bumps this and invalidates cached scores). 0.2.0 = the #969
-  // calibration: Opus field-mark prompt + direct keep/replace gate. Bumping it
-  // invalidates every 0.1.0 cached score so the backlog re-scores under the new
-  // judge.
-  version: '0.2.0',
+  // calibration: Opus field-mark prompt + direct keep/replace gate. 0.2.1 = the
+  // #969 follow-up: deterministic floors recalibrated to the real 500px catalog
+  // (the 0.3 MP / 0.005 sharpness floors rejected 100% of it before the judge).
+  // Bumping it invalidates every cached score so the backlog re-scores under the
+  // corrected gate.
+  version: '0.2.1',
   deterministic: {
-    // ~0.3 MP floor — below this the bird can't be read at panel size.
-    minMegapixels: 0.3,
-    // Normalized Laplacian-variance floor; calibrated in Slice 10. Conservative
-    // draft so obviously soft images gate before the LLM (the hybrid cost saving).
-    minSharpness: 0.005,
-    // Reject extreme panoramas/strips; typical bird crops are 0.5–2.0 aspect.
+    // BROKEN-FILE floor only (recalibrated, #969 follow-up). bird-maps.com serves
+    // a uniform 500px-long-edge catalog: measured 0.12–0.22 MP (500×375 = 0.19 MP).
+    // The original 0.3 MP "below this the bird can't be read at panel size" floor
+    // was never validated against the served resolution and rejected 100% of the
+    // catalog. 0.05 MP (~300×170) passes the real catalog comfortably while still
+    // gating genuinely microscopic/broken downloads. Image QUALITY (distance,
+    // framing, softness) is the Opus judge's job, not this gate's.
+    minMegapixels: 0.05,
+    // BROKEN-FILE floor only (recalibrated, #969 follow-up). Normalized
+    // variance-of-Laplacian. The measured 500px catalog ranges 0.0002–0.002
+    // (median ~0.0006); the original 0.005 floor sat 2–25× above it and gated
+    // every real photo. 0.00005 sits below the observed catalog minimum (0.00019),
+    // so real photos pass and only near-zero-variance blank/solid/corrupt renders
+    // gate. Softness is the Opus judge's call (subjectClarity), not this gate's.
+    minSharpness: 0.00005,
+    // Reject extreme panoramas/strips; the 500px catalog is 0.86–1.33 aspect, well
+    // inside this range. Unchanged in the #969 follow-up.
     allowedAspect: [0.4, 2.5],
   },
   // GATE NOTE (calibration #969): weights + disqualifiers + thresholds are now
