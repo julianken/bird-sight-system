@@ -367,3 +367,121 @@ export function getSwapSelection(
     decidedAt: row.decided_at,
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// source_attempt — the per-(species, source) sourcing ledger (#974). Once iNat
+// has been searched for a species, source-prepare --source inat never re-sources
+// it; a different --source is unaffected and CAN retry an iNat-exhausted species.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The four terminal states of a source attempt (DB column `outcome`). */
+export type SourceAttemptOutcome = 'searched' | 'better-found' | 'exhausted' | 'applied';
+
+/** A persisted per-(species, source) source attempt. */
+export interface SourceAttempt {
+  speciesCode: string;
+  source: string;
+  attemptedAt: string;
+  candidatesFound: number | null;
+  bestScore: number | null;
+  outcome: SourceAttemptOutcome | null;
+}
+
+interface SourceAttemptRow {
+  species_code: string;
+  source: string;
+  attempted_at: string;
+  candidates_found: number | null;
+  best_score: number | null;
+  outcome: SourceAttemptOutcome | null;
+}
+
+function mapSourceAttempt(row: SourceAttemptRow): SourceAttempt {
+  return {
+    speciesCode: row.species_code,
+    source: row.source,
+    attemptedAt: row.attempted_at,
+    candidatesFound: row.candidates_found,
+    bestScore: row.best_score,
+    outcome: row.outcome,
+  };
+}
+
+/**
+ * Upsert a source attempt on its (species_code, source) PK. source-prepare calls
+ * this with outcome='searched' for each species it sources this run; a re-record
+ * overwrites in place (attempted_at re-stamped). `bestScore` is optional —
+ * defaults to null, filled at commit/apply time via setSourceAttemptOutcome.
+ */
+export function recordSourceAttempt(
+  db: Database.Database,
+  a: {
+    speciesCode: string;
+    source: string;
+    candidatesFound: number;
+    outcome: SourceAttemptOutcome;
+    bestScore?: number;
+  },
+): void {
+  db.prepare(
+    `INSERT INTO source_attempt
+       (species_code, source, attempted_at, candidates_found, best_score, outcome)
+     VALUES (@speciesCode, @source, @attemptedAt, @candidatesFound, @bestScore, @outcome)
+     ON CONFLICT(species_code, source) DO UPDATE SET
+       attempted_at=excluded.attempted_at,
+       candidates_found=excluded.candidates_found,
+       best_score=excluded.best_score,
+       outcome=excluded.outcome`,
+  ).run({
+    speciesCode: a.speciesCode,
+    source: a.source,
+    attemptedAt: new Date().toISOString(),
+    candidatesFound: a.candidatesFound,
+    bestScore: a.bestScore ?? null,
+    outcome: a.outcome,
+  });
+}
+
+/** Read the source attempt for a (species, source), or null when none recorded. */
+export function getSourceAttempt(
+  db: Database.Database, speciesCode: string, source: string,
+): SourceAttempt | null {
+  const row = db.prepare(
+    `SELECT species_code, source, attempted_at, candidates_found, best_score, outcome
+       FROM source_attempt WHERE species_code=? AND source=?`,
+  ).get(speciesCode, source) as SourceAttemptRow | undefined;
+  return row ? mapSourceAttempt(row) : null;
+}
+
+/**
+ * Update the outcome (and optionally best_score) of an EXISTING source attempt
+ * without disturbing its candidates_found / attempted_at. source-commit resolves
+ * 'searched' → 'better-found'|'exhausted'; apply-swaps sets 'applied'. A no-op
+ * when no row exists (UPDATE … WHERE matches nothing).
+ */
+export function setSourceAttemptOutcome(
+  db: Database.Database,
+  speciesCode: string,
+  source: string,
+  outcome: SourceAttemptOutcome,
+  bestScore?: number,
+): void {
+  if (bestScore === undefined) {
+    db.prepare(
+      `UPDATE source_attempt SET outcome=? WHERE species_code=? AND source=?`,
+    ).run(outcome, speciesCode, source);
+  } else {
+    db.prepare(
+      `UPDATE source_attempt SET outcome=?, best_score=? WHERE species_code=? AND source=?`,
+    ).run(outcome, bestScore, speciesCode, source);
+  }
+}
+
+/** List every source attempt for a source (newest attempt first). */
+export function listSourceAttempts(db: Database.Database, source: string): SourceAttempt[] {
+  const rows = db.prepare(
+    `SELECT species_code, source, attempted_at, candidates_found, best_score, outcome
+       FROM source_attempt WHERE source=? ORDER BY attempted_at DESC, species_code ASC`,
+  ).all(source) as SourceAttemptRow[];
+  return rows.map(mapSourceAttempt);
+}

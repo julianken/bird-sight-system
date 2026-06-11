@@ -1,5 +1,19 @@
 import type Database from 'better-sqlite3';
+import type { QualityReport, CriteriaScores } from '@bird-watch/photo-quality';
+import { defaultRubricConfig } from '@bird-watch/photo-quality';
 import { selectSwaps } from './swaps.js';
+import {
+  upsertCurrentPhoto, upsertScore, clearSwapSelection, setSourceAttemptOutcome,
+} from './store.js';
+
+/**
+ * apply-swaps resolves source_attempt outcomes against this source (#974). The
+ * apply path reads the legacy photo_decision approve rows, which don't carry the
+ * search source, so 'inat' is assumed — the only image source wired today. When
+ * a second source is added, thread it through ApplyDeps and selectPendingSwaps
+ * (the photo_decision row would need a `source` column) and pass it here.
+ */
+const APPLY_SOURCE = 'inat';
 
 /**
  * swap-review v2 §3 — the operator-override-aware apply source. Derives the
@@ -29,6 +43,8 @@ export function selectAppliableSwaps(db: Database.Database): PendingSwap[] {
         newUrl: p.photoUrl,
         attribution: p.attribution,
         license: p.license,
+        chosenCandidateId: p.candidateId,
+        inatId: p.inatId,
       };
     });
 }
@@ -62,6 +78,12 @@ export interface PendingSwap {
   newUrl: string;                    // chosen candidate's photo_url → admin `sourceUrl`
   attribution: string;
   license: string;
+  // #974 local-promotion fields: the candidate being applied. On a successful
+  // prod push these promote the candidate to the species' CURRENT photo + score
+  // so it leaves the keep=0 needs-swap set. Optional so the override-derived
+  // selectAppliableSwaps source (which has no decision row) still type-checks.
+  chosenCandidateId?: number;        // photo_candidate.id of the applied candidate
+  inatId?: number;                   // photo_candidate.inat_id (joins to its role='candidate' score)
 }
 
 export interface ApplyFailure {
@@ -91,7 +113,9 @@ function selectPendingSwaps(db: Database.Database): PendingSwap[] {
               COALESCE(cur.url, '(none)')            AS oldUrl,
               cand.photo_url    AS newUrl,
               cand.attribution  AS attribution,
-              cand.license      AS license
+              cand.license      AS license,
+              cand.id           AS chosenCandidateId,
+              cand.inat_id      AS inatId
          FROM photo_decision d
          JOIN photo_candidate cand ON cand.id = d.chosen_candidate_id
          LEFT JOIN photo_current cur ON cur.species_code = d.species_code
@@ -109,7 +133,10 @@ function countAlreadyApplied(db: Database.Database): number {
   return row.n;
 }
 
-async function pushOne(deps: ApplyDeps, swap: PendingSwap): Promise<void> {
+/** The admin PUT response (best-effort). `url` is the new content-hashed prod URL. */
+interface AdminPutResponse { url?: string; key?: string }
+
+async function pushOne(deps: ApplyDeps, swap: PendingSwap): Promise<AdminPutResponse> {
   const url = `${deps.adminBase.replace(/\/$/, '')}/admin/species-photos/${swap.speciesCode}`;
   const res = await deps.fetch(url, {
     method: 'PUT',
@@ -132,6 +159,121 @@ async function pushOne(deps: ApplyDeps, swap: PendingSwap): Promise<void> {
     }
     throw new Error(`HTTP ${res.status}${detail ? `: ${detail}` : ''}`);
   }
+  // The admin endpoint returns the new content-hashed prod URL — used as the
+  // promoted photo_current.url when present. A body we can't parse is non-fatal:
+  // the push succeeded, so fall back to the candidate's source url for promotion.
+  try {
+    return (await res.json()) as AdminPutResponse;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Promote the just-applied candidate to the species' CURRENT photo + score
+ * (#974), in ONE transaction with marking the decision applied. After this the
+ * species' current keep flips to the candidate's keep (a good swap → keep=1), so
+ * it drops out of the keep=0 / needs-swap set and the overall list updates.
+ *
+ *  • photo_current.url/attribution/license → the prod URL the admin endpoint
+ *    returned (content-hashed), or the candidate's source url as a fallback.
+ *  • photo_score role='current' ← the candidate's STORED report (its keep,
+ *    quality_score, field_marks, criteria, flags, rationale, content_hash) at the
+ *    current rubric_version.
+ *  • source_attempt → 'applied' (best_score = the promoted quality_score).
+ *  • swap_selection cleared (the swap is done).
+ *
+ * Skipped (with a logged note, never thrown) when the candidate has no stored
+ * role='candidate' score — promotion needs the report, and a missing one means
+ * the candidate was approved out-of-band; the prod push already succeeded, so we
+ * still mark the decision applied and leave the local current photo untouched.
+ */
+function promoteApplied(
+  deps: ApplyDeps, swap: PendingSwap, prodUrl: string | undefined,
+): void {
+  const db = deps.db;
+  const inatId = swap.inatId;
+  if (inatId === undefined) {
+    deps.log(`  note ${swap.speciesCode}: no inat id on the swap — skipped local promotion`);
+    return;
+  }
+  // The candidate's stored report (role='candidate') by its inat id. content_hash
+  // isn't known here, so read by (species, role, inat) directly.
+  const candRow = db.prepare(
+    `SELECT content_hash, overall, verdict, criteria_json, flags_json, keep,
+            quality_score, field_marks, rationale, rubric_version
+       FROM photo_score
+      WHERE species_code = ? AND role = 'candidate' AND candidate_inat_id = ?`,
+  ).get(swap.speciesCode, inatId) as CandidateScoreRow | undefined;
+  if (!candRow) {
+    deps.log(`  note ${swap.speciesCode}: no stored candidate score for inat ${inatId} — pushed to prod, skipped local promotion`);
+    return;
+  }
+
+  const cur = db.prepare(
+    `SELECT com_name, sci_name, family FROM photo_current WHERE species_code = ?`,
+  ).get(swap.speciesCode) as { com_name: string | null; sci_name: string | null; family: string | null } | undefined;
+
+  const newHash = candRow.content_hash ?? '';
+  const newUrl = prodUrl ?? swap.newUrl;
+  const report: QualityReport = {
+    overall: candRow.overall,
+    verdict: candRow.verdict as QualityReport['verdict'],
+    deterministic: {
+      width: 0, height: 0, megapixels: 0, sharpness: 0, exposure: 0, aspectRatio: 0,
+      passedGate: true, failReasons: [],
+    },
+    criteria: JSON.parse(candRow.criteria_json) as CriteriaScores,
+    flags: JSON.parse(candRow.flags_json) as string[],
+    fieldMarks: candRow.field_marks ? (JSON.parse(candRow.field_marks) as string[]) : [],
+    keep: candRow.keep === 1,
+    qualityScore: candRow.quality_score ?? candRow.overall,
+    rationale: candRow.rationale,
+    // promote to the CURRENT rubric version (apply forward only — no re-scoring).
+    rubricVersion: defaultRubricConfig.version,
+  };
+
+  // photo_current → the candidate's photo. upsertCurrentPhoto resets reviewed=0
+  // is NOT desired here, but the displayed list keys on photo_score.keep, so the
+  // upsert below + the role='current' score upsert together flip keep to the
+  // candidate's. (upsertCurrentPhoto leaves reviewed at its column default; a
+  // re-score pass would reset it, which we don't run — apply forward only.)
+  upsertCurrentPhoto(db, {
+    speciesCode: swap.speciesCode,
+    comName: cur?.com_name ?? swap.comName,
+    sciName: cur?.sci_name ?? '',
+    family: cur?.family ?? '',
+    url: newUrl,
+    attribution: swap.attribution,
+    license: swap.license,
+    contentHash: newHash,
+  });
+  // Replace the species' role='current' score outright. upsertScore keys on
+  // (species_code, role, content_hash), so a NEW content_hash would INSERT a
+  // second current-role row and leave the stale keep=0 row behind — the species
+  // would still appear in needs-swap. Delete the old current score(s) first so
+  // exactly one current-role row (the promoted keep=1 candidate) remains.
+  db.prepare(`DELETE FROM photo_score WHERE species_code = ? AND role = 'current'`)
+    .run(swap.speciesCode);
+  upsertScore(db, {
+    speciesCode: swap.speciesCode, role: 'current', candidateInatId: null,
+    contentHash: newHash, report,
+  });
+  setSourceAttemptOutcome(db, swap.speciesCode, APPLY_SOURCE, 'applied', Math.round(report.qualityScore));
+  clearSwapSelection(db, swap.speciesCode);
+}
+
+interface CandidateScoreRow {
+  content_hash: string | null;
+  overall: number;
+  verdict: string;
+  criteria_json: string;
+  flags_json: string;
+  keep: number | null;
+  quality_score: number | null;
+  field_marks: string | null;
+  rationale: string;
+  rubric_version: string;
 }
 
 export async function runApplySwaps(deps: ApplyDeps): Promise<ApplyResult> {
@@ -172,8 +314,16 @@ export async function runApplySwaps(deps: ApplyDeps): Promise<ApplyResult> {
   // means a failed apply never leaves a dangling live URL (spec §8).
   for (const swap of swaps) {
     try {
-      await pushOne(deps, swap);
-      markApplied.run(deps.now(), swap.speciesCode);
+      // Prod push FIRST. Only on a 2xx do we mark applied AND promote the
+      // candidate to the species' current — both in one transaction so a
+      // promotion that throws never leaves a half-applied local state (#974). A
+      // push failure throws here, before any local mutation.
+      const prod = await pushOne(deps, swap);
+      const commit = deps.db.transaction(() => {
+        markApplied.run(deps.now(), swap.speciesCode);
+        promoteApplied(deps, swap, prod.url);
+      });
+      commit();
       applied.push(swap.speciesCode);
       deps.log(`  OK  ${swap.speciesCode}`);
     } catch (err) {

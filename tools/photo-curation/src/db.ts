@@ -83,6 +83,26 @@ CREATE TABLE IF NOT EXISTS swap_selection (
   decided_at     TEXT
 );
 
+-- Per-(species, source) sourcing ledger (#974 skim-the-bottom loop). One row
+-- per species per image source the curator has searched, so a future
+-- source-prepare under the same --source can SKIP a species already searched
+-- under that source (no re-picking the same images) while a DIFFERENT source can
+-- still retry it. outcome in 'searched' (sourced, not yet committed) /
+-- 'better-found' (a committed candidate cleared the Δ>=20 gate) / 'exhausted'
+-- (searched, nothing better — stays needs-swap but future same-source sourcing
+-- skips it) / 'applied' (a swap was pushed to prod). best_score is the best
+-- non-duplicate candidate's quality_score at commit/apply time. PK is the
+-- (species_code, source) pair so re-recording a search upserts in place.
+CREATE TABLE IF NOT EXISTS source_attempt (
+  species_code     TEXT NOT NULL,
+  source           TEXT NOT NULL DEFAULT 'inat',
+  attempted_at     TEXT NOT NULL,
+  candidates_found INTEGER,
+  best_score       INTEGER,
+  outcome          TEXT,
+  PRIMARY KEY (species_code, source)
+);
+
 -- One report per (subject, content_hash): re-scoring an unchanged image is a
 -- no-op the orchestrator can detect before calling the judge.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_photo_score_subject

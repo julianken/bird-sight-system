@@ -91,14 +91,17 @@ program
   .description('Fetch + download a deep iNat candidate pool for FLAGGED species and write a manifest the source agents Read (Node half of the source-candidates Workflow — Bug 1, #992).')
   .option('--pool <n>', 'iNat candidates per flagged species', '15')
   .option('--limit <n>', 'cap how many keep=0 species to source this run, worst-first (default: all)')
-  .action(async (opts: { pool: string; limit?: string }) => {
+  .option('--source <name>', 'image source key; species already searched under it are skipped (#974)', 'inat')
+  .action(async (opts: { pool: string; limit?: string; source: string }) => {
     const db = openDb(DEFAULT_DB_PATH);
     try {
       // --limit caps the number of keep=0 species sourced (worst-first); omit for
       // all. Only set the opt when the flag was passed (exactOptionalPropertyTypes).
-      const limitOpts = opts.limit !== undefined ? { limit: Number(opts.limit) } : {};
+      // --source keys the skip ledger: a species already searched under this
+      // source is excluded; a different source re-tries an iNat-exhausted species.
+      const sourceOpts = { source: opts.source, ...(opts.limit !== undefined ? { limit: Number(opts.limit) } : {}) };
       const result = await sourcePrepare(
-        db, Number(opts.pool), { download: downloadBytes, thumbDir: THUMB_DIR }, limitOpts,
+        db, Number(opts.pool), { download: downloadBytes, thumbDir: THUMB_DIR }, sourceOpts,
       );
       console.log(`[source-prepare] sourced ${result.picked} candidate(s) — ${result.inatFetches} iNat fetch(es) + ${result.downloads} edge download(s); manifest at ${result.manifestPath}`);
       console.log(result.manifestPath);
@@ -111,11 +114,12 @@ program
   .command('source-commit')
   .description('Commit agent candidate scores (composeReport → upsertScore role=candidate) — Node half of the source-candidates Workflow (Bug 1, #992).')
   .argument('<results.json>', 'path to the agent results JSON: [{ speciesCode, inatId, contentHash, criteria, flags, rationale }]')
-  .action(async (resultsPath: string) => {
+  .option('--source <name>', 'image source whose source_attempt rows to resolve (must match source-prepare; #974)', 'inat')
+  .action(async (resultsPath: string, opts: { source: string }) => {
     const db = openDb(DEFAULT_DB_PATH);
     try {
       const results = JSON.parse(await readFile(resultsPath, 'utf8')) as SourceResult[];
-      const summary = await sourceCommit(db, results);
+      const summary = await sourceCommit(db, results, { source: opts.source });
       console.log(`[source-commit] ${JSON.stringify(summary, null, 2)}`);
       process.exit(summary.failed > 0 ? 1 : 0);
     } finally {
