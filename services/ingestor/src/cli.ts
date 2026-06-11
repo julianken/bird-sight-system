@@ -106,6 +106,30 @@ export interface CliDeps {
 }
 
 /**
+ * #999 — shared `--pace-ms=<n>` validation for the `recent` and `backfill`
+ * kinds. eBird's limits effective 2026-06-10 (10k req/day + 1 req/sec burst,
+ * 429 on breach) made per-call pacing operationally load-bearing, so the
+ * scheduler must be able to tune it via containerOverrides without an image
+ * rebuild. Returns the parsed non-negative integer, or undefined after
+ * emitting the standard bird_ingest_invalid_flag line (the caller sets
+ * exitCode and returns).
+ */
+function parsePaceMs(raw: string): number | undefined {
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isInteger(n) || n < 0 || String(n) !== raw) {
+    console.log(JSON.stringify({
+      severity: 'ERROR',
+      message: 'bird_ingest_invalid_flag',
+      flag: '--pace-ms',
+      value: raw,
+      expected: 'non-negative integer milliseconds',
+    }));
+    return undefined;
+  }
+  return n;
+}
+
+/**
  * Executes one ingest run and returns without throwing for run-level failures.
  *
  * Sets `process.exitCode = 1` on `summary.status === 'failure'` so Cloud Run
@@ -249,16 +273,46 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
       // Per-state fan-out (#840): runIngest loops CONUS_STATE_CODES internally
       // (one /recent + /recent/notable per state) because eBird's region-recent
       // endpoint dedups to one-observation-per-species region-wide — a single
-      // 'US' call starved every non-AZ state. paceMs defaults to 1000ms inside
-      // runIngest, applied as ONE inter-round pause per state (recent + notable
-      // fire concurrently per round), so ~48 pauses × 1s ≈ 48s of pacing — well
-      // under the 900s job timeout. (The two endpoints per state make ~98 HTTP
-      // calls total, but they're not serialized 1s apart; the pacing is the ~48
-      // inter-round sleeps, not the call count.) The status ladder (success |
+      // 'US' call starved every non-AZ state. Pacing is PER CALL (#999):
+      // runIngest fetches each state's pair sequentially and sleeps paceMs
+      // (default 1500ms) before every eBird call except the run's first,
+      // because eBird enforces a 1 req/sec burst cap effective 2026-06-10 —
+      // the pacing IS the call count now: 49 states × 2 serialized calls
+      // ≈ 98 calls × (1.5s + latency) ≈ 3–4 min/run, well under the 900s job
+      // timeout and the 30-min cron interval. The status ladder (success |
       // partial | failure) is keyed on per-state failure count + 429
       // circuit-break, and `partial` still pings the success heartbeat below
       // (only `failure` skips it).
-      summary = await deps.runIngest({ pool, apiKey });
+      //
+      // argv shape: ["node", "cli.ts", "recent", "--pace-ms=1500"]. The flag
+      // is optional (#999) — it exists so the scheduler can tune pacing via
+      // containerOverrides without an image rebuild; absent, runIngest's
+      // default applies.
+      const flags = process.argv.slice(3);
+      let paceMs: number | undefined;
+      for (const f of flags) {
+        if (f.startsWith('--pace-ms=')) {
+          const parsed = parsePaceMs(f.slice('--pace-ms='.length));
+          if (parsed === undefined) {
+            process.exitCode = 1;
+            return;
+          }
+          paceMs = parsed;
+        } else {
+          console.log(JSON.stringify({
+            severity: 'ERROR',
+            message: 'bird_ingest_invalid_flag',
+            flag: f,
+            expected: '--pace-ms=N',
+          }));
+          process.exitCode = 1;
+          return;
+        }
+      }
+      summary = await deps.runIngest({
+        pool, apiKey,
+        ...(paceMs !== undefined && { paceMs }),
+      });
     } else if (kind === 'hotspots') {
       summary = await deps.runHotspotIngest({ pool, apiKey, regionCode: 'US-AZ' });
     } else if (kind === 'backfill') {
@@ -272,11 +326,15 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
       // /historic call can blow past eBird's response-size limit (HTTP 500
       // on large states like CA), and the mitigation is to fan out per
       // county.
+      // --pace-ms=N (#999) overrides runBackfill's 1500ms per-call pacing
+      // default (eBird 1 req/sec burst cap, effective 2026-06-10) so the
+      // scheduler can tune it via containerOverrides without a rebuild.
       // argv shape: ["node", "cli.ts", "backfill", "--state=US-CA", "--back=14"]
       //         or: ["node", "cli.ts", "backfill", "--state=US-CA-001", "--back=14"].
       const flags = process.argv.slice(3);
       let regionCode = 'US-AZ';
       let days = 19;
+      let paceMs: number | undefined;
       for (const f of flags) {
         if (f.startsWith('--state=')) {
           const v = f.slice('--state='.length);
@@ -307,19 +365,29 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
             return;
           }
           days = n;
+        } else if (f.startsWith('--pace-ms=')) {
+          const parsed = parsePaceMs(f.slice('--pace-ms='.length));
+          if (parsed === undefined) {
+            process.exitCode = 1;
+            return;
+          }
+          paceMs = parsed;
         } else {
           console.log(JSON.stringify({
             severity: 'ERROR',
             message: 'bird_ingest_invalid_flag',
             flag: f,
-            expected: '--state=US-XX[-NNN] or --back=N',
+            expected: '--state=US-XX[-NNN], --back=N, or --pace-ms=N',
           }));
           process.exitCode = 1;
           return;
         }
       }
       backfillState = regionCode;
-      summary = await deps.runBackfill({ pool, apiKey, regionCode, days });
+      summary = await deps.runBackfill({
+        pool, apiKey, regionCode, days,
+        ...(paceMs !== undefined && { paceMs }),
+      });
     } else if (kind === 'backfill-extended') {
       // 'backfill-extended': one-shot 365-day backfill at 1 rps; this is NOT
       // scheduled — it's an operator-triggered one-shot to populate historical
