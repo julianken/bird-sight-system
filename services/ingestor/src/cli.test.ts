@@ -34,6 +34,11 @@ describe('runCli', () => {
   beforeEach(() => {
     process.env = { ...ORIGINAL_ENV, EBIRD_API_KEY: 'k', DATABASE_URL: 'postgres://x' };
     process.exitCode = undefined;
+    // Flag-parsing kinds (`recent` since #999, `backfill` since Phase 3.5)
+    // read process.argv.slice(3); under vitest the real argv carries
+    // runner-specific arguments that would trip strict unknown-flag
+    // rejection. Pin a flagless argv; tests that exercise flags set their own.
+    process.argv = ['node', 'cli.ts'];
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
   });
   afterEach(() => {
@@ -348,6 +353,101 @@ describe('runCli', () => {
 
     it('rejects --state=US-CA-001-x (more than one subnational segment)', async () => {
       process.argv = ['node', 'cli.ts', 'backfill', '--state=US-CA-001-x'];
+      const runBackfillSpy = vi.fn();
+      const deps = makeDeps({ runBackfill: runBackfillSpy });
+      await runCli('backfill', deps);
+      expect(process.exitCode).toBe(1);
+      expect(runBackfillSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── --pace-ms flag (#999) ─────────────────────────────────────────────────
+  // eBird's limits effective 2026-06-10 (10k/day + 1 req/sec burst) made
+  // pacing operationally load-bearing. --pace-ms=<n> lets the scheduler tune
+  // per-call pacing via containerOverrides without an image rebuild; absent,
+  // the runner defaults (1500ms) apply.
+  describe('--pace-ms flag (#999)', () => {
+    const SUCCESS_RECENT: RunSummary = {
+      status: 'success', fetched: 0, upserted: 0,
+      statesSucceeded: 49, statesFailed: 0,
+    };
+    const SUCCESS_BACKFILL = {
+      status: 'success' as const, fetched: 0, upserted: 0, daysProcessed: 19,
+    };
+
+    it('"recent" passes --pace-ms through to runIngest', async () => {
+      process.argv = ['node', 'cli.ts', 'recent', '--pace-ms=2500'];
+      const runIngestSpy = vi.fn().mockResolvedValue(SUCCESS_RECENT);
+      const deps = makeDeps({ runIngest: runIngestSpy });
+      await runCli('recent', deps);
+      expect(runIngestSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ paceMs: 2500 })
+      );
+    });
+
+    it('"recent" accepts --pace-ms=0 (explicit no pacing)', async () => {
+      process.argv = ['node', 'cli.ts', 'recent', '--pace-ms=0'];
+      const runIngestSpy = vi.fn().mockResolvedValue(SUCCESS_RECENT);
+      const deps = makeDeps({ runIngest: runIngestSpy });
+      await runCli('recent', deps);
+      expect(runIngestSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ paceMs: 0 })
+      );
+    });
+
+    it('"recent" omits paceMs when the flag is absent so the runner default applies', async () => {
+      process.argv = ['node', 'cli.ts', 'recent'];
+      const runIngestSpy = vi.fn().mockResolvedValue(SUCCESS_RECENT);
+      const deps = makeDeps({ runIngest: runIngestSpy });
+      await runCli('recent', deps);
+      expect(runIngestSpy).toHaveBeenCalledTimes(1);
+      const arg = runIngestSpy.mock.calls[0]![0] as { paceMs?: number };
+      expect('paceMs' in arg).toBe(false);
+    });
+
+    it.each(['fast', '-100', '1.5', ''])(
+      '"recent" rejects --pace-ms=%s (must be a non-negative integer)',
+      async (bad) => {
+        process.argv = ['node', 'cli.ts', 'recent', `--pace-ms=${bad}`];
+        const runIngestSpy = vi.fn();
+        const deps = makeDeps({ runIngest: runIngestSpy });
+        await runCli('recent', deps);
+        expect(process.exitCode).toBe(1);
+        expect(runIngestSpy).not.toHaveBeenCalled();
+      }
+    );
+
+    it('"recent" rejects unknown flags (same strictness as backfill)', async () => {
+      process.argv = ['node', 'cli.ts', 'recent', '--pacems=2000'];
+      const runIngestSpy = vi.fn();
+      const deps = makeDeps({ runIngest: runIngestSpy });
+      await runCli('recent', deps);
+      expect(process.exitCode).toBe(1);
+      expect(runIngestSpy).not.toHaveBeenCalled();
+    });
+
+    it('"backfill" passes --pace-ms through to runBackfill alongside --state/--back', async () => {
+      process.argv = ['node', 'cli.ts', 'backfill', '--state=US-CA', '--back=14', '--pace-ms=2000'];
+      const runBackfillSpy = vi.fn().mockResolvedValue(SUCCESS_BACKFILL);
+      const deps = makeDeps({ runBackfill: runBackfillSpy });
+      await runCli('backfill', deps);
+      expect(runBackfillSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ regionCode: 'US-CA', days: 14, paceMs: 2000 })
+      );
+    });
+
+    it('"backfill" omits paceMs when the flag is absent so the runner default applies', async () => {
+      process.argv = ['node', 'cli.ts', 'backfill'];
+      const runBackfillSpy = vi.fn().mockResolvedValue(SUCCESS_BACKFILL);
+      const deps = makeDeps({ runBackfill: runBackfillSpy });
+      await runCli('backfill', deps);
+      expect(runBackfillSpy).toHaveBeenCalledTimes(1);
+      const arg = runBackfillSpy.mock.calls[0]![0] as { paceMs?: number };
+      expect('paceMs' in arg).toBe(false);
+    });
+
+    it('"backfill" rejects a malformed --pace-ms', async () => {
+      process.argv = ['node', 'cli.ts', 'backfill', '--pace-ms=quick'];
       const runBackfillSpy = vi.fn();
       const deps = makeDeps({ runBackfill: runBackfillSpy });
       await runCli('backfill', deps);
