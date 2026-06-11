@@ -13,6 +13,7 @@ function seedDb(): Database.Database {
     CREATE TABLE photo_score(id INTEGER PRIMARY KEY, species_code TEXT, role TEXT, candidate_inat_id INTEGER, content_hash TEXT, overall REAL, verdict TEXT, criteria_json TEXT, flags_json TEXT, keep INTEGER, quality_score REAL, field_marks TEXT, rationale TEXT, rubric_version TEXT, scored_at TEXT);
     CREATE TABLE photo_candidate(id INTEGER PRIMARY KEY, species_code TEXT, inat_id INTEGER, photo_url TEXT, thumb_path TEXT, attribution TEXT, license TEXT, excluded INTEGER DEFAULT 0, source_round INTEGER);
     CREATE TABLE photo_decision(species_code TEXT PRIMARY KEY, action TEXT, chosen_candidate_id INTEGER, deny_reason TEXT, deny_tags_json TEXT, resource_requested INTEGER NOT NULL DEFAULT 0, decided_at TEXT, applied INTEGER DEFAULT 0, applied_at TEXT);
+    CREATE TABLE swap_selection(species_code TEXT PRIMARY KEY, chosen_inat_id INTEGER, decided_at TEXT);
   `);
   const crit = JSON.stringify({ framing: 8, subjectClarity: 9, liveness: 10, naturalness: 9, pose: 7, background: 6, lighting: 8 });
   db.prepare(`INSERT INTO photo_current (species_code,com_name,sci_name,family,url,attribution,license,content_hash,reviewed) VALUES ('houspa','House Sparrow','Passer domesticus','passeridae','https://photos/houspa.jpg','(c) B','cc0','hashB',1)`).run();
@@ -193,5 +194,88 @@ describe('review-server API', () => {
 
     const bad = await request(app).get('/api/pending-swaps?limit=-1');
     expect(bad.status).toBe(400);
+  });
+
+  // ── swap-review v2: operator override (click-to-pick) ──
+
+  /** Flag houspa needs-replacement and give the two candidates scores. */
+  function flagWithCandidates(db: Database.Database): void {
+    db.prepare(`UPDATE photo_score SET keep=0, quality_score=20 WHERE species_code='houspa' AND role='current'`).run();
+    db.prepare(`UPDATE photo_score SET quality_score=82 WHERE candidate_inat_id=5001`).run(); // auto best (Δ62)
+    db.prepare(`UPDATE photo_score SET quality_score=64 WHERE candidate_inat_id=5002`).run(); // operator pick
+  }
+
+  it('POST /api/select-swap records an override; GET reflects it; selectSwaps honors it (chosen != auto-best)', async () => {
+    flagWithCandidates(db);
+    const app = createServer(db);
+
+    // Auto-best is 5001; operator overrides to 5002.
+    const res = await request(app).post('/api/select-swap').send({ speciesCode: 'houspa', inatId: 5002 });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+
+    // GET /api/select-swap/:code reflects the persisted override.
+    const got = await request(app).get('/api/select-swap/houspa');
+    expect(got.status).toBe(200);
+    expect(got.body.chosenInatId).toBe(5002);
+
+    // pending-swaps now proposes the OVERRIDDEN candidate, flagged operatorChosen.
+    const swaps = await request(app).get('/api/pending-swaps');
+    const s = swaps.body.swaps[0];
+    expect(s.proposed.inatId).toBe(5002);
+    expect(s.operatorChosen).toBe(true);
+    expect(s.candidates.find((c: { inatId: number }) => c.inatId === 5002).selected).toBe(true);
+  });
+
+  it('POST /api/select-swap with inatId:null records an explicit "no swap"; selectSwaps proposes null', async () => {
+    flagWithCandidates(db);
+    const app = createServer(db);
+
+    const res = await request(app).post('/api/select-swap').send({ speciesCode: 'houspa', inatId: null });
+    expect(res.status).toBe(200);
+
+    const got = await request(app).get('/api/select-swap/houspa');
+    expect(got.body.chosenInatId).toBeNull();
+
+    const swaps = await request(app).get('/api/pending-swaps');
+    const s = swaps.body.swaps[0];
+    expect(s.proposed).toBeNull();
+    expect(s.operatorChosen).toBe(true);
+  });
+
+  it('GET /api/select-swap/:code returns chosenInatId:undefined-equivalent (null body) when no override', async () => {
+    flagWithCandidates(db);
+    const app = createServer(db);
+    const got = await request(app).get('/api/select-swap/houspa');
+    expect(got.status).toBe(200);
+    expect(got.body.override).toBeNull();
+  });
+
+  it('DELETE /api/select-swap/:code reverts to the auto gate (override row removed)', async () => {
+    flagWithCandidates(db);
+    const app = createServer(db);
+
+    // Override to 5002, then revert.
+    await request(app).post('/api/select-swap').send({ speciesCode: 'houspa', inatId: 5002 });
+    expect((await request(app).get('/api/select-swap/houspa')).body.override).not.toBeNull();
+
+    const del = await request(app).delete('/api/select-swap/houspa');
+    expect(del.status).toBe(200);
+    expect(del.body.ok).toBe(true);
+    // Override gone → auto gate resumes; auto-best 5001 is proposed, not operator.
+    expect((await request(app).get('/api/select-swap/houspa')).body.override).toBeNull();
+    const swaps = await request(app).get('/api/pending-swaps');
+    expect(swaps.body.swaps[0].proposed.inatId).toBe(5001);
+    expect(swaps.body.swaps[0].operatorChosen).toBe(false);
+  });
+
+  it('POST /api/select-swap validates speciesCode and inatId', async () => {
+    const app = createServer(db);
+    // missing speciesCode
+    expect((await request(app).post('/api/select-swap').send({ inatId: 5001 })).status).toBe(400);
+    // non-integer inatId (and not null)
+    expect((await request(app).post('/api/select-swap').send({ speciesCode: 'houspa', inatId: 'nope' })).status).toBe(400);
+    // missing inatId key entirely is rejected (must be a number or explicit null)
+    expect((await request(app).post('/api/select-swap').send({ speciesCode: 'houspa' })).status).toBe(400);
   });
 });

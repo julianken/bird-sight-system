@@ -7,6 +7,7 @@ import {
   type SortMode, type FilterMode,
 } from './queries.js';
 import { selectSwaps } from '../swaps.js';
+import { setSwapSelection, getSwapSelection, clearSwapSelection } from '../store.js';
 
 // NOTE: the Express server is plain Node — it CANNOT dispatch a Claude Code
 // agent, so it never scores a photo. All scoring lives in the `source-candidates`
@@ -66,6 +67,49 @@ export function createServer(db: Database.Database): Express {
     const swaps = selectSwaps(db, limit !== undefined ? { limit } : {});
     const proposedCount = swaps.filter(s => s.proposed !== null).length;
     return res.json({ swaps, total: swaps.length, proposedCount });
+  });
+
+  // Operator override for the pending-swaps screen (swap-review v2 §3). The page
+  // calls POST on a click-to-pick: `inatId` (a number) promotes that candidate
+  // over the auto Δ≥20 best; `inatId: null` is an explicit "no swap"; the auto
+  // gate is restored by clearing the row (POST inatId equal to the auto pick is
+  // still a valid explicit override — the operator chose it deliberately). The
+  // override is keyed on species_code and read back by selectSwaps, so a refresh
+  // (GET /api/pending-swaps) reflects it. GET here returns the raw stored row.
+  app.get('/api/select-swap/:code', (req: Request, res: Response) => {
+    const code = req.params.code;
+    if (typeof code !== 'string' || !code) return res.status(400).json({ error: 'species code required' });
+    const sel = getSwapSelection(db, code);
+    // `override` is the full row (null when none); `chosenInatId` is hoisted for
+    // the page's convenience (null both when no row AND when "no swap" — the page
+    // distinguishes via `override === null`).
+    return res.json({ override: sel, chosenInatId: sel ? sel.chosenInatId : null });
+  });
+
+  app.post('/api/select-swap', (req: Request, res: Response) => {
+    const { speciesCode, inatId } = req.body ?? {};
+    if (typeof speciesCode !== 'string' || !speciesCode) {
+      return res.status(400).json({ error: 'speciesCode required' });
+    }
+    // inatId MUST be present and either an integer (promote that candidate) or
+    // null (explicit "no swap"). `undefined`/missing, strings, floats, NaN are
+    // rejected — an ambiguous override would silently diverge from apply-swaps.
+    const isInt = typeof inatId === 'number' && Number.isInteger(inatId);
+    if (inatId !== null && !isInt) {
+      return res.status(400).json({ error: 'inatId must be an integer or null' });
+    }
+    setSwapSelection(db, speciesCode, inatId as number | null);
+    return res.json({ ok: true });
+  });
+
+  // Revert a species to the AUTO gate by deleting its override row (distinct
+  // from POST inatId:null, which records an explicit "no swap"). The "Use auto
+  // pick" button calls this.
+  app.delete('/api/select-swap/:code', (req: Request, res: Response) => {
+    const code = req.params.code;
+    if (typeof code !== 'string' || !code) return res.status(400).json({ error: 'species code required' });
+    clearSwapSelection(db, code);
+    return res.json({ ok: true });
   });
 
   app.get('/api/swap/:code', (req: Request, res: Response) => {

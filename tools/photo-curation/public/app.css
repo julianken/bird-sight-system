@@ -64,6 +64,13 @@ body { margin: 0; font-family: var(--font-stack); font-size: var(--type-base); b
 .alt.selected { border-color: var(--status-good); }
 .alt img { width: 96px; height: 72px; object-fit: cover; display: block; }
 .alt .alt-score { font-size: var(--type-xs); text-align: center; padding: 2px; }
+/* pending-swaps renders each candidate as a clickable <button class="alt"> for
+   the click-to-pick override; strip the UA button chrome + restore pointer
+   (the read-only `.rejected .alt` below forces cursor:default on swap.js divs). */
+button.alt { font: inherit; color: inherit; padding: 0; text-align: inherit; -webkit-appearance: none; appearance: none; }
+.rejected button.alt { cursor: pointer; width: 96px; }
+.rejected button.alt img { width: 96px; height: 72px; }
+.rejected button.alt.selected { border-color: var(--status-good); }
 .action-bar { display: flex; gap: 12px; margin-top: 20px; flex-wrap: wrap; align-items: center; }
 .btn { font: inherit; padding: 10px 18px; border-radius: var(--radius-lg); border: 1px solid var(--border); cursor: pointer; background: var(--surface); color: var(--text); }
 .btn.approve { background: var(--status-great); color: #fff; border-color: var(--status-great); }

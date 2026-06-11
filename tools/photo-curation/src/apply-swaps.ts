@@ -1,4 +1,37 @@
 import type Database from 'better-sqlite3';
+import { selectSwaps } from './swaps.js';
+
+/**
+ * swap-review v2 §3 — the operator-override-aware apply source. Derives the
+ * appliable swaps from selectSwaps, whose `proposed` ALREADY reflects the
+ * swap_selection override (operator click-to-pick wins over the auto Δ≥20 gate;
+ * an explicit "no swap" yields proposed=null). Returns one PendingSwap per
+ * species with a non-null proposal, so apply-swaps and the pending-swaps page
+ * read the SAME selection and can never diverge.
+ *
+ * Follow-up (#974): the legacy `runApplySwaps` path below still reads the
+ * human approve/deny `photo_decision` rows, which is a SEPARATE selection
+ * mechanism from the auto-gate + override flow. This function is the bridge —
+ * the CLI/runner can apply from EITHER source. Unifying the two (folding the
+ * approve decision into swap_selection, or vice versa) is a deliberate
+ * follow-up, not done here, to keep the confirm-gated approve workflow's
+ * behaviour unchanged for this PR.
+ */
+export function selectAppliableSwaps(db: Database.Database): PendingSwap[] {
+  return selectSwaps(db)
+    .filter(s => s.proposed !== null)
+    .map(s => {
+      const p = s.proposed!;
+      return {
+        speciesCode: s.speciesCode,
+        comName: s.comName,
+        oldUrl: s.current.photoUrl || '(none)',
+        newUrl: p.photoUrl,
+        attribution: p.attribution,
+        license: p.license,
+      };
+    });
+}
 
 /**
  * Staged apply (spec §5.6). Reads `photo_decision` rows where

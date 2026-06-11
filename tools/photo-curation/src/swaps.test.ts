@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type Database from 'better-sqlite3';
 import { openDb } from './db.js';
-import { upsertCurrentPhoto, upsertScore, insertCandidate } from './store.js';
+import { upsertCurrentPhoto, upsertScore, insertCandidate, setSwapSelection } from './store.js';
 import { selectSwaps } from './swaps.js';
 import type { QualityReport } from '@bird-watch/photo-quality';
 
@@ -9,16 +9,22 @@ let db: Database.Database;
 beforeEach(() => { db = openDb(':memory:'); });
 afterEach(() => db.close());
 
-function seedCurrent(code: string, comName: string): void {
+function seedCurrent(code: string, comName: string, contentHash = `cur-${code}`): void {
   upsertCurrentPhoto(db, {
     speciesCode: code, comName, sciName: `Sci ${code}`, family: `Fam ${code}`,
     url: `https://photos.bird-maps.com/${code}.jpg`,
-    attribution: `(c) Owner ${code}`, license: 'cc-by', contentHash: `cur-${code}`,
+    attribution: `(c) Owner ${code}`, license: 'cc-by', contentHash,
   });
 }
 
-/** A current-photo score row. keep=0 = needs replacement. */
-function seedCurrentScore(code: string, s: { keep: boolean; qualityScore: number }): void {
+/**
+ * A current-photo score row. keep=0 = needs replacement. The score's
+ * content_hash (role='current') is the live image hash the same-picture gate
+ * compares against; pass `contentHash` to match a seedCurrent dup hash.
+ */
+function seedCurrentScore(
+  code: string, s: { keep: boolean; qualityScore: number; contentHash?: string },
+): void {
   const report: QualityReport = {
     overall: s.qualityScore, verdict: s.keep ? 'good' : 'reject',
     deterministic: { width: 0, height: 0, megapixels: 0, sharpness: 0, exposure: 0, aspectRatio: 0, passedGate: true, failReasons: [] },
@@ -26,14 +32,18 @@ function seedCurrentScore(code: string, s: { keep: boolean; qualityScore: number
     flags: [], fieldMarks: ['eye-ring'], keep: s.keep, qualityScore: s.qualityScore,
     rationale: `current ${code} rationale`, rubricVersion: '0.2.0',
   };
-  upsertScore(db, { speciesCode: code, role: 'current', candidateInatId: null, contentHash: `cur-${code}`, report });
+  upsertScore(db, {
+    speciesCode: code, role: 'current', candidateInatId: null,
+    contentHash: s.contentHash ?? `cur-${code}`, report,
+  });
 }
 
 /** A candidate photo + its scored row (role='candidate'). */
 function seedCandidate(
   code: string, inatId: number,
-  s: { qualityScore: number; keep?: boolean; marks?: string[]; excluded?: boolean },
+  s: { qualityScore: number; keep?: boolean; marks?: string[]; excluded?: boolean; contentHash?: string },
 ): void {
+  const contentHash = s.contentHash ?? `cand-${code}-${inatId}`;
   insertCandidate(db, {
     speciesCode: code, inatId, photoUrl: `https://inaturalist-open-data.s3.amazonaws.com/${inatId}.jpg`,
     thumbPath: `thumb-cache/${code}-${inatId}.jpg`, attribution: `(c) iNat ${inatId}`,
@@ -49,7 +59,7 @@ function seedCandidate(
     flags: [], fieldMarks: s.marks ?? ['wing bars'], keep: s.keep ?? true, qualityScore: s.qualityScore,
     rationale: `candidate ${inatId} rationale`, rubricVersion: '0.2.0',
   };
-  upsertScore(db, { speciesCode: code, role: 'candidate', candidateInatId: inatId, contentHash: `cand-${code}-${inatId}`, report });
+  upsertScore(db, { speciesCode: code, role: 'candidate', candidateInatId: inatId, contentHash, report });
 }
 
 describe('selectSwaps', () => {
@@ -138,10 +148,10 @@ describe('selectSwaps', () => {
     seedCurrent('exsp', 'Excluded Sp');
     seedCurrentScore('exsp', { keep: false, qualityScore: 30 });
     seedCandidate('exsp', 800, { qualityScore: 90, excluded: true }); // denied earlier
-    seedCandidate('exsp', 900, { qualityScore: 45 });
+    seedCandidate('exsp', 900, { qualityScore: 55 }); // Δ25 ≥ 20 → proposed
 
     const r = selectSwaps(db)[0]!;
-    // 800 excluded → best is 900; proposed because 45 > 30.
+    // 800 excluded → best is 900; proposed because 55 − 30 = 25 ≥ MIN_IMPROVEMENT.
     expect(r.proposed!.inatId).toBe(900);
     expect(r.candidates.map(c => c.inatId)).toEqual([900]);
   });
@@ -154,6 +164,106 @@ describe('selectSwaps', () => {
 
     const r = selectSwaps(db)[0]!;
     expect(r.proposed!.inatId).toBe(1100);
+  });
+
+  // ── Swap-review v2 gates (same-picture dedup + minimum-improvement Δ≥20) ──
+
+  it('(g1) EXCLUDES a same-picture candidate (content_hash == current) and never proposes it', () => {
+    seedCurrent('dupsp', 'Dup Sp', 'samehash');
+    seedCurrentScore('dupsp', { keep: false, qualityScore: 30, contentHash: 'samehash' });
+    // 100 is byte-identical to the live photo (iNat returned the image already live).
+    // Even though it scores far above the current, it is never a real improvement.
+    seedCandidate('dupsp', 100, { qualityScore: 95, contentHash: 'samehash' });
+    // 200 is a genuinely different photo that clears the Δ≥20 gate.
+    seedCandidate('dupsp', 200, { qualityScore: 60, contentHash: 'otherhash' });
+
+    const r = selectSwaps(db)[0]!;
+    // The same-picture dup is filtered out entirely — not in candidates, not proposed.
+    expect(r.candidates.map(c => c.inatId)).toEqual([200]);
+    expect(r.proposed!.inatId).toBe(200);
+    expect(r.delta).toBe(30); // 60 − 30, computed against the non-dup best
+  });
+
+  it('(g2) a species whose ONLY candidate is the same-picture dup is OMITTED entirely', () => {
+    seedCurrent('onlydup', 'Only Dup', 'samebytes');
+    seedCurrentScore('onlydup', { keep: false, qualityScore: 20, contentHash: 'samebytes' });
+    seedCandidate('onlydup', 300, { qualityScore: 90, contentHash: 'samebytes' });
+
+    // After filtering the dup, no candidate remains → omitted (same as no-candidates).
+    expect(selectSwaps(db).map(r => r.speciesCode)).not.toContain('onlydup');
+  });
+
+  it('(g3) Δ boundary: a candidate beating current by exactly 19 is NOT proposed; by exactly 20 IS', () => {
+    // current 50; best candidate 69 → Δ19 < MIN_IMPROVEMENT(20) → not proposed.
+    seedCurrent('d19', 'Delta 19');
+    seedCurrentScore('d19', { keep: false, qualityScore: 50 });
+    seedCandidate('d19', 400, { qualityScore: 69 });
+
+    const r19 = selectSwaps(db).find(r => r.speciesCode === 'd19')!;
+    expect(r19.proposed).toBeNull();
+    expect(r19.outscores).toBe(false);
+    expect(r19.delta).toBe(19);
+    expect(r19.candidates.every(c => !c.selected)).toBe(true);
+
+    // current 50; best candidate 70 → Δ20 == MIN_IMPROVEMENT → proposed.
+    seedCurrent('d20', 'Delta 20');
+    seedCurrentScore('d20', { keep: false, qualityScore: 50 });
+    seedCandidate('d20', 500, { qualityScore: 70 });
+
+    const r20 = selectSwaps(db).find(r => r.speciesCode === 'd20')!;
+    expect(r20.proposed!.inatId).toBe(500);
+    expect(r20.outscores).toBe(true);
+    expect(r20.delta).toBe(20);
+  });
+
+  it('(g4) compares against the best NON-duplicate candidate, not the global best when the global best is a dup', () => {
+    seedCurrent('nondup', 'Non Dup', 'liveimg');
+    seedCurrentScore('nondup', { keep: false, qualityScore: 30, contentHash: 'liveimg' });
+    // Global best (95) is the same-picture dup → excluded. Best non-dup is 700 (58).
+    seedCandidate('nondup', 600, { qualityScore: 95, contentHash: 'liveimg' });
+    seedCandidate('nondup', 700, { qualityScore: 58, contentHash: 'fresh-a' });
+    seedCandidate('nondup', 800, { qualityScore: 40, contentHash: 'fresh-b' });
+
+    const r = selectSwaps(db)[0]!;
+    // 700 (best non-dup) is the comparison + the proposal, NOT the 95 dup.
+    expect(r.proposed!.inatId).toBe(700);
+    expect(r.delta).toBe(28); // 58 − 30
+    expect(r.candidates.map(c => c.inatId).sort((a, b) => a - b)).toEqual([700, 800]);
+  });
+
+  // ── Operator override (swap_selection) ──
+
+  it('(o1) an operator override WINS over the auto best (proposes the chosen candidate, marks operatorChosen)', () => {
+    seedCurrent('ovr', 'Override Sp');
+    seedCurrentScore('ovr', { keep: false, qualityScore: 30 });
+    seedCandidate('ovr', 100, { qualityScore: 90 }); // auto-best (Δ60)
+    seedCandidate('ovr', 200, { qualityScore: 55 }); // operator's pick
+
+    // No override → auto picks the 90.
+    expect(selectSwaps(db)[0]!.proposed!.inatId).toBe(100);
+    expect(selectSwaps(db)[0]!.operatorChosen).toBe(false);
+
+    // Operator overrides to 200; it now wins despite the 90 being the auto-best.
+    setSwapSelection(db, 'ovr', 200);
+    const r = selectSwaps(db)[0]!;
+    expect(r.proposed!.inatId).toBe(200);
+    expect(r.operatorChosen).toBe(true);
+    // `outscores` still reflects the AUTO signal (auto-best 90 clears Δ20).
+    expect(r.outscores).toBe(true);
+    expect(r.candidates.find(c => c.inatId === 200)!.selected).toBe(true);
+    expect(r.candidates.find(c => c.inatId === 100)!.selected).toBe(false);
+  });
+
+  it('(o2) an explicit NULL override is "operator: no swap" (proposed=null, operatorChosen=true)', () => {
+    seedCurrent('nosw', 'No Swap Sp');
+    seedCurrentScore('nosw', { keep: false, qualityScore: 30 });
+    seedCandidate('nosw', 300, { qualityScore: 90 }); // auto would propose this
+
+    setSwapSelection(db, 'nosw', null);
+    const r = selectSwaps(db)[0]!;
+    expect(r.proposed).toBeNull();
+    expect(r.operatorChosen).toBe(true);
+    expect(r.candidates.every(c => !c.selected)).toBe(true);
   });
 
   it('orders species worst-current-first (quality_score ASC) and honors an optional limit', () => {

@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type Database from 'better-sqlite3';
 import { openDb } from './db.js';
-import { upsertCurrentPhoto, upsertScore, getScoreByHash, selectUnreviewed, listCandidates } from './store.js';
+import { upsertCurrentPhoto, upsertScore, getScoreByHash, selectUnreviewed, listCandidates, updateCurrentPhotoHash } from './store.js';
+import { sha8 } from './hash.js';
 import {
   scorePrepare, scoreCommit, sourcePrepare, sourceCommit,
 } from './score-orchestration.js';
@@ -375,6 +376,38 @@ describe('sourcePrepare (Node, testable — Bug 1 source-candidates split)', () 
     expect(fetchInatCandidates).toHaveBeenCalledTimes(3);
     const manifest = JSON.parse(readFileSync(result.manifestPath, 'utf8')) as Array<{ speciesCode: string }>;
     expect([...new Set(manifest.map(m => m.speciesCode))].sort()).toEqual(['a', 'b', 'c']);
+  });
+
+  // Swap-review v2 §2: same-picture dedup at SOURCE time. bird-maps.com sourced
+  // its live photos from iNat, so iNat routinely returns the byte-identical image
+  // already live. Skipping it BEFORE insert/manifest means the (paid) Opus judge
+  // never scores a photo we already have — the ≈20% resource win.
+  it('SKIPS a candidate whose bytes hash to the current photo content_hash (not inserted, not in manifest); keeps distinct candidates', async () => {
+    seedCurrent('dedupe', 'https://photos.example/dedupe.jpg');
+    seedFlaggedScore('dedupe');
+
+    // The download stub hashes Buffer.from(url). Candidate 11's bytes are the
+    // SAME image as the current live photo, so stamp the current content_hash to
+    // its sha8 — source-prepare must skip 11 and keep 12 (a distinct image).
+    const dupUrl = 'https://inat.example/dup.jpg';
+    const freshUrl = 'https://inat.example/fresh.jpg';
+    updateCurrentPhotoHash(db, 'dedupe', sha8(Buffer.from(dupUrl)));
+
+    const fetchInatCandidates = vi.fn(async () => [
+      { inatId: 11, photoUrl: dupUrl, attribution: '(c) P (CC BY)', license: 'cc-by' },
+      { inatId: 12, photoUrl: freshUrl, attribution: '(c) Q (CC0)', license: 'cc0' },
+    ]);
+    const download = vi.fn(async (url: string) => Buffer.from(url));
+
+    const result = await sourcePrepare(db, 5, { fetchInatCandidates, download, thumbDir: workDir, clock: instant() });
+
+    // 11 (byte-identical to live) is skipped; only 12 is sourced.
+    expect(result.skippedDuplicates).toBe(1);
+    expect(result.picked).toBe(1);
+    const manifest = JSON.parse(readFileSync(result.manifestPath, 'utf8')) as Array<{ inatId: number }>;
+    expect(manifest.map(m => m.inatId)).toEqual([12]);
+    // The dup was never inserted as a candidate row (no judge will ever see it).
+    expect(listCandidates(db, 'dedupe').map(c => c.inatId)).toEqual([12]);
   });
 });
 
