@@ -53,6 +53,21 @@ describe('openDb', () => {
     expect(row.reviewed).toBe(0);
   });
 
+  it('source_attempt has the contract columns and (species_code, source) PK (#974)', () => {
+    db = openDb(':memory:');
+    expect(columns(db, 'source_attempt')).toEqual([
+      'species_code', 'source', 'attempted_at', 'candidates_found', 'best_score', 'outcome',
+    ]);
+    // composite PK on (species_code, source).
+    const pk = (db.prepare(`PRAGMA table_info(source_attempt)`).all() as { name: string; pk: number }[])
+      .filter(c => c.pk > 0).map(c => c.name).sort();
+    expect(pk).toEqual(['source', 'species_code']);
+    // source defaults to 'inat'.
+    db.prepare(`INSERT INTO source_attempt (species_code, attempted_at) VALUES (?, ?)`).run('amerob', 'now');
+    const row = db.prepare(`SELECT source FROM source_attempt WHERE species_code=?`).get('amerob') as { source: string };
+    expect(row.source).toBe('inat');
+  });
+
   it('photo_decision defaults applied=0 and exposes the four-action shape', () => {
     db = openDb(':memory:');
     db.prepare(

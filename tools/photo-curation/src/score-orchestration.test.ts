@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type Database from 'better-sqlite3';
 import { openDb } from './db.js';
-import { upsertCurrentPhoto, upsertScore, getScoreByHash, selectUnreviewed, listCandidates, updateCurrentPhotoHash } from './store.js';
+import { upsertCurrentPhoto, upsertScore, getScoreByHash, selectUnreviewed, listCandidates, updateCurrentPhotoHash, getSourceAttempt, recordSourceAttempt } from './store.js';
 import { sha8 } from './hash.js';
 import {
   scorePrepare, scoreCommit, sourcePrepare, sourceCommit,
@@ -443,6 +443,124 @@ describe('sourceCommit (Node, testable — Bug 1 source-candidates split)', () =
     expect(['great', 'good']).toContain(stored!.verdict);
     expect(stored!.keep).toBe(true);
     expect(stored!.qualityScore).toBe(88);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #974 — source-keyed skip ledger. source-prepare records a source_attempt per
+// species it sources, and SKIPS species already searched under the run's source.
+// source-commit resolves 'searched' → 'better-found' | 'exhausted'.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('sourcePrepare — source_attempt skip + record (#974)', () => {
+  it('records outcome=searched for each newly-sourced species, with the non-dup candidate count', async () => {
+    seedCurrent('flag1', 'https://photos.example/flag1.jpg');
+    seedFlaggedScore('flag1');
+    const fetchInatCandidates = vi.fn(async () => [
+      { inatId: 11, photoUrl: 'https://inat.example/11.jpg', attribution: '(c) P', license: 'cc-by' },
+      { inatId: 12, photoUrl: 'https://inat.example/12.jpg', attribution: '(c) Q', license: 'cc0' },
+    ]);
+    const download = vi.fn(async (url: string) => Buffer.from(url));
+
+    await sourcePrepare(db, 5, { fetchInatCandidates, download, thumbDir: workDir, clock: instant() });
+
+    const attempt = getSourceAttempt(db, 'flag1', 'inat');
+    expect(attempt).not.toBeNull();
+    expect(attempt!.outcome).toBe('searched');
+    expect(attempt!.candidatesFound).toBe(2);
+    expect(attempt!.source).toBe('inat');
+  });
+
+  it('SKIPS a species already searched under the run source, but sources it under a DIFFERENT --source', async () => {
+    seedCurrent('flag1', 'https://photos.example/flag1.jpg');
+    seedFlaggedScore('flag1');
+    const fetchInatCandidates = vi.fn(async () => [
+      { inatId: 11, photoUrl: 'https://inat.example/11.jpg', attribution: '(c) P', license: 'cc-by' },
+    ]);
+    const download = vi.fn(async (url: string) => Buffer.from(url));
+
+    // Pre-record an iNat attempt — flag1 is already searched under 'inat'.
+    recordSourceAttempt(db, { speciesCode: 'flag1', source: 'inat', candidatesFound: 1, outcome: 'exhausted' });
+
+    // source-prepare under the SAME source (default 'inat') must skip flag1.
+    const inatRun = await sourcePrepare(
+      db, 5, { fetchInatCandidates, download, thumbDir: workDir, clock: instant() },
+    );
+    expect(fetchInatCandidates).toHaveBeenCalledTimes(0);
+    expect(inatRun.picked).toBe(0);
+
+    // source-prepare under a DIFFERENT source CAN retry the iNat-exhausted species.
+    const otherRun = await sourcePrepare(
+      db, 5, { fetchInatCandidates, download, thumbDir: workDir, clock: instant() },
+      { source: 'macaulay' },
+    );
+    expect(fetchInatCandidates).toHaveBeenCalledTimes(1);
+    expect(otherRun.picked).toBe(1);
+    // A fresh source_attempt row was recorded under the new source.
+    expect(getSourceAttempt(db, 'flag1', 'macaulay')!.outcome).toBe('searched');
+    // The original iNat row is untouched.
+    expect(getSourceAttempt(db, 'flag1', 'inat')!.outcome).toBe('exhausted');
+  });
+});
+
+describe('sourceCommit — outcome resolution (#974)', () => {
+  // Seed a flagged current (quality_score 30) + a sourced candidate, then commit
+  // an agent score for that candidate. The gate decides better-found / exhausted.
+  async function prepCandidate(qs: number): Promise<string> {
+    seedCurrent('flag1', 'https://photos.example/flag1.jpg');
+    seedFlaggedScore('flag1'); // current quality_score = 30
+    const fetchInatCandidates = vi.fn(async () => [
+      { inatId: 11, photoUrl: 'https://inat.example/11.jpg', attribution: '(c) P', license: 'cc-by' },
+    ]);
+    const download = vi.fn(async (url: string) => Buffer.from(url));
+    const prep = await sourcePrepare(db, 5, { fetchInatCandidates, download, thumbDir: workDir, clock: instant() });
+    return prep.manifest[0]!.contentHash;
+  }
+  function commitWith(hash: string, qs: number): Promise<unknown> {
+    const results: SourceResult[] = [{
+      speciesCode: 'flag1', inatId: 11, contentHash: hash,
+      fieldMarks: [], criteria: { framing: 8, subjectClarity: 8, liveness: 8, naturalness: 8, pose: 8, background: 8, lighting: 8 },
+      flags: [], keep: true, qualityScore: qs, rationale: 'alt',
+    }];
+    return sourceCommit(db, results);
+  }
+
+  it("sets 'better-found' (with best_score) when a candidate clears the Δ>=20 gate", async () => {
+    const hash = await prepCandidate(60);
+    // candidate qs 60 vs current 30 → Δ30 ≥ 20 → better-found.
+    await commitWith(hash, 60);
+    const a = getSourceAttempt(db, 'flag1', 'inat');
+    expect(a!.outcome).toBe('better-found');
+    expect(a!.bestScore).toBe(60);
+  });
+
+  it("sets 'exhausted' when no candidate clears the gate (Δ<20)", async () => {
+    const hash = await prepCandidate(45);
+    // candidate qs 45 vs current 30 → Δ15 < 20 → exhausted.
+    await commitWith(hash, 45);
+    const a = getSourceAttempt(db, 'flag1', 'inat');
+    expect(a!.outcome).toBe('exhausted');
+  });
+
+  it('resolves the outcome on the run source passed to sourceCommit', async () => {
+    // Source under 'macaulay', then commit with the SAME source → that row resolves.
+    seedCurrent('flag1', 'https://photos.example/flag1.jpg');
+    seedFlaggedScore('flag1');
+    const fetchInatCandidates = vi.fn(async () => [
+      { inatId: 11, photoUrl: 'https://inat.example/11.jpg', attribution: '(c) P', license: 'cc-by' },
+    ]);
+    const download = vi.fn(async (url: string) => Buffer.from(url));
+    const prep = await sourcePrepare(
+      db, 5, { fetchInatCandidates, download, thumbDir: workDir, clock: instant() }, { source: 'macaulay' },
+    );
+    const hash = prep.manifest[0]!.contentHash;
+    const results: SourceResult[] = [{
+      speciesCode: 'flag1', inatId: 11, contentHash: hash, fieldMarks: [],
+      criteria: { framing: 8, subjectClarity: 8, liveness: 8, naturalness: 8, pose: 8, background: 8, lighting: 8 },
+      flags: [], keep: true, qualityScore: 70, rationale: 'alt',
+    }];
+    await sourceCommit(db, results, { source: 'macaulay' });
+    expect(getSourceAttempt(db, 'flag1', 'macaulay')!.outcome).toBe('better-found');
   });
 });
 

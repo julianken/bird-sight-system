@@ -6,6 +6,7 @@ import {
   insertCandidate, listCandidates, markCandidatesExcluded,
   selectUnreviewed, markReviewed, updateCurrentPhotoHash,
   setSwapSelection, getSwapSelection,
+  recordSourceAttempt, getSourceAttempt, setSourceAttemptOutcome, listSourceAttempts,
 } from './store.js';
 import type { QualityReport } from '@bird-watch/photo-quality';
 
@@ -174,5 +175,61 @@ describe('swap_selection (operator override)', () => {
     const noSwap = getSwapSelection(db, 'norcar');
     expect(noSwap).not.toBeNull();
     expect(noSwap!.chosenInatId).toBeNull();
+  });
+});
+
+describe('source_attempt (per-source sourcing ledger #974)', () => {
+  it('getSourceAttempt returns null when no attempt is recorded', () => {
+    expect(getSourceAttempt(db, 'norcar', 'inat')).toBeNull();
+  });
+
+  it('recordSourceAttempt upserts on the (species, source) PK', () => {
+    recordSourceAttempt(db, { speciesCode: 'norcar', source: 'inat', candidatesFound: 4, outcome: 'searched' });
+    const first = getSourceAttempt(db, 'norcar', 'inat');
+    expect(first).not.toBeNull();
+    expect(first!.candidatesFound).toBe(4);
+    expect(first!.outcome).toBe('searched');
+    expect(first!.bestScore).toBeNull();
+    expect(typeof first!.attemptedAt).toBe('string');
+
+    // Re-record (same PK) overwrites in place — one row, new values.
+    recordSourceAttempt(db, { speciesCode: 'norcar', source: 'inat', candidatesFound: 7, outcome: 'better-found', bestScore: 88 });
+    expect((db.prepare(`SELECT COUNT(*) n FROM source_attempt WHERE species_code='norcar' AND source='inat'`).get() as { n: number }).n).toBe(1);
+    const updated = getSourceAttempt(db, 'norcar', 'inat');
+    expect(updated!.candidatesFound).toBe(7);
+    expect(updated!.outcome).toBe('better-found');
+    expect(updated!.bestScore).toBe(88);
+  });
+
+  it('the same species under a DIFFERENT source is a separate row', () => {
+    recordSourceAttempt(db, { speciesCode: 'norcar', source: 'inat', candidatesFound: 2, outcome: 'exhausted' });
+    recordSourceAttempt(db, { speciesCode: 'norcar', source: 'macaulay', candidatesFound: 5, outcome: 'searched' });
+    expect(getSourceAttempt(db, 'norcar', 'inat')!.outcome).toBe('exhausted');
+    expect(getSourceAttempt(db, 'norcar', 'macaulay')!.outcome).toBe('searched');
+    expect((db.prepare(`SELECT COUNT(*) n FROM source_attempt WHERE species_code='norcar'`).get() as { n: number }).n).toBe(2);
+  });
+
+  it('setSourceAttemptOutcome updates outcome (and best_score) of an existing row', () => {
+    recordSourceAttempt(db, { speciesCode: 'norcar', source: 'inat', candidatesFound: 3, outcome: 'searched' });
+    setSourceAttemptOutcome(db, 'norcar', 'inat', 'better-found', 91);
+    const a = getSourceAttempt(db, 'norcar', 'inat');
+    expect(a!.outcome).toBe('better-found');
+    expect(a!.bestScore).toBe(91);
+    expect(a!.candidatesFound).toBe(3); // untouched
+
+    // Outcome-only update leaves best_score as-is.
+    setSourceAttemptOutcome(db, 'norcar', 'inat', 'applied');
+    const b = getSourceAttempt(db, 'norcar', 'inat');
+    expect(b!.outcome).toBe('applied');
+    expect(b!.bestScore).toBe(91);
+  });
+
+  it('listSourceAttempts returns all rows for a source only', () => {
+    recordSourceAttempt(db, { speciesCode: 'aaa', source: 'inat', candidatesFound: 1, outcome: 'exhausted' });
+    recordSourceAttempt(db, { speciesCode: 'bbb', source: 'inat', candidatesFound: 2, outcome: 'searched' });
+    recordSourceAttempt(db, { speciesCode: 'ccc', source: 'macaulay', candidatesFound: 3, outcome: 'searched' });
+    const inat = listSourceAttempts(db, 'inat');
+    expect(inat.map(a => a.speciesCode).sort()).toEqual(['aaa', 'bbb']);
+    expect(listSourceAttempts(db, 'macaulay').map(a => a.speciesCode)).toEqual(['ccc']);
   });
 });

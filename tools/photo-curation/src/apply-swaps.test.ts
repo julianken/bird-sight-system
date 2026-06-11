@@ -17,11 +17,23 @@ afterAll(() => server.close());
  */
 function makeDb(): Database.Database {
   const db = new Database(':memory:');
+  // Mirrors the tables apply-swaps reads (incl. the #974 local-promotion ones:
+  // photo_score role='current'/'candidate', source_attempt, swap_selection).
+  // A photo_current.reviewed column matches the real openDb schema.
   db.exec(`
     CREATE TABLE photo_current (
       species_code TEXT PRIMARY KEY, com_name TEXT, sci_name TEXT, family TEXT,
-      url TEXT, attribution TEXT, license TEXT, content_hash TEXT
+      url TEXT, attribution TEXT, license TEXT, content_hash TEXT,
+      reviewed INTEGER NOT NULL DEFAULT 0
     );
+    CREATE TABLE photo_score (
+      id INTEGER PRIMARY KEY, species_code TEXT, role TEXT, candidate_inat_id INTEGER,
+      content_hash TEXT, overall REAL, verdict TEXT, criteria_json TEXT, flags_json TEXT,
+      keep INTEGER, quality_score REAL, field_marks TEXT, rationale TEXT,
+      rubric_version TEXT, scored_at TEXT
+    );
+    CREATE UNIQUE INDEX idx_photo_score_subject
+      ON photo_score (species_code, role, content_hash);
     CREATE TABLE photo_candidate (
       id INTEGER PRIMARY KEY, species_code TEXT, inat_id INTEGER, photo_url TEXT,
       thumb_path TEXT, attribution TEXT, license TEXT,
@@ -31,6 +43,14 @@ function makeDb(): Database.Database {
       species_code TEXT PRIMARY KEY, action TEXT, chosen_candidate_id INTEGER,
       deny_reason TEXT, deny_tags_json TEXT, decided_at TEXT,
       applied INTEGER DEFAULT 0, applied_at TEXT
+    );
+    CREATE TABLE swap_selection (
+      species_code TEXT PRIMARY KEY, chosen_inat_id INTEGER, decided_at TEXT
+    );
+    CREATE TABLE source_attempt (
+      species_code TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'inat',
+      attempted_at TEXT NOT NULL, candidates_found INTEGER, best_score INTEGER,
+      outcome TEXT, PRIMARY KEY (species_code, source)
     );
   `);
   return db;
@@ -290,6 +310,135 @@ describe('selectAppliableSwaps (operator override → apply target)', () => {
     // Explicit "no swap" → species drops out of the apply set entirely.
     setSwapSelection(db, 'norcar', null);
     expect(selectAppliableSwaps(db)).toHaveLength(0);
+    db.close();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #974 — apply-swaps promotes the applied candidate to the species' CURRENT
+// photo + score on a successful prod push, so the species leaves needs-swap.
+// Uses the real openDb so every table the promotion touches exists.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('runApplySwaps — promote applied candidate to current (#974)', () => {
+  /** Seed flag1: current keep=0 (needs-swap) + a sourced+scored candidate keep=1. */
+  function seedFlaggedWithCandidate(
+    db: ReturnType<typeof openDb>, code: string, inatId: number,
+  ): void {
+    upsertCurrentPhoto(db, {
+      speciesCode: code, comName: 'Common', sciName: 'Genus species', family: 'fam',
+      url: `https://photos.bird-maps.com/${code}.old.jpg`, attribution: '(c) old', license: 'cc-by',
+      contentHash: 'oldhash',
+    });
+    const curReport: QualityReport = {
+      overall: 30, verdict: 'reject',
+      deterministic: { width: 0, height: 0, megapixels: 0, sharpness: 0, exposure: 0, aspectRatio: 0, passedGate: true, failReasons: [] },
+      criteria: { framing: 3, subjectClarity: 3, liveness: 3, naturalness: 3, pose: 3, background: 3, lighting: 3 },
+      flags: [], fieldMarks: [], keep: false, qualityScore: 30, rationale: 'flagged', rubricVersion: '0.2.0',
+    };
+    upsertScore(db, { speciesCode: code, role: 'current', candidateInatId: null, contentHash: 'oldhash', report: curReport });
+
+    insertCandidate(db, {
+      speciesCode: code, inatId, photoUrl: `https://inat.example/${inatId}/original.jpg`,
+      thumbPath: `t/${inatId}.jpg`, attribution: '(c) New Photographer', license: 'cc0', sourceRound: 1,
+    });
+    const candReport: QualityReport = {
+      overall: 85, verdict: 'good',
+      deterministic: { width: 0, height: 0, megapixels: 0, sharpness: 0, exposure: 0, aspectRatio: 0, passedGate: true, failReasons: [] },
+      criteria: { framing: 9, subjectClarity: 9, liveness: 9, naturalness: 8, pose: 8, background: 8, lighting: 9 },
+      flags: [], fieldMarks: ['clean perch'], keep: true, qualityScore: 88, rationale: 'sharp wild alt', rubricVersion: '0.2.0',
+    };
+    upsertScore(db, { speciesCode: code, role: 'candidate', candidateInatId: inatId, contentHash: 'candhash', report: candReport });
+
+    // The operator approve decision targeting this candidate.
+    db.prepare(
+      `INSERT INTO photo_decision (species_code, action, chosen_candidate_id, decided_at, applied)
+       VALUES (?, 'approve', (SELECT id FROM photo_candidate WHERE species_code=? AND inat_id=?), '2026-06-10T00:00:00.000Z', 0)`,
+    ).run(code, code, inatId);
+  }
+
+  it('on success: promotes candidate to current (keep flips → species leaves keep=0), records applied, clears swap_selection', async () => {
+    const db = openDb(':memory:');
+    seedFlaggedWithCandidate(db, 'norcar', 7001);
+    // An operator override row exists; promotion must clear it.
+    setSwapSelection(db, 'norcar', 7001);
+    // A source_attempt exists; promotion sets it 'applied'.
+    db.prepare(`INSERT INTO source_attempt (species_code, source, attempted_at, candidates_found, outcome) VALUES ('norcar','inat','t',1,'better-found')`).run();
+
+    // Sanity: before apply, norcar is in the keep=0 needs-swap set.
+    const before = db.prepare(`SELECT keep FROM photo_score WHERE species_code='norcar' AND role='current'`).get() as { keep: number };
+    expect(before.keep).toBe(0);
+
+    server.use(
+      http.put(`${ADMIN_BASE}/admin/species-photos/:code`, () =>
+        HttpResponse.json({ url: 'https://photos.bird-maps.com/norcar.NEWHASH.jpg', key: 'species/norcar.NEWHASH.jpg' }),
+      ),
+    );
+
+    const result = await runApplySwaps(makeDeps(db));
+    expect(result.applied).toEqual(['norcar']);
+
+    // photo_current now points at the candidate (prod URL from the admin body).
+    const cur = db.prepare(`SELECT url, attribution, license, content_hash FROM photo_current WHERE species_code='norcar'`).get() as { url: string; attribution: string; license: string; content_hash: string };
+    expect(cur.url).toBe('https://photos.bird-maps.com/norcar.NEWHASH.jpg');
+    expect(cur.attribution).toBe('(c) New Photographer');
+    expect(cur.license).toBe('cc0');
+    expect(cur.content_hash).toBe('candhash');
+
+    // photo_score role='current' is now the candidate's report — keep flipped to 1,
+    // so norcar drops out of the keep=0 needs-swap set.
+    const after = db.prepare(`SELECT keep, quality_score, field_marks FROM photo_score WHERE species_code='norcar' AND role='current'`).get() as { keep: number; quality_score: number; field_marks: string };
+    expect(after.keep).toBe(1);
+    expect(after.quality_score).toBe(88);
+    expect(JSON.parse(after.field_marks)).toEqual(['clean perch']);
+    const stillFlagged = db.prepare(`SELECT COUNT(*) n FROM photo_score WHERE role='current' AND keep=0`).get() as { n: number };
+    expect(stillFlagged.n).toBe(0);
+
+    // source_attempt → 'applied' (best_score = the promoted quality_score).
+    const sa = db.prepare(`SELECT outcome, best_score FROM source_attempt WHERE species_code='norcar' AND source='inat'`).get() as { outcome: string; best_score: number };
+    expect(sa.outcome).toBe('applied');
+    expect(sa.best_score).toBe(88);
+
+    // swap_selection cleared.
+    expect(db.prepare(`SELECT COUNT(*) n FROM swap_selection WHERE species_code='norcar'`).get()).toEqual({ n: 0 });
+    db.close();
+  });
+
+  it('on push FAILURE: the species is NOT promoted (stays needs-swap, applied=0)', async () => {
+    const db = openDb(':memory:');
+    seedFlaggedWithCandidate(db, 'baleag', 7002);
+
+    server.use(
+      http.put(`${ADMIN_BASE}/admin/species-photos/:code`, () =>
+        HttpResponse.json({ error: 'boom' }, { status: 500 }),
+      ),
+    );
+
+    const result = await runApplySwaps(makeDeps(db));
+    expect(result.applied).toEqual([]);
+    expect(result.failed[0]!.speciesCode).toBe('baleag');
+
+    // current photo + score UNCHANGED — still the old flagged keep=0 photo.
+    const cur = db.prepare(`SELECT url, content_hash FROM photo_current WHERE species_code='baleag'`).get() as { url: string; content_hash: string };
+    expect(cur.url).toBe('https://photos.bird-maps.com/baleag.old.jpg');
+    expect(cur.content_hash).toBe('oldhash');
+    const score = db.prepare(`SELECT keep FROM photo_score WHERE species_code='baleag' AND role='current'`).get() as { keep: number };
+    expect(score.keep).toBe(0); // still needs-swap
+    expect((db.prepare(`SELECT applied FROM photo_decision WHERE species_code='baleag'`).get() as { applied: number }).applied).toBe(0);
+    db.close();
+  });
+
+  it('falls back to the candidate source url when the admin body has no url', async () => {
+    const db = openDb(':memory:');
+    seedFlaggedWithCandidate(db, 'amecro', 7003);
+
+    server.use(
+      http.put(`${ADMIN_BASE}/admin/species-photos/:code`, () => HttpResponse.json({})),
+    );
+
+    await runApplySwaps(makeDeps(db));
+    const cur = db.prepare(`SELECT url FROM photo_current WHERE species_code='amecro'`).get() as { url: string };
+    expect(cur.url).toBe('https://inat.example/7003/original.jpg');
     db.close();
   });
 });

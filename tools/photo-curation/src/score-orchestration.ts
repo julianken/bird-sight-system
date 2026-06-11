@@ -14,7 +14,9 @@ import { sha8 } from './hash.js';
 import {
   selectUnreviewed, updateCurrentPhotoHash, upsertScore, markReviewed,
   insertCandidate, maxSourceRound, getScoreByHash,
+  recordSourceAttempt, setSourceAttemptOutcome,
 } from './store.js';
+import { selectSwaps } from './swaps.js';
 import { scoreBatch, mimeFromUrl, extFromMime } from './sources.js';
 import {
   Pacer, withBackoff, clampPool, realClock,
@@ -399,6 +401,9 @@ interface FlaggedRow {
  *     (paid) judge never scores a photo we already have. `skippedDuplicates`
  *     counts these (≈20% of candidates in a real run).
  */
+/** The default image source key for a source-prepare/commit run (#974). */
+export const DEFAULT_SOURCE = 'inat';
+
 /** Optional caps for a source-prepare run. */
 export interface SourcePrepareOpts {
   /**
@@ -408,6 +413,17 @@ export interface SourcePrepareOpts {
    * operator sources the N worst-scored needs-replacement species per run.
    */
   limit?: number;
+  /**
+   * The image source being searched (#974). Defaults to DEFAULT_SOURCE ('inat').
+   * The flagged-species query EXCLUDES any species that already has a
+   * source_attempt row for THIS source, so a second `source-prepare --source
+   * inat` never re-sources an already-searched species (no re-picking the same
+   * images); a DIFFERENT --source is unaffected and CAN retry an iNat-exhausted
+   * species. Each newly-sourced species gets a recordSourceAttempt(outcome=
+   * 'searched') row; source-commit later resolves it to 'better-found' or
+   * 'exhausted'.
+   */
+  source?: string;
 }
 
 export async function sourcePrepare(
@@ -436,14 +452,21 @@ export async function sourcePrepare(
     typeof rawLimit === 'number' && Number.isFinite(rawLimit) && rawLimit >= 1
       ? Math.floor(rawLimit)
       : null;
+  // Source-keyed skip (#974): exclude any species that ALREADY has a
+  // source_attempt row for THIS source — once iNat has been searched for a
+  // species, the next `source-prepare --source inat` never re-sources it (no
+  // re-picking the same images). A different --source has its own ledger rows
+  // and so CAN retry an iNat-exhausted species.
+  const source = opts.source ?? DEFAULT_SOURCE;
   const flagged = db.prepare(
     `SELECT c.species_code, c.com_name, c.sci_name, c.family, c.content_hash
        FROM photo_score s
        JOIN photo_current c ON c.species_code = s.species_code
       WHERE s.role = 'current' AND s.keep = 0
+        AND c.species_code NOT IN (SELECT species_code FROM source_attempt WHERE source = ?)
       ORDER BY s.quality_score ASC, c.species_code ASC
       ${speciesLimit !== null ? 'LIMIT ?' : ''}`,
-  ).all(...(speciesLimit !== null ? [speciesLimit] : [])) as FlaggedRow[];
+  ).all(...(speciesLimit !== null ? [source, speciesLimit] : [source])) as FlaggedRow[];
 
   const manifest: SourceManifestEntry[] = [];
   let inatFetches = 0;
@@ -472,6 +495,10 @@ export async function sourcePrepare(
       continue;
     }
 
+    // Count only the REAL (non-same-picture) candidates this species yielded,
+    // so the source_attempt ledger reflects the genuine candidate pool. The
+    // same-picture dedup below increments this only for inserted candidates.
+    let speciesCandidates = 0;
     for (const cand of candidates.slice(0, cappedPool)) {
       await edgePacer.gate();
       const bytes = await withBackoff(() => deps.download(cand.photoUrl), { clock });
@@ -492,6 +519,7 @@ export async function sourcePrepare(
         thumbPath: imagePath, attribution: cand.attribution, license: cand.license,
         sourceRound: round,
       });
+      speciesCandidates++;
       manifest.push({
         speciesCode: sp.species_code,
         comName: sp.com_name ?? '',
@@ -504,6 +532,17 @@ export async function sourcePrepare(
         license: cand.license,
       });
     }
+
+    // Record this species as searched under the run's source (#974). Only real
+    // (non-duplicate) candidates are counted; outcome='searched' is resolved to
+    // 'better-found'/'exhausted' by source-commit. This row is what makes the
+    // NEXT `source-prepare --source <source>` skip the species.
+    recordSourceAttempt(db, {
+      speciesCode: sp.species_code,
+      source,
+      candidatesFound: speciesCandidates,
+      outcome: 'searched',
+    });
   }
 
   const manifestPath = join(deps.thumbDir, 'candidates-manifest.json');
@@ -526,16 +565,38 @@ export interface SourceResult {
   rationale: string;
 }
 
+/** Optional knobs for a source-commit run. */
+export interface SourceCommitOpts {
+  /**
+   * The image source whose source_attempt rows to resolve (#974). Defaults to
+   * DEFAULT_SOURCE ('inat') — must match the source-prepare run that staged the
+   * candidates. After committing the candidate scores, each species in the batch
+   * has its 'searched' attempt resolved to 'better-found' (a non-duplicate
+   * candidate clears the Δ≥MIN_IMPROVEMENT gate) or 'exhausted' (searched,
+   * nothing better — stays needs-swap but future sourcing under this source
+   * skips it).
+   */
+  source?: string;
+}
+
 /**
  * source-commit: composeReport each agent candidate result and persist it as
  * role='candidate' keyed by (species_code, content_hash) with the inat id, so
  * the review server's deny route can advance to a scored alternate. A missing
  * content hash is recorded as a failure, not thrown.
+ *
+ * Outcome resolution (#974): after the candidate scores are upserted, each
+ * distinct species in the batch has its source_attempt outcome resolved by
+ * reusing the swap gate (selectSwaps, whose `outscores`/`delta` encode the SAME
+ * same-picture-exclusion + Δ≥MIN_IMPROVEMENT logic apply-swaps uses — no
+ * duplicated threshold). If the best non-duplicate committed candidate would be
+ * auto-proposed → 'better-found' with best_score; otherwise → 'exhausted'.
  */
 export async function sourceCommit(
-  db: Database.Database, results: SourceResult[],
+  db: Database.Database, results: SourceResult[], opts: SourceCommitOpts = {},
 ): Promise<CommitSummary> {
   const summary: CommitSummary = { committed: 0, failed: 0, errors: [] };
+  const committedSpecies = new Set<string>();
   for (const r of results) {
     try {
       if (!r.contentHash) {
@@ -559,10 +620,34 @@ export async function sourceCommit(
         speciesCode: r.speciesCode, role: 'candidate', candidateInatId: r.inatId,
         contentHash: r.contentHash, report,
       });
+      committedSpecies.add(r.speciesCode);
       summary.committed++;
     } catch (err) {
       summary.failed++;
       summary.errors.push({ speciesCode: r.speciesCode, reason: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  // Resolve each committed species' 'searched' source_attempt to a terminal
+  // sourcing outcome by reusing selectSwaps' gate. A species appears in the
+  // selectSwaps output only when it has ≥1 non-duplicate scored candidate; its
+  // `outscores` is true iff the best such candidate clears Δ≥MIN_IMPROVEMENT (the
+  // exact predicate apply-swaps would propose on). No row for the species (no
+  // non-dup candidate) → nothing cleared → 'exhausted'.
+  if (committedSpecies.size > 0) {
+    const source = opts.source ?? DEFAULT_SOURCE;
+    const swapByCode = new Map(selectSwaps(db).map(s => [s.speciesCode, s]));
+    for (const code of committedSpecies) {
+      const swap = swapByCode.get(code);
+      if (swap?.outscores) {
+        // best non-dup candidate's quality_score = current + delta (delta is
+        // computed against the best candidate AFTER same-picture dedup). Use the
+        // gate's own number rather than re-deriving so the two never diverge.
+        const bestScore = (swap.current.qualityScore ?? 0) + swap.delta;
+        setSourceAttemptOutcome(db, code, source, 'better-found', Math.round(bestScore));
+      } else {
+        setSourceAttemptOutcome(db, code, source, 'exhausted');
+      }
     }
   }
   return summary;
