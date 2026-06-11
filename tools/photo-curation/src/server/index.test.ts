@@ -144,4 +144,54 @@ describe('review-server API', () => {
     const res = await request(app).post('/api/decision').send({ speciesCode: 'houspa', action: 'bogus' });
     expect(res.status).toBe(400);
   });
+
+  it('GET /api/pending-swaps returns the swap selection (outscores gate)', async () => {
+    // Flag houspa's current as needs-replacement (keep=0, low quality) and give
+    // its two candidates quality scores so the gate has something to compare.
+    db.prepare(`UPDATE photo_score SET keep=0, quality_score=20 WHERE species_code='houspa' AND role='current'`).run();
+    db.prepare(`UPDATE photo_score SET quality_score=82, field_marks='["wing bars"]' WHERE candidate_inat_id=5001`).run();
+    db.prepare(`UPDATE photo_score SET quality_score=64 WHERE candidate_inat_id=5002`).run();
+
+    const app = createServer(db);
+    const res = await request(app).get('/api/pending-swaps');
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(1);
+    expect(res.body.proposedCount).toBe(1);
+    const s = res.body.swaps[0];
+    expect(s.speciesCode).toBe('houspa');
+    expect(s.current.qualityScore).toBe(20);
+    // best candidate (82) outscores current (20) → proposed.
+    expect(s.proposed.inatId).toBe(5001);
+    expect(s.outscores).toBe(true);
+    expect(s.delta).toBe(62);
+    expect(s.candidates.find((c: { inatId: number }) => c.inatId === 5001).selected).toBe(true);
+  });
+
+  it('GET /api/pending-swaps reports proposed:null when no candidate outscores the current', async () => {
+    // current quality 90; candidates 82/64 — neither outscores → proposed:null.
+    db.prepare(`UPDATE photo_score SET keep=0, quality_score=90 WHERE species_code='houspa' AND role='current'`).run();
+    db.prepare(`UPDATE photo_score SET quality_score=82 WHERE candidate_inat_id=5001`).run();
+    db.prepare(`UPDATE photo_score SET quality_score=64 WHERE candidate_inat_id=5002`).run();
+
+    const app = createServer(db);
+    const res = await request(app).get('/api/pending-swaps');
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(1);          // still listed (has candidates)
+    expect(res.body.proposedCount).toBe(0);  // but nothing proposed
+    expect(res.body.swaps[0].proposed).toBeNull();
+    expect(res.body.swaps[0].outscores).toBe(false);
+  });
+
+  it('GET /api/pending-swaps honors ?limit and rejects a bad limit with 400', async () => {
+    db.prepare(`UPDATE photo_score SET keep=0, quality_score=20 WHERE species_code='houspa' AND role='current'`).run();
+    db.prepare(`UPDATE photo_score SET quality_score=82 WHERE candidate_inat_id=5001`).run();
+    const app = createServer(db);
+
+    const ok = await request(app).get('/api/pending-swaps?limit=0');
+    expect(ok.status).toBe(200);
+    expect(ok.body.total).toBe(0); // capped to zero species
+
+    const bad = await request(app).get('/api/pending-swaps?limit=-1');
+    expect(bad.status).toBe(400);
+  });
 });

@@ -1,0 +1,171 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import type Database from 'better-sqlite3';
+import { openDb } from './db.js';
+import { upsertCurrentPhoto, upsertScore, insertCandidate } from './store.js';
+import { selectSwaps } from './swaps.js';
+import type { QualityReport } from '@bird-watch/photo-quality';
+
+let db: Database.Database;
+beforeEach(() => { db = openDb(':memory:'); });
+afterEach(() => db.close());
+
+function seedCurrent(code: string, comName: string): void {
+  upsertCurrentPhoto(db, {
+    speciesCode: code, comName, sciName: `Sci ${code}`, family: `Fam ${code}`,
+    url: `https://photos.bird-maps.com/${code}.jpg`,
+    attribution: `(c) Owner ${code}`, license: 'cc-by', contentHash: `cur-${code}`,
+  });
+}
+
+/** A current-photo score row. keep=0 = needs replacement. */
+function seedCurrentScore(code: string, s: { keep: boolean; qualityScore: number }): void {
+  const report: QualityReport = {
+    overall: s.qualityScore, verdict: s.keep ? 'good' : 'reject',
+    deterministic: { width: 0, height: 0, megapixels: 0, sharpness: 0, exposure: 0, aspectRatio: 0, passedGate: true, failReasons: [] },
+    criteria: { framing: 5, subjectClarity: 5, liveness: 5, naturalness: 5, pose: 5, background: 5, lighting: 5 },
+    flags: [], fieldMarks: ['eye-ring'], keep: s.keep, qualityScore: s.qualityScore,
+    rationale: `current ${code} rationale`, rubricVersion: '0.2.0',
+  };
+  upsertScore(db, { speciesCode: code, role: 'current', candidateInatId: null, contentHash: `cur-${code}`, report });
+}
+
+/** A candidate photo + its scored row (role='candidate'). */
+function seedCandidate(
+  code: string, inatId: number,
+  s: { qualityScore: number; keep?: boolean; marks?: string[]; excluded?: boolean },
+): void {
+  insertCandidate(db, {
+    speciesCode: code, inatId, photoUrl: `https://inaturalist-open-data.s3.amazonaws.com/${inatId}.jpg`,
+    thumbPath: `thumb-cache/${code}-${inatId}.jpg`, attribution: `(c) iNat ${inatId}`,
+    license: 'cc-by', sourceRound: 1,
+  });
+  if (s.excluded) {
+    db.prepare(`UPDATE photo_candidate SET excluded=1 WHERE species_code=? AND inat_id=?`).run(code, inatId);
+  }
+  const report: QualityReport = {
+    overall: s.qualityScore, verdict: 'good',
+    deterministic: { width: 0, height: 0, megapixels: 0, sharpness: 0, exposure: 0, aspectRatio: 0, passedGate: true, failReasons: [] },
+    criteria: { framing: 7, subjectClarity: 7, liveness: 7, naturalness: 7, pose: 7, background: 7, lighting: 7 },
+    flags: [], fieldMarks: s.marks ?? ['wing bars'], keep: s.keep ?? true, qualityScore: s.qualityScore,
+    rationale: `candidate ${inatId} rationale`, rubricVersion: '0.2.0',
+  };
+  upsertScore(db, { speciesCode: code, role: 'candidate', candidateInatId: inatId, contentHash: `cand-${code}-${inatId}`, report });
+}
+
+describe('selectSwaps', () => {
+  it('(a) the best candidate OUTSCORES the current → that candidate is proposed', () => {
+    seedCurrent('housfi', 'House Finch');
+    seedCurrentScore('housfi', { keep: false, qualityScore: 30 });
+    seedCandidate('housfi', 100, { qualityScore: 55 });
+    seedCandidate('housfi', 200, { qualityScore: 80 }); // best
+
+    const results = selectSwaps(db);
+    expect(results).toHaveLength(1);
+    const r = results[0]!;
+    expect(r.speciesCode).toBe('housfi');
+    expect(r.comName).toBe('House Finch');
+
+    // current carries its quality score + rationale + photo url.
+    expect(r.current.qualityScore).toBe(30);
+    expect(r.current.rationale).toBe('current housfi rationale');
+    expect(r.current.photoUrl).toBe('https://photos.bird-maps.com/housfi.jpg');
+
+    // best = the 80-scored candidate (200); proposed = best since 80 > 30.
+    expect(r.proposed).not.toBeNull();
+    expect(r.proposed!.inatId).toBe(200);
+    expect(r.proposed!.qualityScore).toBe(80);
+    expect(r.outscores).toBe(true);
+    expect(r.delta).toBe(50); // 80 - 30
+
+    // candidates: all candidates, each marked selected/rejected. 200 selected.
+    expect(r.candidates.map(c => c.inatId).sort((a, b) => a - b)).toEqual([100, 200]);
+    expect(r.candidates.find(c => c.inatId === 200)!.selected).toBe(true);
+    expect(r.candidates.find(c => c.inatId === 100)!.selected).toBe(false);
+    // candidate field marks + attribution surface for the readout.
+    expect(r.candidates.find(c => c.inatId === 200)!.fieldMarks).toEqual(['wing bars']);
+    expect(r.candidates.find(c => c.inatId === 200)!.attribution).toBe('(c) iNat 200');
+  });
+
+  it('(b) NO candidate outscores the current → proposed=null, outscores=false (keep original)', () => {
+    seedCurrent('amerob', 'American Robin');
+    seedCurrentScore('amerob', { keep: false, qualityScore: 60 });
+    seedCandidate('amerob', 300, { qualityScore: 50 });
+    seedCandidate('amerob', 400, { qualityScore: 55 }); // best candidate, still < 60
+
+    const r = selectSwaps(db)[0]!;
+    expect(r.proposed).toBeNull();
+    expect(r.outscores).toBe(false);
+    expect(r.delta).toBe(-5); // best(55) - current(60)
+    // No candidate is selected when none outscores.
+    expect(r.candidates.every(c => !c.selected)).toBe(true);
+  });
+
+  it('(c) a TIE at the boundary (best == current) is NOT proposed (strict >)', () => {
+    seedCurrent('bewwre', "Bewick's Wren");
+    seedCurrentScore('bewwre', { keep: false, qualityScore: 70 });
+    seedCandidate('bewwre', 500, { qualityScore: 70 }); // exactly equal
+
+    const r = selectSwaps(db)[0]!;
+    expect(r.proposed).toBeNull();
+    expect(r.outscores).toBe(false);
+    expect(r.delta).toBe(0);
+    expect(r.candidates.every(c => !c.selected)).toBe(true);
+  });
+
+  it('(d) a keep=0 species with NO scored candidates is OMITTED', () => {
+    seedCurrent('withcand', 'With Cand');
+    seedCurrentScore('withcand', { keep: false, qualityScore: 20 });
+    seedCandidate('withcand', 600, { qualityScore: 75 });
+
+    // keep=0 but no candidates sourced/scored yet — omitted.
+    seedCurrent('nocand', 'No Cand');
+    seedCurrentScore('nocand', { keep: false, qualityScore: 20 });
+
+    const codes = selectSwaps(db).map(r => r.speciesCode);
+    expect(codes).toContain('withcand');
+    expect(codes).not.toContain('nocand');
+  });
+
+  it('excludes a kept (keep=1) species even if it has scored candidates', () => {
+    seedCurrent('keepme', 'Keep Me');
+    seedCurrentScore('keepme', { keep: true, qualityScore: 40 });
+    seedCandidate('keepme', 700, { qualityScore: 90 });
+
+    expect(selectSwaps(db).map(r => r.speciesCode)).not.toContain('keepme');
+  });
+
+  it('ignores EXCLUDED candidates when picking best/proposed', () => {
+    seedCurrent('exsp', 'Excluded Sp');
+    seedCurrentScore('exsp', { keep: false, qualityScore: 30 });
+    seedCandidate('exsp', 800, { qualityScore: 90, excluded: true }); // denied earlier
+    seedCandidate('exsp', 900, { qualityScore: 45 });
+
+    const r = selectSwaps(db)[0]!;
+    // 800 excluded → best is 900; proposed because 45 > 30.
+    expect(r.proposed!.inatId).toBe(900);
+    expect(r.candidates.map(c => c.inatId)).toEqual([900]);
+  });
+
+  it('tie-breaks equal-top candidates deterministically by lowest inat id', () => {
+    seedCurrent('tiesp', 'Tie Sp');
+    seedCurrentScore('tiesp', { keep: false, qualityScore: 30 });
+    seedCandidate('tiesp', 1200, { qualityScore: 80 });
+    seedCandidate('tiesp', 1100, { qualityScore: 80 }); // same score, lower id → wins
+
+    const r = selectSwaps(db)[0]!;
+    expect(r.proposed!.inatId).toBe(1100);
+  });
+
+  it('orders species worst-current-first (quality_score ASC) and honors an optional limit', () => {
+    seedCurrent('w', 'Worst'); seedCurrentScore('w', { keep: false, qualityScore: 10 }); seedCandidate('w', 1, { qualityScore: 60 });
+    seedCurrent('m', 'Mid'); seedCurrentScore('m', { keep: false, qualityScore: 40 }); seedCandidate('m', 2, { qualityScore: 60 });
+    seedCurrent('b', 'Best'); seedCurrentScore('b', { keep: false, qualityScore: 70 }); seedCandidate('b', 3, { qualityScore: 90 });
+
+    const all = selectSwaps(db);
+    expect(all.map(r => r.speciesCode)).toEqual(['w', 'm', 'b']);
+
+    // limit=2 → only the two worst-current species, still worst-first.
+    const limited = selectSwaps(db, { limit: 2 });
+    expect(limited.map(r => r.speciesCode)).toEqual(['w', 'm']);
+  });
+});

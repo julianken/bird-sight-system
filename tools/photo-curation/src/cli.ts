@@ -90,10 +90,16 @@ program
   .command('source-prepare')
   .description('Fetch + download a deep iNat candidate pool for FLAGGED species and write a manifest the source agents Read (Node half of the source-candidates Workflow — Bug 1, #992).')
   .option('--pool <n>', 'iNat candidates per flagged species', '15')
-  .action(async (opts: { pool: string }) => {
+  .option('--limit <n>', 'cap how many keep=0 species to source this run, worst-first (default: all)')
+  .action(async (opts: { pool: string; limit?: string }) => {
     const db = openDb(DEFAULT_DB_PATH);
     try {
-      const result = await sourcePrepare(db, Number(opts.pool), { download: downloadBytes, thumbDir: THUMB_DIR });
+      // --limit caps the number of keep=0 species sourced (worst-first); omit for
+      // all. Only set the opt when the flag was passed (exactOptionalPropertyTypes).
+      const limitOpts = opts.limit !== undefined ? { limit: Number(opts.limit) } : {};
+      const result = await sourcePrepare(
+        db, Number(opts.pool), { download: downloadBytes, thumbDir: THUMB_DIR }, limitOpts,
+      );
       console.log(`[source-prepare] sourced ${result.picked} candidate(s) — ${result.inatFetches} iNat fetch(es) + ${result.downloads} edge download(s); manifest at ${result.manifestPath}`);
       console.log(result.manifestPath);
     } finally {

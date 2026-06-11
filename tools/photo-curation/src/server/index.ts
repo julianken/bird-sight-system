@@ -6,6 +6,7 @@ import {
   listOverview, getSwapView, writeDecision, denyAndAdvance,
   type SortMode, type FilterMode,
 } from './queries.js';
+import { selectSwaps } from '../swaps.js';
 
 // NOTE: the Express server is plain Node — it CANNOT dispatch a Claude Code
 // agent, so it never scores a photo. All scoring lives in the `source-candidates`
@@ -31,6 +32,12 @@ export function createServer(db: Database.Database): Express {
   app.get('/swap/:code', (_req: Request, res: Response) => {
     res.sendFile('swap.html', { root: publicDir });
   });
+  // The pending-swaps readout: a READ-ONLY pre-commit glance at what apply-swaps
+  // would do (current vs proposed per keep=0 species). Served verbatim; the data
+  // comes from GET /api/pending-swaps below.
+  app.get('/pending-swaps', (_req: Request, res: Response) => {
+    res.sendFile('pending-swaps.html', { root: publicDir });
+  });
 
   // ── JSON API ──
   app.get('/api/overview', (req: Request, res: Response) => {
@@ -41,6 +48,24 @@ export function createServer(db: Database.Database): Express {
     const rows = listOverview(db, { sort, filter });
     const staged = db.prepare(`SELECT COUNT(*) AS c FROM photo_decision WHERE action='approve' AND applied=0`).get() as { c: number };
     return res.json({ rows, stagedApproved: staged.c, sort, filter });
+  });
+
+  // READ-ONLY swap readout (the "outscores the original" gate). Returns, per
+  // keep=0 species WITH scored candidates, the current photo + score, the ranked
+  // candidates (each marked selected/rejected), and the proposed replacement
+  // (null = no improvement found). Optional ?limit=N caps how many species are
+  // returned, worst-current-first. This NEVER mutates — apply-swaps is separate.
+  app.get('/api/pending-swaps', (req: Request, res: Response) => {
+    const rawLimit = req.query.limit;
+    let limit: number | undefined;
+    if (typeof rawLimit === 'string' && rawLimit !== '') {
+      const n = Number(rawLimit);
+      if (!Number.isFinite(n) || n < 0) return res.status(400).json({ error: `bad limit: ${rawLimit}` });
+      limit = n;
+    }
+    const swaps = selectSwaps(db, limit !== undefined ? { limit } : {});
+    const proposedCount = swaps.filter(s => s.proposed !== null).length;
+    return res.json({ swaps, total: swaps.length, proposedCount });
   });
 
   app.get('/api/swap/:code', (req: Request, res: Response) => {

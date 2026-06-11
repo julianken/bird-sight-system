@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Photo Curation — Pending Swaps</title>
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+  <header class="app-header">
+    <a class="back-link" href="/">← Overview</a>
+    <h1 class="app-title">Pending Swaps</h1>
+    <button class="theme-toggle" id="theme-toggle" type="button">Theme</button>
+    <span class="staged-indicator" id="summary">…</span>
+  </header>
+  <p class="readout-note">
+    Read-only pre-commit readout: for each needs-replacement species, the best
+    sourced candidate is proposed only when it <em>outscores</em> the current
+    photo. Nothing here is applied — run <code>apply-swaps</code> to commit.
+  </p>
+  <main class="swap-list" id="list"></main>
+  <script type="module" src="/pending-swaps.js"></script>
+</body>
+</html>
