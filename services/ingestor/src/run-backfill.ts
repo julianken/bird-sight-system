@@ -12,10 +12,14 @@ export interface RunBackfillOptions {
   today?: Date;          // injectable for tests
   client?: EbirdClient;
   /**
-   * Min millis between successive `client.fetchHistoric` calls. Defaults to 0
-   * (no pacing) so the existing 30-day backfill is unaffected. The
-   * `backfill-extended` 365-day kind in cli.ts passes 1000 to keep us under
-   * eBird's rate limit on a long run. Mirrors the run-photos.ts pattern.
+   * Min millis between successive `client.fetchHistoric` calls. Defaults to
+   * 1500 (#999): eBird enforces a 1 req/sec burst cap effective 2026-06-10
+   * (429 on breach), and the daily 04:00 backfill previously made up to 20
+   * back-to-back calls with NO pacing. First-call-skip is preserved, so a
+   * run sleeps paceMs × (days − 1), not × days. The `backfill-extended`
+   * 365-day kind in cli.ts passes an explicit 1000 — compliant for its
+   * strictly-sequential single calls, and 1.5s would creep its 366-call run
+   * toward the 900s job timeout. Mirrors the run-photos.ts pattern.
    */
   paceMs?: number;
 }
@@ -61,7 +65,7 @@ export async function runBackfill(o: RunBackfillOptions): Promise<RunBackfillSum
       // Pace successive eBird calls. Skip the wait before the first call;
       // otherwise a 365-day run sits idle for paceMs * 365 when paceMs *
       // (365 - 1) would do. Mirrors run-photos.ts:113-116.
-      if (!firstCall && (o.paceMs ?? 0) > 0) await sleep(o.paceMs!);
+      if (!firstCall && (o.paceMs ?? 1_500) > 0) await sleep(o.paceMs ?? 1_500);
       firstCall = false;
 
       // Per-day diagnostic logging (issue #TBD): the prior single-catch

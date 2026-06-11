@@ -53,9 +53,11 @@ describe('runBackfill', () => {
     );
 
     const today = new Date('2026-04-16T00:00:00Z');
+    // paceMs: 0 — pacing now defaults to 1500 (#999); tests opt out for speed,
+    // matching the run-ingest.test.ts convention.
     const summary = await runBackfill({
       pool: db.pool, apiKey: 'k', regionCode: 'US-AZ',
-      days: 3, today,
+      days: 3, today, paceMs: 0,
     });
     expect(calls).toBe(3);
     expect(summary.status).toBe('success');
@@ -94,7 +96,7 @@ describe('runBackfill', () => {
     const today = new Date('2026-04-16T00:00:00Z');
     const summary = await runBackfill({
       pool: db.pool, apiKey: 'k', regionCode: 'US-AZ',
-      days: 3, today,
+      days: 3, today, paceMs: 0,
     });
     expect(summary.status).toBe('success');
 
@@ -132,7 +134,7 @@ describe('runBackfill', () => {
     const client = new EbirdClient({ apiKey: 'k', maxRetries: 0 });
     const summary = await runBackfill({
       pool: db.pool, apiKey: 'k', regionCode: 'US-AZ',
-      days: 3, today, client,
+      days: 3, today, client, paceMs: 0,
     });
 
     expect(summary.status).toBe('partial');
@@ -144,6 +146,32 @@ describe('runBackfill', () => {
     const subIds = obs.map(o => o.subId).sort();
     expect(subIds).toContain('SDay15');
     expect(subIds).toContain('SDay13');
+  });
+
+  it('defaults paceMs to 1500 when not injected (eBird 1 rps burst cap, #999)', async () => {
+    // eBird's limits effective 2026-06-10 include a 1 req/sec burst cap. The
+    // daily 04:00 backfill previously defaulted paceMs to 0 — up to 20
+    // back-to-back /historic calls with no pacing. Pin the new default
+    // behaviorally via the setTimeout spy (no exported constant — knip flags
+    // test-only exports): days=2 with the default → exactly one 1500ms pacing
+    // sleep (between the two historic calls; never before the first).
+    server.use(
+      http.get('https://api.ebird.org/v2/data/obs/US-AZ/recent/notable', () => HttpResponse.json([])),
+      http.get('https://api.ebird.org/v2/data/obs/US-AZ/historic/:y/:m/:d', () => HttpResponse.json([])),
+    );
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+    const today = new Date('2026-04-16T00:00:00Z');
+    const summary = await runBackfill({
+      pool: db.pool, apiKey: 'k', regionCode: 'US-AZ', days: 2, today,
+    });
+
+    expect(summary.status).toBe('success');
+    const pacingCalls = setTimeoutSpy.mock.calls.filter(
+      ([, delay]) => delay === 1_500
+    );
+    expect(pacingCalls).toHaveLength(1);
+    setTimeoutSpy.mockRestore();
   });
 
   it('paces successive day fetches when paceMs > 0, skipping the wait before the first call', async () => {
@@ -220,7 +248,7 @@ describe('runBackfill', () => {
     const client = new EbirdClient({ apiKey: 'k', maxRetries: 0 });
     const summary = await runBackfill({
       pool: db.pool, apiKey: 'k', regionCode: 'US-AZ',
-      days: 3, today, client,
+      days: 3, today, client, paceMs: 0,
     });
     expect(summary.status).toBe('partial');
 
