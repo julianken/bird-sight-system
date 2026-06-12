@@ -15,7 +15,7 @@
     "@bird-watch/geo": "*",
     "@bird-watch/shared-types": "*",
     "@google-cloud/storage": "^7.21.0",
-    "isomorphic-dompurify": "^2.30.0",
+    "isomorphic-dompurify": "^3.16.0",
     "parquetjs-lite": "^0.8.7"
   },
   "devDependencies": {
