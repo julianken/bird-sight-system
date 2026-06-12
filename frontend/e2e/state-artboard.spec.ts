@@ -574,8 +574,8 @@ test.describe('state-artboard verification (SUB3, #764)', () => {
 
     // #828: reveal the scope form (collapsed behind the 🔍 disclosure).
     await app.openScopeDisclosure();
-    // Switch AZ → NY in place (the on-map ScopeControl select). No remount.
-    await app.scopeControlStateSelect.selectOption('US-NY');
+    // Switch AZ → NY in place (the on-map ScopeControl select + Go #1035). No remount.
+    await app.switchStateViaScopeControl('US-NY');
     await expect(page).toHaveURL(/[?&]state=US-NY\b/);
     await app.waitForAppReady();
 
@@ -845,7 +845,8 @@ test.describe('state-artboard verification (SUB3, #764)', () => {
     // switching states via the in-card select.
     await app.openScopeDisclosure();
     // state→state updates the SAME polite region's text (no focus move).
-    await app.scopeControlStateSelect.selectOption('US-NY');
+    // #1035: select + Go commit (change no longer navigates).
+    await app.switchStateViaScopeControl('US-NY');
     await expect(page).toHaveURL(/[?&]state=US-NY\b/);
     await expect(
       page.locator('[role="status"][aria-live="polite"]').filter({ hasText: /Showing / }),
@@ -900,7 +901,8 @@ test.describe('state-artboard verification (SUB3, #764)', () => {
 
     // #828: reveal the scope form (collapsed behind the 🔍 disclosure).
     await app.openScopeDisclosure();
-    await app.scopeControlStateSelect.selectOption('US-NY');
+    // #1035: select + Go commit (change no longer navigates).
+    await app.switchStateViaScopeControl('US-NY');
     await expect(page).toHaveURL(/[?&]state=US-NY\b/);
 
     // Poll for the captured duration (the camera effect fires post-URL-commit).
@@ -957,9 +959,10 @@ test.describe('state-artboard verification (SUB3, #764)', () => {
       }
 
       // Activation still drives the transition over the mask: switch AZ → NY via
-      // keyboard on the focused select.
+      // the keyboard-operable select + Go commit (#1035: change no longer
+      // navigates — the explicit Go/Enter commit does, for every input modality).
       await app.scopeControlStateSelect.focus();
-      await app.scopeControlStateSelect.selectOption('US-NY');
+      await app.switchStateViaScopeControl('US-NY');
       await expect(page).toHaveURL(/[?&]state=US-NY\b/);
 
       assertCleanConsole();

@@ -229,8 +229,9 @@ test.describe('#848: state framing longitude when switching states mid-animation
     expect(moving, 'camera is mid-flight after easeTo(duration:4000)').toBe(true);
 
     // Switch to NY WHILE the camera is moving. NO resize/drag/reload.
+    // #1035: select + Go commit (change no longer navigates).
     await app.openScopeDisclosure();
-    await app.scopeControlStateSelect.selectOption('US-NY');
+    await app.switchStateViaScopeControl('US-NY');
 
     await waitSettled(page, app);
     await assertFramedToTarget(page);
@@ -276,7 +277,8 @@ test.describe('#848: state framing longitude when switching states mid-animation
     ]);
 
     await app.openScopeDisclosure();
-    await app.scopeControlStateSelect.selectOption('US-NY');
+    // #1035: select + Go commit (change no longer navigates).
+    await app.switchStateViaScopeControl('US-NY');
 
     await waitSettled(page, app);
     await assertFramedToTarget(page);
@@ -300,7 +302,8 @@ test.describe('#848: state framing longitude when switching states mid-animation
     expect(moving, 'camera is mid-flight after easeTo(duration:4000)').toBe(true);
 
     await app.openScopeDisclosure();
-    await app.scopeControlStateSelect.selectOption('US-FL');
+    // #1035: select + Go commit (change no longer navigates).
+    await app.switchStateViaScopeControl('US-FL');
 
     await waitSettled(page, app);
     await assertFramedToTarget(page);
