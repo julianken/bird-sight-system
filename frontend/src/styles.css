@@ -2892,7 +2892,11 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
    own muted color at equal specificity) untouched regardless of source order;
    .zip-input__submit is always enabled so the guard is a no-op there. */
 [data-theme="dark"] .zip-input__submit,
-[data-theme="dark"] .scope-chooser__btn:not(:disabled) {
+[data-theme="dark"] .scope-chooser__btn:not(:disabled),
+/* #1035: the in-state ScopeControl [Go] commit button uses the same dark fill,
+   so it needs the same dark-mode label flip (light fill → dark text) to clear
+   AA. :not(:disabled) leaves .scope-control__go:disabled's muted color alone. */
+[data-theme="dark"] .scope-control__go:not(:disabled) {
   color: var(--color-bg-surface);
 }
 .zip-input__status {
@@ -3211,6 +3215,7 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
    de-emphasized Whole-US / Change-scope links keep the base text-strong ring
    (they are link-like, not form fields). */
 .app-header-scope-rows .scope-control__select:focus-visible,
+.app-header-scope-rows .scope-control__go:focus-visible,
 .app-header-scope-rows .zip-input__field:focus-visible,
 .app-header-scope-rows .zip-input__submit:focus-visible {
   outline: 2px solid transparent;
@@ -3218,6 +3223,16 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
   box-shadow: 0 0 0 2px var(--color-focus-ring);
 }
 
+/* #1035 (WCAG 3.2.2): the state <select> and its commit [Go] share one
+   horizontal row inside a <form> — changing the select stages a value; only Go
+   / Enter commits. Mirrors the landing chooser's `.scope-chooser__row`. */
+.scope-control__state-form {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: stretch;
+  gap: var(--space-sm);
+  min-inline-size: 0;
+}
 .scope-control__select {
   flex: 0 1 auto;
   min-inline-size: 0;
@@ -3231,6 +3246,31 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
 .scope-control__select:focus-visible {
   outline: 2px solid var(--color-text-strong);
   outline-offset: 2px;
+}
+/* #1035: the explicit Go commit button — styled like the chooser's
+   `.scope-chooser__btn` (primary dark fill, white text) but sized to the
+   in-card `--type-sm` scale the other ScopeControl controls use. Disabled while
+   the placeholder is selected (nothing to commit). */
+.scope-control__go {
+  flex: 0 0 auto;
+  padding: var(--space-sm) var(--space-md);
+  font-size: var(--type-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-white);
+  background: var(--color-text-strong);
+  border: 1px solid var(--color-text-strong);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.scope-control__go:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+}
+.scope-control__go:disabled {
+  color: var(--color-text-muted);
+  background: var(--color-bg-tint);
+  border-color: var(--color-border-ui);
+  cursor: not-allowed;
 }
 .scope-control__zip {
   flex: 0 1 auto;
@@ -3277,8 +3317,14 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
     flex-wrap: wrap;
     gap: var(--space-sm);
   }
-  .scope-control__select {
+  /* #1035: the state row (select + [Go]) takes its own full-width line; the
+     select flexes to fill it and [Go] keeps its intrinsic width beside it. */
+  .scope-control__state-form {
     flex: 1 1 100%;
+    min-inline-size: 0;
+  }
+  .scope-control__select {
+    flex: 1 1 auto;
   }
   /* #842: at the narrow widths the identity card is capped to
      `calc(100% - 200px)` (line ~594) so it doesn't collide with the controls

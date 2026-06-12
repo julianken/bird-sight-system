@@ -95,6 +95,27 @@ function ScopeControlImpl(
   // view the neutral placeholder ("") is selected (no state is active).
   const selectedState = scope.kind === 'state' ? scope.stateCode : '';
 
+  // WCAG 3.2.2 (On Input, #1035): the <select> sets a TRANSIENT local value;
+  // changing it never navigates. An explicit Go button / Enter (form submit)
+  // commits the pending value via `onPickState`. This mirrors the landing
+  // chooser (ScopeChooser) so both pointer and keyboard use the same commit
+  // model — `change` is inert for every input modality, so keyboard arrow-browse
+  // through options no longer yanks scope mid-browse. The pending value is
+  // seeded from (and re-syncs to) the current scope so the displayed selection
+  // tracks the active scope until the user stages a different one.
+  const [pendingState, setPendingState] = React.useState(selectedState);
+  React.useEffect(() => {
+    setPendingState(selectedState);
+  }, [selectedState]);
+
+  function handleStateSubmit(e: React.FormEvent): void {
+    e.preventDefault();
+    // The placeholder (value "") is never a valid scope — Go is disabled there,
+    // but guard the submit path too (Enter could otherwise fire on an empty
+    // selection).
+    if (pendingState) onPickState(pendingState);
+  }
+
   // When embedded inside the identity card, use a class that does NOT apply
   // the old absolute-positioned overlay CSS. The identity card owns the layout.
   const wrapperClass = embedded ? 'scope-control scope-control--embedded' : 'scope-control';
@@ -105,21 +126,34 @@ function ScopeControlImpl(
       role="region"
       aria-label="Change the map scope"
     >
-      <select
-        ref={firstFieldRef}
-        className="scope-control__select"
-        aria-label="Switch state"
-        value={selectedState}
-        // Only a non-empty selection emits a scope; the placeholder is inert.
-        onChange={(e) => e.target.value && onPickState(e.target.value)}
-      >
-        <option value="">Switch state…</option>
-        {states.map((s) => (
-          <option key={s.stateCode} value={s.stateCode}>
-            {s.name}
-          </option>
-        ))}
-      </select>
+      {/* WCAG 3.2.2 (#1035): the select stages a pending value; an explicit Go
+          (or Enter, via this form's submit) commits it. `change` never
+          navigates — same commit model for pointer and keyboard. */}
+      <form className="scope-control__state-form" onSubmit={handleStateSubmit}>
+        <select
+          ref={firstFieldRef}
+          className="scope-control__select"
+          aria-label="Switch state"
+          value={pendingState}
+          // Inert on change: only stage the selection locally (no navigation).
+          onChange={(e) => setPendingState(e.target.value)}
+        >
+          <option value="">Switch state…</option>
+          {states.map((s) => (
+            <option key={s.stateCode} value={s.stateCode}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+        <button
+          type="submit"
+          className="scope-control__go"
+          // Inert while the placeholder is selected — there is nothing to commit.
+          disabled={!pendingState}
+        >
+          Go
+        </button>
+      </form>
 
       {/* <ZipInput> (#739) owns the ZIP input, lazy index load, lookup, and the
           "not recognized" / malformed / fetch-error UX. ScopeControl forwards
