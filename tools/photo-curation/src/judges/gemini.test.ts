@@ -34,6 +34,11 @@ function gemini429(): Response {
   return new Response('rate limited', { status: 429 });
 }
 
+/** A 500 (transient 5xx) Response — withBackoff should retry past it too. */
+function gemini500(): Response {
+  return new Response('internal error', { status: 500 });
+}
+
 describe('GeminiVisionJudge', () => {
   it('maps a valid candidates[0].content.parts[0].text JSON into a JudgeOutput', async () => {
     const fetchImpl = async () => geminiOk(JSON.stringify(VALID_OUTPUT));
@@ -92,6 +97,23 @@ describe('GeminiVisionJudge', () => {
     const fetchImpl = async () => {
       n += 1;
       return n === 1 ? gemini429() : geminiOk(JSON.stringify(VALID_OUTPUT));
+    };
+    const judge = new GeminiVisionJudge({ apiKey: 'k', clock: makeFakeClock(), fetchImpl });
+
+    const out = await judge.judge(img, ctx, 'p');
+
+    expect(n).toBe(2);
+    expect(out.keep).toBe(true);
+  });
+
+  it('recovers from a transient 500 then 200 via withBackoff', async () => {
+    // The 5xx leg of isTransient/withBackoff: a one-off server error must be
+    // retried, not surfaced as a GeminiJudgeError (only a non-2xx that survives
+    // every backoff attempt is terminal).
+    let n = 0;
+    const fetchImpl = async () => {
+      n += 1;
+      return n === 1 ? gemini500() : geminiOk(JSON.stringify(VALID_OUTPUT));
     };
     const judge = new GeminiVisionJudge({ apiKey: 'k', clock: makeFakeClock(), fetchImpl });
 

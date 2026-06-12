@@ -89,7 +89,11 @@ export function shuffleInPlace<T>(arr: T[], rng: () => number): T[] {
  * Resolve the cached thumbnail for `speciesCode` under `thumbDir` by extension
  * glob (`<code>.*`) — currents are written `.jpg`/`.png`/`.webp` by `extFromMime`
  * (sources.ts), so a hardcoded `.jpg` would silently miss non-jpeg currents.
- * Returns the first matching filename, or `null` when nothing matches.
+ * Returns the first matching filename (in sorted order), or `null` when nothing
+ * matches. The directory listing is SORTED before the lookup so that when a
+ * species somehow has two cached extensions (e.g. a stale `amerob.png` beside a
+ * fresh `amerob.jpg`), the chosen file is deterministic across machines/runs —
+ * `readdirSync` order is filesystem-dependent.
  */
 function resolveImage(thumbDir: string, speciesCode: string): string | null {
   let entries: string[];
@@ -98,6 +102,7 @@ function resolveImage(thumbDir: string, speciesCode: string): string | null {
   } catch {
     return null;
   }
+  entries.sort();
   const prefix = `${speciesCode}.`;
   const match = entries.find((name) => name.startsWith(prefix));
   return match ?? null;

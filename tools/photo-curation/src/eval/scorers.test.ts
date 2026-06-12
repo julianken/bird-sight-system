@@ -56,8 +56,9 @@ describe('scoreMAE', () => {
   });
 
   it('clamps to 0 for an out-of-domain qualityScore (no negative scores)', () => {
-    // |130 - 50| / 100 = 0.8 → 1 - 0.8 = 0.2 is in-domain; push further:
-    // a >100-point error would yield a negative raw score, which we clamp to 0.
+    // |130 - 0| / 100 = 1.3 → 1 - 1.3 = -0.3, a NEGATIVE raw score that the
+    // Math.max(0, …) clamp pulls up to 0 (an out-of-domain >100-point error
+    // can never produce a negative metric).
     expect(scoreMAE({ output: judge(true, 130), expected: judge(true, 0) })).toEqual({
       name: 'score_mae',
       score: 0,

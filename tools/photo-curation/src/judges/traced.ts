@@ -18,11 +18,21 @@
 //   • Key absence FAILS LOUD (`MissingGeminiKey` / `MissingBraintrustKey`) —
 //     we never score blind (spec §Error handling).
 //   • The Braintrust SDK API was verified against the current docs (context7,
-//     2026-06-11): `initLogger({projectName, apiKey})`, `logger.traced(async
-//     span => …)`, and `span.log({input})` / `span.log({output, metadata})`.
+//     2026-06-11): `initLogger({projectName, apiKey})`, the bare module-level
+//     `traced(async span => …)`, and `span.log({input})` /
+//     `span.log({output, metadata, metrics})`.
+//   • SPAN NESTING (#1015 review): `resolveTracedJudge`'s seam opens spans via
+//     the BARE ambient `traced` (imported from `braintrust`), NOT
+//     `initLogger(...).traced`. Per the SDK, `traced` parents to the currently
+//     active span → experiment → logger, in that order. So inside a `bt eval`
+//     task the per-judgment span nests UNDER the experiment trace; outside an
+//     eval it falls back to the `initLogger`-registered project logger (so
+//     production scoring still logs). `initLogger` is still called to establish
+//     that fallback context — it is the active logger when no experiment is.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { initLogger } from 'braintrust';
+import { initLogger, traced } from 'braintrust';
+import { defaultRubricConfig } from '@bird-watch/photo-quality';
 import type { ImageInput, JudgeOutput, SpeciesContext, VisionJudge } from '@bird-watch/photo-quality';
 import { GeminiVisionJudge } from './gemini.js';
 
@@ -71,10 +81,17 @@ export interface TracedJudgeOptions {
 
 /**
  * Decorate any `VisionJudge` with a Braintrust span. Each `judge()` runs the
- * inner judge inside `logger.traced`, logging `input` (species framing + rubric
- * version + model + source URL), `output` (the full `JudgeOutput`), and
- * `metadata` (`latencyMs`, `model`). The span closes on success AND on error
- * (the inner error propagates unchanged).
+ * inner judge inside `logger.traced`, logging `input` (species framing + a
+ * STABLE rubric version + model + source URL), `output` (the full
+ * `JudgeOutput`), `metadata` (`latencyMs`, `model`), and `metrics`
+ * (`latency` in seconds — Braintrust's aggregated latency field, so the
+ * experiment dashboard rolls up p50/p95 across judgments). The span closes on
+ * success AND on error (the inner error propagates unchanged).
+ *
+ * `rubricVersion` logs `defaultRubricConfig.version` (a stable tag like
+ * `0.2.2`), NOT the full prompt body (#1015 review): the prompt text is large
+ * and noisy on every span; the version is the durable knob that changes only on
+ * a calibration tune, which is what we actually want to compare experiments by.
  */
 export function tracedJudge(inner: VisionJudge, opts: TracedJudgeOptions): VisionJudge {
   const { project, model, logger } = opts;
@@ -88,7 +105,7 @@ export function tracedJudge(inner: VisionJudge, opts: TracedJudgeOptions): Visio
             comName: ctx.comName,
             sciName: ctx.sciName,
             family: ctx.family,
-            rubricVersion: prompt,
+            rubricVersion: defaultRubricConfig.version,
             model,
             sourceUrl: img.sourceUrl,
             project,
@@ -96,9 +113,12 @@ export function tracedJudge(inner: VisionJudge, opts: TracedJudgeOptions): Visio
         });
         const start = now();
         const output = await inner.judge(img, ctx, prompt);
+        const latencyMs = now() - start;
         span.log({
           output,
-          metadata: { latencyMs: now() - start, model },
+          metadata: { latencyMs, model },
+          // Braintrust's aggregated `metrics.latency` is in SECONDS — divide ms.
+          metrics: { latency: latencyMs / 1000 },
         });
         return output;
       });
@@ -133,9 +153,15 @@ export function resolveTracedJudge(env: JudgeEnv, opts: ResolveTracedJudgeOption
   if (!env.BRAINTRUST_API_KEY) {
     throw new MissingBraintrustKey();
   }
-  const bt = initLogger({ projectName: opts.project, apiKey: env.BRAINTRUST_API_KEY });
+  // `initLogger` registers the project logger as the fallback active context
+  // (so production scoring — no experiment — still logs to bird-maps). The seam
+  // itself opens spans via the BARE ambient `traced`, which parents to the
+  // active span → experiment → logger: inside a `bt eval` task that is the
+  // experiment, so the per-judgment span nests under the experiment trace
+  // instead of the project Logs stream (#1015 review).
+  initLogger({ projectName: opts.project, apiKey: env.BRAINTRUST_API_KEY });
   const logger: BraintrustLoggerSeam = {
-    traced: (fn) => bt.traced(fn),
+    traced: (fn) => traced(fn),
   };
   const inner = new GeminiVisionJudge({ apiKey: env.GEMINI_API_KEY, model: opts.model });
   return tracedJudge(inner, { project: opts.project, model: opts.model, logger });

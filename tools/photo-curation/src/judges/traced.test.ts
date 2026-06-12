@@ -6,6 +6,7 @@ import {
   MissingGeminiKey,
   type BraintrustLoggerSeam,
 } from './traced.js';
+import { defaultRubricConfig } from '@bird-watch/photo-quality';
 import type { ImageInput, SpeciesContext, JudgeOutput, VisionJudge } from '@bird-watch/photo-quality';
 
 const img: ImageInput = {
@@ -97,20 +98,24 @@ describe('tracedJudge', () => {
       model: 'gemini-2.5-flash',
       sourceUrl: 'https://example.test/amerob.jpg',
     });
-    expect(inputLog!.input.rubricVersion).toBe(PROMPT);
+    // rubricVersion is the STABLE config version, NOT the full prompt body (#1015).
+    expect(inputLog!.input.rubricVersion).toBe(defaultRubricConfig.version);
+    expect(inputLog!.input.rubricVersion).not.toBe(PROMPT);
 
     // output span-log: the full JudgeOutput.
     const outputLog = span.logs.find((l) => 'output' in l) as { output: JudgeOutput } | undefined;
     expect(outputLog).toBeTruthy();
     expect(outputLog!.output).toEqual(VALID_OUTPUT);
 
-    // metadata span-log: latencyMs + model.
+    // metadata span-log: latencyMs + model, plus aggregated metrics.latency (s).
     const metaLog = span.logs.find((l) => 'metadata' in l) as
-      | { metadata: { latencyMs: number; model: string } }
+      | { metadata: { latencyMs: number; model: string }; metrics: { latency: number } }
       | undefined;
     expect(metaLog).toBeTruthy();
     expect(metaLog!.metadata.model).toBe('gemini-2.5-flash');
     expect(typeof metaLog!.metadata.latencyMs).toBe('number');
+    // metrics.latency is the same measurement in SECONDS (Braintrust aggregation).
+    expect(metaLog!.metrics.latency).toBeCloseTo(metaLog!.metadata.latencyMs / 1000);
   });
 
   it('propagates an inner error and still closes the span', async () => {
