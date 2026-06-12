@@ -116,9 +116,11 @@ in a future iteration; the eval harness is identical either way (only the datase
 ### 5. Terraform — secrets only (now)
 
 - **Home:** `infra/terraform/photo-judge-secrets.tf`.
-- `google_secret_manager_secret` (+ initial version placeholder; real values set
-  out-of-band, never committed) for `GEMINI_API_KEY` and `BRAINTRUST_API_KEY`,
-  with IAM read-bindings staged for the future scoring service account.
+- Exactly two `google_secret_manager_secret` resources (`bird-watch-gemini-api-key`,
+  `bird-watch-braintrust-api-key`), **no secret version** (real values set
+  out-of-band, never committed) and **no IAM binding** this iteration — the
+  consuming service account arrives with the deferred Cloud Run job, so binding an
+  existing SA now is premature coupling.
 - **Explicitly no compute** this iteration. The local eval reads the keys from
   `.env.local` / CI secrets; the Secret Manager entries stage the Cloud-Run-later
   path so the IaC is ready when Gemini clears the gate.
@@ -162,8 +164,11 @@ review.sqlite (Opus)    ─┴─▶ build-dataset ─▶ Braintrust dataset (bi
   response → asserts mapping to the report shape; fake Clock for pacing; 429 retry
   path; malformed-output re-ask path. No real network.
 - `tracedJudge`: unit test that it calls the inner judge and emits a span
-  (Braintrust SDK in test/no-network mode or injected logger); asserts the
-  un-traced path is unreachable (no judge constructed without the wrapper).
+  (Braintrust SDK in test/no-network mode or injected logger); plus a test
+  asserting the **public construction surface** — the `judges` barrel exports
+  only the traced factory `resolveTracedJudge`, and the raw `GeminiVisionJudge`
+  ctor (reachable for its own unit test) is **absent from the barrel**. This is a
+  construction-boundary guarantee, not a claim the class is unreachable.
 - `build-dataset`: fixture sqlite + temp images → asserts row shape +
   stratification + that missing images are skipped with a logged note.
 - Scorers: pure unit tests (`keepAgreement`, `scoreMAE`, `keepConfusion`).
