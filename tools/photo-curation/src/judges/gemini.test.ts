@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { GeminiVisionJudge, GeminiJudgeError, GEMINI_PACE_MS } from './gemini.js';
+import { describe, it, expect, vi } from 'vitest';
+import { GeminiVisionJudge, GeminiJudgeError, GeminiDailyQuotaError, GEMINI_PACE_MS } from './gemini.js';
 import { makeFakeClock } from '../test-clock.js';
 import type { ImageInput, SpeciesContext, JudgeOutput } from '@bird-watch/photo-quality';
 
@@ -29,9 +29,39 @@ function geminiOk(text: string): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
 }
 
-/** A 429 (transient) Response — withBackoff should retry past it. */
+/** A 429 (transient) Response with an UNPARSEABLE body — withBackoff should retry past it. */
 function gemini429(): Response {
   return new Response('rate limited', { status: 429 });
+}
+
+/** The quotaIds measured on the free tier 2026-06-11 (#1036). */
+const PER_MINUTE_QUOTA_ID = 'GenerateRequestsPerMinutePerProjectPerModel-FreeTier';
+const PER_DAY_QUOTA_ID = 'GenerateRequestsPerDayPerProjectPerModel-FreeTier';
+
+/** Google's structured 429: `error.details[]` carries QuotaFailure violations + RetryInfo. */
+function gemini429Quota(quotaId: string, retryDelay?: string): Response {
+  const details: unknown[] = [
+    {
+      '@type': 'type.googleapis.com/google.rpc.QuotaFailure',
+      violations: [
+        {
+          quotaMetric: 'generativelanguage.googleapis.com/generate_content_free_tier_requests',
+          quotaId,
+          quotaValue: '5',
+        },
+      ],
+    },
+  ];
+  if (retryDelay !== undefined) {
+    details.push({ '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay });
+  }
+  const body = {
+    error: { code: 429, message: 'Resource has been exhausted', status: 'RESOURCE_EXHAUSTED', details },
+  };
+  return new Response(JSON.stringify(body), {
+    status: 429,
+    headers: { 'content-type': 'application/json' },
+  });
 }
 
 /** A 500 (transient 5xx) Response — withBackoff should retry past it too. */
@@ -121,6 +151,96 @@ describe('GeminiVisionJudge', () => {
 
     expect(n).toBe(2);
     expect(out.keep).toBe(true);
+  });
+
+  it('waits at least the RetryInfo retryDelay before retrying a minute-cap 429', async () => {
+    const clock = makeFakeClock();
+    let n = 0;
+    const fetchImpl = async () => {
+      n += 1;
+      return n === 1 ? gemini429Quota(PER_MINUTE_QUOTA_ID, '13s') : geminiOk(JSON.stringify(VALID_OUTPUT));
+    };
+    const judge = new GeminiVisionJudge({ apiKey: 'k', clock, fetchImpl });
+
+    const out = await judge.judge(img, ctx, 'p');
+
+    expect(n).toBe(2);
+    expect(out.keep).toBe(true);
+    // The backoff sleep honors the server hint: max(13 000, jittered ≤ 500) = 13 000.
+    expect(clock.sleeps).toContain(13_000);
+  });
+
+  it('latches on a daily-cap 429: GeminiDailyQuotaError on the FIRST trip, one fetch total', async () => {
+    let n = 0;
+    const fetchImpl = async () => {
+      n += 1;
+      return gemini429Quota(PER_DAY_QUOTA_ID, '38s');
+    };
+    const judge = new GeminiVisionJudge({ apiKey: 'k', clock: makeFakeClock(), fetchImpl });
+
+    // The FIRST trip surfaces as GeminiDailyQuotaError (not a wrapped GeminiJudgeError) …
+    await expect(judge.judge(img, ctx, 'p')).rejects.toBeInstanceOf(GeminiDailyQuotaError);
+    // … after exactly ONE network call: a drained daily cap is non-transient, no retries.
+    expect(n).toBe(1);
+
+    // The latch: every subsequent judge() call throws with ZERO additional fetches.
+    await expect(judge.judge(img, ctx, 'p')).rejects.toBeInstanceOf(GeminiDailyQuotaError);
+    expect(n).toBe(1);
+  });
+
+  it('names the tripped quotaId in the error message (RPM vs RPD trips distinguishable)', async () => {
+    // RPD: the daily error names the quotaId and the reset.
+    const daily = new GeminiVisionJudge({
+      apiKey: 'k',
+      clock: makeFakeClock(),
+      fetchImpl: async () => gemini429Quota(PER_DAY_QUOTA_ID),
+    });
+    await expect(daily.judge(img, ctx, 'p')).rejects.toThrow(new RegExp(PER_DAY_QUOTA_ID));
+
+    // RPM: a minute-cap 429 that survives every backoff attempt still carries its quotaId
+    // (this is the Braintrust span error text — a bare "Gemini 429" is undiagnosable).
+    const minute = new GeminiVisionJudge({
+      apiKey: 'k',
+      clock: makeFakeClock(),
+      fetchImpl: async () => gemini429Quota(PER_MINUTE_QUOTA_ID),
+    });
+    await expect(minute.judge(img, ctx, 'p')).rejects.toThrow(new RegExp(PER_MINUTE_QUOTA_ID));
+  });
+
+  it('preserves plain transient handling for a 429 with an unparseable body (4 attempts)', async () => {
+    let n = 0;
+    const fetchImpl = async () => {
+      n += 1;
+      return gemini429(); // text body — no quota signals to parse
+    };
+    const judge = new GeminiVisionJudge({ apiKey: 'k', clock: makeFakeClock(), fetchImpl });
+
+    await expect(judge.judge(img, ctx, 'p')).rejects.toBeInstanceOf(GeminiJudgeError);
+    expect(n).toBe(4); // initial + withBackoff's default 3 retries — the pre-#1036 behavior
+  });
+
+  it('defaults GEMINI_PACE_MS to 12_000 ms (≤5 RPM — the measured free-tier cap)', () => {
+    expect(GEMINI_PACE_MS).toBe(12_000);
+  });
+
+  it('honors a GEMINI_PACE_MS env override without a rebuild', async () => {
+    vi.stubEnv('GEMINI_PACE_MS', '30000');
+    vi.resetModules();
+    try {
+      const mod = await import('./gemini.js');
+      expect(mod.GEMINI_PACE_MS).toBe(30_000);
+
+      // And the override actually drives the judge's Pacer.
+      const clock = makeFakeClock();
+      const fetchImpl = async () => geminiOk(JSON.stringify(VALID_OUTPUT));
+      const judge = new mod.GeminiVisionJudge({ apiKey: 'k', clock, fetchImpl });
+      await judge.judge(img, ctx, 'p');
+      await judge.judge(img, ctx, 'p');
+      expect(clock.sleeps).toContain(30_000);
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
   });
 
   it('re-asks once on a non-JSON body then throws GeminiJudgeError', async () => {
