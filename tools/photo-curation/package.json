@@ -11,9 +11,11 @@
     "test": "vitest run",
     "curate": "tsx src/cli.ts",
     "eval": "bt eval eval/photo-judge.eval.ts",
-    "analyze": "tsx scripts/analyze-experiment.ts"
+    "analyze": "tsx scripts/analyze-experiment.ts",
+    "backfill-scores": "tsx scripts/backfill-scores-to-prod.ts"
   },
   "dependencies": {
+    "@bird-watch/db-client": "*",
     "@bird-watch/ingestor": "*",
     "@bird-watch/photo-quality": "*",
     "@bird-watch/shared-types": "*",

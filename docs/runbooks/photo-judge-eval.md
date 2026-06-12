@@ -1,5 +1,34 @@
 # Photo-judge eval — Gemini vs. the Opus baseline (`bt eval`)
 
+## One-time prerequisite: promote the `review.sqlite` baseline to prod (#1072)
+
+Before the baseline can be read from prod (the eval's #1073/C4 read path and any
+other consumer of `species_photo_scores`), the 902 `role='current'` Opus scores
+in the operator-local `review.sqlite` must be backfilled into the prod
+`species_photo_scores` table **once**. This is an **operator-run** step — it
+reads a local SQLite that does not exist in CI and writes to PROD, the same
+posture as the silhouette admin scripts.
+
+```sh
+# From the photo-curation run-worktree (where review.sqlite lives).
+# DATABASE_URL must be a PROD read-WRITE connection string (NOT the read-replica
+# / read-only URL — the script INSERTs). REVIEW_DB defaults to ./review.sqlite.
+DATABASE_URL='postgres://…prod-rw…' REVIEW_DB=./review.sqlite \
+  npm run backfill-scores -w @bird-watch/photo-curation
+```
+
+It prints a one-line summary — `read 902, inserted 902, skipped-existing 0` on
+the first run. The insert is **idempotent** (C2's `insertPhotoScores`,
+`ON CONFLICT (species_code, content_hash, model, rubric_version) DO NOTHING`), so
+a **second run prints `inserted 0`** and is safe to re-run.
+
+Provenance is split by the locked mapping (#1072): the **889 Opus-judged** rows
+land under `model = 'claude-opus-4-8'`, and the **13 deterministic-gate** rows
+(`rationale LIKE 'deterministic gate%'`, `keep = 0`, `quality_score = 0`) land
+under `model = 'deterministic-gate'` — never mislabeled as the Opus pin (they
+were never LLM-judged). Both carry `rubric_version = '0.2.1'`. The eval's
+det-gate exclusion (#1037, below) keys off the same marker.
+
 ## What this measures
 
 The eval (`tools/photo-curation/eval/photo-judge.eval.ts`) runs the **traced
