@@ -20,3 +20,9 @@ deployer_service_account_email = "REPLACE_ME@REPLACE_ME.iam.gserviceaccount.com"
 # NOT set here; they live in Secret Manager (bird-watch-healthchecks-<kind>)
 # populated out-of-band post-`terraform apply` via `gcloud secrets versions add`.
 # alert_email           = "julian.kennon.d@gmail.com"
+
+# Photo-judge eval secrets (issue #1016, see photo-judge-secrets.tf). Like the
+# Healthchecks URLs above, the Gemini and Braintrust API keys are NOT set here:
+# they live in Secret Manager (bird-watch-gemini-api-key,
+# bird-watch-braintrust-api-key) with values populated out-of-band post-apply
+# via `gcloud secrets versions add` so they never touch tfvars, plan, or state.
