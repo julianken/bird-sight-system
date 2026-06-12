@@ -147,7 +147,18 @@ export function tracedJudge(inner: VisionJudge, opts: TracedJudgeOptions): Visio
             family: ctx.family,
             judgedRubricVersion: rubricVersion,
             model,
+            // `sourceUrl` stays the queryable provenance string (`bt sql`, the
+            // analysis script). `image_url` nests the SAME URL in Braintrust's
+            // recognized render shape (#1086) — per the BT docs
+            // (`instrument/attachments.md` → "Inline attachments → Simple URLs"),
+            // `{ image_url: { url } }` FORCES the tree viewer to render the
+            // thumbnail inline, independent of its image-extension heuristic, so
+            // disagreement review happens in the BT UI instead of out-of-band.
+            // Spread-guard the empty case: an image with no public URL logs NO
+            // `image_url` key (never `{ url: undefined }`, which would surface a
+            // broken render hint).
             sourceUrl: img.sourceUrl,
+            ...(img.sourceUrl ? { image_url: { url: img.sourceUrl } } : {}),
             project,
           },
         });
