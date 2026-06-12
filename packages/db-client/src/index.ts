@@ -23,6 +23,7 @@ export {
   type SpeciesPhotoInput,
   type SpeciesDescriptionInput,
 } from './species.js';
+export { insertPhotoScores, getPhotoScores } from './photo-scores.js';
 export { getSilhouettes } from './silhouettes.js';
 export { resolveStateForPoint, listStatesWithBbox } from './state-boundaries.js';
 export {
