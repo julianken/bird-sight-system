@@ -22,6 +22,22 @@ export async function startTestDb(): Promise<TestDb> {
   ).start();
   const url = container.getConnectionUri();
   const pool = new pg.Pool({ connectionString: url, max: 4 });
+  // Mirror createPool's idle-client error guard (#1069). This pool is built
+  // directly (not via createPool) to keep the integration harness's config —
+  // no statement_timeout, max: 4 — but it is precisely the pool most exposed to
+  // the flake: testcontainers tearing its container down can fire 'error' on an
+  // idle client between suites. Without a listener that becomes an uncaught
+  // exception that reds the whole `test` run. Log and swallow; pg evicts the
+  // dead client.
+  pool.on('error', (err) => {
+    console.error(
+      JSON.stringify({
+        severity: 'ERROR',
+        message: 'db_pool_idle_client_error',
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+  });
 
   const migrationsDir = resolve(process.cwd(), '../../migrations');
   const files = readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
