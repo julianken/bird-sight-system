@@ -71,6 +71,24 @@ describe('insertPhotoScores', () => {
     );
     expect(rows[0].c).toBe(4);
   });
+
+  it('a mixed batch of existing + new tuples returns only the newly-inserted count', async () => {
+    // Pre-seed one tuple, then submit a batch that re-includes it alongside two
+    // genuinely new tuples. rowCount must be 2 (the new rows only) — NOT 3 (the
+    // batch size). This `< rows.length` partial count is the signal C3's
+    // idempotent-progress reporting (#1072) leans on, so guard it directly.
+    expect(await insertPhotoScores(db.pool, [baseRow])).toBe(1);
+    const inserted = await insertPhotoScores(db.pool, [
+      baseRow, // conflict — dropped
+      { ...baseRow, contentHash: 'sha256-new1' }, // new
+      { ...baseRow, contentHash: 'sha256-new2' }, // new
+    ]);
+    expect(inserted).toBe(2);
+    const { rows } = await db.pool.query(
+      `SELECT COUNT(*)::int AS c FROM species_photo_scores WHERE species_code = 'vermfly'`,
+    );
+    expect(rows[0].c).toBe(3);
+  });
 });
 
 describe('getPhotoScores', () => {
