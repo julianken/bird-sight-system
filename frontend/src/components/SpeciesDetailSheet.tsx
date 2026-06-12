@@ -206,6 +206,23 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
   const resolvePath = useMemo(() => buildFamilyPathResolver(silhouettes), [silhouettes]);
   const resolveImgUrl = useMemo(() => buildFamilyImgUrlResolver(silhouettes), [silhouettes]);
 
+  // Build the familyCode → colloquial name resolver once per silhouettes
+  // identity change (#1046 / C2). Mirrors the server's
+  // COALESCE(family_silhouettes.common_name, species_meta.family_name) so
+  // all four family-name render sites on the sheet show the curated #924
+  // colloquial name ("Hawks, Eagles & Kites") instead of the raw eBird
+  // familyName ("Hawks, Eagles, and Kites"). Keys are lowercased to match
+  // the server's lowercase family_code (same convention as App.tsx l.533-536).
+  const resolveCommonName = useMemo(() => {
+    const byCode = new Map<string, string | null>();
+    for (const s of silhouettes) byCode.set(s.familyCode.toLowerCase(), s.commonName);
+    return (familyCode: string | null | undefined, rawName: string | undefined): string | undefined => {
+      if (!familyCode) return rawName;
+      const hit = byCode.get(familyCode.toLowerCase());
+      return hit ?? rawName;
+    };
+  }, [silhouettes]);
+
   // ── Analytics (T3 #909) ──────────────────────────────────────────────────
   // Re-wired off SpeciesDetailSurface (SpeciesDetailSurface.tsx:73-115): T1
   // (#907) stopped composing the surface inside this sheet and silently dropped
@@ -861,7 +878,7 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
                 aria-hidden="true"
                 style={{ background: famColor }}
               />
-              {data?.familyName}
+              {resolveCommonName(data?.familyCode, data?.familyName)}
             </p>
           </div>
 
@@ -871,7 +888,7 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
           <dl className="sheet-fg-record">
             <div className="sheet-fg-cell">
               <dt className="sheet-fg-label">Family</dt>
-              <dd className="sheet-fg-value">{data?.familyName ?? '—'}</dd>
+              <dd className="sheet-fg-value">{resolveCommonName(data?.familyCode, data?.familyName) ?? '—'}</dd>
             </div>
             <div className="sheet-fg-cell">
               <dt className="sheet-fg-label">eBird taxonomic order</dt>
@@ -943,7 +960,7 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
                 aria-hidden="true"
                 style={{ background: famColor }}
               />
-              {data?.familyName}
+              {resolveCommonName(data?.familyCode, data?.familyName)}
             </p>
           </div>
 
@@ -957,7 +974,7 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
             </div>
             <div className="sheet-fg-taxrow">
               <dt>Family</dt>
-              <dd>{data?.familyName}</dd>
+              <dd>{resolveCommonName(data?.familyCode, data?.familyName)}</dd>
             </div>
             <div className="sheet-fg-taxrow">
               <dt>eBird taxonomic order</dt>

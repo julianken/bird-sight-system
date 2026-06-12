@@ -346,6 +346,106 @@ describe('SpeciesDetailSurface', () => {
     expect(body!.lastElementChild).toBe(sentinel);
   });
 
+  // ─── C2 #1046: colloquial family-name resolution ─────────────────────────
+  //
+  // Both render sites (identity row + taxonomy <dl>) must show the curated
+  // #924 colloquial name from the silhouettes payload, NOT the raw eBird
+  // familyName from SpeciesMeta.  Fixtures are DESYNCED (different strings)
+  // to prove the resolution chain rather than accidentally passing because
+  // both sources happen to carry the same text.
+
+  it('C2: identity row and taxonomy <dl> show the colloquial name, not the raw eBird name', async () => {
+    // DESYNCED: raw eBird name uses "and"; colloquial uses "&".
+    const HAWK_META: SpeciesMeta = {
+      speciesCode: 'coohaw',
+      comName: "Cooper's Hawk",
+      sciName: 'Accipiter cooperii',
+      familyCode: 'accipitridae',
+      familyName: 'Hawks, Eagles, and Kites',
+      taxonOrder: 2200,
+    };
+    const HAWK_SILHOUETTE: FamilySilhouette = {
+      familyCode: 'accipitridae',
+      color: '#7A2EC7',
+      colorDark: '#7A2EC7',
+      svgData: 'M0 0L1 1Z',
+      svgUrl: null,
+      source: 'https://www.phylopic.org/i/y',
+      license: 'CC0-1.0',
+      commonName: 'Hawks, Eagles & Kites',
+      creator: 'Test Creator',
+    };
+    const client = makeClient({
+      getSpecies: vi.fn().mockResolvedValue(HAWK_META),
+      getSilhouettes: vi.fn().mockResolvedValue([HAWK_SILHOUETTE]),
+    } as unknown as Partial<ApiClient>);
+    render(<SpeciesDetailSurface speciesCode="coohaw" apiClient={client} />);
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: "Cooper's Hawk" })).toBeInTheDocument()
+    );
+    // Colloquial name appears at both sites (identity row + taxonomy dl).
+    expect(screen.getAllByText('Hawks, Eagles & Kites')).toHaveLength(2);
+    // Raw eBird name must NOT appear at either site.
+    expect(screen.queryByText('Hawks, Eagles, and Kites')).toBeNull();
+  });
+
+  it('C2 fallback: when silhouettes payload has no entry for the family, renders raw eBird familyName', async () => {
+    const HAWK_META: SpeciesMeta = {
+      speciesCode: 'coohaw',
+      comName: "Cooper's Hawk",
+      sciName: 'Accipiter cooperii',
+      familyCode: 'accipitridae',
+      familyName: 'Hawks, Eagles, and Kites',
+      taxonOrder: 2200,
+    };
+    const client = makeClient({
+      // Silhouettes payload carries a DIFFERENT family — no accipitridae entry.
+      getSpecies: vi.fn().mockResolvedValue(HAWK_META),
+      getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
+    } as unknown as Partial<ApiClient>);
+    render(<SpeciesDetailSurface speciesCode="coohaw" apiClient={client} />);
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: "Cooper's Hawk" })).toBeInTheDocument()
+    );
+    // Falls back to the raw eBird name at both sites.
+    expect(screen.getAllByText('Hawks, Eagles, and Kites')).toHaveLength(2);
+    // Must NOT render the Latin family name as a fallback.
+    expect(screen.queryByText('Accipitridae')).toBeNull();
+  });
+
+  it('C2 null-commonName fallback: when silhouette.commonName is null, renders raw eBird familyName', async () => {
+    const HAWK_META: SpeciesMeta = {
+      speciesCode: 'coohaw',
+      comName: "Cooper's Hawk",
+      sciName: 'Accipiter cooperii',
+      familyCode: 'accipitridae',
+      familyName: 'Hawks, Eagles, and Kites',
+      taxonOrder: 2200,
+    };
+    const NULL_COMMON_SILHOUETTE: FamilySilhouette = {
+      familyCode: 'accipitridae',
+      color: '#7A2EC7',
+      colorDark: '#7A2EC7',
+      svgData: 'M0 0L1 1Z',
+      svgUrl: null,
+      source: 'https://www.phylopic.org/i/y',
+      license: 'CC0-1.0',
+      commonName: null,
+      creator: 'Test Creator',
+    };
+    const client = makeClient({
+      getSpecies: vi.fn().mockResolvedValue(HAWK_META),
+      getSilhouettes: vi.fn().mockResolvedValue([NULL_COMMON_SILHOUETTE]),
+    } as unknown as Partial<ApiClient>);
+    render(<SpeciesDetailSurface speciesCode="coohaw" apiClient={client} />);
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: "Cooper's Hawk" })).toBeInTheDocument()
+    );
+    // null commonName → falls back to raw eBird name, not Latin family code.
+    expect(screen.getAllByText('Hawks, Eagles, and Kites')).toHaveLength(2);
+    expect(screen.queryByText('Accipitridae')).toBeNull();
+  });
+
   // ─── Phase 4 heading + Photo contracts ──────────────────────────────────
   //
   // Sky Atlas Phase 4 promotes SpeciesDetailSurface to a presentational body
