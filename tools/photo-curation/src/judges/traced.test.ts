@@ -105,6 +105,11 @@ describe('tracedJudge', () => {
     expect(inputLog!.input.judgedRubricVersion).toBe('0.2.1');
     expect(inputLog!.input.judgedRubricVersion).not.toBe(PROMPT);
 
+    // image_url nests the SAME R2 URL in Braintrust's recognized render shape
+    // (#1086) so the tree viewer force-renders the thumbnail inline. It rides
+    // ALONGSIDE the unchanged sourceUrl string (the queryable provenance field).
+    expect(inputLog!.input.image_url).toEqual({ url: 'https://example.test/amerob.jpg' });
+
     // output span-log: the full JudgeOutput.
     const outputLog = span.logs.find((l) => 'output' in l) as { output: JudgeOutput } | undefined;
     expect(outputLog).toBeTruthy();
@@ -119,6 +124,22 @@ describe('tracedJudge', () => {
     expect(typeof metaLog!.metadata.latencyMs).toBe('number');
     // metrics.latency is the same measurement in SECONDS (Braintrust aggregation).
     expect(metaLog!.metrics.latency).toBeCloseTo(metaLog!.metadata.latencyMs / 1000);
+  });
+
+  it('omits image_url (no {url: undefined}) when the image has no sourceUrl', async () => {
+    // A judgment whose image carries no public URL (sourceUrl absent) must NOT
+    // log image_url at all — logging { url: undefined } would surface a broken
+    // render hint in Braintrust (#1086). sourceUrl itself is allowed to be
+    // undefined; it stays a queryable field, image_url is the render-only hint.
+    const noUrlImg: ImageInput = { buffer: Buffer.from('bytes'), mime: 'image/jpeg' };
+    const logger = makeRecordingLogger();
+    const judge = tracedJudge(new FakeJudge(), { project: 'bird-maps', model: 'gemini-2.5-flash', rubricVersion: '0.2.1', logger });
+
+    await judge.judge(noUrlImg, ctx, PROMPT);
+
+    const inputLog = logger.spans[0]!.logs.find((l) => 'input' in l) as { input: Record<string, unknown> } | undefined;
+    expect(inputLog).toBeTruthy();
+    expect(inputLog!.input).not.toHaveProperty('image_url');
   });
 
   it('propagates an inner error and still closes the span', async () => {
