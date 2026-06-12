@@ -75,6 +75,32 @@ export class GeminiDailyQuotaError extends Error {
   }
 }
 
+/**
+ * Token usage from a v1beta response's `usageMetadata` (#1037). Captured
+ * internally so the tracing seam can log Braintrust token metrics WITHOUT
+ * touching the SDK-free `JudgeOutput` contract in @bird-watch/photo-quality.
+ * `thoughtsTokenCount` appears only when the model spent thinking tokens;
+ * `totalTokenCount` includes them when present.
+ */
+export interface GeminiUsage {
+  promptTokenCount?: number;
+  candidatesTokenCount?: number;
+  thoughtsTokenCount?: number;
+  totalTokenCount?: number;
+}
+
+/** Read the optional `usageMetadata` numbers out of a 200 response envelope. */
+function extractUsage(json: unknown): GeminiUsage | undefined {
+  const raw = (json as { usageMetadata?: unknown } | null)?.usageMetadata;
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const u = raw as Record<string, unknown>;
+  const usage: GeminiUsage = {};
+  for (const key of ['promptTokenCount', 'candidatesTokenCount', 'thoughtsTokenCount', 'totalTokenCount'] as const) {
+    if (typeof u[key] === 'number') usage[key] = u[key];
+  }
+  return Object.keys(usage).length > 0 ? usage : undefined;
+}
+
 /** Quota signals parsed from a Google 429 body's `error.details[]` (#1036). */
 interface QuotaSignals {
   quotaId?: string;
@@ -274,6 +300,8 @@ export class GeminiVisionJudge implements VisionJudge {
   private readonly clock: Clock;
   /** quotaId of the tripped daily cap; once set, judge() fails fast forever (#1036). */
   private dailyExhaustedQuotaId: string | null = null;
+  /** usageMetadata of the LATEST 200 response — overwritten (or cleared) per response (#1037). */
+  private _lastUsage: GeminiUsage | undefined;
 
   constructor(opts: GeminiVisionJudgeOptions) {
     if (!opts.apiKey) {
@@ -304,7 +332,21 @@ export class GeminiVisionJudge implements VisionJudge {
       );
     }
     const json: unknown = await res.json();
+    // Overwrite (or clear) per response so a row's span never inherits a
+    // PREVIOUS row's token counts. On a parse re-ask the second response wins:
+    // lastUsage() is per-output, not a per-row cost accumulator.
+    this._lastUsage = extractUsage(json);
     return extractText(json);
+  }
+
+  /**
+   * Token usage of the latest 200 response, or `undefined` when none has been
+   * seen (or the latest carried no `usageMetadata`). The tracing seam reads
+   * this right after a judgment resolves to surface Braintrust token metrics
+   * (#1037 decision 5) — `JudgeOutput` itself stays unchanged.
+   */
+  lastUsage(): GeminiUsage | undefined {
+    return this._lastUsage;
   }
 
   /** One paced, backoff-wrapped ask → parsed JudgeOutput. */

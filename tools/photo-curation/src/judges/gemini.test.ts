@@ -22,9 +22,10 @@ const VALID_OUTPUT: JudgeOutput = {
 };
 
 /** Build a Response-like object whose JSON body wraps `text` in the Gemini envelope. */
-function geminiOk(text: string): Response {
+function geminiOk(text: string, usageMetadata?: object): Response {
   const body = {
     candidates: [{ content: { parts: [{ text }] } }],
+    ...(usageMetadata === undefined ? {} : { usageMetadata }),
   };
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
 }
@@ -241,6 +242,38 @@ describe('GeminiVisionJudge', () => {
       vi.unstubAllEnvs();
       vi.resetModules();
     }
+  });
+
+  // #1037 decision 5: token usage is captured INTERNALLY (JudgeOutput is
+  // unchanged and @bird-watch/photo-quality stays SDK-free); the tracing seam
+  // reads it via this accessor after each judgment.
+  it('captures the response usageMetadata, readable via lastUsage()', async () => {
+    const usage = { promptTokenCount: 1234, candidatesTokenCount: 56, thoughtsTokenCount: 10, totalTokenCount: 1300 };
+    const fetchImpl = async () => geminiOk(JSON.stringify(VALID_OUTPUT), usage);
+    const judge = new GeminiVisionJudge({ apiKey: 'k', clock: makeFakeClock(), fetchImpl });
+
+    expect(judge.lastUsage()).toBeUndefined(); // nothing judged yet
+    await judge.judge(img, ctx, 'p');
+    expect(judge.lastUsage()).toEqual(usage);
+  });
+
+  it('lastUsage() reflects the LATEST response and clears when usageMetadata is absent', async () => {
+    let n = 0;
+    const fetchImpl = async () => {
+      n += 1;
+      return n === 1
+        ? geminiOk(JSON.stringify(VALID_OUTPUT), { promptTokenCount: 100, candidatesTokenCount: 20, totalTokenCount: 120 })
+        : geminiOk(JSON.stringify(VALID_OUTPUT)); // no usageMetadata
+    };
+    const judge = new GeminiVisionJudge({ apiKey: 'k', clock: makeFakeClock(), fetchImpl });
+
+    await judge.judge(img, ctx, 'p');
+    expect(judge.lastUsage()).toEqual({ promptTokenCount: 100, candidatesTokenCount: 20, totalTokenCount: 120 });
+
+    // A second judgment without usageMetadata must not leak the first row's
+    // numbers onto the second row's span.
+    await judge.judge(img, ctx, 'p');
+    expect(judge.lastUsage()).toBeUndefined();
   });
 
   it('re-asks once on a non-JSON body then throws GeminiJudgeError', async () => {
