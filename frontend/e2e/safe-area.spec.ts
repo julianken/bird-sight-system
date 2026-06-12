@@ -82,6 +82,9 @@ test.describe('SpeciesDetailSheet safe-area inset guard (MOB-5 / V1 #788)', () =
     const safeAreaResult = await page.evaluate(() => {
       const matchedPaddingValues: string[] = [];
       const matchedPaddingShorthands: string[] = [];
+      // #430 — landscape notch insets on the base rule (left + right).
+      const matchedPaddingLeftValues: string[] = [];
+      const matchedPaddingRightValues: string[] = [];
 
       for (const sheet of Array.from(document.styleSheets)) {
         let rules: CSSRuleList;
@@ -100,13 +103,22 @@ test.describe('SpeciesDetailSheet safe-area inset guard (MOB-5 / V1 #788)', () =
 
           const paddingBottom = rule.style.getPropertyValue('padding-bottom');
           const padding = rule.style.getPropertyValue('padding');
+          const paddingLeft = rule.style.getPropertyValue('padding-left');
+          const paddingRight = rule.style.getPropertyValue('padding-right');
 
           if (paddingBottom) matchedPaddingValues.push(paddingBottom);
           if (padding) matchedPaddingShorthands.push(padding);
+          if (paddingLeft) matchedPaddingLeftValues.push(paddingLeft);
+          if (paddingRight) matchedPaddingRightValues.push(paddingRight);
         }
       }
 
-      return { matchedPaddingValues, matchedPaddingShorthands };
+      return {
+        matchedPaddingValues,
+        matchedPaddingShorthands,
+        matchedPaddingLeftValues,
+        matchedPaddingRightValues,
+      };
     });
 
     // The production declaration at styles.css:1219:
@@ -125,6 +137,38 @@ test.describe('SpeciesDetailSheet safe-area inset guard (MOB-5 / V1 #788)', () =
       `Found padding-bottom values: ${JSON.stringify(safeAreaResult.matchedPaddingValues)}; ` +
       `padding shorthand values: ${JSON.stringify(safeAreaResult.matchedPaddingShorthands)}. ` +
       `This fails if styles.css:1219 (padding-bottom: env(safe-area-inset-bottom, 0)) is removed.`,
+    ).toBe(true);
+
+    // ── 1b. #430 — landscape-notch left/right insets (falsifiable probe) ───────
+    //
+    // On a notched iPhone held landscape the camera cutout intrudes from one
+    // side; the base .species-detail-sheet rule must consume
+    // env(safe-area-inset-left) and env(safe-area-inset-right) so the grip +
+    // content clear it. Same authored-CSSStyleRule-source-string probe as the
+    // padding-bottom guard above — fails on removal of either declaration.
+    const leftValues = [
+      ...safeAreaResult.matchedPaddingLeftValues,
+      ...safeAreaResult.matchedPaddingShorthands,
+    ];
+    const rightValues = [
+      ...safeAreaResult.matchedPaddingRightValues,
+      ...safeAreaResult.matchedPaddingShorthands,
+    ];
+    expect(
+      leftValues.some((v) => v.includes('env(safe-area-inset-left')),
+      `Expected a .species-detail-sheet rule with padding-left (or padding ` +
+      `shorthand) containing env(safe-area-inset-left). ` +
+      `Found padding-left: ${JSON.stringify(safeAreaResult.matchedPaddingLeftValues)}; ` +
+      `padding shorthand: ${JSON.stringify(safeAreaResult.matchedPaddingShorthands)}. ` +
+      `This fails if the #430 padding-left: env(safe-area-inset-left, 0) is removed.`,
+    ).toBe(true);
+    expect(
+      rightValues.some((v) => v.includes('env(safe-area-inset-right')),
+      `Expected a .species-detail-sheet rule with padding-right (or padding ` +
+      `shorthand) containing env(safe-area-inset-right). ` +
+      `Found padding-right: ${JSON.stringify(safeAreaResult.matchedPaddingRightValues)}; ` +
+      `padding shorthand: ${JSON.stringify(safeAreaResult.matchedPaddingShorthands)}. ` +
+      `This fails if the #430 padding-right: env(safe-area-inset-right, 0) is removed.`,
     ).toBe(true);
 
     // ── 2. padding-top authored CSS source-string assertion ───────────────────

@@ -42,6 +42,7 @@ import { regionLabelFor } from './config/region.js';
 import { prefetchMapCanvas } from './prefetch.js';
 import { SurfaceTitleSync } from './components/SurfaceTitleSync.js';
 import { StatusBlock } from './components/ds/StatusBlock.js';
+import { SheetHeader } from './components/ds/SheetHeader.js';
 
 const apiClient = new ApiClient({ baseUrl: import.meta.env.VITE_API_BASE_URL ?? '' });
 
@@ -336,6 +337,10 @@ export function App() {
     if (!filtersOpen) return;
     const onKeyDown = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
+        // preventDefault so the detail sheet's bubble-phase Escape handler
+        // (#1026 carve-out 1) yields when BOTH sheets are open — this capture-
+        // phase handler fires first, claims the key, and closes filters only.
+        e.preventDefault();
         setFiltersOpen(false);
       }
     };
@@ -1275,14 +1280,17 @@ export function App() {
             role="region"
             aria-label="Filters"
           >
-            <button
-              type="button"
-              className="filters-panel-close"
-              onClick={() => setFiltersOpen(false)}
-              aria-label="Close filters"
-            >
-              ×
-            </button>
+            {/* Shared sheet-header × (#1026): the same bare-× affordance the
+                detail sheet now uses. No grabber — the filters surface is a
+                plain panel, not a draggable detent sheet (full detent mechanics
+                for filters are out of scope). `aria-label="Close filters"` and
+                the `filters-panel-close` className stay byte-identical so the
+                existing CSS and the e2e POM selector resolve unchanged. */}
+            <SheetHeader
+              closeLabel="Close filters"
+              onClose={() => setFiltersOpen(false)}
+              closeClassName="filters-panel-close"
+            />
             <FiltersBar
               since={state.since}
               notable={state.notable}
