@@ -205,32 +205,216 @@ describe('<SpeciesDetailSheet>', () => {
     await waitFor(() => expect(mainEl).not.toHaveAttribute('inert'));
   });
 
-  it('ESC scoped: collapses sheet only when focus is inside the sheet', async () => {
-    const onClose = vi.fn();
-    render(
-      <SpeciesDetailSheet
-        speciesCode="vermfly"
-        apiClient={makeClient()}
-        onClose={onClose}
-        mainRef={{ current: mainEl }}
-      />
-    );
-    const sheet = await screen.findByTestId('species-detail-sheet');
-    const expand = await screen.findByRole('button', { name: /expand/i });
-    await userEvent.click(expand);
-    expect(sheet).toHaveAttribute('data-snap-state', 'full');
+  // ─── Single-pointer dismissal: the shared × (WCAG 2.5.7, #1026) ────────────
+  //
+  // The sheet used to offer NO single-pointer, non-drag dismissal: the only
+  // affordance was the drag handle (swipe-down) — which fails WCAG 2.5.7 (a
+  // dragging gesture needs a single-pointer alternative). The shared SheetHeader
+  // × is that alternative; it is visible at EVERY snap and calls
+  // closeWithRestore (so #910 focus-restore is preserved on this path too).
+  describe('× close button (single-pointer dismissal — WCAG 2.5.7)', () => {
+    it('renders the × at half (the open detent) and click → onClose', async () => {
+      const onClose = vi.fn();
+      render(
+        <SpeciesDetailSheet
+          speciesCode="vermfly"
+          apiClient={makeClient()}
+          onClose={onClose}
+          mainRef={{ current: mainEl }}
+        />,
+      );
+      const sheet = await screen.findByTestId('species-detail-sheet');
+      await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'half'));
+      const close = screen.getByRole('button', { name: 'Close species detail' });
+      expect(close).toBeInTheDocument();
+      await userEvent.click(close);
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
 
-    // Move focus outside the sheet (back into <main>) — ESC should NOT
-    // collapse the sheet now.
-    mainEl.tabIndex = 0;
-    mainEl.focus();
-    await userEvent.keyboard('{Escape}');
-    expect(sheet).toHaveAttribute('data-snap-state', 'full');
+    it('renders the × at full and click → onClose', async () => {
+      const onClose = vi.fn();
+      render(
+        <SpeciesDetailSheet
+          speciesCode="vermfly"
+          apiClient={makeClient()}
+          onClose={onClose}
+          mainRef={{ current: mainEl }}
+        />,
+      );
+      const sheet = await screen.findByTestId('species-detail-sheet');
+      const expand = await screen.findByRole('button', { name: /expand/i });
+      await userEvent.click(expand);
+      await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'full'));
+      const close = screen.getByRole('button', { name: 'Close species detail' });
+      expect(close).toBeInTheDocument();
+      await userEvent.click(close);
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
 
-    // Move focus back inside the sheet — ESC should collapse it (full → half).
-    expand.focus();
-    await userEvent.keyboard('{Escape}');
-    await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'half'));
+    it('renders the × at peek and click → onClose', async () => {
+      const onClose = vi.fn();
+      render(
+        <SpeciesDetailSheet
+          speciesCode="vermfly"
+          apiClient={makeClient()}
+          onClose={onClose}
+          mainRef={{ current: mainEl }}
+        />,
+      );
+      const sheet = await screen.findByTestId('species-detail-sheet');
+      const handle = await screen.findByTestId('species-detail-sheet-handle');
+      // Drag down from half to the peek detent (slow, short drag — settles to
+      // the nearest detent by position, below the dismiss floor).
+      handle.dispatchEvent(new PointerEvent('pointerdown', { clientY: 400, pointerId: 1, bubbles: true }));
+      handle.dispatchEvent(new PointerEvent('pointermove', { clientY: 600, pointerId: 1, bubbles: true }));
+      handle.dispatchEvent(new PointerEvent('pointermove', { clientY: 740, pointerId: 1, bubbles: true }));
+      handle.dispatchEvent(new PointerEvent('pointerup', { clientY: 740, pointerId: 1, bubbles: true }));
+      await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'peek'));
+      const close = screen.getByRole('button', { name: 'Close species detail' });
+      expect(close).toBeInTheDocument();
+      await userEvent.click(close);
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ─── Escape — pinned predicate (#1026) ─────────────────────────────────────
+  //
+  // Escape now DISMISSES the sheet (closeWithRestore → onClose), matching the
+  // desktop rail + the filters sheet, rather than stepwise-collapsing detents.
+  // The handler is document-level in the BUBBLE phase (so the scope popover's
+  // stopPropagation claim still wins) and bails in exactly three cases:
+  //   1. e.defaultPrevented (an inner widget already claimed the key)
+  //   2. focus is inside an open native <dialog> (Credits closes natively)
+  //   3. focus is inside a [role="dialog"] surface (portaled popovers) OR
+  //      inside the map layer (mainRef) — MapLibre / popovers own Escape there.
+  describe('Escape dismisses (pinned predicate)', () => {
+    it('Escape with focus on document.body → onClose fires (no keyboard trap)', async () => {
+      const onClose = vi.fn();
+      render(
+        <SpeciesDetailSheet
+          speciesCode="vermfly"
+          apiClient={makeClient()}
+          onClose={onClose}
+          mainRef={{ current: mainEl }}
+        />,
+      );
+      const sheet = await screen.findByTestId('species-detail-sheet');
+      await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'half'));
+      // Normal post-open state: focus is NOT inside the sheet (it sits on body).
+      (document.activeElement as HTMLElement | null)?.blur?.();
+      expect(document.activeElement === document.body || document.activeElement === null).toBe(true);
+      await userEvent.keyboard('{Escape}');
+      await waitFor(() => expect(onClose).toHaveBeenCalled());
+    });
+
+    it('Escape with focus inside the sheet → DISMISSES (onClose), not stepwise-collapse', async () => {
+      // Inverted from the old contract: a focus-inside Escape used to step
+      // full→half. It now dismisses outright (matching rail + filters).
+      const onClose = vi.fn();
+      render(
+        <SpeciesDetailSheet
+          speciesCode="vermfly"
+          apiClient={makeClient()}
+          onClose={onClose}
+          mainRef={{ current: mainEl }}
+        />,
+      );
+      const sheet = await screen.findByTestId('species-detail-sheet');
+      const expand = await screen.findByRole('button', { name: /expand/i });
+      await userEvent.click(expand);
+      await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'full'));
+      expand.focus();
+      await userEvent.keyboard('{Escape}');
+      await waitFor(() => expect(onClose).toHaveBeenCalled());
+    });
+
+    it('Escape with focus inside the map layer (mainRef) → sheet stays open (carve-out 3, map owns Escape)', async () => {
+      // Renamed from the old focus-scoping test: the sheet stays open NOT
+      // because Escape is focus-scoped to the sheet, but because mainEl IS
+      // mainRef.current (the #map-layer) — MapLibre / its controls own Escape
+      // when focus is on the map.
+      const onClose = vi.fn();
+      render(
+        <SpeciesDetailSheet
+          speciesCode="vermfly"
+          apiClient={makeClient()}
+          onClose={onClose}
+          mainRef={{ current: mainEl }}
+        />,
+      );
+      const sheet = await screen.findByTestId('species-detail-sheet');
+      const expand = await screen.findByRole('button', { name: /expand/i });
+      await userEvent.click(expand);
+      await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'full'));
+      // Focus an element INSIDE mainRef.current (#map-layer) — Escape must NOT
+      // close the sheet (the map owns the key there).
+      const mapChild = document.createElement('button');
+      mapChild.type = 'button';
+      mainEl.appendChild(mapChild);
+      mapChild.focus();
+      await userEvent.keyboard('{Escape}');
+      expect(onClose).not.toHaveBeenCalled();
+      expect(sheet).toHaveAttribute('data-snap-state', 'full');
+    });
+
+    it('Escape with focus inside a body-portaled [role="dialog"] → sheet stays open (carve-out 3, popover owns Escape)', async () => {
+      // The Cell/ClusterList popovers createPortal to document.body so mainRef
+      // containment cannot cover them; their own Escape handlers do not
+      // preventDefault and register after the sheet's listener. Without the
+      // [role="dialog"] half of carve-out 3 one keypress would double-close
+      // popover + sheet. Both popovers focus a heading on mount, so
+      // closest('[role="dialog"]') is truthy whenever one is open.
+      const onClose = vi.fn();
+      render(
+        <SpeciesDetailSheet
+          speciesCode="vermfly"
+          apiClient={makeClient()}
+          onClose={onClose}
+          mainRef={{ current: mainEl }}
+        />,
+      );
+      const sheet = await screen.findByTestId('species-detail-sheet');
+      await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'half'));
+      // A body-portaled role="dialog" stub with a focused inner element.
+      const dialog = document.createElement('div');
+      dialog.setAttribute('role', 'dialog');
+      const inner = document.createElement('button');
+      inner.type = 'button';
+      dialog.appendChild(inner);
+      document.body.appendChild(dialog);
+      inner.focus();
+      await userEvent.keyboard('{Escape}');
+      expect(onClose).not.toHaveBeenCalled();
+      dialog.remove();
+    });
+
+    it('Escape that an inner widget already handled (defaultPrevented) → sheet stays open (carve-out 1)', async () => {
+      const onClose = vi.fn();
+      render(
+        <SpeciesDetailSheet
+          speciesCode="vermfly"
+          apiClient={makeClient()}
+          onClose={onClose}
+          mainRef={{ current: mainEl }}
+        />,
+      );
+      const sheet = await screen.findByTestId('species-detail-sheet');
+      await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'half'));
+      // A CAPTURE-phase listener that claims the key before the sheet's
+      // BUBBLE-phase listener runs — this is exactly how the filters Escape
+      // handler (App.tsx, capture phase) yields guard 1 when both are open.
+      const claim = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') e.preventDefault();
+      };
+      document.addEventListener('keydown', claim, true);
+      try {
+        const evt = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+        document.body.dispatchEvent(evt);
+        expect(onClose).not.toHaveBeenCalled();
+      } finally {
+        document.removeEventListener('keydown', claim, true);
+      }
+    });
   });
 
   it('drag-down past peek dismisses (calls onClose)', async () => {
@@ -255,6 +439,46 @@ describe('<SpeciesDetailSheet>', () => {
     handle.dispatchEvent(new PointerEvent('pointerup', { clientY: 700, pointerId: 1, bubbles: true }));
 
     await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  it('drag-slop (6px, #431): a 5px move does NOT translate; a 7px move tracks the finger', async () => {
+    // #431: the translation must not start on the FIRST pointermove. A
+    // DRAG_SLOP_PX = 6 dead-band gates BOTH the `moved` flag AND the
+    // setLiveHeight translation (the old 4px gated only click suppression, so
+    // the sheet jiggled on a sub-threshold tap-drag). Below the slop the height
+    // stays at the detent (no inline style.height tracking); past it, it tracks.
+    render(
+      <SpeciesDetailSheet
+        speciesCode="vermfly"
+        apiClient={makeClient()}
+        onClose={vi.fn()}
+        mainRef={{ current: mainEl }}
+      />,
+    );
+    const sheet = await screen.findByTestId('species-detail-sheet');
+    const handle = await screen.findByTestId('species-detail-sheet-handle');
+    const half = Math.round(window.innerHeight * 0.6);
+
+    // A 5px upward move (under the 6px slop) must NOT move the sheet height.
+    handle.dispatchEvent(new PointerEvent('pointerdown', { clientY: 400, pointerId: 1, bubbles: true }));
+    handle.dispatchEvent(new PointerEvent('pointermove', { clientY: 395, pointerId: 1, bubbles: true }));
+    // liveHeight stays null → the rendered px equals the detent height (half).
+    // Give React a tick to (not) re-render; the height must still be the detent.
+    await waitFor(() => {
+      const px = Number((sheet as HTMLElement).style.height.match(/([\d.]+)px/)?.[1]);
+      expect(px).toBe(half);
+    });
+
+    // Now cross the slop: a 7px move (from the 400 anchor → 393) tracks 1:1.
+    handle.dispatchEvent(new PointerEvent('pointermove', { clientY: 393, pointerId: 1, bubbles: true }));
+    await waitFor(() => {
+      const px = Number((sheet as HTMLElement).style.height.match(/([\d.]+)px/)?.[1]);
+      // grow = startY - clientY = 400 - 393 = 7 → height ≈ half + 7.
+      expect(px).toBeGreaterThanOrEqual(half + 7 - 1);
+      expect(px).toBeLessThanOrEqual(half + 7 + 1);
+    });
+
+    handle.dispatchEvent(new PointerEvent('pointerup', { clientY: 393, pointerId: 1, bubbles: true }));
   });
 
   it('1:1 drag-up grows the sheet height by the drag delta', async () => {
@@ -909,12 +1133,10 @@ describe('<SpeciesDetailSheet> — F9 focus restore on close (#910)', () => {
     __resetSpeciesDetailCache();
   });
 
-  it('restores focus on the keyboard close path (ESC at peek collapses → onClose → restore)', async () => {
-    // The sheet has no dedicated close BUTTON — the handle toggles
-    // expand/collapse and closing is the collapse() call at the peek detent,
-    // reached by ESC (keyboard) or drag-dismiss (pointer). This covers the
-    // keyboard close: ESC with focus inside the sheet at peek → collapse() →
-    // closeWithRestore() → onClose, restoring focus to the opener.
+  it('restores focus on the keyboard close path (ESC with focus inside the sheet → onClose → restore)', async () => {
+    // #1026: Escape now DISMISSES the sheet outright (closeWithRestore →
+    // onClose), no longer stepping detents. With focus inside the sheet (on the
+    // handle) Escape fires onClose and restores focus to the opener.
     const onClose = vi.fn();
     opener.focus();
     expect(opener).toHaveFocus();
@@ -929,20 +1151,17 @@ describe('<SpeciesDetailSheet> — F9 focus restore on close (#910)', () => {
     const sheet = await screen.findByTestId('species-detail-sheet');
     await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'half'));
     const handle = await screen.findByTestId('species-detail-sheet-handle');
-    // Drag half → peek (a slow short downward drag settles to the nearest detent).
-    handle.dispatchEvent(new PointerEvent('pointerdown', { clientY: 400, pointerId: 1, bubbles: true }));
-    handle.dispatchEvent(new PointerEvent('pointermove', { clientY: 600, pointerId: 1, bubbles: true }));
-    handle.dispatchEvent(new PointerEvent('pointermove', { clientY: 740, pointerId: 1, bubbles: true }));
-    handle.dispatchEvent(new PointerEvent('pointerup', { clientY: 740, pointerId: 1, bubbles: true }));
-    await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'peek'));
-    // ESC with focus inside the sheet at peek → collapse() → onClose.
+    // ESC with focus inside the sheet → closeWithRestore() → onClose.
     handle.focus();
     await userEvent.keyboard('{Escape}');
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     await waitFor(() => expect(opener).toHaveFocus());
   });
 
-  it('restores focus on ESC close stepping down from half (ESC half→peek, ESC peek→onClose → restore)', async () => {
+  it('restores focus on the × single-pointer close (×→closeWithRestore→onClose→restore)', async () => {
+    // #1026: the shared × is the single-pointer, non-drag close path (WCAG
+    // 2.5.7). It must run through closeWithRestore so #910 focus-restore holds
+    // on this path too (not only the keyboard/drag paths).
     const onClose = vi.fn();
     opener.focus();
     render(
@@ -954,15 +1173,8 @@ describe('<SpeciesDetailSheet> — F9 focus restore on close (#910)', () => {
       />,
     );
     const sheet = await screen.findByTestId('species-detail-sheet');
-    const handle = await screen.findByTestId('species-detail-sheet-handle');
     await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'half'));
-    // Pure-keyboard close: ESC with focus inside the sheet steps the detent down
-    // (collapse): half → peek, then peek → onClose. No pointer drag involved.
-    handle.focus();
-    await userEvent.keyboard('{Escape}');
-    await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'peek'));
-    handle.focus();
-    await userEvent.keyboard('{Escape}');
+    await userEvent.click(screen.getByRole('button', { name: 'Close species detail' }));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     await waitFor(() => expect(opener).toHaveFocus());
   });

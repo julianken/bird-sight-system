@@ -110,6 +110,31 @@ test.describe('SpeciesDetailSheet snap behavior', () => {
     await expect(page.locator('[data-testid=species-detail-sheet]')).toHaveCount(0);
   });
 
+  test('× single-pointer dismissal clears ?detail= (WCAG 2.5.7, #1026)', async ({ page, apiStub }) => {
+    await apiStub.stubEmpty();
+    await apiStub.stubSpecies('vermfly', VERMFLY_WITH_PHOTO);
+    await apiStub.stubPhotoImage();
+    const app = new AppPage(page);
+    await app.goto('detail=vermfly&view=detail');
+    await app.waitForAppReady();
+
+    const sheet = page.locator('[data-testid=species-detail-sheet]');
+    await expect(sheet).toHaveAttribute('data-snap-state', 'half');
+
+    // The shared SheetHeader × is the non-drag dismissal alternative to the
+    // swipe-down handle. A single click must dismiss the sheet and clear the
+    // detail URL state (same post-close URL contract as drag-dismiss above:
+    // both ?view= and ?detail= drop since 'map' is the default view).
+    await page.getByRole('button', { name: 'Close species detail' }).click();
+
+    await expect(page).not.toHaveURL(/view=detail/);
+    await expect.poll(
+      () => new URL(page.url()).searchParams.get('detail'),
+      { timeout: 5_000 },
+    ).toBeNull();
+    await expect(page.locator('[data-testid=species-detail-sheet]')).toHaveCount(0);
+  });
+
   test('drag-up grows the sheet ~1:1; a fast up-flick snaps to full', async ({ page, apiStub }) => {
     await apiStub.stubEmpty();
     await apiStub.stubSpecies('vermfly', VERMFLY_WITH_PHOTO);
