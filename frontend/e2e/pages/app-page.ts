@@ -19,7 +19,7 @@ export class AppPage {
   readonly filtersTrigger: Locator;
   /** Theme toggle button in the controls pill. */
   readonly themeToggle: Locator;
-  /** Credits & attribution trigger in the controls pill. */
+  /** Credits trigger (ⓘ icon-only button) in the controls pill. */
   readonly attributionTrigger: Locator;
 
   // --- Scope chooser (landing surface, #742) accessors (C9/D6, #741) ---
