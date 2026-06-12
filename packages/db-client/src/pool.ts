@@ -35,6 +35,23 @@ export function createPool(opts: PoolOptions): pg.Pool {
     statement_timeout: opts.statement_timeout ?? 15_000,
     connectionTimeoutMillis: opts.connectionTimeoutMillis ?? 10_000,
   });
+  // An idle pooled client that hits a backend/network error emits 'error' on
+  // the pool. node-postgres docs are explicit: without a pool-level listener,
+  // that event becomes an uncaught exception and the node process exits
+  // (#1069 — the `test` CI job flaked on exactly this, a pg-protocol parser
+  // error parsed off an idle socket during testcontainers teardown; the same
+  // gap would crash read-api/ingestor on any prod network blip). Log in the
+  // repo's structured {severity, message, …} shape and swallow — pg will evict
+  // and replace the dead client on its own; rethrowing would defeat the point.
+  pool.on('error', (err) => {
+    console.error(
+      JSON.stringify({
+        severity: 'ERROR',
+        message: 'db_pool_idle_client_error',
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+  });
   if (opts.key) POOLS.set(opts.key, pool);
   return pool;
 }
