@@ -79,6 +79,23 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
     [silhouettes],
   );
 
+  // Build the familyCode → colloquial name resolver once per silhouettes
+  // identity change (#1046 / C2). Mirrors the server's
+  // COALESCE(family_silhouettes.common_name, species_meta.family_name) so
+  // the detail surface shows the curated #924 colloquial name ("Hawks,
+  // Eagles & Kites") instead of the raw eBird family_name ("Hawks, Eagles,
+  // and Kites"). Keys are lowercased to match the server's lowercase
+  // family_code — same convention as App.tsx familyNamesByCode (l.533-536).
+  const resolveCommonName = useMemo(() => {
+    const byCode = new Map<string, string | null>();
+    for (const s of silhouettes) byCode.set(s.familyCode.toLowerCase(), s.commonName);
+    return (familyCode: string | null | undefined, rawName: string): string => {
+      if (!familyCode) return rawName;
+      const hit = byCode.get(familyCode.toLowerCase());
+      return hit ?? rawName;
+    };
+  }, [silhouettes]);
+
   // Analytics: panel_opened / panel_dwell_ms (preserved from pre-Phase-4).
   useEffect(() => {
     if (!data?.speciesCode) return;
@@ -188,7 +205,7 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
             aria-hidden="true"
             style={{ background: famColor }}
           />
-          {data.familyName}
+          {resolveCommonName(data.familyCode, data.familyName)}
         </p>
       </div>
 
@@ -209,7 +226,7 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
         </div>
         <div className="detail-fg-taxrow">
           <dt>Family</dt>
-          <dd>{data.familyName}</dd>
+          <dd>{resolveCommonName(data.familyCode, data.familyName)}</dd>
         </div>
         <div className="detail-fg-taxrow">
           <dt>eBird taxonomic order</dt>
