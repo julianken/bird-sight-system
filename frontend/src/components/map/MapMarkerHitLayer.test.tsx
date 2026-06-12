@@ -135,8 +135,12 @@ describe('MapMarkerHitLayer', () => {
     expect(label).toContain('unknown family');
   });
 
-  it('renders hit-target buttons with tabIndex=-1 (skip-link is the keyboard entry, not Tab cycling)', () => {
-    const markers = [makeMarker({ comName: 'A' }), makeMarker({ comName: 'B', subId: 'b' })];
+  it('uses a roving tabindex: exactly one button at tabIndex=0, the rest tabIndex=-1 (#1030 — preserves #558 single-tab-stop while staying keyboard-operable)', () => {
+    const markers = [
+      makeMarker({ comName: 'A', subId: 'a' }),
+      makeMarker({ comName: 'B', subId: 'b' }),
+      makeMarker({ comName: 'C', subId: 'c' }),
+    ];
     render(
       <MapMarkerHitLayer
         map={makeFakeMap()}
@@ -144,9 +148,138 @@ describe('MapMarkerHitLayer', () => {
         onSelect={vi.fn()}
       />,
     );
-    for (const btn of screen.getAllByRole('button')) {
-      expect(btn.getAttribute('tabindex')).toBe('-1');
-    }
+    const btns = screen.getAllByRole('button');
+    const zeros = btns.filter((b) => b.getAttribute('tabindex') === '0');
+    const minusOnes = btns.filter((b) => b.getAttribute('tabindex') === '-1');
+    expect(zeros).toHaveLength(1);
+    expect(minusOnes).toHaveLength(btns.length - 1);
+    // List order: the FIRST marker is the initial active button.
+    expect(btns[0].getAttribute('tabindex')).toBe('0');
+  });
+
+  it('ArrowRight moves the active (tabIndex=0) button to the next marker in list order', () => {
+    const markers = [
+      makeMarker({ comName: 'A', subId: 'a' }),
+      makeMarker({ comName: 'B', subId: 'b' }),
+      makeMarker({ comName: 'C', subId: 'c' }),
+    ];
+    render(
+      <MapMarkerHitLayer map={makeFakeMap()} markers={markers} onSelect={vi.fn()} />,
+    );
+    const first = screen.getByLabelText(/^A,/);
+    expect(first.getAttribute('tabindex')).toBe('0');
+    act(() => {
+      fireEvent.keyDown(first, { key: 'ArrowRight' });
+    });
+    const second = screen.getByLabelText(/^B,/);
+    expect(second.getAttribute('tabindex')).toBe('0');
+    expect(first.getAttribute('tabindex')).toBe('-1');
+    // The newly-active button receives focus so the user lands on it.
+    expect(document.activeElement).toBe(second);
+  });
+
+  it('ArrowLeft from the first marker wraps to the last marker', () => {
+    const markers = [
+      makeMarker({ comName: 'A', subId: 'a' }),
+      makeMarker({ comName: 'B', subId: 'b' }),
+      makeMarker({ comName: 'C', subId: 'c' }),
+    ];
+    render(
+      <MapMarkerHitLayer map={makeFakeMap()} markers={markers} onSelect={vi.fn()} />,
+    );
+    const first = screen.getByLabelText(/^A,/);
+    act(() => {
+      fireEvent.keyDown(first, { key: 'ArrowLeft' });
+    });
+    const last = screen.getByLabelText(/^C,/);
+    expect(last.getAttribute('tabindex')).toBe('0');
+    expect(document.activeElement).toBe(last);
+  });
+
+  it('ArrowRight from the last marker wraps to the first marker', () => {
+    const markers = [
+      makeMarker({ comName: 'A', subId: 'a' }),
+      makeMarker({ comName: 'B', subId: 'b' }),
+    ];
+    render(
+      <MapMarkerHitLayer map={makeFakeMap()} markers={markers} onSelect={vi.fn()} />,
+    );
+    const first = screen.getByLabelText(/^A,/);
+    const last = screen.getByLabelText(/^B,/);
+    // Move active onto the last marker (A → B), then ArrowRight wraps B → A.
+    act(() => {
+      fireEvent.keyDown(first, { key: 'ArrowRight' }); // active → B
+    });
+    expect(last.getAttribute('tabindex')).toBe('0');
+    act(() => {
+      fireEvent.keyDown(last, { key: 'ArrowRight' }); // wrap → A
+    });
+    expect(first.getAttribute('tabindex')).toBe('0');
+  });
+
+  it('Enter on the active button opens the popover (onSelect with its subId)', () => {
+    const onSelect = vi.fn();
+    const markers = [
+      makeMarker({ comName: 'A', subId: 'a' }),
+      makeMarker({ comName: 'B', subId: 'b' }),
+    ];
+    render(
+      <MapMarkerHitLayer map={makeFakeMap()} markers={markers} onSelect={onSelect} />,
+    );
+    const first = screen.getByLabelText(/^A,/);
+    act(() => {
+      fireEvent.keyDown(first, { key: 'ArrowRight' }); // active → B
+    });
+    const second = screen.getByLabelText(/^B,/);
+    act(() => {
+      fireEvent.keyDown(second, { key: 'Enter' });
+    });
+    expect(onSelect).toHaveBeenCalledWith('b');
+  });
+
+  it('clamps the active index when the marker set shrinks (e.g. zoom-gate empties then repopulates)', () => {
+    const three = [
+      makeMarker({ comName: 'A', subId: 'a' }),
+      makeMarker({ comName: 'B', subId: 'b' }),
+      makeMarker({ comName: 'C', subId: 'c' }),
+    ];
+    const { rerender } = render(
+      <MapMarkerHitLayer map={makeFakeMap()} markers={three} onSelect={vi.fn()} />,
+    );
+    // Move active to the last (index 2).
+    act(() => {
+      fireEvent.keyDown(screen.getByLabelText(/^A,/), { key: 'ArrowLeft' });
+    });
+    expect(screen.getByLabelText(/^C,/).getAttribute('tabindex')).toBe('0');
+
+    // Marker set shrinks to one — index 2 is now out of range → clamp to 0.
+    const one = [makeMarker({ comName: 'Z', subId: 'z' })];
+    rerender(
+      <MapMarkerHitLayer map={makeFakeMap()} markers={one} onSelect={vi.fn()} />,
+    );
+    const onlyBtn = screen.getByRole('button');
+    expect(onlyBtn.getAttribute('tabindex')).toBe('0');
+  });
+
+  it('survives the zoom-gate empty marker set (buildHitMarkers returns []) and resets active to 0 on repopulation', () => {
+    const markers = [
+      makeMarker({ comName: 'A', subId: 'a' }),
+      makeMarker({ comName: 'B', subId: 'b' }),
+    ];
+    const { rerender } = render(
+      <MapMarkerHitLayer map={makeFakeMap()} markers={markers} onSelect={vi.fn()} />,
+    );
+    act(() => {
+      fireEvent.keyDown(screen.getByLabelText(/^A,/), { key: 'ArrowRight' }); // active → B (index 1)
+    });
+    // Zoom out below CLUSTER_MAX_ZOOM → buildHitMarkers returns [] → layer renders null.
+    rerender(<MapMarkerHitLayer map={makeFakeMap()} markers={[]} onSelect={vi.fn()} />);
+    expect(screen.queryAllByRole('button')).toHaveLength(0);
+    // Zoom back in → markers repopulate; active index must have clamped to 0.
+    rerender(
+      <MapMarkerHitLayer map={makeFakeMap()} markers={markers} onSelect={vi.fn()} />,
+    );
+    expect(screen.getByLabelText(/^A,/).getAttribute('tabindex')).toBe('0');
   });
 
   it('falls back to "unknown location" when locName is null', () => {
