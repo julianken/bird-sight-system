@@ -432,4 +432,83 @@ describe('styles.css — W1 conformance', () => {
       );
     });
   });
+
+  // ── A5 (#1034): scrim opacity + focus-ring fixes ──────────────────────────
+  describe('A5 (#1034): .scope-chooser-scrim — §4.8 opacity + focus-ring contract', () => {
+    // Extract the .scope-chooser-scrim rule block for scoped assertions.
+    const scrimBlockMatch = STYLES_CSS.match(
+      /\.scope-chooser-scrim\s*\{([^}]*)\}/s,
+    );
+    const scrimBlock = scrimBlockMatch?.[1] ?? '';
+
+    it('.scope-chooser-scrim block exists in styles.css', () => {
+      expect(scrimBlock).not.toBe('');
+    });
+
+    // C12/V13 (#1034): spec §4.8 directs ~60-70% opacity — replace the ~92%
+    // wash from #794. One color-mix rule, consumed by both themes (structural
+    // theme parity: no per-theme override needed because --color-bg-page
+    // already adapts per theme).
+    it('uses ~65% color-mix (not the old 92%) for the scrim background — spec §4.8', () => {
+      // Guard the old value is gone.
+      expect(scrimBlock).not.toMatch(/color-mix[^;]*92%/);
+      // Assert the new value is present (65% ± 1 tolerance = 64–66% acceptable).
+      expect(scrimBlock).toMatch(/color-mix\(in srgb,\s*var\(--color-bg-page\)\s*6[45]%,\s*transparent\)/);
+    });
+
+    // V14 (#1034): the scrim wrapper must suppress its own UA outline so it
+    // never paints a full-viewport blue ring on the landing's first impression.
+    // Note: scrimBlock extraction uses [^}]* which stops at the `}` inside the
+    // comment text "tabIndex={-1}" — assert against the full CSS instead,
+    // anchored to the .scope-chooser-scrim rule neighbourhood.
+    it('has outline: none to suppress the UA focus ring on the wrapper itself', () => {
+      // Match outline:none anywhere in the .scope-chooser-scrim rule block.
+      // Use a two-step check: the property must appear AFTER the selector and
+      // BEFORE the next top-level selector (a line starting with a dot/hash/
+      // element after a newline).
+      const scrimRuleStart = STYLES_CSS.indexOf('.scope-chooser-scrim {');
+      expect(scrimRuleStart).toBeGreaterThan(-1);
+      // Find the closing brace of the rule (the one that terminates the block,
+      // not those embedded in comments). Walk forward counting comment depth.
+      let depth = 0;
+      let inComment = false;
+      let ruleEnd = -1;
+      for (let i = scrimRuleStart; i < STYLES_CSS.length - 1; i++) {
+        if (!inComment && STYLES_CSS[i] === '/' && STYLES_CSS[i + 1] === '*') {
+          inComment = true; i++; continue;
+        }
+        if (inComment && STYLES_CSS[i] === '*' && STYLES_CSS[i + 1] === '/') {
+          inComment = false; i++; continue;
+        }
+        if (inComment) continue;
+        if (STYLES_CSS[i] === '{') { depth++; continue; }
+        if (STYLES_CSS[i] === '}') {
+          depth--;
+          if (depth === 0) { ruleEnd = i; break; }
+        }
+      }
+      expect(ruleEnd).toBeGreaterThan(scrimRuleStart);
+      const ruleText = STYLES_CSS.slice(scrimRuleStart, ruleEnd + 1);
+      expect(ruleText).toMatch(/outline:\s*none/);
+    });
+  });
+
+  // ── A5 (#1034): MapLibre canvas `:focus-visible` gate ────────────────────
+  describe('A5 (#1034): MapLibre canvas focus indicator — :focus-visible gate', () => {
+    // V35 (#1034): the canvas holds focus after mouse pan/zoom with the UA
+    // ring unstyled. The fix: suppress the default outline on :focus, only
+    // show a styled indicator on :focus-visible (keyboard / sequential nav).
+    it('.maplibregl-canvas:focus has outline: none (pointer interactions paint nothing)', () => {
+      expect(STYLES_CSS).toMatch(
+        /\.maplibregl-canvas:focus\s*\{[^}]*outline:\s*none[^}]*\}/s,
+      );
+    });
+
+    it('.maplibregl-canvas:focus-visible shows a token-styled outline instead of UA blue', () => {
+      // Must use --color-border-ui token, not a hardcoded colour.
+      expect(STYLES_CSS).toMatch(
+        /\.maplibregl-canvas:focus-visible\s*\{[^}]*outline:[^}]*var\(--color-border-ui\)[^}]*\}/s,
+      );
+    });
+  });
 });

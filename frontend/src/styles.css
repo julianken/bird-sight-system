@@ -1040,6 +1040,23 @@ body:has(.species-detail-sheet--full) .app-header-controls-pill {
   inset: 0;
 }
 
+/* A5 (#1034): MapLibre canvas focus indicator — V35 fix.
+   The `.maplibregl-canvas` element carries `tabindex="0"` so keyboard users
+   can pan/tilt after a Tab; after any MOUSE interaction it also holds focus
+   but a plain `:focus` UA ring painted a full-viewport blue outline (V35).
+   Fix: suppress the outline on plain `:focus` (covers pointer/touch paths),
+   then restore a styled ring on `:focus-visible` (keyboard / sequential nav
+   only — exactly the paths that benefit from a ring).
+   Ring style: inset-offset + token colour keeps it within the canvas bounds
+   and matches the rest of the app's focus language. */
+.maplibregl-canvas:focus {
+  outline: none;
+}
+.maplibregl-canvas:focus-visible {
+  outline: 2px solid var(--color-border-ui);
+  outline-offset: -2px;
+}
+
 /* #830 item D: the internal `.attribution-trigger` button (and its CSS) was
    removed — the modal is controlled via the `open` prop, opened by the
    top-right AppHeader ⓘ button. */
@@ -2946,8 +2963,8 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
    mounted-but-idle map (epic OQ1 option (a)), NOT a full-tree unmount. App
    renders `<ScopeChooser>` inside this `.scope-chooser-scrim` wrapper as a
    floating sibling of <main> (the #663 floating-overlay pattern). The wrapper
-   is the full-viewport fixed backdrop + the focus-trap landing element
-   (`tabIndex={-1}`, focused by App's inert/focus-trap effect).
+   carries `tabIndex={-1}` as a focus-trap boundary; initial focus lands on
+   the ZIP input inside it (A5 #1034 — see App.tsx step 5a).
 
    Z-tier: `--z-modal` (50, the named modal tier from #761 P1 / #778). The scrim
    must PAINT above the highest currently-rendered overlay — the detail rail at
@@ -2959,15 +2976,32 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
    order. The scrim only needs to win the PAINT layering, which 50 does over
    43/41/40.
 
-   Backdrop: a near-opaque cream wash (`color-mix` over the page color) so the
-   idle map is faintly visible behind the chooser card without competing with
-   it — a true scrim, not the old opaque full-surface unmount. */
+   Backdrop: a ~65% wash (`color-mix` over the page color) so the idle map is
+   legible behind the chooser card — spec §4.8 (#1034, A5). One rule serves
+   both themes: `--color-bg-page` adapts per-theme so no override needed.
+   The old #794 value (~92%) made city labels and basemap functionally
+   invisible in dark mode (V12/V13 review findings).
+
+   `outline: none` suppresses the UA blue full-viewport focus ring that the
+   `tabIndex={-1}` wrapper would otherwise paint when App's useLayoutEffect
+   falls back to focusing the wrapper (A5 #1034 V14 major). Focus lands on
+   the ZIP input by default (see App.tsx 5a); this rule covers the fallback
+   edge case and permanently kills the perimeter ring.
+
+   Optional `backdrop-filter: blur(2px)`: soft-focuses the map behind the
+   chooser card without competing with it visually (spec §4.8). */
 .scope-chooser-scrim {
   position: fixed;
   inset: 0;
   z-index: var(--z-modal);
   display: flex;
-  background: color-mix(in srgb, var(--color-bg-page) 92%, transparent);
+  /* A5 (#1034): §4.8 opacity — was 92% (#794), reduced to 65% so city labels
+     and the basemap read behind the card in both themes. */
+  background: color-mix(in srgb, var(--color-bg-page) 65%, transparent);
+  backdrop-filter: blur(2px);
+  /* Suppress the UA outline: the wrapper is a tabIndex={-1} focus-trap anchor,
+     not a user-facing interactive element — it must never show a focus ring. */
+  outline: none;
   /* The scrim is the scroll container for a tall card on short viewports. */
   overflow: auto;
 }
