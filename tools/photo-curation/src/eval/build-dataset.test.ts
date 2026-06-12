@@ -170,6 +170,19 @@ describe('buildEvalRows', () => {
     expect(rows.map((r) => r.input.speciesCode)).toEqual(['norcar', 'amerob', 'houspa']);
   });
 
+  // C3 polish (#1015): when a species has two cached extensions, the chosen
+  // file must be DETERMINISTIC (readdir order is filesystem-dependent). The
+  // resolver sorts the listing, so `.jpg` (sorts before `.png`/`.webp`) wins.
+  it('deterministically resolves a two-extension species to the sort-first file', () => {
+    seedCurrent('amerob', { comName: 'American Robin', sciName: 'Turdus migratorius', family: 'Turdidae', contentHash: 'h-amerob', keep: 1, qualityScore: 88, overall: 80 });
+    writeImage('amerob', 'png');
+    writeImage('amerob', 'jpg');
+
+    const rows = buildEvalRows(db, { thumbDir });
+    expect(rows).toHaveLength(1);
+    expect(basename(rows[0].input.imagePath)).toBe('amerob.jpg');
+  });
+
   it('returns all rows unsampled when sample is omitted', () => {
     seedCurrent('amerob', { comName: 'American Robin', sciName: 'Turdus migratorius', family: 'Turdidae', contentHash: 'h-amerob', keep: 1, qualityScore: 88, overall: 80 });
     writeImage('amerob');
