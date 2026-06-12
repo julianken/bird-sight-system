@@ -5,8 +5,9 @@ import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SpeciesDetailSheet, resolveContentTier } from './SpeciesDetailSheet.js';
 import { ApiClient } from '../api/client.js';
-import type { SpeciesMeta } from '@bird-watch/shared-types';
+import type { SpeciesMeta, FamilySilhouette } from '@bird-watch/shared-types';
 import { __resetSpeciesDetailCache } from '../data/use-species-detail.js';
+import { __resetSilhouettesCache } from '../data/use-silhouettes.js';
 import { analytics } from '../analytics.js';
 
 const VERMFLY_WITH_PHOTO: SpeciesMeta = {
@@ -1498,6 +1499,150 @@ describe('<SpeciesDetailSheet> — photoless silhouette fallback (#908 T2)', () 
     );
     // No silhouette on the photo branch.
     expect(silhouetteInFrame(sheet)).toBeNull();
+  });
+});
+
+// ─── C2 #1046: colloquial family-name resolution in Sheet ─────────────────
+//
+// The Sheet renders the family name at four sites across the MID and FULL
+// tiers.  Fixtures are DESYNCED (raw eBird name ≠ colloquial) so the tests
+// prove the resolution chain rather than accidentally passing because both
+// sources carry the same text.
+describe('<SpeciesDetailSheet> — C2 colloquial family-name resolution (#1046)', () => {
+  let mainEl: HTMLElement;
+
+  beforeEach(() => {
+    while (document.body.firstChild) {
+      document.body.removeChild(document.body.firstChild);
+    }
+    mainEl = document.createElement('main');
+    mainEl.id = 'main-surface';
+    document.body.appendChild(mainEl);
+    __resetSpeciesDetailCache();
+    // Must also reset the silhouettes cache because this describe block
+    // overrides getSilhouettes to inject colloquial names — without the
+    // reset each test's silhouettes mock would bleed into the next one.
+    __resetSilhouettesCache();
+  });
+
+  // DESYNCED fixtures: raw eBird "and" vs colloquial "&".
+  const HAWK_META: SpeciesMeta = {
+    speciesCode: 'coohaw',
+    comName: "Cooper's Hawk",
+    sciName: 'Accipiter cooperii',
+    familyCode: 'accipitridae',
+    familyName: 'Hawks, Eagles, and Kites',
+    taxonOrder: 2200,
+    photoUrl: 'https://photos.bird-maps.com/coohaw.jpg',
+    photoAttribution: 'Test',
+    photoLicense: 'CC-BY-4.0',
+  };
+
+  const HAWK_SILHOUETTE: FamilySilhouette = {
+    familyCode: 'accipitridae',
+    color: '#7A2EC7',
+    colorDark: '#7A2EC7',
+    svgData: 'M0 0L1 1Z',
+    svgUrl: null,
+    source: 'https://www.phylopic.org/i/y',
+    license: 'CC0-1.0',
+    commonName: 'Hawks, Eagles & Kites',
+    creator: 'Test Creator',
+  };
+
+  function makeHawkClient(): ApiClient {
+    const client = new ApiClient({ baseUrl: '' });
+    client.getSpecies = vi.fn().mockResolvedValue(HAWK_META);
+    client.getSilhouettes = vi.fn().mockResolvedValue([HAWK_SILHOUETTE]);
+    return client;
+  }
+
+  function makeHawkClientNoSilhouette(): ApiClient {
+    const client = new ApiClient({ baseUrl: '' });
+    client.getSpecies = vi.fn().mockResolvedValue(HAWK_META);
+    // No accipitridae entry — exercises the fallback branch.
+    client.getSilhouettes = vi.fn().mockResolvedValue([]);
+    return client;
+  }
+
+  it('C2 MID tier: family name shows colloquial, not raw eBird name (card page, compact↔mid)', async () => {
+    render(
+      <SpeciesDetailSheet
+        speciesCode="coohaw"
+        apiClient={makeHawkClient()}
+        onClose={vi.fn()}
+        mainRef={{ current: mainEl }}
+      />
+    );
+    const sheet = await screen.findByTestId('species-detail-sheet');
+    // Sheet opens at half → MID content tier.
+    await waitFor(() => expect(sheet).toHaveAttribute('data-content', 'mid'));
+    // Both the identity-row p and the <dd> on the card page must show colloquial.
+    // The card page is in the DOM at MID.
+    const cardPage = sheet.querySelector('[data-page-id="card"]') as HTMLElement;
+    expect(cardPage).not.toBeNull();
+    // Identity row: .sheet-fg-family text
+    const familyRows = cardPage.querySelectorAll('.sheet-fg-family');
+    const familyText = Array.from(familyRows).map(el => el.textContent?.trim());
+    expect(familyText.some(t => t?.includes('Hawks, Eagles & Kites'))).toBe(true);
+    expect(familyText.every(t => !t?.includes('Hawks, Eagles, and Kites'))).toBe(true);
+    // Record dl Family <dd>
+    const dts = Array.from(cardPage.querySelectorAll('dt'));
+    const familyDt = dts.find(el => el.textContent?.trim() === 'Family');
+    expect(familyDt).toBeDefined();
+    const familyDd = familyDt!.nextElementSibling;
+    expect(familyDd?.textContent?.trim()).toBe('Hawks, Eagles & Kites');
+  });
+
+  it('C2 FULL tier: family name shows colloquial, not raw eBird name (entry page)', async () => {
+    render(
+      <SpeciesDetailSheet
+        speciesCode="coohaw"
+        apiClient={makeHawkClient()}
+        onClose={vi.fn()}
+        mainRef={{ current: mainEl }}
+      />
+    );
+    const sheet = await screen.findByTestId('species-detail-sheet');
+    // Advance to full snap so the entry page is active.
+    const expandBtn = await screen.findByRole('button', { name: /expand/i });
+    act(() => { expandBtn.click(); });
+    await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'full'));
+    const entryPage = sheet.querySelector('[data-page-id="entry"]') as HTMLElement;
+    expect(entryPage).not.toBeNull();
+    // Identity row on entry page
+    const familyRows = entryPage.querySelectorAll('.sheet-fg-family');
+    const familyText = Array.from(familyRows).map(el => el.textContent?.trim());
+    expect(familyText.some(t => t?.includes('Hawks, Eagles & Kites'))).toBe(true);
+    expect(familyText.every(t => !t?.includes('Hawks, Eagles, and Kites'))).toBe(true);
+    // Taxonomy dl Family <dd> on entry page
+    const dts = Array.from(entryPage.querySelectorAll('dt'));
+    const familyDt = dts.find(el => el.textContent?.trim() === 'Family');
+    expect(familyDt).toBeDefined();
+    const familyDd = familyDt!.nextElementSibling;
+    expect(familyDd?.textContent?.trim()).toBe('Hawks, Eagles & Kites');
+  });
+
+  it('C2 fallback: when silhouettes has no entry for the family, renders raw eBird familyName', async () => {
+    render(
+      <SpeciesDetailSheet
+        speciesCode="coohaw"
+        apiClient={makeHawkClientNoSilhouette()}
+        onClose={vi.fn()}
+        mainRef={{ current: mainEl }}
+      />
+    );
+    const sheet = await screen.findByTestId('species-detail-sheet');
+    await waitFor(() => expect(sheet).toHaveAttribute('data-content', 'mid'));
+    const cardPage = sheet.querySelector('[data-page-id="card"]') as HTMLElement;
+    expect(cardPage).not.toBeNull();
+    // Falls back to raw eBird name, never Accipitridae.
+    const familyDts = Array.from(cardPage.querySelectorAll('dt'));
+    const familyDt = familyDts.find(el => el.textContent?.trim() === 'Family');
+    expect(familyDt).toBeDefined();
+    const familyDd = familyDt!.nextElementSibling;
+    expect(familyDd?.textContent?.trim()).toBe('Hawks, Eagles, and Kites');
+    expect(familyDd?.textContent?.trim()).not.toBe('Accipitridae');
   });
 });
 
