@@ -10,8 +10,11 @@ import {
   analyze,
   formatReport,
   projectRows,
+  projectCostRows,
+  summarizeCost,
   main,
   type AnalysisRow,
+  type CostRow,
 } from './analyze-experiment.js';
 
 /**
@@ -230,6 +233,75 @@ describe('projectRows', () => {
     const rows = projectRows(raw);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toEqual({ outputKeep: true, outputScore: 80, expectedKeep: false, expectedScore: 40 });
+  });
+});
+
+describe('summarizeCost', () => {
+  // #1088: sum metrics.estimated_cost across judgment spans, report total + mean
+  // + the unpriced count so a known-partial total is flagged, not hidden.
+  function costRow(estimatedCost: number | undefined): CostRow {
+    return { estimatedCost };
+  }
+
+  it('sums priced rows and counts unpriced ones', () => {
+    const rows = [costRow(0.5), costRow(1.5), costRow(undefined), costRow(2.0)];
+    const s = summarizeCost(rows);
+    expect(s.totalUsd).toBeCloseTo(4.0);
+    expect(s.pricedCount).toBe(3);
+    expect(s.unpricedCount).toBe(1);
+    // mean is over the PRICED rows (the unpriced have no known cost to average).
+    expect(s.meanUsd).toBeCloseTo(4.0 / 3);
+  });
+
+  it('is all-zero when there are no rows', () => {
+    expect(summarizeCost([])).toEqual({ totalUsd: 0, meanUsd: 0, pricedCount: 0, unpricedCount: 0 });
+  });
+
+  it('reports total 0 / mean 0 when every row is unpriced', () => {
+    const s = summarizeCost([costRow(undefined), costRow(undefined)]);
+    expect(s.totalUsd).toBe(0);
+    expect(s.meanUsd).toBe(0);
+    expect(s.pricedCount).toBe(0);
+    expect(s.unpricedCount).toBe(2);
+  });
+});
+
+describe('projectCostRows', () => {
+  // Project loosely-typed bt-sql rows onto CostRow: a span carrying token
+  // metrics is one judgment; estimated_cost is present (priced) or absent
+  // (unpriced). Rows with no token metrics (root spans) are not judgments → dropped.
+  it('keeps judgment spans (token metrics present); cost present=priced, absent=unpriced', () => {
+    const raw = [
+      { metrics: { prompt_tokens: 1000, completion_tokens: 200, estimated_cost: 0.42 } }, // priced
+      { metrics: { prompt_tokens: 800, completion_tokens: 100 } },                          // unpriced (no cost key)
+      { metrics: { latency: 1.2 } },                                                        // root span, no tokens → dropped
+      { metrics: null },                                                                    // no metrics → dropped
+      {},                                                                                    // no metrics → dropped
+    ];
+    const rows = projectCostRows(raw);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toEqual({ estimatedCost: 0.42 });
+    expect(rows[1]).toEqual({ estimatedCost: undefined });
+  });
+});
+
+describe('formatReport includes cost', () => {
+  it('prints total + mean cost and the unpriced count', () => {
+    const rows = [row(true, 90, true, 85), row(false, 20, false, 15)];
+    const a = analyze(rows, { bandLo: 40, bandHi: 70 });
+    const cost = summarizeCost([{ estimatedCost: 0.5 }, { estimatedCost: undefined }]);
+    const text = formatReport('exp-name', a, cost);
+    expect(text.toLowerCase()).toContain('cost');
+    expect(text).toContain('$0.50'); // total
+    expect(text.toLowerCase()).toContain('unpriced');
+    expect(text).toContain('1'); // unpriced count
+  });
+
+  it('omits the cost block when cost summary is absent (back-compat)', () => {
+    const rows = [row(true, 90, true, 85)];
+    const a = analyze(rows, { bandLo: 40, bandHi: 70 });
+    const text = formatReport('exp-name', a);
+    expect(text.toLowerCase()).not.toContain('total cost');
   });
 });
 

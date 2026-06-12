@@ -79,6 +79,21 @@ by `content_hash` in span metadata. Each span's `metrics` carry the judgment
 response's `usageMetadata`), so per-row and aggregate cost are readable
 directly in the experiment dashboard.
 
+**Estimated USD cost (#1088).** Each span also carries `metrics.estimated_cost`
+— the per-judgment USD cost computed from those token counts at the model's
+published Gemini API rate (`src/judges/pricing.ts`). Braintrust aggregates it,
+so the experiment summary shows **total and mean cost**, and `bt sql` can
+`sum(metrics.estimated_cost)` to compare two `EVAL_MODEL` runs by dollars, not
+just by hand. A model **absent from `MODEL_PRICING`** (free-tier-only or
+discontinued previews — e.g. `gemini-3-flash-preview`, `gemini-3-pro-preview`)
+**omits** the metric and logs a one-line `[pricing]` warning naming the model,
+so an unpriced run is visible rather than silently $0 — never a fabricated cost.
+**`pricing.ts` must be re-verified when Google changes rates** (its rates are the
+Developer API ≤200k tier transcribed from
+<https://ai.google.dev/gemini-api/docs/pricing>, dated in the file header); add a
+new candidate model there before running it as an `EVAL_MODEL` or its cost will
+be unpriced.
+
 ## Comparability: the rubric pin and the det-gate exclusion (#1037)
 
 **The rubric version is part of the dataset, not the live code.** The baseline
@@ -253,10 +268,14 @@ It prints:
 | **`calibrated ceiling`** | the best boolean agreement any single recalibrated `qualityScore` threshold could reach, plus the winning `score >= t` | the ceiling for a Gemini-*only* gate. On the pinned run this was **84% at t=59** — still under the 90% gate, so even a perfectly-tuned threshold doesn't adopt solo Gemini |
 | `ambiguity band [lo, hi]` | how many disagreements sit inside that Opus-score band | a disagreement near Opus's own midpoint is a genuine close call |
 | **`hybrid routing preview`** | route Gemini scores in the mid-band to Opus → **% routed** (the Opus-call budget), **auto-set agreement** (keep-agreement after routing), **residual falseKeep** (dangerous keeps that fell outside the band and were never re-judged) | quantifies whether a Gemini-first / Opus-on-close-calls hybrid clears the gate, and at what Opus cost. This is the input to the hybrid-design decision — not the hybrid itself |
+| **`estimated cost`** (#1088) | **total cost** (sum of `metrics.estimated_cost` over the priced judgments), **mean / judgment**, and an **unpriced** count when any judgment lacked a price | the dollar half of the quality tradeoff, per experiment. Flash runs ~$0.50 / 150 rows vs. pro ~$5–10, so cost is the other axis when comparing `EVAL_MODEL`s. A non-zero `unpriced` count means the total is **partial** — add the model to `src/judges/pricing.ts` and re-run |
 
-The AUC / calibrated-ceiling / band / routing math are pure helpers, unit-tested
-on a hand-built fixture (`scripts/analyze-experiment.test.ts`); the Braintrust
-read is `bt sql` under the hood and is injected, so the tests need no network.
+The AUC / calibrated-ceiling / band / routing math (and the cost summary) are
+pure helpers, unit-tested on a hand-built fixture
+(`scripts/analyze-experiment.test.ts`); the Braintrust read is `bt sql` under the
+hood and is injected, so the tests need no network. The cost summary reads
+`metrics.estimated_cost` via a second `bt sql` query (`SELECT metrics`), counting
+each judgment span once.
 
 ## Daily cap (20 RPD free tier) — abort + resume
 
