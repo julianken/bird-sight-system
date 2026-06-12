@@ -6,15 +6,18 @@
 // score-MAE, keep-confusion) as a `bird-maps` Braintrust EXPERIMENT.
 //
 //   data  — buildEvalRows(openDb(REVIEW_DB), {thumbDir, sample}) (#1013), the
-//           stratified Opus-current rows: each {input:{imagePath,species…},
-//           expected:{keep,qualityScore}, metadata:{…,expectedRubricVersion}}.
-//           Det-gate rows are excluded and the single-rubric-version invariant
-//           is asserted inside the builder (#1037).
+//           stratified Opus-current rows: each {input:{readPath,imageUrl,
+//           species…}, expected:{keep,qualityScore,criteria?},
+//           metadata:{contentHash,…,expectedRubricVersion}}. readPath is the
+//           LOCAL byte source; imageUrl is the portable R2 URL logged as the
+//           span sourceUrl (#1067). Det-gate rows are excluded and the
+//           single-rubric-version invariant is asserted inside the builder (#1037).
 //   task  — runRow({judge, readImage, prompt}, input) (run-row.ts).
 //           Braintrust calls task(input, hooks): the FIRST positional arg IS the
 //           row's `input` value, so we write `task: (input) => …`, NOT
 //           `({input})` (which would read a nonexistent `.input` → undefined).
-//   scores— keepAgreement / scoreMAE / keepConfusion (#1014).
+//   scores— keepAgreement / scoreMAE / keepConfusion (#1014) + criteriaAxisMAE
+//           (#1067; 7 per-axis `criteria_mae_<axis>` columns).
 //
 // COMPARABILITY (#1037): the judge prompt is PINNED to the baseline's recorded
 // rubric_version — the rubric version is part of the dataset, not the live
@@ -48,7 +51,7 @@ import type { ImageInput, VisionJudge } from '@bird-watch/photo-quality';
 import { openDb } from '../src/db.js';
 import { buildEvalRows } from '../src/eval/build-dataset.js';
 import { resolveTracedJudge } from '../src/judges/index.js';
-import { keepAgreement, scoreMAE, keepConfusion } from '../src/eval/scorers.js';
+import { keepAgreement, scoreMAE, keepConfusion, criteriaAxisMAE } from '../src/eval/scorers.js';
 import { runRow } from '../src/eval/run-row.js';
 import { mimeFromUrl } from '../src/sources.js';
 import { judgePromptForRubricVersion, resolveEvalModel } from './rubric-prompts.js';
@@ -78,9 +81,14 @@ const rows = buildEvalRows(openDb(REVIEW_DB), { thumbDir: THUMB_DIR, sample: EVA
 const PINNED_RUBRIC_VERSION = rows[0]!.metadata.expectedRubricVersion;
 const JUDGE_PROMPT = judgePromptForRubricVersion(PINNED_RUBRIC_VERSION);
 
-/** Read a cached thumbnail into an ImageInput; mime is derived from the path's extension. */
-function readImage(imagePath: string): ImageInput {
-  return { buffer: readFileSync(imagePath), mime: mimeFromUrl(imagePath), sourceUrl: imagePath };
+/**
+ * Read a cached thumbnail into an ImageInput; mime is derived from the LOCAL
+ * path's extension. Deliberately does NOT set `sourceUrl` (#1067): `runRow`
+ * sets it to the row's portable R2 `imageUrl`, so the span logs the live
+ * bird-maps.com photo, not this non-portable local cache path.
+ */
+function readImage(readPath: string): ImageInput {
+  return { buffer: readFileSync(readPath), mime: mimeFromUrl(readPath) };
 }
 
 // ── Single shared judge (the pacing fix, #1015 review) ───────────────────────
@@ -113,7 +121,11 @@ Eval('bird-maps', {
   // a missing GEMINI/BRAINTRUST key) and reuses it for every row.
   task: (input) =>
     runRow({ judge: getJudge(), readImage, prompt: JUDGE_PROMPT }, input),
-  scores: [keepAgreement, scoreMAE, keepConfusion],
+  // The 3 headline scorers plus the per-axis criteria-MAE (#1067), which emits
+  // its own `criteria_mae_<axis>` column per CRITERIA_KEYS axis (null-skipping a
+  // missing axis). `contentHash` lands in span metadata automatically: each
+  // dataset row's `metadata` (built by buildEvalRows) is logged to its span.
+  scores: [keepAgreement, scoreMAE, keepConfusion, criteriaAxisMAE],
   // Experiment provenance (#1037): which model judged, under which pinned
   // criteria — so cross-model / cross-pin experiments are sliceable by name.
   metadata: { model: EVAL_MODEL, rubricVersion: PINNED_RUBRIC_VERSION },

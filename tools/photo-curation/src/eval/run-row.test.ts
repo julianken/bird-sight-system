@@ -31,7 +31,11 @@ class FakeJudge implements VisionJudge {
 }
 
 const INPUT: RunRowInput = {
-  imagePath: '/thumbs/amerob.jpg',
+  // The LOCAL byte source has a .jpg cache extension; the R2 URL is .jpeg —
+  // a deliberate mismatch (#1067): the span must log the portable R2 URL, never
+  // the local path nor a reconstructed template.
+  readPath: '/thumbs/amerob.jpg',
+  imageUrl: 'https://photos.bird-maps.com/amerob.jpeg',
   speciesCode: 'amerob',
   comName: 'American Robin',
   sciName: 'Turdus migratorius',
@@ -59,7 +63,7 @@ describe('runRow', () => {
     expect(prompt).toBe('rubric prompt v1');
   });
 
-  it('passes the imagePath through to readImage exactly once', async () => {
+  it('reads bytes from readPath (the LOCAL cache), exactly once', async () => {
     const judge = new FakeJudge();
     const seen: string[] = [];
     const readImage = (p: string): ImageInput => {
@@ -72,13 +76,25 @@ describe('runRow', () => {
     expect(seen).toEqual(['/thumbs/amerob.jpg']);
   });
 
-  it('threads the source path onto the ImageInput sourceUrl (so the span records it)', async () => {
+  it('logs the portable R2 imageUrl as sourceUrl — NOT the local readPath', async () => {
     const judge = new FakeJudge();
+    // readImage sets sourceUrl to the LOCAL path; runRow must override it.
     const readImage = (p: string): ImageInput => ({ buffer: Buffer.from('x'), mime: 'image/jpeg', sourceUrl: p });
 
     await runRow({ judge, readImage, prompt: 'p' }, INPUT);
 
     const [img] = judge.calls[0]!;
-    expect(img.sourceUrl).toBe('/thumbs/amerob.jpg');
+    expect(img.sourceUrl).toBe('https://photos.bird-maps.com/amerob.jpeg');
+    expect(img.sourceUrl).not.toBe('/thumbs/amerob.jpg');
+  });
+
+  it('sets sourceUrl to the R2 imageUrl even when readImage omits sourceUrl', async () => {
+    const judge = new FakeJudge();
+    const readImage = (): ImageInput => ({ buffer: Buffer.from('x'), mime: 'image/jpeg' });
+
+    await runRow({ judge, readImage, prompt: 'p' }, INPUT);
+
+    const [img] = judge.calls[0]!;
+    expect(img.sourceUrl).toBe('https://photos.bird-maps.com/amerob.jpeg');
   });
 });
