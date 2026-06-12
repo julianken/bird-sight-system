@@ -501,7 +501,7 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
 
     // In-app switch to FL via the in-card scope control — NO resize/drag/reload.
     await app.openScopeDisclosure();
-    await app.scopeControlStateSelect.selectOption('US-FL');
+    await app.switchStateViaScopeControl('US-FL');
 
     // (a) The camera flips to FL.
     await expect(app.mapLayer).toHaveAttribute('data-camera-bounds', 'US-FL');
@@ -537,7 +537,7 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
     await expect(app.mapLede).toHaveText(/^\d+ species$/);
 
     await app.openScopeDisclosure();
-    await app.scopeControlStateSelect.selectOption('US-NY');
+    await app.switchStateViaScopeControl('US-NY');
 
     await expect(app.mapLayer).toHaveAttribute('data-camera-bounds', 'US-NY');
     await expect(app.mapLede).toHaveText(/^\d+ species$/);
@@ -567,7 +567,7 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
     await app.waitForAppReady();
 
     await app.openScopeDisclosure();
-    await app.scopeControlStateSelect.selectOption('US-AZ');
+    await app.switchStateViaScopeControl('US-AZ');
 
     await expect(app.mapLayer).toHaveAttribute('data-camera-bounds', 'US-AZ');
     await expect(app.mapLede).toHaveText(/^\d+ species$/);

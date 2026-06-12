@@ -45,6 +45,18 @@ function renderControl(
   return props;
 }
 
+/**
+ * The state-row "Go" commit button. Both the embedded <ZipInput> and the state
+ * row expose a "Go" submit (#1035), so scope to the form that contains the
+ * "Switch state" <select> — mirrors the POM's chooser-Go disambiguation.
+ */
+function getStateGo(): HTMLElement {
+  const select = screen.getByRole('combobox', { name: /switch state/i });
+  const form = select.closest('form');
+  if (!form) throw new Error('state <select> must be inside a <form> for Enter/Go commit');
+  return within(form).getByRole('button', { name: /^go$/i });
+}
+
 describe('<ScopeControl>', () => {
   beforeEach(() => {
     mockLoadZipIndex.mockReset().mockResolvedValue(undefined);
@@ -86,17 +98,60 @@ describe('<ScopeControl>', () => {
     expect(select.value).toBe('US-CA');
   });
 
-  it('selecting a state emits onPickState once with the chosen US-XX code', async () => {
+  // WCAG 3.2.2 (On Input, #1035): changing the <select> must NOT navigate by
+  // itself — only an explicit Go/Enter commit emits the scope. Mirrors the
+  // landing chooser's transient-value-then-Go pattern.
+  it('changing the select does NOT call onPickState (WCAG 3.2.2 — change never navigates)', async () => {
     const { onPickState } = renderControl();
     await userEvent.selectOptions(
       screen.getByRole('combobox', { name: /switch state/i }),
       'US-NY',
     );
+    // Selection is staged locally; no navigation fires on change for any input
+    // modality (keyboard arrow-browse or pointer pick).
+    expect(onPickState).not.toHaveBeenCalled();
+  });
+
+  it('select + Go commits: emits onPickState once with the chosen US-XX code', async () => {
+    const { onPickState } = renderControl();
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: /switch state/i }),
+      'US-NY',
+    );
+    await userEvent.click(getStateGo());
     expect(onPickState).toHaveBeenCalledTimes(1);
     expect(onPickState).toHaveBeenCalledWith('US-NY');
   });
 
-  it('in a ?scope=us view the select shows the neutral placeholder, and a state pick still calls onPickState', async () => {
+  it('Enter on the focused Go (form submit) commits: emits onPickState once with the chosen US-XX code', async () => {
+    const { onPickState } = renderControl();
+    const select = screen.getByRole('combobox', { name: /switch state/i });
+    await userEvent.selectOptions(select, 'US-CA');
+    // Enter on the focused submit button fires the enclosing form's onSubmit →
+    // commit. (Native selects swallow Enter rather than submit, so the keyboard
+    // commit path is the submit button — same form-submit handler as Go-click.)
+    const go = getStateGo();
+    go.focus();
+    await userEvent.keyboard('{Enter}');
+    expect(onPickState).toHaveBeenCalledTimes(1);
+    expect(onPickState).toHaveBeenCalledWith('US-CA');
+  });
+
+  it('Go is disabled while the placeholder is selected, and committing it is a no-op', async () => {
+    const { onPickState } = renderControl({ scope: { kind: 'us' } });
+    const select = screen.getByRole('combobox', {
+      name: /switch state/i,
+    }) as HTMLSelectElement;
+    // Whole-US view starts on the neutral placeholder (no pending state).
+    expect(select.value).toBe('');
+    const go = getStateGo();
+    expect(go).toBeDisabled();
+    // Even a programmatic click cannot commit while the placeholder is selected.
+    await userEvent.click(go);
+    expect(onPickState).not.toHaveBeenCalled();
+  });
+
+  it('in a ?scope=us view the select shows the neutral placeholder, and select + Go calls onPickState', async () => {
     const { onPickState } = renderControl({ scope: { kind: 'us' } });
     const select = screen.getByRole('combobox', {
       name: /switch state/i,
@@ -106,6 +161,7 @@ describe('<ScopeControl>', () => {
     expect(within(select).getAllByRole('option')[0]).toHaveTextContent(/switch state/i);
 
     await userEvent.selectOptions(select, 'US-AZ');
+    await userEvent.click(getStateGo());
     expect(onPickState).toHaveBeenCalledTimes(1);
     expect(onPickState).toHaveBeenCalledWith('US-AZ');
   });
@@ -157,16 +213,20 @@ describe('<ScopeControl>', () => {
   it('a11y: select + buttons are reachable by accessible name and keyboard-operable in order', async () => {
     renderControl();
     const select = screen.getByRole('combobox', { name: /switch state/i });
+    const go = getStateGo();
     const zip = screen.getByRole('textbox', { name: /ZIP code/i });
     const exit = screen.getByRole('button', { name: /change scope/i });
     expect(select).toBeInTheDocument();
+    expect(go).toBeInTheDocument();
     expect(zip).toBeInTheDocument();
     expect(exit).toBeInTheDocument();
 
-    // Tab order: state select → ZIP input → (whole-US) → exit. No trap — the
-    // exit button is reachable from the select via tabbing.
+    // Tab order: state select → Go (commit) → ZIP input → (whole-US) → exit. No
+    // trap — every control is reachable from the select via forward tabbing.
     select.focus();
     expect(select).toHaveFocus();
+    await userEvent.tab();
+    expect(go).toHaveFocus();
     await userEvent.tab();
     expect(zip).toHaveFocus();
   });

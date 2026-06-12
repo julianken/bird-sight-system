@@ -246,9 +246,10 @@ test.describe('Scope disclosure (#828)', () => {
     const app = await setup(page, apiStub);
 
     await app.openScopeDisclosure();
-    // Switch to another state via the revealed <select>.
+    // Switch to another state via the revealed <select> + Go (#1035: change no
+    // longer navigates; the explicit Go commit does).
     const target = STATES_FIXTURE.find(s => s.stateCode === 'US-FL')!;
-    await app.scopeControlStateSelect.selectOption(target.stateCode);
+    await app.switchStateViaScopeControl(target.stateCode);
 
     // The URL round-trips to the new scope (the persisted action — unlike the
     // disclosure open/closed state, which is component-local, not in the URL).
