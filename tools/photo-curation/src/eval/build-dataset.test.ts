@@ -236,6 +236,30 @@ describe('buildEvalRows', () => {
     expect(rows.map((r) => r.input.speciesCode).sort()).toEqual(['amerob', 'norcar']);
   });
 
+  // #1067 (bot review): the per-axis null-skip keys on ABSENCE, but a det-gate
+  // row carries ZEROED-not-null criteria (`{framing:0,…}`) — which would score
+  // as real, harsh disagreement if it reached a scorer. The ONLY thing keeping
+  // it out is the existing `rationale NOT LIKE 'deterministic gate%'` query
+  // filter; this test couples the two mechanisms so neither can silently drift.
+  it('excludes a det-gate row even when it carries zeroed (non-null) criteria — so a scorer never sees fabricated 0s', () => {
+    const zeroed = { framing: 0, subjectClarity: 0, liveness: 0, naturalness: 0, pose: 0, background: 0, lighting: 0 };
+    seedCurrent('amerob', { comName: 'American Robin', sciName: 'Turdus migratorius', family: 'Turdidae', contentHash: 'h-amerob', keep: 1, qualityScore: 88, overall: 80, criteriaJson: JSON.stringify({ framing: 8, subjectClarity: 7, liveness: 9, naturalness: 6, pose: 7, background: 6, lighting: 8 }) });
+    seedCurrent('detgat', {
+      comName: 'Det Gate', sciName: 'D g', family: 'Fam', contentHash: 'h-detgat',
+      keep: 0, qualityScore: 0, overall: 0,
+      rationale: 'deterministic gate failed: sharpness below floor',
+      criteriaJson: JSON.stringify(zeroed),
+    });
+    writeImage('amerob');
+    writeImage('detgat');
+
+    const rows = buildEvalRows(db, { thumbDir });
+    // The det-gate row is gone, so its zeroed criteria can never become an
+    // `expected.criteria` the per-axis scorer would grade as a 10-point miss.
+    expect(rows.map((r) => r.input.speciesCode)).toEqual(['amerob']);
+    expect(rows.every((r) => r.input.speciesCode !== 'detgat')).toBe(true);
+  });
+
   // The exclusion predicate must be NULL-safe: `rationale NOT LIKE …` alone is
   // NULL for a NULL rationale, which would silently drop Opus rows without one.
   it('keeps a row whose rationale is NULL (not a det-gate verdict)', () => {
