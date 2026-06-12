@@ -1817,6 +1817,12 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
      .species-detail-sheet--full below. */
   padding-top: var(--space-xs, 4px);
   padding-bottom: env(safe-area-inset-bottom, 0);
+  /* #430: clear the landscape notch. On a notched iPhone held landscape the
+     status-bar/camera cutout intrudes from the left or right; without these
+     insets the grip + content sit under the notch (~44px). The base rule needs
+     both sides because the device can rotate either way. */
+  padding-left: env(safe-area-inset-left, 0);
+  padding-right: env(safe-area-inset-right, 0);
   /* Settle tween uses the transitions-dev card-resize tuning (recipe
      01-card-resize). The transition is gated OFF during an active drag via
      [data-dragging='true'] below so the drag tracks the finger 1:1.
@@ -1878,6 +1884,40 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
   height: 4px;
   border-radius: 2px;
   background: var(--color-text-muted);
+}
+
+/* Shared sheet-header × (#1026) — the detail sheet's single-pointer, non-drag
+   dismissal (WCAG 2.5.7). Mirrors .filters-panel-close (the converged
+   vocabulary): bare × glyph, ≥44px hit target, pulled to the sheet's top-right
+   corner. The sheet root is position:fixed so this absolute anchor resolves
+   against it. Sits above the handle (z-index) so it stays tappable at every
+   snap; inset by the right safe-area so it clears the landscape notch (#430). */
+.sheet-close {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font: inherit;
+  position: absolute;
+  top: var(--space-xs, 4px);
+  right: calc(8px + env(safe-area-inset-right, 0px));
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  font-size: var(--type-md, 17px);
+  line-height: 1;
+  color: var(--color-text-strong);
+  z-index: 2;
+}
+.sheet-close:hover {
+  background: var(--color-bg-tint);
+}
+.sheet-close:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
 }
 
 /* ── Field-guide detent layouts (page-side-by-side, recipe #08) ─────────────
