@@ -46,16 +46,17 @@ export interface ModelPrice {
  * `EVAL_MODEL` / constructed in `resolveTracedJudge`). Standard / ≤200k tier.
  *
  * Deliberately ABSENT (→ unpriced, warns, never $0):
- *   • gemini-3-flash-preview — Developer API lists only a FREE tier, no paid
- *     per-token rate as of 2026-06-09.
  *   • gemini-3-pro-preview   — discontinued 2026-03-26 (use gemini-3.1-pro-preview);
- *     no current rate to charge against.
- * Add either back the moment Google publishes a paid rate — do not guess one.
+ *     absent from the pricing page, so no current rate to charge against.
+ * Add it back the moment Google publishes a paid rate — do not guess one.
  */
 export const MODEL_PRICING: Record<string, ModelPrice> = {
   'gemini-2.5-flash': { inputPerMTok: 0.3, outputPerMTok: 2.5 },
   'gemini-2.5-flash-lite': { inputPerMTok: 0.1, outputPerMTok: 0.4 },
   'gemini-2.5-pro': { inputPerMTok: 1.25, outputPerMTok: 10.0 },
+  // Gemini 3 Flash Preview standard tier: image/text input (the audio-input
+  // column charges $1.00/1M but we only send image+text — see header note).
+  'gemini-3-flash-preview': { inputPerMTok: 0.5, outputPerMTok: 3.0 },
   'gemini-3.5-flash': { inputPerMTok: 1.5, outputPerMTok: 9.0 },
   'gemini-3.1-flash-lite': { inputPerMTok: 0.25, outputPerMTok: 1.5 },
   'gemini-3.1-pro-preview': { inputPerMTok: 2.0, outputPerMTok: 12.0 },

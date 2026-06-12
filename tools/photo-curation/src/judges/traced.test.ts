@@ -251,14 +251,14 @@ describe('tracedJudge', () => {
     expect(typeof metaLog!.metrics.latency).toBe('number');
   });
 
-  // #1088: an UNPRICED model OMITS the key (no $0, no undefined) and warns once,
+  // #1088: an UNPRICED model OMITS the key (no $0, no undefined) and warns,
   // naming the model, so an unpriced run is visible rather than silently free.
-  it('omits estimated_cost and warns once (naming the model) for an unpriced model', async () => {
+  it('omits estimated_cost and warns (naming the model) for an unpriced model', async () => {
     const warnings: string[] = [];
     const usage: GeminiUsage = { promptTokenCount: 1000, candidatesTokenCount: 200, totalTokenCount: 1200 };
     const logger = makeRecordingLogger();
     const judge = tracedJudge(new FakeJudge(), {
-      project: 'bird-maps', model: 'gemini-3-flash-preview', rubricVersion: '0.2.1', logger,
+      project: 'bird-maps', model: 'gemini-3-pro-preview', rubricVersion: '0.2.1', logger,
       usage: () => usage,
       warn: (line) => warnings.push(line),
     });
@@ -272,7 +272,36 @@ describe('tracedJudge', () => {
     // token metrics still logged — only cost is omitted.
     expect(metaLog!.metrics).toMatchObject({ prompt_tokens: 1000, completion_tokens: 200 });
     expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain('gemini-3-flash-preview');
+    expect(warnings[0]).toContain('gemini-3-pro-preview');
+  });
+
+  // #1088 review (warn-once dedupe): the unpriced warning fires ONCE PER
+  // unpriced model id for the lifetime of the wrapped judge — not once per
+  // judgment (~150×/run = log noise). A second judgment on the SAME unpriced
+  // model must NOT warn again, while still omitting estimated_cost every time.
+  it('warns only ONCE per unpriced model across repeated judgments', async () => {
+    const warnings: string[] = [];
+    const usage: GeminiUsage = { promptTokenCount: 1000, candidatesTokenCount: 200, totalTokenCount: 1200 };
+    const logger = makeRecordingLogger();
+    const judge = tracedJudge(new FakeJudge(), {
+      project: 'bird-maps', model: 'gemini-3-pro-preview', rubricVersion: '0.2.1', logger,
+      usage: () => usage,
+      warn: (line) => warnings.push(line),
+    });
+
+    await judge.judge(img, ctx, PROMPT);
+    await judge.judge(img, ctx, PROMPT);
+    await judge.judge(img, ctx, PROMPT);
+
+    // Three judgments, one warning total — and every span still omits the cost.
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('gemini-3-pro-preview');
+    for (const span of logger.spans) {
+      const metaLog = span.logs.find((l) => 'metrics' in l) as
+        | { metrics: Record<string, number> }
+        | undefined;
+      expect(metaLog!.metrics).not.toHaveProperty('estimated_cost');
+    }
   });
 
   // No usage → no token counts → no cost either, and no warning (the unpriced

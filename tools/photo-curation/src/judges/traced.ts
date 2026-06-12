@@ -92,9 +92,11 @@ export interface TracedJudgeOptions {
    */
   usage?: () => GeminiUsage | undefined;
   /**
-   * One-line warning sink (#1088). Used to surface an UNPRICED model exactly
-   * once per judgment so an unpriced run is visible (not silently $0); injected
-   * so tests assert on it without `console`. Defaults to `console.warn`.
+   * One-line warning sink (#1088). Used to surface an UNPRICED model — exactly
+   * ONCE PER unpriced model id for the lifetime of this wrapped judge (#1088
+   * review: a per-judgment warning fired ~150×/run = log noise) — so an
+   * unpriced run is visible (not silently $0) without spamming. Injected so
+   * tests assert on it without `console`. Defaults to `console.warn`.
    */
   warn?: (line: string) => void;
 }
@@ -108,17 +110,26 @@ export interface TracedJudgeOptions {
  * for a price-table miss, not an absent-usage case). `estimateCostUsd` returns
  * `undefined` only for an unpriced model, so a priced model with 0 tokens still
  * logs a real `estimated_cost: 0`.
+ *
+ * The warning is DEDUPED to once per unpriced model id (#1088 review): `warned`
+ * is a per-wrapped-judge set; the second+ judgment on the same unpriced model
+ * still omits `estimated_cost` but stays silent, so a ~150-judgment run logs the
+ * warning once, not 150×.
  */
 function costMetric(
   model: string,
   tokens: Record<string, number>,
   warn: (line: string) => void,
+  warned: Set<string>,
 ): Record<string, number> {
   const { prompt_tokens, completion_tokens } = tokens;
   if (prompt_tokens === undefined || completion_tokens === undefined) return {};
   const cost = estimateCostUsd(model, prompt_tokens, completion_tokens);
   if (cost === undefined) {
-    warn(`[pricing] no price for model "${model}" — omitting estimated_cost (run cost is partial). Add it to MODEL_PRICING in src/judges/pricing.ts.`);
+    if (!warned.has(model)) {
+      warned.add(model);
+      warn(`[pricing] no price for model "${model}" — omitting estimated_cost (run cost is partial). Add it to MODEL_PRICING in src/judges/pricing.ts.`);
+    }
     return {};
   }
   return { estimated_cost: cost };
@@ -170,6 +181,10 @@ export function tracedJudge(inner: VisionJudge, opts: TracedJudgeOptions): Visio
   const { project, model, rubricVersion, logger, usage } = opts;
   const now = logger.nowMs ?? Date.now;
   const warn = opts.warn ?? ((line: string) => console.warn(line));
+  // Per-wrapped-judge set of unpriced model ids already warned about, so the
+  // unpriced-model warning fires once per model for this judge's lifetime —
+  // not once per judgment (#1088 review). Lives OUTSIDE the per-call closure.
+  const warnedUnpriced = new Set<string>();
   return {
     async judge(img: ImageInput, ctx: SpeciesContext, prompt: string): Promise<JudgeOutput> {
       return logger.traced(async (span) => {
@@ -206,7 +221,7 @@ export function tracedJudge(inner: VisionJudge, opts: TracedJudgeOptions): Visio
           // Braintrust's aggregated `metrics.latency` is in SECONDS — divide ms.
           // `estimated_cost` (USD, #1088) rides alongside when the model is
           // priced; an unpriced model omits it + warns (never a silent $0).
-          metrics: { latency: latencyMs / 1000, ...tokens, ...costMetric(model, tokens, warn) },
+          metrics: { latency: latencyMs / 1000, ...tokens, ...costMetric(model, tokens, warn, warnedUnpriced) },
         });
         return output;
       });
