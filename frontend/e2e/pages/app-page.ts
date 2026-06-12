@@ -55,6 +55,14 @@ export class AppPage {
   readonly scopeControl: Locator;
   /** The in-state state-switch `<select>` (`aria-label='Switch state'`). */
   readonly scopeControlStateSelect: Locator;
+  /**
+   * #1035 (WCAG 3.2.2): the in-state state-row "Go" commit button. Changing the
+   * `<select>` no longer navigates by itself — an explicit Go (or Enter) commits
+   * the staged state via `onPickState`. Scoped to the State row's `<form>` (the
+   * one containing the "Switch state" select) so it never collides with the
+   * embedded ZipInput's own "Go" submit. Mirrors `chooserStateGo`.
+   */
+  readonly scopeControlStateGo: Locator;
   /** The in-state niche "Whole US" escape hatch (state view only). */
   readonly scopeControlWholeUs: Locator;
   /** The "Change scope" exit affordance → returns to the chooser. */
@@ -157,6 +165,12 @@ export class AppPage {
     this.scopeDisclosureTrigger = this.appHeader.getByRole('button', { name: /change region|close scope options/i });
     this.scopeControl = page.getByRole('region', { name: 'Change the map scope' });
     this.scopeControlStateSelect = this.scopeControl.getByLabel('Switch state', { exact: true });
+    // #1035: the State-row "Go" is the ScopeControl's "Go" that lives in the same
+    // <form> as the "Switch state" <select> — scope it there so it never matches
+    // the embedded ZipInput's "Go" submit (both read "Go"). Mirrors chooserStateGo.
+    this.scopeControlStateGo = this.scopeControl
+      .locator('form', { has: page.getByLabel('Switch state', { exact: true }) })
+      .getByRole('button', { name: 'Go', exact: true });
     this.scopeControlWholeUs = this.scopeControl.getByRole('button', { name: 'Whole US', exact: true });
     this.scopeControlExit = this.scopeControl.getByRole('button', { name: 'Change scope' });
 
@@ -303,6 +317,19 @@ export class AppPage {
   async pickStateInChooser(stateCode: string): Promise<void> {
     await this.chooserStateSelect.selectOption(stateCode);
     await this.chooserStateGo.click();
+  }
+
+  /**
+   * #1035 (WCAG 3.2.2): switch state via the in-state ScopeControl by staging a
+   * selection then committing with the new "Go" button. Changing the `<select>`
+   * no longer navigates by itself — only Go/Enter commits — so the e2e
+   * round-trip must drive the explicit commit, exactly like `pickStateInChooser`
+   * does for the landing chooser. Call `openScopeDisclosure()` first (the form is
+   * mounted-but-hidden behind the 🔍 disclosure in a scoped view).
+   */
+  async switchStateViaScopeControl(stateCode: string): Promise<void> {
+    await this.scopeControlStateSelect.selectOption(stateCode);
+    await this.scopeControlStateGo.click();
   }
 
   /**
