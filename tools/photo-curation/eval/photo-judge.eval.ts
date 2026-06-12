@@ -1,17 +1,24 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Braintrust eval entry (C5, #1015; part of #1010) — run via `bt eval`.
 //
-// Scores the TRACED Gemini judge against the Opus 902-score proxy baseline in
-// review.sqlite, reporting the #969 calibration metrics (keep-agreement %,
-// score-MAE, keep-confusion) as a `bird-maps` Braintrust EXPERIMENT.
+// Scores the TRACED Gemini judge against the frozen Opus 902-score proxy
+// baseline — now read from PROD `species_photo_scores` (C4 #1073), pinned to
+// `(BASELINE_MODEL, BASELINE_RUBRIC)` — reporting the #969 calibration metrics
+// (keep-agreement %, score-MAE, keep-confusion) as a `bird-maps` Braintrust
+// EXPERIMENT.
 //
-//   data  — buildEvalRows(openDb(REVIEW_DB), {thumbDir, sample}) (#1013), the
-//           stratified Opus-current rows: each {input:{readPath,imageUrl,
+//   data  — buildEvalRows(openDb(REVIEW_DB), {getScores, thumbDir, sample}) (#1073),
+//           the stratified baseline rows: each {input:{readPath,imageUrl,
 //           species…}, expected:{keep,qualityScore,criteria?},
-//           metadata:{contentHash,…,expectedRubricVersion}}. readPath is the
-//           LOCAL byte source; imageUrl is the portable R2 URL logged as the
-//           span sourceUrl (#1067). Det-gate rows are excluded and the
-//           single-rubric-version invariant is asserted inside the builder (#1037).
+//           metadata:{contentHash,…,expectedRubricVersion}}. The SCORE comes
+//           from prod (`getPhotoScores(pool, pin)`); the species metadata + the
+//           image BYTES come from the local review store + thumb-cache, and each
+//           local image is HASH-VERIFIED against the prod row's content_hash so
+//           Gemini scores the exact bytes the baseline did (#1073). readPath is
+//           the LOCAL byte source; imageUrl is the portable R2 URL logged as the
+//           span sourceUrl (#1067). Det-gate rows never match the Opus model pin,
+//           and the single-rubric-version invariant is trivially held by the pin
+//           (asserted defensively inside the builder, #1037).
 //   task  — runRow({judge, readImage, prompt}, input) (run-row.ts).
 //           Braintrust calls task(input, hooks): the FIRST positional arg IS the
 //           row's `input` value, so we write `task: (input) => …`, NOT
@@ -21,13 +28,15 @@
 //
 // COMPARABILITY (#1037): the judge prompt is PINNED to the baseline's recorded
 // rubric_version — the rubric version is part of the dataset, not the live
-// code. The dataset is built EAGERLY at module load so (a) a mixed/unknown
-// version fails before any Gemini call is even possible, and (b) the pinned
-// version is known in time to select the prompt and to stamp the experiment
-// metadata at Eval() registration. That build needs only REVIEW_DB/THUMB_DIR
-// (already import-time requirements) — local sqlite + readdir, no network and
-// no API keys, so `bt eval --list` still works keyless. EVAL_MODEL picks the
-// judge model (default gemini-2.5-flash): same dataset + same pinned rubric +
+// code. The dataset is built EAGERLY at module load (top-level await) so (a) a
+// mixed/unknown version fails before any Gemini call is even possible, and (b)
+// the pinned version is known in time to select the prompt and to stamp the
+// experiment metadata at Eval() registration. That build now reads the baseline
+// from PROD (`DATABASE_URL`, a read-only connection) instead of the local
+// sqlite — it still uses local sqlite for the species-metadata join + readdir
+// for the image, and needs no Gemini/Braintrust key, so `bt eval --list` still
+// works keyless (it only needs the DB reachable). EVAL_MODEL picks the judge
+// model (default gemini-2.5-flash): same dataset + same pinned rubric +
 // different model = directly comparable experiments.
 //
 // The judge is obtained through `resolveTracedJudge` — the ONLY public way to
@@ -48,8 +57,9 @@
 import { readFileSync } from 'node:fs';
 import { Eval } from 'braintrust';
 import type { ImageInput, VisionJudge } from '@bird-watch/photo-quality';
+import { createPool, closePool, getPhotoScores } from '@bird-watch/db-client';
 import { openDb } from '../src/db.js';
-import { buildEvalRows } from '../src/eval/build-dataset.js';
+import { buildEvalRows, resolveBaselinePin } from '../src/eval/build-dataset.js';
 import { resolveTracedJudge } from '../src/judges/index.js';
 import { keepAgreement, scoreMAE, keepConfusion, criteriaAxisMAE } from '../src/eval/scorers.js';
 import { runRow } from '../src/eval/run-row.js';
@@ -67,12 +77,26 @@ function requireEnv(name: string): string {
 
 const REVIEW_DB = requireEnv('REVIEW_DB');
 const THUMB_DIR = requireEnv('THUMB_DIR');
+// PROD baseline connection (#1073). A READ-ONLY connection string suffices — the
+// eval only SELECTs from species_photo_scores via C2's getPhotoScores.
+const DATABASE_URL = requireEnv('DATABASE_URL');
 const EVAL_SAMPLE = Number(process.env.EVAL_SAMPLE ?? 150);
 const EVAL_MODEL = resolveEvalModel(process.env);
+// The frozen-baseline pin (#1073): defaults claude-opus-4-8 / 0.2.1, env-overridable.
+const BASELINE_PIN = resolveBaselinePin(process.env);
 
-// Eager build (#1037): hard-fails here on a mixed/unknown rubric_version or an
-// empty baseline — before any judge construction, prompt selection, or network.
-const rows = buildEvalRows(openDb(REVIEW_DB), { thumbDir: THUMB_DIR, sample: EVAL_SAMPLE });
+// Eager build (#1037/#1073): reads the pinned baseline from PROD and hash-
+// verifies each local image against it. Hard-fails here on a mixed/unknown
+// rubric_version or an empty baseline — before any judge construction, prompt
+// selection, or Gemini network. The pool is opened, drained for the read, and
+// closed immediately: the dataset is materialized eagerly, so nothing past this
+// point needs the DB.
+const pool = createPool({ databaseUrl: DATABASE_URL, max: 1 });
+const rows = await buildEvalRows(openDb(REVIEW_DB), {
+  thumbDir: THUMB_DIR,
+  sample: EVAL_SAMPLE,
+  getScores: () => getPhotoScores(pool, BASELINE_PIN),
+}).finally(() => closePool(pool));
 
 // Non-empty + single-version are guaranteed by the builder's assertions, so
 // row 0 carries THE baseline version. The prompt pin follows it: judging a
