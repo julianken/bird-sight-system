@@ -13,12 +13,25 @@ the `bird-maps` project:
 | `keep_agreement` | exact boolean match of `keep` (the #969 gate) | **the headline** — must be **≥ 90%** to adopt Gemini for bulk scoring |
 | `score_mae` | `1 − \|Δ qualityScore\| / 100`, clamped to `[0,1]` | how close Gemini's 0–100 estimate tracks Opus's (advisory) |
 | `keep_confusion` | splits disagreements into `falseKeep` / `falseReplace` | watch **`falseKeep`** — Gemini keeping a photo Opus would replace ships a bad photo (the dangerous direction); `falseReplace` is cheap (re-source) |
+| `criteria_mae_<axis>` (×7) | per-axis sub-score agreement: `1 − \|Δ axis\| / 10`, clamped `[0,1]`, one column for each of `framing`, `subjectClarity`, `liveness`, `naturalness`, `pose`, `background`, `lighting` (#1067) | **diagnostic, not a gate** — a low column (e.g. `criteria_mae_naturalness`) means Gemini is *systematically* off on that axis, which is exactly what would route a hybrid design. A row missing a baseline axis null-skips that column only (dropped from the mean, never scored as 0) |
+
+The 7 `criteria_mae_<axis>` columns come from `expected.criteria` (the Opus
+`photo_score.criteria_json` carried onto each dataset row). A baseline row with
+no `criteria_json` simply skips those columns for that row — it never fabricates
+agreement. Deterministic-gate rows (zeroed criteria) are already excluded from
+the dataset, so their synthetic 0s can't reach these columns.
 
 Every per-judgment span nests **under the experiment trace** (not the project
 Logs stream), so the dataset rows and their spans are linked in the Braintrust
 UI. (See the run-row wiring in `src/eval/run-row.ts` and the tracing seam in
-`src/judges/traced.ts`.) Each span's `metrics` carry the judgment `latency`
-(seconds) **and the Gemini token counts** (`prompt_tokens`,
+`src/judges/traced.ts`.) **The span's `sourceUrl` is the production R2 URL**
+(`photo_current.url`, stored verbatim — `.jpg`/`.jpeg`/`.png` extensions vary,
+so it is logged as-is, never reconstructed from a `<code>.jpeg` template that
+would 404), so Braintrust renders the **live bird-maps.com thumbnail** and the
+experiment is portable across machines. The local cache path is used only to
+read the bytes; it is never logged as a URL. The exact image bytes are pinned
+by `content_hash` in span metadata. Each span's `metrics` carry the judgment
+`latency` (seconds) **and the Gemini token counts** (`prompt_tokens`,
 `completion_tokens` — thinking tokens included — and `total_tokens`, from the
 response's `usageMetadata`), so per-row and aggregate cost are readable
 directly in the experiment dashboard.
@@ -147,6 +160,38 @@ The package also exposes `npm run eval -w @bird-watch/photo-curation`
   `keep_agreement ≥ 90%` **and** `falseKeep` is low. Below the gate → hybrid
   (Gemini first pass, Opus re-judges the close calls) — see the design spec.
 
+## Dataset-level diagnostics: `analyze-experiment` (#1067)
+
+The boolean gate hides the *shape* of the disagreement. Braintrust scorers are
+strictly per-row, so the threshold-free and calibrated reads — which need every
+row at once — live in a committed, **read-only** analysis script instead of in
+the scorers. It reads a completed experiment back (no eval run, no Gemini calls,
+no judging):
+
+```sh
+# Braintrust auth resolves from the active `bt` profile (bt auth login).
+npm run analyze -w @bird-watch/photo-curation <experiment-name-or-id>
+
+# optional: tune the ambiguity / hybrid-routing band (default 40:70, Opus score)
+npm run analyze -w @bird-watch/photo-curation <experiment> -- --band 45:65
+```
+
+It prints:
+
+| Line | What it means | How to read it |
+|---|---|---|
+| `keep agreement` | the same boolean match rate as the `keep_agreement` scorer | sanity-check it equals the experiment's headline |
+| `falseKeep` / `falseReplace` | the confusion split, as raw counts | `falseKeep` is the dangerous direction |
+| `score MAE` | mean `\|Δ qualityScore\|` in points | lower = Gemini's 0–100 tracks Opus's |
+| **`AUC`** | Gemini `qualityScore` as a ranker of the Opus `keep` label (Mann–Whitney, ties = 0.5) | **threshold-free** separability. High AUC + low keep-agreement (the pinned run: AUC 0.904 vs. 78.67%) means the boolean *threshold* is miscalibrated, not that the model can't tell good from bad |
+| **`calibrated ceiling`** | the best boolean agreement any single recalibrated `qualityScore` threshold could reach, plus the winning `score >= t` | the ceiling for a Gemini-*only* gate. On the pinned run this was **84% at t=59** — still under the 90% gate, so even a perfectly-tuned threshold doesn't adopt solo Gemini |
+| `ambiguity band [lo, hi]` | how many disagreements sit inside that Opus-score band | a disagreement near Opus's own midpoint is a genuine close call |
+| **`hybrid routing preview`** | route Gemini scores in the mid-band to Opus → **% routed** (the Opus-call budget), **auto-set agreement** (keep-agreement after routing), **residual falseKeep** (dangerous keeps that fell outside the band and were never re-judged) | quantifies whether a Gemini-first / Opus-on-close-calls hybrid clears the gate, and at what Opus cost. This is the input to the hybrid-design decision — not the hybrid itself |
+
+The AUC / calibrated-ceiling / band / routing math are pure helpers, unit-tested
+on a hand-built fixture (`scripts/analyze-experiment.test.ts`); the Braintrust
+read is `bt sql` under the hood and is injected, so the tests need no network.
+
 ## Daily cap (20 RPD free tier) — abort + resume
 
 Gemini's free tier caps `gemini-2.5-flash` at **20 requests per day** (measured
@@ -184,13 +229,22 @@ After the `--first 5` smoke, confirm in the Braintrust `bird-maps` project:
 
 1. A new **experiment** (not just Logs) was created.
 2. `keep_agreement` is **non-null** (a real number, not blank) — proves the
-   scorers received both `output` and `expected`.
+   scorers received both `output` and `expected`. The 7 `criteria_mae_<axis>`
+   columns are present and non-null on rows whose baseline carried
+   `criteria_json` (#1067).
 3. Opening a row shows the per-judgment span **nested under the experiment**
    (not floating in the project Logs stream) with the species input, the Gemini
-   output, and `metrics.latency` populated.
+   output, and `metrics.latency` populated. The span's `sourceUrl` is the
+   **bird-maps.com R2 URL** and the thumbnail **renders** in Braintrust — not a
+   local filesystem path (#1067).
 4. The row's `metadata.expectedRubricVersion` equals the span input's
-   `judgedRubricVersion` (the #1037 pin holding), and the span's
-   `prompt_tokens` / `completion_tokens` / `total_tokens` metrics are
-   populated.
+   `judgedRubricVersion` (the #1037 pin holding), `metadata.contentHash` is
+   present (#1067), and the span's `prompt_tokens` / `completion_tokens` /
+   `total_tokens` metrics are populated.
+
+After a completed run, also exercise the dataset-level read:
+`npm run analyze -w @bird-watch/photo-curation <experiment>` prints the AUC,
+calibrated ceiling, and hybrid-routing preview (see the diagnostics section
+above).
 
 Note the experiment URL in the PR as the manual smoke evidence.

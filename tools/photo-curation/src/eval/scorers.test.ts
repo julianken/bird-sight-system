@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { keepAgreement, scoreMAE, keepConfusion } from './scorers.js';
+import { keepAgreement, scoreMAE, keepConfusion, criteriaAxisMAE } from './scorers.js';
+import { CRITERIA_KEYS, type CriteriaScores } from '@bird-watch/photo-quality';
 
 /**
  * The Braintrust scorer args are `{input, output, expected, metadata}`; these
@@ -97,5 +98,69 @@ describe('keepConfusion', () => {
       score: 1,
       metadata: { falseKeep: 0, falseReplace: 0 },
     });
+  });
+});
+
+describe('criteriaAxisMAE', () => {
+  const full = (over: Partial<CriteriaScores> = {}): CriteriaScores => ({
+    framing: 8, subjectClarity: 8, liveness: 8, naturalness: 8, pose: 8, background: 8, lighting: 8, ...over,
+  });
+  /** A candidate JudgeOutput-shaped value carrying full criteria. */
+  const out = (criteria: CriteriaScores) => ({ keep: true, qualityScore: 80, criteria });
+
+  it('emits exactly 7 columns, one per CRITERIA_KEYS axis, named criteria_mae_<axis>', () => {
+    const results = criteriaAxisMAE({ output: out(full()), expected: { keep: true, qualityScore: 80, criteria: full() } });
+    expect(results).toHaveLength(CRITERIA_KEYS.length);
+    expect(results.map((r) => r.name)).toEqual(CRITERIA_KEYS.map((k) => `criteria_mae_${k}`));
+  });
+
+  it('scores 1.0 on every axis when both sides match exactly', () => {
+    const results = criteriaAxisMAE({ output: out(full()), expected: { keep: true, qualityScore: 80, criteria: full() } });
+    for (const r of results) expect(r.score).toBe(1);
+  });
+
+  it('scores 0.5 on a single axis with a 5-point gap, leaving the others at 1.0', () => {
+    const results = criteriaAxisMAE({
+      output: out(full({ naturalness: 9 })),
+      expected: { keep: true, qualityScore: 80, criteria: full({ naturalness: 4 }) },
+    });
+    const byName = new Map(results.map((r) => [r.name, r.score]));
+    expect(byName.get('criteria_mae_naturalness')).toBe(0.5);
+    for (const k of CRITERIA_KEYS) {
+      if (k === 'naturalness') continue;
+      expect(byName.get(`criteria_mae_${k}`)).toBe(1);
+    }
+  });
+
+  it('scores 0 on a full 10-point axis gap', () => {
+    const results = criteriaAxisMAE({
+      output: out(full({ lighting: 10 })),
+      expected: { keep: true, qualityScore: 80, criteria: full({ lighting: 0 }) },
+    });
+    const byName = new Map(results.map((r) => [r.name, r.score]));
+    expect(byName.get('criteria_mae_lighting')).toBe(0);
+  });
+
+  it('null-skips ALL axes when the expected side has no criteria (still 7 columns)', () => {
+    const results = criteriaAxisMAE({ output: out(full()), expected: { keep: true, qualityScore: 80 } });
+    expect(results).toHaveLength(CRITERIA_KEYS.length);
+    for (const r of results) expect(r.score).toBeNull();
+  });
+
+  it('null-skips only the missing axis when one side omits a single axis', () => {
+    // Expected criteria missing `pose` (partial blob from an older baseline).
+    const partial = full();
+    delete (partial as Record<string, unknown>).pose;
+    const results = criteriaAxisMAE({
+      output: out(full()),
+      expected: { keep: true, qualityScore: 80, criteria: partial as CriteriaScores },
+    });
+    const byName = new Map(results.map((r) => [r.name, r.score]));
+    expect(byName.get('criteria_mae_pose')).toBeNull();
+    // Every other axis is unaffected (matching → 1.0).
+    for (const k of CRITERIA_KEYS) {
+      if (k === 'pose') continue;
+      expect(byName.get(`criteria_mae_${k}`)).toBe(1);
+    }
   });
 });
