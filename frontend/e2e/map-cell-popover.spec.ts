@@ -12,9 +12,12 @@ import { AppPage } from './pages/app-page.js';
 //   4. Mobile tap→cluster-list→expand-family→species→?detail= nav (@coarse, 390×844, coarse-pointer)
 //
 // Phase 2 lessons baked in (5 CI iterations to land 1 test):
-//   - Use `.click({ force: true })` on `<a role="link">` without href.
-//   - `.cluster-list-popover__rows a[role="link"]` is more reliable than
-//     getByRole('link').filter({hasText:...}) for links without href.
+//   - #1031 (C54): species rows are native <button>s now (was
+//     `<a role="link">`); target `.cell-popover__row-button` /
+//     `.cluster-list-popover__row-button`. `.click({ force: true })` is kept
+//     because rows can sit below the fold of a scrollable popover.
+//   - The `.…__rows .…__row-button` class selector is more reliable than
+//     getByRole('button').filter({hasText:...}) given the per-row text.
 //   - Avoid page.goBack() + re-open-popover (z-index issue intercepts pointer).
 //   - `[data-testid="adaptive-grid-marker"]` is the canonical "map settled" gate.
 //   - iPad (gen 6) 768×1024 is the coarse-pointer device; mobile 390×844 uses
@@ -67,9 +70,10 @@ test('desktop 1440×900: hover cell → preview → click → popover → specie
   // #859: at default zoom (z=3 → aggregated mode) every row now carries a REAL
   // species code (the server nests `AggregatedFamily.species` per bucket, so
   // the synthetic `agg-*` codes #715 used to gate against are gone). Rows are
-  // clickable links → ?detail=<real-code>. If WebGL painted no rows we fall back
+  // clickable buttons → ?detail=<real-code>. If WebGL painted no rows we fall back
   // to asserting the popover at least mounted (the popover-opens check above).
-  const link = page.locator('.cell-popover__rows a[role="link"]').first();
+  // #1031 (C54): rows are native <button>s now, not `<a role="link">`.
+  const link = page.locator('.cell-popover__rows .cell-popover__row-button').first();
   const linkVisible = await link.waitFor({ state: 'visible', timeout: 5_000 }).then(() => true).catch(() => false);
   if (!linkVisible) {
     // No clickable row rendered in this headless run — verify the popover rows
@@ -270,15 +274,16 @@ test('@coarse tablet 768×1024: tap marker → cluster-list popover → tap spec
   // to commit so the family's species rows have mounted.
   await expect(familyToggle).toHaveAttribute('aria-expanded', 'true', { timeout: 5_000 });
 
-  // Tap a clickable species link in the now-expanded family.
+  // Tap a clickable species row in the now-expanded family.
   // #859: at default zoom (aggregated mode) every row now carries a REAL
   // species code (server-nested `AggregatedFamily.species`), so rows render as
-  // clickable links — the synthetic `agg-*` static-span path #715 gated against
-  // is gone. If no clickable row rendered in this headless run, fall back to
-  // verifying the popover rows at least exist as DOM nodes. Rows may be
+  // clickable controls — the synthetic `agg-*` static-span path #715 gated
+  // against is gone. If no clickable row rendered in this headless run, fall
+  // back to verifying the popover rows at least exist as DOM nodes. Rows may be
   // off-screen in a scrollable popover container on smaller viewports — use
   // `attached` rather than `visible` for the existence check.
-  const link = page.locator('.cluster-list-popover__rows a[role="link"]').first();
+  // #1031 (C54): rows are native <button>s now, not `<a role="link">`.
+  const link = page.locator('.cluster-list-popover__rows .cluster-list-popover__row-button').first();
   const linkVisible = await link.waitFor({ state: 'visible', timeout: 5_000 }).then(() => true).catch(() => false);
   if (!linkVisible) {
     await expect(page.locator('[data-testid="cluster-list-popover-row"]').first()).toBeAttached();
@@ -328,8 +333,8 @@ test.skip('@coarse mobile 390×844: tap marker → cluster-list → expand-famil
     await expect.poll(() => page.getByTestId('cluster-list-popover-row').count()).toBeGreaterThan(rowsBefore);
   }
 
-  // Tap a species link. Force-click for <a> without href (Phase 2 lesson).
-  const link = page.locator('.cluster-list-popover__rows a[role="link"]').first();
+  // Tap a species row. #1031 (C54): rows are native <button>s now.
+  const link = page.locator('.cluster-list-popover__rows .cluster-list-popover__row-button').first();
   await link.waitFor({ state: 'visible' });
   await link.click({ force: true });
 

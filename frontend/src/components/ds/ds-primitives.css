@@ -909,15 +909,26 @@ button.adaptive-grid-marker__cell {
   padding: 2px 0;
 }
 
-.cell-popover__row--clickable a[role="link"] {
+/* #1031 (C54): species rows are now native <button>s (free Enter/Space,
+   correct AT announcement). The button needs the chrome reset an <a> didn't
+   (border/background/font/padding), then re-adopts the link affordance —
+   matching the sibling `.cell-popover__more` control. */
+.cell-popover__row-button {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
   cursor: pointer;
   color: var(--color-text-link);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
-.cell-popover__row--clickable a[role="link"]:hover,
-.cell-popover__row--clickable a[role="link"]:focus-visible {
+.cell-popover__row-button:hover,
+.cell-popover__row-button:focus-visible {
   text-decoration-thickness: 2px;
   outline: 2px solid var(--color-text-strong);
   outline-offset: 2px;
@@ -975,7 +986,7 @@ button.adaptive-grid-marker__cell {
     color: CanvasText;
     box-shadow: none;
   }
-  .cell-popover__row--clickable a[role="link"] {
+  .cell-popover__row-button {
     color: LinkText;
   }
   .cell-popover__more {
@@ -1134,15 +1145,28 @@ button.adaptive-grid-marker__cell {
                   /* chromium emulation; family-toggle + Done retain the 44px min. */
 }
 
-.cluster-list-popover__row a[role="link"] {
+/* #1031 (C54): species rows are now native <button>s (free Enter/Space,
+   correct AT announcement). The button takes the chrome reset an <a> didn't
+   need, then re-adopts the link affordance. Kept `display: block; width: 100%`
+   (not flex) so it renders a non-zero bbox — the row's `padding: 8px 0`
+   supplies the tap spacing the prior comment warned must not move onto the
+   inner element. */
+.cluster-list-popover__row-button {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
   cursor: pointer;
   color: var(--color-text-link);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
-.cluster-list-popover__row a[role="link"]:hover,
-.cluster-list-popover__row a[role="link"]:focus-visible {
+.cluster-list-popover__row-button:hover,
+.cluster-list-popover__row-button:focus-visible {
   text-decoration-thickness: 2px;
   outline: 2px solid var(--color-text-strong);
   outline-offset: 2px;
@@ -1193,7 +1217,7 @@ button.adaptive-grid-marker__cell {
     color: CanvasText;
     box-shadow: none;
   }
-  .cluster-list-popover__row a[role="link"] {
+  .cluster-list-popover__row-button {
     color: LinkText;
   }
   .cluster-list-popover__done {

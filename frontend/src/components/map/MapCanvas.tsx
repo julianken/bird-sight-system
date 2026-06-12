@@ -1670,7 +1670,19 @@ export function MapCanvas({
   const map = mapReady ? mapRef.current?.getMap() ?? null : null;
 
   return (
-    <div ref={mapWrapperRef} data-testid="map-canvas" style={{ width: '100%', height: '100%', position: 'relative' }}>
+    <div
+      ref={mapWrapperRef}
+      data-testid="map-canvas"
+      // #1031: programmatically focusable, but OUT of the keyboard tab order.
+      // ObservationPopover.returnFocus() falls back to `.focus()`-ing this
+      // wrapper when the originating marker has left the DOM/viewport; a plain
+      // <div> with no tabIndex is not focusable, so that `.focus()` is a silent
+      // no-op and focus drops to document.body — the exact outcome the fallback
+      // exists to prevent. `-1` makes the programmatic focus land here while
+      // keeping the map out of the Tab sequence (it is not a keyboard control).
+      tabIndex={-1}
+      style={{ width: '100%', height: '100%', position: 'relative' }}
+    >
       <MapView
         ref={mapRef}
         initialViewState={initialViewState}

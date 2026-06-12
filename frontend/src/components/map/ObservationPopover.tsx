@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { Observation } from '@bird-watch/shared-types';
 
@@ -64,7 +64,49 @@ export function ObservationPopover({
   onSelectSpecies,
 }: ObservationPopoverProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const headingRef = useRef<HTMLSpanElement | null>(null);
   const [measuredH, setMeasuredH] = useState<number>(FALLBACK_H);
+
+  // #1031 — dialog focus-return. ObservationPopover's open path is
+  // coordinate-based: the triggering marker button is discarded at click
+  // time (`onOpen(obs,[lng,lat])` / `onSelect(subId)` both funnel into
+  // `setSelectedObs` with only the obs + screen pos). So instead of holding
+  // an `anchorEl` prop like the sibling popovers, we RE-QUERY the live opener
+  // element by subId at dismissal time. The data attribute is spelled two
+  // different ways across the two opener surfaces, so the selector covers
+  // BOTH: `[data-subid]` (DisplacedSilhouetteLayer.tsx — the displaced
+  // silhouette button) and `[data-sub-id]` (MapMarkerHitLayer.tsx — the
+  // hit-layer button, which is `tabIndex={-1}`; programmatic `.focus()` still
+  // works). Re-query (not a captured `e.currentTarget`) is deliberate: both
+  // opener layers re-render with the viewport, so a node captured at click
+  // time can be unmounted by close time and `.focus()` would silently no-op —
+  // the live re-query always finds the current node. If neither resolves
+  // (marker left the data/viewport), fall back to the map wrapper rather than
+  // dropping focus to `document.body`.
+  const subId = observation?.subId;
+  const returnFocus = useCallback(() => {
+    if (typeof document === 'undefined') return;
+    const opener = subId
+      ? document.querySelector<HTMLElement>(
+          `[data-subid="${subId}"], [data-sub-id="${subId}"]`,
+        )
+      : null;
+    if (opener) {
+      opener.focus();
+      return;
+    }
+    const wrapper = document.querySelector<HTMLElement>(
+      '[data-testid="map-canvas"]',
+    );
+    wrapper?.focus();
+  }, [subId]);
+
+  // Dismiss = close + return focus, shared by the × button and Escape so the
+  // focus-return contract holds on every close path.
+  const dismiss = useCallback(() => {
+    onClose();
+    returnFocus();
+  }, [onClose, returnFocus]);
 
   // Measure the rendered popover height once it's in the DOM. The flipY
   // decision below uses `measuredH` so popovers with long content (e.g.
@@ -83,6 +125,26 @@ export function ObservationPopover({
     ro.observe(node);
     return () => ro.disconnect();
   }, [observation]);
+
+  // #1031 — move focus into the dialog on open (spec §4.8 popover focus
+  // management; mirrors CellPopover/ClusterListPopover). The heading carries
+  // `tabIndex={-1}` so it is programmatically focusable. Keyed on the obs
+  // identity so re-opening for a different observation re-lands focus.
+  useEffect(() => {
+    if (!observation) return;
+    headingRef.current?.focus();
+  }, [observation]);
+
+  // #1031 — document-level Escape → close + focus return. Matches the sibling
+  // popovers' Escape contract; the × button shares the same `dismiss`.
+  useEffect(() => {
+    if (!observation) return;
+    function onKeyDown(e: globalThis.KeyboardEvent) {
+      if (e.key === 'Escape') dismiss();
+    }
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [observation, dismiss]);
 
   if (!observation) return null;
 
@@ -125,7 +187,11 @@ export function ObservationPopover({
       style={style}
     >
       <div className="observation-popover-header">
-        <span className="observation-popover-name">
+        <span
+          ref={headingRef}
+          className="observation-popover-name"
+          tabIndex={-1}
+        >
           {observation.comName}
         </span>
         {observation.isNotable && (
@@ -136,7 +202,7 @@ export function ObservationPopover({
         <button
           type="button"
           className="observation-popover-close"
-          onClick={onClose}
+          onClick={dismiss}
           aria-label="Close"
         >
           &times;

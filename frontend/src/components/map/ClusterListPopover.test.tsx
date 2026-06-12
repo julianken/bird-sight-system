@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { ClusterListPopover } from './ClusterListPopover.js';
 import type { FamilyAggregate, SpeciesAggregate } from './adaptive-grid.js';
 
@@ -270,9 +271,39 @@ describe('<ClusterListPopover>', () => {
     );
     // #859: expand the family before clicking its (now-revealed) species row.
     fireEvent.click(screen.getByRole('button', { name: /Hummingbirds/i }));
-    fireEvent.click(screen.getByRole('link', { name: /Anna's Hummingbird/i }));
+    // #1031 (C54): the species row is a native <button> (not `<a role="link">`).
+    const row = screen.getByRole('button', { name: /Anna's Hummingbird/i });
+    expect(row.tagName).toBe('BUTTON');
+    expect(screen.queryByRole('link', { name: /Anna's Hummingbird/i })).toBeNull();
+    fireEvent.click(row);
     expect(onSelectSpecies).toHaveBeenCalledWith('annhum');
     expect(onSelectSpecies).toHaveBeenCalledTimes(1);
+  });
+
+  // #1031 (C54): a native <button> row activates on Enter AND Space for free.
+  it('species row activates on Enter and Space (native button activation)', async () => {
+    const anchor = makeAnchor();
+    const onSelectSpecies = vi.fn();
+    render(
+      <ClusterListPopover
+        families={[family('hummingbirds', 5)]}
+        speciesByFamily={speciesByFamily([['hummingbirds', [species("Anna's Hummingbird", 5, 'annhum')]]])}
+        totalCount={5}
+        uniqueFamilies={1}
+        anchorEl={anchor}
+        onDismiss={vi.fn()}
+        onSelectSpecies={onSelectSpecies}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Hummingbirds/i }));
+    const row = screen.getByRole('button', { name: /Anna's Hummingbird/i });
+    row.focus();
+    expect(document.activeElement).toBe(row);
+    await userEvent.keyboard('{Enter}');
+    expect(onSelectSpecies).toHaveBeenLastCalledWith('annhum');
+    await userEvent.keyboard(' ');
+    expect(onSelectSpecies).toHaveBeenLastCalledWith('annhum');
+    expect(onSelectSpecies).toHaveBeenCalledTimes(2);
   });
 
   it('species row with null speciesCode renders as <span> (no link role; no callback on click)', () => {
@@ -293,11 +324,13 @@ describe('<ClusterListPopover>', () => {
     fireEvent.click(screen.getByRole('button', { name: /Sandpipers/i }));
     expect(screen.getByText(/Sandpiper sp\./)).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Sandpiper sp\./ })).toBeNull();
+    // #1031 (C54): null-code taxa stay static <span>s — no button either.
+    expect(screen.queryByRole('button', { name: /Sandpiper sp\./ })).toBeNull();
     fireEvent.click(screen.getByText(/Sandpiper sp\./));
     expect(onSelectSpecies).not.toHaveBeenCalled();
   });
 
-  it('renders REAL common names as working links — never a Latin family code or agg-* (#859)', () => {
+  it('renders REAL common names as working buttons — never a Latin family code or agg-* (#859)', () => {
     const anchor = makeAnchor();
     const onSelectSpecies = vi.fn();
     render(
@@ -313,9 +346,9 @@ describe('<ClusterListPopover>', () => {
         onSelectSpecies={onSelectSpecies}
       />
     );
-    // #859: expand the family before its REAL-named species links resolve.
+    // #859: expand the family before its REAL-named species buttons resolve.
     fireEvent.click(screen.getByRole('button', { name: /Anatidae/i }));
-    fireEvent.click(screen.getByRole('link', { name: /Mallard/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Mallard/i }));
     expect(onSelectSpecies).toHaveBeenCalledWith('mallar3');
     // No Latin family code and no synthetic agg-* code leaks into any row.
     expect(screen.queryByText(/anatidae/)).toBeNull();

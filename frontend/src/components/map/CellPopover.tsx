@@ -11,8 +11,9 @@ import { prettyFamily } from '../../derived.js';
  * Renders the family's species rows as `{count}× {comName}`. With #859 the
  * `species` rows carry REAL eBird codes resolved against the species dictionary
  * (no more synthetic `agg-*` rows / Latin family-code names), so every row with
- * a non-null `speciesCode` is a working `role="link"` into the species detail.
- * Spuh/slash/hybrid taxa (`speciesCode === null`) render as a static `<span>`.
+ * a non-null `speciesCode` is a working native `<button>` (#1031 C54 — was
+ * `<a role="link">`) into the species detail. Spuh/slash/hybrid taxa
+ * (`speciesCode === null`) render as a static `<span>`.
  *
  * `+N more` is an ACTIVE DRILL-IN (#859 D): when a family has more distinct
  * species than the popover shows (`overflowCount > 0`), the footer is a button
@@ -184,13 +185,6 @@ export function CellPopover(props: CellPopoverProps) {
     return () => document.removeEventListener('mousedown', onMouseDown);
   }, [onDismiss]);
 
-  function onRowKeyDown(e: KeyboardEvent<HTMLAnchorElement>, code: string) {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      onSelectSpecies(code);
-    }
-  }
-
   // #863: the inline `position: fixed` wins over the CSS `.cell-popover`'s
   // `position: absolute`, anchoring the portaled card to the clicked cell. Until
   // the layout effect has measured (one pre-paint pass), keep it off-screen so it
@@ -231,20 +225,26 @@ export function CellPopover(props: CellPopoverProps) {
         {visible.map((s) => {
           const code = s.speciesCode;
           if (code !== null) {
+            // #1031 (C54): the `--clickable` modifier scoped the old
+            // `a[role="link"]` rule; the new `.cell-popover__row-button`
+            // self-scopes its affordance, so the modifier is dropped.
             return (
-              <li key={s.comName} className="cell-popover__row cell-popover__row--clickable">
-                <a
-                  role="link"
-                  tabIndex={0}
+              <li key={s.comName} className="cell-popover__row">
+                {/* #1031 (C54): native <button> rather than `<a role="link"
+                    tabIndex={0}>` with hand-rolled Enter+Space — the row drives
+                    an in-page URL-state switch (onSelectSpecies), not a real
+                    navigation, so 'link' semantics mis-announced it and Space
+                    had to be emulated. A button announces correctly and gets
+                    Enter/Space activation for free. Mirrors the
+                    ObservationPopover detail-link precedent. */}
+                <button
+                  type="button"
+                  className="cell-popover__row-button"
                   data-testid="cell-popover-row"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    onSelectSpecies(code);
-                  }}
-                  onKeyDown={(e) => onRowKeyDown(e, code)}
+                  onClick={() => onSelectSpecies(code)}
                 >
                   {s.count}x {s.comName}
-                </a>
+                </button>
               </li>
             );
           }
