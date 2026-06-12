@@ -17,7 +17,45 @@ the `bird-maps` project:
 Every per-judgment span nests **under the experiment trace** (not the project
 Logs stream), so the dataset rows and their spans are linked in the Braintrust
 UI. (See the run-row wiring in `src/eval/run-row.ts` and the tracing seam in
-`src/judges/traced.ts`.)
+`src/judges/traced.ts`.) Each span's `metrics` carry the judgment `latency`
+(seconds) **and the Gemini token counts** (`prompt_tokens`,
+`completion_tokens` — thinking tokens included — and `total_tokens`, from the
+response's `usageMetadata`), so per-row and aggregate cost are readable
+directly in the experiment dashboard.
+
+## Comparability: the rubric pin and the det-gate exclusion (#1037)
+
+**The rubric version is part of the dataset, not the live code.** Every
+baseline row in `review.sqlite` records the `rubric_version` it was scored
+under (`0.2.1` for the 902-score Opus pass). The eval **pins the judge prompt
+to that recorded version**: the dataset builder asserts that every fetched row
+carries one single, known version (a mixed or missing version is a **hard
+fail at dataset-build time** — re-score the baseline rather than judging under
+different criteria), and the eval selects the matching prompt from the
+version-keyed snapshots in `eval/rubric-prompts.ts`. Judging a v0.2.1 baseline
+with the live v0.2.2 prompt would turn the v0.2.2 criteria changes
+(same-species multiples OK, mild adult preference — commit 974d8c5) into
+phantom "disagreement". When the baseline is someday re-scored under v0.2.2+,
+the pin follows automatically (the live config's version maps to the live
+prompt).
+
+Provenance is logged on both sides so a future mismatch is visible instead of
+silent: every dataset row carries `metadata.expectedRubricVersion` (from the
+DB) and every judgment span's input carries `judgedRubricVersion` (what the
+judge actually ran) — equal by construction under the pin. The experiment
+metadata records the pinned `rubricVersion` and the judge `model`.
+
+**Deterministic-gate rows are excluded from the dataset.** 13 of the 902
+baseline rows are sharpness-heuristic verdicts
+(`rationale LIKE 'deterministic gate%'`, `keep = 0`, `quality_score = 0`) —
+gate output, not Opus findings — so the judge is never graded against them
+(they also dragged `score_mae` via the synthetic 0).
+
+> **Comparing to pre-pin experiments** (e.g. `HEAD-1781238943`): excluding the
+> 13 all-`keep=0` det-gate rows shifts the stratum balance (536 → 523
+> replace-side) and therefore the deterministic stratified sample. A pinned
+> re-run is **criteria-comparable but not row-identical** to those earlier
+> experiments — compare scorer means, not row-by-row.
 
 ## Prerequisites
 
@@ -50,7 +88,8 @@ from the photo-curation run-worktree**, not from CI:
 | `REVIEW_DB` | yes | path to `review.sqlite` (e.g. `./review.sqlite`) |
 | `THUMB_DIR` | yes | path to the thumbnail cache (e.g. `./thumb-cache`) |
 | `EVAL_SAMPLE` | no (default `150`) | stratified keep/replace sample size for a full run |
-| `GEMINI_PACE_MS` | no (default `12000`) | min ms between Gemini calls (12 s ⇒ ≤ 5 RPM, the measured free-tier cap); adjust only when a paid tier raises the per-minute quota |
+| `EVAL_MODEL` | no (default `gemini-2.5-flash`) | the judge model to construct; recorded in the experiment metadata and on every span. Same dataset + same pinned rubric + a different `EVAL_MODEL` = directly comparable experiments — "grade the models against the original findings" is a one-env-var operation |
+| `GEMINI_PACE_MS` | no (default `12000`) | min ms between Gemini calls (12 s ⇒ ≤ 5 RPM, the measured free-tier cap); adjust only when a paid tier raises the per-minute quota. An explicit `0` disables pacing; an unparseable value fails loud at startup |
 
 Put the non-secret values plus `GEMINI_API_KEY` in a local `.env.local`
 (gitignored). `bt eval --env-file .env.local` loads them into the eval process:
@@ -149,5 +188,9 @@ After the `--first 5` smoke, confirm in the Braintrust `bird-maps` project:
 3. Opening a row shows the per-judgment span **nested under the experiment**
    (not floating in the project Logs stream) with the species input, the Gemini
    output, and `metrics.latency` populated.
+4. The row's `metadata.expectedRubricVersion` equals the span input's
+   `judgedRubricVersion` (the #1037 pin holding), and the span's
+   `prompt_tokens` / `completion_tokens` / `total_tokens` metrics are
+   populated.
 
 Note the experiment URL in the PR as the manual smoke evidence.

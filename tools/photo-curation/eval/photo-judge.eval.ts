@@ -7,12 +7,25 @@
 //
 //   data  — buildEvalRows(openDb(REVIEW_DB), {thumbDir, sample}) (#1013), the
 //           stratified Opus-current rows: each {input:{imagePath,species…},
-//           expected:{keep,qualityScore}}.
-//   task  — runRow({judge, readImage, prompt}, input) (this PR's run-row.ts).
+//           expected:{keep,qualityScore}, metadata:{…,expectedRubricVersion}}.
+//           Det-gate rows are excluded and the single-rubric-version invariant
+//           is asserted inside the builder (#1037).
+//   task  — runRow({judge, readImage, prompt}, input) (run-row.ts).
 //           Braintrust calls task(input, hooks): the FIRST positional arg IS the
 //           row's `input` value, so we write `task: (input) => …`, NOT
 //           `({input})` (which would read a nonexistent `.input` → undefined).
 //   scores— keepAgreement / scoreMAE / keepConfusion (#1014).
+//
+// COMPARABILITY (#1037): the judge prompt is PINNED to the baseline's recorded
+// rubric_version — the rubric version is part of the dataset, not the live
+// code. The dataset is built EAGERLY at module load so (a) a mixed/unknown
+// version fails before any Gemini call is even possible, and (b) the pinned
+// version is known in time to select the prompt and to stamp the experiment
+// metadata at Eval() registration. That build needs only REVIEW_DB/THUMB_DIR
+// (already import-time requirements) — local sqlite + readdir, no network and
+// no API keys, so `bt eval --list` still works keyless. EVAL_MODEL picks the
+// judge model (default gemini-2.5-flash): same dataset + same pinned rubric +
+// different model = directly comparable experiments.
 //
 // The judge is obtained through `resolveTracedJudge` — the ONLY public way to
 // build a judge (#1012); there is no un-traced scoring path. Because the wrapper
@@ -23,18 +36,22 @@
 //
 // This file lives OUTSIDE src/ (the tool's tsconfig is rootDir:src), so it is
 // not part of the tsc build and not a vitest target; `bt eval` runs it directly.
-// Its testable core — the row→judge mapping — is covered by src/eval/run-row.test.ts.
+// Its testable cores are covered next door: the row→judge mapping by
+// src/eval/run-row.test.ts, the dataset invariants by
+// src/eval/build-dataset.test.ts, and the prompt pin + model knob by
+// eval/rubric-prompts.test.ts.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { readFileSync } from 'node:fs';
 import { Eval } from 'braintrust';
-import { defaultRubricConfig, type ImageInput, type VisionJudge } from '@bird-watch/photo-quality';
+import type { ImageInput, VisionJudge } from '@bird-watch/photo-quality';
 import { openDb } from '../src/db.js';
 import { buildEvalRows } from '../src/eval/build-dataset.js';
 import { resolveTracedJudge } from '../src/judges/index.js';
 import { keepAgreement, scoreMAE, keepConfusion } from '../src/eval/scorers.js';
 import { runRow } from '../src/eval/run-row.js';
 import { mimeFromUrl } from '../src/sources.js';
+import { judgePromptForRubricVersion, resolveEvalModel } from './rubric-prompts.js';
 
 /** Fail loud on a missing required env var — never run the eval half-configured. */
 function requireEnv(name: string): string {
@@ -48,6 +65,18 @@ function requireEnv(name: string): string {
 const REVIEW_DB = requireEnv('REVIEW_DB');
 const THUMB_DIR = requireEnv('THUMB_DIR');
 const EVAL_SAMPLE = Number(process.env.EVAL_SAMPLE ?? 150);
+const EVAL_MODEL = resolveEvalModel(process.env);
+
+// Eager build (#1037): hard-fails here on a mixed/unknown rubric_version or an
+// empty baseline — before any judge construction, prompt selection, or network.
+const rows = buildEvalRows(openDb(REVIEW_DB), { thumbDir: THUMB_DIR, sample: EVAL_SAMPLE });
+
+// Non-empty + single-version are guaranteed by the builder's assertions, so
+// row 0 carries THE baseline version. The prompt pin follows it: judging a
+// v0.2.1 baseline uses the frozen v0.2.1 prompt even when the live config has
+// moved on — and an unknown version throws rather than judging under drift.
+const PINNED_RUBRIC_VERSION = rows[0]!.metadata.expectedRubricVersion;
+const JUDGE_PROMPT = judgePromptForRubricVersion(PINNED_RUBRIC_VERSION);
 
 /** Read a cached thumbnail into an ImageInput; mime is derived from the path's extension. */
 function readImage(imagePath: string): ImageInput {
@@ -66,10 +95,14 @@ function readImage(imagePath: string): ImageInput {
 // dataset introspection must not throw before the keys are even needed.
 let _judge: VisionJudge | undefined;
 const getJudge = (): VisionJudge =>
-  (_judge ??= resolveTracedJudge(process.env, { project: 'bird-maps', model: 'gemini-2.5-flash' }));
+  (_judge ??= resolveTracedJudge(process.env, {
+    project: 'bird-maps',
+    model: EVAL_MODEL,
+    rubricVersion: PINNED_RUBRIC_VERSION,
+  }));
 
 Eval('bird-maps', {
-  data: () => buildEvalRows(openDb(REVIEW_DB), { thumbDir: THUMB_DIR, sample: EVAL_SAMPLE }),
+  data: () => rows,
   // Rows run SERIALLY (one at a time): the shared judge's single Pacer enforces
   // the GEMINI_PACE_MS gate globally only if rows don't race it. Braintrust's default
   // concurrency is unbounded, so we pin it to 1 — without this, concurrent rows
@@ -79,6 +112,9 @@ Eval('bird-maps', {
   // `input` value. `getJudge()` lazily builds the ONE shared judge (fails loud on
   // a missing GEMINI/BRAINTRUST key) and reuses it for every row.
   task: (input) =>
-    runRow({ judge: getJudge(), readImage, prompt: defaultRubricConfig.judgePrompt }, input),
+    runRow({ judge: getJudge(), readImage, prompt: JUDGE_PROMPT }, input),
   scores: [keepAgreement, scoreMAE, keepConfusion],
+  // Experiment provenance (#1037): which model judged, under which pinned
+  // criteria — so cross-model / cross-pin experiments are sliceable by name.
+  metadata: { model: EVAL_MODEL, rubricVersion: PINNED_RUBRIC_VERSION },
 });
