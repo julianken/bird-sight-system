@@ -331,6 +331,38 @@ export interface SpeciesWithPhoto {
 }
 
 /**
+ * One row of `species_photo_scores` (epic #1074) — an append-only, immutable
+ * photo-quality judge score promoted from the operator-local `review.sqlite`
+ * into prod Postgres. A frozen `(model, rubricVersion)` pin is an immutable,
+ * reproducible ground-truth baseline the photo-judge eval (#1010, C4 #1073)
+ * grades a candidate scorer against; re-scoring a photo APPENDS a new row,
+ * never mutating an existing one (see migration 1700000053000).
+ *
+ * The `(speciesCode, contentHash, model, rubricVersion)` tuple is unique — the
+ * SAME image judged by the SAME `(model, rubricVersion)` is recorded once.
+ *
+ * Nullability mirrors the DB columns:
+ * - `qualityScore` is null for the deterministic-gate rows (a verdict but no
+ *   model-assigned numeric score);
+ * - `criteria`/`fieldMarks` are JSONB and may be null;
+ * - `rationale` is the judge's free-text justification, nullable.
+ */
+export interface PhotoScoreRow {
+  speciesCode: string;
+  contentHash: string;
+  model: string;
+  rubricVersion: string;
+  keep: boolean;
+  /** Overall 0–10 score; null for deterministic-gate rows. */
+  qualityScore: number | null;
+  /** 7-axis 0–10 score map (JSONB). */
+  criteria: Record<string, number> | null;
+  /** Diagnostic field-marks array (JSONB). */
+  fieldMarks: string[] | null;
+  rationale: string | null;
+}
+
+/**
  * Discriminated-union response from GET /api/observations.
  *
  * - `mode === 'observations'` (default; also when zoom >= 6 with bbox):
