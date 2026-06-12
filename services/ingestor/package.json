@@ -19,7 +19,7 @@
     "parquetjs-lite": "^0.8.7"
   },
   "devDependencies": {
-    "@testcontainers/postgresql": "^10.7.0",
+    "@testcontainers/postgresql": "^12.0.2",
     "msw": "^2.14.6",
     "testcontainers": "^11.14.0",
     "tsx": "^4.22.4",
