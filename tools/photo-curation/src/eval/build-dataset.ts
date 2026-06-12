@@ -23,6 +23,14 @@ export interface EvalRow {
   };
   metadata: {
     contentHash: string;
+    /**
+     * The `rubric_version` the baseline row was judged under (#1037): the
+     * version whose criteria `expected` encodes. The eval pins the judge
+     * prompt to this version, and the judgment span logs the version it
+     * judged WITH (`judgedRubricVersion`) — equal by construction, logged on
+     * both sides so any future mismatch is visible in Braintrust, not silent.
+     */
+    expectedRubricVersion: string;
   };
 }
 
@@ -52,9 +60,46 @@ interface ScoreJoinRow {
   quality_score: number | null;
   overall: number;
   content_hash: string;
+  rubric_version: string | null;
   com_name: string;
   sci_name: string;
   family: string;
+}
+
+/**
+ * Assert the single-rubric-version invariant (#1037 decision 1) over the FULL
+ * fetched row set and return that version. Runs BEFORE image resolution and
+ * BEFORE sampling, so a mixed-version or unknown-provenance baseline fails
+ * deterministically — never depending on which rows a seed happens to sample.
+ * The rubric version is part of the DATASET, not the live code: an
+ * interchangeability eval must hold criteria constant at the version the
+ * baseline was judged under, so anything else is a hard fail, never a silent
+ * judge-under-different-criteria run.
+ */
+function assertSingleRubricVersion(joinRows: ScoreJoinRow[]): string {
+  if (joinRows.length === 0) {
+    throw new Error(
+      "[build-dataset] no role='current' scores found — there is no baseline rubric version to pin the judge prompt to (is REVIEW_DB the scored baseline?)",
+    );
+  }
+  const missing = joinRows.filter((r) => r.rubric_version === null || r.rubric_version === '');
+  if (missing.length > 0) {
+    throw new Error(
+      `[build-dataset] ${missing.length} of ${joinRows.length} fetched rows have no rubric_version — unknown provenance cannot be judged under pinned criteria (e.g. ${missing[0]!.species_code})`,
+    );
+  }
+  const counts = new Map<string, number>();
+  for (const r of joinRows) {
+    const v = r.rubric_version as string;
+    counts.set(v, (counts.get(v) ?? 0) + 1);
+  }
+  if (counts.size > 1) {
+    const breakdown = [...counts.entries()].map(([v, n]) => `${v} × ${n}`).join(', ');
+    throw new Error(
+      `[build-dataset] mixed rubric_versions in the fetched baseline (${breakdown}) — an interchangeability eval must hold criteria constant; re-score the baseline to one version`,
+    );
+  }
+  return counts.keys().next().value as string;
 }
 
 /**
@@ -111,6 +156,12 @@ function resolveImage(thumbDir: string, speciesCode: string): string | null {
 /**
  * Build stratified eval rows from the role='current' Opus scores in `db`.
  *
+ * Deterministic-gate rows are excluded at the query (#1037 decision 2), and
+ * the single-rubric-version invariant is asserted over the full fetched set
+ * before anything else (#1037 decision 1) — see
+ * {@link assertSingleRubricVersion}. Every surviving row carries
+ * `metadata.expectedRubricVersion` (the asserted version).
+ *
  * Reads every current score joined to its `photo_current` metadata, coalesces
  * `keep`/`qualityScore` exactly as the review store does (`store.ts`
  * getScoreByHash: missing `keep` ⇒ kept, missing `quality_score` ⇒ `overall`),
@@ -129,14 +180,22 @@ export function buildEvalRows(
 ): EvalRow[] {
   const { thumbDir, sample, seed = DEFAULT_SEED } = opts;
 
+  // Det-gate rows (`rationale LIKE 'deterministic gate%'`) are sharpness-
+  // heuristic verdicts with keep=0 / quality_score=0 — not Opus findings, so
+  // the judge must never be graded against them (#1037 decision 2). The
+  // predicate is NULL-safe: a bare `NOT LIKE` evaluates to NULL (row dropped)
+  // for a NULL rationale, which would silently exclude Opus rows without one.
   const joinRows = db
     .prepare(
       `SELECT s.species_code, s.keep, s.quality_score, s.overall, s.content_hash,
-              c.com_name, c.sci_name, c.family
+              s.rubric_version, c.com_name, c.sci_name, c.family
          FROM photo_score s JOIN photo_current c USING(species_code)
-        WHERE s.role = 'current'`,
+        WHERE s.role = 'current'
+          AND (s.rationale IS NULL OR s.rationale NOT LIKE 'deterministic gate%')`,
     )
     .all() as ScoreJoinRow[];
+
+  const rubricVersion = assertSingleRubricVersion(joinRows);
 
   const rows: EvalRow[] = [];
   for (const row of joinRows) {
@@ -159,7 +218,7 @@ export function buildEvalRows(
         keep: row.keep === null ? true : row.keep === 1,
         qualityScore: row.quality_score ?? row.overall,
       },
-      metadata: { contentHash: row.content_hash },
+      metadata: { contentHash: row.content_hash, expectedRubricVersion: rubricVersion },
     });
   }
 

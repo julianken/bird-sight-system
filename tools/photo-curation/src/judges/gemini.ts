@@ -36,13 +36,33 @@ import { CRITERIA_KEYS } from '@bird-watch/photo-quality';
 import { Pacer, withBackoff, realClock, type Clock } from '../pacing.js';
 
 /**
+ * Resolve the pacing env knob. A presence check — NOT `Number(...) || default`
+ * — so an explicit `GEMINI_PACE_MS=0` (pacing off, e.g. a paid tier with its
+ * own quota ceiling) is honored rather than silently swallowed (#1038 review).
+ * An EMPTY value falls back to the default (`Number('')` is 0, which is not
+ * intent), and an unparseable or negative value throws at import: the old
+ * `|| 12_000` masked NaN by falling back, and a bare presence check would
+ * instead feed NaN to the Pacer and disable pacing silently — bursting the
+ * API is worse than failing loud.
+ */
+function resolvePaceMs(raw: string | undefined): number {
+  if (raw === undefined || raw === '') return 12_000;
+  const ms = Number(raw);
+  if (!Number.isFinite(ms) || ms < 0) {
+    throw new Error(`GEMINI_PACE_MS must be a non-negative number of ms, got '${raw}'`);
+  }
+  return ms;
+}
+
+/**
  * Min ms between Gemini calls. Default 12_000 → ≤5 RPM, the free-tier
  * per-minute cap measured 2026-06-11 (#1036; the previous, faster default
  * targeted a since-halved tier). Env-overridable via `GEMINI_PACE_MS` — the same
  * no-rebuild tuning-knob pattern as the ingestor's `--pace-ms` — so a paid
- * tier with a self-imposed quota cap can loosen it without a code change.
+ * tier with a self-imposed quota cap can loosen it (down to an explicit `0` =
+ * no pacing) without a code change.
  */
-export const GEMINI_PACE_MS = Number(process.env.GEMINI_PACE_MS) || 12_000;
+export const GEMINI_PACE_MS = resolvePaceMs(process.env.GEMINI_PACE_MS);
 
 /** Thrown when the model's reply cannot be parsed into a JudgeOutput, even after one re-ask. */
 export class GeminiJudgeError extends Error {
@@ -75,6 +95,32 @@ export class GeminiDailyQuotaError extends Error {
   }
 }
 
+/**
+ * Token usage from a v1beta response's `usageMetadata` (#1037). Captured
+ * internally so the tracing seam can log Braintrust token metrics WITHOUT
+ * touching the SDK-free `JudgeOutput` contract in @bird-watch/photo-quality.
+ * `thoughtsTokenCount` appears only when the model spent thinking tokens;
+ * `totalTokenCount` includes them when present.
+ */
+export interface GeminiUsage {
+  promptTokenCount?: number;
+  candidatesTokenCount?: number;
+  thoughtsTokenCount?: number;
+  totalTokenCount?: number;
+}
+
+/** Read the optional `usageMetadata` numbers out of a 200 response envelope. */
+function extractUsage(json: unknown): GeminiUsage | undefined {
+  const raw = (json as { usageMetadata?: unknown } | null)?.usageMetadata;
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const u = raw as Record<string, unknown>;
+  const usage: GeminiUsage = {};
+  for (const key of ['promptTokenCount', 'candidatesTokenCount', 'thoughtsTokenCount', 'totalTokenCount'] as const) {
+    if (typeof u[key] === 'number') usage[key] = u[key];
+  }
+  return Object.keys(usage).length > 0 ? usage : undefined;
+}
+
 /** Quota signals parsed from a Google 429 body's `error.details[]` (#1036). */
 interface QuotaSignals {
   quotaId?: string;
@@ -92,6 +138,12 @@ function parseRetryDelayMs(retryDelay: string): number | undefined {
  * `error.details[]` with `QuotaFailure.violations[].quotaId` and
  * `RetryInfo.retryDelay`. A non-JSON or differently-shaped body yields `{}`,
  * preserving the plain-transient (jittered backoff) behavior.
+ *
+ * The quotaId scan covers EVERY violation across every QuotaFailure detail and
+ * prefers a `/PerDay/` one (#1038 review): Google can pack PerMinute + PerDay
+ * into one `violations[]` with PerMinute first, and a first-violation-wins
+ * read would never latch the drained daily cap — the run would retry a quota
+ * that resets at midnight, not in seconds.
  */
 async function readQuotaSignals(res: Response): Promise<QuotaSignals> {
   let body: unknown;
@@ -103,16 +155,14 @@ async function readQuotaSignals(res: Response): Promise<QuotaSignals> {
   const details = (body as { error?: { details?: unknown } } | null)?.error?.details;
   if (!Array.isArray(details)) return {};
   const signals: QuotaSignals = {};
+  const quotaIds: string[] = [];
   for (const detail of details) {
     if (typeof detail !== 'object' || detail === null) continue;
     const d = detail as { violations?: unknown; retryDelay?: unknown };
-    if (signals.quotaId === undefined && Array.isArray(d.violations)) {
+    if (Array.isArray(d.violations)) {
       for (const violation of d.violations) {
         const quotaId = (violation as { quotaId?: unknown } | null)?.quotaId;
-        if (typeof quotaId === 'string') {
-          signals.quotaId = quotaId;
-          break;
-        }
+        if (typeof quotaId === 'string') quotaIds.push(quotaId);
       }
     }
     if (typeof d.retryDelay === 'string') {
@@ -120,6 +170,8 @@ async function readQuotaSignals(res: Response): Promise<QuotaSignals> {
       if (ms !== undefined) signals.retryDelayMs = ms;
     }
   }
+  const preferred = quotaIds.find((id) => /PerDay/.test(id)) ?? quotaIds[0];
+  if (preferred !== undefined) signals.quotaId = preferred;
   return signals;
 }
 
@@ -274,6 +326,8 @@ export class GeminiVisionJudge implements VisionJudge {
   private readonly clock: Clock;
   /** quotaId of the tripped daily cap; once set, judge() fails fast forever (#1036). */
   private dailyExhaustedQuotaId: string | null = null;
+  /** usageMetadata of the LATEST 200 response — overwritten (or cleared) per response (#1037). */
+  private _lastUsage: GeminiUsage | undefined;
 
   constructor(opts: GeminiVisionJudgeOptions) {
     if (!opts.apiKey) {
@@ -304,7 +358,21 @@ export class GeminiVisionJudge implements VisionJudge {
       );
     }
     const json: unknown = await res.json();
+    // Overwrite (or clear) per response so a row's span never inherits a
+    // PREVIOUS row's token counts. On a parse re-ask the second response wins:
+    // lastUsage() is per-output, not a per-row cost accumulator.
+    this._lastUsage = extractUsage(json);
     return extractText(json);
+  }
+
+  /**
+   * Token usage of the latest 200 response, or `undefined` when none has been
+   * seen (or the latest carried no `usageMetadata`). The tracing seam reads
+   * this right after a judgment resolves to surface Braintrust token metrics
+   * (#1037 decision 5) — `JudgeOutput` itself stays unchanged.
+   */
+  lastUsage(): GeminiUsage | undefined {
+    return this._lastUsage;
   }
 
   /** One paced, backoff-wrapped ask → parsed JudgeOutput. */

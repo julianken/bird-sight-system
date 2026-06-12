@@ -18,7 +18,12 @@ afterEach(() => {
   rmSync(thumbDir, { recursive: true, force: true });
 });
 
-/** Insert one photo_current + one role='current' photo_score for a species. */
+/**
+ * Insert one photo_current + one role='current' photo_score for a species.
+ * `rubricVersion` defaults to the baseline's real provenance stamp ('0.2.1');
+ * `rationale` defaults to an Opus-style sentence — pass the det-gate prefix
+ * ('deterministic gate failed: …') to seed a heuristic (non-Opus) verdict.
+ */
 function seedCurrent(
   code: string,
   fields: {
@@ -29,6 +34,8 @@ function seedCurrent(
     keep: number | null;
     qualityScore: number | null;
     overall: number;
+    rationale?: string | null;
+    rubricVersion?: string | null;
   },
 ): void {
   db.prepare(
@@ -37,9 +44,18 @@ function seedCurrent(
   ).run(code, fields.comName, fields.sciName, fields.family, fields.contentHash);
   db.prepare(
     `INSERT INTO photo_score (species_code, role, content_hash, overall, verdict,
-                              criteria_json, flags_json, keep, quality_score, scored_at)
-     VALUES (?, 'current', ?, ?, 'good', '{}', '[]', ?, ?, 'now')`,
-  ).run(code, fields.contentHash, fields.overall, fields.keep, fields.qualityScore);
+                              criteria_json, flags_json, keep, quality_score, rationale,
+                              rubric_version, scored_at)
+     VALUES (?, 'current', ?, ?, 'good', '{}', '[]', ?, ?, ?, ?, 'now')`,
+  ).run(
+    code,
+    fields.contentHash,
+    fields.overall,
+    fields.keep,
+    fields.qualityScore,
+    fields.rationale === undefined ? 'sharp wild adult, diagnostic marks visible' : fields.rationale,
+    fields.rubricVersion === undefined ? '0.2.1' : fields.rubricVersion,
+  );
 }
 
 /** Write a zero-byte image file `<code>.<ext>` into thumbDir. */
@@ -91,7 +107,7 @@ describe('buildEvalRows', () => {
       family: 'Turdidae',
     });
     expect(robin.expected).toEqual({ keep: true, qualityScore: 88 });
-    expect(robin.metadata).toEqual({ contentHash: 'h-amerob' });
+    expect(robin.metadata).toEqual({ contentHash: 'h-amerob', expectedRubricVersion: '0.2.1' });
 
     // Image resolved by extension glob, not hardcoded .jpg.
     expect(basename(rows.find((r) => r.input.speciesCode === 'norcar')!.input.imagePath)).toBe('norcar.png');
@@ -187,5 +203,72 @@ describe('buildEvalRows', () => {
     seedCurrent('amerob', { comName: 'American Robin', sciName: 'Turdus migratorius', family: 'Turdidae', contentHash: 'h-amerob', keep: 1, qualityScore: 88, overall: 80 });
     writeImage('amerob');
     expect(buildEvalRows(db, { thumbDir })).toHaveLength(1);
+  });
+
+  // #1037 decision 2: det-gate rows are heuristic verdicts, not Opus findings —
+  // the judge must never be graded against them.
+  it('excludes deterministic-gate rows from the fetched set', () => {
+    seedCurrent('amerob', { comName: 'American Robin', sciName: 'Turdus migratorius', family: 'Turdidae', contentHash: 'h-amerob', keep: 1, qualityScore: 88, overall: 80 });
+    seedCurrent('norcar', { comName: 'Northern Cardinal', sciName: 'Cardinalis cardinalis', family: 'Cardinalidae', contentHash: 'h-norcar', keep: 0, qualityScore: 40, overall: 45 });
+    seedCurrent('detgat', {
+      comName: 'Det Gate', sciName: 'D g', family: 'Fam', contentHash: 'h-detgat',
+      keep: 0, qualityScore: 0, overall: 0,
+      rationale: 'deterministic gate failed: sharpness 0.00001 below floor 0.00005',
+    });
+    for (const c of ['amerob', 'norcar', 'detgat']) writeImage(c);
+
+    const rows = buildEvalRows(db, { thumbDir });
+    expect(rows.map((r) => r.input.speciesCode).sort()).toEqual(['amerob', 'norcar']);
+  });
+
+  // The exclusion predicate must be NULL-safe: `rationale NOT LIKE …` alone is
+  // NULL for a NULL rationale, which would silently drop Opus rows without one.
+  it('keeps a row whose rationale is NULL (not a det-gate verdict)', () => {
+    seedCurrent('norale', { comName: 'No Rationale', sciName: 'N r', family: 'Fam', contentHash: 'h-norale', keep: 1, qualityScore: 70, overall: 70, rationale: null });
+    writeImage('norale');
+
+    const rows = buildEvalRows(db, { thumbDir });
+    expect(rows.map((r) => r.input.speciesCode)).toEqual(['norale']);
+  });
+
+  // #1037 decision 1/3: every row carries the version the baseline was judged
+  // under, so the experiment can prove expected == judged criteria per row.
+  it('populates metadata.expectedRubricVersion from the DB rubric_version', () => {
+    seedCurrent('amerob', { comName: 'American Robin', sciName: 'Turdus migratorius', family: 'Turdidae', contentHash: 'h-amerob', keep: 1, qualityScore: 88, overall: 80 });
+    seedCurrent('norcar', { comName: 'Northern Cardinal', sciName: 'Cardinalis cardinalis', family: 'Cardinalidae', contentHash: 'h-norcar', keep: 0, qualityScore: 40, overall: 45 });
+    writeImage('amerob');
+    writeImage('norcar');
+
+    const rows = buildEvalRows(db, { thumbDir });
+    expect(rows).toHaveLength(2);
+    for (const row of rows) expect(row.metadata.expectedRubricVersion).toBe('0.2.1');
+  });
+
+  // #1037 decision 1: the invariant is asserted over the FULL fetched set
+  // BEFORE sampling — a mixed-version DB fails deterministically, regardless of
+  // whether the odd row would have landed in the sample.
+  it('throws on a mixed rubric_version baseline even when sampling', () => {
+    seedCurrent('amerob', { comName: 'American Robin', sciName: 'Turdus migratorius', family: 'Turdidae', contentHash: 'h-amerob', keep: 1, qualityScore: 88, overall: 80 });
+    seedCurrent('norcar', { comName: 'Northern Cardinal', sciName: 'Cardinalis cardinalis', family: 'Cardinalidae', contentHash: 'h-norcar', keep: 1, qualityScore: 91, overall: 85 });
+    seedCurrent('houspa', { comName: 'House Sparrow', sciName: 'Passer domesticus', family: 'Passeridae', contentHash: 'h-houspa', keep: 0, qualityScore: 40, overall: 45 });
+    seedCurrent('rocpig', { comName: 'Rock Pigeon', sciName: 'Columba livia', family: 'Columbidae', contentHash: 'h-rocpig', keep: 0, qualityScore: 30, overall: 35, rubricVersion: '0.2.2' });
+    for (const c of ['amerob', 'norcar', 'houspa', 'rocpig']) writeImage(c);
+
+    expect(() => buildEvalRows(db, { thumbDir, sample: 2 })).toThrow(/mixed rubric_version/i);
+    // The message names both versions so the operator knows what to re-score.
+    expect(() => buildEvalRows(db, { thumbDir, sample: 2 })).toThrow(/0\.2\.1.*0\.2\.2|0\.2\.2.*0\.2\.1/s);
+  });
+
+  it('throws when any fetched row has no rubric_version (unknown provenance)', () => {
+    seedCurrent('amerob', { comName: 'American Robin', sciName: 'Turdus migratorius', family: 'Turdidae', contentHash: 'h-amerob', keep: 1, qualityScore: 88, overall: 80 });
+    seedCurrent('unkver', { comName: 'Unknown Version', sciName: 'U v', family: 'Fam', contentHash: 'h-unkver', keep: 0, qualityScore: 40, overall: 45, rubricVersion: null });
+    writeImage('amerob');
+    writeImage('unkver');
+
+    expect(() => buildEvalRows(db, { thumbDir })).toThrow(/rubric_version/);
+  });
+
+  it('throws on an empty baseline (no version to pin the judge prompt to)', () => {
+    expect(() => buildEvalRows(db, { thumbDir })).toThrow(/no role='current' scores/i);
   });
 });

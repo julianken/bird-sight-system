@@ -32,9 +32,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { initLogger, traced } from 'braintrust';
-import { defaultRubricConfig } from '@bird-watch/photo-quality';
 import type { ImageInput, JudgeOutput, SpeciesContext, VisionJudge } from '@bird-watch/photo-quality';
-import { GeminiVisionJudge } from './gemini.js';
+import { GeminiVisionJudge, type GeminiUsage } from './gemini.js';
 
 /** Thrown at construction when `BRAINTRUST_API_KEY` is absent — never score blind. */
 export class MissingBraintrustKey extends Error {
@@ -75,26 +74,67 @@ export interface TracedJudgeOptions {
   project: string;
   /** The judge model name recorded on each span (e.g. `gemini-2.5-flash`). */
   model: string;
+  /**
+   * The rubric version the judge is INVOKED with — i.e. the version whose
+   * prompt text the caller hands to `judge()` (#1037). Logged on every span
+   * input as `judgedRubricVersion` so it can be compared against the dataset
+   * row's `expectedRubricVersion` in Braintrust: equal by construction under
+   * the eval's pin, and any future mismatch is visible/sliceable, not silent.
+   */
+  rubricVersion: string;
   /** The span boundary — injectable so tests need no network or key. */
   logger: BraintrustLoggerSeam;
+  /**
+   * Optional accessor for the inner judge's latest-call token usage (#1037
+   * decision 5). Read AFTER each judgment resolves; keeps the usage hand-off
+   * internal to this package so `JudgeOutput` stays SDK-free and unchanged.
+   */
+  usage?: () => GeminiUsage | undefined;
+}
+
+/**
+ * Map a `GeminiUsage` onto Braintrust's STANDARD token metric names.
+ * `completion_tokens` includes thinking tokens (output we pay for, mirroring
+ * the OpenAI-style convention); `total_tokens` prefers the response's own
+ * `totalTokenCount` and falls back to prompt+completion. Each metric is
+ * emitted only when computable — never a fabricated 0.
+ */
+function tokenMetrics(usage: GeminiUsage | undefined): Record<string, number> {
+  if (usage === undefined) return {};
+  const metrics: Record<string, number> = {};
+  const { promptTokenCount, candidatesTokenCount, thoughtsTokenCount, totalTokenCount } = usage;
+  if (promptTokenCount !== undefined) metrics.prompt_tokens = promptTokenCount;
+  if (candidatesTokenCount !== undefined) {
+    metrics.completion_tokens = candidatesTokenCount + (thoughtsTokenCount ?? 0);
+  }
+  if (totalTokenCount !== undefined) {
+    metrics.total_tokens = totalTokenCount;
+  } else if (metrics.prompt_tokens !== undefined && metrics.completion_tokens !== undefined) {
+    metrics.total_tokens = metrics.prompt_tokens + metrics.completion_tokens;
+  }
+  return metrics;
 }
 
 /**
  * Decorate any `VisionJudge` with a Braintrust span. Each `judge()` runs the
- * inner judge inside `logger.traced`, logging `input` (species framing + a
- * STABLE rubric version + model + source URL), `output` (the full
+ * inner judge inside `logger.traced`, logging `input` (species framing + the
+ * judged rubric version + model + source URL), `output` (the full
  * `JudgeOutput`), `metadata` (`latencyMs`, `model`), and `metrics`
  * (`latency` in seconds — Braintrust's aggregated latency field, so the
- * experiment dashboard rolls up p50/p95 across judgments). The span closes on
- * success AND on error (the inner error propagates unchanged).
+ * experiment dashboard rolls up p50/p95 across judgments — plus the
+ * `prompt_tokens`/`completion_tokens`/`total_tokens` from `opts.usage` when
+ * available). The span closes on success AND on error (the inner error
+ * propagates unchanged).
  *
- * `rubricVersion` logs `defaultRubricConfig.version` (a stable tag like
- * `0.2.2`), NOT the full prompt body (#1015 review): the prompt text is large
- * and noisy on every span; the version is the durable knob that changes only on
- * a calibration tune, which is what we actually want to compare experiments by.
+ * `judgedRubricVersion` logs `opts.rubricVersion` (a stable tag like `0.2.1`),
+ * NOT the full prompt body (#1015 review): the prompt text is large and noisy
+ * on every span; the version is the durable knob that changes only on a
+ * calibration tune, which is what we actually want to compare experiments by.
+ * It comes from the CALLER — not `defaultRubricConfig` — because under the
+ * #1037 pin the judge may run a snapshot prompt older than the live config.
  */
 export function tracedJudge(inner: VisionJudge, opts: TracedJudgeOptions): VisionJudge {
-  const { project, model, logger } = opts;
+  const { project, model, rubricVersion, logger, usage } = opts;
   const now = logger.nowMs ?? Date.now;
   return {
     async judge(img: ImageInput, ctx: SpeciesContext, prompt: string): Promise<JudgeOutput> {
@@ -105,7 +145,7 @@ export function tracedJudge(inner: VisionJudge, opts: TracedJudgeOptions): Visio
             comName: ctx.comName,
             sciName: ctx.sciName,
             family: ctx.family,
-            rubricVersion: defaultRubricConfig.version,
+            judgedRubricVersion: rubricVersion,
             model,
             sourceUrl: img.sourceUrl,
             project,
@@ -118,7 +158,7 @@ export function tracedJudge(inner: VisionJudge, opts: TracedJudgeOptions): Visio
           output,
           metadata: { latencyMs, model },
           // Braintrust's aggregated `metrics.latency` is in SECONDS — divide ms.
-          metrics: { latency: latencyMs / 1000 },
+          metrics: { latency: latencyMs / 1000, ...tokenMetrics(usage?.()) },
         });
         return output;
       });
@@ -137,6 +177,12 @@ export interface ResolveTracedJudgeOptions {
   project: string;
   /** The Gemini model to construct (e.g. `gemini-2.5-flash`). */
   model: string;
+  /**
+   * The rubric version of the prompt this judge will be invoked with (#1037)
+   * — logged as `judgedRubricVersion` on every span. REQUIRED so the caller
+   * cannot construct a judge without declaring which criteria it judges under.
+   */
+  rubricVersion: string;
 }
 
 /**
@@ -164,5 +210,13 @@ export function resolveTracedJudge(env: JudgeEnv, opts: ResolveTracedJudgeOption
     traced: (fn) => traced(fn),
   };
   const inner = new GeminiVisionJudge({ apiKey: env.GEMINI_API_KEY, model: opts.model });
-  return tracedJudge(inner, { project: opts.project, model: opts.model, logger });
+  return tracedJudge(inner, {
+    project: opts.project,
+    model: opts.model,
+    rubricVersion: opts.rubricVersion,
+    logger,
+    // Internal usage hand-off (#1037 decision 5): the wrapper reads the inner
+    // judge's latest usageMetadata after each judgment and logs token metrics.
+    usage: () => inner.lastUsage(),
+  });
 }

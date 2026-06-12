@@ -22,9 +22,10 @@ const VALID_OUTPUT: JudgeOutput = {
 };
 
 /** Build a Response-like object whose JSON body wraps `text` in the Gemini envelope. */
-function geminiOk(text: string): Response {
+function geminiOk(text: string, usageMetadata?: object): Response {
   const body = {
     candidates: [{ content: { parts: [{ text }] } }],
+    ...(usageMetadata === undefined ? {} : { usageMetadata }),
   };
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
 }
@@ -170,6 +171,40 @@ describe('GeminiVisionJudge', () => {
     expect(clock.sleeps).toContain(13_000);
   });
 
+  // #1038 review carry-along: Google can pack PerMinute + PerDay violations
+  // into ONE QuotaFailure.violations[]. A first-violation-wins read would see
+  // only PerMinute and never latch the drained daily cap — the scan must
+  // prefer a /PerDay/ violation wherever it sits in the array.
+  it('prefers the /PerDay/ violation when a 429 packs PerMinute first', async () => {
+    let n = 0;
+    const fetchImpl = async () => {
+      n += 1;
+      const body = {
+        error: {
+          code: 429, message: 'Resource has been exhausted', status: 'RESOURCE_EXHAUSTED',
+          details: [
+            {
+              '@type': 'type.googleapis.com/google.rpc.QuotaFailure',
+              violations: [
+                { quotaMetric: 'generativelanguage.googleapis.com/generate_content_free_tier_requests', quotaId: PER_MINUTE_QUOTA_ID, quotaValue: '5' },
+                { quotaMetric: 'generativelanguage.googleapis.com/generate_content_free_tier_requests', quotaId: PER_DAY_QUOTA_ID, quotaValue: '20' },
+              ],
+            },
+          ],
+        },
+      };
+      return new Response(JSON.stringify(body), { status: 429, headers: { 'content-type': 'application/json' } });
+    };
+    const judge = new GeminiVisionJudge({ apiKey: 'k', clock: makeFakeClock(), fetchImpl });
+
+    // The daily latch fires (named after the PerDay quotaId), after ONE fetch —
+    // not a PerMinute-shaped retry loop.
+    await expect(judge.judge(img, ctx, 'p')).rejects.toThrow(new RegExp(PER_DAY_QUOTA_ID));
+    expect(n).toBe(1);
+    await expect(judge.judge(img, ctx, 'p')).rejects.toBeInstanceOf(GeminiDailyQuotaError);
+    expect(n).toBe(1);
+  });
+
   it('latches on a daily-cap 429: GeminiDailyQuotaError on the FIRST trip, one fetch total', async () => {
     let n = 0;
     const fetchImpl = async () => {
@@ -241,6 +276,77 @@ describe('GeminiVisionJudge', () => {
       vi.unstubAllEnvs();
       vi.resetModules();
     }
+  });
+
+  // #1038 review carry-along: `Number(...) || 12_000` swallowed an explicit 0.
+  it('honors an explicit GEMINI_PACE_MS=0 (pacing off) via a presence check', async () => {
+    vi.stubEnv('GEMINI_PACE_MS', '0');
+    vi.resetModules();
+    try {
+      const mod = await import('./gemini.js');
+      expect(mod.GEMINI_PACE_MS).toBe(0);
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
+  });
+
+  it('falls back to the default for an EMPTY GEMINI_PACE_MS (Number("") is 0, not intent)', async () => {
+    vi.stubEnv('GEMINI_PACE_MS', '');
+    vi.resetModules();
+    try {
+      const mod = await import('./gemini.js');
+      expect(mod.GEMINI_PACE_MS).toBe(12_000);
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
+  });
+
+  it('fails loud on an unparseable GEMINI_PACE_MS instead of silently un-pacing', async () => {
+    // The pre-#1037 `|| 12_000` masked NaN by falling back; a bare presence
+    // check would instead feed NaN to the Pacer and disable pacing silently —
+    // so an invalid value must throw at import, not burst the API.
+    vi.stubEnv('GEMINI_PACE_MS', 'fast');
+    vi.resetModules();
+    try {
+      await expect(import('./gemini.js')).rejects.toThrow(/GEMINI_PACE_MS/);
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
+  });
+
+  // #1037 decision 5: token usage is captured INTERNALLY (JudgeOutput is
+  // unchanged and @bird-watch/photo-quality stays SDK-free); the tracing seam
+  // reads it via this accessor after each judgment.
+  it('captures the response usageMetadata, readable via lastUsage()', async () => {
+    const usage = { promptTokenCount: 1234, candidatesTokenCount: 56, thoughtsTokenCount: 10, totalTokenCount: 1300 };
+    const fetchImpl = async () => geminiOk(JSON.stringify(VALID_OUTPUT), usage);
+    const judge = new GeminiVisionJudge({ apiKey: 'k', clock: makeFakeClock(), fetchImpl });
+
+    expect(judge.lastUsage()).toBeUndefined(); // nothing judged yet
+    await judge.judge(img, ctx, 'p');
+    expect(judge.lastUsage()).toEqual(usage);
+  });
+
+  it('lastUsage() reflects the LATEST response and clears when usageMetadata is absent', async () => {
+    let n = 0;
+    const fetchImpl = async () => {
+      n += 1;
+      return n === 1
+        ? geminiOk(JSON.stringify(VALID_OUTPUT), { promptTokenCount: 100, candidatesTokenCount: 20, totalTokenCount: 120 })
+        : geminiOk(JSON.stringify(VALID_OUTPUT)); // no usageMetadata
+    };
+    const judge = new GeminiVisionJudge({ apiKey: 'k', clock: makeFakeClock(), fetchImpl });
+
+    await judge.judge(img, ctx, 'p');
+    expect(judge.lastUsage()).toEqual({ promptTokenCount: 100, candidatesTokenCount: 20, totalTokenCount: 120 });
+
+    // A second judgment without usageMetadata must not leak the first row's
+    // numbers onto the second row's span.
+    await judge.judge(img, ctx, 'p');
+    expect(judge.lastUsage()).toBeUndefined();
   });
 
   it('re-asks once on a non-JSON body then throws GeminiJudgeError', async () => {
