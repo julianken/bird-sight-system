@@ -218,7 +218,10 @@ export function MapMarkerHitLayer(props: MapMarkerHitLayerProps) {
           // explicit and testable (fireEvent.keyDown in RTL does not synthesize
           // the click). preventDefault stops Space from scrolling the page.
           e.preventDefault();
-          onSelect(markers[index].subId);
+          {
+            const marker = markers[index];
+            if (marker) onSelect(marker.subId);
+          }
           break;
         default:
           break;
