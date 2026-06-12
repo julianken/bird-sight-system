@@ -1466,12 +1466,13 @@ describe('#740 (C6): scope wiring end-to-end', () => {
     expect(mockGetHotspots).not.toHaveBeenCalled();
   });
 
-  // #761 (S1) focus-trap (task #5a): initial focus is moved into the chooser
-  // scrim on mount. The focus LANDING TARGET task #5a chose is the
-  // `.scope-chooser-scrim` wrapper element (it carries `tabIndex={-1}`); App's
-  // inert/focus-trap useLayoutEffect calls `.focus()` on it after mount. Assert
-  // that wrapper holds focus on the unscoped render.
-  it('moves initial focus into the chooser scrim on the unscoped landing', async () => {
+  // A5 (#1034): initial focus moves to the ZIP input on the unscoped landing,
+  // not the scrim wrapper. The scrim wrapper carries `outline:none` and must
+  // NOT hold focus (a UA blue full-viewport ring on the app's first impression
+  // was V14 major finding). After this fix the focus LANDING TARGET is the
+  // `.zip-input__field` input inside <ZipInput>; the scrim wrapper stays in the
+  // DOM as a focus-trap boundary but is no longer the ACTIVE focus target.
+  it('moves initial focus to the ZIP input on the unscoped landing, not the scrim wrapper', async () => {
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: null,
       view: 'map', scope: { kind: 'unscoped' },
@@ -1480,7 +1481,11 @@ describe('#740 (C6): scope wiring end-to-end', () => {
     await screen.findByRole('region', { name: /Choose where to look at birds/i });
     const scrim = container.querySelector('.scope-chooser-scrim');
     expect(scrim).not.toBeNull();
-    expect(scrim).toHaveFocus();
+    // Focus must be on the ZIP input, not the scrim wrapper itself.
+    const zipInput = screen.getByRole('textbox', { name: /ZIP code/i });
+    expect(zipInput).toHaveFocus();
+    // Guard: scrim wrapper must NOT hold focus (that painted the UA blue ring).
+    expect(scrim).not.toHaveFocus();
   });
 
   // Region label: state scope resolves to the state NAME from /api/states.
