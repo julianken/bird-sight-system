@@ -1,17 +1,34 @@
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type Database from 'better-sqlite3';
+import { type CriteriaScores, CRITERIA_KEYS } from '@bird-watch/photo-quality';
 
 /**
  * One Braintrust eval row built from the Opus current-scores in review.sqlite.
  * `expected` is the Opus keep/score, used as proxy ground truth (#1010/#1013):
- * a later run compares a cheaper judge's output against it. `imagePath` points
- * at the cached current thumbnail; `metadata.contentHash` ties the row back to
- * the exact image bytes the Opus pass scored.
+ * a later run compares a cheaper judge's output against it.
+ *
+ * Provenance is split into two distinct identifiers (#1067):
+ *   - `input.readPath` — the LOCAL cached thumbnail the bytes are read from
+ *     (`<thumbDir>/<code>.{jpg,png,webp}`). A read target only; it is NOT a
+ *     portable URL and is never logged as the span's `sourceUrl`.
+ *   - `input.imageUrl` — the production R2 URL (`photo_current.url`, stored
+ *     VERBATIM, mixed `.jpg`/`.jpeg`/`.png` extensions). This is what the eval
+ *     logs as the span's `sourceUrl` so Braintrust renders the real thumbnail
+ *     and the experiment is portable across machines.
+ *
+ * `metadata.contentHash` ties the row back to the exact image bytes the Opus
+ * pass scored. `expected.criteria` carries the Opus per-axis sub-scores
+ * (`photo_score.criteria_json`) when present, so the per-axis scorers can
+ * compare them against the candidate judge's; `undefined` when the baseline
+ * row has no `criteria_json` (an axis-skip, never a fabricated zero).
  */
 export interface EvalRow {
   input: {
-    imagePath: string;
+    /** LOCAL cached-thumbnail path the judge reads bytes from (not a URL). */
+    readPath: string;
+    /** Production R2 URL (`photo_current.url`), logged as the span `sourceUrl`. */
+    imageUrl: string;
     speciesCode: string;
     comName: string;
     sciName: string;
@@ -20,6 +37,8 @@ export interface EvalRow {
   expected: {
     keep: boolean;
     qualityScore: number;
+    /** Opus per-axis sub-scores (0–10) when the baseline row carried them. */
+    criteria?: CriteriaScores;
   };
   metadata: {
     contentHash: string;
@@ -61,9 +80,37 @@ interface ScoreJoinRow {
   overall: number;
   content_hash: string;
   rubric_version: string | null;
+  criteria_json: string | null;
+  url: string | null;
   com_name: string;
   sci_name: string;
   family: string;
+}
+
+/**
+ * Parse a baseline `criteria_json` blob into `CriteriaScores`, or `undefined`
+ * when the column is NULL/empty (an axis-skip on the expected side — the
+ * per-axis scorers never fabricate agreement from a missing baseline). Parse
+ * failures and shape mismatches also yield `undefined` rather than throwing:
+ * a malformed legacy blob must skip its axes, not abort the whole dataset.
+ */
+export function parseCriteria(criteriaJson: string | null): CriteriaScores | undefined {
+  if (criteriaJson === null || criteriaJson === '') return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(criteriaJson);
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed !== 'object' || parsed === null) return undefined;
+  const obj = parsed as Record<string, unknown>;
+  const out = {} as CriteriaScores;
+  for (const key of CRITERIA_KEYS) {
+    const v = obj[key];
+    if (typeof v !== 'number') return undefined;
+    out[key] = v;
+  }
+  return out;
 }
 
 /**
@@ -188,7 +235,7 @@ export function buildEvalRows(
   const joinRows = db
     .prepare(
       `SELECT s.species_code, s.keep, s.quality_score, s.overall, s.content_hash,
-              s.rubric_version, c.com_name, c.sci_name, c.family
+              s.rubric_version, s.criteria_json, c.url, c.com_name, c.sci_name, c.family
          FROM photo_score s JOIN photo_current c USING(species_code)
         WHERE s.role = 'current'
           AND (s.rationale IS NULL OR s.rationale NOT LIKE 'deterministic gate%')`,
@@ -206,9 +253,14 @@ export function buildEvalRows(
       );
       continue;
     }
+    const criteria = parseCriteria(row.criteria_json);
     rows.push({
       input: {
-        imagePath: join(thumbDir, file),
+        readPath: join(thumbDir, file),
+        // The stored R2 URL VERBATIM (#1067): extensions vary in the DB
+        // (.jpg/.jpeg/.png) and a reconstructed `<code>.jpeg` template 404s for
+        // hundreds of species, so we never template — we log the column as-is.
+        imageUrl: row.url ?? '',
         speciesCode: row.species_code,
         comName: row.com_name,
         sciName: row.sci_name,
@@ -217,6 +269,9 @@ export function buildEvalRows(
       expected: {
         keep: row.keep === null ? true : row.keep === 1,
         qualityScore: row.quality_score ?? row.overall,
+        // `undefined` (NOT `{}`) when the baseline has no criteria_json — the
+        // per-axis scorers skip a missing axis rather than scoring a phantom 0.
+        ...(criteria !== undefined ? { criteria } : {}),
       },
       metadata: { contentHash: row.content_hash, expectedRubricVersion: rubricVersion },
     });

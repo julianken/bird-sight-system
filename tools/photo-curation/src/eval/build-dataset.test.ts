@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join, basename } from 'node:path';
 import type Database from 'better-sqlite3';
 import { openDb } from '../db.js';
-import { buildEvalRows, mulberry32, shuffleInPlace, DEFAULT_SEED } from './build-dataset.js';
+import { buildEvalRows, mulberry32, shuffleInPlace, DEFAULT_SEED, parseCriteria } from './build-dataset.js';
+import { CRITERIA_KEYS, type CriteriaScores } from '@bird-watch/photo-quality';
 
 let db: Database.Database;
 let thumbDir: string;
@@ -36,21 +37,33 @@ function seedCurrent(
     overall: number;
     rationale?: string | null;
     rubricVersion?: string | null;
+    /** Stored R2 URL VERBATIM; defaults to a mixed-extension https URL. */
+    url?: string | null;
+    /** `criteria_json` blob; `null` to seed a row with no per-axis scores. */
+    criteriaJson?: string | null;
   },
 ): void {
   db.prepare(
-    `INSERT INTO photo_current (species_code, com_name, sci_name, family, content_hash)
-     VALUES (?, ?, ?, ?, ?)`,
-  ).run(code, fields.comName, fields.sciName, fields.family, fields.contentHash);
+    `INSERT INTO photo_current (species_code, com_name, sci_name, family, url, content_hash)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(
+    code,
+    fields.comName,
+    fields.sciName,
+    fields.family,
+    fields.url === undefined ? `https://photos.bird-maps.com/${code}.jpg` : fields.url,
+    fields.contentHash,
+  );
   db.prepare(
     `INSERT INTO photo_score (species_code, role, content_hash, overall, verdict,
                               criteria_json, flags_json, keep, quality_score, rationale,
                               rubric_version, scored_at)
-     VALUES (?, 'current', ?, ?, 'good', '{}', '[]', ?, ?, ?, ?, 'now')`,
+     VALUES (?, 'current', ?, ?, 'good', ?, '[]', ?, ?, ?, ?, 'now')`,
   ).run(
     code,
     fields.contentHash,
     fields.overall,
+    fields.criteriaJson === undefined ? '{}' : fields.criteriaJson,
     fields.keep,
     fields.qualityScore,
     fields.rationale === undefined ? 'sharp wild adult, diagnostic marks visible' : fields.rationale,
@@ -100,18 +113,20 @@ describe('buildEvalRows', () => {
 
     const robin = rows.find((r) => r.input.speciesCode === 'amerob')!;
     expect(robin.input).toEqual({
-      imagePath: join(thumbDir, 'amerob.jpg'),
+      readPath: join(thumbDir, 'amerob.jpg'),
+      imageUrl: 'https://photos.bird-maps.com/amerob.jpg',
       speciesCode: 'amerob',
       comName: 'American Robin',
       sciName: 'Turdus migratorius',
       family: 'Turdidae',
     });
+    // `{}` criteria_json has no axes → no `criteria` key (undefined, not `{}`).
     expect(robin.expected).toEqual({ keep: true, qualityScore: 88 });
     expect(robin.metadata).toEqual({ contentHash: 'h-amerob', expectedRubricVersion: '0.2.1' });
 
-    // Image resolved by extension glob, not hardcoded .jpg.
-    expect(basename(rows.find((r) => r.input.speciesCode === 'norcar')!.input.imagePath)).toBe('norcar.png');
-    expect(basename(rows.find((r) => r.input.speciesCode === 'houspa')!.input.imagePath)).toBe('houspa.webp');
+    // Image resolved by extension glob, not hardcoded .jpg — readPath is LOCAL.
+    expect(basename(rows.find((r) => r.input.speciesCode === 'norcar')!.input.readPath)).toBe('norcar.png');
+    expect(basename(rows.find((r) => r.input.speciesCode === 'houspa')!.input.readPath)).toBe('houspa.webp');
 
     const pigeon = rows.find((r) => r.input.speciesCode === 'rocpig')!;
     expect(pigeon.expected).toEqual({ keep: false, qualityScore: 30 });
@@ -196,7 +211,7 @@ describe('buildEvalRows', () => {
 
     const rows = buildEvalRows(db, { thumbDir });
     expect(rows).toHaveLength(1);
-    expect(basename(rows[0].input.imagePath)).toBe('amerob.jpg');
+    expect(basename(rows[0].input.readPath)).toBe('amerob.jpg');
   });
 
   it('returns all rows unsampled when sample is omitted', () => {
@@ -270,5 +285,75 @@ describe('buildEvalRows', () => {
 
   it('throws on an empty baseline (no version to pin the judge prompt to)', () => {
     expect(() => buildEvalRows(db, { thumbDir })).toThrow(/no role='current' scores/i);
+  });
+
+  // #1067: the R2 URL is logged VERBATIM — extensions vary in the DB
+  // (.jpg/.jpeg/.png) and a reconstructed `<code>.jpeg` template 404s for
+  // hundreds of species, so the row must carry the stored column unchanged,
+  // distinct from the LOCAL readPath.
+  it('carries photo_current.url verbatim (mixed extensions) as imageUrl, distinct from readPath', () => {
+    seedCurrent('amerob', { comName: 'American Robin', sciName: 'Turdus migratorius', family: 'Turdidae', contentHash: 'h-amerob', keep: 1, qualityScore: 88, overall: 80, url: 'https://photos.bird-maps.com/amerob.jpeg' });
+    seedCurrent('norcar', { comName: 'Northern Cardinal', sciName: 'Cardinalis cardinalis', family: 'Cardinalidae', contentHash: 'h-norcar', keep: 1, qualityScore: 91, overall: 85, url: 'https://photos.bird-maps.com/norcar.png' });
+    writeImage('amerob'); // local cache is .jpg even though the R2 URL is .jpeg
+    writeImage('norcar', 'png');
+
+    const rows = buildEvalRows(db, { thumbDir });
+    const robin = rows.find((r) => r.input.speciesCode === 'amerob')!;
+    expect(robin.input.imageUrl).toBe('https://photos.bird-maps.com/amerob.jpeg');
+    expect(robin.input.readPath).toBe(join(thumbDir, 'amerob.jpg'));
+    expect(robin.input.imageUrl).not.toBe(robin.input.readPath);
+
+    const card = rows.find((r) => r.input.speciesCode === 'norcar')!;
+    expect(card.input.imageUrl).toBe('https://photos.bird-maps.com/norcar.png');
+  });
+
+  // #1067: the Opus per-axis sub-scores ride into expected.criteria.
+  it('populates expected.criteria from a real criteria_json blob', () => {
+    const criteria: CriteriaScores = { framing: 8, subjectClarity: 7, liveness: 10, naturalness: 4, pose: 6, background: 5, lighting: 9 };
+    seedCurrent('amerob', { comName: 'American Robin', sciName: 'Turdus migratorius', family: 'Turdidae', contentHash: 'h-amerob', keep: 1, qualityScore: 88, overall: 80, criteriaJson: JSON.stringify(criteria) });
+    writeImage('amerob');
+
+    const rows = buildEvalRows(db, { thumbDir });
+    expect(rows[0].expected.criteria).toEqual(criteria);
+  });
+
+  // #1067: a NULL criteria_json must yield `undefined` (an axis-skip), NOT `{}`
+  // — a fabricated empty object would be indistinguishable from a real score.
+  it('leaves expected.criteria undefined (not {}) for a NULL criteria_json', () => {
+    seedCurrent('amerob', { comName: 'American Robin', sciName: 'Turdus migratorius', family: 'Turdidae', contentHash: 'h-amerob', keep: 1, qualityScore: 88, overall: 80, criteriaJson: null });
+    writeImage('amerob');
+
+    const rows = buildEvalRows(db, { thumbDir });
+    expect(rows[0].expected.criteria).toBeUndefined();
+    expect('criteria' in rows[0].expected).toBe(false);
+  });
+});
+
+describe('parseCriteria', () => {
+  it('parses a full 7-axis blob', () => {
+    const criteria: CriteriaScores = { framing: 8, subjectClarity: 7, liveness: 10, naturalness: 4, pose: 6, background: 5, lighting: 9 };
+    expect(parseCriteria(JSON.stringify(criteria))).toEqual(criteria);
+  });
+
+  it('returns undefined for NULL or empty input', () => {
+    expect(parseCriteria(null)).toBeUndefined();
+    expect(parseCriteria('')).toBeUndefined();
+  });
+
+  it('returns undefined for an empty object (no axes — never {})', () => {
+    expect(parseCriteria('{}')).toBeUndefined();
+  });
+
+  it('returns undefined for a partial blob missing an axis (skip, never fabricate)', () => {
+    const partial: Record<string, number> = {};
+    for (const k of CRITERIA_KEYS) partial[k] = 5;
+    delete partial.lighting;
+    expect(parseCriteria(JSON.stringify(partial))).toBeUndefined();
+  });
+
+  it('returns undefined for a malformed blob rather than throwing', () => {
+    expect(parseCriteria('{not json')).toBeUndefined();
+    expect(parseCriteria('[1,2,3]')).toBeUndefined();
+    expect(parseCriteria('"a string"')).toBeUndefined();
   });
 });
