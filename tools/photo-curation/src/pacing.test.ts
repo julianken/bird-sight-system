@@ -80,6 +80,50 @@ describe('withBackoff', () => {
     await expect(withBackoff(fn, { clock, maxRetries: 2, random: () => 0 })).rejects.toThrow(/503/);
     expect(calls).toBe(3); // initial + 2 retries
   });
+
+  it('sleeps at least the server-provided retryDelayMs when the error carries one', async () => {
+    const clock = makeFakeClock();
+    let calls = 0;
+    const fn = async () => {
+      calls++;
+      if (calls < 3) throw Object.assign(new Error('429'), { status: 429, retryDelayMs: 13_000 });
+      return 'ok';
+    };
+    // random()=1 → jittered would be 500 then 1000 — both below the 13 s server hint.
+    const out = await withBackoff(fn, { clock, baseMs: 500, random: () => 1 });
+    expect(out).toBe('ok');
+    expect(clock.sleeps).toEqual([13_000, 13_000]); // max(hint, jittered) = the hint
+  });
+
+  it('keeps the jittered backoff when it exceeds the server hint (max of the two)', async () => {
+    const clock = makeFakeClock();
+    let calls = 0;
+    const fn = async () => {
+      calls++;
+      if (calls < 2) throw Object.assign(new Error('429'), { status: 429, retryDelayMs: 1_000 });
+      return 'ok';
+    };
+    // random()=1, baseMs 2000 → jittered 2000 > the 1 s hint.
+    const out = await withBackoff(fn, { clock, baseMs: 2_000, random: () => 1 });
+    expect(out).toBe('ok');
+    expect(clock.sleeps).toEqual([2_000]);
+  });
+
+  it('does not retry at all when the error is marked nonTransient (e.g. a daily-quota trip)', async () => {
+    const clock = makeFakeClock();
+    let calls = 0;
+    const fn = async () => {
+      calls++;
+      throw Object.assign(new Error('Gemini 429 (…PerDay…)'), {
+        status: 429,
+        nonTransient: true,
+        retryDelayMs: 38_000,
+      });
+    };
+    await expect(withBackoff(fn, { clock })).rejects.toThrow(/429/);
+    expect(calls).toBe(1); // a drained daily quota makes every retry pointless
+    expect(clock.sleeps).toEqual([]);
+  });
 });
 
 describe('isTransient', () => {
@@ -90,6 +134,12 @@ describe('isTransient', () => {
     expect(isTransient(new Error('download 429 for https://x'))).toBe(true);
     expect(isTransient(new Error('read-api 502 for amerob'))).toBe(true);
     expect(isTransient(new Error('boom'))).toBe(false);
+  });
+
+  it('honors an explicit nonTransient marker — even over a 429 status or message', () => {
+    expect(isTransient({ status: 429, nonTransient: true })).toBe(false);
+    // The marker is checked FIRST: a 429-bearing message does not resurrect the retry.
+    expect(isTransient(Object.assign(new Error('Gemini 429 (PerDay)'), { nonTransient: true }))).toBe(false);
   });
 });
 

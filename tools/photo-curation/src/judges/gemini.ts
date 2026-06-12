@@ -13,8 +13,13 @@
 //     OpenAPI-3.0 subset with UPPERCASE `type` enums), and the JSON answer is at
 //     `candidates[0].content.parts[0].text`.
 //   • Pacing + retry REUSE `Pacer.gate()` + `withBackoff` from ../pacing.ts —
-//     never hand-rolled. `GEMINI_PACE_MS = 6_000` → ≤10 RPM, comfortably under
-//     the free-tier per-minute cap.
+//     never hand-rolled. `GEMINI_PACE_MS` (default 12_000 → ≤5 RPM, the
+//     free-tier per-minute cap measured 2026-06-11, #1036) gates every call and
+//     is env-overridable for paid tiers.
+//   • Quota signals are PARSED from the 429 body (#1036) — `error.details[]`
+//     is the only quota ground truth Google exposes (no remaining-quota API).
+//     A `PerDay` quotaId latches the judge: the daily cap resets ~midnight
+//     Pacific, far outside any backoff window, so further calls are pointless.
 //   • Everything is injectable (clock, fetchImpl) so the unit tests assert
 //     pacing/parse/retry deterministically with no real network and no real
 //     wall-clock wait.
@@ -30,8 +35,14 @@ import type {
 import { CRITERIA_KEYS } from '@bird-watch/photo-quality';
 import { Pacer, withBackoff, realClock, type Clock } from '../pacing.js';
 
-/** Min ms between Gemini calls → ≤10 RPM (well under the free-tier per-minute cap). */
-export const GEMINI_PACE_MS = 6_000;
+/**
+ * Min ms between Gemini calls. Default 12_000 → ≤5 RPM, the free-tier
+ * per-minute cap measured 2026-06-11 (#1036; the previous, faster default
+ * targeted a since-halved tier). Env-overridable via `GEMINI_PACE_MS` — the same
+ * no-rebuild tuning-knob pattern as the ingestor's `--pace-ms` — so a paid
+ * tier with a self-imposed quota cap can loosen it without a code change.
+ */
+export const GEMINI_PACE_MS = Number(process.env.GEMINI_PACE_MS) || 12_000;
 
 /** Thrown when the model's reply cannot be parsed into a JudgeOutput, even after one re-ask. */
 export class GeminiJudgeError extends Error {
@@ -41,14 +52,101 @@ export class GeminiJudgeError extends Error {
   }
 }
 
-/** A status-carrying error so ../pacing.ts `isTransient` retries 429/5xx via withBackoff. */
+/**
+ * Thrown when Gemini's DAILY quota is exhausted (#1036). The first `PerDay`
+ * 429 latches the judge instance: this same type is thrown on that first trip
+ * AND on every subsequent `judge()` call — without another network request.
+ * Rationale: the eval shares ONE judge across serially-run rows
+ * (maxConcurrency: 1, #1015); without the latch a mid-run cap trip burns every
+ * remaining row × (maxRetries + 1) pointless requests.
+ */
+export class GeminiDailyQuotaError extends Error {
+  /** Honored FIRST by ../pacing.ts `isTransient` — never retried. */
+  readonly nonTransient = true;
+  constructor(
+    readonly quotaId: string,
+    options?: { cause?: unknown },
+  ) {
+    super(
+      `Gemini free-tier daily cap exhausted (${quotaId}) — resume after midnight Pacific`,
+      options,
+    );
+    this.name = 'GeminiDailyQuotaError';
+  }
+}
+
+/** Quota signals parsed from a Google 429 body's `error.details[]` (#1036). */
+interface QuotaSignals {
+  quotaId?: string;
+  retryDelayMs?: number;
+}
+
+/** Parse a proto-JSON Duration like `"13s"` / `"3.5s"` into ms (undefined if unparseable). */
+function parseRetryDelayMs(retryDelay: string): number | undefined {
+  const m = /^(\d+(?:\.\d+)?)s$/.exec(retryDelay.trim());
+  return m ? Math.round(Number(m[1]) * 1000) : undefined;
+}
+
+/**
+ * Read quota signals out of a non-2xx response body. Google's 429 carries
+ * `error.details[]` with `QuotaFailure.violations[].quotaId` and
+ * `RetryInfo.retryDelay`. A non-JSON or differently-shaped body yields `{}`,
+ * preserving the plain-transient (jittered backoff) behavior.
+ */
+async function readQuotaSignals(res: Response): Promise<QuotaSignals> {
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    return {};
+  }
+  const details = (body as { error?: { details?: unknown } } | null)?.error?.details;
+  if (!Array.isArray(details)) return {};
+  const signals: QuotaSignals = {};
+  for (const detail of details) {
+    if (typeof detail !== 'object' || detail === null) continue;
+    const d = detail as { violations?: unknown; retryDelay?: unknown };
+    if (signals.quotaId === undefined && Array.isArray(d.violations)) {
+      for (const violation of d.violations) {
+        const quotaId = (violation as { quotaId?: unknown } | null)?.quotaId;
+        if (typeof quotaId === 'string') {
+          signals.quotaId = quotaId;
+          break;
+        }
+      }
+    }
+    if (typeof d.retryDelay === 'string') {
+      const ms = parseRetryDelayMs(d.retryDelay);
+      if (ms !== undefined) signals.retryDelayMs = ms;
+    }
+  }
+  return signals;
+}
+
+/**
+ * A status-carrying error so ../pacing.ts `isTransient`/`withBackoff` can act
+ * on it. Enriched (#1036) with the 429 body's quota signals: `quotaId` (also
+ * woven into the message — that string is what lands in the Braintrust span's
+ * `error` field, where a bare "Gemini 429" is undiagnosable), `retryDelayMs`
+ * (server RetryInfo hint; `withBackoff` sleeps at least this long), and
+ * `nonTransient` for `/PerDay/` quotaIds (a drained daily cap is not flake).
+ */
 class GeminiHttpError extends Error {
+  readonly quotaId?: string;
+  readonly retryDelayMs?: number;
+  readonly nonTransient?: boolean;
   constructor(
     readonly status: number,
     message: string,
+    signals: QuotaSignals = {},
   ) {
     super(message);
     this.name = 'GeminiHttpError';
+    if (signals.quotaId !== undefined) {
+      this.quotaId = signals.quotaId;
+      if (/PerDay/.test(signals.quotaId)) this.nonTransient = true;
+    }
+    if (signals.retryDelayMs !== undefined) this.retryDelayMs = signals.retryDelayMs;
   }
 }
 
@@ -163,9 +261,10 @@ function toJudgeOutput(raw: unknown): JudgeOutput {
 }
 
 /**
- * Gemini-backed `VisionJudge`. Paces calls (≤10 RPM), retries transient
- * 429/5xx via `withBackoff`, and on an unparseable body re-asks ONCE before
- * throwing `GeminiJudgeError`.
+ * Gemini-backed `VisionJudge`. Paces calls (`GEMINI_PACE_MS`, default ≤5 RPM),
+ * retries transient 429/5xx via `withBackoff` honoring the server's RetryInfo
+ * hint, fails fast (latched) once the daily quota trips, and on an unparseable
+ * body re-asks ONCE before throwing `GeminiJudgeError`.
  */
 export class GeminiVisionJudge implements VisionJudge {
   private readonly apiKey: string;
@@ -173,6 +272,8 @@ export class GeminiVisionJudge implements VisionJudge {
   private readonly fetchImpl: FetchImpl;
   private readonly pacer: Pacer;
   private readonly clock: Clock;
+  /** quotaId of the tripped daily cap; once set, judge() fails fast forever (#1036). */
+  private dailyExhaustedQuotaId: string | null = null;
 
   constructor(opts: GeminiVisionJudgeOptions) {
     if (!opts.apiKey) {
@@ -194,7 +295,13 @@ export class GeminiVisionJudge implements VisionJudge {
       body: JSON.stringify(buildRequestBody(img, ctx, prompt)),
     });
     if (!res.ok) {
-      throw new GeminiHttpError(res.status, `Gemini ${res.status} for ${this.model}:generateContent`);
+      const signals = await readQuotaSignals(res);
+      const quota = signals.quotaId === undefined ? '' : ` (quotaId: ${signals.quotaId})`;
+      throw new GeminiHttpError(
+        res.status,
+        `Gemini ${res.status} for ${this.model}:generateContent${quota}`,
+        signals,
+      );
     }
     const json: unknown = await res.json();
     return extractText(json);
@@ -203,14 +310,34 @@ export class GeminiVisionJudge implements VisionJudge {
   /** One paced, backoff-wrapped ask → parsed JudgeOutput. */
   private async ask(img: ImageInput, ctx: SpeciesContext, prompt: string): Promise<JudgeOutput> {
     await this.pacer.gate();
-    const text = await withBackoff(() => this.callOnce(img, ctx, prompt), { clock: this.clock });
+    let text: string;
+    try {
+      text = await withBackoff(() => this.callOnce(img, ctx, prompt), { clock: this.clock });
+    } catch (err) {
+      // First daily-cap trip: latch the judge and surface the dedicated type.
+      // (withBackoff never retried it — `nonTransient` short-circuits isTransient.)
+      if (err instanceof GeminiHttpError && err.nonTransient === true && err.quotaId !== undefined) {
+        this.dailyExhaustedQuotaId = err.quotaId;
+        throw new GeminiDailyQuotaError(err.quotaId, { cause: err });
+      }
+      throw err;
+    }
     return toJudgeOutput(JSON.parse(text));
   }
 
   async judge(img: ImageInput, ctx: SpeciesContext, prompt: string): Promise<JudgeOutput> {
+    // Latched daily exhaustion: fail fast with ZERO pacing and ZERO network.
+    if (this.dailyExhaustedQuotaId !== null) {
+      throw new GeminiDailyQuotaError(this.dailyExhaustedQuotaId);
+    }
     try {
       return await this.ask(img, ctx, prompt);
     } catch (err) {
+      // The daily-cap classification must NOT be swallowed into the generic
+      // wrap: the FIRST PerDay trip throws the same type latched trips do.
+      if (err instanceof GeminiDailyQuotaError) {
+        throw err;
+      }
       // A transport/HTTP failure that survived withBackoff is unrecoverable —
       // surface it. Only a PARSE failure earns a single re-ask.
       if (err instanceof GeminiHttpError) {
@@ -224,6 +351,9 @@ export class GeminiVisionJudge implements VisionJudge {
     try {
       return await this.ask(img, ctx, prompt);
     } catch (err) {
+      if (err instanceof GeminiDailyQuotaError) {
+        throw err;
+      }
       throw new GeminiJudgeError(
         `Gemini returned an unparseable answer after one re-ask: ${err instanceof Error ? err.message : String(err)}`,
         { cause: err },

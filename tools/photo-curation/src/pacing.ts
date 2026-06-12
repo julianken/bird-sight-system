@@ -65,11 +65,24 @@ export class Pacer {
 /** A transient (retryable) upstream failure — 429 or 5xx. */
 export interface RetryableError {
   status?: number;
+  /**
+   * Explicit non-retryable marker, checked BEFORE any status/message heuristic.
+   * Callers set it when they KNOW retrying is pointless (e.g. the Gemini judge
+   * marks a daily-quota 429 — the cap won't un-drain inside any backoff window).
+   * Keeps domain knowledge on the error, not in this generic module (#1036).
+   */
+  nonTransient?: boolean;
+  /**
+   * Server-provided minimum delay before the next attempt, in ms (e.g. Google's
+   * `RetryInfo.retryDelay`). `withBackoff` sleeps at least this long.
+   */
+  retryDelayMs?: number;
 }
 
 /** Whether an error is a transient upstream failure worth retrying (429 / 5xx). */
 export function isTransient(err: unknown): boolean {
   if (typeof err !== 'object' || err === null) return false;
+  if ((err as RetryableError).nonTransient === true) return false;
   const status = (err as RetryableError).status;
   if (typeof status === 'number') {
     return status === 429 || status >= 500;
@@ -97,7 +110,9 @@ export interface BackoffOptions {
  * Non-transient errors throw immediately (a 404 is a bug, not flakiness). After
  * `maxRetries` transient failures the last error is rethrown so the CALLER can
  * abort the species (not the whole batch). Full-jitter variant (AWS write-up):
- * `sleep(random() * base * 2^attempt)`.
+ * `sleep(random() * base * 2^attempt)`. When the error carries a server retry
+ * hint (`retryDelayMs`), the sleep is `max(hint, jittered)` — a jittered 0.5–2 s
+ * wait inside a 13–38 s drained-quota window is guaranteed to fail again.
  */
 export async function withBackoff<T>(
   fn: () => Promise<T>,
@@ -117,7 +132,8 @@ export async function withBackoff<T>(
       if (!isTransient(err) || attempt === maxRetries) break;
       const ceiling = baseMs * Math.pow(2, attempt);
       const withJitter = Math.floor(random() * ceiling);
-      await clock.sleep(withJitter);
+      const hint = (err as RetryableError).retryDelayMs;
+      await clock.sleep(typeof hint === 'number' ? Math.max(hint, withJitter) : withJitter);
     }
   }
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
