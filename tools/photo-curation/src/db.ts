@@ -103,10 +103,56 @@ CREATE TABLE IF NOT EXISTS source_attempt (
   PRIMARY KEY (species_code, source)
 );
 
+-- Local eval store (#1094 — the Braintrust write-path replacement). One row per
+-- eval RUN (a single \`npm run eval\`): its config pins + the computed headline
+-- aggregates. UNIT CONTRACT (load-bearing for PR2's gate, #1095): \`agreement\`
+-- and \`score_mae\` are 0–1 FRACTIONS — \`agreement\` is the mean of the per-row
+-- keepAgreement scores (each 0 or 1), \`score_mae\` is the mean of the per-row
+-- scoreMAE (already clamped [0,1]). PR2 renders \`× 100\` and gates at
+-- \`agreement >= 0.90\`; storing a percent (e.g. 78.67) would make the gate always
+-- PASS. \`total_cost\` is the run's summed estimated USD across priced judgments.
+CREATE TABLE IF NOT EXISTS eval_run (
+  id              TEXT PRIMARY KEY,   -- e.g. \`<model>-<unix>\`
+  model           TEXT,               -- the judge model evaluated (EVAL_MODEL)
+  baseline_model  TEXT,               -- the frozen-baseline model pin (BASELINE_MODEL)
+  baseline_rubric TEXT,               -- the frozen-baseline rubric pin (BASELINE_RUBRIC)
+  sample_size     INTEGER,            -- the EVAL_SAMPLE the run was built with
+  started_at      TEXT,
+  agreement       REAL,               -- 0–1 fraction (mean keepAgreement), NOT a percent
+  false_keep      INTEGER,            -- dangerous: judge keeps what baseline replaces
+  false_replace   INTEGER,            -- cheap: judge replaces what baseline keeps
+  score_mae       REAL,               -- 0–1 fraction (mean scoreMAE), NOT a percent
+  total_cost      REAL                -- summed estimated USD over priced judgments
+);
+
+-- One row per JUDGMENT in a run: the candidate (gemini_*) decision joined with
+-- the Opus baseline (opus_*) and the per-call token/cost metrics. \`run_id\` →
+-- \`eval_run.id\`. \`gemini_criteria_json\` is the candidate's per-axis sub-scores
+-- as a JSON blob (the analyze CLI does not read it today; PR2's viewer will).
+CREATE TABLE IF NOT EXISTS eval_result (
+  run_id               TEXT,          -- → eval_run.id
+  species_code         TEXT,
+  com_name             TEXT,
+  content_hash         TEXT,
+  source_url           TEXT,
+  gemini_keep          INTEGER,       -- candidate keep (0/1)
+  gemini_quality       REAL,          -- candidate qualityScore (0–100)
+  gemini_criteria_json TEXT,          -- candidate per-axis sub-scores (JSON)
+  opus_keep            INTEGER,       -- baseline keep (0/1)
+  opus_quality         REAL,          -- baseline qualityScore (0–100)
+  cost                 REAL,          -- estimated USD for this judgment (NULL = unpriced)
+  prompt_tokens        INTEGER,
+  completion_tokens    INTEGER
+);
+
 -- One report per (subject, content_hash): re-scoring an unchanged image is a
 -- no-op the orchestrator can detect before calling the judge.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_photo_score_subject
   ON photo_score (species_code, role, content_hash);
+
+-- One judgment per (run, species): a run never scores the same species twice.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_eval_result_run_species
+  ON eval_result (run_id, species_code);
 
 -- Dedupe candidates per species + round.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_photo_candidate_unique
