@@ -70,6 +70,16 @@ in a future iteration; the eval harness is identical either way (only the datase
   429/backoff, mirroring the tool's existing external-call idiom; abort-one not
   the-batch. Free-tier RPD cap is handled by resuming or sampling, not by
   removing pacing.
+
+  > **Correction (2026-06-12, #1036):** the free tier measured on the first
+  > keyed run (2026-06-11 `curl` probes) is **5 RPM / 20 RPD** for
+  > `gemini-2.5-flash` — not the ~10 RPM / ~250 RPD this section assumed. The
+  > pacing default is now **≈12 s/call** (`GEMINI_PACE_MS`, env-overridable);
+  > the judge parses the 429 body's quota signals (`quotaId` +
+  > `RetryInfo.retryDelay`), honors the server's retry hint on minute-cap
+  > trips, and **latches with `GeminiDailyQuotaError`** once the daily cap
+  > trips (no further network for the judge's lifetime). A 150-row run does
+  > NOT fit in a free-tier day; see the runbook's paid-tier path.
 - **Auth:** `GEMINI_API_KEY` from env. SDK: `@google/genai` — **pull fresh
   context7 docs before coding** (responseSchema + inline image API churn).
 

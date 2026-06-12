@@ -37,8 +37,8 @@ import { Pacer, withBackoff, realClock, type Clock } from '../pacing.js';
 
 /**
  * Min ms between Gemini calls. Default 12_000 → ≤5 RPM, the free-tier
- * per-minute cap measured 2026-06-11 (#1036; the old 6_000 targeted a 10 RPM
- * tier that no longer exists). Env-overridable via `GEMINI_PACE_MS` — the same
+ * per-minute cap measured 2026-06-11 (#1036; the previous, faster default
+ * targeted a since-halved tier). Env-overridable via `GEMINI_PACE_MS` — the same
  * no-rebuild tuning-knob pattern as the ingestor's `--pace-ms` — so a paid
  * tier with a self-imposed quota cap can loosen it without a code change.
  */

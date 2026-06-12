@@ -27,7 +27,9 @@ from the photo-curation run-worktree**, not from CI:
 - **`review.sqlite`** with `role='current'` Opus scores (the 902-score baseline).
 - **`thumb-cache/<species_code>.{jpg,png,webp}`** — the cached current
   thumbnails the Opus pass scored. No re-download.
-- A Gemini API key (free tier is fine) and a Braintrust API key.
+- A Gemini API key and a Braintrust API key. Free tier covers only a smoke run
+  (20 requests/day — see the daily-cap section); a full 150-row run needs the
+  paid-tier path.
 - `npm install` at the repo root, and the full workspace dep chain built once.
   `@bird-watch/photo-curation` depends on `@bird-watch/ingestor` (and
   `@bird-watch/photo-quality` / `@bird-watch/shared-types`), and `ingestor`
@@ -48,6 +50,7 @@ from the photo-curation run-worktree**, not from CI:
 | `REVIEW_DB` | yes | path to `review.sqlite` (e.g. `./review.sqlite`) |
 | `THUMB_DIR` | yes | path to the thumbnail cache (e.g. `./thumb-cache`) |
 | `EVAL_SAMPLE` | no (default `150`) | stratified keep/replace sample size for a full run |
+| `GEMINI_PACE_MS` | no (default `12000`) | min ms between Gemini calls (12 s ⇒ ≤ 5 RPM, the measured free-tier cap); adjust only when a paid tier raises the per-minute quota |
 
 Put the non-secret values plus `GEMINI_API_KEY` in a local `.env.local`
 (gitignored). `bt eval --env-file .env.local` loads them into the eval process:
@@ -83,11 +86,15 @@ The package also exposes `npm run eval -w @bird-watch/photo-curation`
 
 > **Pacing.** The eval runs **serially** (`maxConcurrency: 1`) over **one
 > shared** traced judge, so that judge's single `Pacer` gates the whole run to
-> ≤ 10 RPM (≈ 6 s/call) — a 150-row run takes on the order of 15 minutes of wall
-> clock. That serial single-judge wiring is what keeps the run inside Gemini's
-> free tier (per-row judges would each reset the pacer; unbounded concurrency
-> would race it). That is expected — do not parallelize around the pacer or
-> construct a judge per row.
+> ≈ 12 s/call (`GEMINI_PACE_MS`, default `12000` ⇒ ≤ 5 RPM — the free-tier
+> per-minute cap measured 2026-06-11, #1036) — a 150-row run is on the order of
+> 30 minutes of wall clock *if the daily quota allows it* (it does not on free
+> tier; see below). That serial single-judge wiring is what keeps the run inside
+> the per-minute cap (per-row judges would each reset the pacer; unbounded
+> concurrency would race it). That is expected — do not parallelize around the
+> pacer or construct a judge per row. On a minute-cap `429` the retry honors the
+> server's `RetryInfo.retryDelay` hint (13–38 s observed) rather than only the
+> jittered backoff.
 
 ### Reading the result
 
@@ -101,13 +108,28 @@ The package also exposes `npm run eval -w @bird-watch/photo-curation`
   `keep_agreement ≥ 90%` **and** `falseKeep` is low. Below the gate → hybrid
   (Gemini first pass, Opus re-judges the close calls) — see the design spec.
 
-## Free-tier RPD cap — resume
+## Daily cap (20 RPD free tier) — abort + resume
 
-Gemini's free tier has a **requests-per-day** cap. The per-minute pacing keeps
-you under the RPM limit, but a large run can still hit the daily ceiling:
+Gemini's free tier caps `gemini-2.5-flash` at **20 requests per day** (measured
+2026-06-11, #1036: `GenerateRequestsPerDayPerProjectPerModel-FreeTier`,
+`quotaValue: "20"`). The per-minute pacing keeps you under the 5 RPM limit, but
+**a 150-row run does NOT fit in a free-tier day** — at 20 RPD even a re-ask-free
+run covers at most 20 rows before the cap trips.
 
-- On a `429` the judge retries with jittered backoff (the RPM leg). If the
-  **daily** cap is exhausted, calls keep failing — stop the run.
+- On a minute-cap `429` the judge retries, sleeping at least the server's
+  `RetryInfo.retryDelay`. On a **daily-cap** `429` the run **aborts fast**: the
+  judge throws `GeminiDailyQuotaError` (the message names the tripped
+  `quotaId`) on the first trip and latches — every subsequent row fails with
+  the same error and **zero further network**, so the run no longer burns the
+  next day's quota on pointless retries. Stop the run when you see it.
+- **Paid tier (the realistic path for a full 150-row run):** enable billing on
+  the Gemini API project
+  ([ai.google.dev/gemini-api/docs/billing](https://ai.google.dev/gemini-api/docs/billing)),
+  then in the GCP console **lower the per-model per-day quota** to a
+  self-imposed ceiling as a hard spend cap, and set `GEMINI_PACE_MS` to match
+  whatever per-minute quota the paid tier grants (e.g. a 60 RPM tier tolerates
+  `GEMINI_PACE_MS=1100`). The judge's quota handling is tier-agnostic — the
+  same parse/latch logic protects against whatever caps are configured.
 - **Resume strategy:** there is no checkpoint file. Re-run with a **smaller
   `EVAL_SAMPLE`** (or `--first N`) the same day, or wait for the quota to reset
   (~midnight Pacific) and re-run the full sample. The dataset builder's sample

@@ -57,8 +57,9 @@ function readImage(imagePath: string): ImageInput {
 // ── Single shared judge (the pacing fix, #1015 review) ───────────────────────
 // The judge owns the per-instance `Pacer` (src/judges/gemini.ts → ../pacing.ts).
 // Constructing one judge PER ROW would reset that Pacer on every call, defeating
-// the ≤10 RPM / 6 s-per-call gate the runbook promises — a 150-row `bt eval`
-// would burst unpaced and trip Gemini's free-tier RPM/RPD with 429s. So we build
+// the GEMINI_PACE_MS gate the runbook promises (default 12 s/call ⇒ ≤5 RPM, the
+// measured free-tier cap, #1036) — a 150-row `bt eval` would burst unpaced and
+// trip Gemini's free-tier RPM/RPD with 429s. So we build
 // the judge EXACTLY ONCE and share the instance (hence the single Pacer) across
 // all rows. Memoized via a getter so it is NOT constructed at import time:
 // `resolveTracedJudge` fails loud on a missing key, and `bt eval --list` /
@@ -70,7 +71,7 @@ const getJudge = (): VisionJudge =>
 Eval('bird-maps', {
   data: () => buildEvalRows(openDb(REVIEW_DB), { thumbDir: THUMB_DIR, sample: EVAL_SAMPLE }),
   // Rows run SERIALLY (one at a time): the shared judge's single Pacer enforces
-  // the 6 s gate globally only if rows don't race it. Braintrust's default
+  // the GEMINI_PACE_MS gate globally only if rows don't race it. Braintrust's default
   // concurrency is unbounded, so we pin it to 1 — without this, concurrent rows
   // sharing one Pacer could still burst past the RPM cap.
   maxConcurrency: 1,
