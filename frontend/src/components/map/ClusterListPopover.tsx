@@ -16,7 +16,8 @@ import { prettyFamily } from '../../derived.js';
  * expands to its top 8 species + per-family "+N more" drill-in (or the legacy
  * "…and N more species" footer) ONLY when the user clicks/activates its
  * header. Spuh/slash/hybrid taxa with `speciesCode === null` render as static
- * `<span>` (no link); otherwise as `<a role="link">`.
+ * `<span>` (no link); otherwise as a native `<button>` (#1031 C54 — was
+ * `<a role="link">`).
  *
  * Dismiss surfaces: "Done" button at bottom, ESC, click-outside. Each
  * returns focus to the supplied `anchorEl` (the outer marker `<button>`).
@@ -231,22 +232,19 @@ export function ClusterListPopover(props: ClusterListPopoverProps) {
                           className="cluster-list-popover__row"
                           data-testid="cluster-list-popover-row"
                         >
-                          <a
-                            role="link"
-                            tabIndex={0}
-                            onClick={(e) => {
-                              e.preventDefault();
-                              onSpeciesRowClick(code);
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' || e.key === ' ') {
-                                e.preventDefault();
-                                onSpeciesRowClick(code);
-                              }
-                            }}
+                          {/* #1031 (C54): native <button> rather than
+                              `<a role="link" tabIndex={0}>` with hand-rolled
+                              Enter+Space — the row drives an in-page URL-state
+                              switch (onSelectSpecies), not a real navigation.
+                              A button announces correctly and activates on
+                              Enter/Space for free. */}
+                          <button
+                            type="button"
+                            className="cluster-list-popover__row-button"
+                            onClick={() => onSpeciesRowClick(code)}
                           >
                             {s.count}x {s.comName}
-                          </a>
+                          </button>
                         </li>
                       );
                     }

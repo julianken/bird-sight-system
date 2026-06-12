@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { CellPopover } from './CellPopover.js';
 import type { SpeciesAggregate } from './adaptive-grid.js';
 
@@ -149,7 +150,9 @@ describe('<CellPopover>', () => {
     expect(screen.getByText('Click or tap for full list')).toBeInTheDocument();
   });
 
-  it('renders rows with role="link" when speciesCode !== null', () => {
+  // #1031 (C54): clickable rows are native <button>s (correct AT
+  // announcement + free Enter/Space), not `<a role="link">`.
+  it('renders clickable rows as <button> when speciesCode !== null', () => {
     const anchor = makeAnchor();
     render(
       <CellPopover
@@ -161,10 +164,13 @@ describe('<CellPopover>', () => {
         onSelectSpecies={vi.fn()}
       />
     );
-    expect(screen.getByRole('link', { name: /Anna's Hummingbird/i })).toBeInTheDocument();
+    const row = screen.getByRole('button', { name: /Anna's Hummingbird/i });
+    expect(row.tagName).toBe('BUTTON');
+    // No leftover 'link' role from the old hand-rolled implementation.
+    expect(screen.queryByRole('link', { name: /Anna's Hummingbird/i })).toBeNull();
   });
 
-  it('renders rows as <span> with NO link role when speciesCode === null (spuh/slash)', () => {
+  it('renders rows as <span> with NO link/button role when speciesCode === null (spuh/slash)', () => {
     const anchor = makeAnchor();
     render(
       <CellPopover
@@ -178,6 +184,7 @@ describe('<CellPopover>', () => {
     );
     expect(screen.getByText(/Sandpiper sp\./)).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Sandpiper sp\./ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Sandpiper sp\./ })).toBeNull();
   });
 
   it('calls onSelectSpecies(speciesCode) when a clickable row is clicked', () => {
@@ -193,12 +200,15 @@ describe('<CellPopover>', () => {
         onSelectSpecies={onSelectSpecies}
       />
     );
-    fireEvent.click(screen.getByRole('link', { name: /Anna's Hummingbird/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Anna's Hummingbird/i }));
     expect(onSelectSpecies).toHaveBeenCalledWith('annhum');
     expect(onSelectSpecies).toHaveBeenCalledTimes(1);
   });
 
-  it('triggers onSelectSpecies on Enter key when a clickable row is focused', () => {
+  // #1031 (C54): a native <button> activates on Enter AND Space for free —
+  // no hand-rolled onKeyDown. Exercise the real keyboard path via userEvent
+  // (fireEvent.keyDown can't drive native button activation).
+  it('triggers onSelectSpecies on Enter and Space (native button activation)', async () => {
     const anchor = makeAnchor();
     const onSelectSpecies = vi.fn();
     render(
@@ -211,10 +221,14 @@ describe('<CellPopover>', () => {
         onSelectSpecies={onSelectSpecies}
       />
     );
-    const row = screen.getByRole('link', { name: /Anna's Hummingbird/i });
+    const row = screen.getByRole('button', { name: /Anna's Hummingbird/i });
     row.focus();
-    fireEvent.keyDown(row, { key: 'Enter' });
-    expect(onSelectSpecies).toHaveBeenCalledWith('annhum');
+    expect(document.activeElement).toBe(row);
+    await userEvent.keyboard('{Enter}');
+    expect(onSelectSpecies).toHaveBeenLastCalledWith('annhum');
+    await userEvent.keyboard(' ');
+    expect(onSelectSpecies).toHaveBeenLastCalledWith('annhum');
+    expect(onSelectSpecies).toHaveBeenCalledTimes(2);
   });
 
   it('does NOT call onSelectSpecies when a null-code row is clicked', () => {
@@ -247,8 +261,8 @@ describe('<CellPopover>', () => {
         onSelectSpecies={onSelectSpecies}
       />
     );
-    // Real common names render as clickable links wired to the REAL code.
-    fireEvent.click(screen.getByRole('link', { name: /Mallard/i }));
+    // Real common names render as clickable buttons wired to the REAL code.
+    fireEvent.click(screen.getByRole('button', { name: /Mallard/i }));
     expect(onSelectSpecies).toHaveBeenCalledWith('mallar3');
     // No Latin family code leaks into a row, and no synthetic agg-* code.
     expect(screen.queryByText(/anatidae/)).toBeNull();

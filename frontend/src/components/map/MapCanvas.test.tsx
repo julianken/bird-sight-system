@@ -453,6 +453,33 @@ describe('MapCanvas', () => {
     expect(screen.getByTestId('map-canvas')).toBeInTheDocument();
   });
 
+  // #1031 fallback-focusability guard. ObservationPopover.returnFocus() falls
+  // back to `document.querySelector('[data-testid="map-canvas"]').focus()` when
+  // the originating marker has left the DOM/viewport. A plain <div> with no
+  // tabIndex is NOT focusable, so that `.focus()` is a silent no-op and focus
+  // drops to document.body — the exact outcome the fallback exists to prevent.
+  // Assert against the REAL production wrapper (not a hand-built stand-in, which
+  // is how the ObservationPopover unit test masked this): tabIndex must be -1
+  // (focusable programmatically, OUT of the keyboard tab order). If a future
+  // edit removes the attribute, this fails.
+  it('#1031: the map-canvas wrapper is programmatically focusable (tabIndex=-1) so the popover focus-return fallback is not a no-op', () => {
+    render(<MapCanvas observations={[]} />);
+    const wrapper = screen.getByTestId('map-canvas');
+    // Assert the ATTRIBUTE, not the `.tabIndex` property: jsdom returns -1 for
+    // `div.tabIndex` even when the attribute is absent (the property reflects
+    // "not in tab order", which a plain div also satisfies), so a property-only
+    // check would pass spuriously on the buggy markup. The attribute is the
+    // thing that actually makes the element focusable, and the thing a future
+    // edit could remove — so guard on it.
+    expect(wrapper.getAttribute('tabindex')).toBe('-1');
+    // Behavioral proof: a programmatic .focus() must land on the wrapper, not
+    // silently no-op down to document.body (the bug the fallback fell into when
+    // the attribute was missing — a focusable target is the whole point).
+    wrapper.focus();
+    expect(document.activeElement).toBe(wrapper);
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
   it('passes a GeoJSON FeatureCollection to the Source component', () => {
     render(<MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />);
     const data = capturedSourceProps['data'] as { type: string; features: unknown[] };
@@ -1952,14 +1979,16 @@ describe('#864 — lone unclustered bucket silhouette opens its real species', (
     expect(familyToggle).toHaveTextContent('Tyrant Flycatchers (7)');
 
     // Expand → the real common name (resolved via the dictionary) renders, with
-    // a working species link (non-null code ⇒ <a role="link">).
+    // a working species control. #1031 (C54): the row is a native <button> now
+    // (was `<a role="link">`) — correct AT announcement + free Enter/Space.
     await act(async () => {
       fireEvent.click(familyToggle.querySelector('button') ?? familyToggle);
       await Promise.resolve();
     });
     const link = screen.getByText(/Western Wood-Pewee/);
     expect(link).toBeInTheDocument();
-    expect(link.closest('[role="link"]')).not.toBeNull();
+    expect(link.closest('button.cluster-list-popover__row-button')).not.toBeNull();
+    expect(link.closest('[role="link"]')).toBeNull();
   });
 
   it('clicking an unclustered feature WITH a subId still opens the observation popover (unchanged)', async () => {
