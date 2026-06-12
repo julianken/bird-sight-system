@@ -6,7 +6,7 @@ import {
   MissingGeminiKey,
   type BraintrustLoggerSeam,
 } from './traced.js';
-import { defaultRubricConfig } from '@bird-watch/photo-quality';
+import type { GeminiUsage } from './gemini.js';
 import type { ImageInput, SpeciesContext, JudgeOutput, VisionJudge } from '@bird-watch/photo-quality';
 
 const img: ImageInput = {
@@ -78,7 +78,7 @@ function makeRecordingLogger(clock?: () => number): RecordingLogger {
 describe('tracedJudge', () => {
   it('returns the inner output and records one span with input/output/metadata', async () => {
     const logger = makeRecordingLogger();
-    const judge = tracedJudge(new FakeJudge(), { project: 'bird-maps', model: 'gemini-2.5-flash', logger });
+    const judge = tracedJudge(new FakeJudge(), { project: 'bird-maps', model: 'gemini-2.5-flash', rubricVersion: '0.2.1', logger });
 
     const out = await judge.judge(img, ctx, PROMPT);
 
@@ -98,9 +98,12 @@ describe('tracedJudge', () => {
       model: 'gemini-2.5-flash',
       sourceUrl: 'https://example.test/amerob.jpg',
     });
-    // rubricVersion is the STABLE config version, NOT the full prompt body (#1015).
-    expect(inputLog!.input.rubricVersion).toBe(defaultRubricConfig.version);
-    expect(inputLog!.input.rubricVersion).not.toBe(PROMPT);
+    // judgedRubricVersion is the version the judge was INVOKED with (#1037: a
+    // stable tag from the caller, not defaultRubricConfig and not the prompt
+    // body) — alongside the dataset row's expectedRubricVersion it makes any
+    // future pin mismatch visible in Braintrust instead of silent.
+    expect(inputLog!.input.judgedRubricVersion).toBe('0.2.1');
+    expect(inputLog!.input.judgedRubricVersion).not.toBe(PROMPT);
 
     // output span-log: the full JudgeOutput.
     const outputLog = span.logs.find((l) => 'output' in l) as { output: JudgeOutput } | undefined;
@@ -120,7 +123,7 @@ describe('tracedJudge', () => {
 
   it('propagates an inner error and still closes the span', async () => {
     const logger = makeRecordingLogger();
-    const judge = tracedJudge(new ThrowingJudge(), { project: 'bird-maps', model: 'opus', logger });
+    const judge = tracedJudge(new ThrowingJudge(), { project: 'bird-maps', model: 'opus', rubricVersion: '0.2.1', logger });
 
     await expect(judge.judge(img, ctx, PROMPT)).rejects.toThrow('inner boom');
     expect(logger.spans).toHaveLength(1);
@@ -132,7 +135,7 @@ describe('tracedJudge', () => {
     let i = 0;
     const clock = () => ticks[Math.min(i++, ticks.length - 1)]!;
     const logger = makeRecordingLogger(clock);
-    const judge = tracedJudge(new FakeJudge(), { project: 'bird-maps', model: 'gemini-2.5-flash', logger });
+    const judge = tracedJudge(new FakeJudge(), { project: 'bird-maps', model: 'gemini-2.5-flash', rubricVersion: '0.2.1', logger });
 
     await judge.judge(img, ctx, PROMPT);
 
@@ -141,25 +144,85 @@ describe('tracedJudge', () => {
       | undefined;
     expect(metaLog!.metadata.latencyMs).toBe(250);
   });
+
+  // #1037 decision 5: the usage accessor feeds Braintrust's STANDARD token
+  // metric names. completion_tokens includes thinking tokens (they are output
+  // we pay for); total_tokens prefers the response's own totalTokenCount.
+  it('logs prompt/completion/total token metrics from the usage accessor', async () => {
+    const usage: GeminiUsage = { promptTokenCount: 1234, candidatesTokenCount: 56, thoughtsTokenCount: 10, totalTokenCount: 1300 };
+    const logger = makeRecordingLogger();
+    const judge = tracedJudge(new FakeJudge(), {
+      project: 'bird-maps', model: 'gemini-2.5-flash', rubricVersion: '0.2.1', logger,
+      usage: () => usage,
+    });
+
+    await judge.judge(img, ctx, PROMPT);
+
+    const metaLog = logger.spans[0]!.logs.find((l) => 'metrics' in l) as
+      | { metrics: Record<string, number> }
+      | undefined;
+    expect(metaLog!.metrics).toMatchObject({
+      prompt_tokens: 1234,
+      completion_tokens: 66, // candidates 56 + thoughts 10
+      total_tokens: 1300,
+    });
+    expect(typeof metaLog!.metrics.latency).toBe('number'); // latency still present
+  });
+
+  it('falls back to prompt+completion for total_tokens when totalTokenCount is absent', async () => {
+    const logger = makeRecordingLogger();
+    const judge = tracedJudge(new FakeJudge(), {
+      project: 'bird-maps', model: 'gemini-2.5-flash', rubricVersion: '0.2.1', logger,
+      usage: () => ({ promptTokenCount: 100, candidatesTokenCount: 20 }),
+    });
+
+    await judge.judge(img, ctx, PROMPT);
+
+    const metaLog = logger.spans[0]!.logs.find((l) => 'metrics' in l) as
+      | { metrics: Record<string, number> }
+      | undefined;
+    expect(metaLog!.metrics).toMatchObject({ prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 });
+  });
+
+  it('omits token metrics (keeping latency) when no usage is available', async () => {
+    const logger = makeRecordingLogger();
+    const judge = tracedJudge(new FakeJudge(), {
+      project: 'bird-maps', model: 'gemini-2.5-flash', rubricVersion: '0.2.1', logger,
+      usage: () => undefined,
+    });
+
+    await judge.judge(img, ctx, PROMPT);
+
+    const metaLog = logger.spans[0]!.logs.find((l) => 'metrics' in l) as
+      | { metrics: Record<string, number> }
+      | undefined;
+    expect(typeof metaLog!.metrics.latency).toBe('number');
+    expect(metaLog!.metrics).not.toHaveProperty('prompt_tokens');
+    expect(metaLog!.metrics).not.toHaveProperty('completion_tokens');
+    expect(metaLog!.metrics).not.toHaveProperty('total_tokens');
+  });
 });
 
 describe('resolveTracedJudge', () => {
   it('throws MissingGeminiKey when GEMINI_API_KEY is absent', () => {
-    expect(() => resolveTracedJudge({}, { project: 'bird-maps', model: 'gemini-2.5-flash' })).toThrow(
-      MissingGeminiKey,
-    );
+    expect(() =>
+      resolveTracedJudge({}, { project: 'bird-maps', model: 'gemini-2.5-flash', rubricVersion: '0.2.1' }),
+    ).toThrow(MissingGeminiKey);
   });
 
   it('throws MissingBraintrustKey when only GEMINI_API_KEY is present', () => {
     expect(() =>
-      resolveTracedJudge({ GEMINI_API_KEY: 'g' }, { project: 'bird-maps', model: 'gemini-2.5-flash' }),
+      resolveTracedJudge(
+        { GEMINI_API_KEY: 'g' },
+        { project: 'bird-maps', model: 'gemini-2.5-flash', rubricVersion: '0.2.1' },
+      ),
     ).toThrow(MissingBraintrustKey);
   });
 
   it('returns a traced VisionJudge when both keys are present', () => {
     const judge = resolveTracedJudge(
       { GEMINI_API_KEY: 'g', BRAINTRUST_API_KEY: 'b' },
-      { project: 'bird-maps', model: 'gemini-2.5-flash' },
+      { project: 'bird-maps', model: 'gemini-2.5-flash', rubricVersion: '0.2.1' },
     );
     expect(typeof judge.judge).toBe('function');
   });
