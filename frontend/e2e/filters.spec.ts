@@ -81,7 +81,7 @@ test.describe('filter flows', () => {
 
     // Close via close button, re-check dimensions.
     await page.getByRole('button', { name: /Close filters/i }).click();
-    await expect(page.getByRole('region', { name: 'Filters' })).not.toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Filters' })).not.toBeVisible();
     const boxClosed = await mapLayer.boundingBox();
     expect(boxClosed).not.toBeNull();
 
@@ -94,23 +94,23 @@ test.describe('filter flows', () => {
 
   test('backdrop click dismisses the filters panel', async ({ page }) => {
     // Panel is open from beforeEach.
-    await expect(page.getByRole('region', { name: 'Filters' })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Filters' })).toBeVisible();
 
     // Click the backdrop (data-testid="filters-backdrop").
     await app.filtersBackdrop.click();
 
     // Panel should no longer be visible.
-    await expect(page.getByRole('region', { name: 'Filters' })).not.toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Filters' })).not.toBeVisible();
     // Backdrop should also be gone (conditionally rendered).
     await expect(app.filtersBackdrop).not.toBeAttached();
   });
 
   test('Escape key dismisses the filters panel', async ({ page }) => {
     // Panel is open from beforeEach.
-    await expect(page.getByRole('region', { name: 'Filters' })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Filters' })).toBeVisible();
 
     await page.keyboard.press('Escape');
 
-    await expect(page.getByRole('region', { name: 'Filters' })).not.toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Filters' })).not.toBeVisible();
   });
 });

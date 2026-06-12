@@ -9,7 +9,7 @@ export class FiltersBar {
 
   constructor(page: Page) {
     // Phase 3: FiltersBar is rendered inside a filters panel
-    // (`<div class="filters-panel" role="region" aria-label="Filters">`)
+    // (`<div class="filters-panel" role="dialog" aria-label="Filters">`)
     // that is only mounted when the user opens the Filters drawer via the
     // AppHeader trigger. Scope every locator to that panel so locators
     // resolve only when the panel is open, giving a clear "element not
@@ -17,7 +17,9 @@ export class FiltersBar {
     // every getByLabel call is preserved as a belt-and-braces precaution
     // against ambient label collisions (header buttons, modal contents,
     // future tablist entries).
-    const panel = page.getByRole('region', { name: 'Filters' });
+    // #1033 C51: upgraded from role="region" to role="dialog" so that
+    // aria-haspopup="dialog" on the trigger is truthful.
+    const panel = page.getByRole('dialog', { name: 'Filters' });
     this.timeWindow = panel.getByLabel('Time window', { exact: true });
     this.notableOnly = panel.getByLabel('Notable only', { exact: true });
     this.family = panel.getByLabel('Family', { exact: true });

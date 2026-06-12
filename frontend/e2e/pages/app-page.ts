@@ -138,7 +138,8 @@ export class AppPage {
     // #800: appHeaderTabs removed — no tablist in the new corner-card header.
     this.filtersTrigger = this.appHeader.getByRole('button', { name: /^Filters/ });
     this.themeToggle = this.appHeader.getByRole('button', { name: /Switch to (light|dark) theme/ });
-    this.attributionTrigger = this.appHeader.getByRole('button', { name: /Credits & attribution/ });
+    // #1033 V1/V18: label shortened to "Credits" (was "Credits & attribution")
+    this.attributionTrigger = this.appHeader.getByRole('button', { name: /Credits/ });
 
     // Chooser (#742) — region accessible name "Choose where to look at birds".
     this.chooser = page.getByRole('region', { name: 'Choose where to look at birds' });
@@ -207,7 +208,8 @@ export class AppPage {
    * until the test ends or the Close button is clicked.
    */
   async openFilters(): Promise<void> {
-    const panel = this.page.getByRole('region', { name: 'Filters' });
+    // #1033 C51: filters panel upgraded from role="region" to role="dialog"
+    const panel = this.page.getByRole('dialog', { name: 'Filters' });
     // Guard: if the panel is already visible (e.g., test parallelism left it
     // open from a prior interaction in the same browser context), skip the
     // trigger click to avoid a double-open no-op that could race on slow CI.

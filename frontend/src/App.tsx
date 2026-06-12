@@ -1313,9 +1313,10 @@ export function App() {
           The backdrop covers the viewport at `--z-modal - 1` so it is below the
           sheet but above map overlays; clicking it dismisses the sheet.
           `inert` on #map-layer is managed by the useLayoutEffect above.
-          The `role="region" aria-label="Filters"` accessible name is preserved
-          exactly — the POM and history-nav.spec.ts resolve via
-          `getByRole('region', { name: 'Filters' })`. */}
+          The panel is `role="dialog" aria-modal="true" aria-label="Filters"`
+          (#1033 C51 — was role="region", upgraded so aria-haspopup="dialog"
+          on the trigger is truthful). The POM and e2e specs resolve via
+          `getByRole('dialog', { name: 'Filters' })`. */}
       {filtersOpen && (
         <>
           <div
@@ -1326,8 +1327,9 @@ export function App() {
           <div
             ref={filtersPanelRef}
             className="filters-panel t-filters-enter"
-            role="region"
+            role="dialog"
             aria-label="Filters"
+            aria-modal="true"
           >
             {/* Shared sheet-header × (#1026): the same bare-× affordance the
                 detail sheet now uses. No grabber — the filters surface is a
