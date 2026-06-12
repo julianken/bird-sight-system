@@ -19,6 +19,7 @@ import {
 import { analytics } from '../analytics.js';
 import { SpeciesDescription } from './SpeciesDescription.js';
 import { Photo } from './ds/Photo.js';
+import { SheetHeader } from './ds/SheetHeader.js';
 import type { FamilyCode } from '../config/family-palette.js';
 
 export type SnapState = 'peek' | 'half' | 'full';
@@ -39,6 +40,13 @@ const VELOCITY_FLICK_PX_PER_MS = 0.5;
 // The sheet can shrink below peek during a downward drag toward the dismiss
 // threshold; it never renders shorter than this.
 const DRAG_MIN_HEIGHT_PX = 56;
+// Drag slop (#431). Below this many px of travel from the pointerdown anchor
+// the gesture is treated as a tap, not a drag: NEITHER the `moved` flag (which
+// suppresses the post-drag click) NOR the live-height translation engages, so a
+// finger that jiggles a few px on a tap does not nudge the sheet ("drag-start
+// jiggle"). The old 4px threshold gated only `moved` (click suppression) — the
+// translation still started on the FIRST pointermove. 6px gates BOTH.
+const DRAG_SLOP_PX = 6;
 const order: SnapState[] = ['peek', 'half', 'full'];
 
 // Content-tier hysteresis. The visible content tier ([data-content]) is driven
@@ -397,20 +405,54 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
     else closeWithRestore();
   }, [snap, goToSnap, closeWithRestore]);
 
-  // ESC scoped: only collapse when focus is inside the sheet. If focus
-  // is on a map element (cluster button), MapLibre handles ESC itself.
+  // Escape DISMISSES the sheet (#1026) — matching the desktop rail
+  // (SpeciesDetailRail) and the filters sheet (App.tsx), NOT the old
+  // stepwise-collapse-by-detent behavior. WCAG no-keyboard-trap: the prior
+  // handler early-returned unless focus was inside the sheet, so Escape did
+  // nothing in the normal post-open state (focus on body/map) — a trap.
+  //
+  // BUBBLE phase (NOT capture): the scope popover claims Escape via
+  // stopPropagation() on a React synthetic handler (AppHeader), which fires at
+  // the React root BELOW document; a capture-phase document listener would beat
+  // it and defeat that claim. On the bubble phase, the scope popover's
+  // stopPropagation halts the event before it reaches this document listener.
+  //
+  // Bail in exactly three cases, else closeWithRestore() + preventDefault():
+  //   1. e.defaultPrevented — an inner widget already claimed the key.
+  //   2. focus is inside an open native <dialog> — the Credits modal closes
+  //      NATIVELY on Escape without setting defaultPrevented; without this guard
+  //      one keypress would close the modal AND the sheet. (A native <dialog>'s
+  //      implicit role is NOT matched by closest('[role="dialog"]'), so guard 3
+  //      can't cover it — this separate closest('dialog') check is required.)
+  //   3. focus is inside any [role="dialog"] surface OR inside the map layer
+  //      (mainRef). The map half preserves MapLibre-controls Escape intent. The
+  //      [role="dialog"] half covers the Cell/ClusterList popovers: they portal
+  //      to document.body so mainRef containment can't reach them; their own
+  //      Escape handlers don't preventDefault and register after this one, so
+  //      without the guard one keypress would double-close popover + sheet. Both
+  //      popovers focus their heading on mount, so closest('[role="dialog"]') is
+  //      truthy whenever one is open.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      const sheet = sheetRef.current;
-      if (!sheet) return;
-      if (!sheet.contains(document.activeElement)) return;
-      collapse();
+      // 1. Already handled by an inner widget.
+      if (e.defaultPrevented) return;
+      const active = document.activeElement;
+      // 2. Inside an open native <dialog> (Credits) — it closes natively.
+      const nativeDialog = active?.closest?.('dialog');
+      if (nativeDialog instanceof HTMLDialogElement && nativeDialog.open) return;
+      // 3. Inside an explicit dialog-role surface (portaled popovers) OR the map.
+      //    Exclude the sheet's OWN root, which carries role="dialog" at full —
+      //    a focus-inside-sheet Escape must DISMISS, not bail on its own role.
+      const dialogAncestor = active?.closest?.('[role="dialog"]');
+      if (dialogAncestor && dialogAncestor !== sheetRef.current) return;
+      if (mainRef.current?.contains(active)) return;
+      closeWithRestore();
       e.preventDefault();
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [collapse]);
+  }, [closeWithRestore, mainRef]);
 
   // Height-driven 1:1 drag. Bound on the handle only (touch-action discipline
   // unchanged — .sheet-handle owns the gesture; .sheet-fg keeps native pan-y).
@@ -460,7 +502,12 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
       d.vy = (e.clientY - d.lastY) / dt; // px/ms, positive = moving down
       d.lastY = e.clientY;
       d.lastT = now;
-      if (Math.abs(e.clientY - d.startY) > 4) d.moved = true;
+      // #431 drag-slop: until the finger has travelled past DRAG_SLOP_PX from the
+      // anchor, treat the gesture as a tap — do NOT set `moved` and do NOT start
+      // the translation (the height holds at the detent). This kills the
+      // drag-start jiggle a sub-threshold tap-drag used to produce.
+      if (Math.abs(e.clientY - d.startY) <= DRAG_SLOP_PX) return;
+      d.moved = true;
       // Drag up (clientY decreases) grows the sheet; drag down shrinks it.
       const grow = d.startY - e.clientY;
       const maxH = heightFor('full');
@@ -720,28 +767,41 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
       >
         {liveMessage}
       </div>
-      <button
-        ref={handleRef}
-        type="button"
-        data-testid="species-detail-sheet-handle"
-        className="sheet-handle"
-        aria-label={isFull ? 'Collapse species detail' : 'Expand species detail'}
-        onClick={() => {
-          // Suppress the click that fires after a drag (pointerup → click).
-          // A pure tap (no movement) still expands/collapses as a fallback.
-          if (didDragRef.current) {
-            didDragRef.current = false;
-            return;
-          }
-          (isFull ? collapse : expand)();
-        }}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-      >
-        <span aria-hidden="true" className="sheet-handle-grip" />
-      </button>
+      {/* Shared sheet header (#1026): grabber (the pointer-wired drag handle) +
+          bare × close, the same affordance vocabulary the filters sheet adopts.
+          The grabber is handed in as a slot so this sheet keeps full ownership
+          of the drag/snap/inert wiring (refs, pointer handlers, tap-toggle).
+          The × is the single-pointer, non-drag dismissal (WCAG 2.5.7); it runs
+          through closeWithRestore so #910 focus-restore holds on this path too,
+          and it is visible at every snap (the SheetHeader is always rendered). */}
+      <SheetHeader
+        closeLabel="Close species detail"
+        onClose={closeWithRestore}
+        grabber={
+          <button
+            ref={handleRef}
+            type="button"
+            data-testid="species-detail-sheet-handle"
+            className="sheet-handle"
+            aria-label={isFull ? 'Collapse species detail' : 'Expand species detail'}
+            onClick={() => {
+              // Suppress the click that fires after a drag (pointerup → click).
+              // A pure tap (no movement) still expands/collapses as a fallback.
+              if (didDragRef.current) {
+                didDragRef.current = false;
+                return;
+              }
+              (isFull ? collapse : expand)();
+            }}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
+          >
+            <span aria-hidden="true" className="sheet-handle-grip" />
+          </button>
+        }
+      />
       {/* Field-guide body: TWO stable layout pages cross-dissolved by recipe #08
           (page-side-by-side). data-page selects the active page; the inactive
           page is opacity:0 + pointer-events:none + a short translate/blur per
