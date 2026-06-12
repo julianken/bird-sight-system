@@ -1603,7 +1603,13 @@ body:has(.species-detail-sheet--peek) .family-legend {
 .observation-popover-detail-link:hover,
 .observation-popover-detail-link:focus-visible {
   color: var(--color-accent-notable-fg);
-  outline: none;
+}
+/* #1031 (C49, WCAG 2.4.7 + 1.4.1): keyboard focus must be visible and
+   distinguishable from hover. The prior `outline: none` left focus shown by
+   text color alone — identical to hover. Restore the shared focus recipe. */
+.observation-popover-detail-link:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
 }
 
 /* ==========================================================================
