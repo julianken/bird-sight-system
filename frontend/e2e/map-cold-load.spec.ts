@@ -117,9 +117,10 @@ test.describe('Map cold load — issue #716', () => {
     await expect(lede).toBeVisible({ timeout: 10_000 });
     // #828: the lede is count-only — no region, no time-window. The misleading
     // filter-empty copy must still never appear after a successful cold load.
+    // #1047: lede always reports sightings.
     await expect(lede).not.toHaveText(/No matches for these filters/i);
     await expect(lede).not.toHaveText(/No sightings match your current filters/i);
-    await expect(lede).toHaveText(/^\d+ species$/);
+    await expect(lede).toHaveText(/^\d+ sightings$/);
   });
 
   /**
@@ -187,7 +188,7 @@ test.describe('Map cold load — issue #716', () => {
     // Release observations; the real lede now renders.
     releaseObservations?.();
     await expect(lede).toBeVisible({ timeout: 10_000 });
-    // #828: count-only lede — no region, no time-window.
-    await expect(lede).toHaveText(/^\d+ species$/);
+    // #828: count-only lede — no region, no time-window. #1047: sightings.
+    await expect(lede).toHaveText(/^\d+ sightings$/);
   });
 });

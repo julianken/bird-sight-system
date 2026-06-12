@@ -124,7 +124,8 @@ test.describe('ZIP scope round-trip + empty-region + error paths (D6, #741)', ()
     }
     // AZ has data → the count-only lede reads a populated region (#828: the
     // region moved to the wordmark headline, so the lede no longer names it).
-    await expect(app.mapLede).toHaveText(/^\d+ (species|sightings of .+)$/);
+    // #1047: lede always reports sightings in both aggregation modes.
+    await expect(app.mapLede).toHaveText(/^\d+ sightings( of .+)?$/);
     await expect(app.mapLede).not.toContainText('No recent sightings');
   });
 
