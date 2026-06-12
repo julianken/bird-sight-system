@@ -1952,14 +1952,16 @@ describe('#864 — lone unclustered bucket silhouette opens its real species', (
     expect(familyToggle).toHaveTextContent('Tyrant Flycatchers (7)');
 
     // Expand → the real common name (resolved via the dictionary) renders, with
-    // a working species link (non-null code ⇒ <a role="link">).
+    // a working species control. #1031 (C54): the row is a native <button> now
+    // (was `<a role="link">`) — correct AT announcement + free Enter/Space.
     await act(async () => {
       fireEvent.click(familyToggle.querySelector('button') ?? familyToggle);
       await Promise.resolve();
     });
     const link = screen.getByText(/Western Wood-Pewee/);
     expect(link).toBeInTheDocument();
-    expect(link.closest('[role="link"]')).not.toBeNull();
+    expect(link.closest('button.cluster-list-popover__row-button')).not.toBeNull();
+    expect(link.closest('[role="link"]')).toBeNull();
   });
 
   it('clicking an unclustered feature WITH a subId still opens the observation popover (unchanged)', async () => {
