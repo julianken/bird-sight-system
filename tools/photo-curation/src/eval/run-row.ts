@@ -39,7 +39,7 @@ export interface RunRowInput {
 
 /** The injected collaborators a `runRow` call needs. */
 export interface RunRowDeps {
-  /** The (traced) judge to score the image with. */
+  /** The (instrumented) judge to score the image with. */
   judge: VisionJudge;
   /** Reads a LOCAL image path into an `ImageInput` (buffer + mime). */
   readImage: (readPath: string) => ImageInput;
