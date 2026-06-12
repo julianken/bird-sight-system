@@ -740,10 +740,52 @@ body {
   }
 }
 
-/* ThemeToggle button inside the controls pill (plain <button> via ThemeToggle). */
+/* ThemeToggle button inside the controls pill (plain <button> via ThemeToggle).
+   #1033 C52: shared baseline sizing + focus ring to match pill siblings;
+   coarse-pointer 44px floor replaces the old max-width:480px floor so iPad
+   portrait/landscape also get a reachable target on touch-primary devices. */
 .app-header-controls-pill button {
-  /* touch targets set in @media (max-width: 480px) block */
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--card-radius-inner);
+  padding: var(--space-xs) var(--space-sm);
+  font: inherit;
+  color: var(--color-text-body);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  min-width: 36px;
 }
+.app-header-controls-pill button:hover {
+  background: var(--color-bg-tint);
+}
+.app-header-controls-pill button:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+}
+/* #1033 V10: active-theme treatment — subtle bg tint, no border (was a
+   boxed style that made the toggle look permanently pressed). Uses
+   aria-pressed so the visual state is anchored to the semantic state.
+   In dark mode (V37): ghost treatment — card-fill bg + light icon, no
+   solid-inverted fill. --color-bg-tint is slightly lighter than the card
+   in both modes and provides enough contrast without being the brightest
+   element in the dark frame. */
+.app-header-controls-pill button[aria-pressed="true"] {
+  background: var(--color-bg-tint);
+  border-color: transparent;
+}
+/* C52: coarse-pointer 44px floor (covers iPad touch, not just ≤480px phones). */
+@media (pointer: coarse) {
+  .app-header-controls-pill button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+/* Keep the old max-width:480px floor as a fallback for fine-pointer small
+   screens (e.g. a resized desktop window) — belt-and-braces. */
 @media (max-width: 480px) {
   .app-header-controls-pill button {
     min-height: 44px;

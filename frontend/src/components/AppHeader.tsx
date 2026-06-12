@@ -30,8 +30,11 @@
  *        attribution and recency isn't worth a permanent line on a minimized card.
  *
  *   TOP-RIGHT controls pill (.app-header-controls-pill) — compact content-width card:
- *     Filters trigger (+ active-count badge) · Attribution · Theme toggle.
- *     Filters is a labeled button at ≥1024, icon-only below.
+ *     Filters trigger (+ active-count badge) · ⓘ Credits · Theme toggle.
+ *     Order: Filters first per spec §3/§5.2 (#1033 V1/V18).
+ *     Filters shows a text label at ≥1024, icon-only below.
+ *     ⓘ Credits is icon-only at ALL widths (#1033 V1/V18 — the always-visible
+ *     bottom-right pill already carries eBird/OpenFreeMap credit).
  *
  * The old `role="tablist"` / `TABS` / `activeView` / `onSelectView` machinery is
  * entirely removed — the map is the always-mounted sole surface post-#688/#777.
@@ -41,8 +44,8 @@
  *   in the wordmark line and the scope form is collapsed behind the disclosure —
  *   so the layout is near-identical across the canonical viewport set. The only
  *   per-breakpoint variation is in the top-right controls pill:
- *   wide (≥1024): Filters/Attribution show text labels; corner insets use --card-inset-wide.
- *   roomy/compact (<1024): Filters/Attribution are icon-only; standard --card-inset gutters.
+ *   wide (≥1024): Filters shows text label; corner insets use --card-inset-wide.
+ *   roomy/compact (<1024): Filters is icon-only; standard --card-inset gutters.
  *
  * Lede prop (O3 #779 / #828) — carried from MapSurface into AppHeader so the
  * formerly invisible context-strip content renders in the identity card:
@@ -97,7 +100,7 @@ export interface AppHeaderProps {
    * is reliably non-null whenever the useLayoutEffect close path fires.
    */
   filtersTriggerRef: RefObject<HTMLButtonElement>;
-  /** Open the Credits & Attribution modal. */
+  /** Open the Credits modal (ⓘ trigger in the controls pill). */
   onOpenAttribution: () => void;
   // ── Lede / context-strip props (O3 #779 / #828) ─────────────────────────
   /**
