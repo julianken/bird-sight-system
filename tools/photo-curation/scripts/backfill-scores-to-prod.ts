@@ -72,6 +72,19 @@ function parseJsonColumn<T>(raw: string | null): T | null {
 }
 
 /**
+ * Map the SQLite INTEGER `keep` flag (0/1) to a boolean. `keep` is NOT NULL in
+ * the source schema, so a NULL here is a data-integrity violation — fail loud
+ * (matching `parseJsonColumn`'s posture) rather than silently coercing it to
+ * `false`, which would flip a missing-data row into a confident "replace".
+ */
+function parseKeep(keep: number | null, speciesCode: string): boolean {
+  if (keep == null) {
+    throw new Error(`backfill-scores: NULL keep for species '${speciesCode}' (keep is NOT NULL in review.sqlite — refusing to coerce to false).`);
+  }
+  return keep !== 0;
+}
+
+/**
  * PURE: project a review.sqlite `role='current'` row onto a `PhotoScoreRow`,
  * applying the locked provenance mapping. Unit-tested — no SQLite, no network.
  */
@@ -82,7 +95,7 @@ export function mapRow(row: ReviewScoreRow): PhotoScoreRow {
     contentHash: row.content_hash,
     model,
     rubricVersion: RUBRIC_VERSION,
-    keep: Boolean(row.keep),
+    keep: parseKeep(row.keep, row.species_code),
     qualityScore: row.quality_score,
     criteria: parseJsonColumn<Record<string, number>>(row.criteria_json),
     fieldMarks: parseJsonColumn<string[]>(row.field_marks),

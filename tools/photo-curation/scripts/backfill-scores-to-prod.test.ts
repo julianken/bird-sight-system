@@ -110,6 +110,11 @@ describe('mapRow — provenance + field mapping (locked)', () => {
     // Non-det-gate (null rationale) defaults to the Opus pin.
     expect(out.model).toBe(OPUS_MODEL);
   });
+
+  it('fails loud on a NULL keep (NOT NULL in the source schema) instead of coercing to false', () => {
+    const nullKeep: ReviewScoreRow = { ...opusRow, species_code: 'badrow', keep: null };
+    expect(() => mapRow(nullKeep)).toThrow(/NULL keep for species 'badrow'/);
+  });
 });
 
 describe('runBackfill — summary + idempotency (injected insert, no network)', () => {
