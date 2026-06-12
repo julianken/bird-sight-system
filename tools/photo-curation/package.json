@@ -9,7 +9,8 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
-    "curate": "tsx src/cli.ts"
+    "curate": "tsx src/cli.ts",
+    "eval": "bt eval eval/photo-judge.eval.ts"
   },
   "dependencies": {
     "@bird-watch/ingestor": "*",

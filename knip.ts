@@ -321,10 +321,25 @@ const config: KnipConfig = {
       //             deleted but its script left on disk. Re-audit 2026-07-27 —
       //             confirm public/pending-swaps.html still references it (grep
       //             `src="/pending-swaps.js"`).
+      //
+      // 2026-06-11 (#1015, C5): eval/photo-judge.eval.ts is the Braintrust eval
+      //             entry, invoked ONLY via the package "eval" script's shell
+      //             string `bt eval eval/photo-judge.eval.ts` — `bt` is the
+      //             Braintrust CLI runner; knip cannot trace a binary's
+      //             shell-string argument, so it flags the file as unused
+      //             (same class as the workflows/*.mjs Workflow-tool entries
+      //             above). It lives OUTSIDE src/ (the tsconfig rootDir), is not
+      //             a tsc target, and is not a vitest target; its testable core
+      //             (the row→judge mapping) is covered by src/eval/run-row.test.ts.
+      //             Risk: masks a genuinely orphaned eval file if the "eval"
+      //             script is ever removed but the file left on disk. Re-audit
+      //             2026-07-27 — confirm package.json still has the "eval" script
+      //             pointing at this path.
       ignore: [
         'workflows/score-current.mjs', 'workflows/source-candidates.mjs',
         'public/overview.js', 'public/swap.js', 'public/theme.js',
         'public/pending-swaps.js',
+        'eval/photo-judge.eval.ts',
       ],
     },
   },
