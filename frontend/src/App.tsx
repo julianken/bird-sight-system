@@ -1015,10 +1015,11 @@ export function App() {
   //       of the wrapper. Replicates the attribute-toggle pattern that
   //       SpeciesDetailSheet.tsx uses via the mapLayerRef prop (O1 unified target).
   //   (5a) Move initial focus into the scrim on mount — `inert` alone does NOT
-  //       move focus, it only removes a subtree from the tab order. The focus
-  //       landing target is the scrim wrapper itself (it carries `tabIndex={-1}`
-  //       in the JSX below); the focus unit test keys off `scrimRef`/that
-  //       wrapper holding focus.
+  //       move focus, it only removes a subtree from the tab order. A5 (#1034):
+  //       focus target is the ZIP input (first field), not the scrim wrapper.
+  //       Focusing the wrapper painted a UA blue full-viewport outline (V14
+  //       major). The wrapper carries `tabIndex={-1}` as a fallback escape
+  //       hatch only (the Tab-trap still uses scrim.focus() as last resort).
   //   (5b) Trap Tab/Shift+Tab so focus cycles within the chooser and never
   //       escapes. `inert` on #map-layer covers the map subtree, but the
   //       ALWAYS-rendered shell now also mounts the <AppHeader> (wordmark,
@@ -1047,11 +1048,16 @@ export function App() {
     const focusables = (): HTMLElement[] =>
       Array.from(scrim.querySelectorAll<HTMLElement>(focusableSelector));
 
-    // (5a) Move initial focus onto the scrim wrapper (the tabIndex={-1}
-    // landing element). Keeping it on the wrapper rather than the first control
-    // avoids stealing focus into the ZIP <input> on every render and matches
-    // the focus unit test's target.
-    scrim.focus();
+    // (5a) Move initial focus to the ZIP input — the first interactive field
+    // on the landing. A5 (#1034): previously focused the scrim wrapper itself
+    // (tabIndex={-1}), which painted a UA blue full-viewport outline (V14
+    // major). Focus the ZIP input directly so the ring appears on the field
+    // (correct a11y: focus belongs on the first field). Falls back to the
+    // first focusable inside the scrim, and then to the scrim itself if the
+    // ZIP input is not yet mounted.
+    const zipInput = scrim.querySelector<HTMLElement>('input[aria-label="ZIP code"]');
+    const initialTarget = zipInput ?? focusables()[0] ?? scrim;
+    initialTarget.focus();
 
     // (5b) Wrap Tab / Shift+Tab between the first and last focusable controls.
     const onKeyDown = (e: KeyboardEvent): void => {
