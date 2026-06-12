@@ -28,10 +28,16 @@ from the photo-curation run-worktree**, not from CI:
 - **`thumb-cache/<species_code>.{jpg,png,webp}`** — the cached current
   thumbnails the Opus pass scored. No re-download.
 - A Gemini API key (free tier is fine) and a Braintrust API key.
-- `npm install` at the repo root, and the workspace dep chain built once
-  (`npm run build -w @bird-watch/photo-quality`) so `@bird-watch/photo-quality`
-  resolves. `bt eval` runs the TypeScript entry directly via the auto-detected
-  `tsx` runner — no separate build of the eval file is needed.
+- `npm install` at the repo root, and the full workspace dep chain built once.
+  `@bird-watch/photo-curation` depends on `@bird-watch/ingestor` (and
+  `@bird-watch/photo-quality` / `@bird-watch/shared-types`), and `ingestor`
+  pulls in `@bird-watch/db-client` — so building only
+  `@bird-watch/photo-quality` leaves the eval's `import`s unresolved. Run the
+  root `npm run build` (it builds the chain in order:
+  shared-types → db-client → photo-quality → ingestor → …), or build that
+  prefix explicitly. (`@bird-watch/geo`, also a transitive dep, is source-only
+  with no build step.) `bt eval` then runs the TypeScript entry directly via the
+  auto-detected `tsx` runner — no separate build of the eval file is needed.
 
 ## Environment variables
 
@@ -75,9 +81,13 @@ The package also exposes `npm run eval -w @bird-watch/photo-curation`
 (`bt eval eval/photo-judge.eval.ts`); pass flags after `--`, e.g.
 `npm run eval -w @bird-watch/photo-curation -- --first 5 --env-file .env.local`.
 
-> **Pacing.** The Gemini judge paces itself to ≤ 10 RPM (≈ 6 s/call), so a
-> 150-row run takes on the order of 15 minutes of wall clock. That is expected —
-> do not parallelize around the pacer.
+> **Pacing.** The eval runs **serially** (`maxConcurrency: 1`) over **one
+> shared** traced judge, so that judge's single `Pacer` gates the whole run to
+> ≤ 10 RPM (≈ 6 s/call) — a 150-row run takes on the order of 15 minutes of wall
+> clock. That serial single-judge wiring is what keeps the run inside Gemini's
+> free tier (per-row judges would each reset the pacer; unbounded concurrency
+> would race it). That is expected — do not parallelize around the pacer or
+> construct a judge per row.
 
 ### Reading the result
 

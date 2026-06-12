@@ -28,7 +28,7 @@
 
 import { readFileSync } from 'node:fs';
 import { Eval } from 'braintrust';
-import { defaultRubricConfig, type ImageInput } from '@bird-watch/photo-quality';
+import { defaultRubricConfig, type ImageInput, type VisionJudge } from '@bird-watch/photo-quality';
 import { openDb } from '../src/db.js';
 import { buildEvalRows } from '../src/eval/build-dataset.js';
 import { resolveTracedJudge } from '../src/judges/index.js';
@@ -54,18 +54,30 @@ function readImage(imagePath: string): ImageInput {
   return { buffer: readFileSync(imagePath), mime: mimeFromUrl(imagePath), sourceUrl: imagePath };
 }
 
+// ── Single shared judge (the pacing fix, #1015 review) ───────────────────────
+// The judge owns the per-instance `Pacer` (src/judges/gemini.ts → ../pacing.ts).
+// Constructing one judge PER ROW would reset that Pacer on every call, defeating
+// the ≤10 RPM / 6 s-per-call gate the runbook promises — a 150-row `bt eval`
+// would burst unpaced and trip Gemini's free-tier RPM/RPD with 429s. So we build
+// the judge EXACTLY ONCE and share the instance (hence the single Pacer) across
+// all rows. Memoized via a getter so it is NOT constructed at import time:
+// `resolveTracedJudge` fails loud on a missing key, and `bt eval --list` /
+// dataset introspection must not throw before the keys are even needed.
+let _judge: VisionJudge | undefined;
+const getJudge = (): VisionJudge =>
+  (_judge ??= resolveTracedJudge(process.env, { project: 'bird-maps', model: 'gemini-2.5-flash' }));
+
 Eval('bird-maps', {
   data: () => buildEvalRows(openDb(REVIEW_DB), { thumbDir: THUMB_DIR, sample: EVAL_SAMPLE }),
+  // Rows run SERIALLY (one at a time): the shared judge's single Pacer enforces
+  // the 6 s gate globally only if rows don't race it. Braintrust's default
+  // concurrency is unbounded, so we pin it to 1 — without this, concurrent rows
+  // sharing one Pacer could still burst past the RPM cap.
+  maxConcurrency: 1,
   // Braintrust calls task(input, hooks) — the first positional arg is the row's
-  // `input` value. resolveTracedJudge fails loud on a missing GEMINI/BRAINTRUST key.
+  // `input` value. `getJudge()` lazily builds the ONE shared judge (fails loud on
+  // a missing GEMINI/BRAINTRUST key) and reuses it for every row.
   task: (input) =>
-    runRow(
-      {
-        judge: resolveTracedJudge(process.env, { project: 'bird-maps', model: 'gemini-2.5-flash' }),
-        readImage,
-        prompt: defaultRubricConfig.judgePrompt,
-      },
-      input,
-    ),
+    runRow({ judge: getJudge(), readImage, prompt: defaultRubricConfig.judgePrompt }, input),
   scores: [keepAgreement, scoreMAE, keepConfusion],
 });
