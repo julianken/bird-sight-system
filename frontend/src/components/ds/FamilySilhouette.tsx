@@ -23,10 +23,34 @@
  *       docs/design/01-spec/accessibility.md (WCAG 1.4.1 shape encoding)
  */
 import type { ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import { getFamilyChannel } from '../../config/family-palette.js';
 import type { FamilyCode, ShapeVariant } from '../../config/family-palette.js';
 
 export type SilhouetteLayout = 'inline' | 'masthead' | 'thumb';
+
+/**
+ * Quote + escape a URL for safe use inside a CSS `url("...")` token.
+ *
+ * The mask custom property was previously interpolated as a bare
+ * `url(${imgUrl})`. A URL containing `)`, whitespace, `"`, or `\` (legal in a
+ * URL but CSS-token-significant) would truncate or invalidate the token,
+ * silently breaking the mask paint. We emit a double-quoted url() and escape
+ * the four characters that can break out of a double-quoted CSS string:
+ * backslash (escape char itself), double-quote (string delimiter), and the
+ * raw newline characters CSS strings may not contain literally. `)`/whitespace
+ * are safe *inside* a quoted string, but we escape `)` and newlines defensively
+ * so the value is robust regardless of where a consumer interpolates it.
+ */
+function cssUrl(rawUrl: string): string {
+  const escaped = rawUrl
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\)/g, '\\)')
+    .replace(/\n/g, '\\A ')
+    .replace(/\r/g, '\\D ');
+  return `url("${escaped}")`;
+}
 
 export interface FamilySilhouetteProps {
   /** FamilyCode string or null. Unknown codes fall back to the null-family neutral path. */
@@ -117,7 +141,40 @@ export function FamilySilhouette({
   // This lets one uploaded asset render tinted with each family's color
   // without per-color asset variants. Map's SDF pipeline ignores imgUrl and
   // reads pathD (sprite registration is synchronous at map init).
-  if (imgUrl) {
+  //
+  // Graceful degradation (#1028): CSS `mask-image` exposes NO load event, so a
+  // dead/blocked mask URL (404, CSP, mixed-content, cert, bad content-type)
+  // would paint a bare invisible span — the exact bug behind 7 blank AZ legend
+  // rows. We preload the URL via `new Image()` and, on `onerror`, flip
+  // `maskFailed` so the render falls through to the inline `<svg>` (the curated
+  // pathD when present, else the FAMILY_PATHS placeholder). The mask renders
+  // OPTIMISTICALLY on first paint (SSR-safe — the effect only runs client-side),
+  // so a healthy CDN paints with zero flicker; only a real failure swaps to svg.
+  //
+  // Hooks must run unconditionally (Rules of Hooks), so this state lives above
+  // every early return even though it is only consumed on the imgUrl branch.
+  const [maskFailed, setMaskFailed] = useState(false);
+  useEffect(() => {
+    if (!imgUrl) return;
+    // Re-arm on each new URL: a fresh URL is a fresh attempt.
+    setMaskFailed(false);
+    let cancelled = false;
+    const probe = new Image();
+    probe.onload = () => {
+      // Healthy mask — keep the optimistic span. (No state change needed.)
+    };
+    probe.onerror = () => {
+      if (!cancelled) setMaskFailed(true);
+    };
+    probe.src = imgUrl;
+    return () => {
+      cancelled = true;
+      probe.onload = null;
+      probe.onerror = null;
+    };
+  }, [imgUrl]);
+
+  if (imgUrl && !maskFailed) {
     const resolvedColor = color ?? '#5a6472';
     return (
       <span
@@ -126,7 +183,7 @@ export function FamilySilhouette({
         data-family={String(family)}
         data-layout={layout}
         style={{
-          ['--family-silhouette-mask' as string]: `url(${imgUrl})`,
+          ['--family-silhouette-mask' as string]: cssUrl(imgUrl),
           ['--family-silhouette-color' as string]: resolvedColor,
         } as React.CSSProperties}
         aria-label={ariaLabel}
