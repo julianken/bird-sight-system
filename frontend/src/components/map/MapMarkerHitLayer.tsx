@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { prettyFamily } from '../../derived.js';
 
 /**
@@ -12,10 +13,16 @@ import { prettyFamily } from '../../derived.js';
  *     way to give each point an `aria-label`, keyboard focus, and a 40×40
  *     (48×48 coarse-pointer) hit target.
  *
- * The hit layer is intentionally NOT in the global Tab order. Per the
- * issue body Gotchas — a 344-marker tab sequence is hostile to keyboard
- * users. The live "Explore map markers" skip-link in MapSurface routes Tab
- * traffic to the first marker cell (#558, which is properly navigable).
+ * Roving tabindex (#1030, WCAG 2.1.1): the hit layer keeps a SINGLE Tab stop
+ * (preserving #558's intent — a 344-marker tab sequence is hostile) but is now
+ * keyboard-OPERABLE. Exactly one button carries `tabIndex={0}` (the "active"
+ * marker, list order); the rest carry `tabIndex={-1}`. Arrow keys move the
+ * active marker (wrapping at the ends) and focus follows; Enter/Space opens the
+ * ObservationPopover via `onSelect`. The live "Explore map markers" skip-link in
+ * App routes Tab traffic to the active button (the hit-layer fallback when no
+ * grid cells exist). When the marker set changes — including the zoom-gate
+ * unmount where `buildHitMarkers` returns `[]` below `CLUSTER_MAX_ZOOM` — the
+ * active index is clamped to the new length (reset to 0 when no longer valid).
  *
  * Position updates: we re-project on every `move` event. The `move` event
  * fires continuously during pan/zoom, so positions stay glued to the map.
@@ -133,6 +140,96 @@ export function MapMarkerHitLayer(props: MapMarkerHitLayerProps) {
   const sizeRef = useRef(size);
   sizeRef.current = size;
 
+  // Roving tabindex (#1030): index of the single Tab-stop / arrow-navigable
+  // "active" marker, in `markers` list order. Initialised to 0 (the first
+  // marker). Clamped below whenever the marker set changes length.
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  // Clamp the active index to the current marker set. Covers the zoom-gate
+  // empty case (`markers.length === 0` → reset to 0 so a later repopulation
+  // lands on the first marker) and any shrink (e.g. deconflict / filter change
+  // dropping markers) that would leave `activeIndex` past the end. Done in an
+  // effect so the render below always reads an in-range index.
+  useEffect(() => {
+    setActiveIndex((prev) => {
+      if (markers.length === 0) return 0;
+      return prev >= markers.length ? 0 : prev;
+    });
+  }, [markers.length]);
+
+  // Per-marker button refs (list order) so an arrow-key move can imperatively
+  // focus the newly-active button. Kept length-synced with `markers` each render.
+  const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  buttonRefs.current.length = markers.length;
+
+  // When the active index moves via the KEYBOARD (not a plain Tab/focus event),
+  // focus must follow to the newly-active button. A pointer-focus or Tab-in
+  // sets `activeIndex` through `onFocus` and must NOT re-steal focus. This ref
+  // is the "the next active change came from a key press, move focus to it"
+  // flag, consumed in the commit-phase effect below.
+  const focusOnNextActiveRef = useRef(false);
+
+  // Move focus to the active button AFTER React commits the tabIndex flip, so
+  // the element is programmatically focusable in its final state. Guarded by the
+  // keyboard-intent flag so a Tab-in / pointer focus doesn't bounce focus.
+  useEffect(() => {
+    if (!focusOnNextActiveRef.current) return;
+    focusOnNextActiveRef.current = false;
+    buttonRefs.current[activeIndex]?.focus();
+  }, [activeIndex]);
+
+  const moveActiveTo = useCallback(
+    (resolver: (prev: number, n: number) => number) => {
+      const n = markers.length;
+      if (n === 0) return;
+      focusOnNextActiveRef.current = true;
+      setActiveIndex((prev) => resolver(prev, n));
+    },
+    [markers.length],
+  );
+
+  const onKeyDown = useCallback(
+    (e: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
+      switch (e.key) {
+        case 'ArrowRight':
+        case 'ArrowDown':
+          e.preventDefault();
+          moveActiveTo((prev, n) => (prev + 1) % n); // wrap at the end
+          break;
+        case 'ArrowLeft':
+        case 'ArrowUp':
+          e.preventDefault();
+          moveActiveTo((prev, n) => (prev - 1 + n) % n); // wrap at the start
+          break;
+        case 'Home':
+          e.preventDefault();
+          moveActiveTo(() => 0);
+          break;
+        case 'End':
+          e.preventDefault();
+          moveActiveTo((_prev, n) => n - 1);
+          break;
+        case 'Enter':
+        case ' ':
+          // Enter/Space activate the focused marker (open its popover). The
+          // native <button> already fires onClick for these, but markers are
+          // commonly reached via the skip-link + arrow keys where the browser's
+          // default activation still applies — handling here keeps the contract
+          // explicit and testable (fireEvent.keyDown in RTL does not synthesize
+          // the click). preventDefault stops Space from scrolling the page.
+          e.preventDefault();
+          {
+            const marker = markers[index];
+            if (marker) onSelect(marker.subId);
+          }
+          break;
+        default:
+          break;
+      }
+    },
+    [moveActiveTo, markers, onSelect],
+  );
+
   if (markers.length === 0) return null;
 
   return (
@@ -146,17 +243,26 @@ export function MapMarkerHitLayer(props: MapMarkerHitLayerProps) {
         pointerEvents: 'none',
       }}
     >
-      {markers.map((m) => {
+      {markers.map((m, i) => {
         const pos = positions[m.subId];
         if (!pos) return null;
+        const isActive = i === activeIndex;
         return (
           <button
             key={m.subId}
+            ref={(el) => {
+              buttonRefs.current[i] = el;
+            }}
             type="button"
-            tabIndex={-1}
+            // Roving tabindex (#1030): exactly one button (the active one) is in
+            // the Tab order; arrow keys move which one that is. This keeps #558's
+            // single-tab-stop while making every marker reachable by keyboard.
+            tabIndex={isActive ? 0 : -1}
             data-sub-id={m.subId}
             aria-label={formatAriaLabel(m)}
             onClick={() => onSelect(m.subId)}
+            onFocus={() => setActiveIndex(i)}
+            onKeyDown={(e) => onKeyDown(e, i)}
             style={{
               position: 'absolute',
               left: `${pos.x - half}px`,

@@ -173,6 +173,45 @@ function craftedFromError(error: Error): string {
   return 'Something went wrong loading the bird data. Try refreshing.';
 }
 
+/**
+ * C47/C48 (#1030) — resolve and focus the first FOCUSABLE marker surface for the
+ * "Explore map markers" skip-link. Tries candidates in priority order and stops
+ * at the first one that can actually take focus, so the skip-link can never
+ * silently no-op (the C48 dead end where `firstCell?.focus()` fired on a
+ * non-focusable coarse-pointer cell <div>):
+ *
+ *   1. A focusable per-cell silhouette <button> (fine-pointer adaptive grids).
+ *      Restricted to `button` so the coarse-pointer cell <div>s (same
+ *      data-testid, but non-focusable) are skipped rather than no-op'd.
+ *   2. The keyboard-active marker hit-layer <button> (`tabIndex=0`) — the
+ *      roving-tabindex entry point for UNCLUSTERED observations at high zoom,
+ *      i.e. the fallback when no grid cells exist.
+ *   3. The coarse-pointer outer cluster <button> (`tabIndex=0`) — on touch +
+ *      hardware keyboard the cells are non-focusable, so the outer button (which
+ *      opens the ClusterListPopover) is the only focusable marker surface.
+ *
+ * Selectors are tried separately (not as one comma list) because
+ * `querySelector` returns the first DOM-order match, which would not honor this
+ * priority when several kinds coexist.
+ */
+function focusFirstMarker(): void {
+  const candidateSelectors = [
+    'button[data-testid="adaptive-grid-marker-cell-rendered"], ' +
+      'button[data-testid="adaptive-grid-marker-cell-fallback"]',
+    '.map-marker-hit-layer button[tabindex="0"]',
+    'button[data-testid="adaptive-grid-marker"][tabindex="0"]',
+  ];
+  for (const selector of candidateSelectors) {
+    const target = document.querySelector(selector) as HTMLElement | null;
+    if (target) {
+      target.focus();
+      // Confirm focus actually landed (a detached/inert element won't take it);
+      // only then stop. Otherwise fall through to the next candidate.
+      if (document.activeElement === target) return;
+    }
+  }
+}
+
 export function App() {
   const { state, set } = useUrlState();
   const isCompact = useIsCompact();
@@ -1233,10 +1272,20 @@ export function App() {
           so a fresh Tab into the scoped map view reaches this button BEFORE
           any ScopeControl or canvas element (DOM order determines tab order;
           position:fixed does NOT reorder focus). The skip-link activates
-          focus on the first marker cell (the keyboard bypass for the 344-
-          marker tap sequence). Gated on `mapVisible && scopeActive` so it
-          does not render on the unscoped landing or the non-map view.
-          The original "Skip to species list" skip-link was removed in #662. */}
+          focus on the first FOCUSABLE marker surface (the keyboard bypass for
+          the 344-marker tap sequence). Gated on `mapVisible && scopeActive` so
+          it does not render on the unscoped landing or the non-map view.
+          The original "Skip to species list" skip-link was removed in #662.
+
+          C47/C48 (#1030): the target is resolved through `focusFirstMarker`
+          below, which tries — in priority order — (1) a focusable per-cell
+          silhouette <button> (fine-pointer grids), (2) the keyboard-active
+          marker hit-layer <button> (`tabIndex=0`, the roving-tabindex entry for
+          unclustered observations when no grid cells exist), then (3) the
+          coarse-pointer outer cluster <button> (the only focusable surface on
+          touch+keyboard, where the cells are non-focusable <div>s). It NEVER
+          focuses a non-focusable element, so the skip-link can no longer
+          silently no-op (the C48 iPad-keyboard dead end). */}
       {mapVisible && scopeActive && (
         <button
           type="button"
@@ -1246,11 +1295,7 @@ export function App() {
           tabIndex={observations.length > 0 ? 0 : -1}
           onClick={() => {
             if (observations.length > 0) {
-              const firstCell = document.querySelector(
-                '[data-testid="adaptive-grid-marker-cell-rendered"], ' +
-                '[data-testid="adaptive-grid-marker-cell-fallback"]',
-              ) as HTMLElement | null;
-              firstCell?.focus();
+              focusFirstMarker();
             }
           }}
         >

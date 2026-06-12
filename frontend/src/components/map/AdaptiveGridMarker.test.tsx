@@ -681,6 +681,85 @@ describe('AdaptiveGridMarker — cell popover (Phase 1, #558)', () => {
     expect(cell.getAttribute('aria-describedby')).toBeNull();
   });
 
+  it('O2 (#1030, WCAG 4.1.2): every silhouette <button> has a non-empty accessible name (family + count)', async () => {
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_2x1}
+        tiles={[
+          {
+            kind: 'rendered',
+            familyCode: 'tyrannidae',
+            displayName: 'Tyrant Flycatchers',
+            svgData: 'M0 0L24 24Z',
+            color: '#888',
+            colorDark: '#888',
+            count: 5,
+            species: [],
+          },
+          // fallback branch is also a <button> in pointer:fine — it must get a
+          // name too (the Lighthouse button-name fail covered both kinds).
+          {
+            kind: 'fallback',
+            familyCode: 'mimidae',
+            displayName: 'Mockingbirds and Thrashers',
+            color: '#aaa',
+            colorDark: '#aaa',
+            count: 1,
+            species: [],
+          },
+        ]}
+        totalCount={6}
+        uniqueFamilies={2}
+        ariaLabel="Cluster: 6 observations, 2 families."
+        isCoarsePointer={false}
+        onClick={noop}
+      />
+    );
+    const rendered = screen.getByTestId('adaptive-grid-marker-cell-rendered');
+    const fallbackCell = screen.getByTestId('adaptive-grid-marker-cell-fallback');
+    expect(rendered.tagName).toBe('BUTTON');
+    expect(fallbackCell.tagName).toBe('BUTTON');
+    const renderedName = rendered.getAttribute('aria-label') ?? '';
+    const fallbackName = fallbackCell.getAttribute('aria-label') ?? '';
+    expect(renderedName.trim().length).toBeGreaterThan(0);
+    expect(fallbackName.trim().length).toBeGreaterThan(0);
+    expect(renderedName).toContain('Tyrant Flycatchers');
+    expect(renderedName).toMatch(/5/);
+    expect(fallbackName).toContain('Mockingbirds and Thrashers');
+  });
+
+  it('silhouette <button> aria-label falls back to prettyFamily(code) when displayName is blank (never empty)', async () => {
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[
+          {
+            kind: 'rendered',
+            familyCode: 'corvidae',
+            displayName: '',
+            svgData: 'M0 0L24 24Z',
+            color: '#888',
+            colorDark: '#888',
+            count: 3,
+            species: [],
+          },
+        ]}
+        totalCount={3}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 3 observations."
+        isCoarsePointer={false}
+        onClick={noop}
+      />
+    );
+    const cell = screen.getByTestId('adaptive-grid-marker-cell-rendered');
+    const name = cell.getAttribute('aria-label') ?? '';
+    expect(name.trim().length).toBeGreaterThan(0);
+    // prettyFamily('corvidae') → 'Corvidae'
+    expect(name).toContain('Corvidae');
+  });
+
   it('pointer:fine: active cell gets aria-describedby, inactive cells do not (spec §4.8)', async () => {
     const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
     render(
@@ -1071,6 +1150,57 @@ describe('AdaptiveGridMarker — cell popover coarse-pointer (Phase 2, #559)', (
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByText(/Cluster: 17 observations, 2 families/)).toBeInTheDocument();
     // onClick (zoom-to-expansion handler) must NOT fire on coarse + flag-ON.
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it('C48 (#1030, WCAG 2.4.1+2.1.1): coarse outer <button> is keyboard-focusable (tabIndex=0) so iPad + hardware keyboard can reach the marker layer', async () => {
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_2x2}
+        tiles={[
+          rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', '#888', []),
+          rendered('flycatchers', 12, 'M0 0L24 24Z', '#aaa', '#aaa', []),
+        ]}
+        totalCount={17}
+        uniqueFamilies={2}
+        ariaLabel="Cluster: 17 observations, 2 families."
+        isCoarsePointer={true}
+        onClick={noop}
+      />
+    );
+    const outer = screen.getByTestId('adaptive-grid-marker');
+    expect(outer.tagName).toBe('BUTTON');
+    // On coarse pointers the cells are non-focusable <div>s; the OUTER button is
+    // the only focusable surface, so it must be in the Tab order (tabIndex=0).
+    expect(outer.getAttribute('tabindex')).toBe('0');
+  });
+
+  it('coarse outer <button> activates its ClusterListPopover on Enter (keyboard parity with tap)', async () => {
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    const onClick = vi.fn();
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_2x2}
+        tiles={[
+          rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', '#888', [
+            { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
+          ]),
+          rendered('flycatchers', 12, 'M0 0L24 24Z', '#aaa', '#aaa', [
+            { comName: 'Black Phoebe', count: 12, speciesCode: 'blkpho' },
+          ]),
+        ]}
+        totalCount={17}
+        uniqueFamilies={2}
+        ariaLabel="Cluster: 17 observations, 2 families."
+        isCoarsePointer={true}
+        onClick={onClick}
+      />
+    );
+    const outer = screen.getByTestId('adaptive-grid-marker');
+    // A native <button> fires onClick for Enter/Space; assert the popover opens.
+    fireEvent.click(outer);
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(onClick).not.toHaveBeenCalled();
   });
 

@@ -2,6 +2,7 @@ import { useState, useId, useRef, useEffect } from 'react';
 import type { MouseEvent as ReactMouseEvent, CSSProperties, KeyboardEvent } from 'react';
 import type { AdaptiveTile, ResolvedGrid } from './adaptive-grid.js';
 import { visibleCapacity } from './adaptive-grid.js';
+import { prettyFamily } from '../../derived.js';
 import { FALLBACK_SILHOUETTE_PATH } from './silhouette-fallback.js';
 import { useMediaQuery } from '../../hooks/use-media-query.js';
 import { useTheme } from '../../hooks/use-theme.js';
@@ -123,6 +124,25 @@ export const GRID_PADDING_PX = 3;
 
 const HIT_MIN_FINE = 44;
 const HIT_MIN_COARSE = 48;
+
+/**
+ * O2 (#1030, WCAG 4.1.2): accessible name for a per-family silhouette `<button>`
+ * cell. The cells were name-less (`aria-haspopup`/`aria-describedby` only) — a
+ * Lighthouse `button-name` fail. Format: "{family}, {count} observation[s]".
+ *
+ * `displayName` is the tile's resolved colloquial family name
+ * (`resolveFamilyName(familyCode, …)`); it falls back to `prettyFamily(code)`
+ * (a capitalized scientific code) when blank/absent so the label is NEVER
+ * empty. The count is pluralized so the announcement reads naturally.
+ */
+function cellAriaLabel(tile: AdaptiveTile): string {
+  const family =
+    tile.displayName && tile.displayName.trim().length > 0
+      ? tile.displayName
+      : prettyFamily(tile.familyCode);
+  const unit = tile.count === 1 ? 'observation' : 'observations';
+  return `${family}, ${tile.count} ${unit}`;
+}
 
 const NOTABLE_AMBER = '#f59e0b';
 
@@ -323,7 +343,15 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
     ? ({ role: 'group' as const })
     : ({
         type: 'button' as const,
-        tabIndex: -1,
+        // C48 (#1030, WCAG 2.4.1+2.1.1): on coarse pointers the per-cell
+        // silhouettes are non-focusable <div>s, so this OUTER button is the only
+        // focusable surface — it MUST be in the Tab order (tabIndex=0) for an
+        // iPad + hardware keyboard to reach the marker layer (and the skip-link
+        // targets it, never a non-focusable element). On fine pointers without
+        // per-cell interaction the cluster is reached via the per-cell buttons /
+        // hit layer, so the outer button stays out of the Tab order (-1),
+        // preserving #558's single-tab-stop and the existing test contract.
+        tabIndex: clusterListInteractive ? 0 : -1,
         onClick: (e: ReactMouseEvent<HTMLElement>) => {
           if (clusterListInteractive && !isSingleLeaf) {
             // Phase 2: open the cluster-list popover instead of the parent's
@@ -526,6 +554,7 @@ function TileCell({
           tabIndex={0}
           data-testid="adaptive-grid-marker-cell-fallback"
           className="adaptive-grid-marker__cell adaptive-grid-marker__cell--fallback"
+          aria-label={cellAriaLabel(tile)}
           aria-haspopup="dialog"
           aria-expanded={isExpanded ? 'true' : 'false'}
           aria-describedby={previewId}
@@ -621,6 +650,7 @@ function TileCell({
         tabIndex={0}
         data-testid="adaptive-grid-marker-cell-rendered"
         className="adaptive-grid-marker__cell"
+        aria-label={cellAriaLabel(tile)}
         aria-haspopup="dialog"
         aria-expanded={isExpanded ? 'true' : 'false'}
         aria-describedby={previewId}

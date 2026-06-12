@@ -2175,6 +2175,99 @@ describe('O2 (#770): skip-link + FamilyLegend hoisted to App-root siblings', () 
     if (!skipLink || !mapLayer) return;
     expect(mapLayer.contains(skipLink)).toBe(false);
   });
+
+  // --- C47/C48 (#1030): skip-link targets a FOCUSABLE marker surface ---------
+  //
+  // MapSurface is stubbed in this file, so the real marker DOM is not present.
+  // These tests inject fixture marker nodes (matching the production data-testid
+  // / className contracts) into the document, then click the skip-link and
+  // assert which one receives focus — exercising `focusFirstMarker`'s priority
+  // ladder and the "never no-op on a non-focusable element" guarantee.
+
+  const NON_EMPTY_OBS = {
+    data: [
+      {
+        subId: 'S1', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 32.2, lng: -110.9, obsDt: new Date().toISOString(), locId: 'L1',
+        locName: 'Tucson', howMany: 1, isNotable: false, silhouetteId: null,
+        familyCode: 'tyrannidae',
+      },
+    ],
+    meta: { freshestObservationAt: new Date().toISOString() },
+  };
+
+  async function renderWithMarkersAndClickSkipLink(
+    inject: (host: HTMLElement) => HTMLElement,
+  ): Promise<{ injected: HTMLElement; skipLink: HTMLButtonElement }> {
+    mockGetObservations.mockResolvedValue(NON_EMPTY_OBS);
+    const { container } = render(<App />);
+    // Wait for observations to settle so the skip-link's onClick guard
+    // (observations.length > 0) is satisfied.
+    await waitFor(() => {
+      expect(container.querySelector('#map-layer')?.getAttribute('aria-busy')).toBe('false');
+    });
+    // Inject the fixture marker(s) into a host appended to the body (outside the
+    // RTL container is fine — focusFirstMarker queries `document`).
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const injected = inject(host);
+    const skipLink = container.querySelector(
+      '[data-testid="explore-map-markers-skip-link"]',
+    ) as HTMLButtonElement;
+    expect(skipLink).not.toBeNull();
+    act(() => {
+      skipLink.click();
+    });
+    return { injected, skipLink };
+  }
+
+  it('falls back to the hit-layer active button when no grid cells exist (#1030 C47)', async () => {
+    const { injected } = await renderWithMarkersAndClickSkipLink((host) => {
+      host.innerHTML =
+        '<div class="map-marker-hit-layer">' +
+        '<button type="button" tabindex="0" data-sub-id="S1" aria-label="Vermilion Flycatcher, …"></button>' +
+        '</div>';
+      return host.querySelector('button') as HTMLElement;
+    });
+    expect(document.activeElement).toBe(injected);
+    document.body.removeChild(injected.closest('.map-marker-hit-layer')!.parentElement!);
+  });
+
+  it('targets the coarse-pointer outer cluster button and never no-ops on a non-focusable cell (#1030 C48)', async () => {
+    const { injected } = await renderWithMarkersAndClickSkipLink((host) => {
+      // Coarse pointer: cells are non-focusable <div>s (same data-testid), and
+      // the OUTER cluster <button> carries tabIndex=0. The skip-link must skip
+      // the div and land on the focusable outer button.
+      host.innerHTML =
+        '<button type="button" data-testid="adaptive-grid-marker" tabindex="0" aria-label="Cluster">' +
+        '<div data-testid="adaptive-grid-marker-cell-rendered"></div>' +
+        '</button>';
+      return host.querySelector('[data-testid="adaptive-grid-marker"]') as HTMLElement;
+    });
+    expect(document.activeElement).toBe(injected);
+    // The non-focusable cell div did NOT receive focus.
+    expect((document.activeElement as HTMLElement).getAttribute('data-testid')).toBe(
+      'adaptive-grid-marker',
+    );
+    document.body.removeChild(injected.parentElement!);
+  });
+
+  it('prefers a focusable per-cell silhouette button over the hit layer when grid cells exist (#1030)', async () => {
+    const { injected } = await renderWithMarkersAndClickSkipLink((host) => {
+      // Fine pointer: per-cell silhouette <button>s exist AND a hit-layer
+      // button exists. The cell button must win (priority 1).
+      host.innerHTML =
+        '<div class="map-marker-hit-layer">' +
+        '<button type="button" tabindex="0" data-sub-id="S1" aria-label="hit"></button>' +
+        '</div>' +
+        '<button type="button" data-testid="adaptive-grid-marker-cell-rendered" tabindex="0" aria-label="Tyrant Flycatchers, 5 observations"></button>';
+      return host.querySelector(
+        '[data-testid="adaptive-grid-marker-cell-rendered"]',
+      ) as HTMLElement;
+    });
+    expect(document.activeElement).toBe(injected);
+    document.body.removeChild(injected.parentElement!);
+  });
 });
 
 describe('O8 (#784): React.memo render-count regression — FamilyLegend + ScopeControl', () => {
