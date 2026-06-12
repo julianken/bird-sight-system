@@ -33,9 +33,23 @@ det-gate exclusion (#1037, below) keys off the same marker.
 
 The eval (`tools/photo-curation/eval/photo-judge.eval.ts`) runs the **traced
 Gemini 2.5 Flash judge** over the cached current-photo thumbnails and scores its
-agreement with the existing **Opus 902-score baseline** (the proxy ground truth
-in `review.sqlite`). It reports three metrics as a Braintrust **experiment** in
-the `bird-maps` project:
+agreement with the existing **Opus 902-score baseline** — now read from **prod
+`species_photo_scores`** (#1073/C4), pinned to `(BASELINE_MODEL,
+BASELINE_RUBRIC)` (defaults `claude-opus-4-8` / `0.2.1`). It reports three
+metrics as a Braintrust **experiment** in the `bird-maps` project:
+
+> **Where the baseline and the image come from (#1073).** The **score** comes
+> from prod (`getPhotoScores(pool, {model, rubricVersion})`); the **species
+> metadata** (name/family/`url`) comes from the local `review.sqlite`
+> `photo_current` join; and the **image bytes** come from the local
+> `thumb-cache`. Because score and image now live in different stores, the eval
+> **hashes the local image and verifies it equals the score row's
+> `content_hash`** before judging — a mismatch SKIPS the row (logged), exactly
+> like an absent image. This preserves the guarantee that **Gemini scores the
+> exact bytes the Opus baseline did**. The det-gate rows
+> (`model='deterministic-gate'`) simply do not match the Opus model pin, so the
+> pinned read never returns them — the #1037 det-gate exclusion is now a
+> property of the pin, not a query filter.
 
 | Scorer | What it measures | Read it as |
 |---|---|---|
@@ -67,14 +81,16 @@ directly in the experiment dashboard.
 
 ## Comparability: the rubric pin and the det-gate exclusion (#1037)
 
-**The rubric version is part of the dataset, not the live code.** Every
-baseline row in `review.sqlite` records the `rubric_version` it was scored
-under (`0.2.1` for the 902-score Opus pass). The eval **pins the judge prompt
-to that recorded version**: the dataset builder asserts that every fetched row
-carries one single, known version (a mixed or missing version is a **hard
-fail at dataset-build time** — re-score the baseline rather than judging under
-different criteria), and the eval selects the matching prompt from the
-version-keyed snapshots in `eval/rubric-prompts.ts`. Judging a v0.2.1 baseline
+**The rubric version is part of the dataset, not the live code.** The baseline
+is read from prod pinned to `(BASELINE_MODEL, BASELINE_RUBRIC)` (#1073), so
+every fetched row already shares one `rubric_version` (`0.2.1` for the 902-score
+Opus pass) — the single-version invariant is **trivially satisfied by the pin**.
+The eval **pins the judge prompt to that recorded version**: the dataset builder
+still asserts the single-known-version invariant as a defensive backstop (an
+empty pinned read, or a hand-injected mixed/missing version, is a **hard fail at
+dataset-build time** — re-score the baseline rather than judging under different
+criteria), and the eval selects the matching prompt from the version-keyed
+snapshots in `eval/rubric-prompts.ts`. Judging a v0.2.1 baseline
 with the live v0.2.2 prompt would turn the v0.2.2 criteria changes
 (same-species multiples OK, mild adult preference — commit 974d8c5) into
 phantom "disagreement". When the baseline is someday re-scored under v0.2.2+,
@@ -88,10 +104,13 @@ judge actually ran) — equal by construction under the pin. The experiment
 metadata records the pinned `rubricVersion` and the judge `model`.
 
 **Deterministic-gate rows are excluded from the dataset.** 13 of the 902
-baseline rows are sharpness-heuristic verdicts
-(`rationale LIKE 'deterministic gate%'`, `keep = 0`, `quality_score = 0`) —
-gate output, not Opus findings — so the judge is never graded against them
-(they also dragged `score_mae` via the synthetic 0).
+baseline rows are sharpness-heuristic verdicts (`keep = 0`, `quality_score = 0`)
+— gate output, not Opus findings — so the judge is never graded against them
+(they also dragged `score_mae` via the synthetic 0). Under the prod read
+(#1073) they were backfilled under `model = 'deterministic-gate'`, so the
+pinned `getPhotoScores(..., model: 'claude-opus-4-8', ...)` **never returns
+them** — the exclusion is now a property of the model pin, not a `rationale`
+query filter.
 
 > **Comparing to pre-pin experiments** (e.g. `HEAD-1781238943`): excluding the
 > 13 all-`keep=0` det-gate rows shifts the stratum balance (536 → 523
@@ -101,12 +120,20 @@ gate output, not Opus findings — so the judge is never graded against them
 
 ## Prerequisites
 
-This eval reads local data and calls the live Gemini API — it is **operator-run
-from the photo-curation run-worktree**, not from CI:
+This eval reads the baseline from prod, reads local images, and calls the live
+Gemini API — it is **operator-run from the photo-curation run-worktree**, not
+from CI:
 
-- **`review.sqlite`** with `role='current'` Opus scores (the 902-score baseline).
+- **A prod connection (`DATABASE_URL`)** — a **read-only** Postgres connection
+  string is sufficient (the eval only SELECTs from `species_photo_scores`). The
+  baseline must already be in prod: run the **one-time backfill above (#1072)**
+  first, or the pinned read returns zero rows and the dataset build fails loud.
+- **`review.sqlite`** — still required, but now only for the **species-metadata
+  join** (`photo_current.url`/`com_name`/`sci_name`/`family`); the SCORES are
+  read from prod, not from here.
 - **`thumb-cache/<species_code>.{jpg,png,webp}`** — the cached current
-  thumbnails the Opus pass scored. No re-download.
+  thumbnails the Opus pass scored. No re-download. Each is **hash-verified**
+  against the prod row's `content_hash`; a diverged cache image is skipped.
 - A Gemini API key and a Braintrust API key. Free tier covers only a smoke run
   (20 requests/day — see the daily-cap section); a full 150-row run needs the
   paid-tier path.
@@ -127,8 +154,11 @@ from the photo-curation run-worktree**, not from CI:
 |---|---|---|
 | `GEMINI_API_KEY` | yes | authenticates the Gemini `generateContent` calls |
 | `BRAINTRUST_API_KEY` | yes | authenticates span/experiment writes; **absence fails loud** — we never score un-traced |
-| `REVIEW_DB` | yes | path to `review.sqlite` (e.g. `./review.sqlite`) |
-| `THUMB_DIR` | yes | path to the thumbnail cache (e.g. `./thumb-cache`) |
+| `DATABASE_URL` | yes | **prod** Postgres connection string the baseline is read from (#1073). A **read-only** URL suffices — the eval only SELECTs `species_photo_scores`. Requires the C3 backfill to have run |
+| `REVIEW_DB` | yes | path to `review.sqlite` (e.g. `./review.sqlite`) — now only the species-metadata join (`photo_current`), not the scores |
+| `THUMB_DIR` | yes | path to the thumbnail cache (e.g. `./thumb-cache`); each image is hash-verified against the prod `content_hash` |
+| `BASELINE_MODEL` | no (default `claude-opus-4-8`) | the `model` half of the frozen-baseline pin passed to `getPhotoScores` (#1073). Override only to evaluate a baseline re-scored under a different model |
+| `BASELINE_RUBRIC` | no (default `0.2.1`) | the `rubric_version` half of the pin. Override only when the baseline was re-scored under a new rubric version |
 | `EVAL_SAMPLE` | no (default `150`) | stratified keep/replace sample size for a full run |
 | `EVAL_MODEL` | no (default `gemini-2.5-flash`) | the judge model to construct; recorded in the experiment metadata and on every span. Same dataset + same pinned rubric + a different `EVAL_MODEL` = directly comparable experiments — "grade the models against the original findings" is a one-env-var operation |
 | `GEMINI_PACE_MS` | no (default `12000`) | min ms between Gemini calls (12 s ⇒ ≤ 5 RPM, the measured free-tier cap); adjust only when a paid tier raises the per-minute quota. An explicit `0` disables pacing; an unparseable value fails loud at startup |
@@ -139,9 +169,16 @@ Put the non-secret values plus `GEMINI_API_KEY` in a local `.env.local`
 ```sh
 # tools/photo-curation/.env.local  (NOT committed)
 GEMINI_API_KEY=AIza…
+# Prod baseline (#1073). A READ-ONLY connection string is sufficient — the eval
+# only SELECTs species_photo_scores. The C3 backfill must have run first.
+DATABASE_URL=postgres://…prod-ro…
 REVIEW_DB=./review.sqlite
 THUMB_DIR=./thumb-cache
 EVAL_SAMPLE=150
+# Optional — the frozen-baseline pin (defaults shown). Override only to evaluate
+# a baseline re-scored under a different (model, rubric).
+# BASELINE_MODEL=claude-opus-4-8
+# BASELINE_RUBRIC=0.2.1
 ```
 
 **Braintrust auth resolves from the active `bt` profile** (`bt auth login` /
