@@ -222,6 +222,78 @@ describe('tracedJudge', () => {
     expect(metaLog!.metrics).not.toHaveProperty('completion_tokens');
     expect(metaLog!.metrics).not.toHaveProperty('total_tokens');
   });
+
+  // #1088: a PRICED model logs metrics.estimated_cost (USD) computed from the
+  // faked usageMetadata; the existing token metrics are unaffected.
+  it('logs metrics.estimated_cost for a priced model from the usage accessor', async () => {
+    // gemini-2.5-flash: $0.30/1M in, $2.50/1M out. 1M prompt + 1M completion
+    // (candidates 999_990 + thoughts 10) → $0.30 + $2.50 = $2.80.
+    const usage: GeminiUsage = {
+      promptTokenCount: 1_000_000,
+      candidatesTokenCount: 999_990,
+      thoughtsTokenCount: 10,
+      totalTokenCount: 2_000_000,
+    };
+    const logger = makeRecordingLogger();
+    const judge = tracedJudge(new FakeJudge(), {
+      project: 'bird-maps', model: 'gemini-2.5-flash', rubricVersion: '0.2.1', logger,
+      usage: () => usage,
+    });
+
+    await judge.judge(img, ctx, PROMPT);
+
+    const metaLog = logger.spans[0]!.logs.find((l) => 'metrics' in l) as
+      | { metrics: Record<string, number> }
+      | undefined;
+    expect(metaLog!.metrics.estimated_cost).toBeCloseTo(2.8, 6);
+    // existing token + latency metrics unaffected.
+    expect(metaLog!.metrics).toMatchObject({ prompt_tokens: 1_000_000, completion_tokens: 1_000_000 });
+    expect(typeof metaLog!.metrics.latency).toBe('number');
+  });
+
+  // #1088: an UNPRICED model OMITS the key (no $0, no undefined) and warns once,
+  // naming the model, so an unpriced run is visible rather than silently free.
+  it('omits estimated_cost and warns once (naming the model) for an unpriced model', async () => {
+    const warnings: string[] = [];
+    const usage: GeminiUsage = { promptTokenCount: 1000, candidatesTokenCount: 200, totalTokenCount: 1200 };
+    const logger = makeRecordingLogger();
+    const judge = tracedJudge(new FakeJudge(), {
+      project: 'bird-maps', model: 'gemini-3-flash-preview', rubricVersion: '0.2.1', logger,
+      usage: () => usage,
+      warn: (line) => warnings.push(line),
+    });
+
+    await judge.judge(img, ctx, PROMPT);
+
+    const metaLog = logger.spans[0]!.logs.find((l) => 'metrics' in l) as
+      | { metrics: Record<string, number> }
+      | undefined;
+    expect(metaLog!.metrics).not.toHaveProperty('estimated_cost');
+    // token metrics still logged — only cost is omitted.
+    expect(metaLog!.metrics).toMatchObject({ prompt_tokens: 1000, completion_tokens: 200 });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('gemini-3-flash-preview');
+  });
+
+  // No usage → no token counts → no cost either, and no warning (the unpriced
+  // warning is for a PRICED-table miss, not an absent-usage case).
+  it('omits estimated_cost without warning when no usage is available', async () => {
+    const warnings: string[] = [];
+    const logger = makeRecordingLogger();
+    const judge = tracedJudge(new FakeJudge(), {
+      project: 'bird-maps', model: 'gemini-2.5-flash', rubricVersion: '0.2.1', logger,
+      usage: () => undefined,
+      warn: (line) => warnings.push(line),
+    });
+
+    await judge.judge(img, ctx, PROMPT);
+
+    const metaLog = logger.spans[0]!.logs.find((l) => 'metrics' in l) as
+      | { metrics: Record<string, number> }
+      | undefined;
+    expect(metaLog!.metrics).not.toHaveProperty('estimated_cost');
+    expect(warnings).toHaveLength(0);
+  });
 });
 
 describe('resolveTracedJudge', () => {

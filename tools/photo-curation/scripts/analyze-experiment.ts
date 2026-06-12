@@ -195,6 +195,46 @@ export function hybridRouting(
   };
 }
 
+// ── Cost summary (#1088) ─────────────────────────────────────────────────────
+
+/**
+ * One judgment's cost, read from its span's `metrics.estimated_cost` (#1088).
+ * `estimatedCost` is the USD figure for a PRICED model, or `undefined` for an
+ * UNPRICED one (the span carried token metrics but no `estimated_cost` key, so
+ * the model is absent from `MODEL_PRICING`). Kept distinct from a $0 so the
+ * total can be flagged known-partial.
+ */
+export interface CostRow {
+  estimatedCost: number | undefined;
+}
+
+/**
+ * Aggregate the per-judgment costs (#1088). `totalUsd` sums only the priced
+ * rows; `meanUsd` averages over the priced rows (an unpriced row has no known
+ * cost to average in); `unpricedCount` flags how many judgments are missing a
+ * price so a reader knows the total is partial. Empty input → all zeros.
+ */
+export function summarizeCost(rows: CostRow[]): {
+  totalUsd: number;
+  meanUsd: number;
+  pricedCount: number;
+  unpricedCount: number;
+} {
+  let totalUsd = 0;
+  let pricedCount = 0;
+  let unpricedCount = 0;
+  for (const r of rows) {
+    if (r.estimatedCost === undefined) unpricedCount++;
+    else {
+      totalUsd += r.estimatedCost;
+      pricedCount++;
+    }
+  }
+  return { totalUsd, meanUsd: pricedCount === 0 ? 0 : totalUsd / pricedCount, pricedCount, unpricedCount };
+}
+
+export type CostSummary = ReturnType<typeof summarizeCost>;
+
 /** Tunable band edges for the ambiguity + hybrid-routing analysis. */
 export interface AnalysisOptions {
   /** Lower edge of the ambiguity / routing band (inclusive). */
@@ -231,9 +271,29 @@ export function analyze(rows: AnalysisRow[], opts: AnalysisOptions): Analysis {
 }
 
 const pct = (x: number): string => `${(x * 100).toFixed(2)}%`;
+const usd = (x: number): string => `$${x.toFixed(2)}`;
+
+/**
+ * Render the cost block (#1088): total + mean estimated USD across judgment
+ * spans, plus the unpriced count when any judgment lacked a price (so the total
+ * is flagged known-partial, never silently understated).
+ */
+function formatCostBlock(c: CostSummary): string[] {
+  const lines = [
+    `estimated cost (#1088)`,
+    `  total cost        ${usd(c.totalUsd)}  (sum of metrics.estimated_cost over ${c.pricedCount} priced judgments)`,
+    `  mean / judgment   ${usd(c.meanUsd)}`,
+  ];
+  if (c.unpricedCount > 0) {
+    lines.push(
+      `  unpriced          ${c.unpricedCount}  (no price in MODEL_PRICING — TOTAL IS PARTIAL; add the model to src/judges/pricing.ts)`,
+    );
+  }
+  return ['', ...lines];
+}
 
 /** Render the analysis as a human-readable report block. */
-export function formatReport(experiment: string, a: Analysis): string {
+export function formatReport(experiment: string, a: Analysis, cost?: CostSummary): string {
   const aucStr = a.auc === null ? 'n/a (a keep class is empty)' : a.auc.toFixed(3);
   return [
     `Experiment: ${experiment}  (${a.n} rows)`,
@@ -253,6 +313,7 @@ export function formatReport(experiment: string, a: Analysis): string {
     `  routed            ${a.hybrid.routed}  (${pct(a.hybrid.routedFraction)} of rows → Opus re-judge)`,
     `  auto-set agreement ${pct(a.hybrid.autoSetAgreement)}  (keep agreement after routing)`,
     `  residual falseKeep ${a.hybrid.residualFalseKeep}  (dangerous keeps that fell outside the band)`,
+    ...(cost ? formatCostBlock(cost) : []),
   ].join('\n');
 }
 
@@ -265,6 +326,11 @@ export type ExperimentReader = (experiment: string) => Promise<AnalysisRow[]>;
 interface RawRow {
   output?: { keep?: unknown; qualityScore?: unknown } | null;
   expected?: { keep?: unknown; qualityScore?: unknown } | null;
+}
+
+/** A judgment span's `metrics` as `bt sql` returns it (#1088, loosely typed). */
+interface RawMetricsRow {
+  metrics?: { prompt_tokens?: unknown; completion_tokens?: unknown; estimated_cost?: unknown } | null;
 }
 
 function toNumber(v: unknown): number | undefined {
@@ -297,6 +363,30 @@ export function projectRows(raw: RawRow[]): AnalysisRow[] {
 }
 
 /**
+ * Project loosely-typed `bt sql` metrics rows onto `CostRow` (#1088). A span
+ * carrying token metrics (`prompt_tokens`) IS a judgment; its `estimated_cost`
+ * is present (priced) or absent (unpriced → `undefined`). Spans with no token
+ * metrics (the experiment root spans, which carry output/expected but no
+ * per-call token counts) are NOT judgments and are dropped, so the cost total
+ * counts each judgment once. Exported for a focused unit test without a read.
+ */
+export function projectCostRows(raw: RawMetricsRow[]): CostRow[] {
+  const out: CostRow[] = [];
+  for (const r of raw) {
+    const m = r.metrics;
+    if (m === null || m === undefined) continue;
+    // A judgment span is identified by token metrics; without them the row is a
+    // root span (or a non-judgment span) and carries no per-call cost.
+    if (typeof m.prompt_tokens !== 'number') continue;
+    out.push({ estimatedCost: toNumber(m.estimated_cost) });
+  }
+  return out;
+}
+
+/** Reads a completed experiment's judgment-span costs back (#1088). Injected. */
+export type CostReader = (experiment: string) => Promise<CostRow[]>;
+
+/**
  * The default reader: `bt sql "SELECT output, expected FROM experiment('<exp>')"`
  * as JSON, projected onto `AnalysisRow`. Shells out to the Braintrust CLI (auth
  * resolves from the active `bt` profile), so it is operator-run, never in CI.
@@ -311,6 +401,24 @@ const btSqlReader: ExperimentReader = async (experiment) => {
     ? (parsed as RawRow[])
     : ((parsed as { data?: RawRow[] }).data ?? []);
   return projectRows(rows);
+};
+
+/**
+ * The default cost reader (#1088): `bt sql "SELECT metrics FROM experiment(...)"`
+ * as JSON, projected onto `CostRow`. Same `bt` shell-out + auth as `btSqlReader`;
+ * operator-run, never CI. Separate query so the existing output/expected read is
+ * untouched. `summarizeCost` then prints the total/mean/unpriced lines.
+ */
+const btCostReader: CostReader = async (experiment) => {
+  const query = `SELECT metrics FROM experiment('${experiment}')`;
+  const { stdout } = await execFileAsync('bt', ['sql', '--json', query], {
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  const parsed = JSON.parse(stdout) as unknown;
+  const rows: RawMetricsRow[] = Array.isArray(parsed)
+    ? (parsed as RawMetricsRow[])
+    : ((parsed as { data?: RawMetricsRow[] }).data ?? []);
+  return projectCostRows(rows);
 };
 
 /** Parse `--band lo:hi` (default 40:70) from argv; everything else is the exp name. */
@@ -330,8 +438,18 @@ function parseArgs(argv: string[]): { experiment: string | undefined; bandLo: nu
   return { experiment: positional[0], bandLo, bandHi };
 }
 
-/** CLI entry. `reader` is injectable; defaults to the `bt sql` reader. */
-export async function main(argv: string[], reader: ExperimentReader = btSqlReader): Promise<number> {
+/**
+ * CLI entry. `reader` is injectable (defaults to the `bt sql` output/expected
+ * reader). `costReader` is optional and injectable (#1088): when supplied (the
+ * direct CLI run wires the real `btCostReader`), the report gains the
+ * total/mean/unpriced cost block; when omitted (unit tests), the cost read is
+ * skipped entirely so `main` stays network-free.
+ */
+export async function main(
+  argv: string[],
+  reader: ExperimentReader = btSqlReader,
+  costReader?: CostReader,
+): Promise<number> {
   const { experiment, bandLo, bandHi } = parseArgs(argv);
   if (!experiment) {
     console.error('usage: analyze-experiment <experiment-name-or-id> [--band lo:hi]');
@@ -342,13 +460,14 @@ export async function main(argv: string[], reader: ExperimentReader = btSqlReade
     console.error(`No usable rows read from experiment '${experiment}' (is it complete, and does it carry output/expected keep + qualityScore?).`);
     return 1;
   }
-  console.log(formatReport(experiment, analyze(rows, { bandLo, bandHi })));
+  const cost = costReader ? summarizeCost(await costReader(experiment)) : undefined;
+  console.log(formatReport(experiment, analyze(rows, { bandLo, bandHi }), cost));
   return 0;
 }
 
 // Run only when invoked directly (tsx scripts/analyze-experiment.ts …), never on import.
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main(process.argv.slice(2))
+  main(process.argv.slice(2), btSqlReader, btCostReader)
     .then((code) => process.exit(code))
     .catch((err: unknown) => {
       console.error(err instanceof Error ? err.message : String(err));
