@@ -298,13 +298,24 @@ describe('ObservationPopover', () => {
       }
     });
 
-    it('falls back to focusing the map wrapper when no opener element resolves', async () => {
+    it('falls back to targeting the map wrapper when no opener element resolves', async () => {
       const onClose = vi.fn();
       // No marker button in the DOM for this subId (marker left the
       // data/viewport). The map wrapper IS present.
+      //
+      // This wrapper deliberately mirrors PRODUCTION exactly — a bare <div>
+      // with no tabIndex. Earlier this test hand-set `wrapper.tabIndex = -1`,
+      // which the production wrapper (MapCanvas.tsx) did NOT have, so the test
+      // gave false confidence: it asserted focus LANDED on a focusable div the
+      // production code never produced. Whether the real wrapper is actually
+      // focusable is now guarded honestly in MapCanvas.test.tsx ('#1031: the
+      // map-canvas wrapper is programmatically focusable'). Here, in isolation
+      // from the real wrapper, we assert only what this unit can honestly own:
+      // that `returnFocus()`'s fallback RESOLVES and `.focus()`-targets the map
+      // wrapper (rather than no-op-ing on an unresolved element / document.body).
       const wrapper = document.createElement('div');
       wrapper.setAttribute('data-testid', 'map-canvas');
-      wrapper.tabIndex = -1;
+      const focusSpy = vi.spyOn(wrapper, 'focus');
       document.body.appendChild(wrapper);
       render(
         <ObservationPopover
@@ -315,9 +326,9 @@ describe('ObservationPopover', () => {
       );
       await userEvent.keyboard('{Escape}');
       expect(onClose).toHaveBeenCalledTimes(1);
-      // Must NOT silently drop to document.body — focus the map wrapper.
-      expect(document.activeElement).toBe(wrapper);
-      expect(document.activeElement).not.toBe(document.body);
+      // The fallback must reach the map wrapper, not silently no-op.
+      expect(focusSpy).toHaveBeenCalledTimes(1);
+      focusSpy.mockRestore();
       wrapper.remove();
     });
   });
