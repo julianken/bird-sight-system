@@ -205,11 +205,15 @@ describe('eleatic server', () => {
     ).toBe(400);
   });
 
-  it('GET / serves the placeholder landing page (200 HTML)', async () => {
+  it('GET / serves the comparison hub page (200 HTML, wires hub.js)', async () => {
+    // E5 replaced E4's placeholder ui/index.html with the real hub. The route
+    // is unchanged (express.static + the explicit GET / fallback); this asserts
+    // the served page is the hub (title + the hub.js module tag), not the stub.
     const res = await request(createApp(store, cfg)).get('/');
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/text\/html/);
-    expect(res.text).toContain('<title>eleatic</title>');
+    expect(res.text).toContain('<title>eleatic · eval explorer</title>');
+    expect(res.text).toContain('src="/hub.js"');
   });
 
   it('GET /config.js emits a parseable ESM client slice and OMITS server-only fields', async () => {

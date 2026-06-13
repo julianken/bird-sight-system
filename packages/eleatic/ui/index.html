@@ -3,23 +3,42 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>eleatic</title>
+    <title>eleatic · eval explorer</title>
+    <!--
+      The comparison hub (E5). Framework-free: app.css for the neutral token
+      system, hub.js as a single ES module. hub.js imports /config.js (the
+      server's client-config emitter: formatters, gate, theme key, image-host
+      allowlist) and the sibling theme.js / safe.js / format.js modules. No
+      build step, no bundler — served verbatim from packages/eleatic/ui/.
+    -->
+    <link rel="stylesheet" href="/app.css" />
   </head>
   <body>
-    <!--
-      Placeholder landing page. The real comparison hub / diff / facets pages
-      land in E5 / E6; this page only keeps `GET /` a 200 so `eleatic serve` is
-      complete before those pages exist. It imports `/config.js` (the server's
-      client-config emitter) so the wiring is exercised end-to-end today.
-    -->
-    <main>
-      <h1>eleatic</h1>
-      <p>eval-results explorer — UI pages land in a later epic child.</p>
+    <header class="app-header">
+      <h1 class="app-title">eleatic<span class="app-sub">eval explorer</span></h1>
+      <span class="header-spacer"></span>
+      <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle light / dark theme">◐ Theme</button>
+    </header>
+
+    <main class="wrap">
+      <section class="section">
+        <div class="section-head">
+          <h2 class="section-title">Runs</h2>
+          <span class="section-sub">Select two runs to compare</span>
+        </div>
+        <div id="runs"></div>
+        <div id="compare-bar" class="compare-bar"></div>
+      </section>
+
+      <section class="section">
+        <div class="section-head">
+          <h2 class="section-title">Trends</h2>
+          <span class="section-sub">One line per run label</span>
+        </div>
+        <div id="trends" class="trends-grid"></div>
+      </section>
     </main>
-    <script type="module">
-      import { config } from '/config.js';
-      // eslint-disable-next-line no-console
-      console.log('eleatic config', config);
-    </script>
+
+    <script type="module" src="/hub.js"></script>
   </body>
 </html>
