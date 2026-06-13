@@ -13,10 +13,30 @@ export { openStore, EleaticStore } from './store.js';
 export type { EvalRunRecord, EvalRowRecord, EvalAdjudicationRecord } from './types.js';
 
 // --- Read query API (E2) ---
-// export { makeReader, type EleaticReader } from './reader.js';
+export { makeReader } from './queries.js';
+export type {
+  EleaticReader,
+  RunDiff,
+  MetricPoint,
+  FacetQuery,
+  FacetFilter,
+  JsonScalar,
+} from './queries.js';
 
 // --- Analysis module (E3) ---
-// export { ... } from './analysis.js';
+export {
+  labelAgreement,
+  confusionCounts,
+  scoreMAE,
+  auc,
+  calibratedThreshold,
+  ambiguityBand,
+  hybridRouting,
+  analyze,
+  projectForAnalysis,
+  aggregateScores,
+} from './analysis.js';
+export type { AnalysisRow, AnalysisOptions, Analysis, AnalysisSelector } from './analysis.js';
 
 // --- Server factory (E4) ---
 // export { createApp } from './app.js';
