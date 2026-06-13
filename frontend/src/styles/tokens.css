@@ -83,10 +83,12 @@
    *   TOP-RIGHT   Controls cluster: Filters · Attribution · theme toggle
    *               — compact pill group, content-width.
    *   BOTTOM-LEFT Family legend — --card-maxw-legend.
-   *   BOTTOM-RIGHT Reserved for future zoom/locate — safe-zone. (Attribution
-   *               consolidated #830: always-visible eBird source credit in the
-   *               identity-card freshness line; full credits in the top-right
-   *               ⓘ Credits modal.)
+   *   BOTTOM-RIGHT Minimal always-visible attribution island: `OpenFreeMap ·
+   *               eBird` (license floor, --type-xs) as the `.map-attribution`
+   *               pill. (#828 relocated the always-visible eBird credit here
+   *               after deleting the identity-card freshness line #830 had
+   *               parked it in; full credits stay in the top-right ⓘ Credits
+   *               modal.) Future zoom/locate shares this corner.
    *   TRANSIENT   Popovers (flip/shift/clamp to stay on-screen), detail
    *               card (insets into top-right region), filters panel
    *               (anchored under its trigger) — per-element caps.

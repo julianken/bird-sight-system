@@ -25,7 +25,7 @@ export interface SpeciesDetailSurfaceProps {
 
 /**
  * Presentational body of the detail surface (Phase 4). Composed inside
- * <SpeciesDetailModal> (desktop) and <SpeciesDetailSheet> (mobile);
+ * <SpeciesDetailRail> (desktop) and <SpeciesDetailSheet> (mobile);
  * never rendered directly in <main> after Phase 4 ships. The component
  * does not own scroll, dismiss, or focus-capture — those belong to its
  * wrappers.
