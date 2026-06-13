@@ -104,22 +104,24 @@ describe('safeClarity guarded wrapper', () => {
 
   it('safeClarity.event forwards to Clarity.event when window.clarity is a function', async () => {
     (window as unknown as { clarity: () => void }).clarity = vi.fn();
-    const eventSpy = vi.fn();
-    vi.doMock('@microsoft/clarity', () => ({
-      default: { init: vi.fn(), event: eventSpy, setTag: vi.fn() },
-    }));
     const { safeClarity } = await import('./clarity.js');
+    // Assert against the SAME hoisted-mock spy `clarity.ts` consumes, resolved via the
+    // mocked specifier after import — not a fresh per-test `vi.doMock`. A per-test
+    // `vi.doMock` here leaked across the unordered describe blocks under
+    // `--sequence.shuffle`: `vi.resetModules()` clears the module cache but not doMock
+    // factory registrations, so a leaked factory shadowed a later test's import and the
+    // captured spy saw 0 calls (#1105).
+    const eventSpy = (await import('@microsoft/clarity')).default.event as unknown as ReturnType<typeof vi.fn>;
     safeClarity.event('panel_opened');
     expect(eventSpy).toHaveBeenCalledWith('panel_opened');
   });
 
   it('safeClarity.setTag forwards to Clarity.setTag when window.clarity is a function', async () => {
     (window as unknown as { clarity: () => void }).clarity = vi.fn();
-    const setTagSpy = vi.fn();
-    vi.doMock('@microsoft/clarity', () => ({
-      default: { init: vi.fn(), event: vi.fn(), setTag: setTagSpy },
-    }));
     const { safeClarity } = await import('./clarity.js');
+    // See the event test above (#1105): assert against the hoisted-mock spy, no per-test
+    // `vi.doMock` (which leaked under shuffle and was the real flake source).
+    const setTagSpy = (await import('@microsoft/clarity')).default.setTag as unknown as ReturnType<typeof vi.fn>;
     safeClarity.setTag('view', 'feed');
     expect(setTagSpy).toHaveBeenCalledWith('view', 'feed');
   });
