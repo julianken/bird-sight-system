@@ -445,6 +445,12 @@
   border-radius: 999px;
   font-family: var(--font-stack);
   font-weight: var(--font-weight-semibold);
+  /* F1 #1061: tabular digits. pillDimensions() in ClusterPill.tsx predicts the
+     deconflict AABB from a fixed per-digit advance (~8/9/10px per tier) — that
+     formula only holds if every digit is the same width. Every other count
+     surface already sets this (.app-header-lede, observation count, grid
+     badges); the pill was the lone omission. */
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
   transition: transform var(--dur-fast), box-shadow var(--dur-fast);
   /* WCAG 2.5.8 Target Size (Minimum) — 24×24px floor. Audit measured
@@ -672,8 +678,16 @@ button.adaptive-grid-marker__cell {
   right: 0;
   background: #1a1a1a;
   color: #fff;
+  /* MAP-MARKER-GRAPHICS RAMP EXCEPTION (F1 #1061, 2026-06-13): this 9px count
+     glyph sits BELOW the --type-xs (11px) ramp floor. Promoting it to
+     --type-xs would force a re-tune of the 14px badge box + the E6/#1058
+     "badge bbox fully within its 22px owner cell" anchoring invariant — a real
+     geometry change that exceeds value-preserving hygiene. The badge is a
+     map-graphic, not running prose; contrast is ~17:1 and bold. Excluded from
+     ramp audits here (and at __overflow below). Re-audit: if the marker box is
+     ever re-sized, fold the glyph back onto --type-xs at that time. */
   font-size: 9px;
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
   min-width: 14px;
   height: 14px;
   padding: 0 3px;
@@ -699,8 +713,13 @@ button.adaptive-grid-marker__cell {
      than another silhouette tile. */
   background: rgba(0, 0, 0, 0.78);
   color: #fff;
+  /* MAP-MARKER-GRAPHICS RAMP EXCEPTION (F1 #1061, 2026-06-13): 10px sub-ramp
+     count glyph — same exclusion rationale as .adaptive-grid-marker__badge
+     above (map graphic in a fixed cell box, not prose; ~17:1 contrast, bold).
+     Excluded from ramp audits; re-fold onto --type-xs only if the cell box is
+     re-sized. */
   font-size: 10px;
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
   font-variant-numeric: tabular-nums;
 }
 
@@ -833,7 +852,7 @@ button.adaptive-grid-marker__cell {
 }
 
 .cell-hover-preview__footer {
-  font-size: 11px;
+  font-size: var(--type-xs);
   color: var(--color-text-muted);
   margin-top: var(--space-xxs);
   font-style: italic;
@@ -1037,7 +1056,7 @@ button.adaptive-grid-marker__cell {
 }
 
 .cell-popover__footer {
-  font-size: 11px;
+  font-size: var(--type-xs);
   color: var(--color-text-muted);
   margin-top: var(--space-xs);
   font-style: italic;
@@ -1056,7 +1075,7 @@ button.adaptive-grid-marker__cell {
   border: none;
   background: none;
   font: inherit;
-  font-size: 11px;
+  font-size: var(--type-xs);
   cursor: pointer;
   color: var(--color-text-link);
   text-decoration: underline;
@@ -1224,6 +1243,9 @@ button.adaptive-grid-marker__cell {
    state-hidden trap; only the caret animates here. */
 .cluster-list-popover__family-toggle::before {
   content: "▶ ";
+  /* GLYPH RAMP EXCEPTION (F1 #1061, 2026-06-13): decorative ▶ disclosure caret,
+     not running text — sized to the rotation box, not the type ramp. Excluded
+     from ramp audits (same class as the map-marker badge glyphs above). */
   font-size: 10px;
   display: inline-block;
   width: 12px;
