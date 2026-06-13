@@ -8,11 +8,13 @@ import { setMatchMedia, getMockMediaQuery } from '../test-setup.js';
 // useBreakpoint's two matchMedia queries (see use-breakpoint.ts). A matcher for
 // a given viewport width lets these tests drive a specific tier and simulate a
 // live mid-session resize via getMockMediaQuery(...).dispatchChange().
-const Q_COMPACT = '(max-width: 479px)';
+// F2 #1062: compact is now INCLUSIVE of 480 (`(max-width: 480px)`), matching the
+// CSS desktop-first ≤480 convention; the matcher tracks the engine's query string.
+const Q_COMPACT = '(max-width: 480px)';
 const Q_ROOMY = '(max-width: 1023px)';
 function matcherForWidth(width: number) {
   return (query: string): boolean => {
-    if (query === Q_COMPACT) return width <= 479;
+    if (query === Q_COMPACT) return width <= 480;
     if (query === Q_ROOMY) return width <= 1023;
     return false;
   };

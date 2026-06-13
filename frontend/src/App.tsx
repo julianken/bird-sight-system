@@ -34,7 +34,7 @@ import { SpeciesDetailSheet } from './components/SpeciesDetailSheet.js';
 import type { SnapState } from './components/SpeciesDetailSheet.js';
 import { AppHeader } from './components/AppHeader.js';
 import { useIsCompact } from './lib/use-is-compact.js';
-import { useIsPhone } from './lib/use-is-phone.js';
+import { useBreakpoint } from './hooks/use-breakpoint.js';
 import { AttributionModal } from './components/AttributionModal.js';
 import { resolveFamilyName } from './derived.js';
 import { filterObservationsByBounds, filterBucketsByBounds } from './lib/viewport-filter.js';
@@ -217,13 +217,18 @@ function focusFirstMarker(): void {
 export function App() {
   const { state, set } = useUrlState();
   const isCompact = useIsCompact();
-  // O5 (#783): phone-only hook keyed to ≤480px (P1's overlay breakpoint).
+  // O5 (#783): phone-scoped signal keyed to ≤480px (P1's overlay breakpoint).
   // Distinct from isCompact (≤1199px): the phone-scoped force-collapse signals
   // (unscoped chooser, filters, sheet half/full) only collide with the legend
   // at ≤480px. The detail-sheet-open signal, by contrast, fires across the
   // whole compact range (≤1199px) because the bottom-docked sheet overlaps the
   // bottom-left legend at 768/1024 too — see `legendForceCollapsed` below.
-  const isPhone = useIsPhone();
+  //
+  // F2 (#1062): derived from the shared `useBreakpoint()` engine
+  // (`'compact'` === ≤480 inclusive) instead of a standalone `useIsPhone` hook.
+  // The engine's compact tier IS the ≤480 overlay breakpoint, so this is the
+  // same signal with one fewer parallel matchMedia authority to keep in sync.
+  const isPhone = useBreakpoint() === 'compact';
   // Tag the current Clarity session with the active view so dashboards can
   // filter sessions by surface (map | detail). Fires on initial mount
   // and on every view change; analytics.setView no-ops safely when Clarity

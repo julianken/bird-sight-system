@@ -4,10 +4,11 @@ import userEvent from '@testing-library/user-event';
 import type { LngLatBounds } from 'maplibre-gl';
 import type React from 'react';
 
-// Phase 4 / #663: useIsCompact calls window.matchMedia. JSDOM does not
-// implement it — polyfill with a stub that returns non-compact (wide
+// Phase 4 / #663: useIsCompact (and, since F2 #1062, useBreakpoint — which now
+// backs the phone-scoped `isPhone` signal) call window.matchMedia. JSDOM does
+// not implement it — polyfill with a stub that returns non-compact (wide
 // desktop) by default so App renders SpeciesDetailRail rather than the
-// sheet when state.detail is set.
+// sheet when state.detail is set, and so `isPhone` reads false.
 // Using vi.stubGlobal so the mock persists across the test file and is
 // properly restored after each test via vi.restoreAllMocks().
 vi.stubGlobal('matchMedia', (query: string) => ({
