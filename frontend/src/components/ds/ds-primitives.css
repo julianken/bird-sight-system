@@ -6,8 +6,9 @@
  *
  * Architecture:
  *   - All values are resolved through Phase 1 semantic tokens (tokens.css).
- *     No raw hex codes. Custom properties from styles.css :root are also
- *     consumed where they carry the right semantic role.
+ *     No raw hex codes or raw shadow literals. Custom properties from
+ *     styles.css :root and tokens.css are consumed where they carry the
+ *     right semantic role. (#1043: popover shadows migrated to --card-elevation-2)
  *   - Shimmer animation respects prefers-reduced-motion via the global policy
  *     in styles/motion.css (animation-duration: 0ms !important). Components
  *     do NOT duplicate the media query.
@@ -896,14 +897,14 @@ button.adaptive-grid-marker__cell {
   position: absolute;
   z-index: var(--z-cell-popover);
   background: var(--color-bg-surface);
-  border: 1px solid var(--color-border-strong);
-  border-radius: 6px;
+  border: 1px solid var(--color-border-ui);
+  border-radius: var(--card-radius);
   padding: var(--space-sm) var(--space-md);
   font: var(--text-body-sm);
   color: var(--color-text-strong);
   min-width: 240px;
-  max-width: 320px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  max-width: var(--card-maxw-popover);
+  box-shadow: var(--card-elevation-2);
 }
 
 .cell-popover__header {
@@ -997,12 +998,12 @@ button.adaptive-grid-marker__cell {
   border-radius: 2px;
 }
 
-/* Dark theme override. */
+/* Dark theme override — bg/text/border are mode-paired tokens; box-shadow
+   inherits from --card-elevation-2 (token is dark-aware, no override needed). */
 [data-theme="dark"] .cell-popover {
   background: var(--color-bg-surface);
-  border-color: var(--color-border-strong);
+  border-color: var(--color-border-ui);
   color: var(--color-text-strong);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
 }
 
 /* Forced-colors fallback. */
@@ -1083,12 +1084,12 @@ button.adaptive-grid-marker__cell {
   max-height: 70vh;
   overflow-y: auto;
   background: var(--color-bg-surface);
-  border: 1px solid var(--color-border-strong);
-  border-radius: 8px;
+  border: 1px solid var(--color-border-ui);
+  border-radius: var(--card-radius);
   padding: var(--space-md);
   font: var(--text-body-sm);
   color: var(--color-text-strong);
-  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--card-elevation-2);
 }
 
 .cluster-list-popover__header {
@@ -1228,12 +1229,12 @@ button.adaptive-grid-marker__cell {
   outline-offset: 2px;
 }
 
-/* Dark theme override. */
+/* Dark theme override — bg/text/border are mode-paired tokens; box-shadow
+   inherits from --card-elevation-2 (token is dark-aware, no override needed). */
 [data-theme="dark"] .cluster-list-popover {
   background: var(--color-bg-surface);
-  border-color: var(--color-border-strong);
+  border-color: var(--color-border-ui);
   color: var(--color-text-strong);
-  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.6);
 }
 
 /* Forced-colors fallback (matches existing styles.css:1696 pattern). */

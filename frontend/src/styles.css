@@ -54,9 +54,6 @@
   --dur-base: 250ms;
   --dur-slow: 350ms;
 
-  --shadow-panel: -2px 0 12px rgba(0, 0, 0, var(--opacity-subtle));
-  --shadow-listbox: 0 4px 12px rgba(0, 0, 0, var(--opacity-subtle));
-  --shadow-drawer: 0 -2px 12px rgba(0, 0, 0, var(--opacity-subtle));
 
   /* ── Colour tokens (styles.css-only) ───────────────────────────────────
      Tokens that have NO counterpart in tokens.css [data-theme] blocks.
@@ -1278,7 +1275,7 @@ body:has(.species-detail-sheet--full) .app-header-controls-pill {
      round at --card-radius (12px) and the bottom-left legend caps at
      --card-maxw-legend (280px) — replaces the pre-contract 6px / 240px. */
   border-radius: var(--card-radius);
-  box-shadow: var(--shadow-listbox);
+  box-shadow: var(--card-elevation-1);
   font-size: var(--type-sm);
   color: var(--color-text-strong);
   max-width: var(--card-maxw-legend);
@@ -1549,7 +1546,7 @@ body:has(.species-detail-sheet--peek) .family-legend {
   background: var(--color-bg-surface);
   border: 1px solid var(--color-border-ui);
   border-radius: var(--card-radius);
-  box-shadow: var(--shadow-listbox);
+  box-shadow: var(--card-elevation-1);
   font-size: var(--type-xs);
   line-height: 1.4;
   color: var(--color-text-subtle);
@@ -1580,20 +1577,21 @@ body:has(.species-detail-sheet--peek) .family-legend {
    reachable via the MapMarkerHitLayer (which gives every observation
    marker a real tabindex).
 
-   max-width: 280px is duplicated as POPOVER_W in ObservationPopover.tsx
-   so the viewport-edge flipX decision can be made without forcing a
-   layout read on the popover DOM. Change both together. */
+   max-width: var(--card-maxw-popover) (300px) is duplicated as POPOVER_W
+   in ObservationPopover.tsx so the viewport-edge flipX decision can be
+   made without forcing a layout read on the popover DOM. Change both
+   together. (#1043) */
 .observation-popover {
   position: absolute;
   z-index: var(--z-popover);
   background: var(--color-bg-surface);
   border: 1px solid var(--color-border-ui);
-  border-radius: 6px;
-  box-shadow: var(--shadow-listbox);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-elevation-2);
   padding: var(--space-sm) var(--space-md);
   font-size: var(--type-sm);
   color: var(--color-text-strong);
-  max-width: 280px;
+  max-width: var(--card-maxw-popover);
 }
 
 /* #950 — recipe-05 (menu-dropdown) origin-aware enter. Shared by the transient
@@ -1889,7 +1887,7 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
   color: var(--color-text-strong);
   border-top-left-radius: var(--radius-lg, 12px);
   border-top-right-radius: var(--radius-lg, 12px);
-  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--card-elevation-sheet);
   /* Base z-index kept at 10 (below overlay band) — the snap modifier below
      overrides this at full snap. --peek (z-10) and --half (z-15) intentionally
      stay below the overlay band so map controls remain interactive when the
@@ -2081,7 +2079,7 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
 .sheet-fg-photo {
   grid-area: photo;
   overflow: hidden;
-  border-radius: 10px;
+  border-radius: var(--card-radius-inner);
   background: var(--color-bg-tint);
 }
 /* §1.2 inner-node sizing — make the <Photo> primitive fill the morphing frame
@@ -3101,8 +3099,8 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
   padding: var(--space-xl);
   background: var(--color-bg-surface);
   border: 1px solid var(--color-border-ui);
-  border-radius: var(--radius-lg, 12px);
-  box-shadow: var(--shadow-listbox);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-elevation-3);
 }
 
 /* #950 — recipe-06 (modal) enter on the landing card ONLY (never the scrim
@@ -3268,8 +3266,8 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
   padding: var(--space-sm) var(--space-md);
   background: var(--color-bg-surface);
   border: 1px solid var(--color-border-ui);
-  border-radius: var(--radius-lg, 12px);
-  box-shadow: var(--shadow-listbox);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-elevation-1);
 }
 
 /* Embedded mode (#800): inside .app-header-identity-card — no float, no

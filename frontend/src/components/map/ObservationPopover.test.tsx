@@ -162,7 +162,7 @@ describe('ObservationPopover', () => {
   });
 
   // Issue #718 — viewport-edge clamp: when a click lands too close to the
-  // right edge to fit POPOVER_W=280 + OFFSET=12, the popover flips to the
+  // right edge to fit POPOVER_W=300 + OFFSET=12, the popover flips to the
   // left of the click.
   it('flips to the left of the click when near the right edge', () => {
     Object.defineProperty(window, 'innerWidth', { value: 1000, configurable: true });
@@ -176,11 +176,11 @@ describe('ObservationPopover', () => {
       />,
     );
     const dialog = screen.getByRole('dialog');
-    // 850 + 12 + 280 = 1142 > 1000 → flipX path.
+    // 850 + 12 + 300 = 1162 > 1000 → flipX path.
     const left = parseInt(dialog.style.left, 10);
     expect(left).toBeLessThan(850);
-    // 850 - 12 - 280 = 558.
-    expect(left).toBe(558);
+    // 850 - 12 - 300 = 538.
+    expect(left).toBe(538);
   });
 
   it('omits inline left/top when position is null (legacy harness path)', () => {
