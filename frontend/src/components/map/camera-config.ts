@@ -121,3 +121,83 @@ export const INITIAL_VIEW = {
  * Single source of truth for BOTH fitBounds call sites in this file.
  */
 export const FIT_BOUNDS_PADDING = { top: 80, bottom: 48, left: 48, right: 48 } as const;
+
+/**
+ * Minimum fraction of the viewport span that must keep overlapping the state
+ * bbox at the hardest pan, in a state scope (#1059 / M-30 — the masked-void
+ * fix). DECOUPLED from `mask.ts`'s `ARTBOARD_PAD` (1.0) by design: `ARTBOARD_PAD`
+ * sizes the static zoom-OUT gate (state shrinks to ~1/3 of the viewport on the
+ * gray field before the clamp halts), and the mask geometry pins it at 1.0
+ * (`mask.test.ts`); this constant is a separate zoom-IN backstop and must not be
+ * conflated with it. 0.2 ⇒ at least 20% of the viewport span still shows
+ * state-bbox area even when the camera is panned hard against the clamp edge, so
+ * a 100%-void viewport is unreachable at any zoom.
+ */
+export const MIN_STATE_ONSCREEN = 0.2;
+
+/**
+ * Zoom-aware artboard clamp (#1059 — M-30: "the masked void is reachable").
+ *
+ * The pre-#1059 clamp was the STATIC `padBounds(bounds, clampPad)` — the state
+ * envelope grown by `clampPad`× (≈3× at `ARTBOARD_PAD = 1.0`). That static band
+ * is one full state-width of slack per side; at mid/high zoom the viewport is
+ * far smaller than the band, so the camera can pan until the viewport sits
+ * entirely inside the gray slack — a 100%-featureless void with zero affordance
+ * back (verified: at z≥10 every canonical viewport spans <1 state-width of lng).
+ *
+ * The fix keeps the SAME reactive-`maxBounds` mechanism but caps the per-side
+ * pad by the live viewport span so the band is never wider than the viewport:
+ * the per-side pad (in degrees, per axis) is the smaller of
+ *   - the static gate `clampPad × stateDimension` (the zoom-OUT framing), and
+ *   - `(1 − MIN_STATE_ONSCREEN) × viewportSpan` (the zoom-IN backstop).
+ * Because the per-side pad never exceeds `(1 − MIN_STATE_ONSCREEN) × span`, the
+ * far viewport edge — when panned hard against the clamp — still overlaps the
+ * state bbox by ≥ `MIN_STATE_ONSCREEN × span`. The viewport therefore ALWAYS
+ * intersects the state, in every pan direction, at every zoom.
+ *
+ * Zoom-OUT framing is preserved exactly: when `viewportSpan` is wide (zoomed
+ * out, the artboard case `ARTBOARD_PAD` was sized for), the static gate is the
+ * smaller term, so the result equals `padBounds(bounds, clampPad)` — the
+ * pre-#1059 value, unchanged. The clamp only TIGHTENS as you zoom in past the
+ * point where the viewport span drops below the static band.
+ *
+ * Pure function (no React, no maplibre): `viewportSpan` is `[lngSpan, latSpan]`
+ * in degrees, supplied by the caller from `map.getBounds()` on `zoomend`. When
+ * `viewportSpan` is omitted (mount, before the first camera settle) it falls
+ * back to the static `padBounds(bounds, clampPad)` so entry framing is
+ * byte-identical to the pre-#1059 path. Latitude is clamped to ±85 (web-mercator
+ * safe), matching `padBounds`.
+ *
+ * @param bounds       tight state envelope `[[w,s],[e,n]]`
+ * @param clampPad     static artboard pad factor (`ARTBOARD_PAD`), per side
+ * @param viewportSpan live `[lngSpan, latSpan]` in degrees, or undefined at mount
+ */
+export function zoomAwareClampBounds(
+  bounds: [[number, number], [number, number]],
+  clampPad: number,
+  viewportSpan: [number, number] | undefined,
+): [[number, number], [number, number]] {
+  const [[w, s], [e, n]] = bounds;
+  const stateW = e - w;
+  const stateH = n - s;
+  // Static per-side pad (degrees) — the pre-#1059 zoom-OUT gate.
+  const staticPadW = stateW * clampPad;
+  const staticPadH = stateH * clampPad;
+  // Zoom-IN cap (degrees): keep ≥ MIN_STATE_ONSCREEN of the viewport on the
+  // state. With no live span (mount) the cap is +∞, so the static gate wins and
+  // the result equals padBounds(bounds, clampPad).
+  const capW = viewportSpan
+    ? (1 - MIN_STATE_ONSCREEN) * viewportSpan[0]
+    : Number.POSITIVE_INFINITY;
+  const capH = viewportSpan
+    ? (1 - MIN_STATE_ONSCREEN) * viewportSpan[1]
+    : Number.POSITIVE_INFINITY;
+  const padW = Math.min(staticPadW, capW);
+  const padH = Math.min(staticPadH, capH);
+  const cx = (x: number) => Math.max(-180, Math.min(180, x));
+  const cy = (y: number) => Math.max(-85, Math.min(85, y));
+  return [
+    [cx(w - padW), cy(s - padH)],
+    [cx(e + padW), cy(n + padH)],
+  ];
+}
