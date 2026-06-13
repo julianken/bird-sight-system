@@ -1564,9 +1564,14 @@ body {
   position: absolute;
   /* Full inner width, inside the 1px card border — NOT inset by the list
      padding or the scrollbar gutter. This symmetry is the whole point of the
-     fix (was 9px left / ~20px right on the old <ul>-::after). */
-  inset-inline: 1px;
-  bottom: 1px;
+     fix (was 9px left / ~20px right on the old <ul>-::after).
+     inset:0 (not 1px): absolute insets are measured from the card's padding
+     box, which is ALREADY inside the 1px border, so 0 seats the fade flush
+     against the inner border edge; a 1px inset double-counts the border and
+     leaves a ~1px hairline gap at the rounded bottom corner. The 11px inner
+     radius (`--card-radius − 1px`) matches the border's inner corner. */
+  inset-inline: 0;
+  bottom: 0;
   height: 28px;
   pointer-events: none;
   background: linear-gradient(

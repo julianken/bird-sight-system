@@ -218,18 +218,38 @@ test.describe('E3 (#1055): overflow cue is visible at rest when the list overflo
       fadeHeight,
       'the overflow ::after fade must have a non-zero height at rest',
     ).toBeGreaterThan(0);
-    // Geometry pin: the fade spans (nearly) the full inner card width — NOT the
-    // old narrow inset width (list padding + classic scrollbar gutter made the
-    // <ul>-::after lopsided: 9px left / ~20px right). In headless Chromium the
-    // scrollbar is overlay/0-width, so inset-inline:1px ≈ cardWidth − 2.
-    const { fadeWidth, cardWidth } = await card.evaluate((el) => ({
-      fadeWidth: parseFloat(getComputedStyle(el, '::after').width),
-      cardWidth: el.getBoundingClientRect().width,
-    }));
+    // Geometry pin: the fade must seat FLUSH against the card's inner border
+    // edge — NOT the old narrow inset width (list padding + classic scrollbar
+    // gutter made the <ul>-::after lopsided: 9px left / ~20px right), and NOT
+    // inset 1px from the padding box (which double-counts the border and leaves
+    // a ~1px hairline gap at the rounded bottom corner). Absolute insets are
+    // measured from the card's padding box (already inside the 1px border), so
+    // inset:0 lands flush on the inner edge: fadeWidth === cardWidth − 2×border.
+    // The ≤1px tolerance is tight enough to FAIL the old inset-inline:1px (which
+    // rendered ~2.3px short of the inner width); ≤3px let that bug pass.
+    const geo = await card.evaluate((el) => {
+      const after = getComputedStyle(el, '::after');
+      const cs = getComputedStyle(el);
+      return {
+        fadeWidth: parseFloat(after.width),
+        left: parseFloat(after.left),
+        right: parseFloat(after.right),
+        cardWidth: el.getBoundingClientRect().width,
+        borderLeft: parseFloat(cs.borderLeftWidth),
+        borderRight: parseFloat(cs.borderRightWidth),
+      };
+    });
+    const innerWidth = geo.cardWidth - geo.borderLeft - geo.borderRight;
+    // (a) the fade spans the FULL inner width — flush, not 1px short:
     expect(
-      Math.abs(fadeWidth - (cardWidth - 2)),
-      `the fade must span the full inner card width (fade ${fadeWidth}px vs inner ${cardWidth - 2}px)`,
-    ).toBeLessThanOrEqual(3);
+      Math.abs(geo.fadeWidth - innerWidth),
+      `the fade must seat flush to the inner border edge (fade ${geo.fadeWidth}px vs inner ${innerWidth}px)`,
+    ).toBeLessThanOrEqual(1);
+    // (b) symmetric — equal left/right insets (no lopsided gutter, no 1px skew):
+    expect(
+      Math.abs(geo.left - geo.right),
+      `the fade insets must be symmetric (left ${geo.left}px vs right ${geo.right}px)`,
+    ).toBeLessThanOrEqual(1);
   });
 
   test('no overflow flag when the list fits', async ({ page, apiStub }) => {
