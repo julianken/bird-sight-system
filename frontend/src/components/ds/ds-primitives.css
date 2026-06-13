@@ -740,10 +740,10 @@ button.adaptive-grid-marker__cell {
 
 .cell-hover-preview {
   position: absolute;
-  /* #761 O6 (#782) — MIGRATED off the `calc(var(--z-panel) + 5)` arithmetic onto
+  /* #761 O6 (#782) — MIGRATED off a z-tier calc() arithmetic onto
      the named `--z-modal` (50) tier. Rationale: this passive hover tooltip must
      paint ABOVE every popover it can geometrically overlap. Pre-O6 the two render
-     paths DISAGREED — the keyboard-focus inline path sat at calc(--z-panel + 5) =
+     paths DISAGREED — the keyboard-focus inline path sat at a z-tier calc() =
      45 (a tie with --z-cluster-popover, won only by DOM order) while the
      cursor-following path used an off-scale inline `zIndex: 1000` (~955 above the
      scale). O6 removes the inline literal (CellHoverPreview.tsx) so BOTH paths now

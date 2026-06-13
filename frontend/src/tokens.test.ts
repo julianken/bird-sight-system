@@ -34,9 +34,7 @@ describe('tokens', () => {
   });
 
   describe('zIndex', () => {
-    // Named-tier chain — EXCLUDES the deprecated `panel` alias (it ties with
-    // `overlay` by design, so it cannot live in a strict-monotonic array).
-    // The chain preserves the pre-refactor visible stack order EXACTLY,
+    // Named-tier chain. Preserves the pre-refactor visible stack order EXACTLY,
     // including the rail-below-popovers relation (#761 P1, issue #778).
     it('named-tier chain is strictly monotonic', () => {
       const ranks = [
@@ -56,9 +54,6 @@ describe('tokens', () => {
       ranks.forEach((v, i) => {
         if (i > 0) expect(v).toBeGreaterThan(ranks[i - 1]!);
       });
-    });
-    it('panel is a deprecated alias of overlay (same rank)', () => {
-      expect(zIndex.panel).toBe(zIndex.overlay);
     });
     it('rail stays BELOW both popovers (preserves rail < cell < cluster)', () => {
       // Guards the #778 rail-above-popover regression at the unit level: a

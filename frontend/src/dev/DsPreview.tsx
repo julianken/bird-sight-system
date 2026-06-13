@@ -251,7 +251,7 @@ export function DsPreview(): ReactNode {
 
 /**
  * ScopeControl dev harness (#737). The control FLOATS over the map canvas via
- * `position:absolute` + `--z-panel`, so isolating it requires a
+ * `position:absolute` + `--z-overlay`, so isolating it requires a
  * `position:relative` backdrop that stands in for `.map-surface`. A muted
  * map-ish fill makes the overlay chrome (surface, border, shadow) legible at
  * screenshot time without mounting the real MapLibre canvas. Dev-only — never

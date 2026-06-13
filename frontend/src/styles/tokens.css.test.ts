@@ -149,12 +149,6 @@ describe('tokens.css — W1 conformance', () => {
     it('pins --color-accent-notable-bg to #2a2620 (deep amber-shadow, 14.02:1 vs #f5f7fb)', () => {
       expect(darkBlock).toMatch(/--color-accent-notable-bg:\s*#2a2620/);
     });
-    it('overrides --color-accent-notable-bg-hover', () => {
-      expect(darkBlock).toMatch(/--color-accent-notable-bg-hover:/);
-    });
-    it('pins --color-accent-notable-bg-hover to #332e26 (lifted amber-shadow hover)', () => {
-      expect(darkBlock).toMatch(/--color-accent-notable-bg-hover:\s*#332e26/);
-    });
   });
 
   // ── #761 P1 (issue #778): Layer-1 primitives added in the named-z-index /
@@ -166,7 +160,6 @@ describe('tokens.css — W1 conformance', () => {
 
     it('defines the overlay sizing breakpoints distinct from prose breakpoints', () => {
       expect(TOKENS_CSS).toMatch(/--overlay-bp-compact:\s*480px/);
-      expect(TOKENS_CSS).toMatch(/--overlay-bp-roomy:\s*600px/);
       expect(TOKENS_CSS).toMatch(/--overlay-bp-wide:\s*1024px/);
     });
   });
@@ -333,7 +326,7 @@ describe('styles.css — W1 conformance', () => {
   });
 
   // ── #761 P1 (issue #778): named z-index tier scale lives in styles.css :root.
-  //    Assert the full scale + the deprecated --z-panel var() indirection alias.
+  //    Assert the full named scale.
   describe('named z-index scale — #761 P1 (#778)', () => {
     it('declares every named tier with its rank-preserving value', () => {
       expect(STYLES_CSS).toMatch(/--z-map:\s*0\b/);
@@ -348,12 +341,6 @@ describe('styles.css — W1 conformance', () => {
       expect(STYLES_CSS).toMatch(/--z-cluster-popover:\s*45\b/);
       expect(STYLES_CSS).toMatch(/--z-modal:\s*50\b/);
       expect(STYLES_CSS).toMatch(/--z-skip:\s*60\b/);
-    });
-
-    it('keeps --z-panel as a CSS-only var() indirection alias of --z-overlay', () => {
-      // Encoded as var() indirection (not a hardcoded 40) so it carries no
-      // monotonicity obligation and stays correct if --z-overlay ever moves.
-      expect(STYLES_CSS).toMatch(/--z-panel:\s*var\(--z-overlay\)/);
     });
   });
 
@@ -408,13 +395,14 @@ describe('styles.css — W1 conformance', () => {
   });
 
   // ── #761 O6 (#782): the three on-canvas cell popovers consume P1's NAMED
-  //    popover tokens — no `z-index: calc(var(--z-panel) + N)` arithmetic
-  //    survives on any of them.
+  //    popover tokens — no z-tier `calc(var(--z-* ) + N)` arithmetic survives
+  //    on any of them.
   describe('cell popovers on the named z-scale — #761 O6 (#782)', () => {
-    it('ds-primitives.css has NO `z-index: calc(var(--z-panel) + N)` arithmetic remaining', () => {
-      // The last `calc(var(--z-panel) + 5)` ref (.cell-hover-preview) was
-      // migrated to var(--z-modal) by O6. Any reappearance is a regression.
-      expect(DS_PRIMITIVES_CSS).not.toMatch(/z-index:\s*calc\(\s*var\(--z-panel\)/);
+    it('ds-primitives.css has NO z-tier calc() arithmetic remaining', () => {
+      // The last z-tier calc() ref (.cell-hover-preview) was migrated to a
+      // named tier by O6. Any reappearance of `z-index: calc(var(--z-...))`
+      // arithmetic is a regression.
+      expect(DS_PRIMITIVES_CSS).not.toMatch(/z-index:\s*calc\(\s*var\(--z-/);
     });
 
     it('.cell-hover-preview consumes the named --z-modal tier (above the cell/cluster popovers it can overlap)', () => {
@@ -754,8 +742,7 @@ describe('B1 (#1040): undefined/unpaired-token enforcement', () => {
   // NOT appear in this list:
   //   --color-border-subtle, --color-text-faint, --color-text-white,
   //   --color-bg-stale, --color-bg-stale-chip, --color-text-stale,
-  //   --color-text-stale-name, --color-accent-notable-bg (light only here),
-  //   --color-accent-notable-bg-hover (light only here)
+  //   --color-text-stale-name, --color-accent-notable-bg (light only here)
   const MIGRATED_TOKENS = [
     '--color-bg-page',
     '--color-bg-surface',

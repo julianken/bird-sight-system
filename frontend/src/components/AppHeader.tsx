@@ -326,13 +326,14 @@ export function AppHeader({
           </h1>
         )}
 
-        {/* Scope-change live region (#760/#762 — carried from MapLede): announces
-            the active region to screen readers on chooser→state and state→state
-            transitions WITHOUT requiring a focus move. The same `role="status"
-            aria-live="polite"` contract that MapLede.tsx previously provided.
-            Renders whenever region is non-null (including during cold-load
-            suppression when ledeText is null, matching MapLede's original
-            unconditional announcement semantics). */}
+        {/* Scope-change live region (#760/#762 — carried from the former
+            context-strip lede): announces the active region to screen readers on
+            chooser→state and state→state transitions WITHOUT requiring a focus
+            move. The same `role="status" aria-live="polite"` contract the
+            context-strip lede previously provided. Renders whenever region is
+            non-null (including during cold-load suppression when ledeText is null,
+            matching that element's original unconditional announcement
+            semantics). */}
         {region && (
           <span className="sr-only" role="status" aria-live="polite">
             Showing {region}.

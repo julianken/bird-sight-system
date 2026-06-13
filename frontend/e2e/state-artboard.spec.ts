@@ -896,7 +896,7 @@ test.describe('state-artboard verification (SUB3, #764)', () => {
       // and are out of our axe jurisdiction (mirrors axe.spec.ts's map-view
       // rationale) — exclude the canvas root so a headless no-WebGL run does not
       // produce spurious canvas-internal nodes. Our own overlays (ScopeControl,
-      // FamilyLegend, MapLede, AppHeader) are NOT excluded and are scanned.
+      // FamilyLegend, AppHeader) are NOT excluded and are scanned.
       .exclude('[data-testid="map-canvas"] .maplibregl-control-container')
       .analyze();
     if (results.violations.length) {
@@ -917,7 +917,7 @@ test.describe('state-artboard verification (SUB3, #764)', () => {
     await app.gotoRaw('');
     await expect(app.chooser).toBeVisible();
 
-    // The live region (#762, MapLede.tsx) is `role="status" aria-live="polite"`,
+    // The live region (#762, AppHeader.tsx) is `role="status" aria-live="polite"`,
     // visually-hidden (.sr-only), text "Showing {region}.".
     await app.pickStateInChooser('US-AZ');
     await app.waitForAppReady();
