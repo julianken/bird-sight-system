@@ -39,4 +39,8 @@ export {
 export type { AnalysisRow, AnalysisOptions, Analysis, AnalysisSelector } from './analysis.js';
 
 // --- Server factory (E4) ---
-// export { createApp } from './app.js';
+export { createApp } from './server/app.js';
+export { startServer } from './server/serve.js';
+export type { ServeOptions } from './server/serve.js';
+export { resolveConfig, clientConfigSlice } from './config.js';
+export type { EleaticConfig, ClientConfig, EleaticGate } from './config.js';
