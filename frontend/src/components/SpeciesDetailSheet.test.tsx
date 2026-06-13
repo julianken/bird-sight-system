@@ -278,6 +278,69 @@ describe('<SpeciesDetailSheet>', () => {
     });
   });
 
+  // ─── E2 (#1054) — published sheet-strip-height CSS var ──────────────────────
+  //
+  // The bottom-left legend's peek lift and the bottom-right attribution's
+  // peek-yield derive from a single CSS custom property the sheet publishes:
+  // `--sheet-strip-h` on document.body. At the peek detent it equals PEEK_PX
+  // (104px), retiring the stale hand-synced 120px literal in styles.css. The
+  // property MUST clear when the sheet leaves peek and on unmount (the sheet is
+  // conditionally mounted — a stale lift would survive close otherwise).
+  const PEEK_PX = 104;
+  describe('publishes --sheet-strip-h to body (#1054)', () => {
+    afterEach(() => {
+      document.body.style.removeProperty('--sheet-strip-h');
+    });
+
+    async function dragHalfToPeek(handle: HTMLElement) {
+      handle.dispatchEvent(new PointerEvent('pointerdown', { clientY: 400, pointerId: 1, bubbles: true }));
+      handle.dispatchEvent(new PointerEvent('pointermove', { clientY: 600, pointerId: 1, bubbles: true }));
+      handle.dispatchEvent(new PointerEvent('pointermove', { clientY: 740, pointerId: 1, bubbles: true }));
+      handle.dispatchEvent(new PointerEvent('pointerup', { clientY: 740, pointerId: 1, bubbles: true }));
+    }
+
+    it('at peek the published var equals PEEK_PX; not set at half', async () => {
+      render(
+        <SpeciesDetailSheet
+          speciesCode="vermfly"
+          apiClient={makeClient()}
+          onClose={vi.fn()}
+          mainRef={{ current: mainEl }}
+        />,
+      );
+      const sheet = await screen.findByTestId('species-detail-sheet');
+      await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'half'));
+      // Half/full stacking is intended — no lift, so no published strip height.
+      expect(document.body.style.getPropertyValue('--sheet-strip-h')).toBe('');
+
+      const handle = await screen.findByTestId('species-detail-sheet-handle');
+      await dragHalfToPeek(handle);
+      await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'peek'));
+      expect(document.body.style.getPropertyValue('--sheet-strip-h')).toBe(`${PEEK_PX}px`);
+    });
+
+    it('clears the var on unmount (no stale lift survives close)', async () => {
+      const { unmount } = render(
+        <SpeciesDetailSheet
+          speciesCode="vermfly"
+          apiClient={makeClient()}
+          onClose={vi.fn()}
+          mainRef={{ current: mainEl }}
+        />,
+      );
+      const sheet = await screen.findByTestId('species-detail-sheet');
+      const handle = await screen.findByTestId('species-detail-sheet-handle');
+      await dragHalfToPeek(handle);
+      await waitFor(() => expect(sheet).toHaveAttribute('data-snap-state', 'peek'));
+      expect(document.body.style.getPropertyValue('--sheet-strip-h')).toBe(`${PEEK_PX}px`);
+
+      act(() => {
+        unmount();
+      });
+      expect(document.body.style.getPropertyValue('--sheet-strip-h')).toBe('');
+    });
+  });
+
   // ─── Escape — pinned predicate (#1026) ─────────────────────────────────────
   //
   // Escape now DISMISSES the sheet (closeWithRestore → onClose), matching the

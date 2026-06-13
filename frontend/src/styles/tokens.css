@@ -217,11 +217,12 @@
   --tt-scale:            0.96;
   --tt-delay:            120ms;
   --tt-in-ease:          ease-out;
-  /* Mobile (≤639px) Filters bottom-sheet travel for the recipe-07 slide-up;
+  /* Mobile (≤480px) Filters bottom-sheet travel for the recipe-07 slide-up;
      the sheet's own height supplies the rest of the open distance so a short
      translate reads as a full open (recipe-07 note). Named -filters so it
      doesn't collide with the canonical --panel-translate-y (100px) or the
-     field-guide sheet's --panel-translate-y-sheet (32px). */
+     field-guide sheet's --panel-translate-y-sheet (32px). (E2 #1054: the
+     consuming media query moved 639→480 per #1060.) */
   --panel-translate-y-filters: 24px;
 }
 

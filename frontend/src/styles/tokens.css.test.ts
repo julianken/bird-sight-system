@@ -373,15 +373,21 @@ describe('styles.css — W1 conformance', () => {
       if (!m) throw new Error(`--${name} not found / not a literal in styles.css`);
       return Number(m[1]);
     };
-    // The sheet detents are literal z-index declarations in styles.css, NOT
-    // :root tokens — read them from their modifier rules so the guard tracks the
-    // values that actually render (styles.css:2310 / :2319).
+    // The sheet detents now reference NAMED z tiers (E2 #1054: peek →
+    // --z-sheet-resting, half → --z-sheet-raised, replacing the prior raw 10/15).
+    // Read the modifier rule's z-index — accept either a raw literal (legacy) or
+    // a var(--z-*) reference, resolving the var through the :root literal — so the
+    // guard tracks the value that actually renders.
     const sheetDetent = (modifier: string): number => {
       const m = STYLES_CSS.match(
-        new RegExp(`\\.species-detail-sheet--${modifier}\\s*\\{[^}]*z-index:\\s*(\\d+)\\b`, 's'),
+        new RegExp(
+          `\\.species-detail-sheet--${modifier}\\s*\\{[^}]*?z-index:\\s*(?:var\\(\\s*(--z-[a-z-]+)\\s*\\)|(\\d+)\\b)`,
+          's',
+        ),
       );
       if (!m) throw new Error(`.species-detail-sheet--${modifier} z-index not found`);
-      return Number(m[1]);
+      // m[1] = var name (e.g. "--z-sheet-resting"); m[2] = raw literal.
+      return m[1] ? z(m[1].replace(/^--/, '')) : Number(m[2]);
     };
 
     it('--z-under-detail sits BELOW the desktop rail (43)', () => {
