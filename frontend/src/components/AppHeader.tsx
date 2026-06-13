@@ -30,8 +30,11 @@
  *        attribution and recency isn't worth a permanent line on a minimized card.
  *
  *   TOP-RIGHT controls pill (.app-header-controls-pill) — compact content-width card:
- *     Filters trigger (+ active-count badge) · Attribution · Theme toggle.
- *     Filters is a labeled button at ≥1024, icon-only below.
+ *     Filters trigger (+ active-count badge) · ⓘ Credits · Theme toggle.
+ *     Order: Filters first per spec §3/§5.2 (#1033 V1/V18).
+ *     Filters shows a text label at ≥1024, icon-only below.
+ *     ⓘ Credits is icon-only at ALL widths (#1033 V1/V18 — the always-visible
+ *     bottom-right pill already carries eBird/OpenFreeMap credit).
  *
  * The old `role="tablist"` / `TABS` / `activeView` / `onSelectView` machinery is
  * entirely removed — the map is the always-mounted sole surface post-#688/#777.
@@ -41,8 +44,8 @@
  *   in the wordmark line and the scope form is collapsed behind the disclosure —
  *   so the layout is near-identical across the canonical viewport set. The only
  *   per-breakpoint variation is in the top-right controls pill:
- *   wide (≥1024): Filters/Attribution show text labels; corner insets use --card-inset-wide.
- *   roomy/compact (<1024): Filters/Attribution are icon-only; standard --card-inset gutters.
+ *   wide (≥1024): Filters shows text label; corner insets use --card-inset-wide.
+ *   roomy/compact (<1024): Filters is icon-only; standard --card-inset gutters.
  *
  * Lede prop (O3 #779 / #828) — carried from MapSurface into AppHeader so the
  * formerly invisible context-strip content renders in the identity card:
@@ -97,7 +100,7 @@ export interface AppHeaderProps {
    * is reliably non-null whenever the useLayoutEffect close path fires.
    */
   filtersTriggerRef: RefObject<HTMLButtonElement>;
-  /** Open the Credits & Attribution modal. */
+  /** Open the Credits modal (ⓘ trigger in the controls pill). */
   onOpenAttribution: () => void;
   // ── Lede / context-strip props (O3 #779 / #828) ─────────────────────────
   /**
@@ -348,39 +351,12 @@ export function AppHeader({
         )}
       </div>
 
-      {/* TOP-RIGHT: controls pill (Filters · Attribution · Theme toggle) */}
+      {/* TOP-RIGHT: controls pill (Filters · ⓘ Credits · Theme toggle).
+          Order: Filters first per spec §3/§5.2 (#1033 V1/V18); attribution
+          demoted to icon-only ⓘ at all widths, label shortened to "Credits"
+          (the always-visible bottom-right pill already shows eBird/OpenFreeMap
+          so the full "Credits & attribution" prose is redundant here). */}
       <div className="app-header-controls-pill">
-        <button
-          type="button"
-          className="app-header-attribution"
-          onClick={onOpenAttribution}
-          aria-label="Credits & attribution"
-          // #830 item E: this opens a showModal() dialog rendered in the top
-          // layer, so it carries aria-haspopup="dialog" but INTENTIONALLY omits
-          // aria-expanded — a deliberate divergence from .app-header-filters
-          // (an inline disclosure). Do NOT "fix" to match filters.
-          aria-haspopup="dialog"
-        >
-          <svg
-            className="app-header-btn-icon"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <path d="M12 16v-4M12 8h.01" />
-          </svg>
-          {filtersLabeled && (
-            <span className="app-header-btn-label">Attribution</span>
-          )}
-        </button>
-
         <button
           ref={filtersTriggerRef}
           type="button"
@@ -412,6 +388,38 @@ export function AppHeader({
               {filterCount}
             </span>
           )}
+        </button>
+
+        <button
+          type="button"
+          className="app-header-attribution"
+          onClick={onOpenAttribution}
+          aria-label="Credits"
+          // #830 item E: this opens a showModal() dialog rendered in the top
+          // layer, so it carries aria-haspopup="dialog" but INTENTIONALLY omits
+          // aria-expanded — a deliberate divergence from .app-header-filters
+          // (an inline disclosure). Do NOT "fix" to match filters.
+          // #1033 V1/V18: icon-only at all widths (no text label rendered even
+          // at wide breakpoints) — the "Credits & attribution" prose was moved
+          // to the bottom-right attribution pill which already carries the
+          // always-visible eBird/OpenFreeMap credit.
+          aria-haspopup="dialog"
+        >
+          <svg
+            className="app-header-btn-icon"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <path d="M12 16v-4M12 8h.01" />
+          </svg>
         </button>
 
         <ThemeToggle />

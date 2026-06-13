@@ -242,7 +242,8 @@ describe('<AppHeader>', () => {
   it('clicking the Attribution link calls onOpenAttribution', async () => {
     const onOpenAttribution = vi.fn();
     render(<AppHeader {...baseProps} onOpenAttribution={onOpenAttribution} />);
-    await userEvent.click(screen.getByRole('button', { name: /Credits & attribution/i }));
+    // #1033 V1: attribution demoted to icon-only; label shortened to "Credits"
+    await userEvent.click(screen.getByRole('button', { name: /^Credits$/i }));
     expect(onOpenAttribution).toHaveBeenCalledTimes(1);
   });
 
@@ -251,9 +252,23 @@ describe('<AppHeader>', () => {
     // inline disclosure — so it carries aria-haspopup but deliberately NOT
     // aria-expanded (a divergence from the Filters trigger, which is inline).
     render(<AppHeader {...baseProps} />);
-    const trigger = screen.getByRole('button', { name: /Credits & attribution/i });
+    // #1033 V1/V18: attribution label shortened to "Credits"
+    const trigger = screen.getByRole('button', { name: /^Credits$/i });
     expect(trigger).toHaveAttribute('aria-haspopup', 'dialog');
     expect(trigger).not.toHaveAttribute('aria-expanded');
+  });
+
+  // ── Controls order (V1/V18 #1033): Filters · ⓘ Credits · ThemeToggle ────
+
+  it('controls pill orders Filters first, then Credits (ⓘ), then ThemeToggle (#1033 V1/V18)', () => {
+    render(<AppHeader {...baseProps} />);
+    const pill = document.querySelector('.app-header-controls-pill')!;
+    const buttons = Array.from(pill.querySelectorAll('button'));
+    // Three buttons: Filters → ⓘ Credits → ThemeToggle (Toggle color theme)
+    expect(buttons).toHaveLength(3);
+    expect(buttons[0]).toHaveAttribute('aria-label', expect.stringMatching(/^Filters/));
+    expect(buttons[1]).toHaveAttribute('aria-label', 'Credits');
+    expect(buttons[2]).toHaveAttribute('aria-label', 'Toggle color theme');
   });
 
   // ── ThemeToggle ─────────────────────────────────────────────────────────

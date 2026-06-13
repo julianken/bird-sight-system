@@ -167,7 +167,8 @@ test.describe('MOB-N1 — .filters-panel-close touch target ≥ 44×44pt', () =>
     // block opening the panel (the panel-open behaviour itself is covered by
     // the desktop reachability specs). Then assert the close button's size.
     await app.filtersTrigger.dispatchEvent('click');
-    await page.getByRole('region', { name: 'Filters' }).waitFor({ state: 'visible' });
+    // #1033 C51: upgraded from role="region" to role="dialog"
+    await page.getByRole('dialog', { name: 'Filters' }).waitFor({ state: 'visible' });
 
     const closeBtn = page.locator('.filters-panel-close');
     const box = await closeBtn.boundingBox();

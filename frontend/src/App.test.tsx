@@ -550,8 +550,8 @@ describe('Phase 6: Footer removal + Attribution via AppHeader (issue #250 → Ph
       };
       render(<App />);
       await screen.findByRole('banner');
-      // AppHeader carries the "Credits & attribution" button
-      const trigger = screen.getByRole('button', { name: /Credits & attribution/i });
+      // AppHeader carries the "Credits" button
+      const trigger = screen.getByRole('button', { name: /Credits/i });
       expect(trigger).toBeInTheDocument();
     },
   );
@@ -570,7 +570,7 @@ describe('Phase 6: Footer removal + Attribution via AppHeader (issue #250 → Ph
     // onOpenAttribution sets attributionOpen → the modal's open prop opens the
     // native dialog. (No leftover .attribution-trigger shim — it was deleted.)
     expect(document.querySelector('.attribution-trigger')).toBeNull();
-    await userEvent.click(screen.getByRole('button', { name: /Credits & attribution/i }));
+    await userEvent.click(screen.getByRole('button', { name: /Credits/i }));
     expect(dialog?.hasAttribute('open')).toBe(true);
   });
 
@@ -655,12 +655,12 @@ describe('Phase 3: AppHeader + Filters panel', () => {
     await screen.findByRole('banner');
     const trigger = screen.getByRole('button', { name: /Filters/i });
     // Closed initially: the FiltersBar region should not be in the DOM
-    expect(screen.queryByRole('region', { name: /Filters/i })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: /Filters/i })).toBeNull();
     await userEvent.click(trigger);
-    expect(screen.getByRole('region', { name: /Filters/i })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: /Filters/i })).toBeInTheDocument();
     // Close button inside the panel dismisses it
     await userEvent.click(screen.getByRole('button', { name: /Close filters/i }));
-    expect(screen.queryByRole('region', { name: /Filters/i })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: /Filters/i })).toBeNull();
   });
 
   it('Filters badge count reflects active filters (notable + family = 2)', async () => {
@@ -713,6 +713,19 @@ describe('O4 (#780): Filters floating sheet — modality, dismiss, inert, aria',
     expect(trigger).not.toHaveAttribute('aria-controls');
   });
 
+  // C51 (#1033): filters surface must be role=dialog (was role=region) so that
+  // aria-haspopup="dialog" on the trigger is truthful. aria-modal="true" marks
+  // it as a modal dialog (inert on #map-layer already enforces the boundary).
+  it('filters surface is role=dialog named "Filters" with aria-modal=true (#1033 C51)', async () => {
+    render(<App />);
+    await screen.findByRole('banner');
+    await userEvent.click(screen.getByRole('button', { name: /Filters/i }));
+    const panel = screen.getByRole('dialog', { name: 'Filters' });
+    expect(panel).toBeInTheDocument();
+    expect(panel).toHaveAttribute('aria-modal', 'true');
+    expect(panel).toHaveAttribute('aria-label', 'Filters');
+  });
+
   it('aria-expanded on trigger flips false→true on open, true→false on close', async () => {
     render(<App />);
     await screen.findByRole('banner');
@@ -750,11 +763,11 @@ describe('O4 (#780): Filters floating sheet — modality, dismiss, inert, aria',
     const mapLayer = container.querySelector('#map-layer');
 
     await userEvent.click(trigger);
-    expect(screen.getByRole('region', { name: /Filters/i })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: /Filters/i })).toBeInTheDocument();
     expect(mapLayer).toHaveAttribute('inert');
 
     await userEvent.keyboard('{Escape}');
-    expect(screen.queryByRole('region', { name: /Filters/i })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: /Filters/i })).toBeNull();
     expect(mapLayer).not.toHaveAttribute('inert');
   });
 
@@ -765,13 +778,13 @@ describe('O4 (#780): Filters floating sheet — modality, dismiss, inert, aria',
     const mapLayer = container.querySelector('#map-layer');
 
     await userEvent.click(trigger);
-    expect(screen.getByRole('region', { name: /Filters/i })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: /Filters/i })).toBeInTheDocument();
     expect(mapLayer).toHaveAttribute('inert');
 
     const backdrop = container.querySelector('[data-testid="filters-backdrop"]');
     expect(backdrop).not.toBeNull();
     await userEvent.click(backdrop!);
-    expect(screen.queryByRole('region', { name: /Filters/i })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: /Filters/i })).toBeNull();
     expect(mapLayer).not.toHaveAttribute('inert');
   });
 
