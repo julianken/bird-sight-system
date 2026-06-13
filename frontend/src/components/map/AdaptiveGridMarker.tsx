@@ -8,6 +8,7 @@ import { useMediaQuery } from '../../hooks/use-media-query.js';
 import { useTheme } from '../../hooks/use-theme.js';
 import { CellHoverPreview } from './CellHoverPreview.js';
 import { CellPopover } from './CellPopover.js';
+import { countNoun, formatCount } from '../../lib/format-count.js';
 import { ClusterListPopover } from './ClusterListPopover.js';
 
 /**
@@ -140,8 +141,7 @@ function cellAriaLabel(tile: AdaptiveTile): string {
     tile.displayName && tile.displayName.trim().length > 0
       ? tile.displayName
       : prettyFamily(tile.familyCode);
-  const unit = tile.count === 1 ? 'observation' : 'observations';
-  return `${family}, ${tile.count} ${unit}`;
+  return `${family}, ${countNoun(tile.count, 'observation')}`;
 }
 
 const NOTABLE_AMBER = '#f59e0b';
@@ -692,7 +692,7 @@ function Badge({ count }: { count: number }) {
         boxShadow: '0 0 0 1px rgba(255,255,255,0.9)',
       }}
     >
-      {count}
+      {formatCount(count)}
     </span>
   );
 }

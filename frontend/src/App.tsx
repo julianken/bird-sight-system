@@ -43,6 +43,7 @@ import { prefetchMapCanvas } from './prefetch.js';
 import { SurfaceTitleSync } from './components/SurfaceTitleSync.js';
 import { StatusBlock } from './components/ds/StatusBlock.js';
 import { SheetHeader } from './components/ds/SheetHeader.js';
+import { formatCount } from './lib/format-count.js';
 
 const apiClient = new ApiClient({ baseUrl: import.meta.env.VITE_API_BASE_URL ?? '' });
 
@@ -1143,11 +1144,11 @@ export function App() {
     const speciesCommonName =
       speciesCount === 1 ? (observations[0]?.comName ?? null) : null;
     if (speciesCommonName) {
-      return `${observationCount} sightings of ${speciesCommonName}`;
+      return `${formatCount(observationCount)} sightings of ${speciesCommonName}`;
     } else if (familyName) {
-      return `${observationCount} sightings of ${familyName}`;
+      return `${formatCount(observationCount)} sightings of ${familyName}`;
     }
-    return `${observationCount} sightings`;
+    return `${formatCount(observationCount)} sightings`;
   }, [
     region,
     observations,

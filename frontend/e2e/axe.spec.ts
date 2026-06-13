@@ -114,7 +114,8 @@ test.describe('axe-core WCAG scans', () => {
     const pillCount = await pills.count().catch(() => 0);
     if (pillCount > 0) {
       const pillLabel = await pills.first().getAttribute('aria-label');
-      expect(pillLabel).toMatch(/^\d+ sightings$/);
+      // C1 #1045: counts ≥1000 now include thousands separators ("16,626 sightings").
+      expect(pillLabel).toMatch(/^[\d,]+ sightings$/);
     }
 
     // Epic #539 cutover: AdaptiveGridMarker exposes the same two-tier ARIA
@@ -135,8 +136,9 @@ test.describe('axe-core WCAG scans', () => {
       // Patterns from spec §4.6. The marker never builds the label string
       // itself — parent owns it — so this assertion pins the parent's
       // contract.
+      // C1 #1045: counts ≥1000 include thousands separators ("16,626 observations").
       expect(firstLabel!).toMatch(
-        /^(Single observation|\d+ coincident observations|Cluster: \d+ observations, \d+ (family|families))/,
+        /^(Single observation|[\d,]+ coincident observations|Cluster: [\d,]+ observations, [\d,]+ (family|families))/,
       );
       // describedby target (if set) must exist in the DOM as a <ul>.
       const describedById = await gridMarkers.first().getAttribute('aria-describedby');

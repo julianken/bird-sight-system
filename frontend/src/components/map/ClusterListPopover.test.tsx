@@ -88,6 +88,26 @@ describe('<ClusterListPopover>', () => {
     expect(screen.getByText(/2 families/)).toBeInTheDocument();
   });
 
+  it('cluster header uses thousands separators for totalCount ≥1000 (C1 #1045)', () => {
+    const anchor = makeAnchor();
+    render(
+      <ClusterListPopover
+        families={[family('hummingbirds', 5000), family('flycatchers', 7500)]}
+        speciesByFamily={speciesByFamily([
+          ['hummingbirds', [species("Anna's Hummingbird", 5000)]],
+          ['flycatchers', [species('Black Phoebe', 7500)]],
+        ])}
+        totalCount={12500}
+        uniqueFamilies={2}
+        anchorEl={anchor}
+        onDismiss={vi.fn()}
+        onSelectSpecies={vi.fn()}
+      />
+    );
+    // totalCount 12500 → "12,500 observations"
+    expect(screen.getByText(/12,500 observations/)).toBeInTheDocument();
+  });
+
   it('starts with EVERY family collapsed — no species rows visible until a header is activated (#859)', () => {
     const anchor = makeAnchor();
     const fams = [

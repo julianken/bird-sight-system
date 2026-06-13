@@ -2,6 +2,7 @@ import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import type { SpeciesAggregate } from './adaptive-grid.js';
 import { prettyFamily } from '../../derived.js';
+import { formatCount } from '../../lib/format-count.js';
 
 /**
  * `<CellHoverPreview>` — compact hover preview for an adaptive-grid cell
@@ -89,7 +90,7 @@ export function CellHoverPreview(props: CellHoverPreviewProps) {
       style={positionStyle}
     >
       <div className="cell-hover-preview__header">
-        {familyName ?? prettyFamily(familyCode)} ({familyCount})
+        {familyName ?? prettyFamily(familyCode)} ({formatCount(familyCount)})
       </div>
       <ul className="cell-hover-preview__rows">
         {visible.map((s) => (
@@ -98,7 +99,7 @@ export function CellHoverPreview(props: CellHoverPreviewProps) {
             className="cell-hover-preview__row"
             data-testid="cell-hover-preview-row"
           >
-            {s.count}x {s.comName}
+            {formatCount(s.count)}x {s.comName}
           </li>
         ))}
       </ul>

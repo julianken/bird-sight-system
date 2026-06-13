@@ -2728,4 +2728,30 @@ describe('#828: lede dedupe — count-only copy, no region, no time-window', () 
       }
     });
   });
+
+  // C1 #1045: lede must render thousands separators for counts ≥1000.
+  it('C1 #1045: lede uses thousands separator for sightings count ≥1000', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
+    };
+    // Aggregated mode: 4 buckets × 500 = 2000 total sightings → "2,000 sightings"
+    const pic = (count: number) => ({
+      code: 'picidae', count, speciesCount: 1,
+      species: [{ code: 'gilwoo', count }],
+    });
+    mockGetObservations.mockResolvedValue({
+      mode: 'aggregated',
+      buckets: [
+        { lat: 32.2, lng: -110.9, count: 500, speciesCount: 1, families: [pic(500)] },
+        { lat: 33.4, lng: -111.9, count: 500, speciesCount: 1, families: [pic(500)] },
+        { lat: 34.5, lng: -112.4, count: 500, speciesCount: 1, families: [pic(500)] },
+        { lat: 35.0, lng: -113.0, count: 500, speciesCount: 1, families: [pic(500)] },
+      ],
+      meta: { freshestObservationAt: new Date().toISOString() },
+    });
+    render(<App />);
+    const lede = await screen.findByTestId('map-lede');
+    expect(lede).toHaveTextContent('2,000 sightings');
+  });
 });

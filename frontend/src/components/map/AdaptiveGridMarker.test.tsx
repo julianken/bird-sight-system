@@ -1292,4 +1292,22 @@ describe('cell button chrome-reset cascade (badge-anchor bugfix)', () => {
     expect(cell.tagName).toBe('BUTTON');
     expect(cell.getAttribute('style') ?? '').not.toMatch(/\ball\s*:/);
   });
+
+  // C1 #1045: Badge renders count with thousands separator
+  it('C1 #1045: badge text uses thousands separator for count ≥1000', () => {
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[rendered('accipitridae', 1500)]}
+        totalCount={1500}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 1,500 observations, 1 family. Activate to zoom in."
+        onClick={noop}
+      />,
+    );
+    const badges = screen.getAllByTestId('adaptive-grid-marker-badge');
+    expect(badges).toHaveLength(1);
+    // Must show "1,500" not "1500".
+    expect(badges[0].textContent).toBe('1,500');
+  });
 });

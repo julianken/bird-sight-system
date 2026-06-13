@@ -3,6 +3,7 @@ import type { KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import type { FamilyAggregate, SpeciesAggregate } from './adaptive-grid.js';
 import { prettyFamily } from '../../derived.js';
+import { formatCount } from '../../lib/format-count.js';
 
 /**
  * `<ClusterListPopover>` — mobile / coarse-pointer sheet-style popover for
@@ -181,7 +182,7 @@ export function ClusterListPopover(props: ClusterListPopoverProps) {
           tabIndex={-1}
           data-testid="cluster-list-popover-heading"
         >
-          Cluster: {totalCount} observations, {uniqueFamilies} families
+          Cluster: {formatCount(totalCount)} observations, {formatCount(uniqueFamilies)} families
         </h2>
       </header>
       <div>
@@ -215,7 +216,7 @@ export function ClusterListPopover(props: ClusterListPopoverProps) {
                     90° (transform) to point down when the `--expanded` modifier
                     is set on the parent `.cluster-list-popover__family`
                     (ds-primitives.css) — a smooth rotate, not a ▶/▼ content swap. */}
-                {familyNames?.get(fam.familyCode) ?? prettyFamily(fam.familyCode)} ({fam.count})
+                {familyNames?.get(fam.familyCode) ?? prettyFamily(fam.familyCode)} ({formatCount(fam.count)})
               </button>
               {isExpanded && (
                 <ul className="cluster-list-popover__rows">
@@ -243,7 +244,7 @@ export function ClusterListPopover(props: ClusterListPopoverProps) {
                             className="cluster-list-popover__row-button"
                             onClick={() => onSpeciesRowClick(code)}
                           >
-                            {s.count}x {s.comName}
+                            {formatCount(s.count)}x {s.comName}
                           </button>
                         </li>
                       );
@@ -254,7 +255,7 @@ export function ClusterListPopover(props: ClusterListPopoverProps) {
                         className="cluster-list-popover__row"
                         data-testid="cluster-list-popover-row"
                       >
-                        <span>{s.count}x {s.comName}</span>
+                        <span>{formatCount(s.count)}x {s.comName}</span>
                       </li>
                     );
                   })}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { Observation } from '@bird-watch/shared-types';
+import { formatCount } from '../../lib/format-count.js';
 
 export interface ObservationPopoverProps {
   observation: Observation | null;
@@ -216,7 +217,7 @@ export function ObservationPopover({
       <div className="observation-popover-time">{dateStr}</div>
       {observation.howMany != null && (
         <div className="observation-popover-count">
-          Count: {observation.howMany}
+          Count: {formatCount(observation.howMany)}
         </div>
       )}
       {onSelectSpecies && (
