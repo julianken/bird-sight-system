@@ -6,6 +6,8 @@ import {
   listOverview, getSwapView, writeDecision, denyAndAdvance,
   type SortMode, type FilterMode,
 } from './queries.js';
+import { evalRuns, evalFalseKeeps } from './eval-queries.js';
+import { readEvalRun } from '../eval/store.js';
 import { selectSwaps } from '../swaps.js';
 import { setSwapSelection, getSwapSelection, clearSwapSelection } from '../store.js';
 
@@ -38,6 +40,11 @@ export function createServer(db: Database.Database): Express {
   // comes from GET /api/pending-swaps below.
   app.get('/pending-swaps', (_req: Request, res: Response) => {
     res.sendFile('pending-swaps.html', { root: publicDir });
+  });
+  // The model-comparison page (#1095): a comparison table of eval runs + a
+  // falseKeep gallery. Served verbatim; data comes from GET /api/eval/* below.
+  app.get('/eval', (_req: Request, res: Response) => {
+    res.sendFile('eval.html', { root: publicDir });
   });
 
   // ── JSON API ──
@@ -161,6 +168,22 @@ export function createServer(db: Database.Database): Express {
       excludeIds: Array.isArray(excludeIds) ? (excludeIds as number[]) : [],
     });
     return res.json({ proposed: result.next, resourceQueued: result.resourceRequested });
+  });
+
+  // ── #1095 eval-comparison read API ──
+  // One row per eval run for the comparison table (newest-first, gate derived).
+  app.get('/api/eval/runs', (_req: Request, res: Response) => {
+    return res.json({ runs: evalRuns(db) });
+  });
+
+  // The falseKeep gallery for a run: gemini_keep=1 ∧ opus_keep=0. `?run=<id>`
+  // is required and must name a real run — mirror the swap routes' 400/validate
+  // idiom (a missing or unknown run is a bad request, not an empty gallery).
+  app.get('/api/eval/false-keeps', (req: Request, res: Response) => {
+    const run = req.query.run;
+    if (typeof run !== 'string' || !run) return res.status(400).json({ error: 'run required' });
+    if (!readEvalRun(db, run)) return res.status(400).json({ error: `unknown run: ${run}` });
+    return res.json({ runId: run, falseKeeps: evalFalseKeeps(db, run) });
   });
 
   return app;
