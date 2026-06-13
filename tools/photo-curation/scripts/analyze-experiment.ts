@@ -32,8 +32,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type Database from 'better-sqlite3';
-import { openDb } from '../src/db.js';
-import { readEvalResults } from '../src/eval/store.js';
+// All eleatic access goes through the adapter — the single domain seam (#1150).
+import {
+  openStore,
+  makeReader,
+  fromEleaticRow,
+  costFromEleaticRow,
+} from '../src/eval/eleatic-adapter.js';
 
 /**
  * One experiment row reduced to the four values the diagnostics need:
@@ -391,34 +396,31 @@ export function projectCostRows(raw: RawMetricsRow[]): CostRow[] {
 export type CostReader = (experiment: string) => Promise<CostRow[]>;
 
 /**
- * Build the local-store reader (#1094): reads the run's `eval_result` rows from
- * SQLite and projects them onto `AnalysisRow` (the candidate `gemini_*` decision
- * vs. the Opus `opus_*` baseline). Replaces the old `bt sql` shell-out — the
- * store is local, so there is no network and no `bt` CLI dependency. A FACTORY
- * over the open db so the CLI wires `openDb(REVIEW_DB)` while tests inject an
- * in-memory db. Returns a plain `ExperimentReader` function (`experiment` = run id).
+ * Build the eleatic-store reader (#1150): reads the run's `eval_row` rows from
+ * the eleatic SQLite via the package `makeReader`, projecting each
+ * `EvalRowRecord` onto `AnalysisRow` through the adapter's `fromEleaticRow` (the
+ * candidate decision vs. the Opus baseline). Replaces the #1094 review-store
+ * read — the eleatic store is local, so there is no network. A FACTORY over the
+ * open db so the CLI wires `openStore(EVAL_DB).db` while tests inject an
+ * in-memory store. Returns a plain `ExperimentReader` function (`experiment` =
+ * run id).
  */
-export function makeSqliteReader(db: Database.Database): ExperimentReader {
-  return async (runId) =>
-    readEvalResults(db, runId).map((r) => ({
-      outputKeep: r.geminiKeep,
-      outputScore: r.geminiQuality,
-      expectedKeep: r.opusKeep,
-      expectedScore: r.opusQuality,
-    }));
+export function makeEleaticReader(db: Database.Database): ExperimentReader {
+  const reader = makeReader(db);
+  return async (runId) => reader.getRows(runId).map(fromEleaticRow);
 }
 
 /**
- * Build the local-store cost reader (#1094): reads the run's `eval_result.cost`
- * back and projects each row onto `CostRow` — a priced judgment carries a number,
- * an unpriced one carries `undefined` (stored NULL). Replaces the old `bt sql`
- * metrics read; same FACTORY-over-db shape as {@link makeSqliteReader} so the
- * cost block + `eval_run.total_cost` have a local source. `summarizeCost` then
- * prints the total/mean/unpriced lines.
+ * Build the eleatic-store cost reader (#1150): reads the run's `eval_row` back
+ * via the package `makeReader` and projects each row's `cost` numeric axis onto
+ * `CostRow` through the adapter's `costFromEleaticRow` — a priced judgment carries
+ * a number, an unpriced one carries `undefined` (the axis is absent). Same
+ * FACTORY-over-db shape as {@link makeEleaticReader} so the cost block has a
+ * local source; `summarizeCost` prints the total/mean/unpriced lines.
  */
-export function makeSqliteCostReader(db: Database.Database): CostReader {
-  return async (runId) =>
-    readEvalResults(db, runId).map((r) => ({ estimatedCost: r.cost }));
+export function makeEleaticCostReader(db: Database.Database): CostReader {
+  const reader = makeReader(db);
+  return async (runId) => reader.getRows(runId).map(costFromEleaticRow);
 }
 
 /** Parse `--band lo:hi` (default 40:70) from argv; everything else is the exp name. */
@@ -467,21 +469,18 @@ export async function main(
 }
 
 // Run only when invoked directly (tsx scripts/analyze-experiment.ts …), never on import.
-// REVIEW_DB is the local review store the runner wrote eval_result/eval_run to.
+// EVAL_DB is the local eleatic store the runner mirrored eval_run/eval_row to
+// (#1150; defaults to ./eval.sqlite, the same default run-eval-local writes to).
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const reviewDb = process.env.REVIEW_DB;
-  if (!reviewDb) {
-    console.error('REVIEW_DB is required (the local review.sqlite the run wrote to)');
-    process.exit(2);
-  }
-  const db = openDb(reviewDb);
-  main(process.argv.slice(2), makeSqliteReader(db), makeSqliteCostReader(db))
+  const evalDb = process.env.EVAL_DB ?? './eval.sqlite';
+  const store = openStore(evalDb);
+  main(process.argv.slice(2), makeEleaticReader(store.db), makeEleaticCostReader(store.db))
     .then((code) => {
-      db.close();
+      store.close();
       process.exit(code);
     })
     .catch((err: unknown) => {
-      db.close();
+      store.close();
       console.error(err instanceof Error ? err.message : String(err));
       process.exit(1);
     });
