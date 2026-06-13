@@ -1,4 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { afterEach } from 'vitest';
+import type Database from 'better-sqlite3';
+import { openDb } from '../src/db.js';
+import { insertEvalResult } from '../src/eval/store.js';
 import {
   keepAgreement,
   confusionCounts,
@@ -12,6 +16,8 @@ import {
   projectRows,
   projectCostRows,
   summarizeCost,
+  makeSqliteReader,
+  makeSqliteCostReader,
   main,
   type AnalysisRow,
   type CostRow,
@@ -327,5 +333,70 @@ describe('main (injected reader, no network)', () => {
     const code = await main(['exp-real', '--band', '45:65'], reader);
     expect(code).toBe(0);
     expect(asked).toBe('exp-real');
+  });
+});
+
+describe('sqlite readers (#1094 — local store repoint)', () => {
+  let db: Database.Database | undefined;
+  afterEach(() => {
+    db?.close();
+    db = undefined;
+  });
+
+  /** Seed one eval_result row for a run. */
+  function seed(d: Database.Database, runId: string, over: Partial<Parameters<typeof insertEvalResult>[1]>): void {
+    insertEvalResult(d, {
+      runId,
+      speciesCode: over.speciesCode ?? 'amerob',
+      comName: 'American Robin',
+      contentHash: 'h',
+      sourceUrl: 'u',
+      geminiKeep: over.geminiKeep ?? true,
+      geminiQuality: over.geminiQuality ?? 80,
+      geminiCriteriaJson: null,
+      opusKeep: over.opusKeep ?? true,
+      opusQuality: over.opusQuality ?? 85,
+      cost: over.cost,
+      promptTokens: over.promptTokens,
+      completionTokens: over.completionTokens,
+    });
+  }
+
+  it('makeSqliteReader yields AnalysisRow[] from eval_result for the run', async () => {
+    db = openDb(':memory:');
+    seed(db, 'run-1', { speciesCode: 'a', geminiKeep: true, geminiQuality: 90, opusKeep: true, opusQuality: 85 });
+    seed(db, 'run-1', { speciesCode: 'b', geminiKeep: false, geminiQuality: 20, opusKeep: false, opusQuality: 15 });
+    seed(db, 'run-2', { speciesCode: 'c', geminiKeep: true, geminiQuality: 99, opusKeep: false, opusQuality: 10 });
+
+    const reader = makeSqliteReader(db);
+    const rows = await reader('run-1');
+    expect(rows).toHaveLength(2); // only run-1's rows
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        { outputKeep: true, outputScore: 90, expectedKeep: true, expectedScore: 85 },
+        { outputKeep: false, outputScore: 20, expectedKeep: false, expectedScore: 15 },
+      ]),
+    );
+  });
+
+  it('makeSqliteCostReader yields CostRow[]; priced rows carry cost, unpriced → undefined', async () => {
+    db = openDb(':memory:');
+    seed(db, 'run-1', { speciesCode: 'a', cost: 0.42, promptTokens: 1000, completionTokens: 100 });
+    seed(db, 'run-1', { speciesCode: 'b', cost: undefined, promptTokens: 800, completionTokens: 50 }); // unpriced
+    seed(db, 'run-2', { speciesCode: 'c', cost: 9.99, promptTokens: 1, completionTokens: 1 });
+
+    const costReader = makeSqliteCostReader(db);
+    const rows = await costReader('run-1');
+    expect(rows).toHaveLength(2);
+    const costs = rows.map((r) => r.estimatedCost);
+    // one priced (0.42), one unpriced (undefined) — order-independent.
+    expect(costs).toContain(0.42);
+    expect(costs).toContain(undefined);
+  });
+
+  it('makeSqliteReader returns [] for an unknown run id', async () => {
+    db = openDb(':memory:');
+    const reader = makeSqliteReader(db);
+    expect(await reader('nope')).toEqual([]);
   });
 });
