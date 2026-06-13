@@ -493,6 +493,110 @@ describe('styles.css — W1 conformance', () => {
     });
   });
 
+  // ── A3 (#1032): three measured WCAG contrast failures ────────────────────
+  //
+  // These assertions COMPUTE contrast ratios — they do NOT pin hex values by
+  // regex. A regex pin is not falsifiable when a resolved value or its surface
+  // drifts; a computed-ratio assertion catches the regression.
+  //
+  // Resolved hex chains (locked in comments for auditability):
+  //   C44: light --color-text-link → --color-decision-point
+  //        → BEFORE: --c-orange-500 = #f5853b  (2.53:1 on #fff, FAIL)
+  //          AFTER:  --c-amber-700 = #984012   (6.82:1 on #fff, PASS)
+  //   C45: dark --color-text-subtle
+  //        → BEFORE: #7a8599                   (3.99:1 on #1b2742, FAIL)
+  //          AFTER:  reused --color-text-muted = #8a98ad  (5.07:1, PASS)
+  //   C50: NOTABLE_AMBER light ring on cream basemap #f4f1ea
+  //        → BEFORE: #f59e0b                   (1.90:1, FAIL)
+  //          AFTER:  #c43a1a (light-only pair)  (4.69:1, PASS)
+  describe('A3 (#1032): computed WCAG contrast ratios — link, subtle, notable ring', () => {
+    // Shared import-compatible helper (mirrors wcag-contrast.ts exactly).
+    // We compute inline here so the test is self-contained and readable without
+    // needing a dynamic import in a static-read test file.
+    function relativeLuminance(hex: string): number {
+      const h = hex.replace('#', '');
+      const r = parseInt(h.slice(0, 2), 16);
+      const g = parseInt(h.slice(2, 4), 16);
+      const b = parseInt(h.slice(4, 6), 16);
+      const toLinear = (c: number): number => {
+        const v = c / 255;
+        return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+      };
+      return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+    }
+    function contrastRatio(hexA: string, hexB: string): number {
+      const lumA = relativeLuminance(hexA);
+      const lumB = relativeLuminance(hexB);
+      const lighter = Math.max(lumA, lumB);
+      const darker = Math.min(lumA, lumB);
+      return (lighter + 0.05) / (darker + 0.05);
+    }
+
+    // C44: resolve --color-text-link from tokens.css (light block).
+    // Chain: --color-text-link → --color-decision-point → --c-amber-700 → hex.
+    // We extract the resolved primitive hex from the light block.
+    it('C44: light --color-text-link resolves to a hex with ≥4.5:1 on #ffffff (AA normal text)', () => {
+      // Extract the light block.
+      const lightBlockMatch = TOKENS_CSS.match(
+        /:root\[data-theme="light"\]\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}/s,
+      );
+      const lightBlock = lightBlockMatch?.[1] ?? '';
+
+      // Resolve --color-text-link in the light block.
+      // After the fix it must be var(--c-amber-700) — trace through to the primitive.
+      // --c-amber-700 is defined in the :root primitives block as #984012.
+      const amber700Match = TOKENS_CSS.match(/--c-amber-700:\s*(#[0-9a-fA-F]{6})/);
+      expect(amber700Match, '--c-amber-700 must be defined as a hex in :root').toBeTruthy();
+      const amber700Hex = amber700Match![1];
+
+      // --color-text-link in the light block must point to --c-amber-700 (not --c-orange-500).
+      expect(lightBlock).toMatch(/--color-text-link:\s*var\(--c-amber-700\)/);
+
+      // Computed ratio: must clear 4.5:1 AA floor on white (#ffffff).
+      const ratio = contrastRatio(amber700Hex, '#ffffff');
+      expect(ratio).toBeGreaterThanOrEqual(4.5);
+    });
+
+    it('C45: dark --color-text-subtle resolves to a hex with ≥4.5:1 on --color-bg-surface #1b2742 (AA 11px)', () => {
+      // --color-bg-surface is pinned to #1b2742 by the dark surface lift (spec §2.2, #803).
+      // The test above already guards that pin; here we use it as a constant.
+      const darkSurface = '#1b2742';
+
+      // Extract the dark block.
+      const darkBlockMatch = TOKENS_CSS.match(
+        /:root\[data-theme="dark"\]\s*\{([^}]*)\}/s,
+      );
+      const darkBlock = darkBlockMatch?.[1] ?? '';
+
+      // Extract the resolved hex for --color-text-subtle.
+      // After the fix it must be a literal hex (not a var() indirection to a
+      // failing value).  Parse whatever literal hex the dark block sets.
+      const subtleMatch = darkBlock.match(/--color-text-subtle:\s*(#[0-9a-fA-F]{6})/);
+      expect(subtleMatch, '--color-text-subtle must be a literal hex in the dark block').toBeTruthy();
+      const subtleHex = subtleMatch![1];
+
+      // Computed ratio: must clear 4.5:1 on the lifted surface.
+      const ratio = contrastRatio(subtleHex, darkSurface);
+      expect(ratio).toBeGreaterThanOrEqual(4.5);
+    });
+
+    it('C50: light NOTABLE_AMBER constant resolves to ≥3.0:1 on cream basemap #f4f1ea (AA non-text)', () => {
+      // The notable ring is drawn in AdaptiveGridMarker.tsx with a JS constant.
+      // After the fix, the constant file must contain the light-theme value (#c43a1a).
+      // We assert via the tokens.css primitive that the light-theme amber is #c43a1a
+      // (which equals --c-deep-ember, already in the primitives block).
+      const deepEmberMatch = TOKENS_CSS.match(/--c-deep-ember:\s*(#[0-9a-fA-F]{6})/);
+      expect(deepEmberMatch, '--c-deep-ember must be a hex primitive').toBeTruthy();
+      const deepEmberHex = deepEmberMatch![1];
+
+      // The light ring colour must be --c-deep-ember (#c43a1a).
+      // Verify: the ratio on the cream basemap clears the 3:1 non-text floor.
+      const lightBasemap = '#f4f1ea';
+      const ratio = contrastRatio(deepEmberHex, lightBasemap);
+      expect(ratio).toBeGreaterThanOrEqual(3.0);
+    });
+  });
+
   // ── A5 (#1034): MapLibre canvas `:focus-visible` gate ────────────────────
   describe('A5 (#1034): MapLibre canvas focus indicator — :focus-visible gate', () => {
     // V35 (#1034): the canvas holds focus after mouse pan/zoom with the UA

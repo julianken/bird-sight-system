@@ -244,7 +244,10 @@
    * consumed by ds-primitives.css but never defined, causing cell/cluster
    * popovers to silently inherit nothing. */
   --color-border-strong: #a09890;           /* stronger hairline — darker than --color-border-ui */
-  --color-text-link:     var(--color-decision-point); /* same orange accent as interactive cue */
+  /* C44 (#1032, WCAG 1.4.3): --c-orange-500 (#f5853b) on #fff = 2.53:1 — fails AA.
+   * Repointed at --c-amber-700 (#984012) = 6.82:1 — clears AA with headroom.
+   * The orange decision-point accent is NOT used for text links in light mode. */
+  --color-text-link:     var(--c-amber-700);
   --text-body-sm:        var(--font-weight-regular) var(--type-sm) / 1.5 var(--font-stack);
   --text-heading-sm:     var(--font-weight-medium) var(--type-md) / 1.3 var(--font-stack);
 
@@ -310,10 +313,11 @@
   --color-text-strong: #f5f7fb;
   --color-text-body:   #d8dee8;
   --color-text-muted:  #8a98ad;
-  /* Plan literal: #5a6478 (2.85:1 against #131c30 at 11px — fails AA).
-     Uplifted to #7a8599 (4.75:1) to meet WCAG 1.4.3 AA at 11px/normal
-     on dark surfaces. Stays within the same blue-grey semantic register. */
-  --color-text-subtle: #7a8599;
+  /* C45 (#1032, WCAG 1.4.3): #7a8599 on the #803-lifted --color-bg-surface
+   * #1b2742 = 3.99:1 — below AA at 11px. (The prior "4.75:1" comment was also
+   * wrong against the old surface #131c30: the real figure was 4.56:1.)
+   * Re-tuned to #8a98ad (matches --color-text-muted) = 5.07:1 on #1b2742. */
+  --color-text-subtle: #8a98ad;
 
   /* Lifted from #283354 → #3a4668 (spec §2.2, #761 #803): pairs with the
    * lifted --color-bg-surface so the hairline remains a visible edge. */
