@@ -168,15 +168,29 @@ describe('SpeciesDetailSurface', () => {
     expect(screen.getByText('Loading species details…')).toBeInTheDocument();
   });
 
-  it('shows error state on fetch failure', async () => {
+  it('shows error state on fetch failure, with a "Try again" action that recovers in place', async () => {
+    // C82 (#1051): the detail-rail error was a dead end (title-only StatusBlock).
+    // It now passes StatusBlock's first-class `action` prop so the user can
+    // recover without closing the rail and re-clicking the marker.
+    const getSpecies = vi.fn()
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce(VERMFLY);
     const client = makeClient({
-      getSpecies: vi.fn().mockRejectedValue(new Error('boom')),
+      getSpecies,
       getSilhouettes: vi.fn().mockResolvedValue([TYRANNIDAE_SILHOUETTE]),
     } as unknown as Partial<ApiClient>);
     render(<SpeciesDetailSurface speciesCode="vermfly" apiClient={client} />);
     await waitFor(() =>
       expect(screen.getByText('Could not load species details')).toBeInTheDocument()
     );
+    // The retry affordance is present (StatusBlock renders it as a button).
+    const retry = screen.getByRole('button', { name: 'Try again' });
+    // Clicking it refetches; on success the surface renders the species in place.
+    fireEvent.click(retry);
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeInTheDocument()
+    );
+    expect(getSpecies).toHaveBeenCalledTimes(2);
   });
 
   // eBird API ToU §3 attribution moved to the app-level AttributionModal
