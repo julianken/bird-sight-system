@@ -200,59 +200,66 @@ async function main(argv: string[]): Promise<void> {
 
   const db = openDb(REVIEW_DB);
 
-  // Eager build (#1037/#1073): reads the pinned baseline from PROD and hash-
-  // verifies each local image against it. Hard-fails on a mixed/unknown rubric
-  // version or an empty baseline before any judge construction or Gemini call.
-  const pool = createPool({ databaseUrl: DATABASE_URL, max: 1 });
-  let rows = await buildEvalRows(db, {
-    thumbDir: THUMB_DIR,
-    sample: EVAL_SAMPLE,
-    getScores: () => getPhotoScores(pool, BASELINE_PIN),
-  }).finally(() => closePool(pool));
+  // Close on BOTH the success and error paths (#1108). `db` is opened inside
+  // main (unlike the sibling analyze-experiment.ts, which opens it at the entry
+  // block and closes in both .then/.catch), so a try/finally here is the clean
+  // mirror of that close-on-both contract.
+  try {
+    // Eager build (#1037/#1073): reads the pinned baseline from PROD and hash-
+    // verifies each local image against it. Hard-fails on a mixed/unknown rubric
+    // version or an empty baseline before any judge construction or Gemini call.
+    const pool = createPool({ databaseUrl: DATABASE_URL, max: 1 });
+    let rows = await buildEvalRows(db, {
+      thumbDir: THUMB_DIR,
+      sample: EVAL_SAMPLE,
+      getScores: () => getPhotoScores(pool, BASELINE_PIN),
+    }).finally(() => closePool(pool));
 
-  // Optional `--first N` smoke cap, applied AFTER the deterministic sample.
-  const first = parseFirst(argv);
-  if (first !== undefined) rows = rows.slice(0, first);
+    // Optional `--first N` smoke cap, applied AFTER the deterministic sample.
+    const first = parseFirst(argv);
+    if (first !== undefined) rows = rows.slice(0, first);
 
-  if (rows.length === 0) {
-    throw new Error('[run-eval-local] no eval rows after build — nothing to score (check the baseline pin + thumb cache)');
+    if (rows.length === 0) {
+      throw new Error('[run-eval-local] no eval rows after build — nothing to score (check the baseline pin + thumb cache)');
+    }
+
+    // The pinned rubric version (single, asserted by the builder) drives the prompt.
+    const pinnedRubricVersion = rows[0]!.metadata.expectedRubricVersion;
+    const prompt = judgePromptForRubricVersion(pinnedRubricVersion);
+
+    const startedAt = new Date().toISOString();
+    const runId = `${EVAL_MODEL}-${Math.floor(Date.now() / 1000)}`;
+
+    // The judge is built ONCE around the run's sink (a single shared Pacer — see
+    // gemini.ts; one per row would reset the GEMINI_PACE_MS gate, #1015 review).
+    await runEvalLocal({
+      db,
+      rows,
+      runId,
+      model: EVAL_MODEL,
+      baselineModel: BASELINE_PIN.model,
+      baselineRubric: BASELINE_PIN.rubricVersion,
+      sampleSize: EVAL_SAMPLE,
+      startedAt,
+      prompt,
+      readImage,
+      makeJudge: (sink) =>
+        resolveJudge(process.env, { model: EVAL_MODEL, rubricVersion: pinnedRubricVersion, sink }),
+    });
+
+    const run = db.prepare(`SELECT agreement, false_keep, false_replace, score_mae, total_cost FROM eval_run WHERE id = ?`).get(runId) as {
+      agreement: number; false_keep: number; false_replace: number; score_mae: number; total_cost: number;
+    };
+
+    console.log(`eval run ${runId} (${rows.length} rows) written to ${REVIEW_DB}`);
+    console.log(`  agreement     ${(run.agreement * 100).toFixed(2)}%  (stored as fraction ${run.agreement})`);
+    console.log(`  falseKeep     ${run.false_keep}   falseReplace ${run.false_replace}`);
+    console.log(`  score MAE     ${run.score_mae.toFixed(4)} (fraction)`);
+    console.log(`  total cost    $${run.total_cost.toFixed(4)}`);
+    console.log(`  analyze with: npm run analyze -w @bird-watch/photo-curation ${runId}`);
+  } finally {
+    db.close();
   }
-
-  // The pinned rubric version (single, asserted by the builder) drives the prompt.
-  const pinnedRubricVersion = rows[0]!.metadata.expectedRubricVersion;
-  const prompt = judgePromptForRubricVersion(pinnedRubricVersion);
-
-  const startedAt = new Date().toISOString();
-  const runId = `${EVAL_MODEL}-${Math.floor(Date.now() / 1000)}`;
-
-  // The judge is built ONCE around the run's sink (a single shared Pacer — see
-  // gemini.ts; one per row would reset the GEMINI_PACE_MS gate, #1015 review).
-  await runEvalLocal({
-    db,
-    rows,
-    runId,
-    model: EVAL_MODEL,
-    baselineModel: BASELINE_PIN.model,
-    baselineRubric: BASELINE_PIN.rubricVersion,
-    sampleSize: EVAL_SAMPLE,
-    startedAt,
-    prompt,
-    readImage,
-    makeJudge: (sink) =>
-      resolveJudge(process.env, { model: EVAL_MODEL, rubricVersion: pinnedRubricVersion, sink }),
-  });
-
-  const run = db.prepare(`SELECT agreement, false_keep, false_replace, score_mae, total_cost FROM eval_run WHERE id = ?`).get(runId) as {
-    agreement: number; false_keep: number; false_replace: number; score_mae: number; total_cost: number;
-  };
-  db.close();
-
-  console.log(`eval run ${runId} (${rows.length} rows) written to ${REVIEW_DB}`);
-  console.log(`  agreement     ${(run.agreement * 100).toFixed(2)}%  (stored as fraction ${run.agreement})`);
-  console.log(`  falseKeep     ${run.false_keep}   falseReplace ${run.false_replace}`);
-  console.log(`  score MAE     ${run.score_mae.toFixed(4)} (fraction)`);
-  console.log(`  total cost    $${run.total_cost.toFixed(4)}`);
-  console.log(`  analyze with: npm run analyze -w @bird-watch/photo-curation ${runId}`);
 }
 
 // Run only when invoked directly (tsx scripts/run-eval-local.ts …), never on import.
