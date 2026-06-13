@@ -479,7 +479,6 @@ stubTest.describe('z-index named scale — co-occurrence stacking (#778)', () =>
     const clusterPopover = await resolveZToken(page, '--z-cluster-popover');
     const modal = await resolveZToken(page, '--z-modal');
     const skip = await resolveZToken(page, '--z-skip');
-    const panel = await resolveZToken(page, '--z-panel'); // deprecated alias
 
     // Whole-chain strict monotonicity (matches the pre-refactor stack order).
     stubExpect(map).toBeLessThan(overlay);
@@ -499,9 +498,6 @@ stubTest.describe('z-index named scale — co-occurrence stacking (#778)', () =>
     // The --z-chrome tier (reserved for S2 #775's floating header) sits one
     // rank below the rail in the scale — the contract S2 will adopt.
     stubExpect(chrome, 'the --z-chrome tier must sit below the rail tier').toBeLessThan(rail);
-
-    // The deprecated --z-panel alias resolves to --z-overlay (var() indirection).
-    stubExpect(panel).toBe(overlay);
   });
 
   stubTest('with the rail open, the rail computed z-index stays below both popover tiers', async ({ page }) => {
@@ -543,7 +539,7 @@ stubTest.describe('z-index named scale — co-occurrence stacking (#778)', () =>
     //   - Path B (keyboard focus, cursorPos === null): inline, non-portaled.
     //   - Path A (cursor following): portaled to body, no longer carries the
     //     pre-O6 off-scale inline `zIndex: 1000`.
-    // #761 O6 (#782) MIGRATED this rule off `calc(var(--z-panel) + 5)` (=45, a tie
+    // #761 O6 (#782) MIGRATED this rule off a z-tier calc() (=45, a tie
     // with --z-cluster-popover won only by DOM order) onto the NAMED `--z-modal`
     // (50) tier — the lowest named tier strictly above --z-cluster-popover (45).
     // That preserves the tooltip's "above the popovers it overlaps" rank (the

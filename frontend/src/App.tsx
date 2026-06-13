@@ -422,11 +422,11 @@ export function App() {
   // would degrade to a full-region fetch on first paint, exactly the
   // failure mode this wiring exists to prevent.
   // Issue #720: split loading into hotspots- vs observations-specific flags
-  // because the cold-load lede guard (MapLede #716) must key off the
+  // because the cold-load lede guard (#716) must key off the
   // observation fetch specifically — under typical network conditions
   // hotspots resolves first, flipping a shared `loading` flag to false
   // while observations is still in flight and triggering the very
-  // Template-1 misfire #716 set out to suppress. The MapLede and the
+  // Template-1 misfire #716 set out to suppress. The AppHeader lede and the
   // #map-layer aria-busy attribute narrate observation data, so they switch
   // to `observationsLoading` too. `loading` (combined) is retained for
   // `data-render-complete`, which tracks the whole tree being ready.
@@ -559,10 +559,10 @@ export function App() {
   const region = regionLabelFor(state.scope, states);
 
   // #738/C7: "no filters active" — the data-availability vs filter-narrowing
-  // split (MapLede) keys off this. A request is unfiltered ONLY when no
-  // species/family/notable filter is set AND `since` is the default. The
+  // split (the AppHeader lede) keys off this. A request is unfiltered ONLY when
+  // no species/family/notable filter is set AND `since` is the default. The
   // `since === DEFAULTS.since` comparison lives here (once, at the call site)
-  // so MapLede stays presentational. DEFAULTS is the exported symbol (#735),
+  // so the lede stays presentational. DEFAULTS is the exported symbol (#735),
   // not a re-declared literal.
   const noFiltersActive =
     state.speciesCode === null &&
@@ -1131,8 +1131,8 @@ export function App() {
   }, [scopeActive]);
 
   // #800 / #779 — lede text computation for the AppHeader identity card.
-  // Mirrors MapLede's template logic (now removed from MapSurface) so the
-  // formerly-invisible context-strip content is lifted into the top-left card.
+  // Mirrors the former context-strip lede template (since removed from
+  // MapSurface) so the formerly-invisible content is lifted into the top-left card.
   // Returns null when region=null (unscoped) or while loading (cold-load guard).
   // #828: the freshness derivation (deriveFreshness + nowTick/visibilitychange)
   // was removed along with the freshness line — the lede no longer consumes a
@@ -1147,7 +1147,7 @@ export function App() {
     const observationCount =
       mode === 'aggregated' ? totalCountFromBuckets(buckets) : observations.length;
     // Cold-load guard (#716/#720): suppress Template 1 while the first fetch is
-    // in flight. Same discipline as MapLede's `loading` guard.
+    // in flight. Same discipline as the former context-strip lede's `loading` guard.
     if (observationsLoading && observationCount === 0 && speciesCount === 0) return null;
     // #872: state→state stale-count guard. use-bird-data keeps the PRIOR scope's
     // `observations` mounted while the new fetch is in flight (it clears only on

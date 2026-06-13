@@ -21,8 +21,6 @@
 :root {
   /* Warm cream scale (light surfaces) */
   --c-warm-50:  #fafaf6;
-  --c-warm-100: #f0ece4;
-  --c-warm-200: #e6e0d4;
 
   /* Sky / Sand / Ember — cluster density triad (measured contrast) */
   --c-sky-500:   #6ec5d9;   /* 8.2:1 against #1a1a1a */
@@ -41,7 +39,6 @@
   --c-amber-700: #984012;
 
   /* Navy / dark scale */
-  --c-navy-50:  #f5f7fb;
   --c-navy-900: #0d1424;
 
   /* ── Type ramp (Apple HIG-derived, no webfont) ────────────────────── */
@@ -60,7 +57,6 @@
   --font-weight-medium:   500;
   --font-weight-semibold: 600;
   --font-weight-bold:     700;
-  --font-weight-heavy:    800;
 
   /* Corner radius (#761 P1, issue #778). --radius-lg retires the missing-token
      inline fallback var(--radius-lg, 12px) consumed at styles.css (sheet top
@@ -68,14 +64,12 @@
      resolve to the same 12px — zero visual change. Added 2026-05-30 (#761 P1). */
   --radius-lg: 12px;
 
-  /* Overlay sizing breakpoints (#761 P1, issue #778) — govern floating-overlay
-     size/anchor only, NOT prose-column layout. Distinct from the 760px content
-     breakpoint and the 1024px content column. Formalizes the
-     LEGEND_EXPAND_MIN_WIDTH / useIsCompact decoupling started in
-     MapSurface.tsx:37. Consumed by later #761 overlay-move PRs; no rule
-     consumes them yet. Added 2026-05-30 (#761 P1). */
+  /* Overlay sizing breakpoints (#761 P1, issue #778) — documentation mirrors of
+     the 480/1024 boundaries that the JS breakpoint engine owns; the overlay-move
+     PRs consumed the JS hook (custom properties can't parameterize @media), so no
+     CSS rule consumes these. Hand-synced with: use-breakpoint.ts, use-is-phone.ts,
+     App.tsx LEGEND_EXPAND_MIN_WIDTH. Boundary-semantics consolidation is #1062. */
   --overlay-bp-compact: 480px;  /* below: overlays go full-bleed sheet/peek   */
-  --overlay-bp-roomy:   600px;  /* above: overlays may sit as anchored cards  */
   --overlay-bp-wide:    1024px; /* above: legend defaults expanded (mirrors MapSurface) */
 
   /* ── Floating-card geometry (#761 #803, spec §2.1) ─────────────────────
@@ -234,7 +228,7 @@
  * (spec docs/design/01-spec/tokens.md §Light/dark mechanic — lighter
  * grays, warm cream surfaces) is a Phase 3+ concern coupled to surface
  * redesign; landing the lighter palette here would regress AA contrast
- * (e.g. .map-freshness @ 12px on #fff with #8a8a8a fails 4.5:1).
+ * (e.g. a 12px meta line on #fff with #8a8a8a fails 4.5:1).
  *
  * NEW additions in this block (no existing equivalent in styles.css):
  *   --color-bg-skeleton, --color-decision-point, --color-density-{low,mid,high},
@@ -412,7 +406,6 @@
      (#f5f7fb) in dark. The orange left-border (--color-accent-notable-fg)
      and light text remain coherent against this warm dark ground. */
   --color-accent-notable-bg:       #2a2620; /* deep amber-shadow (14.02:1 vs #f5f7fb) */
-  --color-accent-notable-bg-hover: #332e26; /* slight lift on hover                  */
   --color-error-bg:     #3a1a1a;
   --color-error-border: #6a3030;
   --color-error-text:   #f5b8a8;
@@ -430,21 +423,4 @@
    * eliminating the solid-white gutter on dark legend/modal/rail. */
   --scrollbar-thumb: #3a4668;   /* = --color-border-ui dark value */
   --scrollbar-track: transparent;
-}
-
-/* ── Layer 3: Component aliases ─────────────────────────────────────── */
-/*
- * Component tokens scope to their selector so light/dark is a 1-line
- * override on the component scope rather than per-property.
- * Expand this block as Phase 2 primitives land.
- */
-/*
- * Lede — a one-off display size that sits between --type-lg (22px) and
- * --type-hero (34px). Scoped here (Layer 3) rather than inside the type
- * ramp because a type ramp's value is in being a discrete ladder; an
- * exception inside the ladder weakens the contract. Moved out of Layer 1
- * intentionally — see commit "refactor(styles): relocate --lede-size".
- */
-.lede {
-  --lede-size: 26px;
 }

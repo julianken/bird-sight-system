@@ -109,13 +109,6 @@ export const zIndex = {
   modal: 50,
   /** Skip-link — always reachable, above all. */
   skip: 60,
-  /**
-   * DEPRECATED alias of `overlay`, retained for one PR so existing
-   * CSS `calc(var(--z-panel)+N)` refs (mirrored conceptually here) resolve
-   * unchanged. NOT part of the strict-monotonic tier chain — it ties with
-   * `overlay` by design. Migrate refs and remove in a #761 follow-up.
-   */
-  panel: 40,
 } as const;
 
 export const opacity = {

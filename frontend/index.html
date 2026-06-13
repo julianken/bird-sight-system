@@ -34,22 +34,6 @@
     <link rel="preconnect" href="https://api.bird-maps.com" crossorigin>
     <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin>
 
-    <!-- Critical CSS: .map-lede font-size + margin — prevents CLS caused by
-         UA-default h1 styles (32px bold / 0.67em margin) shifting to final
-         values (26px semibold / 0 0 12px 0) after CSS hydration. Inlined here
-         so the element is sized correctly on first paint. Margin-bottom value
-         equals --space-md (12px) from tokens.css :root.
-         Must stay in sync with the .map-lede rule in frontend/src/styles.css.
-         Closes #510. -->
-    <style>
-      .map-lede {
-        font-size: 26px;
-        font-weight: 600;
-        line-height: 1.25;
-        margin: 0 0 12px 0;
-      }
-    </style>
-
     <!-- [data-theme] inline blocking script — added in Phase 1; verify present above this comment -->
 
     <!-- Structured data -->
