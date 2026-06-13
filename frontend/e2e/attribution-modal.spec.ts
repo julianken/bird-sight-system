@@ -343,24 +343,48 @@ test.describe('B3 (#1042): single-scroller + scrollbar tokens', () => {
       content.appendChild(sentinel);
     });
 
-    const { contentScrolls, dialogScrolls } = await page.evaluate(() => {
+    // `overflow:hidden` clips overflowing content but does NOT collapse
+    // scrollHeight to clientHeight, so `scrollHeight > clientHeight` is still
+    // true on the (non-scrolling) dialog. The faithful "exactly one scroll
+    // container" oracle is: the inner content actually scrolls AND is the
+    // scroller (overflow-y auto|scroll), while the dialog's overflow-y is
+    // hidden (so it cannot scroll).
+    const { contentScrolls, contentOverflowY, dialogOverflowY } = await page.evaluate(() => {
       const content = document.querySelector('.attribution-modal-content');
       const dlg     = document.querySelector('dialog.attribution-modal');
       if (!content || !dlg) throw new Error('Elements not found');
       return {
-        contentScrolls: content.scrollHeight > content.clientHeight,
-        dialogScrolls:  dlg.scrollHeight    > dlg.clientHeight,
+        contentScrolls:   content.scrollHeight > content.clientHeight,
+        contentOverflowY: getComputedStyle(content).overflowY,
+        dialogOverflowY:  getComputedStyle(dlg).overflowY,
       };
     });
 
-    expect(contentScrolls, '.attribution-modal-content must have scrollHeight > clientHeight').toBe(true);
-    expect(dialogScrolls,  'dialog.attribution-modal must NOT scroll (overflow:hidden)').toBe(false);
+    expect(contentScrolls, '.attribution-modal-content must scroll (scrollHeight > clientHeight)').toBe(true);
+    expect(['auto', 'scroll'], 'inner content is the scroll container').toContain(contentOverflowY);
+    expect(dialogOverflowY, 'dialog.attribution-modal must NOT scroll (overflow-y:hidden)').toBe('hidden');
   });
 
   test('M-10: scrollbar-color on .family-legend-entries resolves (not "auto") in both themes', async ({ page }) => {
     const app = new AppPage(page);
     await app.goto('scope=us');
     await app.waitForAppReady();
+
+    // .family-legend-entries mounts only when the legend is expanded AND
+    // families have derived from observations (FamilyLegend.tsx ~L215). On the
+    // 1440×900 desktop viewport the legend defaults to expanded, so the element
+    // appears once families load — wait for it before reading computed styles.
+    // If this run defaults to collapsed, expand it first.
+    const legendEntries = page.locator('.family-legend-entries');
+    const toggle = page.locator('.family-legend-toggle');
+    try {
+      await legendEntries.waitFor({ state: 'attached', timeout: 15_000 });
+    } catch {
+      if ((await toggle.getAttribute('aria-expanded')) === 'false') {
+        await toggle.click();
+      }
+      await legendEntries.waitFor({ state: 'attached', timeout: 15_000 });
+    }
 
     // Light theme.
     await page.evaluate(() => {
