@@ -38,7 +38,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { readFileSync } from 'node:fs';
-import type Database from 'better-sqlite3';
 import type { ImageInput, VisionJudge } from '@bird-watch/photo-quality';
 import { createPool, closePool, getPhotoScores } from '@bird-watch/db-client';
 import { openDb } from '../src/db.js';
@@ -59,15 +58,14 @@ import { judgePromptForRubricVersion, resolveEvalModel } from '../eval/rubric-pr
 /** The injected collaborators `runEvalLocal` needs — all fakeable in tests. */
 export interface RunEvalDeps {
   /**
-   * The open review store — used only to BUILD the dataset (`buildEvalRows`
-   * reads `photo_current`/`photo_score`). The runner no longer writes eval
-   * results here; the eval store is `eleatic` below (E8, #1151).
-   */
-  db: Database.Database;
-  /**
    * The open eleatic store the run writes each eval row + the run header to —
    * the SOLE eval store (E7/E8, #1150/#1151). Written via the eleatic-adapter.
    * `:memory:` in tests.
+   *
+   * NOTE: the review-store handle (`db`) is no longer a dep — `runEvalLocal`
+   * never touched it after the eval write moved entirely to eleatic (E8, #1151).
+   * `main` still opens the review store locally to BUILD the dataset
+   * (`buildEvalRows`), but that handle is not handed to `runEvalLocal`.
    */
   eleatic: EleaticStore;
   /** The dataset rows (built from the pinned baseline, hash-verified). */
@@ -295,7 +293,6 @@ async function main(argv: string[]): Promise<void> {
     // The judge is built ONCE around the run's sink (a single shared Pacer — see
     // gemini.ts; one per row would reset the GEMINI_PACE_MS gate, #1015 review).
     await runEvalLocal({
-      db,
       eleatic,
       rows,
       runId,

@@ -1,17 +1,12 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import type Database from 'better-sqlite3';
 import { makeReader, openStore, type EleaticStore } from '../src/eval/eleatic-adapter.js';
-import { openDb } from '../src/db.js';
 import { instrumentedJudge, type JudgmentSink } from '../src/judges/instrumented.js';
 import { runEvalLocal, type RunEvalDeps } from './run-eval-local.js';
 import type { EvalRow } from '../src/eval/build-dataset.js';
 import type { ImageInput, SpeciesContext, JudgeOutput, VisionJudge } from '@bird-watch/photo-quality';
 
-let db: Database.Database | undefined;
 let eleatic: EleaticStore | undefined;
 afterEach(() => {
-  db?.close();
-  db = undefined;
   eleatic?.close();
   eleatic = undefined;
 });
@@ -65,7 +60,7 @@ function fakeJudge(sink: JudgmentSink, decide: (code: string) => { keep: boolean
 }
 
 /** Deps with a fake readImage (no fs) and a judge factory closing over `decide`. */
-function makeDeps(decide: (code: string) => { keep: boolean; quality: number }): Omit<RunEvalDeps, 'db' | 'rows' | 'eleatic'> {
+function makeDeps(decide: (code: string) => { keep: boolean; quality: number }): Omit<RunEvalDeps, 'rows' | 'eleatic'> {
   return {
     runId: 'run-test-1',
     model: 'gemini-2.5-flash',
@@ -81,7 +76,6 @@ function makeDeps(decide: (code: string) => { keep: boolean; quality: number }):
 
 describe('runEvalLocal', () => {
   it('writes one eleatic eval row per row + one run header with FRACTION-form aggregates', async () => {
-    db = openDb(':memory:');
     eleatic = openStore(':memory:');
     // 5 rows. Baseline keeps the first 4, replaces the 5th. The judge AGREES on
     // 4 of 5 (it flips only the last). Per the #1094 unit contract, agreement
@@ -101,7 +95,7 @@ describe('runEvalLocal', () => {
         ? { keep: false, quality: 80 } // DISAGREES (baseline keeps, judge replaces) → falseReplace
         : { keep: true, quality: 80 }; // agrees (both keep), exact score
 
-    await runEvalLocal({ db, eleatic, rows, ...makeDeps(decide) });
+    await runEvalLocal({ eleatic, rows, ...makeDeps(decide) });
 
     const reader = makeReader(eleatic.db);
     expect(reader.getRows('run-test-1')).toHaveLength(5);
@@ -123,7 +117,6 @@ describe('runEvalLocal', () => {
   });
 
   it('writes the eleatic store: run metrics as FRACTIONS + per-row disagreement', async () => {
-    db = openDb(':memory:');
     eleatic = openStore(':memory:');
     const rows: EvalRow[] = [
       evalRow({ speciesCode: 'sp1', expectedKeep: true, expectedQuality: 80 }),
@@ -141,7 +134,7 @@ describe('runEvalLocal', () => {
         ? { keep: false, quality: 20 } // agrees (both replace)
         : { keep: true, quality: 80 }; // agrees (both keep)
 
-    await runEvalLocal({ db, eleatic, rows, ...makeDeps(decide) });
+    await runEvalLocal({ eleatic, rows, ...makeDeps(decide) });
 
     // The eleatic store holds the rows + run header. Read it back via the reader.
     const reader = makeReader(eleatic.db);
@@ -165,12 +158,11 @@ describe('runEvalLocal', () => {
   });
 
   it('joins each row with the Opus baseline + the judge output + cost/tokens', async () => {
-    db = openDb(':memory:');
     eleatic = openStore(':memory:');
     const rows: EvalRow[] = [evalRow({ speciesCode: 'amerob', expectedKeep: true, expectedQuality: 85 })];
     const decide = () => ({ keep: false, quality: 60 });
 
-    await runEvalLocal({ db, eleatic, rows, ...makeDeps(decide) });
+    await runEvalLocal({ eleatic, rows, ...makeDeps(decide) });
 
     const r = makeReader(eleatic.db).getRow('run-test-1', 'amerob');
     expect(r).toBeDefined();
@@ -192,7 +184,6 @@ describe('runEvalLocal', () => {
   });
 
   it('computes falseKeep (judge keeps what baseline replaces) and total cost', async () => {
-    db = openDb(':memory:');
     eleatic = openStore(':memory:');
     const rows: EvalRow[] = [
       evalRow({ speciesCode: 'a', expectedKeep: false, expectedQuality: 20 }),
@@ -201,7 +192,7 @@ describe('runEvalLocal', () => {
     // Judge keeps BOTH → 2 falseKeep, 0 agreement.
     const decide = () => ({ keep: true, quality: 90 });
 
-    await runEvalLocal({ db, eleatic, rows, ...makeDeps(decide) });
+    await runEvalLocal({ eleatic, rows, ...makeDeps(decide) });
 
     const reader = makeReader(eleatic.db);
     const run = reader.getRun('run-test-1')!;
@@ -215,7 +206,6 @@ describe('runEvalLocal', () => {
   });
 
   it('runs rows SERIALLY (never concurrently)', async () => {
-    db = openDb(':memory:');
     eleatic = openStore(':memory:');
     const rows: EvalRow[] = [
       evalRow({ speciesCode: 's1', expectedKeep: true, expectedQuality: 80 }),
@@ -239,7 +229,7 @@ describe('runEvalLocal', () => {
       };
     };
 
-    await runEvalLocal({ db, eleatic, rows, ...deps, makeJudge: slowJudge });
+    await runEvalLocal({ eleatic, rows, ...deps, makeJudge: slowJudge });
 
     // Serial execution never has more than one judgment in flight at a time.
     expect(maxInFlight).toBe(1);
