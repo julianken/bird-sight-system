@@ -48,6 +48,7 @@ import { useMapResize } from './use-map-resize.js';
 import { useScopeCamera } from './use-scope-camera.js';
 import { useStateArtboard } from './use-state-artboard.js';
 import { sanitizeNullNumericFilters } from './basemap-null-filter.js';
+import { enforceDarkLabelContrast } from './basemap-label-contrast.js';
 import {
   aggregateClusterFamilies,
   aggregateClusterSpecies,
@@ -989,22 +990,33 @@ export function MapCanvas({
     };
   }, [mapReady]);
 
-  // ── #1027 [O8]: sanitize upstream null-prone basemap filters ──────────────
-  // The stock OpenFreeMap styles ship `[<,<=,>,>=]` comparisons over nullable
-  // data properties (`ref_length` on road shields, `admin_level` on
-  // boundaries) that log 4× "Expected value to be of type number, but found
-  // null instead." at z14 — upstream noise that trips the repo's zero-warning
-  // bar. `sanitizeNullNumericFilters` wraps each in `["all", ["has", prop],
-  // <original>]` (behaviour-preserving; see basemap-null-filter.ts). Runs once
-  // on the loaded style AND on every `style.load` (theme swap / Retry re-set
-  // the style and would otherwise drop the rewrite), mirroring the artboard's
-  // own `style.load` re-apply contract. Idempotent + fails open.
+  // ── #1027 [O8] + #1128: per-style basemap fixups at style.load ────────────
+  // Two STRUCTURAL, fail-open, idempotent passes run on the freshly-parsed
+  // style, both on initial load AND on every `style.load` (the [data-theme]
+  // `setStyle` swap / Retry re-set the style and would otherwise drop the
+  // fixups), mirroring the artboard's own `style.load` re-apply contract:
+  //
+  //   1. #1027 [O8] `sanitizeNullNumericFilters` — the stock OpenFreeMap styles
+  //      ship `[<,<=,>,>=]` comparisons over nullable data properties
+  //      (`ref_length` on road shields, `admin_level` on boundaries) that log
+  //      4× "Expected value to be of type number, but found null instead." at
+  //      z14. Wraps each in `["all", ["has", prop], <original>]`
+  //      (behaviour-preserving; see basemap-null-filter.ts).
+  //   2. #1128 `enforceDarkLabelContrast` — the dark basemap is a DIFFERENT
+  //      style (setStyle, not a CSS filter) that ships LIGHT-mode label text
+  //      colors, so at z14 every label layer fails WCAG AA against the
+  //      rgb(12,12,12) dark canvas. Recolors the failing symbol layers to
+  //      AA-passing light text + dark halo (no-op on the light style — it gates
+  //      on the measured background luminance; see basemap-label-contrast.ts).
   useEffect(() => {
     if (!mapReady) return;
     const map = mapRef.current?.getMap();
     if (!map) return;
-    const apply = () => sanitizeNullNumericFilters(map);
-    apply(); // mapReady ⇒ first style already parsed; sanitize it now
+    const apply = () => {
+      sanitizeNullNumericFilters(map);
+      enforceDarkLabelContrast(map);
+    };
+    apply(); // mapReady ⇒ first style already parsed; fix it up now
     map.on('style.load', apply);
     return () => {
       map.off('style.load', apply);
