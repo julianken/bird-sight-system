@@ -16,7 +16,6 @@ import { useSpeciesDictionary } from './data/use-species-dictionary.js';
 import { useStates } from './data/use-states.js';
 import {
   familyCountsFromBuckets,
-  deriveFamiliesFromBuckets,
   totalCountFromBuckets,
 } from './data/bucket-aggregates.js';
 import { useStatePolygon } from './data/state-polygons.js';
@@ -26,6 +25,7 @@ import { useSpeciesDetail } from './data/use-species-detail.js';
 // the entry bundle — App owns the scope→clampPad derivation (#760/#762).
 import { ARTBOARD_PAD } from './components/map/mask.js';
 import { FiltersBar } from './components/FiltersBar.js';
+import type { FamilyOption, SpeciesOption } from './components/FiltersBar.js';
 import { FamilyLegend } from './components/FamilyLegend.js';
 import { MapSurface } from './components/MapSurface.js';
 import { ScopeChooser } from './components/ScopeChooser.js';
@@ -36,7 +36,7 @@ import { AppHeader } from './components/AppHeader.js';
 import { useIsCompact } from './lib/use-is-compact.js';
 import { useIsPhone } from './lib/use-is-phone.js';
 import { AttributionModal } from './components/AttributionModal.js';
-import { deriveFamilies, deriveSpeciesIndex } from './derived.js';
+import { resolveFamilyName } from './derived.js';
 import { filterObservationsByBounds, filterBucketsByBounds } from './lib/viewport-filter.js';
 import { regionLabelFor } from './config/region.js';
 import { prefetchMapCanvas } from './prefetch.js';
@@ -524,31 +524,31 @@ export function App() {
     error: silhouettesError,
   } = useSilhouettes(apiClient);
 
-  // #921: familyCode → curated colloquial name, from the `/api/silhouettes`
-  // catalogue the app already fetches. Threaded into both derive functions so
-  // the FiltersBar `<select>` options AND the count lede read `Tyrant
-  // Flycatchers` instead of the scientific `Tyrannidae`. Keys are lowercased to
-  // match the server's lowercase family_code on both the observation and bucket
-  // paths. A cold catalogue yields an empty map → both functions fall back to
-  // `prettyFamily` (never a blank label).
-  const familyNamesByCode = useMemo(() => {
-    const map = new Map<string, string | null>();
-    for (const s of silhouettes) map.set(s.familyCode.toLowerCase(), s.commonName);
-    return map;
+  // D2 (#1050) C79 — the Family filter options derive from the STABLE
+  // silhouettes catalogue (`useSilhouettes`), NOT from the active fetch result.
+  // Pre-#1050 the options came from the fetch (deriveFamilies/FromBuckets), which
+  // carries the active `familyCode` — so once a family was selected the select
+  // collapsed to "that family + All families", forcing a reset-to-all before a
+  // family→family switch. The catalogue is the filter-independent universe of
+  // every observed family (95 today) and is already in scope here, so the select
+  // lists all families while one is active. `familyCode` is lowercased server-side
+  // (#921) and the catalogue keys it lowercase too — the option `value` MUST stay
+  // lowercase so the controlled `<select value={familyCode}>` keeps the active
+  // family highlighted (reviewer addendum: a casing mismatch silently de-selects
+  // it — a subtler form of the exact bug being fixed). A cold catalogue yields an
+  // empty list; the select degrades to "All families" only (never a blank label).
+  const families = useMemo<FamilyOption[]>(() => {
+    const seen = new Set<string>();
+    const opts: FamilyOption[] = [];
+    for (const s of silhouettes) {
+      const code = s.familyCode.toLowerCase();
+      if (seen.has(code)) continue;
+      seen.add(code);
+      opts.push({ code, name: resolveFamilyName(code, { commonName: s.commonName }) });
+    }
+    // Sort by RESOLVED display name (matches the prior derive's ordering).
+    return opts.sort((a, b) => a.name.localeCompare(b.name));
   }, [silhouettes]);
-
-  // #859: in aggregated mode the per-observation array is empty, so the family
-  // filter options derive from the buckets' families instead (the species
-  // autocomplete index has no aggregated analogue — codes carry no names on the
-  // wire — so it stays observation-only and is simply empty at low zoom).
-  const families = useMemo(
-    () =>
-      mode === 'aggregated'
-        ? deriveFamiliesFromBuckets(buckets, familyNamesByCode)
-        : deriveFamilies(observations, familyNamesByCode),
-    [mode, buckets, observations, familyNamesByCode],
-  );
-  const speciesIndex = useMemo(() => deriveSpeciesIndex(observations), [observations]);
 
   // #738/C5: runtime region label for the active scope (#735). `null` ⟺
   // unscoped (the chooser landing) — every consumer degrades to no region
@@ -684,12 +684,19 @@ export function App() {
     { center: [number, number]; zoom: number; key: string } | undefined
   >(undefined);
 
-  // Resolve human-readable family name when a familyCode filter is active.
-  // Derived from families (prettyFamily-capitalised code from deriveFamilies).
-  const familyName = useMemo(
-    () => (state.familyCode ? families.find(f => f.code === state.familyCode)?.name : undefined),
-    [families, state.familyCode],
-  );
+  // Resolve human-readable family name for the count lede when a familyCode
+  // filter is active. Resolved directly via the unified `resolveFamilyName`
+  // chain against the active code — NOT by looking the code up in the filter
+  // `families` options (#1050 decoupled those from the fetch). The catalogue
+  // (`silhouettes`) supplies the curated colloquial name; `resolveFamilyName`
+  // falls back to `prettyFamily(code)` so a real code never yields a blank label
+  // even with a cold catalogue. The first matching silhouette's commonName wins.
+  const familyName = useMemo(() => {
+    if (!state.familyCode) return undefined;
+    const code = state.familyCode.toLowerCase();
+    const commonName = silhouettes.find(s => s.familyCode.toLowerCase() === code)?.commonName;
+    return resolveFamilyName(code, { commonName });
+  }, [silhouettes, state.familyCode]);
 
   // Issue #351: viewport-aware FamilyLegend counts. MapCanvas reports
   // the current bounds on each `idle` (camera-change settle) via
@@ -884,7 +891,33 @@ export function App() {
   // aggregated low-zoom popovers can resolve the real common names carried (as
   // codes) in the buckets. A cold dictionary is tolerated everywhere (rows fall
   // back to the bare code) so this never gates the map render.
-  const { dictionary } = useSpeciesDictionary(apiClient);
+  //
+  // D2 (#1050) C78/C79: the SAME dictionary backs the Species filter index. It
+  // is national and filter-independent, so the species search resolves names at
+  // EVERY zoom — including aggregated low-zoom mode, where the per-observation
+  // array is empty (#859) and the old observation-derived index was silently
+  // inert — and the species datalist no longer self-narrows under an active
+  // species filter (the dictionary doesn't carry the active filter). `loading`
+  // and `error` are threaded to FiltersBar so it can classify a no-match commit
+  // correctly: defer the no-match verdict while loading (a verdict against a
+  // not-yet-populated index would be a false hint), and surface a fetch-error
+  // outcome on error — both honoring the "never silent" contract.
+  const {
+    dictionary,
+    loading: dictionaryLoading,
+    error: dictionaryError,
+  } = useSpeciesDictionary(apiClient);
+
+  // Dictionary-backed Species filter index: `{ code, comName }` per entry,
+  // common-name-sorted to match the prior observation-derived ordering. Memoized
+  // on the dictionary identity (stable once resolved, per the hook's tab cache).
+  const speciesIndex = useMemo<SpeciesOption[]>(() => {
+    const opts: SpeciesOption[] = [];
+    for (const [code, { comName, familyCode }] of dictionary) {
+      opts.push({ code, comName, familyCode });
+    }
+    return opts.sort((a, b) => a.comName.localeCompare(b.comName));
+  }, [dictionary]);
 
   // Active species meta for the detail view (issue #327 task-11). The
   // hook fires only when state.view === 'detail' AND state.detail is set
@@ -1355,6 +1388,8 @@ export function App() {
               familyCode={state.familyCode}
               families={families}
               speciesIndex={speciesIndex}
+              speciesIndexLoading={dictionaryLoading}
+              speciesIndexError={dictionaryError !== null}
               onChange={set}
             />
           </div>

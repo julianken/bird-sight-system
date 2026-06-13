@@ -85,7 +85,8 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
   // the detail surface shows the curated #924 colloquial name ("Hawks,
   // Eagles & Kites") instead of the raw eBird family_name ("Hawks, Eagles,
   // and Kites"). Keys are lowercased to match the server's lowercase
-  // family_code — same convention as App.tsx familyNamesByCode (l.533-536).
+  // family_code — same lowercase-keyed silhouettes convention App.tsx uses for
+  // its catalogue-derived Family filter options (#1050 C79).
   const resolveCommonName = useMemo(() => {
     const byCode = new Map<string, string | null>();
     for (const s of silhouettes) byCode.set(s.familyCode.toLowerCase(), s.commonName);

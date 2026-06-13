@@ -913,6 +913,30 @@ body {
   border: 1px solid var(--color-border-ui);
   border-radius: 4px;
 }
+/* D2 (#1050) — never-silent Species feedback. The status (no-match) and error
+   (dictionary-load failure) messages sit BELOW the input inside its <label>
+   (which is `display:flex` with a 6px gap), so `flex-basis:100%` drops them to
+   their own full-width row instead of crowding the field. Mirrors the
+   muted-status / error-box split ZipInput uses (.zip-input__status /
+   .zip-input__error). */
+.filters-bar__species-status {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--type-xs);
+  color: var(--color-text-muted);
+  line-height: 1.3;
+}
+.filters-bar__species-error {
+  flex-basis: 100%;
+  margin: 0;
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--type-xs);
+  color: var(--color-error-text);
+  background: var(--color-error-bg);
+  border: 1px solid var(--color-error-border);
+  border-radius: 4px;
+  line-height: 1.3;
+}
 
 /* Species detail surface (#151). In-flow surface inside <main>, replaces the
    old position:fixed SpeciesPanel sidebar/drawer. Styled consistently with

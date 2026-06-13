@@ -1,4 +1,4 @@
-import { test, expect, VERMFLY_OBS } from './fixtures.js';
+import { test, expect, VERMFLY_OBS, SPECIES_DICT_FIXTURE } from './fixtures.js';
 import { AppPage } from './pages/app-page.js';
 
 test.describe('filter flows', () => {
@@ -13,6 +13,11 @@ test.describe('filter flows', () => {
     // per-observation payload to resolve "Vermilion Flycatcher" → "vermfly";
     // stub before navigation.
     await apiStub.stubObservations(VERMFLY_OBS);
+    // D2 (#1050): the FiltersBar species index is now dictionary-backed (bare
+    // GET /api/species). Stub it so the datalist + typeahead stay hermetic —
+    // without it these specs would silently hit the live seeded DB. The one
+    // fixture row resolves "Vermilion Flycatcher" → "vermfly".
+    await apiStub.stubSpeciesDictionary(SPECIES_DICT_FIXTURE);
     app = new AppPage(page);
     await app.goto();
     await app.waitForAppReady();
@@ -41,9 +46,15 @@ test.describe('filter flows', () => {
     await expect.poll(() => app.getUrlParams().get('family'), { timeout: 5_000 }).toBeNull();
   });
 
-  test('species input does not commit on keystroke (draft isolation + no-match blur)', async () => {
+  test('species input does not commit on keystroke (draft isolation + no-match blur)', async ({ page }) => {
     await app.filters.species.focus();
-    await app.filters.setSpecies('Vermilio'); // partial, no match
+    // Wait for the dictionary-backed datalist to populate before committing —
+    // a no-match verdict is deliberately DEFERRED while the dictionary is still
+    // loading (#1050: a verdict against an empty index would be a false hint),
+    // so the visible-hint assertion below requires the settled state. Mirrors
+    // the exact-match specs' datalist-attached gate.
+    await expect(page.locator('datalist#species-options option').first()).toBeAttached({ timeout: 10_000 });
+    await app.filters.setSpecies('Vermilio'); // partial, no exact match
 
     // Draft only — URL should not have species param yet.
     await expect.poll(() => app.getUrlParams().get('species'), { timeout: 3_000 }).toBeNull();
@@ -51,6 +62,14 @@ test.describe('filter flows', () => {
     await app.filters.species.blur();
     // After blur with no exact match, URL still has no species param.
     await expect.poll(() => app.getUrlParams().get('species'), { timeout: 5_000 }).toBeNull();
+
+    // D2 (#1050) C78: the no-match commit must NOT be silent — a visible inline
+    // status hint appears, scoped to the (national) dictionary index, and the
+    // typed value is kept in the field (never a silent clear).
+    const hint = page.getByRole('status').filter({ hasText: /No species matching/i });
+    await expect(hint).toBeVisible();
+    await expect(hint).toHaveText('No species matching "Vermilio"');
+    await expect(app.filters.species).toHaveValue('Vermilio');
   });
 
   test('species input commits exact match on blur', async ({ page }) => {
