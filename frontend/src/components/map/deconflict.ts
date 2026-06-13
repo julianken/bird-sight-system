@@ -1,6 +1,7 @@
 import type { AdaptiveTile, ResolvedGrid } from './adaptive-grid.js';
 import { markerDimensions, MIN_MARKER_PX } from './AdaptiveGridMarker.js';
 import { pillDimensions } from '../ds/ClusterPill.js';
+import { countNoun, formatCount } from '../../lib/format-count.js';
 
 /**
  * Pure post-clustering deconflict layer (issue #554). Resolves visible
@@ -209,8 +210,9 @@ export function bucketKey(px: number, py: number, zoom: number, BUCKET_PX: numbe
 
 function ariaLabelFor(anchor: DeconflictInput, others: DeconflictInput[]): string {
   if (others.length === 0) {
+    const obsPhrase = countNoun(anchor.point_count, 'observation');
     const familyWord = anchor.uniqueFamilies === 1 ? 'family' : 'families';
-    return `Cluster: ${anchor.point_count} observations, ${anchor.uniqueFamilies} ${familyWord}. Activate to zoom in.`;
+    return `Cluster: ${obsPhrase}, ${formatCount(anchor.uniqueFamilies)} ${familyWord}. Activate to zoom in.`;
   }
   // Partition by kind: silhouettes are individual observations, not clusters.
   // Bot review #554: counting silhouettes as clusters produced incorrect aria-labels.
@@ -237,7 +239,7 @@ function ariaLabelFor(anchor: DeconflictInput, others: DeconflictInput[]): strin
       : null;
 
   const parts = [clusterPart, silhouettePart].filter(Boolean).join(', ');
-  return `Cluster: ${anchor.point_count} observations (${parts}). Activate to zoom in.`;
+  return `Cluster: ${countNoun(anchor.point_count, 'observation')} (${parts}). Activate to zoom in.`;
 }
 
 /**
