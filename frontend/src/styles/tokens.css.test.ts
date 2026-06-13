@@ -840,3 +840,62 @@ describe('B1 (#1040): undefined/unpaired-token enforcement', () => {
     expect(contrastRatio('#f5f7fb', '#1c2640')).toBeGreaterThanOrEqual(4.5);
   });
 });
+
+// ── B2 (#1041): dark-mode controls + chip contrast/legibility ────────────────
+//
+// 1. --color-bg-inset: a mode-paired chip-background token.
+//    light: #f0ebe0 (current .family-legend-entry-count bg value — preserves resolved color)
+//    dark:  #253050 (skeleton-highlight: 9.60:1 chip text contrast + 1.14:1 lift vs card #1b2742)
+//
+// 2. color-scheme: feeds native widget internals (select dropdown, checkbox
+//    glyph) so they follow the theme rather than staying UA-light in dark mode.
+//
+// 3. The B1 both-themes enforcement test already guards that --color-bg-inset
+//    appears in BOTH [data-theme] blocks — these tests pin the exact values.
+describe('B2 (#1041): --color-bg-inset token pairing', () => {
+  const lightBlockMatch = TOKENS_CSS.match(
+    /:root\[data-theme="light"\]\s*\{([^}]*)\}/s,
+  );
+  const lightBlock = lightBlockMatch?.[1] ?? '';
+
+  const darkBlockMatch = TOKENS_CSS.match(
+    /:root\[data-theme="dark"\]\s*\{([^}]*)\}/s,
+  );
+  const darkBlock = darkBlockMatch?.[1] ?? '';
+
+  it('--color-bg-inset is defined in the light block', () => {
+    expect(lightBlock).toMatch(/--color-bg-inset:/);
+  });
+
+  it('--color-bg-inset light value is #f0ebe0 (preserves chip-vs-card lift + 8.19:1 text contrast)', () => {
+    expect(lightBlock).toMatch(/--color-bg-inset:\s*#f0ebe0/);
+  });
+
+  it('--color-bg-inset is defined in the dark block', () => {
+    expect(darkBlock).toMatch(/--color-bg-inset:/);
+  });
+
+  it('--color-bg-inset dark value is #253050 (skeleton-highlight: 9.60:1 text contrast, 1.14:1 card lift)', () => {
+    expect(darkBlock).toMatch(/--color-bg-inset:\s*#253050/);
+  });
+});
+
+describe('B2 (#1041): color-scheme in both theme blocks', () => {
+  const lightBlockMatch = TOKENS_CSS.match(
+    /:root\[data-theme="light"\]\s*\{([^}]*)\}/s,
+  );
+  const lightBlock = lightBlockMatch?.[1] ?? '';
+
+  const darkBlockMatch = TOKENS_CSS.match(
+    /:root\[data-theme="dark"\]\s*\{([^}]*)\}/s,
+  );
+  const darkBlock = darkBlockMatch?.[1] ?? '';
+
+  it('light block declares color-scheme: light (native widget internals use light UA chrome)', () => {
+    expect(lightBlock).toMatch(/color-scheme:\s*light/);
+  });
+
+  it('dark block declares color-scheme: dark (native widget internals use dark UA chrome)', () => {
+    expect(darkBlock).toMatch(/color-scheme:\s*dark/);
+  });
+});
