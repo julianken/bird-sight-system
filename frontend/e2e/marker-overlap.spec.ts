@@ -83,6 +83,12 @@ interface OverlapResult {
    *  what O5 governs (legend width-widening is @media max-width:760px-gated; at 1440px the
    *  legend is content-sized regardless of O5 status, giving a clean O5-independent control). */
   marker_legend_overlap_area: number;
+  /** E6 (#1058): worst pairwise overlap RATIO among displaced-silhouette twins,
+   *  as intersectionArea / min(bboxA, bboxB) area (denominator pinned to the
+   *  smaller bbox per #1058 reviewer addendum #2). The collision/spiral pass
+   *  (`resolveDisplacedCollisions`) must keep this ≤ 0.25 — twins from adjacent
+   *  groups may no longer pile into the "Yuma clump". 0 when <2 twins. */
+  worst_twin_overlap_ratio: number;
 }
 
 // NOTE: the top-level `pairwiseArea` helper that used to live here was removed
@@ -217,12 +223,37 @@ async function measureOverlap(page: Page): Promise<OverlapResult> {
     // marker_legend_overlap_area: legend-only (O5-governed desktop control at 1440px).
     const markerLegendOverlapArea  = pairArea(items, legendBoxes);
 
+    // ── Displaced-twin pairwise overlap RATIO (E6 / #1058) ───────────────────
+    // Among the displaced-silhouette twins ONLY, find the worst pairwise overlap
+    // ratio = intersectionArea / min(areaA, areaB). The collision/spiral pass
+    // must keep this ≤ 0.25 (denominator pinned to the smaller bbox). Uses the
+    // displaced-silhouette DOM rects collected above.
+    const twinRects = displacedSils.map((el) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.left, y: r.top, w: r.width, h: r.height };
+    });
+    let worstTwinRatio = 0;
+    for (let i = 0; i < twinRects.length; i++) {
+      for (let j = i + 1; j < twinRects.length; j++) {
+        const a = twinRects[i]!;
+        const b = twinRects[j]!;
+        const ox = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
+        const oy = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+        if (ox <= 0 || oy <= 0) continue;
+        const inter = ox * oy;
+        const minArea = Math.min(a.w * a.h, b.w * b.h);
+        if (minArea <= 0) continue;
+        worstTwinRatio = Math.max(worstTwinRatio, inter / minArea);
+      }
+    }
+
     return {
       marker_count: items.length,
       total_overlap_area: total,
       worst_overlap_area: worst,
       marker_overlay_overlap_area: markerOverlayOverlapArea,
       marker_legend_overlap_area:  markerLegendOverlapArea,
+      worst_twin_overlap_ratio: worstTwinRatio,
     };
   });
 }
@@ -274,6 +305,19 @@ for (const viewport of VIEWPORTS) {
         result.total_overlap_area,
         `marker_count=${result.marker_count}, worst_overlap=${result.worst_overlap_area}px²`,
       ).toBe(0);
+
+      // ── Displaced-twin overlap-ratio assertion (E6 / #1058) ──────────────────
+      // No pair of displaced-silhouette twins may overlap by more than 25% of
+      // the smaller bbox area. `resolveDisplacedCollisions` (the collision/spiral
+      // post-step) enforces this so twins from adjacent groups stop piling into
+      // the "Yuma clump". A 0.01 epsilon absorbs subpixel projection rounding;
+      // do NOT relax further — a higher value IS the signal the pass regressed.
+      expect(
+        result.worst_twin_overlap_ratio,
+        `[${viewport.name} z${zoom}] worst displaced-twin overlap ratio must be ≤ 0.25 ` +
+        `(intersection / smaller-bbox area) — got ${result.worst_twin_overlap_ratio.toFixed(3)}. ` +
+        `The collision/spiral pass (resolveDisplacedCollisions) must split overlapping twins (E6 #1058).`,
+      ).toBeLessThanOrEqual(0.25 + 0.01);
 
       // ── Exclusion-zone assertions (V1 / #788) ────────────────────────────────
       // See the header doc block above for the full contract rationale.

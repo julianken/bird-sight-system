@@ -74,7 +74,7 @@ describe('silhouettePathToSvg', () => {
 function makeSpriteMap(preregistered: string[] = []) {
   const registered = new Set<string>(preregistered);
   const addImage = vi.fn(
-    (id: string, _img: HTMLImageElement, _opts?: { sdf?: boolean }) => {
+    (id: string, _img: HTMLImageElement, _opts?: { sdf?: boolean; pixelRatio?: number }) => {
       registered.add(id);
     },
   );
@@ -84,7 +84,7 @@ function makeSpriteMap(preregistered: string[] = []) {
 }
 
 describe('registerSilhouetteSprite', () => {
-  it('registers the sprite via addImage with { sdf: true }', async () => {
+  it('registers the sprite via addImage with { sdf: true, pixelRatio: 2 }', async () => {
     const { map, addImage, hasImage } = makeSpriteMap();
     await registerSilhouetteSprite(map, 'tyrannidae', 'M12 4 L20 20 Z');
     expect(hasImage).toHaveBeenCalledWith('tyrannidae');
@@ -94,7 +94,13 @@ describe('registerSilhouetteSprite', () => {
     expect(img).toBeInstanceOf(FakeImage);
     // sdf:true is the whole point — the sprite is a colorless alpha mask the
     // layer tints later. Registration must never bake in a color.
-    expect(opts).toEqual({ sdf: true });
+    //
+    // pixelRatio:2 (E6 / #1058, M-15 suggestion) treats the 64px SVG raster
+    // as a 2× hi-DPI image so it lays down at 32 CSS px, not 64; ×icon-size
+    // 0.85 ≈ 27px on the map — inside the documented 24-28px band and ≈ the
+    // React-marker SILHOUETTE_PX (28). Without it the SDF rendered ≈54px,
+    // ~2× the badged markers (the "oversized canvas silhouette" finding).
+    expect(opts).toEqual({ sdf: true, pixelRatio: 2 });
   });
 
   it('short-circuits (no addImage) when the sprite id is already registered', async () => {

@@ -340,8 +340,14 @@ export function buildUnclusteredPointLayerSpec(): LayerProps {
     filter: ['!', ['has', 'point_count']],
     layout: {
       'icon-image': ['get', 'silhouetteId'],
-      // 0.85 keeps a 32-viewBox SDF roughly in the 24-28px range on the
-      // map — same visual scale as the FamilyLegend chip preview.
+      // Scale chain (E6 / #1058): the sprite SVG has a 24-unit viewBox
+      // rastered into a 64px shell (silhouette-sprite.ts), registered with
+      // `pixelRatio: 2` so maplibre lays it down at 32 CSS px; ×0.85 here ≈
+      // 27px on the map — inside the documented 24-28px band and ≈ the
+      // React-marker SILHOUETTE_PX (28), so the same visual scale as the
+      // FamilyLegend chip preview. (Before the pixelRatio fix the 64px raster
+      // rendered ≈54px — ~2× the badged markers, the M-15 "oversized canvas
+      // silhouette" finding.)
       'icon-size': 0.85,
       // Without these two, MapLibre drops icons that overlap each other
       // or text labels from the basemap. At ≥CLUSTER_MAX_ZOOM zoom levels

@@ -417,6 +417,192 @@ export function displaceSilhouettes(
 }
 
 /**
+ * A displaced silhouette's FINAL pixel center (input position + the offset
+ * `displaceSilhouettes` already applied), keyed by subId. Input to the
+ * collision/spiral pass below.
+ */
+export interface DisplacedSilhouette {
+  subId: string;
+  /** Final pixel x after `displaceSilhouettes` (input px + offset dx). */
+  px: number;
+  /** Final pixel y after `displaceSilhouettes` (input py + offset dy). */
+  py: number;
+}
+
+/**
+ * Pairwise overlap ratio for two SILHOUETTE_PX-square bboxes centered at the
+ * given pixel positions, as `intersectionArea / min(areaA, areaB)`.
+ *
+ * The denominator is PINNED to the smaller bbox's area (#1058 reviewer addendum
+ * #2) — both silhouette bboxes are identical squares today, so `min` equals
+ * `SILHOUETTE_PX²`, but pinning the metric here means the AC's "≤25% overlap"
+ * is encoded in one place rather than re-derived per test. Returns a value in
+ * `[0, 1]`: 1 when the centers coincide, 0 when the boxes are disjoint.
+ */
+export function pairwiseOverlapRatio(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+): number {
+  const ox = Math.max(0, SILHOUETTE_PX - Math.abs(ax - bx));
+  const oy = Math.max(0, SILHOUETTE_PX - Math.abs(ay - by));
+  const intersection = ox * oy;
+  const minArea = SILHOUETTE_PX * SILHOUETTE_PX; // both bboxes are equal squares
+  return intersection / minArea;
+}
+
+/**
+ * Collision/spiral layout pass for displaced silhouette twins (E6 / #1058,
+ * M-15 "Yuma clump"). PURE and unit-testable: no React, no MapLibre.
+ *
+ * `displaceSilhouettes` shifts each silhouette away from ITS OWN group's
+ * cluster anchor and never compares two silhouettes' final positions, so at a
+ * dense border, twins displaced out of adjacent groups land on top of each
+ * other (the count badges then read as belonging to two birds at once). This
+ * post-step nudges overlapping twins apart along their center-to-center vector
+ * until no pair overlaps by more than 25% of the smaller bbox area (the
+ * `pairwiseOverlapRatio` metric), returning ONLY the EXTRA per-subId pixel
+ * offset to apply on top of `displaceSilhouettes`' offset.
+ *
+ * Contract (per #1058):
+ *  - no-op for ≤1 twin (`items.length <= 1` → empty map) — nothing to deconflict;
+ *  - empty input → empty map, so the silhouette-only-group early-exit upstream
+ *    (zero displaced twins) is preserved untouched;
+ *  - already-separated twins (every pair ≥ `TWIN_MIN_SEPARATION` apart) → no
+ *    offsets emitted, so the common no-collision case is a true no-op;
+ *  - offsets stay BOUNDED — the spiral seed places the k-th clump member at
+ *    radius ≈ `TWIN_MIN_SEPARATION·√k`, so cumulative displacement grows only as
+ *    √(clump size); the spiral relaxes `displaceSilhouettes`' 20px `maxOffsetPx`
+ *    cap without becoming unbounded;
+ *  - deterministic — fixed iteration count + a stable subId-hash phase for the
+ *    spiral seed (so a clump radiates evenly instead of all pushing one axis).
+ *
+ * Algorithm (two phases):
+ *  1. SPIRAL SEED. Connected clumps of mutually-overlapping twins are found via
+ *     Union-Find on the `< TWIN_MIN_SEPARATION` graph; each clump's members are
+ *     placed on a deterministic sunflower (phyllotaxis) spiral around the clump
+ *     centroid, ordered by subId hash. This alone separates exactly-coincident
+ *     twins (which a pure pairwise push cannot, having no gradient).
+ *  2. RELAXATION. A fixed budget of pairwise passes nudges any remaining
+ *     sub-`TWIN_MIN_SEPARATION` pair apart by half the shortfall each — cleans
+ *     up near-coincident (not exactly equal) seeds the spiral didn't fully clear.
+ *  O(passes·N²), bounded by twin count (<20 in practice).
+ */
+// Center separation that guarantees ≤25% overlap for two equal SILHOUETTE_PX
+// squares in ANY direction. Worst case is axis-aligned with full perpendicular
+// overlap: area = SIL·(SIL−d). Setting that ≤ 0.25·SIL² gives d ≥ 0.75·SIL = 21
+// at SIL=28. We target a hair above 0.75·SILHOUETTE_PX (a 0.5px epsilon) so
+// floating-point relaxation lands strictly inside the ≤25% AC, not exactly on it.
+const TWIN_MIN_SEPARATION = SILHOUETTE_PX * 0.75 + 0.5;
+
+export function resolveDisplacedCollisions(
+  items: ReadonlyArray<DisplacedSilhouette>,
+): Map<string, { dx: number; dy: number }> {
+  const extra = new Map<string, { dx: number; dy: number }>();
+  if (items.length <= 1) return extra;
+
+  // Mutable working positions (start at the already-displaced centers).
+  const pos = items.map((it) => ({ x: it.px, y: it.py }));
+  const origin = items.map((it) => ({ x: it.px, y: it.py }));
+
+  // ── Phase 1: spiral-seed each connected clump of overlapping twins ──────────
+  // Build the overlap graph (pairs closer than TWIN_MIN_SEPARATION) and group
+  // by connected component, so an isolated already-separated twin is its own
+  // singleton clump (untouched) and a pile becomes one clump.
+  const edges: Array<[number, number]> = [];
+  for (let i = 0; i < pos.length; i++) {
+    for (let j = i + 1; j < pos.length; j++) {
+      if (Math.hypot(pos[i]!.x - pos[j]!.x, pos[i]!.y - pos[j]!.y) < TWIN_MIN_SEPARATION) {
+        edges.push([i, j]);
+      }
+    }
+  }
+  const reps = unionFind(pos.length, edges);
+  const clumps = new Map<number, number[]>();
+  for (let i = 0; i < reps.length; i++) {
+    const r = reps[i] as number;
+    if (!clumps.has(r)) clumps.set(r, []);
+    clumps.get(r)!.push(i);
+  }
+
+  // Golden-angle sunflower: the k-th point sits at angle k·137.5° and radius
+  // proportional to √k, which keeps neighbors ≈ a constant distance apart while
+  // the whole pattern stays compact (radius ~ √k, not k). Scale so adjacent
+  // ring members clear TWIN_MIN_SEPARATION.
+  const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5)); // ≈ 137.5° in radians
+  const RADIAL_STEP = TWIN_MIN_SEPARATION; // r(k) = RADIAL_STEP · √k
+  for (const indices of clumps.values()) {
+    if (indices.length <= 1) continue; // singleton clump — already clear
+    // Centroid of the clump's CURRENT positions — the spiral re-centers here so
+    // the seeded ring stays near the twins' true border location.
+    let cx = 0;
+    let cy = 0;
+    for (const i of indices) {
+      cx += pos[i]!.x;
+      cy += pos[i]!.y;
+    }
+    cx /= indices.length;
+    cy /= indices.length;
+    // Deterministic order by subId hash so the seed is pan-stable.
+    const ordered = [...indices].sort(
+      (a, b) => hashSubId(items[a]!.subId) - hashSubId(items[b]!.subId),
+    );
+    ordered.forEach((idx, k) => {
+      const radius = RADIAL_STEP * Math.sqrt(k);
+      const angle = k * GOLDEN_ANGLE;
+      pos[idx] = { x: cx + radius * Math.cos(angle), y: cy + radius * Math.sin(angle) };
+    });
+  }
+
+  // ── Phase 2: relaxation cleanup for any residual sub-separation pairs ───────
+  const PASSES = 24;
+  for (let pass = 0; pass < PASSES; pass++) {
+    let movedThisPass = false;
+    for (let i = 0; i < pos.length; i++) {
+      for (let j = i + 1; j < pos.length; j++) {
+        const a = pos[i]!;
+        const b = pos[j]!;
+        let vx = b.x - a.x;
+        let vy = b.y - a.y;
+        let dist = Math.hypot(vx, vy);
+        if (dist >= TWIN_MIN_SEPARATION) continue; // already far enough apart
+        if (dist < 1e-6) {
+          // Still coincident after the seed (identical subId hash collision is
+          // the only way) — pick a stable direction from the pair's subIds.
+          const seed = hashSubId(items[i]!.subId + '|' + items[j]!.subId);
+          const angle = (seed % 360) * (Math.PI / 180);
+          vx = Math.cos(angle);
+          vy = Math.sin(angle);
+          dist = 1; // unit vector; full shortfall applied below
+        } else {
+          vx /= dist;
+          vy /= dist;
+        }
+        const shortfall = TWIN_MIN_SEPARATION - dist;
+        const half = shortfall / 2;
+        a.x -= vx * half;
+        a.y -= vy * half;
+        b.x += vx * half;
+        b.y += vy * half;
+        movedThisPass = true;
+      }
+    }
+    if (!movedThisPass) break;
+  }
+
+  // Derive the extra offset (final working pos − origin). Only emit non-zero
+  // offsets so already-clear twins contribute nothing (true no-op case).
+  for (let i = 0; i < pos.length; i++) {
+    const dx = pos[i]!.x - origin[i]!.x;
+    const dy = pos[i]!.y - origin[i]!.y;
+    if (dx !== 0 || dy !== 0) extra.set(items[i]!.subId, { dx, dy });
+  }
+
+  return extra;
+}
+
+/**
  * Stable string hash for observation subIds (issue #554 silhouette
  * deconflict). Used to derive a NEGATIVE pseudo-`cluster_id` (callers negate
  * the result, e.g. `-hashSubId(subId)`) so silhouette inputs can be carried

@@ -643,13 +643,20 @@ button.adaptive-grid-marker__cell {
 }
 
 .adaptive-grid-marker__badge {
-  /* Per-cell observation-count badge — bottom-right, 14px tall, tabular
-     digits. The 1px white box-shadow is the WCAG 1.4.11 contrast guarantee
-     against any basemap tile underneath (spec §4.3). The inline style on
-     the React node duplicates this for jsdom test environments. */
+  /* Per-cell observation-count badge — top-right INSIDE the 22px cell tile,
+     14px tall, tabular digits. The 1px white box-shadow is the WCAG 1.4.11
+     contrast guarantee against any basemap tile underneath (spec §4.3). The
+     inline style on the React node duplicates this for jsdom test environments.
+
+     E6 / #1058 (M-15 "Yuma clump"): the badge was previously anchored
+     `bottom:-3px; right:-3px`, overhanging the tile across the 2px grid gap
+     into the neighbouring cell — so a "3" read as belonging to two birds at a
+     dense border. Anchoring top-right INSIDE the tile (14px badge ≤ 22px cell)
+     keeps every badge bbox fully within its owner cell. The 1px white ring
+     stays — it is the contrast floor, not decoration. */
   position: absolute;
-  bottom: -3px;
-  right: -3px;
+  top: 0;
+  right: 0;
   background: #1a1a1a;
   color: #fff;
   font-size: 9px;
