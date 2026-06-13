@@ -115,28 +115,6 @@ button.alt { font: inherit; color: inherit; padding: 0; text-align: inherit; -we
   .swap-arrow { transform: rotate(90deg); padding: 4px 0; }
 }
 
-/* ── Eval viewer (#1095): model-comparison table + falseKeep gallery ── */
-.eval-wrap { max-width: 1100px; margin: 0 auto; padding: 24px; }
-.eval-table-section { overflow-x: auto; }
-.eval-table { width: 100%; border-collapse: collapse; font-size: var(--type-sm); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--card-elevation); overflow: hidden; }
-.eval-table th, .eval-table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }
-.eval-table thead th { font-weight: 600; color: var(--text-dim); background: var(--surface-2); }
-.eval-table tbody tr:last-child td { border-bottom: none; }
-.eval-table .num { text-align: right; font-variant-numeric: tabular-nums; }
-.run-row { cursor: pointer; }
-.run-row:hover { background: var(--surface-2); }
-.run-row.selected { box-shadow: inset 4px 0 0 var(--status-good); }
-.run-row.selected td:first-child { font-weight: 600; }
-.run-model { font-weight: 600; }
-.run-baseline { color: var(--text-dim); }
-.gate-badge { display: inline-block; font-weight: 700; font-size: var(--type-xs); padding: 2px 10px; border-radius: 999px; color: #fff; }
-.gate-badge.gate-pass { background: var(--status-great); }
-.gate-badge.gate-fail { background: var(--status-good); }
-.eval-gallery-section { margin-top: 28px; }
-.eval-gallery-title { font-size: var(--type-md); font-weight: 600; margin: 0 0 12px; }
-.eval-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; }
-.fk-figure { margin: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--card-elevation); overflow: hidden; }
-.fk-img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block; background: var(--surface-2); }
-.fk-caption { padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; }
-.fk-name { font-size: var(--type-sm); font-weight: 600; }
-.fk-scores { font-size: var(--type-xs); color: var(--text-dim); }
+/* The model-comparison eval viewer (#1095 `/eval`) was retired in E8 (#1151)
+   along with its eval.html/eval.js; its styles (.eval-*, .run-row, .gate-badge,
+   .fk-*) are removed with it. The run explorer now lives at `eleatic serve`. */

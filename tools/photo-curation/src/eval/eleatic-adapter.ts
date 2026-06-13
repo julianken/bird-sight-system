@@ -3,10 +3,14 @@
 // generic @bird-watch/eleatic store (E7, #1150).
 //
 // This is the ONLY file in tools/photo-curation that imports @bird-watch/eleatic.
-// It maps the photo-judge's `EvalResultRecord` / `EvalRunRecord` (src/eval/store.ts)
-// onto eleatic's generic three-table records, and reads them back for the
-// analyzer. Keeping the import here means eleatic stays zero-`@bird-watch`-coupled
-// and the runner/analyzer only ever speak the photo-judge vocabulary.
+// It owns the photo-judge's domain vocabulary (`EvalResultRecord` /
+// `EvalRunRecord`, defined below) and maps it onto eleatic's generic three-table
+// records, reading them back for the analyzer. Keeping both the vocabulary and
+// the import here means eleatic stays zero-`@bird-watch`-coupled and the
+// runner/analyzer only ever speak the photo-judge vocabulary. (The bespoke
+// review-store these records once also fed — src/eval/store.ts — was retired in
+// E8, #1151, when eleatic became the SOLE eval store; the eleatic `eval.sqlite`
+// is now the only place a run is written or read.)
 //
 // UNIT CONTRACT (#1094, load-bearing for the #1095 gate): `agreement` and
 // `scoreMae` are stored as the SAME 0–1 FRACTIONS the runner computes — 0.8 must
@@ -20,7 +24,50 @@
 import { openStore, makeReader } from '@bird-watch/eleatic';
 import type { EvalRowRecord, EvalRunRecord as EleaticRunRecord, EleaticStore } from '@bird-watch/eleatic';
 import type { CriteriaScores } from '@bird-watch/photo-quality';
-import type { EvalResultRecord, EvalRunRecord } from './store.js';
+
+/**
+ * One eval RUN's record — the photo-judge domain vocabulary the runner produces
+ * and this seam maps onto an eleatic run header. `agreement` and `scoreMae` are
+ * 0–1 FRACTIONS (the #1094 unit contract — the mean of the per-row scores, NOT a
+ * percent), so the gate reads them directly. `totalCost` is the summed estimated
+ * USD across priced judgments.
+ */
+export interface EvalRunRecord {
+  id: string;
+  model: string;
+  baselineModel: string;
+  baselineRubric: string;
+  sampleSize: number;
+  startedAt: string;
+  agreement: number;
+  falseKeep: number;
+  falseReplace: number;
+  scoreMae: number;
+  totalCost: number;
+}
+
+/**
+ * One JUDGMENT's record: the candidate (`gemini*`) decision joined with the
+ * Opus baseline (`opus*`) and per-call token/cost metrics. `cost` /
+ * `promptTokens` / `completionTokens` are `undefined` for an unpriced or
+ * usage-less judgment; `geminiCriteriaJson` is `null` when the candidate carried
+ * no per-axis sub-scores.
+ */
+export interface EvalResultRecord {
+  runId: string;
+  speciesCode: string;
+  comName: string;
+  contentHash: string;
+  sourceUrl: string;
+  geminiKeep: boolean;
+  geminiQuality: number;
+  geminiCriteriaJson: string | null;
+  opusKeep: boolean;
+  opusQuality: number;
+  cost: number | undefined;
+  promptTokens: number | undefined;
+  completionTokens: number | undefined;
+}
 
 // Re-export the eleatic LIFECYCLE surface the runner + analyzer need, so this
 // adapter stays the SINGLE file in tools/photo-curation that imports

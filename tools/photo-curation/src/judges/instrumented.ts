@@ -13,14 +13,14 @@
 // class is unreachable.
 //
 // Replaces the Braintrust span seam (initLogger/traced) with a plain `sink`
-// callback the runner backs with a local-SQLite `eval_result` write. The
-// token-extraction + estimateCostUsd + warn-once-on-unpriced logic is PORTED
-// verbatim from traced.ts (it was never Braintrust-specific — only the span
-// transport was).
+// callback the runner backs with a local eleatic-store eval-row write (E8,
+// #1151). The token-extraction + estimateCostUsd + warn-once-on-unpriced logic
+// is PORTED verbatim from traced.ts (it was never Braintrust-specific — only the
+// span transport was).
 //
 // Design notes (deliberate):
 //   • `sink` is the injectable record boundary. Tests pass a recording array;
-//     the runner passes a closure that writes an `eval_result` row. A judgment
+//     the runner passes a closure that records one eleatic eval row. A judgment
 //     that THROWS emits NO record (it never produced an output to record) — the
 //     inner error propagates unchanged, and the runner skips that row.
 //   • Key absence FAILS LOUD (`MissingGeminiKey`) — we never score blind. There
@@ -57,7 +57,7 @@ export interface JudgmentInput {
 
 /**
  * One judgment's emitted record. The runner joins this with the dataset row's
- * Opus baseline + run id and writes an `eval_result`. `promptTokens` /
+ * Opus baseline + run id and records one eleatic eval row. `promptTokens` /
  * `completionTokens` are `undefined` when no usage was reported;
  * `estimatedCost` is `undefined` for an unpriced model OR an absent-usage
  * judgment (the unpriced warning fires only for a price-table miss).

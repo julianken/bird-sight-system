@@ -4,8 +4,8 @@
 // Braintrust scorers are strictly PER-ROW, so the threshold-free read (AUC) and
 // the calibrated-threshold sweep — which need every row at once — cannot be
 // expressed as scorers without lying about the contract. This is a committed,
-// repeatable analysis SCRIPT instead: it reads a completed experiment back
-// (via `bt sql`, injected so tests need no network), then prints
+// repeatable analysis SCRIPT instead: it reads a completed run back from the
+// eleatic store (#1150/#1151, injected so tests need no network), then prints
 //
 //   - keep agreement                  (boolean keep match rate)
 //   - falseKeep / falseReplace counts  (the dangerous vs. cheap disagreements)
@@ -23,9 +23,9 @@
 //
 // The math is PURE (the exported helpers below), unit-tested on a hand-built
 // fixture with known answers (analyze-experiment.test.ts). The store read is
-// injected via `ExperimentReader` / `CostReader` (#1094: both now read the
-// local `eval_result` table, no longer `bt sql`), so the tests need no network
-// and the CLI glue is the only un-unit-tested surface.
+// injected via `ExperimentReader` / `CostReader` (#1150/#1151: both read the
+// local eleatic store via the eval adapter, no longer `bt sql`), so the tests
+// need no network and the CLI glue is the only un-unit-tested surface.
 //
 // Lives OUTSIDE src/ (the tsconfig rootDir) like the runner, so it is not a tsc
 // build target; `tsx` runs it directly.
@@ -326,8 +326,8 @@ export function formatReport(experiment: string, a: Analysis, cost?: CostSummary
 
 /**
  * Reads a completed run's rows back. A function TYPE, not a class interface —
- * the CLI injects `makeSqliteReader(db)` (#1094); tests inject a plain async
- * function returning fixture rows. `experiment` is the run id (eval_run.id).
+ * the CLI injects `makeEleaticReader(db)` (#1150/#1151); tests inject a plain
+ * async function returning fixture rows. `experiment` is the run id.
  */
 export type ExperimentReader = (experiment: string) => Promise<AnalysisRow[]>;
 
@@ -442,11 +442,12 @@ function parseArgs(argv: string[]): { experiment: string | undefined; bandLo: nu
 
 /**
  * CLI entry. `reader` is injected (no default — the direct CLI run wires
- * `makeSqliteReader(db)`, #1094; tests inject a fixture function). `costReader`
- * is optional and injectable (#1088): when supplied (the direct CLI run wires
- * `makeSqliteCostReader(db)`), the report gains the total/mean/unpriced cost
- * block; when omitted (unit tests of the no-cost path), the cost read is skipped
- * entirely so `main` stays network-free. `experiment` is the run id (eval_run.id).
+ * `makeEleaticReader(store.db)`, #1150/#1151; tests inject a fixture function).
+ * `costReader` is optional and injectable (#1088): when supplied (the direct CLI
+ * run wires `makeEleaticCostReader(store.db)`), the report gains the
+ * total/mean/unpriced cost block; when omitted (unit tests of the no-cost path),
+ * the cost read is skipped entirely so `main` stays network-free. `experiment`
+ * is the run id.
  */
 export async function main(
   argv: string[],
@@ -460,7 +461,7 @@ export async function main(
   }
   const rows = await reader(experiment);
   if (rows.length === 0) {
-    console.error(`No usable rows read from run '${experiment}' (is the run id correct, and did the run write eval_result rows?).`);
+    console.error(`No usable rows read from run '${experiment}' (is the run id correct, and did the run write eval rows to the eleatic store?).`);
     return 1;
   }
   const cost = costReader ? summarizeCost(await costReader(experiment)) : undefined;
@@ -469,8 +470,9 @@ export async function main(
 }
 
 // Run only when invoked directly (tsx scripts/analyze-experiment.ts …), never on import.
-// EVAL_DB is the local eleatic store the runner mirrored eval_run/eval_row to
-// (#1150; defaults to ./eval.sqlite, the same default run-eval-local writes to).
+// EVAL_DB is the local eleatic store the runner wrote eval_run/eval_row to —
+// the SOLE eval store (#1150/#1151; defaults to ./eval.sqlite, the same default
+// run-eval-local writes to).
 if (import.meta.url === `file://${process.argv[1]}`) {
   const evalDb = process.env.EVAL_DB ?? './eval.sqlite';
   const store = openStore(evalDb);

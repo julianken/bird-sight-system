@@ -364,19 +364,12 @@ const config: KnipConfig = {
       //             confirm public/pending-swaps.html still references it (grep
       //             `src="/pending-swaps.js"`).
       //
-      // 2026-06-12 (#1095): public/eval.js — the model-comparison viewer (PR2),
-      //             a browser ES module loaded at runtime via eval.html's
-      //             `<script type="module" src="/eval.js">` (it `import`s
-      //             /theme.js + ./safe.js), never imported by any TS/JS module
-      //             knip can trace, so it is flagged as an unused file — exactly
-      //             the overview.js/swap.js/pending-swaps.js precedent above. Its
-      //             percent-rendering is inline (no exported helper), so unlike
-      //             safe.js it has no test sibling to make knip trace it; the
-      //             gate correctness it depends on is tested server-side in
-      //             src/server/eval-queries.test.ts + index.test.ts. Risk: masks
-      //             a genuinely orphaned public asset if the screen is deleted but
-      //             its script left on disk. Re-audit 2026-07-27 — confirm
-      //             public/eval.html still references it (grep `src="/eval.js"`).
+      // 2026-06-13 (E8, #1151): the public/eval.js ignore was REMOVED here when
+      //             the bespoke `/eval` model-comparison viewer (eval.html +
+      //             eval.js) was deleted — knip flags a configured-but-unused
+      //             ignore entry, so the orphaned entry would red the knip gate.
+      //             The run explorer now lives in @bird-watch/eleatic's own
+      //             server (`eleatic serve`), not this review server.
       //
       // 2026-06-12 (#1094): the prior eval/photo-judge.eval.ts ignore was
       //             REMOVED here when that Braintrust harness was deleted in
@@ -397,7 +390,7 @@ const config: KnipConfig = {
       ignore: [
         'workflows/score-current.mjs', 'workflows/source-candidates.mjs',
         'public/overview.js', 'public/swap.js', 'public/theme.js',
-        'public/pending-swaps.js', 'public/eval.js',
+        'public/pending-swaps.js',
       ],
     },
   },

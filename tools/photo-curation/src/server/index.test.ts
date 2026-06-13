@@ -2,8 +2,6 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
 import Database from 'better-sqlite3';
 import { createServer } from './index.js';
-import { openDb } from '../db.js';
-import { insertEvalRun, insertEvalResult, type EvalResultRecord } from '../eval/store.js';
 
 function seedDb(): Database.Database {
   const db = new Database(':memory:');
@@ -279,120 +277,5 @@ describe('review-server API', () => {
     expect((await request(app).post('/api/select-swap').send({ speciesCode: 'houspa', inatId: 'nope' })).status).toBe(400);
     // missing inatId key entirely is rejected (must be a number or explicit null)
     expect((await request(app).post('/api/select-swap').send({ speciesCode: 'houspa' })).status).toBe(400);
-  });
-});
-
-// ── #1095 PR2: the eval-comparison read routes ──
-// These read the eval_run/eval_result tables #1094 added; the canonical openDb
-// schema carries them, so seed with openDb + the PR1 store helpers (no network).
-describe('review-server eval API', () => {
-  let db: Database.Database;
-  afterEach(() => db.close());
-  beforeEach(() => { db = openDb(':memory:'); });
-
-  function evalResult(over: Partial<EvalResultRecord> = {}): EvalResultRecord {
-    return {
-      runId: 'r1',
-      speciesCode: 'houspa',
-      comName: 'House Sparrow',
-      contentHash: 'h1',
-      sourceUrl: 'https://photos.bird-maps.com/houspa.webp',
-      geminiKeep: true,
-      geminiQuality: 80,
-      geminiCriteriaJson: null,
-      opusKeep: true,
-      opusQuality: 78,
-      cost: 0.01,
-      promptTokens: 100,
-      completionTokens: 20,
-      ...over,
-    };
-  }
-
-  it('GET /api/eval/runs returns runs newest-first with the derived gate', async () => {
-    insertEvalRun(db, {
-      id: 'old', model: 'gemini-2.0', baselineModel: 'opus-4', baselineRubric: 'v0.2.2',
-      sampleSize: 150, startedAt: '2026-06-10T00:00:00Z',
-      agreement: 0.95, falseKeep: 2, falseReplace: 10, scoreMae: 0.1, totalCost: 4.2,
-    });
-    insertEvalRun(db, {
-      id: 'new', model: 'gemini-2.5', baselineModel: 'opus-4', baselineRubric: 'v0.2.2',
-      sampleSize: 150, startedAt: '2026-06-12T00:00:00Z',
-      agreement: 0.7867, falseKeep: 5, falseReplace: 27, scoreMae: 0.2, totalCost: 4.0,
-    });
-    const app = createServer(db);
-    const res = await request(app).get('/api/eval/runs');
-    expect(res.status).toBe(200);
-    expect(res.body.runs.map((r: { id: string }) => r.id)).toEqual(['new', 'old']);
-    expect(res.body.runs[0].model).toBe('gemini-2.5');
-    expect(res.body.runs[0].gate).toBe('fail');   // 0.7867 < 0.90
-    expect(res.body.runs[1].gate).toBe('PASS');   // 0.95 >= 0.90
-  });
-
-  // Gate boundary — both sides of 0.90 in FRACTION units, so a percent-vs-
-  // fraction slip (which would make 0.89 read as PASS) can't pass green.
-  it('GET /api/eval/runs gates PASS at agreement = 0.90 and fail at 0.89 (fractions)', async () => {
-    insertEvalRun(db, {
-      id: 'pass', model: 'm', baselineModel: 'b', baselineRubric: 'rb',
-      sampleSize: 10, startedAt: '2026-06-12T00:00:01Z',
-      agreement: 0.9, falseKeep: 0, falseReplace: 0, scoreMae: 0.1, totalCost: 0,
-    });
-    insertEvalRun(db, {
-      id: 'fail', model: 'm', baselineModel: 'b', baselineRubric: 'rb',
-      sampleSize: 10, startedAt: '2026-06-12T00:00:00Z',
-      agreement: 0.89, falseKeep: 0, falseReplace: 0, scoreMae: 0.1, totalCost: 0,
-    });
-    const app = createServer(db);
-    const res = await request(app).get('/api/eval/runs');
-    const byId = Object.fromEntries(res.body.runs.map((r: { id: string; gate: string }) => [r.id, r.gate]));
-    expect(byId.pass).toBe('PASS');
-    expect(byId.fail).toBe('fail');
-  });
-
-  it('GET /api/eval/false-keeps filters to gemini_keep=1 ∧ opus_keep=0 for the run', async () => {
-    insertEvalRun(db, {
-      id: 'r1', model: 'm', baselineModel: 'b', baselineRubric: 'rb',
-      sampleSize: 4, startedAt: '2026-06-12T00:00:00Z',
-      agreement: 0.5, falseKeep: 1, falseReplace: 1, scoreMae: 0.2, totalCost: 0,
-    });
-    insertEvalResult(db, evalResult({
-      speciesCode: 'falsekeep', comName: 'False Keeper',
-      geminiKeep: true, geminiQuality: 72, opusKeep: false, opusQuality: 30,
-    }));
-    insertEvalResult(db, evalResult({ speciesCode: 'agree', geminiKeep: true, opusKeep: true }));
-    insertEvalResult(db, evalResult({ speciesCode: 'falsereplace', geminiKeep: false, opusKeep: true }));
-
-    const app = createServer(db);
-    const res = await request(app).get('/api/eval/false-keeps?run=r1');
-    expect(res.status).toBe(200);
-    expect(res.body.runId).toBe('r1');
-    expect(res.body.falseKeeps).toHaveLength(1);
-    expect(res.body.falseKeeps[0].speciesCode).toBe('falsekeep');
-    expect(res.body.falseKeeps[0].geminiQuality).toBe(72);
-    expect(res.body.falseKeeps[0].opusQuality).toBe(30);
-  });
-
-  it('GET /api/eval/false-keeps 400s on a missing run param', async () => {
-    const app = createServer(db);
-    const res = await request(app).get('/api/eval/false-keeps');
-    expect(res.status).toBe(400);
-  });
-
-  it('GET /api/eval/false-keeps 400s on an unknown run id', async () => {
-    insertEvalRun(db, {
-      id: 'r1', model: 'm', baselineModel: 'b', baselineRubric: 'rb',
-      sampleSize: 1, startedAt: '2026-06-12T00:00:00Z',
-      agreement: 0.5, falseKeep: 0, falseReplace: 0, scoreMae: 0.2, totalCost: 0,
-    });
-    const app = createServer(db);
-    const res = await request(app).get('/api/eval/false-keeps?run=nope');
-    expect(res.status).toBe(400);
-  });
-
-  it('GET /eval serves the comparison page', async () => {
-    const app = createServer(db);
-    const res = await request(app).get('/eval');
-    expect(res.status).toBe(200);
-    expect(res.text).toContain('eval.js');
   });
 });

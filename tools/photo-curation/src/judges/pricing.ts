@@ -2,12 +2,13 @@
 // Per-model Gemini price table + a pure cost estimator (#1088).
 //
 // The photo-judge eval records Gemini token counts (`prompt_tokens` /
-// `completion_tokens`, #1037) on every judgment, and (#1094) writes them to the
-// local `eval_result` store. As we compare candidate models across runs (the
+// `completion_tokens`, #1037) on every judgment, and (E8, #1151) writes them to
+// the local eleatic eval store. As we compare candidate models across runs (the
 // `EVAL_MODEL` knob), cost is the other half of the quality tradeoff, so we
 // price the tokens HERE and the instrumentation seam (instrumented.ts) emits a
-// per-judgment `estimatedCost` the runner persists as `eval_result.cost` and
-// sums into `eval_run.total_cost`; the analyze CLI reads them back from SQLite.
+// per-judgment `estimatedCost` the runner persists as the eleatic row's `cost`
+// axis and sums into the run's `totalCost` metric; the analyze CLI reads them
+// back from the eleatic store.
 //
 // This mirrors the convention of `src/token-ledger.ts`'s `PRICE_TABLE` (the
 // Anthropic side): ONE dated constant, USD per **Million** tokens, updatable as
