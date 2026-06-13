@@ -1416,11 +1416,13 @@ body {
   text-align: left;
   border-radius: var(--card-radius);
 }
-/* Square the toggle's bottom corners only when an entries list actually
-   follows it, so header + list read as one continuous card. :has() tracks the
-   real presence of entries — correct for expanded-but-empty and
-   force-collapsed states without needing a JS-driven class. */
-.family-legend-toggle:has(+ .family-legend-entries) {
+/* Square the toggle's bottom corners only when a body (entries list OR the
+   expanded-empty muted row) actually follows it, so header + body read as one
+   continuous card. :has() tracks the real presence of a sibling — correct for
+   the expanded-but-empty muted row and force-collapsed states without needing a
+   JS-driven class. */
+.family-legend-toggle:has(+ .family-legend-entries),
+.family-legend-toggle:has(+ .family-legend-empty) {
   border-radius: var(--card-radius) var(--card-radius) 0 0;
 }
 .family-legend-toggle:hover {
@@ -1435,17 +1437,40 @@ body {
   outline: 2px solid var(--color-text-strong);
   outline-offset: 2px;
 }
+/* E3 (#1055): zero-in-view honesty. When there are no families to show, the
+   collapsed pill is non-interactive (the component sets `disabled` + the
+   <aside> carries data-empty) — there is nothing to expand. Drop the pointer
+   affordance and mute the label so it reads as a status, not a control. The
+   hover lift is suppressed too. */
+.family-legend[data-empty='true'] .family-legend-toggle {
+  cursor: default;
+}
+.family-legend[data-empty='true'] .family-legend-toggle:hover {
+  background: transparent;
+}
+.family-legend[data-empty='true'] .family-legend-title {
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
 .family-legend-title {
   flex: 1;
+  min-width: 0;
   font-weight: 600;
 }
 .family-legend-chevron {
-  font-size: var(--type-xs);
+  /* E3 (#1055): a 16×16 SVG chevron replaces the near-invisible --type-xs ▸.
+     The glyph keeps --color-text-muted (currentColor) — 7.46:1 light (#555 on
+     #fff) / 5.07:1 dark (#8a98ad on #1b2742), both clear the WCAG 1.4.11 3:1
+     non-text-contrast floor; do NOT downgrade to --color-text-subtle (3.99:1
+     dark, a thinner margin). flex:0 0 auto keeps it square next to the
+     flex-grow title. */
+  flex: 0 0 auto;
   color: var(--color-text-muted);
-  /* Chevron rotate: ▸ stays as the single glyph; data-expanded drives
-     rotate(90deg). CHEVRON ROTATE ONLY — do NOT animate the entries <ul>
-     (hard guard: always-mounted list reintroduces the #837 corner overlap,
-     breaks e2e not.toBeVisible(), drifts toward FLIP pattern).
+  /* Chevron rotate: the SVG points UP at rest (collapsed reads "expand
+     upward", NOT "navigate right"); data-expanded drives rotate(180deg) so it
+     points down to read as "collapse downward". CHEVRON ROTATE ONLY — do NOT
+     animate the entries <ul> (hard guard: always-mounted list reintroduces the
+     #837 corner overlap, breaks e2e not.toBeVisible(), drifts toward FLIP).
      The global motion.css guard zeroes transition-duration for
      prefers-reduced-motion so the chevron snaps instantly to end-state. */
   transform: rotate(0deg);
@@ -1453,7 +1478,7 @@ body {
   display: inline-block;
 }
 .family-legend-chevron[data-expanded='true'] {
-  transform: rotate(90deg);
+  transform: rotate(180deg);
 }
 .family-legend-entries {
   list-style: none;
@@ -1473,6 +1498,47 @@ body {
   gap: 2px;
   max-height: 400px;
   overflow-y: auto;
+  border-top: 1px solid var(--color-border-subtle);
+  border-radius: 0 0 var(--card-radius) var(--card-radius);
+  /* E3 (#1055): the entries list is the relative anchor for the overflow fade
+     pseudo-element below — it must clip to the rounded bottom corners. */
+  position: relative;
+}
+/* E3 (#1055): overflow cue. macOS overlay scrollbars are invisible at rest, so
+   a half-hidden family list gave no signal that more rows lie below the fold.
+   FamilyLegend.tsx measures scrollHeight > clientHeight and sets
+   data-overflow="true" on the <ul>; this paints a bottom fade gradient that is
+   visible at rest (not only while scrolling) and disappears once the user
+   scrolls to the end (the component clears the flag at the bottom). The
+   gradient is a sticky pseudo-element inside the scroll container so it tracks
+   the viewport edge of the list, not the scrolled content. pointer-events:none
+   keeps clicks falling through to the rows beneath. */
+.family-legend-entries[data-overflow='true']::after {
+  content: '';
+  position: sticky;
+  bottom: 0;
+  left: 0;
+  /* Pull the strip up over the last rows without consuming layout height. */
+  margin-top: -28px;
+  display: block;
+  height: 28px;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--color-bg-surface)
+  );
+  border-radius: 0 0 var(--card-radius) var(--card-radius);
+}
+/* E3 (#1055): expanded-but-empty muted row. Keeps aria-expanded truthful (the
+   header still reports expanded) while telling the user why the card is empty,
+   instead of showing a bare header. Mirrors the entries padding/border so the
+   header + row read as one continuous card. */
+.family-legend-empty {
+  margin: 0;
+  padding: var(--space-sm) var(--space-md);
+  font-size: var(--type-sm);
+  color: var(--color-text-muted);
   border-top: 1px solid var(--color-border-subtle);
   border-radius: 0 0 var(--card-radius) var(--card-radius);
 }
@@ -1528,12 +1594,32 @@ body {
 .family-legend-entry-label {
   flex: 1;
   min-width: 0;
+  /* E3 (#1055): wrap to TWO lines instead of single-line ellipsis. The old
+     `white-space: nowrap` + ellipsis cut the distinguishing head noun off the
+     long colloquial names #924 introduced — "African & New World P…" dropped
+     "Parrots", "Blackbirds, Orioles &…" dropped "Allies". Two-line clamp keeps
+     the final noun visible within the 280px --card-maxw-legend cap (which is
+     NOT raised — the rows are already 36px+ and grow to fit a second line). A
+     name longer than two lines still ellipsizes, but that is rare and never
+     drops the head noun on the current colloquial set. line-height tightened so
+     two lines stay compact. */
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  line-height: 1.25;
+  /* Preserve the word that follows the wrap (don't break mid-word). */
+  overflow-wrap: anywhere;
 }
 .family-legend-entry-count {
   flex-shrink: 0;
+  /* E3 (#1055): tighten the count gutter — the count was set off by the row's
+     12px --space-md gap, which read as a wide gulf next to a wrapped two-line
+     label. A dedicated 8px left margin (the count keeps its own padding/pill)
+     pulls it closer to the label column while staying clear of the wrap. */
+  margin-left: var(--space-sm);
+  align-self: center;
   font-variant-numeric: tabular-nums;
   font-size: var(--type-xs);
   color: var(--color-text-body);
@@ -1590,8 +1676,9 @@ body {
 
 /* #853: bound the legend on the 481–1023px 'roomy' band (useBreakpoint's
    `'roomy'` tier; --overlay-bp-compact 480px → --overlay-bp-wide 1024px). On
-   this band a user with a stored `family-legend-expanded.v2=true` preference
-   (e.g. expanded on a prior desktop session) sees the legend render expanded —
+   this band a user with a stored `family-legend-expanded.v3.roomy=true`
+   preference (E3 #1055 re-keyed the per-breakpoint pref; was the breakpoint-
+   blind `.v2`) sees the legend render expanded —
    the <1024px collapse-default (#809) is correctly overridden by the stored
    preference — but the ≤480px height cap above (#810) does NOT apply here, so
    `.family-legend-entries` fell back to the desktop `max-height: 400px`

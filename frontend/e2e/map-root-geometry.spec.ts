@@ -359,6 +359,9 @@ test.describe('#761 (S2): full-viewport map root geometry', () => {
         try {
           window.localStorage.removeItem('family-legend-expanded');
           window.localStorage.removeItem('family-legend-expanded.v2');
+          window.localStorage.removeItem('family-legend-expanded.v3.compact');
+          window.localStorage.removeItem('family-legend-expanded.v3.roomy');
+          window.localStorage.removeItem('family-legend-expanded.v3.wide');
         } catch {
           /* noop */
         }
