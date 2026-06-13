@@ -5,10 +5,18 @@
  *   StatusBlock, FamilySilhouette, Photo, ClusterPill, FilterSentence, SortLabel
  *
  * Architecture:
- *   - All values are resolved through Phase 1 semantic tokens (tokens.css).
- *     No raw hex codes or raw shadow literals. Custom properties from
- *     styles.css :root and tokens.css are consumed where they carry the
- *     right semantic role. (#1043: popover shadows migrated to --card-elevation-2)
+ *   - Values are resolved through Phase 1 semantic tokens (tokens.css) wherever
+ *     a token carries the right semantic role; no raw shadow literals remain.
+ *     (#1043: popover shadows migrated to --card-elevation-2.) The only
+ *     deliberate raw hex are the cross-basemap contrast guarantees, which must
+ *     read identically over ANY basemap tile and so cannot follow the themed
+ *     token: the count badge's `background:#1a1a1a; color:#fff` + 1px white
+ *     ring (`.adaptive-grid-marker__badge`, including its dark-theme override —
+ *     the WCAG 1.4.11 contrast floor against arbitrary map tiles, spec §4.3),
+ *     and the photo-attribution focus ring `outline:2px solid #fff`
+ *     (`.photo__attribution-link:focus-visible` — guaranteed-visible over photo
+ *     imagery). Custom properties from styles.css :root and tokens.css are
+ *     consumed everywhere else.
  *   - Shimmer animation respects prefers-reduced-motion via the global policy
  *     in styles/motion.css (animation-duration: 0ms !important). Components
  *     do NOT duplicate the media query.
@@ -761,12 +769,12 @@ button.adaptive-grid-marker__cell {
      shares or contests the --z-modal (50) tier with a detail surface — the safety
      is preserved by DEMOTION now, not suppression.
 
-     ORDERING CONTRACT vs the detail rail (handoff to O5 / #783):
+     ORDERING CONTRACT vs the detail rail (finalized by O5 / #783):
      P1's `--z-cell-popover`/`--z-cluster-popover` (44/45) resolve ABOVE the
-     rail's current `--z-rail` (43), so the click-driven popovers temporarily
-     paint over the rail. Re-tiering the rail/sheet ABOVE the popovers (into the
-     --z-modal band with the compensating #663 inert work) is O5's job (report R3);
-     O6 does NOT move the rail's z value. This tooltip at --z-modal (50) is the
+     rail's `--z-rail` (43), so the click-driven popovers paint over the rail.
+     This rail < popovers ordering is the FINAL §5.3 ladder: O5 (#783) decided
+     AGAINST re-tiering the rail/sheet above the popovers, so the ladder stays
+     rail 43 < cell 44 < cluster 45. O6 does NOT move the rail's z value. This tooltip at --z-modal (50) is the
      RESTING tier (no detail open): the cursor tooltip can still float over an
      open cell/cluster popover. While a detail IS open, the `--under-detail`
      modifier below demotes it (see #976). */
@@ -894,11 +902,11 @@ button.adaptive-grid-marker__cell {
      body origin / bottom-left, which #863 fixes.)
      #761 P1, #778 — above the rail, below the cluster popover.
      #761 O6 (#782) ORDERING CONTRACT vs the detail rail: --z-cell-popover (44)
-     resolves ABOVE the rail's current --z-rail (43), so this click-driven popover
-     temporarily paints over an open SpeciesDetailRail. Re-tiering the rail ABOVE
-     the popovers (into --z-modal with the #663 inert work) is O5's job (report R3);
-     O6 does NOT move the rail's z value and leaves the temporary popover-over-rail
-     state as expected. Verified live (O6): this popover escapes to a higher
+     resolves ABOVE the rail's --z-rail (43), so this click-driven popover
+     paints over an open SpeciesDetailRail. This rail < popovers ordering is the
+     FINAL §5.3 ladder — O5 (#783) kept it (decided AGAINST re-tiering the rail
+     above the popovers), so the ladder stays rail 43 < cell 44 < cluster 45.
+     O6 does NOT move the rail's z value. Verified live (O6): this popover escapes to a higher
      stacking context (via the #859 portal) and paints above the map-assist overlays
      (legend/scope at --z-overlay 40, observation-popover at --z-popover 41). */
   position: absolute;
@@ -1129,9 +1137,11 @@ button.adaptive-grid-marker__cell {
   bottom: var(--space-md);
   /* #761 P1, #778 — topmost popover, above cell popover + rail.
      #761 O6 (#782) ORDERING CONTRACT vs the detail rail: --z-cluster-popover (45)
-     resolves ABOVE the rail's current --z-rail (43); this coarse-pointer popover
-     temporarily paints over an open SpeciesDetailRail. Re-tiering the rail ABOVE
-     the popovers is O5's job (report R3); O6 does NOT move the rail's z value.
+     resolves ABOVE the rail's --z-rail (43); this coarse-pointer popover
+     paints over an open SpeciesDetailRail. This rail < popovers ordering is the
+     FINAL §5.3 ladder — O5 (#783) kept it (decided AGAINST re-tiering the rail
+     above the popovers), so the ladder stays rail 43 < cell 44 < cluster 45.
+     O6 does NOT move the rail's z value.
      CONTAINING BLOCK NOTE: this rule is `position: fixed`, but on coarse pointers
      it is anchored to the viewport edges (left/right/bottom = --space-md), so even
      if the transformed MapLibre marker container traps the fixed positioning to the

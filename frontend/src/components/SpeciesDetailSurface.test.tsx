@@ -463,9 +463,9 @@ describe('SpeciesDetailSurface', () => {
   // ─── Phase 4 heading + Photo contracts ──────────────────────────────────
   //
   // Sky Atlas Phase 4 promotes SpeciesDetailSurface to a presentational body
-  // component consumed by SpeciesDetailModal (desktop) and SpeciesDetailSheet
+  // component consumed by SpeciesDetailRail (desktop) and SpeciesDetailSheet
   // (mobile). The heading becomes <h1 id="detail-title" tabIndex={-1}> so
-  // the modal/sheet wrappers can set aria-labelledby="detail-title" and
+  // the rail/sheet wrappers can set aria-labelledby="detail-title" and
   // call #detail-title.focus() on open. The photo masthead uses <Photo
   // priority={true}> so LCP is served by loading="eager" fetchpriority="high".
 

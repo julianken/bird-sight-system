@@ -384,8 +384,8 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
   //
   // The cleanup function is the load-bearing fix for the viewport-flip bug:
   // if the user rotates the device mid-snap, App.tsx swaps SpeciesDetailSheet
-  // for SpeciesDetailModal and this sheet unmounts without ever reaching the
-  // snap !== 'full' branch above. Without cleanup, `inert` leaks onto #map-layer
+  // for the desktop SpeciesDetailRail and this sheet unmounts without ever
+  // reaching the snap !== 'full' branch above. Without cleanup, `inert` leaks onto #map-layer
   // indefinitely — pointer events blocked, tab order broken.
   //
   // Cleanup closure mechanics: `snap` is captured at effect-run time. When the

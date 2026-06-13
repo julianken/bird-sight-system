@@ -624,8 +624,8 @@ describe('<SpeciesDetailSheet>', () => {
   it('unmounting at full snap cleans up inert on <main> (viewport-flip regression)', async () => {
     // Simulate: mobile user opens sheet (at half), advances to full snap (inert
     // set), then rotates device. App.tsx's viewport router unmounts
-    // SpeciesDetailSheet and mounts SpeciesDetailModal. Without the cleanup
-    // function the inert attribute leaks onto <main> and blocks all pointer
+    // SpeciesDetailSheet and mounts the desktop SpeciesDetailRail. Without the
+    // cleanup function the inert attribute leaks onto <main> and blocks all pointer
     // events + tab order.
     const { unmount } = render(
       <SpeciesDetailSheet
