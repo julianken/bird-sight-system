@@ -24,7 +24,19 @@ export type {
 } from './queries.js';
 
 // --- Analysis module (E3) ---
-// export { ... } from './analysis.js';
+export {
+  labelAgreement,
+  confusionCounts,
+  scoreMAE,
+  auc,
+  calibratedThreshold,
+  ambiguityBand,
+  hybridRouting,
+  analyze,
+  projectForAnalysis,
+  aggregateScores,
+} from './analysis.js';
+export type { AnalysisRow, AnalysisOptions, Analysis, AnalysisSelector } from './analysis.js';
 
 // --- Server factory (E4) ---
 // export { createApp } from './app.js';
