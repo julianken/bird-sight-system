@@ -84,7 +84,8 @@ test.describe('Scope disclosure (#828)', () => {
     const app = await setup(page, apiStub);
 
     // The count-only lede is visible (region + window dropped, #828).
-    await expect(app.mapLede).toHaveText(/^\d+ species$/);
+    // #1047: lede always reports sightings.
+    await expect(app.mapLede).toHaveText(/^\d+ sightings$/);
     // The visible region rides in the wordmark line exactly once.
     await expect(app.appHeader.locator('.brand-region')).toHaveText('· Arizona');
 

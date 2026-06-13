@@ -308,8 +308,9 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
     // #828: the region moved to the wordmark headline; the lede is count-only.
     // The region ("Arizona", resolved from the /api/states name table) now reads
     // in the wordmark line, and the lede is just the count.
+    // #1047: lede always reports sightings regardless of aggregation mode.
     await expect(app.appHeader.locator('.brand-region')).toHaveText('· Arizona');
-    await expect(app.mapLede).toHaveText(/^\d+ species$/);
+    await expect(app.mapLede).toHaveText(/^\d+ sightings$/);
 
     // O9 (#781): the scope-pick warmed the MapCanvas/maplibre chunk — at least
     // one chunk request fired on the scoped path (the prefetch on click + the
@@ -331,10 +332,12 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
     // species"), NOT the region name. The div is visually hidden (.sr-only) but
     // present in the a11y tree (#741 copy-lockstep — this contract mirrors the
     // displayed lede, so it moves in lockstep with App.tsx's ledeText).
-    await expect(page.locator('div[role="status"].sr-only')).toHaveText(/^\d+ species$/, { timeout: 3_000 });
+    // #1047: the sr-only settle live region reuses ledeText — it now carries
+    // "N sightings" in lockstep with the visible lede.
+    await expect(page.locator('div[role="status"].sr-only')).toHaveText(/^\d+ sightings$/, { timeout: 3_000 });
     // #828 a11y (no regression): the REGION is still announced — by the AppHeader
     // scope-change live region ("Showing Arizona."), so a screen-reader user
-    // hears "Showing Arizona." then "N species" with no duplication.
+    // hears "Showing Arizona." then "N sightings" with no duplication.
     await expect(
       app.appHeader.locator('span[role="status"][aria-live="polite"]'),
     ).toHaveText('Showing Arizona.');
@@ -495,9 +498,10 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
     await apiStub.stubStateAwareObservations(ROWS_BY_STATE);
 
     // Land scoped to NY (a non-empty Template lede).
+    // #1047: lede always reports sightings.
     await app.goto('state=US-NY');
     await app.waitForAppReady();
-    await expect(app.mapLede).toHaveText(/^\d+ species$/);
+    await expect(app.mapLede).toHaveText(/^\d+ sightings$/);
 
     // In-app switch to FL via the in-card scope control — NO resize/drag/reload.
     await app.openScopeDisclosure();
@@ -506,7 +510,7 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
     // (a) The camera flips to FL.
     await expect(app.mapLayer).toHaveAttribute('data-camera-bounds', 'US-FL');
     // (b) The lede repopulates and NEVER sticks on the empty copy.
-    await expect(app.mapLede).toHaveText(/^\d+ species$/);
+    await expect(app.mapLede).toHaveText(/^\d+ sightings$/);
     await expect(app.mapLede).not.toHaveText(/No recent sightings/);
     await expect(app.appHeader.locator('.brand-region')).toHaveText('· Florida');
 
@@ -532,15 +536,16 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
     const { app, obsRequests } = await setup(page, apiStub);
     await apiStub.stubStateAwareObservations(ROWS_BY_STATE);
 
+    // #1047: lede always reports sightings.
     await app.goto('state=US-FL');
     await app.waitForAppReady();
-    await expect(app.mapLede).toHaveText(/^\d+ species$/);
+    await expect(app.mapLede).toHaveText(/^\d+ sightings$/);
 
     await app.openScopeDisclosure();
     await app.switchStateViaScopeControl('US-NY');
 
     await expect(app.mapLayer).toHaveAttribute('data-camera-bounds', 'US-NY');
-    await expect(app.mapLede).toHaveText(/^\d+ species$/);
+    await expect(app.mapLede).toHaveText(/^\d+ sightings$/);
     await expect(app.mapLede).not.toHaveText(/No recent sightings/);
     await expect(app.appHeader.locator('.brand-region')).toHaveText('· New York');
 
@@ -569,8 +574,9 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
     await app.openScopeDisclosure();
     await app.switchStateViaScopeControl('US-AZ');
 
+    // #1047: lede always reports sightings.
     await expect(app.mapLayer).toHaveAttribute('data-camera-bounds', 'US-AZ');
-    await expect(app.mapLede).toHaveText(/^\d+ species$/);
+    await expect(app.mapLede).toHaveText(/^\d+ sightings$/);
     await expect(app.mapLede).not.toHaveText(/No recent sightings/);
     await expect(app.appHeader.locator('.brand-region')).toHaveText('· Arizona');
 

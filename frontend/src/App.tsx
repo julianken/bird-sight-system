@@ -1135,21 +1135,19 @@ export function App() {
     // #852/#859: in aggregated (low-zoom / whole-state) mode there are no
     // per-observation rows to count distinct species from — the buckets carry an
     // EXACT total sightings count but only a capped per-family species sample.
-    // So aggregated mode reports the exact SIGHTINGS count (sum of bucket.count)
-    // rather than a species count (which would require the full distinct-species
-    // set the wire intentionally omits). The per-observation (z >= 6) "{N}
-    // species" / "{N} species of {family}" copy below is unchanged.
-    if (mode === 'aggregated') {
-      return `${observationCount} sightings`;
-    }
+    // #1047 (locked product call): the lede metric follows SCOPE, not aggregation
+    // mode. An exact species count does not exist in aggregated mode (the wire
+    // intentionally omits the distinct-species set), so ALL non-zero lede
+    // templates unify on the sightings count. "N species" copy is removed from
+    // both the aggregated and the per-observation paths.
     const speciesCommonName =
       speciesCount === 1 ? (observations[0]?.comName ?? null) : null;
     if (speciesCommonName) {
       return `${observationCount} sightings of ${speciesCommonName}`;
     } else if (familyName) {
-      return `${speciesCount} species of ${familyName}`;
+      return `${observationCount} sightings of ${familyName}`;
     }
-    return `${speciesCount} species`;
+    return `${observationCount} sightings`;
   }, [
     region,
     observations,
