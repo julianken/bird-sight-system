@@ -322,24 +322,26 @@ const config: KnipConfig = {
       //             confirm public/pending-swaps.html still references it (grep
       //             `src="/pending-swaps.js"`).
       //
-      // 2026-06-11 (#1015, C5): eval/photo-judge.eval.ts is the Braintrust eval
-      //             entry, invoked ONLY via the package "eval" script's shell
-      //             string `bt eval eval/photo-judge.eval.ts` — `bt` is the
-      //             Braintrust CLI runner; knip cannot trace a binary's
-      //             shell-string argument, so it flags the file as unused
-      //             (same class as the workflows/*.mjs Workflow-tool entries
-      //             above). It lives OUTSIDE src/ (the tsconfig rootDir), is not
-      //             a tsc target, and is not a vitest target; its testable core
-      //             (the row→judge mapping) is covered by src/eval/run-row.test.ts.
-      //             Risk: masks a genuinely orphaned eval file if the "eval"
-      //             script is ever removed but the file left on disk. Re-audit
-      //             2026-07-27 — confirm package.json still has the "eval" script
-      //             pointing at this path.
+      // 2026-06-12 (#1094): the prior eval/photo-judge.eval.ts ignore was
+      //             REMOVED here when that Braintrust harness was deleted in
+      //             #1094 — knip flags a configured-but-unused ignore entry, so
+      //             a deletion is not free (the orphaned entry would red the
+      //             knip gate). Its replacement, scripts/run-eval-local.ts, is
+      //             deliberately NOT ignored: although it is invoked only via
+      //             the package "eval" script's shell string `tsx
+      //             scripts/run-eval-local.ts` (knip cannot trace a binary's
+      //             argument), it has a real test sibling
+      //             scripts/run-eval-local.test.ts that imports it, so knip
+      //             already traces it as USED — exactly like
+      //             scripts/analyze-experiment.ts, which is likewise covered by
+      //             its .test.ts sibling and not in this list. Adding an ignore
+      //             for it would itself be flagged as a redundant ignore. If the
+      //             runner's test sibling is ever removed, add it here (with a
+      //             dated rationale per this convention) at that time.
       ignore: [
         'workflows/score-current.mjs', 'workflows/source-candidates.mjs',
         'public/overview.js', 'public/swap.js', 'public/theme.js',
         'public/pending-swaps.js',
-        'eval/photo-judge.eval.ts',
       ],
     },
   },
