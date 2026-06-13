@@ -3030,13 +3030,26 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
   }
   /* The toggle row is the exception to the stacked layout: caption sits BESIDE
      the checkbox, the whole row is full-width and ≥44px so the entire band is
-     tappable (the wrapping <label> forwards the click to the checkbox). */
-  .filters-bar__toggle-row {
+     tappable (the wrapping <label> forwards the click to the checkbox).
+     Selector is `label.filters-bar__toggle-row` (0,2,1) so it BEATS the stacked
+     `.filters-bar label { flex-direction: column }` (0,1,1) above — a bare
+     `.filters-bar__toggle-row` (0,1,0) lost on specificity and the row computed
+     `column`, stacking the glyph above its caption. */
+  label.filters-bar__toggle-row {
     flex-direction: row;
     align-items: center;
     gap: var(--space-sm);
     min-block-size: 44px;
     inline-size: 100%;
+  }
+  /* And constrain the checkbox itself back to its natural ~14px glyph: the
+     generic `.filters-bar input { inline-size:100%; min-block-size:44px }` above
+     (0,1,1) would otherwise stretch this checkbox to a full-width 44px box. The
+     `input[type="checkbox"]` element+attr selector here is (0,2,1) so it wins. */
+  .filters-bar__toggle-row input[type="checkbox"] {
+    inline-size: auto;
+    min-block-size: auto;
+    flex: 0 0 auto;
   }
 }
 
