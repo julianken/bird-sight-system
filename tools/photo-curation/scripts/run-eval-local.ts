@@ -3,12 +3,14 @@
 //
 // Scores the INSTRUMENTED Gemini judge against the frozen Opus baseline (read
 // from PROD `species_photo_scores`, pinned to (BASELINE_MODEL, BASELINE_RUBRIC))
-// and writes the result to the LOCAL SQLite store (#1094) instead of a hosted
-// Braintrust experiment:
-//   • one `eval_result` per judgment (the candidate decision joined with the
+// and writes the result to the LOCAL @bird-watch/eleatic store (E7/E8,
+// #1150/#1151) — the eleatic `eval.sqlite` is the SOLE eval store now (the
+// bespoke #1094 `eval_run`/`eval_result` review-store write was retired in E8):
+//   • one eleatic eval row per judgment (the candidate decision joined with the
 //     Opus baseline + the per-call token/cost metrics from the sink), and
-//   • one `eval_run` aggregate (keep-agreement, false-keep/replace, score-MAE,
-//     total cost) computed via the pure scorers (src/eval/scorers.ts).
+//   • one eleatic eval run header (keep-agreement, false-keep/replace, score-MAE,
+//     total cost) computed via the pure scorers (src/eval/scorers.ts) and patched
+//     in via `finalizeRun`.
 //
 // Rows run SERIALLY (one at a time) — the proven-good pacing. A concurrent loop
 // degraded the thinking-heavy models in the last sweep (77–96/150 rows,
@@ -18,16 +20,21 @@
 // The judge is obtained through `resolveJudge` — the ONLY public way to build a
 // judge (#1012); there is no uninstrumented scoring path. The sink it emits to
 // is the join point: each `JudgmentRecord` is paired with the row's `expected`
-// Opus baseline + the run id and written as one `eval_result`.
+// Opus baseline + the run id and recorded as one eleatic eval row.
 //
-// UNIT CONTRACT (#1094, load-bearing for #1095's gate): `eval_run.agreement` and
-// `score_mae` are stored as 0–1 FRACTIONS — the mean of the per-row scorer
-// scores (each already in [0,1]). PR2 renders ×100 and gates at >= 0.90.
+// REVIEW_DB (the review.sqlite review store) is STILL opened here — but only to
+// BUILD the dataset: `buildEvalRows` reads `photo_current` / `photo_score` from
+// it. Those tables stay; only the eval_* tables were removed. The eval results
+// themselves are written exclusively to the eleatic store.
+//
+// UNIT CONTRACT (#1094, load-bearing for the gate): the run's `agreement` and
+// `scoreMae` are stored as 0–1 FRACTIONS — the mean of the per-row scorer scores
+// (each already in [0,1]). The viewer renders ×100 and gates at >= 0.90.
 //
 // This file lives OUTSIDE src/ (the tool's tsconfig is rootDir:src), so it is
 // not part of the tsc build. `tsx` runs it via the `eval` npm-script. Its
 // testable core (`runEvalLocal`) is covered by run-eval-local.test.ts with a
-// fake judge + fake readImage + an in-memory db (no network, no real DB).
+// fake judge + fake readImage + an in-memory eleatic store (no network, no real DB).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { readFileSync } from 'node:fs';
@@ -40,19 +47,27 @@ import { resolveJudge, type JudgmentRecord, type JudgmentSink } from '../src/jud
 import { keepAgreement, scoreMAE, keepConfusion } from '../src/eval/scorers.js';
 import { runRow } from '../src/eval/run-row.js';
 import { mimeFromUrl } from '../src/sources.js';
-import { insertEvalResult, insertEvalRun, type EvalResultRecord } from '../src/eval/store.js';
 // All eleatic access goes through the adapter — the single domain seam (#1150).
-import { openStore, toEleaticRow, toEleaticRun, type EleaticStore } from '../src/eval/eleatic-adapter.js';
+// The photo-judge domain records (`EvalResultRecord`) also live there now (E8,
+// #1151, after the bespoke src/eval/store.ts was retired).
+import {
+  openStore, makeReader, toEleaticRow, toEleaticRun,
+  type EleaticStore, type EvalResultRecord,
+} from '../src/eval/eleatic-adapter.js';
 import { judgePromptForRubricVersion, resolveEvalModel } from '../eval/rubric-prompts.js';
 
 /** The injected collaborators `runEvalLocal` needs — all fakeable in tests. */
 export interface RunEvalDeps {
-  /** The open review store the run writes `eval_result` + `eval_run` to. */
+  /**
+   * The open review store — used only to BUILD the dataset (`buildEvalRows`
+   * reads `photo_current`/`photo_score`). The runner no longer writes eval
+   * results here; the eval store is `eleatic` below (E8, #1151).
+   */
   db: Database.Database;
   /**
-   * The open eleatic store the run ADDITIVELY mirrors each row + the run header
-   * to (E7, #1150). Written alongside `db` via the eleatic-adapter; the old
-   * review writes are unchanged. `:memory:` in tests.
+   * The open eleatic store the run writes each eval row + the run header to —
+   * the SOLE eval store (E7/E8, #1150/#1151). Written via the eleatic-adapter.
+   * `:memory:` in tests.
    */
   eleatic: EleaticStore;
   /** The dataset rows (built from the pinned baseline, hash-verified). */
@@ -82,19 +97,20 @@ export interface RunEvalDeps {
 }
 
 /**
- * Run the eval SERIALLY and write the local store. For each row, in order:
+ * Run the eval SERIALLY and write the eleatic store. For each row, in order:
  *   1. `runRow` invokes the instrumented judge → its sink captures one
  *      `JudgmentRecord` (output + tokens + cost),
  *   2. the record is joined with the row's `expected` Opus baseline + `runId`
- *      and written as one `eval_result`,
+ *      and recorded as one eleatic eval row,
  *   3. the per-row scorer scores (keepAgreement, scoreMAE, keepConfusion) are
  *      accumulated.
- * After the loop, the aggregates are written as one `eval_run` — agreement and
- * scoreMae as 0–1 FRACTIONS (means of the per-row scores), the confusion counts
- * summed, and total cost summed over the priced judgments.
+ * After the loop, the aggregates are patched onto the run header via
+ * `finalizeRun` — agreement and scoreMae as 0–1 FRACTIONS (means of the per-row
+ * scores), the confusion counts summed, and total cost summed over the priced
+ * judgments.
  */
 export async function runEvalLocal(deps: RunEvalDeps): Promise<void> {
-  const { db, eleatic, rows, runId, model, baselineModel, baselineRubric, sampleSize, startedAt, prompt } = deps;
+  const { eleatic, rows, runId, model, baselineModel, baselineRubric, sampleSize, startedAt, prompt } = deps;
 
   // Write the eleatic run HEADER before any child row (E7, #1150). eval_row has
   // a `run_id REFERENCES eval_run(id)` FK with `foreign_keys = ON`, so a row
@@ -173,12 +189,10 @@ export async function runEvalLocal(deps: RunEvalDeps): Promise<void> {
       promptTokens: record.promptTokens,
       completionTokens: record.completionTokens,
     };
-    // ADDITIVE dual-write (#1150): the old review.sqlite write is unchanged…
-    insertEvalResult(db, result);
-    // …and the SAME record is mirrored to the eleatic store via the adapter.
-    // Written serially in lockstep with the review write (no batching) so the
-    // SERIAL loop invariant (#1094) is preserved and a mid-run crash leaves the
-    // two stores at the same row.
+    // Record the judgment to the eleatic store via the adapter — the SOLE eval
+    // store (E8, #1151). Written serially, one row per `runRow`, so the SERIAL
+    // loop invariant (#1094) is preserved and a mid-run crash leaves the store
+    // at exactly the rows already scored.
     eleatic.recordRow(toEleaticRow(result));
   }
 
@@ -197,10 +211,9 @@ export async function runEvalLocal(deps: RunEvalDeps): Promise<void> {
     scoreMae: n === 0 ? 0 : maeSum / n,
     totalCost,
   };
-  insertEvalRun(db, run);
   // Patch the eleatic run header's aggregates now they are computed. finalizeRun
-  // writes row_count + metrics_json; the metrics are the SAME 0–1 fractions the
-  // review store holds (toEleaticRun maps them through unchanged, #1094).
+  // writes row_count + metrics_json; the metrics are the 0–1 fractions the runner
+  // computed (toEleaticRun maps them through unchanged, #1094).
   // `toEleaticRun` always sets `metrics`, but the field is optional on the
   // record type; `?? {}` keeps exactOptionalPropertyTypes happy without ever
   // hitting the fallback in practice.
@@ -297,15 +310,18 @@ async function main(argv: string[]): Promise<void> {
         resolveJudge(process.env, { model: EVAL_MODEL, rubricVersion: pinnedRubricVersion, sink }),
     });
 
-    const run = db.prepare(`SELECT agreement, false_keep, false_replace, score_mae, total_cost FROM eval_run WHERE id = ?`).get(runId) as {
-      agreement: number; false_keep: number; false_replace: number; score_mae: number; total_cost: number;
-    };
+    // Read the run header back from the eleatic store for the summary (the run's
+    // SOLE store now, E8 #1151). `metrics` carries the 0–1 fractions written by
+    // toEleaticRun; the keys mirror the run record (agreement/falseKeep/…).
+    const stored = makeReader(eleatic.db).getRun(runId);
+    const m = stored?.metrics ?? {};
+    const agreement = m.agreement ?? 0;
 
-    console.log(`eval run ${runId} (${rows.length} rows) written to ${REVIEW_DB} + ${EVAL_DB}`);
-    console.log(`  agreement     ${(run.agreement * 100).toFixed(2)}%  (stored as fraction ${run.agreement})`);
-    console.log(`  falseKeep     ${run.false_keep}   falseReplace ${run.false_replace}`);
-    console.log(`  score MAE     ${run.score_mae.toFixed(4)} (fraction)`);
-    console.log(`  total cost    $${run.total_cost.toFixed(4)}`);
+    console.log(`eval run ${runId} (${rows.length} rows) written to ${EVAL_DB}`);
+    console.log(`  agreement     ${(agreement * 100).toFixed(2)}%  (stored as fraction ${agreement})`);
+    console.log(`  falseKeep     ${m.falseKeep ?? 0}   falseReplace ${m.falseReplace ?? 0}`);
+    console.log(`  score MAE     ${(m.scoreMae ?? 0).toFixed(4)} (fraction)`);
+    console.log(`  total cost    $${(m.totalCost ?? 0).toFixed(4)}`);
     console.log(`  analyze with: npm run analyze -w @bird-watch/photo-curation ${runId}`);
   } finally {
     db.close();

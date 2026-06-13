@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { afterEach } from 'vitest';
-import type { insertEvalResult } from '../src/eval/store.js';
-import { openStore, toEleaticRow, toEleaticRun, type EleaticStore } from '../src/eval/eleatic-adapter.js';
+import {
+  openStore, toEleaticRow, toEleaticRun,
+  type EleaticStore, type EvalResultRecord,
+} from '../src/eval/eleatic-adapter.js';
 import {
   keepAgreement,
   confusionCounts,
@@ -363,7 +365,7 @@ describe('eleatic readers (#1150 — eleatic store repoint)', () => {
   function seedRow(
     s: EleaticStore,
     runId: string,
-    over: Partial<Parameters<typeof insertEvalResult>[1]>,
+    over: Partial<EvalResultRecord>,
   ): void {
     s.recordRow(
       toEleaticRow({

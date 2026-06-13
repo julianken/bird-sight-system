@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest';
-import type { EvalResultRecord, EvalRunRecord } from './store.js';
 import {
   PHOTO_JUDGE_GATE,
   makeReader,
@@ -8,6 +7,8 @@ import {
   toEleaticRun,
   fromEleaticRow,
   costFromEleaticRow,
+  type EvalResultRecord,
+  type EvalRunRecord,
 } from './eleatic-adapter.js';
 
 /** A photo-judge result record with controllable keep/score/criteria fields. */
