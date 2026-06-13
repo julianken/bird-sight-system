@@ -17,7 +17,12 @@ export function contrastRatio(hexA: string, hexB: string): number {
 }
 
 function hexToSRGB(hex: string): [number, number, number] {
-  const h = hex.replace('#', '');
+  let h = hex.replace('#', '');
+  // Expand 3-digit shorthand (#abc → #aabbcc) so callers can pass either form
+  // without silently producing NaN from a 6-char slice on a 3-char string.
+  if (h.length === 3) {
+    h = h.replace(/(.)/g, '$1$1');
+  }
   return [
     parseInt(h.slice(0, 2), 16),
     parseInt(h.slice(2, 4), 16),

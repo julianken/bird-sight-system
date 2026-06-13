@@ -240,11 +240,21 @@
  *   --color-density-text. These can use the spec values directly.
  */
 :root[data-theme="light"] {
+  /* B2 (#1041): native form-control widget internals (dropdown list, checkbox
+     glyph) follow the theme when color-scheme is set. Without this, UA widgets
+     always render with light-chrome regardless of [data-theme]. */
+  color-scheme: light;
+
   --color-bg-page:    #f4f1ea;  /* preserve existing — warm cream page bg */
   --color-bg-surface: #ffffff;  /* preserve existing */
   --color-bg-tint:    #f0ebe0;  /* preserve existing */
   --color-bg-skeleton: #f0ebe0; /* alias of bg-tint initially (NEW) */
   --color-bg-skeleton-highlight: #f0ebe0; /* shimmer mid-stop — matches bg-tint in light */
+  /* B2 (#1041): chip background for counts + scope-toggle hover. Preserves
+     the existing .family-legend-entry-count bg value so the resolved colour
+     is pixel-identical in light — only dark gains a new value (#253050).
+     --color-text-body (#444 → #444444) on #f0ebe0 = 8.19:1 (AA). */
+  --color-bg-inset:   #f0ebe0;
 
   --color-text-strong: #1a1a1a; /* preserve existing */
   --color-text-body:   #444;    /* preserve existing — AA-tuned */
@@ -321,6 +331,9 @@
  * fixed in styles.css in this same PR (#454 W1).
  */
 :root[data-theme="dark"] {
+  /* B2 (#1041): dark-mode widget chrome. */
+  color-scheme: dark;
+
   --color-bg-page:    var(--c-navy-900);
   /* Lifted from #131c30 → #1b2742 (spec §2.2, #761 #803): a card sitting only
    * ~6 luminance points off the #0d1424 basemap cannot separate by shadow alone
@@ -329,6 +342,11 @@
   --color-bg-tint:    #1c2640;
   --color-bg-skeleton: #1c2640;
   --color-bg-skeleton-highlight: #253050;
+  /* B2 (#1041): lifted navy chip background (#253050 = skeleton-highlight).
+     --color-text-body (#d8dee8) on #253050 = 9.60:1 (AA).
+     Card-vs-chip lift: #253050 / #1b2742 = 1.14:1 (visible separation).
+     Invisible predecessor was --color-bg-tint #1c2640 vs card #1b2742 = 1.01:1. */
+  --color-bg-inset:   #253050;
 
   --color-text-strong: #f5f7fb;
   --color-text-body:   #d8dee8;

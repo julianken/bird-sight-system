@@ -404,15 +404,22 @@ body {
   min-width: 36px;
 }
 .app-header-scope-toggle:hover {
-  background: var(--color-bg-tint);
+  /* B2 (#1041): was --color-bg-tint (#1c2640 dark), which only lifts 1.01:1
+     vs the navy card and is invisible in dark. --color-bg-inset is #253050
+     in dark — 1.14:1 lift, visible affordance. Light value is unchanged
+     (#f0ebe0, same resolved hex as the old --color-bg-tint #f0ebe0). */
+  background: var(--color-bg-inset);
   color: var(--color-text-strong);
 }
 .app-header-scope-toggle:focus-visible {
   outline: 2px solid var(--color-text-strong);
   outline-offset: 2px;
 }
-/* Expanded: the trigger reads as active (the ✕ that collapses the form). */
+/* Expanded: the trigger reads as active (the ✕ that collapses the form).
+   B2 (#1041): also fill the background so the ✕ keeps its hit-target
+   affordance in dark mode at rest (not just on hover). */
 .app-header-scope-toggle[aria-expanded='true'] {
+  background: var(--color-bg-inset);
   color: var(--color-text-strong);
 }
 .app-header-wordmark:hover {
@@ -838,7 +845,17 @@ body:has(.species-detail-sheet--full) .app-header-controls-pill {
   flex-wrap: wrap;
 }
 .filters-bar label { display: flex; gap: 6px; align-items: center; font-size: var(--type-sm); }
-.filters-bar select, .filters-bar input { padding: 4px 8px; }
+/* B2 (#1041): adopt the identity-card control trio so dark mode renders
+   themed controls instead of native white UA widgets on the navy panel.
+   .scope-control__select and .zip-input__field use the same three properties.
+   border-radius: 4px = the inner-input radius contract. */
+.filters-bar select, .filters-bar input {
+  padding: 4px 8px;
+  color: var(--color-text-strong);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-ui);
+  border-radius: 4px;
+}
 
 /* Species detail surface (#151). In-flow surface inside <main>, replaces the
    old position:fixed SpeciesPanel sidebar/drawer. Styled consistently with
@@ -1404,7 +1421,11 @@ body:has(.species-detail-sheet--full) .app-header-controls-pill {
   font-variant-numeric: tabular-nums;
   font-size: var(--type-xs);
   color: var(--color-text-body);
-  background: var(--color-bg-tint);
+  /* B2 (#1041): was --color-bg-tint, which in dark mode resolves to #1c2640
+     — a 1.01:1 lift vs the navy card #1b2742, i.e. invisible. --color-bg-inset
+     resolves to #253050 in dark (1.14:1 lift, 9.60:1 text contrast) and to
+     #f0ebe0 in light (same value as the old --color-bg-tint, pixel-unchanged). */
+  background: var(--color-bg-inset);
   padding: 1px 5px;
   border-radius: 8px;
 }
