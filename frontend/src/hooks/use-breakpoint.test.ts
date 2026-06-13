@@ -6,23 +6,26 @@ import { setMatchMedia, getMockMediaQuery } from '../test-setup.js';
 /**
  * useBreakpoint maps two `window.matchMedia` queries onto three named tiers:
  *
- *   (max-width: 479px)  matches  → 'compact'
- *   (max-width: 1023px) matches  → 'roomy'   (and compact did NOT match)
+ *   (max-width: 480px)  matches  → 'compact'   (compact is INCLUSIVE of 480 —
+ *                                               F2 #1062 aligned the engine to
+ *                                               the CSS desktop-first ≤480
+ *                                               convention; see tokens.css)
+ *   (max-width: 1023px) matches  → 'roomy'     (and compact did NOT match)
  *   neither matches              → 'wide'
  *
- * The token pixel values are BP_COMPACT=480 / BP_WIDE=1024, so the queries
- * are `${480 - 1}` and `${1024 - 1}` px. test-setup mocks `matchMedia` and
+ * The token pixel values are BP_COMPACT=480 / BP_WIDE=1024, so the queries are
+ * `${480}` (inclusive) and `${1024 - 1}` px. test-setup mocks `matchMedia` and
  * lets a test flip `matches` via `dispatchChange` to simulate a resize without
  * a real layout engine (mirrors use-media-query.test.ts).
  */
 
-const Q_COMPACT = '(max-width: 479px)';
+const Q_COMPACT = '(max-width: 480px)';
 const Q_ROOMY = '(max-width: 1023px)';
 
 /** Build a matcher for a given viewport width against the two breakpoint queries. */
 function matcherForWidth(width: number) {
   return (query: string): boolean => {
-    if (query === Q_COMPACT) return width <= 479;
+    if (query === Q_COMPACT) return width <= 480;
     if (query === Q_ROOMY) return width <= 1023;
     return false;
   };
@@ -47,10 +50,14 @@ describe('useBreakpoint', () => {
     expect(result.current).toBe('wide');
   });
 
-  it("treats the 480px boundary as 'roomy' (compact is < 480, not ≤)", () => {
+  it("treats the 480px boundary as 'compact' (compact is ≤480, INCLUSIVE)", () => {
+    // F2 #1062: the engine now agrees with the CSS desktop-first ≤480 cap and
+    // the (deleted) useIsPhone ≤480 query. At exactly 480 every authority says
+    // compact — no more off-by-one where CSS said compact but the engine said
+    // roomy.
     setMatchMedia(matcherForWidth(480));
     const { result } = renderHook(() => useBreakpoint());
-    expect(result.current).toBe('roomy');
+    expect(result.current).toBe('compact');
   });
 
   it("treats the 1024px boundary as 'wide' (roomy is < 1024, not ≤)", () => {

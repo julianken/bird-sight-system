@@ -12,14 +12,14 @@ export interface BirdDataState {
    *
    * Issue #720: this used to be the sole flag, which produced a race —
    * whichever effect resolved first flipped the shared flag to false while
-   * the other was still in flight. MapLede's cold-load guard requires the
+   * the other was still in flight. The lede's cold-load guard requires the
    * observations-specific signal; consume `observationsLoading` there.
    */
   loading: boolean;
   /**
    * True while the initial /api/observations request (or a filter-driven
    * refetch) is in flight. This is the correct flag for "are observations
-   * still loading?" — used by MapLede's #716 cold-load guard and by
+   * still loading?" — used by the lede's #716 cold-load guard and by
    * the <main aria-busy> attribute, both of which narrate observation
    * data specifically.
    */

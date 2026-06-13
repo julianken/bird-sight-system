@@ -1,8 +1,10 @@
 import {
   buildGroups,
   displaceSilhouettes,
+  resolveDisplacedCollisions,
   type DeconflictGroup,
   type DeconflictInput,
+  type DisplacedSilhouette,
 } from './deconflict.js';
 
 /**
@@ -117,15 +119,37 @@ export function reconcileToGroups(
   for (const inp of inputs) {
     if (inp.subId) inputBySubId.set(inp.subId, inp);
   }
+
+  // E6 / #1058: collision/spiral cleanup. `displaceSilhouettes` only shifts each
+  // twin away from its OWN cluster anchor, never against other displaced twins,
+  // so at a dense border (the "Yuma clump") twins from adjacent groups land on
+  // top of each other. `resolveDisplacedCollisions` is a pure post-step over the
+  // ALREADY-DISPLACED px positions (input px + the offset above) that returns
+  // EXTRA per-subId offsets so no displaced pair overlaps by more than 25% of
+  // the smaller bbox. It is a no-op for ≤1 displaced twin and for any set whose
+  // twins are already separated — so the silhouette-only-group early-exit
+  // upstream (pxOffsets has no entry for those) is preserved untouched.
+  const displaced: DisplacedSilhouette[] = [];
+  for (const [subId, off] of pxOffsets) {
+    const inp = inputBySubId.get(subId);
+    if (!inp) continue;
+    displaced.push({ subId, px: inp.px + off.dx, py: inp.py + off.dy });
+  }
+  const collisionOffsets = resolveDisplacedCollisions(displaced);
+
   for (const [subId, off] of pxOffsets) {
     const inp = inputBySubId.get(subId);
     if (!inp || inp.longitude === undefined || inp.latitude === undefined) continue;
-    const displacedPx = inp.px + off.dx;
-    const displacedPy = inp.py + off.dy;
+    // Total offset = displaceSilhouettes' base + the collision/spiral extra.
+    const extra = collisionOffsets.get(subId) ?? { dx: 0, dy: 0 };
+    const dx = off.dx + extra.dx;
+    const dy = off.dy + extra.dy;
+    const displacedPx = inp.px + dx;
+    const displacedPy = inp.py + dy;
     const ll = unproject([displacedPx, displacedPy]);
     offsets.set(subId, {
-      dx: off.dx,
-      dy: off.dy,
+      dx,
+      dy,
       longitude: ll.lng,
       latitude: ll.lat,
     });

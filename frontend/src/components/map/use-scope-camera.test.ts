@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { computeScopeBounds } from './use-scope-camera.js';
-import { CONUS_BOUNDS, FIT_BOUNDS_PADDING, INITIAL_VIEW } from './camera-config.js';
+import {
+  CONUS_BOUNDS,
+  FIT_BOUNDS_PADDING,
+  INITIAL_VIEW,
+  MIN_STATE_ONSCREEN,
+  zoomAwareClampBounds,
+} from './camera-config.js';
 import { padBounds } from './mask.js';
 import type { LngLatBounds } from './mask.js';
 
@@ -10,9 +16,14 @@ import type { LngLatBounds } from './mask.js';
    and the mount `initialViewState`. The guard FORMS are load-bearing and pinned
    here against regression:
      - activeBounds = bounds ?? CONUS_BOUNDS
-     - clampBounds  = bounds && clampPad ? padBounds(bounds, clampPad) : activeBounds
-       (NOT `padBounds(bounds, clampPad) ?? activeBounds` — padBounds is
-       non-nullable; that form would call padBounds(undefined,undefined) and throw)
+     - clampBounds  = bounds && clampPad
+                        ? zoomAwareClampBounds(bounds, clampPad, viewportSpan)
+                        : activeBounds
+       (#1059 — the clamp is now ZOOM-AWARE: caps the per-side pad by the live
+       viewport span so a fully-void viewport is unreachable. With no live span
+       — mount — it reduces to padBounds(bounds, clampPad), the pre-#1059 value.
+       NOT `zoomAwareClampBounds(...) ?? activeBounds` — non-nullable; that form
+       would call the derivation with undefined bounds and throw)
      - initialViewState = bounds ? {bounds, fitBoundsOptions} : INITIAL_VIEW
    The imperative effect (flyTo/fitBounds/#848 corrector) is characterized in
    MapCanvas.test.tsx's `MapCanvas controllable camera (#736)` suite. */
@@ -44,14 +55,38 @@ describe('computeScopeBounds', () => {
   });
 
   describe('clampBounds (reactive maxBounds clamp)', () => {
-    it('is the padded envelope when BOTH bounds AND clampPad are present', () => {
+    it('is the static padded envelope at mount (no live span) when BOTH bounds AND clampPad are present', () => {
       const { clampBounds } = computeScopeBounds(AZ_BOUNDS, 1.0);
-      // Single source of truth: must equal padBounds(bounds, clampPad), not a
-      // re-literaled value.
+      // Single source of truth: at mount (viewportSpan undefined) the zoom-aware
+      // clamp reduces EXACTLY to the static padBounds(bounds, clampPad) — entry
+      // framing is byte-identical to the pre-#1059 derivation. Equals the pure
+      // zoomAwareClampBounds(..., undefined), not a re-literaled value.
+      expect(clampBounds).toEqual(zoomAwareClampBounds(AZ_BOUNDS, 1.0, undefined));
       expect(clampBounds).toEqual(padBounds(AZ_BOUNDS, 1.0));
       // And it must actually differ from the tight fit target (sanity: padding
       // expanded it).
       expect(clampBounds).not.toEqual(AZ_BOUNDS);
+    });
+
+    it('TIGHTENS to the zoom-aware clamp when a live viewport span is supplied (#1059 — M-30 void unreachable)', () => {
+      // At a high-zoom span (≪ one state-width) the per-side pad is capped by the
+      // viewport span, so the clamp is the zoom-aware value, NOT the static one —
+      // and the viewport can no longer pan fully off the state.
+      const span: [number, number] = [0.067, 0.067]; // ≈ 390px @ z12
+      const { clampBounds } = computeScopeBounds(AZ_BOUNDS, 1.0, span);
+      // Single source of truth: delegates to the pure derivation.
+      expect(clampBounds).toEqual(zoomAwareClampBounds(AZ_BOUNDS, 1.0, span));
+      // It is STRICTLY tighter than the static clamp (the pad shrank).
+      expect(clampBounds).not.toEqual(padBounds(AZ_BOUNDS, 1.0));
+      // The pure-function pan guarantee, re-asserted at the hook seam: the west
+      // viewport edge pinned at the clamp west still has its east edge intersect
+      // the state, with ≥ MIN_STATE_ONSCREEN of the span overlapping.
+      const [w] = AZ_BOUNDS[0];
+      const [[cw]] = clampBounds;
+      expect(cw + span[0]).toBeGreaterThan(w);
+      expect(cw + span[0] - w).toBeGreaterThanOrEqual(
+        MIN_STATE_ONSCREEN * span[0] - 1e-9,
+      );
     });
 
     it('falls back to activeBounds (raw bounds, no pad) when clampPad is absent — ?scope=us / legacy callers', () => {

@@ -25,7 +25,7 @@ export interface SpeciesDetailSurfaceProps {
 
 /**
  * Presentational body of the detail surface (Phase 4). Composed inside
- * <SpeciesDetailModal> (desktop) and <SpeciesDetailSheet> (mobile);
+ * <SpeciesDetailRail> (desktop) and <SpeciesDetailSheet> (mobile);
  * never rendered directly in <main> after Phase 4 ships. The component
  * does not own scroll, dismiss, or focus-capture — those belong to its
  * wrappers.
@@ -48,7 +48,7 @@ export interface SpeciesDetailSurfaceProps {
 export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
   const { speciesCode, apiClient, revealed = true } = props;
   const detail = useSpeciesDetail(apiClient, speciesCode);
-  const { loading, error, data } = detail;
+  const { loading, error, data, retry } = detail;
   // useSilhouettes provides the family-color payload. The data is cached at
   // module level so there is no second network call when other consumers
   // (App.tsx, AttributionModal) have already called the hook.
@@ -85,7 +85,8 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
   // the detail surface shows the curated #924 colloquial name ("Hawks,
   // Eagles & Kites") instead of the raw eBird family_name ("Hawks, Eagles,
   // and Kites"). Keys are lowercased to match the server's lowercase
-  // family_code — same convention as App.tsx familyNamesByCode (l.533-536).
+  // family_code — same lowercase-keyed silhouettes convention App.tsx uses for
+  // its catalogue-derived Family filter options (#1050 C79).
   const resolveCommonName = useMemo(() => {
     const byCode = new Map<string, string | null>();
     for (const s of silhouettes) byCode.set(s.familyCode.toLowerCase(), s.commonName);
@@ -151,11 +152,16 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
   }
 
   if (error) {
+    // C82 (#1051): give the detail-rail error a recovery path. `retry()`
+    // re-runs the fetch in place (no rail close + marker re-click). Mirrors
+    // the app-level data-error overlay, which already uses StatusBlock's
+    // first-class `action` prop.
     return (
       <StatusBlock
         state="error"
         title="Could not load species details"
         surface="panel"
+        action={{ label: 'Try again', onClick: retry }}
       />
     );
   }

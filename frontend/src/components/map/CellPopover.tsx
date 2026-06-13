@@ -42,8 +42,17 @@ import { formatCount } from '../../lib/format-count.js';
 
 /** Gap between the anchor cell and the popover card, in CSS px. */
 const ANCHOR_GAP = 6;
-/** Viewport inset kept around the clamped card so it never kisses the edge. */
-const VIEWPORT_MARGIN = 8;
+/**
+ * E1 (#1053): shared viewport-edge safe-area inset, in CSS px. Mirrors the
+ * `--card-inset` token (12px = `--space-md`) so every transient popover keeps
+ * the same 12px gutter the four-corner floating-card contract assigns to
+ * resting chrome. Consumed by `computePopoverPosition` here AND by
+ * `ObservationPopover`'s clamp — one source of truth so the two anchored
+ * surfaces can't drift apart (the prior 8px `VIEWPORT_MARGIN` /
+ * `Math.max(8, …)` floor left an east-edge popover flush to within 8px of the
+ * edge, where it collides with the browser's edge-swipe gesture region).
+ */
+export const POPOVER_VIEWPORT_INSET_PX = 12;
 /**
  * Fallback card box used before the real rendered rect is measurable (and in
  * jsdom, where layout is not computed). Mirrors `.cell-popover`'s CSS
@@ -51,6 +60,19 @@ const VIEWPORT_MARGIN = 8;
  */
 const FALLBACK_CARD_WIDTH = 240;
 const FALLBACK_CARD_HEIGHT = 200;
+/**
+ * E1 (#1053): the card's CSS `max-width: var(--card-maxw-popover)` (300px). The
+ * one-shot `useLayoutEffect` measures the card width BEFORE content/fonts fully
+ * settle, so a card that ends up at the 300px cap can be measured narrower —
+ * and then a left clamp computed from that stale narrow width lets the
+ * fully-grown card overrun the right edge (verified live at 390: right edge at
+ * 391 vs the vw−12=378 floor). Clamping the RIGHT edge against this cap instead
+ * of the measured width makes the gutter robust to the late growth: a narrower
+ * card simply gets a slightly wider right gutter, never an overflow. Mirrors
+ * --card-maxw-popover in tokens.css; keep in sync (same contract as
+ * ObservationPopover's POPOVER_W).
+ */
+const POPOVER_MAX_WIDTH = 300;
 
 /**
  * Compute the popover's fixed-position `left`/`top` (viewport coordinates) from
@@ -66,19 +88,30 @@ function computePopoverPosition(
 ): { left: number; top: number; placement: 'above' | 'below' } {
   // Horizontal: left-align to the cell, then clamp into the viewport so the
   // card never overflows the right (flips effectively become a right-shift) or
-  // left edge.
-  const maxLeft = Math.max(VIEWPORT_MARGIN, viewportWidth - cardWidth - VIEWPORT_MARGIN);
-  const left = Math.min(Math.max(anchorRect.left, VIEWPORT_MARGIN), maxLeft);
+  // left edge. E1 (#1053): clamp to the 12px safe area, not the old 8px floor.
+  // Bound the RIGHT edge against the LARGER of the measured width and the CSS
+  // max-width cap (300) — the one-shot measure can under-read the width before
+  // content settles, and a left clamp from a stale-narrow width lets the grown
+  // card overrun the right edge (live repro at vw 390).
+  const clampWidth = Math.max(cardWidth, POPOVER_MAX_WIDTH);
+  const maxLeft = Math.max(
+    POPOVER_VIEWPORT_INSET_PX,
+    viewportWidth - clampWidth - POPOVER_VIEWPORT_INSET_PX,
+  );
+  const left = Math.min(Math.max(anchorRect.left, POPOVER_VIEWPORT_INSET_PX), maxLeft);
 
   // Vertical: prefer below the cell. If that would overflow the bottom, flip to
   // above the cell. Clamp into the viewport as a final fallback.
   const belowTop = anchorRect.bottom + ANCHOR_GAP;
   const aboveTop = anchorRect.top - ANCHOR_GAP - cardHeight;
-  const overflowsBottom = belowTop + cardHeight > viewportHeight - VIEWPORT_MARGIN;
-  const placedAbove = overflowsBottom && aboveTop >= VIEWPORT_MARGIN;
+  const overflowsBottom = belowTop + cardHeight > viewportHeight - POPOVER_VIEWPORT_INSET_PX;
+  const placedAbove = overflowsBottom && aboveTop >= POPOVER_VIEWPORT_INSET_PX;
   let top = placedAbove ? aboveTop : belowTop;
-  const maxTop = Math.max(VIEWPORT_MARGIN, viewportHeight - cardHeight - VIEWPORT_MARGIN);
-  top = Math.min(Math.max(top, VIEWPORT_MARGIN), maxTop);
+  const maxTop = Math.max(
+    POPOVER_VIEWPORT_INSET_PX,
+    viewportHeight - cardHeight - POPOVER_VIEWPORT_INSET_PX,
+  );
+  top = Math.min(Math.max(top, POPOVER_VIEWPORT_INSET_PX), maxTop);
 
   // #950: surface the flip decision so the recipe-05 transform-origin tracks
   // it — a card placed below the cell grows from its top edge, one placed above
@@ -211,6 +244,22 @@ export function CellPopover(props: CellPopoverProps) {
       data-placement={position?.placement}
       style={positionStyle}
     >
+      {/* #1053: anchor caret — an 8px rotated-square notch on the cell-facing
+          edge (top when the card sits BELOW the cell, bottom when it flips
+          ABOVE). data-placement mirrors the card's placement so the CSS can
+          park it on the correct edge; it survives the flip/shift/clamp because
+          it tracks the same `placement` decision the position math emits. It's
+          purely decorative (aria-hidden) — the card already announces as a
+          dialog. Rendered only once placement is known, so it never paints at
+          the off-screen park. */}
+      {position && (
+        <span
+          className="cell-popover__caret"
+          data-testid="cell-popover-caret"
+          data-placement={position.placement}
+          aria-hidden="true"
+        />
+      )}
       <header className="cell-popover__header">
         <h2
           ref={headingRef}

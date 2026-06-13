@@ -11,6 +11,7 @@ import {
   MASK_LAYER_ID,
 } from './artboard-layers.js';
 import type { ArtboardMap } from './artboard-layers.js';
+import { sanitizeNullNumericFilters } from './basemap-null-filter.js';
 
 /**
  * State-artboard hook (the #884 · U13 / #898 nerve-center consolidation;
@@ -325,6 +326,15 @@ export function useStateArtboard(
         if (savedFiltersRef.current) {
           restoreLabelIsolation(liveMap, savedFiltersRef.current);
           savedFiltersRef.current = null;
+          // #1124 [S1]: the filters captured for isolation were the RAW upstream
+          // shapes (capture runs BEFORE MapCanvas's style.load sanitizer, so the
+          // saved road-shield filters are the un-guarded `["<=", ["get",
+          // "ref_length"], 6]`). restoreLabelIsolation just wrote those raw
+          // filters back, and this scope → us transition fires NO style.load —
+          // so the MapCanvas sanitizer never re-runs and the z14 null-expression
+          // warning returns. Re-guard the restored filters here. Idempotent +
+          // fails OPEN (own try/catch); a no-op for already-guarded filters.
+          sanitizeNullNumericFilters(liveMap);
         }
         removeFloatLayers(liveMap);
       } catch {

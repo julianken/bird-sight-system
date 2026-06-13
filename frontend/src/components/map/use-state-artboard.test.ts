@@ -406,3 +406,128 @@ describe('useStateArtboard — ordering invariants (P2 backfill, #884 · U13)', 
     expect(result.current.maskTheme).toBe('dark');
   });
 });
+
+/* ──────────────────────────────────────────────────────────────────────────
+   #1124 [S1] regression — restore-path re-sanitization on scope round-trip.
+
+   The S1 deliverable (basemap-null-filter.ts · #1027) clears the z14
+   "Expected value to be of type number, but found null instead." warning by
+   rewriting upstream `["<=", ["get","ref_length"], 6]` road-shield filters into
+   `["all", ["has","ref_length"], <original>]` at `style.load`.
+
+   But `useStateArtboard`'s label-isolation capture (`applyLabelIsolation` in the
+   `style.load` handler / mask-change effect) records each isolatable symbol
+   layer's RAW filter into `savedFiltersRef` — and the road-shield layers ARE
+   isolatable (the `shield` token in SYMBOL_NAME_PATTERN), so what is captured is
+   the RAW, un-sanitized `["<=", ["get","ref_length"], 6]`. The capture runs
+   BEFORE the sanitizer effect in MapCanvas, so the saved filter is never the
+   guarded shape.
+
+   On a state → us scope round-trip the teardown (`restoreLabelIsolation`) writes
+   those RAW filters back via `setFilter`. That transition fires NO `style.load`,
+   so the sanitizer never re-runs — re-introducing the warning on the national
+   map and silently undoing S1's deliverable.
+
+   The fix re-runs `sanitizeNullNumericFilters(map)` after the restore so the
+   filter written back ends up guarded again.
+   ────────────────────────────────────────────────────────────────────────── */
+
+const SHIELD_RAW_FILTER = ['<=', ['get', 'ref_length'], 6];
+const SHIELD_GUARDED_FILTER = [
+  'all',
+  ['has', 'ref_length'],
+  ['<=', ['get', 'ref_length'], 6],
+];
+
+/**
+ * A minimal stateful fake map for the restore-path test: a single isolatable
+ * road-shield symbol layer (matches SYMBOL_NAME_PATTERN via the `shield` token)
+ * pre-seeded with the RAW null-prone filter, plus the mask fill + a cluster
+ * layer so the float/sink half can run without throwing. Backs `getFilter`/
+ * `setFilter` with a real store so the round-trip's net filter is observable.
+ */
+function makeShieldFakeMap() {
+  const layers: StyleLayer[] = [
+    { id: 'road_shield_us', type: 'symbol' },
+    MASK_LAYER,
+    CLUSTER_LAYER,
+  ];
+  const filters: Record<string, unknown> = {
+    road_shield_us: SHIELD_RAW_FILTER,
+  };
+  const handlers: Record<string, Array<() => void>> = {};
+
+  const map = {
+    getStyle: () => ({ layers: layers.slice() }),
+    getFilter: vi.fn((layerId: string) => filters[layerId]),
+    setFilter: vi.fn((layerId: string, filter: unknown) => {
+      filters[layerId] = filter;
+    }),
+    getLayer: vi.fn((layerId: string) => layers.find((l) => l.id === layerId) ?? null),
+    getSource: vi.fn(() => null),
+    addSource: vi.fn(),
+    removeSource: vi.fn(),
+    moveLayer: vi.fn(),
+    addLayer: vi.fn((layer: Record<string, unknown>) => {
+      layers.push({
+        id: String(layer.id),
+        type: String(layer.type),
+        source: layer.source as string | undefined,
+      });
+    }),
+    removeLayer: vi.fn((layerId: string) => {
+      const i = layers.findIndex((l) => l.id === layerId);
+      if (i !== -1) layers.splice(i, 1);
+    }),
+    triggerRepaint: vi.fn(),
+    getRenderWorldCopies: vi.fn(() => false),
+    setRenderWorldCopies: vi.fn(),
+    setStyle: vi.fn(),
+    on: vi.fn((type: string, cb: () => void) => {
+      (handlers[type] ??= []).push(cb);
+    }),
+    off: vi.fn((type: string, cb: () => void) => {
+      handlers[type] = (handlers[type] ?? []).filter((h) => h !== cb);
+    }),
+  };
+
+  return { map, filters };
+}
+
+describe('useStateArtboard — restore-path re-sanitization (#1124 · S1)', () => {
+  beforeEach(() => {
+    document.documentElement.removeAttribute('data-theme');
+  });
+  afterEach(() => {
+    document.documentElement.removeAttribute('data-theme');
+    vi.restoreAllMocks();
+  });
+
+  it('re-guards the restored road-shield filter on a state → us scope round-trip (does NOT write back the raw null-prone shape)', () => {
+    const fake = makeShieldFakeMap();
+    const ref = makeRef(fake.map);
+
+    // Enter a state scope: applyLabelIsolation captures the RAW shield filter
+    // into savedFiltersRef and merges in the within expression.
+    const { rerender } = renderHook(
+      ({ poly }: { poly: MultiPolygon | null }) => useStateArtboard(ref, true, poly),
+      { initialProps: { poly: AZ_POLYGON as MultiPolygon | null } },
+    );
+
+    // While isolated, the live filter is the merged ['all', RAW, within] shape.
+    expect(Array.isArray(fake.filters['road_shield_us'])).toBe(true);
+
+    // Leave the state scope (state → us): poly → null tears down isolation, which
+    // calls restoreLabelIsolation to write the captured RAW filter back. No
+    // style.load fires on this transition, so the MapCanvas sanitizer never
+    // re-runs — the restore path itself must re-guard the filter.
+    act(() => {
+      rerender({ poly: null });
+    });
+
+    // The net filter on the shield layer MUST be the guarded shape, NOT the raw
+    // null-prone comparison that re-introduces the z14 warning.
+    expect(fake.filters['road_shield_us']).toEqual(SHIELD_GUARDED_FILTER);
+    expect(fake.filters['road_shield_us']).not.toEqual(SHIELD_RAW_FILTER);
+  });
+});

@@ -1,8 +1,12 @@
 import { useEffect, useRef } from 'react';
 import type { RefObject } from 'react';
 import { ZIP_FLYTO_ZOOM } from '../../state/scope-types.js';
-import { CONUS_BOUNDS, FIT_BOUNDS_PADDING, INITIAL_VIEW } from './camera-config.js';
-import { padBounds } from './mask.js';
+import {
+  CONUS_BOUNDS,
+  FIT_BOUNDS_PADDING,
+  INITIAL_VIEW,
+  zoomAwareClampBounds,
+} from './camera-config.js';
 import type { LngLatBounds } from './mask.js';
 
 /**
@@ -91,15 +95,21 @@ export interface ScopeBounds {
   activeBounds: LngLatBounds;
   /**
    * REACTIVE `maxBounds` clamp — distinct from the fit target. For a state scope
-   * with `clampPad`, the state envelope PADDED outward by `clampPad`× per side
-   * (the single authoritative zoom-out gate). For `?scope=us` / legacy callers
-   * (no `clampPad`) it stays the raw `bounds ?? CONUS_BOUNDS` — unchanged.
+   * with `clampPad`, the state envelope padded outward by a ZOOM-AWARE per-side
+   * pad: the smaller of the static `clampPad`× gate (the zoom-OUT framing) and a
+   * cap derived from the live viewport span (the #1059 / M-30 zoom-IN backstop,
+   * so a fully-void viewport is unreachable). The math lives in the pure
+   * `zoomAwareClampBounds` (`camera-config.ts`); when no live span is supplied
+   * (mount, before the first camera settle) it reduces EXACTLY to
+   * `padBounds(bounds, clampPad)`, so entry framing is unchanged. For `?scope=us`
+   * / legacy callers (no `clampPad`) it stays the raw `bounds ?? CONUS_BOUNDS`.
    *
-   * Guard form is load-bearing: `bounds && clampPad ? padBounds(...) :
-   * activeBounds`. `padBounds` returns a non-nullable `LngLatBounds`, so a
-   * `padBounds(bounds, clampPad) ?? activeBounds` form would never fall through
-   * and would call `padBounds(undefined, undefined)` → throw on the
-   * `[[w,s],[e,n]]` destructure. Do NOT rewrite it.
+   * Guard form is load-bearing: `bounds && clampPad ? zoomAwareClampBounds(...) :
+   * activeBounds`. The ternary short-circuits before the derivation when `bounds`
+   * is undefined, so the `[[w,s],[e,n]]` destructure inside never sees undefined.
+   * A `zoomAwareClampBounds(bounds, clampPad, span) ?? activeBounds` form would
+   * never fall through (the function is non-nullable) and would call the
+   * derivation with `undefined` bounds → throw. Do NOT rewrite it into `??` form.
    */
   clampBounds: LngLatBounds;
   /**
@@ -115,18 +125,28 @@ export interface ScopeBounds {
 /**
  * Pure scope bounds-math (extracted from `MapCanvas.tsx`, #897). Derives the fit
  * target, the reactive clamp, and the mount `initialViewState` from the scope
- * `bounds` + `clampPad`. No React, no maplibre — unit-tested directly.
+ * `bounds` + `clampPad` (+ the live `viewportSpan` for the #1059 zoom-aware
+ * clamp). No React, no maplibre — unit-tested directly.
  *
- * The guard forms below are preserved verbatim from HEAD; see {@link ScopeBounds}
- * for why `clampBounds` must stay a `bounds && clampPad ?` ternary.
+ * The guard forms below are preserved from HEAD; see {@link ScopeBounds} for why
+ * `clampBounds` must stay a `bounds && clampPad ?` ternary.
+ *
+ * @param bounds       tight state envelope, or undefined (CONUS fallback)
+ * @param clampPad     artboard pad factor (state scope only), else undefined
+ * @param viewportSpan live `[lngSpan, latSpan]` in degrees (from the last camera
+ *                     settle) for the zoom-aware clamp; undefined at mount, where
+ *                     the clamp reduces to the static `padBounds(bounds, clampPad)`.
  */
 export function computeScopeBounds(
   bounds: LngLatBounds | undefined,
   clampPad: number | undefined,
+  viewportSpan?: [number, number],
 ): ScopeBounds {
   const activeBounds = bounds ?? CONUS_BOUNDS;
   const clampBounds =
-    bounds && clampPad ? padBounds(bounds, clampPad) : activeBounds;
+    bounds && clampPad
+      ? zoomAwareClampBounds(bounds, clampPad, viewportSpan)
+      : activeBounds;
   const initialViewState: ScopeInitialViewState = bounds
     ? { bounds, fitBoundsOptions: { padding: FIT_BOUNDS_PADDING, maxZoom: 12 } }
     : INITIAL_VIEW;
@@ -159,7 +179,18 @@ export function computeScopeBounds(
  * @param boundsKey           identity key for `bounds`; a change is the reframe trigger
  * @param flyTo               ZIP `flyTo` intent (wins over `fitBounds`), or undefined
  * @param clampPad            artboard clamp padding factor (state scope only)
- * @param prefersReducedMotion mount-once reduced-motion read (see note below)
+ * @param prefersReducedMotionRef ref tracking the LIVE reduced-motion preference
+ *                            (#1063: `usePrefersReducedMotion` is now a live
+ *                            sensor). Passed as a REF, not a value, on purpose:
+ *                            the flight `duration` reads `.current` at call time
+ *                            (so an OS toggle takes effect on the NEXT reframe)
+ *                            while the effect dep array stays inert — a live VALUE
+ *                            in the deps would re-fire the reframe on a mid-session
+ *                            toggle, the exact #848/#736 spurious-recenter class the
+ *                            exhaustive-deps disable below guards against.
+ * @param viewportSpan        live `[lngSpan, latSpan]` (deg) from the last camera
+ *                            settle, feeding the #1059 zoom-aware clamp; undefined
+ *                            at mount (clamp falls back to the static padded value)
  */
 export function useScopeCamera(
   mapRef: RefObject<ScopeCameraMapRef | null>,
@@ -168,11 +199,13 @@ export function useScopeCamera(
   boundsKey: string | undefined,
   flyTo: ScopeFlyTo | undefined,
   clampPad: number | undefined,
-  prefersReducedMotion: boolean,
+  prefersReducedMotionRef: RefObject<boolean>,
+  viewportSpan?: [number, number],
 ): { clampBounds: LngLatBounds; initialViewState: ScopeInitialViewState } {
   const { activeBounds, clampBounds, initialViewState } = computeScopeBounds(
     bounds,
     clampPad,
+    viewportSpan,
   );
 
   /**
@@ -200,7 +233,7 @@ export function useScopeCamera(
         center: flyTo.center,
         zoom: flyTo.zoom,
         essential: true,
-        duration: prefersReducedMotion ? 0 : 800,
+        duration: prefersReducedMotionRef.current ? 0 : 800,
       });
       // The ZIP `flyTo` branch is IMMUNE to the #848 mid-flight longitude bug:
       // flyTo's easeFunc snaps to the exact targetCenter at `k===1`, so an
@@ -303,7 +336,7 @@ export function useScopeCamera(
       padding: FIT_BOUNDS_PADDING,
       maxZoom: 12,
       essential: true,
-      duration: prefersReducedMotion ? 0 : 600,
+      duration: prefersReducedMotionRef.current ? 0 : 600,
     });
     // fitBounds has returned: any synchronous cancellation moveend it fired
     // (while stopping the in-flight easeTo) is now past. From here, the next
@@ -318,17 +351,18 @@ export function useScopeCamera(
     // eslint-disable-next-line react-hooks/exhaustive-deps -- boundsKey +
     // flyTo?.key are the intentional triggers; `activeBounds` identity derives
     // from boundsKey and re-running on its reference churn is undesirable
-    // (prototype documents this exact disable). `prefersReducedMotion` is the
-    // mount-once read from `usePrefersReducedMotion` (`useMemo([])`, NO `change`
-    // listener — `use-prefers-reduced-motion.ts` is contractually a mount-once
-    // sensor, "do not convert it into one"), so its presence here is inert: an
-    // OS reduced-motion toggle mid-session does NOT re-fire this effect, so the
-    // camera intent cannot spuriously recenter on an unchanged scope (the
-    // #848/#736 "camera moves when it shouldn't" class this unit guards). Only an
-    // in-flight `duration` reads the live value — exactly the desired behaviour.
-    // The dep is kept (not dropped) to satisfy the lint rule and to remain
-    // correct-by-construction if the sensor's mount-once contract ever changes.
-  }, [mapReady, boundsKey, flyTo?.key, prefersReducedMotion]);
+    // (prototype documents this exact disable). The reduced-motion preference is
+    // read through `prefersReducedMotionRef.current` at flight-dispatch time, NOT
+    // from a value dep: #1063 made `usePrefersReducedMotion` a LIVE sensor, and a
+    // live VALUE in this array would re-fire the reframe the instant a user
+    // toggles OS reduce-motion mid-session — a spurious recenter on an unchanged
+    // scope, the exact #848/#736 "camera moves when it shouldn't" class this unit
+    // guards. A stable ref carries the live value into the flight `duration`
+    // without participating in the trigger set: the duration tracks the live
+    // preference on the NEXT reframe while the effect stays keyed only on real
+    // scope changes. The ref is intentionally NOT listed (refs are stable; ESLint
+    // would not require it anyway).
+  }, [mapReady, boundsKey, flyTo?.key]);
 
   return { clampBounds, initialViewState: initialViewStateRef.current };
 }

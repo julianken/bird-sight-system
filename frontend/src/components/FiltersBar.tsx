@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useId } from 'react';
 import type { Since } from '../state/url-state.js';
 
 export interface FamilyOption { code: string; name: string; }
@@ -27,11 +27,37 @@ export interface FiltersBarProps {
   familyCode: string | null;
   families: FamilyOption[];
   speciesIndex: SpeciesOption[];
+  /**
+   * D2 (#1050): the species index is dictionary-backed (`useSpeciesDictionary`),
+   * so a commit can only be classified as a no-match once that index is settled.
+   * While `speciesIndexLoading`, defer the no-match verdict — a verdict against a
+   * still-empty index would be a FALSE hint (the new silent-failure class the
+   * "never silent" contract guards against). Mirrors ZipInput's index-warm window.
+   */
+  speciesIndexLoading?: boolean;
+  /**
+   * D2 (#1050): when the species dictionary failed to load, a commit renders
+   * ZipInput's `fetchError` outcome (`role="alert"`) instead of a no-match
+   * `role="status"` — the field can't be trusted to recognize anything.
+   */
+  speciesIndexError?: boolean;
   onChange: (partial: Partial<{
     since: Since; notable: boolean;
     speciesCode: string | null; familyCode: string | null;
   }>) => void;
 }
+
+/**
+ * D2 (#1050) — the surfaced feedback for a Species commit, mirroring ZipInput's
+ * "never silent" contract (`ZipInput.tsx:14-25`). `none` is the no-message state
+ * — both a successful exact-match commit and an empty-field clear leave it
+ * `none` (the change itself is the feedback). `notRecognized` and `fetchError`
+ * are the two cases that would otherwise have been a silent no-op.
+ */
+type SpeciesFeedback =
+  | { kind: 'none' }
+  | { kind: 'notRecognized'; query: string }
+  | { kind: 'fetchError' };
 
 export function FiltersBar(props: FiltersBarProps) {
   // Draft state so users can type multi-character species without URL updating on every keystroke.
@@ -39,6 +65,15 @@ export function FiltersBar(props: FiltersBarProps) {
   const [speciesDraft, setSpeciesDraft] = useState<string>(
     () => props.speciesIndex.find(s => s.code === props.speciesCode)?.comName ?? ''
   );
+
+  // D2 (#1050): the surfaced outcome of the last Species commit (the "never
+  // silent" feedback). Cleared whenever the user edits the field again so a
+  // stale no-match hint never lingers while typing toward a match.
+  const [speciesFeedback, setSpeciesFeedback] = useState<SpeciesFeedback>({ kind: 'none' });
+
+  // Stable id so the Species input can `aria-describedby` its feedback message —
+  // assistive tech announces the no-match/error hint as the field's description.
+  const speciesHintId = useId();
 
   // Store speciesIndex in a ref so the sync effect below doesn't re-run on
   // identity churn (new array reference with identical content after every
@@ -54,11 +89,54 @@ export function FiltersBar(props: FiltersBarProps) {
     setSpeciesDraft(comName);
   }, [props.speciesCode, props.speciesIndex.length]);
 
+  // D2 (#1050) — never-silent species commit. Four outcomes mirror ZipInput:
+  //   - exact match            → commit the code, clear any feedback.
+  //   - empty field            → clear the active species filter (KEPT behavior).
+  //   - dictionary loading     → defer; surface NO no-match verdict (would be
+  //                              a false hint against a not-yet-populated index).
+  //   - dictionary error       → role="alert" (the field can't recognize names).
+  //   - no match (settled)     → role="status" hint, KEEP the typed value, and
+  //                              do NOT push a redundant null commit (that would
+  //                              round-trip the URL for no reason). Only an
+  //                              explicit clear (empty field) commits null.
   function commitSpeciesDraft(value: string) {
+    const trimmed = value.trim();
+
+    // Empty field is an explicit "clear the species filter" — commit null only
+    // when a code was actually set, otherwise it's a no-op (and never a hint).
+    if (trimmed === '') {
+      if (props.speciesCode !== null) props.onChange({ speciesCode: null });
+      setSpeciesFeedback({ kind: 'none' });
+      return;
+    }
+
     const match = props.speciesIndex.find(
-      s => s.comName.toLowerCase() === value.toLowerCase()
+      s => s.comName.toLowerCase() === trimmed.toLowerCase()
     );
-    props.onChange({ speciesCode: match?.code ?? null });
+    if (match) {
+      props.onChange({ speciesCode: match.code });
+      setSpeciesFeedback({ kind: 'none' });
+      return;
+    }
+
+    // No match. Classify against the dictionary state BEFORE verdicting.
+    if (props.speciesIndexError) {
+      setSpeciesFeedback({ kind: 'fetchError' });
+      return;
+    }
+    if (props.speciesIndexLoading) {
+      // Index not settled yet — defer. A no-match verdict here would be false.
+      setSpeciesFeedback({ kind: 'none' });
+      return;
+    }
+    // Settled + no match → surface the national-scope no-match hint, keep value.
+    setSpeciesFeedback({ kind: 'notRecognized', query: trimmed });
+  }
+
+  function handleSpeciesInput(value: string) {
+    setSpeciesDraft(value);
+    // Editing clears a stale hint so feedback never lags the field's content.
+    if (speciesFeedback.kind !== 'none') setSpeciesFeedback({ kind: 'none' });
   }
 
   return (
@@ -75,7 +153,14 @@ export function FiltersBar(props: FiltersBarProps) {
           <option value="14d">14 days</option>
         </select>
       </label>
-      <label>
+      {/* E4 (#1056): the "Notable only" control is its own row. The
+          .filters-bar__toggle-row hook lets the mobile sheet @media block turn
+          the whole <label> into a full-width ≥44px tappable toggle row — the
+          checkbox glyph stays ~14px but the tap target is the row. The element
+          remains a <label> wrapping a REAL <input type="checkbox"> with the
+          "Notable only" aria-label so getByRole('checkbox') and the POM's
+          getByLabel('Notable only').check()/.uncheck() stay green. */}
+      <label className="filters-bar__toggle-row">
         <input
           type="checkbox"
           aria-label="Notable only"
@@ -105,7 +190,10 @@ export function FiltersBar(props: FiltersBarProps) {
           list="species-options"
           placeholder="Common name"
           value={speciesDraft}
-          onChange={e => setSpeciesDraft(e.target.value)}
+          aria-describedby={
+            speciesFeedback.kind === 'none' ? undefined : speciesHintId
+          }
+          onChange={e => handleSpeciesInput(e.target.value)}
           onBlur={e => commitSpeciesDraft(e.target.value)}
           onKeyDown={e => {
             if (e.key === 'Enter') {
@@ -118,6 +206,29 @@ export function FiltersBar(props: FiltersBarProps) {
             <option key={s.code} value={s.comName} />
           )}
         </datalist>
+        {/* D2 (#1050) never-silent feedback. The no-match copy is scoped to the
+            dictionary-backed (national) index — 'No species matching "X"', NOT
+            "…in the current view", which would be false at low zoom where the
+            index is the whole-US dictionary. */}
+        {speciesFeedback.kind === 'notRecognized' && (
+          <p
+            id={speciesHintId}
+            className="filters-bar__species-status"
+            role="status"
+            aria-live="polite"
+          >
+            No species matching &quot;{speciesFeedback.query}&quot;
+          </p>
+        )}
+        {speciesFeedback.kind === 'fetchError' && (
+          <p
+            id={speciesHintId}
+            className="filters-bar__species-error"
+            role="alert"
+          >
+            Could not load the species list — try again
+          </p>
+        )}
       </label>
     </div>
   );

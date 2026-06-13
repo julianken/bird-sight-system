@@ -134,7 +134,7 @@ describe('MapSurface → MapCanvas prop threading', () => {
 });
 
 describe('Phase 3: context strip — REMOVED from MapSurface (#800)', () => {
-  // The context strip (MapLede + FilterSentence + freshness) was moved to the
+  // The context strip (lede + FilterSentence + freshness) was moved to the
   // AppHeader identity card in #800. MapSurface no longer renders it.
   // Tests that covered the old context-strip behaviour are now in
   // AppHeader.test.tsx (lede rows) and App.test.tsx (ledeText derivation).

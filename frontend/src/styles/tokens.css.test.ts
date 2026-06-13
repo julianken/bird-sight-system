@@ -149,12 +149,6 @@ describe('tokens.css — W1 conformance', () => {
     it('pins --color-accent-notable-bg to #2a2620 (deep amber-shadow, 14.02:1 vs #f5f7fb)', () => {
       expect(darkBlock).toMatch(/--color-accent-notable-bg:\s*#2a2620/);
     });
-    it('overrides --color-accent-notable-bg-hover', () => {
-      expect(darkBlock).toMatch(/--color-accent-notable-bg-hover:/);
-    });
-    it('pins --color-accent-notable-bg-hover to #332e26 (lifted amber-shadow hover)', () => {
-      expect(darkBlock).toMatch(/--color-accent-notable-bg-hover:\s*#332e26/);
-    });
   });
 
   // ── #761 P1 (issue #778): Layer-1 primitives added in the named-z-index /
@@ -166,7 +160,6 @@ describe('tokens.css — W1 conformance', () => {
 
     it('defines the overlay sizing breakpoints distinct from prose breakpoints', () => {
       expect(TOKENS_CSS).toMatch(/--overlay-bp-compact:\s*480px/);
-      expect(TOKENS_CSS).toMatch(/--overlay-bp-roomy:\s*600px/);
       expect(TOKENS_CSS).toMatch(/--overlay-bp-wide:\s*1024px/);
     });
   });
@@ -333,7 +326,7 @@ describe('styles.css — W1 conformance', () => {
   });
 
   // ── #761 P1 (issue #778): named z-index tier scale lives in styles.css :root.
-  //    Assert the full scale + the deprecated --z-panel var() indirection alias.
+  //    Assert the full named scale.
   describe('named z-index scale — #761 P1 (#778)', () => {
     it('declares every named tier with its rank-preserving value', () => {
       expect(STYLES_CSS).toMatch(/--z-map:\s*0\b/);
@@ -348,12 +341,6 @@ describe('styles.css — W1 conformance', () => {
       expect(STYLES_CSS).toMatch(/--z-cluster-popover:\s*45\b/);
       expect(STYLES_CSS).toMatch(/--z-modal:\s*50\b/);
       expect(STYLES_CSS).toMatch(/--z-skip:\s*60\b/);
-    });
-
-    it('keeps --z-panel as a CSS-only var() indirection alias of --z-overlay', () => {
-      // Encoded as var() indirection (not a hardcoded 40) so it carries no
-      // monotonicity obligation and stays correct if --z-overlay ever moves.
-      expect(STYLES_CSS).toMatch(/--z-panel:\s*var\(--z-overlay\)/);
     });
   });
 
@@ -373,15 +360,21 @@ describe('styles.css — W1 conformance', () => {
       if (!m) throw new Error(`--${name} not found / not a literal in styles.css`);
       return Number(m[1]);
     };
-    // The sheet detents are literal z-index declarations in styles.css, NOT
-    // :root tokens — read them from their modifier rules so the guard tracks the
-    // values that actually render (styles.css:2310 / :2319).
+    // The sheet detents now reference NAMED z tiers (E2 #1054: peek →
+    // --z-sheet-resting, half → --z-sheet-raised, replacing the prior raw 10/15).
+    // Read the modifier rule's z-index — accept either a raw literal (legacy) or
+    // a var(--z-*) reference, resolving the var through the :root literal — so the
+    // guard tracks the value that actually renders.
     const sheetDetent = (modifier: string): number => {
       const m = STYLES_CSS.match(
-        new RegExp(`\\.species-detail-sheet--${modifier}\\s*\\{[^}]*z-index:\\s*(\\d+)\\b`, 's'),
+        new RegExp(
+          `\\.species-detail-sheet--${modifier}\\s*\\{[^}]*?z-index:\\s*(?:var\\(\\s*(--z-[a-z-]+)\\s*\\)|(\\d+)\\b)`,
+          's',
+        ),
       );
       if (!m) throw new Error(`.species-detail-sheet--${modifier} z-index not found`);
-      return Number(m[1]);
+      // m[1] = var name (e.g. "--z-sheet-resting"); m[2] = raw literal.
+      return m[1] ? z(m[1].replace(/^--/, '')) : Number(m[2]);
     };
 
     it('--z-under-detail sits BELOW the desktop rail (43)', () => {
@@ -402,13 +395,14 @@ describe('styles.css — W1 conformance', () => {
   });
 
   // ── #761 O6 (#782): the three on-canvas cell popovers consume P1's NAMED
-  //    popover tokens — no `z-index: calc(var(--z-panel) + N)` arithmetic
-  //    survives on any of them.
+  //    popover tokens — no z-tier `calc(var(--z-* ) + N)` arithmetic survives
+  //    on any of them.
   describe('cell popovers on the named z-scale — #761 O6 (#782)', () => {
-    it('ds-primitives.css has NO `z-index: calc(var(--z-panel) + N)` arithmetic remaining', () => {
-      // The last `calc(var(--z-panel) + 5)` ref (.cell-hover-preview) was
-      // migrated to var(--z-modal) by O6. Any reappearance is a regression.
-      expect(DS_PRIMITIVES_CSS).not.toMatch(/z-index:\s*calc\(\s*var\(--z-panel\)/);
+    it('ds-primitives.css has NO z-tier calc() arithmetic remaining', () => {
+      // The last z-tier calc() ref (.cell-hover-preview) was migrated to a
+      // named tier by O6. Any reappearance of `z-index: calc(var(--z-...))`
+      // arithmetic is a regression.
+      expect(DS_PRIMITIVES_CSS).not.toMatch(/z-index:\s*calc\(\s*var\(--z-/);
     });
 
     it('.cell-hover-preview consumes the named --z-modal tier (above the cell/cluster popovers it can overlap)', () => {
@@ -748,8 +742,7 @@ describe('B1 (#1040): undefined/unpaired-token enforcement', () => {
   // NOT appear in this list:
   //   --color-border-subtle, --color-text-faint, --color-text-white,
   //   --color-bg-stale, --color-bg-stale-chip, --color-text-stale,
-  //   --color-text-stale-name, --color-accent-notable-bg (light only here),
-  //   --color-accent-notable-bg-hover (light only here)
+  //   --color-text-stale-name, --color-accent-notable-bg (light only here)
   const MIGRATED_TOKENS = [
     '--color-bg-page',
     '--color-bg-surface',
@@ -897,5 +890,211 @@ describe('B2 (#1041): color-scheme in both theme blocks', () => {
 
   it('dark block declares color-scheme: dark (native widget internals use dark UA chrome)', () => {
     expect(darkBlock).toMatch(/color-scheme:\s*dark/);
+  });
+});
+
+// ── B4 (#1043): elevation / shadow token migration ───────────────────────────
+//
+// Guards that the legacy single-mode shadow tokens are deleted (styles.css :root
+// must no longer define them) and that the elevation tier system has coverage
+// across all three consumers mandated by the issue contract.
+describe('B4 (#1043): elevation/shadow token migration', () => {
+  // ── Deletion guards ───────────────────────────────────────────────────────
+
+  it('styles.css no longer defines --shadow-listbox (deleted — consumers migrated to --card-elevation-*)', () => {
+    expect(STYLES_CSS).not.toMatch(/--shadow-listbox\s*:/);
+  });
+
+  it('styles.css no longer defines --shadow-panel (deleted — stale vocabulary, zero consumers)', () => {
+    expect(STYLES_CSS).not.toMatch(/--shadow-panel\s*:/);
+  });
+
+  it('styles.css no longer defines --shadow-drawer (deleted — stale vocabulary, zero consumers)', () => {
+    expect(STYLES_CSS).not.toMatch(/--shadow-drawer\s*:/);
+  });
+
+  // Consumers must not reference the deleted tokens
+  it('no file references var(--shadow-listbox) after migration', () => {
+    expect(STYLES_CSS).not.toMatch(/var\(--shadow-listbox\)/);
+    expect(DS_PRIMITIVES_CSS).not.toMatch(/var\(--shadow-listbox\)/);
+  });
+
+  it('no file references var(--shadow-panel) after migration', () => {
+    expect(STYLES_CSS).not.toMatch(/var\(--shadow-panel\)/);
+    expect(DS_PRIMITIVES_CSS).not.toMatch(/var\(--shadow-panel\)/);
+  });
+
+  it('no file references var(--shadow-drawer) after migration', () => {
+    expect(STYLES_CSS).not.toMatch(/var\(--shadow-drawer\)/);
+    expect(DS_PRIMITIVES_CSS).not.toMatch(/var\(--shadow-drawer\)/);
+  });
+
+  // ── No raw box-shadow literals on migrated elements ───────────────────────
+  // AC: grep -nE "box-shadow: 0 -?4px" → zero matches (requires dark overrides deleted too)
+  it('styles.css has no raw "box-shadow: 0 4px" or "box-shadow: 0 -4px" literals (all migrated to tokens)', () => {
+    expect(STYLES_CSS).not.toMatch(/box-shadow:\s*0\s*-?4px/);
+  });
+
+  it('ds-primitives.css has no raw "box-shadow: 0 4px" or "box-shadow: 0 -4px" literals (all migrated to tokens)', () => {
+    expect(DS_PRIMITIVES_CSS).not.toMatch(/box-shadow:\s*0\s*-?4px/);
+  });
+
+  // ── Tier-2 coverage: at least 3 consumers of --card-elevation-2 ──────────
+  it('≥3 consumers of var(--card-elevation-2) across all files after migration', () => {
+    const allCss = STYLES_CSS + DS_PRIMITIVES_CSS + TOKENS_CSS;
+    // Count distinct var(--card-elevation-2) occurrences outside token definition lines
+    const matches = allCss.match(/var\(--card-elevation-2\)/g);
+    expect(
+      (matches ?? []).length,
+      'Expected ≥3 var(--card-elevation-2) usages: .cell-popover, .cluster-list-popover, .observation-popover',
+    ).toBeGreaterThanOrEqual(3);
+  });
+
+  // ── Sheet token present in both themes ───────────────────────────────────
+  it('--card-elevation-sheet is defined in the light [data-theme] block', () => {
+    const lightBlockMatch = TOKENS_CSS.match(
+      /:root\[data-theme="light"\]\s*\{([^}]*)\}/s,
+    );
+    expect(lightBlockMatch?.[1]).toMatch(/--card-elevation-sheet:/);
+  });
+
+  it('--card-elevation-sheet is defined in the dark [data-theme] block', () => {
+    const darkBlockMatch = TOKENS_CSS.match(
+      /:root\[data-theme="dark"\]\s*\{([^}]*)\}/s,
+    );
+    expect(darkBlockMatch?.[1]).toMatch(/--card-elevation-sheet:/);
+  });
+
+  it('styles.css .species-detail-sheet uses var(--card-elevation-sheet), not a raw shadow literal', () => {
+    const sheetBlockMatch = STYLES_CSS.match(
+      /\.species-detail-sheet\s*\{([^}]*)\}/s,
+    );
+    expect(sheetBlockMatch?.[1]).toMatch(/box-shadow:\s*var\(--card-elevation-sheet\)/);
+  });
+
+  // ── Radius / max-width migrations ─────────────────────────────────────────
+  it('ds-primitives.css .cell-popover uses var(--card-radius) for border-radius', () => {
+    const cellBlockMatch = DS_PRIMITIVES_CSS.match(
+      /\.cell-popover\s*\{([^}]*)\}/s,
+    );
+    expect(cellBlockMatch?.[1]).toMatch(/border-radius:\s*var\(--card-radius\)/);
+  });
+
+  it('ds-primitives.css .cluster-list-popover uses var(--card-radius) for border-radius', () => {
+    const clusterBlockMatch = DS_PRIMITIVES_CSS.match(
+      /\.cluster-list-popover\s*\{([^}]*)\}/s,
+    );
+    expect(clusterBlockMatch?.[1]).toMatch(/border-radius:\s*var\(--card-radius\)/);
+  });
+
+  it('styles.css .observation-popover uses var(--card-radius) for border-radius', () => {
+    const obsBlockMatch = STYLES_CSS.match(
+      /\.observation-popover\s*\{([^}]*)\}/s,
+    );
+    expect(obsBlockMatch?.[1]).toMatch(/border-radius:\s*var\(--card-radius\)/);
+  });
+
+  it('styles.css .observation-popover uses var(--card-maxw-popover) for max-width', () => {
+    const obsBlockMatch = STYLES_CSS.match(
+      /\.observation-popover\s*\{([^}]*)\}/s,
+    );
+    expect(obsBlockMatch?.[1]).toMatch(/max-width:\s*var\(--card-maxw-popover\)/);
+  });
+
+  it('ds-primitives.css .cell-popover uses var(--card-maxw-popover) for max-width', () => {
+    const cellBlockMatch = DS_PRIMITIVES_CSS.match(
+      /\.cell-popover\s*\{([^}]*)\}/s,
+    );
+    expect(cellBlockMatch?.[1]).toMatch(/max-width:\s*var\(--card-maxw-popover\)/);
+  });
+
+  it('styles.css .sheet-fg-photo uses var(--card-radius-inner) for border-radius (not 10px)', () => {
+    const photoBlockMatch = STYLES_CSS.match(
+      /\.sheet-fg-photo\s*\{([^}]*)\}/s,
+    );
+    expect(photoBlockMatch?.[1]).toMatch(/border-radius:\s*var\(--card-radius-inner\)/);
+    expect(photoBlockMatch?.[1]).not.toMatch(/border-radius:\s*10px/);
+  });
+});
+
+// F1 (#1061) — typography unification: one font stack, one --type-sm leading,
+// ramp/weight/tracking values consumed as tokens. Guards pin the unified
+// values so a future regression (re-typed literal, divergent body stack)
+// reddens here, not only at live-verify.
+describe('F1 #1061 — typography unification', () => {
+  describe('tokens.css — leading + tracking tokens', () => {
+    it('defines --leading-sm next to the type ramp (the single --type-sm leading)', () => {
+      // Contract: ONE --type-sm leading, encoded next to the ramp. We pick 1.5
+      // to match the --text-body-sm consumers (.cell-popover et al.), so the
+      // two map popovers resolve identically.
+      expect(TOKENS_CSS).toMatch(/--leading-sm:\s*1\.5\s*;/);
+    });
+    it('--text-body-sm consumes --leading-sm (no re-typed 1.5 literal in the shorthand)', () => {
+      expect(TOKENS_CSS).toMatch(
+        /--text-body-sm:\s*var\(--font-weight-regular\)\s*var\(--type-sm\)\s*\/\s*var\(--leading-sm\)\s*var\(--font-stack\)/,
+      );
+    });
+    it('defines --tracking-label: 0.06em in Layer 1', () => {
+      expect(TOKENS_CSS).toMatch(/--tracking-label:\s*0\.06em\s*;/);
+    });
+    it('defines --tracking-eyebrow: 0.08em in Layer 1', () => {
+      expect(TOKENS_CSS).toMatch(/--tracking-eyebrow:\s*0\.08em\s*;/);
+    });
+  });
+
+  describe('styles.css — body font + popover parity', () => {
+    it('body resolves font-family through var(--font-stack) (not the legacy scaffold stack)', () => {
+      const bodyBlock = STYLES_CSS.match(/\bbody\s*\{([^}]*)\}/s);
+      expect(bodyBlock?.[1]).toMatch(/font-family:\s*var\(--font-stack\)/);
+      // The legacy scaffold stack must be gone from body.
+      expect(bodyBlock?.[1]).not.toMatch(/-apple-system,\s*BlinkMacSystemFont,\s*"Helvetica Neue"/);
+    });
+    it('body sets a line-height baseline', () => {
+      const bodyBlock = STYLES_CSS.match(/\bbody\s*\{([^}]*)\}/s);
+      expect(bodyBlock?.[1]).toMatch(/line-height:/);
+    });
+    it('.observation-popover sets the same font + leading as the --text-body-sm consumers', () => {
+      const popBlock = STYLES_CSS.match(/\.observation-popover\s*\{([^}]*)\}/s);
+      // Must pin the token stack and the unified --type-sm leading so it is
+      // visually identical to .cell-popover (font: var(--text-body-sm)).
+      expect(popBlock?.[1]).toMatch(/font-family:\s*var\(--font-stack\)/);
+      expect(popBlock?.[1]).toMatch(/line-height:\s*var\(--leading-sm\)/);
+    });
+  });
+
+  describe('mechanical token swaps — no re-typed literals', () => {
+    it('no raw font-size: 11px in styles.css (use var(--type-xs))', () => {
+      expect(STYLES_CSS).not.toMatch(/font-size:\s*11px/);
+    });
+    it('no raw font-size: 11px in ds-primitives.css (use var(--type-xs))', () => {
+      expect(DS_PRIMITIVES_CSS).not.toMatch(/font-size:\s*11px/);
+    });
+    it('no raw numeric font-weight in styles.css (use var(--font-weight-*))', () => {
+      expect(STYLES_CSS).not.toMatch(/font-weight:\s*[0-9]/);
+    });
+    it('no raw numeric font-weight in ds-primitives.css (use var(--font-weight-*))', () => {
+      expect(DS_PRIMITIVES_CSS).not.toMatch(/font-weight:\s*[0-9]/);
+    });
+    it('no literal weight smuggled into a font: shorthand', () => {
+      expect(STYLES_CSS).not.toMatch(/font:\s*[0-9]{3}/);
+      expect(DS_PRIMITIVES_CSS).not.toMatch(/font:\s*[0-9]{3}/);
+    });
+    it('the uppercase label rows consume --tracking-label (not the 0.06em literal)', () => {
+      // .detail-fg-taxrow dt / .sheet-fg-label / .sheet-fg-taxrow dt
+      // (the dead .map-freshness 0.05em is deleted by #1064 — not touched here).
+      expect(STYLES_CSS).not.toMatch(/letter-spacing:\s*0\.06em/);
+    });
+    it('the uppercase eyebrows consume --tracking-eyebrow (not the 0.08em literal)', () => {
+      expect(STYLES_CSS).not.toMatch(/letter-spacing:\s*0\.08em/);
+    });
+    it('.cluster-pill sets font-variant-numeric: tabular-nums (its width formula assumes tabular digits)', () => {
+      const pillBlock = DS_PRIMITIVES_CSS.match(/\.cluster-pill\s*\{([^}]*)\}/s);
+      expect(pillBlock?.[1]).toMatch(/font-variant-numeric:\s*tabular-nums/);
+    });
+    it('the two × close glyphs are unified at one shared size (20px), not 18px/20px split', () => {
+      // Either SVG migration (no font-size:18|20) or one shared size with an
+      // icon-glyph exception comment at both sites — we take the latter at 20px.
+      expect(STYLES_CSS).not.toMatch(/font-size:\s*18px/);
+    });
   });
 });

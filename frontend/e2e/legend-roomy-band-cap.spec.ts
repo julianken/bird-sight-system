@@ -10,8 +10,9 @@ import type { Observation } from '@bird-watch/shared-types';
  *   - #810: ≤480px width/height cap (styles.css @media max-width:480px).
  *
  * The surviving bug this spec guards: on the 481–1023px band a user with a
- * stored `family-legend-expanded.v2=true` preference (e.g. expanded on a prior
- * desktop session) sees the legend render expanded — and because the ≤480px cap
+ * stored `family-legend-expanded.v3.roomy=true` preference (E3 #1055 re-keyed
+ * the per-breakpoint pref; pre-#1055 this was the breakpoint-blind `.v2`)
+ * sees the legend render expanded — and because the ≤480px cap
  * media query does NOT apply above 480px, `.family-legend-entries` falls back to
  * the desktop `max-height: 400px`. The resulting ~440px-tall panel anchored at
  * the bottom-left occludes the lower-left of the framed state.
@@ -102,10 +103,11 @@ test.describe('#853 — legend cap on the roomy band (500×844, stored-expanded)
   }) => {
     await setupRoutes(page, apiStub);
     // Simulate the bug-reporting user: expanded on a prior (desktop) session, so
-    // the stored .v2 preference overrides the <1024px collapse-default (#809).
+    // the stored roomy-tier preference overrides the <1024px collapse-default
+    // (#809). 500px maps to the 'roomy' tier (E3 #1055 per-breakpoint keys).
     await page.addInitScript(() => {
       try {
-        window.localStorage.setItem('family-legend-expanded.v2', 'true');
+        window.localStorage.setItem('family-legend-expanded.v3.roomy', 'true');
       } catch {
         /* noop */
       }
@@ -147,7 +149,7 @@ test.describe('#853 — legend cap on the roomy band (500×844, stored-expanded)
     // Sanity: the cap is a CSS display bound only — the stored preference is
     // not mutated (#809/#810 invariant carried forward).
     const stored = await page.evaluate(() =>
-      window.localStorage.getItem('family-legend-expanded.v2'),
+      window.localStorage.getItem('family-legend-expanded.v3.roomy'),
     );
     expect(stored).toBe('true');
   });
@@ -159,7 +161,7 @@ test.describe('#853 — legend cap on the roomy band (500×844, stored-expanded)
     await setupRoutes(page, apiStub);
     await page.addInitScript(() => {
       try {
-        window.localStorage.setItem('family-legend-expanded.v2', 'true');
+        window.localStorage.setItem('family-legend-expanded.v3.roomy', 'true');
       } catch {
         /* noop */
       }
@@ -193,7 +195,7 @@ test.describe('#853 — legend cap on the roomy band (768×1024, stored-expanded
     await setupRoutes(page, apiStub);
     await page.addInitScript(() => {
       try {
-        window.localStorage.setItem('family-legend-expanded.v2', 'true');
+        window.localStorage.setItem('family-legend-expanded.v3.roomy', 'true');
       } catch {
         /* noop */
       }
@@ -229,7 +231,8 @@ test.describe('#853 counter-case — desktop ≥1024px keeps the 400px fallback'
     await setupRoutes(page, apiStub);
     await page.addInitScript(() => {
       try {
-        window.localStorage.setItem('family-legend-expanded.v2', 'true');
+        // E3 (#1055): 1440px → the 'wide' tier key.
+        window.localStorage.setItem('family-legend-expanded.v3.wide', 'true');
       } catch {
         /* noop */
       }

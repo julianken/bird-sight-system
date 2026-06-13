@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { ApiClient } from '../api/client.js';
 import type { SpeciesMeta } from '@bird-watch/shared-types';
 
@@ -6,6 +6,13 @@ export interface SpeciesDetailState {
   loading: boolean;
   error: Error | null;
   data: SpeciesMeta | null;
+  /**
+   * C82 (#1051): re-run the fetch in place for the current `speciesCode`
+   * without closing/reopening the panel. A no-op while `speciesCode` is null.
+   * Failures are never cached (the module cache is only `.set()` on success),
+   * so bumping the internal nonce re-runs the effect and refetches cleanly.
+   */
+  retry: () => void;
 }
 
 /**
@@ -48,11 +55,20 @@ export function useSpeciesDetail(
   client: ApiClient,
   speciesCode: string | null,
 ): SpeciesDetailState {
-  const [state, setState] = useState<SpeciesDetailState>({
+  const [state, setState] = useState<{
+    loading: boolean;
+    error: Error | null;
+    data: SpeciesMeta | null;
+  }>({
     loading: false,
     error: null,
     data: null,
   });
+
+  // C82 (#1051): retry nonce. Bumping it re-runs the effect (it's a dep)
+  // for the SAME speciesCode — recovering a failed detail fetch in place.
+  const [retryNonce, setRetryNonce] = useState(0);
+  const retry = useCallback(() => setRetryNonce((n) => n + 1), []);
 
   useEffect(() => {
     // Null code — panel closed / no selection. Surface a clean resting state.
@@ -96,7 +112,8 @@ export function useSpeciesDetail(
       });
 
     return () => { cancelled = true; };
-  }, [client, speciesCode]);
+    // `retryNonce` is a dep so retry() re-runs this effect for the same code.
+  }, [client, speciesCode, retryNonce]);
 
-  return state;
+  return { ...state, retry };
 }

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { iconSize, zIndex, opacity, spacing, duration, color } from './tokens.js';
 
@@ -32,14 +34,14 @@ describe('tokens', () => {
   });
 
   describe('zIndex', () => {
-    // Named-tier chain — EXCLUDES the deprecated `panel` alias (it ties with
-    // `overlay` by design, so it cannot live in a strict-monotonic array).
-    // The chain preserves the pre-refactor visible stack order EXACTLY,
+    // Named-tier chain. Preserves the pre-refactor visible stack order EXACTLY,
     // including the rail-below-popovers relation (#761 P1, issue #778).
     it('named-tier chain is strictly monotonic', () => {
       const ranks = [
         zIndex.map,
         zIndex.underDetail,
+        zIndex.sheetResting,
+        zIndex.sheetRaised,
         zIndex.overlay,
         zIndex.popover,
         zIndex.chrome,
@@ -53,9 +55,6 @@ describe('tokens', () => {
         if (i > 0) expect(v).toBeGreaterThan(ranks[i - 1]!);
       });
     });
-    it('panel is a deprecated alias of overlay (same rank)', () => {
-      expect(zIndex.panel).toBe(zIndex.overlay);
-    });
     it('rail stays BELOW both popovers (preserves rail < cell < cluster)', () => {
       // Guards the #778 rail-above-popover regression at the unit level: a
       // future scheme that lifts the rail to/above a popover tier fails HERE,
@@ -67,6 +66,28 @@ describe('tokens', () => {
       // #761 focus-order intent (AppHeader → … → detail rail/sheet),
       // token-enforced rather than DOM-order-dependent.
       expect(zIndex.chrome).toBeLessThan(zIndex.rail);
+    });
+    it('sheet-resting/raised tiers sit between under-detail and the overlay band', () => {
+      // E2 (#1054): the species-detail-sheet peek/half resting tiers are now
+      // NAMED (were raw 10/15 in styles.css). They sit ABOVE the under-detail
+      // hover preview (5) and BELOW the overlay band (40) so map overlays
+      // (legend, attribution, popovers) stay interactive around a peek/half sheet.
+      expect(zIndex.underDetail).toBeLessThan(zIndex.sheetResting);
+      expect(zIndex.sheetResting).toBeLessThan(zIndex.sheetRaised);
+      expect(zIndex.sheetRaised).toBeLessThan(zIndex.overlay);
+    });
+    it('new sheet tiers are numerically synced with styles.css :root', () => {
+      // The zIndex object mirrors the --z-* custom properties in styles.css :root
+      // (keep both sides in sync — the mirror comment in tokens.ts says so). This
+      // guard fails if the two new tiers drift between styles.css and tokens.ts.
+      const css = readFileSync(join(import.meta.dirname, './styles.css'), 'utf8');
+      const readTier = (name: string): number => {
+        const m = css.match(new RegExp(`--${name}:\\s*(\\d+)`));
+        if (!m) throw new Error(`--${name} not found in styles.css :root`);
+        return Number(m[1]);
+      };
+      expect(readTier('z-sheet-resting')).toBe(zIndex.sheetResting);
+      expect(readTier('z-sheet-raised')).toBe(zIndex.sheetRaised);
     });
   });
 

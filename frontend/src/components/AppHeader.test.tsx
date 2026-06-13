@@ -11,6 +11,10 @@ const baseProps = {
   // O4 (#780): filtersOpen drives aria-expanded on the trigger;
   // filtersTriggerRef is forwarded to the button for focus restoration.
   filtersOpen: false,
+  // E5 (#1057): detail-open signal (App derives it from `?detail=` presence).
+  // Drives the scope-disclosure auto-collapse so at most one expanded surface
+  // is up at a time (spec §5.1 COMPACT).
+  detailOpen: false,
   filtersTriggerRef: createRef<HTMLButtonElement>(),
   onOpenAttribution: vi.fn(),
   ledeText: null as string | null,
@@ -212,6 +216,85 @@ describe('<AppHeader>', () => {
     await userEvent.click(screen.getByRole('button', { name: 'outside' }));
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
     expect(document.querySelector('.app-header-scope-rows')).toHaveAttribute('data-open', 'true');
+  });
+
+  // ── Scope-disclosure auto-collapse (E5 #1057) ────────────────────────────
+  // Spec §5.1 COMPACT: at most one expanded surface. The disclosure collapses
+  // when another surface takes over (Filters opens, a detail sheet opens) or
+  // when a state selection commits. The deliberate no-click-outside rule is
+  // PRESERVED (a Filters tap is a different intent than a stray map click).
+
+  it('collapses the disclosure on the RISING edge of filtersOpen (#1057)', async () => {
+    const { rerender } = render(<AppHeader {...baseProps} {...stateProps} filtersOpen={false} />);
+    const trigger = screen.getByRole('button', { name: /change region/i });
+    await userEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+
+    // Filters opens (e.g. a Filters tap) → the scope disclosure collapses so the
+    // two surfaces are never up simultaneously.
+    rerender(<AppHeader {...baseProps} {...stateProps} filtersOpen={true} />);
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    expect(document.querySelector('.app-header-scope-rows')).toHaveAttribute('data-open', 'false');
+  });
+
+  it('does NOT slam shut a fresh re-open while filtersOpen stays true (rising edge only) (#1057)', async () => {
+    // Only the rising edge collapses. Once filtersOpen is already true, the user
+    // can re-open the disclosure (e.g. Filters got dismissed then re-tapped, or
+    // the user deliberately re-opens scope) without it being yanked shut on the
+    // next unrelated re-render.
+    const { rerender } = render(<AppHeader {...baseProps} {...stateProps} filtersOpen={true} />);
+    const trigger = screen.getByRole('button', { name: /change region/i });
+    await userEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    // An unrelated re-render with filtersOpen STILL true must not collapse it.
+    rerender(<AppHeader {...baseProps} {...stateProps} filtersOpen={true} filterCount={2} />);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('collapses the disclosure on the RISING edge of detailOpen (#1057)', async () => {
+    const { rerender } = render(<AppHeader {...baseProps} {...stateProps} detailOpen={false} />);
+    const trigger = screen.getByRole('button', { name: /change region/i });
+    await userEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+
+    // A detail sheet/rail opens (?detail= appears) → the scope disclosure collapses.
+    rerender(<AppHeader {...baseProps} {...stateProps} detailOpen={true} />);
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    expect(document.querySelector('.app-header-scope-rows')).toHaveAttribute('data-open', 'false');
+  });
+
+  it('collapses the disclosure after a successful state selection (onPickState) (#1057)', async () => {
+    const onPickState = vi.fn();
+    render(<AppHeader {...baseProps} {...stateProps} onPickState={onPickState} />);
+    const trigger = screen.getByRole('button', { name: /change region/i });
+    await userEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+
+    // Stage a different state and commit via Go (the #1035 explicit-commit path).
+    // Scope the Go button to the state form (the ZipInput also renders a "Go").
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: /switch state/i }),
+      'US-AZ',
+    );
+    const stateGo = document.querySelector<HTMLButtonElement>('.scope-control__go')!;
+    await userEvent.click(stateGo);
+
+    // The commit still flows to the parent…
+    expect(onPickState).toHaveBeenCalledWith('US-AZ');
+    // …and the disclosure collapses (the commit is the user's "done" signal).
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    expect(document.querySelector('.app-header-scope-rows')).toHaveAttribute('data-open', 'false');
+  });
+
+  it('renders exactly one middot in the wordmark — the brand-region carries no literal "·" text node (#1057)', () => {
+    // The separator is painted via `.brand-region::before` (CSS), so the JSX
+    // text node must NOT also carry a literal "· " (else the dot doubles). The
+    // visible "·" comes from CSS content, invisible to textContent.
+    render(<AppHeader {...baseProps} region="Arizona" />);
+    const brandRegion = document.querySelector('.brand-region')!;
+    // The DOM text node is just the region name — no literal middot.
+    expect(brandRegion.textContent).toBe('Arizona');
+    expect(brandRegion.textContent).not.toContain('·');
   });
 
   // ── Filters trigger ─────────────────────────────────────────────────────
