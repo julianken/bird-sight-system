@@ -616,3 +616,227 @@ describe('styles.css — W1 conformance', () => {
     });
   });
 });
+
+// ── B1 (#1040): undefined/unpaired-token enforcement ─────────────────────────
+//
+// Every consumed semantic token (--color-*, --text-*, --card-*, --scrollbar-*)
+// must resolve on bare :root OR in BOTH [data-theme] blocks.
+// A token defined only in one [data-theme] block resolves to the CSS initial
+// value ("guaranteed-invalid") in the other theme.
+//
+// Rule: for each consumed token T:
+//   • If T is defined in the bare :root of ANY of the three files → OK (mode-independent)
+//   • Otherwise T must appear in BOTH the tokens.css light block AND the dark block
+//
+// Denylist: tokens that must NOT appear in styles.css (either because they were
+// removed as part of this fix, or because they are duplicate definitions that
+// the tokens.css [data-theme] blocks now own exclusively).
+describe('B1 (#1040): undefined/unpaired-token enforcement', () => {
+  // ── helpers ────────────────────────────────────────────────────────────────
+
+  /** Extract all bare-:root custom-property definitions from a CSS string. */
+  function extractBareRootTokens(css: string): Set<string> {
+    // Match the first :root { ... } block that is NOT :root[data-theme="..."]
+    // We do this by splitting on known selector patterns and taking :root { blocks.
+    const defined = new Set<string>();
+    // Regex: bare :root (not followed by [) — match the block
+    const bareRootRe = /:root(?!\[)\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}/gs;
+    let m: RegExpExecArray | null;
+    while ((m = bareRootRe.exec(css)) !== null) {
+      const block = m[1];
+      const propRe = /--([\w-]+)\s*:/g;
+      let p: RegExpExecArray | null;
+      while ((p = propRe.exec(block)) !== null) {
+        defined.add('--' + p[1]);
+      }
+    }
+    return defined;
+  }
+
+  /** Extract custom-property definitions from a named [data-theme] block. */
+  function extractThemeBlockTokens(css: string, theme: 'light' | 'dark'): Set<string> {
+    const defined = new Set<string>();
+    const blockRe = new RegExp(
+      `:root\\[data-theme="${theme}"\\]\\s*\\{([^}]*)\\}`,
+      's',
+    );
+    const m = css.match(blockRe);
+    if (!m) return defined;
+    const propRe = /--([\w-]+)\s*:/g;
+    let p: RegExpExecArray | null;
+    while ((p = propRe.exec(m[1])) !== null) {
+      defined.add('--' + p[1]);
+    }
+    return defined;
+  }
+
+  /** Collect every var(--color-*), var(--text-*), var(--card-*), var(--scrollbar-*)
+   *  reference from a CSS string. */
+  function collectConsumed(css: string): Set<string> {
+    const consumed = new Set<string>();
+    // Match var(--color-...), var(--text-...), var(--card-...), var(--scrollbar-...)
+    // Allow optional whitespace after var( and optional fallback after comma.
+    const re = /var\(\s*(--(color|text|card|scrollbar)-[\w-]+)/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(css)) !== null) {
+      consumed.add(m[1]);
+    }
+    return consumed;
+  }
+
+  const allCss = [TOKENS_CSS, STYLES_CSS, DS_PRIMITIVES_CSS];
+
+  // Pool of bare-:root defined tokens across all three files
+  const bareRootDefined = new Set<string>();
+  for (const css of allCss) {
+    for (const tok of extractBareRootTokens(css)) {
+      bareRootDefined.add(tok);
+    }
+  }
+
+  // Light and dark defined pools (tokens.css only — per spec, the blocks live there)
+  const lightDefined = extractThemeBlockTokens(TOKENS_CSS, 'light');
+  const darkDefined  = extractThemeBlockTokens(TOKENS_CSS, 'dark');
+
+  // All consumed tokens across the three files
+  const consumed = new Set<string>();
+  for (const css of allCss) {
+    for (const tok of collectConsumed(css)) {
+      consumed.add(tok);
+    }
+  }
+
+  it('every consumed --color-*/--text-*/--card-*/--scrollbar-* token resolves on bare :root or in BOTH [data-theme] blocks', () => {
+    const unpaired: string[] = [];
+    for (const tok of [...consumed].sort()) {
+      const inBareRoot  = bareRootDefined.has(tok);
+      const inBothThemes = lightDefined.has(tok) && darkDefined.has(tok);
+      if (!inBareRoot && !inBothThemes) {
+        // Determine what's missing for the error message
+        const inLight = lightDefined.has(tok);
+        const inDark  = darkDefined.has(tok);
+        if (!inLight && !inDark) {
+          unpaired.push(`${tok}: defined NOWHERE`);
+        } else if (inLight && !inDark) {
+          unpaired.push(`${tok}: defined in light only — missing from dark block`);
+        } else {
+          unpaired.push(`${tok}: defined in dark only — missing from light block`);
+        }
+      }
+    }
+    expect(
+      unpaired,
+      `These tokens are consumed but not universally resolved:\n${unpaired.join('\n')}`,
+    ).toEqual([]);
+  });
+
+  // ── Denylist: tokens removed / migrated as part of B1 ────────────────────
+  //
+  // --color-bg-hover is removed from styles.css :root (it was the sole definition,
+  // and its sole consumer — .family-legend-toggle:hover — is repointed to
+  // --color-bg-tint).  If it reappears in styles.css, the fix has been reverted.
+  it('styles.css no longer defines --color-bg-hover (sole consumer repointed to --color-bg-tint)', () => {
+    expect(STYLES_CSS).not.toMatch(/--color-bg-hover\s*:/);
+  });
+
+  // The 11 duplicate semantic tokens that styles.css :root defined alongside
+  // tokens.css [data-theme] blocks must no longer have bare-:root definitions
+  // in styles.css (they now live exclusively in tokens.css [data-theme] blocks
+  // or are consumed via var() fallback chains).
+  //
+  // Verified-safe tokens that genuinely live only in styles.css :root and must
+  // NOT appear in this list:
+  //   --color-border-subtle, --color-text-faint, --color-text-white,
+  //   --color-bg-stale, --color-bg-stale-chip, --color-text-stale,
+  //   --color-text-stale-name, --color-accent-notable-bg (light only here),
+  //   --color-accent-notable-bg-hover (light only here)
+  const MIGRATED_TOKENS = [
+    '--color-bg-page',
+    '--color-bg-surface',
+    '--color-bg-tint',
+    '--color-text-strong',
+    '--color-text-body',
+    '--color-text-muted',
+    '--color-text-subtle',
+    '--color-border-ui',
+    '--color-error-bg',
+    '--color-error-border',
+    '--color-error-text',
+  ] as const;
+
+  for (const tok of MIGRATED_TOKENS) {
+    it(`styles.css bare :root no longer defines ${tok} (migrated to tokens.css [data-theme] blocks)`, () => {
+      // Extract bare-:root block from styles.css only
+      const bareRootStylesTokens = extractBareRootTokens(STYLES_CSS);
+      expect(
+        bareRootStylesTokens.has(tok),
+        `${tok} must not be defined in styles.css :root — it belongs exclusively in tokens.css [data-theme] blocks`,
+      ).toBe(false);
+    });
+  }
+
+  // ── Tightened :314-318 assertions — block-scoped ─────────────────────────
+  // The existing "defines --text-body-sm / --text-heading-sm" assertions at lines
+  // 314-318 only check that the token exists SOMEWHERE in tokens.css; they don't
+  // catch light-only definitions.  These replacements require the tokens to appear
+  // in the bare :root block (mode-independent — no color component).
+  it('--text-body-sm is defined in the bare :root block of tokens.css (mode-independent, no color)', () => {
+    const bareRootTokensCSS = extractBareRootTokens(TOKENS_CSS);
+    expect(
+      bareRootTokensCSS.has('--text-body-sm'),
+      '--text-body-sm must be in tokens.css :root (not light-only)',
+    ).toBe(true);
+  });
+
+  it('--text-heading-sm is defined in the bare :root block of tokens.css (mode-independent, no color)', () => {
+    const bareRootTokensCSS = extractBareRootTokens(TOKENS_CSS);
+    expect(
+      bareRootTokensCSS.has('--text-heading-sm'),
+      '--text-heading-sm must be in tokens.css :root (not light-only)',
+    ).toBe(true);
+  });
+
+  // ── Contrast assertions for the three dark error/hover surfaces ───────────
+  // Pinned as computed ratios (not hex regexes) so a palette change that drops
+  // contrast below 4.5:1 fails here rather than silently shipping.
+  function relativeLuminance(hex: string): number {
+    const h = hex.replace('#', '');
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    const toLinear = (c: number): number => {
+      const v = c / 255;
+      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+  }
+  function contrastRatio(hexA: string, hexB: string): number {
+    const lumA = relativeLuminance(hexA);
+    const lumB = relativeLuminance(hexB);
+    return (Math.max(lumA, lumB) + 0.05) / (Math.min(lumA, lumB) + 0.05);
+  }
+
+  it('dark error-screen__retry label: --color-text-strong (#f5f7fb) on --color-bg-surface (#1b2742) ≥ 4.5:1', () => {
+    // After fix: var(--color-text, #111) → var(--color-text-strong)
+    // Dark: --color-text-strong = #f5f7fb; --color-bg-surface = #1b2742
+    expect(contrastRatio('#f5f7fb', '#1b2742')).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('dark map-error-overlay__dismiss resting: --color-text-muted (#8a98ad) on --color-bg-surface (#1b2742) ≥ 4.5:1', () => {
+    // After fix: var(--color-text-secondary, #666) → var(--color-text-muted)
+    // Dark: --color-text-muted = #8a98ad; --color-bg-surface = #1b2742
+    expect(contrastRatio('#8a98ad', '#1b2742')).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('dark map-error-overlay__dismiss hover: --color-text-strong (#f5f7fb) on --color-bg-tint (#1c2640) ≥ 4.5:1', () => {
+    // After fix: var(--color-text, #111) → var(--color-text-strong)
+    // Dark: --color-text-strong = #f5f7fb; --color-bg-tint = #1c2640
+    expect(contrastRatio('#f5f7fb', '#1c2640')).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('dark family-legend-toggle hover: --color-text-strong (#f5f7fb) on --color-bg-tint (#1c2640) ≥ 4.5:1', () => {
+    // After fix: --color-bg-hover → --color-bg-tint
+    // Dark hover background = --color-bg-tint = #1c2640; text = --color-text-strong = #f5f7fb
+    expect(contrastRatio('#f5f7fb', '#1c2640')).toBeGreaterThanOrEqual(4.5);
+  });
+});

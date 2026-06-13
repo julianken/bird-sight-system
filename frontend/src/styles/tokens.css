@@ -100,6 +100,14 @@
    * No floating element may introduce a full-width top/bottom band or an
    * edge dock. The center of the screen belongs to the map.
    */
+  /* Card surface tokens (B1 #1040, spec §2.2) — single-source aliases so a
+   * future definition elsewhere cannot silently restyle exactly the two header
+   * card surfaces that consume them via var(--card-bg, fallback) / var(--card-border, fallback).
+   * These resolve through the mode-paired --color-bg-surface / --color-border-ui
+   * so they adapt correctly in both themes without per-theme overrides. */
+  --card-bg:            var(--color-bg-surface);     /* resolves per theme       */
+  --card-border:        var(--color-border-ui);      /* resolves per theme       */
+
   --card-radius:        var(--radius-lg);  /* 12px — retires 6px/8px for cards    */
   --card-radius-inner:  8px;               /* nested controls inside a card        */
   --card-inset:         var(--space-md);   /* 12px — gutter from viewport edge     */
@@ -167,6 +175,20 @@
      (1.4s, reverse-direction) and skeleton-shimmer (opacity-pulse technique) are
      intentionally excluded — different techniques, different tempos. */
   --ds-shimmer-dur: 1.6s;
+
+  /* ── Type shorthands (B1 #1040, spec §2.5) ─────────────────────────────
+   * These font shorthand tokens carry NO color component so they are
+   * mode-independent — no light/dark pairing is needed.  They were
+   * previously defined inside [data-theme="light"] only, which made them
+   * resolve to the CSS initial value (UA 16px) in dark mode at every
+   * font: var(--text-body-sm) / var(--text-heading-sm) consumer
+   * (ds-primitives.css: cell-hover-preview, cell-popover, cluster-list
+   * popover — lines 743, 875, 887, 1062, 1072).  Moved here so both
+   * themes resolve to the 13px/1.5 and 17px/1.3 contract values.
+   * The [data-theme="light"] definitions and the false "inherits the
+   * :root definition above" dark comment are removed. */
+  --text-body-sm:    var(--font-weight-regular) var(--type-sm) / 1.5 var(--font-stack);
+  --text-heading-sm: var(--font-weight-medium) var(--type-md) / 1.3 var(--font-stack);
 
   /* ── transient-popover enter family (#950) ──────────────────────────────
    * Catalog tunings consumed by the transient-layer entrances:
@@ -248,8 +270,6 @@
    * Repointed at --c-amber-700 (#984012) = 6.82:1 — clears AA with headroom.
    * The orange decision-point accent is NOT used for text links in light mode. */
   --color-text-link:     var(--c-amber-700);
-  --text-body-sm:        var(--font-weight-regular) var(--type-sm) / 1.5 var(--font-stack);
-  --text-heading-sm:     var(--font-weight-medium) var(--type-md) / 1.3 var(--font-stack);
 
   /* RENAMED from mock --accent; DO NOT collide with --color-accent-notable-fg.
      Decision-point is a NEW token; spec value lands. */
@@ -336,8 +356,6 @@
   /* Undefined-token cleanup — dark overrides (spec §2.5, #761 #803). */
   --color-border-strong: #4a5a80;           /* stronger hairline on dark surfaces */
   --color-text-link:     var(--color-decision-point); /* cyan-500 in dark mode */
-  /* --text-body-sm / --text-heading-sm: font shorthand; no color component so
-     dark override is identical — inherits the :root definition above.         */
 
   --color-decision-point: var(--c-cyan-500);
 
