@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>eleatic</title>
+  </head>
+  <body>
+    <!--
+      Placeholder landing page. The real comparison hub / diff / facets pages
+      land in E5 / E6; this page only keeps `GET /` a 200 so `eleatic serve` is
+      complete before those pages exist. It imports `/config.js` (the server's
+      client-config emitter) so the wiring is exercised end-to-end today.
+    -->
+    <main>
+      <h1>eleatic</h1>
+      <p>eval-results explorer — UI pages land in a later epic child.</p>
+    </main>
+    <script type="module">
+      import { config } from '/config.js';
+      // eslint-disable-next-line no-console
+      console.log('eleatic config', config);
+    </script>
+  </body>
+</html>
