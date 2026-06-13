@@ -1,0 +1,5 @@
+{
+  "verdictVocabulary": ["keep", "replace", "uncertain"],
+  "gate": { "metric": "agreement", "op": "gte", "threshold": 0.9 },
+  "metricFormatters": { "agreement": "percent" }
+}
