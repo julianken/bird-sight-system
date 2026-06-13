@@ -10,7 +10,7 @@
     "build": "tsc",
     "test": "vitest run",
     "curate": "tsx src/cli.ts",
-    "eval": "bt eval eval/photo-judge.eval.ts",
+    "eval": "tsx scripts/run-eval-local.ts",
     "analyze": "tsx scripts/analyze-experiment.ts",
     "backfill-scores": "tsx scripts/backfill-scores-to-prod.ts"
   },
