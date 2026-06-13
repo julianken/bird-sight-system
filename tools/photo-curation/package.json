@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@bird-watch/db-client": "*",
+    "@bird-watch/eleatic": "*",
     "@bird-watch/ingestor": "*",
     "@bird-watch/photo-quality": "*",
     "@bird-watch/shared-types": "*",

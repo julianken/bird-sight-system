@@ -1,8 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { afterEach } from 'vitest';
-import type Database from 'better-sqlite3';
-import { openDb } from '../src/db.js';
-import { insertEvalResult } from '../src/eval/store.js';
+import type { insertEvalResult } from '../src/eval/store.js';
+import { openStore, toEleaticRow, toEleaticRun, type EleaticStore } from '../src/eval/eleatic-adapter.js';
 import {
   keepAgreement,
   confusionCounts,
@@ -16,8 +15,8 @@ import {
   projectRows,
   projectCostRows,
   summarizeCost,
-  makeSqliteReader,
-  makeSqliteCostReader,
+  makeEleaticReader,
+  makeEleaticCostReader,
   main,
   type AnalysisRow,
   type CostRow,
@@ -336,39 +335,64 @@ describe('main (injected reader, no network)', () => {
   });
 });
 
-describe('sqlite readers (#1094 — local store repoint)', () => {
-  let db: Database.Database | undefined;
+describe('eleatic readers (#1150 — eleatic store repoint)', () => {
+  let store: EleaticStore | undefined;
   afterEach(() => {
-    db?.close();
-    db = undefined;
+    store?.close();
+    store = undefined;
   });
 
-  /** Seed one eval_result row for a run. */
-  function seed(d: Database.Database, runId: string, over: Partial<Parameters<typeof insertEvalResult>[1]>): void {
-    insertEvalResult(d, {
-      runId,
-      speciesCode: over.speciesCode ?? 'amerob',
-      comName: 'American Robin',
-      contentHash: 'h',
-      sourceUrl: 'u',
-      geminiKeep: over.geminiKeep ?? true,
-      geminiQuality: over.geminiQuality ?? 80,
-      geminiCriteriaJson: null,
-      opusKeep: over.opusKeep ?? true,
-      opusQuality: over.opusQuality ?? 85,
-      cost: over.cost,
-      promptTokens: over.promptTokens,
-      completionTokens: over.completionTokens,
-    });
+  /** Seed one eleatic eval_run header + one eval_row via the adapter. */
+  function seedRun(s: EleaticStore, runId: string): void {
+    s.recordRun(
+      toEleaticRun({
+        id: runId,
+        model: 'gemini-2.5-flash',
+        baselineModel: 'claude-opus-4-8',
+        baselineRubric: '0.2.1',
+        sampleSize: 0,
+        startedAt: `2026-06-12T00:00:0${runId.slice(-1)}.000Z`,
+        agreement: 0,
+        falseKeep: 0,
+        falseReplace: 0,
+        scoreMae: 0,
+        totalCost: 0,
+      }),
+    );
+  }
+  function seedRow(
+    s: EleaticStore,
+    runId: string,
+    over: Partial<Parameters<typeof insertEvalResult>[1]>,
+  ): void {
+    s.recordRow(
+      toEleaticRow({
+        runId,
+        speciesCode: over.speciesCode ?? 'amerob',
+        comName: 'American Robin',
+        contentHash: 'h',
+        sourceUrl: 'u',
+        geminiKeep: over.geminiKeep ?? true,
+        geminiQuality: over.geminiQuality ?? 80,
+        geminiCriteriaJson: null,
+        opusKeep: over.opusKeep ?? true,
+        opusQuality: over.opusQuality ?? 85,
+        cost: over.cost,
+        promptTokens: over.promptTokens,
+        completionTokens: over.completionTokens,
+      }),
+    );
   }
 
-  it('makeSqliteReader yields AnalysisRow[] from eval_result for the run', async () => {
-    db = openDb(':memory:');
-    seed(db, 'run-1', { speciesCode: 'a', geminiKeep: true, geminiQuality: 90, opusKeep: true, opusQuality: 85 });
-    seed(db, 'run-1', { speciesCode: 'b', geminiKeep: false, geminiQuality: 20, opusKeep: false, opusQuality: 15 });
-    seed(db, 'run-2', { speciesCode: 'c', geminiKeep: true, geminiQuality: 99, opusKeep: false, opusQuality: 10 });
+  it('makeEleaticReader yields AnalysisRow[] from eval_row (via fromEleaticRow) for the run', async () => {
+    store = openStore(':memory:');
+    seedRun(store, 'run-1');
+    seedRun(store, 'run-2');
+    seedRow(store, 'run-1', { speciesCode: 'a', geminiKeep: true, geminiQuality: 90, opusKeep: true, opusQuality: 85 });
+    seedRow(store, 'run-1', { speciesCode: 'b', geminiKeep: false, geminiQuality: 20, opusKeep: false, opusQuality: 15 });
+    seedRow(store, 'run-2', { speciesCode: 'c', geminiKeep: true, geminiQuality: 99, opusKeep: false, opusQuality: 10 });
 
-    const reader = makeSqliteReader(db);
+    const reader = makeEleaticReader(store.db);
     const rows = await reader('run-1');
     expect(rows).toHaveLength(2); // only run-1's rows
     expect(rows).toEqual(
@@ -379,13 +403,32 @@ describe('sqlite readers (#1094 — local store repoint)', () => {
     );
   });
 
-  it('makeSqliteCostReader yields CostRow[]; priced rows carry cost, unpriced → undefined', async () => {
-    db = openDb(':memory:');
-    seed(db, 'run-1', { speciesCode: 'a', cost: 0.42, promptTokens: 1000, completionTokens: 100 });
-    seed(db, 'run-1', { speciesCode: 'b', cost: undefined, promptTokens: 800, completionTokens: 50 }); // unpriced
-    seed(db, 'run-2', { speciesCode: 'c', cost: 9.99, promptTokens: 1, completionTokens: 1 });
+  it('eleatic-backed rows feed analyze() to the existing fixture numbers', async () => {
+    store = openStore(':memory:');
+    seedRun(store, 'run-1');
+    // The exact analyze+formatReport fixture (keepAgreement 0.5, falseKeep 1, falseReplace 1).
+    seedRow(store, 'run-1', { speciesCode: 'a', geminiKeep: true, geminiQuality: 90, opusKeep: true, opusQuality: 85 });
+    seedRow(store, 'run-1', { speciesCode: 'b', geminiKeep: false, geminiQuality: 20, opusKeep: false, opusQuality: 15 });
+    seedRow(store, 'run-1', { speciesCode: 'c', geminiKeep: true, geminiQuality: 60, opusKeep: false, opusQuality: 40 }); // falseKeep
+    seedRow(store, 'run-1', { speciesCode: 'd', geminiKeep: false, geminiQuality: 30, opusKeep: true, opusQuality: 70 }); // falseReplace
 
-    const costReader = makeSqliteCostReader(db);
+    const reader = makeEleaticReader(store.db);
+    const rows = await reader('run-1');
+    const a = analyze(rows, { bandLo: 40, bandHi: 70 });
+    expect(a.n).toBe(4);
+    expect(a.keepAgreement).toBeCloseTo(0.5);
+    expect(a.confusion).toEqual({ falseKeep: 1, falseReplace: 1 });
+  });
+
+  it('makeEleaticCostReader yields CostRow[]; priced rows carry cost, unpriced → undefined', async () => {
+    store = openStore(':memory:');
+    seedRun(store, 'run-1');
+    seedRun(store, 'run-2');
+    seedRow(store, 'run-1', { speciesCode: 'a', cost: 0.42, promptTokens: 1000, completionTokens: 100 });
+    seedRow(store, 'run-1', { speciesCode: 'b', cost: undefined, promptTokens: 800, completionTokens: 50 }); // unpriced
+    seedRow(store, 'run-2', { speciesCode: 'c', cost: 9.99, promptTokens: 1, completionTokens: 1 });
+
+    const costReader = makeEleaticCostReader(store.db);
     const rows = await costReader('run-1');
     expect(rows).toHaveLength(2);
     const costs = rows.map((r) => r.estimatedCost);
@@ -394,9 +437,9 @@ describe('sqlite readers (#1094 — local store repoint)', () => {
     expect(costs).toContain(undefined);
   });
 
-  it('makeSqliteReader returns [] for an unknown run id', async () => {
-    db = openDb(':memory:');
-    const reader = makeSqliteReader(db);
+  it('makeEleaticReader returns [] for an unknown run id', async () => {
+    store = openStore(':memory:');
+    const reader = makeEleaticReader(store.db);
     expect(await reader('nope')).toEqual([]);
   });
 });
