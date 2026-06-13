@@ -256,6 +256,7 @@ const config: KnipConfig = {
     'packages/geo': {},
     'packages/shared-types': {},
     'packages/photo-quality': {},
+    'packages/eleatic': {},
 
     'tools/photo-curation': {
       // 2026-06-10: Part B (#971) wired the four Part A self-healing entries —

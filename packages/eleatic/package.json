@@ -1,0 +1,20 @@
+{
+  "name": "@bird-watch/eleatic",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc && node -e \"require('fs').cpSync('ui','dist/ui',{recursive:true})\"",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.8.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^24.13.2",
+    "vitest": "^4.1.8"
+  }
+}
