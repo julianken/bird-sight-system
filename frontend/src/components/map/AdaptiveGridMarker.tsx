@@ -144,7 +144,11 @@ function cellAriaLabel(tile: AdaptiveTile): string {
   return `${family}, ${countNoun(tile.count, 'observation')}`;
 }
 
-const NOTABLE_AMBER = '#f59e0b';
+// C50 (#1032, WCAG 1.4.11): #f59e0b on the cream light basemap #f4f1ea = 1.90:1
+// — below the 3:1 non-text floor. Theme-paired: dark keeps the amber (8.56:1 on
+// #0d1424); light uses --c-deep-ember #c43a1a (4.69:1 on #f4f1ea, >3:1).
+const NOTABLE_AMBER_DARK = '#f59e0b';
+const NOTABLE_AMBER_LIGHT = '#c43a1a';
 
 /**
  * Rows `<CellPopover>` shows per family — mirrors its private `POPOVER_CAP`
@@ -627,7 +631,7 @@ function TileCell({
           cy="12"
           r="11"
           fill="none"
-          stroke={NOTABLE_AMBER}
+          stroke={isDark ? NOTABLE_AMBER_DARK : NOTABLE_AMBER_LIGHT}
           strokeWidth="2"
         />
       )}
