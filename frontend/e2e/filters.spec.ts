@@ -113,4 +113,28 @@ test.describe('filter flows', () => {
 
     await expect(page.getByRole('dialog', { name: 'Filters' })).not.toBeVisible();
   });
+
+  // B2 (#1041): dark-mode filter controls must render themed — not native UA white.
+  // Asserts that the time-window <select> background is the themed --color-bg-surface
+  // (#1b2742 = rgb(27, 39, 66)) rather than the browser's default white/lightgray.
+  // Pattern after basemap-dark-flip.spec.ts:264 — setAttribute, not prefers-color-scheme
+  // emulation (the repo uses [data-theme] which overrides the media query).
+  test('dark mode: time-window select has themed background (not native white UA chrome)', async ({ page }) => {
+    // Panel is already open from beforeEach.
+    // Flip theme to dark.
+    await page.evaluate(() => {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    });
+
+    const select = app.filters.timeWindow;
+    await expect(select).toBeVisible();
+
+    const bg = await select.evaluate((el) =>
+      window.getComputedStyle(el).backgroundColor,
+    );
+
+    // --color-bg-surface dark = #1b2742 = rgb(27, 39, 66).
+    // Any browser-default white (rgb(255, 255, 255)) or lightgray would fail here.
+    expect(bg).toBe('rgb(27, 39, 66)');
+  });
 });

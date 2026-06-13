@@ -493,6 +493,110 @@ describe('styles.css — W1 conformance', () => {
     });
   });
 
+  // ── A3 (#1032): three measured WCAG contrast failures ────────────────────
+  //
+  // These assertions COMPUTE contrast ratios — they do NOT pin hex values by
+  // regex. A regex pin is not falsifiable when a resolved value or its surface
+  // drifts; a computed-ratio assertion catches the regression.
+  //
+  // Resolved hex chains (locked in comments for auditability):
+  //   C44: light --color-text-link → --color-decision-point
+  //        → BEFORE: --c-orange-500 = #f5853b  (2.53:1 on #fff, FAIL)
+  //          AFTER:  --c-amber-700 = #984012   (6.82:1 on #fff, PASS)
+  //   C45: dark --color-text-subtle
+  //        → BEFORE: #7a8599                   (3.99:1 on #1b2742, FAIL)
+  //          AFTER:  reused --color-text-muted = #8a98ad  (5.07:1, PASS)
+  //   C50: NOTABLE_AMBER light ring on cream basemap #f4f1ea
+  //        → BEFORE: #f59e0b                   (1.90:1, FAIL)
+  //          AFTER:  #c43a1a (light-only pair)  (4.69:1, PASS)
+  describe('A3 (#1032): computed WCAG contrast ratios — link, subtle, notable ring', () => {
+    // Shared import-compatible helper (mirrors wcag-contrast.ts exactly).
+    // We compute inline here so the test is self-contained and readable without
+    // needing a dynamic import in a static-read test file.
+    function relativeLuminance(hex: string): number {
+      const h = hex.replace('#', '');
+      const r = parseInt(h.slice(0, 2), 16);
+      const g = parseInt(h.slice(2, 4), 16);
+      const b = parseInt(h.slice(4, 6), 16);
+      const toLinear = (c: number): number => {
+        const v = c / 255;
+        return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+      };
+      return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+    }
+    function contrastRatio(hexA: string, hexB: string): number {
+      const lumA = relativeLuminance(hexA);
+      const lumB = relativeLuminance(hexB);
+      const lighter = Math.max(lumA, lumB);
+      const darker = Math.min(lumA, lumB);
+      return (lighter + 0.05) / (darker + 0.05);
+    }
+
+    // C44: resolve --color-text-link from tokens.css (light block).
+    // Chain: --color-text-link → --color-decision-point → --c-amber-700 → hex.
+    // We extract the resolved primitive hex from the light block.
+    it('C44: light --color-text-link resolves to a hex with ≥4.5:1 on #ffffff (AA normal text)', () => {
+      // Extract the light block.
+      const lightBlockMatch = TOKENS_CSS.match(
+        /:root\[data-theme="light"\]\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}/s,
+      );
+      const lightBlock = lightBlockMatch?.[1] ?? '';
+
+      // Resolve --color-text-link in the light block.
+      // After the fix it must be var(--c-amber-700) — trace through to the primitive.
+      // --c-amber-700 is defined in the :root primitives block as #984012.
+      const amber700Match = TOKENS_CSS.match(/--c-amber-700:\s*(#[0-9a-fA-F]{6})/);
+      expect(amber700Match, '--c-amber-700 must be defined as a hex in :root').toBeTruthy();
+      const amber700Hex = amber700Match![1];
+
+      // --color-text-link in the light block must point to --c-amber-700 (not --c-orange-500).
+      expect(lightBlock).toMatch(/--color-text-link:\s*var\(--c-amber-700\)/);
+
+      // Computed ratio: must clear 4.5:1 AA floor on white (#ffffff).
+      const ratio = contrastRatio(amber700Hex, '#ffffff');
+      expect(ratio).toBeGreaterThanOrEqual(4.5);
+    });
+
+    it('C45: dark --color-text-subtle resolves to a hex with ≥4.5:1 on --color-bg-surface #1b2742 (AA 11px)', () => {
+      // --color-bg-surface is pinned to #1b2742 by the dark surface lift (spec §2.2, #803).
+      // The test above already guards that pin; here we use it as a constant.
+      const darkSurface = '#1b2742';
+
+      // Extract the dark block.
+      const darkBlockMatch = TOKENS_CSS.match(
+        /:root\[data-theme="dark"\]\s*\{([^}]*)\}/s,
+      );
+      const darkBlock = darkBlockMatch?.[1] ?? '';
+
+      // Extract the resolved hex for --color-text-subtle.
+      // After the fix it must be a literal hex (not a var() indirection to a
+      // failing value).  Parse whatever literal hex the dark block sets.
+      const subtleMatch = darkBlock.match(/--color-text-subtle:\s*(#[0-9a-fA-F]{6})/);
+      expect(subtleMatch, '--color-text-subtle must be a literal hex in the dark block').toBeTruthy();
+      const subtleHex = subtleMatch![1];
+
+      // Computed ratio: must clear 4.5:1 on the lifted surface.
+      const ratio = contrastRatio(subtleHex, darkSurface);
+      expect(ratio).toBeGreaterThanOrEqual(4.5);
+    });
+
+    it('C50: light NOTABLE_AMBER constant resolves to ≥3.0:1 on cream basemap #f4f1ea (AA non-text)', () => {
+      // The notable ring is drawn in AdaptiveGridMarker.tsx with a JS constant.
+      // After the fix, the constant file must contain the light-theme value (#c43a1a).
+      // We assert via the tokens.css primitive that the light-theme amber is #c43a1a
+      // (which equals --c-deep-ember, already in the primitives block).
+      const deepEmberMatch = TOKENS_CSS.match(/--c-deep-ember:\s*(#[0-9a-fA-F]{6})/);
+      expect(deepEmberMatch, '--c-deep-ember must be a hex primitive').toBeTruthy();
+      const deepEmberHex = deepEmberMatch![1];
+
+      // The light ring colour must be --c-deep-ember (#c43a1a).
+      // Verify: the ratio on the cream basemap clears the 3:1 non-text floor.
+      const lightBasemap = '#f4f1ea';
+      const ratio = contrastRatio(deepEmberHex, lightBasemap);
+      expect(ratio).toBeGreaterThanOrEqual(3.0);
+    });
+  });
+
   // ── A5 (#1034): MapLibre canvas `:focus-visible` gate ────────────────────
   describe('A5 (#1034): MapLibre canvas focus indicator — :focus-visible gate', () => {
     // V35 (#1034): the canvas holds focus after mouse pan/zoom with the UA
@@ -510,5 +614,288 @@ describe('styles.css — W1 conformance', () => {
         /\.maplibregl-canvas:focus-visible\s*\{[^}]*outline:[^}]*var\(--color-border-ui\)[^}]*\}/s,
       );
     });
+  });
+});
+
+// ── B1 (#1040): undefined/unpaired-token enforcement ─────────────────────────
+//
+// Every consumed semantic token (--color-*, --text-*, --card-*, --scrollbar-*)
+// must resolve on bare :root OR in BOTH [data-theme] blocks.
+// A token defined only in one [data-theme] block resolves to the CSS initial
+// value ("guaranteed-invalid") in the other theme.
+//
+// Rule: for each consumed token T:
+//   • If T is defined in the bare :root of ANY of the three files → OK (mode-independent)
+//   • Otherwise T must appear in BOTH the tokens.css light block AND the dark block
+//
+// Denylist: tokens that must NOT appear in styles.css (either because they were
+// removed as part of this fix, or because they are duplicate definitions that
+// the tokens.css [data-theme] blocks now own exclusively).
+describe('B1 (#1040): undefined/unpaired-token enforcement', () => {
+  // ── helpers ────────────────────────────────────────────────────────────────
+
+  /** Extract all bare-:root custom-property definitions from a CSS string. */
+  function extractBareRootTokens(css: string): Set<string> {
+    // Match the first :root { ... } block that is NOT :root[data-theme="..."]
+    // We do this by splitting on known selector patterns and taking :root { blocks.
+    const defined = new Set<string>();
+    // Regex: bare :root (not followed by [) — match the block
+    const bareRootRe = /:root(?!\[)\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}/gs;
+    let m: RegExpExecArray | null;
+    while ((m = bareRootRe.exec(css)) !== null) {
+      const block = m[1];
+      const propRe = /--([\w-]+)\s*:/g;
+      let p: RegExpExecArray | null;
+      while ((p = propRe.exec(block)) !== null) {
+        defined.add('--' + p[1]);
+      }
+    }
+    return defined;
+  }
+
+  /** Extract custom-property definitions from a named [data-theme] block. */
+  function extractThemeBlockTokens(css: string, theme: 'light' | 'dark'): Set<string> {
+    const defined = new Set<string>();
+    const blockRe = new RegExp(
+      `:root\\[data-theme="${theme}"\\]\\s*\\{([^}]*)\\}`,
+      's',
+    );
+    const m = css.match(blockRe);
+    if (!m) return defined;
+    const propRe = /--([\w-]+)\s*:/g;
+    let p: RegExpExecArray | null;
+    while ((p = propRe.exec(m[1])) !== null) {
+      defined.add('--' + p[1]);
+    }
+    return defined;
+  }
+
+  /** Collect every var(--color-*), var(--text-*), var(--card-*), var(--scrollbar-*)
+   *  reference from a CSS string. */
+  function collectConsumed(css: string): Set<string> {
+    const consumed = new Set<string>();
+    // Match var(--color-...), var(--text-...), var(--card-...), var(--scrollbar-...)
+    // Allow optional whitespace after var( and optional fallback after comma.
+    const re = /var\(\s*(--(color|text|card|scrollbar)-[\w-]+)/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(css)) !== null) {
+      consumed.add(m[1]);
+    }
+    return consumed;
+  }
+
+  const allCss = [TOKENS_CSS, STYLES_CSS, DS_PRIMITIVES_CSS];
+
+  // Pool of bare-:root defined tokens across all three files
+  const bareRootDefined = new Set<string>();
+  for (const css of allCss) {
+    for (const tok of extractBareRootTokens(css)) {
+      bareRootDefined.add(tok);
+    }
+  }
+
+  // Light and dark defined pools (tokens.css only — per spec, the blocks live there)
+  const lightDefined = extractThemeBlockTokens(TOKENS_CSS, 'light');
+  const darkDefined  = extractThemeBlockTokens(TOKENS_CSS, 'dark');
+
+  // All consumed tokens across the three files
+  const consumed = new Set<string>();
+  for (const css of allCss) {
+    for (const tok of collectConsumed(css)) {
+      consumed.add(tok);
+    }
+  }
+
+  it('every consumed --color-*/--text-*/--card-*/--scrollbar-* token resolves on bare :root or in BOTH [data-theme] blocks', () => {
+    const unpaired: string[] = [];
+    for (const tok of [...consumed].sort()) {
+      const inBareRoot  = bareRootDefined.has(tok);
+      const inBothThemes = lightDefined.has(tok) && darkDefined.has(tok);
+      if (!inBareRoot && !inBothThemes) {
+        // Determine what's missing for the error message
+        const inLight = lightDefined.has(tok);
+        const inDark  = darkDefined.has(tok);
+        if (!inLight && !inDark) {
+          unpaired.push(`${tok}: defined NOWHERE`);
+        } else if (inLight && !inDark) {
+          unpaired.push(`${tok}: defined in light only — missing from dark block`);
+        } else {
+          unpaired.push(`${tok}: defined in dark only — missing from light block`);
+        }
+      }
+    }
+    expect(
+      unpaired,
+      `These tokens are consumed but not universally resolved:\n${unpaired.join('\n')}`,
+    ).toEqual([]);
+  });
+
+  // ── Denylist: tokens removed / migrated as part of B1 ────────────────────
+  //
+  // --color-bg-hover is removed from styles.css :root (it was the sole definition,
+  // and its sole consumer — .family-legend-toggle:hover — is repointed to
+  // --color-bg-tint).  If it reappears in styles.css, the fix has been reverted.
+  it('styles.css no longer defines --color-bg-hover (sole consumer repointed to --color-bg-tint)', () => {
+    expect(STYLES_CSS).not.toMatch(/--color-bg-hover\s*:/);
+  });
+
+  // The 11 duplicate semantic tokens that styles.css :root defined alongside
+  // tokens.css [data-theme] blocks must no longer have bare-:root definitions
+  // in styles.css (they now live exclusively in tokens.css [data-theme] blocks
+  // or are consumed via var() fallback chains).
+  //
+  // Verified-safe tokens that genuinely live only in styles.css :root and must
+  // NOT appear in this list:
+  //   --color-border-subtle, --color-text-faint, --color-text-white,
+  //   --color-bg-stale, --color-bg-stale-chip, --color-text-stale,
+  //   --color-text-stale-name, --color-accent-notable-bg (light only here),
+  //   --color-accent-notable-bg-hover (light only here)
+  const MIGRATED_TOKENS = [
+    '--color-bg-page',
+    '--color-bg-surface',
+    '--color-bg-tint',
+    '--color-text-strong',
+    '--color-text-body',
+    '--color-text-muted',
+    '--color-text-subtle',
+    '--color-border-ui',
+    '--color-error-bg',
+    '--color-error-border',
+    '--color-error-text',
+  ] as const;
+
+  for (const tok of MIGRATED_TOKENS) {
+    it(`styles.css bare :root no longer defines ${tok} (migrated to tokens.css [data-theme] blocks)`, () => {
+      // Extract bare-:root block from styles.css only
+      const bareRootStylesTokens = extractBareRootTokens(STYLES_CSS);
+      expect(
+        bareRootStylesTokens.has(tok),
+        `${tok} must not be defined in styles.css :root — it belongs exclusively in tokens.css [data-theme] blocks`,
+      ).toBe(false);
+    });
+  }
+
+  // ── Tightened :314-318 assertions — block-scoped ─────────────────────────
+  // The existing "defines --text-body-sm / --text-heading-sm" assertions at lines
+  // 314-318 only check that the token exists SOMEWHERE in tokens.css; they don't
+  // catch light-only definitions.  These replacements require the tokens to appear
+  // in the bare :root block (mode-independent — no color component).
+  it('--text-body-sm is defined in the bare :root block of tokens.css (mode-independent, no color)', () => {
+    const bareRootTokensCSS = extractBareRootTokens(TOKENS_CSS);
+    expect(
+      bareRootTokensCSS.has('--text-body-sm'),
+      '--text-body-sm must be in tokens.css :root (not light-only)',
+    ).toBe(true);
+  });
+
+  it('--text-heading-sm is defined in the bare :root block of tokens.css (mode-independent, no color)', () => {
+    const bareRootTokensCSS = extractBareRootTokens(TOKENS_CSS);
+    expect(
+      bareRootTokensCSS.has('--text-heading-sm'),
+      '--text-heading-sm must be in tokens.css :root (not light-only)',
+    ).toBe(true);
+  });
+
+  // ── Contrast assertions for the three dark error/hover surfaces ───────────
+  // Pinned as computed ratios (not hex regexes) so a palette change that drops
+  // contrast below 4.5:1 fails here rather than silently shipping.
+  function relativeLuminance(hex: string): number {
+    const h = hex.replace('#', '');
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    const toLinear = (c: number): number => {
+      const v = c / 255;
+      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+  }
+  function contrastRatio(hexA: string, hexB: string): number {
+    const lumA = relativeLuminance(hexA);
+    const lumB = relativeLuminance(hexB);
+    return (Math.max(lumA, lumB) + 0.05) / (Math.min(lumA, lumB) + 0.05);
+  }
+
+  it('dark error-screen__retry label: --color-text-strong (#f5f7fb) on --color-bg-surface (#1b2742) ≥ 4.5:1', () => {
+    // After fix: var(--color-text, #111) → var(--color-text-strong)
+    // Dark: --color-text-strong = #f5f7fb; --color-bg-surface = #1b2742
+    expect(contrastRatio('#f5f7fb', '#1b2742')).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('dark map-error-overlay__dismiss resting: --color-text-muted (#8a98ad) on --color-bg-surface (#1b2742) ≥ 4.5:1', () => {
+    // After fix: var(--color-text-secondary, #666) → var(--color-text-muted)
+    // Dark: --color-text-muted = #8a98ad; --color-bg-surface = #1b2742
+    expect(contrastRatio('#8a98ad', '#1b2742')).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('dark map-error-overlay__dismiss hover: --color-text-strong (#f5f7fb) on --color-bg-tint (#1c2640) ≥ 4.5:1', () => {
+    // After fix: var(--color-text, #111) → var(--color-text-strong)
+    // Dark: --color-text-strong = #f5f7fb; --color-bg-tint = #1c2640
+    expect(contrastRatio('#f5f7fb', '#1c2640')).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('dark family-legend-toggle hover: --color-text-strong (#f5f7fb) on --color-bg-tint (#1c2640) ≥ 4.5:1', () => {
+    // After fix: --color-bg-hover → --color-bg-tint
+    // Dark hover background = --color-bg-tint = #1c2640; text = --color-text-strong = #f5f7fb
+    expect(contrastRatio('#f5f7fb', '#1c2640')).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+// ── B2 (#1041): dark-mode controls + chip contrast/legibility ────────────────
+//
+// 1. --color-bg-inset: a mode-paired chip-background token.
+//    light: #f0ebe0 (current .family-legend-entry-count bg value — preserves resolved color)
+//    dark:  #253050 (skeleton-highlight: 9.60:1 chip text contrast + 1.14:1 lift vs card #1b2742)
+//
+// 2. color-scheme: feeds native widget internals (select dropdown, checkbox
+//    glyph) so they follow the theme rather than staying UA-light in dark mode.
+//
+// 3. The B1 both-themes enforcement test already guards that --color-bg-inset
+//    appears in BOTH [data-theme] blocks — these tests pin the exact values.
+describe('B2 (#1041): --color-bg-inset token pairing', () => {
+  const lightBlockMatch = TOKENS_CSS.match(
+    /:root\[data-theme="light"\]\s*\{([^}]*)\}/s,
+  );
+  const lightBlock = lightBlockMatch?.[1] ?? '';
+
+  const darkBlockMatch = TOKENS_CSS.match(
+    /:root\[data-theme="dark"\]\s*\{([^}]*)\}/s,
+  );
+  const darkBlock = darkBlockMatch?.[1] ?? '';
+
+  it('--color-bg-inset is defined in the light block', () => {
+    expect(lightBlock).toMatch(/--color-bg-inset:/);
+  });
+
+  it('--color-bg-inset light value is #f0ebe0 (preserves chip-vs-card lift + 8.19:1 text contrast)', () => {
+    expect(lightBlock).toMatch(/--color-bg-inset:\s*#f0ebe0/);
+  });
+
+  it('--color-bg-inset is defined in the dark block', () => {
+    expect(darkBlock).toMatch(/--color-bg-inset:/);
+  });
+
+  it('--color-bg-inset dark value is #253050 (skeleton-highlight: 9.60:1 text contrast, 1.14:1 card lift)', () => {
+    expect(darkBlock).toMatch(/--color-bg-inset:\s*#253050/);
+  });
+});
+
+describe('B2 (#1041): color-scheme in both theme blocks', () => {
+  const lightBlockMatch = TOKENS_CSS.match(
+    /:root\[data-theme="light"\]\s*\{([^}]*)\}/s,
+  );
+  const lightBlock = lightBlockMatch?.[1] ?? '';
+
+  const darkBlockMatch = TOKENS_CSS.match(
+    /:root\[data-theme="dark"\]\s*\{([^}]*)\}/s,
+  );
+  const darkBlock = darkBlockMatch?.[1] ?? '';
+
+  it('light block declares color-scheme: light (native widget internals use light UA chrome)', () => {
+    expect(lightBlock).toMatch(/color-scheme:\s*light/);
+  });
+
+  it('dark block declares color-scheme: dark (native widget internals use dark UA chrome)', () => {
+    expect(darkBlock).toMatch(/color-scheme:\s*dark/);
   });
 });

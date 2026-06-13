@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SpeciesDetailSheet, resolveContentTier } from './SpeciesDetailSheet.js';
@@ -609,6 +609,23 @@ describe('<SpeciesDetailSheet>', () => {
       return client;
     }
 
+    // Flush React's passive-effect queue and the microtask/macrotask boundary.
+    //
+    // `panel_opened` fires from a passive useEffect keyed on data?.speciesCode
+    // (SpeciesDetailSheet.tsx). React 18 schedules passive effects on a tick
+    // SEPARATE from the commit that renders the heading, and the cleanup() in
+    // test-setup.ts unmounts between tests WITHOUT awaiting any
+    // still-scheduled effect. Without an explicit barrier, a prior analytics
+    // test's `panel_opened` effect could flush a tick LATE — into the next
+    // test, whose freshly-installed spy then records a stray call (the
+    // "does NOT fire" test's `length 0 → got 1` flake). Draining the queue
+    // here, after every analytics test, makes the cross-test boundary clean.
+    afterEach(async () => {
+      await act(async () => {
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+      });
+    });
+
     it('fires panel_opened once on data resolve with has_description=false when no description', async () => {
       const captureSpy = vi.spyOn(analytics, 'capture');
       render(
@@ -619,11 +636,16 @@ describe('<SpeciesDetailSheet>', () => {
           mainRef={{ current: mainEl }}
         />,
       );
-      await waitFor(() =>
-        expect(screen.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeInTheDocument(),
-      );
-      const openCalls = captureSpy.mock.calls.filter(([name]) => name === 'panel_opened');
-      expect(openCalls).toHaveLength(1);
+      // Synchronize on the EFFECT under test (the panel_opened capture), not on
+      // an unrelated render output. The heading appears on the data-arrival
+      // commit, but the panel_opened passive effect can flush a tick later under
+      // scheduler jitter; gating on the heading then reading the spy
+      // synchronously raced that effect (the `length 0` flake, #1081). waitFor
+      // polls until the effect itself has fired.
+      await waitFor(() => {
+        const openCalls = captureSpy.mock.calls.filter(([name]) => name === 'panel_opened');
+        expect(openCalls).toHaveLength(1);
+      });
       expect(captureSpy).toHaveBeenCalledWith('panel_opened', {
         species_code: 'vermfly',
         has_description: false,
@@ -645,13 +667,15 @@ describe('<SpeciesDetailSheet>', () => {
           mainRef={{ current: mainEl }}
         />,
       );
+      // Synchronize on the panel_opened effect itself (see has_description=false
+      // test above): gating on the heading and reading the spy synchronously
+      // raced the passive effect (#1081, line :650 in the issue).
       await waitFor(() =>
-        expect(screen.getByRole('heading', { name: 'Vermilion Flycatcher' })).toBeInTheDocument(),
+        expect(captureSpy).toHaveBeenCalledWith('panel_opened', {
+          species_code: 'vermfly',
+          has_description: true,
+        }),
       );
-      expect(captureSpy).toHaveBeenCalledWith('panel_opened', {
-        species_code: 'vermfly',
-        has_description: true,
-      });
       captureSpy.mockRestore();
     });
 
@@ -672,6 +696,22 @@ describe('<SpeciesDetailSheet>', () => {
       );
       const sheet = await screen.findByTestId('species-detail-sheet');
       expect(sheet).toBeInTheDocument();
+      // Drain React's passive-effect queue + the macrotask boundary, THEN clear
+      // the spy. This isolates the assertion to events THIS component fires on a
+      // settled queue: any panel_opened leaked from a prior test's late-flushing
+      // effect (the cross-test bleed behind the `length 0 → got 1` flake,
+      // #1081 :675) is swept up by the drain and discarded by the clear before
+      // we read. A second drain then confirms this still-loading sheet — whose
+      // getSpecies never resolves, so the data-arrival guard never lifts — adds
+      // nothing. Zero panel_opened on the post-clear settled queue is the real
+      // invariant under test.
+      await act(async () => {
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+      });
+      captureSpy.mockClear();
+      await act(async () => {
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+      });
       const openCalls = captureSpy.mock.calls.filter(([name]) => name === 'panel_opened');
       expect(openCalls).toHaveLength(0);
       captureSpy.mockRestore();

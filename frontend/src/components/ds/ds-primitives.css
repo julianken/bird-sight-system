@@ -260,6 +260,33 @@
   opacity: 0.9;
 }
 
+/*
+ * B2 (#1041): dark-legend silhouette visibility floor.
+ *
+ * Some families (e.g. Anhingas near-black #1a1a2e, Bulbuls dark red-brown
+ * #4a1a1a) are nearly invisible on the dark legend card (#1b2742). The DB
+ * hex is used directly as --family-fill / --family-silhouette-color with no
+ * dark-mode lightening, so the silhouettes look like the missing-icon bug.
+ *
+ * Fix: scope a color-mix() lightening to the legend context only — map SDF
+ * markers are untouched (the .family-legend scoping rule keeps this inert
+ * everywhere else). 70% original + 30% white lifts near-blacks into the
+ * clearly visible range while leaving already-bright families (cardinals,
+ * goldfinches) only slightly muted.
+ *
+ * Both render paths covered:
+ *   1. Inline-SVG path (.family-legend .family-silhouette svg) — overrides fill.
+ *   2. CSS-mask-img path (.family-legend .family-silhouette-img) — overrides
+ *      background-color (the mask's tint source, ds-primitives.css:239).
+ */
+[data-theme="dark"] .family-legend .family-silhouette svg {
+  fill: color-mix(in oklab, var(--family-fill) 70%, white);
+}
+
+[data-theme="dark"] .family-legend .family-silhouette-img {
+  background-color: color-mix(in oklab, var(--family-silhouette-color, var(--color-text-muted)) 70%, white);
+}
+
 /* ─────────────────────────────────────────────────────────────────────────────
    <Photo>
    CLS-safe: aspect-ratio reserves space before the image decodes.

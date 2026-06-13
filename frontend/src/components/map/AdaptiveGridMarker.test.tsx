@@ -523,7 +523,10 @@ describe('AdaptiveGridMarker', () => {
 
   // --- Notable indicator (AC8 — inherited from StackedSilhouetteMarker) ---
 
-  it('notable indicator: isNotable=true renders amber <circle> ring inside SVG, ordered BEFORE halo path', () => {
+  it('notable indicator: isNotable=true renders notable ring inside SVG, ordered BEFORE halo path', () => {
+    // C50 (#1032, WCAG 1.4.11): ring is theme-paired. Light mode renders
+    // NOTABLE_AMBER_LIGHT (#c43a1a, 4.69:1 on #f4f1ea); dark keeps #f59e0b.
+    // This test runs without data-theme="dark" → light mode → #c43a1a.
     render(
       <AdaptiveGridMarker
         shape={SHAPE_1x1}
@@ -539,7 +542,7 @@ describe('AdaptiveGridMarker', () => {
     const circles = document.querySelectorAll('svg circle');
     expect(circles.length).toBeGreaterThanOrEqual(1);
     const ring = circles[0];
-    expect(ring.getAttribute('stroke')).toBe('#f59e0b');
+    expect(ring.getAttribute('stroke')).toBe('#c43a1a');
     expect(ring.getAttribute('fill')).toBe('none');
     // DOM order: the circle must precede the silhouette <path> within the SVG.
     const svg = ring.closest('svg')!;
