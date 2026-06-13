@@ -440,6 +440,20 @@ async function fireAllIdleHandlers() {
   }
 }
 
+// #1134: `deferMapLoad`/`deferredOnLoad` are module-scope flags. The load-gating
+// tests (#736, #1049) set `deferMapLoad = true` to hold MockMap's `onLoad` so they
+// can assert the pre-`load` state. A describe block whose `beforeEach` forgot to
+// reset these would inherit a stale `deferMapLoad = true` under describe-shuffle:
+// MockMap then never fires `onLoad`, `mapReady` never flips, no `idle` listener
+// registers, and `await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'))`
+// times out. This top-level afterEach guarantees the defaults are restored after
+// every test in the file regardless of describe order, so no future block can
+// re-introduce the leak even if its beforeEach omits the reset.
+afterEach(() => {
+  deferMapLoad = false;
+  deferredOnLoad = null;
+});
+
 describe('MapCanvas', () => {
   beforeEach(() => {
     capturedSourceProps = {};
@@ -1767,6 +1781,8 @@ describe('#860 — lone clustered bucket opens its real species (coarse pointer)
     registeredHandlers = {};
     bareHandlers = {};
     bareHandlersAll = {};
+    deferMapLoad = false;
+    deferredOnLoad = null;
     fakeMap = makeFakeMap();
     document.documentElement.removeAttribute('data-theme');
 
@@ -2197,6 +2213,8 @@ describe('onSelectSpecies popover wire', () => {
     registeredHandlers = {};
     bareHandlers = {};
     bareHandlersAll = {};
+    deferMapLoad = false;
+    deferredOnLoad = null;
     fakeMap = makeFakeMap();
     document.documentElement.removeAttribute('data-theme');
 
@@ -2362,6 +2380,8 @@ describe('ObservationPopover anchoring — displaced silhouette regression (#718
     registeredHandlers = {};
     bareHandlers = {};
     bareHandlersAll = {};
+    deferMapLoad = false;
+    deferredOnLoad = null;
     fakeMap = makeFakeMap();
     document.documentElement.removeAttribute('data-theme');
     __resetAdaptiveGridCacheForTesting();
