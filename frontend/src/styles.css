@@ -259,6 +259,43 @@ body {
   }
 }
 
+/* #1049 (M-12): basemap-failure retry card. Mirrors the .map-error-overlay
+   precedent above (same transient-layer tier-2 placement, same --z-rail tier,
+   same top/center inset and width cap) so a basemap failure and a data-fetch
+   failure read as the same recoverable affordance. Distinct class (not shared)
+   because the two can coexist (data error + basemap error) and because the
+   basemap card carries no dismiss button — there is nothing to dismiss to (a
+   blank map is not a usable state), only Retry. */
+.map-basemap-error {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(var(--card-maxw-identity, 360px), calc(100vw - 2 * var(--card-inset, 12px)));
+  background: var(--color-bg-surface);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-elevation-3);
+  z-index: var(--z-rail);
+  display: flex;
+  align-items: flex-start;
+}
+
+.map-basemap-error .status-block {
+  flex: 1;
+}
+
+/* On narrow phone viewports (≤ 440px) fill edge-to-edge with inset margins
+   while keeping true vertical center (translateY(-50%) from top:50%). */
+@media (max-width: 440px) {
+  .map-basemap-error {
+    left: var(--card-inset, 12px);
+    right: var(--card-inset, 12px);
+    top: 50%;
+    transform: translateY(-50%);
+    width: auto;
+  }
+}
+
 /* Skip-link (issue #247). WCAG 2.4.1 (Bypass Blocks) — keyboard users
    skip past the map canvas (which is intentionally NOT in the global tab
    order — a 344-marker tab sequence is hostile per UX/a11y review) to
