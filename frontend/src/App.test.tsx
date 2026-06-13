@@ -273,6 +273,11 @@ vi.mock('./api/client.js', async () => {
       // dictionary only affects low-zoom popover NAME resolution, which these
       // scope/legend/lede tests don't assert on.
       getSpeciesDictionary = vi.fn().mockResolvedValue([]);
+      // #species: App mounts useSpeciesInScope → client.getSpeciesInScope to
+      // source the FiltersBar combobox. Stub it (empty represented set) so the
+      // hook doesn't throw; these scope/legend/lede tests don't assert on the
+      // species combobox contents.
+      getSpeciesInScope = vi.fn().mockResolvedValue([]);
     },
   };
 });

@@ -169,6 +169,25 @@ export class ApiClient {
     return this.get<SpeciesDictEntry[]>('/api/species');
   }
 
+  // The distinct species REPRESENTED in the current scope — the source for the
+  // FiltersBar Species combobox (replaces the full ~17.8k global dictionary as
+  // the candidate list). Sends ONLY the non-species, non-viewport filters:
+  // `species`/`bbox`/`zoom` are deliberately NOT forwarded even if present on
+  // the filter object, so the combobox keeps offering every sibling species
+  // while one is active (no self-narrowing) and stays the same complete list at
+  // any zoom. Same `{code,comName,familyCode}` shape as the dictionary; plain
+  // idempotent GET (CDN/browser-cached — no in-flight dedup needed).
+  getSpeciesInScope(
+    f: Pick<ObservationFilters, 'since' | 'notable' | 'familyCode' | 'stateCode'> = {},
+  ): Promise<SpeciesDictEntry[]> {
+    const url = new URL('/api/species-in-scope', 'http://x');
+    if (f.since) url.searchParams.set('since', f.since);
+    if (f.notable === true) url.searchParams.set('notable', 'true');
+    if (f.familyCode) url.searchParams.set('family', f.familyCode);
+    if (f.stateCode) url.searchParams.set('state', f.stateCode);
+    return this.get<SpeciesDictEntry[]>(url.pathname + url.search);
+  }
+
   getSilhouettes(): Promise<FamilySilhouette[]> {
     return this.get<FamilySilhouette[]>('/api/silhouettes');
   }

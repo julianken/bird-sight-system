@@ -39,6 +39,7 @@ test.describe('F2 #1062 — filters card↔sheet boundary at ≤480', () => {
     // Hermetic stubs — mirror filters.spec.ts so the typeahead/datalist never
     // touch the seeded DB.
     await apiStub.stubObservations(VERMFLY_OBS);
+    await apiStub.stubSpeciesInScope(SPECIES_DICT_FIXTURE);
     await apiStub.stubSpeciesDictionary(SPECIES_DICT_FIXTURE);
     app = new AppPage(page);
     await app.goto();

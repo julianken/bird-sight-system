@@ -5,7 +5,7 @@ import type { Pool } from '@bird-watch/db-client';
 import {
   getHotspots, getObservations, getObservationsAggregated,
   getFreshestObservationAt,
-  getSpeciesMeta, getSpeciesDictionary, getSpeciesWithPhotos, getSilhouettes,
+  getSpeciesMeta, getSpeciesDictionary, getSpeciesInScope, getSpeciesWithPhotos, getSilhouettes,
   getSpeciesPhenology,
   listStatesWithBbox,
   // #878 — precomputed per-scope aggregation grid.
@@ -405,6 +405,51 @@ export function createApp(deps: AppDeps): Hono {
   app.get('/api/species/with-photos', async c => {
     const rows = await getSpeciesWithPhotos(deps.pool);
     c.header('Cache-Control', cacheControlFor('species'));
+    return c.json(rows);
+  });
+
+  // The distinct species REPRESENTED in the current scope (#species-combobox):
+  // every species with ≥1 observation matching the active since/notable/family
+  // filters and the optional `?state=` clip. Backs the FiltersBar Species
+  // combobox so it offers ONLY birds the user can actually find on the map for
+  // this scope — not the full ~17.8k global /api/species dictionary. It takes
+  // NO `?species=` (so the combobox keeps offering siblings while one is active)
+  // and NO `?bbox=`/`?zoom=` (the list is the whole scope's species at any
+  // zoom). Same allowlist validation as /api/observations for the four params it
+  // does honor. Registered BEFORE `/api/species/:code` for the same explicit-
+  // precedence reason as /api/species above — `species-in-scope` is a distinct
+  // single segment and cannot be shadowed by `:code`, but declaring it first
+  // keeps precedence order-independent of any future router change.
+  app.get('/api/species-in-scope', async c => {
+    const sinceResult = parseSince(c.req.query('since'));
+    if (!sinceResult.ok) {
+      console.log(JSON.stringify(sinceResult.log));
+      return c.json({ error: sinceResult.error }, 400);
+    }
+    const notableResult = parseNotable(c.req.query('notable'));
+    if (!notableResult.ok) {
+      console.log(JSON.stringify(notableResult.log));
+      return c.json({ error: notableResult.error }, 400);
+    }
+    const familyResult = parseFamily(c.req.query('family'));
+    if (!familyResult.ok) {
+      console.log(JSON.stringify(familyResult.log));
+      return c.json({ error: familyResult.error }, 400);
+    }
+    const stateResult = parseState(c.req.query('state'));
+    if (!stateResult.ok) {
+      console.log(JSON.stringify(stateResult.log));
+      return c.json({ error: stateResult.error }, 400);
+    }
+
+    const filters: Parameters<typeof getSpeciesInScope>[1] = {};
+    if (sinceResult.value !== undefined) filters.since = sinceResult.value;
+    if (notableResult.value === true) filters.notable = true;
+    if (familyResult.value !== undefined) filters.familyCode = familyResult.value;
+    if (stateResult.value !== undefined) filters.stateCode = stateResult.value;
+
+    const rows = await getSpeciesInScope(deps.pool, filters);
+    c.header('Cache-Control', cacheControlFor('species-scope'));
     return c.json(rows);
   });
 

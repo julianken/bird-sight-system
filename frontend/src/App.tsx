@@ -13,6 +13,7 @@ import type { ScopeResolution } from './state/scope-types.js';
 import { useBirdData } from './data/use-bird-data.js';
 import { useSilhouettes } from './data/use-silhouettes.js';
 import { useSpeciesDictionary } from './data/use-species-dictionary.js';
+import { useSpeciesInScope, type SpeciesScopeFilters } from './data/use-species-in-scope.js';
 import { useStates } from './data/use-states.js';
 import {
   familyCountsFromBuckets,
@@ -908,22 +909,49 @@ export function App() {
   // correctly: defer the no-match verdict while loading (a verdict against a
   // not-yet-populated index would be a false hint), and surface a fetch-error
   // outcome on error — both honoring the "never silent" contract.
-  const {
-    dictionary,
-    loading: dictionaryLoading,
-    error: dictionaryError,
-  } = useSpeciesDictionary(apiClient);
+  // The dictionary still resolves bucket/popover/deep-link species CODES → names
+  // (threaded to MapSurface below). It is NO LONGER the Species combobox source:
+  // its loading/error are unused here now (the combobox sources from
+  // useSpeciesInScope instead — see below).
+  const { dictionary } = useSpeciesDictionary(apiClient);
 
-  // Dictionary-backed Species filter index: `{ code, comName }` per entry,
-  // common-name-sorted to match the prior observation-derived ordering. Memoized
-  // on the dictionary identity (stable once resolved, per the hook's tab cache).
+  // Species combobox source filters: the SAME non-species filters the map fetch
+  // uses, MINUS speciesCode/bbox/zoom. Species is omitted so the combobox keeps
+  // offering every sibling while one is active (no self-narrowing); bbox/zoom are
+  // omitted so the list is the whole scope's species at any zoom. `stateCode` is
+  // sent ONLY for a state scope (whole-US sends none → national species set).
+  const speciesScopeFilters = useMemo<SpeciesScopeFilters>(() => {
+    const f: SpeciesScopeFilters = { since: state.since };
+    if (state.notable) f.notable = true;
+    if (state.familyCode) f.familyCode = state.familyCode;
+    if (scopeStateCode) f.stateCode = scopeStateCode;
+    return f;
+  }, [state.since, state.notable, state.familyCode, scopeStateCode]);
+
+  // The represented-species index backing the FiltersBar combobox (#species —
+  // "only show species that are represented"). Gated on `scopeActive`: while
+  // unscoped the combobox is not in use, so no fetch fires.
+  const {
+    speciesIndex: scopedSpeciesIndex,
+    loading: speciesIndexLoading,
+    error: speciesIndexError,
+  } = useSpeciesInScope(apiClient, speciesScopeFilters, scopeActive);
+
+  // Keep an actively-filtered species selectable even if it has zero current
+  // sightings in scope (e.g. a `?species=` deep link to a bird not observed in
+  // the last 14d): the scoped list would omit it, leaving the field blank and
+  // the user unable to read/clear what they filtered to. Union it in, resolving
+  // its name from the dictionary, so the field always shows the active species.
   const speciesIndex = useMemo<SpeciesOption[]>(() => {
-    const opts: SpeciesOption[] = [];
-    for (const [code, { comName, familyCode }] of dictionary) {
-      opts.push({ code, comName, familyCode });
-    }
-    return opts.sort((a, b) => a.comName.localeCompare(b.comName));
-  }, [dictionary]);
+    if (!state.speciesCode) return scopedSpeciesIndex;
+    if (scopedSpeciesIndex.some(s => s.code === state.speciesCode)) return scopedSpeciesIndex;
+    const meta = dictionary.get(state.speciesCode);
+    if (!meta) return scopedSpeciesIndex;
+    return [
+      ...scopedSpeciesIndex,
+      { code: state.speciesCode, comName: meta.comName, familyCode: meta.familyCode },
+    ].sort((a, b) => a.comName.localeCompare(b.comName));
+  }, [scopedSpeciesIndex, state.speciesCode, dictionary]);
 
   // Active species meta for the detail view (issue #327 task-11). The
   // hook fires only when state.view === 'detail' AND state.detail is set
@@ -1394,8 +1422,8 @@ export function App() {
               familyCode={state.familyCode}
               families={families}
               speciesIndex={speciesIndex}
-              speciesIndexLoading={dictionaryLoading}
-              speciesIndexError={dictionaryError !== null}
+              speciesIndexLoading={speciesIndexLoading}
+              speciesIndexError={speciesIndexError !== null}
               onChange={set}
             />
           </div>

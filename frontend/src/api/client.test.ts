@@ -293,6 +293,42 @@ describe('ApiClient', () => {
     expect(rows[0]).toEqual({ code: 'norcar', comName: 'Northern Cardinal', familyCode: 'cardinalidae' });
   });
 
+  it('fetches represented species from GET /api/species-in-scope with the non-species filters only', async () => {
+    const rows = JSON.stringify([
+      { code: 'norcar', comName: 'Northern Cardinal', familyCode: 'cardinalidae' },
+    ]);
+    vi.spyOn(global, 'fetch').mockResolvedValue(new Response(rows, { status: 200 }));
+    const client = new ApiClient({ baseUrl: '' });
+    const out = await client.getSpeciesInScope({
+      since: '14d', notable: true, familyCode: 'cardinalidae', stateCode: 'US-AZ',
+      // speciesCode/bbox/zoom MUST be ignored even if a caller passes them.
+      speciesCode: 'norcar', bbox: [-112, 31, -110, 33], zoom: 3,
+    });
+    const call = (fetch as unknown as { mock: { calls: [string, unknown][] } }).mock.calls[0]!;
+    const url = call[0];
+    expect(url).toContain('/api/species-in-scope');
+    expect(url).toContain('since=14d');
+    expect(url).toContain('notable=true');
+    expect(url).toContain('family=cardinalidae');
+    expect(url).toContain('state=US-AZ');
+    // The combobox source must be species/bbox/zoom-INDEPENDENT.
+    expect(url).not.toContain('species=');
+    expect(url).not.toContain('bbox=');
+    expect(url).not.toContain('zoom=');
+    expect(out).toEqual([{ code: 'norcar', comName: 'Northern Cardinal', familyCode: 'cardinalidae' }]);
+  });
+
+  it('omits absent filters from the /api/species-in-scope query', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue(new Response('[]', { status: 200 }));
+    const client = new ApiClient({ baseUrl: '' });
+    await client.getSpeciesInScope({ since: '14d' });
+    const url = (fetch as unknown as { mock: { calls: [string, unknown][] } }).mock.calls[0]![0];
+    expect(url).toContain('since=14d');
+    expect(url).not.toContain('notable=');
+    expect(url).not.toContain('family=');
+    expect(url).not.toContain('state=');
+  });
+
   it('throws on non-2xx response', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValue(new Response('boom', { status: 500 }));
     const client = new ApiClient({ baseUrl: '' });

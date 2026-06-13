@@ -1328,6 +1328,75 @@ describe('GET /api/species/:code/phenology', () => {
   });
 });
 
+describe('GET /api/species-in-scope', () => {
+  beforeAll(async () => {
+    await upsertSpeciesMeta(db.pool, [
+      { speciesCode: 'sis-verm', comName: 'Vermilion Flycatcher',
+        sciName: 'Pyrocephalus rubinus', familyCode: 'tyrannidae',
+        familyName: 'Tyrant Flycatchers', taxonOrder: 30501 },
+      { speciesCode: 'sis-anna', comName: "Anna's Hummingbird",
+        sciName: 'Calypte anna', familyCode: 'trochilidae',
+        familyName: 'Hummingbirds', taxonOrder: 6000 },
+      // Meta-only — no observation seeded → must NEVER appear in the response.
+      { speciesCode: 'sis-ghost', comName: 'Ghost Bird',
+        sciName: 'Nullus avis', familyCode: 'tyrannidae',
+        familyName: 'Tyrant Flycatchers', taxonOrder: 99999 },
+    ]);
+    await db.pool.query("DELETE FROM observations WHERE sub_id LIKE 'SIS-%'");
+    await upsertObservations(db.pool, [
+      { subId: 'SIS-1', speciesCode: 'sis-verm', comName: 'Vermilion Flycatcher',
+        lat: 31.72, lng: -110.88, obsDt: new Date(Date.now() - 3 * 86400_000).toISOString(),
+        locId: 'L1', locName: 'AZ', howMany: 1, isNotable: false },
+      { subId: 'SIS-2', speciesCode: 'sis-anna', comName: "Anna's Hummingbird",
+        lat: 32.30, lng: -110.99, obsDt: new Date(Date.now() - 4 * 86400_000).toISOString(),
+        locId: 'L2', locName: 'AZ', howMany: 1, isNotable: true },
+    ]);
+  });
+
+  type SisRow = { code: string; comName: string; familyCode: string };
+
+  it('returns represented species as {code,comName,familyCode}[], comName-sorted, excluding unobserved meta rows', async () => {
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/species-in-scope?since=14d');
+    expect(res.status).toBe(200);
+    const rows = (await res.json()) as SisRow[];
+    const codes = rows.map(r => r.code);
+    // sis-ghost (meta-only) excluded; the two observed appear comName-sorted
+    // (Anna's Hummingbird before Vermilion Flycatcher).
+    expect(codes).toContain('sis-verm');
+    expect(codes).toContain('sis-anna');
+    expect(codes).not.toContain('sis-ghost');
+    const annaIdx = codes.indexOf('sis-anna');
+    const vermIdx = codes.indexOf('sis-verm');
+    expect(annaIdx).toBeLessThan(vermIdx);
+    const anna = rows.find(r => r.code === 'sis-anna')!;
+    expect(Object.keys(anna).sort()).toEqual(['code', 'comName', 'familyCode']);
+  });
+
+  it('honors the ?family= filter', async () => {
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/species-in-scope?since=14d&family=trochilidae');
+    expect(res.status).toBe(200);
+    const rows = (await res.json()) as SisRow[];
+    const codes = rows.map(r => r.code);
+    expect(codes).toContain('sis-anna');
+    expect(codes).not.toContain('sis-verm');
+  });
+
+  it('rejects an invalid ?state= with 400 (shared allowlist validation)', async () => {
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/species-in-scope?state=US-ZZ');
+    expect(res.status).toBe(400);
+  });
+
+  it('sets the species-scope Cache-Control tier', async () => {
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/species-in-scope?since=14d');
+    expect(res.headers.get('cache-control'))
+      .toBe('public, s-maxage=3600, stale-while-revalidate=86400');
+  });
+});
+
 describe('gzip compression middleware', () => {
   beforeAll(async () => {
     // The compress middleware's default threshold is 1024 bytes — responses

@@ -3,6 +3,7 @@ import { startTestDb, type TestDb } from './test-helpers.js';
 import {
   getSpeciesMeta,
   getSpeciesDictionary,
+  getSpeciesInScope,
   upsertSpeciesMeta,
   findMissingSpeciesMeta,
   insertSpeciesPhoto,
@@ -76,6 +77,101 @@ describe('getSpeciesDictionary (#859)', () => {
     // beforeEach truncates species_meta — no seed here.
     const dict = await getSpeciesDictionary(db.pool);
     expect(dict).toEqual([]);
+  });
+});
+
+describe('getSpeciesInScope — represented-species combobox source', () => {
+  // species_meta universe: three taxa across two families, plus one taxon
+  // (sagspa1) that has a meta row but NEVER any observation — it must NEVER
+  // appear, proving the result is "represented" (has ≥1 observation), not the
+  // full dictionary.
+  beforeEach(async () => {
+    await db.pool.query('TRUNCATE observations');
+    await upsertSpeciesMeta(db.pool, [
+      { speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        sciName: 'Pyrocephalus rubinus', familyCode: 'tyrannidae',
+        familyName: 'Tyrant Flycatchers', taxonOrder: 30501 },
+      { speciesCode: 'annhum', comName: "Anna's Hummingbird",
+        sciName: 'Calypte anna', familyCode: 'trochilidae',
+        familyName: 'Hummingbirds', taxonOrder: 6000 },
+      { speciesCode: 'blkpho', comName: 'Black Phoebe',
+        sciName: 'Sayornis nigricans', familyCode: 'tyrannidae',
+        familyName: 'Tyrant Flycatchers', taxonOrder: 30600 },
+      { speciesCode: 'sagspa1', comName: 'Sagebrush Sparrow',
+        sciName: 'Artemisiospiza nevadensis', familyCode: 'passerellidae',
+        familyName: 'New World Sparrows', taxonOrder: 40000 },
+    ]);
+    // AZ observations: vermfly (×2 — dedup guard), annhum (notable), blkpho.
+    // One FL-only observation of annhum exercises the state clip below.
+    await upsertObservations(db.pool, [
+      { subId: 'I1', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 31.72, lng: -110.88, obsDt: '2026-04-15T08:00:00Z',
+        locId: 'L1', locName: 'AZ', howMany: 1, isNotable: false },
+      { subId: 'I2', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 32.30, lng: -110.99, obsDt: '2026-04-16T08:00:00Z',
+        locId: 'L2', locName: 'AZ', howMany: 1, isNotable: false },
+      { subId: 'I3', speciesCode: 'annhum', comName: "Anna's Hummingbird",
+        lat: 32.30, lng: -110.99, obsDt: '2026-04-10T08:00:00Z',
+        locId: 'L3', locName: 'AZ', howMany: 1, isNotable: true },
+      { subId: 'I4', speciesCode: 'blkpho', comName: 'Black Phoebe',
+        lat: 33.45, lng: -112.07, obsDt: '2026-04-12T08:00:00Z',
+        locId: 'L4', locName: 'AZ', howMany: 1, isNotable: false },
+      { subId: 'I5-FL', speciesCode: 'annhum', comName: "Anna's Hummingbird",
+        lat: 27.8, lng: -81.7, obsDt: '2026-04-12T08:00:00Z',
+        locId: 'L-FL', locName: 'FL', howMany: 1, isNotable: false },
+    ]);
+  });
+
+  it('returns ONLY species with ≥1 observation, deduped, comName-sorted, in {code,comName,familyCode} shape', async () => {
+    const rows = await getSpeciesInScope(db.pool, {});
+    // sagspa1 has a meta row but no observation → excluded. The rest appear
+    // ONCE each (vermfly has two obs), sorted by comName:
+    //   Anna's Hummingbird, Black Phoebe, Vermilion Flycatcher.
+    expect(rows.map(r => r.code)).toEqual(['annhum', 'blkpho', 'vermfly']);
+    const anna = rows.find(r => r.code === 'annhum')!;
+    expect(anna.comName).toBe("Anna's Hummingbird");
+    expect(anna.familyCode).toBe('trochilidae');
+    // EXACTLY the three wire fields — no sci_name / taxon_order leak.
+    expect(Object.keys(anna).sort()).toEqual(['code', 'comName', 'familyCode']);
+  });
+
+  it('honors the family filter (only that family\'s represented species)', async () => {
+    const rows = await getSpeciesInScope(db.pool, { familyCode: 'tyrannidae' });
+    // vermfly + blkpho are tyrannidae; annhum (trochilidae) is excluded.
+    expect(rows.map(r => r.code)).toEqual(['blkpho', 'vermfly']);
+  });
+
+  it('honors the notable filter (only species with a notable observation)', async () => {
+    const rows = await getSpeciesInScope(db.pool, { notable: true });
+    // Only annhum has a notable observation (I3).
+    expect(rows.map(r => r.code)).toEqual(['annhum']);
+  });
+
+  it('honors the since window (species whose observation falls inside it)', async () => {
+    // Make vermfly recent and annhum/blkpho old, then ask for 14d.
+    await db.pool.query(`UPDATE observations SET obs_dt = now() - interval '3 days' WHERE species_code = 'vermfly'`);
+    await db.pool.query(`UPDATE observations SET obs_dt = now() - interval '30 days' WHERE species_code IN ('annhum','blkpho')`);
+    const rows = await getSpeciesInScope(db.pool, { since: '14d' });
+    expect(rows.map(r => r.code)).toEqual(['vermfly']);
+  });
+
+  it('clips to the state polygon (US-AZ excludes a FL-only species; US-FL includes it) — ST_Intersects guard', async () => {
+    // Remove the AZ annhum row so annhum is FL-ONLY; vermfly + blkpho stay AZ.
+    await db.pool.query(`DELETE FROM observations WHERE sub_id = 'I3'`);
+
+    const az = await getSpeciesInScope(db.pool, { stateCode: 'US-AZ' });
+    // Non-empty (inverted-predicate guard) and annhum (FL-only) excluded.
+    expect(az.length).toBeGreaterThan(0);
+    expect(az.map(r => r.code).sort()).toEqual(['blkpho', 'vermfly']);
+
+    const fl = await getSpeciesInScope(db.pool, { stateCode: 'US-FL' });
+    expect(fl.map(r => r.code)).toEqual(['annhum']);
+  });
+
+  it('returns [] when no observations match (empty represented set is not an error)', async () => {
+    await db.pool.query('TRUNCATE observations');
+    const rows = await getSpeciesInScope(db.pool, {});
+    expect(rows).toEqual([]);
   });
 });
 

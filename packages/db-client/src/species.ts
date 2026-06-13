@@ -1,5 +1,7 @@
 import type { Pool } from './pool.js';
-import type { SpeciesMeta, SpeciesDictEntry, SpeciesWithPhoto } from '@bird-watch/shared-types';
+import type {
+  SpeciesMeta, SpeciesDictEntry, SpeciesWithPhoto, ObservationFilters,
+} from '@bird-watch/shared-types';
 
 /**
  * One row of `species_photos`. Mirrors the column shape verbatim — used by
@@ -257,6 +259,99 @@ export async function getSpeciesDictionary(
     `SELECT species_code AS code, com_name, family_code
        FROM species_meta
       ORDER BY species_code`
+  );
+  return rows.map(r => ({
+    code: r.code,
+    comName: r.com_name,
+    familyCode: r.family_code,
+  }));
+}
+
+/**
+ * Distinct species REPRESENTED in the current scope — every species with at
+ * least one observation matching the non-species filters (since / notable /
+ * family / state). This is the dictionary-shaped source for the FiltersBar
+ * Species combobox: it offers ONLY birds the user can actually find on the map
+ * for the active scope+filters, replacing the full ~17.8k global taxonomy the
+ * #1050 `/api/species` dictionary index surfaced (the "so many species it's hard
+ * to find things" problem).
+ *
+ * Deliberately species-filter-INDEPENDENT (there is NO `speciesCode` predicate):
+ * the combobox must keep offering every sibling species while one is selected,
+ * so a user can switch species without first clearing. This sidesteps the same
+ * self-narrowing trap the #1050 family-options fix avoids by sourcing the family
+ * `<select>` from the stable silhouettes catalogue rather than the active fetch.
+ * It is ALSO bbox/zoom-INDEPENDENT: the list is the whole scope's species at any
+ * zoom (the product decision behind this endpoint — completeness over
+ * viewport-coupling), which collapses the CDN cache-key space to a handful of
+ * `(scope, since, notable, family)` combinations.
+ *
+ * EXISTS semi-join (not `DISTINCT` over a JOIN that would multiply rows before
+ * dedupe). The planner picks a bounded, index-backed plan: for the national
+ * (no-bbox) case it scans the 14d window via `obs_dt_idx`, hash-aggregates to
+ * the ~hundreds of distinct `species_code`s, then joins `species_meta`
+ * (verified with EXPLAIN); a state/family-narrowed case can instead probe
+ * `obs_species_idx` per candidate. Family is filtered on the outer
+ * `species_meta` row; the time / notable / state predicates live inside the
+ * EXISTS against `observations o` and mirror `getObservations` byte-for-byte
+ * (same state-clip idiom: `&&` GiST prune + `ST_Intersects(polygon, point)`).
+ * Selecting FROM `species_meta` guarantees a real `com_name` — an observation
+ * with no meta parent is impossible by the #484 ingest invariant, and could
+ * not render a name anyway.
+ *
+ * Cost note: the whole-US case is a national 14d scan with no bbox to prune —
+ * the same input volume the precompute grid keeps off the aggregated render
+ * path. It is strictly LIGHTER than `getObservationsAggregated` (no PostGIS
+ * gridding/per-bucket aggregation — just one scan → small hash-agg → small
+ * join) and has no hidden-blowup CTE like #862, so it needs no precompute of
+ * its own. The cold scan is kept off the user-facing path by the long
+ * `species-scope` SWR window (cache-headers.ts): the represented SET is
+ * near-static, so the origin recomputes at most once per key per hour and
+ * always in the background.
+ */
+export async function getSpeciesInScope(
+  pool: Pool,
+  f: Pick<ObservationFilters, 'since' | 'notable' | 'familyCode' | 'stateCode'>
+): Promise<SpeciesDictEntry[]> {
+  const conditions: string[] = [];
+  // The EXISTS subquery's predicates; the correlation predicate is always first.
+  const inner: string[] = ['o.species_code = sm.species_code'];
+  const params: unknown[] = [];
+
+  if (f.familyCode) {
+    conditions.push(`sm.family_code = $${params.length + 1}`);
+    params.push(f.familyCode);
+  }
+  if (f.since) {
+    const days = parseInt(f.since.replace('d', ''), 10);
+    inner.push(`o.obs_dt >= now() - ($${params.length + 1}::int * interval '1 day')`);
+    params.push(days);
+  }
+  if (f.notable === true) {
+    inner.push('o.is_notable = true');
+  }
+  if (f.stateCode) {
+    // Mirror getObservations' #733 state clip: `&&` GiST prune to the state's
+    // bbox, then exact `ST_Intersects(polygon, point)` (inclusive — a border
+    // point resolves into a state instead of vanishing). One param, two predicates.
+    const si = params.length + 1;
+    inner.push(`o.geom && (SELECT geom FROM state_boundaries WHERE state_code = $${si})`);
+    inner.push(`ST_Intersects((SELECT geom FROM state_boundaries WHERE state_code = $${si}), o.geom)`);
+    params.push(f.stateCode);
+  }
+
+  conditions.push(`EXISTS (SELECT 1 FROM observations o WHERE ${inner.join(' AND ')})`);
+
+  const { rows } = await pool.query<{
+    code: string;
+    com_name: string;
+    family_code: string;
+  }>(
+    `SELECT sm.species_code AS code, sm.com_name, sm.family_code
+       FROM species_meta sm
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY sm.com_name`,
+    params
   );
   return rows.map(r => ({
     code: r.code,
