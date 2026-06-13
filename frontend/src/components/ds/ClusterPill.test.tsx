@@ -19,6 +19,11 @@ describe('<ClusterPill>', () => {
     expect(screen.getByRole('button')).toHaveAttribute('aria-label', '42 sightings');
   });
 
+  it('aria-label uses thousands separator for count ≥1000 (C1 #1045)', () => {
+    render(<ClusterPill count={16626} onClick={vi.fn()} />);
+    expect(screen.getByRole('button')).toHaveAttribute('aria-label', '16,626 sightings');
+  });
+
   it('aria-label updates when count changes', () => {
     const { rerender } = render(<ClusterPill count={10} onClick={vi.fn()} />);
     expect(screen.getByRole('button')).toHaveAttribute('aria-label', '10 sightings');
@@ -68,6 +73,11 @@ describe('<ClusterPill>', () => {
     expect(screen.getByText('42')).toBeInTheDocument();
   });
 
+  it('displays thousands-separated count for count ≥1000 (C1 #1045)', () => {
+    render(<ClusterPill count={16626} onClick={vi.fn()} />);
+    expect(screen.getByText('16,626')).toBeInTheDocument();
+  });
+
   // --- Interaction ---
 
   it('calls onClick when the pill is clicked', async () => {
@@ -97,22 +107,35 @@ describe('<ClusterPill>', () => {
 });
 
 describe('pillDimensions', () => {
+  // Formula after C1 retune: width = max(minW, digits * digitPx + commas * (digitPx/2) + padding).
+  // digitPx: sky=8, sand=9, ember=10. Commas = floor((digits-1)/3). Padding: sky=20, sand=26, ember=32.
+
   it('sky tier (count < 100) → min-width respected for short counts', () => {
+    // "30": 2 digits, 0 commas → 2*8+0+20=36
     expect(pillDimensions(30)).toEqual({ w: 36, h: 24 });
   });
   it('sky tier 3-digit count uses formula', () => {
+    // "99": 2 digits, 0 commas → 2*8+0+20=36
     expect(pillDimensions(99)).toEqual({ w: 36, h: 24 });
   });
   it('sand tier (100 ≤ count < 750) → 3-digit width', () => {
+    // "214": 3 digits, 0 commas → 3*9+0+26=53
     expect(pillDimensions(214)).toEqual({ w: 53, h: 27 });
   });
-  it('ember tier (count ≥ 750) → 4-digit width', () => {
-    expect(pillDimensions(1648)).toEqual({ w: 72, h: 33 });
+  it('ember tier (count ≥ 750) → 4-digit width with separator (C1 #1045 retune)', () => {
+    // "1,648": 4 digits, 1 comma → 4*10 + 1*5 + 32 = 77
+    expect(pillDimensions(1648)).toEqual({ w: 77, h: 33 });
   });
   it('sand tier boundary (count = 100)', () => {
+    // "100": 3 digits, 0 commas → 3*9+0+26=53
     expect(pillDimensions(100)).toEqual({ w: 53, h: 27 });
   });
   it('ember tier boundary (count = 750)', () => {
+    // "750": 3 digits, 0 commas → 3*10+0+32=62
     expect(pillDimensions(750)).toEqual({ w: 62, h: 33 });
+  });
+  it('ember tier 5-digit count (16626) accounts for separator glyph (C1 #1045)', () => {
+    // "16,626": 5 digits, 1 comma → 5*10 + 1*5 + 32 = 87
+    expect(pillDimensions(16626)).toEqual({ w: 87, h: 33 });
   });
 });
