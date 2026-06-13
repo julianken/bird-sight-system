@@ -256,7 +256,29 @@ const config: KnipConfig = {
     'packages/geo': {},
     'packages/shared-types': {},
     'packages/photo-quality': {},
-    'packages/eleatic': {},
+    'packages/eleatic': {
+      // 2026-06-13 (E5, #1148): the explorer's browser ES modules under ui/.
+      //             ui/hub.js (the comparison hub entry) and ui/theme.js are
+      //             loaded at runtime via ui/index.html's
+      //             `<script type="module" src="/hub.js">` and a bare
+      //             `import '/theme.js'` specifier the BROWSER resolves at
+      //             runtime — never imported by any TS/JS module knip can
+      //             trace, so static analysis flags both as unused files.
+      //             Exactly the tools/photo-curation public/*.js precedent
+      //             below. Their siblings ui/safe.js + ui/format.js are
+      //             deliberately NOT listed here: each has a real vitest
+      //             sibling (ui/safe.test.ts, ui/format.test.ts) that imports
+      //             it, so knip already traces them as used (an ignore entry
+      //             for either would be flagged redundant) — the safe.js
+      //             "test-sibling makes it traced" reasoning from photo-curation
+      //             applies verbatim. ui/index.html + ui/app.css are not JS/TS
+      //             modules, so knip does not track them as unused-file entries.
+      //             Risk: masks a genuinely orphaned ui/ script if a page is
+      //             deleted but its module left on disk. Re-audit 2026-07-27 —
+      //             confirm ui/index.html still references both (grep
+      //             `src="/hub.js"` and an `import .* '/theme.js'` in hub.js).
+      ignore: ['ui/hub.js', 'ui/theme.js'],
+    },
 
     'tools/photo-curation': {
       // 2026-06-10: Part B (#971) wired the four Part A self-healing entries —
