@@ -899,3 +899,127 @@ describe('B2 (#1041): color-scheme in both theme blocks', () => {
     expect(darkBlock).toMatch(/color-scheme:\s*dark/);
   });
 });
+
+// ── B4 (#1043): elevation / shadow token migration ───────────────────────────
+//
+// Guards that the legacy single-mode shadow tokens are deleted (styles.css :root
+// must no longer define them) and that the elevation tier system has coverage
+// across all three consumers mandated by the issue contract.
+describe('B4 (#1043): elevation/shadow token migration', () => {
+  // ── Deletion guards ───────────────────────────────────────────────────────
+
+  it('styles.css no longer defines --shadow-listbox (deleted — consumers migrated to --card-elevation-*)', () => {
+    expect(STYLES_CSS).not.toMatch(/--shadow-listbox\s*:/);
+  });
+
+  it('styles.css no longer defines --shadow-panel (deleted — stale vocabulary, zero consumers)', () => {
+    expect(STYLES_CSS).not.toMatch(/--shadow-panel\s*:/);
+  });
+
+  it('styles.css no longer defines --shadow-drawer (deleted — stale vocabulary, zero consumers)', () => {
+    expect(STYLES_CSS).not.toMatch(/--shadow-drawer\s*:/);
+  });
+
+  // Consumers must not reference the deleted tokens
+  it('no file references var(--shadow-listbox) after migration', () => {
+    expect(STYLES_CSS).not.toMatch(/var\(--shadow-listbox\)/);
+    expect(DS_PRIMITIVES_CSS).not.toMatch(/var\(--shadow-listbox\)/);
+  });
+
+  it('no file references var(--shadow-panel) after migration', () => {
+    expect(STYLES_CSS).not.toMatch(/var\(--shadow-panel\)/);
+    expect(DS_PRIMITIVES_CSS).not.toMatch(/var\(--shadow-panel\)/);
+  });
+
+  it('no file references var(--shadow-drawer) after migration', () => {
+    expect(STYLES_CSS).not.toMatch(/var\(--shadow-drawer\)/);
+    expect(DS_PRIMITIVES_CSS).not.toMatch(/var\(--shadow-drawer\)/);
+  });
+
+  // ── No raw box-shadow literals on migrated elements ───────────────────────
+  // AC: grep -nE "box-shadow: 0 -?4px" → zero matches (requires dark overrides deleted too)
+  it('styles.css has no raw "box-shadow: 0 4px" or "box-shadow: 0 -4px" literals (all migrated to tokens)', () => {
+    expect(STYLES_CSS).not.toMatch(/box-shadow:\s*0\s*-?4px/);
+  });
+
+  it('ds-primitives.css has no raw "box-shadow: 0 4px" or "box-shadow: 0 -4px" literals (all migrated to tokens)', () => {
+    expect(DS_PRIMITIVES_CSS).not.toMatch(/box-shadow:\s*0\s*-?4px/);
+  });
+
+  // ── Tier-2 coverage: at least 3 consumers of --card-elevation-2 ──────────
+  it('≥3 consumers of var(--card-elevation-2) across all files after migration', () => {
+    const allCss = STYLES_CSS + DS_PRIMITIVES_CSS + TOKENS_CSS;
+    // Count distinct var(--card-elevation-2) occurrences outside token definition lines
+    const matches = allCss.match(/var\(--card-elevation-2\)/g);
+    expect(
+      (matches ?? []).length,
+      'Expected ≥3 var(--card-elevation-2) usages: .cell-popover, .cluster-list-popover, .observation-popover',
+    ).toBeGreaterThanOrEqual(3);
+  });
+
+  // ── Sheet token present in both themes ───────────────────────────────────
+  it('--card-elevation-sheet is defined in the light [data-theme] block', () => {
+    const lightBlockMatch = TOKENS_CSS.match(
+      /:root\[data-theme="light"\]\s*\{([^}]*)\}/s,
+    );
+    expect(lightBlockMatch?.[1]).toMatch(/--card-elevation-sheet:/);
+  });
+
+  it('--card-elevation-sheet is defined in the dark [data-theme] block', () => {
+    const darkBlockMatch = TOKENS_CSS.match(
+      /:root\[data-theme="dark"\]\s*\{([^}]*)\}/s,
+    );
+    expect(darkBlockMatch?.[1]).toMatch(/--card-elevation-sheet:/);
+  });
+
+  it('styles.css .species-detail-sheet uses var(--card-elevation-sheet), not a raw shadow literal', () => {
+    const sheetBlockMatch = STYLES_CSS.match(
+      /\.species-detail-sheet\s*\{([^}]*)\}/s,
+    );
+    expect(sheetBlockMatch?.[1]).toMatch(/box-shadow:\s*var\(--card-elevation-sheet\)/);
+  });
+
+  // ── Radius / max-width migrations ─────────────────────────────────────────
+  it('ds-primitives.css .cell-popover uses var(--card-radius) for border-radius', () => {
+    const cellBlockMatch = DS_PRIMITIVES_CSS.match(
+      /\.cell-popover\s*\{([^}]*)\}/s,
+    );
+    expect(cellBlockMatch?.[1]).toMatch(/border-radius:\s*var\(--card-radius\)/);
+  });
+
+  it('ds-primitives.css .cluster-list-popover uses var(--card-radius) for border-radius', () => {
+    const clusterBlockMatch = DS_PRIMITIVES_CSS.match(
+      /\.cluster-list-popover\s*\{([^}]*)\}/s,
+    );
+    expect(clusterBlockMatch?.[1]).toMatch(/border-radius:\s*var\(--card-radius\)/);
+  });
+
+  it('styles.css .observation-popover uses var(--card-radius) for border-radius', () => {
+    const obsBlockMatch = STYLES_CSS.match(
+      /\.observation-popover\s*\{([^}]*)\}/s,
+    );
+    expect(obsBlockMatch?.[1]).toMatch(/border-radius:\s*var\(--card-radius\)/);
+  });
+
+  it('styles.css .observation-popover uses var(--card-maxw-popover) for max-width', () => {
+    const obsBlockMatch = STYLES_CSS.match(
+      /\.observation-popover\s*\{([^}]*)\}/s,
+    );
+    expect(obsBlockMatch?.[1]).toMatch(/max-width:\s*var\(--card-maxw-popover\)/);
+  });
+
+  it('ds-primitives.css .cell-popover uses var(--card-maxw-popover) for max-width', () => {
+    const cellBlockMatch = DS_PRIMITIVES_CSS.match(
+      /\.cell-popover\s*\{([^}]*)\}/s,
+    );
+    expect(cellBlockMatch?.[1]).toMatch(/max-width:\s*var\(--card-maxw-popover\)/);
+  });
+
+  it('styles.css .sheet-fg-photo uses var(--card-radius-inner) for border-radius (not 10px)', () => {
+    const photoBlockMatch = STYLES_CSS.match(
+      /\.sheet-fg-photo\s*\{([^}]*)\}/s,
+    );
+    expect(photoBlockMatch?.[1]).toMatch(/border-radius:\s*var\(--card-radius-inner\)/);
+    expect(photoBlockMatch?.[1]).not.toMatch(/border-radius:\s*10px/);
+  });
+});

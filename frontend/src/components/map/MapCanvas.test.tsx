@@ -2343,11 +2343,11 @@ describe('ObservationPopover anchoring — displaced silhouette regression (#718
     // obs projection).
     const distToEntry = Math.min(
       Math.abs(left - (expectedProjectedX + 12)),
-      Math.abs(left - (expectedProjectedX - 12 - 280)),
+      Math.abs(left - (expectedProjectedX - 12 - 300)),
     );
     const distToWrong = Math.min(
       Math.abs(left - (wrongProjectedX + 12)),
-      Math.abs(left - (wrongProjectedX - 12 - 280)),
+      Math.abs(left - (wrongProjectedX - 12 - 300)),
     );
     expect(distToEntry).toBeLessThan(distToWrong);
 

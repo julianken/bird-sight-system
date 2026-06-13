@@ -37,10 +37,11 @@ export interface ObservationPopoverProps {
 
 // Pixel distance between the click point and the nearest popover edge.
 const OFFSET = 12;
-// Matches `max-width: 280px` in styles.css (.observation-popover). Single
-// source of truth lives in styles.css; the comment there flags that
-// POPOVER_W in this file must be updated alongside it.
-const POPOVER_W = 280;
+// Matches `max-width: var(--card-maxw-popover)` (300px) in styles.css
+// (.observation-popover). Single source of truth lives in styles.css;
+// the comment there flags that POPOVER_W in this file must be updated
+// alongside it. (#1043: bumped from 280 to 300 to match --card-maxw-popover)
+const POPOVER_W = 300;
 // First-paint fallback for height; replaced by the ResizeObserver-measured
 // real height after the first observe callback. A conservative 180px
 // matches the median content height at 1440×900 in the production app.

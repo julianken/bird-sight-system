@@ -271,6 +271,10 @@
   --card-elevation-1: var(--elevation-1);   /* resting chrome          */
   --card-elevation-2: var(--elevation-2);   /* on-canvas transient     */
   --card-elevation-3: var(--elevation-3);   /* focused / modal         */
+  /* Sheet variant: upward-cast shadow for the bottom sheet edge (#1043).
+   * Direction is load-bearing (sheet rises from the bottom); mode-paired here
+   * so light and dark both have an explicit value — no single-mode literal. */
+  --card-elevation-sheet: 0 -4px 16px rgba(0,0,0,0.18);
 
   /* Undefined-token cleanup (spec §2.5, #761 #803) — these four tokens were
    * consumed by ds-primitives.css but never defined, causing cell/cluster
@@ -378,6 +382,8 @@
   --card-elevation-1: var(--elevation-1);
   --card-elevation-2: var(--elevation-2);
   --card-elevation-3: var(--elevation-3);
+  /* Sheet upward shadow — dark: stronger diffusion + bottom rim-light (#1043). */
+  --card-elevation-sheet: 0 -4px 20px rgba(0,0,0,0.6), inset 0 -1px 0 rgba(255,255,255,0.05);
 
   /* Undefined-token cleanup — dark overrides (spec §2.5, #761 #803). */
   --color-border-strong: #4a5a80;           /* stronger hairline on dark surfaces */
