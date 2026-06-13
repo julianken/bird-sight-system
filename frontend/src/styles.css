@@ -1535,27 +1535,38 @@ body {
   overflow-y: auto;
   border-top: 1px solid var(--color-border-subtle);
   border-radius: 0 0 var(--card-radius) var(--card-radius);
-  /* E3 (#1055): the entries list is the relative anchor for the overflow fade
-     pseudo-element below — it must clip to the rounded bottom corners. */
-  position: relative;
 }
 /* E3 (#1055): overflow cue. macOS overlay scrollbars are invisible at rest, so
    a half-hidden family list gave no signal that more rows lie below the fold.
    FamilyLegend.tsx measures scrollHeight > clientHeight and sets
    data-overflow="true" on the <ul>; this paints a bottom fade gradient that is
    visible at rest (not only while scrolling) and disappears once the user
-   scrolls to the end (the component clears the flag at the bottom). The
-   gradient is a sticky pseudo-element inside the scroll container so it tracks
-   the viewport edge of the list, not the scrolled content. pointer-events:none
-   keeps clicks falling through to the rows beneath. */
-.family-legend-entries[data-overflow='true']::after {
+   scrolls to the end (the component clears the flag at the bottom).
+   pointer-events:none keeps clicks (and scrollbar drags) falling through to the
+   rows beneath.
+
+   Geometry fix: the fade lives on the CARD (.family-legend), not the scrolling
+   <ul>, so it spans the full inner width and hugs the bottom rounded corners
+   regardless of the list's 8px side padding or the scrollbar gutter. As a
+   <ul>-`::after` it was boxed by the list's content area — inset 9px on the
+   left but ~20px on the right once a classic scrollbar reserved its gutter
+   (lopsided), with its own rounded corners floating inside the card instead of
+   aligning to the card's bottom edge. JS still stamps data-overflow on the
+   <ul>; :has() lifts it to the card (the repo already uses :has() on the legend
+   — e.g. .family-legend-toggle:has(+ .family-legend-entries)). The card is
+   position:fixed (a containing block), so position:absolute anchors the strip
+   to it; absolute keeps it out of flow (no layout shift, as the old
+   margin-top:-28px sticky trick also ensured). The <ul> is the card's bottom
+   element (capped max-height), so the card's bottom edge IS the list's visible
+   bottom — the strip correctly fades the last visible rows. */
+.family-legend:has(.family-legend-entries[data-overflow='true'])::after {
   content: '';
-  position: sticky;
-  bottom: 0;
-  left: 0;
-  /* Pull the strip up over the last rows without consuming layout height. */
-  margin-top: -28px;
-  display: block;
+  position: absolute;
+  /* Full inner width, inside the 1px card border — NOT inset by the list
+     padding or the scrollbar gutter. This symmetry is the whole point of the
+     fix (was 9px left / ~20px right on the old <ul>-::after). */
+  inset-inline: 1px;
+  bottom: 1px;
   height: 28px;
   pointer-events: none;
   background: linear-gradient(
@@ -1563,7 +1574,9 @@ body {
     transparent,
     var(--color-bg-surface)
   );
-  border-radius: 0 0 var(--card-radius) var(--card-radius);
+  /* Match the card's INNER bottom radius (outer 12px − 1px border = 11px) so
+     the strip's corners align with the card's, not float inside it. */
+  border-radius: 0 0 calc(var(--card-radius) - 1px) calc(var(--card-radius) - 1px);
 }
 /* E3 (#1055): expanded-but-empty muted row. Keeps aria-expanded truthful (the
    header still reports expanded) while telling the user why the card is empty,

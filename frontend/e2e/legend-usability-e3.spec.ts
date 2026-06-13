@@ -205,16 +205,31 @@ test.describe('E3 (#1055): overflow cue is visible at rest when the list overflo
 
     const list = page.locator('.family-legend-entries');
     await expect(list).toBeVisible();
-    // The component measured an overflow and stamped the flag…
+    // The component measured an overflow and stamped the flag on the <ul>…
     await expect(list).toHaveAttribute('data-overflow', 'true');
-    // …and the ::after fade pseudo-element is painted (non-zero height) at rest.
-    const fadeHeight = await list.evaluate((el) =>
+    // …and the fade is now painted on the CARD (.family-legend::after), lifted
+    // off the <ul> via :has() so it spans the full inner width and hugs the
+    // bottom rounded corners regardless of the scrollbar gutter.
+    const card = page.locator('.family-legend');
+    const fadeHeight = await card.evaluate((el) =>
       parseFloat(getComputedStyle(el, '::after').height),
     );
     expect(
       fadeHeight,
       'the overflow ::after fade must have a non-zero height at rest',
     ).toBeGreaterThan(0);
+    // Geometry pin: the fade spans (nearly) the full inner card width — NOT the
+    // old narrow inset width (list padding + classic scrollbar gutter made the
+    // <ul>-::after lopsided: 9px left / ~20px right). In headless Chromium the
+    // scrollbar is overlay/0-width, so inset-inline:1px ≈ cardWidth − 2.
+    const { fadeWidth, cardWidth } = await card.evaluate((el) => ({
+      fadeWidth: parseFloat(getComputedStyle(el, '::after').width),
+      cardWidth: el.getBoundingClientRect().width,
+    }));
+    expect(
+      Math.abs(fadeWidth - (cardWidth - 2)),
+      `the fade must span the full inner card width (fade ${fadeWidth}px vs inner ${cardWidth - 2}px)`,
+    ).toBeLessThanOrEqual(3);
   });
 
   test('no overflow flag when the list fits', async ({ page, apiStub }) => {
