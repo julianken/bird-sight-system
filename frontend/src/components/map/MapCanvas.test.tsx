@@ -39,6 +39,11 @@ let bareHandlersAll: Record<string, Array<() => void | Promise<void>>> = {};
 // existing tests keep their synchronous-load behavior.
 let deferMapLoad = false;
 let deferredOnLoad: (() => void) | null = null;
+// #1049 (M-12) basemap watchdog: capture the `<MapView onError>` prop so the
+// watchdog tests can drive maplibre `error` events (the M-consecutive-failure
+// path) through the component's stateful handler. Reset in beforeEach.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let capturedOnError: ((e: any) => void) | null = null;
 
 function makeFakeMap() {
   const canvas = { style: { cursor: '' }, clientWidth: 1440, clientHeight: 900 };
@@ -231,11 +236,14 @@ function makeFakeMap() {
 
 const MockMap = forwardRef(function MockMap(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  { children, onLoad, ...rest }: any,
+  { children, onLoad, onError, ...rest }: any,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ref: any,
 ) {
   useImperativeHandle(ref, () => ({ getMap: () => fakeMap }), []);
+  // #1049 (M-12): expose the live `onError` prop so the watchdog tests can fire
+  // maplibre `error` events at the component's stateful handler.
+  capturedOnError = onError ?? null;
   useEffect(() => {
     if (!onLoad) return;
     if (deferMapLoad) {
@@ -3554,5 +3562,177 @@ describe('handleMapError (#854 console hygiene)', () => {
 
     errorSpy.mockRestore();
     debugSpy.mockRestore();
+  });
+});
+
+/* ── basemap-failure watchdog (#1049 / finding M-12) ─────────────────────────
+   OpenFreeMap CDN flakiness (ERR_CONNECTION_CLOSED/429 on tiles.openfreemap.org)
+   can blank the basemap with NO `load` / `style.load` and no error/warning
+   console signal. Pre-#1049 the app set no state on that path — floating chrome
+   over a silent void, no recovery affordance. The watchdog detects the
+   condition two ways — (a) a style-load timeout, (b) M consecutive basemap-
+   source errors — and surfaces a `StatusBlock` retry card; Retry calls
+   `map.setStyle()` with the current-theme URL.
+
+   These tests use FAKE timers (the rest of the suite runs real timers, so a
+   ~10 s default watchdog cannot fire inside them — exactly the contract).
+   `__resetAdaptiveGridCacheForTesting()` is NOT used here (no reconciler work);
+   each test installs its own fakeMap + resets the captured onError prop. */
+describe('basemap watchdog (#1049 / M-12)', () => {
+  let modConsts: {
+    BASEMAP_WATCHDOG_MS: number;
+    BASEMAP_ERROR_THRESHOLD: number;
+    BASEMAP_LIGHT: string;
+    BASEMAP_DARK: string;
+  };
+
+  beforeEach(async () => {
+    vi.useFakeTimers();
+    registeredHandlers = {};
+    bareHandlers = {};
+    bareHandlersAll = {};
+    deferMapLoad = false;
+    deferredOnLoad = null;
+    capturedOnError = null;
+    fakeMap = makeFakeMap();
+    document.documentElement.removeAttribute('data-theme');
+    modConsts = await import('./MapCanvas.js');
+  });
+
+  afterEach(() => {
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
+  });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function basemapErr(sourceId?: string, name?: string): any {
+    const error = new Error(name === 'AbortError' ? 'aborted' : 'Failed to fetch');
+    if (name) error.name = name;
+    return { type: 'error', target: fakeMap, error, sourceId };
+  }
+
+  it('1. no `load` within the watchdog window → renders the "Basemap unavailable" retry card', () => {
+    deferMapLoad = true; // hold onLoad so the basemap never reports healthy
+    render(<MapCanvas observations={[]} />);
+
+    // Before the window elapses: no card.
+    expect(screen.queryByText('Basemap unavailable')).not.toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(modConsts.BASEMAP_WATCHDOG_MS + 100);
+    });
+
+    expect(screen.getByText('Basemap unavailable')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Retry' }),
+    ).toBeInTheDocument();
+  });
+
+  it('2a. M consecutive basemap-source errors → renders the retry card', () => {
+    render(<MapCanvas observations={[]} />);
+    expect(capturedOnError).toBeTypeOf('function');
+
+    act(() => {
+      for (let i = 0; i < modConsts.BASEMAP_ERROR_THRESHOLD; i++) {
+        capturedOnError!(basemapErr(BASEMAP_SOURCE_ID));
+      }
+    });
+
+    expect(screen.getByText('Basemap unavailable')).toBeInTheDocument();
+  });
+
+  it('2b. M AbortErrors do NOT count → no card (clause-i benign swallow is never tallied)', () => {
+    render(<MapCanvas observations={[]} />);
+    expect(capturedOnError).toBeTypeOf('function');
+
+    act(() => {
+      // AbortError carries the basemap sourceId too, but name === 'AbortError'
+      // is clause (i) — debug-swallowed and NEVER counted.
+      for (let i = 0; i < modConsts.BASEMAP_ERROR_THRESHOLD + 3; i++) {
+        capturedOnError!(basemapErr(BASEMAP_SOURCE_ID, 'AbortError'));
+      }
+    });
+
+    expect(screen.queryByText('Basemap unavailable')).not.toBeInTheDocument();
+  });
+
+  it('2c. a non-basemap source error does NOT count toward the basemap threshold', () => {
+    render(<MapCanvas observations={[]} />);
+    act(() => {
+      for (let i = 0; i < modConsts.BASEMAP_ERROR_THRESHOLD + 3; i++) {
+        capturedOnError!(basemapErr('observations'));
+      }
+    });
+    expect(screen.queryByText('Basemap unavailable')).not.toBeInTheDocument();
+  });
+
+  it('3. Retry click → calls map.setStyle() with the current style URL and clears the card', () => {
+    deferMapLoad = true;
+    render(<MapCanvas observations={[]} />);
+    act(() => {
+      vi.advanceTimersByTime(modConsts.BASEMAP_WATCHDOG_MS + 100);
+    });
+    expect(screen.getByText('Basemap unavailable')).toBeInTheDocument();
+
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    });
+
+    // Default (no data-theme) → light basemap URL.
+    expect(fakeMap.setStyle).toHaveBeenCalledWith(
+      modConsts.BASEMAP_LIGHT,
+    );
+    // Card is cleared on retry (the watchdog restarts; it hasn't elapsed again).
+    expect(screen.queryByText('Basemap unavailable')).not.toBeInTheDocument();
+  });
+
+  it('3b. Retry uses the DARK style URL when [data-theme]="dark"', () => {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    deferMapLoad = true;
+    render(<MapCanvas observations={[]} />);
+    act(() => {
+      vi.advanceTimersByTime(modConsts.BASEMAP_WATCHDOG_MS + 100);
+    });
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    });
+    expect(fakeMap.setStyle).toHaveBeenCalledWith(modConsts.BASEMAP_DARK);
+  });
+
+  it('4. happy path: `load` fires → watchdog cancelled, no card ever renders', () => {
+    render(<MapCanvas observations={[]} />); // deferMapLoad false → onLoad fires on mount
+
+    act(() => {
+      vi.advanceTimersByTime(modConsts.BASEMAP_WATCHDOG_MS * 2);
+    });
+
+    expect(screen.queryByText('Basemap unavailable')).not.toBeInTheDocument();
+  });
+
+  it('5. a `style.load` after a deferred mount cancels the watchdog (retry-success keys on style.load, not load)', () => {
+    deferMapLoad = true;
+    render(<MapCanvas observations={[]} />);
+    // Fire the first load so mapReady flips and the style.load listener registers.
+    act(() => {
+      deferredOnLoad?.();
+    });
+    // Simulate the basemap recovering via a style reload BEFORE the window ends.
+    act(() => {
+      (bareHandlersAll['style.load'] ?? []).forEach((cb) => cb());
+    });
+    act(() => {
+      vi.advanceTimersByTime(modConsts.BASEMAP_WATCHDOG_MS * 2);
+    });
+    expect(screen.queryByText('Basemap unavailable')).not.toBeInTheDocument();
+  });
+
+  it('6. one basemap error short of the threshold does NOT render the card', () => {
+    render(<MapCanvas observations={[]} />);
+    act(() => {
+      for (let i = 0; i < modConsts.BASEMAP_ERROR_THRESHOLD - 1; i++) {
+        capturedOnError!(basemapErr(BASEMAP_SOURCE_ID));
+      }
+    });
+    expect(screen.queryByText('Basemap unavailable')).not.toBeInTheDocument();
   });
 });
