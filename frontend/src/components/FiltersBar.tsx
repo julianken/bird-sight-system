@@ -153,7 +153,14 @@ export function FiltersBar(props: FiltersBarProps) {
           <option value="14d">14 days</option>
         </select>
       </label>
-      <label>
+      {/* E4 (#1056): the "Notable only" control is its own row. The
+          .filters-bar__toggle-row hook lets the mobile sheet @media block turn
+          the whole <label> into a full-width ≥44px tappable toggle row — the
+          checkbox glyph stays ~14px but the tap target is the row. The element
+          remains a <label> wrapping a REAL <input type="checkbox"> with the
+          "Notable only" aria-label so getByRole('checkbox') and the POM's
+          getByLabel('Notable only').check()/.uncheck() stay green. */}
+      <label className="filters-bar__toggle-row">
         <input
           type="checkbox"
           aria-label="Notable only"

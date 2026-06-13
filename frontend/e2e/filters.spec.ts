@@ -133,6 +133,81 @@ test.describe('filter flows', () => {
     await expect(page.getByRole('dialog', { name: 'Filters' })).not.toBeVisible();
   });
 
+  // E4 (#1056): at the 390px mobile sheet breakpoint the filters form must read
+  // and tap like a mobile form — each field full-width and ≥44px tall, the
+  // "Notable only" control its own full-width tappable toggle row — instead of
+  // a shrunken desktop inline form. The panel switches to the bottom sheet at
+  // ≤480px (E2 #1054), so 390×844 is squarely in sheet mode.
+  test.describe('mobile sheet form layout (390×844)', () => {
+    test.use({ viewport: { width: 390, height: 844 } });
+
+    // The four interactive controls (the close button and datalist are not
+    // measured). Each is scoped to the open panel via the FiltersBar POM.
+    function controls() {
+      return [app.filters.timeWindow, app.filters.family, app.filters.species];
+    }
+
+    test('every field is full-width and ≥44px tall, radius preserved', async ({ page }) => {
+      const panel = page.getByRole('dialog', { name: 'Filters' });
+      await expect(panel).toBeVisible();
+
+      // Inner content width = the .filters-bar content box (panel inner minus the
+      // panel's padding minus the bar's own padding) — the box the stacked fields
+      // should span. Read padding off the live computed style so the assertion
+      // tracks the tokens, not hard-coded literals.
+      const bar = panel.locator('.filters-bar');
+      const innerWidth = await bar.evaluate((el) => {
+        const cs = window.getComputedStyle(el);
+        return el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      });
+
+      for (const field of controls()) {
+        await expect(field).toBeVisible();
+        const box = await field.boundingBox();
+        expect(box).not.toBeNull();
+        // ≥44px coarse-pointer floor (WCAG 2.5.5 / Apple HIG).
+        expect(box!.height).toBeGreaterThanOrEqual(44);
+        // Full-width: spans the panel inner content width (allow 1px rounding).
+        expect(box!.width).toBeGreaterThanOrEqual(innerWidth - 1);
+        // #1041/#1043 radius ladder: inner inputs keep 4px — must NOT drift to
+        // --card-radius-inner (8px) at mobile.
+        const radius = await field.evaluate((el) =>
+          window.getComputedStyle(el).borderRadius,
+        );
+        expect(radius).toBe('4px');
+      }
+    });
+
+    test('the Notable only row is its own ≥44px tappable toggle row', async ({ page }) => {
+      const panel = page.getByRole('dialog', { name: 'Filters' });
+      await expect(panel).toBeVisible();
+
+      // The toggle ROW is the <label> wrapping the checkbox.
+      const row = panel.locator('label.filters-bar__toggle-row');
+      await expect(row).toBeVisible();
+      const rowBox = await row.boundingBox();
+      expect(rowBox).not.toBeNull();
+      expect(rowBox!.height).toBeGreaterThanOrEqual(44);
+      // Full-width row within the .filters-bar content box.
+      const bar = panel.locator('.filters-bar');
+      const innerWidth = await bar.evaluate((el) => {
+        const cs = window.getComputedStyle(el);
+        return el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      });
+      expect(rowBox!.width).toBeGreaterThanOrEqual(innerWidth - 1);
+
+      // Tapping the ROW (not just the ~14px glyph) flips notable in the URL.
+      expect(app.getUrlParams().get('notable')).toBeNull();
+      // Click near the row's right edge — away from the checkbox glyph — to
+      // prove the whole row is the tap target.
+      await row.click({ position: { x: rowBox!.width - 12, y: rowBox!.height / 2 } });
+      await expect.poll(() => app.getUrlParams().get('notable'), { timeout: 5_000 }).toBe('true');
+      // The POM's check/uncheck path stays green — round-trip back to default.
+      await app.filters.toggleNotable(false);
+      await expect.poll(() => app.getUrlParams().get('notable'), { timeout: 5_000 }).toBeNull();
+    });
+  });
+
   // B2 (#1041): dark-mode filter controls must render themed — not native UA white.
   // Asserts that the time-window <select> background is the themed --color-bg-surface
   // (#1b2742 = rgb(27, 39, 66)) rather than the browser's default white/lightgray.
