@@ -80,6 +80,43 @@ describe('openDb', () => {
     expect(row.applied).toBe(0);
   });
 
+  it('creates the eval_run + eval_result tables (#1094 local store)', () => {
+    db = openDb(':memory:');
+    const tables = (db.prepare(
+      `SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`
+    ).all() as { name: string }[]).map(r => r.name);
+    expect(tables).toEqual(expect.arrayContaining(['eval_run', 'eval_result']));
+  });
+
+  it('eval_run has the exact contract columns (#1094)', () => {
+    db = openDb(':memory:');
+    expect(columns(db, 'eval_run')).toEqual([
+      'id', 'model', 'baseline_model', 'baseline_rubric', 'sample_size',
+      'started_at', 'agreement', 'false_keep', 'false_replace', 'score_mae', 'total_cost',
+    ]);
+  });
+
+  it('eval_result has the exact contract columns (#1094)', () => {
+    db = openDb(':memory:');
+    expect(columns(db, 'eval_result')).toEqual([
+      'run_id', 'species_code', 'com_name', 'content_hash', 'source_url',
+      'gemini_keep', 'gemini_quality', 'gemini_criteria_json',
+      'opus_keep', 'opus_quality', 'cost', 'prompt_tokens', 'completion_tokens',
+    ]);
+  });
+
+  it('eval_result enforces a UNIQUE (run_id, species_code) index (#1094)', () => {
+    db = openDb(':memory:');
+    const insert = db.prepare(
+      `INSERT INTO eval_result (run_id, species_code) VALUES (?, ?)`,
+    );
+    insert.run('run-1', 'amerob');
+    // a second row for the SAME (run_id, species_code) violates the unique index.
+    expect(() => insert.run('run-1', 'amerob')).toThrow();
+    // but the same species under a DIFFERENT run is allowed.
+    expect(() => insert.run('run-2', 'amerob')).not.toThrow();
+  });
+
   it('is idempotent — re-opening the SAME store re-runs the schema without throwing', () => {
     const p = path.join(os.tmpdir(), `idem-${Date.now()}-${Math.random().toString(36).slice(2)}.sqlite`);
     try {

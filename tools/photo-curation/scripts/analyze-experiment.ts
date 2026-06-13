@@ -18,22 +18,22 @@
 //                                        % routed, auto-set agreement, residual
 //                                        falseKeep)
 //
-// It is READ-ONLY: no eval run, no Gemini calls, no judging. Run it after an
-// experiment completes:  npm run analyze -w @bird-watch/photo-curation <exp>.
+// It is READ-ONLY: no eval run, no Gemini calls, no judging. Run it after a run
+// completes:  npm run analyze -w @bird-watch/photo-curation <run-id>.
 //
 // The math is PURE (the exported helpers below), unit-tested on a hand-built
-// fixture with known answers (analyze-experiment.test.ts). The Braintrust read
-// is injected via `ExperimentReader`, so the tests need no network and the CLI
-// glue is the only un-unit-tested surface (mirrors eval/photo-judge.eval.ts).
+// fixture with known answers (analyze-experiment.test.ts). The store read is
+// injected via `ExperimentReader` / `CostReader` (#1094: both now read the
+// local `eval_result` table, no longer `bt sql`), so the tests need no network
+// and the CLI glue is the only un-unit-tested surface.
 //
-// Lives OUTSIDE src/ (the tsconfig rootDir) like the eval entry, so it is not a
-// tsc build target; `tsx` runs it directly.
+// Lives OUTSIDE src/ (the tsconfig rootDir) like the runner, so it is not a tsc
+// build target; `tsx` runs it directly.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-
-const execFileAsync = promisify(execFile);
+import type Database from 'better-sqlite3';
+import { openDb } from '../src/db.js';
+import { readEvalResults } from '../src/eval/store.js';
 
 /**
  * One experiment row reduced to the four values the diagnostics need:
@@ -317,9 +317,13 @@ export function formatReport(experiment: string, a: Analysis, cost?: CostSummary
   ].join('\n');
 }
 
-// ── Braintrust read (injected; not unit-tested) ──────────────────────────────
+// ── Store read (injected; not unit-tested at the CLI seam) ───────────────────
 
-/** Reads a completed experiment's rows back. Injected so tests need no network. */
+/**
+ * Reads a completed run's rows back. A function TYPE, not a class interface —
+ * the CLI injects `makeSqliteReader(db)` (#1094); tests inject a plain async
+ * function returning fixture rows. `experiment` is the run id (eval_run.id).
+ */
 export type ExperimentReader = (experiment: string) => Promise<AnalysisRow[]>;
 
 /** A `scores`/`output`/`expected` row as `bt sql` returns it (loosely typed). */
@@ -383,43 +387,39 @@ export function projectCostRows(raw: RawMetricsRow[]): CostRow[] {
   return out;
 }
 
-/** Reads a completed experiment's judgment-span costs back (#1088). Injected. */
+/** Reads a completed run's judgment costs back (#1088). A function TYPE; injected. */
 export type CostReader = (experiment: string) => Promise<CostRow[]>;
 
 /**
- * The default reader: `bt sql "SELECT output, expected FROM experiment('<exp>')"`
- * as JSON, projected onto `AnalysisRow`. Shells out to the Braintrust CLI (auth
- * resolves from the active `bt` profile), so it is operator-run, never in CI.
+ * Build the local-store reader (#1094): reads the run's `eval_result` rows from
+ * SQLite and projects them onto `AnalysisRow` (the candidate `gemini_*` decision
+ * vs. the Opus `opus_*` baseline). Replaces the old `bt sql` shell-out — the
+ * store is local, so there is no network and no `bt` CLI dependency. A FACTORY
+ * over the open db so the CLI wires `openDb(REVIEW_DB)` while tests inject an
+ * in-memory db. Returns a plain `ExperimentReader` function (`experiment` = run id).
  */
-const btSqlReader: ExperimentReader = async (experiment) => {
-  const query = `SELECT output, expected FROM experiment('${experiment}')`;
-  const { stdout } = await execFileAsync('bt', ['sql', '--json', query], {
-    maxBuffer: 64 * 1024 * 1024,
-  });
-  const parsed = JSON.parse(stdout) as unknown;
-  const rows: RawRow[] = Array.isArray(parsed)
-    ? (parsed as RawRow[])
-    : ((parsed as { data?: RawRow[] }).data ?? []);
-  return projectRows(rows);
-};
+export function makeSqliteReader(db: Database.Database): ExperimentReader {
+  return async (runId) =>
+    readEvalResults(db, runId).map((r) => ({
+      outputKeep: r.geminiKeep,
+      outputScore: r.geminiQuality,
+      expectedKeep: r.opusKeep,
+      expectedScore: r.opusQuality,
+    }));
+}
 
 /**
- * The default cost reader (#1088): `bt sql "SELECT metrics FROM experiment(...)"`
- * as JSON, projected onto `CostRow`. Same `bt` shell-out + auth as `btSqlReader`;
- * operator-run, never CI. Separate query so the existing output/expected read is
- * untouched. `summarizeCost` then prints the total/mean/unpriced lines.
+ * Build the local-store cost reader (#1094): reads the run's `eval_result.cost`
+ * back and projects each row onto `CostRow` — a priced judgment carries a number,
+ * an unpriced one carries `undefined` (stored NULL). Replaces the old `bt sql`
+ * metrics read; same FACTORY-over-db shape as {@link makeSqliteReader} so the
+ * cost block + `eval_run.total_cost` have a local source. `summarizeCost` then
+ * prints the total/mean/unpriced lines.
  */
-const btCostReader: CostReader = async (experiment) => {
-  const query = `SELECT metrics FROM experiment('${experiment}')`;
-  const { stdout } = await execFileAsync('bt', ['sql', '--json', query], {
-    maxBuffer: 64 * 1024 * 1024,
-  });
-  const parsed = JSON.parse(stdout) as unknown;
-  const rows: RawMetricsRow[] = Array.isArray(parsed)
-    ? (parsed as RawMetricsRow[])
-    : ((parsed as { data?: RawMetricsRow[] }).data ?? []);
-  return projectCostRows(rows);
-};
+export function makeSqliteCostReader(db: Database.Database): CostReader {
+  return async (runId) =>
+    readEvalResults(db, runId).map((r) => ({ estimatedCost: r.cost }));
+}
 
 /** Parse `--band lo:hi` (default 40:70) from argv; everything else is the exp name. */
 function parseArgs(argv: string[]): { experiment: string | undefined; bandLo: number; bandHi: number } {
@@ -439,25 +439,26 @@ function parseArgs(argv: string[]): { experiment: string | undefined; bandLo: nu
 }
 
 /**
- * CLI entry. `reader` is injectable (defaults to the `bt sql` output/expected
- * reader). `costReader` is optional and injectable (#1088): when supplied (the
- * direct CLI run wires the real `btCostReader`), the report gains the
- * total/mean/unpriced cost block; when omitted (unit tests), the cost read is
- * skipped entirely so `main` stays network-free.
+ * CLI entry. `reader` is injected (no default — the direct CLI run wires
+ * `makeSqliteReader(db)`, #1094; tests inject a fixture function). `costReader`
+ * is optional and injectable (#1088): when supplied (the direct CLI run wires
+ * `makeSqliteCostReader(db)`), the report gains the total/mean/unpriced cost
+ * block; when omitted (unit tests of the no-cost path), the cost read is skipped
+ * entirely so `main` stays network-free. `experiment` is the run id (eval_run.id).
  */
 export async function main(
   argv: string[],
-  reader: ExperimentReader = btSqlReader,
+  reader: ExperimentReader,
   costReader?: CostReader,
 ): Promise<number> {
   const { experiment, bandLo, bandHi } = parseArgs(argv);
   if (!experiment) {
-    console.error('usage: analyze-experiment <experiment-name-or-id> [--band lo:hi]');
+    console.error('usage: analyze-experiment <run-id> [--band lo:hi]');
     return 2;
   }
   const rows = await reader(experiment);
   if (rows.length === 0) {
-    console.error(`No usable rows read from experiment '${experiment}' (is it complete, and does it carry output/expected keep + qualityScore?).`);
+    console.error(`No usable rows read from run '${experiment}' (is the run id correct, and did the run write eval_result rows?).`);
     return 1;
   }
   const cost = costReader ? summarizeCost(await costReader(experiment)) : undefined;
@@ -466,10 +467,21 @@ export async function main(
 }
 
 // Run only when invoked directly (tsx scripts/analyze-experiment.ts …), never on import.
+// REVIEW_DB is the local review store the runner wrote eval_result/eval_run to.
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main(process.argv.slice(2), btSqlReader, btCostReader)
-    .then((code) => process.exit(code))
+  const reviewDb = process.env.REVIEW_DB;
+  if (!reviewDb) {
+    console.error('REVIEW_DB is required (the local review.sqlite the run wrote to)');
+    process.exit(2);
+  }
+  const db = openDb(reviewDb);
+  main(process.argv.slice(2), makeSqliteReader(db), makeSqliteCostReader(db))
+    .then((code) => {
+      db.close();
+      process.exit(code);
+    })
     .catch((err: unknown) => {
+      db.close();
       console.error(err instanceof Error ? err.message : String(err));
       process.exit(1);
     });

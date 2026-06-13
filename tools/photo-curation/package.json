@@ -10,7 +10,7 @@
     "build": "tsc",
     "test": "vitest run",
     "curate": "tsx src/cli.ts",
-    "eval": "bt eval eval/photo-judge.eval.ts",
+    "eval": "tsx scripts/run-eval-local.ts",
     "analyze": "tsx scripts/analyze-experiment.ts",
     "backfill-scores": "tsx scripts/backfill-scores-to-prod.ts"
   },
@@ -20,7 +20,6 @@
     "@bird-watch/photo-quality": "*",
     "@bird-watch/shared-types": "*",
     "better-sqlite3": "^11.8.1",
-    "braintrust": "^3.17.0",
     "commander": "^13.1.0",
     "express": "^5.2.1",
     "sharp": "^0.35.1"

@@ -1,13 +1,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Per-model Gemini price table + a pure cost estimator (#1088).
 //
-// The photo-judge eval logs Gemini token counts (`prompt_tokens` /
-// `completion_tokens`, #1037) on every judgment span, but Braintrust does not
-// auto-price our spans — we log tokens as custom metrics, not via its LLM
-// auto-instrumentation. As we compare candidate models across experiments (the
+// The photo-judge eval records Gemini token counts (`prompt_tokens` /
+// `completion_tokens`, #1037) on every judgment, and (#1094) writes them to the
+// local `eval_result` store. As we compare candidate models across runs (the
 // `EVAL_MODEL` knob), cost is the other half of the quality tradeoff, so we
-// price the tokens HERE and log `metrics.estimated_cost` per span (traced.ts),
-// which Braintrust then aggregates (experiment total/mean) and `bt sql` can sum.
+// price the tokens HERE and the instrumentation seam (instrumented.ts) emits a
+// per-judgment `estimatedCost` the runner persists as `eval_result.cost` and
+// sums into `eval_run.total_cost`; the analyze CLI reads them back from SQLite.
 //
 // This mirrors the convention of `src/token-ledger.ts`'s `PRICE_TABLE` (the
 // Anthropic side): ONE dated constant, USD per **Million** tokens, updatable as
@@ -43,7 +43,7 @@ export interface ModelPrice {
 
 /**
  * USD per 1M tokens, keyed by the exact Gemini model id (the value passed as
- * `EVAL_MODEL` / constructed in `resolveTracedJudge`). Standard / ≤200k tier.
+ * `EVAL_MODEL` / constructed in `resolveJudge`). Standard / ≤200k tier.
  *
  * Deliberately ABSENT (→ unpriced, warns, never $0):
  *   • gemini-3-pro-preview   — discontinued 2026-03-26 (use gemini-3.1-pro-preview);
