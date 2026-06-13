@@ -1,8 +1,12 @@
 import { useEffect, useRef } from 'react';
 import type { RefObject } from 'react';
 import { ZIP_FLYTO_ZOOM } from '../../state/scope-types.js';
-import { CONUS_BOUNDS, FIT_BOUNDS_PADDING, INITIAL_VIEW } from './camera-config.js';
-import { padBounds } from './mask.js';
+import {
+  CONUS_BOUNDS,
+  FIT_BOUNDS_PADDING,
+  INITIAL_VIEW,
+  zoomAwareClampBounds,
+} from './camera-config.js';
 import type { LngLatBounds } from './mask.js';
 
 /**
@@ -91,15 +95,21 @@ export interface ScopeBounds {
   activeBounds: LngLatBounds;
   /**
    * REACTIVE `maxBounds` clamp — distinct from the fit target. For a state scope
-   * with `clampPad`, the state envelope PADDED outward by `clampPad`× per side
-   * (the single authoritative zoom-out gate). For `?scope=us` / legacy callers
-   * (no `clampPad`) it stays the raw `bounds ?? CONUS_BOUNDS` — unchanged.
+   * with `clampPad`, the state envelope padded outward by a ZOOM-AWARE per-side
+   * pad: the smaller of the static `clampPad`× gate (the zoom-OUT framing) and a
+   * cap derived from the live viewport span (the #1059 / M-30 zoom-IN backstop,
+   * so a fully-void viewport is unreachable). The math lives in the pure
+   * `zoomAwareClampBounds` (`camera-config.ts`); when no live span is supplied
+   * (mount, before the first camera settle) it reduces EXACTLY to
+   * `padBounds(bounds, clampPad)`, so entry framing is unchanged. For `?scope=us`
+   * / legacy callers (no `clampPad`) it stays the raw `bounds ?? CONUS_BOUNDS`.
    *
-   * Guard form is load-bearing: `bounds && clampPad ? padBounds(...) :
-   * activeBounds`. `padBounds` returns a non-nullable `LngLatBounds`, so a
-   * `padBounds(bounds, clampPad) ?? activeBounds` form would never fall through
-   * and would call `padBounds(undefined, undefined)` → throw on the
-   * `[[w,s],[e,n]]` destructure. Do NOT rewrite it.
+   * Guard form is load-bearing: `bounds && clampPad ? zoomAwareClampBounds(...) :
+   * activeBounds`. The ternary short-circuits before the derivation when `bounds`
+   * is undefined, so the `[[w,s],[e,n]]` destructure inside never sees undefined.
+   * A `zoomAwareClampBounds(bounds, clampPad, span) ?? activeBounds` form would
+   * never fall through (the function is non-nullable) and would call the
+   * derivation with `undefined` bounds → throw. Do NOT rewrite it into `??` form.
    */
   clampBounds: LngLatBounds;
   /**
@@ -115,18 +125,28 @@ export interface ScopeBounds {
 /**
  * Pure scope bounds-math (extracted from `MapCanvas.tsx`, #897). Derives the fit
  * target, the reactive clamp, and the mount `initialViewState` from the scope
- * `bounds` + `clampPad`. No React, no maplibre — unit-tested directly.
+ * `bounds` + `clampPad` (+ the live `viewportSpan` for the #1059 zoom-aware
+ * clamp). No React, no maplibre — unit-tested directly.
  *
- * The guard forms below are preserved verbatim from HEAD; see {@link ScopeBounds}
- * for why `clampBounds` must stay a `bounds && clampPad ?` ternary.
+ * The guard forms below are preserved from HEAD; see {@link ScopeBounds} for why
+ * `clampBounds` must stay a `bounds && clampPad ?` ternary.
+ *
+ * @param bounds       tight state envelope, or undefined (CONUS fallback)
+ * @param clampPad     artboard pad factor (state scope only), else undefined
+ * @param viewportSpan live `[lngSpan, latSpan]` in degrees (from the last camera
+ *                     settle) for the zoom-aware clamp; undefined at mount, where
+ *                     the clamp reduces to the static `padBounds(bounds, clampPad)`.
  */
 export function computeScopeBounds(
   bounds: LngLatBounds | undefined,
   clampPad: number | undefined,
+  viewportSpan?: [number, number],
 ): ScopeBounds {
   const activeBounds = bounds ?? CONUS_BOUNDS;
   const clampBounds =
-    bounds && clampPad ? padBounds(bounds, clampPad) : activeBounds;
+    bounds && clampPad
+      ? zoomAwareClampBounds(bounds, clampPad, viewportSpan)
+      : activeBounds;
   const initialViewState: ScopeInitialViewState = bounds
     ? { bounds, fitBoundsOptions: { padding: FIT_BOUNDS_PADDING, maxZoom: 12 } }
     : INITIAL_VIEW;
@@ -160,6 +180,9 @@ export function computeScopeBounds(
  * @param flyTo               ZIP `flyTo` intent (wins over `fitBounds`), or undefined
  * @param clampPad            artboard clamp padding factor (state scope only)
  * @param prefersReducedMotion mount-once reduced-motion read (see note below)
+ * @param viewportSpan        live `[lngSpan, latSpan]` (deg) from the last camera
+ *                            settle, feeding the #1059 zoom-aware clamp; undefined
+ *                            at mount (clamp falls back to the static padded value)
  */
 export function useScopeCamera(
   mapRef: RefObject<ScopeCameraMapRef | null>,
@@ -169,10 +192,12 @@ export function useScopeCamera(
   flyTo: ScopeFlyTo | undefined,
   clampPad: number | undefined,
   prefersReducedMotion: boolean,
+  viewportSpan?: [number, number],
 ): { clampBounds: LngLatBounds; initialViewState: ScopeInitialViewState } {
   const { activeBounds, clampBounds, initialViewState } = computeScopeBounds(
     bounds,
     clampPad,
+    viewportSpan,
   );
 
   /**

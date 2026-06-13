@@ -467,6 +467,18 @@ export function MapCanvas({
   // negligible gain.
   const prefersReducedMotion = usePrefersReducedMotion();
 
+  // #1059 (M-30) — live viewport span `[lngSpan, latSpan]` in degrees, feeding
+  // the ZOOM-AWARE artboard clamp in `useScopeCamera` below. Updated on the
+  // `zoomend` settle (the span is a function of zoom + viewport px; pan does not
+  // change it materially, and a per-frame update would churn React and re-apply
+  // `maxBounds` mid-gesture). `undefined` until the first settle so the clamp
+  // falls back to the STATIC padded value at mount — keeping entry framing
+  // byte-identical to the pre-#1059 path (the fitBounds frame). The `zoomend`
+  // setter is registered in `handleLoad` alongside `setMapZoom`.
+  const [viewportSpan, setViewportSpan] = useState<[number, number] | undefined>(
+    undefined,
+  );
+
   // SINGLE scope-driven camera-intent hook (#736 — Task C3; extracted to
   // `use-scope-camera.ts`, epic #884 · U12 / #897). Owns the flyTo-vs-fitBounds
   // chooser, the #848 moveend longitude corrector, and the derived bounds-math.
@@ -482,6 +494,10 @@ export function MapCanvas({
     flyTo,
     clampPad,
     prefersReducedMotion,
+    // #1059 — live viewport span drives the zoom-aware artboard clamp; a wider
+    // `clampBounds` change on zoom re-applies reactively via the `maxBounds`
+    // prop (no remount), same mechanism as the static clamp.
+    viewportSpan,
   );
 
   // Corrective `map.resize()` on the S2 flex→fixed container transition (#737,
@@ -883,6 +899,14 @@ export function MapCanvas({
     // syncs after every user interaction.
     map.on('zoomend', () => {
       setMapZoom(map.getZoom());
+      // #1059 — refresh the live viewport span for the zoom-aware artboard
+      // clamp. `getBounds()` is the current viewport rectangle in lng/lat; its
+      // width/height are the per-axis spans the clamp caps its pad against.
+      const vb = map.getBounds();
+      setViewportSpan([
+        Math.abs(vb.getEast() - vb.getWest()),
+        Math.abs(vb.getNorth() - vb.getSouth()),
+      ]);
     });
 
     // Issue #351: viewport-aware FamilyLegend counts. Fire the
