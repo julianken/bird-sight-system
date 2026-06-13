@@ -56,6 +56,35 @@ describe('FiltersBar', () => {
     expect(onChange).toHaveBeenCalledWith({ notable: true });
   });
 
+  // E4 (#1056): at the mobile sheet breakpoint the "Notable only" control
+  // becomes its own full-width tappable toggle ROW. The whole row must remain a
+  // <label> wrapping a REAL <input type="checkbox"> with the "Notable only"
+  // accessible name — NOT a button/switch — so getByRole('checkbox') and the
+  // POM's getByLabel('Notable only').check()/.uncheck() stay green. The
+  // .filters-bar__toggle-row class is the CSS hook the mobile @media block
+  // targets to give the row its ≥44px tap area; the desktop layout is unchanged.
+  it('renders the notable control as a full-row toggle with role + label preserved', () => {
+    render(
+      <FiltersBar
+        since="14d"
+        notable={false}
+        speciesCode={null}
+        familyCode={null}
+        families={[]}
+        speciesIndex={[]}
+        onChange={() => {}}
+      />
+    );
+    // The accessible control is still a real checkbox reachable by role + name.
+    const checkbox = screen.getByRole('checkbox', { name: /Notable/ });
+    expect(checkbox).toHaveProperty('type', 'checkbox');
+    // It is wrapped by a <label> carrying the toggle-row hook the mobile CSS
+    // targets — so tapping anywhere on the row flips the checkbox.
+    const row = checkbox.closest('label');
+    expect(row).not.toBeNull();
+    expect(row).toHaveClass('filters-bar__toggle-row');
+  });
+
   it('species draft survives a speciesIndex identity change', async () => {
     const user = userEvent.setup();
     const idx1 = [{ code: 'amerob', comName: 'American Robin' }];

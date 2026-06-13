@@ -2987,6 +2987,57 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
     border-radius: var(--card-radius) var(--card-radius) 0 0;
     overflow-y: auto;
   }
+
+  /* E4 (#1056): inside the bottom sheet, restyle the FiltersBar form so it
+     reads and taps like a mobile form instead of the shrunken desktop inline
+     layout. The desktop anchored-card layout (>480px) is untouched — these
+     rules live only in the sheet-mode media query, the SAME 480px breakpoint
+     the .filters-panel card↔sheet switch uses (E2 #1054, ruling #1060).
+
+     Three coupled changes:
+       1. The bar stacks its rows full-width (gap = --space-md) — no more
+          horizontal flex-wrap producing three different field x-positions
+          (ragged left rail). [M-18]
+       2. Each label stacks its caption ABOVE a full-width field, and every
+          select/input gets min-height: 44px (coarse-pointer floor, WCAG 2.5.5)
+          while KEEPING border-radius: 4px — the #1041/#1043 inner-input radius
+          contract; do NOT drift to --card-radius-inner (8px). [M-18]
+       3. "Notable only" becomes its own full-width ≥44px tappable toggle row:
+          the whole <label> row is the tap target (checkbox glyph + caption laid
+          out horizontally, glyph stays ~14px). It already wraps a real
+          <input type="checkbox" aria-label="Notable only">, so role/label and
+          the .check()/.uncheck() POM path are preserved. [M-18] */
+  .filters-bar {
+    flex-direction: column;
+    align-items: stretch;
+    flex-wrap: nowrap;
+    gap: var(--space-md);
+  }
+  .filters-bar label {
+    /* Caption stacked above its field, full-width. */
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+  }
+  .filters-bar select,
+  .filters-bar input {
+    inline-size: 100%;
+    /* Coarse-pointer floor. Keep 4px inner-input radius (set unconditionally at
+       :857-863); restated here only because some UA select resets re-derive it
+       from the box — the property value is identical, never 8px. */
+    min-block-size: 44px;
+    border-radius: 4px;
+  }
+  /* The toggle row is the exception to the stacked layout: caption sits BESIDE
+     the checkbox, the whole row is full-width and ≥44px so the entire band is
+     tappable (the wrapping <label> forwards the click to the checkbox). */
+  .filters-bar__toggle-row {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-sm);
+    min-block-size: 44px;
+    inline-size: 100%;
+  }
 }
 
 /* #950 — Filters panel enter. The panel is conditionally mounted (App.tsx:
