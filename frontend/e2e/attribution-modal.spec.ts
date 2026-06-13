@@ -4,8 +4,9 @@ import { AppPage } from './pages/app-page.js';
 /**
  * AttributionModal — #830 update: the modal is controlled-open. The internal
  * `.attribution-trigger` button was removed; the only Credits affordance is the
- * AppHeader ⓘ "Credits & attribution" button (`app.attributionTrigger`), which
+ * AppHeader ⓘ "Credits" button (`app.attributionTrigger`), which
  * sets the modal's `open` prop. Every test opens via that button.
+ * (#1033 V1/V18: label shortened from "Credits & attribution" to "Credits")
  *
  * Covers:
  *   - Credits trigger (AppHeader ⓘ) reachable from every view (map, detail).

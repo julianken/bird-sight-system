@@ -550,8 +550,8 @@ describe('Phase 6: Footer removal + Attribution via AppHeader (issue #250 → Ph
       };
       render(<App />);
       await screen.findByRole('banner');
-      // AppHeader carries the "Credits & attribution" button
-      const trigger = screen.getByRole('button', { name: /Credits & attribution/i });
+      // AppHeader carries the "Credits" button
+      const trigger = screen.getByRole('button', { name: /Credits/i });
       expect(trigger).toBeInTheDocument();
     },
   );
@@ -570,7 +570,7 @@ describe('Phase 6: Footer removal + Attribution via AppHeader (issue #250 → Ph
     // onOpenAttribution sets attributionOpen → the modal's open prop opens the
     // native dialog. (No leftover .attribution-trigger shim — it was deleted.)
     expect(document.querySelector('.attribution-trigger')).toBeNull();
-    await userEvent.click(screen.getByRole('button', { name: /Credits & attribution/i }));
+    await userEvent.click(screen.getByRole('button', { name: /Credits/i }));
     expect(dialog?.hasAttribute('open')).toBe(true);
   });
 
@@ -655,12 +655,12 @@ describe('Phase 3: AppHeader + Filters panel', () => {
     await screen.findByRole('banner');
     const trigger = screen.getByRole('button', { name: /Filters/i });
     // Closed initially: the FiltersBar region should not be in the DOM
-    expect(screen.queryByRole('region', { name: /Filters/i })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: /Filters/i })).toBeNull();
     await userEvent.click(trigger);
-    expect(screen.getByRole('region', { name: /Filters/i })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: /Filters/i })).toBeInTheDocument();
     // Close button inside the panel dismisses it
     await userEvent.click(screen.getByRole('button', { name: /Close filters/i }));
-    expect(screen.queryByRole('region', { name: /Filters/i })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: /Filters/i })).toBeNull();
   });
 
   it('Filters badge count reflects active filters (notable + family = 2)', async () => {
@@ -713,6 +713,19 @@ describe('O4 (#780): Filters floating sheet — modality, dismiss, inert, aria',
     expect(trigger).not.toHaveAttribute('aria-controls');
   });
 
+  // C51 (#1033): filters surface must be role=dialog (was role=region) so that
+  // aria-haspopup="dialog" on the trigger is truthful. aria-modal="true" marks
+  // it as a modal dialog (inert on #map-layer already enforces the boundary).
+  it('filters surface is role=dialog named "Filters" with aria-modal=true (#1033 C51)', async () => {
+    render(<App />);
+    await screen.findByRole('banner');
+    await userEvent.click(screen.getByRole('button', { name: /Filters/i }));
+    const panel = screen.getByRole('dialog', { name: 'Filters' });
+    expect(panel).toBeInTheDocument();
+    expect(panel).toHaveAttribute('aria-modal', 'true');
+    expect(panel).toHaveAttribute('aria-label', 'Filters');
+  });
+
   it('aria-expanded on trigger flips false→true on open, true→false on close', async () => {
     render(<App />);
     await screen.findByRole('banner');
@@ -750,11 +763,11 @@ describe('O4 (#780): Filters floating sheet — modality, dismiss, inert, aria',
     const mapLayer = container.querySelector('#map-layer');
 
     await userEvent.click(trigger);
-    expect(screen.getByRole('region', { name: /Filters/i })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: /Filters/i })).toBeInTheDocument();
     expect(mapLayer).toHaveAttribute('inert');
 
     await userEvent.keyboard('{Escape}');
-    expect(screen.queryByRole('region', { name: /Filters/i })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: /Filters/i })).toBeNull();
     expect(mapLayer).not.toHaveAttribute('inert');
   });
 
@@ -765,13 +778,13 @@ describe('O4 (#780): Filters floating sheet — modality, dismiss, inert, aria',
     const mapLayer = container.querySelector('#map-layer');
 
     await userEvent.click(trigger);
-    expect(screen.getByRole('region', { name: /Filters/i })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: /Filters/i })).toBeInTheDocument();
     expect(mapLayer).toHaveAttribute('inert');
 
     const backdrop = container.querySelector('[data-testid="filters-backdrop"]');
     expect(backdrop).not.toBeNull();
     await userEvent.click(backdrop!);
-    expect(screen.queryByRole('region', { name: /Filters/i })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: /Filters/i })).toBeNull();
     expect(mapLayer).not.toHaveAttribute('inert');
   });
 
@@ -2487,7 +2500,7 @@ describe('#828: lede dedupe — count-only copy, no region, no time-window', () 
     vi.restoreAllMocks();
   });
 
-  it('Default (T4): "{N} species" — no region, no window', async () => {
+  it('Default (T4): "{N} sightings" — no region, no window', async () => {
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: null,
       view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
@@ -2498,7 +2511,9 @@ describe('#828: lede dedupe — count-only copy, no region, no time-window', () 
     });
     render(<App />);
     const lede = await screen.findByTestId('map-lede');
-    expect(lede).toHaveTextContent('2 species');
+    // #1047: lede always reports sightings regardless of aggregation mode.
+    expect(lede).toHaveTextContent('2 sightings');
+    expect(lede).not.toHaveTextContent(/species/i);
     expect(lede).not.toHaveTextContent(/seen across/i);
     expect(lede).not.toHaveTextContent(/Arizona/i);
     expect(lede).not.toHaveTextContent(/in the last/i);
@@ -2544,7 +2559,30 @@ describe('#828: lede dedupe — count-only copy, no region, no time-window', () 
     expect(lede).not.toHaveTextContent(/species/i);
   });
 
-  it('Family filter (T3): "{N} species of {familyName}" — no region, no window', async () => {
+  // #1047 — cross-mode invariance: the SAME scope in per-observation mode must
+  // also report sightings, not species, so both modes carry the same label.
+  it('#1047: per-observation mode reports "N sightings" (same label as aggregated mode)', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
+    };
+    // Per-observation payload — data array, no buckets (mode = 'per-observation').
+    mockGetObservations.mockResolvedValue({
+      data: [
+        obs({ speciesCode: 'vermfly' }),
+        obs({ speciesCode: 'gilwoo', comName: 'Gila Woodpecker' }),
+        obs({ speciesCode: 'vermfly' }),
+      ],
+      meta: { freshestObservationAt: new Date().toISOString() },
+    });
+    render(<App />);
+    const lede = await screen.findByTestId('map-lede');
+    // 3 observations → "3 sightings"; the "species" label must never appear.
+    expect(lede).toHaveTextContent('3 sightings');
+    expect(lede).not.toHaveTextContent(/species/i);
+  });
+
+  it('Family filter (T3): "{N} sightings of {familyName}" — no region, no window', async () => {
     mockUrlState.state = {
       since: '14d', notable: false, speciesCode: null, familyCode: 'picidae',
       view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
@@ -2561,10 +2599,11 @@ describe('#828: lede dedupe — count-only copy, no region, no time-window', () 
     });
     render(<App />);
     const lede = await screen.findByTestId('map-lede');
-    // familyName is resolved from the family taxonomy; assert the count + "species of"
-    // shape and the absence of region/window. (The exact family label is owned by
-    // the family-name lookup; the dedupe contract is the count + no region/window.)
-    expect(lede).toHaveTextContent(/^2 species of .+$/);
+    // #1047: family-filter branch now reports sightings count, not species count.
+    // familyName is resolved from the family taxonomy; the exact label is owned by
+    // the family-name lookup; assert count + "sightings of" shape.
+    expect(lede).toHaveTextContent(/^2 sightings of .+$/);
+    expect(lede).not.toHaveTextContent(/species/i);
     expect(lede).not.toHaveTextContent(/seen across/i);
     expect(lede).not.toHaveTextContent(/Arizona/i);
     expect(lede).not.toHaveTextContent(/in the last/i);
@@ -2663,7 +2702,8 @@ describe('#828: lede dedupe — count-only copy, no region, no time-window', () 
     });
     const { rerender } = render(<App />);
     const lede = await screen.findByTestId('map-lede');
-    expect(lede).toHaveTextContent('2 species');
+    // #1047: default template now reports sightings, not species count.
+    expect(lede).toHaveTextContent('2 sightings');
 
     // Transition to a new state whose observations fetch never resolves —
     // observationsLoading flips true while the prior (nonzero) observations are
@@ -2681,7 +2721,7 @@ describe('#828: lede dedupe — count-only copy, no region, no time-window', () 
     await waitFor(() => {
       const ledeNow = screen.queryByTestId('map-lede');
       // Either the row is gone OR it shows a count-free placeholder — never the
-      // stale "2 species".
+      // stale "2 sightings".
       if (ledeNow) {
         expect(ledeNow).not.toHaveTextContent(/\d+\s+species/i);
         expect(ledeNow).not.toHaveTextContent(/\d+\s+sightings/i);

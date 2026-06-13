@@ -458,10 +458,11 @@ test.describe('axe-core WCAG scans', () => {
     const app = new AppPage(page);
     await app.goto('view=map');
     await app.waitForAppReady();
-    // #830: open via the AppHeader ⓘ "Credits & attribution" button — the
+    // #830: open via the AppHeader ⓘ "Credits" button — the
     // documented real affordance, which sets the controlled `open` prop on
     // AttributionModal (item D). The header is fixed chrome on `--z-chrome`
     // (always clickable). No internal shim is involved any more.
+    // (#1033 V1/V18: label shortened from "Credits & attribution" to "Credits")
     await app.attributionTrigger.click();
     // Wait on the [open] attribute commit — observable contract that
     // showModal() has run, focus-delegation is settled, and the dialog
@@ -484,8 +485,8 @@ test.describe('axe-core WCAG scans', () => {
       const app = new AppPage(page);
       await app.goto('view=map');
       await app.waitForAppReady();
-      // #830: open via the AppHeader ⓘ "Credits & attribution" button (the
-      // controlled-open trigger, item D). See the desktop test for the rationale.
+      // #830: open via the AppHeader ⓘ "Credits" button (the
+      // controlled-open trigger, item D; #1033: label shortened). See the desktop test for the rationale.
       await app.attributionTrigger.click();
       await expect(page.locator('dialog.attribution-modal[open]')).toBeVisible();
       const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
