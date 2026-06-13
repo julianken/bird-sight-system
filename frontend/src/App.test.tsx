@@ -1522,7 +1522,8 @@ describe('#740 (C6): scope wiring end-to-end', () => {
     render(<App />);
     // The AppHeader wordmark / region-name row names the region — the resolved
     // "Arizona" name, not the bare "US-AZ" code. Check the identity card.
-    // .brand-region contains " · Arizona" (note space + dot); use a regex match.
+    // #1057: the "· " separator now lives in `.brand-region::before` (CSS), so
+    // the element's text node is just the region name ("Arizona").
     await screen.findByText(/Arizona/i, { selector: '.brand-region' });
     expect(screen.queryByText(/US-AZ/, { selector: '.brand-region' })).toBeNull();
   });

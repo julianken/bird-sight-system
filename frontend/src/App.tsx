@@ -1261,6 +1261,11 @@ export function App() {
         filterCount={filterCount}
         onOpenFilters={() => setFiltersOpen(true)}
         filtersOpen={filtersOpen}
+        // E5 (#1057): the `?detail=` presence boolean — drives the scope
+        // disclosure's auto-collapse when a species-detail surface takes over
+        // (spec §5.1 COMPACT: at most one expanded surface). Same derivation
+        // (`!!state.detail`) used for the compact sheet-open signal above.
+        detailOpen={!!state.detail}
         filtersTriggerRef={filtersTriggerRef}
         onOpenAttribution={onOpenAttribution}
         ledeText={ledeText}
