@@ -6,9 +6,12 @@ import {
   bucketKey,
   buildGroups,
   displaceSilhouettes,
+  resolveDisplacedCollisions,
+  pairwiseOverlapRatio,
   hashSubId,
   SILHOUETTE_PX,
   type DeconflictInput,
+  type DisplacedSilhouette,
 } from './deconflict.js';
 
 // Shared fixtures
@@ -424,5 +427,125 @@ describe('deconflict', () => {
     // Both clamped ≤ 20.
     expect(Math.hypot(offE.dx, offE.dy)).toBeLessThanOrEqual(20);
     expect(Math.hypot(offW.dx, offW.dy)).toBeLessThanOrEqual(20);
+  });
+});
+
+/**
+ * Displaced-twin collision/spiral pass (E6 / #1058, M-15 "Yuma clump").
+ *
+ * `displaceSilhouettes` shifts each silhouette only away from ITS OWN group's
+ * cluster anchor — it never compares two silhouettes' final positions. At a
+ * dense border, twins displaced out of adjacent groups land on top of each
+ * other. `resolveDisplacedCollisions` is a pure post-step that nudges those
+ * overlapping twins apart so no pair overlaps by more than 25% of the smaller
+ * silhouette's bbox area (denominator pinned per #1058 reviewer addendum #2).
+ */
+describe('resolveDisplacedCollisions', () => {
+  // Pinned overlap metric: intersection / min(areaA, areaB). All silhouette
+  // bboxes are SILHOUETTE_PX squares, so min-area = SILHOUETTE_PX².
+  const SIL = SILHOUETTE_PX;
+
+  function disp(subId: string, px: number, py: number): DisplacedSilhouette {
+    return { subId, px, py };
+  }
+
+  /** Worst-case pairwise overlap ratio after applying the extra offsets. */
+  function worstRatioAfter(
+    items: ReadonlyArray<DisplacedSilhouette>,
+    extra: Map<string, { dx: number; dy: number }>,
+  ): number {
+    const resolved = items.map((it) => {
+      const e = extra.get(it.subId) ?? { dx: 0, dy: 0 };
+      return { subId: it.subId, px: it.px + e.dx, py: it.py + e.dy };
+    });
+    let worst = 0;
+    for (let i = 0; i < resolved.length; i++) {
+      for (let j = i + 1; j < resolved.length; j++) {
+        const a = resolved[i]!;
+        const b = resolved[j]!;
+        worst = Math.max(worst, pairwiseOverlapRatio(a.px, a.py, b.px, b.py));
+      }
+    }
+    return worst;
+  }
+
+  it('pairwiseOverlapRatio pins the metric: intersection / smaller bbox area', () => {
+    // Coincident centers → full overlap → ratio 1.
+    expect(pairwiseOverlapRatio(100, 100, 100, 100)).toBeCloseTo(1, 5);
+    // Disjoint (≥ SIL apart on an axis) → ratio 0.
+    expect(pairwiseOverlapRatio(100, 100, 100 + SIL, 100)).toBeCloseTo(0, 5);
+    // Half-overlap on x, full on y → (SIL/2 · SIL) / SIL² = 0.5.
+    expect(pairwiseOverlapRatio(100, 100, 100 + SIL / 2, 100)).toBeCloseTo(0.5, 5);
+  });
+
+  it('is a no-op for an empty input (silhouette-only group: zero displaced twins)', () => {
+    expect(resolveDisplacedCollisions([]).size).toBe(0);
+  });
+
+  it('is a no-op for a single displaced twin (≤1 → nothing to deconflict)', () => {
+    const out = resolveDisplacedCollisions([disp('OBS1', 100, 100)]);
+    expect(out.size).toBe(0);
+  });
+
+  it('two displaced twins landing exactly on top of each other → split apart, ≤25% overlap, bounded', () => {
+    // The Yuma failure mode: twins from adjacent groups displaced onto the
+    // same pixel. coincident → full overlap (ratio 1) before the pass.
+    const items = [disp('OBS_A', 200, 200), disp('OBS_B', 200, 200)];
+    expect(worstRatioAfter(items, new Map())).toBeCloseTo(1, 5);
+
+    const extra = resolveDisplacedCollisions(items);
+    // Worst pairwise overlap now ≤ 25% of the smaller bbox.
+    expect(worstRatioAfter(items, extra)).toBeLessThanOrEqual(0.25 + 1e-6);
+    // Offsets stay bounded (no runaway spiral).
+    for (const off of extra.values()) {
+      expect(Math.hypot(off.dx, off.dy)).toBeLessThanOrEqual(SIL * 2);
+    }
+  });
+
+  it('two adjacent-group twins overlapping ~80% → resolved to ≤25%', () => {
+    // Centers 6px apart on x → overlap (SIL-6)·SIL / SIL² = 22/28 ≈ 0.786.
+    const items = [disp('OBS_A', 200, 200), disp('OBS_B', 206, 200)];
+    expect(worstRatioAfter(items, new Map())).toBeGreaterThan(0.7);
+    const extra = resolveDisplacedCollisions(items);
+    expect(worstRatioAfter(items, extra)).toBeLessThanOrEqual(0.25 + 1e-6);
+  });
+
+  it('already-separated twins (>SIL apart) → no offsets emitted (pass is a no-op)', () => {
+    const items = [disp('OBS_A', 100, 100), disp('OBS_B', 100 + SIL + 5, 100)];
+    const extra = resolveDisplacedCollisions(items);
+    // Nothing to do — either empty map or all-zero offsets.
+    for (const off of extra.values()) {
+      expect(off.dx).toBeCloseTo(0, 5);
+      expect(off.dy).toBeCloseTo(0, 5);
+    }
+    expect(worstRatioAfter(items, extra)).toBeCloseTo(0, 5);
+  });
+
+  it('clump of 13 coincident twins (Yuma scale) → every pair ≤25% overlap, all bounded', () => {
+    const items = Array.from({ length: 13 }, (_, i) => disp(`OBS_${i}`, 300, 300));
+    expect(worstRatioAfter(items, new Map())).toBeCloseTo(1, 5);
+    const extra = resolveDisplacedCollisions(items);
+    expect(worstRatioAfter(items, extra)).toBeLessThanOrEqual(0.25 + 1e-6);
+    for (const off of extra.values()) {
+      expect(Number.isFinite(off.dx)).toBe(true);
+      expect(Number.isFinite(off.dy)).toBe(true);
+      expect(Math.hypot(off.dx, off.dy)).toBeLessThanOrEqual(SIL * 3);
+    }
+  });
+
+  it('is deterministic — same input yields identical offsets', () => {
+    const items = [
+      disp('OBS_A', 200, 200),
+      disp('OBS_B', 200, 200),
+      disp('OBS_C', 203, 201),
+    ];
+    const a = resolveDisplacedCollisions(items);
+    const b = resolveDisplacedCollisions(items);
+    for (const it of items) {
+      const oa = a.get(it.subId) ?? { dx: 0, dy: 0 };
+      const ob = b.get(it.subId) ?? { dx: 0, dy: 0 };
+      expect(oa.dx).toBe(ob.dx);
+      expect(oa.dy).toBe(ob.dy);
+    }
   });
 });

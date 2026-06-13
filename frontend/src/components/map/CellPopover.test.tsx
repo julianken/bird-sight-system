@@ -433,9 +433,11 @@ describe('<CellPopover>', () => {
       const card = renderAt(anchor);
       expect(card.style.position).toBe('fixed');
       const left = parseFloat(card.style.left);
-      // Min card width is 240px; left must leave room for the card inside 1024.
-      expect(left).toBeGreaterThanOrEqual(0);
-      expect(left).toBeLessThanOrEqual(1024 - 240);
+      // E1 (#1053): clamp to the 12px safe area (--card-inset), not the loose
+      // 8px floor. Min card width is 240px; left must keep both edges ≥12px from
+      // the viewport edges: 12 ≤ left ≤ 1024 − 240 − 12.
+      expect(left).toBeGreaterThanOrEqual(12);
+      expect(left).toBeLessThanOrEqual(1024 - 240 - 12);
     });
 
     it('flips above so a bottom-edge anchor never overflows the bottom of the viewport', () => {
@@ -444,9 +446,71 @@ describe('<CellPopover>', () => {
       const card = renderAt(anchor);
       expect(card.style.position).toBe('fixed');
       const top = parseFloat(card.style.top);
-      // Flipped above the anchor: top must sit at or above the anchor's top edge.
+      // E1 (#1053): clamp to the 12px safe area. Flipped above the anchor: top
+      // must sit at or above the anchor's top edge AND keep a ≥12px top gutter.
       expect(top).toBeLessThanOrEqual(750);
-      expect(top).toBeGreaterThanOrEqual(0);
+      expect(top).toBeGreaterThanOrEqual(12);
+    });
+
+    // E1 (#1053, finding "edge clamp"): at the 390px mobile viewport an
+    // east-edge anchor must keep a ≥12px RIGHT gutter — the popover's right
+    // edge (left + width) may not exceed vw − 12. Pre-fix the card clamped to
+    // an 8px floor and a FALLBACK_CARD_WIDTH of 240 left only an 8px gutter.
+    it('keeps a ≥12px right gutter at the 390px mobile viewport (east-edge anchor)', () => {
+      const prevW = window.innerWidth;
+      const prevH = window.innerHeight;
+      Object.defineProperty(window, 'innerWidth', { value: 390, configurable: true });
+      Object.defineProperty(window, 'innerHeight', { value: 844, configurable: true });
+      try {
+        // Marker hugging the right edge of a 390-wide viewport.
+        const anchor = makeAnchorAt({ left: 376, top: 300, right: 390, bottom: 322, width: 14, height: 22 });
+        const card = renderAt(anchor);
+        const left = parseFloat(card.style.left);
+        // The fallback card width is 240 (the CSS min-width); left + width must
+        // not cross vw − 12 = 378, and left must keep a ≥12px left gutter too.
+        expect(left).toBeGreaterThanOrEqual(12);
+        expect(left + 240).toBeLessThanOrEqual(390 - 12);
+      } finally {
+        Object.defineProperty(window, 'innerWidth', { value: prevW, configurable: true });
+        Object.defineProperty(window, 'innerHeight', { value: prevH, configurable: true });
+      }
+    });
+  });
+
+  // E1 (#1053, finding "no anchor caret"): the popover renders a caret notch on
+  // the cell-facing edge so it doesn't read as a detached card amid a dense
+  // marker pile. The caret element carries a data-placement attribute that
+  // matches the card's placement ('above'|'below') so it survives the flip.
+  describe('anchor caret (#1053)', () => {
+    function renderAt(anchor: HTMLElement) {
+      render(
+        <CellPopover
+          familyCode="hummingbirds"
+          familyCount={5}
+          species={[species("Anna's Hummingbird", 5, 'annhum')]}
+          anchorEl={anchor}
+          onDismiss={vi.fn()}
+          onSelectSpecies={vi.fn()}
+        />
+      );
+      return screen.getByTestId('cell-popover');
+    }
+
+    it('renders a caret element whose placement matches a below-placed card', () => {
+      const anchor = makeAnchorAt({ left: 300, top: 200, right: 322, bottom: 222, width: 22, height: 22 });
+      renderAt(anchor);
+      const caret = screen.getByTestId('cell-popover-caret');
+      expect(caret).toBeInTheDocument();
+      // Card placed below the cell → caret points up at the anchor.
+      expect(caret.getAttribute('data-placement')).toBe('below');
+    });
+
+    it('renders a caret whose placement flips with the card (above-placed)', () => {
+      // Bottom-edge anchor forces the card to flip above.
+      const anchor = makeAnchorAt({ left: 300, top: 750, right: 322, bottom: 766, width: 22, height: 16 });
+      renderAt(anchor);
+      const caret = screen.getByTestId('cell-popover-caret');
+      expect(caret.getAttribute('data-placement')).toBe('above');
     });
   });
 

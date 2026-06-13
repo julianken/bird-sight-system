@@ -1,25 +1,27 @@
 /**
- * badge-anchor.spec.ts — badge anchors to cell, not grid corner (bugfix)
+ * badge-anchor.spec.ts — badge anchors INSIDE its own cell, not the grid corner
  *
- * User-reported bug: the count badge on AdaptiveGridMarker cells rendered as
- * `<button>` was visually anchored at the GRID corner rather than the per-cell
- * corner, so multiple count>1 cells in one cluster all stacked badges at the
- * same offset from the grid origin.
+ * Original bug (fixed PR #563): the count badge on AdaptiveGridMarker cells
+ * rendered as `<button>` was visually anchored at the GRID corner rather than
+ * the per-cell corner, so multiple count>1 cells in one cluster all stacked
+ * badges at the same offset from the grid origin. Root cause: inline
+ * `style={{ all: 'unset' }}` reset `position` to `static`, so the absolutely-
+ * positioned badge fell through to the grid (also `position: relative`).
  *
- * Root cause: inline `style={{ all: 'unset' }}` on the button reset `position`
- * to `static`, overriding the class-level `position: relative`. The absolutely-
- * positioned badge then fell through to the nearest positioned ancestor — the
- * grid element (also `position: relative`) — instead of anchoring to the cell.
+ * E6 / #1058 (M-15 "Yuma clump"): the badge was anchored `bottom:-3px;
+ * right:-3px`, OVERHANGING the 22px tile across the 2px grid gap into the
+ * neighbouring cell — so at a dense border a "3" read as belonging to two
+ * birds at once. The fix moves the badge to the top-right INSIDE the tile
+ * (`top:0; right:0`; the 14px badge fits within the 22px cell), keeping the
+ * existing 1px white box-shadow ring (the WCAG 1.4.11 contrast floor). Every
+ * badge bbox must now sit fully WITHIN its owner cell's bbox and intersect no
+ * neighbour.
  *
- * Fix: remove `all: 'unset'` from the inline style; add a
- * `button.adaptive-grid-marker__cell` CSS rule (specificity 0,1,1) to supply
- * the necessary browser chrome-reset properties (background, border, padding,
- * font) without touching `position`.
- *
- * This spec asserts the real-browser layout contract: for every cell that has a
- * badge, the badge's right/bottom edges must be within 5px of the cell's
- * right/bottom edges. jsdom does not have a layout engine and cannot catch this
- * regression — this Playwright test is the load-bearing AC verification.
+ * This spec asserts the real-browser layout contract: for every badged cell,
+ * the badge bbox is contained within the cell bbox (right edge ≈ cell right
+ * edge, top edge ≈ cell top edge, no left/bottom overhang). jsdom has no
+ * layout engine and cannot catch this — this Playwright test is the
+ * load-bearing AC verification.
  *
  * Test strategy:
  *   - Stubs /api/silhouettes with 4 families (3 with svgData → rendered branch,
@@ -28,8 +30,8 @@
  *   - Stubs /api/observations with enough co-located points that supercluster
  *     aggregation produces one cluster with ≥3 count>1 cells.
  *   - Flies to the cluster at zoom=14 where the grid marker is visible.
- *   - Asserts badge.getBoundingClientRect().right ≈ cell.getBoundingClientRect().right
- *     and badge.bottom ≈ cell.bottom for each badged cell (±5px tolerance).
+ *   - Asserts the badge bbox is inside its cell bbox (top-right anchored), with
+ *     a small tolerance for the box-shadow ring / subpixel rounding.
  *
  * WebGL guard: same skip-pattern as forced-colors.spec.ts and
  * basemap-dark-flip.spec.ts. Headless Chromium in some CI environments has no
@@ -187,11 +189,11 @@ async function flyTo(
   await page.waitForTimeout(800);
 }
 
-test.describe('Badge anchor (bugfix: badge must anchor to cell, not grid corner)', () => {
+test.describe('Badge anchor (badge bbox must sit inside its own cell, top-right)', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
   test(
-    'each cell badge is positioned within 5px of its own cell right/bottom edges',
+    'each cell badge bbox is contained within its own cell (top-right anchored, no neighbour overhang)',
     async ({ page }) => {
       // Route stubs must be registered before page.goto.
       await page.route('**/api/hotspots', async route => {
@@ -238,7 +240,9 @@ test.describe('Badge anchor (bugfix: badge must anchor to cell, not grid corner)
       // aggregate as expected (e.g. different zoom breakpoint on this runner).
       test.skip(badgeCount < 2, `Only ${badgeCount} badge(s) found — cluster did not produce ≥2 count>1 cells at this zoom`);
 
-      // For each badge, verify it is anchored to its own cell and not to the grid.
+      // For each badge, verify its bbox is contained within its own cell's bbox
+      // (top-right anchored), not overhanging into a neighbour. The box-shadow
+      // ring is NOT part of getBoundingClientRect, so the rects compare cleanly.
       const results = await page.evaluate(() => {
         const badges = Array.from(
           document.querySelectorAll('[data-testid="adaptive-grid-marker-badge"]'),
@@ -255,30 +259,49 @@ test.describe('Badge anchor (bugfix: badge must anchor to cell, not grid corner)
           const cRect = ancestor.getBoundingClientRect();
 
           return {
+            badgeTop: bRect.top,
             badgeRight: bRect.right,
             badgeBottom: bRect.bottom,
+            badgeLeft: bRect.left,
+            cellTop: cRect.top,
             cellRight: cRect.right,
             cellBottom: cRect.bottom,
+            cellLeft: cRect.left,
+            // Top-right anchor deltas.
+            deltaTop: Math.abs(bRect.top - cRect.top),
             deltaRight: Math.abs(bRect.right - cRect.right),
-            deltaBottom: Math.abs(bRect.bottom - cRect.bottom),
+            // Overhang past the cell on the bottom / left edges (positive = overhang).
+            bottomOverhang: bRect.bottom - cRect.bottom,
+            leftOverhang: cRect.left - bRect.left,
             cellTestId: ancestor.getAttribute('data-testid') ?? '',
           };
         });
       });
 
-      // Every badge must anchor within 5px of its cell (not the grid).
+      // Every badge must be top-right anchored INSIDE its cell, with no
+      // bottom/left overhang into a neighbour. 2px tolerance absorbs subpixel
+      // rounding and the box-shadow ring's optical (non-layout) bleed.
+      const TOL = 2;
       for (const result of results) {
         if ('error' in result) {
           throw new Error(`Badge anchor check failed: ${result.error}`);
         }
         expect(
           result.deltaRight,
-          `Badge right edge (+${result.badgeRight.toFixed(0)}) must be within 5px of cell right edge (${result.cellRight.toFixed(0)}) — got delta ${result.deltaRight.toFixed(1)}px. Bug: badge anchored to grid corner, not cell corner.`,
-        ).toBeLessThanOrEqual(5);
+          `Badge right edge (${result.badgeRight.toFixed(0)}) must be within ${TOL}px of cell right edge (${result.cellRight.toFixed(0)}) — got delta ${result.deltaRight.toFixed(1)}px. Badge must anchor top-right INSIDE its cell.`,
+        ).toBeLessThanOrEqual(TOL);
         expect(
-          result.deltaBottom,
-          `Badge bottom edge (+${result.badgeBottom.toFixed(0)}) must be within 5px of cell bottom edge (${result.cellBottom.toFixed(0)}) — got delta ${result.deltaBottom.toFixed(1)}px. Bug: badge anchored to grid corner, not cell corner.`,
-        ).toBeLessThanOrEqual(5);
+          result.deltaTop,
+          `Badge top edge (${result.badgeTop.toFixed(0)}) must be within ${TOL}px of cell top edge (${result.cellTop.toFixed(0)}) — got delta ${result.deltaTop.toFixed(1)}px. Badge must anchor top-right INSIDE its cell.`,
+        ).toBeLessThanOrEqual(TOL);
+        expect(
+          result.bottomOverhang,
+          `Badge must NOT overhang its cell's bottom edge (badge bottom ${result.badgeBottom.toFixed(0)} vs cell bottom ${result.cellBottom.toFixed(0)}) — that overhang crosses the 2px grid gap into the neighbouring cell (E6 #1058).`,
+        ).toBeLessThanOrEqual(TOL);
+        expect(
+          result.leftOverhang,
+          `Badge must NOT overhang its cell's left edge (badge left ${result.badgeLeft.toFixed(0)} vs cell left ${result.cellLeft.toFixed(0)}).`,
+        ).toBeLessThanOrEqual(TOL);
       }
     },
   );

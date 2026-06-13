@@ -86,8 +86,15 @@ test.describe('Scope disclosure (#828)', () => {
     // The count-only lede is visible (region + window dropped, #828).
     // #1047: lede always reports sightings.
     await expect(app.mapLede).toHaveText(/^\d+ sightings$/);
-    // The visible region rides in the wordmark line exactly once.
-    await expect(app.appHeader.locator('.brand-region')).toHaveText('· Arizona');
+    // The visible region rides in the wordmark line exactly once. #1057: the
+    // "· " separator is painted by `.brand-region::before` (CSS) so the element
+    // text node is JUST the region name; the visible dot is asserted via the
+    // pseudo-element's resolved `content` (textContent excludes ::before).
+    await expect(app.appHeader.locator('.brand-region')).toHaveText('Arizona');
+    const dotContent = await app.appHeader
+      .locator('.brand-region')
+      .evaluate((el) => getComputedStyle(el, '::before').content);
+    expect(dotContent).toContain('·');
 
     // The disclosure trigger is present and collapsed.
     await expect(app.scopeDisclosureTrigger).toBeVisible();
@@ -255,5 +262,40 @@ test.describe('Scope disclosure (#828)', () => {
     // The URL round-trips to the new scope (the persisted action — unlike the
     // disclosure open/closed state, which is component-local, not in the URL).
     await expect(page).toHaveURL(/[?&]state=US-FL\b/);
+  });
+
+  // ── E5 (#1057): auto-collapse on surface-takeover / commit ───────────────
+  // Spec §5.1 COMPACT: at most one expanded surface. The disclosure collapses
+  // when the state selection COMMITS (the user is done choosing) and when the
+  // Filters sheet takes over. The PRESERVED no-click-outside rule (a stray map
+  // click keeps it open, asserted above) is a different intent than these.
+
+  test('#1057: the disclosure auto-collapses after a successful state commit', async ({ page, apiStub }) => {
+    const app = await setup(page, apiStub);
+
+    await app.openScopeDisclosure();
+    await expect(app.scopeDisclosureTrigger).toHaveAttribute('aria-expanded', 'true');
+
+    // Commit a state switch via the #1035 explicit-Go path (POM helper).
+    await app.switchStateViaScopeControl('US-FL');
+
+    // The scope round-trips AND the disclosure collapses (the commit is "done").
+    await expect(page).toHaveURL(/[?&]state=US-FL\b/);
+    await expect(app.scopeDisclosureTrigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(app.scopeControlStateSelect).toBeHidden();
+  });
+
+  test('#1057: the disclosure auto-collapses when the Filters sheet opens', async ({ page, apiStub }) => {
+    const app = await setup(page, apiStub);
+
+    await app.openScopeDisclosure();
+    await expect(app.scopeDisclosureTrigger).toHaveAttribute('aria-expanded', 'true');
+
+    // Opening Filters is a surface-takeover intent (≠ a stray map click): the
+    // scope disclosure collapses so two expanded surfaces are never up at once.
+    await app.filtersTrigger.click();
+
+    await expect(app.scopeDisclosureTrigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(app.scopeControlStateSelect).toBeHidden();
   });
 });

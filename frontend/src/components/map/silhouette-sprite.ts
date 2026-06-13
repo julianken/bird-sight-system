@@ -14,9 +14,11 @@ import { isValidSvgPathData } from './silhouette-fallback.js';
  *      minimal structural {@link SpriteMap}, never maplibre's full `Map`, so it
  *      unit-tests against a tiny spy with no WebGL (exemplar: `artboard-layers.ts`).
  *
- * Registration is COLORLESS: `addImage(id, img, { sdf: true })` registers a
- * single-channel alpha mask; tinting happens later via the symbol layer's
- * `icon-color` paint property, not at sprite-register time.
+ * Registration is COLORLESS: `addImage(id, img, { sdf: true, pixelRatio: 2 })`
+ * registers a single-channel alpha mask; tinting happens later via the symbol
+ * layer's `icon-color` paint property, not at sprite-register time. The
+ * `pixelRatio: 2` halves the 64px raster to 32 CSS px so the on-map scale
+ * matches the documented 24-28px band (E6 / #1058).
  */
 
 /**
@@ -26,17 +28,19 @@ import { isValidSvgPathData } from './silhouette-fallback.js';
  * keeps the helper unit-testable against a spy object and documents the exact
  * dependency surface.
  *
- * `addImage`'s 3-arg overload (`id`, `image`, `options`) with `{ sdf: true }`
- * is the maplibre-gl 5.x shape (verified against 5.x docs — the options object
- * carries `sdf`/`pixelRatio`/`stretchX`/etc.); `HTMLImageElement` is an accepted
- * `image` type.
+ * `addImage`'s 3-arg overload (`id`, `image`, `options`) with
+ * `{ sdf: true, pixelRatio: 2 }` is the maplibre-gl 5.x shape (verified against
+ * 5.x docs — the options object carries `sdf`/`pixelRatio`/`stretchX`/etc.);
+ * `HTMLImageElement` is an accepted `image` type. `pixelRatio` is part of the
+ * production interface (not just the test mock) so the `{ sdf: true,
+ * pixelRatio: 2 }` call below typechecks (E6 / #1058).
  */
 export interface SpriteMap {
   hasImage: (id: string) => boolean;
   addImage: (
     id: string,
     image: HTMLImageElement,
-    options?: { sdf?: boolean },
+    options?: { sdf?: boolean; pixelRatio?: number },
   ) => void;
 }
 
@@ -108,7 +112,11 @@ export async function registerSilhouetteSprite(
       });
     }
     if (!map.hasImage(id)) {
-      map.addImage(id, img, { sdf: true });
+      // pixelRatio:2 (E6 / #1058): the SVG shell rasters at 64px; tagging it
+      // 2× hi-DPI makes maplibre lay it down at 32 CSS px. ×icon-size 0.85
+      // (observation-layers.ts) ≈ 27px — the documented 24-28px band and ≈
+      // the React-marker SILHOUETTE_PX. Without it the SDF rendered ≈54px.
+      map.addImage(id, img, { sdf: true, pixelRatio: 2 });
     }
   } finally {
     URL.revokeObjectURL(url);

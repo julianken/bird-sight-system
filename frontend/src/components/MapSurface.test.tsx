@@ -91,24 +91,42 @@ function obs(subId: string, lat: number, lng: number): Observation {
   };
 }
 
+/* MapCanvas mounts behind a React.lazy()/Suspense boundary (MapSurface.tsx).
+   On the FIRST render in this file the lazy chunk has not resolved yet — the
+   Suspense fallback (`.map-loading-skeleton`) shows and the stub has NOT run,
+   so the module-level capture vars are still undefined. The stub only runs
+   once the lazy promise flushes on a later microtask. Asserting synchronously
+   therefore raced the lazy boundary: whichever test ran first under
+   `--sequence.shuffle` saw the unresolved state and failed (#1106). Every test
+   that depends on MapCanvas having mounted (or thrown) must AWAIT the boundary
+   flushing — `findByTestId` / `findByRole` retry until React settles the
+   Suspense subtree. */
 describe('MapSurface → MapCanvas prop threading', () => {
-  it('passes observations to MapCanvas', () => {
+  it('passes observations to MapCanvas', async () => {
     mapCanvasObservations = undefined;
     const fullSet = [obs('A', 32.2, -110.9), obs('B', 35.2, -111.6)];
     render(<MapSurface {...baseProps} observations={fullSet} />);
+    // Wait for the lazy MapCanvas stub to mount before reading the capture.
+    await screen.findByTestId('stub-map-canvas');
     expect(mapCanvasObservations).toBe(fullSet);
   });
 
-  it('threads onViewportChange through to MapCanvas when provided', () => {
+  it('threads onViewportChange through to MapCanvas when provided', async () => {
     mapCanvasOnViewportChange = undefined;
     const handler = vi.fn();
     render(<MapSurface {...baseProps} onViewportChange={handler} />);
+    await screen.findByTestId('stub-map-canvas');
     expect(mapCanvasOnViewportChange).toBe(handler);
   });
 
-  it('does NOT pass onViewportChange to MapCanvas when omitted', () => {
+  it('does NOT pass onViewportChange to MapCanvas when omitted', async () => {
     mapCanvasOnViewportChange = undefined;
     render(<MapSurface {...baseProps} />);
+    // Must wait for the stub to mount: before the lazy boundary flushes the
+    // stub has not run, so `mapCanvasOnViewportChange` would be undefined for
+    // the wrong reason (the assertion would pass spuriously on an unresolved
+    // boundary instead of proving the omit).
+    await screen.findByTestId('stub-map-canvas');
     // Strict-undefined matters because exactOptionalPropertyTypes mode
     // disallows passing `undefined` to an optional prop — we want a true omit.
     expect(mapCanvasOnViewportChange).toBeUndefined();
@@ -116,7 +134,7 @@ describe('MapSurface → MapCanvas prop threading', () => {
 });
 
 describe('Phase 3: context strip — REMOVED from MapSurface (#800)', () => {
-  // The context strip (MapLede + FilterSentence + freshness) was moved to the
+  // The context strip (lede + FilterSentence + freshness) was moved to the
   // AppHeader identity card in #800. MapSurface no longer renders it.
   // Tests that covered the old context-strip behaviour are now in
   // AppHeader.test.tsx (lede rows) and App.test.tsx (ledeText derivation).
@@ -153,12 +171,14 @@ afterEach(() => {
 });
 
 describe('O7 (#786): GL ErrorBoundary wiring — MapSurface in-place recovery', () => {
-  it('shows the GL fallback with "Try again" when MapCanvas throws', () => {
+  it('shows the GL fallback with "Try again" when MapCanvas throws', async () => {
     mapCanvasShouldThrow = true;
     render(<MapSurface {...baseProps} />);
 
-    // The custom GL fallback (not the default ErrorBoundary fallback) renders
-    expect(screen.getByRole('alert')).toBeInTheDocument();
+    // The throw happens inside the lazy MapCanvas, so the GL fallback only
+    // appears once the React.lazy boundary flushes and the stub runs. `findBy`
+    // retries until the boundary settles — `getBy` raced it on first render.
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
     expect(screen.getByText('Map failed to load')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
 
@@ -166,12 +186,12 @@ describe('O7 (#786): GL ErrorBoundary wiring — MapSurface in-place recovery', 
     expect(screen.queryByTestId('stub-map-canvas')).toBeNull();
   });
 
-  it('"Try again" clears the GL boundary and re-mounts MapCanvas (no page reload)', () => {
-    // First render: MapCanvas throws → boundary catches
+  it('"Try again" clears the GL boundary and re-mounts MapCanvas (no page reload)', async () => {
+    // First render: MapCanvas throws → boundary catches (after lazy flush).
     mapCanvasShouldThrow = true;
     render(<MapSurface {...baseProps} />);
 
-    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
 
     // Simulate recovery: MapCanvas will succeed on the next mount
@@ -180,8 +200,9 @@ describe('O7 (#786): GL ErrorBoundary wiring — MapSurface in-place recovery', 
     // Click "Try again" — bumps glRetryKey → resetKeys changes → boundary resets
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
 
-    // GL fallback must be gone; MapCanvas must be rendered
+    // GL fallback must be gone; MapCanvas must be rendered. The re-mount goes
+    // back through the (already-resolved) lazy boundary, so wait for the stub.
+    expect(await screen.findByTestId('stub-map-canvas')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).toBeNull();
-    expect(screen.getByTestId('stub-map-canvas')).toBeInTheDocument();
   });
 });

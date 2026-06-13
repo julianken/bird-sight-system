@@ -46,7 +46,7 @@ Every floating surface consumes **one** vocabulary. No element invents its own r
 | Token | Light | Dark | Role |
 |---|---|---|---|
 | `--card-bg` → `--color-bg-surface` | `#ffffff` | **`#1b2742`** (lift from today's `#131c30`) | card fill |
-| `--card-border` → `--color-border-ui` | `#d8d3c3` | **`#3a4straints` → `#3a4668`** (lift from `#283354`) | 1px hairline edge |
+| `--card-border` → `--color-border-ui` | `#d8d3c3` | **`#3a4668`** (lift from `#283354`) | 1px hairline edge |
 | text → existing `--color-text-*` | unchanged | unchanged | unchanged |
 
 The dark fill and border are **deliberately lifted** (`#131c30 → #1b2742`, `#283354 → #3a4668`). A card sitting only ~6 luminance points off the `#0d1424` basemap cannot separate by shadow alone on a near-black ground — the fill itself must read as "lifted." This is the primary mechanism that fixes dark-mode separation; elevation is secondary.
@@ -73,8 +73,8 @@ Three tiers, **mode-paired**. Dark elevation is **not** "more black alpha" (invi
 | Tier | Surfaces | Token |
 |---|---|---|
 | **1** — resting chrome | header clusters, scope control, family legend, context card | `--card-elevation-1: var(--elevation-1)` |
-| **2** — on-canvas transient | observation / cell / cluster popovers, anchored filters panel | `--card-elevation-2: var(--elevation-2)` |
-| **3** — focused / modal | detail card, bottom sheet, attribution modal, scope chooser | `--card-elevation-3: var(--elevation-3)` |
+| **2** — on-canvas transient | observation / cell / cluster popovers | `--card-elevation-2: var(--elevation-2)` |
+| **3** — focused / modal | detail card, bottom sheet, attribution modal, scope chooser, filters panel | `--card-elevation-3: var(--elevation-3)` |
 
 The header gains real elevation (it has **none** today) by adopting tier 1. The `border-bottom` survives only as the light-mode hairline.
 
@@ -83,7 +83,9 @@ The header gains real elevation (it has **none** today) by adopting tier 1. The 
 - Card title: `--type-md` 17px / `--font-weight-semibold`.
 - Card body & rows: `--type-sm` 13px / regular.
 - Meta / freshness / attribution: `--type-xs` 11px / `--color-text-subtle`.
-- **Lede (the scope-identity sentence): `--type-lg` 22px** semibold for the region name, `--type-sm` for the "N species · updated" line. The lede must be the strongest text on a scoped view (see §5 hierarchy).
+- **Wordmark + region suffix (AMENDED — see ruling note below): `--type-md` bold** for the "Bird Maps" brand, with the region riding as a muted `--font-weight-medium` ` · Arizona` suffix on the same line (`--color-text-muted`). The "N species · updated" line is `--type-sm`. The brand/region wordmark is the resting identity row of the top-left card.
+
+  > **Amendment (Julian, 2026-06-11):** *"we got rid of the concept of region — this is drift."* The original §2.4/§5.2 mandate — a `--type-lg` 22px region name asserted as the loudest text on a scoped view — was never shipped. #828 shipped a two-line wordmark instead: the brand at `--type-md` bold, the region as a quiet muted suffix, and an `.sr-only` `<h1>` that carries the page's heading structure without painting. The spec is amended here to describe that shipped reality; the matching "whispered-region" visual finding closes **by-design**. No typography change ships from this amendment.
 
 ### 2.5 Token-debt cleanup that ships *with* this language
 
@@ -186,7 +188,7 @@ When a **bottom sheet** (detail or filters) is up, the legend auto-collapses to 
 ### 4.3 Context strip / lede → the top-left card's identity rows *(currently INVISIBLE — blocker)*
 
 - **Today:** authored as an in-flow opaque `border-bottom` band rendered *before* `.map-surface`; because `.map-surface` is `absolute; inset: 0` it paints over the strip → the app's primary orientation sentence is **not visible at any width**.
-- **Target:** Stop rendering it in flow. Fold the lede + freshness into the **top-left identity card** as its headline rows: region name at `--type-lg`, then `331 species · updated 20 min ago · eBird` at `--type-sm`/`--type-xs`. Drop the opaque band / `border-bottom` entirely — it was built for a document-flow layout that no longer exists.
+- **Target:** Stop rendering it in flow. Fold the lede + freshness into the **top-left identity card** as its headline rows: the `--type-md` bold wordmark with its muted ` · region` suffix (per §2.4 as amended — the original `--type-lg` region mandate was never shipped; #828's two-line wordmark is the shipped design), then `331 species · updated 20 min ago · eBird` at `--type-sm`/`--type-xs`. Drop the opaque band / `border-bottom` entirely — it was built for a document-flow layout that no longer exists.
 - This is the single highest-value content fix: it makes the lede exist again **and** makes it the primary text (see §5).
 
 ### 4.4 FamilyLegend → keep (the one correct island), formalize
@@ -200,14 +202,14 @@ When a **bottom sheet** (detail or filters) is up, the legend auto-collapses to 
 - **Today:** `position: fixed; top:0; right:0; bottom:0; width: min(560px,100vw); border-left` — a 3-edge wall that slices the viewport into "map | panel," passes *under* the header (`z-rail 43 > z-chrome 42`, top:0), and its close button collides with the header band.
 - **Target (desktop):** an **inset floating card** — `top: calc(var(--card-inset) + controls-cluster-height + var(--card-gap)); right/bottom: var(--card-inset); width: clamp(360px, 38vw, 420px)`; `--card-radius` on all four corners, `--card-elevation-3`, **drop `border-left` for a floating shadow**. The map visibly wraps it on all sides — preserving the "map stays interactive beside detail" intent (#663) and never slicing the top-right controls.
 - **Target (mobile):** keep the bottom **sheet** (Apple-Maps idiom) with peek/half/full snaps, `--card-radius` top corners, `--card-elevation-3`. Reconcile its raw z (10/15/20) onto `--z-modal` (50) at full snap so the `pointer-events:none` header hack can be retired.
-- **Responsive:** anchored card ≥`--overlay-bp-roomy` region; bottom sheet below.
+- **Responsive:** anchored card ≥`--overlay-bp-compact` (480); bottom sheet below.
 
 ### 4.6 Filters → anchored floating panel / bottom sheet
 
 - **Today:** a full-bleed flow band (`display:flex; border-bottom`, no position/radius/shadow) that **displaces the map downward** on open.
 - **Target (desktop):** an **anchored panel** under the Filters trigger in the top-right cluster — `--card-radius`, `--card-elevation-2`, a close affordance, never a top band; the map never jumps.
 - **Target (mobile):** promote to a **bottom sheet** reusing the detail-sheet snap mechanics.
-- **Responsive:** switch anchored-card ↔ sheet at `--overlay-bp-compact` (480) / `--overlay-bp-roomy` (600) — the tokens that exist but nothing consumes yet.
+- **Responsive:** switch anchored-card ↔ sheet at `--overlay-bp-compact` (480) — the shipped single switch boundary.
 
 ### 4.7 Popovers (observation / cell / cluster) → one primitive with edge-collision
 
@@ -234,9 +236,9 @@ Build the layer the tokens already name; **delete every per-component @media** (
 
 ### 5.2 Visual hierarchy (fix the inversion)
 
-Today the loudest element is a utility (scope control, top-center) and the quietest is the identity (whispered ` · Arizona`, occluded lede). Correct ranking, loudest → quietest:
+The pre-redesign inversion put a utility (scope control, top-center) loudest. Correct ranking, loudest → quietest (amended per the §2.4 region ruling — the region rides as a muted wordmark suffix by design, NOT as a `--type-lg` headline):
 
-1. **Identity / lede** — region name + `N species · updated` (top-left card headline, `--type-lg`). *Primary.*
+1. **Identity** — the `--type-md` bold wordmark with its muted ` · region` suffix, plus the `N species · updated` line. *Primary.* (Amended #828: the region is a quiet suffix on the wordmark line, not a `--type-lg` headline — see §2.4's amendment note.)
 2. **Filters** — what's shown; labeled control at ≥1024, not a 20px icon. *Primary-secondary.*
 3. **Scope control** — de-emphasized "change where" rows under the lede. *Secondary.*
 4. **Legend / attribution.** *Tertiary.*
@@ -258,7 +260,7 @@ Today the loudest element is a utility (scope control, top-center) and the quiet
 
 A **`feat(tokens): floating-card design language` PR** must land before #800/#801/#779/#780/#783, or the elements will diverge again. It adds to `tokens.css`: the `--card-*` geometry family (§2.1), the mode-paired **`--elevation-1/2/3`** scale (§2.3), the **lifted dark `--color-bg-surface` / `--color-border-ui`** (§2.2), and resolves/replaces the four undefined `ds-primitives.css` tokens (§2.5). It writes the **four-corner anchor contract** into `tokens.css` comments + CLAUDE.md. No visual element moves in this PR — it's pure foundation so every downstream PR is a token-consumption change, not a restyle.
 
-A second small foundation PR, **`feat(overlay): placement breakpoint engine`**, wires `--overlay-bp-compact/roomy/wide` to real rules and deletes the divergent per-component thresholds (§5.1). This unblocks the responsive behavior every element depends on.
+A second small foundation PR, **`feat(overlay): placement breakpoint engine`**, wires `--overlay-bp-compact/wide` to real rules and deletes the divergent per-component thresholds (§5.1). This unblocks the responsive behavior every element depends on.
 
 ### 6.1 Existing epic #761 issues — retargeted per this spec
 

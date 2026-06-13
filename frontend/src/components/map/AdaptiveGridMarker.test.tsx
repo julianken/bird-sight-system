@@ -935,6 +935,53 @@ describe('AdaptiveGridMarker — cell popover (Phase 1, #558)', () => {
     expect(cell.getAttribute('aria-expanded')).toBe('true');
   });
 
+  // --- E1 (#1053): close-on-detail-open. Opening a species detail must DISMISS
+  // an already-open cell popover — on the RISING edge of detailOpen only, so a
+  // popover opened WHILE detail is already up (the #976 hover-to-compare intent)
+  // is unaffected (that path is the test above; this is the new clearing). The
+  // pre-fix bug: #976 demoted only the passive hover preview's z-index; a
+  // click-opened popover lingered mid-map (desktop) or painted over the detail
+  // sheet (mobile).
+  it('E1 (#1053): a rising detailOpen edge unmounts an already-open <CellPopover>', async () => {
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    const tiles = [rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', '#888', [
+      { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
+    ])];
+    const { rerender } = render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={tiles}
+        totalCount={5}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 5 observations."
+        isCoarsePointer={false}
+        detailOpen={false}
+        onClick={noop}
+      />
+    );
+    // Open the cell popover (detail not yet open).
+    const cell = screen.getByTestId('adaptive-grid-marker-cell-rendered');
+    cell.focus();
+    fireEvent.keyDown(cell, { key: 'Enter' });
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    // Now open a species detail → detailOpen rises false→true → popover clears.
+    rerender(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={tiles}
+        totalCount={5}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 5 observations."
+        isCoarsePointer={false}
+        detailOpen
+        onClick={noop}
+      />
+    );
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(cell.getAttribute('aria-expanded')).toBe('false');
+  });
+
   // --- #859: per-family CellPopover "+N more" ACTIVE drill-in ---------------
 
   it('pointer:fine: tile.speciesCount > shown rows + onDrillIn → "+N more" is an ACTIVE button that drills in', async () => {
@@ -1226,6 +1273,49 @@ describe('AdaptiveGridMarker — cell popover coarse-pointer (Phase 2, #559)', (
     const outer = screen.getByTestId('adaptive-grid-marker');
     fireEvent.click(outer);
     expect(onClick).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  // E1 (#1053): coarse-pointer parity — a rising detailOpen edge dismisses an
+  // open <ClusterListPopover> too (the mobile occlusion case: the cluster list
+  // painted ON TOP of the species sheet, hiding the heading).
+  it('E1 (#1053): a rising detailOpen edge unmounts an open <ClusterListPopover>', async () => {
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    const tiles = [
+      rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', '#888', [
+        { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
+      ]),
+      rendered('flycatchers', 12, 'M0 0L24 24Z', '#aaa', '#aaa', [
+        { comName: 'Black Phoebe', count: 12, speciesCode: 'blkpho' },
+      ]),
+    ];
+    const { rerender } = render(
+      <AdaptiveGridMarker
+        shape={SHAPE_2x2}
+        tiles={tiles}
+        totalCount={17}
+        uniqueFamilies={2}
+        ariaLabel="Cluster: 17 observations, 2 families."
+        isCoarsePointer={true}
+        detailOpen={false}
+        onClick={noop}
+      />
+    );
+    fireEvent.click(screen.getByTestId('adaptive-grid-marker'));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    rerender(
+      <AdaptiveGridMarker
+        shape={SHAPE_2x2}
+        tiles={tiles}
+        totalCount={17}
+        uniqueFamilies={2}
+        ariaLabel="Cluster: 17 observations, 2 families."
+        isCoarsePointer={true}
+        detailOpen
+        onClick={noop}
+      />
+    );
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 });

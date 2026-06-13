@@ -326,6 +326,45 @@ function boundsApproxEqual(
   );
 }
 
+/**
+ * True iff `inner` sits inside `outer` on all four sides (within `eps`). Mirrors
+ * `boundsApproxEqual`'s `[[w,s],[e,n]]` convention + epsilon idiom. Used by the
+ * #1059 / M-30 zoom-aware-clamp assert: at metro zoom the applied `maxBounds`
+ * must be CONTAINED within the static `AZ_PADDED` band (it can only ever tighten
+ * inward, never bulge out past the static gate).
+ */
+function boundsContains(
+  outer: [[number, number], [number, number]],
+  inner: [[number, number], [number, number]],
+  eps = 0.5,
+): boolean {
+  return (
+    inner[0][0] >= outer[0][0] - eps && // inner.west ≥ outer.west
+    inner[0][1] >= outer[0][1] - eps && // inner.south ≥ outer.south
+    inner[1][0] <= outer[1][0] + eps && // inner.east ≤ outer.east
+    inner[1][1] <= outer[1][1] + eps // inner.north ≤ outer.north
+  );
+}
+
+/** True iff `[lng,lat]` lies inside `[[w,s],[e,n]]` (within `eps`). */
+function boundsContainPoint(
+  bounds: [[number, number], [number, number]],
+  [lng, lat]: [number, number],
+  eps = 0.5,
+): boolean {
+  return (
+    lng >= bounds[0][0] - eps &&
+    lng <= bounds[1][0] + eps &&
+    lat >= bounds[0][1] - eps &&
+    lat <= bounds[1][1] + eps
+  );
+}
+
+/** Longitude span (east − west) of a `[[w,s],[e,n]]` bounds, in degrees. */
+function boundsLngSpan(b: [[number, number], [number, number]]): number {
+  return b[1][0] - b[0][0];
+}
+
 const AZ_BBOX = STATES_FIXTURE.find((s) => s.stateCode === 'US-AZ')!.bbox;
 const NY_BBOX = STATES_FIXTURE.find((s) => s.stateCode === 'US-NY')!.bbox;
 const AZ_TIGHT: [[number, number], [number, number]] = [
@@ -338,6 +377,14 @@ const NY_TIGHT: [[number, number], [number, number]] = [
 ];
 const AZ_PADDED = padBounds(AZ_TIGHT, ARTBOARD_PAD);
 const NY_PADDED = padBounds(NY_TIGHT, ARTBOARD_PAD);
+
+/**
+ * Tucson ZIP `85701` center `[lng, lat]` (ZIP_INDEX_FIXTURE, fixtures.ts) — the
+ * point the metro `flyTo` lands inside. The zoom-aware clamp (#1059) must still
+ * CONTAIN this point at metro zoom so the state stays reachable, not clamped to
+ * nothing. Kept in `[lng, lat]` (MapLibre) order to match the bounds helpers.
+ */
+const TUCSON_METRO: [number, number] = [-110.974, 32.222];
 
 // ---------------------------------------------------------------------------
 
@@ -498,15 +545,9 @@ test.describe('state-artboard verification (SUB3, #764)', () => {
     test.skip(!ready, 'WebGL unavailable — __birdMap absent; flyTo-within-artboard echo skipped');
     await waitForStyleLoaded(page);
 
-    // flyTo-within-artboard: the AZ mask + padded clamp remain while the camera
-    // lands at the metro flyTo zoom (well above the whole-state fit zoom).
+    // flyTo-within-artboard: the AZ mask stays mounted while the camera lands at
+    // the metro flyTo zoom (well above the whole-state fit zoom).
     expect(await hasLayer(page, MASK_FILL_ID), 'AZ mask stays mounted on ZIP entry').toBe(true);
-    const mb = await getMaxBounds(page);
-    expect(mb, 'maxBounds set').not.toBeNull();
-    expect(
-      boundsApproxEqual(mb!, AZ_PADDED),
-      'clamp stays the padded AZ artboard clamp on the ZIP entry',
-    ).toBe(true);
 
     // The flyTo settles asynchronously — poll the zoom up to the camera's
     // 800ms tween + tile settle. The whole-state fit zoom for AZ is ≈6; the
@@ -523,6 +564,51 @@ test.describe('state-artboard verification (SUB3, #764)', () => {
       zoom,
       `camera should land near ZIP_FLYTO_ZOOM (${ZIP_FLYTO_ZOOM}) inside the artboard, got ${zoom}`,
     ).toBeGreaterThanOrEqual(8);
+
+    // #1059 / M-30 (zoom-aware clamp): the maxBounds is read AFTER the metro
+    // flyTo has settled to ≥8. The pre-#1059 clamp was the STATIC AZ_PADDED band
+    // (one full state-width of slack per side); E7 makes it zoom-aware, so once
+    // the `zoomend` at metro zoom populates the live viewport span the per-side
+    // pad is capped by `(1 − MIN_STATE_ONSCREEN) × span` and the applied clamp
+    // TIGHTENS strictly inside AZ_PADDED (the gray void is no longer reachable).
+    // The clamp prop propagates over a render or two after the zoom settles, so
+    // poll for the tightening (mirrors the NY-clamp poll in the state→state test)
+    // rather than asserting on a single read that could race the reactive update.
+    // We DELIBERATELY do NOT recompute `zoomAwareClampBounds` of the same span
+    // here (that would be a circular/tautological assert) — we assert the three
+    // INDEPENDENT structural properties of the tightened clamp instead.
+    let mb: [[number, number], [number, number]] | null = null;
+    const clampDeadline = Date.now() + 4_000;
+    while (Date.now() < clampDeadline) {
+      mb = await getMaxBounds(page);
+      // Tightened once the lng-span has shrunk meaningfully below AZ_PADDED's.
+      if (mb && boundsLngSpan(mb) < boundsLngSpan(AZ_PADDED) - 1) break;
+      await page.waitForTimeout(200);
+    }
+    expect(mb, 'maxBounds set').not.toBeNull();
+    // (a) The zoom-aware clamp can only tighten INWARD — it stays contained
+    // within the static AZ_PADDED band on all four sides.
+    expect(
+      boundsContains(AZ_PADDED, mb!),
+      `metro-zoom maxBounds ${JSON.stringify(mb)} must be contained within the static ` +
+        `AZ_PADDED band ${JSON.stringify(AZ_PADDED)} (the clamp only tightens inward)`,
+    ).toBe(true);
+    // (b) It is STRICTLY tighter than AZ_PADDED on the longitude axis — proving
+    // the zoom-aware cap actually engaged (not still the static band). At z≥8 the
+    // viewport lng-span is far below one state-width, so the gap is many degrees;
+    // require ≥1° to stay well clear of the 0.5° corner epsilon + float noise.
+    expect(
+      boundsLngSpan(AZ_PADDED) - boundsLngSpan(mb!),
+      `metro-zoom maxBounds lng-span ${boundsLngSpan(mb!).toFixed(2)}° must be strictly tighter ` +
+        `than AZ_PADDED's ${boundsLngSpan(AZ_PADDED).toFixed(2)}° (zoom-aware clamp engaged)`,
+    ).toBeGreaterThan(1);
+    // (c) The tightened clamp still CONTAINS the metro point the camera flew to —
+    // the state stays reachable, never clamped to an empty/void region.
+    expect(
+      boundsContainPoint(mb!, TUCSON_METRO),
+      `metro-zoom maxBounds ${JSON.stringify(mb)} must still contain the Tucson metro point ` +
+        `${JSON.stringify(TUCSON_METRO)} (state stays reachable, not clamped to nothing)`,
+    ).toBe(true);
 
     assertCleanConsole();
   });
@@ -810,7 +896,7 @@ test.describe('state-artboard verification (SUB3, #764)', () => {
       // and are out of our axe jurisdiction (mirrors axe.spec.ts's map-view
       // rationale) — exclude the canvas root so a headless no-WebGL run does not
       // produce spurious canvas-internal nodes. Our own overlays (ScopeControl,
-      // FamilyLegend, MapLede, AppHeader) are NOT excluded and are scanned.
+      // FamilyLegend, AppHeader) are NOT excluded and are scanned.
       .exclude('[data-testid="map-canvas"] .maplibregl-control-container')
       .analyze();
     if (results.violations.length) {
@@ -831,7 +917,7 @@ test.describe('state-artboard verification (SUB3, #764)', () => {
     await app.gotoRaw('');
     await expect(app.chooser).toBeVisible();
 
-    // The live region (#762, MapLede.tsx) is `role="status" aria-live="polite"`,
+    // The live region (#762, AppHeader.tsx) is `role="status" aria-live="polite"`,
     // visually-hidden (.sr-only), text "Showing {region}.".
     await app.pickStateInChooser('US-AZ');
     await app.waitForAppReady();

@@ -303,7 +303,7 @@ describe('useBirdData', () => {
     // The exact #716 production failure mode: hotspots resolves instantly
     // (e.g. CDN cache hit), observations is in flight. With the old shared
     // `loading` flag, hotspots' `.finally` flipped it to false while
-    // observations was still loading — and MapLede saw `loading=false +
+    // observations was still loading — and the lede saw `loading=false +
     // observations=[]` and rendered the misleading Template 1.
     //
     // After the split, observationsLoading is the source of truth for

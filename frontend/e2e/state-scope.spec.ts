@@ -309,7 +309,9 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
     // The region ("Arizona", resolved from the /api/states name table) now reads
     // in the wordmark line, and the lede is just the count.
     // #1047: lede always reports sightings regardless of aggregation mode.
-    await expect(app.appHeader.locator('.brand-region')).toHaveText('· Arizona');
+    // #1057: the "· " separator is now a `.brand-region::before` (CSS), so the
+    // element's text node is JUST the resolved region name (no literal dot).
+    await expect(app.appHeader.locator('.brand-region')).toHaveText('Arizona');
     await expect(app.mapLede).toHaveText(/^\d+ sightings$/);
 
     // O9 (#781): the scope-pick warmed the MapCanvas/maplibre chunk — at least
@@ -357,7 +359,7 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
     await expect(app.mapCanvas).toBeVisible();
 
     // #828: region "USA" now reads in the wordmark line; the lede is count-only.
-    await expect(app.appHeader.locator('.brand-region')).toHaveText('· USA');
+    await expect(app.appHeader.locator('.brand-region')).toHaveText('USA');
 
     // Data invariant (#735): ?scope=us sends NO state= — byte-for-byte the
     // unscoped national query. Every observations request must omit state=.
@@ -420,7 +422,7 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
     // ?state wins; the ?zip is not a scope and is dropped from the resolution.
     expect(app.getUrlParams().get('state')).toBe('US-AZ');
     // #828: AZ rendered → region in the wordmark line; lede is count-only.
-    await expect(app.appHeader.locator('.brand-region')).toHaveText('· Arizona');
+    await expect(app.appHeader.locator('.brand-region')).toHaveText('Arizona');
     expect(obsRequests.length).toBeGreaterThan(0);
     for (const url of obsRequests) {
       expect(new URL(url).searchParams.get('state')).toBe('US-AZ');
@@ -512,7 +514,7 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
     // (b) The lede repopulates and NEVER sticks on the empty copy.
     await expect(app.mapLede).toHaveText(/^\d+ sightings$/);
     await expect(app.mapLede).not.toHaveText(/No recent sightings/);
-    await expect(app.appHeader.locator('.brand-region')).toHaveText('· Florida');
+    await expect(app.appHeader.locator('.brand-region')).toHaveText('Florida');
 
     // (c) The LAST /api/observations carrying state=US-FL has a bbox tightly
     // matching the FL envelope (the render-phase reseed value) — NOT the stale
@@ -547,7 +549,7 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
     await expect(app.mapLayer).toHaveAttribute('data-camera-bounds', 'US-NY');
     await expect(app.mapLede).toHaveText(/^\d+ sightings$/);
     await expect(app.mapLede).not.toHaveText(/No recent sightings/);
-    await expect(app.appHeader.locator('.brand-region')).toHaveText('· New York');
+    await expect(app.appHeader.locator('.brand-region')).toHaveText('New York');
 
     await expect.poll(() => lastBboxForState(obsRequests, 'US-NY') !== null).toBe(true);
     const nyBbox = lastBboxForState(obsRequests, 'US-NY')!;
@@ -578,7 +580,7 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
     await expect(app.mapLayer).toHaveAttribute('data-camera-bounds', 'US-AZ');
     await expect(app.mapLede).toHaveText(/^\d+ sightings$/);
     await expect(app.mapLede).not.toHaveText(/No recent sightings/);
-    await expect(app.appHeader.locator('.brand-region')).toHaveText('· Arizona');
+    await expect(app.appHeader.locator('.brand-region')).toHaveText('Arizona');
 
     await expect.poll(() => lastBboxForState(obsRequests, 'US-AZ') !== null).toBe(true);
     const azBbox = lastBboxForState(obsRequests, 'US-AZ')!;

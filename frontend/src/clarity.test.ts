@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type Clarity from '@microsoft/clarity';
 
 /**
  * Tests for the clarity module. Verifies the env-gating contract from
@@ -17,16 +18,39 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
  * import.
  */
 
-const initMock = vi.fn();
-
 vi.mock('@microsoft/clarity', () => ({
-  default: { init: initMock, event: vi.fn(), setTag: vi.fn() },
+  default: { init: vi.fn(), event: vi.fn(), setTag: vi.fn() },
 }));
+
+/**
+ * Resolve the `init` spy from the SAME mocked `@microsoft/clarity` specifier
+ * that `clarity.ts` consumes, re-read *after* the per-test `vi.resetModules()`
+ * + dynamic import have run.
+ *
+ * Why this indirection (issue #1105, the flake fix): `vi.resetModules()` in
+ * `beforeEach` invalidates the module registry, including the mocked
+ * `@microsoft/clarity`. Under `--sequence.shuffle` this race manifests — the
+ * freshly-imported `clarity.ts` binds a *new* mock `init` instance (auto-mock
+ * spies, or a re-run factory), distinct from any spy captured in the test-file
+ * top scope at collection time. A test that asserted on a top-level
+ * `const initMock = vi.fn()` therefore saw 0 calls while `clarity.ts` had in
+ * fact called init on the live instance — instrumentation in the issue shows
+ * the module calling an init whose identity differs from the captured spy.
+ *
+ * Reading the spy through `import('@microsoft/clarity')` here guarantees the
+ * test asserts on the exact instance `clarity.ts` just called, regardless of
+ * how `resetModules` re-wired the registry. Verified deterministic across 30×
+ * shuffled runs (and the previously-failing fixed seeds 3 / 9).
+ */
+async function currentInitSpy(): Promise<ReturnType<typeof vi.fn>> {
+  const mod = (await import('@microsoft/clarity')).default as typeof Clarity;
+  return mod.init as unknown as ReturnType<typeof vi.fn>;
+}
 
 describe('clarity module', () => {
   beforeEach(() => {
     vi.resetModules();
-    initMock.mockReset();
+    vi.clearAllMocks();
   });
 
   afterEach(() => {
@@ -37,22 +61,23 @@ describe('clarity module', () => {
     vi.stubEnv('PROD', true);
     vi.stubEnv('VITE_CLARITY_PROJECT_ID', '');
     await import('./clarity.js');
-    expect(initMock).not.toHaveBeenCalled();
+    expect(await currentInitSpy()).not.toHaveBeenCalled();
   });
 
   it('does NOT call Clarity.init in non-production builds', async () => {
     vi.stubEnv('PROD', false);
     vi.stubEnv('VITE_CLARITY_PROJECT_ID', 'abc123xyz');
     await import('./clarity.js');
-    expect(initMock).not.toHaveBeenCalled();
+    expect(await currentInitSpy()).not.toHaveBeenCalled();
   });
 
   it('calls Clarity.init with the project ID in prod when key is set', async () => {
     vi.stubEnv('PROD', true);
     vi.stubEnv('VITE_CLARITY_PROJECT_ID', 'abc123xyz');
     await import('./clarity.js');
-    expect(initMock).toHaveBeenCalledTimes(1);
-    expect(initMock).toHaveBeenCalledWith('abc123xyz');
+    const initSpy = await currentInitSpy();
+    expect(initSpy).toHaveBeenCalledTimes(1);
+    expect(initSpy).toHaveBeenCalledWith('abc123xyz');
   });
 });
 

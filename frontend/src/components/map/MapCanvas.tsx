@@ -34,6 +34,7 @@ import { mergeLeafBuckets } from '../../data/bucket-aggregates.js';
 import type { SpeciesDictionary } from '../../data/use-species-dictionary.js';
 import { ObservationPopover } from './ObservationPopover.js';
 import { ClusterListPopover } from './ClusterListPopover.js';
+import { StatusBlock } from '../ds/StatusBlock.js';
 // Marker render-tree dispatch extracted to two presentational layers
 // (epic #884 · U11 / #896). MapCanvas keeps every handler + derived state and
 // threads them as props; the layers hold no map ref and render only.
@@ -46,6 +47,8 @@ import { useSilhouetteCatalogue } from './use-silhouette-catalogue.js';
 import { useMapResize } from './use-map-resize.js';
 import { useScopeCamera } from './use-scope-camera.js';
 import { useStateArtboard } from './use-state-artboard.js';
+import { sanitizeNullNumericFilters } from './basemap-null-filter.js';
+import { enforceDarkLabelContrast } from './basemap-label-contrast.js';
 import {
   aggregateClusterFamilies,
   aggregateClusterSpecies,
@@ -158,6 +161,32 @@ export function __resetAdaptiveGridCacheForTesting(): void {
  * `state-mask`) is never silenced.
  */
 export const BASEMAP_SOURCE_ID = 'openmaptiles';
+
+// #1049 (M-12) basemap-failure watchdog tuning.
+//
+// `BASEMAP_WATCHDOG_MS` — how long after mount (or a Retry) the basemap has to
+// report healthy (the maplibre `load` on first paint, `style.load` thereafter)
+// before the watchdog concludes the OpenFreeMap CDN has stalled and surfaces
+// the retry card. Kept at ~10 s deliberately: it must be comfortably longer
+// than a cold style+first-tile fetch on a slow connection (so a healthy-but-
+// slow load never false-positives), and — load-bearing for the test suite —
+// it must stay multi-second so the 3.5k-line MapCanvas suite (which runs REAL
+// timers) can never trip it. The watchdog tests use FAKE timers to advance it.
+export const BASEMAP_WATCHDOG_MS = 10_000;
+
+// `BASEMAP_ERROR_THRESHOLD` — M consecutive clause-(ii) basemap-source errors
+// (a flaky-CDN tile/network hiccup keyed on BASEMAP_SOURCE_ID) before the card
+// is surfaced. AbortErrors (clause i) are NEVER counted, and any successful
+// `style.load` resets the run to zero. A small M ride-throughs the odd
+// transient 429 but still reacts to a persistently-down CDN within a few
+// failed tile batches.
+export const BASEMAP_ERROR_THRESHOLD = 5;
+
+// Re-exported so the watchdog's Retry test can assert `setStyle` was called with
+// the exact current-theme URL without re-literaling the OpenFreeMap endpoints
+// (single source of truth = basemap-style.ts). These are pass-through aliases of
+// the basemap-style.ts exports already imported above.
+export { BASEMAP_LIGHT, BASEMAP_DARK } from './basemap-style.js';
 
 /**
  * The maplibre `error` event payload as react-map-gl surfaces it
@@ -325,6 +354,24 @@ export function MapCanvas({
     /** Camera center the "+N more" drill-in escalates into (the group anchor). */
     drillCenter?: [number, number];
   } | null>(null);
+  // E1 (#1053): close the canvas-owned transient popovers on the RISING edge of
+  // `detailOpen`. Opening a species detail must dismiss any open
+  // ObservationPopover (`selectedObs`) or canvas-level ClusterListPopover
+  // (`clusterList`) — desktop they otherwise linger mid-map beside the detail
+  // card; mobile they paint ON TOP of the detail sheet, occluding the heading.
+  // #976 only demoted the passive hover preview's z-index; click-opened popovers
+  // were never cleared. RISING-edge only (tracked via a ref) so a popover opened
+  // WHILE a detail is already up is left alone. The sibling marker-local
+  // clearing (`activeCell` 'popover' + `isClusterListOpen`) lives in
+  // AdaptiveGridMarker.tsx; both halves are needed to cover every open-state.
+  const prevDetailOpenRef = useRef(detailOpen);
+  useEffect(() => {
+    if (detailOpen && !prevDetailOpenRef.current) {
+      setSelectedObs(null);
+      setClusterList(null);
+    }
+    prevDetailOpenRef.current = detailOpen;
+  }, [detailOpen]);
   /**
    * Unified deconflict output (issue #554). One entry per overlap-component
    * — each carries an anchor cluster (whose marker actually paints) and the
@@ -374,6 +421,32 @@ export function MapCanvas({
    * can fire before the ref is live).
    */
   const [mapReady, setMapReady] = useState(false);
+
+  // ── #1049 (M-12) basemap-failure watchdog ────────────────────────────────
+  // OpenFreeMap CDN flakiness (ERR_CONNECTION_CLOSED/429 on tiles.openfreemap.org)
+  // can leave the basemap blank with NO `load`/`style.load` and no console
+  // error/warning — floating chrome over a silent void. `basemapFailed` drives
+  // the transient-layer tier-2 retry card (the four-corner anchor contract's
+  // transient surface — it mirrors the `.map-error-overlay` precedent). It is
+  // set by (a) a style-load timeout (neither `load` nor `style.load` within
+  // BASEMAP_WATCHDOG_MS of mount/Retry) or (b) BASEMAP_ERROR_THRESHOLD
+  // consecutive clause-(ii) basemap-source errors. AbortErrors (clause i) are
+  // NEVER counted (the #854 benign swallow is preserved verbatim).
+  const [basemapFailed, setBasemapFailed] = useState(false);
+  // `basemapHealthyRef` flips true the moment the basemap reports healthy — the
+  // first `load` (via handleLoad) and every `style.load` thereafter. The
+  // watchdog timer reads it on expiry so a healthy-but-slow load never trips
+  // the card. A ref (not state) because the timer closure must see the LIVE
+  // value without re-arming on every render.
+  const basemapHealthyRef = useRef(false);
+  // Consecutive clause-(ii) basemap-error tally. A ref so incrementing it does
+  // not re-render; it crosses the threshold → setBasemapFailed(true). Reset to
+  // zero on any successful `style.load` (the CDN recovered).
+  const basemapErrorCountRef = useRef(0);
+  // Bumped on each Retry to re-arm the watchdog effect (its dep). Starting the
+  // timer is idempotent w.r.t. mount; the epoch is the explicit re-trigger.
+  const [watchdogEpoch, setWatchdogEpoch] = useState(0);
+
   // State-artboard machinery (#760/#762/#763/#765/#849/#850 blank-map class) is
   // consolidated into `useStateArtboard` (`use-state-artboard.ts`, epic #884 ·
   // U13 / #898): the four mask/label-isolation effects, the `[data-theme]`
@@ -389,12 +462,31 @@ export function MapCanvas({
      reactive — reads on mount and listens for `change`. */
   const isCoarsePointer = useCoarsePointer();
 
-  // Phase 0: read prefers-reduced-motion once at mount. Extracted to a generic
-  // mount-once sensor hook in #889 (epic #884). It deliberately captures the
-  // value once (no `change` listener) — the user must reload to fully apply
-  // other reduced-motion changes anyway, and re-checking adds complexity for
-  // negligible gain.
+  // #1063: `usePrefersReducedMotion` is a LIVE sensor — it tracks the OS
+  // reduce-motion preference across the session (CSS already responded live via
+  // motion.css; this aligns the JS camera-flight gate so the two no longer
+  // split-brain for vestibular-sensitive users). The camera flights below read
+  // the preference through `prefersReducedMotionRef.current` rather than the
+  // value directly: the `clusters` click handler is registered ONCE in
+  // `handleLoad` (it would otherwise capture the mount-time value forever), and
+  // the scope-reframe effect (`useScopeCamera`) must NOT take a live value as a
+  // dep or an OS toggle would spuriously re-fire the reframe (#848/#736). The ref
+  // mirrors the live value every render; flights read `.current` at dispatch time.
   const prefersReducedMotion = usePrefersReducedMotion();
+  const prefersReducedMotionRef = useRef(prefersReducedMotion);
+  prefersReducedMotionRef.current = prefersReducedMotion;
+
+  // #1059 (M-30) — live viewport span `[lngSpan, latSpan]` in degrees, feeding
+  // the ZOOM-AWARE artboard clamp in `useScopeCamera` below. Updated on the
+  // `zoomend` settle (the span is a function of zoom + viewport px; pan does not
+  // change it materially, and a per-frame update would churn React and re-apply
+  // `maxBounds` mid-gesture). `undefined` until the first settle so the clamp
+  // falls back to the STATIC padded value at mount — keeping entry framing
+  // byte-identical to the pre-#1059 path (the fitBounds frame). The `zoomend`
+  // setter is registered in `handleLoad` alongside `setMapZoom`.
+  const [viewportSpan, setViewportSpan] = useState<[number, number] | undefined>(
+    undefined,
+  );
 
   // SINGLE scope-driven camera-intent hook (#736 — Task C3; extracted to
   // `use-scope-camera.ts`, epic #884 · U12 / #897). Owns the flyTo-vs-fitBounds
@@ -410,7 +502,11 @@ export function MapCanvas({
     boundsKey,
     flyTo,
     clampPad,
-    prefersReducedMotion,
+    prefersReducedMotionRef,
+    // #1059 — live viewport span drives the zoom-aware artboard clamp; a wider
+    // `clampBounds` change on zoom re-applies reactively via the `maxBounds`
+    // prop (no remount), same mechanism as the static clamp.
+    viewportSpan,
   );
 
   // Corrective `map.resize()` on the S2 flex→fixed container transition (#737,
@@ -669,6 +765,12 @@ export function MapCanvas({
     if (!map) return;
     // Signal the reconciler effect that the map is mounted + ref-live.
     setMapReady(true);
+    // #1049: the first `load` IS the basemap reporting healthy — mark it so the
+    // watchdog timer (which reads this ref on expiry) cancels. `load` fires only
+    // once per map lifetime; subsequent recovery is signalled by `style.load`
+    // (wired in the dedicated effect below), per the #854 / load-once contract.
+    basemapHealthyRef.current = true;
+    basemapErrorCountRef.current = 0;
 
     // Test hook (Spider v2 e2e): exposes the maplibre instance for Playwright
     // to drive easeTo and inspect sources. Not relied on by production code.
@@ -790,7 +892,9 @@ export function MapCanvas({
               map.easeTo({
                 center,
                 zoom,
-                ...(prefersReducedMotion ? { duration: 0 } : {}),
+                // Read via ref: this handler is registered once in handleLoad,
+                // so a captured value would freeze at mount; .current is live.
+                ...(prefersReducedMotionRef.current ? { duration: 0 } : {}),
               });
             }
           })
@@ -806,6 +910,14 @@ export function MapCanvas({
     // syncs after every user interaction.
     map.on('zoomend', () => {
       setMapZoom(map.getZoom());
+      // #1059 — refresh the live viewport span for the zoom-aware artboard
+      // clamp. `getBounds()` is the current viewport rectangle in lng/lat; its
+      // width/height are the per-axis spans the clamp caps its pad against.
+      const vb = map.getBounds();
+      setViewportSpan([
+        Math.abs(vb.getEast() - vb.getWest()),
+        Math.abs(vb.getNorth() - vb.getSouth()),
+      ]);
     });
 
     // Issue #351: viewport-aware FamilyLegend counts. Fire the
@@ -839,6 +951,120 @@ export function MapCanvas({
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps -- obsLookupRef is a
   // stable ref; the click handler reads .current at call time, not capture time.
+  }, []);
+
+  // ── #1049 (M-12) watchdog timer ──────────────────────────────────────────
+  // Arms on mount and re-arms on each Retry (watchdogEpoch). If the basemap has
+  // not reported healthy (`basemapHealthyRef`) by BASEMAP_WATCHDOG_MS, surface
+  // the card. Real-timer-safe: the multi-second default never fires inside the
+  // suite's real-timer tests; the watchdog tests advance fake timers.
+  useEffect(() => {
+    // A prior success (or a Retry that already recovered) means nothing to watch.
+    if (basemapHealthyRef.current) return;
+    const timer = setTimeout(() => {
+      if (!basemapHealthyRef.current) {
+        setBasemapFailed(true);
+      }
+    }, BASEMAP_WATCHDOG_MS);
+    return () => clearTimeout(timer);
+  }, [watchdogEpoch]);
+
+  // ── #1049: `style.load` health signal ────────────────────────────────────
+  // `load` fires once per map lifetime (handleLoad), so basemap RECOVERY after a
+  // Retry's `setStyle` is signalled by `style.load` instead (reviewer addendum
+  // (2)). Registered once after mapReady (ref-read deps, like the artboard's own
+  // style.load listener); on each style reload it marks the basemap healthy,
+  // zeroes the error tally, and clears any showing failure card.
+  useEffect(() => {
+    if (!mapReady) return;
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+    const onStyleLoad = () => {
+      basemapHealthyRef.current = true;
+      basemapErrorCountRef.current = 0;
+      setBasemapFailed(false);
+    };
+    map.on('style.load', onStyleLoad);
+    return () => {
+      map.off('style.load', onStyleLoad);
+    };
+  }, [mapReady]);
+
+  // ── #1027 [O8] + #1128: per-style basemap fixups at style.load ────────────
+  // Two STRUCTURAL, fail-open, idempotent passes run on the freshly-parsed
+  // style, both on initial load AND on every `style.load` (the [data-theme]
+  // `setStyle` swap / Retry re-set the style and would otherwise drop the
+  // fixups), mirroring the artboard's own `style.load` re-apply contract:
+  //
+  //   1. #1027 [O8] `sanitizeNullNumericFilters` — the stock OpenFreeMap styles
+  //      ship `[<,<=,>,>=]` comparisons over nullable data properties
+  //      (`ref_length` on road shields, `admin_level` on boundaries) that log
+  //      4× "Expected value to be of type number, but found null instead." at
+  //      z14. Wraps each in `["all", ["has", prop], <original>]`
+  //      (behaviour-preserving; see basemap-null-filter.ts).
+  //   2. #1128 `enforceDarkLabelContrast` — the dark basemap is a DIFFERENT
+  //      style (setStyle, not a CSS filter) that ships LIGHT-mode label text
+  //      colors, so at z14 every label layer fails WCAG AA against the
+  //      rgb(12,12,12) dark canvas. Recolors the failing symbol layers to
+  //      AA-passing light text + dark halo (no-op on the light style — it gates
+  //      on the measured background luminance; see basemap-label-contrast.ts).
+  useEffect(() => {
+    if (!mapReady) return;
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+    const apply = () => {
+      sanitizeNullNumericFilters(map);
+      enforceDarkLabelContrast(map);
+    };
+    apply(); // mapReady ⇒ first style already parsed; fix it up now
+    map.on('style.load', apply);
+    return () => {
+      map.off('style.load', apply);
+    };
+  }, [mapReady]);
+
+  // ── #1049: error-counting handler ────────────────────────────────────────
+  // Wraps the exported `handleMapError` (which is UNCHANGED — same #854 console
+  // hygiene) with consecutive-failure counting. Only clause-(ii) basemap-source
+  // errors that are NOT AbortErrors tally; an AbortError (clause i) is benign
+  // camera-move noise and is never counted. Crossing BASEMAP_ERROR_THRESHOLD
+  // surfaces the card.
+  const handleMapErrorWithWatchdog = useCallback((e: MapErrorEvent) => {
+    const isBasemapTileFailure =
+      e.error?.name !== 'AbortError' && e.sourceId === BASEMAP_SOURCE_ID;
+    if (isBasemapTileFailure) {
+      basemapErrorCountRef.current += 1;
+      if (basemapErrorCountRef.current >= BASEMAP_ERROR_THRESHOLD) {
+        setBasemapFailed(true);
+      }
+    }
+    // Delegate logging verbatim to the unchanged #854 handler.
+    handleMapError(e);
+  }, []);
+
+  // ── #1049: Retry ─────────────────────────────────────────────────────────
+  // Re-fetch the basemap by re-setting the current-theme style. `setStyle` fires
+  // a fresh `style.load` — the artboard's own style.load listener
+  // (use-state-artboard.ts) re-applies label isolation + bumps styleEpoch, and
+  // our style.load health listener above marks the basemap healthy + clears the
+  // card. So Retry coordinates with the existing setStyle/styleEpoch machinery
+  // rather than racing it (reviewer addendum (1)): it routes through the SAME
+  // `style.load` re-apply path the [data-theme] swap uses. We optimistically
+  // clear the card and re-arm the watchdog so a still-dead CDN re-surfaces it.
+  const handleBasemapRetry = useCallback(() => {
+    const map = mapRef.current?.getMap();
+    const style =
+      typeof document !== 'undefined' &&
+      document.documentElement.getAttribute('data-theme') === 'dark'
+        ? BASEMAP_DARK
+        : BASEMAP_LIGHT;
+    basemapHealthyRef.current = false;
+    basemapErrorCountRef.current = 0;
+    setBasemapFailed(false);
+    // Guarded: if the map ref is somehow gone, the watchdog re-arm below still
+    // re-surfaces the card after the window (no silent dead-end).
+    map?.setStyle(style);
+    setWatchdogEpoch((n) => n + 1);
   }, []);
 
   /* Sprite registration (issue #246).
@@ -1489,7 +1715,7 @@ export function MapCanvas({
               map.easeTo({
                 center: [anchor.longitude!, anchor.latitude!],
                 zoom: targetZoom,
-                ...(prefersReducedMotion ? { duration: 0 } : {}),
+                ...(prefersReducedMotionRef.current ? { duration: 0 } : {}),
               });
               return;
             }
@@ -1571,7 +1797,7 @@ export function MapCanvas({
           map.easeTo({
             center: [anchor.longitude!, anchor.latitude!],
             zoom: targetZoom,
-            ...(prefersReducedMotion ? { duration: 0 } : {}),
+            ...(prefersReducedMotionRef.current ? { duration: 0 } : {}),
           });
         } else if (anchorEl) {
           // Camera already at the zoom where this cluster bottoms out
@@ -1587,7 +1813,10 @@ export function MapCanvas({
         // the prior err-swallow pattern.
       }
     },
-    [aggregated, observations, prefersReducedMotion, openClusterListFromGroup],
+    // prefersReducedMotion is read through the stable ref (`.current`), so it is
+    // intentionally NOT a dep — the callback need not be re-created on an OS
+    // reduce-motion toggle; the flight `duration` picks up the live value anyway.
+    [aggregated, observations, openClusterListFromGroup],
   );
 
   const handleClosePopover = useCallback(() => setSelectedObs(null), []);
@@ -1638,10 +1867,12 @@ export function MapCanvas({
       map.easeTo({
         center,
         zoom: targetZoom,
-        ...(prefersReducedMotion ? { duration: 0 } : {}),
+        // Live preference via the stable ref — see prefersReducedMotionRef above.
+        ...(prefersReducedMotionRef.current ? { duration: 0 } : {}),
       });
     },
-    [prefersReducedMotion],
+    // prefersReducedMotion read through the ref (`.current`); not a dep.
+    [],
   );
 
   /* Hit-target layer: render hit targets at zoom >= CLUSTER_MAX_ZOOM
@@ -1721,7 +1952,12 @@ export function MapCanvas({
         // scope `fitBounds` fly. Passing this handler diverts that fallback, so
         // `handleMapError` re-surfaces genuine errors itself. See the handler's
         // doc comment + isBenignMapError for the narrow swallow predicate.
-        onError={handleMapError}
+        //
+        // #1049 (M-12): `handleMapErrorWithWatchdog` WRAPS that handler — it
+        // counts consecutive clause-(ii) basemap-source failures toward the
+        // retry-card threshold, then delegates logging to the UNCHANGED
+        // `handleMapError` (so the #854 console-hygiene contract is preserved).
+        onError={handleMapErrorWithWatchdog}
         attributionControl={false}
         // Fix 3b (PR #582 bot review): preserve the WebGL backbuffer when running
         // e2e tests so `readCanvasPixel` in basemap-dark-flip.spec.ts can sample
@@ -1918,6 +2154,31 @@ export function MapCanvas({
             ? { onDrillIn: () => handleDrillInToCenter(clusterList.drillCenter) }
             : {})}
         />
+      )}
+      {/* #1049 (M-12): basemap-failure retry card. Transient-layer tier-2
+          surface per the four-corner anchor contract — it mirrors the
+          `.map-error-overlay` precedent (App.tsx data-error overlay): a focused,
+          recoverable card floating over the still-mounted map, NOT a blocking
+          modal. Surfaced when the watchdog times out or M consecutive basemap-
+          source errors land. Retry re-sets the current-theme style and re-arms
+          the watchdog. Uses StatusBlock's first-class `action` prop — no
+          hand-rolled retry button. */}
+      {basemapFailed && (
+        <div
+          className="map-basemap-error"
+          role="dialog"
+          aria-modal="false"
+          aria-label="Basemap error"
+          data-testid="basemap-error-overlay"
+        >
+          <StatusBlock
+            state="error"
+            title="Basemap unavailable"
+            body="The map background failed to load. Your connection or the tile provider may be temporarily unavailable."
+            surface="overlay"
+            action={{ label: 'Retry', onClick: handleBasemapRetry }}
+          />
+        </div>
       )}
     </div>
   );
