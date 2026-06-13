@@ -7,9 +7,10 @@
  * style ships LIGHT-mode label text colors (`hsl(0,0%,37%)` / `#656565` /
  * `rgba(80,78,78,1)` …), so at z14 every basemap symbol layer carrying a
  * `text-field` fails WCAG AA against the dark canvas (`background-color`
- * `rgb(12,12,12)`): motorway and water labels sit at ~1.05–1.07 contrast —
- * effectively invisible — and place labels at ~3.36, below the 4.5 AA floor.
- * The dark style's halos are dark too (`rgba(0,0,0,0.7)`), so they don't help.
+ * `rgb(12,12,12)`): the near-black `water_name` label sits at ~1.07 contrast —
+ * effectively invisible — and the `hsl()`/gray road + place labels at ~3.0–3.4,
+ * all below the 4.5 AA floor. The dark style's halos are dark too
+ * (`rgba(0,0,0,0.7)`), so they don't help.
  *
  * `enforceDarkLabelContrast(map)` recolors the FAILING label layers to an
  * AA-passing LIGHT text + DARK halo, preserving the light-style visual
