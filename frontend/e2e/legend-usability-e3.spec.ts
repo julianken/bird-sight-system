@@ -147,17 +147,34 @@ for (const { width, height, tier, label } of [
       await expect(labelEl).toBeVisible();
       // The full text (incl. the final noun) is present in the DOM…
       await expect(labelEl).toHaveText(LONG_LABEL);
-      // …and is NOT clipped by single-line ellipsis: a two-line wrap means the
-      // rendered box is taller than one line. Assert ≥ ~2 lines tall.
-      const box = await labelEl.boundingBox();
-      const lineHeightPx = await labelEl.evaluate(
-        (el) => parseFloat(getComputedStyle(el).lineHeight),
-      );
-      expect(box, 'label box missing').not.toBeNull();
+      // V3/V7: the long name must NOT be single-line-ellipsis-truncated (which drops
+      // the head noun). Prove it font-independently — works whether the CI font fits
+      // it on one line or wraps it to two:
+      const metrics = await labelEl.evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return {
+          lineClamp: cs.webkitLineClamp,            // '2' = multi-line clamp, not single-line ellipsis
+          whiteSpace: cs.whiteSpace,                 // must NOT be 'nowrap'
+          scrollWidth: el.scrollWidth,
+          clientWidth: el.clientWidth,
+          clientHeight: el.clientHeight,
+          lineHeight: parseFloat(cs.lineHeight),
+        };
+      });
+      // (a) multi-line clamp, not a single-line nowrap+ellipsis:
+      expect(metrics.lineClamp, 'label uses 2-line clamp (not single-line ellipsis)').toBe('2');
+      expect(metrics.whiteSpace, 'label is allowed to wrap').not.toBe('nowrap');
+      // (b) the full label is not horizontally clipped — scrollWidth never exceeds the
+      //     box width whether it sits on one line (fits) or wraps to two (each line fits):
       expect(
-        box!.height,
-        `label height ${box!.height.toFixed(1)}px should span ~2 lines (lineHeight ${lineHeightPx}px) — the long name must wrap, not single-line-ellipsis`,
-      ).toBeGreaterThan(lineHeightPx * 1.5);
+        metrics.scrollWidth,
+        `label not horizontally ellipsis-clipped (scrollWidth ${metrics.scrollWidth} ≤ clientWidth ${metrics.clientWidth})`,
+      ).toBeLessThanOrEqual(metrics.clientWidth + 1);
+      // (c) clamped at MOST two lines tall (never a 3+ line overflow):
+      expect(
+        metrics.clientHeight,
+        `label clamped to ≤2 lines (${metrics.clientHeight}px ≤ ${metrics.lineHeight * 2 + 2}px)`,
+      ).toBeLessThanOrEqual(metrics.lineHeight * 2 + 2);
     });
   });
 }
