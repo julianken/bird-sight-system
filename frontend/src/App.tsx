@@ -16,7 +16,6 @@ import { useSpeciesDictionary } from './data/use-species-dictionary.js';
 import { useStates } from './data/use-states.js';
 import {
   familyCountsFromBuckets,
-  deriveFamiliesFromBuckets,
   totalCountFromBuckets,
 } from './data/bucket-aggregates.js';
 import { useStatePolygon } from './data/state-polygons.js';
@@ -26,6 +25,7 @@ import { useSpeciesDetail } from './data/use-species-detail.js';
 // the entry bundle — App owns the scope→clampPad derivation (#760/#762).
 import { ARTBOARD_PAD } from './components/map/mask.js';
 import { FiltersBar } from './components/FiltersBar.js';
+import type { FamilyOption, SpeciesOption } from './components/FiltersBar.js';
 import { FamilyLegend } from './components/FamilyLegend.js';
 import { MapSurface } from './components/MapSurface.js';
 import { ScopeChooser } from './components/ScopeChooser.js';
@@ -34,9 +34,9 @@ import { SpeciesDetailSheet } from './components/SpeciesDetailSheet.js';
 import type { SnapState } from './components/SpeciesDetailSheet.js';
 import { AppHeader } from './components/AppHeader.js';
 import { useIsCompact } from './lib/use-is-compact.js';
-import { useIsPhone } from './lib/use-is-phone.js';
+import { useBreakpoint } from './hooks/use-breakpoint.js';
 import { AttributionModal } from './components/AttributionModal.js';
-import { deriveFamilies, deriveSpeciesIndex } from './derived.js';
+import { resolveFamilyName } from './derived.js';
 import { filterObservationsByBounds, filterBucketsByBounds } from './lib/viewport-filter.js';
 import { regionLabelFor } from './config/region.js';
 import { prefetchMapCanvas } from './prefetch.js';
@@ -127,8 +127,9 @@ const LEDE_LOADING_PLACEHOLDER = 'Updating…';
  * 768×1024 (iPad portrait) the expanded legend covers the only visible marker
  * on first paint. Lift the JS threshold to 1024 so tablet-portrait (and
  * narrower) start collapsed; tablet-landscape and desktop still default
- * expanded. localStorage `family-legend-expanded.v2` still overrides the
- * default once the user toggles.
+ * expanded. The per-breakpoint `family-legend-expanded.v3.<tier>` storage key
+ * (E3 #1055) still overrides the default once the user toggles — for that tier
+ * only, so a desktop expand never leaks into the phone tier.
  */
 const LEGEND_EXPAND_MIN_WIDTH = 1024;
 
@@ -216,13 +217,18 @@ function focusFirstMarker(): void {
 export function App() {
   const { state, set } = useUrlState();
   const isCompact = useIsCompact();
-  // O5 (#783): phone-only hook keyed to ≤480px (P1's overlay breakpoint).
+  // O5 (#783): phone-scoped signal keyed to ≤480px (P1's overlay breakpoint).
   // Distinct from isCompact (≤1199px): the phone-scoped force-collapse signals
   // (unscoped chooser, filters, sheet half/full) only collide with the legend
   // at ≤480px. The detail-sheet-open signal, by contrast, fires across the
   // whole compact range (≤1199px) because the bottom-docked sheet overlaps the
   // bottom-left legend at 768/1024 too — see `legendForceCollapsed` below.
-  const isPhone = useIsPhone();
+  //
+  // F2 (#1062): derived from the shared `useBreakpoint()` engine
+  // (`'compact'` === ≤480 inclusive) instead of a standalone `useIsPhone` hook.
+  // The engine's compact tier IS the ≤480 overlay breakpoint, so this is the
+  // same signal with one fewer parallel matchMedia authority to keep in sync.
+  const isPhone = useBreakpoint() === 'compact';
   // Tag the current Clarity session with the active view so dashboards can
   // filter sessions by surface (map | detail). Fires on initial mount
   // and on every view change; analytics.setView no-ops safely when Clarity
@@ -421,11 +427,11 @@ export function App() {
   // would degrade to a full-region fetch on first paint, exactly the
   // failure mode this wiring exists to prevent.
   // Issue #720: split loading into hotspots- vs observations-specific flags
-  // because the cold-load lede guard (MapLede #716) must key off the
+  // because the cold-load lede guard (#716) must key off the
   // observation fetch specifically — under typical network conditions
   // hotspots resolves first, flipping a shared `loading` flag to false
   // while observations is still in flight and triggering the very
-  // Template-1 misfire #716 set out to suppress. The MapLede and the
+  // Template-1 misfire #716 set out to suppress. The AppHeader lede and the
   // #map-layer aria-busy attribute narrate observation data, so they switch
   // to `observationsLoading` too. `loading` (combined) is retained for
   // `data-render-complete`, which tracks the whole tree being ready.
@@ -524,31 +530,31 @@ export function App() {
     error: silhouettesError,
   } = useSilhouettes(apiClient);
 
-  // #921: familyCode → curated colloquial name, from the `/api/silhouettes`
-  // catalogue the app already fetches. Threaded into both derive functions so
-  // the FiltersBar `<select>` options AND the count lede read `Tyrant
-  // Flycatchers` instead of the scientific `Tyrannidae`. Keys are lowercased to
-  // match the server's lowercase family_code on both the observation and bucket
-  // paths. A cold catalogue yields an empty map → both functions fall back to
-  // `prettyFamily` (never a blank label).
-  const familyNamesByCode = useMemo(() => {
-    const map = new Map<string, string | null>();
-    for (const s of silhouettes) map.set(s.familyCode.toLowerCase(), s.commonName);
-    return map;
+  // D2 (#1050) C79 — the Family filter options derive from the STABLE
+  // silhouettes catalogue (`useSilhouettes`), NOT from the active fetch result.
+  // Pre-#1050 the options came from the fetch (deriveFamilies/FromBuckets), which
+  // carries the active `familyCode` — so once a family was selected the select
+  // collapsed to "that family + All families", forcing a reset-to-all before a
+  // family→family switch. The catalogue is the filter-independent universe of
+  // every observed family (95 today) and is already in scope here, so the select
+  // lists all families while one is active. `familyCode` is lowercased server-side
+  // (#921) and the catalogue keys it lowercase too — the option `value` MUST stay
+  // lowercase so the controlled `<select value={familyCode}>` keeps the active
+  // family highlighted (reviewer addendum: a casing mismatch silently de-selects
+  // it — a subtler form of the exact bug being fixed). A cold catalogue yields an
+  // empty list; the select degrades to "All families" only (never a blank label).
+  const families = useMemo<FamilyOption[]>(() => {
+    const seen = new Set<string>();
+    const opts: FamilyOption[] = [];
+    for (const s of silhouettes) {
+      const code = s.familyCode.toLowerCase();
+      if (seen.has(code)) continue;
+      seen.add(code);
+      opts.push({ code, name: resolveFamilyName(code, { commonName: s.commonName }) });
+    }
+    // Sort by RESOLVED display name (matches the prior derive's ordering).
+    return opts.sort((a, b) => a.name.localeCompare(b.name));
   }, [silhouettes]);
-
-  // #859: in aggregated mode the per-observation array is empty, so the family
-  // filter options derive from the buckets' families instead (the species
-  // autocomplete index has no aggregated analogue — codes carry no names on the
-  // wire — so it stays observation-only and is simply empty at low zoom).
-  const families = useMemo(
-    () =>
-      mode === 'aggregated'
-        ? deriveFamiliesFromBuckets(buckets, familyNamesByCode)
-        : deriveFamilies(observations, familyNamesByCode),
-    [mode, buckets, observations, familyNamesByCode],
-  );
-  const speciesIndex = useMemo(() => deriveSpeciesIndex(observations), [observations]);
 
   // #738/C5: runtime region label for the active scope (#735). `null` ⟺
   // unscoped (the chooser landing) — every consumer degrades to no region
@@ -558,10 +564,10 @@ export function App() {
   const region = regionLabelFor(state.scope, states);
 
   // #738/C7: "no filters active" — the data-availability vs filter-narrowing
-  // split (MapLede) keys off this. A request is unfiltered ONLY when no
-  // species/family/notable filter is set AND `since` is the default. The
+  // split (the AppHeader lede) keys off this. A request is unfiltered ONLY when
+  // no species/family/notable filter is set AND `since` is the default. The
   // `since === DEFAULTS.since` comparison lives here (once, at the call site)
-  // so MapLede stays presentational. DEFAULTS is the exported symbol (#735),
+  // so the lede stays presentational. DEFAULTS is the exported symbol (#735),
   // not a re-declared literal.
   const noFiltersActive =
     state.speciesCode === null &&
@@ -684,12 +690,19 @@ export function App() {
     { center: [number, number]; zoom: number; key: string } | undefined
   >(undefined);
 
-  // Resolve human-readable family name when a familyCode filter is active.
-  // Derived from families (prettyFamily-capitalised code from deriveFamilies).
-  const familyName = useMemo(
-    () => (state.familyCode ? families.find(f => f.code === state.familyCode)?.name : undefined),
-    [families, state.familyCode],
-  );
+  // Resolve human-readable family name for the count lede when a familyCode
+  // filter is active. Resolved directly via the unified `resolveFamilyName`
+  // chain against the active code — NOT by looking the code up in the filter
+  // `families` options (#1050 decoupled those from the fetch). The catalogue
+  // (`silhouettes`) supplies the curated colloquial name; `resolveFamilyName`
+  // falls back to `prettyFamily(code)` so a real code never yields a blank label
+  // even with a cold catalogue. The first matching silhouette's commonName wins.
+  const familyName = useMemo(() => {
+    if (!state.familyCode) return undefined;
+    const code = state.familyCode.toLowerCase();
+    const commonName = silhouettes.find(s => s.familyCode.toLowerCase() === code)?.commonName;
+    return resolveFamilyName(code, { commonName });
+  }, [silhouettes, state.familyCode]);
 
   // Issue #351: viewport-aware FamilyLegend counts. MapCanvas reports
   // the current bounds on each `idle` (camera-change settle) via
@@ -884,7 +897,33 @@ export function App() {
   // aggregated low-zoom popovers can resolve the real common names carried (as
   // codes) in the buckets. A cold dictionary is tolerated everywhere (rows fall
   // back to the bare code) so this never gates the map render.
-  const { dictionary } = useSpeciesDictionary(apiClient);
+  //
+  // D2 (#1050) C78/C79: the SAME dictionary backs the Species filter index. It
+  // is national and filter-independent, so the species search resolves names at
+  // EVERY zoom — including aggregated low-zoom mode, where the per-observation
+  // array is empty (#859) and the old observation-derived index was silently
+  // inert — and the species datalist no longer self-narrows under an active
+  // species filter (the dictionary doesn't carry the active filter). `loading`
+  // and `error` are threaded to FiltersBar so it can classify a no-match commit
+  // correctly: defer the no-match verdict while loading (a verdict against a
+  // not-yet-populated index would be a false hint), and surface a fetch-error
+  // outcome on error — both honoring the "never silent" contract.
+  const {
+    dictionary,
+    loading: dictionaryLoading,
+    error: dictionaryError,
+  } = useSpeciesDictionary(apiClient);
+
+  // Dictionary-backed Species filter index: `{ code, comName }` per entry,
+  // common-name-sorted to match the prior observation-derived ordering. Memoized
+  // on the dictionary identity (stable once resolved, per the hook's tab cache).
+  const speciesIndex = useMemo<SpeciesOption[]>(() => {
+    const opts: SpeciesOption[] = [];
+    for (const [code, { comName, familyCode }] of dictionary) {
+      opts.push({ code, comName, familyCode });
+    }
+    return opts.sort((a, b) => a.comName.localeCompare(b.comName));
+  }, [dictionary]);
 
   // Active species meta for the detail view (issue #327 task-11). The
   // hook fires only when state.view === 'detail' AND state.detail is set
@@ -1097,8 +1136,8 @@ export function App() {
   }, [scopeActive]);
 
   // #800 / #779 — lede text computation for the AppHeader identity card.
-  // Mirrors MapLede's template logic (now removed from MapSurface) so the
-  // formerly-invisible context-strip content is lifted into the top-left card.
+  // Mirrors the former context-strip lede template (since removed from
+  // MapSurface) so the formerly-invisible content is lifted into the top-left card.
   // Returns null when region=null (unscoped) or while loading (cold-load guard).
   // #828: the freshness derivation (deriveFreshness + nowTick/visibilitychange)
   // was removed along with the freshness line — the lede no longer consumes a
@@ -1113,7 +1152,7 @@ export function App() {
     const observationCount =
       mode === 'aggregated' ? totalCountFromBuckets(buckets) : observations.length;
     // Cold-load guard (#716/#720): suppress Template 1 while the first fetch is
-    // in flight. Same discipline as MapLede's `loading` guard.
+    // in flight. Same discipline as the former context-strip lede's `loading` guard.
     if (observationsLoading && observationCount === 0 && speciesCount === 0) return null;
     // #872: state→state stale-count guard. use-bird-data keeps the PRIOR scope's
     // `observations` mounted while the new fetch is in flight (it clears only on
@@ -1261,6 +1300,11 @@ export function App() {
         filterCount={filterCount}
         onOpenFilters={() => setFiltersOpen(true)}
         filtersOpen={filtersOpen}
+        // E5 (#1057): the `?detail=` presence boolean — drives the scope
+        // disclosure's auto-collapse when a species-detail surface takes over
+        // (spec §5.1 COMPACT: at most one expanded surface). Same derivation
+        // (`!!state.detail`) used for the compact sheet-open signal above.
+        detailOpen={!!state.detail}
         filtersTriggerRef={filtersTriggerRef}
         onOpenAttribution={onOpenAttribution}
         ledeText={ledeText}
@@ -1350,6 +1394,8 @@ export function App() {
               familyCode={state.familyCode}
               families={families}
               speciesIndex={speciesIndex}
+              speciesIndexLoading={dictionaryLoading}
+              speciesIndexError={dictionaryError !== null}
               onChange={set}
             />
           </div>

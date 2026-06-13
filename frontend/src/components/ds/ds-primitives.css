@@ -5,9 +5,18 @@
  *   StatusBlock, FamilySilhouette, Photo, ClusterPill, FilterSentence, SortLabel
  *
  * Architecture:
- *   - All values are resolved through Phase 1 semantic tokens (tokens.css).
- *     No raw hex codes. Custom properties from styles.css :root are also
- *     consumed where they carry the right semantic role.
+ *   - Values are resolved through Phase 1 semantic tokens (tokens.css) wherever
+ *     a token carries the right semantic role; no raw shadow literals remain.
+ *     (#1043: popover shadows migrated to --card-elevation-2.) The only
+ *     deliberate raw hex are the cross-basemap contrast guarantees, which must
+ *     read identically over ANY basemap tile and so cannot follow the themed
+ *     token: the count badge's `background:#1a1a1a; color:#fff` + 1px white
+ *     ring (`.adaptive-grid-marker__badge`, including its dark-theme override —
+ *     the WCAG 1.4.11 contrast floor against arbitrary map tiles, spec §4.3),
+ *     and the photo-attribution focus ring `outline:2px solid #fff`
+ *     (`.photo__attribution-link:focus-visible` — guaranteed-visible over photo
+ *     imagery). Custom properties from styles.css :root and tokens.css are
+ *     consumed everywhere else.
  *   - Shimmer animation respects prefers-reduced-motion via the global policy
  *     in styles/motion.css (animation-duration: 0ms !important). Components
  *     do NOT duplicate the media query.
@@ -340,6 +349,11 @@
   height: 100%;
   object-fit: cover;
   border-radius: var(--photo-radius);
+  /* Bare UA `ease` is a DELIBERATE departure (#1063; the enter motion was
+     reviewed in #957): a symmetric photo cross-fade reads correctly on the
+     gentle default ease, and swapping in the house ease-out bezier would change
+     the visible curve (this child preserves shipped appearance). Duration is
+     tokenized (--dur-base); only the curve is intentionally the UA keyword. */
   transition: opacity var(--dur-base) ease;
 }
 
@@ -431,6 +445,12 @@
   border-radius: 999px;
   font-family: var(--font-stack);
   font-weight: var(--font-weight-semibold);
+  /* F1 #1061: tabular digits. pillDimensions() in ClusterPill.tsx predicts the
+     deconflict AABB from a fixed per-digit advance (~8/9/10px per tier) — that
+     formula only holds if every digit is the same width. Every other count
+     surface already sets this (.app-header-lede, observation count, grid
+     badges); the pill was the lone omission. */
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
   transition: transform var(--dur-fast), box-shadow var(--dur-fast);
   /* WCAG 2.5.8 Target Size (Minimum) — 24×24px floor. Audit measured
@@ -642,17 +662,32 @@ button.adaptive-grid-marker__cell {
 }
 
 .adaptive-grid-marker__badge {
-  /* Per-cell observation-count badge — bottom-right, 14px tall, tabular
-     digits. The 1px white box-shadow is the WCAG 1.4.11 contrast guarantee
-     against any basemap tile underneath (spec §4.3). The inline style on
-     the React node duplicates this for jsdom test environments. */
+  /* Per-cell observation-count badge — top-right INSIDE the 22px cell tile,
+     14px tall, tabular digits. The 1px white box-shadow is the WCAG 1.4.11
+     contrast guarantee against any basemap tile underneath (spec §4.3). The
+     inline style on the React node duplicates this for jsdom test environments.
+
+     E6 / #1058 (M-15 "Yuma clump"): the badge was previously anchored
+     `bottom:-3px; right:-3px`, overhanging the tile across the 2px grid gap
+     into the neighbouring cell — so a "3" read as belonging to two birds at a
+     dense border. Anchoring top-right INSIDE the tile (14px badge ≤ 22px cell)
+     keeps every badge bbox fully within its owner cell. The 1px white ring
+     stays — it is the contrast floor, not decoration. */
   position: absolute;
-  bottom: -3px;
-  right: -3px;
+  top: 0;
+  right: 0;
   background: #1a1a1a;
   color: #fff;
+  /* MAP-MARKER-GRAPHICS RAMP EXCEPTION (F1 #1061, 2026-06-13): this 9px count
+     glyph sits BELOW the --type-xs (11px) ramp floor. Promoting it to
+     --type-xs would force a re-tune of the 14px badge box + the E6/#1058
+     "badge bbox fully within its 22px owner cell" anchoring invariant — a real
+     geometry change that exceeds value-preserving hygiene. The badge is a
+     map-graphic, not running prose; contrast is ~17:1 and bold. Excluded from
+     ramp audits here (and at __overflow below). Re-audit: if the marker box is
+     ever re-sized, fold the glyph back onto --type-xs at that time. */
   font-size: 9px;
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
   min-width: 14px;
   height: 14px;
   padding: 0 3px;
@@ -678,8 +713,13 @@ button.adaptive-grid-marker__cell {
      than another silhouette tile. */
   background: rgba(0, 0, 0, 0.78);
   color: #fff;
+  /* MAP-MARKER-GRAPHICS RAMP EXCEPTION (F1 #1061, 2026-06-13): 10px sub-ramp
+     count glyph — same exclusion rationale as .adaptive-grid-marker__badge
+     above (map graphic in a fixed cell box, not prose; ~17:1 contrast, bold).
+     Excluded from ramp audits; re-fold onto --type-xs only if the cell box is
+     re-sized. */
   font-size: 10px;
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
   font-variant-numeric: tabular-nums;
 }
 
@@ -732,10 +772,10 @@ button.adaptive-grid-marker__cell {
 
 .cell-hover-preview {
   position: absolute;
-  /* #761 O6 (#782) — MIGRATED off the `calc(var(--z-panel) + 5)` arithmetic onto
+  /* #761 O6 (#782) — MIGRATED off a z-tier calc() arithmetic onto
      the named `--z-modal` (50) tier. Rationale: this passive hover tooltip must
      paint ABOVE every popover it can geometrically overlap. Pre-O6 the two render
-     paths DISAGREED — the keyboard-focus inline path sat at calc(--z-panel + 5) =
+     paths DISAGREED — the keyboard-focus inline path sat at a z-tier calc() =
      45 (a tie with --z-cluster-popover, won only by DOM order) while the
      cursor-following path used an off-scale inline `zIndex: 1000` (~955 above the
      scale). O6 removes the inline literal (CellHoverPreview.tsx) so BOTH paths now
@@ -753,12 +793,12 @@ button.adaptive-grid-marker__cell {
      shares or contests the --z-modal (50) tier with a detail surface — the safety
      is preserved by DEMOTION now, not suppression.
 
-     ORDERING CONTRACT vs the detail rail (handoff to O5 / #783):
+     ORDERING CONTRACT vs the detail rail (finalized by O5 / #783):
      P1's `--z-cell-popover`/`--z-cluster-popover` (44/45) resolve ABOVE the
-     rail's current `--z-rail` (43), so the click-driven popovers temporarily
-     paint over the rail. Re-tiering the rail/sheet ABOVE the popovers (into the
-     --z-modal band with the compensating #663 inert work) is O5's job (report R3);
-     O6 does NOT move the rail's z value. This tooltip at --z-modal (50) is the
+     rail's `--z-rail` (43), so the click-driven popovers paint over the rail.
+     This rail < popovers ordering is the FINAL §5.3 ladder: O5 (#783) decided
+     AGAINST re-tiering the rail/sheet above the popovers, so the ladder stays
+     rail 43 < cell 44 < cluster 45. O6 does NOT move the rail's z value. This tooltip at --z-modal (50) is the
      RESTING tier (no detail open): the cursor tooltip can still float over an
      open cell/cluster popover. While a detail IS open, the `--under-detail`
      modifier below demotes it (see #976). */
@@ -812,7 +852,7 @@ button.adaptive-grid-marker__cell {
 }
 
 .cell-hover-preview__footer {
-  font-size: 11px;
+  font-size: var(--type-xs);
   color: var(--color-text-muted);
   margin-top: var(--space-xxs);
   font-style: italic;
@@ -886,24 +926,61 @@ button.adaptive-grid-marker__cell {
      body origin / bottom-left, which #863 fixes.)
      #761 P1, #778 — above the rail, below the cluster popover.
      #761 O6 (#782) ORDERING CONTRACT vs the detail rail: --z-cell-popover (44)
-     resolves ABOVE the rail's current --z-rail (43), so this click-driven popover
-     temporarily paints over an open SpeciesDetailRail. Re-tiering the rail ABOVE
-     the popovers (into --z-modal with the #663 inert work) is O5's job (report R3);
-     O6 does NOT move the rail's z value and leaves the temporary popover-over-rail
-     state as expected. Verified live (O6): this popover escapes to a higher
+     resolves ABOVE the rail's --z-rail (43), so this click-driven popover
+     paints over an open SpeciesDetailRail. This rail < popovers ordering is the
+     FINAL §5.3 ladder — O5 (#783) kept it (decided AGAINST re-tiering the rail
+     above the popovers), so the ladder stays rail 43 < cell 44 < cluster 45.
+     O6 does NOT move the rail's z value. Verified live (O6): this popover escapes to a higher
      stacking context (via the #859 portal) and paints above the map-assist overlays
      (legend/scope at --z-overlay 40, observation-popover at --z-popover 41). */
   position: absolute;
   z-index: var(--z-cell-popover);
   background: var(--color-bg-surface);
-  border: 1px solid var(--color-border-strong);
-  border-radius: 6px;
+  border: 1px solid var(--color-border-ui);
+  border-radius: var(--card-radius);
   padding: var(--space-sm) var(--space-md);
   font: var(--text-body-sm);
   color: var(--color-text-strong);
   min-width: 240px;
-  max-width: 320px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  max-width: var(--card-maxw-popover);
+  box-shadow: var(--card-elevation-2);
+}
+
+/* #1053 — anchor caret. An 8px square rotated 45° so a corner points at the
+   anchor cell, filled with the card background and bordered to match so only
+   the two outward-facing triangle edges read as a notch. It sits on the
+   cell-facing edge: just OUTSIDE the top edge when the card is placed BELOW the
+   cell (caret points up at the anchor), and just outside the bottom edge when
+   the card flips ABOVE (caret points down). data-placement (set by
+   CellPopover.tsx, mirroring the position math) drives which edge, so the caret
+   survives the flip/shift/clamp. Left-anchored to track the cell's left edge,
+   which the horizontal clamp keeps aligned to the anchor. Decorative only
+   (aria-hidden in the JSX). The card already carries the elevation; the caret
+   borrows the same border tokens so it reads as part of the same surface. */
+.cell-popover__caret {
+  position: absolute;
+  left: var(--space-md);
+  width: 8px;
+  height: 8px;
+  background: var(--color-bg-surface);
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+
+.cell-popover__caret[data-placement='below'] {
+  /* Card below the cell → notch on the TOP edge, pointing up at the anchor.
+     Show only the two top-facing borders (top + left of the rotated square). */
+  top: -4px;
+  border-top: 1px solid var(--color-border-ui);
+  border-left: 1px solid var(--color-border-ui);
+}
+
+.cell-popover__caret[data-placement='above'] {
+  /* Card flipped above the cell → notch on the BOTTOM edge, pointing down.
+     Show only the two bottom-facing borders (bottom + right). */
+  bottom: -4px;
+  border-bottom: 1px solid var(--color-border-ui);
+  border-right: 1px solid var(--color-border-ui);
 }
 
 .cell-popover__header {
@@ -936,6 +1013,22 @@ button.adaptive-grid-marker__cell {
   padding: 2px 0;
 }
 
+/* E1 (#1053) — WCAG 2.5.5 on the cell popover's species rows under a COARSE
+   pointer (touch laptop / hybrid device that still gets the fine-pointer cell
+   popover). The compact 2px row padding above is fine for a mouse; on touch the
+   row must reach the 44px tap floor. Scoped to `pointer: coarse` so the dense
+   desktop popover keeps its tight rhythm. Uses the same block recipe as
+   `.cluster-list-popover__row` (NOT flex on the inner control — that's the
+   b1b018e 0×0-bbox trap); the inner full-width <button> (`display: block;
+   width: 100%`, below) overlays the ≥44px box so the tap lands on the link. */
+@media (pointer: coarse) {
+  .cell-popover__row {
+    display: block;
+    min-height: 44px;
+    padding: 6px 0;
+  }
+}
+
 /* #1031 (C54): species rows are now native <button>s (free Enter/Space,
    correct AT announcement). The button needs the chrome reset an <a> didn't
    (border/background/font/padding), then re-adopts the link affordance —
@@ -963,7 +1056,7 @@ button.adaptive-grid-marker__cell {
 }
 
 .cell-popover__footer {
-  font-size: 11px;
+  font-size: var(--type-xs);
   color: var(--color-text-muted);
   margin-top: var(--space-xs);
   font-style: italic;
@@ -982,7 +1075,7 @@ button.adaptive-grid-marker__cell {
   border: none;
   background: none;
   font: inherit;
-  font-size: 11px;
+  font-size: var(--type-xs);
   cursor: pointer;
   color: var(--color-text-link);
   text-decoration: underline;
@@ -997,12 +1090,12 @@ button.adaptive-grid-marker__cell {
   border-radius: 2px;
 }
 
-/* Dark theme override. */
+/* Dark theme override — bg/text/border are mode-paired tokens; box-shadow
+   inherits from --card-elevation-2 (token is dark-aware, no override needed). */
 [data-theme="dark"] .cell-popover {
   background: var(--color-bg-surface);
-  border-color: var(--color-border-strong);
+  border-color: var(--color-border-ui);
   color: var(--color-text-strong);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
 }
 
 /* Forced-colors fallback. */
@@ -1068,9 +1161,11 @@ button.adaptive-grid-marker__cell {
   bottom: var(--space-md);
   /* #761 P1, #778 — topmost popover, above cell popover + rail.
      #761 O6 (#782) ORDERING CONTRACT vs the detail rail: --z-cluster-popover (45)
-     resolves ABOVE the rail's current --z-rail (43); this coarse-pointer popover
-     temporarily paints over an open SpeciesDetailRail. Re-tiering the rail ABOVE
-     the popovers is O5's job (report R3); O6 does NOT move the rail's z value.
+     resolves ABOVE the rail's --z-rail (43); this coarse-pointer popover
+     paints over an open SpeciesDetailRail. This rail < popovers ordering is the
+     FINAL §5.3 ladder — O5 (#783) kept it (decided AGAINST re-tiering the rail
+     above the popovers), so the ladder stays rail 43 < cell 44 < cluster 45.
+     O6 does NOT move the rail's z value.
      CONTAINING BLOCK NOTE: this rule is `position: fixed`, but on coarse pointers
      it is anchored to the viewport edges (left/right/bottom = --space-md), so even
      if the transformed MapLibre marker container traps the fixed positioning to the
@@ -1083,12 +1178,12 @@ button.adaptive-grid-marker__cell {
   max-height: 70vh;
   overflow-y: auto;
   background: var(--color-bg-surface);
-  border: 1px solid var(--color-border-strong);
-  border-radius: 8px;
+  border: 1px solid var(--color-border-ui);
+  border-radius: var(--card-radius);
   padding: var(--space-md);
   font: var(--text-body-sm);
   color: var(--color-text-strong);
-  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--card-elevation-2);
 }
 
 .cluster-list-popover__header {
@@ -1148,6 +1243,9 @@ button.adaptive-grid-marker__cell {
    state-hidden trap; only the caret animates here. */
 .cluster-list-popover__family-toggle::before {
   content: "▶ ";
+  /* GLYPH RAMP EXCEPTION (F1 #1061, 2026-06-13): decorative ▶ disclosure caret,
+     not running text — sized to the rotation box, not the type ramp. Excluded
+     from ramp audits (same class as the map-marker badge glyphs above). */
   font-size: 10px;
   display: inline-block;
   width: 12px;
@@ -1167,9 +1265,19 @@ button.adaptive-grid-marker__cell {
 }
 
 .cluster-list-popover__row {
-  padding: 8px 0; /* Tap-target spacing. Spec §4.5 — `display: flex; min-height: 44px` */
-                  /* on the inner <a> caused Playwright to see 0×0 bbox under iPad-gen-6 */
-                  /* chromium emulation; family-toggle + Done retain the 44px min. */
+  /* E1 (#1053, absorbs #565) — WCAG 2.5.5. The bot's block recipe: `display:
+     block` is the <li> default, so a 44px floor on the <li> itself sidesteps
+     the flex-on-<a> bbox bug that the b1b018e revert (the prior `padding: 8px 0`
+     compromise, ~35px effective) was working around. The earlier failure was
+     `display: flex; min-height: 44px` on the inner <a>, which resolved to a 0×0
+     bbox under iPad-gen-6 chromium in the coarse-pointer Playwright project; the
+     <li> stays block so the row paints a real ≥44px box. The inner full-width
+     <button> (`display: block; width: 100%`, below) overlays that box, so the
+     tap lands on the control across the row's full height — satisfying #565's
+     "≥44×44 OR ≥44px spacing". */
+  display: block;
+  min-height: 44px;
+  padding: 12px 8px;
 }
 
 /* #1031 (C54): species rows are now native <button>s (free Enter/Space,
@@ -1228,12 +1336,12 @@ button.adaptive-grid-marker__cell {
   outline-offset: 2px;
 }
 
-/* Dark theme override. */
+/* Dark theme override — bg/text/border are mode-paired tokens; box-shadow
+   inherits from --card-elevation-2 (token is dark-aware, no override needed). */
 [data-theme="dark"] .cluster-list-popover {
   background: var(--color-bg-surface);
-  border-color: var(--color-border-strong);
+  border-color: var(--color-border-ui);
   color: var(--color-text-strong);
-  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.6);
 }
 
 /* Forced-colors fallback (matches existing styles.css:1696 pattern). */
@@ -1257,12 +1365,12 @@ button.adaptive-grid-marker__cell {
   }
 }
 
-/* Reduced-motion: no slide-in animation in v1. Reserved for future. */
-@media (prefers-reduced-motion: reduce) {
-  .cluster-list-popover {
-    /* No-op currently; reserved for future slide-in. */
-  }
-}
+/* #1063: removed the empty reduced-motion media block that read "Reserved for
+   future slide-in." The #07 slide-up for this popover is DEFERRED (#950, see the
+   .cluster-list-popover and __family-toggle::before comments above) — an empty
+   guard reserving for it implied motion that #950 explicitly does not ship. The
+   only motion here (the caret rotate) is covered by the global motion.css guard;
+   no per-element block is needed. */
 
 /* ── B3 (#1042 M-10): themed scrollbar on .cluster-list-popover ─────────────
  * The cluster-list popover has overflow-y:auto and max-height:70vh. Without

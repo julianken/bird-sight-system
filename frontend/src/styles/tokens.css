@@ -21,8 +21,6 @@
 :root {
   /* Warm cream scale (light surfaces) */
   --c-warm-50:  #fafaf6;
-  --c-warm-100: #f0ece4;
-  --c-warm-200: #e6e0d4;
 
   /* Sky / Sand / Ember — cluster density triad (measured contrast) */
   --c-sky-500:   #6ec5d9;   /* 8.2:1 against #1a1a1a */
@@ -41,7 +39,6 @@
   --c-amber-700: #984012;
 
   /* Navy / dark scale */
-  --c-navy-50:  #f5f7fb;
   --c-navy-900: #0d1424;
 
   /* ── Type ramp (Apple HIG-derived, no webfont) ────────────────────── */
@@ -52,6 +49,15 @@
   --type-lg:   22px;  /* surface section titles */
   --type-hero: 34px;  /* lede, detail-surface species name */
 
+  /* The single --type-sm leading (F1 #1061, spec §2.5). Before #1061 the
+     small-body leading was half a system — 1.4 (.app-header-lede), 1.2
+     (filters reset), 1.5 (--text-body-sm). Unified to 1.5 (the value the
+     --text-body-sm consumers already carry) and encoded here next to the ramp
+     so the two map popovers (.cell-popover via --text-body-sm, .observation-
+     popover via this token) resolve to identical leading. Consumed by
+     --text-body-sm below and by .observation-popover in styles.css. */
+  --leading-sm: 1.5;
+
   --font-stack:
     -apple-system, BlinkMacSystemFont, "Segoe UI Variable",
     "Helvetica Neue", "Inter", sans-serif;
@@ -60,7 +66,18 @@
   --font-weight-medium:   500;
   --font-weight-semibold: 600;
   --font-weight-bold:     700;
-  --font-weight-heavy:    800;
+
+  /* Letter-spacing scale (F1 #1061, spec §2.4). The uppercase meta surfaces
+     hand-rolled their tracking: 0.06em on label rows (.detail-fg-taxrow dt,
+     .sheet-fg-label, .sheet-fg-taxrow dt) and 0.08em on section eyebrows
+     (.detail-fg-about-eyebrow, .sheet-fg-about-eyebrow). Promoted to tokens so
+     the two label/eyebrow voices are single-sourced. The 0.04em
+     (.scope-chooser__divider) and 0.01em (.sort-label) outliers are one-off
+     micro-tracking on unique surfaces, kept as literals (no second consumer to
+     justify a token). NOT consumed by the dead .map-freshness 0.05em rule —
+     that whole rule is deleted by #1064. */
+  --tracking-label:   0.06em;
+  --tracking-eyebrow: 0.08em;
 
   /* Corner radius (#761 P1, issue #778). --radius-lg retires the missing-token
      inline fallback var(--radius-lg, 12px) consumed at styles.css (sheet top
@@ -73,9 +90,17 @@
      breakpoint and the 1024px content column. Formalizes the
      LEGEND_EXPAND_MIN_WIDTH / useIsCompact decoupling started in
      MapSurface.tsx:37. Consumed by later #761 overlay-move PRs; no rule
-     consumes them yet. Added 2026-05-30 (#761 P1). */
-  --overlay-bp-compact: 480px;  /* below: overlays go full-bleed sheet/peek   */
-  --overlay-bp-roomy:   600px;  /* above: overlays may sit as anchored cards  */
+     consumes them yet. Added 2026-05-30 (#761 P1).
+
+     BOUNDARY CONVENTION (F2 #1062, 2026-06-13): compact is INCLUSIVE of 480 —
+     at exactly w=480 every authority agrees "compact". The CSS is desktop-first
+     (`@media (max-width: 480px)` = ≤480) and the `useBreakpoint()` engine's
+     compact query is `(max-width: 480px)` (was `≤479` before #1062, an
+     off-by-one where CSS said compact but the engine said roomy at the single
+     480px column). The roomy band is therefore 481–1024 and wide is ≥1024
+     (the wide boundary stays exclusive: ≥1024 is wide). The 3-breakpoint
+     placement authority is 480/1024/1440 (spec §5.1). */
+  --overlay-bp-compact: 480px;  /* ≤480 (inclusive): overlays go full-bleed sheet/peek */
   --overlay-bp-wide:    1024px; /* above: legend defaults expanded (mirrors MapSurface) */
 
   /* ── Floating-card geometry (#761 #803, spec §2.1) ─────────────────────
@@ -89,10 +114,12 @@
    *   TOP-RIGHT   Controls cluster: Filters · Attribution · theme toggle
    *               — compact pill group, content-width.
    *   BOTTOM-LEFT Family legend — --card-maxw-legend.
-   *   BOTTOM-RIGHT Reserved for future zoom/locate — safe-zone. (Attribution
-   *               consolidated #830: always-visible eBird source credit in the
-   *               identity-card freshness line; full credits in the top-right
-   *               ⓘ Credits modal.)
+   *   BOTTOM-RIGHT Minimal always-visible attribution island: `OpenFreeMap ·
+   *               eBird` (license floor, --type-xs) as the `.map-attribution`
+   *               pill. (#828 relocated the always-visible eBird credit here
+   *               after deleting the identity-card freshness line #830 had
+   *               parked it in; full credits stay in the top-right ⓘ Credits
+   *               modal.) Future zoom/locate shares this corner.
    *   TRANSIENT   Popovers (flip/shift/clamp to stay on-screen), detail
    *               card (insets into top-right region), filters panel
    *               (anchored under its trigger) — per-element caps.
@@ -170,6 +197,40 @@
   --page-slide-ease:     cubic-bezier(0.22, 1, 0.36, 1);
   --page-fade-ease:      cubic-bezier(0.22, 1, 0.36, 1);
 
+  /* ── ONE settle clock (#1063) ────────────────────────────────────────────
+     The field-guide sheet's settle tween (recipe-01 card-resize: the
+     height/width snap between detents) MUST stay synchronized with the
+     recipe-08 page cross-dissolve above (--page-slide-dur/--page-fade-dur):
+     the page cross-fade, the in-page #07 reveals, and the #01 container-height
+     tween all start+finish on one frame (no two-stage desync — #954 chased a
+     desync that arose precisely because this clock was defined inline on the
+     component, split from the --page-* values). Hoisted here so the two halves
+     of the one-clock contract sit together and a future retune of one is an
+     obvious cue to retune the other. styles.css CONSUMES these; it no longer
+     defines them. Reduced-motion is owned globally by motion.css. */
+  --sheet-settle-dur:    240ms;
+  --sheet-settle-ease:   cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* ── Chrome micro-motion tunings (#1063) ─────────────────────────────────
+     Previously raw literals in styles.css; tokenized so a global motion retune
+     reaches them. Reduced-motion is owned globally by motion.css. */
+  /* Filters-button numeric badge entrance (recipe-03 notification-badge, a
+     @keyframes pop on mount). DEVIATION (2026-06-11, #1063): catalog #03 uses a
+     1.36 back-out overshoot at 500ms; this badge keeps the codebase's only
+     stronger 1.56 back-out at 200ms — a tighter, snappier pop tuned for the
+     small chrome badge rather than the catalog's larger surface. Kept as a
+     deliberate, dated departure rather than normalized to the catalog value. */
+  --badge-pop-dur:       200ms;
+  --badge-pop-ease:      cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* Theme-toggle glyph cross-fade (opacity/transform/filter swap between sun &
+     moon). House bezier; short because it is an in-place icon swap. */
+  --icon-swap-dur:       160ms;
+  --icon-swap-ease:      cubic-bezier(0.22, 1, 0.36, 1);
+  /* Family-legend chevron rotate (rotate ONLY — never the entries list). House
+     bezier (shared via --icon-swap-ease); named for its own surface so a
+     chevron-specific retune does not perturb the theme-toggle swap. */
+  --chevron-dur:         200ms;
+
   /* ds-shimmer duration — shared by .status-block__skeleton + .photo__skeleton
      (both use the same ds-shimmer keyframe; #948). adaptive-grid-pending-shimmer
      (1.4s, reverse-direction) and skeleton-shimmer (opacity-pulse technique) are
@@ -187,7 +248,7 @@
    * themes resolve to the 13px/1.5 and 17px/1.3 contract values.
    * The [data-theme="light"] definitions and the false "inherits the
    * :root definition above" dark comment are removed. */
-  --text-body-sm:    var(--font-weight-regular) var(--type-sm) / 1.5 var(--font-stack);
+  --text-body-sm:    var(--font-weight-regular) var(--type-sm) / var(--leading-sm) var(--font-stack);
   --text-heading-sm: var(--font-weight-medium) var(--type-md) / 1.3 var(--font-stack);
 
   /* ── transient-popover enter family (#950) ──────────────────────────────
@@ -217,11 +278,12 @@
   --tt-scale:            0.96;
   --tt-delay:            120ms;
   --tt-in-ease:          ease-out;
-  /* Mobile (≤639px) Filters bottom-sheet travel for the recipe-07 slide-up;
+  /* Mobile (≤480px) Filters bottom-sheet travel for the recipe-07 slide-up;
      the sheet's own height supplies the rest of the open distance so a short
      translate reads as a full open (recipe-07 note). Named -filters so it
      doesn't collide with the canonical --panel-translate-y (100px) or the
-     field-guide sheet's --panel-translate-y-sheet (32px). */
+     field-guide sheet's --panel-translate-y-sheet (32px). (E2 #1054: the
+     consuming media query moved 639→480 per #1060.) */
   --panel-translate-y-filters: 24px;
 }
 
@@ -233,7 +295,7 @@
  * (spec docs/design/01-spec/tokens.md §Light/dark mechanic — lighter
  * grays, warm cream surfaces) is a Phase 3+ concern coupled to surface
  * redesign; landing the lighter palette here would regress AA contrast
- * (e.g. .map-freshness @ 12px on #fff with #8a8a8a fails 4.5:1).
+ * (e.g. a 12px meta line on #fff with #8a8a8a fails 4.5:1).
  *
  * NEW additions in this block (no existing equivalent in styles.css):
  *   --color-bg-skeleton, --color-decision-point, --color-density-{low,mid,high},
@@ -271,6 +333,10 @@
   --card-elevation-1: var(--elevation-1);   /* resting chrome          */
   --card-elevation-2: var(--elevation-2);   /* on-canvas transient     */
   --card-elevation-3: var(--elevation-3);   /* focused / modal         */
+  /* Sheet variant: upward-cast shadow for the bottom sheet edge (#1043).
+   * Direction is load-bearing (sheet rises from the bottom); mode-paired here
+   * so light and dark both have an explicit value — no single-mode literal. */
+  --card-elevation-sheet: 0 -4px 16px rgba(0,0,0,0.18);
 
   /* Undefined-token cleanup (spec §2.5, #761 #803) — these four tokens were
    * consumed by ds-primitives.css but never defined, causing cell/cluster
@@ -378,6 +444,8 @@
   --card-elevation-1: var(--elevation-1);
   --card-elevation-2: var(--elevation-2);
   --card-elevation-3: var(--elevation-3);
+  /* Sheet upward shadow — dark: stronger diffusion + bottom rim-light (#1043). */
+  --card-elevation-sheet: 0 -4px 20px rgba(0,0,0,0.6), inset 0 -1px 0 rgba(255,255,255,0.05);
 
   /* Undefined-token cleanup — dark overrides (spec §2.5, #761 #803). */
   --color-border-strong: #4a5a80;           /* stronger hairline on dark surfaces */
@@ -405,7 +473,6 @@
      (#f5f7fb) in dark. The orange left-border (--color-accent-notable-fg)
      and light text remain coherent against this warm dark ground. */
   --color-accent-notable-bg:       #2a2620; /* deep amber-shadow (14.02:1 vs #f5f7fb) */
-  --color-accent-notable-bg-hover: #332e26; /* slight lift on hover                  */
   --color-error-bg:     #3a1a1a;
   --color-error-border: #6a3030;
   --color-error-text:   #f5b8a8;
@@ -423,21 +490,4 @@
    * eliminating the solid-white gutter on dark legend/modal/rail. */
   --scrollbar-thumb: #3a4668;   /* = --color-border-ui dark value */
   --scrollbar-track: transparent;
-}
-
-/* ── Layer 3: Component aliases ─────────────────────────────────────── */
-/*
- * Component tokens scope to their selector so light/dark is a 1-line
- * override on the component scope rather than per-property.
- * Expand this block as Phase 2 primitives land.
- */
-/*
- * Lede — a one-off display size that sits between --type-lg (22px) and
- * --type-hero (34px). Scoped here (Layer 3) rather than inside the type
- * ramp because a type ramp's value is in being a discrete ladder; an
- * exception inside the ladder weakens the contract. Moved out of Layer 1
- * intentionally — see commit "refactor(styles): relocate --lede-size".
- */
-.lede {
-  --lede-size: 26px;
 }

@@ -79,6 +79,20 @@ export const zIndex = {
    * occluding it.
    */
   underDetail: 5,
+  /**
+   * SpeciesDetailSheet at the peek detent (collapsed identity bar). ABOVE the
+   * under-detail hover preview (5) and BELOW the overlay band (40) so the
+   * legend, attribution and on-canvas popovers stay interactive around a
+   * peek sheet. Named in E2 (#1054) — was a raw `z-index: 10` in styles.css.
+   */
+  sheetResting: 10,
+  /**
+   * SpeciesDetailSheet at the half detent. One rank above the peek resting
+   * tier, still BELOW the overlay band so map overlays remain interactive at
+   * half. Full snap is promoted to `modal` (50) by the --full modifier.
+   * Named in E2 (#1054) — was a raw `z-index: 15` in styles.css.
+   */
+  sheetRaised: 15,
   /** Map-assist overlays: family legend, scope-control. */
   overlay: 40,
   /** On-canvas popovers above map-assist overlays (observation popover). */
@@ -95,13 +109,6 @@ export const zIndex = {
   modal: 50,
   /** Skip-link — always reachable, above all. */
   skip: 60,
-  /**
-   * DEPRECATED alias of `overlay`, retained for one PR so existing
-   * CSS `calc(var(--z-panel)+N)` refs (mirrored conceptually here) resolve
-   * unchanged. NOT part of the strict-monotonic tier chain — it ties with
-   * `overlay` by design. Migrate refs and remove in a #761 follow-up.
-   */
-  panel: 40,
 } as const;
 
 export const opacity = {

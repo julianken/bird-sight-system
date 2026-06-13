@@ -1,4 +1,4 @@
-import { test, expect, VERMFLY_OBS } from './fixtures.js';
+import { test, expect, VERMFLY_OBS, SPECIES_DICT_FIXTURE } from './fixtures.js';
 import { AppPage } from './pages/app-page.js';
 
 test.describe('filter flows', () => {
@@ -13,6 +13,11 @@ test.describe('filter flows', () => {
     // per-observation payload to resolve "Vermilion Flycatcher" → "vermfly";
     // stub before navigation.
     await apiStub.stubObservations(VERMFLY_OBS);
+    // D2 (#1050): the FiltersBar species index is now dictionary-backed (bare
+    // GET /api/species). Stub it so the datalist + typeahead stay hermetic —
+    // without it these specs would silently hit the live seeded DB. The one
+    // fixture row resolves "Vermilion Flycatcher" → "vermfly".
+    await apiStub.stubSpeciesDictionary(SPECIES_DICT_FIXTURE);
     app = new AppPage(page);
     await app.goto();
     await app.waitForAppReady();
@@ -41,9 +46,15 @@ test.describe('filter flows', () => {
     await expect.poll(() => app.getUrlParams().get('family'), { timeout: 5_000 }).toBeNull();
   });
 
-  test('species input does not commit on keystroke (draft isolation + no-match blur)', async () => {
+  test('species input does not commit on keystroke (draft isolation + no-match blur)', async ({ page }) => {
     await app.filters.species.focus();
-    await app.filters.setSpecies('Vermilio'); // partial, no match
+    // Wait for the dictionary-backed datalist to populate before committing —
+    // a no-match verdict is deliberately DEFERRED while the dictionary is still
+    // loading (#1050: a verdict against an empty index would be a false hint),
+    // so the visible-hint assertion below requires the settled state. Mirrors
+    // the exact-match specs' datalist-attached gate.
+    await expect(page.locator('datalist#species-options option').first()).toBeAttached({ timeout: 10_000 });
+    await app.filters.setSpecies('Vermilio'); // partial, no exact match
 
     // Draft only — URL should not have species param yet.
     await expect.poll(() => app.getUrlParams().get('species'), { timeout: 3_000 }).toBeNull();
@@ -51,6 +62,14 @@ test.describe('filter flows', () => {
     await app.filters.species.blur();
     // After blur with no exact match, URL still has no species param.
     await expect.poll(() => app.getUrlParams().get('species'), { timeout: 5_000 }).toBeNull();
+
+    // D2 (#1050) C78: the no-match commit must NOT be silent — a visible inline
+    // status hint appears, scoped to the (national) dictionary index, and the
+    // typed value is kept in the field (never a silent clear).
+    const hint = page.getByRole('status').filter({ hasText: /No species matching/i });
+    await expect(hint).toBeVisible();
+    await expect(hint).toHaveText('No species matching "Vermilio"');
+    await expect(app.filters.species).toHaveValue('Vermilio');
   });
 
   test('species input commits exact match on blur', async ({ page }) => {
@@ -112,6 +131,81 @@ test.describe('filter flows', () => {
     await page.keyboard.press('Escape');
 
     await expect(page.getByRole('dialog', { name: 'Filters' })).not.toBeVisible();
+  });
+
+  // E4 (#1056): at the 390px mobile sheet breakpoint the filters form must read
+  // and tap like a mobile form — each field full-width and ≥44px tall, the
+  // "Notable only" control its own full-width tappable toggle row — instead of
+  // a shrunken desktop inline form. The panel switches to the bottom sheet at
+  // ≤480px (E2 #1054), so 390×844 is squarely in sheet mode.
+  test.describe('mobile sheet form layout (390×844)', () => {
+    test.use({ viewport: { width: 390, height: 844 } });
+
+    // The four interactive controls (the close button and datalist are not
+    // measured). Each is scoped to the open panel via the FiltersBar POM.
+    function controls() {
+      return [app.filters.timeWindow, app.filters.family, app.filters.species];
+    }
+
+    test('every field is full-width and ≥44px tall, radius preserved', async ({ page }) => {
+      const panel = page.getByRole('dialog', { name: 'Filters' });
+      await expect(panel).toBeVisible();
+
+      // Inner content width = the .filters-bar content box (panel inner minus the
+      // panel's padding minus the bar's own padding) — the box the stacked fields
+      // should span. Read padding off the live computed style so the assertion
+      // tracks the tokens, not hard-coded literals.
+      const bar = panel.locator('.filters-bar');
+      const innerWidth = await bar.evaluate((el) => {
+        const cs = window.getComputedStyle(el);
+        return el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      });
+
+      for (const field of controls()) {
+        await expect(field).toBeVisible();
+        const box = await field.boundingBox();
+        expect(box).not.toBeNull();
+        // ≥44px coarse-pointer floor (WCAG 2.5.5 / Apple HIG).
+        expect(box!.height).toBeGreaterThanOrEqual(44);
+        // Full-width: spans the panel inner content width (allow 1px rounding).
+        expect(box!.width).toBeGreaterThanOrEqual(innerWidth - 1);
+        // #1041/#1043 radius ladder: inner inputs keep 4px — must NOT drift to
+        // --card-radius-inner (8px) at mobile.
+        const radius = await field.evaluate((el) =>
+          window.getComputedStyle(el).borderRadius,
+        );
+        expect(radius).toBe('4px');
+      }
+    });
+
+    test('the Notable only row is its own ≥44px tappable toggle row', async ({ page }) => {
+      const panel = page.getByRole('dialog', { name: 'Filters' });
+      await expect(panel).toBeVisible();
+
+      // The toggle ROW is the <label> wrapping the checkbox.
+      const row = panel.locator('label.filters-bar__toggle-row');
+      await expect(row).toBeVisible();
+      const rowBox = await row.boundingBox();
+      expect(rowBox).not.toBeNull();
+      expect(rowBox!.height).toBeGreaterThanOrEqual(44);
+      // Full-width row within the .filters-bar content box.
+      const bar = panel.locator('.filters-bar');
+      const innerWidth = await bar.evaluate((el) => {
+        const cs = window.getComputedStyle(el);
+        return el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      });
+      expect(rowBox!.width).toBeGreaterThanOrEqual(innerWidth - 1);
+
+      // Tapping the ROW (not just the ~14px glyph) flips notable in the URL.
+      expect(app.getUrlParams().get('notable')).toBeNull();
+      // Click near the row's right edge — away from the checkbox glyph — to
+      // prove the whole row is the tap target.
+      await row.click({ position: { x: rowBox!.width - 12, y: rowBox!.height / 2 } });
+      await expect.poll(() => app.getUrlParams().get('notable'), { timeout: 5_000 }).toBe('true');
+      // The POM's check/uncheck path stays green — round-trip back to default.
+      await app.filters.toggleNotable(false);
+      await expect.poll(() => app.getUrlParams().get('notable'), { timeout: 5_000 }).toBeNull();
+    });
   });
 
   // B2 (#1041): dark-mode filter controls must render themed — not native UA white.

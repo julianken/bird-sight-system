@@ -102,11 +102,17 @@ async function measureLegendVsSheet(
 ): Promise<{
   sheet: { left: number; top: number; right: number; bottom: number };
   legend: { left: number; top: number; right: number; bottom: number };
+  attr: { left: number; top: number; right: number; bottom: number } | null;
   intersectY: number;
+  // E2 (#1054): the bottom-right attribution must also yield above the peek strip
+  // (it rests at --z-overlay 40, above the peek sheet at --z-sheet-resting 10, so
+  // without a yield it paints over the sheet's family row). Full 2D overlap area.
+  attrSheetOverlap: number;
 } | null> {
   return page.evaluate(() => {
     const sheet = document.querySelector('.species-detail-sheet');
     const legend = document.querySelector('.family-legend');
+    const attr = document.querySelector('.map-attribution');
     if (!sheet || !legend) return null;
     const s = sheet.getBoundingClientRect();
     const l = legend.getBoundingClientRect();
@@ -114,10 +120,21 @@ async function measureLegendVsSheet(
       0,
       Math.min(s.bottom, l.bottom) - Math.max(s.top, l.top),
     );
+    let attrRect: { left: number; top: number; right: number; bottom: number } | null = null;
+    let attrSheetOverlap = 0;
+    if (attr) {
+      const a = attr.getBoundingClientRect();
+      attrRect = { left: a.left, top: a.top, right: a.right, bottom: a.bottom };
+      const ox = Math.max(0, Math.min(a.right, s.right) - Math.max(a.left, s.left));
+      const oy = Math.max(0, Math.min(a.bottom, s.bottom) - Math.max(a.top, s.top));
+      attrSheetOverlap = ox * oy;
+    }
     return {
       sheet: { left: s.left, top: s.top, right: s.right, bottom: s.bottom },
       legend: { left: l.left, top: l.top, right: l.right, bottom: l.bottom },
+      attr: attrRect,
       intersectY,
+      attrSheetOverlap,
     };
   });
 }
@@ -342,6 +359,9 @@ test.describe('#761 (S2): full-viewport map root geometry', () => {
         try {
           window.localStorage.removeItem('family-legend-expanded');
           window.localStorage.removeItem('family-legend-expanded.v2');
+          window.localStorage.removeItem('family-legend-expanded.v3.compact');
+          window.localStorage.removeItem('family-legend-expanded.v3.roomy');
+          window.localStorage.removeItem('family-legend-expanded.v3.wide');
         } catch {
           /* noop */
         }
@@ -391,6 +411,17 @@ test.describe('#761 (S2): full-viewport map root geometry', () => {
       expect(
         m!.intersectY,
         `legend overlaps peek sheet vertically by ${m!.intersectY.toFixed(1)}px at 390×844`,
+      ).toBeLessThanOrEqual(0.5);
+
+      // E2 (#1054): the bottom-right attribution must also yield above the peek
+      // strip — it rests at --z-overlay (40), above the peek sheet at
+      // --z-sheet-resting (10), so without the peek-yield rule it paints over the
+      // sheet's bottom-right family row and clips its text. Assert zero 2D overlap.
+      expect(m!.attr, '.map-attribution must be present at peek').not.toBeNull();
+      expect(
+        m!.attrSheetOverlap,
+        `attribution (${JSON.stringify(m!.attr)}) overlaps peek sheet ` +
+          `(${JSON.stringify(m!.sheet)}) by ${m!.attrSheetOverlap.toFixed(1)}px² at 390×844`,
       ).toBeLessThanOrEqual(0.5);
     });
   });

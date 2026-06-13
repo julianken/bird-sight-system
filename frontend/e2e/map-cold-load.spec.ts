@@ -2,16 +2,16 @@ import { test, expect } from './fixtures.js';
 import { AppPage } from './pages/app-page.js';
 
 /**
- * Issue #716 — MapLede must not render Template 1 ("No sightings match your
+ * Issue #716 — the lede must not render Template 1 ("No sightings match your
  * current filters.") during the cold-load window, because that template is
  * misleading: the user has not applied any filters yet — counts are 0
  * because the initial /api/observations fetch has not resolved yet.
  *
  * Strategy: hold the `/api/observations` response open for ~800ms while
- * the rest of the app boots, snapshot the `.map-lede` h1 during that
- * window, then let the request resolve and assert the real Template 4
- * lede renders. This isolates "first-paint with `observations: []`" from
- * "post-load with stable data".
+ * the rest of the app boots, snapshot the [data-testid="map-lede"] element
+ * during that window, then let the request resolve and assert the real
+ * Template 4 lede renders. This isolates "first-paint with `observations: []`"
+ * from "post-load with stable data".
  */
 test.describe('Map cold load — issue #716', () => {
   /**
@@ -86,7 +86,7 @@ test.describe('Map cold load — issue #716', () => {
 
     const app = new AppPage(page);
     // #738 — DEFAULTS.scope is now `unscoped`, so a bare URL renders the
-    // chooser and MapLede returns null (region=null). This suite asserts the
+    // chooser and ledeText is null (region=null). This suite asserts the
     // cold-load → lede behaviour, which only exists on a scoped surface, so
     // land on the whole-US escape hatch (`?scope=us` → region "USA").
     await app.goto('scope=us');
@@ -100,7 +100,7 @@ test.describe('Map cold load — issue #716', () => {
       .locator('[data-render-complete="false"]')
       .waitFor({ state: 'attached', timeout: 5_000 });
 
-    // #800: the lede moved from <h1 class="map-lede"> (MapLede in MapSurface)
+    // #800: the lede moved from the former context-strip <h1> in MapSurface
     // into the AppHeader identity card as <p data-testid="map-lede">.
     // The suppression contract is preserved: ledeText in App.tsx returns null
     // while observationsLoading is true, so the [data-testid="map-lede"] element
@@ -127,14 +127,14 @@ test.describe('Map cold load — issue #716', () => {
    * The actual #716 production failure mode (and the gap #720 closed): on a
    * normal network, `/api/hotspots` resolves before `/api/observations`. With
    * the old shared `loading` flag, hotspots' `.finally(setLoading(false))`
-   * cleared the flag while observations was still in flight — and MapLede
+   * cleared the flag while observations was still in flight — and the lede
    * saw `loading=false + observations=[]`, firing Template 1.
    *
    * This test reproduces that race by letting hotspots resolve immediately
    * while holding only `/api/observations`. The lede must STILL be suppressed
    * during the observations-only loading window. Before the #720 split this
    * test would fail; after the split (App.tsx threads `observationsLoading`
-   * to MapSurface/MapLede) it passes.
+   * into the ledeText derivation) it passes.
    */
   test('lede stays suppressed when only /api/observations is in flight (#720 race)', async ({ page, apiStub }) => {
     await apiStub.stubEmpty();
@@ -162,7 +162,7 @@ test.describe('Map cold load — issue #716', () => {
 
     const app = new AppPage(page);
     // #738 — DEFAULTS.scope is now `unscoped`, so a bare URL renders the
-    // chooser and MapLede returns null (region=null). This suite asserts the
+    // chooser and ledeText is null (region=null). This suite asserts the
     // cold-load → lede behaviour, which only exists on a scoped surface, so
     // land on the whole-US escape hatch (`?scope=us` → region "USA").
     await app.goto('scope=us');

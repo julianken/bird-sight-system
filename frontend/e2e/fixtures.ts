@@ -1,5 +1,10 @@
 import { test as base } from '@playwright/test';
-import type { Observation, SpeciesMeta, StateSummary } from '@bird-watch/shared-types';
+import type {
+  Observation,
+  SpeciesDictEntry,
+  SpeciesMeta,
+  StateSummary,
+} from '@bird-watch/shared-types';
 
 /**
  * Read API endpoints that can be stubbed. Keep in sync with
@@ -70,6 +75,20 @@ export const VERMFLY_OBS: Observation[] = [
     familyCode: 'tyrannidae',
     taxonOrder: 4400,
   },
+];
+
+/**
+ * Species-dictionary fixture for the bare `GET /api/species` endpoint (#859,
+ * `client.ts:168-170`). D2 (#1050) re-pointed the FiltersBar species index at
+ * this dictionary (national, filter-independent) so search works at every zoom.
+ * fixtures.ts previously stubbed only observations/hotspots/silhouettes/states/
+ * zip-index — NOT this endpoint — so without `stubSpeciesDictionary` the
+ * dictionary-backed datalist would silently re-point the species specs at the
+ * live seeded DB. One row (Vermilion Flycatcher) is enough to resolve
+ * "Vermilion Flycatcher" → "vermfly" in the exact-match specs.
+ */
+export const SPECIES_DICT_FIXTURE: SpeciesDictEntry[] = [
+  { code: 'vermfly', comName: 'Vermilion Flycatcher', familyCode: 'tyrannidae' },
 ];
 
 /**
@@ -144,6 +163,17 @@ export interface ApiStub {
   stubEmpty(): Promise<void>;
   /** Stubs `/api/observations` to return `200` with the provided list. */
   stubObservations(obs: Observation[]): Promise<void>;
+  /**
+   * D2 (#1050) — stubs the BARE `GET /api/species` species dictionary (#859)
+   * to return `200` with the provided rows (default `SPECIES_DICT_FIXTURE`).
+   * Matched by a URL PREDICATE (pathname ends in exactly `/api/species`, no
+   * trailing code segment) — NOT a `**\/api/species**` glob — so it never
+   * swallows the per-species detail route `**\/api/species/{code}` that
+   * `stubSpecies` and the live dev-server own. The FiltersBar species index
+   * (and its datalist) is dictionary-backed post-#1050, so every spec that
+   * exercises the species typeahead must register this to stay hermetic.
+   */
+  stubSpeciesDictionary(entries?: SpeciesDictEntry[]): Promise<void>;
   /**
    * #847 — state-aware, bbox-intersecting `/api/observations` stub. Models the
    * server's `stateCode AND bbox` clip (packages/db-client/src/observations.ts:
@@ -235,6 +265,22 @@ export const test = base.extend<{ apiStub: ApiStub }>({
             }),
           });
         });
+      },
+      async stubSpeciesDictionary(entries = SPECIES_DICT_FIXTURE) {
+        // URL PREDICATE (not a glob): match ONLY the bare dictionary endpoint
+        // (pathname ending in `/api/species`), so `/api/species/{code}` (the
+        // per-species detail route) falls through to stubSpecies / the live
+        // dev-server. A `**/api/species**` glob would wrongly capture both.
+        await page.route(
+          (url) => url.pathname.endsWith('/api/species'),
+          async route => {
+            await route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify(entries),
+            });
+          },
+        );
       },
       async stubStateAwareObservations(rowsByState) {
         // [w,s,e,n] envelope per state, from STATES_FIXTURE.

@@ -4,10 +4,11 @@ import userEvent from '@testing-library/user-event';
 import type { LngLatBounds } from 'maplibre-gl';
 import type React from 'react';
 
-// Phase 4 / #663: useIsCompact calls window.matchMedia. JSDOM does not
-// implement it — polyfill with a stub that returns non-compact (wide
+// Phase 4 / #663: useIsCompact (and, since F2 #1062, useBreakpoint — which now
+// backs the phone-scoped `isPhone` signal) call window.matchMedia. JSDOM does
+// not implement it — polyfill with a stub that returns non-compact (wide
 // desktop) by default so App renders SpeciesDetailRail rather than the
-// sheet when state.detail is set.
+// sheet when state.detail is set, and so `isPhone` reads false.
 // Using vi.stubGlobal so the mock persists across the test file and is
 // properly restored after each test via vi.restoreAllMocks().
 vi.stubGlobal('matchMedia', (query: string) => ({
@@ -1522,7 +1523,8 @@ describe('#740 (C6): scope wiring end-to-end', () => {
     render(<App />);
     // The AppHeader wordmark / region-name row names the region — the resolved
     // "Arizona" name, not the bare "US-AZ" code. Check the identity card.
-    // .brand-region contains " · Arizona" (note space + dot); use a regex match.
+    // #1057: the "· " separator now lives in `.brand-region::before` (CSS), so
+    // the element's text node is just the region name ("Arizona").
     await screen.findByText(/Arizona/i, { selector: '.brand-region' });
     expect(screen.queryByText(/US-AZ/, { selector: '.brand-region' })).toBeNull();
   });
@@ -2753,5 +2755,93 @@ describe('#828: lede dedupe — count-only copy, no region, no time-window', () 
     render(<App />);
     const lede = await screen.findByTestId('map-lede');
     expect(lede).toHaveTextContent('2,000 sightings');
+  });
+});
+
+// D2 (#1050) C79: filter option lists must NOT self-narrow to the filtered
+// result. Family options derive from the STABLE silhouettes catalogue
+// (`useSilhouettes`), not from the active fetch — so a family→family direct
+// switch works without first resetting to "All families".
+describe('D2 (#1050) C79: Family select lists the full family universe under an active filter', () => {
+  beforeEach(() => {
+    __resetSilhouettesCache();
+    __resetSpeciesDictionaryCache();
+    __resetStatesCache();
+    __resetZipIndexCache();
+    mockGetHotspots.mockResolvedValue([]);
+    mockGetStates.mockResolvedValue([]);
+    mapSurfaceRef.renderCount = 0;
+    // The silhouettes catalogue is the stable family universe. It carries
+    // MULTIPLE families even when the active fetch (familyCode=tyrannidae) has
+    // been narrowed to one. familyCode keys are lowercase (#921) — the option
+    // `value` must match the lowercase family code the URL carries.
+    mockGetSilhouettes.mockResolvedValue([
+      {
+        familyCode: 'tyrannidae', color: '#C77A2E', colorDark: '#C77A2E',
+        svgData: 'M0 0L1 1Z', svgUrl: null, source: 'placeholder', license: 'CC0',
+        commonName: 'Tyrant Flycatchers', creator: null,
+      },
+      {
+        familyCode: 'accipitridae', color: '#3E7CB1', colorDark: '#3E7CB1',
+        svgData: 'M0 0L1 1Z', svgUrl: null, source: 'placeholder', license: 'CC0',
+        commonName: 'Hawks, Eagles & Kites', creator: null,
+      },
+      {
+        familyCode: 'corvidae', color: '#5A6B7B', colorDark: '#5A6B7B',
+        svgData: 'M0 0L1 1Z', svgUrl: null, source: 'placeholder', license: 'CC0',
+        commonName: 'Crows & Jays', creator: null,
+      },
+    ]);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('Family select still lists the full family universe with a familyCode active', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: 'tyrannidae',
+      view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
+    };
+    // The narrowed fetch carries ONLY the active family's rows (what the live
+    // server returns under `familyCode=tyrannidae`). Pre-fix, the select
+    // derived from THIS and collapsed to tyrannidae + "All families".
+    mockGetObservations.mockResolvedValue({
+      data: [
+        {
+          subId: 'S1', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+          lat: 32.2, lng: -110.9, obsDt: new Date().toISOString(), locId: 'L1',
+          locName: 'Tucson', howMany: 1, isNotable: false,
+          silhouetteId: 'tyrannidae', familyCode: 'tyrannidae', taxonOrder: 4400,
+        },
+      ],
+      meta: { freshestObservationAt: new Date().toISOString() },
+    });
+
+    render(<App />);
+    await screen.findByRole('banner');
+    await userEvent.click(screen.getByRole('button', { name: /Filters/i }));
+    const familySelect = screen.getByLabelText('Family') as HTMLSelectElement;
+
+    // The full catalogue universe is listed — NOT collapsed to the active family.
+    // "All families" + 3 catalogue families = 4 options.
+    const optionValues = within(familySelect)
+      .getAllByRole('option')
+      .map(o => (o as HTMLOptionElement).value);
+    expect(optionValues).toContain('');           // "All families"
+    expect(optionValues).toContain('tyrannidae'); // active family (lowercase)
+    expect(optionValues).toContain('accipitridae'); // a DIFFERENT family to switch to
+    expect(optionValues).toContain('corvidae');
+
+    // The active family is the selected value — its lowercase option value must
+    // match the URL's lowercase familyCode (reviewer addendum: a casing mismatch
+    // would silently de-select the active family).
+    expect(familySelect.value).toBe('tyrannidae');
+
+    // A direct family→family switch works without first resetting to "All families".
+    await userEvent.selectOptions(familySelect, 'accipitridae');
+    expect(mockUrlState.set).toHaveBeenCalledWith(
+      expect.objectContaining({ familyCode: 'accipitridae' }),
+    );
   });
 });
