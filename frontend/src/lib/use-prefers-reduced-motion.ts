@@ -1,25 +1,36 @@
-import { useMemo } from 'react';
+import { useEffect, useState } from 'react';
 
 const QUERY = '(prefers-reduced-motion: reduce)';
 
 /**
- * Phase 0: read `prefers-reduced-motion` once at mount. `useMemo` with an empty
- * dep array captures the value once — intentional. The user must reload to fully
- * apply other reduced-motion changes anyway, and re-checking adds complexity for
- * negligible gain. This deliberately registers NO `change` listener; it is a
- * mount-once read, not a reactive sensor — do not convert it into one.
+ * Live `prefers-reduced-motion` sensor (#1063). Seeds from `matchMedia` on mount
+ * and subscribes to the `change` event so flipping the OS reduce-motion setting
+ * mid-session updates the value WITHOUT a reload. CSS already responds live
+ * (motion.css zeroes durations the instant the media query flips), so the prior
+ * mount-once read left MapLibre camera flights — which gate `duration: 0` on
+ * this value — at full motion until a reload: a split-brain for vestibular-
+ * sensitive users. This makes the JS gate track the live preference too.
  *
- * SSR-safe: returns `false` when `window`/`matchMedia` is undefined.
+ * SSR-safe: returns `false` when `window`/`matchMedia` is undefined. The first
+ * client render reads matchMedia and re-renders if reduce-motion is set.
  *
- * Extracted verbatim from `MapCanvas.tsx` in #889 (epic #884) — behaviour-
- * preserving; the no-listener semantics are preserved exactly.
+ * Mirrors the `use-coarse-pointer.ts` sensor idiom (useState seed + a `change`
+ * listener torn down on unmount). Originally extracted from `MapCanvas.tsx` in
+ * #889 (epic #884) as a mount-once `useMemo`; #1063 made it reactive.
  */
 export function usePrefersReducedMotion(): boolean {
-  return useMemo(
-    () =>
-      typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-        ? window.matchMedia(QUERY).matches
-        : false,
-    [],
-  );
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState<boolean>(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+    return window.matchMedia(QUERY).matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mql = window.matchMedia(QUERY);
+    const handler = (e: MediaQueryListEvent) => setPrefersReducedMotion(e.matches);
+    mql.addEventListener('change', handler);
+    return () => mql.removeEventListener('change', handler);
+  }, []);
+
+  return prefersReducedMotion;
 }

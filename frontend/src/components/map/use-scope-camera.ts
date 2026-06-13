@@ -179,7 +179,15 @@ export function computeScopeBounds(
  * @param boundsKey           identity key for `bounds`; a change is the reframe trigger
  * @param flyTo               ZIP `flyTo` intent (wins over `fitBounds`), or undefined
  * @param clampPad            artboard clamp padding factor (state scope only)
- * @param prefersReducedMotion mount-once reduced-motion read (see note below)
+ * @param prefersReducedMotionRef ref tracking the LIVE reduced-motion preference
+ *                            (#1063: `usePrefersReducedMotion` is now a live
+ *                            sensor). Passed as a REF, not a value, on purpose:
+ *                            the flight `duration` reads `.current` at call time
+ *                            (so an OS toggle takes effect on the NEXT reframe)
+ *                            while the effect dep array stays inert — a live VALUE
+ *                            in the deps would re-fire the reframe on a mid-session
+ *                            toggle, the exact #848/#736 spurious-recenter class the
+ *                            exhaustive-deps disable below guards against.
  * @param viewportSpan        live `[lngSpan, latSpan]` (deg) from the last camera
  *                            settle, feeding the #1059 zoom-aware clamp; undefined
  *                            at mount (clamp falls back to the static padded value)
@@ -191,7 +199,7 @@ export function useScopeCamera(
   boundsKey: string | undefined,
   flyTo: ScopeFlyTo | undefined,
   clampPad: number | undefined,
-  prefersReducedMotion: boolean,
+  prefersReducedMotionRef: RefObject<boolean>,
   viewportSpan?: [number, number],
 ): { clampBounds: LngLatBounds; initialViewState: ScopeInitialViewState } {
   const { activeBounds, clampBounds, initialViewState } = computeScopeBounds(
@@ -225,7 +233,7 @@ export function useScopeCamera(
         center: flyTo.center,
         zoom: flyTo.zoom,
         essential: true,
-        duration: prefersReducedMotion ? 0 : 800,
+        duration: prefersReducedMotionRef.current ? 0 : 800,
       });
       // The ZIP `flyTo` branch is IMMUNE to the #848 mid-flight longitude bug:
       // flyTo's easeFunc snaps to the exact targetCenter at `k===1`, so an
@@ -328,7 +336,7 @@ export function useScopeCamera(
       padding: FIT_BOUNDS_PADDING,
       maxZoom: 12,
       essential: true,
-      duration: prefersReducedMotion ? 0 : 600,
+      duration: prefersReducedMotionRef.current ? 0 : 600,
     });
     // fitBounds has returned: any synchronous cancellation moveend it fired
     // (while stopping the in-flight easeTo) is now past. From here, the next
@@ -343,17 +351,18 @@ export function useScopeCamera(
     // eslint-disable-next-line react-hooks/exhaustive-deps -- boundsKey +
     // flyTo?.key are the intentional triggers; `activeBounds` identity derives
     // from boundsKey and re-running on its reference churn is undesirable
-    // (prototype documents this exact disable). `prefersReducedMotion` is the
-    // mount-once read from `usePrefersReducedMotion` (`useMemo([])`, NO `change`
-    // listener — `use-prefers-reduced-motion.ts` is contractually a mount-once
-    // sensor, "do not convert it into one"), so its presence here is inert: an
-    // OS reduced-motion toggle mid-session does NOT re-fire this effect, so the
-    // camera intent cannot spuriously recenter on an unchanged scope (the
-    // #848/#736 "camera moves when it shouldn't" class this unit guards). Only an
-    // in-flight `duration` reads the live value — exactly the desired behaviour.
-    // The dep is kept (not dropped) to satisfy the lint rule and to remain
-    // correct-by-construction if the sensor's mount-once contract ever changes.
-  }, [mapReady, boundsKey, flyTo?.key, prefersReducedMotion]);
+    // (prototype documents this exact disable). The reduced-motion preference is
+    // read through `prefersReducedMotionRef.current` at flight-dispatch time, NOT
+    // from a value dep: #1063 made `usePrefersReducedMotion` a LIVE sensor, and a
+    // live VALUE in this array would re-fire the reframe the instant a user
+    // toggles OS reduce-motion mid-session — a spurious recenter on an unchanged
+    // scope, the exact #848/#736 "camera moves when it shouldn't" class this unit
+    // guards. A stable ref carries the live value into the flight `duration`
+    // without participating in the trigger set: the duration tracks the live
+    // preference on the NEXT reframe while the effect stays keyed only on real
+    // scope changes. The ref is intentionally NOT listed (refs are stable; ESLint
+    // would not require it anyway).
+  }, [mapReady, boundsKey, flyTo?.key]);
 
   return { clampBounds, initialViewState: initialViewStateRef.current };
 }

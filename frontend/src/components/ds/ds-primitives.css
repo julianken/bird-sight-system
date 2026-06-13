@@ -349,6 +349,11 @@
   height: 100%;
   object-fit: cover;
   border-radius: var(--photo-radius);
+  /* Bare UA `ease` is a DELIBERATE departure (#1063; the enter motion was
+     reviewed in #957): a symmetric photo cross-fade reads correctly on the
+     gentle default ease, and swapping in the house ease-out bezier would change
+     the visible curve (this child preserves shipped appearance). Duration is
+     tokenized (--dur-base); only the curve is intentionally the UA keyword. */
   transition: opacity var(--dur-base) ease;
 }
 
@@ -1338,12 +1343,12 @@ button.adaptive-grid-marker__cell {
   }
 }
 
-/* Reduced-motion: no slide-in animation in v1. Reserved for future. */
-@media (prefers-reduced-motion: reduce) {
-  .cluster-list-popover {
-    /* No-op currently; reserved for future slide-in. */
-  }
-}
+/* #1063: removed the empty reduced-motion media block that read "Reserved for
+   future slide-in." The #07 slide-up for this popover is DEFERRED (#950, see the
+   .cluster-list-popover and __family-toggle::before comments above) — an empty
+   guard reserving for it implied motion that #950 explicitly does not ship. The
+   only motion here (the caret rotate) is covered by the global motion.css guard;
+   no per-element block is needed. */
 
 /* ── B3 (#1042 M-10): themed scrollbar on .cluster-list-popover ─────────────
  * The cluster-list popover has overflow-y:auto and max-height:70vh. Without
