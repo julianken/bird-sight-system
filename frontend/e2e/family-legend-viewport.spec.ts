@@ -189,7 +189,9 @@ async function getFamilyEntryCount(
   if (!visible) return null;
   const countText = await entry.locator('.family-legend-entry-count').textContent();
   if (countText === null) return null;
-  return parseInt(countText.trim(), 10);
+  // C1 #1045: counts ≥1000 render with thousands separators ("1,626"); strip
+  // commas before parsing so parseInt receives a clean digit string.
+  return parseInt(countText.trim().replace(/,/g, ''), 10);
 }
 
 async function setupRoutes(

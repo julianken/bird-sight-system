@@ -221,4 +221,36 @@ describe('<CellHoverPreview>', () => {
     // that both render paths now defer stacking entirely to the class token.
     expect(tooltip.style.zIndex).toBe('');
   });
+
+  // C1 #1045 (Reviewer addendum): CellHoverPreview is the addendum sink at
+  // AdaptiveGridMarker.tsx:420 — same layout as CellPopover but mounted as a
+  // tooltip. Both familyCount and s.count must use formatCount.
+  describe('C1 #1045: thousands separators (Reviewer addendum)', () => {
+    it('renders familyCount ≥1000 with separator in header', () => {
+      render(
+        <CellHoverPreview
+          familyCode="hummingbirds"
+          familyCount={1500}
+          species={[species("Anna's Hummingbird", 500)]}
+          id="x"
+        />
+      );
+      // Header must read "Hummingbirds (1,500)" not "Hummingbirds (1500)".
+      expect(screen.getByText(/Hummingbirds \(1,500\)/)).toBeInTheDocument();
+    });
+
+    it('renders species count ≥1000 with separator in row text', () => {
+      render(
+        <CellHoverPreview
+          familyCode="hummingbirds"
+          familyCount={1234}
+          species={[species("Anna's Hummingbird", 1234)]}
+          id="x"
+        />
+      );
+      const rows = screen.getAllByTestId('cell-hover-preview-row');
+      // Row must read "1,234x Anna's Hummingbird".
+      expect(rows[0]).toHaveTextContent('1,234x');
+    });
+  });
 });

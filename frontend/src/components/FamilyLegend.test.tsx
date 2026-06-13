@@ -209,10 +209,31 @@ describe('FamilyLegend', () => {
     expect(
       within(tyrEntry).getByLabelText('2 observations in view'),
     ).toBeInTheDocument();
-    // Trochilidae: 1 observation.
+    // Trochilidae: 1 observation — must use singular noun (C1 #1045).
     const trochEntry = screen.getByRole('button', { name: /Hummingbirds/ });
     expect(
-      within(trochEntry).getByLabelText('1 observations in view'),
+      within(trochEntry).getByLabelText('1 observation in view'),
+    ).toBeInTheDocument();
+  });
+
+  it('per-entry aria-label uses thousands separators for counts ≥1000 (C1 #1045)', () => {
+    // Build a synthetic 1-family observation set with 1,500 entries.
+    const manyObs: import('@bird-watch/shared-types').Observation[] = Array.from(
+      { length: 1500 },
+      (_, i) => obs(`S-${i}`, 'tyrannidae'),
+    );
+    render(
+      <FamilyLegend
+        silhouettes={baseSilhouettes}
+        observations={manyObs}
+        familyCode={null}
+        onFamilyToggle={() => {}}
+        defaultExpanded={true}
+      />
+    );
+    const tyrEntry = screen.getByRole('button', { name: /Tyrant Flycatchers/ });
+    expect(
+      within(tyrEntry).getByLabelText('1,500 observations in view'),
     ).toBeInTheDocument();
   });
 

@@ -111,12 +111,21 @@ describe('deconflict', () => {
     );
   });
 
-  // Test 9b
-  it('aria-label uses singular "family" for uniqueFamilies=1', () => {
+  // Test 9b — C1 #1045: singular "observation" when point_count=1
+  it('aria-label uses singular "observation" for point_count=1 and singular "family" for uniqueFamilies=1', () => {
     const A = cluster(1, 0, 0, grid1x1 as DeconflictInput['rendered'], /* count */ 1, /* uniqueFamilies */ 1);
     const groups = buildGroups([A], 8);
     expect(groups[0].ariaLabel).toBe(
-      'Cluster: 1 observations, 1 family. Activate to zoom in.',
+      'Cluster: 1 observation, 1 family. Activate to zoom in.',
+    );
+  });
+
+  // Test 9c — C1 #1045: thousands separators for point_count ≥1000
+  it('aria-label uses thousands separator for point_count ≥1000', () => {
+    const A = cluster(1, 0, 0, grid4x4, /* count */ 16626, /* uniqueFamilies */ 42);
+    const groups = buildGroups([A], 8);
+    expect(groups[0].ariaLabel).toBe(
+      'Cluster: 16,626 observations, 42 families. Activate to zoom in.',
     );
   });
 
