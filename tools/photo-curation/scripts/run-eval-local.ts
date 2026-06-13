@@ -88,11 +88,14 @@ export interface RunEvalDeps {
 export async function runEvalLocal(deps: RunEvalDeps): Promise<void> {
   const { db, rows, runId, model, baselineModel, baselineRubric, sampleSize, startedAt, prompt } = deps;
 
-  // The sink captures the LATEST judgment's record; the loop reads it right
-  // after each `runRow` resolves (the judge emits exactly once per judgment).
-  let lastRecord: JudgmentRecord | undefined;
+  // The sink appends each judgment's record; the loop reads the one emitted by
+  // the row it just ran (the judge emits exactly once per resolved judgment, so
+  // exactly one record is appended per `runRow`). Appending to an array — rather
+  // than reassigning a `let` to `undefined` each iteration — keeps TS's
+  // control-flow analysis from narrowing the closure-mutated value to `never`.
+  const emitted: JudgmentRecord[] = [];
   const sink: JudgmentSink = (record) => {
-    lastRecord = record;
+    emitted.push(record);
   };
   const judge = deps.makeJudge(sink);
 
@@ -105,10 +108,10 @@ export async function runEvalLocal(deps: RunEvalDeps): Promise<void> {
   // SERIAL loop — one judgment at a time. Do NOT replace with Promise.all /
   // a concurrency pool (#1094): concurrency degraded the thinking models.
   for (const row of rows) {
-    lastRecord = undefined;
+    const before = emitted.length;
     const output = await runRow({ judge, readImage: deps.readImage, prompt }, row.input);
-    const record = lastRecord;
-    if (record === undefined) {
+    const record = emitted[emitted.length - 1];
+    if (emitted.length !== before + 1 || record === undefined) {
       // Defensive: the instrumented judge emits once per resolved judgment, so
       // this is unreachable in practice — but never write a half-row.
       throw new Error(`[run-eval-local] no judgment record captured for ${row.input.speciesCode}`);
