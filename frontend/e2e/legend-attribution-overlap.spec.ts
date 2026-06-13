@@ -169,4 +169,49 @@ test.describe('Legend ↔ attribution clearance (#837)', () => {
       await assertNoOverlapWhenExpanded(page, app);
     });
   });
+
+  // E2 (#1054): at ≥1440 the legend must adopt the wide corner gutter
+  // (--card-inset-wide = 24px) like the other four corners — it was the only
+  // corner missing the @media (min-width:1440px) block, leaving the bottom-left
+  // at 13px while the bottom-right attribution sat at 24-25px. Assert the legend
+  // sits ~24px from the left/bottom edges AND shares the attribution's bottom
+  // baseline (both bottom-anchored at --card-inset-wide). 1.5px tolerance for
+  // sub-pixel border/rounding.
+  test.describe('desktop 1440px — shared 24px corner gutter', () => {
+    test.use({ viewport: { width: 1440, height: 900 } });
+
+    test('the legend sits 24px from left/bottom and shares the attribution bottom baseline', async ({ page, apiStub }) => {
+      test.setTimeout(60_000);
+      await setupRoutes(page, apiStub);
+      const app = new AppPage(page);
+      await app.goto('state=US-AZ');
+      await app.waitForAppReady();
+      await expect(page.locator('[data-testid=map-canvas]')).toBeVisible({ timeout: 15_000 });
+      if (await skipIfMapHookAbsent(page, test)) return;
+
+      const m = await page.evaluate(() => {
+        const legend = document.querySelector('.family-legend');
+        const attr = document.querySelector('.map-attribution');
+        if (!legend || !attr) return null;
+        const lr = legend.getBoundingClientRect();
+        const ar = attr.getBoundingClientRect();
+        return {
+          legendLeft: lr.left,
+          legendBottomGap: window.innerHeight - lr.bottom,
+          attrBottomGap: window.innerHeight - ar.bottom,
+        };
+      });
+      expect(m, '.family-legend / .map-attribution not found').not.toBeNull();
+      // 24px = --card-inset-wide.
+      expect(m!.legendLeft, 'legend left gutter is the wide 24px inset').toBeLessThanOrEqual(25.5);
+      expect(m!.legendLeft).toBeGreaterThanOrEqual(22.5);
+      expect(m!.legendBottomGap, 'legend bottom gutter is the wide 24px inset').toBeLessThanOrEqual(25.5);
+      expect(m!.legendBottomGap).toBeGreaterThanOrEqual(22.5);
+      // The two bottom corners now share a baseline (both at --card-inset-wide).
+      expect(
+        Math.abs(m!.legendBottomGap - m!.attrBottomGap),
+        'legend and attribution share the bottom baseline',
+      ).toBeLessThanOrEqual(1.5);
+    });
+  });
 });

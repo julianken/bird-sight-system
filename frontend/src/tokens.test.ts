@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { iconSize, zIndex, opacity, spacing, duration, color } from './tokens.js';
 
@@ -40,6 +42,8 @@ describe('tokens', () => {
       const ranks = [
         zIndex.map,
         zIndex.underDetail,
+        zIndex.sheetResting,
+        zIndex.sheetRaised,
         zIndex.overlay,
         zIndex.popover,
         zIndex.chrome,
@@ -67,6 +71,28 @@ describe('tokens', () => {
       // #761 focus-order intent (AppHeader → … → detail rail/sheet),
       // token-enforced rather than DOM-order-dependent.
       expect(zIndex.chrome).toBeLessThan(zIndex.rail);
+    });
+    it('sheet-resting/raised tiers sit between under-detail and the overlay band', () => {
+      // E2 (#1054): the species-detail-sheet peek/half resting tiers are now
+      // NAMED (were raw 10/15 in styles.css). They sit ABOVE the under-detail
+      // hover preview (5) and BELOW the overlay band (40) so map overlays
+      // (legend, attribution, popovers) stay interactive around a peek/half sheet.
+      expect(zIndex.underDetail).toBeLessThan(zIndex.sheetResting);
+      expect(zIndex.sheetResting).toBeLessThan(zIndex.sheetRaised);
+      expect(zIndex.sheetRaised).toBeLessThan(zIndex.overlay);
+    });
+    it('new sheet tiers are numerically synced with styles.css :root', () => {
+      // The zIndex object mirrors the --z-* custom properties in styles.css :root
+      // (keep both sides in sync — the mirror comment in tokens.ts says so). This
+      // guard fails if the two new tiers drift between styles.css and tokens.ts.
+      const css = readFileSync(join(import.meta.dirname, './styles.css'), 'utf8');
+      const readTier = (name: string): number => {
+        const m = css.match(new RegExp(`--${name}:\\s*(\\d+)`));
+        if (!m) throw new Error(`--${name} not found in styles.css :root`);
+        return Number(m[1]);
+      };
+      expect(readTier('z-sheet-resting')).toBe(zIndex.sheetResting);
+      expect(readTier('z-sheet-raised')).toBe(zIndex.sheetRaised);
     });
   });
 

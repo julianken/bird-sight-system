@@ -27,6 +27,11 @@
                                 detail surface: sheet peek (10), half (15), full (50) AND
                                 the rail (43). Lets hover-to-compare work with a detail
                                 open without the tooltip painting over it. */
+  --z-sheet-resting:  10;    /* E2 #1054: SpeciesDetailSheet at peek — above under-detail,
+                                BELOW the overlay band so legend/attribution/popovers stay
+                                interactive around it. Mirrors zIndex.sheetResting.        */
+  --z-sheet-raised:   15;    /* E2 #1054: SpeciesDetailSheet at half — one rank above peek,
+                                still below the overlay band. Mirrors zIndex.sheetRaised.  */
   --z-overlay:         40;   /* map-assist overlays: legend, scope-control             */
   --z-popover:         41;   /* on-canvas popovers above map-assist overlays           */
   --z-chrome:          42;   /* DEFINED for S2 (#775) — floating app-header chrome; NOT adopted in P1 */
@@ -825,12 +830,15 @@ body {
   filter: blur(0px);
 }
 
-/* Full-snap sheet: the identity card and controls pill become pointer-events:none
-   so the sheet's collapse handle receives the gesture. */
-body:has(.species-detail-sheet--full) .app-header-identity-card,
-body:has(.species-detail-sheet--full) .app-header-controls-pill {
-  pointer-events: none;
-}
+/* E2 (#1054): the full-snap `pointer-events: none` hack on the identity card +
+   controls pill is RETIRED (spec §5.3). It predated the named z-ladder: the full
+   sheet is now at --z-modal (50) via .species-detail-sheet--full, strictly above
+   the chrome band (--z-chrome 42) the cards ride, and the full sheet covers the
+   card regions (the cards anchor at --card-inset 12px from the top-left/top-right;
+   the only un-covered strip is the 8px FULL_INSET_PX gap above the sheet, which
+   sits ABOVE both cards). A higher-z element wins the hit test regardless of the
+   lower element's pointer-events, so the sheet's collapse handle already receives
+   the gesture at full snap without suppressing the cards. */
 
 .filters-bar {
   display: flex;
@@ -1267,7 +1275,11 @@ body:has(.species-detail-sheet--full) .app-header-controls-pill {
 .family-legend {
   position: fixed;
   bottom: var(--card-inset);
-  left: var(--space-md);
+  /* E2 (#1054): anchor on --card-inset (the card-geometry gutter token), NOT
+     --space-md. They are the same 12px today, but --space-md would silently
+     detach if the corner gutter is retuned — and the legend is the bottom-left
+     four-corner anchor, so it must track the same token the other four corners do. */
+  left: var(--card-inset);
   z-index: var(--z-overlay);
   background: var(--color-bg-surface);
   border: 1px solid var(--color-border-ui);
@@ -1279,6 +1291,17 @@ body:has(.species-detail-sheet--full) .app-header-controls-pill {
   font-size: var(--type-sm);
   color: var(--color-text-strong);
   max-width: var(--card-maxw-legend);
+}
+/* At ≥1440 the corner gutter widens to --card-inset-wide (24px), matching the
+   other four corners (identity card, controls pill, attribution, rail, filters
+   panel) which all carry this block. E2 (#1054): the legend was the only corner
+   missing it, leaving the bottom-left at 13px while the bottom-right attribution
+   sat at 24-25px — the two bottom corners did not share a baseline. */
+@media (min-width: 1440px) {
+  .family-legend {
+    bottom: var(--card-inset-wide);
+    left: var(--card-inset-wide);
+  }
 }
 .family-legend-toggle {
   display: flex;
@@ -1463,7 +1486,7 @@ body:has(.species-detail-sheet--full) .app-header-controls-pill {
      line + 1px border, rounded up for headroom); keep it synced if the
      attribution grows a line. This rule's specificity (0,2,0) is below the
      peek-sheet lift below (0,2,1), so when a peek sheet is also up the larger
-     120px peek lift correctly wins. */
+     --sheet-strip-h (PEEK_PX = 104px) peek lift correctly wins. */
   .family-legend:has(.family-legend-entries) {
     bottom: calc(var(--card-inset) + 28px + var(--space-sm));
   }
@@ -1507,16 +1530,23 @@ body:has(.species-detail-sheet--full) .app-header-controls-pill {
   display: none;
 }
 
-/* Peek-snap sheet clearance (#830 item F). At the half/full snaps the legend is
-   already force-collapsed on phones (App.tsx legendForceCollapsed → entries
-   display:none above), so ONLY the peek snap leaves the un-collapsed legend
-   inside the bottom-sheet band. Lift the legend above the peek strip so the two
-   never overlap. This is a Layer-3 (transient-interaction) rule scoped to the
-   peek state — deliberately NOT a :root primitive and NOT applied at --half.
-   The 120px MUST stay synced to PEEK_PX in SpeciesDetailSheet.tsx (the peek
-   strip height); change both together. */
+/* Peek-snap sheet clearance (#830 item F; E2 #1054). At the half/full snaps the
+   legend is already force-collapsed on phones (App.tsx legendForceCollapsed →
+   entries display:none above), so ONLY the peek snap leaves the un-collapsed
+   legend inside the bottom-sheet band. Lift the legend above the peek strip so
+   the two never overlap. This is a Layer-3 (transient-interaction) rule scoped
+   to the peek state — deliberately NOT a :root primitive and NOT applied at --half.
+   The strip height now derives from --sheet-strip-h, which SpeciesDetailSheet.tsx
+   publishes on <body> at the peek detent as the sheet's ACTUAL rendered height
+   (offsetHeight, which already includes the env(safe-area-inset-bottom) padding
+   and the content-driven growth above PEEK_PX). This retires the prior hand-synced
+   120px literal, which had drifted from PEEK_PX (104 since #912) and only cleared
+   the true strip by luck. The lift is therefore card-inset gutter + the measured
+   strip + a space-md gap → legend bottom lands exactly one gap above the sheet top
+   on every device. The 104px fallback covers the paint between the peek class
+   landing and the publish layout-effect committing (and is the SSR/no-JS floor). */
 body:has(.species-detail-sheet--peek) .family-legend {
-  bottom: calc(var(--card-inset) + 120px + var(--space-md));
+  bottom: calc(var(--card-inset) + var(--sheet-strip-h, 104px) + var(--space-md));
 }
 
 /* Bottom-right always-visible attribution (#828 Option-A rebase over #830).
@@ -1567,6 +1597,20 @@ body:has(.species-detail-sheet--peek) .family-legend {
     bottom: var(--card-inset-wide);
     right: var(--card-inset-wide);
   }
+}
+
+/* Peek-snap attribution yield (E2 #1054, spec §5.3). The attribution island is
+   tier-1 resting chrome at --z-overlay (40); the peek sheet rests at --z-sheet-resting
+   (10), BELOW it — so without a yield the pill paints over the peek sheet's
+   bottom-right family row and clips its text (tier-1 chrome occluding tier-3
+   content). Lift the attribution above the peek strip exactly as the bottom-left
+   legend does, from the same published --sheet-strip-h (the sheet's measured
+   strip height, already inclusive of safe-area + content growth). ONLY at peek:
+   at half/full the bottom corners are intentionally covered by the sheet (and on
+   phones the legend is force-collapsed). Matches the legend lift's (0,2,1)
+   specificity. */
+body:has(.species-detail-sheet--peek) .map-attribution {
+  bottom: calc(var(--card-inset) + var(--sheet-strip-h, 104px) + var(--space-md));
 }
 
 /* Observation popover (#246, repositioned in #718). Anchored to the
@@ -1888,12 +1932,13 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
   border-top-left-radius: var(--radius-lg, 12px);
   border-top-right-radius: var(--radius-lg, 12px);
   box-shadow: var(--card-elevation-sheet);
-  /* Base z-index kept at 10 (below overlay band) — the snap modifier below
-     overrides this at full snap. --peek (z-10) and --half (z-15) intentionally
-     stay below the overlay band so map controls remain interactive when the
-     sheet is partially open (peek/half). --full is elevated to --z-modal (50)
-     by the .species-detail-sheet--full modifier below. (O5 #783) */
-  z-index: 10;
+  /* Base z-index at --z-sheet-resting (10, below the overlay band) — the snap
+     modifier below overrides this at full snap. --peek (--z-sheet-resting) and
+     --half (--z-sheet-raised) intentionally stay below the overlay band so map
+     controls remain interactive when the sheet is partially open (peek/half).
+     --full is elevated to --z-modal (50) by the .species-detail-sheet--full
+     modifier below. (O5 #783; named in E2 #1054.) */
+  z-index: var(--z-sheet-resting);
   display: flex;
   flex-direction: column;
   /* The safe-area-inset-top clearance is only needed at FULL, when the sheet
@@ -2521,19 +2566,21 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
    --half: mid-point snap; common for drill-down gesture contexts.
    --full: on --z-modal (50) via the .species-detail-sheet--full modifier (O5 #783). */
 .species-detail-sheet--peek {
-  /* Collapsed bar — intentionally BELOW the overlay band (z-10) so map
-     controls and the legend remain fully interactive at peek. Content is
-     clipped at the inline-driven 96px peek height. */
-  z-index: 10;
+  /* Collapsed bar — intentionally BELOW the overlay band (--z-sheet-resting 10)
+     so map controls and the legend remain fully interactive at peek. Content is
+     clipped at the PEEK_PX (104px) peek detent height
+     (SpeciesDetailSheet.tsx). */
+  z-index: var(--z-sheet-resting);
   overflow: hidden;
 }
 
 .species-detail-sheet--half {
-  /* Half-height state — above the map (z-15) but intentionally BELOW the
-     overlay band so map overlays remain interactive around the sheet.
-     Overflow hidden keeps the sheet clean at the snap boundary; .sheet-fg
-     inside handles scrollable content via its own touch-action. */
-  z-index: 15;
+  /* Half-height state — above the peek resting tier (--z-sheet-raised 15) but
+     intentionally BELOW the overlay band so map overlays remain interactive
+     around the sheet. Overflow hidden keeps the sheet clean at the snap
+     boundary; .sheet-fg inside handles scrollable content via its own
+     touch-action. */
+  z-index: var(--z-sheet-raised);
   overflow: hidden;
 }
 
@@ -2740,14 +2787,19 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
      (position: absolute) resolves against the panel, not the viewport. */
 .filters-panel {
   position: fixed;
-  /* Anchor top-right: clear the pill (--card-inset 12px + pill ~48px + 4px gap). */
-  inset-block-start: calc(var(--card-inset) + 64px);
+  /* Anchor top-right under the controls pill. The pill-clearance term now
+     derives from the SAME tokens the detail rail consumes (--controls-cluster-h
+     54px + --card-gap 8px = 62px) instead of a 64px literal (E2 #1054) — so a
+     pill-height retune moves both surfaces together. 12 + 62 = 74px top; pill
+     bottom = 12 + 54 = 66px → +8px gap, matching the rail's formula. */
+  inset-block-start: calc(var(--card-inset) + var(--controls-cluster-h) + var(--card-gap));
   inset-inline-end: var(--card-inset);
   /* Cap width — never full-bleed; same token as the detail rail. */
   inline-size: min(420px, calc(100vw - var(--card-inset) * 2));
   max-inline-size: var(--card-maxw-rail);
-  /* Scroll containment for overflowing filter controls on small viewports. */
-  max-block-size: calc(100dvh - var(--card-inset) - 64px - env(safe-area-inset-bottom, 0px));
+  /* Scroll containment for overflowing filter controls on small viewports — the
+     same pill-clearance term as the top inset (E2 #1054). */
+  max-block-size: calc(100dvh - var(--card-inset) - var(--controls-cluster-h) - var(--card-gap) - env(safe-area-inset-bottom, 0px));
   overflow-y: auto;
   /* Design-language surface — matches identity card / detail rail tier. */
   background: var(--color-bg-surface);
@@ -2756,26 +2808,34 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
   box-shadow: var(--card-elevation-3);
   /* Modality z-tier (O4): sheet is modal-with-backdrop, above chrome (42). */
   z-index: var(--z-modal);
-  /* Padding: top padding generous to clear the close button; rest standard. */
-  padding-block-start: calc(var(--space-lg, 20px) + 8px);
-  padding-block-end: var(--space-lg, 20px);
+  /* Padding: top padding generous to clear the close button; rest standard.
+     --space-lg is 16px (styles.css :root), so the misleading 20px fallbacks
+     were removed (E2 #1054). */
+  padding-block-start: calc(var(--space-lg) + 8px);
+  padding-block-end: var(--space-lg);
   padding-inline: var(--space-md);
 }
 
 /* At ≥1440px the controls pill uses --card-inset-wide (24px instead of 12px),
-   so the panel position must track the wider gutter. */
+   so the panel position must track the wider gutter. The pill-clearance term is
+   the same token pair as the base rule (E2 #1054). */
 @media (min-width: 1440px) {
   .filters-panel {
-    inset-block-start: calc(var(--card-inset-wide) + 64px);
+    inset-block-start: calc(var(--card-inset-wide) + var(--controls-cluster-h) + var(--card-gap));
     inset-inline-end: var(--card-inset-wide);
     inline-size: min(420px, calc(100vw - var(--card-inset-wide) * 2));
   }
 }
 
-/* Mobile (compact ≤639px): bottom-anchored sheet instead of top-right drop.
+/* Mobile (compact ≤480px): bottom-anchored sheet instead of top-right drop.
    Respects env(safe-area-inset-bottom) for home-indicator clearance.
-   Max height limits the sheet to ~80vh so the map is still partly visible. */
-@media (max-width: 639px) {
+   Max height limits the sheet to ~80vh so the map is still partly visible.
+   E2 (#1054): switched 639→480 (program-wide breakpoint ruling #1060) so the
+   CSS card↔sheet switch converges with the ≤480 `legendForceCollapsed` signal
+   (App.tsx) — dissolving the 481-639 band where a sheet-mode panel coexisted
+   with an expanded, clickable legend. 480px is written as a literal because a
+   media query cannot consume a CSS var. */
+@media (max-width: 480px) {
   .filters-panel {
     inset-block-start: auto;
     inset-block-end: env(safe-area-inset-bottom, 0px);
@@ -2815,11 +2875,12 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
   }
 }
 
-/* Mobile ≤639px: recipe-07 (panel-reveal) bottom-sheet — a short translateY
+/* Mobile ≤480px: recipe-07 (panel-reveal) bottom-sheet — a short translateY
    slide-up + opacity + cross-blur (the sheet's own height supplies the rest of
    the open distance, so a 24px travel reads as a full open). transform-origin
-   resets to the sheet's own box; transform/opacity/filter ONLY. */
-@media (max-width: 639px) {
+   resets to the sheet's own box; transform/opacity/filter ONLY. E2 (#1054):
+   639→480 to match the placement switch above (same #1060 ruling). */
+@media (max-width: 480px) {
   .filters-panel.t-filters-enter {
     transform-origin: bottom center;
     transition:
@@ -2841,25 +2902,31 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
    dismisses it (see App.tsx — onClick handler). It carries no role/label
    (presentational); data-testid="filters-backdrop" is the stable e2e hook.
 
-   z-index: --z-overlay - 1 (= 39) — below the filters sheet (--z-modal 50)
-   and below the chrome band (--z-chrome 42); the backdrop is the topmost
-   element over the map center at z-39, so click-outside-to-dismiss fires
-   reliably without an opaque scrim. pointer-events defaults to auto (inherited)
-   so the click handler works.
+   z-index: --z-modal - 1 (= 49) — directly below the filters sheet (--z-modal
+   50) and ABOVE the overlay band (legend/attribution 40, popovers 41) and the
+   chrome band (42). E2 (#1054) raised it from the prior z-39 (below the overlay
+   band): at z-39 the bottom-left legend sat ABOVE the backdrop, so a desktop
+   legend-entry click during filters-open mutated the family filter UNDER an open
+   "modal" — clicking outside the panel onto the legend should dismiss the panel,
+   not silently toggle a filter. At z-49 a legend click now hits the backdrop and
+   dismisses the panel (the panel at z-50 stays clickable above it). This is the
+   chosen resolution of the O5 (#783) deferral noted below — pointer interaction
+   with the legend during filters-open now dismisses, matching click-outside
+   semantics for the rest of the viewport. pointer-events defaults to auto
+   (inherited) so the click handler works.
 
    background: transparent — NO scrim dim. Modality is enforced by the `inert`
    attribute on #map-layer (set in App.tsx when the panel is open) plus the
    elevated floating panel itself. This matches the Google-Maps "panel over a
    live map" reference: opening a panel must not dim the map.
-   O2 (#770): .family-legend is now a `position:fixed` App-root sibling (not
-   inside #map-layer). The filters `inert` on #map-layer therefore no longer
-   covers the legend — keyboard focus is still contained by the focus-trap in
-   App.tsx's filters effect; pointer interaction with the legend during
-   filters-open is an accepted edge case deferred to O5 (#783). */
+   O2 (#770): .family-legend is a `position:fixed` App-root sibling (not inside
+   #map-layer), so the filters `inert` on #map-layer never covered it. The
+   backdrop raise above (z-49) is what now closes that gap for pointer input;
+   keyboard focus stays contained by the focus-trap in App.tsx's filters effect. */
 .filters-backdrop {
   position: fixed;
   inset: 0;
-  z-index: calc(var(--z-overlay) - 1);
+  z-index: calc(var(--z-modal) - 1);
   background: transparent;
   /* Backdrop click area is the full viewport; cursor shows it is interactive. */
   cursor: default;

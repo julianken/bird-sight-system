@@ -344,6 +344,39 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
     [vh],
   );
 
+  // E2 (#1054) — publish the sheet's bottom-stack strip height as a single CSS
+  // custom property the bottom-left legend's peek lift and the bottom-right
+  // attribution's peek-yield derive from (styles.css). This retires the stale
+  // hand-synced 120px literal that drifted from PEEK_PX (now 104) after #912.
+  //
+  // The published value is the sheet's ACTUAL rendered strip height (offsetHeight),
+  // not the nominal PEEK_PX: the peek detent is content-driven (handle 44px +
+  // compact identity row) and carries env(safe-area-inset-bottom) padding, so the
+  // rendered strip is taller than PEEK_PX on real devices. Measuring the real box
+  // makes the legend/attribution lift land exactly one --space-md gap above the
+  // sheet top regardless of device safe-area — the prior 120px literal only cleared
+  // by luck. Falls back to PEEK_PX when offsetHeight is 0 (jsdom / pre-layout).
+  //
+  // Lift ONLY at peek: half/full stacking over the bottom corners is intended, and
+  // phones force-collapse the legend at half/full (App.tsx legendForceCollapsed),
+  // so a publish at peek alone is correct AND avoids a strobing lift mid-drag.
+  // useLayoutEffect so the measure reads post-commit layout (height inline style
+  // already applied). The sheet is conditionally mounted, so removeProperty on
+  // unmount (and on any non-peek snap) is load-bearing — a stale lift would
+  // otherwise survive close.
+  useLayoutEffect(() => {
+    if (snap === 'peek') {
+      const measured = sheetRef.current?.offsetHeight ?? 0;
+      const stripPx = measured > 0 ? measured : PEEK_PX;
+      document.body.style.setProperty('--sheet-strip-h', `${stripPx}px`);
+    } else {
+      document.body.style.removeProperty('--sheet-strip-h');
+    }
+    return () => {
+      document.body.style.removeProperty('--sheet-strip-h');
+    };
+  }, [snap]);
+
   // Inert sequencing — collapse side. When `snap` transitions away
   // from 'full', the React commit runs first (the new role="region"
   // attribute lands on the sheet), then this layout effect fires and
