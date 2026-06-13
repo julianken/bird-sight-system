@@ -305,3 +305,125 @@ test.describe('AttributionModal — iNat photo credit (#327 task-11)', () => {
     });
   }
 });
+
+/**
+ * B3 (#1042 M-11): single-scroller assertion — the Credits modal must have
+ * exactly ONE scroll container. The native <dialog> previously had both
+ * UA overflow:auto AND the inner .attribution-modal-content with
+ * overflow-y:auto + max-height:80vh, producing two side-by-side tracks.
+ * After the fix (.attribution-modal { overflow: hidden }), only the inner
+ * content div scrolls.
+ *
+ * B3 (#1042 M-10): scrollbar-color token resolution — .family-legend-entries
+ * must compute a non-"auto" scrollbar-color under both light and dark themes,
+ * confirming the --scrollbar-* token pair resolves in both [data-theme] blocks.
+ */
+test.describe('B3 (#1042): single-scroller + scrollbar tokens', () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test('M-11: only .attribution-modal-content scrolls — dialog itself does not', async ({ page }) => {
+    const app = new AppPage(page);
+    await app.goto('scope=us');
+    await app.waitForAppReady();
+    await app.attributionTrigger.click();
+    const dialog = page.locator('dialog.attribution-modal');
+    await expect(dialog).toHaveAttribute('open', '');
+    // Wait for the Phylopic data to load so the content is as tall as possible.
+    await dialog.locator('[data-testid=attribution-phylopic-row]').first()
+      .waitFor({ state: 'visible', timeout: 10_000 });
+
+    // Force the inner content taller than 80vh so both containers would scroll
+    // if both had overflow-y:auto.  We inject a tall sentinel div.
+    await page.evaluate(() => {
+      const content = document.querySelector('.attribution-modal-content');
+      if (!content) throw new Error('.attribution-modal-content not found');
+      const sentinel = document.createElement('div');
+      sentinel.style.height = '2000px';
+      sentinel.setAttribute('data-testid', 'scroll-sentinel');
+      content.appendChild(sentinel);
+    });
+
+    // `overflow:hidden` clips overflowing content but does NOT collapse
+    // scrollHeight to clientHeight, so `scrollHeight > clientHeight` is still
+    // true on the (non-scrolling) dialog. The faithful "exactly one scroll
+    // container" oracle is: the inner content actually scrolls AND is the
+    // scroller (overflow-y auto|scroll), while the dialog's overflow-y is
+    // hidden (so it cannot scroll).
+    const { contentScrolls, contentOverflowY, dialogOverflowY } = await page.evaluate(() => {
+      const content = document.querySelector('.attribution-modal-content');
+      const dlg     = document.querySelector('dialog.attribution-modal');
+      if (!content || !dlg) throw new Error('Elements not found');
+      return {
+        contentScrolls:   content.scrollHeight > content.clientHeight,
+        contentOverflowY: getComputedStyle(content).overflowY,
+        dialogOverflowY:  getComputedStyle(dlg).overflowY,
+      };
+    });
+
+    expect(contentScrolls, '.attribution-modal-content must scroll (scrollHeight > clientHeight)').toBe(true);
+    expect(['auto', 'scroll'], 'inner content is the scroll container').toContain(contentOverflowY);
+    expect(dialogOverflowY, 'dialog.attribution-modal must NOT scroll (overflow-y:hidden)').toBe('hidden');
+  });
+
+  test('M-10: scrollbar-color on .family-legend-entries resolves (not "auto") in both themes', async ({ page }) => {
+    const app = new AppPage(page);
+    await app.goto('scope=us');
+    await app.waitForAppReady();
+
+    // .family-legend-entries mounts only when the legend is expanded AND
+    // families have derived from observations (FamilyLegend.tsx ~L215). On the
+    // 1440×900 desktop viewport the legend defaults to expanded, so the element
+    // appears once families load — wait for it before reading computed styles.
+    // If this run defaults to collapsed, expand it first.
+    const legendEntries = page.locator('.family-legend-entries');
+    const toggle = page.locator('.family-legend-toggle');
+    try {
+      await legendEntries.waitFor({ state: 'attached', timeout: 15_000 });
+    } catch {
+      if ((await toggle.getAttribute('aria-expanded')) === 'false') {
+        await toggle.click();
+      }
+      await legendEntries.waitFor({ state: 'attached', timeout: 15_000 });
+    }
+
+    // Light theme.
+    await page.evaluate(() => {
+      document.documentElement.setAttribute('data-theme', 'light');
+    });
+    const lightScrollbarColor = await page.evaluate(() => {
+      const el = document.querySelector('.family-legend-entries');
+      if (!el) return null;
+      return window.getComputedStyle(el).scrollbarColor;
+    });
+    expect(
+      lightScrollbarColor,
+      '.family-legend-entries scrollbar-color must not be null in light theme',
+    ).not.toBeNull();
+    expect(
+      lightScrollbarColor,
+      '.family-legend-entries scrollbar-color must not be "auto" in light theme (token not resolving)',
+    ).not.toBe('auto');
+
+    // Dark theme.
+    await page.evaluate(() => {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    });
+    const darkScrollbarColor = await page.evaluate(() => {
+      const el = document.querySelector('.family-legend-entries');
+      if (!el) return null;
+      return window.getComputedStyle(el).scrollbarColor;
+    });
+    expect(
+      darkScrollbarColor,
+      '.family-legend-entries scrollbar-color must not be null in dark theme',
+    ).not.toBeNull();
+    expect(
+      darkScrollbarColor,
+      '.family-legend-entries scrollbar-color must not be "auto" in dark theme (token not resolving)',
+    ).not.toBe('auto');
+
+    // The dark theme thumb must differ from the light theme thumb,
+    // confirming the per-theme token values actually differ.
+    expect(darkScrollbarColor).not.toBe(lightScrollbarColor);
+  });
+});

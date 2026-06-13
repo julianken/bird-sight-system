@@ -3450,3 +3450,71 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
     justify-content: flex-end;
   }
 }
+
+/* ── B3 (#1042 M-10/M-11): themed scrollbars on all card scroll regions ─────
+ *
+ * Without this, UA-default light chrome (solid white/grey track + grey thumb)
+ * paints over every dark card that has overflow-y:auto, producing a stark
+ * seam on the near-black basemap. The six affected regions:
+ *
+ *   .family-legend-entries     — styles.css:1342 (max-height:400px, legend list)
+ *   .attribution-modal-content — styles.css:1141 (Credits modal inner scroll)
+ *   aside.species-detail-rail  — styles.css:1729 (right-side detail rail)
+ *   .filters-panel             — styles.css:2742 (filters drop panel)
+ *   .sheet-fg                  — styles.css:2053 (mobile species sheet)
+ *
+ * The sixth region (.cluster-list-popover) lives in ds-primitives.css and
+ * receives the same rule there.
+ *
+ * Token values per [data-theme] block:
+ *   light: thumb #d8d3c3 (=--color-border-ui) on transparent — 1.50:1 vs #fff
+ *   dark:  thumb #3a4668 (=--color-border-ui) on transparent — 1.59:1 vs #1b2742
+ * Both are parity-of-affordance with the UA default thumb (~1.5–1.7:1);
+ * scrollbar thumbs carry no WCAG text contrast floor.
+ */
+.family-legend-entries,
+.attribution-modal-content,
+aside.species-detail-rail,
+.filters-panel,
+.sheet-fg {
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-width: thin;
+}
+.family-legend-entries::-webkit-scrollbar,
+.attribution-modal-content::-webkit-scrollbar,
+aside.species-detail-rail::-webkit-scrollbar,
+.filters-panel::-webkit-scrollbar,
+.sheet-fg::-webkit-scrollbar {
+  width: 6px;
+}
+.family-legend-entries::-webkit-scrollbar-track,
+.attribution-modal-content::-webkit-scrollbar-track,
+aside.species-detail-rail::-webkit-scrollbar-track,
+.filters-panel::-webkit-scrollbar-track,
+.sheet-fg::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+.family-legend-entries::-webkit-scrollbar-thumb,
+.attribution-modal-content::-webkit-scrollbar-thumb,
+aside.species-detail-rail::-webkit-scrollbar-thumb,
+.filters-panel::-webkit-scrollbar-thumb,
+.sheet-fg::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 3px;
+}
+
+/* ── B3 (#1042 M-11): single-scroller in the Credits modal ──────────────────
+ *
+ * The native <dialog> carries UA overflow:auto, and .attribution-modal-content
+ * also has overflow-y:auto with max-height:80vh — two nested 80vh-capped
+ * scrollers paint side-by-side full-height tracks. Fix: make the dialog
+ * itself non-scrolling; the inner .attribution-modal-content is the sole
+ * scroll container.
+ *
+ * The inner element already has max-height:80vh, but the dialog's 80vh cap
+ * clips the OUTER box; after setting overflow:hidden the dialog defers
+ * entirely to its child for overflow management.
+ */
+.attribution-modal {
+  overflow: hidden;
+}
