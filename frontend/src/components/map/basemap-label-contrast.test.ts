@@ -10,7 +10,7 @@ import { enforceDarkLabelContrast } from './basemap-label-contrast.js';
    AA against the dark canvas (`background-color: rgb(12,12,12)`). The 13 dark
    symbol layers that carry a `text-field` and their real light-mode text-color:
 
-     highway_name_motorway      hsl(0,0%,37%)        1.05  (transportation_name)
+     highway_name_motorway      hsl(0,0%,37%)        3.03  (transportation_name)
      water_name                 hsla(0,0%,0%,0.7)    1.07  (water_name)
      highway_name_other         rgba(80,78,78,1)     2.37  (transportation_name)
      place_other/suburb/village/town/city/city_large/state  rgb(101,101,101) 3.36
@@ -221,6 +221,88 @@ describe('enforceDarkLabelContrast — AA after fix (dark canvas)', () => {
     expect(map.setPaintProperty.mock.calls.some((c) => c[0] === 'poi_icon')).toBe(false);
     expect(map.setPaintProperty.mock.calls.some((c) => c[0] === 'water')).toBe(false);
     expect(map.setPaintProperty.mock.calls.some((c) => c[0] === 'background')).toBe(false);
+  });
+});
+
+describe('enforceDarkLabelContrast — halo-width bump on the neediest labels', () => {
+  /* The bump exists precisely for the label MOST in need of a halo — one whose
+     style ships a 0-width (or absent) halo. Every other fixture in this file
+     pre-sets text-halo-width: 1, so without these two cases the bump branch
+     (text-halo-width < 1 → 1, and the typeof !== 'number' arm) is never run. */
+
+  it('bumps a 0-width halo up to 1 on a recolored dark label', () => {
+    const layers: FakeLayer[] = [
+      { id: 'background', type: 'background', layout: {}, paint: { 'background-color': DARK_BG } },
+      {
+        id: 'place_city',
+        type: 'symbol',
+        layout: { 'text-field': ['get', 'name'] },
+        paint: {
+          'text-color': 'rgb(101, 101, 101)', // 3.36 vs dark canvas → fails AA, gets recolored
+          'text-halo-color': 'rgba(0,0,0,0.7)',
+          'text-halo-width': 0, // the case the bump exists for
+        },
+      },
+    ];
+    const map = makeMockMap(layers);
+
+    enforceDarkLabelContrast(map as never);
+
+    // Read back the value the fake map actually stored.
+    expect(map.byId['place_city'].paint['text-halo-width']).toBe(1);
+    expect(map.byId['place_city'].paint['text-halo-width'] as number).toBeGreaterThanOrEqual(1);
+  });
+
+  it('sets halo-width to 1 when text-halo-width is absent (typeof !== number arm)', () => {
+    const layers: FakeLayer[] = [
+      { id: 'background', type: 'background', layout: {}, paint: { 'background-color': DARK_BG } },
+      {
+        id: 'place_city',
+        type: 'symbol',
+        layout: { 'text-field': ['get', 'name'] },
+        paint: {
+          'text-color': 'rgb(101, 101, 101)', // fails AA → recolored
+          'text-halo-color': 'rgba(0,0,0,0.7)',
+          // text-halo-width intentionally ABSENT → getPaintProperty returns undefined
+        },
+      },
+    ];
+    const map = makeMockMap(layers);
+
+    // Precondition: the property really is undefined before the call.
+    expect(map.byId['place_city'].paint['text-halo-width']).toBeUndefined();
+
+    enforceDarkLabelContrast(map as never);
+
+    expect(map.byId['place_city'].paint['text-halo-width']).toBe(1);
+    expect(map.byId['place_city'].paint['text-halo-width'] as number).toBeGreaterThanOrEqual(1);
+  });
+
+  it('leaves an already-wide (≥1) halo as the style set it', () => {
+    const layers: FakeLayer[] = [
+      { id: 'background', type: 'background', layout: {}, paint: { 'background-color': DARK_BG } },
+      {
+        id: 'place_city',
+        type: 'symbol',
+        layout: { 'text-field': ['get', 'name'] },
+        paint: {
+          'text-color': 'rgb(101, 101, 101)', // fails AA → recolored
+          'text-halo-color': 'rgba(0,0,0,0.7)',
+          'text-halo-width': 2, // already wider than the floor
+        },
+      },
+    ];
+    const map = makeMockMap(layers);
+
+    enforceDarkLabelContrast(map as never);
+
+    // Untouched: the bump must not clobber a wider halo down to 1.
+    expect(map.byId['place_city'].paint['text-halo-width']).toBe(2);
+    expect(
+      map.setPaintProperty.mock.calls.some(
+        (c) => c[0] === 'place_city' && c[1] === 'text-halo-width',
+      ),
+    ).toBe(false);
   });
 });
 
