@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import type Database from 'better-sqlite3';
+import { makeReader, openStore, type EleaticStore } from '../src/eval/eleatic-adapter.js';
 import { openDb } from '../src/db.js';
 import { readEvalRun, readEvalResults } from '../src/eval/store.js';
 import { instrumentedJudge, type JudgmentSink } from '../src/judges/instrumented.js';
@@ -8,9 +9,12 @@ import type { EvalRow } from '../src/eval/build-dataset.js';
 import type { ImageInput, SpeciesContext, JudgeOutput, VisionJudge } from '@bird-watch/photo-quality';
 
 let db: Database.Database | undefined;
+let eleatic: EleaticStore | undefined;
 afterEach(() => {
   db?.close();
   db = undefined;
+  eleatic?.close();
+  eleatic = undefined;
 });
 
 /** Build one eval row with a controllable Opus baseline + species fields. */
@@ -62,7 +66,7 @@ function fakeJudge(sink: JudgmentSink, decide: (code: string) => { keep: boolean
 }
 
 /** Deps with a fake readImage (no fs) and a judge factory closing over `decide`. */
-function makeDeps(decide: (code: string) => { keep: boolean; quality: number }): Omit<RunEvalDeps, 'db' | 'rows'> {
+function makeDeps(decide: (code: string) => { keep: boolean; quality: number }): Omit<RunEvalDeps, 'db' | 'rows' | 'eleatic'> {
   return {
     runId: 'run-test-1',
     model: 'gemini-2.5-flash',
@@ -79,6 +83,7 @@ function makeDeps(decide: (code: string) => { keep: boolean; quality: number }):
 describe('runEvalLocal', () => {
   it('writes one eval_result per row + one eval_run with FRACTION-form aggregates', async () => {
     db = openDb(':memory:');
+    eleatic = openStore(':memory:');
     // 5 rows. Baseline keeps the first 4, replaces the 5th. The judge AGREES on
     // 4 of 5 (it flips only the last). Per the #1094 unit contract, agreement
     // must be stored as the 0–1 fraction 0.8, NOT 80.
@@ -97,7 +102,7 @@ describe('runEvalLocal', () => {
         ? { keep: false, quality: 80 } // DISAGREES (baseline keeps, judge replaces) → falseReplace
         : { keep: true, quality: 80 }; // agrees (both keep), exact score
 
-    await runEvalLocal({ db, rows, ...makeDeps(decide) });
+    await runEvalLocal({ db, eleatic, rows, ...makeDeps(decide) });
 
     const results = readEvalResults(db, 'run-test-1');
     expect(results).toHaveLength(5);
@@ -118,12 +123,59 @@ describe('runEvalLocal', () => {
     expect(run!.sampleSize).toBe(5);
   });
 
+  it('ALSO writes the eleatic store (additive): run metrics as FRACTIONS + per-row disagreement', async () => {
+    db = openDb(':memory:');
+    eleatic = openStore(':memory:');
+    const rows: EvalRow[] = [
+      evalRow({ speciesCode: 'sp1', expectedKeep: true, expectedQuality: 80 }),
+      evalRow({ speciesCode: 'sp2', expectedKeep: true, expectedQuality: 80 }),
+      evalRow({ speciesCode: 'sp3', expectedKeep: true, expectedQuality: 80 }),
+      evalRow({ speciesCode: 'sp4', expectedKeep: false, expectedQuality: 20 }),
+      evalRow({ speciesCode: 'sp5', expectedKeep: false, expectedQuality: 20 }),
+    ];
+    // sp1–sp3 agree (keep). sp4: baseline replace, judge KEEPS → falseKeep.
+    // sp5: baseline replace, judge replaces → agree. 4/5 keep-agreement → 0.8.
+    const decide = (code: string) =>
+      code === 'sp4'
+        ? { keep: true, quality: 90 } // DISAGREES → falseKeep
+        : code === 'sp5'
+        ? { keep: false, quality: 20 } // agrees (both replace)
+        : { keep: true, quality: 80 }; // agrees (both keep)
+
+    await runEvalLocal({ db, eleatic, rows, ...makeDeps(decide) });
+
+    // BOTH stores written: the old review store still holds the rows…
+    expect(readEvalResults(db, 'run-test-1')).toHaveLength(5);
+    expect(readEvalRun(db, 'run-test-1')).toBeDefined();
+
+    // …and the eleatic store mirrors them. Read it back via the package reader.
+    const reader = makeReader(eleatic.db);
+    const eleaticRun = reader.getRun('run-test-1');
+    expect(eleaticRun).toBeDefined();
+    expect(eleaticRun!.label).toBe('gemini-2.5-flash');
+    expect(eleaticRun!.baseline).toBe('claude-opus-4-8');
+    // metrics stored as 0–1 FRACTIONS — 4/5 → 0.8, NOT 80.
+    expect(eleaticRun!.metrics!.agreement).toBe(0.8);
+    expect(eleaticRun!.metrics!.agreement).not.toBe(80);
+    expect(eleaticRun!.metrics!.falseKeep).toBe(1);
+    expect(eleaticRun!.config!.sampleSize).toBe(5);
+
+    const eleaticRows = reader.getRows('run-test-1');
+    expect(eleaticRows).toHaveLength(5);
+    // per-row categorical facet axis: the sp4 row is a falseKeep.
+    const sp4 = reader.getRow('run-test-1', 'sp4');
+    expect(sp4!.metadata!.disagreement).toBe('falseKeep');
+    const sp1 = reader.getRow('run-test-1', 'sp1');
+    expect(sp1!.metadata!.disagreement).toBe('agree');
+  });
+
   it('joins each result with the Opus baseline + the judge output + cost/tokens', async () => {
     db = openDb(':memory:');
+    eleatic = openStore(':memory:');
     const rows: EvalRow[] = [evalRow({ speciesCode: 'amerob', expectedKeep: true, expectedQuality: 85 })];
     const decide = () => ({ keep: false, quality: 60 });
 
-    await runEvalLocal({ db, rows, ...makeDeps(decide) });
+    await runEvalLocal({ db, eleatic, rows, ...makeDeps(decide) });
 
     const [r] = readEvalResults(db, 'run-test-1');
     expect(r!.speciesCode).toBe('amerob');
@@ -143,6 +195,7 @@ describe('runEvalLocal', () => {
 
   it('computes falseKeep (judge keeps what baseline replaces) and total_cost', async () => {
     db = openDb(':memory:');
+    eleatic = openStore(':memory:');
     const rows: EvalRow[] = [
       evalRow({ speciesCode: 'a', expectedKeep: false, expectedQuality: 20 }),
       evalRow({ speciesCode: 'b', expectedKeep: false, expectedQuality: 20 }),
@@ -150,7 +203,7 @@ describe('runEvalLocal', () => {
     // Judge keeps BOTH → 2 falseKeep, 0 agreement.
     const decide = () => ({ keep: true, quality: 90 });
 
-    await runEvalLocal({ db, rows, ...makeDeps(decide) });
+    await runEvalLocal({ db, eleatic, rows, ...makeDeps(decide) });
 
     const run = readEvalRun(db, 'run-test-1')!;
     expect(run.agreement).toBe(0);
@@ -165,6 +218,7 @@ describe('runEvalLocal', () => {
 
   it('runs rows SERIALLY (never concurrently)', async () => {
     db = openDb(':memory:');
+    eleatic = openStore(':memory:');
     const rows: EvalRow[] = [
       evalRow({ speciesCode: 's1', expectedKeep: true, expectedQuality: 80 }),
       evalRow({ speciesCode: 's2', expectedKeep: true, expectedQuality: 80 }),
@@ -187,7 +241,7 @@ describe('runEvalLocal', () => {
       };
     };
 
-    await runEvalLocal({ db, rows, ...deps, makeJudge: slowJudge });
+    await runEvalLocal({ db, eleatic, rows, ...deps, makeJudge: slowJudge });
 
     // Serial execution never has more than one judgment in flight at a time.
     expect(maxInFlight).toBe(1);

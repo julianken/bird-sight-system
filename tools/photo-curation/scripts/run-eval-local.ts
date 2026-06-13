@@ -41,12 +41,20 @@ import { keepAgreement, scoreMAE, keepConfusion } from '../src/eval/scorers.js';
 import { runRow } from '../src/eval/run-row.js';
 import { mimeFromUrl } from '../src/sources.js';
 import { insertEvalResult, insertEvalRun, type EvalResultRecord } from '../src/eval/store.js';
+// All eleatic access goes through the adapter — the single domain seam (#1150).
+import { openStore, toEleaticRow, toEleaticRun, type EleaticStore } from '../src/eval/eleatic-adapter.js';
 import { judgePromptForRubricVersion, resolveEvalModel } from '../eval/rubric-prompts.js';
 
 /** The injected collaborators `runEvalLocal` needs — all fakeable in tests. */
 export interface RunEvalDeps {
   /** The open review store the run writes `eval_result` + `eval_run` to. */
   db: Database.Database;
+  /**
+   * The open eleatic store the run ADDITIVELY mirrors each row + the run header
+   * to (E7, #1150). Written alongside `db` via the eleatic-adapter; the old
+   * review writes are unchanged. `:memory:` in tests.
+   */
+  eleatic: EleaticStore;
   /** The dataset rows (built from the pinned baseline, hash-verified). */
   rows: EvalRow[];
   /** The run id (e.g. `<model>-<unix>`) — the `eval_run.id` / `eval_result.run_id`. */
@@ -86,7 +94,30 @@ export interface RunEvalDeps {
  * summed, and total cost summed over the priced judgments.
  */
 export async function runEvalLocal(deps: RunEvalDeps): Promise<void> {
-  const { db, rows, runId, model, baselineModel, baselineRubric, sampleSize, startedAt, prompt } = deps;
+  const { db, eleatic, rows, runId, model, baselineModel, baselineRubric, sampleSize, startedAt, prompt } = deps;
+
+  // Write the eleatic run HEADER before any child row (E7, #1150). eval_row has
+  // a `run_id REFERENCES eval_run(id)` FK with `foreign_keys = ON`, so a row
+  // inserted before its run would throw. The header carries identity + config +
+  // startedAt now; `finalizeRun` patches the aggregate metrics after the loop
+  // (the runner computes them late, exactly the finalize seam's purpose).
+  eleatic.recordRun(
+    toEleaticRun({
+      id: runId,
+      model,
+      baselineModel,
+      baselineRubric,
+      sampleSize,
+      startedAt,
+      // Placeholder aggregates — overwritten by finalizeRun below. Stored as the
+      // same 0–1 fraction units the runner uses (#1094); these are never read.
+      agreement: 0,
+      falseKeep: 0,
+      falseReplace: 0,
+      scoreMae: 0,
+      totalCost: 0,
+    }),
+  );
 
   // The sink appends each judgment's record; the loop reads the one emitted by
   // the row it just ran (the judge emits exactly once per resolved judgment, so
@@ -142,11 +173,17 @@ export async function runEvalLocal(deps: RunEvalDeps): Promise<void> {
       promptTokens: record.promptTokens,
       completionTokens: record.completionTokens,
     };
+    // ADDITIVE dual-write (#1150): the old review.sqlite write is unchanged…
     insertEvalResult(db, result);
+    // …and the SAME record is mirrored to the eleatic store via the adapter.
+    // Written serially in lockstep with the review write (no batching) so the
+    // SERIAL loop invariant (#1094) is preserved and a mid-run crash leaves the
+    // two stores at the same row.
+    eleatic.recordRow(toEleaticRow(result));
   }
 
   const n = rows.length;
-  insertEvalRun(db, {
+  const run = {
     id: runId,
     model,
     baselineModel,
@@ -159,7 +196,15 @@ export async function runEvalLocal(deps: RunEvalDeps): Promise<void> {
     falseReplace,
     scoreMae: n === 0 ? 0 : maeSum / n,
     totalCost,
-  });
+  };
+  insertEvalRun(db, run);
+  // Patch the eleatic run header's aggregates now they are computed. finalizeRun
+  // writes row_count + metrics_json; the metrics are the SAME 0–1 fractions the
+  // review store holds (toEleaticRun maps them through unchanged, #1094).
+  // `toEleaticRun` always sets `metrics`, but the field is optional on the
+  // record type; `?? {}` keeps exactOptionalPropertyTypes happy without ever
+  // hitting the fallback in practice.
+  eleatic.finalizeRun(runId, { rowCount: n, metrics: toEleaticRun(run).metrics ?? {} });
 }
 
 /** Fail loud on a missing required env var — never run the eval half-configured. */
@@ -194,16 +239,20 @@ async function main(argv: string[]): Promise<void> {
   const THUMB_DIR = requireEnv('THUMB_DIR');
   // PROD baseline connection (#1073). A READ-ONLY connection string suffices.
   const DATABASE_URL = requireEnv('DATABASE_URL');
+  // The eleatic store the run is ADDITIVELY mirrored to (E7, #1150). Defaults to
+  // ./eval.sqlite alongside REVIEW_DB; the analyzer reads it back.
+  const EVAL_DB = process.env.EVAL_DB ?? './eval.sqlite';
   const EVAL_SAMPLE = Number(process.env.EVAL_SAMPLE ?? 150);
   const EVAL_MODEL = resolveEvalModel(process.env);
   const BASELINE_PIN = resolveBaselinePin(process.env);
 
   const db = openDb(REVIEW_DB);
+  const eleatic = openStore(EVAL_DB);
 
-  // Close on BOTH the success and error paths (#1108). `db` is opened inside
-  // main (unlike the sibling analyze-experiment.ts, which opens it at the entry
-  // block and closes in both .then/.catch), so a try/finally here is the clean
-  // mirror of that close-on-both contract.
+  // Close BOTH stores on BOTH the success and error paths (#1108). `db` +
+  // `eleatic` are opened inside main (unlike the sibling analyze-experiment.ts,
+  // which opens at the entry block and closes in both .then/.catch), so a
+  // try/finally here is the clean mirror of that close-on-both contract.
   try {
     // Eager build (#1037/#1073): reads the pinned baseline from PROD and hash-
     // verifies each local image against it. Hard-fails on a mixed/unknown rubric
@@ -234,6 +283,7 @@ async function main(argv: string[]): Promise<void> {
     // gemini.ts; one per row would reset the GEMINI_PACE_MS gate, #1015 review).
     await runEvalLocal({
       db,
+      eleatic,
       rows,
       runId,
       model: EVAL_MODEL,
@@ -251,7 +301,7 @@ async function main(argv: string[]): Promise<void> {
       agreement: number; false_keep: number; false_replace: number; score_mae: number; total_cost: number;
     };
 
-    console.log(`eval run ${runId} (${rows.length} rows) written to ${REVIEW_DB}`);
+    console.log(`eval run ${runId} (${rows.length} rows) written to ${REVIEW_DB} + ${EVAL_DB}`);
     console.log(`  agreement     ${(run.agreement * 100).toFixed(2)}%  (stored as fraction ${run.agreement})`);
     console.log(`  falseKeep     ${run.false_keep}   falseReplace ${run.false_replace}`);
     console.log(`  score MAE     ${run.score_mae.toFixed(4)} (fraction)`);
@@ -259,6 +309,7 @@ async function main(argv: string[]): Promise<void> {
     console.log(`  analyze with: npm run analyze -w @bird-watch/photo-curation ${runId}`);
   } finally {
     db.close();
+    eleatic.close();
   }
 }
 
