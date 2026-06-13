@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>eleatic · run diff</title>
+    <!--
+      The per-row run-diff view (E6). Framework-free, no build step — served
+      verbatim from packages/eleatic/ui/. diff.js imports /config.js (the
+      server's client-config emitter) and the sibling theme.js / safe.js modules,
+      plus the shared drawer.js / pure-unit modules. Same bootstrap + script
+      shape as the E5 hub.
+    -->
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <a class="back-link" href="/">← Hub</a>
+      <h1 class="app-title">eleatic<span class="app-sub">run diff</span></h1>
+      <span class="header-spacer"></span>
+      <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle light / dark theme">◐ Theme</button>
+    </header>
+
+    <main class="wrap">
+      <section class="section">
+        <div class="section-head">
+          <h2 class="section-title">Divergence</h2>
+          <span class="section-sub" id="summary">Loading…</span>
+        </div>
+        <div class="diff-toolbar">
+          <span class="badge diff-regression" id="regression-count"></span>
+          <label class="diff-toggle">
+            <input type="checkbox" id="divergent-only" /> Divergent only
+          </label>
+        </div>
+        <div class="table-scroll">
+          <table class="diff-table">
+            <thead>
+              <tr>
+                <th scope="col">Row</th>
+                <th scope="col">A</th>
+                <th scope="col">B</th>
+                <th scope="col">Class</th>
+                <th scope="col"><span class="visually-hidden">open</span></th>
+              </tr>
+            </thead>
+            <tbody id="diff-body"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/diff.js"></script>
+  </body>
+</html>

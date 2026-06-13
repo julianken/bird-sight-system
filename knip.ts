@@ -277,7 +277,26 @@ const config: KnipConfig = {
       //             deleted but its module left on disk. Re-audit 2026-07-27 —
       //             confirm ui/index.html still references both (grep
       //             `src="/hub.js"` and an `import .* '/theme.js'` in hub.js).
-      ignore: ['ui/hub.js', 'ui/theme.js'],
+      // 2026-06-13 (E6, #1149): the diff + facet pages' browser entries
+      //             ui/diff.js and ui/facets.js (loaded via diff.html/facets.html
+      //             `<script type="module" src="/diff.js">` / `/facets.js`) and
+      //             their shared collaborators ui/drawer.js + ui/adjudicate.js
+      //             (imported only BY diff.js/facets.js, which knip can't see,
+      //             so they're transitively unreachable). Same runtime-resolved-
+      //             specifier reason as hub.js/theme.js above. Their pure-unit
+      //             siblings ui/facet-grammar.js, ui/pretty.js, ui/diff-classify.js
+      //             and ui/staleness.js are deliberately NOT listed: each has a
+      //             real vitest sibling (*.test.ts) that imports it, so knip
+      //             already traces them as used (a redundant-ignore would be
+      //             flagged) — the safe.js "test-sibling makes it traced"
+      //             reasoning applies verbatim. ui/diff.html + ui/facets.html are
+      //             not JS/TS modules, so knip does not track them either.
+      //             Risk: masks a genuinely orphaned ui/ script if a page is
+      //             deleted but its module left on disk. Re-audit 2026-07-27 —
+      //             confirm diff.html references /diff.js, facets.html references
+      //             /facets.js, and both diff.js+facets.js still
+      //             `import … './drawer.js'` (drawer.js `import … './adjudicate.js'`).
+      ignore: ['ui/hub.js', 'ui/theme.js', 'ui/diff.js', 'ui/facets.js', 'ui/drawer.js', 'ui/adjudicate.js'],
     },
 
     'tools/photo-curation': {

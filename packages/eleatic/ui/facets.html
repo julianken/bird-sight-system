@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>eleatic · facets</title>
+    <!--
+      The generic facet gallery/table (E6). Framework-free, no build step —
+      served verbatim from packages/eleatic/ui/. facets.js imports /config.js and
+      the sibling theme.js / safe.js modules, the facet-grammar pure unit, and the
+      shared drawer.js. Same bootstrap + script shape as the E5 hub.
+    -->
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <a class="back-link" href="/">← Hub</a>
+      <h1 class="app-title">eleatic<span class="app-sub">facets</span></h1>
+      <span class="header-spacer"></span>
+      <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle light / dark theme">◐ Theme</button>
+    </header>
+
+    <main class="wrap">
+      <section class="section">
+        <div class="section-head">
+          <h2 class="section-title">Facets</h2>
+          <span class="section-sub" id="facet-count">Loading…</span>
+        </div>
+        <div id="facet-controls" class="facet-controls"></div>
+        <div class="facet-viewbar">
+          <div class="facet-view-toggle" role="group" aria-label="View mode">
+            <button type="button" class="facet-view" data-view="gallery">Gallery</button>
+            <button type="button" class="facet-view" data-view="table">Table</button>
+          </div>
+        </div>
+        <div id="facet-results" class="facet-results"></div>
+      </section>
+    </main>
+
+    <script type="module" src="/facets.js"></script>
+  </body>
+</html>
