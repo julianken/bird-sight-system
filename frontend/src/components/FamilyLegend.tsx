@@ -6,6 +6,7 @@ import { getFamilyChannel } from '../config/family-palette.js';
 import type { FamilyCode, ShapeVariant } from '../config/family-palette.js';
 import { FAMILY_PALETTE } from '../config/family-palette.js';
 import { useTheme } from '../hooks/use-theme.js';
+import { countNoun, formatCount } from '../lib/format-count.js';
 
 const STORAGE_KEY = 'family-legend-expanded.v2';
 const LEGACY_STORAGE_KEY = 'family-legend-expanded';
@@ -252,9 +253,9 @@ function FamilyLegendImpl({
                   <span className="family-legend-entry-label" title={entry.label}>{entry.label}</span>
                   <span
                     className="family-legend-entry-count"
-                    aria-label={`${entry.count} observations in view`}
+                    aria-label={`${countNoun(entry.count, 'observation')} in view`}
                   >
-                    {entry.count}
+                    {formatCount(entry.count)}
                   </span>
                 </button>
               </li>
