@@ -449,4 +449,39 @@ describe('<CellPopover>', () => {
       expect(top).toBeGreaterThanOrEqual(0);
     });
   });
+
+  // C1 #1045: thousands separators
+  describe('C1 #1045: thousands separators', () => {
+    it('renders familyCount ≥1000 in the heading with a separator', () => {
+      const anchor = makeAnchor();
+      render(
+        <CellPopover
+          familyCode="hummingbirds"
+          familyCount={1500}
+          species={[species("Anna's Hummingbird", 500)]}
+          anchorEl={anchor}
+          onDismiss={vi.fn()}
+          onSelectSpecies={vi.fn()}
+        />
+      );
+      // Header must read "Hummingbirds (1,500)" not "Hummingbirds (1500)".
+      expect(screen.getByText(/Hummingbirds \(1,500\)/)).toBeInTheDocument();
+    });
+
+    it('renders species count with separator in row text', () => {
+      const anchor = makeAnchor();
+      render(
+        <CellPopover
+          familyCode="hummingbirds"
+          familyCount={1500}
+          species={[species("Anna's Hummingbird", 1234)]}
+          anchorEl={anchor}
+          onDismiss={vi.fn()}
+          onSelectSpecies={vi.fn()}
+        />
+      );
+      // Row must read "1,234x Anna's Hummingbird" not "1234x …".
+      expect(screen.getByText(/1,234x/)).toBeInTheDocument();
+    });
+  });
 });

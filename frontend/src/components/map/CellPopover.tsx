@@ -3,6 +3,7 @@ import type { CSSProperties, KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import type { SpeciesAggregate } from './adaptive-grid.js';
 import { prettyFamily } from '../../derived.js';
+import { formatCount } from '../../lib/format-count.js';
 
 /**
  * `<CellPopover>` — full popover for one family within an adaptive-grid cell
@@ -218,7 +219,7 @@ export function CellPopover(props: CellPopoverProps) {
           tabIndex={-1}
           data-testid="cell-popover-heading"
         >
-          {familyName ?? prettyFamily(familyCode)} ({familyCount})
+          {familyName ?? prettyFamily(familyCode)} ({formatCount(familyCount)})
         </h2>
       </header>
       <ul className="cell-popover__rows">
@@ -243,7 +244,7 @@ export function CellPopover(props: CellPopoverProps) {
                   data-testid="cell-popover-row"
                   onClick={() => onSelectSpecies(code)}
                 >
-                  {s.count}x {s.comName}
+                  {formatCount(s.count)}x {s.comName}
                 </button>
               </li>
             );
@@ -255,7 +256,7 @@ export function CellPopover(props: CellPopoverProps) {
               className="cell-popover__row"
               data-testid="cell-popover-row"
             >
-              <span>{s.count}x {s.comName}</span>
+              <span>{formatCount(s.count)}x {s.comName}</span>
             </li>
           );
         })}

@@ -332,4 +332,17 @@ describe('ObservationPopover', () => {
       wrapper.remove();
     });
   });
+
+  // C1 #1045: thousands separators
+  it('C1 #1045: renders howMany with thousands separator for counts ≥1000', () => {
+    render(
+      <ObservationPopover
+        observation={makeObs({ howMany: 1500 })}
+        onClose={vi.fn()}
+        onSelectSpecies={vi.fn()}
+      />,
+    );
+    // "Count: 1,500" not "Count: 1500".
+    expect(screen.getByText(/Count:\s*1,500/)).toBeInTheDocument();
+  });
 });
