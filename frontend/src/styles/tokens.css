@@ -313,6 +313,14 @@
      Single-sourced with src/config/family-dot-ring.ts, which the falsifiable
      contrast audit (family-dot-ring-contrast.test.ts) iterates. */
   --sheet-dot-ring: #767676;
+
+  /* Scrollbar theming (#1042 M-10/M-11): thumb on --color-border-ui register,
+   * track transparent so the card background shows through.
+   * Light thumb #d8d3c3 on card #ffffff = 1.50:1 — parity-of-affordance
+   * with UA default (#c1c1c1 on white = 1.66:1). No WCAG text floor applies.
+   * Consumed by the shared scrollbar rule in styles.css + ds-primitives.css. */
+  --scrollbar-thumb: #d8d3c3;   /* = --color-border-ui light value */
+  --scrollbar-track: transparent;
 }
 
 /* ── Layer 2: Semantic — dark mode ──────────────────────────────────── */
@@ -408,6 +416,13 @@
      well past the 3:1 SC 1.4.11 floor. Single-sourced with
      src/config/family-dot-ring.ts (SHEET_DOT_RING.dark). */
   --sheet-dot-ring: #aeb6c2;
+
+  /* Scrollbar theming (#1042 M-10/M-11) — dark override.
+   * Dark thumb #3a4668 on card #1b2742 = 1.59:1 — parity-of-affordance
+   * with UA default. Track transparent so the navy card surface shows through,
+   * eliminating the solid-white gutter on dark legend/modal/rail. */
+  --scrollbar-thumb: #3a4668;   /* = --color-border-ui dark value */
+  --scrollbar-track: transparent;
 }
 
 /* ── Layer 3: Component aliases ─────────────────────────────────────── */

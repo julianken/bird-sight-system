@@ -1263,3 +1263,24 @@ button.adaptive-grid-marker__cell {
     /* No-op currently; reserved for future slide-in. */
   }
 }
+
+/* ── B3 (#1042 M-10): themed scrollbar on .cluster-list-popover ─────────────
+ * The cluster-list popover has overflow-y:auto and max-height:70vh. Without
+ * themed scrollbars the UA-default light chrome paints on the dark navy card.
+ * Uses the same mode-paired --scrollbar-* tokens as styles.css (see comment
+ * there); this rule lives here because the selector lives in ds-primitives.css.
+ */
+.cluster-list-popover {
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-width: thin;
+}
+.cluster-list-popover::-webkit-scrollbar {
+  width: 6px;
+}
+.cluster-list-popover::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+.cluster-list-popover::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 3px;
+}
