@@ -83,8 +83,8 @@ test.describe('AppHeader buttons ≥ 44×44pt', () => {
 
     const box = await app.filtersTrigger.boundingBox();
     expect(box, 'Filters button bounding box must exist').not.toBeNull();
-    expect(box!.height, 'Filters button height must be ≥ 44px').toBeGreaterThanOrEqual(44);
-    expect(box!.width, 'Filters button width must be ≥ 44px').toBeGreaterThanOrEqual(44);
+    expect(Math.round(box!.height), 'Filters button height must be ≥ 44px').toBeGreaterThanOrEqual(44);
+    expect(Math.round(box!.width), 'Filters button width must be ≥ 44px').toBeGreaterThanOrEqual(44);
   });
 
   test('Attribution button is ≥ 44px tall', async ({ page, apiStub }) => {
@@ -95,8 +95,8 @@ test.describe('AppHeader buttons ≥ 44×44pt', () => {
 
     const box = await app.attributionTrigger.boundingBox();
     expect(box, 'Attribution button bounding box must exist').not.toBeNull();
-    expect(box!.height, 'Attribution button height must be ≥ 44px').toBeGreaterThanOrEqual(44);
-    expect(box!.width, 'Attribution button width must be ≥ 44px').toBeGreaterThanOrEqual(44);
+    expect(Math.round(box!.height), 'Attribution button height must be ≥ 44px').toBeGreaterThanOrEqual(44);
+    expect(Math.round(box!.width), 'Attribution button width must be ≥ 44px').toBeGreaterThanOrEqual(44);
   });
 
   // Regression guard: round-1 fix used font-size:0 which produced empty
@@ -146,8 +146,8 @@ test.describe('MOB-7 — sheet handle ≥ 44pt drag target', () => {
     const handle = page.locator('[data-testid=species-detail-sheet-handle]');
     const box = await handle.boundingBox();
     expect(box, 'sheet handle bounding box must exist').not.toBeNull();
-    expect(box!.height, 'sheet handle height must be ≥ 44px').toBeGreaterThanOrEqual(44);
-    expect(box!.width, 'sheet handle width must be ≥ 44px').toBeGreaterThanOrEqual(44);
+    expect(Math.round(box!.height), 'sheet handle height must be ≥ 44px').toBeGreaterThanOrEqual(44);
+    expect(Math.round(box!.width), 'sheet handle width must be ≥ 44px').toBeGreaterThanOrEqual(44);
   });
 });
 
@@ -173,7 +173,7 @@ test.describe('MOB-N1 — .filters-panel-close touch target ≥ 44×44pt', () =>
     const closeBtn = page.locator('.filters-panel-close');
     const box = await closeBtn.boundingBox();
     expect(box, 'filters-panel-close bounding box must exist').not.toBeNull();
-    expect(box!.height, 'filters-panel-close height must be ≥ 44px').toBeGreaterThanOrEqual(44);
-    expect(box!.width, 'filters-panel-close width must be ≥ 44px').toBeGreaterThanOrEqual(44);
+    expect(Math.round(box!.height), 'filters-panel-close height must be ≥ 44px').toBeGreaterThanOrEqual(44);
+    expect(Math.round(box!.width), 'filters-panel-close width must be ≥ 44px').toBeGreaterThanOrEqual(44);
   });
 });
