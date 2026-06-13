@@ -461,12 +461,19 @@ export function MapCanvas({
      reactive — reads on mount and listens for `change`. */
   const isCoarsePointer = useCoarsePointer();
 
-  // Phase 0: read prefers-reduced-motion once at mount. Extracted to a generic
-  // mount-once sensor hook in #889 (epic #884). It deliberately captures the
-  // value once (no `change` listener) — the user must reload to fully apply
-  // other reduced-motion changes anyway, and re-checking adds complexity for
-  // negligible gain.
+  // #1063: `usePrefersReducedMotion` is a LIVE sensor — it tracks the OS
+  // reduce-motion preference across the session (CSS already responded live via
+  // motion.css; this aligns the JS camera-flight gate so the two no longer
+  // split-brain for vestibular-sensitive users). The camera flights below read
+  // the preference through `prefersReducedMotionRef.current` rather than the
+  // value directly: the `clusters` click handler is registered ONCE in
+  // `handleLoad` (it would otherwise capture the mount-time value forever), and
+  // the scope-reframe effect (`useScopeCamera`) must NOT take a live value as a
+  // dep or an OS toggle would spuriously re-fire the reframe (#848/#736). The ref
+  // mirrors the live value every render; flights read `.current` at dispatch time.
   const prefersReducedMotion = usePrefersReducedMotion();
+  const prefersReducedMotionRef = useRef(prefersReducedMotion);
+  prefersReducedMotionRef.current = prefersReducedMotion;
 
   // #1059 (M-30) — live viewport span `[lngSpan, latSpan]` in degrees, feeding
   // the ZOOM-AWARE artboard clamp in `useScopeCamera` below. Updated on the
@@ -494,7 +501,7 @@ export function MapCanvas({
     boundsKey,
     flyTo,
     clampPad,
-    prefersReducedMotion,
+    prefersReducedMotionRef,
     // #1059 — live viewport span drives the zoom-aware artboard clamp; a wider
     // `clampBounds` change on zoom re-applies reactively via the `maxBounds`
     // prop (no remount), same mechanism as the static clamp.
@@ -884,7 +891,9 @@ export function MapCanvas({
               map.easeTo({
                 center,
                 zoom,
-                ...(prefersReducedMotion ? { duration: 0 } : {}),
+                // Read via ref: this handler is registered once in handleLoad,
+                // so a captured value would freeze at mount; .current is live.
+                ...(prefersReducedMotionRef.current ? { duration: 0 } : {}),
               });
             }
           })
@@ -1694,7 +1703,7 @@ export function MapCanvas({
               map.easeTo({
                 center: [anchor.longitude!, anchor.latitude!],
                 zoom: targetZoom,
-                ...(prefersReducedMotion ? { duration: 0 } : {}),
+                ...(prefersReducedMotionRef.current ? { duration: 0 } : {}),
               });
               return;
             }
@@ -1776,7 +1785,7 @@ export function MapCanvas({
           map.easeTo({
             center: [anchor.longitude!, anchor.latitude!],
             zoom: targetZoom,
-            ...(prefersReducedMotion ? { duration: 0 } : {}),
+            ...(prefersReducedMotionRef.current ? { duration: 0 } : {}),
           });
         } else if (anchorEl) {
           // Camera already at the zoom where this cluster bottoms out
@@ -1792,7 +1801,10 @@ export function MapCanvas({
         // the prior err-swallow pattern.
       }
     },
-    [aggregated, observations, prefersReducedMotion, openClusterListFromGroup],
+    // prefersReducedMotion is read through the stable ref (`.current`), so it is
+    // intentionally NOT a dep — the callback need not be re-created on an OS
+    // reduce-motion toggle; the flight `duration` picks up the live value anyway.
+    [aggregated, observations, openClusterListFromGroup],
   );
 
   const handleClosePopover = useCallback(() => setSelectedObs(null), []);
@@ -1843,10 +1855,12 @@ export function MapCanvas({
       map.easeTo({
         center,
         zoom: targetZoom,
-        ...(prefersReducedMotion ? { duration: 0 } : {}),
+        // Live preference via the stable ref — see prefersReducedMotionRef above.
+        ...(prefersReducedMotionRef.current ? { duration: 0 } : {}),
       });
     },
-    [prefersReducedMotion],
+    // prefersReducedMotion read through the ref (`.current`); not a dep.
+    [],
   );
 
   /* Hit-target layer: render hit targets at zoom >= CLUSTER_MAX_ZOOM

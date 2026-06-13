@@ -166,6 +166,40 @@
   --page-slide-ease:     cubic-bezier(0.22, 1, 0.36, 1);
   --page-fade-ease:      cubic-bezier(0.22, 1, 0.36, 1);
 
+  /* ── ONE settle clock (#1063) ────────────────────────────────────────────
+     The field-guide sheet's settle tween (recipe-01 card-resize: the
+     height/width snap between detents) MUST stay synchronized with the
+     recipe-08 page cross-dissolve above (--page-slide-dur/--page-fade-dur):
+     the page cross-fade, the in-page #07 reveals, and the #01 container-height
+     tween all start+finish on one frame (no two-stage desync — #954 chased a
+     desync that arose precisely because this clock was defined inline on the
+     component, split from the --page-* values). Hoisted here so the two halves
+     of the one-clock contract sit together and a future retune of one is an
+     obvious cue to retune the other. styles.css CONSUMES these; it no longer
+     defines them. Reduced-motion is owned globally by motion.css. */
+  --sheet-settle-dur:    240ms;
+  --sheet-settle-ease:   cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* ── Chrome micro-motion tunings (#1063) ─────────────────────────────────
+     Previously raw literals in styles.css; tokenized so a global motion retune
+     reaches them. Reduced-motion is owned globally by motion.css. */
+  /* Filters-button numeric badge entrance (recipe-03 notification-badge, a
+     @keyframes pop on mount). DEVIATION (2026-06-11, #1063): catalog #03 uses a
+     1.36 back-out overshoot at 500ms; this badge keeps the codebase's only
+     stronger 1.56 back-out at 200ms — a tighter, snappier pop tuned for the
+     small chrome badge rather than the catalog's larger surface. Kept as a
+     deliberate, dated departure rather than normalized to the catalog value. */
+  --badge-pop-dur:       200ms;
+  --badge-pop-ease:      cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* Theme-toggle glyph cross-fade (opacity/transform/filter swap between sun &
+     moon). House bezier; short because it is an in-place icon swap. */
+  --icon-swap-dur:       160ms;
+  --icon-swap-ease:      cubic-bezier(0.22, 1, 0.36, 1);
+  /* Family-legend chevron rotate (rotate ONLY — never the entries list). House
+     bezier (shared via --icon-swap-ease); named for its own surface so a
+     chevron-specific retune does not perturb the theme-toggle swap. */
+  --chevron-dur:         200ms;
+
   /* ds-shimmer duration — shared by .status-block__skeleton + .photo__skeleton
      (both use the same ds-shimmer keyframe; #948). adaptive-grid-pending-shimmer
      (1.4s, reverse-direction) and skeleton-shimmer (opacity-pulse technique) are

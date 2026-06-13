@@ -612,10 +612,12 @@ body {
    But `visibility:hidden` keeps the element IN FLOW: a closed in-flow flex child
    of the vertical-column `.app-header-identity-card` still reserves the full
    ScopeControl box, so the card froze at its OPEN height — an empty band below
-   the lede (#975). This wrapper animates `grid-template-rows: 0fr → 1fr` (the
-   catalog-only, JS-free "tween to content height" technique — the concrete
-   answer to #01's "can't tween to auto"); closed → a 0-height track, so the
-   inner form contributes ZERO layout height. The inner .t-panel-slide keeps the
+   the lede (#975). This wrapper animates `grid-template-rows: 0fr → 1fr` — a
+   documented HOUSE EXTENSION (#1063), NOT a transitions-dev catalog recipe: the
+   18-recipe catalog has no grid-template-rows tween. It is the JS-free "tween to
+   content height" technique (the concrete answer to #01's "can't tween to auto",
+   reviewed live in #975/#979); closed → a 0-height track, so the inner form
+   contributes ZERO layout height. The inner .t-panel-slide keeps the
    UNCHANGED #07 transform/opacity/blur reveal on the SAME clock
    (--panel-open-dur / --panel-ease), so both the height collapse and the visible
    slide play together. No new per-element prefers-reduced-motion query — the
@@ -624,7 +626,14 @@ body {
 .app-header-scope-clip {
   display: grid;
   grid-template-rows: 1fr;
-  transition: grid-template-rows var(--panel-open-dur) var(--panel-ease);
+  /* #1063: tween BOTH the row track AND the closed-state gap-compensation
+     margin on the same panel clock. The negative margin-block-start below
+     (cancels the card gap while collapsed) was previously absent from this
+     list, so it stepped discretely at the edges of the 400ms grid-rows tween —
+     a visible ~8px jump. Animating it here keeps the collapse continuous. */
+  transition:
+    grid-template-rows var(--panel-open-dur) var(--panel-ease),
+    margin-block-start var(--panel-open-dur) var(--panel-ease);
 }
 .app-header-scope-clip[data-open='false'] {
   grid-template-rows: 0fr;
@@ -793,8 +802,10 @@ body {
      Digit changes stay instant hard-cuts (no animation on value change).
      The global motion.css guard sets animation-duration: 0ms for
      prefers-reduced-motion, resolving instantly to the end-state — no
-     stuck-hidden risk because the end-state is fully visible. */
-  animation: badge-pop 200ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+     stuck-hidden risk because the end-state is fully visible.
+     Tunings (incl. the dated catalog-#03 back-out deviation) live in
+     tokens.css: --badge-pop-dur / --badge-pop-ease. */
+  animation: badge-pop var(--badge-pop-dur) var(--badge-pop-ease) both;
 }
 
 @keyframes badge-pop {
@@ -882,9 +893,9 @@ body {
   transform: scale(0.85);
   filter: blur(4px);
   transition:
-    opacity   160ms cubic-bezier(0.22, 1, 0.36, 1),
-    transform 160ms cubic-bezier(0.22, 1, 0.36, 1),
-    filter    160ms cubic-bezier(0.22, 1, 0.36, 1);
+    opacity   var(--icon-swap-dur) var(--icon-swap-ease),
+    transform var(--icon-swap-dur) var(--icon-swap-ease),
+    filter    var(--icon-swap-dur) var(--icon-swap-ease);
   will-change: opacity, transform, filter;
 }
 .theme-toggle-glyph[data-active] {
@@ -1469,7 +1480,7 @@ body {
      The global motion.css guard zeroes transition-duration for
      prefers-reduced-motion so the chevron snaps instantly to end-state. */
   transform: rotate(0deg);
-  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform var(--chevron-dur) var(--icon-swap-ease);
   display: inline-block;
 }
 .family-legend-chevron[data-expanded='true'] {
@@ -2091,10 +2102,13 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
 /* The catalog snippet sets pointer-events on the resting/open states to gate
    interaction during a full panel reveal. The rail is keyboard-focused on
    mount (close button) and the entrance is short, so pointer-events stay
-   default here — gating them would briefly swallow clicks on the open card. */
-@media (prefers-reduced-motion: reduce) {
-  aside.species-detail-rail.t-panel-slide { transition: none !important; }
-}
+   default here — gating them would briefly swallow clicks on the open card.
+   No per-element reduced-motion guard: the rail's transitions carry NO
+   transition-delay, so the global motion.css duration-zeroing already lands
+   them at the end-state instantly — a per-element `transition: none` here would
+   be byte-for-byte redundant (#1063 deleted it; motion.css:6-10 single-source
+   policy, the same "house policy / owned globally by motion.css" convention the
+   compliant siblings in this file cite at the scope-clip and sheet-settle rules). */
 
 /* Recipe #18 — texts-reveal (verbatim CSS) on the identity block. Lines:
    name=--1, sci=--2, family-row=--3 (the --3 delay is added below). */
@@ -2130,6 +2144,16 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
   transform: translateY(0);
   filter: blur(0);
 }
+/* This per-element guard genuinely qualifies under the motion.css single-source
+   policy (motion.css:6-10 permits a per-element override "when needed"): the
+   stagger lines DO carry transition-delays (:--1/--2/--3 above, up to
+   --stagger-stagger * 2 ≈ 80ms). The global guard zeroes transition-DURATION
+   only, NOT transition-DELAY — so without this `transition: none !important`,
+   reduced-motion users would still see the three identity lines flip in a
+   staggered 80ms cascade. `transition: none` kills the delay too, landing all
+   three at the end-state on the same frame. (Contrast the rail above: no delay
+   there, so the global duration-zeroing suffices and a per-element guard is
+   redundant — #1063.) */
 @media (prefers-reduced-motion: reduce) {
   .detail-fg-identity.t-stagger .t-stagger-line { transition: none !important; }
 }
@@ -2179,11 +2203,12 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
      01-card-resize). The transition is gated OFF during an active drag via
      [data-dragging='true'] below so the drag tracks the finger 1:1.
      Reduced-motion is owned globally by motion.css (collapses this to 0ms);
-     no per-element guard here, per repo convention. */
-  --sheet-settle-dur: 240ms;
-  --sheet-settle-ease: cubic-bezier(0.22, 1, 0.36, 1);
+     no per-element guard here, per repo convention.
+     --sheet-settle-dur / --sheet-settle-ease are the ONE settle clock, defined
+     in tokens.css beside --page-slide-dur/--page-fade-dur (the must-stay-synced
+     half of the same clock — #1063 hoisted them so #954's split-definition
+     desync class can't recur). Consumed here, NOT defined. */
   transition: height var(--sheet-settle-dur) var(--sheet-settle-ease);
-  will-change: height;
 }
 
 .species-detail-sheet[data-dragging='true'] {
