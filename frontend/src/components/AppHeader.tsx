@@ -94,6 +94,13 @@ export interface AppHeaderProps {
    */
   filtersOpen: boolean;
   /**
+   * Whether a species detail surface (sheet/rail) is open — App derives this
+   * from `?detail=` presence (`!!state.detail`). E5 (#1057): drives the scope
+   * disclosure's auto-collapse so a detail surface taking over closes the
+   * expanded scope card (spec §5.1 COMPACT — at most one expanded surface).
+   */
+  detailOpen: boolean;
+  /**
    * Ref forwarded to the Filters trigger button. App.tsx holds this so it can
    * restore focus to the trigger when the filters sheet is dismissed (O4 #780).
    * The button is always mounted (in the persistent controls pill), so `.current`
@@ -135,6 +142,7 @@ export function AppHeader({
   filterCount,
   onOpenFilters,
   filtersOpen,
+  detailOpen,
   filtersTriggerRef,
   onOpenAttribution,
   ledeText,
@@ -183,6 +191,44 @@ export function AppHeader({
     if (!scopeActive) setScopeOpen(false);
   }, [scopeActive]);
 
+  // E5 (#1057): auto-collapse the disclosure when ANOTHER surface takes over —
+  // the Filters sheet opening or a species-detail surface opening. Spec §5.1
+  // COMPACT requires at most one expanded surface; on a ≤480 phone an open
+  // scope card + an open Filters/detail sheet violated that. We collapse only
+  // on the RISING EDGE of each signal (false→true) — NOT whenever the signal
+  // is true — so the user can deliberately re-open the scope form while the
+  // other surface is still up without it being slammed shut on the next
+  // unrelated re-render. This is the SURFACE-TAKEOVER intent, deliberately
+  // distinct from the PRESERVED no-click-outside rule: a stray map click must
+  // still not discard a half-typed ZIP, but a Filters/detail tap is a clear
+  // "switch surfaces" intent. Source signals are pinned (per the issue's
+  // reviewer addenda) to the existing `filtersOpen` prop and the `detailOpen`
+  // boolean App derives from `?detail=` presence — no new context.
+  const prevFiltersOpen = useRef(filtersOpen);
+  const prevDetailOpen = useRef(detailOpen);
+  useEffect(() => {
+    const filtersRising = filtersOpen && !prevFiltersOpen.current;
+    const detailRising = detailOpen && !prevDetailOpen.current;
+    prevFiltersOpen.current = filtersOpen;
+    prevDetailOpen.current = detailOpen;
+    if (filtersRising || detailRising) setScopeOpen(false);
+  }, [filtersOpen, detailOpen]);
+
+  // E5 (#1057): a successful state COMMIT collapses the disclosure — the user
+  // is "done" choosing a scope. We hook the COMMIT path (`onPickState`), NOT
+  // the raw `change` event: sibling #1035 moved that commit from
+  // change-navigates to an explicit Go/Enter submit, so wrapping `onPickState`
+  // here composes with #1035 in either merge order (in both worlds it stays the
+  // commit callback). The wrapped handler forwards to the real `onPickState`
+  // and then collapses.
+  const handlePickState = useCallback(
+    (stateCode: string) => {
+      onPickState(stateCode);
+      setScopeOpen(false);
+    },
+    [onPickState],
+  );
+
   // Esc collapses + restores focus to the trigger (spec §7). NO click-outside:
   // a stray map click must not discard a half-typed ZIP. Handler lives on the
   // identity card so Esc closes from any field inside the form OR from the
@@ -219,9 +265,14 @@ export function AppHeader({
             Bird Maps
             {/* #828: the visible region rides in the wordmark line at EVERY
                 breakpoint (the resting card is two lines everywhere). The
-                matching <h1> below is sr-only so the region isn't read twice. */}
+                matching <h1> below is sr-only so the region isn't read twice.
+                #1057: the " · " separator is painted by `.brand-region::before`
+                (CSS), NOT a literal text node, so "· {region}" wraps as one
+                unbreakable unit and never orphans a hanging "·" at a line end.
+                The JSX MUST NOT also carry the literal "· " here (it would
+                double-render the dot). */}
             {region && (
-              <span className="brand-region" aria-hidden="true"> · {region}</span>
+              <span className="brand-region" aria-hidden="true">{region}</span>
             )}
           </a>
 
@@ -340,7 +391,7 @@ export function AppHeader({
                 ref={firstScopeFieldRef}
                 scope={scope as ScopedView}
                 states={states}
-                onPickState={onPickState}
+                onPickState={handlePickState}
                 onPickWholeUs={onPickWholeUs}
                 onExit={onExitScope}
                 onResolve={onResolveZip}

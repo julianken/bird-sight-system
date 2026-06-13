@@ -470,10 +470,25 @@ body {
   border-radius: 4px;
 }
 
-/* " · Arizona" suffix in the wordmark (at roomy/wide; hidden at compact). */
+/* "· Arizona" suffix in the wordmark, painted at EVERY breakpoint (#828 — the
+   resting card is two lines everywhere; there is no compact-hiding rule). #1057:
+   the leading "· " separator is rendered via `::before` (NOT a literal JSX text
+   node) so the dot and the region name are ONE element's content and wrap as an
+   unbreakable unit — the line can no longer break between the "·" and the
+   region, which previously orphaned a hanging "·" at the end of line one on a
+   390px wordmark. The literal "· " was dropped from the JSX in tandem (see
+   AppHeader.tsx) to avoid double-rendering the dot. */
 .app-header-wordmark .brand-region {
   font-weight: var(--font-weight-medium);
   color: var(--color-text-muted);
+}
+.app-header-wordmark .brand-region::before {
+  /* Leading normal space = the (breakable) gap after "Bird Maps"; then the
+     middot + a NO-BREAK space (\00a0) bind the "·" to the region name so they
+     never split across a line. The NO-BREAK space does the binding on its own —
+     no `white-space` override needed (which would also kill the leading break
+     opportunity). */
+  content: ' \00b7\00a0';
 }
 
 /* Region name — the page's single <h1>, kept for heading structure but ALWAYS
@@ -3503,6 +3518,13 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
   border-radius: 4px;
   text-decoration: underline;
   cursor: pointer;
+  /* #1057: keep each label ("Whole US", "Change scope") on a single line. With
+     no nowrap they broke mid-phrase at 390 into stacked, per-line-underlined
+     "Whole / US" — the primary scope-change affordances read as a layout bug and
+     lost tap width despite free card width. The exit-group stays flex-with-gap
+     (.scope-control__exit-group); if space is ever genuinely tight the card may
+     grow toward --card-maxw-identity (360px) rather than wrapping these labels. */
+  white-space: nowrap;
 }
 .scope-control__wholeus:hover,
 .scope-control__exit:hover {
