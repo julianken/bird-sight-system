@@ -3,6 +3,18 @@ import { AppPage } from './pages/app-page.js';
 import type { Observation } from '@bird-watch/shared-types';
 
 /**
+ * E3 (#1055): the legend expansion preference is now per-breakpoint-class —
+ * `family-legend-expanded.v3.<tier>` where tier ∈ {compact (<480), roomy
+ * (480–1023), wide (≥1024)}. A seed that sets the wrong tier's key silently
+ * tests nothing (the active tier reads its own key), so map the viewport width
+ * to its tier here and seed that exact key.
+ */
+function legendKeyFor(width: number): string {
+  const tier = width < 480 ? 'compact' : width < 1024 ? 'roomy' : 'wide';
+  return `family-legend-expanded.v3.${tier}`;
+}
+
+/**
  * O5 (#783) — FamilyLegend mobile width cap (R6) + force-collapsed behaviour.
  *
  * Covers:
@@ -98,11 +110,15 @@ test.describe('R6 — legend width cap at 390px (O5 #783)', () => {
 
   test('collapsed legend at 390px is ≤280px wide', async ({ page, apiStub }) => {
     await setupRoutes(page, apiStub);
-    // Start collapsed (clear localStorage so responsive default applies)
+    // Start collapsed (clear localStorage so responsive default applies).
+    // E3 (#1055): clear every legacy + per-tier key so no stored pref survives.
     await page.addInitScript(() => {
       try {
         window.localStorage.removeItem('family-legend-expanded');
         window.localStorage.removeItem('family-legend-expanded.v2');
+        window.localStorage.removeItem('family-legend-expanded.v3.compact');
+        window.localStorage.removeItem('family-legend-expanded.v3.roomy');
+        window.localStorage.removeItem('family-legend-expanded.v3.wide');
       } catch { /* noop */ }
     });
     const app = new AppPage(page);
@@ -133,7 +149,7 @@ test.describe('R6 — legend width cap at 390px (O5 #783)', () => {
     // localStorage says expanded=true. At 390px the cap must still hold.
     await page.addInitScript(() => {
       try {
-        window.localStorage.setItem('family-legend-expanded.v2', 'true');
+        window.localStorage.setItem('family-legend-expanded.v3.compact', 'true');
       } catch { /* noop */ }
     });
     const app = new AppPage(page);
@@ -156,7 +172,7 @@ test.describe('R6 — legend width cap at 390px (O5 #783)', () => {
 
     // Verify the stored preference was NOT mutated (the cap is CSS-only)
     const stored = await page.evaluate(() =>
-      window.localStorage.getItem('family-legend-expanded.v2'),
+      window.localStorage.getItem('family-legend-expanded.v3.compact'),
     );
     expect(stored).toBe('true');
   });
@@ -177,7 +193,7 @@ test.describe('force-collapsed — detail sheet at half/full (O5 #783)', () => {
     // Expanded legend in localStorage so it would show entries without force-collapse
     await page.addInitScript(() => {
       try {
-        window.localStorage.setItem('family-legend-expanded.v2', 'true');
+        window.localStorage.setItem('family-legend-expanded.v3.compact', 'true');
       } catch { /* noop */ }
     });
     const app = new AppPage(page);
@@ -221,7 +237,7 @@ test.describe('force-collapsed — detail sheet at half/full (O5 #783)', () => {
 
     // The stored preference must be intact (not mutated to false)
     const stored = await page.evaluate(() =>
-      window.localStorage.getItem('family-legend-expanded.v2'),
+      window.localStorage.getItem('family-legend-expanded.v3.compact'),
     );
     expect(stored).toBe('true');
   });
@@ -252,11 +268,13 @@ for (const { width, height, label } of [
       await setupRoutes(page, apiStub);
       await apiStub.stubSpecies('vermfly', VERMFLY_WITH_PHOTO);
       await apiStub.stubPhotoImage();
-      await page.addInitScript(() => {
+      // E3 (#1055): seed THIS viewport's tier key (1024→wide, 768→roomy).
+      const legendKey = legendKeyFor(width);
+      await page.addInitScript((key) => {
         try {
-          window.localStorage.setItem('family-legend-expanded.v2', 'true');
+          window.localStorage.setItem(key, 'true');
         } catch { /* noop */ }
-      });
+      }, legendKey);
       const app = new AppPage(page);
       // At these widths isCompact=true so the sheet renders (not the rail).
       await app.goto('detail=vermfly&view=detail');
@@ -275,8 +293,9 @@ for (const { width, height, label } of [
       await expect(page.locator('.family-legend-entries')).not.toBeVisible();
 
       // The stored expanded preference is NOT mutated by force-collapse.
-      const stored = await page.evaluate(() =>
-        window.localStorage.getItem('family-legend-expanded.v2'),
+      const stored = await page.evaluate(
+        (key) => window.localStorage.getItem(key),
+        legendKey,
       );
       expect(stored).toBe('true');
     });
@@ -286,11 +305,11 @@ for (const { width, height, label } of [
       apiStub,
     }) => {
       await setupRoutes(page, apiStub);
-      await page.addInitScript(() => {
+      await page.addInitScript((key) => {
         try {
-          window.localStorage.setItem('family-legend-expanded.v2', 'true');
+          window.localStorage.setItem(key, 'true');
         } catch { /* noop */ }
-      });
+      }, legendKeyFor(width));
       const app = new AppPage(page);
       await app.goto('view=map');
       await app.waitForAppReady();
@@ -317,7 +336,7 @@ test.describe('force-collapsed — filters sheet open (O5 #783)', () => {
     await setupRoutes(page, apiStub);
     await page.addInitScript(() => {
       try {
-        window.localStorage.setItem('family-legend-expanded.v2', 'true');
+        window.localStorage.setItem('family-legend-expanded.v3.compact', 'true');
       } catch { /* noop */ }
     });
     const app = new AppPage(page);

@@ -127,8 +127,9 @@ const LEDE_LOADING_PLACEHOLDER = 'Updating…';
  * 768×1024 (iPad portrait) the expanded legend covers the only visible marker
  * on first paint. Lift the JS threshold to 1024 so tablet-portrait (and
  * narrower) start collapsed; tablet-landscape and desktop still default
- * expanded. localStorage `family-legend-expanded.v2` still overrides the
- * default once the user toggles.
+ * expanded. The per-breakpoint `family-legend-expanded.v3.<tier>` storage key
+ * (E3 #1055) still overrides the default once the user toggles — for that tier
+ * only, so a desktop expand never leaks into the phone tier.
  */
 const LEGEND_EXPAND_MIN_WIDTH = 1024;
 

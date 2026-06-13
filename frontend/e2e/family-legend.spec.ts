@@ -24,6 +24,9 @@ test.describe('FamilyLegend (desktop)', () => {
       try {
         window.localStorage.removeItem('family-legend-expanded');
         window.localStorage.removeItem('family-legend-expanded.v2');
+        window.localStorage.removeItem('family-legend-expanded.v3.compact');
+        window.localStorage.removeItem('family-legend-expanded.v3.roomy');
+        window.localStorage.removeItem('family-legend-expanded.v3.wide');
       } catch { /* noop */ }
     });
     await app.goto('view=map');
@@ -39,6 +42,9 @@ test.describe('FamilyLegend (desktop)', () => {
       try {
         window.localStorage.removeItem('family-legend-expanded');
         window.localStorage.removeItem('family-legend-expanded.v2');
+        window.localStorage.removeItem('family-legend-expanded.v3.compact');
+        window.localStorage.removeItem('family-legend-expanded.v3.roomy');
+        window.localStorage.removeItem('family-legend-expanded.v3.wide');
       } catch { /* noop */ }
     });
     await app.goto('view=map');
@@ -104,12 +110,12 @@ test.describe('FamilyLegend (mobile)', () => {
     // Resolves analysis Theme 3 — on mobile with empty localStorage (or
     // after a clear), the first paint must start collapsed.
     //
-    // The legacy key migration (family-legend-expanded → .v2) is covered
-    // by unit tests in FamilyLegend.test.tsx. This e2e test covers the
-    // viewport-driven default at the integration level.
+    // The key migration (family-legend-expanded → .v2 → per-tier .v3.<tier>,
+    // E3 #1055) is covered by unit tests in FamilyLegend.test.tsx. This e2e
+    // test covers the viewport-driven default at the integration level.
     //
     // Use addInitScript to clear localStorage BEFORE any React code runs.
-    // localStorage.clear() also removes any .v2 value left by a prior
+    // localStorage.clear() also removes any stored value left by a prior
     // desktop test in the same Playwright BrowserContext worker.
     await page.addInitScript(() => {
       window.localStorage.clear();
