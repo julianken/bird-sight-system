@@ -3,9 +3,16 @@
  *
  * Returns one of three named tiers keyed to the overlay breakpoint tokens
  * from tokens.css:
- *   - `'compact'`  — viewport width < --overlay-bp-compact (480px)
- *   - `'roomy'`    — 480px ≤ width < --overlay-bp-wide (1024px)
+ *   - `'compact'`  — viewport width ≤ --overlay-bp-compact (480px)
+ *   - `'roomy'`    — 480px < width < --overlay-bp-wide (1024px)
  *   - `'wide'`     — viewport width ≥ --overlay-bp-wide (1024px)
+ *
+ * The compact boundary is INCLUSIVE of 480 (F2 #1062): the CSS is desktop-first
+ * (`@media (max-width: 480px)` = ≤480) and the deleted `useIsPhone` hook queried
+ * `(max-width: 480px)` too, so at exactly w=480 every authority must agree on
+ * `'compact'`. Before #1062 the engine queried one px below BP_COMPACT (≤479)
+ * and disagreed with CSS at the single-pixel boundary. The `'wide'` boundary
+ * stays EXCLUSIVE (≥1024 is wide) — that is `min-width`-style and uncontested.
  *
  * Uses `window.matchMedia` so the hook reacts to live viewport resizes.
  * SSR-safe: in environments where `window` is undefined (e.g. jsdom without
@@ -33,7 +40,7 @@ function readBreakpoint(): Breakpoint {
     // matches the desktop fallback (same discipline as readLegendDefaultExpanded).
     return 'wide';
   }
-  if (window.matchMedia(`(max-width: ${BP_COMPACT - 1}px)`).matches) {
+  if (window.matchMedia(`(max-width: ${BP_COMPACT}px)`).matches) {
     return 'compact';
   }
   if (window.matchMedia(`(max-width: ${BP_WIDE - 1}px)`).matches) {
@@ -50,7 +57,7 @@ export function useBreakpoint(): Breakpoint {
       return;
     }
 
-    const mqlCompact = window.matchMedia(`(max-width: ${BP_COMPACT - 1}px)`);
+    const mqlCompact = window.matchMedia(`(max-width: ${BP_COMPACT}px)`);
     const mqlRoomy = window.matchMedia(`(max-width: ${BP_WIDE - 1}px)`);
 
     function onchange() {

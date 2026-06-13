@@ -214,7 +214,7 @@ body {
    --card-maxw-identity (360px) for coherence with the identity card's width.
    Centered vertically and horizontally so it clears the top corner cluster
    (identity card top-left, controls top-right) and the bottom attribution
-   safe-zone at all 5 canonical viewports. On narrow viewports (≤ 440px) the
+   safe-zone at all 5 canonical viewports. On narrow viewports (≤ 480px) the
    mobile @media rule expands it to fill edge-to-edge with inset margins while
    keeping vertical centering. */
 .map-error-overlay {
@@ -270,9 +270,12 @@ body {
   color: var(--color-text-strong);
 }
 
-/* On narrow phone viewports (≤ 440px) fill edge-to-edge with inset margins
-   while keeping true vertical center (translateY(-50%) from top:50%). */
-@media (max-width: 440px) {
+/* On narrow phone viewports (≤ 480px) fill edge-to-edge with inset margins
+   while keeping true vertical center (translateY(-50%) from top:50%).
+   F2 (#1062): 440→480 to land on the COMPACT placement boundary (480/1024/1440,
+   spec §5.1) — the error overlay's edge-to-edge phone treatment now switches at
+   the same threshold as every other compact-tier surface. */
+@media (max-width: 480px) {
   .map-error-overlay {
     left: var(--card-inset, 12px);
     right: var(--card-inset, 12px);
@@ -307,9 +310,12 @@ body {
   flex: 1;
 }
 
-/* On narrow phone viewports (≤ 440px) fill edge-to-edge with inset margins
-   while keeping true vertical center (translateY(-50%) from top:50%). */
-@media (max-width: 440px) {
+/* On narrow phone viewports (≤ 480px) fill edge-to-edge with inset margins
+   while keeping true vertical center (translateY(-50%) from top:50%).
+   F2 (#1062): 440→480 to land on the COMPACT placement boundary (spec §5.1),
+   mirroring the .map-error-overlay migration above — these two error cards
+   share the same phone-fill pattern and must switch at the same threshold. */
+@media (max-width: 480px) {
   .map-basemap-error {
     left: var(--card-inset, 12px);
     right: var(--card-inset, 12px);
@@ -1193,13 +1199,15 @@ body {
    When more overlays land (v2 hotspot markers, layer toggles) their
    styles go here or in a dedicated map.css.
 
-   Responsive convention. The @media (max-width: 760px) rule below is
-   the project's first responsive breakpoint. Default state for everything
-   else is desktop-first (the codebase's content caps — e.g.
-   .species-detail-surface — use max-width: 760px). The 760px legend
-   breakpoint is chosen to align numerically with those caps for visual
-   coherence; downstream responsive styles should reuse this token when
-   their behavior aligns. */
+   Responsive convention. Placement breakpoints land on the 3-breakpoint
+   authority (480/1024/1440, spec §5.1; F2 #1062). The one surviving
+   @media (max-width: 760px) rule — `.attribution-modal` padding, styles.css
+   below — is a CONTENT cap (how much modal copy fits one screen), NOT a
+   placement switch, so it is deliberately divergent from the 480 compact
+   boundary and is retained at 760 (F2 #1062, 2026-06-13). Do not "consolidate"
+   it onto 480; that would force the modal narrow at 481–760 where it still has
+   room. Any NEW responsive style should use the 480/1024/1440 authority unless
+   it has the same content-cap justification, documented inline. */
 .map-surface {
   /* #761 (S2): the map is the viewport ROOT now. `.map-surface` was a controlled
      flex child (`flex: 1; min-height: 0`) capped by the old padded `<main>` flex
@@ -1370,9 +1378,12 @@ body {
 }
 
 /* Mobile tightens the modal padding so the per-silhouette list fits in
-   one screen without needing a long inner scroll. The 760px breakpoint
-   matches the codebase responsive convention (see comment block above
-   `.map-surface`). */
+   one screen without needing a long inner scroll. DELIBERATELY DIVERGENT from
+   the 480/1024/1440 placement authority (F2 #1062, 2026-06-13): 760 is a CONTENT
+   cap (how much credits copy fits one screen), not a placement switch — narrowing
+   the modal at 481–760 where it still has room would be a regression. Risk if
+   wrong: a future re-audit sees a lone 760 and "consolidates" it to 480, cramping
+   the modal on small tablets; this comment is the justification that keeps it. */
 @media (max-width: 760px) {
   .attribution-modal {
     max-width: 100vw;

@@ -37,6 +37,15 @@ const CONUS_LONGITUDE = -98.5795;
 const CONUS_LATITUDE = 39.8283;
 export const CONUS_ZOOM_NARROW = 3;
 export const CONUS_ZOOM_WIDE = 4;
+/**
+ * DELIBERATELY DIVERGENT from the 480/1024/1440 placement authority (F2 #1062,
+ * 2026-06-13). This is a MAP-FRAMING threshold — it selects the initial CONUS
+ * zoom (3 narrow vs 4 wide) so the lower-48 fills a phone/tablet sensibly — NOT
+ * a floating-surface placement switch. 700 is tuned to the framing geometry
+ * (where zoom 4 starts overflowing the canvas), independent of where overlay
+ * cards switch corners. Risk if "consolidated" to 480: small tablets (481–700)
+ * would jump to zoom 4 and overshoot the CONUS frame. Keep at 700.
+ */
 export const CONUS_NARROW_BREAKPOINT_PX = 700;
 
 /**

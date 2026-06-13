@@ -85,12 +85,22 @@
      resolve to the same 12px — zero visual change. Added 2026-05-30 (#761 P1). */
   --radius-lg: 12px;
 
-  /* Overlay sizing breakpoints (#761 P1, issue #778) — documentation mirrors of
-     the 480/1024 boundaries that the JS breakpoint engine owns; the overlay-move
-     PRs consumed the JS hook (custom properties can't parameterize @media), so no
-     CSS rule consumes these. Hand-synced with: use-breakpoint.ts, use-is-phone.ts,
-     App.tsx LEGEND_EXPAND_MIN_WIDTH. Boundary-semantics consolidation is #1062. */
-  --overlay-bp-compact: 480px;  /* below: overlays go full-bleed sheet/peek   */
+  /* Overlay sizing breakpoints (#761 P1, issue #778) — govern floating-overlay
+     size/anchor only, NOT prose-column layout. Distinct from the 760px content
+     breakpoint and the 1024px content column. Formalizes the
+     LEGEND_EXPAND_MIN_WIDTH / useIsCompact decoupling started in
+     MapSurface.tsx:37. Consumed by later #761 overlay-move PRs; no rule
+     consumes them yet. Added 2026-05-30 (#761 P1).
+
+     BOUNDARY CONVENTION (F2 #1062, 2026-06-13): compact is INCLUSIVE of 480 —
+     at exactly w=480 every authority agrees "compact". The CSS is desktop-first
+     (`@media (max-width: 480px)` = ≤480) and the `useBreakpoint()` engine's
+     compact query is `(max-width: 480px)` (was `≤479` before #1062, an
+     off-by-one where CSS said compact but the engine said roomy at the single
+     480px column). The roomy band is therefore 481–1024 and wide is ≥1024
+     (the wide boundary stays exclusive: ≥1024 is wide). The 3-breakpoint
+     placement authority is 480/1024/1440 (spec §5.1). */
+  --overlay-bp-compact: 480px;  /* ≤480 (inclusive): overlays go full-bleed sheet/peek */
   --overlay-bp-wide:    1024px; /* above: legend defaults expanded (mirrors MapSurface) */
 
   /* ── Floating-card geometry (#761 #803, spec §2.1) ─────────────────────
