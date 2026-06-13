@@ -2037,6 +2037,149 @@ describe('#864 — lone unclustered bucket silhouette opens its real species', (
   });
 });
 
+// ─── E1 (#1053): close-on-detail-open — MapCanvas-owned popovers ─────────────
+//
+// The MapCanvas owns `selectedObs` (the ObservationPopover) and `clusterList`
+// (the canvas-level ClusterListPopover). When a species detail opens
+// (`detailOpen` rises false→true) both must clear: desktop the popover lingers
+// mid-map beside the detail card; mobile it paints over the detail sheet. The
+// sibling marker-local clearing (`activeCell`/`isClusterListOpen`) is covered in
+// AdaptiveGridMarker.test.tsx — this block pins the MapCanvas half so neither
+// site is left wired while the other is fixed (the #976 partial-coverage trap).
+describe('E1 (#1053) — opening species detail closes MapCanvas-owned popovers', () => {
+  beforeEach(() => {
+    capturedSourceProps = {};
+    capturedLayerFilters = {};
+    capturedSourcesById = {};
+    capturedLayerPaint = {};
+    registeredHandlers = {};
+    bareHandlers = {};
+    bareHandlersAll = {};
+    deferMapLoad = false;
+    deferredOnLoad = null;
+    fakeMap = makeFakeMap();
+    document.documentElement.removeAttribute('data-theme');
+    __resetAdaptiveGridCacheForTesting();
+  });
+
+  it('a rising detailOpen edge clears an open ObservationPopover (selectedObs)', async () => {
+    const obs = makeObs({ subId: 'S1053', comName: 'Vermilion Flycatcher' });
+    const { rerender } = render(
+      <MapCanvas observations={[obs]} silhouettes={SILHOUETTES} detailOpen={false} />,
+    );
+    await waitFor(() =>
+      expect(registeredHandlers['click:unclustered-point']).toBeTypeOf('function'),
+    );
+    fakeMap.queryRenderedFeatures.mockImplementation(
+      (_: unknown, opts?: { layers?: string[] }) =>
+        opts?.layers?.includes('unclustered-point')
+          ? [
+              {
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [obs.lng, obs.lat] },
+                properties: { subId: 'S1053' },
+              },
+            ]
+          : [],
+    );
+    const handler = registeredHandlers['click:unclustered-point'];
+    if (!handler) throw new Error('click:unclustered-point handler missing');
+    await act(async () => {
+      handler({ point: [120, 120] });
+      await Promise.resolve();
+    });
+    expect(
+      await screen.findByRole('dialog', { name: /Details for Vermilion Flycatcher/ }),
+    ).toBeInTheDocument();
+
+    // Open a species detail → detailOpen rises → the popover unmounts.
+    rerender(<MapCanvas observations={[obs]} silhouettes={SILHOUETTES} detailOpen />);
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('dialog', { name: /Details for Vermilion Flycatcher/ }),
+      ).toBeNull(),
+    );
+  });
+
+  it('a rising detailOpen edge clears an open canvas ClusterListPopover (clusterList)', async () => {
+    const LONE_BUCKET: AggregatedBucket = {
+      lat: 46.0,
+      lng: -110.0,
+      count: 7,
+      speciesCount: 2,
+      families: [
+        {
+          code: 'tyrannidae',
+          count: 7,
+          speciesCount: 2,
+          species: [
+            { code: 'wewp', count: 5 },
+            { code: 'sayphoebe', count: 2 },
+          ],
+        },
+      ],
+    };
+    const DICT = new Map<string, { comName: string; familyCode: string }>([
+      ['wewp', { comName: 'Western Wood-Pewee', familyCode: 'tyrannidae' }],
+      ['sayphoebe', { comName: "Say's Phoebe", familyCode: 'tyrannidae' }],
+    ]);
+    const { rerender } = render(
+      <MapCanvas
+        observations={[]}
+        buckets={[LONE_BUCKET]}
+        mode="aggregated"
+        dictionary={DICT}
+        silhouettes={SILHOUETTES}
+        detailOpen={false}
+      />,
+    );
+    await waitFor(() =>
+      expect(registeredHandlers['click:unclustered-point']).toBeTypeOf('function'),
+    );
+    fakeMap.queryRenderedFeatures.mockImplementation(
+      (_: unknown, opts?: { layers?: string[] }) =>
+        opts?.layers?.includes('unclustered-point')
+          ? [
+              {
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [LONE_BUCKET.lng, LONE_BUCKET.lat] },
+                properties: {
+                  count: LONE_BUCKET.count,
+                  speciesCount: LONE_BUCKET.speciesCount,
+                  familiesJson: JSON.stringify(LONE_BUCKET.families),
+                  familyCode: 'tyrannidae',
+                  silhouetteId: 'tyrannidae',
+                  color: '#c3772d',
+                },
+              },
+            ]
+          : [],
+    );
+    const handler = registeredHandlers['click:unclustered-point'];
+    if (!handler) throw new Error('click:unclustered-point handler missing');
+    await act(async () => {
+      handler({ point: [120, 120] });
+      await Promise.resolve();
+    });
+    expect(await screen.findByTestId('cluster-list-popover')).toBeInTheDocument();
+
+    // Open a species detail → detailOpen rises → the cluster popover unmounts.
+    rerender(
+      <MapCanvas
+        observations={[]}
+        buckets={[LONE_BUCKET]}
+        mode="aggregated"
+        dictionary={DICT}
+        silhouettes={SILHOUETTES}
+        detailOpen
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.queryByTestId('cluster-list-popover')).toBeNull(),
+    );
+  });
+});
+
 // Popover-originated onSelectSpecies wire.
 // These tests run in a separate describe block that resets modules to
 // pick up the pointer:fine matchMedia stub for AdaptiveGridMarker.
@@ -2231,10 +2374,21 @@ describe('ObservationPopover anchoring — displaced silhouette regression (#718
     // shift produces an `entry.longitude/entry.latitude` that differs
     // from the obs's original lng/lat — this divergence is what the
     // bug at line 1607 would project from the wrong side of.
-    const obsLng = -110.9;
-    const obsLat = 32.2;
-    const clusterLng = -110.9; // co-located → forces displacement
-    const clusterLat = 32.2;
+    //
+    // E1 (#1053) note: these coords are chosen so the project() mock
+    // (x = (lng+180)*1000, y = (90−lat)*1000) lands the popover INSIDE the
+    // jsdom 1024×768 viewport (≈ x=400, y=500). Before #1053 the test used
+    // -110.9/32.2, which projected to ≈ (69100, 57800) — far off-screen.
+    // That was harmless when the popover position was the raw projection, but
+    // #1053 added an on-screen safe-area clamp (left/top pinned into
+    // [12, vw/vh − size − 12]); an off-screen projection now clamps to the same
+    // corner regardless of the entry-vs-obs divergence, erasing the
+    // discriminator this test reads. On-screen coords keep the clamp a no-op so
+    // the entry-projection invariant is still observable in the inline left/top.
+    const obsLng = -179.6;
+    const obsLat = 89.5;
+    const clusterLng = -179.6; // co-located → forces displacement
+    const clusterLat = 89.5;
     const obs = makeObs({
       subId: 'S-DISPLACED',
       lng: obsLng,

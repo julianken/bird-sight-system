@@ -352,6 +352,24 @@ export function MapCanvas({
     /** Camera center the "+N more" drill-in escalates into (the group anchor). */
     drillCenter?: [number, number];
   } | null>(null);
+  // E1 (#1053): close the canvas-owned transient popovers on the RISING edge of
+  // `detailOpen`. Opening a species detail must dismiss any open
+  // ObservationPopover (`selectedObs`) or canvas-level ClusterListPopover
+  // (`clusterList`) — desktop they otherwise linger mid-map beside the detail
+  // card; mobile they paint ON TOP of the detail sheet, occluding the heading.
+  // #976 only demoted the passive hover preview's z-index; click-opened popovers
+  // were never cleared. RISING-edge only (tracked via a ref) so a popover opened
+  // WHILE a detail is already up is left alone. The sibling marker-local
+  // clearing (`activeCell` 'popover' + `isClusterListOpen`) lives in
+  // AdaptiveGridMarker.tsx; both halves are needed to cover every open-state.
+  const prevDetailOpenRef = useRef(detailOpen);
+  useEffect(() => {
+    if (detailOpen && !prevDetailOpenRef.current) {
+      setSelectedObs(null);
+      setClusterList(null);
+    }
+    prevDetailOpenRef.current = detailOpen;
+  }, [detailOpen]);
   /**
    * Unified deconflict output (issue #554). One entry per overlap-component
    * — each carries an anchor cluster (whose marker actually paints) and the

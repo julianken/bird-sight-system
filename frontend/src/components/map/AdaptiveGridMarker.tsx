@@ -332,6 +332,25 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
     };
   }, []);
 
+  // E1 (#1053): close marker-local popovers on the RISING edge of `detailOpen`.
+  // When the user opens a species detail, any open click-driven popover must be
+  // dismissed — desktop: it otherwise lingers mid-map beside the detail card;
+  // mobile: it paints ON TOP of the detail sheet, occluding the heading. We
+  // clear the click-promoted cell popover (`activeCell` in 'popover' mode — a
+  // 'preview' hover stays, that's the #976 hover-to-compare path) and the
+  // coarse-pointer cluster list. RISING-edge only (tracked via a ref): a popover
+  // opened WHILE detail is already up is left alone, so hover-to-compare on the
+  // open detail still works. The sibling rising-edge effect for the
+  // MapCanvas-owned `selectedObs`/`clusterList` lives in MapCanvas.tsx.
+  const prevDetailOpen = useRef(detailOpen);
+  useEffect(() => {
+    if (detailOpen && !prevDetailOpen.current) {
+      setActiveCell((prev) => (prev?.mode === 'popover' ? null : prev));
+      setIsClusterListOpen(false);
+    }
+    prevDetailOpen.current = detailOpen;
+  }, [detailOpen]);
+
   const activeTile = activeCell !== null ? tiles[activeCell.index] : null;
   const previewId = activeTile
     ? `cell-${markerId}-${activeTile.familyCode}-preview`

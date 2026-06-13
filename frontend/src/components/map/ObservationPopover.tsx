@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { Observation } from '@bird-watch/shared-types';
 import { formatCount } from '../../lib/format-count.js';
+import { POPOVER_VIEWPORT_INSET_PX } from './CellPopover.js';
 
 export interface ObservationPopoverProps {
   observation: Observation | null;
@@ -167,14 +168,24 @@ export function ObservationPopover({
     const vh = typeof window !== 'undefined' ? window.innerHeight : 900;
     const flipX = position.x + OFFSET + POPOVER_W > vw;
     const flipY = position.y + OFFSET + measuredH > vh;
+    // E1 (#1053): clamp every side to the shared 12px safe area
+    // (POPOVER_VIEWPORT_INSET_PX, mirrors --card-inset). Before, only the FLIP
+    // branch had a floor (a raw `8`), and the non-flip branch emitted a bare
+    // `position.x + OFFSET` with NO upper bound — so a click near the right/
+    // bottom edge whose flip check just failed could still push the 300px card
+    // off-screen. Compute the raw left/top from the flip decision, then clamp
+    // into [inset, vw/vh − size − inset] on both axes.
+    const inset = POPOVER_VIEWPORT_INSET_PX;
+    const rawLeft = flipX ? position.x - OFFSET - POPOVER_W : position.x + OFFSET;
+    const rawTop = flipY ? position.y - OFFSET - measuredH : position.y + OFFSET;
+    const maxLeft = Math.max(inset, vw - POPOVER_W - inset);
+    const maxTop = Math.max(inset, vh - measuredH - inset);
+    const left = Math.min(Math.max(rawLeft, inset), maxLeft);
+    const top = Math.min(Math.max(rawTop, inset), maxTop);
     style = {
       position: 'absolute',
-      left: flipX
-        ? `${Math.max(8, position.x - OFFSET - POPOVER_W)}px`
-        : `${position.x + OFFSET}px`,
-      top: flipY
-        ? `${Math.max(8, position.y - OFFSET - measuredH)}px`
-        : `${position.y + OFFSET}px`,
+      left: `${left}px`,
+      top: `${top}px`,
     };
     origin = `${flipY ? 'bottom' : 'top'} ${flipX ? 'right' : 'left'}`;
   }
@@ -188,6 +199,22 @@ export function ObservationPopover({
       aria-label={`Details for ${observation.comName}`}
       style={style}
     >
+      {/* #1053: anchor caret — an 8px rotated-square notch on the click-facing
+          corner. `origin` already encodes the flip ('top|bottom left|right'):
+          it names the corner the popover grew FROM, i.e. the corner nearest the
+          click, which is exactly where the caret belongs. Mirroring it onto
+          data-origin lets the CSS park the notch there so it survives
+          flipX/flipY. Only rendered on the anchored path (position !== null);
+          the legacy no-anchor harness path has no marker to point at.
+          Decorative (aria-hidden) — the dialog already announces itself. */}
+      {position && (
+        <span
+          className="observation-popover-caret"
+          data-testid="observation-popover-caret"
+          data-origin={origin}
+          aria-hidden="true"
+        />
+      )}
       <div className="observation-popover-header">
         <span
           ref={headingRef}

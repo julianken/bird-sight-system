@@ -1690,6 +1690,50 @@ body:has(.species-detail-sheet--peek) .map-attribution {
   max-width: var(--card-maxw-popover);
 }
 
+/* #1053 — anchor caret. An 8px square rotated 45° parked at the click-facing
+   CORNER of the popover so it doesn't read as a detached card in a dense marker
+   pile. `data-origin` names the corner the popover grew FROM (== the corner
+   nearest the click), set by ObservationPopover.tsx from the same flipX/flipY
+   decision that places the card, so the caret survives the flip. The notch is
+   filled with the card background and shows only its two outward border edges.
+   Decorative (aria-hidden in the JSX). Default origin is 'top left'. */
+.observation-popover-caret {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: var(--color-bg-surface);
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+/* top-left corner → notch points up-left (top + left borders show). */
+.observation-popover-caret[data-origin='top left'] {
+  top: -4px;
+  left: var(--space-md);
+  border-top: 1px solid var(--color-border-ui);
+  border-left: 1px solid var(--color-border-ui);
+}
+/* top-right corner → notch points up-right (top + right borders show). */
+.observation-popover-caret[data-origin='top right'] {
+  top: -4px;
+  right: var(--space-md);
+  border-top: 1px solid var(--color-border-ui);
+  border-right: 1px solid var(--color-border-ui);
+}
+/* bottom-left corner → notch points down-left (bottom + left borders show). */
+.observation-popover-caret[data-origin='bottom left'] {
+  bottom: -4px;
+  left: var(--space-md);
+  border-bottom: 1px solid var(--color-border-ui);
+  border-left: 1px solid var(--color-border-ui);
+}
+/* bottom-right corner → notch points down-right (bottom + right borders show). */
+.observation-popover-caret[data-origin='bottom right'] {
+  bottom: -4px;
+  right: var(--space-md);
+  border-bottom: 1px solid var(--color-border-ui);
+  border-right: 1px solid var(--color-border-ui);
+}
+
 /* #950 — recipe-05 (menu-dropdown) origin-aware enter. Shared by the transient
    popovers that grow from a click point: ObservationPopover here, CellPopover
    in ds-primitives.css (which gates the enter behind data-placed). The element

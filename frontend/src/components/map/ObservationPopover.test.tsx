@@ -183,6 +183,95 @@ describe('ObservationPopover', () => {
     expect(left).toBe(538);
   });
 
+  // E1 (#1053): the popover must keep a ≥12px gutter from EVERY viewport edge,
+  // not only flip away from the right/bottom. The pre-fix non-flip branch
+  // emitted a bare `position.x + OFFSET` with no upper clamp, so a click near
+  // the right edge whose flipX check just barely failed could still let the
+  // 300px card cross the edge. The flip branch's floor was a raw `8`, not the
+  // shared 12px inset.
+  describe('viewport-edge clamp to 12px safe area (#1053)', () => {
+    it('clamps the right edge to vw − 12 in the non-flip (below-right) branch', () => {
+      // A 390 mobile viewport. position.x = 84 keeps flipX false
+      // (84 + 12 + 300 = 396 > 390 would flip; pick x so it does NOT flip but
+      // the right edge would still overflow without an upper clamp). Use x=70:
+      // 70 + 12 = 82 left; 82 + 300 = 382 > 390 − 12 = 378 → must clamp to 78.
+      Object.defineProperty(window, 'innerWidth', { value: 390, configurable: true });
+      Object.defineProperty(window, 'innerHeight', { value: 844, configurable: true });
+      render(
+        <ObservationPopover
+          observation={makeObs()}
+          position={{ x: 70, y: 100 }}
+          onClose={vi.fn()}
+          onSelectSpecies={vi.fn()}
+        />,
+      );
+      const dialog = screen.getByRole('dialog');
+      const left = parseFloat(dialog.style.left);
+      // POPOVER_W = 300; right edge (left + 300) must not exceed vw − 12 = 378.
+      expect(left + 300).toBeLessThanOrEqual(390 - 12);
+      // And the left gutter stays ≥12.
+      expect(left).toBeGreaterThanOrEqual(12);
+    });
+
+    it('uses the 12px floor (not 8px) when flipping left at the right edge', () => {
+      // Reproduces the old `Math.max(8, …)`. With x small enough that the
+      // flip-left target goes negative, the floor must be 12, not 8.
+      Object.defineProperty(window, 'innerWidth', { value: 320, configurable: true });
+      Object.defineProperty(window, 'innerHeight', { value: 844, configurable: true });
+      render(
+        <ObservationPopover
+          observation={makeObs()}
+          position={{ x: 315, y: 100 }}
+          onClose={vi.fn()}
+          onSelectSpecies={vi.fn()}
+        />,
+      );
+      const dialog = screen.getByRole('dialog');
+      // flipX: 315 + 12 + 300 = 627 > 320 → flip left: 315 − 12 − 300 = 3 < 12
+      // → floored to the 12px inset.
+      expect(parseFloat(dialog.style.left)).toBe(12);
+    });
+  });
+
+  // E1 (#1053): anchor caret — the popover renders a caret notch on the
+  // click-facing corner, with a data-origin attribute that tracks the flip so
+  // it survives flipX/flipY.
+  describe('anchor caret (#1053)', () => {
+    it('renders a caret whose data-origin matches the default (top-left) placement', () => {
+      Object.defineProperty(window, 'innerWidth', { value: 1440, configurable: true });
+      Object.defineProperty(window, 'innerHeight', { value: 900, configurable: true });
+      render(
+        <ObservationPopover
+          observation={makeObs()}
+          position={{ x: 100, y: 200 }}
+          onClose={vi.fn()}
+          onSelectSpecies={vi.fn()}
+        />,
+      );
+      const caret = screen.getByTestId('observation-popover-caret');
+      expect(caret).toBeInTheDocument();
+      // Default below-right placement → caret on the top-left corner.
+      expect(caret.getAttribute('data-origin')).toBe('top left');
+    });
+
+    it('flips the caret origin with the popover (bottom-right when both axes flip)', () => {
+      Object.defineProperty(window, 'innerWidth', { value: 1000, configurable: true });
+      Object.defineProperty(window, 'innerHeight', { value: 400, configurable: true });
+      render(
+        <ObservationPopover
+          observation={makeObs()}
+          position={{ x: 850, y: 380 }}
+          onClose={vi.fn()}
+          onSelectSpecies={vi.fn()}
+        />,
+      );
+      const caret = screen.getByTestId('observation-popover-caret');
+      // flipX (850 + 12 + 300 > 1000) AND flipY (380 + 12 + 180 > 400) → the
+      // popover grows up-left so the caret sits at its bottom-right corner.
+      expect(caret.getAttribute('data-origin')).toBe('bottom right');
+    });
+  });
+
   it('omits inline left/top when position is null (legacy harness path)', () => {
     render(
       <ObservationPopover

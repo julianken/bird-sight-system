@@ -907,6 +907,43 @@ button.adaptive-grid-marker__cell {
   box-shadow: var(--card-elevation-2);
 }
 
+/* #1053 — anchor caret. An 8px square rotated 45° so a corner points at the
+   anchor cell, filled with the card background and bordered to match so only
+   the two outward-facing triangle edges read as a notch. It sits on the
+   cell-facing edge: just OUTSIDE the top edge when the card is placed BELOW the
+   cell (caret points up at the anchor), and just outside the bottom edge when
+   the card flips ABOVE (caret points down). data-placement (set by
+   CellPopover.tsx, mirroring the position math) drives which edge, so the caret
+   survives the flip/shift/clamp. Left-anchored to track the cell's left edge,
+   which the horizontal clamp keeps aligned to the anchor. Decorative only
+   (aria-hidden in the JSX). The card already carries the elevation; the caret
+   borrows the same border tokens so it reads as part of the same surface. */
+.cell-popover__caret {
+  position: absolute;
+  left: var(--space-md);
+  width: 8px;
+  height: 8px;
+  background: var(--color-bg-surface);
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+
+.cell-popover__caret[data-placement='below'] {
+  /* Card below the cell → notch on the TOP edge, pointing up at the anchor.
+     Show only the two top-facing borders (top + left of the rotated square). */
+  top: -4px;
+  border-top: 1px solid var(--color-border-ui);
+  border-left: 1px solid var(--color-border-ui);
+}
+
+.cell-popover__caret[data-placement='above'] {
+  /* Card flipped above the cell → notch on the BOTTOM edge, pointing down.
+     Show only the two bottom-facing borders (bottom + right). */
+  bottom: -4px;
+  border-bottom: 1px solid var(--color-border-ui);
+  border-right: 1px solid var(--color-border-ui);
+}
+
 .cell-popover__header {
   margin-bottom: var(--space-xs);
 }
@@ -935,6 +972,22 @@ button.adaptive-grid-marker__cell {
 
 .cell-popover__row {
   padding: 2px 0;
+}
+
+/* E1 (#1053) — WCAG 2.5.5 on the cell popover's species rows under a COARSE
+   pointer (touch laptop / hybrid device that still gets the fine-pointer cell
+   popover). The compact 2px row padding above is fine for a mouse; on touch the
+   row must reach the 44px tap floor. Scoped to `pointer: coarse` so the dense
+   desktop popover keeps its tight rhythm. Uses the same block recipe as
+   `.cluster-list-popover__row` (NOT flex on the inner control — that's the
+   b1b018e 0×0-bbox trap); the inner full-width <button> (`display: block;
+   width: 100%`, below) overlays the ≥44px box so the tap lands on the link. */
+@media (pointer: coarse) {
+  .cell-popover__row {
+    display: block;
+    min-height: 44px;
+    padding: 6px 0;
+  }
 }
 
 /* #1031 (C54): species rows are now native <button>s (free Enter/Space,
@@ -1168,9 +1221,19 @@ button.adaptive-grid-marker__cell {
 }
 
 .cluster-list-popover__row {
-  padding: 8px 0; /* Tap-target spacing. Spec §4.5 — `display: flex; min-height: 44px` */
-                  /* on the inner <a> caused Playwright to see 0×0 bbox under iPad-gen-6 */
-                  /* chromium emulation; family-toggle + Done retain the 44px min. */
+  /* E1 (#1053, absorbs #565) — WCAG 2.5.5. The bot's block recipe: `display:
+     block` is the <li> default, so a 44px floor on the <li> itself sidesteps
+     the flex-on-<a> bbox bug that the b1b018e revert (the prior `padding: 8px 0`
+     compromise, ~35px effective) was working around. The earlier failure was
+     `display: flex; min-height: 44px` on the inner <a>, which resolved to a 0×0
+     bbox under iPad-gen-6 chromium in the coarse-pointer Playwright project; the
+     <li> stays block so the row paints a real ≥44px box. The inner full-width
+     <button> (`display: block; width: 100%`, below) overlays that box, so the
+     tap lands on the control across the row's full height — satisfying #565's
+     "≥44×44 OR ≥44px spacing". */
+  display: block;
+  min-height: 44px;
+  padding: 12px 8px;
 }
 
 /* #1031 (C54): species rows are now native <button>s (free Enter/Space,

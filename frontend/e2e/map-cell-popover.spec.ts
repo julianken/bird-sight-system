@@ -274,6 +274,26 @@ test('@coarse tablet 768×1024: tap marker → cluster-list popover → tap spec
   // to commit so the family's species rows have mounted.
   await expect(familyToggle).toHaveAttribute('aria-expanded', 'true', { timeout: 5_000 });
 
+  // E1 (#1053, absorbs #565) — WCAG 2.5.5 species-row tap target. The expanded
+  // family's row <li> must measure ≥44px tall at the iPad-gen-6 coarse-pointer
+  // viewport (the `display: block; min-height: 44px` recipe). Measured live
+  // here because the unit suite runs in jsdom (no layout engine). Guarded:
+  // if rows didn't render in a WebGL-less run we skip the bbox assert and fall
+  // through to the existence check below.
+  const firstRow = page.locator('[data-testid="cluster-list-popover-row"]').first();
+  const rowVisible = await firstRow
+    .waitFor({ state: 'visible', timeout: 5_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (rowVisible) {
+    const box = await firstRow.boundingBox();
+    expect(box, 'species row must have a measurable box').not.toBeNull();
+    expect(
+      box!.height,
+      'species-row tap target ≥44px (WCAG 2.5.5, #565)',
+    ).toBeGreaterThanOrEqual(44);
+  }
+
   // Tap a clickable species row in the now-expanded family.
   // #859: at default zoom (aggregated mode) every row now carries a REAL
   // species code (server-nested `AggregatedFamily.species`), so rows render as
@@ -341,6 +361,74 @@ test.skip('@coarse mobile 390×844: tap marker → cluster-list → expand-famil
   // SpeciesDetailSurface renders.
   // #663: new clicks write ?detail=, not ?view=detail.
   await expect(page).toHaveURL(/[?&]detail=/, { timeout: 8_000 });
+});
+
+// ─── E1 (#1053): cell popover keeps a ≥12px safe-area gutter at the right edge ─
+//
+// At 390 the pre-fix cell popover rendered flush to within 8px of the right
+// viewport edge (the old 8px VIEWPORT_MARGIN / fallback width). Spec §4.7
+// requires the flip/shift clamp to the 12px --card-inset safe area. We open a
+// cell popover on an EAST-edge marker and assert its bbox keeps right ≤ vw − 12
+// (and left ≥ 12). Guarded for WebGL-less headless runs like the scenarios
+// above. No @coarse tag → dev-server project (fine pointer), narrowed to 390.
+
+test('390 narrow: cell popover keeps a ≥12px right-edge gutter (#1053 clamp)', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/?scope=us');
+
+  const marker = page.locator('[data-testid="adaptive-grid-marker"]').first();
+  const markerVisible = await marker
+    .waitFor({ state: 'visible', timeout: 15_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!markerVisible) {
+    test.skip(true, 'No adaptive-grid markers visible — likely WebGL unavailable in headless run');
+    return;
+  }
+
+  // Open a cell popover. Pick the marker/cell nearest the right edge so the
+  // clamp is exercised; fall back to the first cell if none qualifies.
+  const cells = page.locator('[data-testid^="adaptive-grid-marker-cell"]');
+  const cellCount = await cells.count();
+  if (cellCount === 0) {
+    test.skip(true, 'No cell testids visible — cells may not have rendered (no WebGL)');
+    return;
+  }
+  // Choose the east-most cell by bbox.
+  let target = cells.first();
+  let maxRight = -Infinity;
+  for (let i = 0; i < Math.min(cellCount, 12); i++) {
+    const c = cells.nth(i);
+    const b = await c.boundingBox();
+    if (b && b.x + b.width > maxRight) {
+      maxRight = b.x + b.width;
+      target = c;
+    }
+  }
+  await target.hover().catch(() => {});
+  await target.click({ force: true });
+
+  const popover = page.getByTestId('cell-popover');
+  const popVisible = await popover
+    .waitFor({ state: 'visible', timeout: 8_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!popVisible) {
+    test.skip(true, 'Cell popover did not open (single-species cell may route straight to detail)');
+    return;
+  }
+
+  const box = await popover.boundingBox();
+  expect(box, 'popover must have a measurable box').not.toBeNull();
+  // ≥12px gutter on both horizontal edges (the --card-inset safe area).
+  expect(box!.x, 'popover left gutter ≥12px').toBeGreaterThanOrEqual(12 - 0.5);
+  expect(
+    box!.x + box!.width,
+    'popover right edge ≤ vw − 12 (12px safe-area gutter)',
+  ).toBeLessThanOrEqual(390 - 12 + 0.5);
+
+  // The anchor caret renders on the cell-facing edge.
+  await expect(page.getByTestId('cell-popover-caret')).toBeAttached();
 });
 
 // ─── #761 P1 (#778): named z-index scale — stacking-order guards ───────────────

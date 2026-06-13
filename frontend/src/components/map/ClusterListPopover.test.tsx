@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { ClusterListPopover } from './ClusterListPopover.js';
 import type { FamilyAggregate, SpeciesAggregate } from './adaptive-grid.js';
 
@@ -445,5 +447,43 @@ describe('<ClusterListPopover>', () => {
     const firstFocusable = document.activeElement as HTMLElement;
     fireEvent.keyDown(firstFocusable, { key: 'Tab', shiftKey: true });
     expect(document.activeElement).toBe(done);
+  });
+});
+
+// E1 (#1053, absorbs #565) — WCAG 2.5.5 species-row tap target. jsdom has no
+// layout engine (every getBoundingClientRect is 0×0 — the exact reason the
+// `display:flex; min-height:44px` on the inner <a> was reverted in b1b018e), so
+// the 44px floor is verified by reading the committed CSS rule rather than a
+// measured bbox. The live measured assertion runs in the `coarse-pointer`
+// Playwright project (map-cell-popover.spec.ts). The bot's block recipe
+// (`display: block; min-height: 44px; padding: 12px 8px;` on the <li> — block is
+// the <li> default, sidestepping the flex-on-<a> bbox bug) is the contract here.
+describe('E1/#565 — species-row 44px tap target (CSS contract)', () => {
+  const css = readFileSync(
+    join(import.meta.dirname, '../ds/ds-primitives.css'),
+    'utf8',
+  );
+
+  function ruleBody(selector: string): string {
+    // Grab the declaration block for an exact selector (escape the regex-special
+    // chars in the class selector). Non-greedy up to the first closing brace.
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const m = css.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`));
+    if (!m) throw new Error(`selector not found in ds-primitives.css: ${selector}`);
+    return m[1]!;
+  }
+
+  it('.cluster-list-popover__row carries display:block + min-height:44px (bot recipe)', () => {
+    const body = ruleBody('.cluster-list-popover__row');
+    expect(body).toMatch(/display:\s*block/);
+    expect(body).toMatch(/min-height:\s*44px/);
+  });
+
+  it('.cell-popover__row enforces a ≥44px effective coarse-pointer tap target', () => {
+    // The cell popover's species rows get the same floor under coarse pointer.
+    // Implementation may scope it via a coarse-pointer media query; assert the
+    // 44px min-height appears in a rule targeting `.cell-popover__row`.
+    const m = css.match(/\.cell-popover__row[^{]*\{[^}]*min-height:\s*44px/);
+    expect(m, 'expected a .cell-popover__row rule with min-height:44px').not.toBeNull();
   });
 });
