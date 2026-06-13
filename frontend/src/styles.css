@@ -99,7 +99,15 @@
 *, *::before, *::after { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, sans-serif;
+  /* F1 #1061, spec §2.5: resolve through the single --font-stack token. Before
+     #1061 body hardcoded the legacy scaffold stack (no "Segoe UI Variable",
+     no "Inter") with NO line-height, so surfaces inheriting body's font — most
+     notably .observation-popover — rendered in a different family/leading than
+     the --text-body-sm consumers (.cell-popover). On Windows the two map
+     popovers a user toggles between resolved to different fonts. A line-height
+     baseline of 1.5 matches the --leading-sm small-body leading. */
+  font-family: var(--font-stack);
+  line-height: 1.5;
   background: var(--color-bg-page);
   color: var(--color-text-strong);
 }
@@ -238,14 +246,18 @@ body {
   top: 8px;
   right: 8px;
   /* Touch target ≥44×44 (WCAG 2.5.5 / design-review finding).
-     The visible × glyph stays at font-size:18px; padding + flex-centering
+     The visible × glyph is sized by font-size; padding + flex-centering
      expand the hit area without enlarging the visual mark. */
   min-width: 44px;
   min-height: 44px;
   border: none;
   background: transparent;
   color: var(--color-text-muted);
-  font-size: 18px;
+  /* ICON-GLYPH EXCEPTION (F1 #1061, 2026-06-13): the × is a 20×20 close
+     affordance, not type-ramp text — unified with the sibling close glyph
+     (.species-detail-rail-close) and the header's 20×20 stroke-SVG icon scale.
+     The 44×44 hit area above is unchanged. */
+  font-size: 20px;
   line-height: 1;
   cursor: pointer;
   border-radius: 4px;
@@ -791,7 +803,7 @@ body {
   background: transparent;
   border: 1.5px solid var(--color-text-strong);
   color: var(--color-text-strong);
-  font-size: 11px;
+  font-size: var(--type-xs);
   font-weight: var(--font-weight-semibold);
   line-height: 1;
   /* Recipe #03 — notification-badge: one-shot @keyframes entrance on mount.
@@ -1140,7 +1152,7 @@ body {
   margin: 0;
   font-size: var(--type-xs);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--tracking-label);
   color: var(--color-text-muted);
 }
 .detail-fg-taxrow dd {
@@ -1159,7 +1171,7 @@ body {
   font-size: var(--type-xs);
   font-weight: var(--font-weight-semibold);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--tracking-eyebrow);
   color: var(--color-text-muted);
 }
 .species-detail-loading { color: var(--color-text-muted); font-size: var(--type-sm); margin: 8px 0 0 0; }
@@ -1274,7 +1286,10 @@ body {
 .attribution-modal-header h2 {
   margin: 0;
   font-size: var(--type-md);
-  font-weight: 700;
+  /* F1 #1061: §2.4 card/resting-surface titles are semibold. This modal title
+     was the only resting title shipping at bold; dropped to semibold to match
+     the contract (and tokenized off the raw 700). */
+  font-weight: var(--font-weight-semibold);
   color: var(--color-text-strong);
 }
 .attribution-modal-close {
@@ -1302,7 +1317,10 @@ body {
 .attribution-modal-section h3 {
   margin: 0 0 var(--space-xs) 0;
   font-size: var(--type-sm);
-  font-weight: 700;
+  /* F1 #1061: §2.4 — resting subheading follows the card-title semibold voice
+     (matches the h2 above; differentiated by size, not weight). Tokenized off
+     the raw 700. */
+  font-weight: var(--font-weight-semibold);
   color: var(--color-text-strong);
 }
 .attribution-modal-section p {
@@ -1456,12 +1474,12 @@ body {
 }
 .family-legend[data-empty='true'] .family-legend-title {
   color: var(--color-text-muted);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
 }
 .family-legend-title {
   flex: 1;
   min-width: 0;
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 .family-legend-chevron {
   /* E3 (#1055): a 16×16 SVG chevron replaces the near-invisible --type-xs ▸.
@@ -1822,7 +1840,14 @@ body:has(.species-detail-sheet--peek) .map-attribution {
   border-radius: var(--card-radius);
   box-shadow: var(--card-elevation-2);
   padding: var(--space-sm) var(--space-md);
+  /* F1 #1061, spec §2.5: must read identically to its sibling map popover
+     .cell-popover (which sets `font: var(--text-body-sm)` = --font-stack @
+     --type-sm / --leading-sm). This rule keeps font-size as the token but
+     previously relied on body for family + UA-normal for leading, which
+     diverged from the shorthand. Pin the same stack + leading here. */
+  font-family: var(--font-stack);
   font-size: var(--type-sm);
+  line-height: var(--leading-sm);
   color: var(--color-text-strong);
   max-width: var(--card-maxw-popover);
 }
@@ -1908,7 +1933,7 @@ body:has(.species-detail-sheet--peek) .map-attribution {
 }
 .observation-popover-name {
   flex: 1;
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 .observation-popover-badge {
   background: var(--color-accent-notable-fg);
@@ -1920,7 +1945,7 @@ body:has(.species-detail-sheet--peek) .map-attribution {
   align-items: center;
   justify-content: center;
   font-size: var(--type-xs);
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
 }
 .observation-popover-close {
   appearance: none;
@@ -2041,6 +2066,10 @@ aside.species-detail-rail .species-detail-rail-close {
   display: block;
   width: 32px;
   height: 32px;
+  /* ICON-GLYPH EXCEPTION (F1 #1061, 2026-06-13): the × is a 20×20 close
+     affordance unified with .map-error-overlay__dismiss and the header's
+     20×20 stroke-SVG icon scale — not type-ramp text. The 32×32 hit area
+     above is unchanged. */
   font-size: 20px;
   line-height: 1;
   background: transparent;
@@ -2459,7 +2488,7 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
   margin: 0;
   font-size: var(--type-xs);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--tracking-label);
   color: var(--color-text-muted);
 }
 .sheet-fg-value {
@@ -2519,7 +2548,7 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
   margin: 0;
   font-size: var(--type-xs);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--tracking-label);
   color: var(--color-text-muted);
 }
 .sheet-fg-taxrow dd { margin: 0; font-size: var(--type-sm); color: var(--color-text-strong); }
@@ -2533,7 +2562,7 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
   font-size: var(--type-xs);
   font-weight: var(--font-weight-semibold);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--tracking-eyebrow);
   color: var(--color-text-muted);
 }
 .sheet-fg-prose {

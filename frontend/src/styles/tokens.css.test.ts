@@ -1016,3 +1016,85 @@ describe('B4 (#1043): elevation/shadow token migration', () => {
     expect(photoBlockMatch?.[1]).not.toMatch(/border-radius:\s*10px/);
   });
 });
+
+// F1 (#1061) — typography unification: one font stack, one --type-sm leading,
+// ramp/weight/tracking values consumed as tokens. Guards pin the unified
+// values so a future regression (re-typed literal, divergent body stack)
+// reddens here, not only at live-verify.
+describe('F1 #1061 — typography unification', () => {
+  describe('tokens.css — leading + tracking tokens', () => {
+    it('defines --leading-sm next to the type ramp (the single --type-sm leading)', () => {
+      // Contract: ONE --type-sm leading, encoded next to the ramp. We pick 1.5
+      // to match the --text-body-sm consumers (.cell-popover et al.), so the
+      // two map popovers resolve identically.
+      expect(TOKENS_CSS).toMatch(/--leading-sm:\s*1\.5\s*;/);
+    });
+    it('--text-body-sm consumes --leading-sm (no re-typed 1.5 literal in the shorthand)', () => {
+      expect(TOKENS_CSS).toMatch(
+        /--text-body-sm:\s*var\(--font-weight-regular\)\s*var\(--type-sm\)\s*\/\s*var\(--leading-sm\)\s*var\(--font-stack\)/,
+      );
+    });
+    it('defines --tracking-label: 0.06em in Layer 1', () => {
+      expect(TOKENS_CSS).toMatch(/--tracking-label:\s*0\.06em\s*;/);
+    });
+    it('defines --tracking-eyebrow: 0.08em in Layer 1', () => {
+      expect(TOKENS_CSS).toMatch(/--tracking-eyebrow:\s*0\.08em\s*;/);
+    });
+  });
+
+  describe('styles.css — body font + popover parity', () => {
+    it('body resolves font-family through var(--font-stack) (not the legacy scaffold stack)', () => {
+      const bodyBlock = STYLES_CSS.match(/\bbody\s*\{([^}]*)\}/s);
+      expect(bodyBlock?.[1]).toMatch(/font-family:\s*var\(--font-stack\)/);
+      // The legacy scaffold stack must be gone from body.
+      expect(bodyBlock?.[1]).not.toMatch(/-apple-system,\s*BlinkMacSystemFont,\s*"Helvetica Neue"/);
+    });
+    it('body sets a line-height baseline', () => {
+      const bodyBlock = STYLES_CSS.match(/\bbody\s*\{([^}]*)\}/s);
+      expect(bodyBlock?.[1]).toMatch(/line-height:/);
+    });
+    it('.observation-popover sets the same font + leading as the --text-body-sm consumers', () => {
+      const popBlock = STYLES_CSS.match(/\.observation-popover\s*\{([^}]*)\}/s);
+      // Must pin the token stack and the unified --type-sm leading so it is
+      // visually identical to .cell-popover (font: var(--text-body-sm)).
+      expect(popBlock?.[1]).toMatch(/font-family:\s*var\(--font-stack\)/);
+      expect(popBlock?.[1]).toMatch(/line-height:\s*var\(--leading-sm\)/);
+    });
+  });
+
+  describe('mechanical token swaps — no re-typed literals', () => {
+    it('no raw font-size: 11px in styles.css (use var(--type-xs))', () => {
+      expect(STYLES_CSS).not.toMatch(/font-size:\s*11px/);
+    });
+    it('no raw font-size: 11px in ds-primitives.css (use var(--type-xs))', () => {
+      expect(DS_PRIMITIVES_CSS).not.toMatch(/font-size:\s*11px/);
+    });
+    it('no raw numeric font-weight in styles.css (use var(--font-weight-*))', () => {
+      expect(STYLES_CSS).not.toMatch(/font-weight:\s*[0-9]/);
+    });
+    it('no raw numeric font-weight in ds-primitives.css (use var(--font-weight-*))', () => {
+      expect(DS_PRIMITIVES_CSS).not.toMatch(/font-weight:\s*[0-9]/);
+    });
+    it('no literal weight smuggled into a font: shorthand', () => {
+      expect(STYLES_CSS).not.toMatch(/font:\s*[0-9]{3}/);
+      expect(DS_PRIMITIVES_CSS).not.toMatch(/font:\s*[0-9]{3}/);
+    });
+    it('the uppercase label rows consume --tracking-label (not the 0.06em literal)', () => {
+      // .detail-fg-taxrow dt / .sheet-fg-label / .sheet-fg-taxrow dt
+      // (the dead .map-freshness 0.05em is deleted by #1064 — not touched here).
+      expect(STYLES_CSS).not.toMatch(/letter-spacing:\s*0\.06em/);
+    });
+    it('the uppercase eyebrows consume --tracking-eyebrow (not the 0.08em literal)', () => {
+      expect(STYLES_CSS).not.toMatch(/letter-spacing:\s*0\.08em/);
+    });
+    it('.cluster-pill sets font-variant-numeric: tabular-nums (its width formula assumes tabular digits)', () => {
+      const pillBlock = DS_PRIMITIVES_CSS.match(/\.cluster-pill\s*\{([^}]*)\}/s);
+      expect(pillBlock?.[1]).toMatch(/font-variant-numeric:\s*tabular-nums/);
+    });
+    it('the two × close glyphs are unified at one shared size (20px), not 18px/20px split', () => {
+      // Either SVG migration (no font-size:18|20) or one shared size with an
+      // icon-glyph exception comment at both sites — we take the latter at 20px.
+      expect(STYLES_CSS).not.toMatch(/font-size:\s*18px/);
+    });
+  });
+});
