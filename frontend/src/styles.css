@@ -132,6 +132,22 @@ body {
   z-index: var(--z-map);
 }
 
+/* C80 (#1051): visible in-flight affordance for non-blocking refetches.
+   `#map-layer` carries aria-busy={observationsLoading} (App.tsx) — it stays
+   the SOLE aria-busy node (invariant). Before this rule the busy state was
+   invisible to sighted users (no [aria-busy] CSS existed anywhere): toggling
+   "Notable only" on a slow connection kept the full stale marker set with no
+   affordance. We dim ONLY the stale marker overlay (each react-map-gl <Marker>
+   is a `.maplibregl-marker` DOM element) — NOT the basemap canvas
+   (`.maplibregl-canvas`) — so the map reads as "refreshing" without going
+   blank, then the markers snap back to full opacity when the new data lands.
+   transition smooths both directions; the global motion.css reduced-motion
+   guard zeroes the duration so reduced-motion users get the end-state instantly. */
+#map-layer[aria-busy="true"] .maplibregl-marker {
+  opacity: 0.45;
+  transition: opacity var(--dur-fast) ease;
+}
+
 /* Main surface. The map chain was removed in the DISCARD wave (#113); the map
    was hoisted into `#map-layer` in the #761 (S2) shell inversion. `<main>` is
    retained as the e2e readiness gate (data-render-complete), the scroll-bypass
@@ -897,7 +913,11 @@ body {
   gap: var(--space-lg);
   padding: var(--space-md) var(--space-lg);
   background: var(--color-bg-surface);
-  border-bottom: 1px solid var(--color-border-ui);
+  /* V25 (#1051): the `border-bottom` was a vestige of the old in-flow top-bar
+     life. FiltersBar's sole consumer is now the floating `.filters-panel`
+     (App.tsx), where the hairline rendered full-width above ~20px of empty
+     card — reading as a cut-off footer slot. No rule may separate content
+     from empty space, so it's removed. */
   align-items: center;
   flex-wrap: wrap;
 }
@@ -3148,6 +3168,23 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
   border: 1px solid var(--color-text-strong);
   border-radius: 4px;
   cursor: pointer;
+  /* C83 (#1051): smooth the hover/active fill-shift. */
+  transition: background var(--dur-fast), border-color var(--dur-fast);
+}
+/* C83 (#1051): the highest-intent click in the app had no hover/active — it
+   read as inert. The base fill is the dark `--color-text-strong` (#1a1a1a
+   light) with a white label, so the `.status-block__action` surface-tint hover
+   doesn't apply; these need explicit fill-shift hexes. Light-theme values
+   (label = #fff): hover #333333 → 12.63:1, active #000 → 21.0:1, both far past
+   AA. Dark-theme overrides (label flipped to --color-bg-surface) live in the
+   [data-theme="dark"] block below. */
+.zip-input__submit:hover {
+  background: #333333;
+  border-color: #333333;
+}
+.zip-input__submit:active {
+  background: #000000;
+  border-color: #000000;
 }
 .zip-input__submit:focus-visible {
   outline: 2px solid var(--color-text-strong);
@@ -3170,6 +3207,24 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
    AA. :not(:disabled) leaves .scope-control__go:disabled's muted color alone. */
 [data-theme="dark"] .scope-control__go:not(:disabled) {
   color: var(--color-bg-surface);
+}
+/* C83 (#1051) dark-mode hover/active: the light-theme rules above set DARK
+   fills (#333333/#000000), correct for the light dark-on-white CTA but wrong
+   in dark mode, where the button is a LIGHT fill with a DARK label. Override
+   to LIGHTER fills so the flipped dark label (--color-bg-surface #1b2742)
+   stays readable: hover #e4e8f0 → 12.08:1, active #ffffff → 14.84:1, both far
+   past AA. Mirrors the label-flip above — one place covers both #827 buttons
+   so they can't drift. `:not(:disabled)` on the chooser keeps the muted
+   disabled state inert. */
+[data-theme="dark"] .zip-input__submit:hover,
+[data-theme="dark"] .scope-chooser__btn:not(:disabled):hover {
+  background: #e4e8f0;
+  border-color: #e4e8f0;
+}
+[data-theme="dark"] .zip-input__submit:active,
+[data-theme="dark"] .scope-chooser__btn:not(:disabled):active {
+  background: #ffffff;
+  border-color: #ffffff;
 }
 .zip-input__status {
   margin: 0;
@@ -3385,6 +3440,20 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
   border: 1px solid var(--color-text-strong);
   border-radius: 4px;
   cursor: pointer;
+  /* C83 (#1051): smooth the hover/active fill-shift. */
+  transition: background var(--dur-fast), border-color var(--dur-fast);
+}
+/* C83 (#1051): hover/active on the chooser commit CTA. Same fill-shift hexes
+   and ratios as .zip-input__submit (the two are duplicated-to-match, #827 AC).
+   `:not(:disabled)` keeps the muted .scope-chooser__btn:disabled state inert —
+   a disabled button must not respond to hover/active. */
+.scope-chooser__btn:not(:disabled):hover {
+  background: #333333;
+  border-color: #333333;
+}
+.scope-chooser__btn:not(:disabled):active {
+  background: #000000;
+  border-color: #000000;
 }
 .scope-chooser__btn:focus-visible {
   outline: 2px solid var(--color-text-strong);

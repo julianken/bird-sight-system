@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor, act } from '@testing-library/react';
 import { useSpeciesDetail, __resetSpeciesDetailCache } from './use-species-detail.js';
 import { ApiClient } from '../api/client.js';
 import type { SpeciesMeta } from '@bird-watch/shared-types';
@@ -30,7 +30,12 @@ describe('useSpeciesDetail', () => {
     const client = makeClient({ getSpecies } as unknown as Partial<ApiClient>);
 
     const { result } = renderHook(() => useSpeciesDetail(client, null));
-    expect(result.current).toEqual({ loading: false, error: null, data: null });
+    // C82 (#1051): the hook now also returns a `retry` callback so a failed
+    // detail fetch can be re-attempted in place. The state shape stays
+    // { loading, error, data }; assert those explicitly and assert `retry`
+    // is a function separately (a shape pin, not a behavior pin).
+    expect(result.current).toMatchObject({ loading: false, error: null, data: null });
+    expect(typeof result.current.retry).toBe('function');
     expect(getSpecies).not.toHaveBeenCalled();
   });
 
@@ -165,6 +170,29 @@ describe('useSpeciesDetail', () => {
     rerender({ code: null });
     rerender({ code: 'vermfly' });
     await waitFor(() => expect(result.current.data).toEqual(VERMFLY));
+    expect(getSpecies).toHaveBeenCalledTimes(2);
+  });
+
+  // C82 (#1051): calling the returned `retry()` re-runs the fetch in place —
+  // no close/reopen of the panel required. Failures are never cached
+  // (only `.set()` on success), so re-running the effect refetches.
+  it('retry() re-runs the fetch in place and recovers after a transient failure', async () => {
+    const getSpecies = vi.fn()
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce(VERMFLY);
+    const client = makeClient({ getSpecies } as unknown as Partial<ApiClient>);
+
+    const { result } = renderHook(() => useSpeciesDetail(client, 'vermfly'));
+    await waitFor(() => expect(result.current.error).toBeTruthy());
+    expect(result.current.data).toBeNull();
+    expect(getSpecies).toHaveBeenCalledTimes(1);
+
+    // Retry without changing speciesCode — the effect re-runs via the nonce.
+    act(() => {
+      result.current.retry();
+    });
+    await waitFor(() => expect(result.current.data).toEqual(VERMFLY));
+    expect(result.current.error).toBeNull();
     expect(getSpecies).toHaveBeenCalledTimes(2);
   });
 });

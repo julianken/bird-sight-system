@@ -48,7 +48,7 @@ export interface SpeciesDetailSurfaceProps {
 export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
   const { speciesCode, apiClient, revealed = true } = props;
   const detail = useSpeciesDetail(apiClient, speciesCode);
-  const { loading, error, data } = detail;
+  const { loading, error, data, retry } = detail;
   // useSilhouettes provides the family-color payload. The data is cached at
   // module level so there is no second network call when other consumers
   // (App.tsx, AttributionModal) have already called the hook.
@@ -152,11 +152,16 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
   }
 
   if (error) {
+    // C82 (#1051): give the detail-rail error a recovery path. `retry()`
+    // re-runs the fetch in place (no rail close + marker re-click). Mirrors
+    // the app-level data-error overlay, which already uses StatusBlock's
+    // first-class `action` prop.
     return (
       <StatusBlock
         state="error"
         title="Could not load species details"
         surface="panel"
+        action={{ label: 'Try again', onClick: retry }}
       />
     );
   }
