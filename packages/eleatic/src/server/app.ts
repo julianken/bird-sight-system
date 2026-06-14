@@ -109,6 +109,7 @@ export function createApp(store: EleaticStore, cfg: EleaticConfig): Express {
   app.get('/', (_req: Request, res: Response) => res.sendFile('index.html', { root: uiDir }));
   app.get('/diff', (_req: Request, res: Response) => res.sendFile('diff.html', { root: uiDir }));
   app.get('/facets', (_req: Request, res: Response) => res.sendFile('facets.html', { root: uiDir }));
+  app.get('/trace', (_req: Request, res: Response) => res.sendFile('trace.html', { root: uiDir }));
 
   // ── Read API ──
   app.get('/api/runs', (_req: Request, res: Response) => {

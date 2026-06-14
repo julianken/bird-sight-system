@@ -33,6 +33,7 @@
 import { esc, safeImg } from './safe.js';
 import { prettyJson } from './pretty.js';
 import { renderTrace } from './trace.js';
+import { scoreBars, traceHref } from './trace-format.js';
 import { renderAdjudication } from './adjudicate.js';
 
 let lastTrigger = null;
@@ -79,24 +80,6 @@ function ensureScaffold() {
     if (ev.key === 'Escape' && !root.hidden) closeDrawer();
   });
   return { root, backdrop, panel, body };
-}
-
-/** A horizontal score bar (0..1 clamped) per scores_json entry. */
-function scoreBars(scores) {
-  const entries = Object.entries(scores ?? {});
-  if (entries.length === 0) return '<p class="drawer-empty">No scores</p>';
-  return entries
-    .map(([k, v]) => {
-      const num = typeof v === 'number' && Number.isFinite(v) ? v : 0;
-      const pct = Math.max(0, Math.min(1, num)) * 100;
-      return `
-        <div class="score-row">
-          <span class="score-key">${esc(k)}</span>
-          <span class="score-track"><span class="score-fill" style="width:${pct.toFixed(1)}%"></span></span>
-          <span class="score-val">${esc(num)}</span>
-        </div>`;
-    })
-    .join('');
 }
 
 /** Metadata key/value chips. */
@@ -161,6 +144,7 @@ export async function openDrawer(rowParam, trigger = null) {
     <section class="drawer-section">
       <details class="trace-details" open>
         <summary class="drawer-h3 trace-summary">Trace</summary>
+        <a class="trace-open-link" href="${traceHref(run, record.rowKey)}">View trace →</a>
         ${renderTrace(record.trace)}
       </details>
     </section>` : ''}

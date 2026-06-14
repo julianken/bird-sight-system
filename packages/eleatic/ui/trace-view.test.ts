@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderTree, renderNode, iconByKind, wireTree } from './trace-view.js';
+import { renderTree, renderNode, iconByKind, wireTree, renderSpanDetail } from './trace-view.js';
 import { buildTraceTree } from './trace-tree.js';
 
 // trace-view.js is the LEFT pane of the eleatic trace explorer: a PURE recursive
@@ -209,6 +209,112 @@ describe('renderNode — XSS escaping (same threat model as trace.test.ts)', () 
     expect(out).toContain('&lt;'); // payload escaped to inert text
     expect(out).not.toContain('<img'); // no live <img> in the name OR the data-span-id attribute
     expect(out).not.toContain('onerror=alert(1)>');
+  });
+});
+
+describe('renderSpanDetail — the RIGHT pane (Metrics · Scores · Input · Output)', () => {
+  it('renders a header with the structural icon, the span name, and a mobile back button', () => {
+    const out = renderSpanDetail(node({ id: 'j', span: { name: 'judge' } }));
+    expect(out).toContain('<header');
+    expect(out).toContain('judge'); // the name
+    expect(out).toContain('data-mobile-back'); // the mobile "← Spans" button
+    expect(out).toContain('← Spans');
+  });
+
+  it('falls back to `span {index}` for a synthesized id-less node with no name', () => {
+    const out = renderSpanDetail(node({ id: 'legacy:3', span: {} }));
+    expect(out).toContain('span 3');
+  });
+
+  it('renders the metric rows present and OMITS the absent ones', () => {
+    const out = renderSpanDetail(
+      node({
+        id: 'j',
+        span: { name: 'judge' },
+        metrics: { startMs: 5, durationMs: 1500, promptTokens: 1000, completionTokens: 884, costUsd: 0.0123 },
+      }),
+    );
+    expect(out).toContain('Start');
+    expect(out).toContain('Duration');
+    expect(out).toContain('1.50s');
+    expect(out).toContain('Prompt tokens');
+    expect(out).toContain('Completion tokens');
+    expect(out).toContain('Est. cost');
+    expect(out).toContain('$0.0123');
+    // Total tokens = prompt + completion (1884), computed ONCE via sumTokens.
+    expect(out).toContain('Total tokens');
+    expect(out).toContain('1884');
+  });
+
+  it('omits ALL metric rows when the node has no metrics (a usage-less scorer span)', () => {
+    const out = renderSpanDetail(node({ id: 's', span: { name: 'keep_agreement', scores: { keep_agreement: 1 } } }));
+    expect(out).not.toContain('Start');
+    expect(out).not.toContain('Duration');
+    expect(out).not.toContain('Total tokens');
+    expect(out).not.toContain('Prompt tokens');
+    expect(out).not.toContain('Est. cost');
+  });
+
+  it('omits Total tokens when neither prompt nor completion is finite, but shows duration', () => {
+    const out = renderSpanDetail(node({ id: 'x', span: { name: 'x' }, metrics: { durationMs: 250 } }));
+    expect(out).toContain('Duration');
+    expect(out).toContain('250ms');
+    expect(out).not.toContain('Total tokens');
+    expect(out).not.toContain('Prompt tokens');
+  });
+
+  it('shows the Scores block (wrapped in .score-bars) ONLY when node.span.scores exists', () => {
+    const withScores = renderSpanDetail(node({ id: 's', span: { name: 's', scores: { keep_agreement: 1 } } }));
+    expect(withScores).toContain('score-bars'); // the flex wrapper from the caller
+    expect(withScores).toContain('score-row'); // a bar rendered by the shared scoreBars
+    expect(withScores).toContain('keep_agreement');
+
+    const noScores = renderSpanDetail(node({ id: 'n', span: { name: 'n' } }));
+    expect(noScores).not.toContain('score-bars');
+    expect(noScores).not.toContain('score-row');
+  });
+
+  it('pretty-prints input/output when present', () => {
+    const out = renderSpanDetail(
+      node({ id: 'j', span: { name: 'judge', input: { prompt: 'hi' }, output: { parsed: 'keep' } } }),
+    );
+    expect(out).toContain('prompt');
+    expect(out).toContain('parsed');
+    expect(out).toContain('json-object'); // prettyJson output
+  });
+
+  it('shows the empty notes when input/output are absent', () => {
+    const out = renderSpanDetail(node({ id: 'n', span: { name: 'n' } }));
+    expect(out).toContain('No input');
+    expect(out).toContain('No output');
+    expect(out).toContain('drawer-empty');
+  });
+
+  it('neutralizes an injected payload in the name AND the input (same threat model)', () => {
+    const out = renderSpanDetail(
+      node({
+        id: 'x',
+        span: { name: '"><img src=x onerror=alert(1)>', input: { evil: '"><script>alert(1)</script>' } },
+      }),
+    );
+    expect(out).toContain('&lt;'); // escaped to inert text
+    expect(out).not.toContain('<img');
+    expect(out).not.toContain('<script>alert(1)</script>');
+    expect(out).not.toContain('onerror=alert(1)>');
+  });
+
+  it('renders a detail pane from a real judge node built by buildTraceTree (legacy usage normalized)', () => {
+    const { roots } = buildTraceTree({
+      spans: [{ name: 'judge', input: { p: 1 }, output: { r: 2 }, usage: { latencyMs: 250, promptTokens: 12, completionTokens: 34, costUsd: 0.01 } }],
+    });
+    // legacy id-less → synthesized root with the judge child beneath it.
+    const judge = roots[0].children[0];
+    const out = renderSpanDetail(judge);
+    expect(out).toContain('judge');
+    expect(out).toContain('250ms'); // durationMs normalized from latencyMs
+    expect(out).toContain('Total tokens');
+    expect(out).toContain('46'); // 12 + 34
+    expect(out).toContain('$0.01');
   });
 });
 
