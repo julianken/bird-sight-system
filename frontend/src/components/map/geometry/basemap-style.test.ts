@@ -59,7 +59,7 @@ describe('basemap-style', () => {
       expect(THEME_REGISTRY.dark.darkLabelTextColors).toEqual({
         road: '#d8d8d8',
         place: '#c4c4c4',
-        water: '#b8cae6', // re-picked #1217: 4.76:1 vs fiord (#9db4d8 was 3.75:1, an AA fail)
+        water: '#9db4d8',
       });
       expect(THEME_REGISTRY.positron.darkLabelTextColors).toBeUndefined();
     });

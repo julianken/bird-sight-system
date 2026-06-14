@@ -99,7 +99,7 @@ export const THEME_REGISTRY: Record<ThemeId, BasemapDescriptor> = {
     landColor: LAND_COLORS.dark.land, // '#0E1116'
     markerHaloColor: '#ffffff',
     floatColors: { outline: '#e8edf4', halo: '#7fd0ff' }, // OUTLINE_DARK / HALO_DARK
-    darkLabelTextColors: { road: '#d8d8d8', place: '#c4c4c4', water: '#b8cae6' }, // ROAD/PLACE/WATER_TEXT (water re-picked #1217: 4.76:1 vs fiord)
+    darkLabelTextColors: { road: '#d8d8d8', place: '#c4c4c4', water: '#9db4d8' }, // ROAD/PLACE/WATER_TEXT
   },
 };
 
