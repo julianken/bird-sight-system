@@ -2,8 +2,8 @@ import { forwardRef, useImperativeHandle } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GroupMarkerLayer } from './GroupMarkerLayer.js';
-import type { DeconflictGroup, DeconflictInput, RenderedShape } from './deconflict.js';
-import type { ResolvedGrid } from './adaptive-grid.js';
+import type { DeconflictGroup, DeconflictInput, RenderedShape } from '@/components/map/geometry/deconflict.js';
+import type { ResolvedGrid } from '@/components/map/geometry/adaptive-grid.js';
 
 /* ── Mocks ───────────────────────────────────────────────────────────────────
    The layer wraps every marker in <PresentationMarker>, which itself wraps the
@@ -46,7 +46,7 @@ vi.mock('./AdaptiveGridMarker.js', () => ({
   ),
 }));
 
-vi.mock('../ds/ClusterPill.js', () => ({
+vi.mock('@/components/ds/ClusterPill.js', () => ({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ClusterPill: ({ count, onClick }: any) => (
     <button type="button" data-testid="mock-cluster-pill" data-count={count} onClick={onClick} />

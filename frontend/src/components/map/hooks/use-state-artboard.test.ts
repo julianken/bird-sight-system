@@ -7,7 +7,7 @@ import {
   MASK_LAYER_ID,
   ARTBOARD_HALO_ID,
   ARTBOARD_OUTLINE_ID,
-} from './artboard-layers.js';
+} from '@/components/map/geometry/artboard-layers.js';
 
 /**
  * P2 ordering-invariant backfill for the consolidated state-artboard hook

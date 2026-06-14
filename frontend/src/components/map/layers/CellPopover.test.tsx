@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CellPopover } from './CellPopover.js';
-import type { SpeciesAggregate } from './adaptive-grid.js';
+import type { SpeciesAggregate } from '@/components/map/geometry/adaptive-grid.js';
 
 function species(comName: string, count: number, code: string | null = comName.slice(0, 6).toLowerCase()): SpeciesAggregate {
   return { comName, count, speciesCode: code };

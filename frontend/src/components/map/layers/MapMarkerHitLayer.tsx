@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { prettyFamily } from '../../derived.js';
+import { prettyFamily } from '../../../derived.js';
 
 /**
  * Per-marker hit-target overlay rendered above the map canvas.

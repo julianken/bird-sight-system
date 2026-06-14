@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import type { MultiPolygon } from 'geojson';
-import { BASEMAP_LIGHT, BASEMAP_DARK } from './basemap-style.js';
+import { BASEMAP_LIGHT, BASEMAP_DARK } from '@/components/map/geometry/basemap-style.js';
 import {
   applyLabelIsolation,
   restoreLabelIsolation,
@@ -9,9 +9,9 @@ import {
   applyArtboardFidelity,
   removeFloatLayers,
   MASK_LAYER_ID,
-} from './artboard-layers.js';
-import type { ArtboardMap } from './artboard-layers.js';
-import { sanitizeNullNumericFilters } from './basemap-null-filter.js';
+} from '@/components/map/geometry/artboard-layers.js';
+import type { ArtboardMap } from '@/components/map/geometry/artboard-layers.js';
+import { sanitizeNullNumericFilters } from '@/components/map/geometry/basemap-null-filter.js';
 
 /**
  * State-artboard hook (the #884 · U13 / #898 nerve-center consolidation;

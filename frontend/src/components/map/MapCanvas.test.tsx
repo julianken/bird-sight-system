@@ -11,7 +11,7 @@ import {
   ARTBOARD_PAD,
   MASK_FILL_LIGHT,
   MASK_FILL_DARK,
-} from './mask.js';
+} from './geometry/mask.js';
 
 /* ── Mock react-map-gl/maplibre ─────────────────────────────────────────────
    jsdom has no WebGL context so we stub Map, Source, and Layer as thin

@@ -15,7 +15,7 @@
 // also stays — it is unrelated to the silhouette catalogue.
 import { useMemo, useRef } from 'react';
 import type { FamilySilhouette } from '@bird-watch/shared-types';
-import type { SilhouettesById } from './adaptive-grid.js';
+import type { SilhouettesById } from '@/components/map/geometry/adaptive-grid.js';
 
 /**
  * Silhouette-catalogue derives extracted from MapCanvas. Returns the per-family

@@ -1,7 +1,7 @@
 import { test, expect, STATES_FIXTURE } from './fixtures.js';
 import type { FamilySilhouette, StateSummary } from '@bird-watch/shared-types';
 import { AppPage } from './pages/app-page.js';
-import { padBounds, ARTBOARD_PAD } from '../src/components/map/mask.js';
+import { padBounds, ARTBOARD_PAD } from '../src/components/map/geometry/mask.js';
 
 /**
  * SUB3 / #764 — state-artboard VERIFICATION (epic #760).

@@ -1,13 +1,13 @@
 import { useEffect, useRef } from 'react';
 import type { RefObject } from 'react';
-import { ZIP_FLYTO_ZOOM } from '../../state/scope-types.js';
+import { ZIP_FLYTO_ZOOM } from '../../../state/scope-types.js';
 import {
   CONUS_BOUNDS,
   FIT_BOUNDS_PADDING,
   INITIAL_VIEW,
   zoomAwareClampBounds,
-} from './camera-config.js';
-import type { LngLatBounds } from './mask.js';
+} from '@/components/map/geometry/camera-config.js';
+import type { LngLatBounds } from '@/components/map/geometry/mask.js';
 
 /**
  * Scope-camera hook (extracted verbatim from `MapCanvas.tsx`, epic #884 · U12 /

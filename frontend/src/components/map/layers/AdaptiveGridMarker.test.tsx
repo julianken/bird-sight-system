@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { AdaptiveGridMarker } from './AdaptiveGridMarker.js';
 import { markerDimensions, MIN_MARKER_PX } from './AdaptiveGridMarker.js';
-import type { AdaptiveTile, ResolvedGrid, PositiveInt, SpeciesAggregate } from './adaptive-grid.js';
-import { toPositiveInt } from './adaptive-grid.js';
-import { setMatchMedia } from '../../test-setup.js';
+import type { AdaptiveTile, ResolvedGrid, PositiveInt, SpeciesAggregate } from '@/components/map/geometry/adaptive-grid.js';
+import { toPositiveInt } from '@/components/map/geometry/adaptive-grid.js';
+import { setMatchMedia } from '../../../test-setup.js';
 
 // Helpers --------------------------------------------------------------------
 

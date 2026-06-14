@@ -23,7 +23,7 @@
  *     ascending familyCode tie-break, null-familyCode dropout.
  */
 
-import { resolveFamilyName } from '../../derived.js';
+import { resolveFamilyName } from '../../../derived.js';
 
 export type PositiveInt = number & { readonly __brand: 'PositiveInt' };
 
