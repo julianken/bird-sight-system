@@ -5,7 +5,7 @@ import { CONUS_STATE_CODES } from '@bird-watch/shared-types';
 import { startTestDb, type TestDb } from '@bird-watch/db-client/dist/test-helpers.js';
 import { upsertSpeciesMeta, getObservations, getRecentIngestRuns } from '@bird-watch/db-client';
 import { runIngest } from './run-ingest.js';
-import type { EbirdClient } from './ebird/client.js';
+import type { EbirdClient } from '../ebird/client.js';
 
 const server = setupServer();
 let db: TestDb;

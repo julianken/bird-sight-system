@@ -4,9 +4,9 @@ import {
   insertSpeciesDescription,
   type Pool,
 } from '@bird-watch/db-client';
-import { fetchInatTaxon, fetchInatTaxonSummary } from './inat/taxon-client.js';
-import { fetchWikipediaSummary } from './wikipedia/client.js';
-import { sanitizeText, sanitizeWikipediaExtract } from './wikipedia/sanitize.js';
+import { fetchInatTaxon, fetchInatTaxonSummary } from '../inat/taxon-client.js';
+import { fetchWikipediaSummary } from '../wikipedia/client.js';
+import { sanitizeText, sanitizeWikipediaExtract } from '../wikipedia/sanitize.js';
 
 const execFileAsync = promisify(execFile);
 

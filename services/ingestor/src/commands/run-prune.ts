@@ -2,7 +2,7 @@ import {
   startIngestRun, finishIngestRun,
   type Pool,
 } from '@bird-watch/db-client';
-import { selectArchivable, type ArchivableRow } from './archive/select-archivable.js';
+import { selectArchivable, type ArchivableRow } from '../archive/select-archivable.js';
 
 export interface RunPruneOptions {
   pool: Pool;

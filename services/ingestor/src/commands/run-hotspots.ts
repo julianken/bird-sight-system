@@ -2,7 +2,7 @@ import {
   upsertHotspots, startIngestRun, finishIngestRun,
   type Pool, type HotspotInput,
 } from '@bird-watch/db-client';
-import { EbirdClient } from './ebird/client.js';
+import { EbirdClient } from '../ebird/client.js';
 
 export interface RunHotspotOptions {
   pool: Pool;
