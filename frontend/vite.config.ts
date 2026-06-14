@@ -19,6 +19,10 @@ export default defineConfig({
       // is robust against future hoist drift (e.g. when a peer-dep'd
       // sibling package gets installed at root).
       'maplibre-gl': path.resolve(__dirname, 'node_modules/maplibre-gl'),
+      // `@/…` → `frontend/src/…`. Lets a moved module keep stable import
+      // specifiers so future folder reorgs churn the moved file, not every
+      // importer of it. Mirrored in tsconfig.json + tsconfig.test.json paths.
+      '@': path.resolve(__dirname, 'src'),
     },
   },
   server: {
