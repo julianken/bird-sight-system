@@ -197,13 +197,30 @@ describe('NATIONAL_* constants are well-formed', () => {
     expect(set.size).toBe(NATIONAL_UPDATE_FAMILIES.length);
   });
 
-  it('every NATIONAL color (color + color_dark) passes WCAG 1.4.11 ≥3:1 against the appropriate basemap', () => {
+  it('every NATIONAL color (color + color_dark) passes WCAG 1.4.11 ≥3:1 against every land in LAND_COLORS (kind-bucketed, fiord-exempt)', () => {
     // Mirror of packages/db-client/src/family-silhouettes-contrast.test.ts
     // formulas. We enforce the same contract at the constant-table level so
     // a regression here surfaces before the migration lands rather than at CI
     // integration-test time.
-    const LIGHT_BASE = '#f4f1ea';
-    const DARK_BASE  = '#0E1116';
+    //
+    // #1217 (C5): parameterized over a LOCAL mirror of LAND_COLORS. SOURCE OF
+    // TRUTH: frontend/src/components/map/geometry/basemap-style.ts `LAND_COLORS`.
+    // This script has no module path to frontend/ either, so — like the
+    // db-client test — the 5 land hexes + kinds are mirrored here. fiord is
+    // EXEMPT from the color_dark matrix (decision (a): its white marker halo
+    // carries contrast vs the navy #45516E land; a single color_dark cannot
+    // clear both #0E1116 and #45516E — see the db-client test header).
+    const LAND_COLORS = {
+      positron: { land: '#f4f1ea', kind: 'light' },
+      bright:   { land: '#f8f4f0', kind: 'light' },
+      liberty:  { land: '#f8f4f0', kind: 'light' },
+      dark:     { land: '#0E1116', kind: 'dark' },
+      fiord:    { land: '#45516E', kind: 'dark' },
+    };
+    const SILHOUETTE_FIORD_EXEMPT = new Set(['fiord']);
+    const LIGHT_LANDS = Object.entries(LAND_COLORS).filter(([, v]) => v.kind === 'light');
+    const DARK_LANDS_FOR_SILHOUETTE = Object.entries(LAND_COLORS)
+      .filter(([id, v]) => v.kind === 'dark' && !SILHOUETTE_FIORD_EXEMPT.has(id));
     const hexToSRGB = (hex) => {
       const h = hex.replace('#', '');
       return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
@@ -220,8 +237,18 @@ describe('NATIONAL_* constants are well-formed', () => {
       return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
     };
     for (const [family, { color, color_dark }] of Object.entries(NATIONAL_COLOR_BY_FAMILY)) {
-      expect(ratio(color, LIGHT_BASE), `${family} color ${color} vs LIGHT_BASE fails 3:1`).toBeGreaterThanOrEqual(3);
-      expect(ratio(color_dark, DARK_BASE), `${family} color_dark ${color_dark} vs DARK_BASE fails 3:1`).toBeGreaterThanOrEqual(3);
+      for (const [id, { land }] of LIGHT_LANDS) {
+        expect(
+          ratio(color, land),
+          `${family} color ${color} vs ${id} land ${land} fails 3:1`,
+        ).toBeGreaterThanOrEqual(3);
+      }
+      for (const [id, { land }] of DARK_LANDS_FOR_SILHOUETTE) {
+        expect(
+          ratio(color_dark, land),
+          `${family} color_dark ${color_dark} vs ${id} land ${land} fails 3:1`,
+        ).toBeGreaterThanOrEqual(3);
+      }
     }
   });
 });

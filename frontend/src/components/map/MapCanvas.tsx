@@ -525,7 +525,8 @@ export function MapCanvas({
   // only reachable production ids are `positron`/`dark`, so the observable
   // behavior is unchanged; this is the plumbing that lets the swap depend on the
   // id (not the lossy `[data-theme]` attribute) so C2–C4/C8 can reach all 5 themes.
-  const { themeId: activeThemeId } = useActiveThemeId();
+  const { themeId: activeThemeId, descriptor: activeDescriptor } =
+    useActiveThemeId();
 
   // State-artboard machinery consolidated into ONE hook (`use-state-artboard.ts`,
   // epic #884 · U13 / #898; the #760/#762/#763/#765/#849/#850 blank-map class).
@@ -710,7 +711,15 @@ export function MapCanvas({
   const clusterCountLayer = useMemo(() => buildClusterCountLayerSpec(), []);
   const clustersHitLayer = useMemo(() => buildClustersHitLayerSpec(), []);
   const notableRingLayer = useMemo(() => buildNotableRingLayerSpec(), []);
-  const unclusteredLayer = useMemo(() => buildUnclusteredPointLayerSpec(), []);
+  // #1216: the marker halo color now comes from the active descriptor, so the
+  // spec must be recomputed when the descriptor changes (a live theme swap).
+  // react-map-gl `<Layer>` specs are built once at mount and only re-diff on a
+  // NEW spec object — without `activeDescriptor` in the deps the halo would
+  // freeze at the mount-time descriptor and never update on swap.
+  const unclusteredLayer = useMemo(
+    () => buildUnclusteredPointLayerSpec(activeDescriptor),
+    [activeDescriptor],
+  );
 
   // Observation lookup by subId for click handler. Pure derive extracted to
   // obs-derive.ts (#892); prototype-free record built there.

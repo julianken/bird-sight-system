@@ -1268,13 +1268,14 @@ function emitMigrationSql(picks, skipFamilies, mode = 'update', colorByFamily = 
 
     // --- INSERTs first ---
     // Dual-palette schema (migration 46000): each row carries `color` (paired
-    // with the LIGHT basemap #f4f1ea, must pass WCAG 1.4.11 ≥3:1) and
-    // `color_dark` (paired with the DARK basemap #0E1116, same threshold).
+    // with every LIGHT-kind land in LAND_COLORS, must pass WCAG 1.4.11 ≥3:1)
+    // and `color_dark` (paired with every DARK-kind land, same threshold;
+    // fiord is exempt — its white marker halo carries contrast, see #1217).
     // NATIONAL_COLOR_BY_FAMILY values are objects {color, color_dark} where
     // both fields are independently verified — see the table-level comment in
     // scripts/curation/curate-phylopic.mjs. The integration test
     // packages/db-client/src/family-silhouettes-contrast.test.ts asserts this
-    // contract against the live DB.
+    // contract against the live DB, parameterized over LAND_COLORS.
     const colorRow = (family) => {
       const c = colorByFamily[family];
       if (!c) throw new Error(`color tuple missing for INSERT family ${family}`);
@@ -1287,9 +1288,10 @@ function emitMigrationSql(picks, skipFamilies, mode = 'update', colorByFamily = 
     };
     if (insertSuccess.length > 0) {
       lines.push('-- INSERT bucket: new rows with svg_data + provenance.');
-      lines.push('-- Dual-palette: color paired with light basemap #f4f1ea (≥3:1),');
-      lines.push('-- color_dark paired with dark basemap #0E1116 (≥3:1). See migration');
-      lines.push('-- 46000 and the contrast test in packages/db-client.');
+      lines.push('-- Dual-palette: color paired with every light-kind land (≥3:1),');
+      lines.push('-- color_dark paired with every dark-kind land (≥3:1, fiord exempt).');
+      lines.push('-- See migration 46000, LAND_COLORS, and the contrast test in');
+      lines.push('-- packages/db-client.');
       lines.push('INSERT INTO family_silhouettes (id, family_code, svg_data, color, color_dark, source, license, creator, common_name) VALUES');
       const rows = insertSuccess.map((pick, idx) => {
         const p = pick.picked;
