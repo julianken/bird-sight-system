@@ -7,7 +7,7 @@ description: Use when a family on bird-maps.com renders the `_FALLBACK` shape be
 
 ## What this is
 
-The Phylopic curation pipeline (`scripts/curate-phylopic.mjs`) sweeps every AZ family and picks the best CC-licensed Phylopic silhouette it can find — but a residual cohort of families have no usable Phylopic art (anonymous-creator-only, NC/ND-only, or no node at all). This skill closes that gap: source a silhouette from outside Phylopic (Wikimedia Commons, SVG Repo, OpenClipArt, iNaturalist, etc.), normalize it to the admin-api validator's shape, and upload it via `npm run silhouette set`. The two workflows complement each other — Phylopic for the families it has art for, this skill for the residual cohort.
+The Phylopic curation pipeline (`scripts/curation/curate-phylopic.mjs`) sweeps every AZ family and picks the best CC-licensed Phylopic silhouette it can find — but a residual cohort of families have no usable Phylopic art (anonymous-creator-only, NC/ND-only, or no node at all). This skill closes that gap: source a silhouette from outside Phylopic (Wikimedia Commons, SVG Repo, OpenClipArt, iNaturalist, etc.), normalize it to the admin-api validator's shape, and upload it via `npm run silhouette set`. The two workflows complement each other — Phylopic for the families it has art for, this skill for the residual cohort.
 
 ## When to use
 
@@ -20,13 +20,13 @@ The Phylopic curation pipeline (`scripts/curate-phylopic.mjs`) sweeps every AZ f
 
 - Species-level silhouette overrides — the `family_silhouettes` schema is keyed by `family_code` only. Species overrides require a schema change first.
 - Photo-based markers — the map renders SDF-traced silhouettes, not photos. A photo system would be a separate feature.
-- A family that Phylopic *does* have art for but the auto-pick chose poorly — re-run `node scripts/curate-phylopic.mjs --family <code>` with the existing pipeline first; this skill is the fallback when that pipeline has nothing to pick from.
+- A family that Phylopic *does* have art for but the auto-pick chose poorly — re-run `node scripts/curation/curate-phylopic.mjs --family <code>` with the existing pipeline first; this skill is the fallback when that pipeline has nothing to pick from.
 - Reverting a silhouette — use `npm run silhouette unset <family>` (see Rollback).
 
 ## Preconditions
 
 - `bird-admin-api` Cloud Run service deployed (issue #502 landed it; see `docs/runbooks/silhouette-override.md` for the deploy bootstrap).
-- `npm run silhouette` alias present in root `package.json` (it forwards to `scripts/silhouette.mjs`).
+- `npm run silhouette` alias present in root `package.json` (it forwards to `scripts/curation/silhouette.mjs`).
 - Env loaded:
   ```bash
   export ADMIN_API_URL="$(gcloud run services describe bird-admin-api \
@@ -128,7 +128,7 @@ Admin-api validator requires:
 Operator hint (not enforced by the validator): paths under ~20 commands
 tend to render as unrecognizable blobs at 24–28px legend scale. The
 automated Phylopic sourcing pipeline (`extractPathD` in
-`scripts/curate-phylopic.mjs`) applies a ≥20-command floor at curation
+`scripts/curation/curate-phylopic.mjs`) applies a ≥20-command floor at curation
 time as a quality heuristic, but the admin-api validator
 (`services/admin-api/src/validate.ts`) does not — a hand-curated
 silhouette below 20 commands will upload fine but may not read at small
@@ -137,9 +137,9 @@ sizes. Squint-test before shipping.
 If the chosen file violates any rule, reduce it. The algorithm to apply:
 
 1. Parse the SVG, locate the first `<path d="...">`.
-2. If a `<g transform="translate(...) scale(...)">` wraps it, flatten the transform into the path coordinates (potrace's translate-then-scale shape is what `parseGTransform` / `transformPathD` in `scripts/curate-phylopic.mjs` handle).
+2. If a `<g transform="translate(...) scale(...)">` wraps it, flatten the transform into the path coordinates (potrace's translate-then-scale shape is what `parseGTransform` / `transformPathD` in `scripts/curation/curate-phylopic.mjs` handle).
 3. Multi-path SVGs: concatenate `d` attributes (`M ... Z M ... Z`) — the validator accepts a single `<path>` whose `d` contains multiple sub-paths.
-4. Normalize coordinates so the bounding box maps to 0..24. The `normalizePath` helper in `scripts/curate-phylopic.mjs` does this in two passes (read bounds, scale uniformly).
+4. Normalize coordinates so the bounding box maps to 0..24. The `normalizePath` helper in `scripts/curation/curate-phylopic.mjs` does this in two passes (read bounds, scale uniformly).
 5. Re-emit as `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="..."/></svg>` with no other attributes.
 
 The cleanest path is to call the existing helpers directly. A minimal wrapper:
@@ -237,11 +237,11 @@ Apply this on every candidate before adding it to the picker.
 
 ## Common gotchas
 
-- **Phylopic `filter_name` is case-sensitive on the URL.** Always `.toLowerCase()` the slug or the API returns an empty list. The `nodeBySlug` helper in `scripts/curate-phylopic.mjs` learned this the hard way.
+- **Phylopic `filter_name` is case-sensitive on the URL.** Always `.toLowerCase()` the slug or the API returns an empty list. The `nodeBySlug` helper in `scripts/curation/curate-phylopic.mjs` learned this the hard way.
 - **"Unknown" creator on Wikimedia.** Plates labeled "Unknown, <year>" by Wikimedia editors are usually well-known publications (Audubon, Bird-Lore, Birds and Nature). Substitute the publication name + year as the creator string before upload — anonymous credit is rejected by the audit downstream.
 - **CSS `mask-image` requires CORS on the silhouette URL.** The Worker that serves R2 silhouette URLs sets `access-control-allow-origin: *`. If the Worker is ever modified, preserve that header — without it the `mask-image` pipeline degrades to inline-SVG fallback and the SDF clustering breaks.
 - **One iconic species per family.** Squint-test at 24–28px before committing. A "technically correct but unrecognizable at small sizes" silhouette is worse than the `_FALLBACK` shape because the user assumes it's information.
-- **Phylopic curation pipeline's ≥20-command floor (issue #500) is a sourcing filter, not a validator rule.** It fires inside `extractPathD` in `scripts/curate-phylopic.mjs` and gates which Phylopic results the automated pipeline accepts. The admin-api validator (`services/admin-api/src/validate.ts`) does NOT enforce a path-command floor, so a hand-curated silhouette below 20 commands will upload successfully. Pre-#500 silhouettes ship at a median of 16 commands. Treat ~20 as a squint-test rule of thumb for legibility at 24–28px; if a hand-curated silhouette is otherwise good but reads as a blob, add a few smoothing curves before retrying — but don't drop the candidate just because it trips the heuristic.
+- **Phylopic curation pipeline's ≥20-command floor (issue #500) is a sourcing filter, not a validator rule.** It fires inside `extractPathD` in `scripts/curation/curate-phylopic.mjs` and gates which Phylopic results the automated pipeline accepts. The admin-api validator (`services/admin-api/src/validate.ts`) does NOT enforce a path-command floor, so a hand-curated silhouette below 20 commands will upload successfully. Pre-#500 silhouettes ship at a median of 16 commands. Treat ~20 as a squint-test rule of thumb for legibility at 24–28px; if a hand-curated silhouette is otherwise good but reads as a blob, add a few smoothing curves before retrying — but don't drop the candidate just because it trips the heuristic.
 
 ## Rollback
 

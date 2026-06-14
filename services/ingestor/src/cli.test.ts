@@ -277,7 +277,7 @@ describe('runCli', () => {
     });
 
     it('emits structured `state` field on the run-completion log for per-state backfill', async () => {
-      // Phase 3.5: scripts/verify-backfill.sh and Cloud Logging dashboards
+      // Phase 3.5: scripts/data/verify-backfill.sh and Cloud Logging dashboards
       // partition by jsonPayload.state. The summary line must carry `state`
       // as a top-level field, not embedded in a message string.
       process.argv = ['node', 'cli.ts', 'backfill', '--state=US-CA', '--back=14'];

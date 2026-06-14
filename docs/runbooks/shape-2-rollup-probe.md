@@ -30,7 +30,7 @@ creation is suppressed.
 ## Re-tuning bands
 
 After 12 months of clean data (~52 rows in the CSV), revisit
-`scripts/shape-2-bands.json`. For each `band`-mode curl, compute P5 and
+`scripts/ci/shape-2-bands.json`. For each `band`-mode curl, compute P5 and
 P95 across the 12-month history; new band = `[0.5 × P5, 1.5 × P95]`.
 Land as a single-file PR.
 

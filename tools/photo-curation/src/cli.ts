@@ -145,7 +145,7 @@ program
     const env = resolveAdminEnv(process.env);
     if (!env.ok) {
       console.error(env.error);
-      process.exit(2); // mirrors scripts/silhouette.mjs missing-env exit code
+      process.exit(2); // mirrors scripts/curation/silhouette.mjs missing-env exit code
     }
     const db = openDb(DEFAULT_DB_PATH); // opens ./review.sqlite (Slice 4 helper)
     try {

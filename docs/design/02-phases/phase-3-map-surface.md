@@ -14,7 +14,7 @@ Land the Sky Atlas map surface — cluster pills replace solid circles, newspape
 |---|---|
 | `<MapSurface>` rewrite to consume new chrome + primitives | `frontend/src/components/MapSurface.tsx` |
 | Newspaper lede + filter sentence + freshness meta | `<MapSurface>` context strip |
-| MapLibre cluster layer config consumes `cluster.ts` thresholds | `frontend/src/components/map/observation-layers.ts` |
+| MapLibre cluster layer config consumes `cluster.ts` thresholds | `frontend/src/components/map/geometry/observation-layers.ts` |
 | `<ClusterPill>` overlay rendered as React `<Marker>`s on top of MapLibre | `<MapSurface>` rendering branch |
 | `<FamilyLegend>` revision — collapsed by default on mobile, shape-paired swatches | `frontend/src/components/FamilyLegend.tsx` |
 | Header chrome rewrite (wordmark, nav, attribution, filters, theme toggle) | `frontend/src/App.tsx` or new `<AppHeader>` component |

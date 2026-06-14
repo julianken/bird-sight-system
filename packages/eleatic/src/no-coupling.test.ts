@@ -88,3 +88,52 @@ describe('zero-coupling guard', () => {
     expect(offenders).toEqual([]);
   });
 });
+
+/**
+ * Domain-agnosticism guard for the trace renderers (T7 / epic #1193 §8).
+ *
+ * eleatic renders a GENERIC span tree from an opaque `trace` blob. A span's
+ * `name` ('judge', a scorer name, …) flowing through trace_json is DATA — fine
+ * and expected. The coupling risk is a RENDERER hardcoding that vocabulary,
+ * e.g. `if (span.name === 'judge')` or an `iconByKind` that keys off a scorer
+ * name. A quoted-string scan of the trace UI source catches exactly that: a
+ * hardcoded photo-judge literal lands in source as a quoted token, while the
+ * same word arriving as runtime data does not.
+ *
+ * Why a QUOTED-string scan and why 'eval'/'task' are DELIBERATELY EXCLUDED:
+ * 'eval' and 'task' collide with the package's own identifiers and prose —
+ * EvalSpan/EvalRowRecord/evalGate, the synthesized legacy-root `kind: 'eval'`
+ * (trace-tree.js), and "eleatic invents no eval domain" comments (trace.js:3,
+ * trace-view.js). A `\beval\b`/`\btask\b` scan would false-positive and fail
+ * this guard the moment it landed. The quoted scorer/judge terms below are
+ * high-signal and collision-free against the package's own vocabulary.
+ *
+ * If this block ever fails: DO NOT weaken the regex to make it pass. A match
+ * means a renderer hardcoded a photo-judge literal — a real coupling bug to
+ * fix (rename to a generic token, or read the value as data), not to silence.
+ */
+const TRACE_UI_FILES = [
+  'trace.js',
+  'trace-tree.js',
+  'trace-view.js',
+  'trace-view-page.js',
+  'trace-format.js',
+];
+
+// Quoted-string form, high-signal + collision-free. 'eval'/'task' are EXCLUDED
+// (see block comment) — they collide with EvalSpan/evalGate and the legacy-root
+// `kind: 'eval'` and would false-positive. Verified to BITE: temporarily
+// injecting `if (span.name === 'judge')` into a renderer turns this assertion
+// red (then reverted — never committed).
+const PHOTO_JUDGE_LITERAL =
+  /['"`](judge|scorer|species|rubric|keep_agreement|score_mae|keep_confusion|criteria_mae|falseKeep|falseReplace)/;
+
+describe('trace renderer stays domain-agnostic', () => {
+  it.each(TRACE_UI_FILES)('ui/%s hardcodes no photo-judge quoted literal', (name) => {
+    const src = readFileSync(join(PKG_ROOT, 'ui', name), 'utf8');
+    const match = PHOTO_JUDGE_LITERAL.exec(src);
+    // On failure, surface the offending file + matched token so the coupling
+    // bug is locatable (escalate it; do not loosen the scan to pass).
+    expect(match, `ui/${name} contains a forbidden photo-judge literal: ${match?.[0]}`).toBeNull();
+  });
+});

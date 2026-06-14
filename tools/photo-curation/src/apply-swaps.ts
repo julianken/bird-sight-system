@@ -346,7 +346,7 @@ export type AdminEnv =
   | { ok: false; error: string };
 
 /**
- * Resolves the admin endpoint env, mirroring scripts/silhouette.mjs's contract:
+ * Resolves the admin endpoint env, mirroring scripts/curation/silhouette.mjs's contract:
  * both ADMIN_API_URL and ADMIN_API_TOKEN must be present. Returned as a result
  * object (not a throw) so the CLI maps a missing-env to exit code 2 — the same
  * code silhouette.mjs returns for missing env.

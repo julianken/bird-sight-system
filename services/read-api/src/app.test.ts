@@ -864,7 +864,7 @@ describe('species_meta backfill for eBird hybrid/spuh codes (#484)', () => {
   // in US-AZ but historically had no species_meta row, causing /api/species/:code
   // to 404 even though /api/observations returns them. Migration
   // 1700000032000_backfill_species_meta_spuh_hybrid.sql inserts these rows;
-  // the ingest-time invariant in services/ingestor/src/run-ingest.ts catches
+  // the ingest-time invariant in services/ingestor/src/commands/run-ingest.ts catches
   // any future leak before it reaches the read path.
   const LEAKING_CODES = [
     'ixlbun', 'mallar4',

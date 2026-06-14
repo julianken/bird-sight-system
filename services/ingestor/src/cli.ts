@@ -267,7 +267,7 @@ export async function runCli(kind: string, deps: CliDeps): Promise<void> {
     // the run-completion summary log carries `state` as a structured
     // jsonPayload field. Cloud Logging queries like
     // `jsonPayload.state="US-CA"` then partition per-state runs cleanly —
-    // see scripts/verify-backfill.sh.
+    // see scripts/data/verify-backfill.sh.
     let backfillState: string | undefined;
     if (kind === 'recent') {
       // Per-state fan-out (#840): runIngest loops CONUS_STATE_CODES internally

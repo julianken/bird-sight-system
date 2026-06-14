@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # check-orphan-classnames.test.sh
 #
-# Synthetic unit tests for scripts/check-orphan-classnames.sh.
+# Synthetic unit tests for scripts/ci/check-orphan-classnames.sh.
 #
 # Each test:
 #   1. Creates a minimal tmp directory tree (CSS + TSX) that exercises a
@@ -11,7 +11,7 @@
 #   3. Runs the script and asserts on exit code + output.
 #
 # Usage:
-#   bash scripts/check-orphan-classnames.test.sh
+#   bash scripts/ci/check-orphan-classnames.test.sh
 #
 # Compatibility: bash >= 3.2 (macOS stock).
 

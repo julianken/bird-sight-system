@@ -61,6 +61,19 @@ let roots = [];
 let selectedId = '';
 const collapsed = new Set();
 
+/**
+ * Escape a span id for safe use inside an attribute selector. Span ids come from
+ * the OPAQUE, attacker-influenceable trace blob, so they may contain quotes /
+ * brackets that would break (or inject into) a `[data-span-id="…"]` selector.
+ * CSS.escape is the standard primitive; the typeof guard keeps the module
+ * importable in a non-browser context (it is browser-only glue, but stays safe).
+ */
+function cssEscape(value) {
+  return typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+    ? CSS.escape(String(value))
+    : String(value).replace(/["\\\]]/g, '\\$&');
+}
+
 /** A flat id→TraceNode index over the whole forest, for selection + detail render. */
 function indexNodes(rootList) {
   const index = new Map();
@@ -115,21 +128,48 @@ function syncSpanParam() {
   history.replaceState(null, '', `?${next.toString()}`);
 }
 
-/** Select a node: update the panes, the URL, and (on mobile) flip to the detail view. */
+/**
+ * Select a node: update the panes, the URL, and (on mobile) flip to the detail
+ * view. The tree re-render replaces the DOM, so if a node currently holds
+ * keyboard focus (Enter/Space select), restore focus to the now-selected row so
+ * arrow-nav can continue. A mouse click doesn't focus the row, so focus is only
+ * restored when the page already had keyboard focus inside the tree.
+ */
 function selectSpan(id) {
   if (!nodeIndex.has(id)) return; // ignore a click on a stale / unknown id
+  const hadTreeFocus = !!document.activeElement?.closest?.('[data-span-id]');
   selectedId = id;
   renderTreePane(); // re-render so aria-selected + roving tabindex track the selection
   renderDetailPane();
   syncSpanParam();
   if (main) main.setAttribute('data-mobile-view', 'detail');
+  if (hadTreeFocus) {
+    // The re-rendered selected row already carries tabindex=0 (renderNode); just
+    // move DOM focus onto it so keyboard traversal resumes from the selection.
+    treeHost.querySelector(`[data-span-id="${cssEscape(id)}"]`)?.focus();
+  }
 }
 
-/** Toggle a branch's collapsed state and re-render the tree. */
+/**
+ * Toggle a branch's collapsed state and re-render the tree. A keyboard toggle
+ * (←/→) destroys + re-creates the DOM, so restore focus + the roving tab stop to
+ * the toggled row afterwards (renderNode only puts tabindex=0 on the SELECTED
+ * row, which may differ from the focused one). A mouse toggle leaves focus where
+ * it was, so only re-focus when the toggled row currently holds keyboard focus.
+ */
 function toggleSpan(id) {
+  const hadFocus =
+    document.activeElement?.closest?.('[data-span-id]')?.getAttribute('data-span-id') === id;
   if (collapsed.has(id)) collapsed.delete(id);
   else collapsed.add(id);
   renderTreePane();
+  if (hadFocus) {
+    const row = treeHost.querySelector(`[data-span-id="${cssEscape(id)}"]`);
+    if (row) {
+      row.setAttribute('tabindex', '0');
+      row.focus();
+    }
+  }
 }
 
 /** Render the lossless fallback for a non-conforming trace (single column). */
@@ -172,6 +212,14 @@ async function load() {
   const built = buildTraceTree(record.trace);
   if (!built.ok) {
     // Non-conforming / legacy-scalar trace → the lossless flat preview.
+    renderFallback(record.trace);
+    return;
+  }
+  if (built.roots.length === 0) {
+    // A CONFORMING but EMPTY trace ({ spans: [] }) builds ok:true with no roots.
+    // Rendering the two panes would leave both blank — contradicting the page's
+    // "never a blank pane" intent (T6 fold #2). Route it through the same
+    // lossless fallback, which shows renderTrace's empty-trace note.
     renderFallback(record.trace);
     return;
   }

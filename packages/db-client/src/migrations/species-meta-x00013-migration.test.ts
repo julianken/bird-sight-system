@@ -5,7 +5,7 @@
  *
  * Issue #527 (PR-1 of 3). The `recent` ingest cron has been exiting non-zero
  * every 30 min for ~40 hours because the #484 invariant
- * (services/ingestor/src/run-ingest.ts:54-63) correctly refuses to insert
+ * (services/ingestor/src/commands/run-ingest.ts:54-63) correctly refuses to insert
  * observations for a species_code with no species_meta parent. This
  * migration ships the single missing row.
  *

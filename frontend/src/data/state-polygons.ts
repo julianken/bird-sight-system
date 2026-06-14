@@ -5,7 +5,7 @@ import type { MultiPolygon } from 'geojson';
  * Client state-mask polygons (#760).
  *
  * Lazy-fetches `frontend/public/state-polygons.json` (the `code → MultiPolygon
- * geometry` asset emitted by `scripts/generate-state-boundaries.mjs` — the same
+ * geometry` asset emitted by `scripts/data/generate-state-boundaries.mjs` — the same
  * run that emits the boundaries migration + `data/us-state-polygons.geojson`,
  * so the client mask edge matches the server's ST_Intersects data-clip edge)
  * and resolves the geometry for the active state scope, so MapCanvas can paint
@@ -21,7 +21,7 @@ import type { MultiPolygon } from 'geojson';
  * degrades to the plain (unmasked) state view rather than throwing.
  *
  * GeoJSON `MultiPolygon` is imported from `geojson` (the @types/geojson module),
- * NOT from `maplibre-gl` — see `components/map/mask.ts` for why. `import type`,
+ * NOT from `maplibre-gl` — see `components/map/geometry/mask.ts` for why. `import type`,
  * erased at build.
  */
 

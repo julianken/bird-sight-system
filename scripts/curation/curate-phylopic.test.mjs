@@ -131,7 +131,7 @@ describe('emitMigrationSql mode=national', () => {
     // no-op (the row's svg_data/source/license/creator are already all
     // NULL). The emit path documents the family in a SQL comment instead
     // and skips the redundant UPDATE write — the per-row attempts[]
-    // cascade in scripts/phylopic-picks.json is the audit trail.
+    // cascade in scripts/curation/phylopic-picks.json is the audit trail.
     expect(sql).not.toContain("WHERE family_code IN ('calcariidae')");
     // But the family is still mentioned in the audit comment block.
     expect(sql).toMatch(/-- UPDATE bucket: families that stayed NULL[\s\S]*calcariidae/);
@@ -243,7 +243,7 @@ describe('NATIONAL_* constants are well-formed', () => {
  * CC0 and does not require citation (but the emitter still emits the
  * creator column when known — the test only enforces that CC0 picks with
  * no creator emit `creator = NULL`, matching the emitter's `p.creatorName`
- * ternary at scripts/curate-phylopic.mjs:1466).
+ * ternary at scripts/curation/curate-phylopic.mjs:1466).
  */
 describe('emitMigrationSql mode=national-residual', () => {
   const today = '2026-05-20';

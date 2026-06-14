@@ -2,7 +2,7 @@
 
 ## When to run
 
-Run `scripts/purge-silhouettes-cache.sh` after **any** change that mutates
+Run `scripts/cache/purge-silhouettes-cache.sh` after **any** change that mutates
 the `family_silhouettes` table reaches production. Common triggers:
 
 - A migration in the epic #251 series (#244, #245, #246, #249) lands on
@@ -58,13 +58,13 @@ The script is a one-liner around the Cloudflare zone-purge API:
 
 ```bash
 CLOUDFLARE_ZONE_ID=... CLOUDFLARE_API_TOKEN=... \
-  ./scripts/purge-silhouettes-cache.sh
+  ./scripts/cache/purge-silhouettes-cache.sh
 ```
 
 Optional override for staging or alternate hosts:
 
 ```bash
-API_HOST=staging-api.bird-maps.com ./scripts/purge-silhouettes-cache.sh
+API_HOST=staging-api.bird-maps.com ./scripts/cache/purge-silhouettes-cache.sh
 ```
 
 Use `--dry-run` to confirm the request shape without calling the API
@@ -72,7 +72,7 @@ Use `--dry-run` to confirm the request shape without calling the API
 
 ```bash
 CLOUDFLARE_ZONE_ID=... CLOUDFLARE_API_TOKEN=... \
-  ./scripts/purge-silhouettes-cache.sh --dry-run
+  ./scripts/cache/purge-silhouettes-cache.sh --dry-run
 ```
 
 ## Where the secrets live
