@@ -2,7 +2,7 @@ import type { Observation } from '@bird-watch/shared-types';
 import type { SilhouettesById } from './adaptive-grid.js';
 import type { HitTargetMarker } from '@/components/map/layers/MapMarkerHitLayer.js';
 import { CLUSTER_MAX_ZOOM } from './observation-layers.js';
-import { resolveFamilyName } from '../../../derived.js';
+import { resolveFamilyName } from '@/derived.js';
 
 /**
  * Pure observation derives extracted from MapCanvas.tsx (epic #884 · U8).

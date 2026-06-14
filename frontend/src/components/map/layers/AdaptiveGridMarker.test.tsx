@@ -4,7 +4,7 @@ import { AdaptiveGridMarker } from './AdaptiveGridMarker.js';
 import { markerDimensions, MIN_MARKER_PX } from './AdaptiveGridMarker.js';
 import type { AdaptiveTile, ResolvedGrid, PositiveInt, SpeciesAggregate } from '@/components/map/geometry/adaptive-grid.js';
 import { toPositiveInt } from '@/components/map/geometry/adaptive-grid.js';
-import { setMatchMedia } from '../../../test-setup.js';
+import { setMatchMedia } from '@/test-setup.js';
 
 // Helpers --------------------------------------------------------------------
 
