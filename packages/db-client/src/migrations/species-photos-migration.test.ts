@@ -28,7 +28,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import pg from 'pg';
 // Side-effect import: registers pool-wide type parsers before any query.
-import './pool.js';
+import '../pool.js';
 
 let container: StartedPostgreSqlContainer;
 let pool: pg.Pool;
