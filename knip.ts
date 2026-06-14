@@ -250,65 +250,6 @@ const config: KnipConfig = {
     'packages/geo': {},
     'packages/shared-types': {},
     'packages/photo-quality': {},
-    'packages/eleatic': {
-      // 2026-06-13 (E5, #1148): the explorer's browser ES modules under ui/.
-      //             ui/hub.js (the comparison hub entry) and ui/theme.js are
-      //             loaded at runtime via ui/index.html's
-      //             `<script type="module" src="/hub.js">` and a bare
-      //             `import '/theme.js'` specifier the BROWSER resolves at
-      //             runtime — never imported by any TS/JS module knip can
-      //             trace, so static analysis flags both as unused files.
-      //             Exactly the tools/photo-curation public/*.js precedent
-      //             below. Their siblings ui/safe.js + ui/format.js are
-      //             deliberately NOT listed here: each has a real vitest
-      //             sibling (ui/safe.test.ts, ui/format.test.ts) that imports
-      //             it, so knip already traces them as used (an ignore entry
-      //             for either would be flagged redundant) — the safe.js
-      //             "test-sibling makes it traced" reasoning from photo-curation
-      //             applies verbatim. ui/index.html + ui/app.css are not JS/TS
-      //             modules, so knip does not track them as unused-file entries.
-      //             Risk: masks a genuinely orphaned ui/ script if a page is
-      //             deleted but its module left on disk. Re-audit 2026-07-27 —
-      //             confirm ui/index.html still references both (grep
-      //             `src="/hub.js"` and an `import .* '/theme.js'` in hub.js).
-      // 2026-06-13 (E6, #1149): the diff + facet pages' browser entries
-      //             ui/diff.js and ui/facets.js (loaded via diff.html/facets.html
-      //             `<script type="module" src="/diff.js">` / `/facets.js`) and
-      //             their shared collaborators ui/drawer.js + ui/adjudicate.js
-      //             (imported only BY diff.js/facets.js, which knip can't see,
-      //             so they're transitively unreachable). Same runtime-resolved-
-      //             specifier reason as hub.js/theme.js above. Their pure-unit
-      //             siblings ui/facet-grammar.js, ui/pretty.js, ui/diff-classify.js
-      //             and ui/staleness.js are deliberately NOT listed: each has a
-      //             real vitest sibling (*.test.ts) that imports it, so knip
-      //             already traces them as used (a redundant-ignore would be
-      //             flagged) — the safe.js "test-sibling makes it traced"
-      //             reasoning applies verbatim. ui/diff.html + ui/facets.html are
-      //             not JS/TS modules, so knip does not track them either.
-      //             Risk: masks a genuinely orphaned ui/ script if a page is
-      //             deleted but its module left on disk. Re-audit 2026-07-27 —
-      //             confirm diff.html references /diff.js, facets.html references
-      //             /facets.js, and both diff.js+facets.js still
-      //             `import … './drawer.js'` (drawer.js `import … './adjudicate.js'`).
-      // 2026-06-13 (T4, #1189): the trace explorer's browser entry
-      //             ui/trace-view-page.js (loaded via trace.html
-      //             `<script type="module" src="/trace-view-page.js">`) — same
-      //             runtime-resolved-specifier reason as hub.js/diff.js/facets.js
-      //             above; knip can't see a `<script type=module>` entry, so it
-      //             flags the file as unused. Its pure collaborators
-      //             ui/trace-tree.js, ui/trace-view.js, ui/trace.js and
-      //             ui/trace-format.js are deliberately NOT listed: each has a
-      //             real vitest sibling (*.test.ts) that imports it, so knip
-      //             already traces them (a redundant ignore would be flagged) —
-      //             the safe.js "test-sibling makes it traced" reasoning applies
-      //             verbatim. ui/trace.html + ui/app.css are not JS/TS modules,
-      //             so knip does not track them either.
-      //             Risk: masks a genuinely orphaned ui/ script if the trace page
-      //             is deleted but its module left on disk. Re-audit 2026-07-27 —
-      //             confirm trace.html references /trace-view-page.js and that
-      //             entry still `import … './trace-view.js'`/`'./trace-tree.js'`.
-      ignore: ['ui/hub.js', 'ui/theme.js', 'ui/diff.js', 'ui/facets.js', 'ui/drawer.js', 'ui/adjudicate.js', 'ui/trace-view-page.js'],
-    },
 
     'tools/photo-curation': {
       // 2026-06-10: Part B (#971) wired the four Part A self-healing entries —
@@ -379,7 +320,7 @@ const config: KnipConfig = {
       //             the bespoke `/eval` model-comparison viewer (eval.html +
       //             eval.js) was deleted — knip flags a configured-but-unused
       //             ignore entry, so the orphaned entry would red the knip gate.
-      //             The run explorer now lives in @bird-watch/eleatic's own
+      //             The run explorer now lives in eleatic's own
       //             server (`eleatic serve`), not this review server.
       //
       // 2026-06-12 (#1094): the prior eval/photo-judge.eval.ts ignore was

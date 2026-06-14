@@ -3,7 +3,7 @@
 //
 // Scores the INSTRUMENTED Gemini judge against the frozen Opus baseline (read
 // from PROD `species_photo_scores`, pinned to (BASELINE_MODEL, BASELINE_RUBRIC))
-// and writes the result to the LOCAL @bird-watch/eleatic store (E7/E8,
+// and writes the result to the LOCAL eleatic store (E7/E8,
 // #1150/#1151) — the eleatic `eval.sqlite` is the SOLE eval store now (the
 // bespoke #1094 `eval_run`/`eval_result` review-store write was retired in E8):
 //   • one eleatic eval row per judgment (the candidate decision joined with the

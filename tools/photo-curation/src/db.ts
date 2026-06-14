@@ -105,7 +105,7 @@ CREATE TABLE IF NOT EXISTS source_attempt (
 
 -- NOTE: the local eval store (the #1094 \`eval_run\` + \`eval_result\` tables) was
 -- retired in E8 (#1151) once photo-curation's eval write/read moved onto
--- @bird-watch/eleatic. The eleatic \`eval.sqlite\` (opened via the eval adapter,
+-- eleatic. The eleatic \`eval.sqlite\` (opened via the eval adapter,
 -- src/eval/eleatic-adapter.ts) is now the SOLE eval store; this review store no
 -- longer carries eval tables.
 

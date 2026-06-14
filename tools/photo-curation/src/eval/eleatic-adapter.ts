@@ -1,8 +1,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // The SINGLE domain seam between photo-curation's photo-judge eval and the
-// generic @bird-watch/eleatic store (E7, #1150).
+// generic eleatic store (E7, #1150).
 //
-// This is the ONLY file in tools/photo-curation that imports @bird-watch/eleatic.
+// This is the ONLY file in tools/photo-curation that imports eleatic.
 // It owns the photo-judge's domain vocabulary (`EvalResultRecord` /
 // `EvalRunRecord`, defined below) and maps it onto eleatic's generic three-table
 // records, reading them back for the analyzer. Keeping both the vocabulary and
@@ -21,8 +21,8 @@
 // never assigned `undefined` on a required key.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { openStore, makeReader } from '@bird-watch/eleatic';
-import type { EvalRowRecord, EvalRunRecord as EleaticRunRecord, EleaticStore } from '@bird-watch/eleatic';
+import { openStore, makeReader } from 'eleatic';
+import type { EvalRowRecord, EvalRunRecord as EleaticRunRecord, EleaticStore } from 'eleatic';
 import type { CriteriaScores, JudgeOutput } from '@bird-watch/photo-quality';
 
 /**
@@ -205,7 +205,7 @@ export const buildTraceSpan = (t: JudgeTraceInput): unknown => buildTrace(t, [])
 
 // Re-export the eleatic LIFECYCLE surface the runner + analyzer need, so this
 // adapter stays the SINGLE file in tools/photo-curation that imports
-// `@bird-watch/eleatic` (#1150). The scripts open/read the store through here,
+// `eleatic` (#1150). The scripts open/read the store through here,
 // never reaching into the package directly — the one-seam rule keeps the
 // photo-judge↔eleatic coupling auditable in one place.
 export { openStore, makeReader };
