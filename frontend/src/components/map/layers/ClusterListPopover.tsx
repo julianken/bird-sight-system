@@ -2,8 +2,8 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import type { FamilyAggregate, SpeciesAggregate } from '@/components/map/geometry/adaptive-grid.js';
-import { prettyFamily } from '../../../derived.js';
-import { formatCount } from '../../../lib/format-count.js';
+import { prettyFamily } from '@/derived.js';
+import { formatCount } from '@/lib/format-count.js';
 
 /**
  * `<ClusterListPopover>` — mobile / coarse-pointer sheet-style popover for
