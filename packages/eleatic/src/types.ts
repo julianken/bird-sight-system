@@ -43,6 +43,14 @@ export interface EvalRowRecord {
   scores?: Record<string, number>;
   /** Categorical facet axis -> metadata_json. */
   metadata?: Record<string, string | number | boolean>;
+  /**
+   * Optional, OPAQUE generic LLM trace -> trace_json; never destructured by the
+   * store. Conventionally `{ spans: [{ name, input, output, usage }] }`, but any
+   * JSON value round-trips (a non-conforming blob is pretty-printed whole in the
+   * drawer). Surfaced ONLY by the single-row read path (`getRow`) — list
+   * payloads stay lean and omit it.
+   */
+  trace?: unknown;
 }
 
 /** A human verdict on an item, run-independent. Maps to the `eval_adjudication` table. */
