@@ -12,6 +12,7 @@ import {
   CLUSTER_RADIUS,
   FALLBACK_SILHOUETTE_ID,
 } from './observation-layers.js';
+import { resolveDescriptor, type BasemapDescriptor } from './basemap-style.js';
 import { FAMILY_COLOR_FALLBACK } from '@/data/family-color.js';
 
 function makeObs(partial: Partial<Observation> = {}): Observation {
@@ -205,7 +206,12 @@ describe('layer specs', () => {
     // Each feature renders its family's silhouette via icon-image, tinted by
     // the per-feature color property (sourced from the silhouettes join in
     // observationsToGeoJson).
-    const spec = buildUnclusteredPointLayerSpec();
+    //
+    // #1216: the marker halo is now a per-style descriptor fact — the spec
+    // takes the active BasemapDescriptor. positron carries
+    // markerHaloColor '#ffffff', so this assertion is byte-identical to the
+    // pre-refactor hardcode.
+    const spec = buildUnclusteredPointLayerSpec(resolveDescriptor('positron'));
     expect(spec.id).toBe('unclustered-point');
     expect(spec.type).toBe('symbol');
     // Epic #539 cutover: inStack filter removed alongside auto-spider.
@@ -224,6 +230,8 @@ describe('layer specs', () => {
     // SDF tint sourced from the per-feature color property — this is what
     // makes the silhouettes share the family color from the legend.
     expect(paint['icon-color']).toEqual(['get', 'color']);
+    // #1216: halo width is unchanged; only the color is threaded.
+    expect(paint['icon-halo-width']).toBe(1.5);
     // _FALLBACK silhouette renders at 50% opacity so missing-Phylopic
     // families read as "we don't have a shape for this" instead of
     // visually equal to the rest. The first branch (issue #554 scope
@@ -236,6 +244,44 @@ describe('layer specs', () => {
       ['==', ['get', 'silhouetteId'], FALLBACK_SILHOUETTE_ID], 0.5,
       1.0,
     ]);
+  });
+
+  describe('icon-halo-color comes from descriptor.markerHaloColor (#1216)', () => {
+    // The halo color is a per-style design fact threaded through the active
+    // BasemapDescriptor — NOT a hardcoded literal. positron/dark both declare
+    // markerHaloColor '#ffffff', so the production paint stays byte-identical.
+    it('positron descriptor → #ffffff (byte-identical to the pre-refactor hardcode)', () => {
+      const paint = buildUnclusteredPointLayerSpec(resolveDescriptor('positron'))
+        .paint as Record<string, unknown>;
+      expect(paint['icon-halo-color']).toBe('#ffffff');
+    });
+
+    it('dark descriptor → #ffffff (byte-identical)', () => {
+      const paint = buildUnclusteredPointLayerSpec(resolveDescriptor('dark'))
+        .paint as Record<string, unknown>;
+      expect(paint['icon-halo-color']).toBe('#ffffff');
+    });
+
+    it('a synthetic descriptor with a non-#ffffff halo paints that color (proves wiring, not a hardcode)', () => {
+      // The injection seam: a same-shape BasemapDescriptor carrying a
+      // different markerHaloColor must flow straight into the paint. This is
+      // the unit-level proof that a live theme swap to a non-white-halo theme
+      // re-renders the halo (the live-swap guarantee itself lives in C8's
+      // e2e, where such a theme first becomes reachable).
+      const synthetic: BasemapDescriptor = {
+        id: 'positron',
+        url: 'https://example.invalid/style',
+        kind: 'light',
+        landColor: '#abcdef',
+        markerHaloColor: '#123456',
+        floatColors: { outline: '#000000', halo: '#ffffff' },
+      };
+      const paint = buildUnclusteredPointLayerSpec(synthetic).paint as Record<
+        string,
+        unknown
+      >;
+      expect(paint['icon-halo-color']).toBe('#123456');
+    });
   });
 
   it('notable-ring layer is a circle layer filtered to notable observations', () => {
