@@ -1,10 +1,10 @@
 import { createPool, closePool } from '@bird-watch/db-client';
-import { runIngest, type RunSummary } from './run-ingest.js';
-import { runHotspotIngest, type RunHotspotSummary } from './run-hotspots.js';
-import { runBackfill, type RunBackfillSummary } from './run-backfill.js';
-import { runTaxonomy, type RunTaxonomySummary } from './run-taxonomy.js';
-import { runPhotos, type RunPhotosSummary } from './run-photos.js';
-import { runDescriptions, type RunDescriptionsSummary } from './run-descriptions.js';
+import { runIngest, type RunSummary } from './commands/run-ingest.js';
+import { runHotspotIngest, type RunHotspotSummary } from './commands/run-hotspots.js';
+import { runBackfill, type RunBackfillSummary } from './commands/run-backfill.js';
+import { runTaxonomy, type RunTaxonomySummary } from './commands/run-taxonomy.js';
+import { runPhotos, type RunPhotosSummary } from './commands/run-photos.js';
+import { runDescriptions, type RunDescriptionsSummary } from './commands/run-descriptions.js';
 
 export interface HandlerEnv {
   DATABASE_URL: string;

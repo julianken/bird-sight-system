@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { runCli, type CliDeps } from './cli.js';
-import type { RunTaxonomySummary } from './run-taxonomy.js';
-import type { RunSummary } from './run-ingest.js';
+import type { RunTaxonomySummary } from './commands/run-taxonomy.js';
+import type { RunSummary } from './commands/run-ingest.js';
 
 // Stubs for closePool/createPool — runCli should always close the pool even
 // on run-level failure, so we assert closePool was called.
@@ -923,7 +923,7 @@ describe('runCli', () => {
     process.env.HEALTHCHECKS_URL_BACKFILL_EXTENDED = 'https://hc-ping.com/uuid-bf-ext';
     const partialSummary = {
       status: 'partial',
-    } as unknown as Awaited<ReturnType<typeof import('./run-backfill.js').runBackfill>>;
+    } as unknown as Awaited<ReturnType<typeof import('./commands/run-backfill.js').runBackfill>>;
     const pingSpy = vi.fn().mockResolvedValue(undefined);
     const deps = makeDeps({
       runBackfill: vi.fn().mockResolvedValue(partialSummary),

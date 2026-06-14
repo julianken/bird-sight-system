@@ -5,7 +5,7 @@ import { startTestDb, type TestDb } from '@bird-watch/db-client/dist/test-helper
 import { upsertSpeciesMeta, getObservations, getRecentIngestRuns } from '@bird-watch/db-client';
 import { runBackfill } from './run-backfill.js';
 import { runIngest } from './run-ingest.js';
-import { EbirdClient } from './ebird/client.js';
+import { EbirdClient } from '../ebird/client.js';
 
 const server = setupServer();
 let db: TestDb;
@@ -396,7 +396,7 @@ describe('runBackfill', () => {
     // imported class. ESM namespace objects are mutable under vitest's
     // loader, so re-binding the export propagates to run-backfill's
     // `EbirdClient` reference for the duration of this test.
-    const ebirdModule = await import('./ebird/client.js');
+    const ebirdModule = await import('../ebird/client.js');
     const Real = ebirdModule.EbirdClient;
     let constructed: { requestTimeoutMs: number } | undefined;
     const Proxied = new Proxy(Real, {

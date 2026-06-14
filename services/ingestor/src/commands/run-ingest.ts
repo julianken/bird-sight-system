@@ -3,8 +3,8 @@ import {
   startIngestRun, finishIngestRun, type Pool,
 } from '@bird-watch/db-client';
 import { CONUS_STATE_CODES } from '@bird-watch/shared-types';
-import { EbirdClient, EbirdClientError } from './ebird/client.js';
-import { toObservationInput, notableKeyset } from './transform.js';
+import { EbirdClient, EbirdClientError } from '../ebird/client.js';
+import { toObservationInput, notableKeyset } from '../transform.js';
 
 export interface RunIngestOptions {
   pool: Pool;
@@ -102,7 +102,7 @@ function is429(err: unknown): err is EbirdClientError {
 }
 
 export async function runIngest(opts: RunIngestOptions): Promise<RunSummary> {
-  const clientOpts: import('./ebird/client.js').EbirdClientOptions = {
+  const clientOpts: import('../ebird/client.js').EbirdClientOptions = {
     apiKey: opts.apiKey,
     ...(opts.maxRetries !== undefined && { maxRetries: opts.maxRetries }),
     ...(opts.retryBaseMs !== undefined && { retryBaseMs: opts.retryBaseMs }),

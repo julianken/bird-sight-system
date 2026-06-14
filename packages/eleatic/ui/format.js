@@ -117,3 +117,54 @@ export function mapPoints(values, box) {
 
   return indexed.map((p) => ({ x: xFor(p.i), y: yFor(p.v) }));
 }
+
+// ── 4. Trace-node meta formatters (T3) ──────────────────────────────────────────
+//
+// The trace-tree pane (trace-view.js) renders a per-node META line —
+// `duration · tokens · cost` — reading the NORMALIZED `node.metrics` the builder
+// produced. These three pure formatters render each segment, returning '' when
+// the source value is absent / non-finite so the renderer drops that segment
+// (the omit-when-absent discipline of the §3 contract). They are DISTINCT from
+// trace.js's renderUsage (the drawer's '12 prompt · 34 completion · 250 ms'
+// line, which is unchanged): formatTokens here yields a single COMBINED count.
+
+/** A finite number, else undefined (the shared missing/NaN guard). */
+function finite(v) {
+  return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+}
+
+/**
+ * Format a duration in milliseconds. Below 1000 ms → integer milliseconds
+ * (`'250ms'`); 1000 ms and up → two-decimal seconds (`'1.50s'`). An absent /
+ * non-finite value → '' so the meta segment is dropped.
+ */
+export function formatDuration(durationMs) {
+  const n = finite(durationMs);
+  if (n === undefined) return '';
+  return n < 1000 ? `${n}ms` : `${(n / 1000).toFixed(2)}s`;
+}
+
+/**
+ * Format a combined token count from a span's prompt + completion tokens. Sums
+ * whichever values are present (finite) into a single thousands-separated
+ * `'{n} tok'`. Returns '' only when BOTH are absent / non-finite.
+ */
+export function formatTokens(prompt, completion) {
+  const p = finite(prompt);
+  const c = finite(completion);
+  if (p === undefined && c === undefined) return '';
+  const total = (p ?? 0) + (c ?? 0);
+  return `${total.toLocaleString('en-US')} tok`;
+}
+
+/**
+ * Format an estimated cost as a dollar string (`'$0.0123'`). An absent /
+ * non-finite value → '' so the meta segment is dropped. The value is rendered
+ * verbatim (no fixed precision) — costs in a trace span span many orders of
+ * magnitude and the drawer's usage line uses the same bare-dollar convention.
+ */
+export function formatCost(costUsd) {
+  const n = finite(costUsd);
+  if (n === undefined) return '';
+  return `$${n}`;
+}
