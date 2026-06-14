@@ -15,7 +15,7 @@ import { AppPage } from '../pages/app-page.js';
  *
  * Read-only: no DB writes. All state changes flow through URL params or
  * `page.route` stubs. Verified by the
- *   grep -rE "request\.(post|patch|delete|put)|fetch\(.*method:|fetch\(.*[\"']POST[\"']" frontend/e2e/happy-path.spec.ts
+ *   grep -rE "request\.(post|patch|delete|put)|fetch\(.*method:|fetch\(.*[\"']POST[\"']" frontend/e2e/chrome/happy-path.spec.ts
  * guard described in `CLAUDE.md#testing`.
  */
 

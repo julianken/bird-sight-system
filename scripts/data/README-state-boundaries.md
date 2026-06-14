@@ -1,6 +1,6 @@
 # State boundaries — provenance
 
-`scripts/generate-state-boundaries.mjs` is a **run-once offline generator**. It
+`scripts/data/generate-state-boundaries.mjs` is a **run-once offline generator**. It
 turns the US Census state cartographic-boundary shapefile into the three frozen
 artifacts the state-scope epic (#728, plan `2026-05-28-state-scope-selector`)
 and the state-artboard mask (#760/#762) ride on:
@@ -11,7 +11,7 @@ and the state-artboard mask (#760/#762) ride on:
    ZIP→state ETL (Stream D) reads for point-in-polygon precompute.
 3. `frontend/public/state-polygons.json` — a `code → MultiPolygon geometry` map
    the client lazy-fetches once (`frontend/src/data/state-polygons.ts`) to build
-   the state-artboard inverse mask (`frontend/src/components/map/mask.ts`). The
+   the state-artboard inverse mask (`frontend/src/components/map/geometry/mask.ts`). The
    FeatureCollection wrapper + every property are dropped; only geometry ships,
    keyed by `state_code` (#760/#762).
 
@@ -99,7 +99,7 @@ unzip -o cb_2023_us_state_500k.zip && cd ..
 npm install --no-save mapshaper@0.7.21
 
 # 3. Generate. Prints the INSERT block to stdout; writes the GeoJSON.
-node scripts/generate-state-boundaries.mjs > /tmp/state_boundaries_insert.sql
+node scripts/data/generate-state-boundaries.mjs > /tmp/state_boundaries_insert.sql
 
 # 4. Paste the INSERT block into migrations/1700000050000_state_boundaries.sql
 #    (between the CREATE INDEX and the "-- Down Migration" marker), then run:

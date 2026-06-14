@@ -119,7 +119,7 @@ describe('getSilhouettes', () => {
     //        and
     //   (iv) the 32 national-coverage rows from migration 48000 (Phase 3a
     //        US-wide flip) — dual-palette `{color, color_dark}` per
-    //        NATIONAL_COLOR_BY_FAMILY in scripts/curate-phylopic.mjs.
+    //        NATIONAL_COLOR_BY_FAMILY in scripts/curation/curate-phylopic.mjs.
     // If a future seed migration edits a color, update BOTH this snapshot
     // and the migration in the same PR.
     const rows = await getSilhouettes(db.pool);

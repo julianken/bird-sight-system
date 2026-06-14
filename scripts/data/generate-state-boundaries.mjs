@@ -36,7 +36,7 @@
  * timestamp comment in the SQL header) from the cached shapefile.
  *
  * Usage:
- *   node scripts/generate-state-boundaries.mjs
+ *   node scripts/data/generate-state-boundaries.mjs
  * Env overrides (optional):
  *   CENSUS_SHP   path to the unzipped .shp (default: .cache-census/cb_2023_us_state_500k.shp)
  *   SIMPLIFY_PCT mapshaper -simplify percentage (default: 5%)
@@ -90,7 +90,7 @@ const intermediate = join(work, 'conus.geojson');
 const dropList = [...NON_CONUS_STATEFP].map((c) => `'${c}'`).join(',');
 const filterExpr = `![${dropList}].includes(STATEFP)`;
 
-// mapshaper command (recorded verbatim in scripts/README-state-boundaries.md).
+// mapshaper command (recorded verbatim in scripts/data/README-state-boundaries.md).
 const mapshaperArgs = [
   'mapshaper',
   SHP,
@@ -253,7 +253,7 @@ writeFileSync(geojsonPath, geojsonStr);
 // --- Emit the client state-mask polygons asset (#760/#762) -------------------
 // frontend/public/state-polygons.json — a `code → MultiPolygon geometry` map the
 // client lazy-fetches once (frontend/src/data/state-polygons.ts) to build the
-// state-artboard inverse mask (frontend/src/components/map/mask.ts). The
+// state-artboard inverse mask (frontend/src/components/map/geometry/mask.ts). The
 // FeatureCollection wrapper and every property are dropped — only the geometry
 // ships, keyed by state_code. Built from the SAME `canonicalFeatures` (already
 // sorted by state_code above) that produced the SQL INSERT and the GeoJSON, so

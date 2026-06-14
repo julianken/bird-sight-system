@@ -59,7 +59,7 @@ import { sanitizeNullNumericFilters } from '@/components/map/geometry/basemap-nu
  * MutationObserver dedup) run end-to-end through `<MapCanvas>` against the
  * stateful fake map in `MapCanvas.test.tsx` and stay green UNCHANGED; the
  * ordering invariants are additionally re-asserted directly in
- * `use-state-artboard.test.ts`. `e2e/state-artboard.spec.ts` is the live
+ * `use-state-artboard.test.ts`. `e2e/scope/state-artboard.spec.ts` is the live
  * transform-clone-timing backstop.
  */
 

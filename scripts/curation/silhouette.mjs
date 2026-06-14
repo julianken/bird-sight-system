@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// scripts/silhouette.mjs — admin CLI for the silhouette override admin-api (#502).
+// scripts/curation/silhouette.mjs — admin CLI for the silhouette override admin-api (#502).
 //
 // Usage:
 //   npm run silhouette set <family-code> <path-to-svg>

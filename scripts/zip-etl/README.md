@@ -70,4 +70,4 @@ npx vitest run scripts/zip-etl/build-zip-index.test.ts   # CI-safe, no network
 ```
 
 CI runs only the third command's logic implicitly via the operator-run vitest
-convention (mirrors `scripts/silhouette.test.mjs`); it never fetches the source.
+convention (mirrors `scripts/curation/silhouette.test.mjs`); it never fetches the source.
