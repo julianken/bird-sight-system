@@ -1,7 +1,7 @@
 import type { AggregatedBucket, FamilySilhouette, Observation } from '@bird-watch/shared-types';
 import type { LayerProps } from 'react-map-gl/maplibre';
-import { FAMILY_COLOR_FALLBACK } from '../../../data/family-color.js';
-import { CLUSTER_TIER_BOUNDARIES } from '../../../config/cluster.js';
+import { FAMILY_COLOR_FALLBACK } from '@/data/family-color.js';
+import { CLUSTER_TIER_BOUNDARIES } from '@/config/cluster.js';
 
 // Epic #539 cutover: `inStack` plumbing is retired. The auto-spider
 // subsystem that produced it has been deleted along with its filter

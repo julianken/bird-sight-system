@@ -30,11 +30,11 @@ import {
   CLUSTER_RADIUS,
   FALLBACK_SILHOUETTE_ID,
 } from './geometry/observation-layers.js';
-import { mergeLeafBuckets } from '../../data/bucket-aggregates.js';
-import type { SpeciesDictionary } from '../../data/use-species-dictionary.js';
+import { mergeLeafBuckets } from '@/data/bucket-aggregates.js';
+import type { SpeciesDictionary } from '@/data/use-species-dictionary.js';
 import { ObservationPopover } from './layers/ObservationPopover.js';
 import { ClusterListPopover } from './layers/ClusterListPopover.js';
-import { StatusBlock } from '../ds/StatusBlock.js';
+import { StatusBlock } from '@/components/ds/StatusBlock.js';
 // Marker render-tree dispatch extracted to two presentational layers
 // (epic #884 · U11 / #896). MapCanvas keeps every handler + derived state and
 // threads them as props; the layers hold no map ref and render only.
@@ -70,7 +70,7 @@ import {
 // in the adaptive-grid reconciler effect below assembles `inputs` (owning both
 // `map.project` calls), calls this with an injected `unproject`, then commits.
 import { reconcileToGroups } from './geometry/reconcile-viewport.js';
-import { resolveFamilyName } from '../../derived.js';
+import { resolveFamilyName } from '@/derived.js';
 // Pure observation derives extracted to obs-derive.ts (epic #884 · U8, #892).
 // The fresh-closure `obsLookupRef` latch below stays in the component (it's
 // the indirection, not the memo).
@@ -93,8 +93,8 @@ import type {
 // module before the U1 extraction. Re-export it so any importer of
 // `./MapCanvas.js` (none today — zero importers repo-wide) keeps resolving.
 export type { MapCanvasProps } from './MapCanvas.types.js';
-import { useCoarsePointer } from '../../lib/use-coarse-pointer.js';
-import { usePrefersReducedMotion } from '../../lib/use-prefers-reduced-motion.js';
+import { useCoarsePointer } from '@/lib/use-coarse-pointer.js';
+import { usePrefersReducedMotion } from '@/lib/use-prefers-reduced-motion.js';
 
 /**
  * Adaptive-grid reconciler memoization (epic #539 spec §5.3).

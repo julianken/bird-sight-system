@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { RefObject } from 'react';
-import { ZIP_FLYTO_ZOOM } from '../../../state/scope-types.js';
+import { ZIP_FLYTO_ZOOM } from '@/state/scope-types.js';
 import {
   CONUS_BOUNDS,
   FIT_BOUNDS_PADDING,

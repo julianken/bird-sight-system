@@ -12,7 +12,7 @@ import {
   CLUSTER_RADIUS,
   FALLBACK_SILHOUETTE_ID,
 } from './observation-layers.js';
-import { FAMILY_COLOR_FALLBACK } from '../../../data/family-color.js';
+import { FAMILY_COLOR_FALLBACK } from '@/data/family-color.js';
 
 function makeObs(partial: Partial<Observation> = {}): Observation {
   return {
@@ -286,7 +286,7 @@ describe('layer specs', () => {
       // layer config bound. Snapshot the import path; if either side
       // forks the constant, the import resolves to a module that doesn't
       // re-export it.
-      const config = await import('../../../config/cluster.js');
+      const config = await import('@/config/cluster.js');
       expect(config.CLUSTER_TIER_BOUNDARIES).toEqual({ sand: 100, ember: 750 });
     });
   });

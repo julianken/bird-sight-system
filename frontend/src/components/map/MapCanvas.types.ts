@@ -11,7 +11,7 @@
 // build — see mask.ts for the same idiom.
 import type { MultiPolygon } from 'geojson';
 import type { AggregatedBucket, FamilySilhouette, Observation } from '@bird-watch/shared-types';
-import type { SpeciesDictionary } from '../../data/use-species-dictionary.js';
+import type { SpeciesDictionary } from '@/data/use-species-dictionary.js';
 import type { AdaptiveTile, ResolvedGrid } from './geometry/adaptive-grid.js';
 
 /**
