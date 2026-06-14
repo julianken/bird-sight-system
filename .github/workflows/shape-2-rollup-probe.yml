@@ -46,7 +46,7 @@ jobs:
           # Repo secret is named EBIRD_API_KEY (already provisioned for ingestor/terraform);
           # script reads it as EBIRD_KEY.
           EBIRD_KEY: ${{ secrets.EBIRD_API_KEY }}
-        run: ./scripts/shape-2-probe.sh
+        run: ./scripts/ci/shape-2-probe.sh
         continue-on-error: true
 
       - name: Commit probe-history CSV

@@ -66,35 +66,35 @@ const config: KnipConfig = {
     'infra/workers/silhouette-server.js',
     'infra/workers/silhouette-server.test.js',
 
-    // 2026-05-13: scripts/silhouette.test.mjs is the test sibling of
-    //             scripts/silhouette.mjs (Task 11 of #502). It runs under
+    // 2026-05-13: scripts/curation/silhouette.test.mjs is the test sibling of
+    //             scripts/curation/silhouette.mjs (Task 11 of #502). It runs under
     //             `node --test` (no static test-runner config knip can trace);
     //             the test step is invoked via the root package.json's
     //             "test:scripts" script. Knip classifies it as orphaned.
-    //             Risk: masks a genuine orphan if scripts/silhouette.mjs is
+    //             Risk: masks a genuine orphan if scripts/curation/silhouette.mjs is
     //             ever deleted without also removing the test. Re-audit
-    //             2026-07-27 by confirming scripts/silhouette.mjs still exists
+    //             2026-07-27 by confirming scripts/curation/silhouette.mjs still exists
     //             and its test is invoked by an npm script.
-    'scripts/silhouette.test.mjs',
+    'scripts/curation/silhouette.test.mjs',
 
-    // 2026-05-18: scripts/curate-phylopic.test.mjs is the test sibling of
-    //             scripts/curate-phylopic.mjs (the --national-coverage mode
+    // 2026-05-18: scripts/curation/curate-phylopic.test.mjs is the test sibling of
+    //             scripts/curation/curate-phylopic.mjs (the --national-coverage mode
     //             added for Phase 3a). Same orphan profile as
     //             silhouette.test.mjs — no static test-runner config picks
     //             it up; it's operator-run via `vitest run` from the repo
     //             root when validating mode='national' emit-output changes.
-    //             Risk: masks a genuine orphan if scripts/curate-phylopic.mjs
+    //             Risk: masks a genuine orphan if scripts/curation/curate-phylopic.mjs
     //             is ever deleted without also removing the test. Re-audit
     //             2026-07-27 alongside silhouette.test.mjs.
-    'scripts/curate-phylopic.test.mjs',
+    'scripts/curation/curate-phylopic.test.mjs',
 
-    // 2026-05-28: scripts/generate-state-boundaries.mjs is the run-once
+    // 2026-05-28: scripts/data/generate-state-boundaries.mjs is the run-once
     //             offline generator (Task A1, #728) that emits both
     //             migrations/1700000050000_state_boundaries.sql's INSERT block
     //             and data/us-state-polygons.geojson from the Census state
     //             shapefile. It is statically unreferenced by design — an
     //             operator runs it by hand when regenerating the boundaries
-    //             (see scripts/README-state-boundaries.md). It depends on
+    //             (see scripts/data/README-state-boundaries.md). It depends on
     //             mapshaper, which is installed transiently with `npm install
     //             --no-save` (NOT a committed dependency), so knip would also
     //             flag mapshaper — the script is excluded entirely instead.
@@ -102,7 +102,7 @@ const config: KnipConfig = {
     //             regenerated differently or the script is abandoned. Re-audit
     //             2026-07-27 by confirming the seed migration's header still
     //             cites this script as the provenance of its INSERT rows.
-    'scripts/generate-state-boundaries.mjs',
+    'scripts/data/generate-state-boundaries.mjs',
 
     // 2026-05-28: scripts/zip-etl/* (Task D2, #730) is the offline ZIP ETL —
     //             build-zip-index.ts reads the sha256-pinned ZCTA gazetteer
@@ -112,7 +112,7 @@ const config: KnipConfig = {
     //             data/us-state-polygons.geojson. Like generate-state-
     //             boundaries.mjs it is a run-once operator tool, statically
     //             unreferenced by any workspace; the test is operator-run via
-    //             `npx vitest run` (mirrors scripts/silhouette.test.mjs — no
+    //             `npx vitest run` (mirrors scripts/curation/silhouette.test.mjs — no
     //             static test-runner config knip can trace).
     //             Risk: masks a genuine orphan if zip-index.json regeneration
     //             is abandoned. Re-audit 2026-07-27 by confirming
