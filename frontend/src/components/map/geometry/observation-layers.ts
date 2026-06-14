@@ -1,5 +1,6 @@
 import type { AggregatedBucket, FamilySilhouette, Observation } from '@bird-watch/shared-types';
 import type { LayerProps } from 'react-map-gl/maplibre';
+import type { BasemapDescriptor } from './basemap-style.js';
 import { FAMILY_COLOR_FALLBACK } from '@/data/family-color.js';
 import { CLUSTER_TIER_BOUNDARIES } from '@/config/cluster.js';
 
@@ -330,8 +331,13 @@ export function buildClustersHitLayerSpec(): LayerProps {
  * Sprites must be registered via map.addImage(...) BEFORE this layer is
  * added to the map. MapCanvas orchestrates the addImage Promise.all and
  * then mounts this layer — see the `handleLoad` flow in MapCanvas.tsx.
+ *
+ * The active `BasemapDescriptor` (#1216) carries the per-style marker halo
+ * color. MapCanvas threads the reactive descriptor into the `useMemo` deps so
+ * a live theme swap recomputes this spec and react-map-gl diffs the new
+ * `icon-halo-color` paint onto the layer.
  */
-export function buildUnclusteredPointLayerSpec(): LayerProps {
+export function buildUnclusteredPointLayerSpec(descriptor: BasemapDescriptor): LayerProps {
   return {
     id: 'unclustered-point',
     type: 'symbol',
@@ -359,15 +365,18 @@ export function buildUnclusteredPointLayerSpec(): LayerProps {
       // SDF tint: each feature's color property paints its own silhouette.
       // This is what gives the map the same family-color signal as the legend.
       'icon-color': ['get', 'color'],
-      // White halo around each silhouette for contrast against the
-      // light OpenFreeMap positron basemap. Without it, families whose
-      // seed color is naturally low-saturation (accipitridae #222222,
-      // cathartidae #444444, corvidae #222244, strigidae #5A4A2A,
-      // troglodytidae #7A5028, plus _FALLBACK #555 at half opacity)
-      // read as faint smudges. The halo is the same trick maplibre
-      // text-symbol labels use to stand out against varied backgrounds —
-      // see basemap-style.ts text layers for the precedent.
-      'icon-halo-color': '#ffffff',
+      // Halo around each silhouette for contrast against the basemap land.
+      // The color is a per-style design fact carried on the active
+      // `BasemapDescriptor` (#1216) — for positron AND dark it is '#ffffff',
+      // so the paint stays byte-identical to the pre-refactor hardcode.
+      // Without the halo, families whose seed color is naturally
+      // low-saturation (accipitridae #222222, cathartidae #444444,
+      // corvidae #222244, strigidae #5A4A2A, troglodytidae #7A5028, plus
+      // _FALLBACK #555 at half opacity) read as faint smudges. The halo is
+      // the same trick maplibre text-symbol labels use to stand out against
+      // varied backgrounds — see basemap-style.ts text layers for the
+      // precedent.
+      'icon-halo-color': descriptor.markerHaloColor,
       'icon-halo-width': 1.5,
       // Fade _FALLBACK markers so missing-Phylopic families read as
       // distinct from the rest. The condition uses the literal sentinel

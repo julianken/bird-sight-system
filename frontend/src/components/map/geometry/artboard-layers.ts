@@ -1,5 +1,9 @@
 import { buffer } from '@turf/buffer';
 import type { Feature, MultiPolygon, Polygon } from 'geojson';
+import {
+  isLabelLayer,
+  type BasemapDescriptor,
+} from '@/components/map/geometry/basemap-style.js';
 
 /**
  * State-artboard FIDELITY layer manipulation (#760/#763 — SUB2).
@@ -59,30 +63,33 @@ export const ARTBOARD_OUTLINE_ID = 'state-artboard-outline';
 export const ARTBOARD_LINE_SOURCE_ID = 'state-artboard-line';
 
 /**
- * Float-layer paint tokens.
+ * Float-layer paint GEOMETRY tokens.
+ *
+ * The float OUTLINE + HALO COLORS no longer live here — they are carried per
+ * basemap on `descriptor.floatColors` (tuned against that style's land) and
+ * threaded in from the swap site, so the helper never branches on a `theme`
+ * string. Only the geometry (widths / blur / opacity) is style-invariant and
+ * stays local.
  *
  * The crisp outline is the WCAG 1.4.11 load-bearing boundary: the mask fill
  * alone is ≈1.05:1 (dark `#06090e`) / ≈1.26:1 (light `#d8d8d8`) against the
  * adjacent in-state land, which fails the 3:1 non-text-contrast target. The
- * outline therefore carries an explicit ≥3:1 target against BOTH (i) the mask
- * fill and (ii) the adjacent land, in both themes:
+ * descriptor outline therefore carries an explicit ≥3:1 target against BOTH
+ * (i) the mask fill and (ii) the adjacent land of EVERY registered style.
+ * Recomputed with the WCAG relative-luminance formula (recorded in the PR body):
  *
- *   LIGHT outline `#1a1d24` (near-black):
- *     vs mask fill `#d8d8d8` (L≈0.690) → contrast ≈ 12.3:1  ✓
- *     vs positron land (`#f8f4f0`, L≈0.940) → contrast ≈ 16.3:1  ✓
- *   DARK outline `#e8edf4` (near-white):
- *     vs mask fill `#06090e` (L≈0.0027) → contrast ≈ 16.4:1  ✓
- *     vs positron-dark land (`#0e1116`, L≈0.0055) → contrast ≈ 15.6:1  ✓
+ *   LIGHT outline `#1a1d24` (near-black), `positron`.floatColors.outline:
+ *     vs positron land (`#f4f1ea`, db-client LIGHT_BASE) → ≈ 14.95:1  ✓
+ *     vs bright/liberty land (`#f8f4f0`)                 → ≈ 15.41:1  ✓
+ *   DARK outline `#e8edf4` (near-white), `dark`.floatColors.outline:
+ *     vs dark land (`#0E1116`, db-client DARK_BASE)      → ≈ 16.08:1  ✓
+ *     vs fiord land (`#45516E`, the real risk)           → ≈  6.72:1  ✓
  *
- * (Ratios computed with the WCAG relative-luminance formula; recorded in the
- * PR body.) The halo is a soft drop-shadow in light / a soft glow in dark — it
- * reinforces the "float" but is NOT the load-bearing boundary, so its contrast
- * is not asserted.
+ * (`#f8f4f0` is the bright/liberty land — NOT positron, whose land is `#f4f1ea`;
+ * the prior comment mislabeled it.) The halo is a soft drop-shadow in light / a
+ * soft glow in dark — it reinforces the "float" but is NOT the load-bearing
+ * boundary, so its contrast is not asserted.
  */
-const OUTLINE_LIGHT = '#1a1d24';
-const OUTLINE_DARK = '#e8edf4';
-const HALO_LIGHT = '#3a3f4a'; // soft dark drop-shadow on the light gray field
-const HALO_DARK = '#7fd0ff'; // soft cyan glow on the near-black dark field
 const OUTLINE_WIDTH = 1.5;
 const HALO_WIDTH = 6;
 const HALO_BLUR = 4;
@@ -96,7 +103,14 @@ const HALO_OPACITY = 0.55;
  */
 export interface ArtboardMap {
   getStyle: () =>
-    | { layers?: Array<{ id: string; type: string; source?: string }> }
+    | {
+        layers?: Array<{
+          id: string;
+          type: string;
+          source?: string;
+          layout?: Record<string, unknown>;
+        }>;
+      }
     | undefined;
   getFilter: (layerId: string) => unknown;
   setFilter: (layerId: string, filter: unknown) => void;
@@ -122,65 +136,38 @@ export interface ArtboardMap {
 type SavedFilters = Record<string, unknown>;
 
 /**
- * The basemap symbol-layer name heuristic. Matched against the layer id with a
- * conservative place/label token pattern. The two basemaps use DIFFERENT layer
- * id conventions, so we match by TYPE + NAME, never by a hardcoded id list:
- *   - DARK (`.../styles/dark`): underscore ids — `place_city`, `place_country*`,
- *     `water_name`, `highway_name_motorway`, `highway_name_other`.
- *   - LIGHT (`.../styles/positron`): a mix of `label_*` (`label_other`,
- *     `label_city`, `label_country_1`…) AND HYPHENATED road labels
- *     (`highway-name-major`, `highway-name-minor`, `highway-name-path`),
- *     shields (`road_shield_us`, `highway-shield-us-interstate`,
- *     `highway-shield-non-us`), and `airport`.
+ * True iff the layer is a basemap text-LABEL `symbol` layer that should be
+ * within-isolated. Delegates to C1's runtime {@link isLabelLayer} detector: a
+ * `symbol` layer that paints a `text-field` and is not one of our own
+ * observation layers (`source: 'observations'`, so the bird data is never
+ * isolated even if a future basemap names a layer collisionally).
  *
- * Tokens:
- *   - place/label tokens: `place|settlement|poi|label|town|city|village|state|
- *     country` (catches both `place_city` AND `label_city`).
- *   - `name` with EITHER an underscore OR a hyphen separator
- *     (`[-_]name([-_]|$)`) — catches the dark `water_name`/`highway_name_*` AND
- *     the light `highway-name-*`. The earlier `_name(_|$)`-only form silently
- *     missed the light basemap's hyphenated road labels, so VA-side freeway
- *     names bled onto the gray once the mask dropped below the labels (#762/#763
- *     interior-label-clipping fix). The separator class is what now catches them.
- *   - `shield` / `airport` — the light basemap renders road shields and the
- *     airport label as their own symbol layers with no place/label/name token;
- *     both are decorations tied to a road/place and must isolate with the rest.
+ * This replaced the drift-prone `SYMBOL_NAME_PATTERN` id regex. The swap is
+ * proven byte-identical against the REAL positron + dark layer lists by a
+ * fixture-backed test in `artboard-layers.test.ts`: the isolated SET is
+ * unchanged. The shields/airport layers the old regex deliberately matched all
+ * carry a `text-field` (route number / airport name), so `isLabelLayer`
+ * matches them too; `road_oneway`/`road_oneway_opposite` are icon-only arrows
+ * with NO `text-field`, so both detectors exclude them.
  *
- * **`road_oneway` is still EXCLUDED** (the original calibration constraint): it
- * is an icon-only arrow layer with no place/label/`name`/`shield`/`airport`
- * token, so it does NOT match — a bare `road`/`highway` token (deliberately not
- * used) would have wrongly within-isolated that LineString arrow set, dropping
- * in-state arrows along with foreign ones. We require a label-bearing token.
- *
- * **Fails OPEN by design:** a new/unmatched symbol layer in a future basemap
+ * **Fails OPEN by design:** a label-less symbol layer in a future basemap
  * release simply renders exterior (detectable in QA) rather than throwing or
  * blanking the whole map. We never blanket-isolate every symbol layer.
- */
-const SYMBOL_NAME_PATTERN =
-  /(^|[-_])(place|settlement|poi|label|town|city|village|state|country|shield|airport)([-_]|$)|[-_]name([-_]|$)/i;
-
-/**
- * True iff the layer is a basemap text-LABEL `symbol` layer that should be
- * within-isolated. Matches by the name heuristic but EXCLUDES the app's own
- * observation/cluster symbol layers (`source: 'observations'`) so the bird data
- * is never isolated even if a future basemap names a layer collisionally — a
- * belt over the name heuristic's fail-open default.
  */
 export function isIsolatableSymbolLayer(layer: {
   id: string;
   type: string;
   source?: string;
+  layout?: Record<string, unknown>;
 }): boolean {
-  if (layer.type !== 'symbol') return false;
-  if (layer.source === 'observations') return false; // never isolate bird layers
-  return SYMBOL_NAME_PATTERN.test(layer.id);
+  return isLabelLayer(layer);
 }
 
 /**
  * True iff the layer is a basemap text-LABEL `symbol` layer that the mask FILL
  * should be moved BELOW (the "isolate mode" of the v3 mockup). Reuses the same
- * type+name heuristic as `isIsolatableSymbolLayer` so the mask anchors on the
- * SAME class of layer the `within` isolation operates on — but additionally
+ * `isLabelLayer` delegation as `isIsolatableSymbolLayer` so the mask anchors on
+ * the SAME class of layer the `within` isolation operates on — but additionally
  * EXCLUDES the app-owned float layers (`state-artboard-*`). Those are `line`
  * layers (so the symbol check already drops them), but the exclusion is an
  * explicit belt in case a future float layer is ever a symbol.
@@ -193,6 +180,7 @@ function isFirstLabelAnchorLayer(layer: {
   id: string;
   type: string;
   source?: string;
+  layout?: Record<string, unknown>;
 }): boolean {
   if (layer.id === ARTBOARD_HALO_ID || layer.id === ARTBOARD_OUTLINE_ID) {
     return false;
@@ -402,8 +390,9 @@ export function sinkStrayLayersBelowMask(map: ArtboardMap, maskLayerId: string):
 
 /**
  * Add the halo (blurred `line`) + crisp outline (`line`) float layers ABOVE the
- * mask, theme-aware. Both trace the state polygon's exterior. Idempotent:
- * removes any existing instance (post theme-swap re-apply) before re-adding.
+ * mask, colored from the descriptor. Both trace the state polygon's exterior.
+ * Idempotent: removes any existing instance (post theme-swap re-apply) before
+ * re-adding.
  *
  * The float layers source the EXACT state polygon (not the buffered isolation
  * polygon) — they draw the visible artboard edge, which must match the gray
@@ -421,14 +410,16 @@ export function addFloatLayers(
   map: ArtboardMap,
   maskPolygon: MultiPolygon,
   maskLayerId: string,
-  theme: 'light' | 'dark',
+  descriptor: BasemapDescriptor,
 ): void {
   // Idempotent guard: a theme-swap re-apply runs against the NEW style where a
   // prior instance may linger; remove before re-add so ids stay unique.
   removeFloatLayers(map);
 
-  const outlineColor = theme === 'dark' ? OUTLINE_DARK : OUTLINE_LIGHT;
-  const haloColor = theme === 'dark' ? HALO_DARK : HALO_LIGHT;
+  // Float colors come from the descriptor (tuned against this style's land),
+  // NOT a hardcoded light/dark pair — see basemap-style.ts `floatColors`.
+  const outlineColor = descriptor.floatColors.outline;
+  const haloColor = descriptor.floatColors.halo;
 
   // Anchor: the first layer ABOVE the mask. addLayer(spec, anchor) inserts the
   // spec just below `anchor` → just above the mask. Skip our own float ids so a
@@ -538,9 +529,9 @@ export function removeFloatLayers(map: ArtboardMap): void {
 export function applyArtboardFidelity(
   map: ArtboardMap,
   maskPolygon: MultiPolygon,
-  theme: 'light' | 'dark',
+  descriptor: BasemapDescriptor,
 ): void {
   moveMaskBelowFirstLabel(map, MASK_LAYER_ID);
   sinkStrayLayersBelowMask(map, MASK_LAYER_ID);
-  addFloatLayers(map, maskPolygon, MASK_LAYER_ID, theme);
+  addFloatLayers(map, maskPolygon, MASK_LAYER_ID, descriptor);
 }

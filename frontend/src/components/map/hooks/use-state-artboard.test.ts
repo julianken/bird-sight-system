@@ -45,13 +45,23 @@ import type {
  * `e2e/scope/state-artboard.spec.ts` is the live transform-clone-timing backstop.
  */
 
-// Minimal isolatable basemap symbol layer (matches SYMBOL_NAME_PATTERN: 'label'
-// token) + the #762 mask fill (the z-order anchor) + a stray basemap line layer
-// painted ABOVE the mask (so the sink has something to move) + a cluster layer
-// (the float anchor that sits above the mask). Order is array-paint order.
-type StyleLayer = { id: string; type: string; source?: string };
+// Minimal isolatable basemap symbol layer (a `symbol` that paints a `text-field`,
+// so `isLabelLayer` isolates it) + the #762 mask fill (the z-order anchor) + a
+// stray basemap line layer painted ABOVE the mask (so the sink has something to
+// move) + a cluster layer (the float anchor that sits above the mask). Order is
+// array-paint order.
+type StyleLayer = {
+  id: string;
+  type: string;
+  source?: string;
+  layout?: Record<string, unknown>;
+};
 
-const ISOLATABLE_LAYER: StyleLayer = { id: 'label_city', type: 'symbol' };
+const ISOLATABLE_LAYER: StyleLayer = {
+  id: 'label_city',
+  type: 'symbol',
+  layout: { 'text-field': ['get', 'name'] },
+};
 const MASK_LAYER: StyleLayer = { id: MASK_LAYER_ID, type: 'fill' };
 const STRAY_LINE: StyleLayer = { id: 'boundary_country', type: 'line' };
 const CLUSTER_LAYER: StyleLayer = { id: 'clusters', type: 'circle', source: 'observations' };
@@ -422,8 +432,8 @@ describe('useStateArtboard — ordering invariants (P2 backfill, #884 · U13)', 
    But `useStateArtboard`'s label-isolation capture (`applyLabelIsolation` in the
    `style.load` handler / mask-change effect) records each isolatable symbol
    layer's RAW filter into `savedFiltersRef` — and the road-shield layers ARE
-   isolatable (the `shield` token in SYMBOL_NAME_PATTERN), so what is captured is
-   the RAW, un-sanitized `["<=", ["get","ref_length"], 6]`. The capture runs
+   isolatable (they paint a `text-field`, so `isLabelLayer` matches them), so what
+   is captured is the RAW, un-sanitized `["<=", ["get","ref_length"], 6]`. The capture runs
    BEFORE the sanitizer effect in MapCanvas, so the saved filter is never the
    guarded shape.
 
@@ -445,14 +455,15 @@ const SHIELD_GUARDED_FILTER = [
 
 /**
  * A minimal stateful fake map for the restore-path test: a single isolatable
- * road-shield symbol layer (matches SYMBOL_NAME_PATTERN via the `shield` token)
- * pre-seeded with the RAW null-prone filter, plus the mask fill + a cluster
- * layer so the float/sink half can run without throwing. Backs `getFilter`/
- * `setFilter` with a real store so the round-trip's net filter is observable.
+ * road-shield symbol layer (it paints a `text-field` — the route number — so
+ * `isLabelLayer` matches it) pre-seeded with the RAW null-prone filter, plus the
+ * mask fill + a cluster layer so the float/sink half can run without throwing.
+ * Backs `getFilter`/`setFilter` with a real store so the round-trip's net filter
+ * is observable.
  */
 function makeShieldFakeMap() {
   const layers: StyleLayer[] = [
-    { id: 'road_shield_us', type: 'symbol' },
+    { id: 'road_shield_us', type: 'symbol', layout: { 'text-field': ['get', 'ref'] } },
     MASK_LAYER,
     CLUSTER_LAYER,
   ];
