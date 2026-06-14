@@ -2515,6 +2515,10 @@ describe('#828: lede dedupe — count-only copy, no region, no time-window', () 
 
   afterEach(() => {
     vi.restoreAllMocks();
+    // #1175: restoreAllMocks does NOT reset a plain vi.fn(), so a per-test dict
+    // seed here would otherwise persist into later describe blocks that don't
+    // re-seed it. Restore the empty default so no seed bleeds across suites.
+    mockGetSpeciesDictionary.mockResolvedValue([]);
   });
 
   it('Default (T4): "{N} sightings" — no region, no window', async () => {
