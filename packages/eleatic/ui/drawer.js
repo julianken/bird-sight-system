@@ -8,9 +8,10 @@
 //     package never destructures them; rendered via the escaping prettyJson unit),
 //   • a score bar per scores_json entry,
 //   • the row's metadata,
-//   • a collapsible "Trace" section (after output-vs-expected) when the row
-//     carries a trace — rendered by the escaping renderTrace pure unit; absent
-//     entirely when the single-row read returned no trace,
+//   • a "Trace" section — expanded by default and placed ABOVE output-vs-expected
+//     so it lands in view without scrolling past the JSON blob; still collapsible.
+//     Present only when the row carries a trace (rendered by the escaping
+//     renderTrace pure unit; absent entirely when the single-row read had none),
 //   • the image via safeImg,
 //   • the adjudication panel (adjudicate.js).
 //
@@ -156,6 +157,13 @@ export async function openDrawer(rowParam, trigger = null) {
       <h3 class="drawer-h3">Metadata</h3>
       <div class="meta-chips">${metadataChips(record.metadata)}</div>
     </section>
+    ${record.trace !== undefined ? `
+    <section class="drawer-section">
+      <details class="trace-details" open>
+        <summary class="drawer-h3 trace-summary">Trace</summary>
+        ${renderTrace(record.trace)}
+      </details>
+    </section>` : ''}
     <section class="drawer-section">
       <h3 class="drawer-h3">Output vs expected</h3>
       <div class="json-compare">
@@ -163,13 +171,6 @@ export async function openDrawer(rowParam, trigger = null) {
         <div class="json-col"><div class="json-col-label">expected</div>${prettyJson(record.expected)}</div>
       </div>
     </section>
-    ${record.trace !== undefined ? `
-    <section class="drawer-section">
-      <details class="trace-details">
-        <summary class="drawer-h3 trace-summary">Trace</summary>
-        ${renderTrace(record.trace)}
-      </details>
-    </section>` : ''}
     <section class="drawer-section" id="drawer-adjudicate"></section>`;
 
   // Fetch the existing adjudication (if any) so the panel pre-fills + flags stale.
