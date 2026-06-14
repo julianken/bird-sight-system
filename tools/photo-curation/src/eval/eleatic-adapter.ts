@@ -52,6 +52,14 @@ export interface EvalRunRecord {
  * `promptTokens` / `completionTokens` are `undefined` for an unpriced or
  * usage-less judgment; `geminiCriteriaJson` is `null` when the candidate carried
  * no per-axis sub-scores.
+ *
+ * The judge "why" (#1167, trace Tier 1) — `rationale` / `fieldMarks` / `flags`,
+ * the candidate `JudgeOutput`'s reasoning — rides through to `output_json` so the
+ * eleatic drawer can render it. All three are OPTIONAL: a deterministic-gate
+ * pre-reject (no judge ran) carries none, and the runner omits a field entirely
+ * when the source output lacked it (exactOptionalPropertyTypes — never
+ * `undefined` on the key). An EMPTY `fieldMarks`/`flags` array (the judge ran but
+ * named none) is distinct from ABSENT and is preserved.
  */
 export interface EvalResultRecord {
   runId: string;
@@ -62,6 +70,9 @@ export interface EvalResultRecord {
   geminiKeep: boolean;
   geminiQuality: number;
   geminiCriteriaJson: string | null;
+  rationale?: string;
+  fieldMarks?: string[];
+  flags?: string[];
   opusKeep: boolean;
   opusQuality: number;
   cost: number | undefined;
@@ -92,11 +103,19 @@ export type Disagreement = 'agree' | 'falseKeep' | 'falseReplace';
  * the PARSED per-axis sub-scores object (the source `geminiCriteriaJson` is an
  * already-serialized string — it is `JSON.parse`d here, never double-encoded),
  * omitted entirely when the source was null.
+ *
+ * The judge "why" (#1167) — `rationale` / `fieldMarks` / `flags` — rides along so
+ * the eleatic drawer's Output panel can show the candidate's reasoning. Each is
+ * omitted entirely when its source field was absent (exactOptional); an EMPTY
+ * `fieldMarks`/`flags` array is preserved (present-but-empty ≠ absent).
  */
 interface OutputBlob {
   keep: boolean;
   qualityScore: number;
   criteria?: CriteriaScores;
+  rationale?: string;
+  fieldMarks?: string[];
+  flags?: string[];
 }
 
 /** The Opus baseline decision blob embedded as `expected_json`. */
@@ -136,7 +155,9 @@ function parseCriteria(json: string | null): CriteriaScores | undefined {
  * Map one photo-judge judgment onto an eleatic `EvalRowRecord`.
  *   - row_key = speciesCode, label = comName, image_url = sourceUrl (omitted
  *     when empty), content_hash = contentHash (omitted when empty).
- *   - output_json = {keep, qualityScore, criteria?} with criteria PARSED.
+ *   - output_json = {keep, qualityScore, criteria?, rationale?, fieldMarks?,
+ *     flags?} — criteria PARSED, the judge "why" (#1167) copied through when the
+ *     source carried it (absent key when it did not; empty arrays preserved).
  *   - expected_json = {keep, qualityScore} (the baseline carries no criteria).
  *   - scores_json = {outputQuality, expectedQuality} (numeric facet axes).
  *   - metadata_json = {disagreement} (the categorical facet axis).
@@ -145,6 +166,13 @@ export function toEleaticRow(r: EvalResultRecord): EvalRowRecord {
   const output: OutputBlob = { keep: r.geminiKeep, qualityScore: r.geminiQuality };
   const criteria = parseCriteria(r.geminiCriteriaJson);
   if (criteria !== undefined) output.criteria = criteria;
+  // The judge "why" (#1167) — copied through ONLY when present, so the key is
+  // ABSENT (not `undefined`) for a deterministic-gate pre-reject or any output
+  // that lacked it (exactOptionalPropertyTypes). An EMPTY array is present-but-
+  // empty (the judge ran, named none) and is preserved verbatim.
+  if (r.rationale !== undefined) output.rationale = r.rationale;
+  if (r.fieldMarks !== undefined) output.fieldMarks = r.fieldMarks;
+  if (r.flags !== undefined) output.flags = r.flags;
 
   const expected: ExpectedBlob = { keep: r.opusKeep, qualityScore: r.opusQuality };
 

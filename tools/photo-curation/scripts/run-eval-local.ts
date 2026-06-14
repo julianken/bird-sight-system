@@ -181,6 +181,12 @@ export async function runEvalLocal(deps: RunEvalDeps): Promise<void> {
       geminiKeep: output.keep,
       geminiQuality: output.qualityScore,
       geminiCriteriaJson: JSON.stringify(output.criteria),
+      // The judge "why" (#1167, trace Tier 1) — the full JudgeOutput's reasoning,
+      // threaded through to output_json so the eleatic drawer can render it. The
+      // adapter omits an absent key (exactOptional) and preserves empty arrays.
+      rationale: output.rationale,
+      fieldMarks: output.fieldMarks,
+      flags: output.flags,
       opusKeep: row.expected.keep,
       opusQuality: row.expected.qualityScore,
       cost: record.estimatedCost,
