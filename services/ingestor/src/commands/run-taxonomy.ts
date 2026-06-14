@@ -4,8 +4,8 @@ import {
   type Pool,
 } from '@bird-watch/db-client';
 import type { SpeciesMeta } from '@bird-watch/shared-types';
-import { EbirdClient } from './ebird/client.js';
-import type { EbirdTaxon } from './ebird/types.js';
+import { EbirdClient } from '../ebird/client.js';
+import type { EbirdTaxon } from '../ebird/types.js';
 
 export interface RunTaxonomyOptions {
   pool: Pool;
@@ -32,7 +32,7 @@ export interface RunTaxonomySummary {
 const DEFAULT_BATCH_SIZE = 500;
 
 export async function runTaxonomy(opts: RunTaxonomyOptions): Promise<RunTaxonomySummary> {
-  const clientOpts: import('./ebird/client.js').EbirdClientOptions = {
+  const clientOpts: import('../ebird/client.js').EbirdClientOptions = {
     apiKey: opts.apiKey,
     ...(opts.maxRetries !== undefined && { maxRetries: opts.maxRetries }),
     ...(opts.retryBaseMs !== undefined && { retryBaseMs: opts.retryBaseMs }),

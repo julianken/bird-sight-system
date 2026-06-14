@@ -21,27 +21,27 @@ vi.mock('@bird-watch/db-client', () => ({
   closePool: (...args: unknown[]) => closePoolMock(...args),
 }));
 
-vi.mock('./run-ingest.js', () => ({
+vi.mock('./commands/run-ingest.js', () => ({
   runIngest: (...args: unknown[]) => runIngestMock(...args),
 }));
 
-vi.mock('./run-hotspots.js', () => ({
+vi.mock('./commands/run-hotspots.js', () => ({
   runHotspotIngest: (...args: unknown[]) => runHotspotIngestMock(...args),
 }));
 
-vi.mock('./run-backfill.js', () => ({
+vi.mock('./commands/run-backfill.js', () => ({
   runBackfill: (...args: unknown[]) => runBackfillMock(...args),
 }));
 
-vi.mock('./run-taxonomy.js', () => ({
+vi.mock('./commands/run-taxonomy.js', () => ({
   runTaxonomy: (...args: unknown[]) => runTaxonomyMock(...args),
 }));
 
-vi.mock('./run-photos.js', () => ({
+vi.mock('./commands/run-photos.js', () => ({
   runPhotos: (...args: unknown[]) => runPhotosMock(...args),
 }));
 
-vi.mock('./run-descriptions.js', () => ({
+vi.mock('./commands/run-descriptions.js', () => ({
   runDescriptions: (...args: unknown[]) => runDescriptionsMock(...args),
 }));
 

@@ -1,8 +1,8 @@
 import {
   upsertObservations, startIngestRun, finishIngestRun, type Pool,
 } from '@bird-watch/db-client';
-import { EbirdClient } from './ebird/client.js';
-import { toObservationInput, notableKeyset } from './transform.js';
+import { EbirdClient } from '../ebird/client.js';
+import { toObservationInput, notableKeyset } from '../transform.js';
 
 export interface RunBackfillOptions {
   pool: Pool;

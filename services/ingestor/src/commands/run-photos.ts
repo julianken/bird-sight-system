@@ -2,10 +2,10 @@ import {
   insertSpeciesPhoto,
   type Pool,
 } from '@bird-watch/db-client';
-import { fetchInatPhoto } from './inat/client.js';
-import { fetchInatTaxon } from './inat/taxon-client.js';
-import { fetchWikipediaLeadImage } from './wikipedia/lead-image.js';
-import { uploadToR2 } from './r2/uploader.js';
+import { fetchInatPhoto } from '../inat/client.js';
+import { fetchInatTaxon } from '../inat/taxon-client.js';
+import { fetchWikipediaLeadImage } from '../wikipedia/lead-image.js';
+import { uploadToR2 } from '../r2/uploader.js';
 
 export interface RunPhotosArgs {
   pool: Pool;

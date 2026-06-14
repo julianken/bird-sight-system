@@ -6,32 +6,32 @@ import {
   refreshGridAgg as realRefreshGridAgg,
   type Pool,
 } from '@bird-watch/db-client';
-import { runIngest as realRunIngest, type RunSummary } from './run-ingest.js';
+import { runIngest as realRunIngest, type RunSummary } from './commands/run-ingest.js';
 import {
   runHotspotIngest as realRunHotspotIngest,
   type RunHotspotSummary,
-} from './run-hotspots.js';
+} from './commands/run-hotspots.js';
 import {
   runBackfill as realRunBackfill,
   type RunBackfillSummary,
-} from './run-backfill.js';
+} from './commands/run-backfill.js';
 import {
   runTaxonomy as realRunTaxonomy,
   type RunTaxonomySummary,
-} from './run-taxonomy.js';
+} from './commands/run-taxonomy.js';
 import {
   runPhotos as realRunPhotos,
   type RunPhotosSummary,
-} from './run-photos.js';
+} from './commands/run-photos.js';
 import {
   runDescriptions as realRunDescriptions,
   type RunDescriptionsSummary,
-} from './run-descriptions.js';
+} from './commands/run-descriptions.js';
 import {
   runPrune as realRunPrune,
   type RunPruneSummary,
-} from './run-prune.js';
-import { runCacheWarm as realRunCacheWarm } from './run-cache-warm.js';
+} from './commands/run-prune.js';
+import { runCacheWarm as realRunCacheWarm } from './commands/run-cache-warm.js';
 import { runDigest as realRunDigest, type SendResult } from './digest.js';
 import {
   makeSendGridSender,

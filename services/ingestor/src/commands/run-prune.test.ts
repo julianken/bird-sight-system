@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vites
 import { startTestDb, type TestDb } from '@bird-watch/db-client/dist/test-helpers.js';
 import { getRecentIngestRuns } from '@bird-watch/db-client';
 import { runPrune, DEFAULT_RETENTION_DAYS } from './run-prune.js';
-import type { ArchivableRow } from './archive/select-archivable.js';
+import type { ArchivableRow } from '../archive/select-archivable.js';
 
 let db: TestDb;
 
