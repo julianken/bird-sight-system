@@ -1,4 +1,4 @@
-import { test, expect, VERMFLY, VERMFLY_OBS, VERMFLY_WITH_PHOTO } from './fixtures.js';
+import { test, expect, VERMFLY, VERMFLY_OBS, VERMFLY_WITH_PHOTO, SPECIES_DICT_FIXTURE } from './fixtures.js';
 import { AppPage } from './pages/app-page.js';
 
 /**
@@ -53,6 +53,9 @@ test.describe('species detail surface (#151)', () => {
     // pairs, so it needs a real-species observation stubbed in to resolve
     // "Vermilion Flycatcher" → "vermfly".
     await apiStub.stubObservations(VERMFLY_OBS);
+    // #species: the combobox datalist is sourced from /api/species-in-scope —
+    // stub it so the typeahead is hermetic and "Vermilion Flycatcher" is offered.
+    await apiStub.stubSpeciesInScope(SPECIES_DICT_FIXTURE);
     const app = new AppPage(page);
     await app.goto('scope=us');
     await app.waitForAppReady();

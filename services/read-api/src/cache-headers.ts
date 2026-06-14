@@ -1,4 +1,4 @@
-export type Endpoint = 'observations' | 'hotspots' | 'species' | 'species-dict' | 'silhouettes' | 'phenology' | 'states';
+export type Endpoint = 'observations' | 'hotspots' | 'species' | 'species-dict' | 'species-scope' | 'silhouettes' | 'phenology' | 'states';
 
 // Cache-Control TTL table for public read endpoints.
 //
@@ -56,6 +56,28 @@ const TABLE: Record<Endpoint, string> = {
   // than the per-code 'species' tier's browser `max-age` — the dictionary is
   // one shared body, so edge caching is where the win is.
   'species-dict': 'public, s-maxage=86400, stale-while-revalidate=172800',
+  // GET /api/species-in-scope — the distinct species REPRESENTED in a scope
+  // (state|US) for the active since/notable/family filters, backing the
+  // FiltersBar Species combobox. It is bbox/zoom/species-INDEPENDENT, so the
+  // key space is just a few (scope, since, notable, family) combos.
+  //
+  // The whole-US, no-family cold query is a national 14d EXISTS+distinct over
+  // `observations` (no bbox to prune) — the same input volume the precompute
+  // grid exists to keep off the request path for the aggregated render. It is
+  // index-backed (obs_dt_idx + obs_species_idx) and strictly lighter than
+  // getObservationsAggregated (no PostGIS gridding — a single scan → small
+  // distinct-species hash-agg → join to species_meta), but it is still a
+  // national scan. The mitigation is the LONG SWR below: unlike the
+  // observations COUNT (which rolls every ~30min ingest), the represented
+  // SET of species is near-static (a species enters/leaves the 14d window
+  // only rarely), so 1h freshness + a 24h stale-while-revalidate window means
+  // a cold origin compute happens at most once per key per hour AND is served
+  // from the background (SWR) — a user never waits on it after the first-ever
+  // request for a key. Staleness cost: a newly-observed species can be absent
+  // from the combobox for up to ~1h (it is still reachable on the map / in
+  // popovers meanwhile) — an accepted trade for keeping the scan off the
+  // user-facing path.
+  'species-scope': 'public, s-maxage=3600, stale-while-revalidate=86400',
   // Family silhouette payload drifts between deploys (curation, Phylopic
   // seed expansion). `s-maxage=3600` keeps a 1h CDN window — short enough
   // that curation pushes reach users quickly without scripts/purge-...sh,

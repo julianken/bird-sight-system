@@ -1,4 +1,4 @@
-import { test, expect, VERMFLY_OBS } from './fixtures.js';
+import { test, expect, VERMFLY_OBS, SPECIES_DICT_FIXTURE } from './fixtures.js';
 import { AppPage } from './pages/app-page.js';
 
 // `exact: true` mandatory on every getByLabel filter locator — see
@@ -33,13 +33,13 @@ test.describe('deep-link restore', () => {
   });
 
   test('species param shows common name in input', async ({ page, apiStub }) => {
-    // /api/observations returns aggregated buckets at low zoom (#627) — the
-    // default cold-start fetch (CONUS bbox + zoom=3) hits aggregated mode,
-    // which carries no per-observation rows at all (#859 moved species
-    // aggregation server-side and removed the synthetic-observation expansion
-    // the frontend used to fabricate). Stub a real observation so the
-    // speciesIndex contains "Vermilion Flycatcher" → "vermfly".
+    // #species: the FiltersBar combobox is sourced from /api/species-in-scope
+    // (the represented-species set). Stub it so the deep-linked `?species=vermfly`
+    // resolves "Vermilion Flycatcher" in the field deterministically (the active
+    // species is also unioned in from the dictionary as a fallback, but stubbing
+    // the scope source keeps this hermetic). stubObservations feeds the map.
     await apiStub.stubObservations(VERMFLY_OBS);
+    await apiStub.stubSpeciesInScope(SPECIES_DICT_FIXTURE);
     const app = new AppPage(page);
     await app.goto('species=vermfly');
     await app.waitForAppReady();

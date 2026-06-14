@@ -12,7 +12,7 @@ import type {
  * (`GET /api/states`) — adding it here makes `stubApiFailure('states', …)` /
  * `stubApiAbort('states')` typecheck for the #741 fetch-error case.
  */
-export type StubbableEndpoint = 'hotspots' | 'observations' | 'species' | 'silhouettes' | 'states';
+export type StubbableEndpoint = 'hotspots' | 'observations' | 'species' | 'species-in-scope' | 'silhouettes' | 'states';
 
 /**
  * Canonical Vermilion Flycatcher SpeciesMeta fixture (NO photoUrl) — exercises
@@ -175,6 +175,16 @@ export interface ApiStub {
    */
   stubSpeciesDictionary(entries?: SpeciesDictEntry[]): Promise<void>;
   /**
+   * #species — stubs `GET /api/species-in-scope` (the represented-species
+   * combobox source) to return `200` with the provided rows (default
+   * `SPECIES_DICT_FIXTURE`, same `{code,comName,familyCode}` shape). Matched by a
+   * URL PREDICATE (pathname ending in `/api/species-in-scope`) so it never
+   * collides with the bare `/api/species` dictionary stub or the
+   * `/api/species/{code}` detail route. Every spec exercising the species
+   * typeahead must register this — the datalist is sourced from this endpoint.
+   */
+  stubSpeciesInScope(entries?: SpeciesDictEntry[]): Promise<void>;
+  /**
    * #847 — state-aware, bbox-intersecting `/api/observations` stub. Models the
    * server's `stateCode AND bbox` clip (packages/db-client/src/observations.ts:
    * 184): it parses `state` and `bbox=[w,s,e,n]` off the request URL and returns
@@ -273,6 +283,21 @@ export const test = base.extend<{ apiStub: ApiStub }>({
         // dev-server. A `**/api/species**` glob would wrongly capture both.
         await page.route(
           (url) => url.pathname.endsWith('/api/species'),
+          async route => {
+            await route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify(entries),
+            });
+          },
+        );
+      },
+      async stubSpeciesInScope(entries = SPECIES_DICT_FIXTURE) {
+        // URL PREDICATE: match ONLY `/api/species-in-scope`. This does NOT end
+        // with `/api/species`, so the dictionary stub's predicate never captures
+        // it (and vice-versa); both can be registered side-by-side.
+        await page.route(
+          (url) => url.pathname.endsWith('/api/species-in-scope'),
           async route => {
             await route.fulfill({
               status: 200,

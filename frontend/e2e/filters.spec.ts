@@ -13,10 +13,13 @@ test.describe('filter flows', () => {
     // per-observation payload to resolve "Vermilion Flycatcher" → "vermfly";
     // stub before navigation.
     await apiStub.stubObservations(VERMFLY_OBS);
-    // D2 (#1050): the FiltersBar species index is now dictionary-backed (bare
-    // GET /api/species). Stub it so the datalist + typeahead stay hermetic —
-    // without it these specs would silently hit the live seeded DB. The one
-    // fixture row resolves "Vermilion Flycatcher" → "vermfly".
+    // #species: the FiltersBar species combobox is now sourced from
+    // GET /api/species-in-scope (the represented-species set), NOT the bare
+    // /api/species dictionary. Stub it so the datalist + typeahead stay
+    // hermetic — the fixture rows resolve "Vermilion Flycatcher" → "vermfly".
+    // The dictionary stub stays for the popover/deep-link name resolution that
+    // still reads it.
+    await apiStub.stubSpeciesInScope(SPECIES_DICT_FIXTURE);
     await apiStub.stubSpeciesDictionary(SPECIES_DICT_FIXTURE);
     app = new AppPage(page);
     await app.goto();
