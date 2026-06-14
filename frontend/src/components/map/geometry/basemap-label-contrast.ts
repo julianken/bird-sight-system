@@ -12,62 +12,71 @@
  * all below the 4.5 AA floor. The dark style's halos are dark too
  * (`rgba(0,0,0,0.7)`), so they don't help.
  *
- * `enforceDarkLabelContrast(map)` recolors the FAILING label layers to an
- * AA-passing LIGHT text + DARK halo, preserving the light-style visual
+ * `enforceDarkLabelContrast(map, descriptor)` recolors the FAILING label layers
+ * to an AA-passing LIGHT text + DARK halo, preserving the light-style visual
  * hierarchy (roads brightest, place a notch muted, water tinted). It runs at
  * `style.load` — co-located with `sanitizeNullNumericFilters` (basemap-null-
- * filter.ts) — so it re-applies on initial load AND on every `[data-theme]`
- * `setStyle` swap / Retry re-set, mirroring the same re-apply contract.
+ * filter.ts) — so it re-applies on initial load AND on every basemap `setStyle`
+ * swap / Retry re-set, mirroring the same re-apply contract.
+ *
+ * #1214 (C2) decoupled this helper from hardcoded facts about two specific
+ * styles. The injected `BasemapDescriptor` now carries them:
+ *   - **Style-level no-op gates on `descriptor.kind`.** A non-dark descriptor
+ *     returns immediately — no background-luminance guess. (Was a luminance read
+ *     of the bg layer; the bg is no longer consulted.)
+ *   - **The recolor palette is `descriptor.darkLabelTextColors`** — the declared
+ *     per-tier source of truth, not module-level constants.
+ *   - **The per-layer canvas reference is `descriptor.landColor`** — the declared
+ *     dominant land, against which the MEASURED-contrast gate runs.
+ *   - **Label detection is `isLabelLayer`** (basemap-style.ts) — a `symbol` layer
+ *     with a `text-field` whose `source` is NOT `observations`. This excludes the
+ *     app's own observation symbol layers from recolor (a deliberate, scoped
+ *     behavior change vs the old source-less inline check).
  *
  * It is STRUCTURAL and FAILS OPEN:
- *   - **No-op on the light style.** It reads the background layer's luminance
- *     first; on the light positron style (bg ≈ rgb(242,243,240), luminance
- *     ≈ 0.9) it returns without touching anything. Only a genuinely-dark canvas
- *     (luminance < DARK_BG_LUMINANCE) is recolored.
- *   - **No hardcoded layer-id list.** Every `symbol` layer with a `text-field`
- *     whose CURRENT `text-color` fails AA is recolored; the id only chooses the
- *     palette tier (road / place / water), with a sensible default.
- *   - **Idempotent.** The gate is the MEASURED current contrast, recomputed each
- *     pass. After the first pass a layer's text-color is already a light value
- *     that passes AA → it is skipped on every subsequent pass.
+ *   - **No-op off the dark kind.** `descriptor.kind !== 'dark'` → returns without
+ *     touching anything (light styles are never recolored).
+ *   - **No hardcoded layer-id list.** Every `isLabelLayer` whose CURRENT
+ *     `text-color` fails AA *against `descriptor.landColor`* is recolored; the id
+ *     only chooses the palette tier (road / place / water), with a sensible
+ *     default.
+ *   - **Per-layer MEASURED gate.** The gate is the measured current contrast vs
+ *     the declared land, recomputed each pass. This is the correctness core: on a
+ *     NON-near-black dark land (fiord) a label already ≥ AA is left alone, and
+ *     only a failing label is recolored. It is ALSO what makes the helper
+ *     idempotent — after the first pass a layer's text-color is already a light
+ *     value that passes AA → it is skipped on every subsequent pass.
  *   - **Never adds/removes layers**, only `setPaintProperty`. Wrapped in
  *     try/catch so a malformed style after a swap can never throw out of the
  *     `style.load` handler. A layer whose `text-color` is an expression we
  *     can't parse to a constant color is left untouched (not a crash).
  */
+import { isLabelLayer, type BasemapDescriptor } from './basemap-style.js';
 
 /** WCAG AA contrast floor for normal-size text. */
 const AA_CONTRAST = 4.5;
 
-/**
- * Luminance below which the canvas counts as "dark" and we recolor. The dark
- * style's bg is rgb(12,12,12) (luminance ≈ 0.0017); positron's is
- * rgb(242,243,240) (luminance ≈ 0.90). 0.2 sits comfortably between, so the
- * gate is robust to either basemap shifting its exact bg shade.
- */
-const DARK_BG_LUMINANCE = 0.2;
-
-/**
- * AA-passing light text palette (verified ≥ 4.5 vs rgb(12,12,12) — see the
- * unit test). Deliberately muted grays, not pure white (#fff glares). The
- * hierarchy mirrors the light style: roads brightest, place a notch muted,
- * water a lightened cousin of the light style's `#495e91`.
- *
- * Exported (#1217 / C5) so the contrast audit in basemap-label-contrast.test.ts
- * asserts the REAL symbols against each registered dark-kind land, never a
- * hand-copied mirror. Values are unchanged — exporting is the only edit.
- */
-export const ROAD_TEXT = '#d8d8d8';
-export const PLACE_TEXT = '#c4c4c4';
-export const WATER_TEXT = '#9db4d8';
 /** Near-canvas dark halo so the light text separates from light features too. */
 const LABEL_HALO = 'rgba(8,10,14,0.85)';
 
-/** Minimal maplibre-map surface this pass needs. Trivially mockable. */
+/**
+ * Minimal maplibre-map surface this pass needs. The per-layer object on
+ * `getStyle().layers[]` carries `source` + `layout` so `isLabelLayer` is the
+ * single label oracle (no separate `getLayoutProperty` round-trip for
+ * detection). Trivially mockable.
+ */
 export interface LabelContrastMap {
-  getStyle: () => { layers?: Array<{ id: string; type?: string }> } | undefined;
+  getStyle: () =>
+    | {
+        layers?: Array<{
+          id: string;
+          type?: string;
+          source?: string;
+          layout?: Record<string, unknown>;
+        }>;
+      }
+    | undefined;
   getPaintProperty: (layerId: string, name: string) => unknown;
-  getLayoutProperty: (layerId: string, name: string) => unknown;
   setPaintProperty: (layerId: string, name: string, value: unknown) => void;
 }
 
@@ -75,10 +84,10 @@ export interface LabelContrastMap {
  * Parse a constant CSS color string the basemap styles emit — `#rgb`/`#rrggbb`,
  * `rgb()/rgba()`, `hsl()/hsla()` — into `[r,g,b]` (0–255). Returns `null` for
  * anything that isn't a parseable constant color (e.g. a maplibre expression
- * array like `["interpolate", …]`), so the caller can skip it rather than crash.
- * Alpha is intentionally ignored: contrast is computed against the opaque canvas
- * and a partially-transparent dark label color (e.g. the style's
- * `hsla(0,0%,0%,0.7)`) is still "dark" for gating purposes.
+ * array like `["interpolate", …]`, or `'transparent'`), so the caller can skip
+ * it rather than crash. Alpha is intentionally ignored: contrast is computed
+ * against the opaque canvas and a partially-transparent dark label color (e.g.
+ * the style's `hsla(0,0%,0%,0.7)`) is still "dark" for gating purposes.
  */
 export function parseColorToRgb(input: unknown): [number, number, number] | null {
   if (typeof input !== 'string') return null;
@@ -165,49 +174,69 @@ function contrastFromRgb(
   return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
 }
 
-/** Choose the palette tier from the layer id (light-style hierarchy). */
-function textColorForLayer(id: string): string {
+/**
+ * Choose the palette tier from the layer id (light-style hierarchy) and return
+ * the COLOR from the descriptor's `darkLabelTextColors`. The id heuristic
+ * selects WHICH tier; the descriptor supplies the value.
+ */
+function textColorForLayer(
+  id: string,
+  tiers: { road: string; place: string; water: string },
+): string {
   const lower = id.toLowerCase();
   if (lower.includes('highway') || lower.includes('road') || lower.includes('shield')) {
-    return ROAD_TEXT;
+    return tiers.road;
   }
   if (lower.includes('water') || lower.includes('marine') || lower.includes('ocean')) {
-    return WATER_TEXT;
+    return tiers.water;
   }
-  return PLACE_TEXT; // place_*, country_*, and any other label default
+  return tiers.place; // place_*, country_*, and any other label default
 }
 
 /**
- * Recolor every failing basemap label layer on a genuinely-dark canvas to an
- * AA-passing light text + dark halo. No-op on the light style; idempotent;
- * fails open. See the file-level comment for the full contract.
+ * Recolor every failing basemap label layer on a dark-kind basemap to an
+ * AA-passing light text + dark halo. No-op off the dark kind; idempotent; fails
+ * open. See the file-level comment for the full contract.
  */
-export function enforceDarkLabelContrast(map: LabelContrastMap): void {
+export function enforceDarkLabelContrast(
+  map: LabelContrastMap,
+  descriptor: BasemapDescriptor,
+): void {
   try {
+    // ── Style-level kind gate ─────────────────────────────────────────────
+    // Only dark-kind basemaps are recolored. (Replaces the old bg-luminance
+    // guess: the canvas polarity is a declared fact on the descriptor.)
+    if (descriptor.kind !== 'dark') return;
+
+    // A dark-kind descriptor MUST declare its per-tier dark-label palette
+    // (registry invariant). Missing it is a registry bug — fail open rather
+    // than recolor with `undefined`.
+    const tiers = descriptor.darkLabelTextColors;
+    if (!tiers) return;
+
+    // The per-layer measured-contrast gate runs against the descriptor's
+    // declared land (the source of truth), not a re-read of the bg layer.
+    const landRgb = parseColorToRgb(descriptor.landColor);
+    if (!landRgb) return; // can't read the declared canvas → don't touch anything
+
     const layers = map.getStyle()?.layers ?? [];
 
-    // ── Fail-open dark detection ──────────────────────────────────────────
-    // Find the background layer; only proceed if its color is genuinely dark.
-    const bg = layers.find((l) => l.type === 'background');
-    if (!bg) return;
-    const bgRgb = parseColorToRgb(map.getPaintProperty(bg.id, 'background-color'));
-    if (!bgRgb) return; // can't read the canvas → don't touch anything
-    if (luminanceFromRgb(bgRgb) >= DARK_BG_LUMINANCE) return; // light style → no-op
-
     for (const layer of layers) {
-      if (layer.type !== 'symbol') continue;
-      // Only layers that actually render text.
-      if (map.getLayoutProperty(layer.id, 'text-field') == null) continue;
+      // Single label oracle: symbol + text-field, NOT an observations layer.
+      if (!isLabelLayer(layer)) continue;
 
       const current = parseColorToRgb(map.getPaintProperty(layer.id, 'text-color'));
-      // Skip layers whose text-color is an expression we can't parse (don't crash).
+      // Skip layers whose text-color is an expression / `transparent` we can't
+      // parse (don't crash, don't measure an unparseable color).
       if (!current) continue;
 
-      // Idempotent: gate on the MEASURED current contrast. After our first pass
-      // the color is already a light value that passes → skipped next time.
-      if (contrastFromRgb(current, bgRgb) >= AA_CONTRAST) continue;
+      // Idempotent + per-layer correctness: gate on the MEASURED current
+      // contrast vs the declared land. After our first pass the color is
+      // already a light value that passes → skipped next time. On a
+      // mid-luminance dark land a label already ≥ AA is left untouched.
+      if (contrastFromRgb(current, landRgb) >= AA_CONTRAST) continue;
 
-      map.setPaintProperty(layer.id, 'text-color', textColorForLayer(layer.id));
+      map.setPaintProperty(layer.id, 'text-color', textColorForLayer(layer.id, tiers));
       map.setPaintProperty(layer.id, 'text-halo-color', LABEL_HALO);
 
       // A 0-width halo doesn't read; bump to 1 so the dark halo actually

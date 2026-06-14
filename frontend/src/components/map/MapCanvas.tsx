@@ -1038,14 +1038,17 @@ export function MapCanvas({
     if (!map) return;
     const apply = () => {
       sanitizeNullNumericFilters(map);
-      enforceDarkLabelContrast(map);
+      // C2 (#1214): the recolor gates on / sources from the active basemap
+      // descriptor (kind, landColor, darkLabelTextColors) — re-resolved per
+      // theme so the swap effect re-applies with the matching descriptor.
+      enforceDarkLabelContrast(map, resolveDescriptor(activeThemeId));
     };
     apply(); // mapReady ⇒ first style already parsed; fix it up now
     map.on('style.load', apply);
     return () => {
       map.off('style.load', apply);
     };
-  }, [mapReady]);
+  }, [mapReady, activeThemeId]);
 
   // ── #1049: error-counting handler ────────────────────────────────────────
   // Wraps the exported `handleMapError` (which is UNCHANGED — same #854 console
