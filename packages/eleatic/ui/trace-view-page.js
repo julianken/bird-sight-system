@@ -11,7 +11,8 @@
 //        • ok === false → render renderTrace(record.trace), the lossless flat
 //          fallback (a non-conforming / legacy-scalar trace still renders),
 //        • else → render renderTree(roots, selectedId, collapsed) into the LEFT
-//          pane and renderSpanDetail(selectedNode) into the RIGHT pane.
+//          pane and renderSpanDetail(selectedNode) into the RIGHT pane, plus the
+//          per-trace rollup (rollupTrace) as a tree-root label above the tree.
 //   4. selectedId = the &span= param when it resolves to a real node, else
 //      roots[0].id — an unknown / stale span falls back to the root, never a
 //      blank pane.
@@ -30,10 +31,11 @@
 // packages/eleatic knip ignore (T4).
 
 import { initTheme, toggleTheme } from './theme.js';
-import { setImageHostAllowlist } from './safe.js';
+import { esc, setImageHostAllowlist } from './safe.js';
 import { buildTraceTree } from './trace-tree.js';
 import { renderTree, renderSpanDetail, wireTree } from './trace-view.js';
-import { renderTrace } from './trace.js';
+import { renderTrace, rollupTrace } from './trace.js';
+import { formatTokens, formatCost, formatDuration } from './format.js';
 import { config } from '/config.js';
 
 // ── Boot ──
@@ -46,6 +48,7 @@ const run = params.get('run') ?? '';
 const rowKey = params.get('row') ?? '';
 
 const main = document.querySelector('.trace-explorer');
+const rollupHost = document.getElementById('trace-rollup');
 const treeHost = document.getElementById('trace-tree');
 const detailHost = document.getElementById('trace-detail');
 const fallbackHost = document.getElementById('trace-fallback');
@@ -68,6 +71,30 @@ function indexNodes(rootList) {
     for (const c of n.children) stack.push(c);
   }
   return index;
+}
+
+/**
+ * Render the per-trace ROLLUP line — the tree-root label above the span tree:
+ * `{spanCount} spans · {totalTokens} · {costUsd} · {latencyMs}`. The rollup is a
+ * pure structural reduction (rollupTrace) over the raw trace; each segment is
+ * OMITTED when its field is absent (a usage-less trace shows only the span
+ * count). Tokens / cost / latency reuse the same format.js formatters the tree
+ * meta line uses. Every dynamic value routes through esc() — the trace blob is
+ * attacker-influenceable (the trace.test.ts / pretty.test.ts threat model).
+ */
+function renderRollup(trace) {
+  const r = rollupTrace(trace);
+  const spanWord = r.spanCount === 1 ? 'span' : 'spans';
+  const segments = [
+    `${r.spanCount} ${spanWord}`,
+    formatTokens(r.totalTokens, undefined), // single combined count → '{n} tok'
+    formatCost(r.costUsd),
+    formatDuration(r.latencyMs),
+  ].filter((s) => s !== '');
+  rollupHost.innerHTML = segments
+    .map((s) => `<span class="trace-rollup-part">${esc(s)}</span>`)
+    .join('<span class="trace-rollup-sep">·</span>');
+  rollupHost.hidden = false;
 }
 
 /** Re-render the LEFT tree pane from the current roots / selection / collapsed set. */
@@ -107,6 +134,7 @@ function toggleSpan(id) {
 
 /** Render the lossless fallback for a non-conforming trace (single column). */
 function renderFallback(trace) {
+  rollupHost.hidden = true; // no tree-root label when there is no tree
   treeHost.hidden = true;
   detailHost.hidden = true;
   fallbackHost.hidden = false;
@@ -150,6 +178,10 @@ async function load() {
 
   roots = built.roots;
   nodeIndex = indexNodes(roots);
+
+  // The tree-root label: total spans / tokens / cost / latency over the whole
+  // trace, summed from the raw blob (no tree-builder dependency).
+  renderRollup(record.trace);
 
   // Default selection = the &span= param when it resolves to a real node, else
   // the first root (an unknown / stale span never leaves the detail pane blank).

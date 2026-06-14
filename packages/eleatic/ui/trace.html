@@ -31,7 +31,13 @@
       fallback (renderTrace) is rendered into #trace-fallback instead.
     -->
     <main class="trace-explorer" data-mobile-view="tree">
-      <div class="trace-tree-pane" id="trace-tree" role="presentation"></div>
+      <div class="trace-tree-pane" role="presentation">
+        <!-- Per-trace rollup (tree-root label): spans · tokens · cost · latency,
+             rendered by trace-view-page.js from rollupTrace(record.trace). Sits
+             above the span tree as a header; hidden until the page fills it. -->
+        <div class="trace-rollup" id="trace-rollup" hidden></div>
+        <div id="trace-tree" role="presentation"></div>
+      </div>
       <div class="trace-detail-pane" id="trace-detail" role="presentation"></div>
       <div class="trace-fallback" id="trace-fallback" hidden></div>
     </main>

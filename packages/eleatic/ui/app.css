@@ -215,6 +215,11 @@ body { margin: 0; font-family: var(--font-stack); font-size: var(--type-base); b
 .trace-raw { margin-top: 10px; }
 
 /* ── Trace tree pane (left pane of the trace explorer) ── */
+/* Per-trace rollup (tree-root label): a compact spans · tokens · cost · latency
+   header above the span tree. Reuses the trace-usage mono/dim convention. */
+.trace-rollup { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 10px; padding: 0 10px 10px; border-bottom: 1px solid var(--border); font-family: var(--mono-stack); font-size: var(--type-xs); color: var(--text-dim); }
+.trace-rollup-part { color: var(--text); }
+.trace-rollup-sep { color: var(--border); }
 .trace-tree, .trace-tree ul[role="group"] { list-style: none; margin: 0; padding: 0; }
 /* The .trace-node <li> carries the inline `--depth` custom property; its indent
    is applied on .trace-node-row below via calc(... var(--depth) ...) — depth is
