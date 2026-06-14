@@ -216,19 +216,13 @@ const config: KnipConfig = {
       //             diverged from the light one.
       ignore: [
         'src/tokens.ts',
-        'src/components/map/basemap-style.ts',
-        // 2026-05-10: ds/index.ts barrel export — Phase 2 ships the 6 ds/
-        //             primitives but no surface mounts them yet (Phase 3–5).
-        //             Knip correctly flags the barrel as unused; this is by
-        //             design per the Phase 2 scope boundary documented in
-        //             docs/design/02-phases/phase-2-primitives.md. The ignore
-        //             should be removed when Phase 3 imports from this barrel,
-        //             making the finding self-healing. Re-audit 2026-07-27
-        //             (or when Phase 3 lands) by confirming at least one
-        //             surface imports a named export from ds/index.ts.
-        //             Risk: masks a genuine orphan added to ds/ later without
-        //             a Phase 3+ consumer.
-        'src/components/ds/index.ts',
+        // basemap-style.ts moved to map/geometry/ in the by-kind map split.
+        // Still ignored: basemapStyleLight/basemapStyleDark intentionally alias
+        // the same positron URL (gated on G7/G8) — see the note above.
+        'src/components/map/geometry/basemap-style.ts',
+        // ds/index.ts barrel deleted in the map split (it had zero importers —
+        // all consumers import ds/ primitives by direct path), so the ignore
+        // entry that silenced its "unused barrel" finding is gone with it.
         // 2026-05-10: dev/DsPreview.tsx — ignore removed 2026-05-13 after
         //             knip confirmed the dynamic import in main.tsx is now
         //             traceable (knip 6.11.0+). No longer needs silencing.

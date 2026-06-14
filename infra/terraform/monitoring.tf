@@ -493,7 +493,7 @@ resource "google_project_iam_audit_config" "monitoring_data_read" {
 # ── T8: Observations archive — log-based metrics ────────────────────────
 #
 # Three metrics extracted from the `bird_ingest_archived` structured-log
-# line emitted by services/ingestor/src/run-prune.ts (T2). One emit per
+# line emitted by services/ingestor/src/commands/run-prune.ts (T2). One emit per
 # archived day per nightly run, shape:
 #   {
 #     message: "bird_ingest_archived",
