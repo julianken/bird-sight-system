@@ -116,15 +116,44 @@ export interface JudgeTraceInput {
 }
 
 /**
- * Build the generic eleatic trace blob for one judgment (#1168, trace T3). Shape:
- *   { spans: [{ name:'judge', input:{prompt,imageUrl?,species,rubricVersion,model},
- *               output:{raw?,parsed}, usage:{promptTokens?,completionTokens?,latencyMs,costUsd?} }] }
- * — the conventional eleatic span shape (T1) the drawer's Trace panel renders.
- * Absent optional fields are omitted entirely (exactOptionalPropertyTypes), so a
- * usage-less / unpriced / raw-less judgment yields a lean span, never a key set
- * to `undefined`. Returned as an OPAQUE blob (eleatic never destructures it).
+ * One scorer rendered as a child span of the `task` span (T2, #1187). The name
+ * is a scorers.ts column name ('keep_agreement'|'score_mae'|'keep_confusion'|
+ * 'criteria_mae_<axis>'). A score-bearing scorer carries `score` → span.scores[
+ * name]; a detail-only scorer (keep_confusion) carries `detail` → span.output
+ * and NO scores bar (Decision 1 locked). This is the ONLY place the photo-judge
+ * scorer vocabulary touches a trace — eleatic stays domain-agnostic.
  */
-export function buildTraceSpan(t: JudgeTraceInput): unknown {
+export interface ScorerSpanInput {
+  /** A scorers.ts column name; becomes the span's `name` and (if scored) its scores key. */
+  name: string;
+  /** The scorer's numeric score → `span.scores[name]`; OMIT for a detail-only scorer. */
+  score?: number;
+  /** Free-form detail (e.g. {falseKeep,falseReplace}) → `span.output`; OMIT when none. */
+  detail?: Record<string, number>;
+}
+
+/**
+ * Build the generic eleatic trace blob for one judgment as a span TREE (T2,
+ * #1187 — the producer side of Decision 1). Same `{ spans:[...] }` envelope as
+ * before, now an eval→task→judge spine plus one child span per scorer:
+ *
+ *   eval   { id:'eval',  parentId:null,   name:'eval', kind:'eval' }   — NO usage/metrics
+ *   task   { id:'task',  parentId:'eval', name:'task', kind:'task' }   — NO usage/metrics
+ *   judge  { id:'judge', parentId:'task', name:'judge', kind:'llm', input, output, usage }
+ *          ← TODAY's span content VERBATIM (nested input.species, output.{parsed,raw?},
+ *            usage.{latencyMs,promptTokens?,…}); the ONLY span carrying usage.
+ *   scorer { id:'scorer:'+name, parentId:'task', name, kind:'scorer',
+ *            scores?:{[name]:score}, output?:detail }                  — NO usage/metrics
+ *
+ * CONVENTION PINNED (rollup correctness, T5): tokens/cost live ONLY on the judge
+ * leaf so the future per-trace rollup can't double-count — eval/task/scorer
+ * carry NO usage/metrics. ids are ROW-LOCAL string constants (each row's
+ * trace_json is independent). Absent optional fields on the judge leaf are
+ * omitted entirely (exactOptionalPropertyTypes); a scored scorer carries `scores`
+ * and no `output`, a detail-only scorer carries `output` and no `scores`.
+ * Returned as an OPAQUE blob (eleatic never destructures it).
+ */
+export function buildTrace(t: JudgeTraceInput, scorers?: ScorerSpanInput[]): unknown {
   const input: Record<string, unknown> = {
     prompt: t.prompt,
     species: { comName: t.comName, sciName: t.sciName, family: t.family },
@@ -137,13 +166,42 @@ export function buildTraceSpan(t: JudgeTraceInput): unknown {
   if (t.raw !== undefined) output.raw = t.raw;
 
   // latencyMs is always present; the token/cost fields are omitted when absent.
+  // The judge leaf is the ONLY span carrying usage (pinned for rollup correctness).
   const usage: Record<string, number> = { latencyMs: t.latencyMs };
   if (t.promptTokens !== undefined) usage.promptTokens = t.promptTokens;
   if (t.completionTokens !== undefined) usage.completionTokens = t.completionTokens;
   if (t.costUsd !== undefined) usage.costUsd = t.costUsd;
 
-  return { spans: [{ name: 'judge', input, output, usage }] };
+  const spans: Record<string, unknown>[] = [
+    { id: 'eval', parentId: null, name: 'eval', kind: 'eval' },
+    { id: 'task', parentId: 'eval', name: 'task', kind: 'task' },
+    { id: 'judge', parentId: 'task', name: 'judge', kind: 'llm', input, output, usage },
+  ];
+
+  for (const s of scorers ?? []) {
+    const span: Record<string, unknown> = {
+      id: `scorer:${s.name}`,
+      parentId: 'task',
+      name: s.name,
+      kind: 'scorer',
+    };
+    // A scored scorer carries its score; a detail-only scorer (keep_confusion)
+    // carries its detail as output and NO scores bar (Decision 1 locked).
+    if (s.score !== undefined) span.scores = { [s.name]: s.score };
+    if (s.detail !== undefined) span.output = s.detail;
+    spans.push(span);
+  }
+
+  return { spans };
 }
+
+/**
+ * Thin alias: the eval→task→judge spine with NO scorer leaves (T2, #1187,
+ * Decision 3). A single judge call still renders the full spine — there is no
+ * special-case for the trivial row. Callers that have no scorer vocabulary
+ * (the adapter unit tests, any future producer) get the structural tree.
+ */
+export const buildTraceSpan = (t: JudgeTraceInput): unknown => buildTrace(t, []);
 
 // Re-export the eleatic LIFECYCLE surface the runner + analyzer need, so this
 // adapter stays the SINGLE file in tools/photo-curation that imports

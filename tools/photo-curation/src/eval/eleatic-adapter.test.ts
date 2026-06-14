@@ -5,12 +5,14 @@ import {
   openStore,
   toEleaticRow,
   toEleaticRun,
+  buildTrace,
   buildTraceSpan,
   fromEleaticRow,
   costFromEleaticRow,
   type EvalResultRecord,
   type EvalRunRecord,
   type JudgeTraceInput,
+  type ScorerSpanInput,
 } from './eleatic-adapter.js';
 
 /** A photo-judge result record with controllable keep/score/criteria fields. */
@@ -208,31 +210,88 @@ function traceInput(over: Partial<JudgeTraceInput> = {}): JudgeTraceInput {
   };
 }
 
-describe('buildTraceSpan', () => {
-  it('builds the { spans:[{ name:"judge", input, output, usage }] } shape', () => {
-    const trace = buildTraceSpan(traceInput()) as {
-      spans: {
-        name: string;
-        input: Record<string, unknown>;
-        output: Record<string, unknown>;
-        usage: Record<string, number>;
-      }[];
-    };
-    expect(trace.spans).toHaveLength(1);
-    const span = trace.spans[0]!;
-    expect(span.name).toBe('judge');
-    expect(span.input).toEqual({
+/** One span as emitted in the trace envelope (every field producer-optional). */
+interface TraceSpan {
+  id: string;
+  parentId: string | null;
+  name: string;
+  kind: string;
+  input?: Record<string, unknown>;
+  output?: Record<string, unknown>;
+  usage?: Record<string, number>;
+  scores?: Record<string, number>;
+}
+
+/** Pull the spans array out of a buildTrace/buildTraceSpan return blob. */
+function spansOf(blob: unknown): TraceSpan[] {
+  return (blob as { spans: TraceSpan[] }).spans;
+}
+
+/** Locate a span by its row-local id. */
+function spanById(spans: TraceSpan[], id: string): TraceSpan {
+  const s = spans.find((sp) => sp.id === id);
+  if (s === undefined) throw new Error(`no span with id ${id}`);
+  return s;
+}
+
+describe('buildTrace — eval→task→judge + scorer-child tree (T2, #1187)', () => {
+  /** The three structural scorer inputs the runner assembles for a real row. */
+  const scorers: ScorerSpanInput[] = [
+    { name: 'keep_agreement', score: 1 },
+    { name: 'score_mae', score: 0.92 },
+    { name: 'keep_confusion', detail: { falseKeep: 0, falseReplace: 1 } },
+    { name: 'criteria_mae_framing', score: 0.8 },
+  ];
+
+  it('emits the eval→task→judge spine plus one child span per scorer', () => {
+    const spans = spansOf(buildTrace(traceInput(), scorers));
+    // 3 structural (eval/task/judge) + 4 scorer leaves.
+    expect(spans).toHaveLength(7);
+    expect(spans.map((s) => s.id)).toEqual([
+      'eval',
+      'task',
+      'judge',
+      'scorer:keep_agreement',
+      'scorer:score_mae',
+      'scorer:keep_confusion',
+      'scorer:criteria_mae_framing',
+    ]);
+  });
+
+  it('wires the structural spine: eval(root)→task→judge with the right kinds', () => {
+    const spans = spansOf(buildTrace(traceInput(), scorers));
+    const evalSpan = spanById(spans, 'eval');
+    expect(evalSpan).toMatchObject({ id: 'eval', parentId: null, name: 'eval', kind: 'eval' });
+    const task = spanById(spans, 'task');
+    expect(task).toMatchObject({ id: 'task', parentId: 'eval', name: 'task', kind: 'task' });
+    const judge = spanById(spans, 'judge');
+    expect(judge).toMatchObject({ id: 'judge', parentId: 'task', name: 'judge', kind: 'llm' });
+  });
+
+  it('parents every scorer leaf on the task span with kind:scorer', () => {
+    const spans = spansOf(buildTrace(traceInput(), scorers));
+    for (const name of ['keep_agreement', 'score_mae', 'keep_confusion', 'criteria_mae_framing']) {
+      const leaf = spanById(spans, `scorer:${name}`);
+      expect(leaf.parentId).toBe('task');
+      expect(leaf.kind).toBe('scorer');
+      expect(leaf.name).toBe(name);
+    }
+  });
+
+  it('carries TODAY’S judge content VERBATIM (nested input.species, output.{parsed,raw}, usage)', () => {
+    const judge = spanById(spansOf(buildTrace(traceInput(), scorers)), 'judge');
+    expect(judge.input).toEqual({
       prompt: 'rubric prompt v0.2.1',
       imageUrl: 'https://photos.bird-maps.com/amerob.jpeg',
       species: { comName: 'American Robin', sciName: 'Turdus migratorius', family: 'Turdidae' },
       rubricVersion: '0.2.1',
       model: 'gemini-2.5-flash',
     });
-    expect(span.output).toEqual({
+    expect(judge.output).toEqual({
       raw: { candidates: [{ content: { parts: [{ text: '{...}' }] } }], usageMetadata: { promptTokenCount: 1000 } },
       parsed: traceInput().parsed,
     });
-    expect(span.usage).toEqual({
+    expect(judge.usage).toEqual({
       promptTokens: 1000,
       completionTokens: 100,
       latencyMs: 350,
@@ -240,33 +299,99 @@ describe('buildTraceSpan', () => {
     });
   });
 
-  it('omits absent usage fields (exactOptional — promptTokens/completionTokens/costUsd undefined → absent key)', () => {
-    const trace = buildTraceSpan(
-      traceInput({ promptTokens: undefined, completionTokens: undefined, costUsd: undefined }),
-    ) as { spans: { usage: Record<string, number> }[] };
-    const usage = trace.spans[0]!.usage;
-    // latency is ALWAYS present (every recorded judgment has a duration).
-    expect(usage).toEqual({ latencyMs: 350 });
-    expect('promptTokens' in usage).toBe(false);
-    expect('completionTokens' in usage).toBe(false);
-    expect('costUsd' in usage).toBe(false);
+  it('keeps the judge leaf the ONLY span carrying usage (eval/task/scorer carry none)', () => {
+    const spans = spansOf(buildTrace(traceInput(), scorers));
+    for (const id of ['eval', 'task', 'scorer:keep_agreement', 'scorer:score_mae', 'scorer:keep_confusion', 'scorer:criteria_mae_framing']) {
+      expect('usage' in spanById(spans, id)).toBe(false);
+    }
+    // exactly one span has usage, and it is the judge leaf.
+    expect(spans.filter((s) => 'usage' in s).map((s) => s.id)).toEqual(['judge']);
   });
 
-  it('omits the raw output field when no raw response was captured (absent key, not undefined)', () => {
-    const trace = buildTraceSpan(traceInput({ raw: undefined })) as {
-      spans: { output: Record<string, unknown> }[];
-    };
-    const output = trace.spans[0]!.output;
-    expect('raw' in output).toBe(false);
-    // the parsed output is still present.
-    expect(output.parsed).toEqual(traceInput().parsed);
+  it('maps a score-bearing scorer to span.scores[name] with no output', () => {
+    const spans = spansOf(buildTrace(traceInput(), scorers));
+    const keepAgreement = spanById(spans, 'scorer:keep_agreement');
+    expect(keepAgreement.scores).toEqual({ keep_agreement: 1 });
+    expect('output' in keepAgreement).toBe(false);
+    const scoreMae = spanById(spans, 'scorer:score_mae');
+    expect(scoreMae.scores).toEqual({ score_mae: 0.92 });
+    const criteria = spanById(spans, 'scorer:criteria_mae_framing');
+    expect(criteria.scores).toEqual({ criteria_mae_framing: 0.8 });
   });
 
-  it('omits the imageUrl input field when the image has no portable URL', () => {
-    const trace = buildTraceSpan(traceInput({ imageUrl: undefined })) as {
-      spans: { input: Record<string, unknown> }[];
-    };
-    expect('imageUrl' in trace.spans[0]!.input).toBe(false);
+  it('renders keep_confusion as DETAIL-ONLY (output, no scores bar — Decision 1 locked)', () => {
+    const confusion = spanById(spansOf(buildTrace(traceInput(), scorers)), 'scorer:keep_confusion');
+    expect(confusion.output).toEqual({ falseKeep: 0, falseReplace: 1 });
+    // the keepConfusion 0/1 score is NOT carried as a scores bar.
+    expect('scores' in confusion).toBe(false);
+  });
+
+  it('still emits the full spine for a single judge call with NO scorers (Decision 3)', () => {
+    const spans = spansOf(buildTrace(traceInput(), []));
+    expect(spans.map((s) => s.id)).toEqual(['eval', 'task', 'judge']);
+  });
+
+  it('preserves the judge leaf’s exactOptional usage/output guards (absent fields omitted)', () => {
+    const spans = spansOf(
+      buildTrace(traceInput({ promptTokens: undefined, completionTokens: undefined, costUsd: undefined, raw: undefined, imageUrl: undefined }), []),
+    );
+    const judge = spanById(spans, 'judge');
+    expect(judge.usage).toEqual({ latencyMs: 350 });
+    expect('promptTokens' in judge.usage!).toBe(false);
+    expect('raw' in judge.output!).toBe(false);
+    expect('imageUrl' in judge.input!).toBe(false);
+  });
+});
+
+describe('buildTraceSpan — thin alias yielding the eval→task→judge spine (Decision 3)', () => {
+  it('deep-equals buildTrace(t, []) — the 3-node spine, NOT a lone span', () => {
+    const t = traceInput();
+    expect(buildTraceSpan(t)).toEqual(buildTrace(t, []));
+    expect(spansOf(buildTraceSpan(t)).map((s) => s.id)).toEqual(['eval', 'task', 'judge']);
+  });
+
+  it('builds the judge leaf content VERBATIM (nested input.species/output/usage)', () => {
+    const judge = spanById(spansOf(buildTraceSpan(traceInput())), 'judge');
+    expect(judge.name).toBe('judge');
+    expect(judge.input).toEqual({
+      prompt: 'rubric prompt v0.2.1',
+      imageUrl: 'https://photos.bird-maps.com/amerob.jpeg',
+      species: { comName: 'American Robin', sciName: 'Turdus migratorius', family: 'Turdidae' },
+      rubricVersion: '0.2.1',
+      model: 'gemini-2.5-flash',
+    });
+    expect(judge.output).toEqual({
+      raw: { candidates: [{ content: { parts: [{ text: '{...}' }] } }], usageMetadata: { promptTokenCount: 1000 } },
+      parsed: traceInput().parsed,
+    });
+    expect(judge.usage).toEqual({
+      promptTokens: 1000,
+      completionTokens: 100,
+      latencyMs: 350,
+      costUsd: 0.0042,
+    });
+  });
+
+  it('omits absent usage fields on the judge leaf (exactOptional)', () => {
+    const judge = spanById(
+      spansOf(buildTraceSpan(traceInput({ promptTokens: undefined, completionTokens: undefined, costUsd: undefined }))),
+      'judge',
+    );
+    expect(judge.usage).toEqual({ latencyMs: 350 });
+    expect('promptTokens' in judge.usage!).toBe(false);
+    expect('completionTokens' in judge.usage!).toBe(false);
+    expect('costUsd' in judge.usage!).toBe(false);
+  });
+
+  it('omits the raw output field on the judge leaf when no raw response was captured', () => {
+    const judge = spanById(spansOf(buildTraceSpan(traceInput({ raw: undefined }))), 'judge');
+    expect('raw' in judge.output!).toBe(false);
+    expect(judge.output!.parsed).toEqual(traceInput().parsed);
+  });
+
+  it('omits the imageUrl input field on the judge leaf when the image has no portable URL', () => {
+    const judge = spanById(spansOf(buildTraceSpan(traceInput({ imageUrl: undefined }))), 'judge');
+    expect('imageUrl' in judge.input!).toBe(false);
   });
 });
 

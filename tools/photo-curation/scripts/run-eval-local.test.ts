@@ -72,6 +72,30 @@ function makeStepClock(start: number, step: number): () => number {
   return () => start + step * i++;
 }
 
+/** One span as emitted in the trace TREE envelope (every field producer-optional). */
+interface TraceSpan {
+  id: string;
+  parentId: string | null;
+  name: string;
+  kind: string;
+  input?: Record<string, unknown>;
+  output?: Record<string, unknown>;
+  usage?: Record<string, number>;
+  scores?: Record<string, number>;
+}
+
+/** Decode the opaque trace_json blob into its spans array. */
+function traceSpans(trace: unknown): TraceSpan[] {
+  return (trace as { spans: TraceSpan[] }).spans;
+}
+
+/** Locate a span by its row-local id. */
+function spanById(spans: TraceSpan[], id: string): TraceSpan {
+  const s = spans.find((sp) => sp.id === id);
+  if (s === undefined) throw new Error(`no span with id ${id}`);
+  return s;
+}
+
 /** Deps with a fake readImage (no fs) and a judge factory closing over `decide`. */
 function makeDeps(decide: (code: string) => { keep: boolean; quality: number }): Omit<RunEvalDeps, 'rows' | 'eleatic'> {
   return {
@@ -223,8 +247,8 @@ describe('runEvalLocal', () => {
     expect(output.flags).toEqual([]);
   });
 
-  it('writes the per-judgment trace span (T3) into trace_json, read back via getRow', async () => {
-    // End-to-end T3 guard: only a real run proves the RUNNER builds the span from
+  it('writes the per-judgment trace TREE (T2) into trace_json: judge leaf carries today’s span content', async () => {
+    // End-to-end T2 guard: only a real run proves the RUNNER builds the tree from
     // record.input + the in-scope prompt + record.latencyMs/rawResponse/usage and
     // threads it via toEleaticRow(result, trace) → recordRow. getRow is the ONLY
     // eleatic read path that surfaces trace_json (T1); getRows omits it.
@@ -236,33 +260,103 @@ describe('runEvalLocal', () => {
 
     const reader = makeReader(eleatic.db);
     const r = reader.getRow('run-test-1', 'amerob');
-    const trace = r!.trace as {
-      spans: {
-        name: string;
-        input: { prompt: string; imageUrl?: string; species: Record<string, string>; rubricVersion: string; model: string };
-        output: { raw?: unknown; parsed: { keep: boolean; rationale: string } };
-        usage: Record<string, number>;
-      }[];
-    };
-    expect(trace.spans).toHaveLength(1);
-    const span = trace.spans[0]!;
-    expect(span.name).toBe('judge');
+    const spans = traceSpans(r!.trace);
+    // The eval→task→judge spine is always present (Decision 3).
+    const judge = spanById(spans, 'judge');
+    expect(judge.parentId).toBe('task');
+    expect(judge.name).toBe('judge');
+    expect(spanById(spans, 'eval').parentId).toBe(null);
+    expect(spanById(spans, 'task').parentId).toBe('eval');
     // input: prompt is runner-scope; species/model/rubricVersion from record.input;
     // imageUrl is the PORTABLE R2 sourceUrl (the row's imageUrl), not the readPath.
-    expect(span.input.prompt).toBe('rubric prompt');
-    expect(span.input.imageUrl).toBe('https://photos.bird-maps.com/amerob.jpeg');
-    expect(span.input.species).toEqual({ comName: 'Common amerob', sciName: 'Sci amerob', family: 'Testidae' });
-    expect(span.input.rubricVersion).toBe('0.2.1');
-    expect(span.input.model).toBe('gemini-2.5-flash');
+    expect(judge.input!.prompt).toBe('rubric prompt');
+    expect(judge.input!.imageUrl).toBe('https://photos.bird-maps.com/amerob.jpeg');
+    expect(judge.input!.species).toEqual({ comName: 'Common amerob', sciName: 'Sci amerob', family: 'Testidae' });
+    expect(judge.input!.rubricVersion).toBe('0.2.1');
+    expect(judge.input!.model).toBe('gemini-2.5-flash');
     // output: the raw envelope + the full parsed JudgeOutput.
-    expect(span.output.raw).toEqual(FAKE_RAW);
-    expect(span.output.parsed.keep).toBe(true);
-    expect(span.output.parsed.rationale).toBe('r');
-    // usage: latency (clock delta 250) + tokens + cost.
-    expect(span.usage.latencyMs).toBe(250);
-    expect(span.usage.promptTokens).toBe(1000);
-    expect(span.usage.completionTokens).toBe(100);
-    expect(span.usage.costUsd).toBeGreaterThan(0);
+    expect(judge.output!.raw).toEqual(FAKE_RAW);
+    expect((judge.output!.parsed as { keep: boolean }).keep).toBe(true);
+    expect((judge.output!.parsed as { rationale: string }).rationale).toBe('r');
+    // usage: latency (clock delta 250) + tokens + cost — the judge leaf is the ONLY span with usage.
+    expect(judge.usage!.latencyMs).toBe(250);
+    expect(judge.usage!.promptTokens).toBe(1000);
+    expect(judge.usage!.completionTokens).toBe(100);
+    expect(judge.usage!.costUsd).toBeGreaterThan(0);
+    expect(spans.filter((s) => 'usage' in s).map((s) => s.id)).toEqual(['judge']);
+  });
+
+  it('assembles the scorer child spans (T2): keep_agreement/score_mae scored, keep_confusion detail-only, criteria axes', async () => {
+    // The runner must call buildTrace(traceInput, scorerSpans) with the SAME three
+    // scorer results it already computed for the accumulators (keep_agreement,
+    // score_mae, keep_confusion) PLUS the per-axis criteria_mae_<axis> leaves.
+    eleatic = openStore(':memory:');
+    // amerob: baseline keep@85, judge replace@60 → keep_agreement 0 (falseReplace),
+    // score_mae 1-|60-85|/100 = 0.75. The fakeJudge emits a full criteria object,
+    // and the baseline carries criteria here so the criteria axes are non-null.
+    const rows: EvalRow[] = [
+      {
+        ...evalRow({ speciesCode: 'amerob', expectedKeep: true, expectedQuality: 85 }),
+        expected: {
+          keep: true,
+          qualityScore: 85,
+          criteria: { framing: 8, subjectClarity: 8, liveness: 8, naturalness: 8, pose: 8, background: 8, lighting: 8 },
+        },
+      },
+    ];
+    const decide = () => ({ keep: false, quality: 60 });
+
+    await runEvalLocal({ eleatic, rows, ...makeDeps(decide) });
+
+    const r = makeReader(eleatic.db).getRow('run-test-1', 'amerob');
+    const spans = traceSpans(r!.trace);
+    const scorerSpans = spans.filter((s) => s.kind === 'scorer');
+    const scorerIds = scorerSpans.map((s) => s.id);
+    // The three accumulator scorers are present as child spans of `task`.
+    expect(scorerIds).toContain('scorer:keep_agreement');
+    expect(scorerIds).toContain('scorer:score_mae');
+    expect(scorerIds).toContain('scorer:keep_confusion');
+    for (const s of scorerSpans) expect(s.parentId).toBe('task');
+    // keep_agreement: judge replace vs baseline keep → 0, carried as a scores bar.
+    expect(spanById(spans, 'scorer:keep_agreement').scores).toEqual({ keep_agreement: 0 });
+    // score_mae: 1 - |60-85|/100 = 0.75.
+    expect(spanById(spans, 'scorer:score_mae').scores).toEqual({ score_mae: 0.75 });
+    // keep_confusion: DETAIL-ONLY (no scores bar) — falseReplace 1 here.
+    const confusion = spanById(spans, 'scorer:keep_confusion');
+    expect(confusion.output).toEqual({ falseKeep: 0, falseReplace: 1 });
+    expect('scores' in confusion).toBe(false);
+    // criteria axes: each present axis carries a criteria_mae_<axis> score bar.
+    // framing 8 vs 8 → 1 - 0/10 = 1.
+    expect(spanById(spans, 'scorer:criteria_mae_framing').scores).toEqual({ criteria_mae_framing: 1 });
+    // every emitted criteria-axis leaf carries exactly one scores bar (none null).
+    const axisLeaves = scorerSpans.filter((s) => s.name.startsWith('criteria_mae_'));
+    expect(axisLeaves).toHaveLength(7); // all 7 axes non-null in this row
+    for (const a of axisLeaves) {
+      expect(a.scores).toBeDefined();
+      expect(Object.values(a.scores!)[0]).not.toBeNull();
+    }
+  });
+
+  it('OMITS a criteria axis whose criteriaAxisMAE score is null (axis-skip, never a phantom-0 leaf)', async () => {
+    // The expected baseline carries NO criteria → every criteria_mae_<axis> scores
+    // null → all 7 axis leaves are omitted (axis-skip). The three structural
+    // scorers stay.
+    eleatic = openStore(':memory:');
+    const rows: EvalRow[] = [evalRow({ speciesCode: 'amerob', expectedKeep: true, expectedQuality: 85 })];
+    const decide = () => ({ keep: true, quality: 80 });
+
+    await runEvalLocal({ eleatic, rows, ...makeDeps(decide) });
+
+    const r = makeReader(eleatic.db).getRow('run-test-1', 'amerob');
+    const spans = traceSpans(r!.trace);
+    const axisLeaves = spans.filter((s) => s.name.startsWith('criteria_mae_'));
+    expect(axisLeaves).toHaveLength(0);
+    // the three accumulator scorers are still emitted.
+    expect(spans.filter((s) => s.kind === 'scorer').map((s) => s.id).sort()).toEqual([
+      'scorer:keep_agreement',
+      'scorer:keep_confusion',
+      'scorer:score_mae',
+    ]);
   });
 
   it('omits trace_json from the lean list payload (getRows stays trace-free)', async () => {

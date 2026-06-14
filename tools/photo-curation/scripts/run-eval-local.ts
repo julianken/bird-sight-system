@@ -43,15 +43,15 @@ import { createPool, closePool, getPhotoScores } from '@bird-watch/db-client';
 import { openDb } from '../src/db.js';
 import { buildEvalRows, resolveBaselinePin, type EvalRow } from '../src/eval/build-dataset.js';
 import { resolveJudge, type JudgmentRecord, type JudgmentSink } from '../src/judges/index.js';
-import { keepAgreement, scoreMAE, keepConfusion } from '../src/eval/scorers.js';
+import { keepAgreement, scoreMAE, keepConfusion, criteriaAxisMAE } from '../src/eval/scorers.js';
 import { runRow } from '../src/eval/run-row.js';
 import { mimeFromUrl } from '../src/sources.js';
 // All eleatic access goes through the adapter — the single domain seam (#1150).
 // The photo-judge domain records (`EvalResultRecord`) also live there now (E8,
 // #1151, after the bespoke src/eval/store.ts was retired).
 import {
-  openStore, makeReader, toEleaticRow, toEleaticRun, buildTraceSpan,
-  type EleaticStore, type EvalResultRecord, type JudgeTraceInput,
+  openStore, makeReader, toEleaticRow, toEleaticRun, buildTrace,
+  type EleaticStore, type EvalResultRecord, type JudgeTraceInput, type ScorerSpanInput,
 } from '../src/eval/eleatic-adapter.js';
 import { judgePromptForRubricVersion, resolveEvalModel } from '../eval/rubric-prompts.js';
 
@@ -172,6 +172,23 @@ export async function runEvalLocal(deps: RunEvalDeps): Promise<void> {
     falseReplace += confusion.falseReplace;
     if (record.estimatedCost !== undefined) totalCost += record.estimatedCost;
 
+    // Assemble the scorer CHILD spans for the trace tree (T2, #1187). The three
+    // accumulator scorers above are REUSED (no recompute) — keep_agreement and
+    // score_mae carry a score bar; keep_confusion is detail-only (its 0/1 score is
+    // NOT carried — Decision 1 locked). criteriaAxisMAE is additionally called
+    // here and contributes one criteria_mae_<axis> span per axis whose score is
+    // non-null (a null axis is a deliberate skip — never a phantom-0 leaf). The
+    // accumulator math + scores_json/metadata_json writes are UNCHANGED; the
+    // scorer spans are additive, inspection-only duplicates.
+    const scorerSpans: ScorerSpanInput[] = [
+      { name: 'keep_agreement', score: keep },
+      { name: 'score_mae', score: mae },
+      { name: 'keep_confusion', detail: { falseKeep: confusion.falseKeep, falseReplace: confusion.falseReplace } },
+    ];
+    for (const axis of criteriaAxisMAE(scorerArgs)) {
+      if (axis.score !== null) scorerSpans.push({ name: axis.name, score: axis.score });
+    }
+
     const result: EvalResultRecord = {
       runId,
       speciesCode: row.input.speciesCode,
@@ -193,13 +210,14 @@ export async function runEvalLocal(deps: RunEvalDeps): Promise<void> {
       promptTokens: record.promptTokens,
       completionTokens: record.completionTokens,
     };
-    // Build the per-judgment trace span (#1168, trace T3). This is the ONLY
-    // scope where all three sources meet: the species/model/rubric framing on
-    // `record.input` (a JudgmentInput), the in-scope rubric `prompt` (on neither
-    // record), and the per-call latency / raw response / parsed output / usage on
-    // `record`. `imageUrl` is the PORTABLE R2 sourceUrl (`record.input.sourceUrl`
-    // == `row.input.imageUrl`), never the local readPath. Optional sources are
-    // forwarded as-is; `buildTraceSpan` omits each absent field (exactOptional).
+    // Build the per-judgment trace TREE (#1168 T3 → #1187 T2). This is the ONLY
+    // scope where all three judge sources meet: the species/model/rubric framing
+    // on `record.input` (a JudgmentInput), the in-scope rubric `prompt` (on
+    // neither record), and the per-call latency / raw response / parsed output /
+    // usage on `record`. `imageUrl` is the PORTABLE R2 sourceUrl
+    // (`record.input.sourceUrl` == `row.input.imageUrl`), never the local
+    // readPath. Optional sources are forwarded as-is; `buildTrace` omits each
+    // absent field on the judge leaf (exactOptional).
     const traceInput: JudgeTraceInput = {
       prompt,
       comName: record.input.comName,
@@ -215,13 +233,14 @@ export async function runEvalLocal(deps: RunEvalDeps): Promise<void> {
       ...(record.completionTokens !== undefined ? { completionTokens: record.completionTokens } : {}),
       ...(record.estimatedCost !== undefined ? { costUsd: record.estimatedCost } : {}),
     };
-    const trace = buildTraceSpan(traceInput);
+    const trace = buildTrace(traceInput, scorerSpans);
 
     // Record the judgment to the eleatic store via the adapter — the SOLE eval
     // store (E8, #1151). Written serially, one row per `runRow`, so the SERIAL
     // loop invariant (#1094) is preserved and a mid-run crash leaves the store
     // at exactly the rows already scored. The trace rides through to trace_json
-    // so the eleatic drawer's Trace panel (T1) renders the full per-call record.
+    // as the eval→task→judge + scorer-child tree (T2); scores_json/metadata_json
+    // are untouched — the scorer spans are additive inspection-only duplicates.
     eleatic.recordRow(toEleaticRow(result, trace));
   }
 
