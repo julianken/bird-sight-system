@@ -147,8 +147,14 @@ function cellAriaLabel(tile: AdaptiveTile): string {
 // C50 (#1032, WCAG 1.4.11): #f59e0b on the cream light basemap #f4f1ea = 1.90:1
 // — below the 3:1 non-text floor. Theme-paired: dark keeps the amber (8.56:1 on
 // #0d1424); light uses --c-deep-ember #c43a1a (4.69:1 on #f4f1ea, >3:1).
-const NOTABLE_AMBER_DARK = '#f59e0b';
-const NOTABLE_AMBER_LIGHT = '#c43a1a';
+//
+// Exported (#1217 / C5) so the contrast audit in AdaptiveGridMarker.test.tsx
+// asserts the REAL symbols against every land in `LAND_COLORS` — never a
+// hand-copied mirror. The amber stays kind-coupled (light value vs light
+// lands, dark value vs dark lands); both clear ≥3:1 against all 5 lands,
+// including fiord (`#f59e0b` vs `#45516E` = 3.68:1).
+export const NOTABLE_AMBER_DARK = '#f59e0b';
+export const NOTABLE_AMBER_LIGHT = '#c43a1a';
 
 /**
  * Rows `<CellPopover>` shows per family — mirrors its private `POPOVER_CAP`

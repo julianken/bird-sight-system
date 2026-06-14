@@ -52,10 +52,14 @@ const DARK_BG_LUMINANCE = 0.2;
  * unit test). Deliberately muted grays, not pure white (#fff glares). The
  * hierarchy mirrors the light style: roads brightest, place a notch muted,
  * water a lightened cousin of the light style's `#495e91`.
+ *
+ * Exported (#1217 / C5) so the contrast audit in basemap-label-contrast.test.ts
+ * asserts the REAL symbols against each registered dark-kind land, never a
+ * hand-copied mirror. Values are unchanged — exporting is the only edit.
  */
-const ROAD_TEXT = '#d8d8d8';
-const PLACE_TEXT = '#c4c4c4';
-const WATER_TEXT = '#9db4d8';
+export const ROAD_TEXT = '#d8d8d8';
+export const PLACE_TEXT = '#c4c4c4';
+export const WATER_TEXT = '#9db4d8';
 /** Near-canvas dark halo so the light text separates from light features too. */
 const LABEL_HALO = 'rgba(8,10,14,0.85)';
 

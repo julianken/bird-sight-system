@@ -1,7 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { AdaptiveGridMarker } from './AdaptiveGridMarker.js';
-import { markerDimensions, MIN_MARKER_PX } from './AdaptiveGridMarker.js';
+import {
+  markerDimensions,
+  MIN_MARKER_PX,
+  NOTABLE_AMBER_LIGHT,
+  NOTABLE_AMBER_DARK,
+} from './AdaptiveGridMarker.js';
+import { LAND_COLORS } from '@/components/map/geometry/basemap-style.js';
 import type { AdaptiveTile, ResolvedGrid, PositiveInt, SpeciesAggregate } from '@/components/map/geometry/adaptive-grid.js';
 import { toPositiveInt } from '@/components/map/geometry/adaptive-grid.js';
 import { setMatchMedia } from '@/test-setup.js';
@@ -1537,4 +1543,77 @@ describe('cell button chrome-reset cascade (badge-anchor bugfix)', () => {
     // Must show "1,500" not "1500".
     expect(badges[0].textContent).toBe('1,500');
   });
+});
+
+/* ──────────────────────────────────────────────────────────────────────────
+   #1217 (C5) — a11y GATE: the notable-amber marker stroke must clear WCAG
+   1.4.11 (3:1 non-text) against EVERY land in `LAND_COLORS` (the single source
+   of truth), bucketed by kind — NOT just the two literals the original draft
+   audited. The real `NOTABLE_AMBER_LIGHT`/`NOTABLE_AMBER_DARK` symbols are
+   imported from the component — never copied — so a tweak to either value is
+   audited here automatically.
+
+   Per C4's carve-out the amber stays kind-coupled: the light value rides the
+   light lands, the dark value the dark lands. Both currently clear 3:1 against
+   all 5 lands (fiord is the tightest: `#f59e0b` vs `#45516E` = 3.68:1). If a
+   new land ever pushes either below 3:1, this gate fails LOUD — naming the
+   amber, the land id, and the ratio — rather than silently shipping a
+   sub-3:1 notable marker (the kind-coupling assumption would then need raising,
+   per the issue).
+   ────────────────────────────────────────────────────────────────────────── */
+
+describe('#1217 — notable amber ≥ 3:1 vs every land in LAND_COLORS', () => {
+  // Independent re-derivation of the WCAG sRGB contrast math so the gate does
+  // not lean on production code to grade itself.
+  const hexToSRGB = (hex: string): [number, number, number] => {
+    const h = hex.replace('#', '');
+    return [
+      parseInt(h.slice(0, 2), 16),
+      parseInt(h.slice(2, 4), 16),
+      parseInt(h.slice(4, 6), 16),
+    ];
+  };
+  const relLuminance = (hex: string): number => {
+    const [r, g, b] = hexToSRGB(hex).map((c) => {
+      const v = c / 255;
+      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const contrastRatio = (a: string, b: string): number => {
+    const la = relLuminance(a);
+    const lb = relLuminance(b);
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+  };
+
+  // Kind-coupled amber: light value audited vs light lands, dark vs dark lands.
+  const AMBER_BY_KIND: Record<'light' | 'dark', { name: string; color: string }> = {
+    light: { name: 'NOTABLE_AMBER_LIGHT', color: NOTABLE_AMBER_LIGHT },
+    dark: { name: 'NOTABLE_AMBER_DARK', color: NOTABLE_AMBER_DARK },
+  };
+
+  const LANDS = Object.entries(LAND_COLORS).map(([id, v]) => ({
+    id,
+    land: v.land,
+    kind: v.kind,
+  }));
+
+  it('LAND_COLORS still has lands of both kinds (matrix is non-empty)', () => {
+    // Guards against a refactor silently shrinking either bucket to zero rows,
+    // which would make the per-land assertions below vacuously pass.
+    expect(LANDS.some((l) => l.kind === 'light')).toBe(true);
+    expect(LANDS.some((l) => l.kind === 'dark')).toBe(true);
+    expect(LANDS.length).toBe(5);
+  });
+
+  for (const { id, land, kind } of LANDS) {
+    const { name, color } = AMBER_BY_KIND[kind];
+    it(`${name} (${color}) ≥ 3:1 vs ${id} land (${land})`, () => {
+      const ratio = contrastRatio(color, land);
+      expect(
+        ratio,
+        `${name} ${color} vs ${id} land ${land} = ${ratio.toFixed(2)}:1 — below the 3:1 non-text floor (kind-coupling assumption broken — raise it, do not weaken the threshold)`,
+      ).toBeGreaterThanOrEqual(3);
+    });
+  }
 });
