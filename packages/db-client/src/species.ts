@@ -456,7 +456,7 @@ export async function getSpeciesPhenology(
  * runs (easier to grep ingest-run logs).
  *
  * Loadbearing for the ingest-time invariant in
- * `services/ingestor/src/run-ingest.ts` (issue #484): before upserting a batch
+ * `services/ingestor/src/commands/run-ingest.ts` (issue #484): before upserting a batch
  * of eBird observations, we ask the DB which `species_code`s in the batch
  * have no `species_meta` parent. Any missing code aborts the ingest with a
  * loud error rather than silently inserting an observation the read-api will

@@ -105,12 +105,12 @@ staggered times (`infra/terraform/ingestor.tf`).
 - **`is_notable` requires two calls.** `recent` fetches `/data/obs/{region}/recent`
   and `/data/obs/{region}/recent/notable` in parallel, builds a key set from the
   notable response, and stamps `is_notable` per observation by membership
-  (`src/run-ingest.ts:37-42`, `src/transform.ts`). Without both calls the notable
+  (`src/commands/run-ingest.ts:37-42`, `src/transform.ts`). Without both calls the notable
   filter does not work. The notable call passes `detail=simple`; both default to
   `back=14` days (`src/ebird/client.ts:36-48`).
 - **species_meta invariant.** Before upserting observations, `findMissingSpeciesMeta`
   checks every `species_code` against `species_meta`; a single missing row aborts
-  the whole batch loudly (issue #484, `src/run-ingest.ts:54-63`). The monthly
+  the whole batch loudly (issue #484, `src/commands/run-ingest.ts:54-63`). The monthly
   `taxonomy` cron keeps all 7 eBird categories so hybrid/spuh/slash codes get
   rows.
 - **Taxonomy** fetches `cat=species,issf,hybrid,spuh,slash,domestic,form` with no
@@ -119,12 +119,12 @@ staggered times (`infra/terraform/ingestor.tf`).
 
 ### Enrichment lanes
 
-- **Photos** (`src/run-photos.ts`, `src/inat/`) — iNaturalist is the Tier-1
+- **Photos** (`src/commands/run-photos.ts`, `src/inat/`) — iNaturalist is the Tier-1
   source with a region → US → global cascade; Wikipedia lead-image is the next
   fallback. There is no further photo source — the family silhouette is the final
   fallback. Only species that appear in `observations` are iterated (an `EXISTS`
   filter).
-- **Descriptions** (`src/run-descriptions.ts`, `src/wikipedia/`, `src/inat/`) —
+- **Descriptions** (`src/commands/run-descriptions.ts`, `src/wikipedia/`, `src/inat/`) —
   resolves a Wikipedia title via the cached `inat_taxon_id` (warm) or iNat
   `/v1/taxa` (cold), conditional-GETs the Wikipedia REST summary (304
   short-circuit), sanitizes the HTML, and persists to `species_descriptions`. On
@@ -140,7 +140,7 @@ iNaturalist and Wikipedia run with a `User-Agent` of
 
 ### Prune + cold storage
 
-`prune` runs `runPrune` (`src/run-prune.ts`): 14-day rolling retention
+`prune` runs `runPrune` (`src/commands/run-prune.ts`): 14-day rolling retention
 (`DEFAULT_RETENTION_DAYS=14`, override via `OBSERVATIONS_RETENTION_DAYS`). For
 each UTC day outside the window it archives the day's rows to gzip Parquet on
 the GCS bucket `bird-maps-prod-obs-archive`, then deletes them, then

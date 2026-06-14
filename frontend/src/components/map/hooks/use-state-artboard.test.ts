@@ -38,7 +38,7 @@ import {
  *     `setStyle` (the redundant-tile-refetch guard, comment-documented in the
  *     MutationObserver effect).
  *
- * `e2e/state-artboard.spec.ts` is the live transform-clone-timing backstop.
+ * `e2e/scope/state-artboard.spec.ts` is the live transform-clone-timing backstop.
  */
 
 // Minimal isolatable basemap symbol layer (matches SYMBOL_NAME_PATTERN: 'label'

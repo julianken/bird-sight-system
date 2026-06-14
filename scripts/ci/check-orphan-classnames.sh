@@ -7,10 +7,10 @@
 # are found.
 #
 # Usage (local dev):
-#   bash scripts/check-orphan-classnames.sh
+#   bash scripts/ci/check-orphan-classnames.sh
 #
 # Usage (CI — called by .github/workflows/orphan-classname-check.yml):
-#   bash scripts/check-orphan-classnames.sh
+#   bash scripts/ci/check-orphan-classnames.sh
 #
 # Allow-list:
 #   .github/orphan-classname-allowlist.yml lists classNames that are

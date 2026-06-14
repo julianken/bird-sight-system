@@ -2,7 +2,7 @@
  * Cluster tier thresholds for <ClusterPill> density encoding.
  *
  * Single source of truth. The MapLibre cluster layer config
- * (frontend/src/components/map/observation-layers.ts) will import
+ * (frontend/src/components/map/geometry/observation-layers.ts) will import
  * these same constants in Phase 3 — do not duplicate.
  *
  * Tiers (sky → sand → ember) encode observation density as

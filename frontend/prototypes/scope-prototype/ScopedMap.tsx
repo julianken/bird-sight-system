@@ -12,7 +12,7 @@ import { CONUS_BOUNDS } from './states';
 
 /**
  * PROTOTYPE FINDING (e — basemap console noise): the production positron
- * vector basemap (frontend/src/components/map/basemap-style.ts →
+ * vector basemap (frontend/src/components/map/geometry/basemap-style.ts →
  * tiles.openfreemap.org/styles/positron) emits a known upstream MapLibre 5.x
  * warning — "Expected value to be of type number, but found null instead" —
  * from data-driven style expressions in its label/POI layers that evaluate a

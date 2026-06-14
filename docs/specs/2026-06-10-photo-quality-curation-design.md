@@ -3,7 +3,7 @@
 - **Date:** 2026-06-10
 - **Status:** Draft (brainstormed; awaiting review → implementation plan as GitHub epic + child issues)
 - **Author:** Julian + Claude (brainstorming session)
-- **Related:** `docs/specs/2026-04-16-bird-watch-design.md` (system architecture), `DESIGN.md` (design language), photo ingestion (`services/ingestor/src/run-photos.ts`), admin-api silhouette precedent (`services/admin-api/`)
+- **Related:** `docs/specs/2026-04-16-bird-watch-design.md` (system architecture), `DESIGN.md` (design language), photo ingestion (`services/ingestor/src/commands/run-photos.ts`), admin-api silhouette precedent (`services/admin-api/`)
 
 ## 1. Problem
 

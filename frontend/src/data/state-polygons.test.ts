@@ -11,7 +11,7 @@ import {
 /**
  * #760/#762 — client state-mask polygons. The hook lazy-fetches
  * `/state-polygons.json` (the code→MultiPolygon asset emitted by
- * `scripts/generate-state-boundaries.mjs`), module-caches it single-flight, and
+ * `scripts/data/generate-state-boundaries.mjs`), module-caches it single-flight, and
  * resolves the geometry for the active state scope. `null` for a null/unknown
  * code or a rejected fetch (graceful degrade — never throws).
  */

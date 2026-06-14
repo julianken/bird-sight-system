@@ -23,8 +23,8 @@
 #              the PR-review readout where the live run isn't appropriate.
 #
 # Example:
-#   scripts/backfill-residual-photos.sh local --dry-run
-#   scripts/backfill-residual-photos.sh prod
+#   scripts/data/backfill-residual-photos.sh local --dry-run
+#   scripts/data/backfill-residual-photos.sh prod
 #
 # Followups (manual):
 #   - `gh issue view 483 --comment` with the resulting `photosFromWikipedia`

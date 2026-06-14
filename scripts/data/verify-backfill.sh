@@ -7,7 +7,7 @@
 # mutations, idempotent.
 #
 # Usage:
-#   scripts/verify-backfill.sh [--since=ISO8601]
+#   scripts/data/verify-backfill.sh [--since=ISO8601]
 #
 # Default --since: today 00:00 UTC.
 #

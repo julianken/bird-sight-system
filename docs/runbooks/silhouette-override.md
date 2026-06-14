@@ -66,7 +66,7 @@ SVG constraints (enforced server-side; mismatches return 400):
 > # Re-run curate-phylopic for the affected family; the script flattens
 > # <g> wrappers into a single path-d. The resulting path-d will be in the
 > # curated output; copy it into a minimal `<svg viewBox="0 0 24 24">…<path d="…"/></svg>` wrapper for upload.
-> node scripts/curate-phylopic.mjs --family cuculidae
+> node scripts/curation/curate-phylopic.mjs --family cuculidae
 > ```
 >
 > Without this preprocessing the upload fails the validator's "no `<g>` wrappers"
@@ -139,7 +139,7 @@ npm run silhouette unset cuculidae
 
 - **Upload returns 200 but render hasn't updated.** Cache purge may have
   failed (look for `X-Purge-Status: failed` on the response). Run
-  `scripts/purge-silhouettes-cache.sh` manually, or hit
+  `scripts/cache/purge-silhouettes-cache.sh` manually, or hit
   `https://api.bird-maps.com/api/silhouettes` with `?cb=$(date +%s)` to
   force a fresh fetch on next page load.
 - **Upload returns 400.** SVG fails one of the validation rules above. The
@@ -148,7 +148,7 @@ npm run silhouette unset cuculidae
 - **Upload returns 401.** `ADMIN_API_TOKEN` env var doesn't match the
   Cloud Run-resolved value. Re-export from Secret Manager and retry.
 - **Upload returns 404.** Family code doesn't exist in `family_silhouettes`.
-  Confirm via the audit query in `scripts/curate-phylopic.mjs` comments or
+  Confirm via the audit query in `scripts/curation/curate-phylopic.mjs` comments or
   by listing seeded family codes from a psql shell.
 - **`silhouettes.bird-maps.com/family/<code>.<sha>.svg` returns 404.** R2 PUT
   may have raced ahead of the cache miss; wait 60s (the Worker's miss-cache

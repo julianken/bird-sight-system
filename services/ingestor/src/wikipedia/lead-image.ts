@@ -1,5 +1,5 @@
 // Wikipedia lead-image client. Second-tier photo source for the photos
-// orchestrator (services/ingestor/src/run-photos.ts) after the iNat cascade
+// orchestrator (services/ingestor/src/commands/run-photos.ts) after the iNat cascade
 // (AZ -> US -> global) exhausts. Closes issue #483 — the ~6% of AZ-observed
 // species (warblers, vagrants, recent migrants) where iNat has zero
 // CC-licensed research-grade photos at any tier.

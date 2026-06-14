@@ -126,7 +126,7 @@ export function clusterTier(count: number): ClusterTier {
 }
 ```
 
-The MapLibre cluster layer config (`frontend/src/components/map/observation-layers.ts`) imports the same constants — single source of truth.
+The MapLibre cluster layer config (`frontend/src/components/map/geometry/observation-layers.ts`) imports the same constants — single source of truth.
 
 A11y:
 
