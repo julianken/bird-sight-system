@@ -8,6 +8,10 @@ import {
   ARTBOARD_HALO_ID,
   ARTBOARD_OUTLINE_ID,
 } from '@/components/map/geometry/artboard-layers.js';
+import type {
+  BasemapDescriptor,
+  ThemeId,
+} from '@/components/map/geometry/basemap-style.js';
 
 /**
  * P2 ordering-invariant backfill for the consolidated state-artboard hook
@@ -529,5 +533,119 @@ describe('useStateArtboard — restore-path re-sanitization (#1124 · S1)', () =
     // null-prone comparison that re-introduces the z14 warning.
     expect(fake.filters['road_shield_us']).toEqual(SHIELD_GUARDED_FILTER);
     expect(fake.filters['road_shield_us']).not.toEqual(SHIELD_RAW_FILTER);
+  });
+});
+
+/* ──────────────────────────────────────────────────────────────────────────
+   C1.5 (#1213) — id-driven basemap swap: the END-TO-END regression guard for
+   the lossy-trigger trap.
+
+   The swap effect now depends on the active `ThemeId`, not the `[data-theme]`
+   attribute. The trap: the attribute is 'light'|'dark' only, so a kind-keyed
+   trigger can never swap BETWEEN two same-kind themes — leaving 3 of the 5
+   themes unreachable. C1's `ThemeId` union is still only the cross-kind pair
+   `positron`/`dark`, so we exercise the same-kind path through the hook's
+   INJECTED `resolver`: register two synthetic same-kind descriptors and assert
+   an id change between them re-runs the effect and calls `setStyle(newUrl)`
+   through the REAL wiring (effect → `swapBasemap`), not just the pure helper.
+   ────────────────────────────────────────────────────────────────────────── */
+
+const SYN_DARK_A: BasemapDescriptor = {
+  id: 'dark',
+  url: 'syn://dark-A',
+  kind: 'dark',
+  landColor: '#000000',
+  markerHaloColor: '#ffffff',
+  floatColors: { outline: '#fff', halo: '#fff' },
+};
+const SYN_DARK_B: BasemapDescriptor = {
+  id: 'dark',
+  url: 'syn://dark-B',
+  kind: 'dark',
+  landColor: '#000000',
+  markerHaloColor: '#ffffff',
+  floatColors: { outline: '#fff', halo: '#fff' },
+};
+
+describe('useStateArtboard — id-driven basemap swap (C1.5 · #1213)', () => {
+  beforeEach(() => {
+    document.documentElement.removeAttribute('data-theme');
+  });
+  afterEach(() => {
+    document.documentElement.removeAttribute('data-theme');
+    vi.restoreAllMocks();
+  });
+
+  it('SAME-KIND id change re-runs the swap effect and calls setStyle(newUrl) through the real wiring (the lossy-trigger trap)', () => {
+    const fake = makeFakeMap({ withMask: false });
+    const ref = makeRef(fake.map);
+
+    // Injected resolver over two SAME-KIND synthetic descriptors keyed by id.
+    const synRegistry: Record<string, BasemapDescriptor> = {
+      darkA: SYN_DARK_A,
+      darkB: SYN_DARK_B,
+    };
+    const resolver = (id: ThemeId): BasemapDescriptor =>
+      synRegistry[id as string] ?? SYN_DARK_A;
+
+    const { rerender } = renderHook(
+      ({ id }: { id: ThemeId }) =>
+        useStateArtboard(ref, true, null, id, resolver),
+      { initialProps: { id: 'darkA' as ThemeId } },
+    );
+
+    // Initial mount swapped to darkA's url.
+    expect(fake.map.setStyle).toHaveBeenCalledWith('syn://dark-A');
+    (fake.map.setStyle as ReturnType<typeof vi.fn>).mockClear();
+
+    // Change the id to a DIFFERENT SAME-KIND theme. SYN_DARK_A.kind === darkB.kind
+    // ('dark'), so a kind-keyed trigger would NOT fire — the trap. The id-driven
+    // effect re-runs and swaps to darkB's url.
+    rerender({ id: 'darkB' as ThemeId });
+
+    expect(SYN_DARK_A.kind).toBe(SYN_DARK_B.kind); // proves same-kind
+    expect(SYN_DARK_A.url).not.toBe(SYN_DARK_B.url); // but different urls
+    expect(fake.map.setStyle).toHaveBeenCalledTimes(1);
+    expect(fake.map.setStyle).toHaveBeenCalledWith('syn://dark-B');
+  });
+
+  it('de-dups on the id: re-rendering with an UNCHANGED id does NOT re-fire setStyle', () => {
+    const fake = makeFakeMap({ withMask: false });
+    const ref = makeRef(fake.map);
+
+    const { rerender } = renderHook(
+      ({ id }: { id: ThemeId }) => useStateArtboard(ref, true, null, id),
+      { initialProps: { id: 'positron' as ThemeId } },
+    );
+    (fake.map.setStyle as ReturnType<typeof vi.fn>).mockClear();
+
+    // Same id again: the effect's deps include the id, but the id-keyed de-dup
+    // guard (prevThemeIdRef) short-circuits the swap.
+    rerender({ id: 'positron' as ThemeId });
+    expect(fake.map.setStyle).not.toHaveBeenCalled();
+  });
+
+  it('back-compat bridge: a legacy setAttribute(data-theme, dark) resolves to the dark id and swaps (keeps basemap-dark-flip.spec.ts green)', async () => {
+    document.documentElement.setAttribute('data-theme', 'light');
+    const fake = makeFakeMap({ withMask: false });
+    const ref = makeRef(fake.map);
+
+    // Default resolver (resolveDescriptor) + default activeThemeId (attr-bridged
+    // 'positron'): the belt MutationObserver routes the attribute through the same
+    // id-driven path. This is exactly how the existing e2e drives the theme.
+    renderHook(() => useStateArtboard(ref, true, null));
+    (fake.map.setStyle as ReturnType<typeof vi.fn>).mockClear();
+
+    act(() => {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    });
+
+    // The belt observer mapped 'dark' → the `dark` id and swapped to the real
+    // dark tile URL through swapBasemap.
+    await waitFor(() =>
+      expect(fake.map.setStyle).toHaveBeenCalledWith(
+        'https://tiles.openfreemap.org/styles/dark',
+      ),
+    );
   });
 });
