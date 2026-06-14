@@ -113,7 +113,7 @@ other holds it, a nightly plan that overlaps an apply queues behind it.
 ## Basemap tiles
 
 The frontend basemap loads vector tiles from `tiles.openfreemap.org`
-(MapLibre `positron` style) — see `frontend/src/components/map/basemap-style.ts`.
+(MapLibre `positron` style) — see `frontend/src/components/map/geometry/basemap-style.ts`.
 There is no Cloudflare-hosted tile pipeline. An earlier `map-v1.tf`
 declaration of a self-hosted PMTiles + Worker pipeline was removed in #385
 (declared but never applied; live map served exclusively from

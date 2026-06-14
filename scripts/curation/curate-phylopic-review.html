@@ -122,7 +122,7 @@
   <h1>Phylopic auto-pick visual review</h1>
   <p>Issue <a href="https://github.com/julianken/bird-sight-system/issues/245">#245</a> — auto-curated silhouettes for the 25 AZ bird families. Each card shows the candidates the auto-pick heuristic considered for one family. The picked candidate is outlined in blue. Verify each one renders crisply at 24px (FamilyLegend) and 28px (MapCanvas symbol) before the version-one → main release.</p>
   <p><strong>Heuristic:</strong> license preference (CC0 &gt; CC-BY-3.0 &gt; CC-BY-4.0 &gt; CC-BY-SA-3.0) → creator name asc → UUID asc.</p>
-  <p><strong>Source data:</strong> <code>scripts/phylopic-picks.json</code> (committed alongside this HTML).</p>
+  <p><strong>Source data:</strong> <code>scripts/curation/phylopic-picks.json</code> (committed alongside this HTML).</p>
 </header>
 <main class="grid" id="grid"></main>
 <script type="module">
@@ -132,7 +132,7 @@
     const res = await fetch(PICKS_URL);
     if (!res.ok) {
       document.getElementById('grid').innerHTML =
-        `<div class="empty">Could not load <code>${PICKS_URL}</code> (${res.status}). Run <code>node scripts/curate-phylopic.mjs</code> first to generate it.</div>`;
+        `<div class="empty">Could not load <code>${PICKS_URL}</code> (${res.status}). Run <code>node scripts/curation/curate-phylopic.mjs</code> first to generate it.</div>`;
       return;
     }
     const data = await res.json();

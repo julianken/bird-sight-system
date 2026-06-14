@@ -13,7 +13,7 @@ with no CDN in front. Added for issue #502; not part of the original
 ## How it fits
 
 ```
-operator → scripts/silhouette.mjs (npm run silhouette)
+operator → scripts/curation/silhouette.mjs (npm run silhouette)
               │  PUT/DELETE /admin/silhouettes/family/:code  (Bearer)
               ▼
          bird-admin-api (Cloud Run)
@@ -75,7 +75,7 @@ npm run silhouette unset <family-code>
 ```
 
 It reads `ADMIN_API_URL` and `ADMIN_API_TOKEN` from the env and posts the
-multipart `file` field for you (`scripts/silhouette.mjs`). The end-to-end
+multipart `file` field for you (`scripts/curation/silhouette.mjs`). The end-to-end
 operator procedure — minting/rotating the token, the Phylopic-SVG flattening
 caveat, and post-deploy smoke steps — lives in the runbook:
 [`docs/runbooks/silhouette-override.md`](../../docs/runbooks/silhouette-override.md).
@@ -184,7 +184,7 @@ written to `family_silhouettes.svg_data`.
   `https://<API_HOST>/api/silhouettes` (default host `api.bird-maps.com`), so
   the next read returns the new silhouette. A failed/timed-out purge (5s) sets
   the `X-Purge-Status: failed` response header but does not fail the request —
-  recover with `scripts/purge-silhouettes-cache.sh` (runbook).
+  recover with `scripts/cache/purge-silhouettes-cache.sh` (runbook).
 
 ### Environment variables
 

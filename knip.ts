@@ -156,7 +156,7 @@ const config: KnipConfig = {
 
     // 2026-05-29: geojson — `import type { Feature, MultiPolygon, Polygon,
     //             Position } from 'geojson'` (#760/#762 state-artboard mask:
-    //             frontend/src/components/map/mask.ts, MapCanvas.tsx,
+    //             frontend/src/components/map/geometry/mask.ts, MapCanvas.tsx,
     //             MapSurface.tsx, frontend/src/data/state-polygons.ts, and the
     //             co-located test files). The `geojson` MODULE declarations are
     //             provided by the @types/geojson package, which ships
@@ -313,7 +313,7 @@ const config: KnipConfig = {
     'tools/photo-curation': {
       // 2026-06-10: Part B (#971) wired the four Part A self-healing entries —
       //             commander (cli.ts), @bird-watch/shared-types + msw
-      //             (sources.ts / sync.test.ts), and src/store.ts (sources.ts
+      //             (sources.ts / sources.sync.test.ts), and src/store.ts (sources.ts
       //             imports maxSourceRound + the rest) — so those ignores were
       //             REMOVED here per their self-healing intent; knip now sees
       //             them consumed. Only `sharp` remains: it is a transitive
