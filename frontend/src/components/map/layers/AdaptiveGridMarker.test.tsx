@@ -1154,12 +1154,11 @@ describe('AdaptiveGridMarker — cell popover (Phase 1, #558)', () => {
     expect(tooltip.style.top).toBe('412px');
   });
 
-  it('pointer:fine: tooltip stays cursor-anchored through the leave dwell, then unmounts — no mode-flip', async () => {
-    // Regression: on mouseleave the preview stays mounted for the spec §4.5
-    // 250ms dwell. It must NOT lose its cursor-anchored render (position:fixed,
-    // portaled) during that window. Eagerly clearing cursorPos on leave flipped
-    // it to the CSS-anchored fallback (position:'') for the whole 250ms — the
-    // visible "tooltip jumps to a different state, then disappears" glitch.
+  it('pointer:fine: mouse-leave keeps the cursor-anchored render until unmount — no mode-flip', async () => {
+    // The preview must NOT flip from its cursor-anchored render (position:fixed,
+    // portaled) to the CSS-anchored fallback (position:'') on the way out — that
+    // flip was the "tooltip jumps to a different spot, then disappears" glitch.
+    // cursorPos is kept on leave: the preview either follows the cursor or unmounts.
     vi.useFakeTimers();
     const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
     render(
@@ -1180,13 +1179,112 @@ describe('AdaptiveGridMarker — cell popover (Phase 1, #558)', () => {
     fireEvent.mouseMove(cell, { clientX: 300, clientY: 400 });
     expect(screen.getByRole('tooltip').style.position).toBe('fixed');
 
-    // Pointer leaves: preview lingers for the dwell, still cursor-anchored.
+    // Pointer leaves: still cursor-anchored (no flip) right up to unmount.
     fireEvent.mouseLeave(cell);
     expect(screen.getByRole('tooltip').style.position).toBe('fixed');
 
-    // After the dwell it unmounts cleanly — no intermediate flipped render.
-    act(() => { vi.advanceTimersByTime(250); });
+    act(() => { vi.runOnlyPendingTimers(); });
     expect(screen.queryByRole('tooltip')).toBeNull();
+    vi.useRealTimers();
+  });
+
+  it('pointer:fine: tooltip disappears within a frame of mouse-leave (no 250ms lag)', async () => {
+    // Issue 2: the hover preview must hide essentially the moment the pointer
+    // leaves, not after the old spec §4.5 250ms dwell. The deferral is now
+    // next-tick (0ms) — long enough for an adjacent-cell re-enter to cancel it,
+    // short enough to feel immediate.
+    vi.useFakeTimers();
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', '#888', [
+          { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
+        ])]}
+        totalCount={5}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 5 observations."
+        isCoarsePointer={false}
+        onClick={noop}
+      />
+    );
+    const cell = screen.getByTestId('adaptive-grid-marker-cell-rendered');
+    fireEvent.mouseEnter(cell);
+    fireEvent.mouseMove(cell, { clientX: 300, clientY: 400 });
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+
+    fireEvent.mouseLeave(cell);
+    act(() => { vi.advanceTimersByTime(16); }); // one frame
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    vi.useRealTimers();
+  });
+
+  it('a11y: keyboard focus anchors the preview (position:fixed near the cell), not the broken CSS fallback', async () => {
+    // Issue 1: tabbing to a cell used to render the preview in its CSS-anchored
+    // fallback (position:absolute, inline, no offsets, not portaled) — an
+    // unpositioned tooltip stuck at the marker corner. Focus must anchor it to
+    // the cell's rect so it renders in the same fixed+portaled mode as the cursor
+    // path. (jsdom getBoundingClientRect → 0,0, so the anchor lands at +16/+12.)
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', '#888', [
+          { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
+        ])]}
+        totalCount={5}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 5 observations."
+        isCoarsePointer={false}
+        onClick={noop}
+      />
+    );
+    const cell = screen.getByTestId('adaptive-grid-marker-cell-rendered');
+    fireEvent.focus(cell);
+    const tooltip = screen.getByRole('tooltip');
+    expect(tooltip.style.position).toBe('fixed');
+    expect(tooltip.style.left).toBe('16px');
+    expect(tooltip.style.top).toBe('12px');
+  });
+
+  it('pointer:fine: moving between adjacent cells swaps the preview without unmounting (no flicker)', async () => {
+    // Guards the next-tick deferral chosen for Issue 2: leaving cell A schedules
+    // a hide, but entering adjacent cell B before it fires must keep the preview
+    // mounted and swap its contents to B — never blink through an empty frame.
+    vi.useFakeTimers();
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_2x1}
+        tiles={[
+          rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', '#888', [
+            { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
+          ]),
+          rendered('flycatchers', 12, 'M0 0L24 24Z', '#aaa', '#aaa', [
+            { comName: 'Black Phoebe', count: 12, speciesCode: 'blkpho' },
+          ]),
+        ]}
+        totalCount={17}
+        uniqueFamilies={2}
+        ariaLabel="Cluster: 17 observations, 2 families."
+        isCoarsePointer={false}
+        onClick={noop}
+      />
+    );
+    const cells = screen.getAllByTestId('adaptive-grid-marker-cell-rendered');
+    fireEvent.mouseEnter(cells[0]);
+    fireEvent.mouseMove(cells[0], { clientX: 100, clientY: 100 });
+    expect(screen.getByRole('tooltip')).toHaveTextContent("Anna's Hummingbird");
+
+    // Leave A, immediately enter B (before the deferred hide fires).
+    fireEvent.mouseLeave(cells[0]);
+    fireEvent.mouseEnter(cells[1]);
+    fireEvent.mouseMove(cells[1], { clientX: 130, clientY: 100 });
+    act(() => { vi.advanceTimersByTime(50); }); // A's pending hide would have fired
+
+    const tooltip = screen.getByRole('tooltip');
+    expect(tooltip).toHaveTextContent('Black Phoebe');
+    expect(tooltip).not.toHaveTextContent("Anna's Hummingbird");
     vi.useRealTimers();
   });
 });

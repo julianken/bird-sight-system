@@ -290,25 +290,31 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
   }
 
   function onCellMouseLeave(i: number) {
-    // Do NOT reset cursorPos here. The preview stays mounted for the 250ms
-    // dwell below; clearing cursorPos now would flip <CellHoverPreview> from its
-    // cursor-anchored render (position:fixed, portaled to body) to the
-    // CSS-anchored fallback (position:absolute, inline) for that whole window —
-    // a visible "tooltip jumps to a different spot, then disappears" glitch.
-    // The preview either follows the cursor or unmounts; never an in-between.
-    // Positioning is reset on keyboard focus (onCellFocus) instead, which is the
-    // only path that legitimately needs the CSS-anchored render.
-    // Spec §4.5: 250ms delay; skipped when click-promoted to popover.
+    // Hide essentially immediately (#1179 follow-up): a next-tick (0ms) deferral,
+    // not the old spec §4.5 250ms dwell which read as visible lag. The deferral is
+    // still load-bearing — leaving cell A and entering adjacent cell B fire as two
+    // separate events; entering B sets activeCell to B *before* this 0ms timer
+    // runs, so the timer's index guard no-ops and the preview swaps to B instead
+    // of blinking through an empty frame. cursorPos is deliberately NOT reset
+    // here: the preview keeps its cursor-anchored render until it unmounts (no
+    // mode-flip — the #1179 glitch).
     mouseLeaveTimers.current[i] = window.setTimeout(() => {
       setActiveCell((prev) => (prev?.index === i && prev.mode === 'preview' ? null : prev));
-    }, 250);
+    }, 0);
   }
 
   function onCellFocus(i: number) {
-    // Keyboard/programmatic focus carries no pointer coordinate. Reset cursorPos
-    // so the preview renders CSS-anchored near the focused cell rather than
-    // following a stale mouse coordinate left over from an earlier hover.
-    setCursorPos(null);
+    // Keyboard/programmatic focus has no pointer coordinate. Anchor the preview to
+    // the focused cell's rect so it renders in the same fixed + portaled mode as
+    // the cursor path (a positioned tooltip just below the cell) rather than the
+    // CSS-anchored fallback (position:absolute, inline, unpositioned, clipped by
+    // the marker) — the "messed up format" keyboard users saw. getBoundingClientRect
+    // is read at focus time so the anchor tracks the cell's current screen position.
+    const el = cellRefs.current[i];
+    if (el) {
+      const rect = el.getBoundingClientRect();
+      setCursorPos({ x: rect.left, y: rect.bottom });
+    }
     setActiveCell((prev) => (prev?.mode === 'popover' ? prev : { index: i, mode: 'preview' }));
   }
 
