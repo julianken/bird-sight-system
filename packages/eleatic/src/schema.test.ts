@@ -41,4 +41,16 @@ describe('schema', () => {
     migrate(db);
     expect(() => migrate(db!)).not.toThrow();
   });
+
+  it('eval_row carries the nullable trace_json column (generic per-row trace)', () => {
+    db = new Database(':memory:');
+    migrate(db);
+    const cols = (
+      db.prepare(`PRAGMA table_info(eval_row)`).all() as { name: string; notnull: number }[]
+    );
+    const trace = cols.find((c) => c.name === 'trace_json');
+    expect(trace).toBeDefined();
+    // Additive + nullable: existing rows read NULL, no backfill needed.
+    expect(trace?.notnull).toBe(0);
+  });
 });

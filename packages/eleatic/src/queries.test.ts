@@ -129,6 +129,45 @@ describe('makeReader', () => {
     });
   });
 
+  describe('trace (single-row read path only)', () => {
+    const trace = {
+      spans: [
+        { name: 'judge', input: { prompt: 'x' }, output: { keep: true }, usage: { promptTokens: 10 } },
+      ],
+    };
+
+    beforeEach(() => {
+      store.recordRun(makeRun());
+      store.recordRow(makeRow({ rowKey: 'traced', trace }));
+      store.recordRow(makeRow({ rowKey: 'untraced' })); // no trace
+    });
+
+    it('getRow round-trips the opaque trace blob losslessly', () => {
+      expect(reader.getRow('run-1', 'traced')?.trace).toEqual(trace);
+    });
+
+    it('getRow reads an omitted trace back as an absent key (NULL → undefined)', () => {
+      const row = reader.getRow('run-1', 'untraced');
+      expect(row?.trace).toBeUndefined();
+      expect('trace' in (row ?? {})).toBe(false);
+    });
+
+    it('getRows NEVER carries trace — list payloads stay lean', () => {
+      const rows = reader.getRows('run-1');
+      const traced = rows.find((r) => r.rowKey === 'traced');
+      expect(traced).toBeDefined();
+      expect(traced?.trace).toBeUndefined();
+      expect('trace' in (traced ?? {})).toBe(false);
+    });
+
+    it('facetRows NEVER carries trace — list payloads stay lean', () => {
+      const rows = reader.facetRows('run-1', {});
+      const traced = rows.find((r) => r.rowKey === 'traced');
+      expect(traced).toBeDefined();
+      expect('trace' in (traced ?? {})).toBe(false);
+    });
+  });
+
   describe('facetRows — the generalization of evalFalseKeeps', () => {
     // Port the four-row arrangement from the grounding evalFalseKeeps test:
     // metadata.disagreement ∈ {falseKeep, agree, falseReplace, bothReplace}.

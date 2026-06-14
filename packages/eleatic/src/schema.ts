@@ -12,8 +12,11 @@ import type Database from 'better-sqlite3';
  *   eval_run          — one row per eval run; `metrics_json` holds arbitrary
  *                       {name:number} aggregates.
  *   eval_row          — one row per item per run, keyed (run_id, row_key).
- *                       `output_json`/`expected_json` are OPAQUE — pretty-printed
- *                       in drill-down, never destructured by the store.
+ *                       `output_json`/`expected_json`/`trace_json` are OPAQUE —
+ *                       pretty-printed in drill-down, never destructured by the
+ *                       store. `trace_json` holds an optional generic LLM trace
+ *                       (spans of name/input/output/usage) returned ONLY by the
+ *                       single-row read path, never the list payloads.
  *   eval_adjudication — a human verdict keyed on the ITEM (row_key), independent
  *                       of any run; upsert (no audit history).
  */
@@ -37,6 +40,7 @@ CREATE TABLE IF NOT EXISTS eval_row (
   expected_json TEXT,
   scores_json   TEXT,
   metadata_json TEXT,
+  trace_json    TEXT,
   PRIMARY KEY (run_id, row_key)
 );
 CREATE TABLE IF NOT EXISTS eval_adjudication (

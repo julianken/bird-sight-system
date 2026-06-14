@@ -48,6 +48,11 @@ function seedStore(): EleaticStore {
       expected: { keep: false },
       scores: { quality: 55 },
       metadata: { disagreement: 'falseKeep' },
+      trace: {
+        spans: [
+          { name: 'judge', input: { prompt: 'p' }, output: { keep: true }, usage: { promptTokens: 12 } },
+        ],
+      },
     },
   ]);
   store.recordRows([
@@ -113,6 +118,9 @@ describe('eleatic server', () => {
     const res = await request(createApp(store, cfg)).get('/api/rows?run=run-a');
     expect(res.status).toBe(200);
     expect(res.body.rows.map((r: { rowKey: string }) => r.rowKey)).toEqual(['item-1', 'item-2']);
+    // The list payload stays lean: trace is never carried, even for a traced row.
+    const traced = res.body.rows.find((r: { rowKey: string }) => r.rowKey === 'item-2');
+    expect(traced.trace).toBeUndefined();
   });
 
   it('GET /api/rows with f= filters (generalized falseKeep gallery)', async () => {
@@ -147,6 +155,20 @@ describe('eleatic server', () => {
     expect((await request(app).get('/api/row?row=item-1')).status).toBe(400);
     expect((await request(app).get('/api/row?run=run-a&row=ghost')).status).toBe(404);
     expect((await request(app).get('/api/row?run=nope&row=item-1')).status).toBe(404);
+  });
+
+  it('GET /api/row returns the per-row trace verbatim (drill-down only)', async () => {
+    const app = createApp(store, cfg);
+    const traced = await request(app).get('/api/row?run=run-a&row=item-2');
+    expect(traced.status).toBe(200);
+    expect(traced.body.row.trace).toEqual({
+      spans: [
+        { name: 'judge', input: { prompt: 'p' }, output: { keep: true }, usage: { promptTokens: 12 } },
+      ],
+    });
+    // A row with no trace omits the key entirely.
+    const untraced = await request(app).get('/api/row?run=run-a&row=item-1');
+    expect(untraced.body.row.trace).toBeUndefined();
   });
 
   it('GET /api/trends returns trend points; 400 when metric omitted', async () => {
