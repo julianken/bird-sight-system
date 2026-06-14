@@ -290,7 +290,24 @@ const config: KnipConfig = {
       //             confirm diff.html references /diff.js, facets.html references
       //             /facets.js, and both diff.js+facets.js still
       //             `import … './drawer.js'` (drawer.js `import … './adjudicate.js'`).
-      ignore: ['ui/hub.js', 'ui/theme.js', 'ui/diff.js', 'ui/facets.js', 'ui/drawer.js', 'ui/adjudicate.js'],
+      // 2026-06-13 (T4, #1189): the trace explorer's browser entry
+      //             ui/trace-view-page.js (loaded via trace.html
+      //             `<script type="module" src="/trace-view-page.js">`) — same
+      //             runtime-resolved-specifier reason as hub.js/diff.js/facets.js
+      //             above; knip can't see a `<script type=module>` entry, so it
+      //             flags the file as unused. Its pure collaborators
+      //             ui/trace-tree.js, ui/trace-view.js, ui/trace.js and
+      //             ui/trace-format.js are deliberately NOT listed: each has a
+      //             real vitest sibling (*.test.ts) that imports it, so knip
+      //             already traces them (a redundant ignore would be flagged) —
+      //             the safe.js "test-sibling makes it traced" reasoning applies
+      //             verbatim. ui/trace.html + ui/app.css are not JS/TS modules,
+      //             so knip does not track them either.
+      //             Risk: masks a genuinely orphaned ui/ script if the trace page
+      //             is deleted but its module left on disk. Re-audit 2026-07-27 —
+      //             confirm trace.html references /trace-view-page.js and that
+      //             entry still `import … './trace-view.js'`/`'./trace-tree.js'`.
+      ignore: ['ui/hub.js', 'ui/theme.js', 'ui/diff.js', 'ui/facets.js', 'ui/drawer.js', 'ui/adjudicate.js', 'ui/trace-view-page.js'],
     },
 
     'tools/photo-curation': {
