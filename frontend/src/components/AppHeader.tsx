@@ -1,7 +1,7 @@
 /**
  * AppHeader — two floating corner clusters over the edge-to-edge map (#800 / #779 / #761).
  *
- * Design spec: docs/design/2026-05-30-floating-ui-design-spec.md §4.1–4.3.
+ * Design spec: docs/design/standalone/2026-05-30-floating-ui-design-spec.md §4.1–4.3.
  *
  * Previous design: a full-width top bar (`position:fixed; left:0; right:0`) with
  * a tablist holding a single "Map" nav tab. This violated the four-corner anchor

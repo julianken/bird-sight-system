@@ -3,7 +3,7 @@
 - **Date:** 2026-06-01
 - **Status:** Approved (brainstorm); pending implementation plan
 - **Surface:** top-left identity/scope card (`AppHeader` identity card)
-- **Design authority:** `docs/design/2026-05-30-floating-ui-design-spec.md` §3 (four-corner contract), §4.1–4.3, §5.2 (hierarchy)
+- **Design authority:** `docs/design/standalone/2026-05-30-floating-ui-design-spec.md` §3 (four-corner contract), §4.1–4.3, §5.2 (hierarchy)
 - **Relates to:** epic #761 (map-first re-arch), #800/#779/#780 (header → corner cards), #737/#739/#740 (scope control + ZIP)
 
 ---

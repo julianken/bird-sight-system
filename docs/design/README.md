@@ -22,7 +22,8 @@ docs/design/
 ├── 02-phases/                       7 phases (0..6) + dependency graph; each phase links to its implementation plan
 ├── 03-research/                     synthesis of analysis funnel + design agents + critique loops + pre-ship gates
 ├── 04-visuals/                      hero mocks, system poster, surface mockups, before/after deltas
-└── 05-archive/                      raw artifacts (analysis funnel, design-agent ideas, critique loop outputs, brainstorm HTML mocks)
+├── 05-archive/                      raw artifacts (analysis funnel, design-agent ideas, critique loop outputs, brainstorm HTML mocks)
+└── standalone/                      one-off design docs outside the numbered Sky Atlas tree
 ```
 
 ## Index
@@ -77,6 +78,14 @@ docs/design/
 - `05-archive/design-agents/` — 5 specialist agent outputs (UX, design-system, a11y, iOS-style, dissent)
 - `05-archive/critique-loops/` — 3 loops × (critic + planner) = 6 outputs + decisions table snapshot
 - `05-archive/brainstorm-mocks/` — standalone HTML mockups from the brainstorm (system, v3, v4)
+
+### standalone/ — one-off design docs
+
+These files address specific subsystems outside the numbered Sky Atlas tree. They are not part of the 00–05 synthesis and are not updated as the numbered docs evolve.
+
+- [`standalone/2026-05-30-floating-ui-design-spec.md`](./standalone/2026-05-30-floating-ui-design-spec.md) — four-corner anchor contract, elevation tiers, popover/detail/filters behavior (design authority cited by `CLAUDE.md`)
+- [`standalone/2026-05-30-floating-ui-critiques.json`](./standalone/2026-05-30-floating-ui-critiques.json) — structured critique log for the floating-UI spec
+- [`standalone/2026-06-01-collapsible-scope-card-design.md`](./standalone/2026-06-01-collapsible-scope-card-design.md) — collapsible scope card + ZIP submit fix design
 
 ## Cross-links to other repo locations
 
