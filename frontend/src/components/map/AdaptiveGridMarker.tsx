@@ -290,7 +290,14 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
   }
 
   function onCellMouseLeave(i: number) {
-    setCursorPos(null);
+    // Do NOT reset cursorPos here. The preview stays mounted for the 250ms
+    // dwell below; clearing cursorPos now would flip <CellHoverPreview> from its
+    // cursor-anchored render (position:fixed, portaled to body) to the
+    // CSS-anchored fallback (position:absolute, inline) for that whole window —
+    // a visible "tooltip jumps to a different spot, then disappears" glitch.
+    // The preview either follows the cursor or unmounts; never an in-between.
+    // Positioning is reset on keyboard focus (onCellFocus) instead, which is the
+    // only path that legitimately needs the CSS-anchored render.
     // Spec §4.5: 250ms delay; skipped when click-promoted to popover.
     mouseLeaveTimers.current[i] = window.setTimeout(() => {
       setActiveCell((prev) => (prev?.index === i && prev.mode === 'preview' ? null : prev));
@@ -298,6 +305,10 @@ export function AdaptiveGridMarker(props: AdaptiveGridMarkerProps) {
   }
 
   function onCellFocus(i: number) {
+    // Keyboard/programmatic focus carries no pointer coordinate. Reset cursorPos
+    // so the preview renders CSS-anchored near the focused cell rather than
+    // following a stale mouse coordinate left over from an earlier hover.
+    setCursorPos(null);
     setActiveCell((prev) => (prev?.mode === 'popover' ? prev : { index: i, mode: 'preview' }));
   }
 

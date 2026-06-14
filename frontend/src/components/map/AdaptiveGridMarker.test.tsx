@@ -1153,6 +1153,42 @@ describe('AdaptiveGridMarker — cell popover (Phase 1, #558)', () => {
     expect(tooltip.style.left).toBe('316px');
     expect(tooltip.style.top).toBe('412px');
   });
+
+  it('pointer:fine: tooltip stays cursor-anchored through the leave dwell, then unmounts — no mode-flip', async () => {
+    // Regression: on mouseleave the preview stays mounted for the spec §4.5
+    // 250ms dwell. It must NOT lose its cursor-anchored render (position:fixed,
+    // portaled) during that window. Eagerly clearing cursorPos on leave flipped
+    // it to the CSS-anchored fallback (position:'') for the whole 250ms — the
+    // visible "tooltip jumps to a different state, then disappears" glitch.
+    vi.useFakeTimers();
+    const { AdaptiveGridMarker } = await import('./AdaptiveGridMarker.js');
+    render(
+      <AdaptiveGridMarker
+        shape={SHAPE_1x1}
+        tiles={[rendered('hummingbirds', 5, 'M0 0L24 24Z', '#888', '#888', [
+          { comName: "Anna's Hummingbird", count: 5, speciesCode: 'annhum' },
+        ])]}
+        totalCount={5}
+        uniqueFamilies={1}
+        ariaLabel="Cluster: 5 observations."
+        isCoarsePointer={false}
+        onClick={noop}
+      />
+    );
+    const cell = screen.getByTestId('adaptive-grid-marker-cell-rendered');
+    fireEvent.mouseEnter(cell);
+    fireEvent.mouseMove(cell, { clientX: 300, clientY: 400 });
+    expect(screen.getByRole('tooltip').style.position).toBe('fixed');
+
+    // Pointer leaves: preview lingers for the dwell, still cursor-anchored.
+    fireEvent.mouseLeave(cell);
+    expect(screen.getByRole('tooltip').style.position).toBe('fixed');
+
+    // After the dwell it unmounts cleanly — no intermediate flipped render.
+    act(() => { vi.advanceTimersByTime(250); });
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    vi.useRealTimers();
+  });
 });
 
 // --- Phase 2 (#559): coarse-pointer cluster list popover ---------------------
