@@ -1,5 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import { enforceDarkLabelContrast } from './basemap-label-contrast.js';
+import {
+  enforceDarkLabelContrast,
+  ROAD_TEXT,
+  PLACE_TEXT,
+  WATER_TEXT,
+} from './basemap-label-contrast.js';
+import { LAND_COLORS } from './basemap-style.js';
 
 /* ──────────────────────────────────────────────────────────────────────────
    #1128 — dark-mode basemap label contrast.
@@ -381,4 +387,55 @@ describe('enforceDarkLabelContrast — fails open on a throwing style', () => {
       ),
     ).toBe(false);
   });
+});
+
+/* ──────────────────────────────────────────────────────────────────────────
+   #1217 (C5) — a11y GATE: parameterize the dark-label recolor palette over
+   EVERY dark-kind land in `LAND_COLORS` (the single source of truth), not the
+   two literals the original draft baked in.
+
+   This is the gate that FORCES fiord's water/place colors lighter when fiord
+   joins `LAND_COLORS`: each recolor tier MUST clear the AA floor (4.5:1 — these
+   are text labels, NOT the 3:1 non-text floor) against BOTH the near-black dark
+   land `#0E1116` AND the navy fiord land `#45516E`. The real `ROAD/PLACE/
+   WATER_TEXT` symbols are imported from the module under test — never copied —
+   so a future tier-color edit is caught here automatically.
+
+   `WATER_TEXT` was re-picked from `#9db4d8` (3.75:1 vs fiord — an AA fail) to
+   `#b8cae6` (4.76:1) precisely because this gate flagged it; C6's fiord
+   descriptor depends on this matrix passing.
+   ────────────────────────────────────────────────────────────────────────── */
+
+describe('#1217 — dark-label recolor tiers ≥ 4.5 AA vs every dark-kind land', () => {
+  // The real recolor palette, imported (not mirrored) from the module so an
+  // edit to any tier color is audited here automatically.
+  const TIERS: Array<{ name: string; color: string }> = [
+    { name: 'ROAD_TEXT', color: ROAD_TEXT },
+    { name: 'PLACE_TEXT', color: PLACE_TEXT },
+    { name: 'WATER_TEXT', color: WATER_TEXT },
+  ];
+
+  // Dark-kind lands straight from C1's single source of truth — no literals.
+  const DARK_LANDS = Object.entries(LAND_COLORS)
+    .filter(([, v]) => v.kind === 'dark')
+    .map(([id, v]) => ({ id, land: v.land }));
+
+  it('has at least the two known dark lands (dark + fiord) in LAND_COLORS', () => {
+    // Guards against the matrix silently shrinking to zero rows if LAND_COLORS
+    // is refactored — an empty iteration would vacuously "pass".
+    expect(DARK_LANDS.length).toBeGreaterThanOrEqual(2);
+    expect(DARK_LANDS.map((l) => l.id)).toEqual(expect.arrayContaining(['dark', 'fiord']));
+  });
+
+  for (const { name, color } of TIERS) {
+    for (const { id, land } of DARK_LANDS) {
+      it(`${name} (${color}) ≥ 4.5 vs ${id} land (${land})`, () => {
+        const ratio = contrast(color, land);
+        expect(
+          ratio,
+          `${name} ${color} vs ${id} land ${land} = ${ratio.toFixed(2)}:1 — below 4.5 AA`,
+        ).toBeGreaterThanOrEqual(AA);
+      });
+    }
+  }
 });

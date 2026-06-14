@@ -48,14 +48,22 @@ const AA_CONTRAST = 4.5;
 const DARK_BG_LUMINANCE = 0.2;
 
 /**
- * AA-passing light text palette (verified ≥ 4.5 vs rgb(12,12,12) — see the
- * unit test). Deliberately muted grays, not pure white (#fff glares). The
- * hierarchy mirrors the light style: roads brightest, place a notch muted,
- * water a lightened cousin of the light style's `#495e91`.
+ * AA-passing light text palette. Each tier is verified ≥ 4.5:1 (WCAG AA for
+ * normal text) against EVERY dark-kind land in `LAND_COLORS` — the near-black
+ * `dark` land `#0E1116` AND the navy `fiord` land `#45516E` — by the matrix in
+ * basemap-label-contrast.test.ts. Deliberately muted, not pure white (#fff
+ * glares). The hierarchy mirrors the light style: roads brightest, place a
+ * notch muted, water a lightened blue cousin of the light style's `#495e91`.
+ *
+ * `WATER_TEXT` was lightened from `#9db4d8` (3.75:1 vs fiord — an AA fail) to
+ * `#b8cae6` (4.76:1 vs fiord, 11.37:1 vs dark) when fiord joined `LAND_COLORS`
+ * (#1217 / C5): fiord's land is ≈15× brighter than the dark land, so the old
+ * water tint dropped below the 4.5 floor against it. Exported so the contrast
+ * audit asserts the real symbols rather than a hand-copied mirror.
  */
-const ROAD_TEXT = '#d8d8d8';
-const PLACE_TEXT = '#c4c4c4';
-const WATER_TEXT = '#9db4d8';
+export const ROAD_TEXT = '#d8d8d8';
+export const PLACE_TEXT = '#c4c4c4';
+export const WATER_TEXT = '#b8cae6';
 /** Near-canvas dark halo so the light text separates from light features too. */
 const LABEL_HALO = 'rgba(8,10,14,0.85)';
 
