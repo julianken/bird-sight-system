@@ -74,14 +74,21 @@ function makeFakeMap() {
   // moveLayer guard).
   let styleHasMaskLayer = true;
   const baseStyleLayers = () => {
-    const layers: Array<{ id: string; type: string; source?: string; filter?: unknown }> = [
+    const TEXT_LAYOUT = { 'text-field': ['get', 'name'] };
+    const layers: Array<{
+      id: string;
+      type: string;
+      source?: string;
+      filter?: unknown;
+      layout?: Record<string, unknown>;
+    }> = [
       { id: 'background', type: 'background' },
       { id: 'water', type: 'fill' },
-      { id: 'place_country', type: 'symbol', source: 'openmaptiles', filter: ['==', 'class', 'country'] },
-      { id: 'place_city', type: 'symbol', source: 'openmaptiles' },
-      { id: 'poi_z14', type: 'symbol', source: 'openmaptiles' },
-      { id: 'highway_name_motorway', type: 'symbol', source: 'openmaptiles' }, // _name label
-      { id: 'transit_route_ref', type: 'symbol', source: 'openmaptiles' }, // symbol, no token
+      { id: 'place_country', type: 'symbol', source: 'openmaptiles', layout: { ...TEXT_LAYOUT }, filter: ['==', 'class', 'country'] },
+      { id: 'place_city', type: 'symbol', source: 'openmaptiles', layout: { ...TEXT_LAYOUT } },
+      { id: 'poi_z14', type: 'symbol', source: 'openmaptiles', layout: { ...TEXT_LAYOUT } },
+      { id: 'highway_name_motorway', type: 'symbol', source: 'openmaptiles', layout: { ...TEXT_LAYOUT } }, // text label
+      { id: 'transit_route_ref', type: 'symbol', source: 'openmaptiles' }, // symbol, NO text-field → not isolated
     ];
     if (styleHasMaskLayer) layers.push({ id: 'state-mask-fill', type: 'fill' });
     // Stray basemap line/fill layers painted ABOVE the mask (sink targets).
