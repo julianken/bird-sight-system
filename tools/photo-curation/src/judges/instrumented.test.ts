@@ -84,6 +84,70 @@ describe('instrumentedJudge', () => {
     expect(records).toHaveLength(0);
   });
 
+  // #1168 (trace T3): per-call latency is measured via an INJECTABLE monotonic
+  // clock (the Clock-injection precedent), so the recorded value is the
+  // deterministic clock delta around the inner judge call — not a real timer.
+  it('records latencyMs as the injected clock delta around the inner judge call', async () => {
+    const ticks = [1000, 1350]; // before, after → 350 ms elapsed.
+    let i = 0;
+    const now = () => ticks[i++]!;
+    const { records, sink } = makeSink();
+    const judge = instrumentedJudge(new FakeJudge(), {
+      model: 'gemini-2.5-flash', rubricVersion: '0.2.1', sink, now,
+    });
+
+    await judge.judge(img, ctx, PROMPT);
+
+    expect(records[0]!.latencyMs).toBe(350);
+  });
+
+  it('defaults to a real monotonic clock — latencyMs is a finite, non-negative number', async () => {
+    const { records, sink } = makeSink();
+    const judge = instrumentedJudge(new FakeJudge(), { model: 'gemini-2.5-flash', rubricVersion: '0.2.1', sink });
+
+    await judge.judge(img, ctx, PROMPT);
+
+    const ms = records[0]!.latencyMs;
+    expect(Number.isFinite(ms)).toBe(true);
+    expect(ms).toBeGreaterThanOrEqual(0);
+  });
+
+  // The raw model response is surfaced via the injectable accessor (mirroring
+  // the usage accessor), read AFTER the judgment resolves. No VisionJudge change.
+  it('records rawResponse from the rawResponse accessor', async () => {
+    const raw = { candidates: [{ content: { parts: [{ text: '{}' }] } }], usageMetadata: { promptTokenCount: 5 } };
+    const { records, sink } = makeSink();
+    const judge = instrumentedJudge(new FakeJudge(), {
+      model: 'gemini-2.5-flash', rubricVersion: '0.2.1', sink, rawResponse: () => raw,
+    });
+
+    await judge.judge(img, ctx, PROMPT);
+
+    expect(records[0]!.rawResponse).toEqual(raw);
+  });
+
+  it('leaves rawResponse ABSENT (not undefined) when no accessor is provided', async () => {
+    const { records, sink } = makeSink();
+    const judge = instrumentedJudge(new FakeJudge(), { model: 'gemini-2.5-flash', rubricVersion: '0.2.1', sink });
+
+    await judge.judge(img, ctx, PROMPT);
+
+    // exactOptionalPropertyTypes: the key is omitted entirely, never `undefined`.
+    expect('rawResponse' in records[0]!).toBe(false);
+  });
+
+  it('a throwing judge emits no record even with the latency clock + raw accessor wired', async () => {
+    const { records, sink } = makeSink();
+    const judge = instrumentedJudge(new ThrowingJudge(), {
+      model: 'opus', rubricVersion: '0.2.1', sink,
+      now: () => 0,
+      rawResponse: () => ({ never: 'read' }),
+    });
+
+    await expect(judge.judge(img, ctx, PROMPT)).rejects.toThrow('inner boom');
+    expect(records).toHaveLength(0);
+  });
+
   // Token extraction (ported from traced.ts): completion_tokens includes
   // thinking tokens; total is implicit. The sink surfaces prompt/completion.
   it('emits prompt/completion tokens from the usage accessor', async () => {

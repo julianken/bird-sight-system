@@ -56,7 +56,20 @@ function fakeJudge(sink: JudgmentSink, decide: (code: string) => { keep: boolean
     sink,
     // a fixed, priced usage so every judgment carries a known cost.
     usage: () => ({ promptTokenCount: 1000, candidatesTokenCount: 100, totalTokenCount: 1100 }),
+    // a deterministic latency clock (before/after) → latencyMs = 250 per call.
+    now: makeStepClock(1000, 250),
+    // a fixed raw envelope so the trace span's output.raw round-trips.
+    rawResponse: () => FAKE_RAW,
   });
+}
+
+/** The raw model envelope the fakeJudge reports — flows into the trace span. */
+const FAKE_RAW = { candidates: [{ content: { parts: [{ text: '{...}' }] } }], usageMetadata: { promptTokenCount: 1000 } };
+
+/** A monotonic clock that returns `start, start+step, start+2*step, …` on each call. */
+function makeStepClock(start: number, step: number): () => number {
+  let i = 0;
+  return () => start + step * i++;
 }
 
 /** Deps with a fake readImage (no fs) and a judge factory closing over `decide`. */
@@ -208,6 +221,59 @@ describe('runEvalLocal', () => {
     expect(output.rationale).toBe('r');
     expect(output.fieldMarks).toEqual(['mark']);
     expect(output.flags).toEqual([]);
+  });
+
+  it('writes the per-judgment trace span (T3) into trace_json, read back via getRow', async () => {
+    // End-to-end T3 guard: only a real run proves the RUNNER builds the span from
+    // record.input + the in-scope prompt + record.latencyMs/rawResponse/usage and
+    // threads it via toEleaticRow(result, trace) → recordRow. getRow is the ONLY
+    // eleatic read path that surfaces trace_json (T1); getRows omits it.
+    eleatic = openStore(':memory:');
+    const rows: EvalRow[] = [evalRow({ speciesCode: 'amerob', expectedKeep: true, expectedQuality: 85 })];
+    const decide = () => ({ keep: true, quality: 80 });
+
+    await runEvalLocal({ eleatic, rows, ...makeDeps(decide) });
+
+    const reader = makeReader(eleatic.db);
+    const r = reader.getRow('run-test-1', 'amerob');
+    const trace = r!.trace as {
+      spans: {
+        name: string;
+        input: { prompt: string; imageUrl?: string; species: Record<string, string>; rubricVersion: string; model: string };
+        output: { raw?: unknown; parsed: { keep: boolean; rationale: string } };
+        usage: Record<string, number>;
+      }[];
+    };
+    expect(trace.spans).toHaveLength(1);
+    const span = trace.spans[0]!;
+    expect(span.name).toBe('judge');
+    // input: prompt is runner-scope; species/model/rubricVersion from record.input;
+    // imageUrl is the PORTABLE R2 sourceUrl (the row's imageUrl), not the readPath.
+    expect(span.input.prompt).toBe('rubric prompt');
+    expect(span.input.imageUrl).toBe('https://photos.bird-maps.com/amerob.jpeg');
+    expect(span.input.species).toEqual({ comName: 'Common amerob', sciName: 'Sci amerob', family: 'Testidae' });
+    expect(span.input.rubricVersion).toBe('0.2.1');
+    expect(span.input.model).toBe('gemini-2.5-flash');
+    // output: the raw envelope + the full parsed JudgeOutput.
+    expect(span.output.raw).toEqual(FAKE_RAW);
+    expect(span.output.parsed.keep).toBe(true);
+    expect(span.output.parsed.rationale).toBe('r');
+    // usage: latency (clock delta 250) + tokens + cost.
+    expect(span.usage.latencyMs).toBe(250);
+    expect(span.usage.promptTokens).toBe(1000);
+    expect(span.usage.completionTokens).toBe(100);
+    expect(span.usage.costUsd).toBeGreaterThan(0);
+  });
+
+  it('omits trace_json from the lean list payload (getRows stays trace-free)', async () => {
+    eleatic = openStore(':memory:');
+    const rows: EvalRow[] = [evalRow({ speciesCode: 'amerob', expectedKeep: true, expectedQuality: 85 })];
+
+    await runEvalLocal({ eleatic, rows, ...makeDeps(() => ({ keep: true, quality: 80 })) });
+
+    const listed = makeReader(eleatic.db).getRows('run-test-1');
+    expect(listed).toHaveLength(1);
+    expect('trace' in listed[0]!).toBe(false);
   });
 
   it('computes falseKeep (judge keeps what baseline replaces) and total cost', async () => {

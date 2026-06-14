@@ -5,10 +5,12 @@ import {
   openStore,
   toEleaticRow,
   toEleaticRun,
+  buildTraceSpan,
   fromEleaticRow,
   costFromEleaticRow,
   type EvalResultRecord,
   type EvalRunRecord,
+  type JudgeTraceInput,
 } from './eleatic-adapter.js';
 
 /** A photo-judge result record with controllable keep/score/criteria fields. */
@@ -176,6 +178,108 @@ describe('toEleaticRow', () => {
   it('omits content_hash when contentHash is empty', () => {
     const row = toEleaticRow(result({ contentHash: '' }));
     expect('contentHash' in row).toBe(false);
+  });
+});
+
+/** A full trace-span input the runner assembles from record.input + prompt + record. */
+function traceInput(over: Partial<JudgeTraceInput> = {}): JudgeTraceInput {
+  return {
+    prompt: 'rubric prompt v0.2.1',
+    imageUrl: 'https://photos.bird-maps.com/amerob.jpeg',
+    comName: 'American Robin',
+    sciName: 'Turdus migratorius',
+    family: 'Turdidae',
+    rubricVersion: '0.2.1',
+    model: 'gemini-2.5-flash',
+    parsed: {
+      fieldMarks: ['rufous breast'],
+      criteria: { framing: 8, subjectClarity: 9, liveness: 10, naturalness: 9, pose: 7, background: 8, lighting: 8 },
+      flags: [],
+      keep: true,
+      qualityScore: 85,
+      rationale: 'sharp wild adult',
+    },
+    raw: { candidates: [{ content: { parts: [{ text: '{...}' }] } }], usageMetadata: { promptTokenCount: 1000 } },
+    promptTokens: 1000,
+    completionTokens: 100,
+    latencyMs: 350,
+    costUsd: 0.0042,
+    ...over,
+  };
+}
+
+describe('buildTraceSpan', () => {
+  it('builds the { spans:[{ name:"judge", input, output, usage }] } shape', () => {
+    const trace = buildTraceSpan(traceInput()) as {
+      spans: {
+        name: string;
+        input: Record<string, unknown>;
+        output: Record<string, unknown>;
+        usage: Record<string, number>;
+      }[];
+    };
+    expect(trace.spans).toHaveLength(1);
+    const span = trace.spans[0]!;
+    expect(span.name).toBe('judge');
+    expect(span.input).toEqual({
+      prompt: 'rubric prompt v0.2.1',
+      imageUrl: 'https://photos.bird-maps.com/amerob.jpeg',
+      species: { comName: 'American Robin', sciName: 'Turdus migratorius', family: 'Turdidae' },
+      rubricVersion: '0.2.1',
+      model: 'gemini-2.5-flash',
+    });
+    expect(span.output).toEqual({
+      raw: { candidates: [{ content: { parts: [{ text: '{...}' }] } }], usageMetadata: { promptTokenCount: 1000 } },
+      parsed: traceInput().parsed,
+    });
+    expect(span.usage).toEqual({
+      promptTokens: 1000,
+      completionTokens: 100,
+      latencyMs: 350,
+      costUsd: 0.0042,
+    });
+  });
+
+  it('omits absent usage fields (exactOptional — promptTokens/completionTokens/costUsd undefined → absent key)', () => {
+    const trace = buildTraceSpan(
+      traceInput({ promptTokens: undefined, completionTokens: undefined, costUsd: undefined }),
+    ) as { spans: { usage: Record<string, number> }[] };
+    const usage = trace.spans[0]!.usage;
+    // latency is ALWAYS present (every recorded judgment has a duration).
+    expect(usage).toEqual({ latencyMs: 350 });
+    expect('promptTokens' in usage).toBe(false);
+    expect('completionTokens' in usage).toBe(false);
+    expect('costUsd' in usage).toBe(false);
+  });
+
+  it('omits the raw output field when no raw response was captured (absent key, not undefined)', () => {
+    const trace = buildTraceSpan(traceInput({ raw: undefined })) as {
+      spans: { output: Record<string, unknown> }[];
+    };
+    const output = trace.spans[0]!.output;
+    expect('raw' in output).toBe(false);
+    // the parsed output is still present.
+    expect(output.parsed).toEqual(traceInput().parsed);
+  });
+
+  it('omits the imageUrl input field when the image has no portable URL', () => {
+    const trace = buildTraceSpan(traceInput({ imageUrl: undefined })) as {
+      spans: { input: Record<string, unknown> }[];
+    };
+    expect('imageUrl' in trace.spans[0]!.input).toBe(false);
+  });
+});
+
+describe('toEleaticRow — trace threading (T3, #1168)', () => {
+  it('omits row.trace when no trace is passed (T1/T2 callers unchanged)', () => {
+    const row = toEleaticRow(result());
+    expect('trace' in row).toBe(false);
+  });
+
+  it('threads a passed trace onto row.trace verbatim', () => {
+    const trace = buildTraceSpan(traceInput());
+    const row = toEleaticRow(result(), trace);
+    expect(row.trace).toEqual(trace);
   });
 });
 
