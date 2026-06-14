@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { formatMetric, FORMATTERS, evalGate, mapPoints } from './format.js';
+import {
+  formatMetric,
+  FORMATTERS,
+  evalGate,
+  mapPoints,
+  formatDuration,
+  formatTokens,
+  formatCost,
+} from './format.js';
 
 // ── Metric formatter registry ────────────────────────────────────────────────
 //
@@ -134,5 +142,70 @@ describe('mapPoints', () => {
     expect(pts).toHaveLength(2);
     expect(pts[0].x).toBe(4); // index 0
     expect(pts[1].x).toBe(96); // index 2 (the gap at index 1 is preserved)
+  });
+});
+
+// ── Trace-node meta formatters (T3) ─────────────────────────────────────────
+//
+// The trace-tree pane (trace-view.js) renders a per-node META line — duration ·
+// tokens · cost — reading the NORMALIZED node.metrics. These three pure
+// formatters produce each segment, returning '' when the source value is absent
+// so the renderer can drop the segment. They are DISTINCT from trace.js's
+// renderUsage (the drawer's '12 prompt · 34 completion · 250 ms' line, which is
+// unchanged): formatTokens here yields a single COMBINED '{n} tok' count.
+
+describe('formatDuration', () => {
+  it('renders sub-second durations as integer milliseconds', () => {
+    expect(formatDuration(0)).toBe('0ms');
+    expect(formatDuration(1)).toBe('1ms');
+    expect(formatDuration(250)).toBe('250ms');
+    expect(formatDuration(999)).toBe('999ms'); // boundary: still ms below 1000
+  });
+
+  it('renders one-second-and-up as two-decimal seconds', () => {
+    expect(formatDuration(1000)).toBe('1.00s'); // boundary: exactly 1000 flips to s
+    expect(formatDuration(1500)).toBe('1.50s');
+    expect(formatDuration(12340)).toBe('12.34s');
+  });
+
+  it('returns "" when the duration is absent / non-finite (segment dropped)', () => {
+    expect(formatDuration(undefined)).toBe('');
+    expect(formatDuration(null)).toBe('');
+    expect(formatDuration(Number.NaN)).toBe('');
+    expect(formatDuration(Number.POSITIVE_INFINITY)).toBe('');
+  });
+});
+
+describe('formatTokens', () => {
+  it('sums present prompt + completion into a single thousands-separated count', () => {
+    expect(formatTokens(12, 34)).toBe('46 tok');
+    expect(formatTokens(1000, 884)).toBe('1,884 tok'); // thousands separator
+    expect(formatTokens(1234567, 0)).toBe('1,234,567 tok');
+  });
+
+  it('uses whichever value is present when only one is given', () => {
+    expect(formatTokens(12, undefined)).toBe('12 tok');
+    expect(formatTokens(undefined, 34)).toBe('34 tok');
+    expect(formatTokens(7, null)).toBe('7 tok');
+  });
+
+  it('returns "" when BOTH are absent / non-finite (segment dropped)', () => {
+    expect(formatTokens(undefined, undefined)).toBe('');
+    expect(formatTokens(null, null)).toBe('');
+    expect(formatTokens(Number.NaN, Number.NaN)).toBe('');
+  });
+});
+
+describe('formatCost', () => {
+  it('renders a present cost with a leading dollar sign', () => {
+    expect(formatCost(0)).toBe('$0');
+    expect(formatCost(0.0123)).toBe('$0.0123');
+    expect(formatCost(270)).toBe('$270');
+  });
+
+  it('returns "" when the cost is absent / non-finite (segment dropped)', () => {
+    expect(formatCost(undefined)).toBe('');
+    expect(formatCost(null)).toBe('');
+    expect(formatCost(Number.NaN)).toBe('');
   });
 });

@@ -214,6 +214,20 @@ body { margin: 0; font-family: var(--font-stack); font-size: var(--type-base); b
 .trace-usage-sep { color: var(--border); }
 .trace-raw { margin-top: 10px; }
 
+/* ── Trace tree pane (left pane of the trace explorer) ── */
+.trace-tree, .trace-tree ul[role="group"] { list-style: none; margin: 0; padding: 0; }
+/* The .trace-node <li> carries the inline `--depth` custom property; its indent
+   is applied on .trace-node-row below via calc(... var(--depth) ...) — depth is
+   never concatenated into a class. */
+.trace-node-row { display: flex; align-items: center; gap: 6px; padding: 4px 10px 4px calc(8px + var(--depth) * 16px); border-radius: var(--radius-sm); cursor: pointer; }
+.trace-node-row:hover { background: var(--surface-2); }
+.trace-node[aria-selected="true"] > .trace-node-row { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.trace-twisty { flex: none; width: 16px; padding: 0; border: 0; background: none; color: var(--text-dim); font: inherit; line-height: 1; cursor: pointer; }
+.trace-node-icon { flex: none; color: var(--text-dim); font-size: var(--type-xs); }
+.trace-node-name { font-family: var(--mono-stack); font-size: var(--type-sm); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trace-node-meta { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono-stack); font-size: var(--type-xs); color: var(--text-dim); }
+.trace-node-sep { color: var(--border); }
+
 /* ── Adjudication panel ── */
 .adjudicate { border-top: 1px solid var(--border); padding-top: 16px; }
 .adj-title { font-size: var(--type-sm); font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; margin: 0 0 8px; }
