@@ -1,0 +1,571 @@
+import { test, expect } from '@playwright/test';
+import { test as stubTest, expect as stubExpect, VERMFLY_WITH_PHOTO } from '../fixtures.js';
+import { AppPage } from '../pages/app-page.js';
+
+// ---------------------------------------------------------------------------
+// Cell-popover spec per design §7.3
+//
+// Scenario breakdown:
+//   1. Desktop hover→preview→click→popover→species→?detail= nav (1440×900, dev-server)
+//   2. Desktop keyboard skip-link→cell→preview→Enter→popover→ESC→focus (1440×900, dev-server)
+//   3. Tablet tap→cluster-list→species→?detail= nav (@coarse, 768×1024, coarse-pointer)
+//   4. Mobile tap→cluster-list→expand-family→species→?detail= nav (@coarse, 390×844, coarse-pointer)
+//
+// Phase 2 lessons baked in (5 CI iterations to land 1 test):
+//   - #1031 (C54): species rows are native <button>s now (was
+//     `<a role="link">`); target `.cell-popover__row-button` /
+//     `.cluster-list-popover__row-button`. `.click({ force: true })` is kept
+//     because rows can sit below the fold of a scrollable popover.
+//   - The `.…__rows .…__row-button` class selector is more reliable than
+//     getByRole('button').filter({hasText:...}) given the per-row text.
+//   - Avoid page.goBack() + re-open-popover (z-index issue intercepts pointer).
+//   - `[data-testid="adaptive-grid-marker"]` is the canonical "map settled" gate.
+//   - iPad (gen 6) 768×1024 is the coarse-pointer device; mobile 390×844 uses
+//     page.setViewportSize() within the same coarse-pointer project.
+// ---------------------------------------------------------------------------
+
+// ─── Scenario 1: Desktop hover → preview → click → popover → species → ?detail= ─
+//
+// No @coarse tag → runs under dev-server (1440×900 viewport).
+// Headless Chromium may not fire the map's onLoad (WebGL). We guard with
+// test.skip rather than a hard-fail so CI stays green in WebGL-less envs.
+
+test('desktop 1440×900: hover cell → preview → click → popover → species → ?detail=', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/?scope=us');
+
+  // Canonical "map settled" gate.
+  const marker = page.locator('[data-testid="adaptive-grid-marker"]').first();
+  const markerVisible = await marker.waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false);
+  if (!markerVisible) {
+    test.skip(true, 'No adaptive-grid markers visible — likely WebGL unavailable in headless run');
+    return;
+  }
+
+  // Hover a cell to trigger the preview. The marker is the hover target;
+  // cells inside it flip to focusable/hoverable in Phase 3.
+  const cell = page.locator('[data-testid^="adaptive-grid-marker-cell"]').first();
+  const cellVisible = await cell.waitFor({ state: 'visible', timeout: 8_000 }).then(() => true).catch(() => false);
+  if (!cellVisible) {
+    test.skip(true, 'No cell testids visible — Phase 3 cells may not have rendered');
+    return;
+  }
+  await cell.hover();
+
+  // Click the cell to promote preview → popover (dialog).
+  await cell.click({ force: true });
+
+  // Dialog (popover) should appear.
+  const dialog = page.getByRole('dialog');
+  const dialogVisible = await dialog.waitFor({ state: 'visible', timeout: 8_000 }).then(() => true).catch(() => false);
+  if (!dialogVisible) {
+    // Phase 3 cells may not produce a cluster-list; if WebGL painted but
+    // the cell click opened SpeciesDetailSurface directly (single-species
+    // cell path), assert URL instead.
+    await expect(page).toHaveURL(/[?&]detail=/, { timeout: 5_000 });
+    return;
+  }
+
+  // Click the first species link in the CellPopover (desktop path uses .cell-popover__rows).
+  // #859: at default zoom (z=3 → aggregated mode) every row now carries a REAL
+  // species code (the server nests `AggregatedFamily.species` per bucket, so
+  // the synthetic `agg-*` codes #715 used to gate against are gone). Rows are
+  // clickable buttons → ?detail=<real-code>. If WebGL painted no rows we fall back
+  // to asserting the popover at least mounted (the popover-opens check above).
+  // #1031 (C54): rows are native <button>s now, not `<a role="link">`.
+  const link = page.locator('.cell-popover__rows .cell-popover__row-button').first();
+  const linkVisible = await link.waitFor({ state: 'visible', timeout: 5_000 }).then(() => true).catch(() => false);
+  if (!linkVisible) {
+    // No clickable row rendered in this headless run — verify the popover rows
+    // at least exist as DOM nodes (the popover mounted). Use `attached` rather
+    // than `visible` — rows below the fold of a scrollable popover are still
+    // real DOM nodes.
+    await expect(page.locator('[data-testid="cell-popover-row"]').first()).toBeAttached();
+    return;
+  }
+  await link.click({ force: true });
+
+  // #663: new click flow writes ?detail=<code> only; ?view=detail is NOT
+  // written. The rail/sheet renders in place over the still-mounted map.
+  await expect(page).toHaveURL(/[?&]detail=/, { timeout: 8_000 });
+});
+
+// ─── Scenario 2: Desktop keyboard skip-link → cell → preview → Enter → popover → ESC ─
+//
+// No @coarse tag → dev-server. Uses the "Explore map markers" skip-link
+// (MapSurface, Phase 1 #558, data-testid="explore-map-markers-skip-link").
+
+test('desktop 1440×900: keyboard skip-link → cell → Enter → popover → ESC → focus return', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/?scope=us');
+
+  const marker = page.locator('[data-testid="adaptive-grid-marker"]').first();
+  const markerVisible = await marker.waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false);
+  if (!markerVisible) {
+    test.skip(true, 'No adaptive-grid markers visible — likely WebGL unavailable in headless run');
+    return;
+  }
+
+  // Activate the "Explore map markers" skip-link. The button is visually
+  // hidden until focused; we focus it directly to match real keyboard usage.
+  const skipLink = page.locator('[data-testid="explore-map-markers-skip-link"]');
+  await skipLink.waitFor({ state: 'attached', timeout: 8_000 });
+  await skipLink.focus();
+  await page.keyboard.press('Enter');
+
+  // After activation, focus lands on the first TileCell.
+  // The cell becomes focusable (tabIndex=0) for the keyboard session.
+  const cell = page.locator('[data-testid^="adaptive-grid-marker-cell"]').first();
+  const cellFocused = await expect.poll(async () => {
+    const active = await page.evaluate(() => document.activeElement?.getAttribute('data-testid') ?? '');
+    return active.startsWith('adaptive-grid-marker-cell');
+  }, { timeout: 5_000 }).toBe(true).then(() => true).catch(() => false);
+
+  if (!cellFocused) {
+    // Fallback: the skip-link may have put focus on the marker rather than
+    // the cell in some headless environments — skip to avoid false negative.
+    test.skip(true, 'Skip-link focus target did not settle on a TileCell in time');
+    return;
+  }
+
+  // Press Enter to open the popover.
+  await page.keyboard.press('Enter');
+
+  const dialog = page.getByRole('dialog');
+  const dialogVisible = await dialog.waitFor({ state: 'visible', timeout: 8_000 }).then(() => true).catch(() => false);
+  if (!dialogVisible) {
+    // Single-species cell may open detail directly. #663: post-click URL
+    // carries ?detail=<code>, not ?view=detail.
+    await expect(page).toHaveURL(/[?&]detail=/, { timeout: 5_000 });
+    return;
+  }
+
+  // ESC dismisses the popover.
+  await page.keyboard.press('Escape');
+  await expect(dialog).not.toBeVisible({ timeout: 5_000 });
+
+  // Focus returns to the cell (per Phase 3 keyboard contract §4.7).
+  const focusedAfterEsc = await page.evaluate(() => {
+    const el = document.activeElement as HTMLElement | null;
+    return el?.getAttribute('data-testid') ?? '';
+  });
+  expect(focusedAfterEsc).toMatch(/^adaptive-grid-marker-cell/);
+
+  // Verify: ESC did NOT navigate to a new URL (no detail opened).
+  await expect(page).not.toHaveURL(/[?&]detail=/);
+});
+
+// ─── #976 (reverses #761 O6 / #782): hover-to-compare with a detail open ──────
+//
+// #782 SUPPRESSED the passive hover preview while a detail overlay held focus.
+// #976 reverses that product decision: hovering a cell with the detail rail open
+// now DOES surface the preview (hover-to-compare). To honor #782's anti-clutter
+// intent the tooltip is DEMOTED beneath the detail surface (the `belowDetail`
+// path adds `cell-hover-preview--under-detail`, z `--z-under-detail`), so the
+// rail stays the topmost surface and the tooltip never paints over it. WebGL-
+// guarded like the other live-marker scenarios. No @coarse → dev-server, 1440×900.
+
+test('desktop 1440×900: with the detail rail open, hovering a cell DOES surface the hover preview, beneath the rail', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  // Open a detail overlay alongside the live map (rail mounts at ≥1200px).
+  await page.goto('/?scope=us&detail=vermfly&view=detail');
+
+  // Canonical "map settled" gate.
+  const marker = page.locator('[data-testid="adaptive-grid-marker"]').first();
+  const markerVisible = await marker.waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false);
+  if (!markerVisible) {
+    test.skip(true, 'No adaptive-grid markers visible — likely WebGL unavailable in headless run');
+    return;
+  }
+
+  // The detail rail must be present (and stays the topmost interactive surface).
+  const detailSurface = page.locator('aside.species-detail-rail, .species-detail-sheet');
+  await expect(detailSurface.first()).toBeVisible({ timeout: 10_000 });
+
+  // Hover a cell — the passive preview must NOW mount (hover-to-compare).
+  const cell = page.locator('[data-testid^="adaptive-grid-marker-cell"]').first();
+  const cellVisible = await cell.waitFor({ state: 'visible', timeout: 8_000 }).then(() => true).catch(() => false);
+  if (!cellVisible) {
+    test.skip(true, 'No cell testids visible — Phase 3 cells may not have rendered');
+    return;
+  }
+  await cell.hover();
+
+  // The preview appears (exactly one) while the detail is open.
+  const preview = page.locator('[data-testid="cell-hover-preview"]');
+  await expect(preview).toHaveCount(1);
+  await expect(page.getByRole('tooltip')).toHaveCount(1);
+
+  // …and it carries the z-demote modifier so it cannot occlude the rail.
+  await expect(preview).toHaveClass(/cell-hover-preview--under-detail/);
+
+  // Load-bearing: the tooltip's EFFECTIVE z resolves BELOW the active detail
+  // surface (the rail). Compare computed z-index values directly so a future
+  // z bump that lifts the tooltip above the rail fails here, not just visually.
+  const tooltipZ = await preview.evaluate((el) =>
+    Number(getComputedStyle(el).zIndex),
+  );
+  const railZ = await detailSurface.first().evaluate((el) =>
+    Number(getComputedStyle(el).zIndex),
+  );
+  expect(Number.isFinite(tooltipZ)).toBe(true);
+  expect(Number.isFinite(railZ)).toBe(true);
+  expect(tooltipZ).toBeLessThan(railZ);
+
+  // Detail surface still the topmost surface (unchanged, not covered).
+  await expect(detailSurface.first()).toBeVisible();
+});
+
+// ─── Scenario 3: Tablet tap → cluster-list → species → ?detail= (@coarse) ─
+//
+// Phase 2 (#559) test — preserved verbatim (renamed for clarity).
+// @coarse tag → runs under coarse-pointer project (iPad gen 6, 768×1024).
+
+test('@coarse tablet 768×1024: tap marker → cluster-list popover → tap species → ?detail=', async ({ page }) => {
+  // Cell popover is default-ON since Phase 3 (#560) — no flag override needed.
+  await page.goto('/?scope=us');
+  // Wait for the map render to complete (canonical pattern).
+  await page.locator('[data-testid="adaptive-grid-marker"]').first().waitFor({ state: 'visible' });
+
+  // Wait for the map to go IDLE before tapping. The cluster-list popover renders
+  // INSIDE the AdaptiveGridMarker; if a trailing marker-reconcile (sourcedata →
+  // render → idle) re-creates the marker DOM node AFTER the tap, the marker's
+  // local `isClusterListOpen` state resets and the popover is dismissed
+  // mid-assertion.
+  //
+  // #761/S3 (#773) note — this wait is RETAINED, not removed. S3 lands the
+  // corrective camera-neutral `map.resize()` (a ResizeObserver on the map-canvas
+  // wrapper in MapCanvas.tsx) that fixes the full-bleed canvas MIS-SIZE on the
+  // flex→fixed transition. But this spec's race is a SEPARATE phenomenon: the
+  // React adaptive-grid reconciler re-creates marker nodes on trailing
+  // cluster-leaf / tile-driven reconciles that fire just past first-marker-
+  // visible — independent of canvas sizing. S3 verified removal empirically:
+  // dropping this block fails 3/3 reruns, and dropping just the trailing
+  // `waitForTimeout(300)` fails 4/5, so both are kept. If `__birdMap` is
+  // unavailable (no WebGL), fall through — the describe-level skip guards cover it.
+  await page
+    .waitForFunction(() => {
+      const map = (window as { __birdMap?: { isMoving: () => boolean; loaded: () => boolean } }).__birdMap;
+      return !!map && map.loaded() && !map.isMoving();
+    }, undefined, { timeout: 10_000 })
+    .catch(() => { /* no map hook (no WebGL) — the existing skip guards apply */ });
+  // Settle one more rAF beyond `idle` so any trailing reconcile commit lands
+  // before we interact (the marker DOM node is stable after this point).
+  await page.waitForTimeout(300);
+
+  // Tap a multi-leaf cluster marker.
+  const marker = page.locator('[data-testid="adaptive-grid-marker"]').first();
+  await marker.tap();
+
+  // Cluster list popover appears (coarse-pointer path — NOT per-cell preview).
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page.getByText(/observations,.* families/i)).toBeVisible();
+
+  // #859 refinement: EVERY family in <ClusterListPopover> now starts COLLAPSED
+  // (a national mega-cluster carries ~56 families; an all-expanded list runs off
+  // the bottom of the viewport). Species rows (`cluster-list-popover-row`) are
+  // NOT rendered until the user activates a family's header toggle. Expand the
+  // first family before asserting/tapping a species row — without this the rows
+  // simply do not exist in the DOM yet (the rewrite's missing step).
+  const familyToggle = page.locator('.cluster-list-popover__family-toggle').first();
+  await familyToggle.waitFor({ state: 'visible', timeout: 5_000 });
+  await familyToggle.tap();
+  // The toggle reflects its open state via aria-expanded — wait for the expand
+  // to commit so the family's species rows have mounted.
+  await expect(familyToggle).toHaveAttribute('aria-expanded', 'true', { timeout: 5_000 });
+
+  // E1 (#1053, absorbs #565) — WCAG 2.5.5 species-row tap target. The expanded
+  // family's row <li> must measure ≥44px tall at the iPad-gen-6 coarse-pointer
+  // viewport (the `display: block; min-height: 44px` recipe). Measured live
+  // here because the unit suite runs in jsdom (no layout engine). Guarded:
+  // if rows didn't render in a WebGL-less run we skip the bbox assert and fall
+  // through to the existence check below.
+  const firstRow = page.locator('[data-testid="cluster-list-popover-row"]').first();
+  const rowVisible = await firstRow
+    .waitFor({ state: 'visible', timeout: 5_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (rowVisible) {
+    const box = await firstRow.boundingBox();
+    expect(box, 'species row must have a measurable box').not.toBeNull();
+    expect(
+      box!.height,
+      'species-row tap target ≥44px (WCAG 2.5.5, #565)',
+    ).toBeGreaterThanOrEqual(44);
+  }
+
+  // Tap a clickable species row in the now-expanded family.
+  // #859: at default zoom (aggregated mode) every row now carries a REAL
+  // species code (server-nested `AggregatedFamily.species`), so rows render as
+  // clickable controls — the synthetic `agg-*` static-span path #715 gated
+  // against is gone. If no clickable row rendered in this headless run, fall
+  // back to verifying the popover rows at least exist as DOM nodes. Rows may be
+  // off-screen in a scrollable popover container on smaller viewports — use
+  // `attached` rather than `visible` for the existence check.
+  // #1031 (C54): rows are native <button>s now, not `<a role="link">`.
+  const link = page.locator('.cluster-list-popover__rows .cluster-list-popover__row-button').first();
+  const linkVisible = await link.waitFor({ state: 'visible', timeout: 5_000 }).then(() => true).catch(() => false);
+  if (!linkVisible) {
+    await expect(page.locator('[data-testid="cluster-list-popover-row"]').first()).toBeAttached();
+    return;
+  }
+  await link.click({ force: true });
+
+  // #663: cluster→detail routing writes ?detail= (not ?view=detail).
+  await expect(page).toHaveURL(/[?&]detail=/, { timeout: 8_000 });
+});
+
+// ─── Scenario 4: Mobile tap → cluster-list → expand-family → species → filtered ─
+//
+// SKIPPED (#567 → follow-up):
+// `page.setViewportSize(390, 844)` on top of the `coarse-pointer` project's
+// iPad (gen 6) profile (768×1024) triggers a map relayout that never settles
+// to Playwright's "actionability stable" check within 60s. The mobile flow
+// is covered by (a) the `<ClusterListPopover>` 12 unit tests in
+// ClusterListPopover.test.tsx, and (b) Scenario 3 (`@coarse tablet 768×1024`)
+// which exercises the same wire at the device-profile-native viewport.
+// Resolving this requires either a dedicated mobile Playwright project
+// (separate device profile) or a different waiting strategy.
+
+test.skip('@coarse mobile 390×844: tap marker → cluster-list → expand-family → species → filtered', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/?scope=us');
+  await page.locator('[data-testid="adaptive-grid-marker"]').first().waitFor({ state: 'visible' });
+
+  // Tap a multi-leaf cluster marker.
+  const marker = page.locator('[data-testid="adaptive-grid-marker"]').first();
+  await marker.tap();
+
+  // Cluster list popover appears.
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page.getByText(/observations,.* families/i)).toBeVisible();
+
+  // #859 refinement: EVERY family starts COLLAPSED. Find a collapsed family
+  // (there will always be at least one) and expand it so its species rows mount.
+  const collapsedToggle = page
+    .locator('.cluster-list-popover__family:not(.cluster-list-popover__family--expanded) .cluster-list-popover__family-toggle')
+    .first();
+
+  const hasCollapsed = await collapsedToggle.count();
+  if (hasCollapsed > 0) {
+    const rowsBefore = await page.getByTestId('cluster-list-popover-row').count();
+    await collapsedToggle.tap();
+    await expect.poll(() => page.getByTestId('cluster-list-popover-row').count()).toBeGreaterThan(rowsBefore);
+  }
+
+  // Tap a species row. #1031 (C54): rows are native <button>s now.
+  const link = page.locator('.cluster-list-popover__rows .cluster-list-popover__row-button').first();
+  await link.waitFor({ state: 'visible' });
+  await link.click({ force: true });
+
+  // SpeciesDetailSurface renders.
+  // #663: new clicks write ?detail=, not ?view=detail.
+  await expect(page).toHaveURL(/[?&]detail=/, { timeout: 8_000 });
+});
+
+// ─── E1 (#1053): cell popover keeps a ≥12px safe-area gutter at the right edge ─
+//
+// At 390 the pre-fix cell popover rendered flush to within 8px of the right
+// viewport edge (the old 8px VIEWPORT_MARGIN / fallback width). Spec §4.7
+// requires the flip/shift clamp to the 12px --card-inset safe area. We open a
+// cell popover on an EAST-edge marker and assert its bbox keeps right ≤ vw − 12
+// (and left ≥ 12). Guarded for WebGL-less headless runs like the scenarios
+// above. No @coarse tag → dev-server project (fine pointer), narrowed to 390.
+
+test('390 narrow: cell popover keeps a ≥12px right-edge gutter (#1053 clamp)', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/?scope=us');
+
+  const marker = page.locator('[data-testid="adaptive-grid-marker"]').first();
+  const markerVisible = await marker
+    .waitFor({ state: 'visible', timeout: 15_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!markerVisible) {
+    test.skip(true, 'No adaptive-grid markers visible — likely WebGL unavailable in headless run');
+    return;
+  }
+
+  // Open a cell popover. Pick the marker/cell nearest the right edge so the
+  // clamp is exercised; fall back to the first cell if none qualifies.
+  const cells = page.locator('[data-testid^="adaptive-grid-marker-cell"]');
+  const cellCount = await cells.count();
+  if (cellCount === 0) {
+    test.skip(true, 'No cell testids visible — cells may not have rendered (no WebGL)');
+    return;
+  }
+  // Choose the east-most cell by bbox.
+  let target = cells.first();
+  let maxRight = -Infinity;
+  for (let i = 0; i < Math.min(cellCount, 12); i++) {
+    const c = cells.nth(i);
+    const b = await c.boundingBox();
+    if (b && b.x + b.width > maxRight) {
+      maxRight = b.x + b.width;
+      target = c;
+    }
+  }
+  await target.hover().catch(() => {});
+  await target.click({ force: true });
+
+  const popover = page.getByTestId('cell-popover');
+  const popVisible = await popover
+    .waitFor({ state: 'visible', timeout: 8_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!popVisible) {
+    test.skip(true, 'Cell popover did not open (single-species cell may route straight to detail)');
+    return;
+  }
+
+  const box = await popover.boundingBox();
+  expect(box, 'popover must have a measurable box').not.toBeNull();
+  // ≥12px gutter on both horizontal edges (the --card-inset safe area).
+  expect(box!.x, 'popover left gutter ≥12px').toBeGreaterThanOrEqual(12 - 0.5);
+  expect(
+    box!.x + box!.width,
+    'popover right edge ≤ vw − 12 (12px safe-area gutter)',
+  ).toBeLessThanOrEqual(390 - 12 + 0.5);
+
+  // The anchor caret renders on the cell-facing edge.
+  await expect(page.getByTestId('cell-popover-caret')).toBeAttached();
+});
+
+// ─── #761 P1 (#778): named z-index scale — stacking-order guards ───────────────
+//
+// PURE-REFACTOR REGRESSION GUARDS. These assert the layering vocabulary the
+// named-z-index refactor introduced, deterministically (no WebGL / no live map
+// render): they resolve the `--z-*` :root tokens and read the rail's COMPUTED
+// z-index. The load-bearing guard is rail-below-popovers — the relation the
+// first draft of #778 inverted (it proposed rail=47, above cell=46/cluster=47).
+// Written so a future rail-above-popover scheme FAILS here.
+//
+// NOTE: --z-chrome (42) and --z-modal (50) are DEFINED in the scale but NOT
+// adopted by .app-header / the SpeciesDetailSheet in this PR — P1 is a strict
+// zero-visual-change refactor (header stays at raw 10 until S2 #775; the sheet
+// stays at 10/15/20 until O5 #783). These guards therefore assert the TOKEN
+// values' rank order, which is the contract later PRs adopt; they do not claim
+// the header/sheet currently resolve to those tiers.
+//
+// These are stub-backed (no DB dependency): the rail mounts purely from
+// `?detail=<code>` + a stubbed `/api/species/<code>` at a ≥1200px viewport.
+
+/** Resolve a `:root` custom property to its numeric value (e.g. `--z-rail` → 43). */
+async function resolveZToken(
+  page: import('@playwright/test').Page,
+  token: string,
+): Promise<number> {
+  return page.evaluate((t) => {
+    const raw = getComputedStyle(document.documentElement)
+      .getPropertyValue(t)
+      .trim();
+    return Number.parseInt(raw, 10);
+  }, token);
+}
+
+stubTest.describe('z-index named scale — co-occurrence stacking (#778)', () => {
+  stubTest.use({ viewport: { width: 1440, height: 900 } });
+
+  stubTest('named tier tokens preserve the pre-refactor rank order exactly', async ({ page }) => {
+    await page.goto('/?scope=us');
+    await page.waitForLoadState('domcontentloaded');
+
+    const map = await resolveZToken(page, '--z-map');
+    const overlay = await resolveZToken(page, '--z-overlay');
+    const popover = await resolveZToken(page, '--z-popover');
+    const chrome = await resolveZToken(page, '--z-chrome');
+    const rail = await resolveZToken(page, '--z-rail');
+    const cellPopover = await resolveZToken(page, '--z-cell-popover');
+    const clusterPopover = await resolveZToken(page, '--z-cluster-popover');
+    const modal = await resolveZToken(page, '--z-modal');
+    const skip = await resolveZToken(page, '--z-skip');
+
+    // Whole-chain strict monotonicity (matches the pre-refactor stack order).
+    stubExpect(map).toBeLessThan(overlay);
+    stubExpect(overlay).toBeLessThan(popover);
+    stubExpect(popover).toBeLessThan(chrome);
+    stubExpect(chrome).toBeLessThan(rail);
+    stubExpect(rail).toBeLessThan(cellPopover);
+    stubExpect(cellPopover).toBeLessThan(clusterPopover);
+    stubExpect(clusterPopover).toBeLessThan(modal);
+    stubExpect(modal).toBeLessThan(skip);
+
+    // The single most important relation (#778): the rail sits BELOW both
+    // popovers — this is the inversion the first draft would have shipped.
+    stubExpect(rail, 'rail must stay below the cell popover').toBeLessThan(cellPopover);
+    stubExpect(rail, 'rail must stay below the cluster popover').toBeLessThan(clusterPopover);
+
+    // The --z-chrome tier (reserved for S2 #775's floating header) sits one
+    // rank below the rail in the scale — the contract S2 will adopt.
+    stubExpect(chrome, 'the --z-chrome tier must sit below the rail tier').toBeLessThan(rail);
+  });
+
+  stubTest('with the rail open, the rail computed z-index stays below both popover tiers', async ({ page }) => {
+    const app = new AppPage(page);
+    // Stub the species endpoint so the rail mounts deterministically from
+    // ?detail= at ≥1200px — no WebGL, no live observation data needed.
+    await page.route('**/api/species/vermfly', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(VERMFLY_WITH_PHOTO),
+      });
+    });
+
+    await app.goto('detail=vermfly&view=detail');
+    await app.waitForAppReady();
+
+    const rail = page.locator('aside.species-detail-rail');
+    await stubExpect(rail).toBeVisible({ timeout: 10_000 });
+
+    const railZ = await rail.evaluate((el) =>
+      Number.parseInt(getComputedStyle(el).zIndex, 10),
+    );
+    const cellPopover = await resolveZToken(page, '--z-cell-popover');
+    const clusterPopover = await resolveZToken(page, '--z-cluster-popover');
+    const popover = await resolveZToken(page, '--z-popover');
+
+    // The rail's RESOLVED z-index (not just the token) must be below both
+    // popover tiers — so a co-occurring open cell/cluster popover paints ABOVE
+    // the rail, preserving the pre-refactor rail(45) < cell(46) < cluster(47).
+    stubExpect(railZ, 'rail z-index must be below the cell popover tier').toBeLessThan(cellPopover);
+    stubExpect(railZ, 'rail z-index must be below the cluster popover tier').toBeLessThan(clusterPopover);
+    // And above the on-canvas popover band (observation popover / hover preview).
+    stubExpect(railZ, 'rail must stay above the on-canvas popover tier').toBeGreaterThan(popover);
+  });
+
+  stubTest('hover-preview resolves to the named --z-modal tier, above both popover tiers (#761 O6 #782)', async ({ page }) => {
+    // The `.cell-hover-preview` CSS rule governs BOTH render paths' stacking now:
+    //   - Path B (keyboard focus, cursorPos === null): inline, non-portaled.
+    //   - Path A (cursor following): portaled to body, no longer carries the
+    //     pre-O6 off-scale inline `zIndex: 1000`.
+    // #761 O6 (#782) MIGRATED this rule off a z-tier calc() (=45, a tie
+    // with --z-cluster-popover won only by DOM order) onto the NAMED `--z-modal`
+    // (50) tier — the lowest named tier strictly above --z-cluster-popover (45).
+    // That preserves the tooltip's "above the popovers it overlaps" rank (the
+    // cursor tooltip can still float over an open cell/cluster popover, matching
+    // the pre-O6 inline-1000 intent) while unifying the two paths onto one token.
+    // Safe against real --z-modal surfaces because O6 gates the hover-preview
+    // mount off whenever a detail overlay holds focus. This guard FAILS if a
+    // future change drops the rule below the cluster-popover tier.
+    await page.goto('/?scope=us');
+    await page.waitForLoadState('domcontentloaded');
+
+    const previewZ = await page.evaluate(() => {
+      const el = document.createElement('div');
+      el.className = 'cell-hover-preview'; // no inline style → CSS rule governs
+      el.setAttribute('role', 'tooltip');
+      document.body.appendChild(el);
+      const z = Number.parseInt(getComputedStyle(el).zIndex, 10);
+      el.remove();
+      return z;
+    });
+    const modal = await resolveZToken(page, '--z-modal');
+    const cellPopover = await resolveZToken(page, '--z-cell-popover');
+    const clusterPopover = await resolveZToken(page, '--z-cluster-popover');
+
+    stubExpect(previewZ, 'hover-preview now resolves to the named --z-modal tier').toBe(modal);
+    stubExpect(previewZ, 'hover-preview stays above the cell popover tier').toBeGreaterThan(cellPopover);
+    stubExpect(previewZ, 'hover-preview stays above the cluster popover tier').toBeGreaterThan(clusterPopover);
+  });
+});

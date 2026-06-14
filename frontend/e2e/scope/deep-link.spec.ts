@@ -1,0 +1,76 @@
+import { test, expect, VERMFLY_OBS, SPECIES_DICT_FIXTURE } from '../fixtures.js';
+import { AppPage } from '../pages/app-page.js';
+
+// `exact: true` mandatory on every getByLabel filter locator — see
+// pages/filters-bar.ts for rationale (FiltersBar datalist + header tabs
+// share substrings with "Species" and "Family" labels).
+//
+// Phase 3: FiltersBar is rendered inside a slide-in panel triggered from
+// AppHeader. Every test that needs to assert filter control values must
+// call `app.openFilters()` before using any filter locator so the panel
+// is mounted. URL-state restoration happens at App mount time (before the
+// panel opens), so the values will already be correct once the panel renders.
+
+test.describe('deep-link restore', () => {
+  test('notable + since deep-link restores filter values', async ({ page }) => {
+    const app = new AppPage(page);
+    await app.goto('notable=true&since=7d');
+    await app.waitForAppReady();
+    // Phase 3: open panel so FiltersBar is in the DOM.
+    await app.openFilters();
+    await expect(page.getByLabel('Notable only', { exact: true })).toBeChecked();
+    await expect(page.getByLabel('Time window', { exact: true })).toHaveValue('7d');
+  });
+
+  test('invalid since falls back to default (readUrl returns DEFAULTS.since)', async ({ page }) => {
+    const app = new AppPage(page);
+    await app.goto('since=garbage');
+    await app.waitForAppReady();
+    // Phase 3: open panel so FiltersBar is in the DOM.
+    await app.openFilters();
+    await expect(page.getByLabel('Time window', { exact: true })).toHaveValue('14d');
+    // writeUrl only fires inside set(), never on mount — do NOT assert URL normalization here.
+  });
+
+  test('species param shows common name in input', async ({ page, apiStub }) => {
+    // #species: the FiltersBar combobox is sourced from /api/species-in-scope
+    // (the represented-species set). Stub it so the deep-linked `?species=vermfly`
+    // resolves "Vermilion Flycatcher" in the field deterministically (the active
+    // species is also unioned in from the dictionary as a fallback, but stubbing
+    // the scope source keeps this hermetic). stubObservations feeds the map.
+    await apiStub.stubObservations(VERMFLY_OBS);
+    await apiStub.stubSpeciesInScope(SPECIES_DICT_FIXTURE);
+    const app = new AppPage(page);
+    await app.goto('species=vermfly');
+    await app.waitForAppReady();
+    // Phase 3: open panel so FiltersBar is in the DOM.
+    await app.openFilters();
+    // speciesDraft is derived from speciesIndex on mount — only populated AFTER
+    // observations come back and the effect in FiltersBar re-runs.
+    await expect(page.getByLabel('Species', { exact: true })).toHaveValue('Vermilion Flycatcher', { timeout: 10_000 });
+  });
+
+  test('family param selects matching option when seeded families exist', async ({ page }) => {
+    const app = new AppPage(page);
+    await app.goto('family=tyrannidae');
+    await app.waitForAppReady();
+    // Phase 3: open panel so FiltersBar is in the DOM.
+    await app.openFilters();
+    const familySel = page.getByLabel('Family', { exact: true });
+    const optionCount = await familySel.locator('option').count();
+    test.skip(optionCount <= 1, 'species_meta is empty — no families to restore from URL');
+    await expect(familySel).toHaveValue('tyrannidae');
+  });
+
+  test('empty URL leaves all controls at defaults', async ({ page }) => {
+    const app = new AppPage(page);
+    await app.goto();
+    await app.waitForAppReady();
+    // Phase 3: open panel so FiltersBar is in the DOM.
+    await app.openFilters();
+    await expect(page.getByLabel('Time window', { exact: true })).toHaveValue('14d');
+    await expect(page.getByLabel('Notable only', { exact: true })).not.toBeChecked();
+    await expect(page.getByLabel('Family', { exact: true })).toHaveValue('');
+    await expect(page.getByLabel('Species', { exact: true })).toHaveValue('');
+  });
+});
