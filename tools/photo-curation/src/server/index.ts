@@ -41,7 +41,7 @@ export function createServer(db: Database.Database): Express {
   });
   // NOTE: the bespoke model-comparison page (#1095 `/eval` + `/api/eval/*`) was
   // retired in E8 (#1151) once photo-curation's eval write/read moved onto
-  // @bird-watch/eleatic — the run explorer now lives at `eleatic serve`, not in
+  // eleatic — the run explorer now lives at `eleatic serve`, not in
   // this review server.
 
   // ── JSON API ──

@@ -9,7 +9,8 @@ COPY packages ./packages
 COPY services/read-api ./services/read-api
 
 # --ignore-scripts: the monorepo install pulls EVERY workspace's deps, including
-# packages/eleatic's `better-sqlite3` (the local eval store). better-sqlite3 ships
+# tools/photo-curation's `better-sqlite3` (the local eval store, also pulled
+# transitively by the `eleatic` git dependency). better-sqlite3 ships
 # no musl prebuilt, so on this alpine (musl) image its install falls back to
 # `node-gyp rebuild`, which needs Python + a C toolchain the build image lacks —
 # failing the whole image build (and thus every read-api deploy since eleatic
