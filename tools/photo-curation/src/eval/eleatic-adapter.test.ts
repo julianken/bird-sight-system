@@ -22,6 +22,9 @@ function result(over: Partial<EvalResultRecord> = {}): EvalResultRecord {
     geminiKeep: true,
     geminiQuality: 80,
     geminiCriteriaJson: JSON.stringify({ framing: 8, subjectClarity: 9 }),
+    rationale: 'sharp eye, clean perch',
+    fieldMarks: ['rufous breast', 'yellow bill'],
+    flags: [],
     opusKeep: true,
     opusQuality: 85,
     cost: 0.0042,
@@ -60,7 +63,9 @@ describe('toEleaticRow', () => {
   });
 
   it('embeds output_json = {keep, qualityScore, criteria} with criteria PARSED (not double-encoded)', () => {
-    const row = toEleaticRow(result());
+    // why-fields absent so this test isolates the criteria mapping (their own
+    // round-trip is covered below).
+    const row = toEleaticRow(result({ rationale: undefined, fieldMarks: undefined, flags: undefined }));
     expect(row.output).toEqual({
       keep: true,
       qualityScore: 80,
@@ -72,9 +77,55 @@ describe('toEleaticRow', () => {
   });
 
   it('omits criteria when geminiCriteriaJson is null (null-guarded → absent, not undefined)', () => {
-    const row = toEleaticRow(result({ geminiCriteriaJson: null }));
+    const row = toEleaticRow(
+      result({ geminiCriteriaJson: null, rationale: undefined, fieldMarks: undefined, flags: undefined }),
+    );
     expect(row.output).toEqual({ keep: true, qualityScore: 80 });
     expect('criteria' in (row.output as object)).toBe(false);
+  });
+
+  it('copies the judge "why" — rationale/fieldMarks/flags — into output_json when present', () => {
+    const row = toEleaticRow(
+      result({
+        rationale: 'sharp eye, clean perch',
+        fieldMarks: ['rufous breast', 'yellow bill'],
+        flags: ['watermark'],
+      }),
+    );
+    const output = row.output as {
+      rationale?: string;
+      fieldMarks?: string[];
+      flags?: string[];
+    };
+    expect(output.rationale).toBe('sharp eye, clean perch');
+    expect(output.fieldMarks).toEqual(['rufous breast', 'yellow bill']);
+    expect(output.flags).toEqual(['watermark']);
+  });
+
+  it('carries an EMPTY fieldMarks/flags array through (empty ≠ absent — the judge ran but named none)', () => {
+    const row = toEleaticRow(result({ fieldMarks: [], flags: [] }));
+    const output = row.output as { fieldMarks?: string[]; flags?: string[] };
+    expect(output.fieldMarks).toEqual([]);
+    expect(output.flags).toEqual([]);
+    // present-but-empty: the keys exist (the judge produced them), the arrays are empty.
+    expect('fieldMarks' in output).toBe(true);
+    expect('flags' in output).toBe(true);
+  });
+
+  it('omits each why-field when the source output lacked it (exactOptional — absent key, not undefined)', () => {
+    const row = toEleaticRow(
+      result({ rationale: undefined, fieldMarks: undefined, flags: undefined }),
+    );
+    const output = row.output as object;
+    expect('rationale' in output).toBe(false);
+    expect('fieldMarks' in output).toBe(false);
+    expect('flags' in output).toBe(false);
+    // the unrelated keep/qualityScore/criteria mapping is untouched.
+    expect(row.output).toEqual({
+      keep: true,
+      qualityScore: 80,
+      criteria: { framing: 8, subjectClarity: 9 },
+    });
   });
 
   it('embeds expected_json = {keep, qualityScore} from the opus baseline (no opus criteria source → absent)', () => {

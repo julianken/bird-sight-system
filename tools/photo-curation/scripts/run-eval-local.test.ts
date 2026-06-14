@@ -169,7 +169,14 @@ describe('runEvalLocal', () => {
     expect(r!.rowKey).toBe('amerob');
     // expected_json carries the Opus baseline; output_json the Gemini decision.
     const expected = r!.expected as { keep: boolean; qualityScore: number };
-    const output = r!.output as { keep: boolean; qualityScore: number; criteria?: Record<string, number> };
+    const output = r!.output as {
+      keep: boolean;
+      qualityScore: number;
+      criteria?: Record<string, number>;
+      rationale?: string;
+      fieldMarks?: string[];
+      flags?: string[];
+    };
     expect(expected.keep).toBe(true);
     expect(expected.qualityScore).toBe(85);
     expect(output.keep).toBe(false);
@@ -181,6 +188,26 @@ describe('runEvalLocal', () => {
     expect(r!.scores!.cost).toBeGreaterThan(0);
     // criteria persisted (parsed, not double-encoded).
     expect(output.criteria).toMatchObject({ framing: 8 });
+  });
+
+  it('threads the judge "why" — rationale/fieldMarks/flags — from JudgmentRecord.output into output_json', async () => {
+    // The runner half-fix guard (T2): the adapter unit test proves the SEAM, but
+    // only a real run proves the RUNNER builds the EvalResultRecord from the full
+    // JudgeOutput. If the runner threads only keep/qualityScore/criteria, the
+    // read-back row.output lacks rationale even with a correct adapter.
+    eleatic = openStore(':memory:');
+    const rows: EvalRow[] = [evalRow({ speciesCode: 'amerob', expectedKeep: true, expectedQuality: 85 })];
+    const decide = () => ({ keep: true, quality: 80 });
+
+    await runEvalLocal({ eleatic, rows, ...makeDeps(decide) });
+
+    const r = makeReader(eleatic.db).getRow('run-test-1', 'amerob');
+    const output = r!.output as { rationale?: string; fieldMarks?: string[]; flags?: string[] };
+    // the fakeJudge emits rationale 'r', fieldMarks ['mark'], flags [] — all must
+    // survive the runner→adapter→eleatic round-trip.
+    expect(output.rationale).toBe('r');
+    expect(output.fieldMarks).toEqual(['mark']);
+    expect(output.flags).toEqual([]);
   });
 
   it('computes falseKeep (judge keeps what baseline replaces) and total cost', async () => {
