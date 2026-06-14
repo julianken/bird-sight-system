@@ -11,7 +11,8 @@ import {
 import type { MapLayerMouseEvent, MapRef } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { AggregatedBucket, Observation } from '@bird-watch/shared-types';
-import { BASEMAP_LIGHT, BASEMAP_DARK } from './geometry/basemap-style.js';
+import { resolveDescriptor } from './geometry/basemap-style.js';
+import { useActiveThemeId } from './theme-state.js';
 import { INITIAL_VIEW, MIN_ZOOM } from './geometry/camera-config.js';
 import {
   buildMaskFeature,
@@ -518,22 +519,36 @@ export function MapCanvas({
   // invariant that the observer only ever calls `map.resize()`).
   useMapResize(mapRef, mapWrapperRef, mapReady);
 
+  // Active basemap-theme id state (C1.5 · #1213) — the reactive source of truth
+  // for the basemap swap. Seeded from the persisted `[data-theme]` attribute (the
+  // back-compat bridge, until C7's `applyTheme` owns the write path). For C1.5 the
+  // only reachable production ids are `positron`/`dark`, so the observable
+  // behavior is unchanged; this is the plumbing that lets the swap depend on the
+  // id (not the lossy `[data-theme]` attribute) so C2–C4/C8 can reach all 5 themes.
+  const { themeId: activeThemeId } = useActiveThemeId();
+
   // State-artboard machinery consolidated into ONE hook (`use-state-artboard.ts`,
   // epic #884 · U13 / #898; the #760/#762/#763/#765/#849/#850 blank-map class).
-  // `useStateArtboard` owns the four mask/label-isolation effects, the
-  // `[data-theme]` MutationObserver (basemap `setStyle` + mask-fill re-tint), and
-  // the `renderWorldCopies` reassertion — moved as ONE indivisible unit with ALL
-  // their cross-effect state (`maskTheme`, `savedFiltersRef`, `maskPolygonRef`,
-  // `styleEpoch`, and the MutationObserver-private `prevThemeRef` same-value
-  // guard). The hook's JSDoc carries the full rationale (the load-bearing 3a/3b
-  // reconcile-sequencing split deferred via the `styleEpoch` re-fire, the
-  // once-registered `style.load` fresh-closure ref-mirror, the camera↔
-  // `renderWorldCopies` transform-clone race, and the no-op `data-theme` write
-  // guard). `maskTheme` is the reactive mask-fill theme consumed by the
-  // `<Layer>` `paint` prop below; `mapRef` + the `<MapView>`/`<Source>`/`<Layer>`
-  // JSX stay here. Behaviour-preserving: the effect bodies, deps, and
-  // exhaustive-deps disables are 1:1 with the pre-extraction code.
-  const { maskTheme } = useStateArtboard(mapRef, mapReady, maskPolygon);
+  // `useStateArtboard` owns the four mask/label-isolation effects, the id-driven
+  // basemap swap (C1.5 · #1213: an effect keyed on `activeThemeId` →
+  // `swapBasemap`, with a `[data-theme]` MutationObserver kept only as a belt for
+  // external/devtools attribute writes), and the `renderWorldCopies` reassertion —
+  // moved as ONE indivisible unit with ALL their cross-effect state (`maskTheme`,
+  // `savedFiltersRef`, `maskPolygonRef`, `styleEpoch`, and the swap-private
+  // `prevThemeIdRef` id-keyed same-value guard). The hook's JSDoc carries the full
+  // rationale (the load-bearing 3a/3b reconcile-sequencing split deferred via the
+  // `styleEpoch` re-fire, the once-registered `style.load` fresh-closure
+  // ref-mirror, the camera↔`renderWorldCopies` transform-clone race, and the
+  // no-op-id swap guard). `maskTheme` is the reactive mask-fill theme consumed by
+  // the `<Layer>` `paint` prop below; `mapRef` + the `<MapView>`/`<Source>`/
+  // `<Layer>` JSX stay here. Behaviour-preserving: only positron/dark are reachable,
+  // so the toggle still flips light↔dark and swaps the basemap exactly as today.
+  const { maskTheme } = useStateArtboard(
+    mapRef,
+    mapReady,
+    maskPolygon,
+    activeThemeId,
+  );
 
   // Unmount cleanup for the `window.__birdMap` test hook (#291). The hook is
   // assigned in `handleLoad` (which fires once per mount); without an unmount
@@ -1053,11 +1068,9 @@ export function MapCanvas({
   // clear the card and re-arm the watchdog so a still-dead CDN re-surfaces it.
   const handleBasemapRetry = useCallback(() => {
     const map = mapRef.current?.getMap();
-    const style =
-      typeof document !== 'undefined' &&
-      document.documentElement.getAttribute('data-theme') === 'dark'
-        ? BASEMAP_DARK
-        : BASEMAP_LIGHT;
+    // C1.5 (#1213): resolve the CURRENT basemap URL from the active theme id (the
+    // reactive source of truth), not the lossy `[data-theme]` attribute ternary.
+    const style = resolveDescriptor(activeThemeId).url;
     basemapHealthyRef.current = false;
     basemapErrorCountRef.current = 0;
     setBasemapFailed(false);
@@ -1065,7 +1078,7 @@ export function MapCanvas({
     // re-surfaces the card after the window (no silent dead-end).
     map?.setStyle(style);
     setWatchdogEpoch((n) => n + 1);
-  }, []);
+  }, [activeThemeId]);
 
   /* Sprite registration (issue #246).
      Run after the map fires `load` (mapReady) and whenever `silhouettes`
@@ -1937,12 +1950,11 @@ export function MapCanvas({
         // invariant survives #761's always-mounted lifecycle without a remount.
         renderWorldCopies={maskPolygon == null}
         style={{ width: '100%', height: '100%' }}
-        mapStyle={
-          typeof document !== 'undefined' &&
-          document.documentElement.getAttribute('data-theme') === 'dark'
-            ? BASEMAP_DARK
-            : BASEMAP_LIGHT
-        }
+        // C1.5 (#1213): the initial basemap URL resolves from the active theme id
+        // (`resolveDescriptor(activeThemeId).url`), NOT the lossy `[data-theme]`
+        // attribute ternary. The id-driven swap effect in `useStateArtboard` owns
+        // every subsequent swap.
+        mapStyle={resolveDescriptor(activeThemeId).url}
         onLoad={handleLoad}
         // #854: swallow benign transient map errors (AbortErrors from tile
         // fetches cancelled mid-camera-move; OpenFreeMap CDN hiccups keyed on
