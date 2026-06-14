@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import type { MultiPolygon } from 'geojson';
-import { BASEMAP_LIGHT, BASEMAP_DARK } from '@/components/map/geometry/basemap-style.js';
+import {
+  resolveDescriptor,
+  type BasemapDescriptor,
+  type ThemeId,
+} from '@/components/map/geometry/basemap-style.js';
+import {
+  swapBasemap,
+  attrToThemeId,
+} from '@/components/map/theme-state.js';
 import {
   applyLabelIsolation,
   restoreLabelIsolation,
@@ -25,8 +33,10 @@ import { sanitizeNullNumericFilters } from '@/components/map/geometry/basemap-nu
  *       (3a-ii) label isolation re-apply on MASK CHANGE,
  *       (3b)    float layers + stray-sink (post-reconcile, `styleEpoch`-keyed),
  *       (3b-teardown) restore filters + remove floats on mask unmount,
- *   - the `[data-theme]` MutationObserver that swaps the basemap (`setStyle`)
- *     and re-tints the mask fill (`setMaskTheme`).
+ *   - the id-driven basemap swap (C1.5 · #1213): an effect keyed on the active
+ *     `ThemeId` (re-resolve descriptor → `swapBasemap` → `setStyle` + mask
+ *     re-tint), plus a `[data-theme]` MutationObserver kept ONLY as a belt for
+ *     external/devtools attribute writes (routed through the same id path).
  *
  * It is the SOLE owner of ALL state the moved effects own:
  *   - `maskTheme`        — reactive mask-fill theme (the ONLY value the parent
@@ -37,11 +47,12 @@ import { sanitizeNullNumericFilters } from '@/components/map/geometry/basemap-nu
  *   - `styleEpoch`       — bumps once per `style.load`; re-fires the float effect
  *                          AFTER react-map-gl re-adds `state-mask-fill` (the
  *                          3a/3b reconcile-sequencing split, #763), and
- *   - `prevThemeRef`     — the MutationObserver's PRIVATE same-value de-dup guard
- *                          (a no-op `data-theme` write must NOT re-fire
+ *   - `prevThemeIdRef`   — the swap's PRIVATE same-value de-dup guard, now keyed
+ *                          on the **id** (a no-op swap to the current id, e.g.
+ *                          from a no-op `data-theme` write, must NOT re-fire
  *                          `setStyle`).
  *
- * `styleEpoch` and `prevThemeRef` are fully PRIVATE (no parent/JSX consumer);
+ * `styleEpoch` and `prevThemeIdRef` are fully PRIVATE (no parent/JSX consumer);
  * only `maskTheme` is returned. The `mapRef` + the `<Map>`/`<Source>`/`<Layer>`
  * JSX stay in `MapCanvas`; only the state + effects move here.
  *
@@ -69,7 +80,7 @@ import { sanitizeNullNumericFilters } from '@/components/map/geometry/basemap-nu
  * world-copies, style-swap, and event methods the artboard effects call
  * directly:
  *   - `getRenderWorldCopies` / `setRenderWorldCopies` — the #762/#765 reassert,
- *   - `setStyle` — the `[data-theme]` basemap swap,
+ *   - `setStyle` — the id-driven basemap swap (C1.5 · #1213),
  *   - `on` / `off` — `style.load` (theme-swap re-isolation) + `moveend`
  *     (world-copies reassert win against the in-flight transform-clone replay).
  *
@@ -97,20 +108,46 @@ export interface StateArtboardMapRef {
 
 /**
  * Consolidated state-artboard hook (#884 · U13 / #898). Wires ALL artboard
- * machinery — the four mask/label-isolation effects, the `[data-theme]`
- * MutationObserver (basemap + mask-fill swap), and the `renderWorldCopies`
- * reassertion — to the live `mapRef`, owning every piece of cross-effect state.
+ * machinery — the four mask/label-isolation effects, the id-driven basemap swap
+ * (C1.5 · #1213, replacing the old `[data-theme]`-keyed trigger), and the
+ * `renderWorldCopies` reassertion — to the live `mapRef`, owning every piece of
+ * cross-effect state.
+ *
+ * Basemap swap (C1.5 · #1213): the swap is now keyed on the active `ThemeId`,
+ * NOT the `[data-theme]` attribute. The attribute is lossy (`'light'`|`'dark'`
+ * only) — it cannot trigger a swap BETWEEN two same-kind themes, which would
+ * leave 3 of the 5 themes unreachable. The primary trigger is the `activeThemeId`
+ * prop: on change the descriptor is re-resolved (`resolver(activeThemeId)`) and
+ * the pure `swapBasemap(map, descriptor, setMaskTheme)` performs the swap, with
+ * the same-value de-dup now keyed on the **id** (`prevThemeIdRef`). The
+ * `[data-theme]` MutationObserver is RETAINED only as a belt for external/devtools
+ * attribute writes (notably the existing `basemap-dark-flip.spec.ts`, which drives
+ * via `setAttribute('data-theme', …)`): it maps the attribute → a kind-consistent
+ * id (`attrToThemeId`) and routes that through the SAME id-keyed swap path, so it
+ * can never double-fire `setStyle` for an id already swapped.
  *
  * @param mapRef       ref to the react-map-gl `MapRef` (`getMap()` → maplibre)
  * @param mapReady     gate: only touch the map once the `load` event fired
  * @param maskPolygon  the current state-scope mask polygon, or undefined/null
+ * @param activeThemeId  the active basemap `ThemeId` (source of truth for the
+ *                       swap). Defaults to the attribute-bridged id so callers
+ *                       that have not threaded it yet keep today's behavior.
+ * @param resolver     id → descriptor lookup. Defaults to `resolveDescriptor`;
+ *                     tests override it with synthetic same-kind descriptors to
+ *                     exercise the same-kind swap path (the injection seam).
  * @returns `{ maskTheme }` — the reactive mask-fill theme the `<Layer>` paint
- *          prop reads. `styleEpoch` + `prevThemeRef` stay private to the hook.
+ *          prop reads. `styleEpoch` + `prevThemeIdRef` stay private to the hook.
  */
 export function useStateArtboard(
   mapRef: RefObject<StateArtboardMapRef | null>,
   mapReady: boolean,
   maskPolygon: MultiPolygon | null | undefined,
+  activeThemeId: ThemeId = attrToThemeId(
+    typeof document !== 'undefined'
+      ? document.documentElement.getAttribute('data-theme')
+      : null,
+  ),
+  resolver: (id: ThemeId) => BasemapDescriptor = resolveDescriptor,
 ): { maskTheme: 'light' | 'dark' } {
   /**
    * Reactive theme for the state-artboard mask fill (#760/#762). Seeded from the
@@ -343,31 +380,60 @@ export function useStateArtboard(
     };
   }, [mapReady, maskPolygon]);
 
-  // [data-theme] observer — swap basemap when user toggles theme.
-  // Registered after mapReady so the map instance is guaranteed to exist.
-  // Cleaned up on unmount to prevent leaks. The observer is the single
-  // source of truth for basemap-vs-theme coupling — no prop drilling.
-  // Dark URL aliasing (G8): BASEMAP_DARK may resolve to the same
-  // visual tiles as light during the rollout window; the swap mechanism
-  // is correct regardless. See docs/design/01-spec/open-questions.md.
+  // ── id-driven basemap swap (C1.5 · #1213) ──────────────────────────────────
   //
-  // Same-value guard: MutationRecord fires on every attribute write,
-  // including writes that set the SAME value the attribute already had
-  // (e.g. setAttribute('data-theme', 'light') when it's already 'light').
-  // Without the prevTheme ref, a no-op write would trigger setStyle and
-  // a redundant tile re-fetch.
-  const prevThemeRef = useRef<'light' | 'dark' | null>(null);
+  // `prevThemeIdRef` is the same-value de-dup guard, now keyed on the **id**
+  // (replacing the old `prevThemeRef` light/dark kind ref). A swap to an id the
+  // map already shows is a no-op — this is what prevents a no-op `data-theme`
+  // write (or a re-render with an unchanged id) from re-firing `setStyle` and a
+  // redundant tile re-fetch. Because BOTH the id-driven effect and the belt
+  // observer route through `performSwap`, the de-dup covers both: the observer
+  // can never double-fire `setStyle` for an id the effect already swapped.
+  const prevThemeIdRef = useRef<ThemeId | null>(null);
+  // Mirror the live resolver in a ref so the once-registered observer below reads
+  // the current resolver without re-subscribing (fresh-closure pattern, #849).
+  const resolverRef = useRef(resolver);
+  resolverRef.current = resolver;
+
+  // The single swap entry point. De-dups on the id, resolves the descriptor via
+  // the live resolver, then runs the pure `swapBasemap` (setStyle + mask re-tint).
+  const performSwap = useRef((id: ThemeId) => {
+    if (id === prevThemeIdRef.current) return;
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+    prevThemeIdRef.current = id;
+    // #760/#762: `swapBasemap` re-tints the state-artboard mask fill in lockstep
+    // with the basemap swap. The mask <Layer> reads `maskTheme`; react-map-gl
+    // diffs `paint` so this re-tints the gray with no remount.
+    swapBasemap(map, resolverRef.current(id), setMaskTheme);
+  });
+
+  // Primary trigger: re-resolve + swap whenever the active id changes — INCLUDING
+  // between two same-kind themes (the whole point; the `[data-theme]` attribute
+  // is structurally incapable of this). Gated on `mapReady` so the map exists.
+  useEffect(() => {
+    if (!mapReady) return;
+    performSwap.current(activeThemeId);
+  }, [mapReady, activeThemeId]);
+
+  // Belt: `[data-theme]` MutationObserver, RETAINED only for external/devtools
+  // attribute writes (the existing `basemap-dark-flip.spec.ts` drives the theme
+  // by `setAttribute('data-theme', …)`). It maps the attribute → a kind-consistent
+  // id (`attrToThemeId`: `'dark'`→`dark`, else `positron`) and routes that through
+  // the SAME id-keyed `performSwap`, so it can never double-fire `setStyle` for an
+  // id the primary effect already swapped (the id de-dup covers both paths).
+  // Registered after mapReady so the map instance is guaranteed to exist; cleaned
+  // up on unmount to prevent leaks.
   useEffect(() => {
     if (!mapReady) return;
     const map = mapRef.current?.getMap();
     if (!map) return;
 
-    // Seed the prev ref with the current attribute value so the first
-    // observed mutation only fires setStyle when the value genuinely flips.
-    prevThemeRef.current =
-      document.documentElement.getAttribute('data-theme') === 'dark'
-        ? 'dark'
-        : 'light';
+    // Seed the de-dup ref with the current attribute's id so the first observed
+    // mutation only swaps when the id genuinely changes.
+    prevThemeIdRef.current = attrToThemeId(
+      document.documentElement.getAttribute('data-theme'),
+    );
 
     const observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
@@ -375,18 +441,11 @@ export function useStateArtboard(
           mutation.type === 'attributes' &&
           mutation.attributeName === 'data-theme'
         ) {
-          const next: 'light' | 'dark' =
-            document.documentElement.getAttribute('data-theme') === 'dark'
-              ? 'dark'
-              : 'light';
-          if (next === prevThemeRef.current) return;
-          prevThemeRef.current = next;
-          const style = next === 'dark' ? BASEMAP_DARK : BASEMAP_LIGHT;
-          map.setStyle(style);
-          // #760/#762: re-paint the state-artboard mask fill in lockstep with
-          // the basemap swap. The mask <Layer> reads `maskTheme`; react-map-gl
-          // diffs `paint` so this re-tints the gray with no remount.
-          setMaskTheme(next);
+          performSwap.current(
+            attrToThemeId(
+              document.documentElement.getAttribute('data-theme'),
+            ),
+          );
         }
       }
     });
