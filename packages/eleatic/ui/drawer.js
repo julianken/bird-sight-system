@@ -8,6 +8,9 @@
 //     package never destructures them; rendered via the escaping prettyJson unit),
 //   • a score bar per scores_json entry,
 //   • the row's metadata,
+//   • a collapsible "Trace" section (after output-vs-expected) when the row
+//     carries a trace — rendered by the escaping renderTrace pure unit; absent
+//     entirely when the single-row read returned no trace,
 //   • the image via safeImg,
 //   • the adjudication panel (adjudicate.js).
 //
@@ -23,10 +26,12 @@
 // that opened the drawer (passed to openDrawer). Escape + the backdrop close it.
 //
 // Browser-only glue (DOM + fetch); no unit test — the logic lives in the
-// prettyJson / staleness pure units. Verified live at the epic's E2E recipe.
+// prettyJson / renderTrace / staleness pure units. Verified live at the epic's
+// E2E recipe.
 
 import { esc, safeImg } from './safe.js';
 import { prettyJson } from './pretty.js';
+import { renderTrace } from './trace.js';
 import { renderAdjudication } from './adjudicate.js';
 
 let lastTrigger = null;
@@ -158,6 +163,13 @@ export async function openDrawer(rowParam, trigger = null) {
         <div class="json-col"><div class="json-col-label">expected</div>${prettyJson(record.expected)}</div>
       </div>
     </section>
+    ${record.trace !== undefined ? `
+    <section class="drawer-section">
+      <details class="trace-details">
+        <summary class="drawer-h3 trace-summary">Trace</summary>
+        ${renderTrace(record.trace)}
+      </details>
+    </section>` : ''}
     <section class="drawer-section" id="drawer-adjudicate"></section>`;
 
   // Fetch the existing adjudication (if any) so the panel pre-fills + flags stale.

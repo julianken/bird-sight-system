@@ -201,6 +201,17 @@ body { margin: 0; font-family: var(--font-stack); font-size: var(--type-base); b
 .json-bool, .json-null { color: var(--text-dim); }
 .json-empty { font-family: var(--mono-stack); font-size: var(--type-xs); color: var(--text-dim); }
 
+/* ── Trace section ── */
+.trace-details > summary.trace-summary { cursor: pointer; margin: 0; }
+.trace-spans { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.trace-span { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; background: var(--surface); }
+.trace-span-name { font-family: var(--mono-stack); font-size: var(--type-xs); font-weight: 600; color: var(--accent); margin: 0 0 6px; }
+.trace-io { margin: 0 0 4px; }
+.trace-io-label { cursor: pointer; font-size: var(--type-xs); color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; }
+.trace-usage { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; font-family: var(--mono-stack); font-size: var(--type-xs); color: var(--text-dim); }
+.trace-usage-sep { color: var(--border); }
+.trace-raw { margin-top: 10px; }
+
 /* ── Adjudication panel ── */
 .adjudicate { border-top: 1px solid var(--border); padding-top: 16px; }
 .adj-title { font-size: var(--type-sm); font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; margin: 0 0 8px; }
