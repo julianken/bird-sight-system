@@ -282,22 +282,31 @@ resource "google_cloud_scheduler_job" "ingest_recent" {
 
 # ── Post-ingestion Cloudflare cache-warm (issue #711) ────────────────────
 #
-# Fires 2 minutes after each `:00` and `:30` recent-ingest tick so the warm
-# job runs *after* the cache-invalidating ingest completes. Walks ~77 popular
-# bbox URLs sequentially (concurrency=1 + 200ms sleep) and pre-fetches them
-# through Cloudflare's edge cache. Next real user pan into the same area is
-# then a HIT instead of a MISS.
+# Fires AFTER each `:00` and `:30` recent-ingest tick so the warm job runs
+# *after* the cache-invalidating ingest AND its grid-agg precompute complete.
+# Walks ~77 popular bbox URLs sequentially (concurrency=1 + 200ms sleep) and
+# pre-fetches them through Cloudflare's edge cache so the next real user pan
+# into the same area is a HIT instead of a MISS.
+#
+# Offset (503 incident 2026-06-14): the original `2,32` (+2 min) assumed
+# `recent` finishes within 2 minutes. At national scale `recent` actually runs
+# ~4.5 min — fetch + upsert + the refreshGridAgg precompute, which pins the
+# db-g1-small instance while it rebuilds the grid (see refreshGridAgg in
+# packages/db-client/src/observations.ts). So `2,32` fired the warmer's ~77
+# reads straight into that precompute window, piling onto the contention that
+# was already 503-ing live user reads. `8,38` runs the warmer after
+# recent+refresh settle, so it neither competes with the precompute nor warms
+# Cloudflare off pre-refresh data.
 #
 # Concurrent execution safety: Cloud Run Jobs run independent executions of
-# the same job in parallel — if `recent` exceeds the +2 min offset, the
-# `:02` / `:32` cache-warm execution starts on the same job as a second
-# concurrent execution. This is safe because cache-warm opens no DB pool
-# (pure HTTP, no eBird API calls), so there is zero connection-pool
-# contention with other `bird-ingestor` kinds running concurrently.
+# the same job in parallel — even if `recent` overruns the offset, the
+# cache-warm execution is safe because it opens no DB pool (pure HTTP, no eBird
+# API calls), so there is zero connection-pool contention with other
+# `bird-ingestor` kinds running concurrently.
 resource "google_cloud_scheduler_job" "cache_warm" {
   name      = "bird-cache-warm"
   region    = var.gcp_region
-  schedule  = "2,32 * * * *"
+  schedule  = "8,38 * * * *"
   time_zone = "Etc/UTC"
 
   http_target {

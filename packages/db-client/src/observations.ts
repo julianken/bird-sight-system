@@ -690,6 +690,24 @@ export async function refreshGridAgg(pool: Pool): Promise<number> {
     // query keep their 15s guard. Mirrors the #845 precedent above; the Cloud
     // Run job's timeout remains the outer kill switch for the populate.
     await client.query('SET LOCAL statement_timeout = 0');
+    // 503 incident 2026-06-14 — bound this populate's temp-file spill. At
+    // national scale the hash/sort/jsonb_agg nodes below spill ~430 MB to
+    // pgsql_tmp at the Cloud SQL default work_mem, which pins the db-g1-small
+    // instance's single shared vCPU + disk for the rebuild's duration. While it
+    // runs, concurrent live read-path aggregations (the state/low-zoom CTE that
+    // getAggregatedGridFromCache falls through to) starve and blow the 15s
+    // statement_timeout → user-visible 503s, clustered at the :00/:30
+    // ingest+refresh ticks. A transaction-scoped work_mem bump keeps the
+    // largest aggregation nodes in memory, cutting the spill and shortening the
+    // contention window. 96 MB is deliberately conservative for a ~1.7 GB
+    // shared-core instance: peak is one connection × a few active nodes
+    // (~200-290 MB), well clear of shared_buffers + the read pool — so it
+    // SHRINKS, not eliminates, the spill. Fully eliminating it needs ~192 MB+
+    // per node, which risks an instance-wide OOM here; that's an argument for a
+    // larger tier, not a bigger work_mem on this one. SET LOCAL is txn-scoped
+    // (mirrors the statement_timeout exemption above), so the read-api pool and
+    // every other connection keep the default.
+    await client.query("SET LOCAL work_mem = '96MB'");
     // Clear inside the transaction so a reader never sees a half-populated grid
     // (the INSERT below repopulates before COMMIT). DELETE not TRUNCATE: TRUNCATE
     // takes an ACCESS EXCLUSIVE lock that would block concurrent read-path
