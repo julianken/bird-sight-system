@@ -2,7 +2,7 @@ name: perf-gate
 
 # Adaptive-grid reconciler perf gate (epic #539, issue #542 Task 2.5).
 #
-# Runs only the @perf-tagged scenarios in frontend/e2e/map-adaptive-grid.spec.ts
+# Runs only the @perf-tagged scenarios in frontend/e2e/map/map-adaptive-grid.spec.ts
 # — the standard `e2e` workflow excludes them via `--grep-invert @perf` so
 # perf measurement doesn't slow down every PR.
 #
@@ -20,13 +20,13 @@ on:
     paths:
       - 'frontend/src/components/map/**'
       - 'frontend/src/components/ds/ClusterPill.tsx'
-      - 'frontend/e2e/map-adaptive-grid.spec.ts'
+      - 'frontend/e2e/map/map-adaptive-grid.spec.ts'
       - '.github/workflows/perf-gate.yml'
   push:
     branches: [main]
     paths:
       - 'frontend/src/components/map/**'
-      - 'frontend/e2e/map-adaptive-grid.spec.ts'
+      - 'frontend/e2e/map/map-adaptive-grid.spec.ts'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
