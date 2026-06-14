@@ -23,7 +23,7 @@ on:
     branches: [main]
     paths:
       - 'migrations/**'
-      - 'scripts/migrate-deploy.sh'
+      - 'scripts/deploy/migrate-deploy.sh'
       - '.github/workflows/deploy-migrations.yml'
   workflow_dispatch:
 
@@ -130,7 +130,7 @@ jobs:
           # repository secrets that the rotation runbook keeps in sync with
           # `google_sql_user.app` in infra/terraform/cloud-sql.tf.
           DATABASE_URL: "postgres://${{ secrets.CLOUDSQL_APP_USER }}:${{ secrets.CLOUDSQL_APP_PASSWORD }}@127.0.0.1:5432/birdwatch?sslmode=disable"
-        run: ./scripts/migrate-deploy.sh
+        run: ./scripts/deploy/migrate-deploy.sh
 
       - name: Stop Cloud SQL Auth Proxy
         # Best-effort cleanup; the job is about to terminate anyway, but
