@@ -4,7 +4,7 @@
  * ONE config, two consumers: the curation tool's bulk-review pass and the
  * ingestor's new-photo gate both import this literal, so "same criteria for new
  * photos" is structural, not a copy. Derived from
- * `docs/research/2026-06-10-bird-photo-quality-rubric.md`.
+ * `docs/notes/2026-06-10-bird-photo-quality-rubric.md`.
  *
  * The `version` is bumped on every calibration tune so SQLite-cached scores
  * (keyed by content hash + rubricVersion) are invalidated when the rubric moves.

@@ -222,7 +222,7 @@ This persists the gate's decision durably and lets the curation tool sync live s
 
 Before any scoring, a research pass produces the rubric. Deliverables, committed before the rubric config is finalized:
 
-- `docs/research/2026-06-10-bird-photo-quality-rubric.md`: what makes a field-guide-quality bird photo (framing/subject-size conventions, diagnostic feather detail, natural perch/habitat, lighting, eye sharpness, avoiding captive/in-hand/specimen/dead/distant), synthesized from authoritative sources (Sibley/National Geographic/Audubon photo guidance, Macaulay/eBird media rating norms, bird-photography critique literature, NIMA/aesthetic-scoring background). Includes the explicit disqualifier taxonomy.
+- `docs/notes/2026-06-10-bird-photo-quality-rubric.md`: what makes a field-guide-quality bird photo (framing/subject-size conventions, diagnostic feather detail, natural perch/habitat, lighting, eye sharpness, avoiding captive/in-hand/specimen/dead/distant), synthesized from authoritative sources (Sibley/National Geographic/Audubon photo guidance, Macaulay/eBird media rating norms, bird-photography critique literature, NIMA/aesthetic-scoring background). Includes the explicit disqualifier taxonomy.
 - The initial `rubric.config.ts` (weights, thresholds, judge prompt) derived from it.
 
 **Calibration loop (decision #7):** assemble a ~30–40 image sample spanning known-good and known-bad (including obvious dead/in-hand cases). Score with the draft rubric, view in the review server, and adjust weights/thresholds/prompt until the judge's verdicts match operator judgment. Only then run the full ~715.
@@ -261,7 +261,7 @@ Per repo conventions (TDD per task; no DB mocks; integration via `@testcontainer
 
 Rough independently-shippable slices (exact tasks authored in `writing-plans`):
 
-1. **Phase 0 research + draft rubric config** (`docs/research/...` + `rubric.config.ts`).
+1. **Phase 0 research + draft rubric config** (`docs/notes/...` + `rubric.config.ts`).
 2. **`packages/photo-quality`** core (deterministic + judge interface + math) with unit tests.
 3. **iNat top-N sourcer** (+ deny-bias) with msw tests.
 4. **Review store + curation CLI** (`score-current`, `source-candidates`, SQLite).

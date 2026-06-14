@@ -5,7 +5,7 @@ import type Database from 'better-sqlite3';
 import { openDb } from './db.js';
 import { getScoreByHash, selectUnreviewed } from './store.js';
 import { sync, syncAll, scoreBatch } from './sources.js';
-import { FakeJudge } from './judge.js';
+import { FakeJudge } from './fake-judge.js';
 import { makeFakeClock } from './test-clock.js';
 import type { RubricConfig } from '@bird-watch/photo-quality';
 

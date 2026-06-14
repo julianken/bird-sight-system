@@ -77,7 +77,7 @@ Conventional commits style with scope where useful: `feat(scope):`, `chore:`, `c
 | **Bottom-right** | Minimal always-visible attribution `OpenFreeMap · eBird` (`.map-attribution`, license floor, `--type-xs`); future zoom/locate shares this corner. (#828 relocated the always-visible eBird credit here after deleting the identity-card freshness line #830 had parked it in; full credits stay in the top-right ⓘ Credits modal.) | content-width |
 | **Transient** | Popovers (flip/shift/clamp), detail card (insets top-right region), filters panel (anchored under trigger) | per-element caps |
 
-Implementing rule: before adding any new floating surface, assign it a corner from this table. If no corner fits, that is a signal the design is wrong — raise it rather than introducing a new band. All shared geometry is in `frontend/src/styles/tokens.css` under `--card-*` (§2.1). Elevation tiers: tier 1 = resting chrome, tier 2 = on-canvas transient, tier 3 = focused/modal. Design authority: `docs/design/2026-05-30-floating-ui-design-spec.md`.
+Implementing rule: before adding any new floating surface, assign it a corner from this table. If no corner fits, that is a signal the design is wrong — raise it rather than introducing a new band. All shared geometry is in `frontend/src/styles/tokens.css` under `--card-*` (§2.1). Elevation tiers: tier 1 = resting chrome, tier 2 = on-canvas transient, tier 3 = focused/modal. Design authority: `docs/design/standalone/2026-05-30-floating-ui-design-spec.md`.
 
 ## Testing
 
