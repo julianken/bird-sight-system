@@ -86,7 +86,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = resolve(__dirname, '..');
+const REPO_ROOT = resolve(__dirname, '../..');
 const CACHE_DIR = resolve(__dirname, '.phylopic-cache');
 const PICKS_PATH = resolve(__dirname, 'phylopic-picks.json');
 const MIGRATION_PATH = resolve(

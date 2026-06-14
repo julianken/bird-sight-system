@@ -43,7 +43,7 @@ run_check() {
   mkdir -p "${tmp_dir}/frontend/src/styles"
   mkdir -p "${tmp_dir}/frontend/src/components/ds"
   mkdir -p "${tmp_dir}/.github"
-  mkdir -p "${tmp_dir}/scripts"
+  mkdir -p "${tmp_dir}/scripts/ci"
 
   # CSS files — only styles.css gets real content; the rest are stubs
   printf '%s\n' "$css_content"  > "${tmp_dir}/frontend/src/styles.css"
@@ -57,11 +57,13 @@ run_check() {
   # Empty allow-list (so tests are purely against the in-test CSS)
   printf ''                      > "${tmp_dir}/.github/orphan-classname-allowlist.yml"
 
-  # Copy the script into the tmp tree's scripts/ dir so that REPO_ROOT
-  # (derived from BASH_SOURCE[0]) resolves to $tmp_dir, not the real repo root.
-  cp "$CHECK_SCRIPT_SRC" "${tmp_dir}/scripts/check-orphan-classnames.sh"
+  # Copy the script into the tmp tree's scripts/ci/ dir (mirroring its real
+  # location) so that REPO_ROOT (derived from BASH_SOURCE[0] via `/../..`)
+  # resolves to $tmp_dir, not the real repo root. Mirroring the real depth
+  # also lets this test CATCH a depth regression in the script.
+  cp "$CHECK_SCRIPT_SRC" "${tmp_dir}/scripts/ci/check-orphan-classnames.sh"
 
-  bash "${tmp_dir}/scripts/check-orphan-classnames.sh" 2>&1
+  bash "${tmp_dir}/scripts/ci/check-orphan-classnames.sh" 2>&1
 }
 
 assert_pass() {

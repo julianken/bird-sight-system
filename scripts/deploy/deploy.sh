@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 echo "[1/6] terraform apply..."
 (cd infra/terraform && terraform apply -auto-approve)

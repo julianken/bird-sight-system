@@ -12,7 +12,7 @@ set -euo pipefail
 # Partial-failure contract: non-zero exit on the first migration that errors,
 # matching the workflow's contract (no auto-rollback).
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 if [ -z "${DATABASE_URL:-}" ]; then
   echo "DATABASE_URL not set" >&2

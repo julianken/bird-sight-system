@@ -145,15 +145,27 @@ export function formatDuration(durationMs) {
 }
 
 /**
+ * Sum a span's prompt + completion tokens into a single combined count. Adds
+ * whichever values are finite; returns undefined only when BOTH are absent /
+ * non-finite (so the caller omits the total). This is the SINGLE token-summing
+ * arithmetic — `formatTokens` (the tree meta line) and renderSpanDetail's
+ * "Total tokens" metric row both read it, so the sum is never computed twice.
+ */
+export function sumTokens(prompt, completion) {
+  const p = finite(prompt);
+  const c = finite(completion);
+  if (p === undefined && c === undefined) return undefined;
+  return (p ?? 0) + (c ?? 0);
+}
+
+/**
  * Format a combined token count from a span's prompt + completion tokens. Sums
  * whichever values are present (finite) into a single thousands-separated
  * `'{n} tok'`. Returns '' only when BOTH are absent / non-finite.
  */
 export function formatTokens(prompt, completion) {
-  const p = finite(prompt);
-  const c = finite(completion);
-  if (p === undefined && c === undefined) return '';
-  const total = (p ?? 0) + (c ?? 0);
+  const total = sumTokens(prompt, completion);
+  if (total === undefined) return '';
   return `${total.toLocaleString('en-US')} tok`;
 }
 

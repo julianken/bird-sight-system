@@ -33,7 +33,7 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 JSX_GLOB="${REPO_ROOT}/frontend/src/components"
 ALLOWLIST_FILE="${REPO_ROOT}/.github/orphan-classname-allowlist.yml"
 
