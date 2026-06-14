@@ -16,7 +16,12 @@
 // injected `"><img onerror>` renders as inert text — the same threat model and
 // proof as pretty.test.ts / safe.test.ts.
 //
-// Plain ESM with a named export — importable by the browser (express.static) and
+// This module also exports `rollupTrace` (the per-trace structural reduction the
+// /trace page's tree-root label sums from): total spans + summed tokens / cost /
+// latency over every span, domain-agnostic and with no dependency on the tree
+// builder. See its own doc-comment below.
+//
+// Plain ESM with named exports — importable by the browser (express.static) and
 // by vitest in node (the pretty.js / format.js precedent). PURE: no DOM, no fetch.
 
 import { esc } from './safe.js';
@@ -79,4 +84,70 @@ export function renderTrace(trace) {
   }
   if (spans.length === 0) return '<p class="drawer-empty">No spans</p>';
   return `<div class="trace-spans">${spans.map(renderSpan).join('')}</div>`;
+}
+
+/**
+ * Reduce an OPAQUE trace blob to a per-trace rollup — the totals the tree-root
+ * label shows above the span tree. PURE, domain-agnostic, never throws.
+ *
+ * Self-contained over the raw trace's generic span keys (NO dependency on the
+ * tree builder): for each span it reads `metrics` ELSE the legacy `usage` object
+ * (a span carrying both prefers `metrics`, so a normalized span is never
+ * double-counted against its own legacy mirror) and sums every finite numeric
+ * field via the SAME guard `renderUsage` uses. Latency comes from
+ * `metrics.durationMs` OR `usage.latencyMs`.
+ *
+ * Each field is OMITTED from the result when NO span carried it — so a usage-less
+ * trace rolls up to `{ spanCount }` alone (never `costUsd: 0`). `totalTokens` is
+ * the sum of prompt + completion across spans (the same arithmetic the detail
+ * pane's "Total tokens" row uses), emitted only when at least one is present.
+ *
+ * The flat sum over `trace.spans` is correct for the pinned producer convention
+ * (tokens/cost live ONLY on the judge leaf; eval/task/scorer spans carry none),
+ * so it does not double-count. A non-conforming blob → `{ spanCount: 0 }`.
+ *
+ * @returns {{ spanCount: number, promptTokens?: number, completionTokens?: number, totalTokens?: number, costUsd?: number, latencyMs?: number }}
+ */
+export function rollupTrace(trace) {
+  const spans =
+    trace !== null && typeof trace === 'object' && Array.isArray(trace.spans)
+      ? trace.spans
+      : undefined;
+  if (spans === undefined) return { spanCount: 0 };
+
+  const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+  // A running accumulator: value stays undefined until the first finite addend,
+  // so a field never appears in the result unless some span actually carried it.
+  const add = (acc, v) => (v === undefined ? acc : (acc ?? 0) + v);
+
+  let promptTokens;
+  let completionTokens;
+  let costUsd;
+  let latencyMs;
+
+  for (const span of spans) {
+    const obj = span !== null && typeof span === 'object' ? span : {};
+    // Prefer the canonical `metrics`; fall back to the legacy `usage` mirror.
+    const m = obj.metrics !== null && typeof obj.metrics === 'object' ? obj.metrics : undefined;
+    const u = obj.usage !== null && typeof obj.usage === 'object' ? obj.usage : undefined;
+    const src = m ?? u ?? {};
+
+    promptTokens = add(promptTokens, num(src.promptTokens));
+    completionTokens = add(completionTokens, num(src.completionTokens));
+    costUsd = add(costUsd, num(src.costUsd));
+    // Latency: durationMs (canonical) OR latencyMs (legacy) on the chosen source.
+    latencyMs = add(latencyMs, num(src.durationMs ?? src.latencyMs));
+  }
+
+  const result = { spanCount: spans.length };
+  if (promptTokens !== undefined) result.promptTokens = promptTokens;
+  if (completionTokens !== undefined) result.completionTokens = completionTokens;
+  // totalTokens = prompt + completion, emitted when EITHER is present (the same
+  // sum the detail pane shows — never the absent-when-zero trap).
+  if (promptTokens !== undefined || completionTokens !== undefined) {
+    result.totalTokens = (promptTokens ?? 0) + (completionTokens ?? 0);
+  }
+  if (costUsd !== undefined) result.costUsd = costUsd;
+  if (latencyMs !== undefined) result.latencyMs = latencyMs;
+  return result;
 }
