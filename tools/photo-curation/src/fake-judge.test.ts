@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FakeJudge } from './judge.js';
+import { FakeJudge } from './fake-judge.js';
 import type { ImageInput, SpeciesContext } from '@bird-watch/photo-quality';
 
 const img: ImageInput = { buffer: Buffer.from('x'), mime: 'image/jpeg' };

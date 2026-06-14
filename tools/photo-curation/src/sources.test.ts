@@ -3,7 +3,7 @@ import type Database from 'better-sqlite3';
 import { openDb } from './db.js';
 import { listCandidates, getScoreByHash, upsertCurrentPhoto } from './store.js';
 import { sourceCandidates, scoreAndCacheCandidates } from './sources.js';
-import { FakeJudge } from './judge.js';
+import { FakeJudge } from './fake-judge.js';
 import { makeFakeClock } from './test-clock.js';
 import type { RubricConfig } from '@bird-watch/photo-quality';
 import type { InatCandidate, DenyContext } from '@bird-watch/ingestor';
