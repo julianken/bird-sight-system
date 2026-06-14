@@ -227,6 +227,12 @@ body { margin: 0; font-family: var(--font-stack); font-size: var(--type-base); b
 .trace-node-row { display: flex; align-items: center; gap: 6px; padding: 4px 10px 4px calc(8px + var(--depth) * 16px); border-radius: var(--radius-sm); cursor: pointer; }
 .trace-node-row:hover { background: var(--surface-2); }
 .trace-node[aria-selected="true"] > .trace-node-row { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+/* Keyboard focus ring: the roving-tabindex treeitem (.trace-node <li>) is the
+   single tab stop, so make keyboard focus visible (mouse focus stays quiet via
+   :focus-visible). The outline sits on the row so it tracks the visible band. */
+.trace-node:focus { outline: none; }
+.trace-node:focus-visible { outline: none; }
+.trace-node:focus-visible > .trace-node-row { outline: 2px solid var(--accent); outline-offset: -2px; }
 .trace-twisty { flex: none; width: 16px; padding: 0; border: 0; background: none; color: var(--text-dim); font: inherit; line-height: 1; cursor: pointer; }
 .trace-node-icon { flex: none; color: var(--text-dim); font-size: var(--type-xs); }
 .trace-node-name { font-family: var(--mono-stack); font-size: var(--type-sm); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
