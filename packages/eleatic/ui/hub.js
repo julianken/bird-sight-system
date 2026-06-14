@@ -6,7 +6,9 @@
 //      agreement/falseKeep columns). Each cell is rendered with the per-metric
 //      formatter named in /config.js (percent/usd/integer/raw). A configurable
 //      gate badge ({metric,op,threshold} from /config.js) shows PASS/fail per
-//      run; the run named by `baseline` carries a ★ marker.
+//      run; the run named by `baseline` carries a ★ marker. Each row also carries
+//      an "Explore rows →" link to `/facets?run=<id>` — the single-run path into
+//      the row gallery + drilldown drawer (compare needs two runs; explore one).
 //   2. A "compare 2" affordance: a checkbox per row, exactly two selectable,
 //      enabling a "Compare →" link to `/diff?a=<id>&b=<id>` (the E4 diff route).
 //   3. Inline-SVG trends from `GET /api/trends?metric=<m>`: ONE <polyline> per
@@ -113,7 +115,7 @@ function renderRunsTable() {
                    ${isSel ? 'checked' : ''} ${disabled}
                    aria-label="Select ${esc(run.label)} to compare" />
           </td>
-          <td class="run-label">${esc(run.label)}${isBaseline ? '<span class="baseline-star" title="baseline">★</span>' : ''}<div class="run-id">${esc(run.id)}</div></td>
+          <td class="run-label">${esc(run.label)}${isBaseline ? '<span class="baseline-star" title="baseline">★</span>' : ''}<div class="run-id">${esc(run.id)}</div><a class="explore-link" href="/facets?run=${encodeURIComponent(run.id)}" aria-label="Explore rows of ${esc(run.label)}">Explore rows →</a></td>
           <td>${esc(run.startedAt)}</td>
           <td class="num">${esc(formatMetric(run.rowCount, 'integer'))}</td>
           ${metricCells}

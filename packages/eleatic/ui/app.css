@@ -61,6 +61,8 @@ body { margin: 0; font-family: var(--font-stack); font-size: var(--type-base); b
 .run-label { font-weight: 600; }
 .run-label .baseline-star { color: var(--accent); margin-left: 4px; cursor: help; }
 .run-id { color: var(--text-dim); font-family: var(--mono-stack); font-size: var(--type-xs); }
+.explore-link { display: inline-block; margin-top: 4px; font-weight: 400; font-size: var(--type-xs); color: var(--accent); text-decoration: none; }
+.explore-link:hover { text-decoration: underline; }
 
 /* ── Gate badge ── */
 .gate-badge { display: inline-block; font-weight: 700; font-size: var(--type-xs); padding: 2px 10px; border-radius: 999px; color: #fff; text-transform: uppercase; letter-spacing: .03em; }
