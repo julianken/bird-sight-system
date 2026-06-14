@@ -1,7 +1,7 @@
 import type { AdaptiveTile, ResolvedGrid } from './adaptive-grid.js';
 import { markerDimensions, MIN_MARKER_PX } from '@/components/map/layers/AdaptiveGridMarker.js';
 import { pillDimensions } from '@/components/ds/ClusterPill.js';
-import { countNoun, formatCount } from '../../../lib/format-count.js';
+import { countNoun, formatCount } from '@/lib/format-count.js';
 
 /**
  * Pure post-clustering deconflict layer (issue #554). Resolves visible

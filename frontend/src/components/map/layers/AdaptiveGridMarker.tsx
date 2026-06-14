@@ -2,13 +2,13 @@ import { useState, useId, useRef, useEffect } from 'react';
 import type { MouseEvent as ReactMouseEvent, CSSProperties, KeyboardEvent } from 'react';
 import type { AdaptiveTile, ResolvedGrid } from '@/components/map/geometry/adaptive-grid.js';
 import { visibleCapacity } from '@/components/map/geometry/adaptive-grid.js';
-import { prettyFamily } from '../../../derived.js';
+import { prettyFamily } from '@/derived.js';
 import { FALLBACK_SILHOUETTE_PATH } from '@/components/map/geometry/silhouette-fallback.js';
-import { useMediaQuery } from '../../../hooks/use-media-query.js';
-import { useTheme } from '../../../hooks/use-theme.js';
+import { useMediaQuery } from '@/hooks/use-media-query.js';
+import { useTheme } from '@/hooks/use-theme.js';
 import { CellHoverPreview } from './CellHoverPreview.js';
 import { CellPopover } from './CellPopover.js';
-import { countNoun, formatCount } from '../../../lib/format-count.js';
+import { countNoun, formatCount } from '@/lib/format-count.js';
 import { ClusterListPopover } from './ClusterListPopover.js';
 
 /**
