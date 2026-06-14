@@ -70,7 +70,9 @@ export interface MetricPoint {
 export interface EleaticReader {
   listRuns(): EvalRunRecord[];
   getRun(id: string): EvalRunRecord | undefined;
+  /** Lean list payload — never includes the per-row `trace` blob. */
   getRows(runId: string): EvalRowRecord[];
+  /** The drill-down read — the ONLY surface that returns the optional `trace`. */
   getRow(runId: string, rowKey: string): EvalRowRecord | undefined;
   diffRuns(aRunId: string, bRunId: string): RunDiff[];
   facetRows(runId: string, q: FacetQuery): EvalRowRecord[];
@@ -100,6 +102,7 @@ interface EvalRowDbRow {
   expected_json: string | null;
   scores_json: string | null;
   metadata_json: string | null;
+  trace_json: string | null;
 }
 interface AdjDbRow {
   row_key: string;
@@ -132,6 +135,12 @@ function readRun(row: RunDbRow): EvalRunRecord {
   return rec;
 }
 
+// The SHARED row mapper behind every list/diff path (`getRows`/`facetRows`/
+// `diffRuns`). It deliberately OMITS `trace`: a trace blob can be large, and the
+// gallery/diff payloads carry one record per row at 150–1000-row scale — keeping
+// the heavy blob out of the list responses is the leanness invariant. The single
+// `trace` consumer (`getRow`, the drawer drill-down) layers it back on via
+// `readRowWithTrace` below.
 function readRow(row: EvalRowDbRow): EvalRowRecord {
   const rec: EvalRowRecord = {
     runId: row.run_id,
@@ -146,6 +155,16 @@ function readRow(row: EvalRowDbRow): EvalRowRecord {
   if (scores !== undefined) rec.scores = scores;
   const metadata = parseJson<Record<string, string | number | boolean>>(row.metadata_json);
   if (metadata !== undefined) rec.metadata = metadata;
+  return rec;
+}
+
+// The single-row mapper: `readRow` plus the optional `trace` blob. Only `getRow`
+// uses this, so the trace never bloats the list/diff payloads above. NULL → an
+// ABSENT `trace` key (exactOptionalPropertyTypes), never `undefined` assigned.
+function readRowWithTrace(row: EvalRowDbRow): EvalRowRecord {
+  const rec = readRow(row);
+  const trace = parseJson<unknown>(row.trace_json);
+  if (trace !== undefined) rec.trace = trace;
   return rec;
 }
 
@@ -306,7 +325,9 @@ export function makeReader(db: Database.Database): EleaticReader {
     getRows,
     getRow(runId, rowKey) {
       const row = getRowStmt.get(runId, rowKey) as EvalRowDbRow | undefined;
-      return row === undefined ? undefined : readRow(row);
+      // The ONLY path that surfaces `trace` — the drawer drill-down. List/diff
+      // paths use the lean `readRow` so the heavy blob never rides the gallery.
+      return row === undefined ? undefined : readRowWithTrace(row);
     },
     diffRuns(aRunId, bRunId) {
       const byKey = new Map<string, RunDiff>();
