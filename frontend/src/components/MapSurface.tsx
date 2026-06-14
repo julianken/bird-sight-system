@@ -10,7 +10,7 @@ import { ErrorBoundary } from './ErrorBoundary.js';
 /**
  * Lazy-loaded MapCanvas. The React.lazy() boundary lives HERE — not inside
  * MapCanvas — so the ~1,028 kB raw / ~273 kB gzip maplibre-gl chunk (see
- * docs/perf/dist-chunk-baseline.md) is fetched only when MapCanvas FIRST
+ * docs/notes/dist-chunk-baseline.md) is fetched only when MapCanvas FIRST
  * RENDERS, not merely when this module is imported. The unscoped chooser
  * landing therefore never pays the chunk cost.
  */

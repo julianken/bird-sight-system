@@ -280,9 +280,9 @@ A user types a 5-digit ZIP → the map clips to the ZIP's CONUS state (via `?sta
 
 ### Task D3: lazy-fetch + in-memory-cache lookup module
 
-**Files:** Create `frontend/src/data/zip-lookup.ts`, `zip-lookup.test.ts`, `docs/decisions/zip-delivery.md`
+**Files:** Create `frontend/src/data/zip-lookup.ts`, `zip-lookup.test.ts`, `docs/notes/zip-delivery.md`
 
-- [ ] **Step 1:** Record the static-asset-over-proxy decision in `docs/decisions/zip-delivery.md` (CDN-cached flat file vs a read-api proxy that adds a route + Cloud SQL round-trip + rate-limit surface for zero benefit — rejected). **Vite does NOT content-hash `public/` files** → append `?v=<datasetVersion>` to the fetch URL to bust the edge/browser cache on regeneration.
+- [ ] **Step 1:** Record the static-asset-over-proxy decision in `docs/notes/zip-delivery.md` (CDN-cached flat file vs a read-api proxy that adds a route + Cloud SQL round-trip + rate-limit surface for zero benefit — rejected). **Vite does NOT content-hash `public/` files** → append `?v=<datasetVersion>` to the fetch URL to bust the edge/browser cache on regeneration.
 - [ ] **Step 2:** `loadZipIndex()` returns a **memoized** `Promise<ZipIndex>` (concurrent callers share one fetch; on rejection **clear the memo** so a later focus retries). `lookupZip(zip5)`: normalize (trim, strip `-####`, must match `/^\d{5}$/` else return `null` **without fetching**), await the index, return `{ zip, center:[lng,lat], stateCode }` or `null`.
 - [ ] **Step 3: Test** (stubbed `fetch`): single-flight memo (2 concurrent calls → 1 fetch); retry-after-failure; `'85701'`→AZ resolution; `'abc'|'123'|''`→null with **no fetch**; `'85701-1234'`→strips +4; plus a build-output assertion that `zip-index` is **not** inlined in the Vite entry chunk. Run → green. Commit.
 

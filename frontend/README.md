@@ -64,7 +64,7 @@ anchors and this README is deliberately thin to avoid drifting against them.
   four-corner anchor contract, the canonical 5-viewport set, the Playwright
   MCP UI-verification protocol, the E2E spec-authoring conventions, and the
   PR workflow. Read this before touching visible UI.
-- **`../docs/design/2026-05-30-floating-ui-design-spec.md`** — the design
+- **`../docs/design/standalone/2026-05-30-floating-ui-design-spec.md`** — the design
   authority for the map-first floating-UI system (anchors, tokens, elevation,
   popover/detail/filters behavior).
 - **`../docs/specs/2026-04-16-bird-watch-design.md`** — the original system
