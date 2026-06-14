@@ -53,6 +53,57 @@ export interface EvalRowRecord {
   trace?: unknown;
 }
 
+/**
+ * The conventional TREE layout layered over the opaque `trace_json` blob.
+ *
+ * DOCUMENTATION types only: they describe the shape `buildTraceTree`
+ * (ui/trace-tree.js) reconstructs a tree from, and the shape the photo-curation
+ * producer emits. They DO NOT retype `EvalRowRecord.trace`, which STAYS
+ * `trace?: unknown` so legacy + non-conforming blobs still round-trip unchanged.
+ * A producer MAY locally type its trace value as `EvalTrace`; the store and the
+ * read path remain blob-opaque.
+ *
+ * A span is keyed by `id` and points at its parent by `parentId` (null = a
+ * root). `kind` is free-form and producer-owned — eleatic STYLES by it but never
+ * branches on its semantics. `metrics` is the canonical camelCase metrics object
+ * new producers emit; a legacy span instead carries `usage` (latencyMs, …),
+ * which `buildTraceTree` normalizes to a node's `metrics` at its single mapping
+ * point (latencyMs→durationMs the only rename) — renderers read the node's
+ * normalized metrics, never `span.usage`.
+ */
+export interface EvalSpan {
+  /** Stable within the trace; the tree key. */
+  id: string;
+  /** null = a root; else the id of a sibling span. */
+  parentId: string | null;
+  /** Node label (icon · name in the tree pane). */
+  name: string;
+  /** Free-form, producer-owned: "eval" | "task" | "llm" | "scorer" | … */
+  kind?: string;
+  /** Pretty-printed in the right pane (opaque). */
+  input?: unknown;
+  /** Pretty-printed in the right pane (opaque). */
+  output?: unknown;
+  /** Canonical metrics object (camelCase). New producers emit this. */
+  metrics?: {
+    startMs?: number;
+    durationMs?: number;
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+    costUsd?: number;
+  };
+  /** A scorer leaf carries its score here. */
+  scores?: Record<string, number>;
+  /** Free-form, producer-owned. */
+  status?: string;
+}
+
+/** The `{ spans }` envelope — the SAME `spans` key as today's flat trace. */
+export interface EvalTrace {
+  spans: EvalSpan[];
+}
+
 /** A human verdict on an item, run-independent. Maps to the `eval_adjudication` table. */
 export interface EvalAdjudicationRecord {
   rowKey: string;

@@ -5,46 +5,46 @@ import type { LngLatBounds } from 'maplibre-gl';
 // `CONUS_BOUNDS` (nested `[[w,s],[e,n]]`) for the camera below; this flat geo
 // one seeds the initial `/api/observations` bbox so it lands on the warmed key.
 import { CONUS_BOUNDS as GEO_CONUS_BOUNDS } from '@bird-watch/geo';
-import { analytics } from './analytics.js';
-import { ApiClient, ApiError } from './api/client.js';
-import { useUrlState, DEFAULTS } from './state/url-state.js';
-import type { Scope } from './state/url-state.js';
-import type { ScopeResolution } from './state/scope-types.js';
-import { useBirdData } from './data/use-bird-data.js';
-import { useSilhouettes } from './data/use-silhouettes.js';
-import { useSpeciesDictionary } from './data/use-species-dictionary.js';
-import { useSpeciesInScope, type SpeciesScopeFilters } from './data/use-species-in-scope.js';
-import { useStates } from './data/use-states.js';
+import { analytics } from '@/analytics.js';
+import { ApiClient, ApiError } from '@/api/client.js';
+import { useUrlState, DEFAULTS } from '@/state/url-state.js';
+import type { Scope } from '@/state/url-state.js';
+import type { ScopeResolution } from '@/state/scope-types.js';
+import { useBirdData } from '@/data/use-bird-data.js';
+import { useSilhouettes } from '@/data/use-silhouettes.js';
+import { useSpeciesDictionary } from '@/data/use-species-dictionary.js';
+import { useSpeciesInScope, type SpeciesScopeFilters } from '@/data/use-species-in-scope.js';
+import { useStates } from '@/data/use-states.js';
 import {
   familyCountsFromBuckets,
   totalCountFromBuckets,
-} from './data/bucket-aggregates.js';
-import { useStatePolygon } from './data/state-polygons.js';
-import { useSpeciesDetail } from './data/use-species-detail.js';
+} from '@/data/bucket-aggregates.js';
+import { useStatePolygon } from '@/data/state-polygons.js';
+import { useSpeciesDetail } from '@/data/use-species-detail.js';
 // ARTBOARD_PAD lives in the map's mask util but mask.ts imports only `geojson`
 // *types* (erased at build), so this does NOT pull the lazy maplibre chunk into
 // the entry bundle — App owns the scope→clampPad derivation (#760/#762).
-import { ARTBOARD_PAD } from './components/map/mask.js';
-import { FiltersBar } from './components/FiltersBar.js';
-import type { FamilyOption, SpeciesOption } from './components/FiltersBar.js';
-import { FamilyLegend } from './components/FamilyLegend.js';
-import { MapSurface } from './components/MapSurface.js';
-import { ScopeChooser } from './components/ScopeChooser.js';
-import { SpeciesDetailRail } from './components/SpeciesDetailRail.js';
-import { SpeciesDetailSheet } from './components/SpeciesDetailSheet.js';
-import type { SnapState } from './components/SpeciesDetailSheet.js';
-import { AppHeader } from './components/AppHeader.js';
-import { useIsCompact } from './lib/use-is-compact.js';
-import { useBreakpoint } from './hooks/use-breakpoint.js';
-import { AttributionModal } from './components/AttributionModal.js';
-import { resolveFamilyName } from './derived.js';
-import { filterObservationsByBounds, filterBucketsByBounds } from './lib/viewport-filter.js';
-import { regionLabelFor } from './config/region.js';
-import { prefetchMapCanvas } from './prefetch.js';
-import { SurfaceTitleSync } from './components/SurfaceTitleSync.js';
-import { StatusBlock } from './components/ds/StatusBlock.js';
-import { SheetHeader } from './components/ds/SheetHeader.js';
-import { craftLede } from './lede.js';
+import { ARTBOARD_PAD } from '@/components/map/geometry/mask.js';
+import { FiltersBar } from '@/components/FiltersBar.js';
+import type { FamilyOption, SpeciesOption } from '@/components/FiltersBar.js';
+import { FamilyLegend } from '@/components/FamilyLegend.js';
+import { MapSurface } from '@/components/MapSurface.js';
+import { ScopeChooser } from '@/components/ScopeChooser.js';
+import { SpeciesDetailRail } from '@/components/SpeciesDetailRail.js';
+import { SpeciesDetailSheet } from '@/components/SpeciesDetailSheet.js';
+import type { SnapState } from '@/components/SpeciesDetailSheet.js';
+import { AppHeader } from '@/components/AppHeader.js';
+import { useIsCompact } from '@/lib/use-is-compact.js';
+import { useBreakpoint } from '@/hooks/use-breakpoint.js';
+import { AttributionModal } from '@/components/AttributionModal.js';
+import { resolveFamilyName } from '@/derived.js';
+import { filterObservationsByBounds, filterBucketsByBounds } from '@/lib/viewport-filter.js';
+import { regionLabelFor } from '@/config/region.js';
+import { prefetchMapCanvas } from '@/prefetch.js';
+import { SurfaceTitleSync } from '@/components/SurfaceTitleSync.js';
+import { StatusBlock } from '@/components/ds/StatusBlock.js';
+import { SheetHeader } from '@/components/ds/SheetHeader.js';
+import { craftLede } from '@/lede.js';
 
 const apiClient = new ApiClient({ baseUrl: import.meta.env.VITE_API_BASE_URL ?? '' });
 

@@ -7,7 +7,7 @@ import type { ZipResolution } from '../state/scope-types.js';
  * (~1 MB, regenerated only when the ETL re-runs), so it ships as a flat file
  * in `public/` and is CDN-cached. A read-api proxy would add a route, a Cloud
  * SQL round-trip, and a rate-limit surface for zero benefit — rejected. See
- * `docs/decisions/zip-delivery.md`.
+ * `docs/notes/zip-delivery.md`.
  *
  * Delivery mechanics (load-bearing):
  *   - The asset is fetched at RUNTIME, never `import`ed — so Vite never inlines

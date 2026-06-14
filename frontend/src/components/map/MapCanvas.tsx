@@ -11,13 +11,13 @@ import {
 import type { MapLayerMouseEvent, MapRef } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { AggregatedBucket, Observation } from '@bird-watch/shared-types';
-import { BASEMAP_LIGHT, BASEMAP_DARK } from './basemap-style.js';
-import { INITIAL_VIEW, MIN_ZOOM } from './camera-config.js';
+import { BASEMAP_LIGHT, BASEMAP_DARK } from './geometry/basemap-style.js';
+import { INITIAL_VIEW, MIN_ZOOM } from './geometry/camera-config.js';
 import {
   buildMaskFeature,
   MASK_FILL_LIGHT,
   MASK_FILL_DARK,
-} from './mask.js';
+} from './geometry/mask.js';
 import {
   observationsToGeoJson,
   bucketsToGeoJson,
@@ -29,26 +29,26 @@ import {
   CLUSTER_MAX_ZOOM,
   CLUSTER_RADIUS,
   FALLBACK_SILHOUETTE_ID,
-} from './observation-layers.js';
+} from './geometry/observation-layers.js';
 import { mergeLeafBuckets } from '../../data/bucket-aggregates.js';
 import type { SpeciesDictionary } from '../../data/use-species-dictionary.js';
-import { ObservationPopover } from './ObservationPopover.js';
-import { ClusterListPopover } from './ClusterListPopover.js';
+import { ObservationPopover } from './layers/ObservationPopover.js';
+import { ClusterListPopover } from './layers/ClusterListPopover.js';
 import { StatusBlock } from '../ds/StatusBlock.js';
 // Marker render-tree dispatch extracted to two presentational layers
 // (epic #884 · U11 / #896). MapCanvas keeps every handler + derived state and
 // threads them as props; the layers hold no map ref and render only.
 // `AdaptiveGridMarker`, `PresentationMarker`, `ClusterPill`, `MapMarkerHitLayer`
 // and the `SILHOUETTE_PX` constant now live in those layers, not here.
-import { GroupMarkerLayer } from './GroupMarkerLayer.js';
-import { DisplacedSilhouetteLayer } from './DisplacedSilhouetteLayer.js';
-import { registerSilhouetteSprite } from './silhouette-sprite.js';
-import { useSilhouetteCatalogue } from './use-silhouette-catalogue.js';
-import { useMapResize } from './use-map-resize.js';
-import { useScopeCamera } from './use-scope-camera.js';
-import { useStateArtboard } from './use-state-artboard.js';
-import { sanitizeNullNumericFilters } from './basemap-null-filter.js';
-import { enforceDarkLabelContrast } from './basemap-label-contrast.js';
+import { GroupMarkerLayer } from './layers/GroupMarkerLayer.js';
+import { DisplacedSilhouetteLayer } from './layers/DisplacedSilhouetteLayer.js';
+import { registerSilhouetteSprite } from './geometry/silhouette-sprite.js';
+import { useSilhouetteCatalogue } from './hooks/use-silhouette-catalogue.js';
+import { useMapResize } from './hooks/use-map-resize.js';
+import { useScopeCamera } from './hooks/use-scope-camera.js';
+import { useStateArtboard } from './hooks/use-state-artboard.js';
+import { sanitizeNullNumericFilters } from './geometry/basemap-null-filter.js';
+import { enforceDarkLabelContrast } from './geometry/basemap-label-contrast.js';
 import {
   aggregateClusterFamilies,
   aggregateClusterSpecies,
@@ -58,18 +58,18 @@ import {
   type ClusterLeafFeature,
   type FamilyAggregate,
   type SpeciesAggregate,
-} from './adaptive-grid.js';
-import { type HitTargetMarker } from './MapMarkerHitLayer.js';
+} from './geometry/adaptive-grid.js';
+import { type HitTargetMarker } from './layers/MapMarkerHitLayer.js';
 import {
   hashSubId,
   type DeconflictGroup,
   type DeconflictInput,
-} from './deconflict.js';
+} from './geometry/deconflict.js';
 // Reconciler pure middle (deconflict → displace → unproject → feature-state
 // diff) extracted to reconcile-viewport.ts (epic #884 · U10, #895). The shell
 // in the adaptive-grid reconciler effect below assembles `inputs` (owning both
 // `map.project` calls), calls this with an injected `unproject`, then commits.
-import { reconcileToGroups } from './reconcile-viewport.js';
+import { reconcileToGroups } from './geometry/reconcile-viewport.js';
 import { resolveFamilyName } from '../../derived.js';
 // Pure observation derives extracted to obs-derive.ts (epic #884 · U8, #892).
 // The fresh-closure `obsLookupRef` latch below stays in the component (it's
@@ -78,7 +78,7 @@ import {
   buildObsLookup,
   buildSilhouetteRenderById,
   buildHitMarkers,
-} from './obs-derive.js';
+} from './geometry/obs-derive.js';
 // Type-only declarations extracted to MapCanvas.types.ts (epic #884, U1 / #885).
 // `MapCanvasProps` is re-exported from there and back-imported here; this keeps
 // the export knip-clean (its in-file consumer at the destructuring below is
@@ -186,7 +186,7 @@ export const BASEMAP_ERROR_THRESHOLD = 5;
 // the exact current-theme URL without re-literaling the OpenFreeMap endpoints
 // (single source of truth = basemap-style.ts). These are pass-through aliases of
 // the basemap-style.ts exports already imported above.
-export { BASEMAP_LIGHT, BASEMAP_DARK } from './basemap-style.js';
+export { BASEMAP_LIGHT, BASEMAP_DARK } from './geometry/basemap-style.js';
 
 /**
  * The maplibre `error` event payload as react-map-gl surfaces it

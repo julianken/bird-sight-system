@@ -370,7 +370,7 @@ body {
 }
 
 /* ── AppHeader — two floating corner clusters (#800 / #779 / #761) ──────────
-   Design spec: docs/design/2026-05-30-floating-ui-design-spec.md §4.1–4.3.
+   Design spec: docs/design/standalone/2026-05-30-floating-ui-design-spec.md §4.1–4.3.
 
    The old full-width top bar (position:fixed; left:0; right:0; border-bottom)
    is replaced by two independent tier-1 floating cards over the edge-to-edge

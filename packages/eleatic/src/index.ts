@@ -11,6 +11,9 @@
 // --- Write store (E1) ---
 export { openStore, EleaticStore } from './store.js';
 export type { EvalRunRecord, EvalRowRecord, EvalAdjudicationRecord } from './types.js';
+// Doc types for the conventional tree layered over the opaque trace blob (the
+// trace-tree epic). Additive — EvalRowRecord.trace stays `trace?: unknown`.
+export type { EvalSpan, EvalTrace } from './types.js';
 
 // --- Read query API (E2) ---
 export { makeReader } from './queries.js';
