@@ -265,7 +265,7 @@ describe('isPrecomputeEligible positive predicate (#878)', () => {
     // `since` is typed to 1d/7d/14d, but the API layer parses raw query strings —
     // a future/typo window must fall through to the live CTE, not silently read a
     // non-existent grid scope. Cast to exercise the runtime allowlist.
-    const f = { since: '30d' } as Parameters<typeof isPrecomputeEligible>[0];
+    const f = { since: '30d' } as unknown as Parameters<typeof isPrecomputeEligible>[0];
     expect(isPrecomputeEligible(f, 2)).toBe(false);
   });
 

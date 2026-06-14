@@ -760,6 +760,13 @@ export async function refreshGridAgg(pool: Pool): Promise<number> {
     const windowsValues = PRECOMPUTED_SINCE_DAYS
       .map(d => `(${d}::int, '${scopeSinceSuffix(d)}')`)
       .join(', ');
+    // The `recent` span MUST cover the widest precomputed window, else that
+    // window's grid would silently carry truncated data (a hypothetical 30d
+    // window over a 14d `recent` = 14d of rows, not empty → no live fallback).
+    // Derive it from the same constant so the two can't drift if the window set
+    // grows. (DEFAULT_SINCE_DAYS must likewise stay ∈ PRECOMPUTED_SINCE_DAYS so
+    // the bare 14d key is populated — the 14d byte-identity test guards that.)
+    const recentSpanDays = Math.max(...PRECOMPUTED_SINCE_DAYS);
     const result = await client.query<{ n: string }>(
       `
       WITH recent AS (
@@ -773,7 +780,7 @@ export async function refreshGridAgg(pool: Pool): Promise<number> {
         FROM observations o
         LEFT JOIN species_meta sm ON sm.species_code = o.species_code
         LEFT JOIN family_silhouettes fs ON fs.family_code = sm.family_code
-        WHERE o.obs_dt >= now() - (14 * interval '1 day')
+        WHERE o.obs_dt >= now() - (${recentSpanDays} * interval '1 day')
       ),
       mult(grid_multiplier) AS (
         VALUES (2::int), (4::int), (8::int)
