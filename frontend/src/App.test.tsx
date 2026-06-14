@@ -52,6 +52,7 @@ const {
   mockGetObservations,
   mockGetSilhouettes,
   mockGetStates,
+  mockGetSpeciesDictionary,
   mockUrlState,
   mapSurfaceRef,
   mockPrefetchMapCanvas,
@@ -60,6 +61,10 @@ const {
   mockGetHotspots: vi.fn(),
   mockGetObservations: vi.fn(),
   mockGetSilhouettes: vi.fn(),
+  // #1175: controllable species dictionary so the lede suite can SEED it and
+  // assert the aggregated-mode species qualifier resolves from the dictionary
+  // (a cold dictionary would silently assert the fallback, not the fix).
+  mockGetSpeciesDictionary: vi.fn(),
   // O9 (#781): spy on the scope-gated MapCanvas chunk prefetch. App must call
   // it on a scoped landing + each scope-pick, and NEVER on the unscoped
   // chooser landing (the #740/C6 fetch-light landing guarantee).
@@ -115,6 +120,11 @@ const {
     scopeControl: 0,
   },
 }));
+
+// Global default for the species dictionary: empty (the prior class-field
+// default). vi.restoreAllMocks() does NOT reset a plain vi.fn(), so this persists
+// across suites; only tests that explicitly seed it (the #1175 lede case) differ.
+mockGetSpeciesDictionary.mockResolvedValue([]);
 
 // Stub url-state before App imports it. #738: App now imports the exported
 // DEFAULTS to compute `noFiltersActive` (`since === DEFAULTS.since`), so the
@@ -268,11 +278,10 @@ vi.mock('./api/client.js', async () => {
       getSpecies = vi.fn().mockResolvedValue({
         speciesCode: 'vermfly', comName: 'Vermilion Flycatcher', sciName: 'Pyrocephalus rubinus',
       });
-      // #859: App mounts useSpeciesDictionary → client.getSpeciesDictionary.
-      // Stub it (resolves an empty dictionary) so the hook doesn't throw; the
-      // dictionary only affects low-zoom popover NAME resolution, which these
-      // scope/legend/lede tests don't assert on.
-      getSpeciesDictionary = vi.fn().mockResolvedValue([]);
+      // #859/#1175: App mounts useSpeciesDictionary → client.getSpeciesDictionary.
+      // Routed through the hoisted mock (default []) so the lede suite can seed it
+      // to assert the aggregated-mode species qualifier (#1175).
+      getSpeciesDictionary = mockGetSpeciesDictionary;
       // #species: App mounts useSpeciesInScope → client.getSpeciesInScope to
       // source the FiltersBar combobox. Stub it (empty represented set) so the
       // hook doesn't throw; these scope/legend/lede tests don't assert on the
@@ -2500,6 +2509,7 @@ describe('#828: lede dedupe — count-only copy, no region, no time-window', () 
     mockGetHotspots.mockResolvedValue([]);
     mockGetSilhouettes.mockResolvedValue([]);
     mockGetStates.mockResolvedValue(STATES);
+    mockGetSpeciesDictionary.mockResolvedValue([]); // #1175: seeded per-test below
     mockUrlState.set.mockClear();
   });
 
@@ -2614,6 +2624,41 @@ describe('#828: lede dedupe — count-only copy, no region, no time-window', () 
     expect(lede).not.toHaveTextContent(/seen across/i);
     expect(lede).not.toHaveTextContent(/Arizona/i);
     expect(lede).not.toHaveTextContent(/in the last/i);
+  });
+
+  // #1175: in AGGREGATED mode there are no per-observation rows, so the species
+  // name cannot come from `observations[0].comName`. With an active species
+  // filter the lede must still name it, resolved from the SEEDED dictionary.
+  // (The dictionary is seeded here precisely so this asserts the FIX path — a
+  // cold dictionary would fall through and silently assert the bare-count path.)
+  it('Aggregated mode + active species filter (T2, #1175): names the filtered species from the dictionary', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: 'norcar', familyCode: null,
+      view: 'map', scope: { kind: 'us' },
+    };
+    mockGetSpeciesDictionary.mockResolvedValue([
+      { code: 'norcar', comName: 'Northern Cardinal', familyCode: 'cardinalidae' },
+    ]);
+    mockGetObservations.mockResolvedValue({
+      mode: 'aggregated',
+      buckets: [
+        {
+          lat: 38.0, lng: -97.0, count: 1823, speciesCount: 1,
+          families: [{
+            code: 'cardinalidae', count: 1823, speciesCount: 1,
+            species: [{ code: 'norcar', count: 1823 }],
+          }],
+        },
+      ],
+      meta: { freshestObservationAt: new Date().toISOString() },
+    });
+    render(<App />);
+    const lede = await screen.findByTestId('map-lede');
+    await waitFor(() =>
+      expect(lede).toHaveTextContent('1,823 sightings of Northern Cardinal'),
+    );
+    // The fix names the active FILTER, not a distinct-species COUNT (#1047).
+    expect(lede).not.toHaveTextContent(/species/i);
   });
 
   it('Single species (T2): "{N} sightings of {commonName}" — no region, no window', async () => {
