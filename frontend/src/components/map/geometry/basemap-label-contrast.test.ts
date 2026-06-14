@@ -1,11 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
+import { enforceDarkLabelContrast } from './basemap-label-contrast.js';
 import {
-  enforceDarkLabelContrast,
-  ROAD_TEXT,
-  PLACE_TEXT,
-  WATER_TEXT,
-} from './basemap-label-contrast.js';
-import { THEME_REGISTRY } from './basemap-style.js';
+  THEME_REGISTRY,
+  resolveDescriptor,
+  type BasemapDescriptor,
+} from './basemap-style.js';
 
 /* ──────────────────────────────────────────────────────────────────────────
    #1128 — dark-mode basemap label contrast.
@@ -22,10 +21,16 @@ import { THEME_REGISTRY } from './basemap-style.js';
      place_other/suburb/village/town/city/city_large/state  rgb(101,101,101) 3.36
      place_country_other/minor/major                        rgb(101,101,101) 3.36
 
-   `enforceDarkLabelContrast(map)` recolors only the FAILING symbol layers on a
-   GENUINELY-DARK canvas (fail-open: total no-op on the light positron style),
-   to an AA-passing LIGHT text + dark halo, preserving the light-style hierarchy
-   (roads brightest, place a notch muted, water tinted). Idempotent + fails open.
+   #1214 (C2) refactors `enforceDarkLabelContrast(map, descriptor)` to take an
+   injected `BasemapDescriptor`: it gates the STYLE-LEVEL no-op on
+   `descriptor.kind === 'dark'` (replacing the background-luminance read),
+   sources the recolor palette from `descriptor.darkLabelTextColors`, and
+   detects labels via `isLabelLayer` (which also excludes the app's own
+   `observations` symbol layers). The PER-LAYER measured-contrast gate
+   (`contrastFromRgb(current, landRgb) >= AA`) STAYS — `descriptor.landColor` is
+   the declared canvas the measurement runs against. Behavior-preserving for the
+   BASEMAP labels (byte-identical paint writes), with a deliberate, test-backed
+   exclusion of observation symbol layers.
    ────────────────────────────────────────────────────────────────────────── */
 
 const AA = 4.5;
@@ -93,6 +98,18 @@ function contrast(a: string, b: string): number {
 
 const DARK_BG = 'rgb(12,12,12)';
 
+/** The registered `dark` descriptor — the production input under test. */
+const DARK_DESCRIPTOR = resolveDescriptor('dark');
+/** The registered `positron` (light) descriptor — drives the kind no-op. */
+const POSITRON_DESCRIPTOR = resolveDescriptor('positron');
+
+/**
+ * The exact dark-label palette, read from the descriptor (never mirrored): the
+ * recolor reads `descriptor.darkLabelTextColors`, so an edit to any tier is
+ * audited here automatically.
+ */
+const { road: ROAD, place: PLACE, water: WATER } = DARK_DESCRIPTOR.darkLabelTextColors!;
+
 /** The 13 dark-style symbol layers that carry a text-field, at real colors. */
 const DARK_LABEL_LAYERS: Array<{ id: string; textColor: string; haloWidth?: number }> = [
   { id: 'highway_name_motorway', textColor: 'hsl(0, 0%, 37%)' },
@@ -113,6 +130,7 @@ const DARK_LABEL_LAYERS: Array<{ id: string; textColor: string; haloWidth?: numb
 interface FakeLayer {
   id: string;
   type: string;
+  source?: string;
   layout: Record<string, unknown>;
   paint: Record<string, unknown>;
 }
@@ -121,14 +139,23 @@ interface FakeLayer {
  * A maplibre map backed by an in-memory layer list with `getStyle`,
  * `getPaintProperty`, `getLayoutProperty`, `setPaintProperty` spies — mirrors
  * the surface `enforceDarkLabelContrast` touches (and the pattern in
- * basemap-null-filter.test.ts / artboard-layers.test.ts).
+ * basemap-null-filter.test.ts / artboard-layers.test.ts). `getStyle().layers`
+ * carries `source` + `layout` so the helper can feed `isLabelLayer` the same
+ * per-layer object it iterates.
  */
 function makeMockMap(layers: FakeLayer[]) {
   const byId = Object.fromEntries(layers.map((l) => [l.id, l]));
   return {
     layers,
     byId,
-    getStyle: vi.fn(() => ({ layers: layers.map((l) => ({ id: l.id, type: l.type })) })),
+    getStyle: vi.fn(() => ({
+      layers: layers.map((l) => ({
+        id: l.id,
+        type: l.type,
+        source: l.source,
+        layout: l.layout,
+      })),
+    })),
     getPaintProperty: vi.fn((id: string, name: string) => byId[id]?.paint[name]),
     getLayoutProperty: vi.fn((id: string, name: string) => byId[id]?.layout[name]),
     setPaintProperty: vi.fn((id: string, name: string, value: unknown) => {
@@ -189,7 +216,7 @@ describe('enforceDarkLabelContrast — AA after fix (dark canvas)', () => {
   it('lifts EVERY text-field label layer to ≥ 4.5 contrast vs the dark canvas', () => {
     const map = makeMockMap(darkFixture());
 
-    enforceDarkLabelContrast(map as never);
+    enforceDarkLabelContrast(map as never, DARK_DESCRIPTOR);
 
     for (const { id } of DARK_LABEL_LAYERS) {
       const color = map.byId[id].paint['text-color'] as string;
@@ -201,9 +228,30 @@ describe('enforceDarkLabelContrast — AA after fix (dark canvas)', () => {
     }
   });
 
+  it('writes the exact per-tier descriptor colors (byte-identical to today)', () => {
+    const map = makeMockMap(darkFixture());
+
+    enforceDarkLabelContrast(map as never, DARK_DESCRIPTOR);
+
+    // Road tier.
+    expect(map.byId['highway_name_motorway'].paint['text-color']).toBe(ROAD);
+    expect(map.byId['highway_name_other'].paint['text-color']).toBe(ROAD);
+    // Water tier.
+    expect(map.byId['water_name'].paint['text-color']).toBe(WATER);
+    // Place tier (default).
+    expect(map.byId['place_city'].paint['text-color']).toBe(PLACE);
+    expect(map.byId['place_country_major'].paint['text-color']).toBe(PLACE);
+
+    // The descriptor carries today's exact values — the refactor is behavior-
+    // preserving for the basemap labels.
+    expect(ROAD).toBe('#d8d8d8');
+    expect(PLACE).toBe('#c4c4c4');
+    expect(WATER).toBe('#9db4d8');
+  });
+
   it('sets a DARK halo and a readable halo-width on every recolored label', () => {
     const map = makeMockMap(darkFixture());
-    enforceDarkLabelContrast(map as never);
+    enforceDarkLabelContrast(map as never, DARK_DESCRIPTOR);
     for (const { id } of DARK_LABEL_LAYERS) {
       const halo = map.byId[id].paint['text-halo-color'] as string;
       // Halo must be dark so the light text separates from light features too.
@@ -214,7 +262,7 @@ describe('enforceDarkLabelContrast — AA after fix (dark canvas)', () => {
 
   it('does NOT use pure white for any label (avoid glare)', () => {
     const map = makeMockMap(darkFixture());
-    enforceDarkLabelContrast(map as never);
+    enforceDarkLabelContrast(map as never, DARK_DESCRIPTOR);
     for (const { id } of DARK_LABEL_LAYERS) {
       const color = (map.byId[id].paint['text-color'] as string).toLowerCase();
       expect(['#ffffff', '#fff', 'rgb(255,255,255)', 'rgb(255, 255, 255)']).not.toContain(color);
@@ -223,7 +271,7 @@ describe('enforceDarkLabelContrast — AA after fix (dark canvas)', () => {
 
   it('leaves symbol layers WITHOUT a text-field untouched', () => {
     const map = makeMockMap(darkFixture());
-    enforceDarkLabelContrast(map as never);
+    enforceDarkLabelContrast(map as never, DARK_DESCRIPTOR);
     expect(map.setPaintProperty.mock.calls.some((c) => c[0] === 'poi_icon')).toBe(false);
     expect(map.setPaintProperty.mock.calls.some((c) => c[0] === 'water')).toBe(false);
     expect(map.setPaintProperty.mock.calls.some((c) => c[0] === 'background')).toBe(false);
@@ -252,7 +300,7 @@ describe('enforceDarkLabelContrast — halo-width bump on the neediest labels', 
     ];
     const map = makeMockMap(layers);
 
-    enforceDarkLabelContrast(map as never);
+    enforceDarkLabelContrast(map as never, DARK_DESCRIPTOR);
 
     // Read back the value the fake map actually stored.
     expect(map.byId['place_city'].paint['text-halo-width']).toBe(1);
@@ -278,7 +326,7 @@ describe('enforceDarkLabelContrast — halo-width bump on the neediest labels', 
     // Precondition: the property really is undefined before the call.
     expect(map.byId['place_city'].paint['text-halo-width']).toBeUndefined();
 
-    enforceDarkLabelContrast(map as never);
+    enforceDarkLabelContrast(map as never, DARK_DESCRIPTOR);
 
     expect(map.byId['place_city'].paint['text-halo-width']).toBe(1);
     expect(map.byId['place_city'].paint['text-halo-width'] as number).toBeGreaterThanOrEqual(1);
@@ -300,7 +348,7 @@ describe('enforceDarkLabelContrast — halo-width bump on the neediest labels', 
     ];
     const map = makeMockMap(layers);
 
-    enforceDarkLabelContrast(map as never);
+    enforceDarkLabelContrast(map as never, DARK_DESCRIPTOR);
 
     // Untouched: the bump must not clobber a wider halo down to 1.
     expect(map.byId['place_city'].paint['text-halo-width']).toBe(2);
@@ -312,24 +360,181 @@ describe('enforceDarkLabelContrast — halo-width bump on the neediest labels', 
   });
 });
 
-describe('enforceDarkLabelContrast — fail-open on the light style', () => {
+describe('enforceDarkLabelContrast — kind gate (style-level no-op)', () => {
+  it('makes ZERO setPaintProperty calls for a LIGHT-kind (positron) descriptor', () => {
+    // Even on a (hypothetically) dark canvas, a light-kind descriptor is a
+    // total no-op: the style-level gate is `descriptor.kind !== 'dark'`, NOT a
+    // background-luminance read.
+    const map = makeMockMap(darkFixture());
+    enforceDarkLabelContrast(map as never, POSITRON_DESCRIPTOR);
+    expect(map.setPaintProperty).not.toHaveBeenCalled();
+  });
+
   it('makes ZERO setPaintProperty calls on the positron (light) style', () => {
     const map = makeMockMap(lightFixture());
-    enforceDarkLabelContrast(map as never);
+    enforceDarkLabelContrast(map as never, POSITRON_DESCRIPTOR);
     expect(map.setPaintProperty).not.toHaveBeenCalled();
+  });
+});
+
+describe('enforceDarkLabelContrast — per-layer MEASURED gate (mid-luminance land)', () => {
+  /* The kind gate alone is not the correctness core: on a NON-near-black dark
+     land (fiord, `#45516E`) a label that already passes AA against that land
+     must be left alone, and only a label that fails IS recolored. This proves
+     the per-layer `contrastFromRgb(current, landRgb) >= AA` measurement path,
+     not just the near-black `dark` happy path. We synthesize a fiord-like
+     mid-luminance dark descriptor (NOT registered live — C6 owns that) so the
+     measurement runs against `#45516E`. */
+  const FIORD_LIKE: BasemapDescriptor = {
+    id: 'dark', // id is never branched on; only kind/landColor/darkLabelTextColors matter
+    url: 'https://example.test/fiord',
+    kind: 'dark',
+    landColor: '#45516E',
+    markerHaloColor: '#ffffff',
+    floatColors: { outline: '#e8edf4', halo: '#7fd0ff' },
+    // An AA-passing-vs-#45516E palette so a recolored label is itself ≥ AA.
+    darkLabelTextColors: { road: '#f2f2f2', place: '#e6e6e6', water: '#b8cae6' },
+  };
+
+  it('does NOT touch a label whose current color already passes AA vs the land', () => {
+    // `#e6e6e6` is ~5.7:1 vs `#45516E` — already passes, so it is skipped.
+    const layers: FakeLayer[] = [
+      { id: 'background', type: 'background', layout: {}, paint: { 'background-color': '#45516E' } },
+      {
+        id: 'place_city',
+        type: 'symbol',
+        layout: { 'text-field': ['get', 'name'] },
+        paint: { 'text-color': '#e6e6e6', 'text-halo-width': 1 },
+      },
+    ];
+    // Precondition: the seed color really does pass AA vs the land.
+    expect(contrast('#e6e6e6', '#45516E')).toBeGreaterThanOrEqual(AA);
+
+    const map = makeMockMap(layers);
+    enforceDarkLabelContrast(map as never, FIORD_LIKE);
+
+    expect(
+      map.setPaintProperty.mock.calls.some(
+        (c) => c[0] === 'place_city' && c[1] === 'text-color',
+      ),
+    ).toBe(false);
+    expect(map.byId['place_city'].paint['text-color']).toBe('#e6e6e6');
+  });
+
+  it('DOES recolor a label whose current color fails AA vs the land', () => {
+    // `#6a6a6a` is ~1.5:1 vs `#45516E` — fails AA, so it is recolored to the
+    // descriptor's place tier.
+    const layers: FakeLayer[] = [
+      { id: 'background', type: 'background', layout: {}, paint: { 'background-color': '#45516E' } },
+      {
+        id: 'place_city',
+        type: 'symbol',
+        layout: { 'text-field': ['get', 'name'] },
+        paint: { 'text-color': '#6a6a6a', 'text-halo-width': 1 },
+      },
+    ];
+    // Precondition: the seed color fails AA vs the land.
+    expect(contrast('#6a6a6a', '#45516E')).toBeLessThan(AA);
+
+    const map = makeMockMap(layers);
+    enforceDarkLabelContrast(map as never, FIORD_LIKE);
+
+    expect(map.byId['place_city'].paint['text-color']).toBe('#e6e6e6');
+    // …and the result clears AA vs the land.
+    expect(contrast('#e6e6e6', '#45516E')).toBeGreaterThanOrEqual(AA);
+  });
+});
+
+describe('enforceDarkLabelContrast — observations layers are never recolored', () => {
+  /* The exclusion is inert two distinct ways, matching the actual layers (#1214
+     correction B). isLabelLayer adds `source !== 'observations'`. */
+
+  it('does NOT recolor the real `cluster-count` layer (text-color: transparent)', () => {
+    // The ONE real observations symbol layer carrying a text-field is
+    // `cluster-count` (observation-layers.ts:265), paint `text-color:
+    // 'transparent'` (:275). `transparent` is unparseable → the helper skips it
+    // at `if (!current) continue;` BEFORE any AA measurement. Assert directly
+    // that it is never recolored — NOT via an AA ratio against `transparent`.
+    const layers: FakeLayer[] = [
+      { id: 'background', type: 'background', layout: {}, paint: { 'background-color': DARK_BG } },
+      {
+        id: 'cluster-count',
+        type: 'symbol',
+        source: 'observations',
+        layout: { 'text-field': ['get', 'point_count_abbreviated'] },
+        paint: { 'text-color': 'transparent' },
+      },
+    ];
+    const map = makeMockMap(layers);
+
+    enforceDarkLabelContrast(map as never, DARK_DESCRIPTOR);
+
+    expect(
+      map.setPaintProperty.mock.calls.some((c) => c[0] === 'cluster-count'),
+    ).toBe(false);
+    expect(map.byId['cluster-count'].paint['text-color']).toBe('transparent');
+  });
+
+  it('does NOT recolor a SYNTHETIC observations label with a PARSEABLE AA-failing color', () => {
+    // This is the load-bearing proof of correction B: a synthetic observations
+    // symbol layer with a parseable, AA-FAILING `text-color` (`#222`) is STILL
+    // not recolored — because `isLabelLayer`'s `source !== 'observations'`
+    // filter excludes it. Under the OLD source-less detector this layer WOULD
+    // have been recolored (it carries a text-field and fails AA vs the canvas).
+    // Mirrors the direct-assertion technique at artboard-layers.test.ts:214.
+    expect(contrast('#222', DARK_BG)).toBeLessThan(AA); // would-fail-AA precondition
+
+    const layers: FakeLayer[] = [
+      { id: 'background', type: 'background', layout: {}, paint: { 'background-color': DARK_BG } },
+      {
+        id: 'obs-synthetic-label',
+        type: 'symbol',
+        source: 'observations',
+        layout: { 'text-field': ['get', 'name'] },
+        paint: { 'text-color': '#222', 'text-halo-width': 1 },
+      },
+    ];
+    const map = makeMockMap(layers);
+
+    enforceDarkLabelContrast(map as never, DARK_DESCRIPTOR);
+
+    expect(
+      map.setPaintProperty.mock.calls.some((c) => c[0] === 'obs-synthetic-label'),
+    ).toBe(false);
+    expect(map.byId['obs-synthetic-label'].paint['text-color']).toBe('#222');
+  });
+
+  it('still recolors a BASEMAP label with the same failing color (proves the filter is on source, not color)', () => {
+    // Control: the identical `#222` failing color on a NON-observations label IS
+    // recolored — so the exclusion above is the `source` filter, not anything
+    // about the color.
+    const layers: FakeLayer[] = [
+      { id: 'background', type: 'background', layout: {}, paint: { 'background-color': DARK_BG } },
+      {
+        id: 'place_city',
+        type: 'symbol',
+        layout: { 'text-field': ['get', 'name'] },
+        paint: { 'text-color': '#222', 'text-halo-width': 1 },
+      },
+    ];
+    const map = makeMockMap(layers);
+
+    enforceDarkLabelContrast(map as never, DARK_DESCRIPTOR);
+
+    expect(map.byId['place_city'].paint['text-color']).toBe(PLACE);
   });
 });
 
 describe('enforceDarkLabelContrast — idempotent', () => {
   it('a second pass yields the SAME colors and makes no further changes', () => {
     const map = makeMockMap(darkFixture());
-    enforceDarkLabelContrast(map as never);
+    enforceDarkLabelContrast(map as never, DARK_DESCRIPTOR);
     const afterFirst = Object.fromEntries(
       DARK_LABEL_LAYERS.map(({ id }) => [id, map.byId[id].paint['text-color']]),
     );
     map.setPaintProperty.mockClear();
 
-    enforceDarkLabelContrast(map as never);
+    enforceDarkLabelContrast(map as never, DARK_DESCRIPTOR);
 
     // No further text-color writes (already-fixed colors pass AA → skipped).
     expect(
@@ -344,7 +549,7 @@ describe('enforceDarkLabelContrast — idempotent', () => {
 describe('enforceDarkLabelContrast — hierarchy preserved', () => {
   it('road labels end up at least as light as place labels', () => {
     const map = makeMockMap(darkFixture());
-    enforceDarkLabelContrast(map as never);
+    enforceDarkLabelContrast(map as never, DARK_DESCRIPTOR);
     const road = luminance(map.byId['highway_name_motorway'].paint['text-color'] as string);
     const place = luminance(map.byId['place_city'].paint['text-color'] as string);
     expect(road).toBeGreaterThanOrEqual(place);
@@ -361,7 +566,7 @@ describe('enforceDarkLabelContrast — fails open on a throwing style', () => {
       getLayoutProperty: vi.fn(),
       setPaintProperty: vi.fn(),
     };
-    expect(() => enforceDarkLabelContrast(map as never)).not.toThrow();
+    expect(() => enforceDarkLabelContrast(map as never, DARK_DESCRIPTOR)).not.toThrow();
   });
 
   it('skips a layer whose text-color is an expression it cannot parse', () => {
@@ -379,7 +584,7 @@ describe('enforceDarkLabelContrast — fails open on a throwing style', () => {
       },
     ];
     const map = makeMockMap(layers);
-    expect(() => enforceDarkLabelContrast(map as never)).not.toThrow();
+    expect(() => enforceDarkLabelContrast(map as never, DARK_DESCRIPTOR)).not.toThrow();
     // Unparseable → left alone (no text-color write for that layer).
     expect(
       map.setPaintProperty.mock.calls.some(
@@ -396,37 +601,45 @@ describe('enforceDarkLabelContrast — fails open on a throwing style', () => {
    entry in `LAND_COLORS`. fiord's land is in `LAND_COLORS` but fiord is not a
    registered/live descriptor until C6 — auditing the shared live palette
    against it now would force a live dark-theme color change for a not-yet-
-   shipped theme, and C5 must stay test-only (invisible until C8). The real
-   `ROAD/PLACE/WATER_TEXT` symbols are imported from the module under test —
-   never copied — so a tier-color edit is caught here automatically.
+   shipped theme, and C5 must stay test-only (invisible until C8).
+
+   #1214 (C2) moved the recolor palette ONTO the descriptor
+   (`descriptor.darkLabelTextColors`) and deleted the module-level
+   `ROAD/PLACE/WATER_TEXT` consts. So this audit now reads each registered
+   dark-kind descriptor's OWN `darkLabelTextColors.{road,place,water}` and
+   asserts each clears AA against THAT descriptor's `landColor`. Since the
+   `dark` descriptor carries the same values the consts held (#d8d8d8 / #c4c4c4
+   / #9db4d8 vs #0E1116), the gate stays green and correct. A future per-tier
+   color edit on any registered dark descriptor is caught here automatically.
 
    When C6 registers `fiord` (navy land `#45516E`) this matrix AUTO-EXTENDS to
    it and forces the fiord decision: the shared dark water `#9db4d8` is only
    3.75:1 vs `#45516E` (an AA fail), so C6 must give fiord an AA-passing water
-   (e.g. `#b8cae6` = 4.76:1) — ideally via the per-descriptor path C2 introduces.
+   (e.g. `#b8cae6` = 4.76:1) on its OWN descriptor — which the per-descriptor
+   path C2 introduces makes a clean, local change.
    ────────────────────────────────────────────────────────────────────────── */
 
 describe('#1217 — dark-label recolor tiers ≥ 4.5 AA vs every dark-kind land', () => {
-  // The real recolor palette, imported (not mirrored) from the module so an
-  // edit to any tier color is audited here automatically.
-  const TIERS: Array<{ name: string; color: string }> = [
-    { name: 'ROAD_TEXT', color: ROAD_TEXT },
-    { name: 'PLACE_TEXT', color: PLACE_TEXT },
-    { name: 'WATER_TEXT', color: WATER_TEXT },
-  ];
-
-  // Lands of REGISTERED dark-kind descriptors only — NOT every LAND_COLORS entry.
-  // fiord's land exists in LAND_COLORS but fiord isn't registered until C6, so
-  // auditing the shared live palette against it now would force a live dark
-  // color change. C6 registers fiord and this matrix auto-extends to it then.
-  const DARK_LANDS = Object.values(THEME_REGISTRY)
-    .filter((d) => d.kind === 'dark')
-    .map((d) => ({ id: d.id, land: d.landColor }));
+  // Registered dark-kind descriptors only — NOT every LAND_COLORS entry. Each
+  // descriptor supplies BOTH its land AND its own dark-label palette, so the
+  // audit asserts each descriptor against its own declared colors.
+  const DARK_DESCRIPTORS = Object.values(THEME_REGISTRY).filter(
+    (d) => d.kind === 'dark',
+  );
 
   it('has at least the registered `dark` descriptor (matrix never vacuously empty)', () => {
     // An empty iteration would vacuously "pass" — guard the row count.
-    expect(DARK_LANDS.length).toBeGreaterThanOrEqual(1);
-    expect(DARK_LANDS.map((l) => l.id)).toEqual(expect.arrayContaining(['dark']));
+    expect(DARK_DESCRIPTORS.length).toBeGreaterThanOrEqual(1);
+    expect(DARK_DESCRIPTORS.map((d) => d.id)).toEqual(expect.arrayContaining(['dark']));
+  });
+
+  it('every registered dark descriptor declares darkLabelTextColors (registry invariant)', () => {
+    for (const d of DARK_DESCRIPTORS) {
+      expect(
+        d.darkLabelTextColors,
+        `${d.id} is a dark-kind descriptor and MUST declare darkLabelTextColors`,
+      ).toBeDefined();
+    }
   });
 
   // Deferred to C6 (recorded so its implementer is warned): when fiord is
@@ -436,13 +649,14 @@ describe('#1217 — dark-label recolor tiers ≥ 4.5 AA vs every dark-kind land'
     'C6: fiord descriptor must declare an AA-passing dark water vs #45516E (e.g. #b8cae6 = 4.76:1)',
   );
 
-  for (const { name, color } of TIERS) {
-    for (const { id, land } of DARK_LANDS) {
-      it(`${name} (${color}) ≥ 4.5 vs ${id} land (${land})`, () => {
-        const ratio = contrast(color, land);
+  for (const d of DARK_DESCRIPTORS) {
+    const tiers = d.darkLabelTextColors!;
+    for (const [tier, color] of Object.entries(tiers)) {
+      it(`${d.id} ${tier} (${color}) ≥ 4.5 vs its own land (${d.landColor})`, () => {
+        const ratio = contrast(color, d.landColor);
         expect(
           ratio,
-          `${name} ${color} vs ${id} land ${land} = ${ratio.toFixed(2)}:1 — below 4.5 AA`,
+          `${d.id} ${tier} ${color} vs land ${d.landColor} = ${ratio.toFixed(2)}:1 — below 4.5 AA`,
         ).toBeGreaterThanOrEqual(AA);
       });
     }
