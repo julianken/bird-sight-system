@@ -315,8 +315,9 @@ export function useStateArtboard(
   }, [mapReady, maskPolygon]);
 
   // (3b) Float layers + stray-sink — runs from a `maskPolygon`-watching,
-  // `mapReady`-gated effect (also keyed on `maskTheme` so the float re-tints on
-  // a theme swap). It fires AFTER react-map-gl's reconcile has (re-)added
+  // `mapReady`-gated effect (also keyed on `activeThemeId` so the float re-tints
+  // on a theme swap — including a same-kind swap, which `maskTheme` alone could
+  // not reach). It fires AFTER react-map-gl's reconcile has (re-)added
   // `state-mask-fill`, and `addFloatLayers` is idempotent (removes any prior
   // instance before re-adding), so re-running it on a theme change re-tints
   // cleanly without thrashing the LABEL filters (which are owned by the (3a)
@@ -339,13 +340,17 @@ export function useStateArtboard(
       return;
     }
     try {
-      applyArtboardFidelity(map, maskPolygon, maskTheme);
+      // The float outline/halo colors come from the active descriptor's
+      // `floatColors` (tuned against this style's land) — NOT a light/dark
+      // branch. Behavior-preserving for positron/dark (their `floatColors` carry
+      // today's exact hexes).
+      applyArtboardFidelity(map, maskPolygon, resolver(activeThemeId));
     } catch {
       /* defensive — layer/style churn after a swap */
     }
     // `styleEpoch` re-runs this AFTER a theme `setStyle`+`style.load` so the
     // floats `setStyle` dropped are re-added once `state-mask-fill` is back.
-  }, [mapReady, maskPolygon, maskTheme, styleEpoch]);
+  }, [mapReady, maskPolygon, activeThemeId, resolver, styleEpoch]);
 
   // (3b-teardown) Restore label filters + remove float layers when the mask
   // unmounts (scope → us/chooser) OR the component unmounts. Keyed ONLY on

@@ -15,6 +15,124 @@ import {
   ARTBOARD_LINE_SOURCE_ID,
   isIsolatableSymbolLayer,
 } from './artboard-layers.js';
+import {
+  THEME_REGISTRY,
+  type BasemapDescriptor,
+} from './basemap-style.js';
+
+const POSITRON_DESCRIPTOR: BasemapDescriptor = THEME_REGISTRY.positron;
+const DARK_DESCRIPTOR: BasemapDescriptor = THEME_REGISTRY.dark;
+
+/**
+ * A short text-field-bearing `layout` so a fixture symbol layer reads as a
+ * label under `isLabelLayer` (which checks `layout['text-field'] != null`).
+ */
+const TEXT_LAYOUT = { 'text-field': ['get', 'name'] } as const;
+
+/**
+ * The OLD `SYMBOL_NAME_PATTERN` regex, snapshotted here as the equivalence
+ * oracle. The production code DELETED this regex in favor of `isLabelLayer`
+ * (text-field introspection); this snapshot lets the fixture-backed test below
+ * assert the isolated SET is byte-identical between the regex and `isLabelLayer`
+ * over the REAL positron + dark layer lists.
+ */
+const OLD_SYMBOL_NAME_PATTERN =
+  /(^|[-_])(place|settlement|poi|label|town|city|village|state|country|shield|airport)([-_]|$)|[-_]name([-_]|$)/i;
+
+function oldRegexIsolates(layer: {
+  id: string;
+  type: string;
+  source?: string;
+}): boolean {
+  if (layer.type !== 'symbol') return false;
+  if (layer.source === 'observations') return false;
+  return OLD_SYMBOL_NAME_PATTERN.test(layer.id);
+}
+
+/**
+ * Fixture-backed REAL layer lists, trimmed to the fields the detectors read
+ * (`id`, `type`, `source`, and `layout['text-field']` presence). Captured from
+ * the live OpenFreeMap styles fetched in the C-epic pre-flight:
+ *   - https://tiles.openfreemap.org/styles/positron — 55 layers, 19 symbol
+ *   - https://tiles.openfreemap.org/styles/dark     — 47 layers, 15 symbol
+ * Every symbol layer that carries a `text-field` gets a truthy `layout`; the two
+ * icon-only `road_oneway*` arrows in the dark style get NO `layout` (they have
+ * no `text-field`). These two facts are the whole equivalence claim: the shields
+ * and airport the old regex matched all carry a `text-field`, and the arrows it
+ * excluded carry none.
+ */
+type FixtureLayer = {
+  id: string;
+  type: string;
+  source?: string;
+  layout?: Record<string, unknown>;
+};
+const L = (
+  id: string,
+  type: string,
+  opts: { source?: string; text?: boolean } = {},
+): FixtureLayer => {
+  const o: FixtureLayer = { id, type };
+  if (opts.source != null) o.source = opts.source;
+  if (opts.text) o.layout = { ...TEXT_LAYOUT };
+  return o;
+};
+const OMT = 'openmaptiles';
+const POSITRON_REAL_LAYERS: FixtureLayer[] = [
+  L('background', 'background'),
+  L('park', 'fill', { source: OMT }),
+  L('water', 'fill', { source: OMT }),
+  L('landcover_glacier', 'fill', { source: OMT }),
+  L('waterway', 'line', { source: OMT }),
+  L('building', 'fill', { source: OMT }),
+  L('highway_motorway_inner', 'line', { source: OMT }),
+  L('boundary_2', 'line', { source: OMT }),
+  // 19 symbol layers — every one carries a text-field in the live style.
+  L('waterway_line_label', 'symbol', { source: OMT, text: true }),
+  L('water_name_point_label', 'symbol', { source: OMT, text: true }),
+  L('water_name_line_label', 'symbol', { source: OMT, text: true }),
+  L('highway-name-path', 'symbol', { source: OMT, text: true }),
+  L('highway-name-minor', 'symbol', { source: OMT, text: true }),
+  L('highway-name-major', 'symbol', { source: OMT, text: true }),
+  L('highway-shield-non-us', 'symbol', { source: OMT, text: true }),
+  L('highway-shield-us-interstate', 'symbol', { source: OMT, text: true }),
+  L('road_shield_us', 'symbol', { source: OMT, text: true }),
+  L('airport', 'symbol', { source: OMT, text: true }),
+  L('label_other', 'symbol', { source: OMT, text: true }),
+  L('label_village', 'symbol', { source: OMT, text: true }),
+  L('label_town', 'symbol', { source: OMT, text: true }),
+  L('label_state', 'symbol', { source: OMT, text: true }),
+  L('label_city', 'symbol', { source: OMT, text: true }),
+  L('label_city_capital', 'symbol', { source: OMT, text: true }),
+  L('label_country_3', 'symbol', { source: OMT, text: true }),
+  L('label_country_2', 'symbol', { source: OMT, text: true }),
+  L('label_country_1', 'symbol', { source: OMT, text: true }),
+];
+const DARK_REAL_LAYERS: FixtureLayer[] = [
+  L('background', 'background'),
+  L('water', 'fill', { source: OMT }),
+  L('landcover_glacier', 'fill', { source: OMT }),
+  L('waterway', 'line', { source: OMT }),
+  L('building', 'fill', { source: OMT }),
+  L('highway_motorway_inner', 'line', { source: OMT }),
+  L('boundary_country_z5-', 'line', { source: OMT }),
+  // 15 symbol layers — 13 carry a text-field; the two road_oneway* arrows do NOT.
+  L('water_name', 'symbol', { source: OMT, text: true }),
+  L('road_oneway', 'symbol', { source: OMT }), // icon-only arrow — NO text-field
+  L('road_oneway_opposite', 'symbol', { source: OMT }), // icon-only arrow — NO text-field
+  L('highway_name_other', 'symbol', { source: OMT, text: true }),
+  L('highway_name_motorway', 'symbol', { source: OMT, text: true }),
+  L('place_other', 'symbol', { source: OMT, text: true }),
+  L('place_suburb', 'symbol', { source: OMT, text: true }),
+  L('place_village', 'symbol', { source: OMT, text: true }),
+  L('place_town', 'symbol', { source: OMT, text: true }),
+  L('place_city', 'symbol', { source: OMT, text: true }),
+  L('place_city_large', 'symbol', { source: OMT, text: true }),
+  L('place_state', 'symbol', { source: OMT, text: true }),
+  L('place_country_other', 'symbol', { source: OMT, text: true }),
+  L('place_country_minor', 'symbol', { source: OMT, text: true }),
+  L('place_country_major', 'symbol', { source: OMT, text: true }),
+];
 
 /* ── Fixtures ────────────────────────────────────────────────────────────────
    A minimal 1-part MultiPolygon standing in for a state's render-only geometry
@@ -45,16 +163,17 @@ function makeStyleLayers() {
     { id: 'background', type: 'background' },
     { id: 'water', type: 'fill' },
     { id: 'water_outline', type: 'line' },
-    { id: 'place_country', type: 'symbol', source: 'openmaptiles', filter: ['==', 'class', 'country'] },
-    { id: 'place_city', type: 'symbol', source: 'openmaptiles' },
-    { id: 'poi_z14', type: 'symbol', source: 'openmaptiles' },
+    { id: 'place_country', type: 'symbol', source: 'openmaptiles', layout: { ...TEXT_LAYOUT }, filter: ['==', 'class', 'country'] },
+    { id: 'place_city', type: 'symbol', source: 'openmaptiles', layout: { ...TEXT_LAYOUT } },
+    { id: 'poi_z14', type: 'symbol', source: 'openmaptiles', layout: { ...TEXT_LAYOUT } },
     // The `<thing>_name` label convention (was bleeding CA/MX freeway names).
-    { id: 'highway_name_motorway', type: 'symbol', source: 'openmaptiles' },
-    { id: 'water_name', type: 'symbol', source: 'openmaptiles' },
-    // A symbol layer that must NOT match the heuristic (no place/label/_name token).
+    { id: 'highway_name_motorway', type: 'symbol', source: 'openmaptiles', layout: { ...TEXT_LAYOUT } },
+    { id: 'water_name', type: 'symbol', source: 'openmaptiles', layout: { ...TEXT_LAYOUT } },
+    // A symbol layer that must NOT isolate (no text-field — e.g. an icon-only ref).
     { id: 'transit_route_ref', type: 'symbol', source: 'openmaptiles' },
-    // An app-owned observation symbol layer — must NEVER be isolated.
-    { id: 'unclustered-point', type: 'symbol', source: 'observations' },
+    // An app-owned observation symbol layer — must NEVER be isolated (even though
+    // it paints a text-field, the source guard excludes it).
+    { id: 'unclustered-point', type: 'symbol', source: 'observations', layout: { ...TEXT_LAYOUT } },
     // The mask fill (the z-order anchor).
     { id: MASK_LAYER_ID, type: 'fill' },
     // Stray basemap fill/line layers painted ABOVE the mask — must be sunk.
@@ -163,61 +282,98 @@ describe('bufferIsolationPolygon', () => {
   });
 });
 
-describe('isIsolatableSymbolLayer (type + name heuristic, fails OPEN)', () => {
-  it('matches symbol layers whose id contains a place/label token', () => {
-    expect(isIsolatableSymbolLayer({ id: 'place_city', type: 'symbol' })).toBe(true);
-    expect(isIsolatableSymbolLayer({ id: 'place_country', type: 'symbol' })).toBe(true);
-    expect(isIsolatableSymbolLayer({ id: 'poi_z14', type: 'symbol' })).toBe(true);
-    expect(isIsolatableSymbolLayer({ id: 'settlement-major', type: 'symbol' })).toBe(true);
-    expect(isIsolatableSymbolLayer({ id: 'state_label', type: 'symbol' })).toBe(true);
+describe('isIsolatableSymbolLayer (delegates to isLabelLayer — text-field introspection)', () => {
+  it('matches any text-bearing basemap symbol layer (regardless of its id)', () => {
+    // The detector no longer reads the id at all — a `symbol` with a `text-field`
+    // is a label. (These ids happen to also have carried a regex token, but the
+    // truth now is the text-field, not the name.)
+    expect(isIsolatableSymbolLayer({ id: 'place_city', type: 'symbol', layout: TEXT_LAYOUT })).toBe(true);
+    expect(isIsolatableSymbolLayer({ id: 'label_country_1', type: 'symbol', layout: TEXT_LAYOUT })).toBe(true);
+    expect(isIsolatableSymbolLayer({ id: 'highway_name_motorway', type: 'symbol', layout: TEXT_LAYOUT })).toBe(true);
+    expect(isIsolatableSymbolLayer({ id: 'water_name', type: 'symbol', layout: TEXT_LAYOUT })).toBe(true);
+    expect(isIsolatableSymbolLayer({ id: 'highway-name-major', type: 'symbol', layout: TEXT_LAYOUT })).toBe(true);
+    // A symbol whose id carries NO recognizable token still isolates if it paints
+    // text — the introspection is strictly more robust than the id heuristic.
+    expect(isIsolatableSymbolLayer({ id: 'some_future_label', type: 'symbol', layout: TEXT_LAYOUT })).toBe(true);
   });
 
-  it('matches the openmaptiles <thing>_name text-label layers (the freeway/water-name bleed fix)', () => {
-    expect(isIsolatableSymbolLayer({ id: 'highway_name_motorway', type: 'symbol' })).toBe(true);
-    expect(isIsolatableSymbolLayer({ id: 'highway_name_other', type: 'symbol' })).toBe(true);
-    expect(isIsolatableSymbolLayer({ id: 'water_name', type: 'symbol' })).toBe(true);
+  it('matches the shield/airport label layers (they carry a text-field — route number / airport name)', () => {
+    // The old regex matched these by the `shield`/`airport` token; under
+    // isLabelLayer they match because they DO paint a text-field. The
+    // fixture-backed equivalence test below proves this on the real layer list.
+    expect(isIsolatableSymbolLayer({ id: 'road_shield_us', type: 'symbol', layout: TEXT_LAYOUT })).toBe(true);
+    expect(isIsolatableSymbolLayer({ id: 'highway-shield-us-interstate', type: 'symbol', layout: TEXT_LAYOUT })).toBe(true);
+    expect(isIsolatableSymbolLayer({ id: 'highway-shield-non-us', type: 'symbol', layout: TEXT_LAYOUT })).toBe(true);
+    expect(isIsolatableSymbolLayer({ id: 'airport', type: 'symbol', layout: TEXT_LAYOUT })).toBe(true);
   });
 
-  it('matches the LIGHT (positron) basemap label/road/shield/airport layers (hyphenated + new tokens)', () => {
-    // positron uses `label_*` instead of `place_*`.
-    expect(isIsolatableSymbolLayer({ id: 'label_other', type: 'symbol' })).toBe(true);
-    expect(isIsolatableSymbolLayer({ id: 'label_city', type: 'symbol' })).toBe(true);
-    expect(isIsolatableSymbolLayer({ id: 'label_country_1', type: 'symbol' })).toBe(true);
-    // HYPHENATED road-name labels — the `_name`-only pattern silently missed
-    // these, so VA-side freeway names bled onto the gray once the mask dropped
-    // below the labels. `[-_]name([-_]|$)` now catches them.
-    expect(isIsolatableSymbolLayer({ id: 'highway-name-major', type: 'symbol' })).toBe(true);
-    expect(isIsolatableSymbolLayer({ id: 'highway-name-minor', type: 'symbol' })).toBe(true);
-    expect(isIsolatableSymbolLayer({ id: 'highway-name-path', type: 'symbol' })).toBe(true);
-    // Shields + airport labels (own symbol layers, no place/label/name token).
-    expect(isIsolatableSymbolLayer({ id: 'road_shield_us', type: 'symbol' })).toBe(true);
-    expect(isIsolatableSymbolLayer({ id: 'highway-shield-us-interstate', type: 'symbol' })).toBe(true);
-    expect(isIsolatableSymbolLayer({ id: 'highway-shield-non-us', type: 'symbol' })).toBe(true);
-    expect(isIsolatableSymbolLayer({ id: 'airport', type: 'symbol' })).toBe(true);
-  });
-
-  it('does NOT match symbol layers with no place/label/name/shield/airport token (fails open: rendered exterior, not blanked)', () => {
-    expect(isIsolatableSymbolLayer({ id: 'transit_route_ref', type: 'symbol' })).toBe(false);
-    // road_oneway is an icon-only arrow layer, not a text label — left untouched
-    // (no label-bearing token; a bare `road`/`highway` token is deliberately not
-    // used so this LineString arrow set is never within-dropped).
+  it('does NOT match a symbol layer with NO text-field (road_oneway — icon-only arrow, still excluded)', () => {
+    // road_oneway / road_oneway_opposite are icon-only arrow layers with no
+    // text-field — both the old regex and isLabelLayer exclude them, so the
+    // in-state arrow set is never within-dropped.
     expect(isIsolatableSymbolLayer({ id: 'road_oneway', type: 'symbol' })).toBe(false);
+    expect(isIsolatableSymbolLayer({ id: 'road_oneway_opposite', type: 'symbol' })).toBe(false);
+    // A text-token-bearing id with NO text-field also does not isolate (truth is
+    // the text-field, not the id).
+    expect(isIsolatableSymbolLayer({ id: 'transit_route_ref', type: 'symbol' })).toBe(false);
   });
 
-  it('NEVER matches the app observation/cluster symbol layers (source: observations)', () => {
-    // Guard over the name heuristic: even though the id contains no basemap
-    // token, the source check is the belt — the bird layers are never isolated.
+  it('NEVER matches the app observation/cluster symbol layers even with a text-field (source: observations)', () => {
+    // The bird data is never isolated — isLabelLayer excludes source:observations.
     expect(
-      isIsolatableSymbolLayer({ id: 'unclustered-point', type: 'symbol', source: 'observations' }),
+      isIsolatableSymbolLayer({ id: 'unclustered-point', type: 'symbol', source: 'observations', layout: TEXT_LAYOUT }),
     ).toBe(false);
     expect(
-      isIsolatableSymbolLayer({ id: 'cluster-count', type: 'symbol', source: 'observations' }),
+      isIsolatableSymbolLayer({ id: 'cluster-count', type: 'symbol', source: 'observations', layout: TEXT_LAYOUT }),
     ).toBe(false);
   });
 
-  it('does NOT match non-symbol layers even when the id contains a token', () => {
-    expect(isIsolatableSymbolLayer({ id: 'place_fill', type: 'fill' })).toBe(false);
+  it('does NOT match non-symbol layers even when they carry a layout', () => {
+    expect(isIsolatableSymbolLayer({ id: 'place_fill', type: 'fill', layout: TEXT_LAYOUT })).toBe(false);
     expect(isIsolatableSymbolLayer({ id: 'boundary_country', type: 'line' })).toBe(false);
+  });
+});
+
+describe('isLabelLayer equivalence vs SYMBOL_NAME_PATTERN (fixture-backed, REAL layer lists)', () => {
+  const isolatedSet = (
+    layers: FixtureLayer[],
+    predicate: (l: FixtureLayer) => boolean,
+  ): string[] => layers.filter(predicate).map((l) => l.id).sort();
+
+  it('positron: the isolated SET is byte-identical between the old regex and isLabelLayer', () => {
+    const regexSet = isolatedSet(POSITRON_REAL_LAYERS, oldRegexIsolates);
+    const labelSet = isolatedSet(POSITRON_REAL_LAYERS, isIsolatableSymbolLayer);
+    expect(labelSet).toEqual(regexSet);
+    // Sanity: the set is the full 19-symbol-layer label set (all carry text-field).
+    expect(labelSet).toHaveLength(19);
+    // The shields + airport are IN the set (the equivalence guard the issue names).
+    expect(labelSet).toEqual(
+      expect.arrayContaining([
+        'road_shield_us',
+        'highway-shield-us-interstate',
+        'highway-shield-non-us',
+        'airport',
+      ]),
+    );
+  });
+
+  it('dark: the isolated SET is byte-identical between the old regex and isLabelLayer', () => {
+    const regexSet = isolatedSet(DARK_REAL_LAYERS, oldRegexIsolates);
+    const labelSet = isolatedSet(DARK_REAL_LAYERS, isIsolatableSymbolLayer);
+    expect(labelSet).toEqual(regexSet);
+    // 13 of the 15 symbol layers isolate; the two road_oneway* arrows do NOT.
+    expect(labelSet).toHaveLength(13);
+    expect(labelSet).not.toContain('road_oneway');
+    expect(labelSet).not.toContain('road_oneway_opposite');
+  });
+
+  it('road_oneway / road_oneway_opposite are excluded by BOTH detectors (icon-only, no text-field)', () => {
+    for (const id of ['road_oneway', 'road_oneway_opposite']) {
+      const layer = DARK_REAL_LAYERS.find((l) => l.id === id);
+      expect(layer).toBeDefined();
+      expect(oldRegexIsolates(layer!)).toBe(false);
+      expect(isIsolatableSymbolLayer(layer!)).toBe(false);
+    }
   });
 });
 
@@ -422,7 +578,7 @@ describe('sinkStrayLayersBelowMask', () => {
 describe('addFloatLayers / removeFloatLayers', () => {
   it('adds the halo (line + line-blur) and crisp outline (line) above the mask, with stable app-owned ids', () => {
     const map = makeMockMap();
-    addFloatLayers(map as never, AZ_POLYGON, MASK_LAYER_ID, 'light');
+    addFloatLayers(map as never, AZ_POLYGON, MASK_LAYER_ID, POSITRON_DESCRIPTOR);
     const added = map.addLayer.mock.calls.map((c) => c[0] as { id: string; type: string; paint?: Record<string, unknown> });
     const halo = added.find((l) => l.id === ARTBOARD_HALO_ID);
     const outline = added.find((l) => l.id === ARTBOARD_OUTLINE_ID);
@@ -438,7 +594,7 @@ describe('addFloatLayers / removeFloatLayers', () => {
 
   it('anchors the float adds on the first layer ABOVE the mask (so they paint above the gray, not below it)', () => {
     const map = makeMockMap();
-    addFloatLayers(map as never, AZ_POLYGON, MASK_LAYER_ID, 'light');
+    addFloatLayers(map as never, AZ_POLYGON, MASK_LAYER_ID, POSITRON_DESCRIPTOR);
     // addLayer(spec, beforeId) inserts BELOW beforeId. The anchor is the first
     // non-float layer above state-mask-fill (here: boundary_country) → the
     // floats land just above the mask fill, NOT below it.
@@ -450,21 +606,40 @@ describe('addFloatLayers / removeFloatLayers', () => {
     expect(haloCall?.[1]).not.toBe(MASK_LAYER_ID);
   });
 
-  it('theme param drives the halo paint (light drop-shadow vs dark glow differ)', () => {
+  const paintColor = (
+    m: ReturnType<typeof makeMockMap>,
+    layerId: string,
+  ): unknown =>
+    (m.addLayer.mock.calls.find((c) => (c[0] as { id: string }).id === layerId)?.[0] as {
+      paint: Record<string, unknown>;
+    }).paint['line-color'];
+
+  it('descriptor.floatColors drive the outline + halo paint (positron vs dark differ)', () => {
     const lightMap = makeMockMap();
-    addFloatLayers(lightMap as never, AZ_POLYGON, MASK_LAYER_ID, 'light');
+    addFloatLayers(lightMap as never, AZ_POLYGON, MASK_LAYER_ID, POSITRON_DESCRIPTOR);
     const darkMap = makeMockMap();
-    addFloatLayers(darkMap as never, AZ_POLYGON, MASK_LAYER_ID, 'dark');
-    const haloColor = (m: ReturnType<typeof makeMockMap>) =>
-      (m.addLayer.mock.calls.find((c) => (c[0] as { id: string }).id === ARTBOARD_HALO_ID)?.[0] as {
-        paint: Record<string, unknown>;
-      }).paint['line-color'];
-    expect(haloColor(lightMap)).not.toEqual(haloColor(darkMap));
+    addFloatLayers(darkMap as never, AZ_POLYGON, MASK_LAYER_ID, DARK_DESCRIPTOR);
+    expect(paintColor(lightMap, ARTBOARD_HALO_ID)).not.toEqual(paintColor(darkMap, ARTBOARD_HALO_ID));
+    expect(paintColor(lightMap, ARTBOARD_OUTLINE_ID)).not.toEqual(paintColor(darkMap, ARTBOARD_OUTLINE_ID));
+  });
+
+  it('reproduces TODAY\'s exact float hexes — positron outline #1a1d24 / halo #3a3f4a (byte-identical refactor)', () => {
+    const map = makeMockMap();
+    addFloatLayers(map as never, AZ_POLYGON, MASK_LAYER_ID, POSITRON_DESCRIPTOR);
+    expect(paintColor(map, ARTBOARD_OUTLINE_ID)).toBe('#1a1d24');
+    expect(paintColor(map, ARTBOARD_HALO_ID)).toBe('#3a3f4a');
+  });
+
+  it('reproduces TODAY\'s exact float hexes — dark outline #e8edf4 / halo #7fd0ff (byte-identical refactor)', () => {
+    const map = makeMockMap();
+    addFloatLayers(map as never, AZ_POLYGON, MASK_LAYER_ID, DARK_DESCRIPTOR);
+    expect(paintColor(map, ARTBOARD_OUTLINE_ID)).toBe('#e8edf4');
+    expect(paintColor(map, ARTBOARD_HALO_ID)).toBe('#7fd0ff');
   });
 
   it('adds ONE explicit named source shared by both layers (no per-layer inline source → no orphan on setStyle)', () => {
     const map = makeMockMap();
-    addFloatLayers(map as never, AZ_POLYGON, MASK_LAYER_ID, 'light');
+    addFloatLayers(map as never, AZ_POLYGON, MASK_LAYER_ID, POSITRON_DESCRIPTOR);
     expect(map.addSource).toHaveBeenCalledWith(
       ARTBOARD_LINE_SOURCE_ID,
       expect.objectContaining({ type: 'geojson' }),
@@ -478,7 +653,7 @@ describe('addFloatLayers / removeFloatLayers', () => {
   it('is idempotent — guarded removal of an already-present layer before re-add', () => {
     const map = makeMockMap();
     // Float layers already present in the style (post theme-swap re-apply).
-    addFloatLayers(map as never, AZ_POLYGON, MASK_LAYER_ID, 'light');
+    addFloatLayers(map as never, AZ_POLYGON, MASK_LAYER_ID, POSITRON_DESCRIPTOR);
     // getLayer returns the existing halo/outline → addFloatLayers removes first.
     expect(map.removeLayer).toHaveBeenCalledWith(ARTBOARD_HALO_ID);
     expect(map.removeLayer).toHaveBeenCalledWith(ARTBOARD_OUTLINE_ID);
@@ -493,7 +668,7 @@ describe('addFloatLayers / removeFloatLayers', () => {
 
     // A map where the floats + source ARE present: remove both layers + source.
     const present = makeMockMap();
-    addFloatLayers(present as never, AZ_POLYGON, MASK_LAYER_ID, 'light');
+    addFloatLayers(present as never, AZ_POLYGON, MASK_LAYER_ID, POSITRON_DESCRIPTOR);
     present.removeLayer.mockClear();
     present.removeSource.mockClear();
     removeFloatLayers(present as never);
@@ -506,7 +681,7 @@ describe('addFloatLayers / removeFloatLayers', () => {
 describe('applyArtboardFidelity (mask-move + float/sink composite — item 3b)', () => {
   it('moves the mask below the first label, sinks stray layers, then adds the float layers above the mask', () => {
     const map = makeMockMap();
-    applyArtboardFidelity(map as never, AZ_POLYGON, 'dark');
+    applyArtboardFidelity(map as never, AZ_POLYGON, DARK_DESCRIPTOR);
     // Step 1: the mask moved below the first basemap label layer (place_country).
     expect(map.moveLayer).toHaveBeenCalledWith(MASK_LAYER_ID, 'place_country');
     // moveLayer (mask-move + sink) and addLayer (float) both fire.
@@ -525,7 +700,7 @@ describe('applyArtboardFidelity (mask-move + float/sink composite — item 3b)',
 
   it('runs the mask-move BEFORE the float/sink (interior labels end up above the mask)', () => {
     const map = makeMockMap();
-    applyArtboardFidelity(map as never, AZ_POLYGON, 'dark');
+    applyArtboardFidelity(map as never, AZ_POLYGON, DARK_DESCRIPTOR);
     // After the composite, every basemap label layer paints ABOVE the lowered
     // mask — the interior-label un-clip invariant.
     const after = map.layers.map((l) => l.id);
