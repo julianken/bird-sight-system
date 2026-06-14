@@ -21,20 +21,20 @@ const fetchInatTaxonMock = vi.fn();
 const fetchWikipediaLeadImageMock = vi.fn();
 const uploadToR2Mock = vi.fn();
 
-vi.mock('./inat/client.js', () => ({
+vi.mock('../inat/client.js', () => ({
   fetchInatPhoto: (...args: unknown[]) => fetchInatPhotoMock(...args),
 }));
 
-vi.mock('./inat/taxon-client.js', () => ({
+vi.mock('../inat/taxon-client.js', () => ({
   fetchInatTaxon: (...args: unknown[]) => fetchInatTaxonMock(...args),
 }));
 
-vi.mock('./wikipedia/lead-image.js', () => ({
+vi.mock('../wikipedia/lead-image.js', () => ({
   fetchWikipediaLeadImage: (...args: unknown[]) =>
     fetchWikipediaLeadImageMock(...args),
 }));
 
-vi.mock('./r2/uploader.js', () => ({
+vi.mock('../r2/uploader.js', () => ({
   uploadToR2: (...args: unknown[]) => uploadToR2Mock(...args),
   R2UploadError: class R2UploadError extends Error {
     constructor(message: string) {
