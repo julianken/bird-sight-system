@@ -23,7 +23,7 @@
 
 import { openStore, makeReader } from '@bird-watch/eleatic';
 import type { EvalRowRecord, EvalRunRecord as EleaticRunRecord, EleaticStore } from '@bird-watch/eleatic';
-import type { CriteriaScores } from '@bird-watch/photo-quality';
+import type { CriteriaScores, JudgeOutput } from '@bird-watch/photo-quality';
 
 /**
  * One eval RUN's record — the photo-judge domain vocabulary the runner produces
@@ -78,6 +78,71 @@ export interface EvalResultRecord {
   cost: number | undefined;
   promptTokens: number | undefined;
   completionTokens: number | undefined;
+}
+
+/**
+ * The full per-judgment framing the runner assembles to build one trace span
+ * (#1168, trace T3). It is the UNION of three sources that no single existing
+ * record carries: the species/model/rubric framing (`JudgmentRecord.input`),
+ * the runner-scope rubric `prompt` (on neither record), and the per-call
+ * latency / raw response / parsed output / usage (`JudgmentRecord`). The runner
+ * is the only place all three meet, so the span is built there from this input.
+ *
+ * exactOptionalPropertyTypes: every optional source is declared `?` and OMITTED
+ * (never `undefined`) — `imageUrl` for an image with no portable URL, `raw` for
+ * an absent raw response, and each of `promptTokens`/`completionTokens`/`costUsd`
+ * for a usage-less or unpriced judgment. `latencyMs` is always present.
+ */
+export interface JudgeTraceInput {
+  /** The rubric prompt the runner handed the judge (runner-scope only). */
+  prompt: string;
+  /** The portable R2 provenance URL (the row's `imageUrl`, NOT the local readPath). */
+  imageUrl?: string;
+  comName: string;
+  sciName: string;
+  family: string;
+  /** The rubric version the judge was invoked with. */
+  rubricVersion: string;
+  /** The judge model id. */
+  model: string;
+  /** The full parsed JudgeOutput (fieldMarks/criteria/flags/keep/qualityScore/rationale). */
+  parsed: JudgeOutput;
+  /** The model's RAW reply (the Gemini envelope); absent when none was captured. */
+  raw?: unknown;
+  promptTokens?: number;
+  completionTokens?: number;
+  latencyMs: number;
+  costUsd?: number;
+}
+
+/**
+ * Build the generic eleatic trace blob for one judgment (#1168, trace T3). Shape:
+ *   { spans: [{ name:'judge', input:{prompt,imageUrl?,species,rubricVersion,model},
+ *               output:{raw?,parsed}, usage:{promptTokens?,completionTokens?,latencyMs,costUsd?} }] }
+ * — the conventional eleatic span shape (T1) the drawer's Trace panel renders.
+ * Absent optional fields are omitted entirely (exactOptionalPropertyTypes), so a
+ * usage-less / unpriced / raw-less judgment yields a lean span, never a key set
+ * to `undefined`. Returned as an OPAQUE blob (eleatic never destructures it).
+ */
+export function buildTraceSpan(t: JudgeTraceInput): unknown {
+  const input: Record<string, unknown> = {
+    prompt: t.prompt,
+    species: { comName: t.comName, sciName: t.sciName, family: t.family },
+    rubricVersion: t.rubricVersion,
+    model: t.model,
+  };
+  if (t.imageUrl !== undefined) input.imageUrl = t.imageUrl;
+
+  const output: Record<string, unknown> = { parsed: t.parsed };
+  if (t.raw !== undefined) output.raw = t.raw;
+
+  // latencyMs is always present; the token/cost fields are omitted when absent.
+  const usage: Record<string, number> = { latencyMs: t.latencyMs };
+  if (t.promptTokens !== undefined) usage.promptTokens = t.promptTokens;
+  if (t.completionTokens !== undefined) usage.completionTokens = t.completionTokens;
+  if (t.costUsd !== undefined) usage.costUsd = t.costUsd;
+
+  return { spans: [{ name: 'judge', input, output, usage }] };
 }
 
 // Re-export the eleatic LIFECYCLE surface the runner + analyzer need, so this
@@ -161,8 +226,13 @@ function parseCriteria(json: string | null): CriteriaScores | undefined {
  *   - expected_json = {keep, qualityScore} (the baseline carries no criteria).
  *   - scores_json = {outputQuality, expectedQuality} (numeric facet axes).
  *   - metadata_json = {disagreement} (the categorical facet axis).
+ *   - trace_json = the optional per-judgment trace span (#1168, trace T3) when
+ *     the caller passes one; the key is ABSENT otherwise (T1/T2 callers pass no
+ *     trace and the row carries none). The trace is OPAQUE here — built by
+ *     {@link buildTraceSpan} in the runner (the only scope with prompt + record)
+ *     and forwarded to eleatic's `recordRow` verbatim.
  */
-export function toEleaticRow(r: EvalResultRecord): EvalRowRecord {
+export function toEleaticRow(r: EvalResultRecord, trace?: unknown): EvalRowRecord {
   const output: OutputBlob = { keep: r.geminiKeep, qualityScore: r.geminiQuality };
   const criteria = parseCriteria(r.geminiCriteriaJson);
   if (criteria !== undefined) output.criteria = criteria;
@@ -198,6 +268,10 @@ export function toEleaticRow(r: EvalResultRecord): EvalRowRecord {
   // when their source is missing, so the store coerces them to a column NULL.
   if (r.sourceUrl !== '') row.imageUrl = r.sourceUrl;
   if (r.contentHash !== '') row.contentHash = r.contentHash;
+  // The per-judgment trace (#1168, trace T3) rides through to trace_json when
+  // the runner passes one — absent key otherwise (exactOptional), so the store
+  // writes a column NULL and getRow reads it back as an absent `trace`.
+  if (trace !== undefined) row.trace = trace;
   return row;
 }
 

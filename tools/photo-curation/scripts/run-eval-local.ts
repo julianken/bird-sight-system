@@ -50,8 +50,8 @@ import { mimeFromUrl } from '../src/sources.js';
 // The photo-judge domain records (`EvalResultRecord`) also live there now (E8,
 // #1151, after the bespoke src/eval/store.ts was retired).
 import {
-  openStore, makeReader, toEleaticRow, toEleaticRun,
-  type EleaticStore, type EvalResultRecord,
+  openStore, makeReader, toEleaticRow, toEleaticRun, buildTraceSpan,
+  type EleaticStore, type EvalResultRecord, type JudgeTraceInput,
 } from '../src/eval/eleatic-adapter.js';
 import { judgePromptForRubricVersion, resolveEvalModel } from '../eval/rubric-prompts.js';
 
@@ -193,11 +193,36 @@ export async function runEvalLocal(deps: RunEvalDeps): Promise<void> {
       promptTokens: record.promptTokens,
       completionTokens: record.completionTokens,
     };
+    // Build the per-judgment trace span (#1168, trace T3). This is the ONLY
+    // scope where all three sources meet: the species/model/rubric framing on
+    // `record.input` (a JudgmentInput), the in-scope rubric `prompt` (on neither
+    // record), and the per-call latency / raw response / parsed output / usage on
+    // `record`. `imageUrl` is the PORTABLE R2 sourceUrl (`record.input.sourceUrl`
+    // == `row.input.imageUrl`), never the local readPath. Optional sources are
+    // forwarded as-is; `buildTraceSpan` omits each absent field (exactOptional).
+    const traceInput: JudgeTraceInput = {
+      prompt,
+      comName: record.input.comName,
+      sciName: record.input.sciName,
+      family: record.input.family,
+      rubricVersion: record.input.judgedRubricVersion,
+      model: record.input.model,
+      parsed: output,
+      latencyMs: record.latencyMs,
+      ...(record.input.sourceUrl !== undefined ? { imageUrl: record.input.sourceUrl } : {}),
+      ...(record.rawResponse !== undefined ? { raw: record.rawResponse } : {}),
+      ...(record.promptTokens !== undefined ? { promptTokens: record.promptTokens } : {}),
+      ...(record.completionTokens !== undefined ? { completionTokens: record.completionTokens } : {}),
+      ...(record.estimatedCost !== undefined ? { costUsd: record.estimatedCost } : {}),
+    };
+    const trace = buildTraceSpan(traceInput);
+
     // Record the judgment to the eleatic store via the adapter — the SOLE eval
     // store (E8, #1151). Written serially, one row per `runRow`, so the SERIAL
     // loop invariant (#1094) is preserved and a mid-run crash leaves the store
-    // at exactly the rows already scored.
-    eleatic.recordRow(toEleaticRow(result));
+    // at exactly the rows already scored. The trace rides through to trace_json
+    // so the eleatic drawer's Trace panel (T1) renders the full per-call record.
+    eleatic.recordRow(toEleaticRow(result, trace));
   }
 
   const n = rows.length;

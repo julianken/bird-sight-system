@@ -328,6 +328,8 @@ export class GeminiVisionJudge implements VisionJudge {
   private dailyExhaustedQuotaId: string | null = null;
   /** usageMetadata of the LATEST 200 response — overwritten (or cleared) per response (#1037). */
   private _lastUsage: GeminiUsage | undefined;
+  /** The RAW parsed envelope of the LATEST 200 response — overwritten per response (#1168). */
+  private _lastRawResponse: unknown;
 
   constructor(opts: GeminiVisionJudgeOptions) {
     if (!opts.apiKey) {
@@ -362,6 +364,10 @@ export class GeminiVisionJudge implements VisionJudge {
     // PREVIOUS row's token counts. On a parse re-ask the second response wins:
     // lastUsage() is per-output, not a per-row cost accumulator.
     this._lastUsage = extractUsage(json);
+    // Capture the RAW envelope too (#1168, trace T3) — same per-response
+    // overwrite semantics as _lastUsage, so the eleatic trace span carries the
+    // model's actual reply (candidates + usageMetadata), not a re-derived shape.
+    this._lastRawResponse = json;
     return extractText(json);
   }
 
@@ -373,6 +379,17 @@ export class GeminiVisionJudge implements VisionJudge {
    */
   lastUsage(): GeminiUsage | undefined {
     return this._lastUsage;
+  }
+
+  /**
+   * The RAW parsed v1beta envelope of the latest 200 response, or `undefined`
+   * when none has been seen (#1168, trace T3). The instrumented wrapper reads
+   * this right after a judgment resolves to surface the model's actual reply in
+   * the eleatic trace span's `output.raw` — `VisionJudge` and `JudgeOutput`
+   * stay unchanged (the accessor is on the concrete class, read by the wrapper).
+   */
+  lastRawResponse(): unknown {
+    return this._lastRawResponse;
   }
 
   /** One paced, backoff-wrapped ask → parsed JudgeOutput. */

@@ -349,6 +349,40 @@ describe('GeminiVisionJudge', () => {
     expect(judge.lastUsage()).toBeUndefined();
   });
 
+  // #1168 (trace T3): the raw v1beta response envelope is captured INTERNALLY
+  // (mirroring lastUsage()) so the runner can write it into the eleatic trace
+  // span without any VisionJudge-interface change. The accessor returns the
+  // PARSED `await res.json()` value of the latest 200 response.
+  it('captures the raw response envelope, readable via lastRawResponse()', async () => {
+    const usage = { promptTokenCount: 1234, candidatesTokenCount: 56, totalTokenCount: 1290 };
+    const fetchImpl = async () => geminiOk(JSON.stringify(VALID_OUTPUT), usage);
+    const judge = new GeminiVisionJudge({ apiKey: 'k', clock: makeFakeClock(), fetchImpl });
+
+    expect(judge.lastRawResponse()).toBeUndefined(); // nothing judged yet
+    await judge.judge(img, ctx, 'p');
+    // The raw envelope is the full v1beta JSON — candidates + usageMetadata.
+    expect(judge.lastRawResponse()).toEqual({
+      candidates: [{ content: { parts: [{ text: JSON.stringify(VALID_OUTPUT) }] } }],
+      usageMetadata: usage,
+    });
+  });
+
+  it('lastRawResponse() reflects the LATEST response (the re-ask wins on a parse retry)', async () => {
+    let n = 0;
+    const fetchImpl = async () => {
+      n += 1;
+      // First response is non-JSON text (forces a re-ask); the second is valid.
+      return n === 1 ? geminiOk('not json') : geminiOk(JSON.stringify(VALID_OUTPUT));
+    };
+    const judge = new GeminiVisionJudge({ apiKey: 'k', clock: makeFakeClock(), fetchImpl });
+
+    await judge.judge(img, ctx, 'p');
+    // The successful re-ask's envelope is the one surfaced — not the first body.
+    expect(judge.lastRawResponse()).toEqual({
+      candidates: [{ content: { parts: [{ text: JSON.stringify(VALID_OUTPUT) }] } }],
+    });
+  });
+
   it('re-asks once on a non-JSON body then throws GeminiJudgeError', async () => {
     let n = 0;
     const fetchImpl = async () => {

@@ -61,6 +61,13 @@ export interface JudgmentInput {
  * `completionTokens` are `undefined` when no usage was reported;
  * `estimatedCost` is `undefined` for an unpriced model OR an absent-usage
  * judgment (the unpriced warning fires only for a price-table miss).
+ *
+ * `latencyMs` (#1168, trace T3) is the wall time the inner `judge()` took,
+ * measured with an INJECTABLE monotonic clock (deterministic in tests). It is
+ * always present — every recorded judgment completed, so a duration exists.
+ * `rawResponse` is the model's raw reply (the Gemini judge's `await res.json()`
+ * envelope), surfaced via an injectable accessor; the key is ABSENT when no
+ * accessor is wired or it returned `undefined` (exactOptionalPropertyTypes).
  */
 export interface JudgmentRecord {
   input: JudgmentInput;
@@ -68,6 +75,8 @@ export interface JudgmentRecord {
   promptTokens: number | undefined;
   completionTokens: number | undefined;
   estimatedCost: number | undefined;
+  latencyMs: number;
+  rawResponse?: unknown;
 }
 
 /** The injectable record boundary — every judgment emits exactly one record. */
@@ -89,6 +98,21 @@ export interface InstrumentedJudgeOptions {
    * internal to this package so `JudgeOutput` stays SDK-free and unchanged.
    */
   usage?: () => GeminiUsage | undefined;
+  /**
+   * Optional accessor for the inner judge's latest-call RAW response (#1168,
+   * trace T3) — the Gemini judge's `await res.json()` envelope, read AFTER each
+   * judgment resolves (mirroring `usage`). Kept on the concrete judge + read
+   * here so `VisionJudge`/`JudgeOutput` stay unchanged. When absent or it
+   * returns `undefined`, the record's `rawResponse` key is omitted entirely.
+   */
+  rawResponse?: () => unknown;
+  /**
+   * Injectable monotonic clock (#1168) — read immediately before and after the
+   * inner `judge()` call; the delta is recorded as `latencyMs`. Defaults to a
+   * real monotonic clock (`performance.now`). Injected so the latency assertion
+   * is deterministic (the Clock-injection precedent in gemini.ts / pacing.ts).
+   */
+  now?: () => number;
   /**
    * One-line warning sink (#1088). Surfaces an UNPRICED model — exactly ONCE
    * per unpriced model id for the lifetime of this wrapped judge (a per-judgment
@@ -157,15 +181,28 @@ function tokensFor(usage: GeminiUsage | undefined): { promptTokens: number | und
 export function instrumentedJudge(inner: VisionJudge, opts: InstrumentedJudgeOptions): VisionJudge {
   const { model, rubricVersion, sink, usage } = opts;
   const warn = opts.warn ?? ((line: string) => console.warn(line));
+  // Default to a real monotonic clock (#1168). `performance.now()` is monotonic
+  // (immune to wall-clock adjustments) and millisecond-fractional; an injected
+  // `now` makes the latency delta deterministic in tests.
+  const now = opts.now ?? (() => performance.now());
   // Per-wrapped-judge set of unpriced model ids already warned about, so the
   // unpriced-model warning fires once per model for this judge's lifetime — not
   // once per judgment (#1088 review). Lives OUTSIDE the per-call closure.
   const warnedUnpriced = new Set<string>();
   return {
     async judge(img: ImageInput, ctx: SpeciesContext, prompt: string): Promise<JudgeOutput> {
+      // Time the inner call with the injectable clock. A judgment that THROWS
+      // never reaches the sink (no record), so latency is only ever recorded
+      // for a completed judgment — `startedAt` read here, `latencyMs` below.
+      const startedAt = now();
       const output = await inner.judge(img, ctx, prompt);
+      const latencyMs = now() - startedAt;
       const { promptTokens, completionTokens } = tokensFor(usage?.());
       const estimatedCost = costFor(model, promptTokens, completionTokens, warn, warnedUnpriced);
+      // Raw model reply (#1168), read AFTER the judgment resolves (mirrors
+      // `usage`). Spread-guarded so the key is ABSENT when no accessor is wired
+      // or it returns `undefined` (never `rawResponse: undefined`).
+      const rawResponse = opts.rawResponse?.();
       sink({
         input: {
           speciesCode: ctx.speciesCode,
@@ -183,6 +220,8 @@ export function instrumentedJudge(inner: VisionJudge, opts: InstrumentedJudgeOpt
         promptTokens,
         completionTokens,
         estimatedCost,
+        latencyMs,
+        ...(rawResponse !== undefined ? { rawResponse } : {}),
       });
       return output;
     },
@@ -229,5 +268,9 @@ export function resolveJudge(env: JudgeEnv, opts: ResolveJudgeOptions): VisionJu
     // Internal usage hand-off (#1037 decision 5): the wrapper reads the inner
     // judge's latest usageMetadata after each judgment to record token counts.
     usage: () => inner.lastUsage(),
+    // Internal raw-response hand-off (#1168, trace T3): the wrapper reads the
+    // inner judge's latest raw envelope after each judgment to record it on the
+    // trace span. Kept here (not on VisionJudge) so the seam stays unchanged.
+    rawResponse: () => inner.lastRawResponse(),
   });
 }
