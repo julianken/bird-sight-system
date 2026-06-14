@@ -23,6 +23,7 @@ interface RawEvalRow {
   expected_json: string | null;
   scores_json: string | null;
   metadata_json: string | null;
+  trace_json: string | null;
 }
 interface RawAdjRow {
   row_key: string;
@@ -83,6 +84,29 @@ describe('EleaticStore', () => {
       .get('run-1', 'item-1') as RawEvalRow;
     expect(JSON.parse(raw.output_json!)).toEqual(opaqueOutput);
     expect(JSON.parse(raw.expected_json!)).toEqual(opaqueExpected);
+  });
+
+  it('recordRow round-trips an opaque trace blob losslessly without destructuring', () => {
+    store.recordRun(makeRun());
+    const trace = {
+      spans: [
+        { name: 'judge', input: { prompt: 'x' }, output: { keep: true }, usage: { promptTokens: 10 } },
+      ],
+    };
+    store.recordRow(makeRow({ rowKey: 'traced', trace }));
+    const raw = store.db
+      .prepare('SELECT * FROM eval_row WHERE run_id=? AND row_key=?')
+      .get('run-1', 'traced') as RawEvalRow;
+    expect(JSON.parse(raw.trace_json!)).toEqual(trace);
+  });
+
+  it('maps an omitted trace to SQL NULL on write', () => {
+    store.recordRun(makeRun());
+    store.recordRow(makeRow()); // no trace
+    const raw = store.db
+      .prepare('SELECT * FROM eval_row WHERE run_id=? AND row_key=?')
+      .get('run-1', 'item-1') as RawEvalRow;
+    expect(raw.trace_json).toBe(null);
   });
 
   it('recordRows bulk-inserts ~344 rows inside one transaction', () => {

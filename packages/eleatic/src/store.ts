@@ -39,9 +39,9 @@ export class EleaticStore {
     this.insertRowStmt = db.prepare(
       `INSERT INTO eval_row
          (run_id, row_key, label, image_url, content_hash,
-          output_json, expected_json, scores_json, metadata_json)
+          output_json, expected_json, scores_json, metadata_json, trace_json)
        VALUES (@run_id, @row_key, @label, @image_url, @content_hash,
-          @output_json, @expected_json, @scores_json, @metadata_json)`,
+          @output_json, @expected_json, @scores_json, @metadata_json, @trace_json)`,
     );
     this.upsertAdjStmt = db.prepare(
       `INSERT INTO eval_adjudication
@@ -77,7 +77,7 @@ export class EleaticStore {
     });
   }
 
-  /** INSERT one evaluated item. output/expected/scores/metadata -> JSON-or-NULL. */
+  /** INSERT one evaluated item. output/expected/scores/metadata/trace -> JSON-or-NULL. */
   recordRow(row: EvalRowRecord): void {
     this.insertRowStmt.run({
       run_id: row.runId,
@@ -89,6 +89,7 @@ export class EleaticStore {
       expected_json: toJsonOrNull(row.expected),
       scores_json: toJsonOrNull(row.scores),
       metadata_json: toJsonOrNull(row.metadata),
+      trace_json: toJsonOrNull(row.trace),
     });
   }
 
