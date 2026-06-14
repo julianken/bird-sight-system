@@ -564,41 +564,73 @@ export const NATIONAL_SCOPE_KEY = 'US';
 export const STANDARD_GRID_MULTIPLIERS: readonly number[] = [2, 4, 8];
 
 /**
- * Resolves the `scope_key` for a precompute lookup from the request filters:
- * a `US-XX` state code when one is scoped, the national key otherwise. This is
- * a pure function of the SCOPE — never of the bbox. A scoped state view ALWAYS
- * sends the deterministic snapped state-envelope bbox (frontend client.ts), so
- * "a bbox is present" must NOT route to the fallback or it defeats the whole
- * fix; the server already clips to the state polygon, so the envelope bbox is a
- * function of the scope, not a row-reducing filter.
+ * The `since` windows the precompute covers (#1209). Originally only 14d was
+ * precomputed, so a `since=7d`/`1d` low-zoom state view fell through to the live
+ * `getObservationsAggregated` CTE — ~15s for a whole state, tripping the 15s
+ * statement_timeout (the prod 503s). Each window now gets its own grid, keyed by
+ * `scope_key` + a window suffix (':1' / ':7'; 14d stays BARE for backward-compat
+ * with pre-#1209 rows and a safe rollout). Kept beside the populate + lookup that
+ * consume it — exactly like STANDARD_GRID_MULTIPLIERS — so the precomputed set and
+ * the read-path eligibility predicate never drift: refreshGridAgg builds its
+ * `windows` CTE from this list; isPrecomputeEligible / resolveScopeKey gate on it.
  */
-export function resolveScopeKey(f: ObservationFilters): string {
-  return f.stateCode ?? NATIONAL_SCOPE_KEY;
+export const PRECOMPUTED_SINCE_DAYS: readonly number[] = [1, 7, 14];
+
+/** Server default `since` window (days) when a request omits it. Its grid uses
+ * the BARE scope_key (no suffix), so pre-#1209 rows keep serving across rollout. */
+const DEFAULT_SINCE_DAYS = 14;
+
+/** Parse a `since` filter ('1d'|'7d'|'14d'|undefined) to its day count. Mirrors
+ * the live CTE's `parseInt(f.since.replace('d',''))` so the windows line up. */
+function sinceToDays(since: ObservationFilters['since']): number {
+  return since ? parseInt(since.replace('d', ''), 10) : DEFAULT_SINCE_DAYS;
+}
+
+/** scope_key window suffix — bare for the default 14d window, ':<days>' otherwise.
+ * MUST match the suffix refreshGridAgg writes (both derive from this fn). */
+function scopeSinceSuffix(days: number): string {
+  return days === DEFAULT_SINCE_DAYS ? '' : `:${days}`;
 }
 
 /**
- * POSITIVE read-path predicate (#878). Use the precompute lookup ONLY when the
- * request is the default unfiltered low-zoom view:
+ * Resolves the `scope_key` for a precompute lookup from the request filters: a
+ * `US-XX` state code (or the national key) for the 14d window, plus a ':<days>'
+ * suffix for the 1d/7d windows (#1209). 14d stays bare so pre-#1209 rows keep
+ * serving. Still a pure function of SCOPE + SINCE — never the bbox: a scoped
+ * state view ALWAYS sends the deterministic snapped state-envelope bbox
+ * (frontend client.ts), which is co-extensive with the state polygon clip and
+ * adds no row-reducing work, so "a bbox is present" must NOT route to the
+ * fallback or it defeats the whole fix.
+ */
+export function resolveScopeKey(f: ObservationFilters): string {
+  const base = f.stateCode ?? NATIONAL_SCOPE_KEY;
+  return `${base}${scopeSinceSuffix(sinceToDays(f.since))}`;
+}
+
+/**
+ * POSITIVE read-path predicate (#878, extended #1209). Use the precompute lookup
+ * ONLY when the request is an unfiltered low-zoom view:
  *   - a resolvable scope (a state code OR national — always true here, but kept
  *     explicit so the intent reads in one place),
- *   - the default `since` window (14d, or unset which defaults to 14d),
+ *   - a PRECOMPUTED `since` window (1d / 7d / 14d, or unset → 14d). #1209
+ *     extended this from 14d-only: 7d/1d were the requests still hitting the
+ *     ~15s live CTE and 503-ing; they now have their own grids.
  *   - NO `notable` / `speciesCode` / `familyCode` filter,
  *   - a standard grid multiplier (2/4/8).
  * The bbox is deliberately IGNORED — a scoped state view always carries the
  * snapped state-envelope bbox, which is co-extensive with the state's polygon
- * clip and adds no row-reducing work. Everything else (any filter, non-default
- * `since`, a non-standard multiplier) falls through to the live CTE.
+ * clip and adds no row-reducing work. Everything else (any filter, a
+ * non-precomputed `since`, a non-standard multiplier) falls through to the live CTE.
  */
 export function isPrecomputeEligible(
   f: ObservationFilters,
   gridMultiplier: number,
 ): boolean {
-  // Default `since` = 14d (unset defaults to 14d at the populate level too).
-  const sinceIsDefault = f.since === undefined || f.since === '14d';
+  const sinceIsPrecomputed = PRECOMPUTED_SINCE_DAYS.includes(sinceToDays(f.since));
   const hasNoFilters =
     f.notable !== true && f.speciesCode === undefined && f.familyCode === undefined;
   const standardMultiplier = STANDARD_GRID_MULTIPLIERS.includes(gridMultiplier);
-  return sinceIsDefault && hasNoFilters && standardMultiplier;
+  return sinceIsPrecomputed && hasNoFilters && standardMultiplier;
 }
 
 /**
@@ -714,12 +746,20 @@ export async function refreshGridAgg(pool: Pool): Promise<number> {
     // lookups for the rebuild's duration; a DELETE + INSERT under MVCC lets
     // lookups keep serving the previous snapshot until COMMIT.
     await client.query('DELETE FROM observation_grid_agg');
-    // The full per-scope/per-multiplier aggregation. `scoped` tags every 14d
-    // observation with each scope it belongs to: 'US' (national, no clip) UNION
-    // ALL its containing state ('US-XX', via the GIST ST_Intersects join).
-    // `mult(m)` CROSS JOINs the standard multipliers so one statement covers all
-    // tiers. The rest mirrors getObservationsAggregated exactly, with scope_key
-    // + grid_multiplier threaded through every GROUP BY / PARTITION BY.
+    // The full per-scope/per-window/per-multiplier aggregation. `scoped` tags
+    // every 14d observation with each scope it belongs to: 'US' (national, no
+    // clip) UNION ALL its containing state ('US-XX', via the GIST ST_Intersects
+    // join), each crossed with the `since` windows (#1209). `mult(m)` CROSS JOINs
+    // the standard multipliers so one statement covers all tiers. The rest
+    // mirrors getObservationsAggregated exactly, with scope_key + grid_multiplier
+    // threaded through every GROUP BY / PARTITION BY.
+    //
+    // windowsValues is INTERPOLATED (not bound) because VALUES rows can't be
+    // parameterized; the inputs are integers from PRECOMPUTED_SINCE_DAYS and the
+    // fixed suffix strings from scopeSinceSuffix — no user input, no injection.
+    const windowsValues = PRECOMPUTED_SINCE_DAYS
+      .map(d => `(${d}::int, '${scopeSinceSuffix(d)}')`)
+      .join(', ');
     const result = await client.query<{ n: string }>(
       `
       WITH recent AS (
@@ -729,7 +769,7 @@ export async function refreshGridAgg(pool: Pool): Promise<number> {
         -- this). The NEW join is only family_silhouettes (UNIQUE family_code →
         -- single row per family); species_meta was already LEFT-JOINed here.
         SELECT o.geom, o.species_code, sm.family_code, sm.family_name,
-               fs.common_name AS family_common_name
+               fs.common_name AS family_common_name, o.obs_dt
         FROM observations o
         LEFT JOIN species_meta sm ON sm.species_code = o.species_code
         LEFT JOIN family_silhouettes fs ON fs.family_code = sm.family_code
@@ -738,20 +778,32 @@ export async function refreshGridAgg(pool: Pool): Promise<number> {
       mult(grid_multiplier) AS (
         VALUES (2::int), (4::int), (8::int)
       ),
+      -- #1209: one grid per precomputed since-window. The suffix encodes the
+      -- window into scope_key, so the existing per-scope_key grouping separates
+      -- windows with NO change to the aggregation below — protecting the #878
+      -- byte-identity contract. 1d ⊂ 7d ⊂ 14d, so each row is emitted once per
+      -- window it falls in. VALUES list built from PRECOMPUTED_SINCE_DAYS above.
+      windows(since_days, scope_suffix) AS (
+        VALUES ${windowsValues}
+      ),
       scoped AS (
-        -- National scope: every recent row, no clip.
-        SELECT $1::text AS scope_key, r.geom, r.species_code, r.family_code,
-               r.family_name, r.family_common_name
+        -- National scope: every row in the window, no clip.
+        SELECT ($1::text || w.scope_suffix) AS scope_key, r.geom, r.species_code,
+               r.family_code, r.family_name, r.family_common_name
         FROM recent r
+        CROSS JOIN windows w
+        WHERE r.obs_dt >= now() - (w.since_days * interval '1 day')
         UNION ALL
-        -- State scope: each recent row tagged with the state polygon it falls
-        -- in. ST_Intersects (NOT ST_Contains) matches the live state clip
-        -- inclusive border idiom; the && prefilter uses obs_geom_idx.
-        SELECT sb.state_code AS scope_key, r.geom, r.species_code, r.family_code,
-               r.family_name, r.family_common_name
+        -- State scope: each row tagged with the state polygon it falls in.
+        -- ST_Intersects (NOT ST_Contains) matches the live state clip inclusive
+        -- border idiom; the && prefilter uses obs_geom_idx.
+        SELECT (sb.state_code || w.scope_suffix) AS scope_key, r.geom, r.species_code,
+               r.family_code, r.family_name, r.family_common_name
         FROM recent r
         JOIN state_boundaries sb
           ON r.geom && sb.geom AND ST_Intersects(sb.geom, r.geom)
+        CROSS JOIN windows w
+        WHERE r.obs_dt >= now() - (w.since_days * interval '1 day')
       ),
       base AS (
         SELECT

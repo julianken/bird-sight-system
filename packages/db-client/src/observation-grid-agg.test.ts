@@ -247,9 +247,26 @@ describe('isPrecomputeEligible positive predicate (#878)', () => {
     expect(isPrecomputeEligible({ since: '14d', stateCode: 'US-CA', familyCode: 'fam-a' }, 8)).toBe(false);
   });
 
-  it('a non-default since is NOT eligible', () => {
-    expect(isPrecomputeEligible({ since: '7d', stateCode: 'US-CA' }, 8)).toBe(false);
-    expect(isPrecomputeEligible({ since: '30d' }, 2)).toBe(false);
+  it('the precomputed since windows (1d / 7d / 14d) ARE eligible + suffix the scope_key (#1209)', () => {
+    // #1209: 7d/1d were the requests still hitting the ~15s live CTE (the prod
+    // 503s). They now have their own precomputed grids, keyed by a scope_key suffix.
+    expect(isPrecomputeEligible({ since: '1d', stateCode: 'US-CA' }, 8)).toBe(true);
+    expect(isPrecomputeEligible({ since: '7d', stateCode: 'US-CA' }, 8)).toBe(true);
+    expect(isPrecomputeEligible({ since: '14d', stateCode: 'US-CA' }, 8)).toBe(true);
+    expect(resolveScopeKey({ since: '7d', stateCode: 'US-CA' })).toBe('US-CA:7');
+    expect(resolveScopeKey({ since: '1d', stateCode: 'US-CA' })).toBe('US-CA:1');
+    expect(resolveScopeKey({ since: '7d' })).toBe(`${NATIONAL_SCOPE_KEY}:7`);
+    // 14d (and unset) stay BARE — backward-compatible with pre-#1209 rows.
+    expect(resolveScopeKey({ since: '14d', stateCode: 'US-CA' })).toBe('US-CA');
+    expect(resolveScopeKey({ stateCode: 'US-CA' })).toBe('US-CA');
+  });
+
+  it('a non-precomputed since window is NOT eligible (runtime guard)', () => {
+    // `since` is typed to 1d/7d/14d, but the API layer parses raw query strings —
+    // a future/typo window must fall through to the live CTE, not silently read a
+    // non-existent grid scope. Cast to exercise the runtime allowlist.
+    const f = { since: '30d' } as Parameters<typeof isPrecomputeEligible>[0];
+    expect(isPrecomputeEligible(f, 2)).toBe(false);
   });
 
   it('a non-standard grid multiplier is NOT eligible', () => {
@@ -422,5 +439,47 @@ describe('refreshGridAgg work_mem bump (503 incident 2026-06-14 — precompute t
     // Inside the txn (so SET LOCAL is valid) and before the heavy populate.
     expect(workMemIdx).toBeGreaterThan(beginIdx);
     expect(workMemIdx).toBeLessThan(deleteIdx);
+  });
+});
+
+describe('refreshGridAgg per-since-window grids (#1209 — 7d/1d 503 fix)', () => {
+  it('serves 1d/7d/14d each byte-identically to the live CTE, and the windows differ', async () => {
+    // Insert AZ rows at distinct ages so the three windows are genuinely
+    // different (not a no-op): 0d (in 1d/7d/14d), 5d (in 7d/14d), 12d (14d only),
+    // in their own SE-Arizona bucket so they don't collide with seeded cells.
+    const now = Date.now();
+    const ages = [0, 5, 12];
+    const subIds: string[] = [], codes: string[] = [], lats: number[] = [], lngs: number[] = [];
+    const dts: string[] = [], locIds: string[] = [], locNames: (string | null)[] = [];
+    const hows: (number | null)[] = [], notables: boolean[] = [];
+    ages.forEach((age, i) => {
+      subIds.push(`WIN${i}`); codes.push('sp-0001');
+      lngs.push(-109.5); lats.push(31.9);
+      dts.push(new Date(now - age * 86_400_000).toISOString());
+      locIds.push('L0'); locNames.push(null); hows.push(1); notables.push(false);
+    });
+    await pool.query(
+      `INSERT INTO observations (sub_id, species_code, lat, lng, obs_dt, loc_id, loc_name, how_many, is_notable)
+       SELECT * FROM unnest($1::text[],$2::text[],$3::float8[],$4::float8[],$5::timestamptz[],$6::text[],$7::text[],$8::int[],$9::bool[])
+       ON CONFLICT (sub_id, species_code) DO NOTHING`,
+      [subIds, codes, lats, lngs, dts, locIds, locNames, hows, notables],
+    );
+    await refreshGridAgg(pool);
+
+    const azTotals: Record<string, number> = {};
+    for (const since of ['1d', '7d', '14d'] as const) {
+      // Both a state scope and the national scope must match the live CTE per window.
+      for (const stateCode of ['US-AZ', undefined] as const) {
+        const grid = await getAggregatedGridFromCache(pool, resolveScopeKey({ since, stateCode }), 8);
+        const live = await getObservationsAggregated(pool, { since, stateCode }, 8);
+        expect(fingerprint(grid)).toBe(fingerprint(live));
+      }
+      const az = await getAggregatedGridFromCache(pool, resolveScopeKey({ since, stateCode: 'US-AZ' }), 8);
+      azTotals[since] = az.reduce((a, b) => a + b.count, 0);
+    }
+    // The windows are genuinely distinct — the 5d and 12d rows drop out as the
+    // window narrows (guards against a bug that collapses all windows to one).
+    expect(azTotals['1d']!).toBeLessThan(azTotals['7d']!);
+    expect(azTotals['7d']!).toBeLessThan(azTotals['14d']!);
   });
 });
