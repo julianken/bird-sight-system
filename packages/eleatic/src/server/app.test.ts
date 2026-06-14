@@ -238,6 +238,16 @@ describe('eleatic server', () => {
     expect(res.text).toContain('src="/hub.js"');
   });
 
+  it('GET /trace serves the two-pane trace explorer shell (200 HTML, wires trace-view-page.js)', async () => {
+    // T4: a bare sendFile route mirroring /diff & /facets (no new /api endpoint —
+    // the page fetches the EXISTING GET /api/row). Assert the served page is the
+    // two-pane trace shell (title + the trace-view-page.js module tag).
+    const res = await request(createApp(store, cfg)).get('/trace');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/text\/html/);
+    expect(res.text).toContain('src="/trace-view-page.js"');
+  });
+
   it('GET /config.js emits a parseable ESM client slice and OMITS server-only fields', async () => {
     const res = await request(createApp(store, cfg)).get('/config.js');
     expect(res.status).toBe(200);

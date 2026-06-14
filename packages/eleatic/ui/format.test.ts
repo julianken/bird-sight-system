@@ -7,6 +7,7 @@ import {
   formatDuration,
   formatTokens,
   formatCost,
+  sumTokens,
 } from './format.js';
 
 // ── Metric formatter registry ────────────────────────────────────────────────
@@ -193,6 +194,25 @@ describe('formatTokens', () => {
     expect(formatTokens(undefined, undefined)).toBe('');
     expect(formatTokens(null, null)).toBe('');
     expect(formatTokens(Number.NaN, Number.NaN)).toBe('');
+  });
+});
+
+describe('sumTokens — the single prompt+completion arithmetic', () => {
+  it('sums present prompt + completion into a numeric total', () => {
+    expect(sumTokens(12, 34)).toBe(46);
+    expect(sumTokens(1000, 884)).toBe(1884);
+  });
+
+  it('uses whichever value is present (treating the absent one as 0)', () => {
+    expect(sumTokens(12, undefined)).toBe(12);
+    expect(sumTokens(undefined, 34)).toBe(34);
+    expect(sumTokens(7, null)).toBe(7);
+  });
+
+  it('returns undefined when BOTH are absent / non-finite (caller omits Total)', () => {
+    expect(sumTokens(undefined, undefined)).toBeUndefined();
+    expect(sumTokens(null, null)).toBeUndefined();
+    expect(sumTokens(Number.NaN, Number.NaN)).toBeUndefined();
   });
 });
 

@@ -20,7 +20,9 @@
 // glue that binds the host element (the only DOM-touching export).
 
 import { esc } from './safe.js';
-import { formatDuration, formatTokens, formatCost } from './format.js';
+import { prettyJson } from './pretty.js';
+import { formatDuration, formatTokens, formatCost, sumTokens } from './format.js';
+import { scoreBars, metricRow } from './trace-format.js';
 
 // Generic, domain-neutral glyphs keyed purely off a node's STRUCTURE. A node
 // WITH children is a group/branch; a childless node WITH metrics is a model/leaf
@@ -39,6 +41,20 @@ export function iconByKind(node) {
   if (node.children.length > 0) return ICON_GROUP;
   if (node.metrics !== undefined && node.metrics !== null) return ICON_MODEL;
   return ICON_SPAN;
+}
+
+/**
+ * A node's display name: the span's `name` when it is a non-empty string, else
+ * the `span {index}` fallback (the trace.js precedent). For a synthesized id-less
+ * node the id carries the index (`legacy:3` → `span 3`). Shared by the tree row
+ * and the detail header so both label a node identically. Returns a RAW string
+ * (the caller escapes via esc).
+ */
+function nodeName(node) {
+  const span = node.span !== null && typeof node.span === 'object' ? node.span : {};
+  return typeof span.name === 'string' && span.name !== ''
+    ? span.name
+    : `span ${String(node.id).replace(/^legacy:/, '')}`;
 }
 
 /**
@@ -80,12 +96,7 @@ export function renderNode(node, selectedId, collapsed) {
   const selected = node.id === selectedId;
 
   // name = the span's name, else a `span {index}` fallback (trace.js precedent).
-  // For a synthesized id-less node the id carries the index (`legacy:3`).
-  const span = node.span !== null && typeof node.span === 'object' ? node.span : {};
-  const rawName =
-    typeof span.name === 'string' && span.name !== ''
-      ? span.name
-      : `span ${String(node.id).replace(/^legacy:/, '')}`;
+  const rawName = nodeName(node);
 
   // aria-expanded only exists on a branch (omitted on a leaf, never "false").
   const ariaExpanded = hasChildren ? ` aria-expanded="${expanded ? 'true' : 'false'}"` : '';
@@ -118,6 +129,71 @@ export function renderNode(node, selectedId, collapsed) {
 export function renderTree(roots, selectedId, collapsed) {
   const items = roots.map((r) => renderNode(r, selectedId, collapsed)).join('');
   return `<ul class="trace-tree" role="tree">${items}</ul>`;
+}
+
+/**
+ * Render the RIGHT pane for one selected node — the span inspector, top to
+ * bottom (mirrors the Braintrust span panel):
+ *   • a <header> with the node's structural glyph + name + a mobile back button
+ *     (`[data-mobile-back]`, the single-column collapse's "← Spans" affordance),
+ *   • a Metrics <dl> reading node.metrics: Start · Duration · Total tokens ·
+ *     Prompt tokens · Completion tokens · Est. cost — each via metricRow, OMITTED
+ *     when its source is absent (the omit-when-absent §4 discipline). "Total
+ *     tokens" reuses the SAME sumTokens(prompt, completion) the tree meta line
+ *     uses — the arithmetic lives in ONE place — and is omitted when neither is
+ *     finite,
+ *   • a Scores block ONLY when node.span.scores exists, wrapped in the caller's
+ *     `.score-bars` flex container around the shared scoreBars (matching the
+ *     drawer, where `.score-bars` wraps the call rather than scoreBars emitting
+ *     it),
+ *   • Input / Output pretty-printed via prettyJson, or a "No input" / "No output"
+ *     empty note.
+ *
+ * PURE, never throws. Every dynamic value routes through esc / prettyJson /
+ * scoreBars — the trace blob is attacker-influenceable, so an injected payload
+ * renders as inert text (the trace.test.ts / pretty.test.ts threat model).
+ */
+export function renderSpanDetail(node) {
+  const span = node.span !== null && typeof node.span === 'object' ? node.span : {};
+  const metrics = node.metrics !== null && typeof node.metrics === 'object' ? node.metrics : {};
+
+  // Compute the combined token count ONCE (the same sum the tree meta line uses).
+  const total = sumTokens(metrics.promptTokens, metrics.completionTokens);
+  const rows =
+    metricRow('Start', formatDuration(metrics.startMs)) +
+    metricRow('Duration', formatDuration(metrics.durationMs)) +
+    metricRow('Total tokens', total === undefined ? '' : total) +
+    metricRow('Prompt tokens', formatTokens(metrics.promptTokens, undefined)) +
+    metricRow('Completion tokens', formatTokens(undefined, metrics.completionTokens)) +
+    metricRow('Est. cost', formatCost(metrics.costUsd));
+
+  const scores =
+    span.scores !== null && typeof span.scores === 'object'
+      ? `<section class="span-detail-section"><h3 class="span-detail-h3">Scores</h3><div class="score-bars">${scoreBars(span.scores)}</div></section>`
+      : '';
+
+  const input =
+    'input' in span
+      ? prettyJson(span.input)
+      : '<p class="drawer-empty">No input</p>';
+  const output =
+    'output' in span
+      ? prettyJson(span.output)
+      : '<p class="drawer-empty">No output</p>';
+
+  return (
+    '<div class="span-detail">' +
+    '<header class="span-detail-head">' +
+    `<button class="span-detail-back" type="button" data-mobile-back>← Spans</button>` +
+    `<span class="span-detail-icon" aria-hidden="true">${esc(iconByKind(node))}</span>` +
+    `<h2 class="span-detail-name">${esc(nodeName(node))}</h2>` +
+    '</header>' +
+    (rows !== '' ? `<dl class="span-detail-metrics">${rows}</dl>` : '') +
+    scores +
+    `<section class="span-detail-section"><h3 class="span-detail-h3">Input</h3><div class="span-detail-io">${input}</div></section>` +
+    `<section class="span-detail-section"><h3 class="span-detail-h3">Output</h3><div class="span-detail-io">${output}</div></section>` +
+    '</div>'
+  );
 }
 
 /**

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>eleatic · trace</title>
+    <!--
+      The full-screen two-pane trace explorer (T4). Framework-free, no build step —
+      served verbatim from packages/eleatic/ui/. trace-view-page.js imports
+      /config.js (the server's client-config emitter) and the sibling theme.js /
+      safe.js modules, plus the pure trace-tree.js / trace-view.js / trace.js /
+      trace-format.js units. Same bootstrap + script shape as the diff / facets
+      pages. It fetches the EXISTING GET /api/row (no new /api route) for the
+      &run=&row= the URL carries.
+    -->
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <a class="back-link" href="/">← Hub</a>
+      <h1 class="app-title">eleatic<span class="app-sub">trace</span></h1>
+      <span class="header-spacer"></span>
+      <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle light / dark theme">◐ Theme</button>
+    </header>
+
+    <!--
+      Two-pane explorer. [data-mobile-view] drives the single-column collapse
+      (tree | detail) under @media (max-width:720px); on desktop both panes show.
+      The LEFT pane holds the <ul role="tree"> the page renders; the RIGHT pane
+      holds the per-span detail (renderSpanDetail). The non-conforming-trace
+      fallback (renderTrace) is rendered into #trace-fallback instead.
+    -->
+    <main class="trace-explorer" data-mobile-view="tree">
+      <div class="trace-tree-pane" id="trace-tree" role="presentation"></div>
+      <div class="trace-detail-pane" id="trace-detail" role="presentation"></div>
+      <div class="trace-fallback" id="trace-fallback" hidden></div>
+    </main>
+
+    <script type="module" src="/trace-view-page.js"></script>
+  </body>
+</html>
