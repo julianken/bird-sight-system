@@ -378,7 +378,7 @@ export async function runDescriptions(
   }
 
   // Cache-purge fork: when descriptions actually landed AND the env opt-in is
-  // set, shell out to scripts/purge-species-cache.sh to invalidate the
+  // set, shell out to scripts/cache/purge-species-cache.sh to invalidate the
   // /api/species/* prefix at the Cloudflare edge. Default off in tests
   // (DESCRIPTIONS_PURGE_CACHE unset) so the integration tests don't try to
   // hit the live Cloudflare API. The script itself is shipped --dry-run-only
@@ -393,7 +393,7 @@ export async function runDescriptions(
       // — the script must be COPYed into the image for this to work, which
       // is the next infra change after the initial ship. Until then, a
       // failed shell-out is logged and ignored.
-      await execFileAsync('scripts/purge-species-cache.sh', ['--dry-run']);
+      await execFileAsync('scripts/cache/purge-species-cache.sh', ['--dry-run']);
       // eslint-disable-next-line no-console
       console.log('[run-descriptions] cache purge invoked');
     } catch (err) {
