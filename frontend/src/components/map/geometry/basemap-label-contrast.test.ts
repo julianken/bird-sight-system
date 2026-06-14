@@ -1,5 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import { enforceDarkLabelContrast } from './basemap-label-contrast.js';
+import {
+  enforceDarkLabelContrast,
+  ROAD_TEXT,
+  PLACE_TEXT,
+  WATER_TEXT,
+} from './basemap-label-contrast.js';
+import { THEME_REGISTRY } from './basemap-style.js';
 
 /* ──────────────────────────────────────────────────────────────────────────
    #1128 — dark-mode basemap label contrast.
@@ -381,4 +387,64 @@ describe('enforceDarkLabelContrast — fails open on a throwing style', () => {
       ),
     ).toBe(false);
   });
+});
+
+/* ──────────────────────────────────────────────────────────────────────────
+   #1217 (C5) — a11y GATE: the dark-label recolor palette must clear the AA
+   floor (4.5:1 — text labels, not the 3:1 non-text floor) against the land of
+   every REGISTERED dark-kind descriptor (THEME_REGISTRY), NOT against every
+   entry in `LAND_COLORS`. fiord's land is in `LAND_COLORS` but fiord is not a
+   registered/live descriptor until C6 — auditing the shared live palette
+   against it now would force a live dark-theme color change for a not-yet-
+   shipped theme, and C5 must stay test-only (invisible until C8). The real
+   `ROAD/PLACE/WATER_TEXT` symbols are imported from the module under test —
+   never copied — so a tier-color edit is caught here automatically.
+
+   When C6 registers `fiord` (navy land `#45516E`) this matrix AUTO-EXTENDS to
+   it and forces the fiord decision: the shared dark water `#9db4d8` is only
+   3.75:1 vs `#45516E` (an AA fail), so C6 must give fiord an AA-passing water
+   (e.g. `#b8cae6` = 4.76:1) — ideally via the per-descriptor path C2 introduces.
+   ────────────────────────────────────────────────────────────────────────── */
+
+describe('#1217 — dark-label recolor tiers ≥ 4.5 AA vs every dark-kind land', () => {
+  // The real recolor palette, imported (not mirrored) from the module so an
+  // edit to any tier color is audited here automatically.
+  const TIERS: Array<{ name: string; color: string }> = [
+    { name: 'ROAD_TEXT', color: ROAD_TEXT },
+    { name: 'PLACE_TEXT', color: PLACE_TEXT },
+    { name: 'WATER_TEXT', color: WATER_TEXT },
+  ];
+
+  // Lands of REGISTERED dark-kind descriptors only — NOT every LAND_COLORS entry.
+  // fiord's land exists in LAND_COLORS but fiord isn't registered until C6, so
+  // auditing the shared live palette against it now would force a live dark
+  // color change. C6 registers fiord and this matrix auto-extends to it then.
+  const DARK_LANDS = Object.values(THEME_REGISTRY)
+    .filter((d) => d.kind === 'dark')
+    .map((d) => ({ id: d.id, land: d.landColor }));
+
+  it('has at least the registered `dark` descriptor (matrix never vacuously empty)', () => {
+    // An empty iteration would vacuously "pass" — guard the row count.
+    expect(DARK_LANDS.length).toBeGreaterThanOrEqual(1);
+    expect(DARK_LANDS.map((l) => l.id)).toEqual(expect.arrayContaining(['dark']));
+  });
+
+  // Deferred to C6 (recorded so its implementer is warned): when fiord is
+  // registered, its dark-label water must clear ≥4.5 vs #45516E — the shared
+  // #9db4d8 = 3.75:1 fails, so fiord needs its own AA-passing water (e.g. #b8cae6).
+  it.todo(
+    'C6: fiord descriptor must declare an AA-passing dark water vs #45516E (e.g. #b8cae6 = 4.76:1)',
+  );
+
+  for (const { name, color } of TIERS) {
+    for (const { id, land } of DARK_LANDS) {
+      it(`${name} (${color}) ≥ 4.5 vs ${id} land (${land})`, () => {
+        const ratio = contrast(color, land);
+        expect(
+          ratio,
+          `${name} ${color} vs ${id} land ${land} = ${ratio.toFixed(2)}:1 — below 4.5 AA`,
+        ).toBeGreaterThanOrEqual(AA);
+      });
+    }
+  }
 });
