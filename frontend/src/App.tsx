@@ -44,7 +44,7 @@ import { prefetchMapCanvas } from './prefetch.js';
 import { SurfaceTitleSync } from './components/SurfaceTitleSync.js';
 import { StatusBlock } from './components/ds/StatusBlock.js';
 import { SheetHeader } from './components/ds/SheetHeader.js';
-import { formatCount } from './lib/format-count.js';
+import { craftLede } from './lede.js';
 
 const apiClient = new ApiClient({ baseUrl: import.meta.env.VITE_API_BASE_URL ?? '' });
 
@@ -107,16 +107,6 @@ export const INITIAL_ZOOM_SEED = 3;
  * component-local `SCOPE_MOVE_SETTLE_MS` is evaluated.
  */
 const AGGREGATED_SEED_ZOOM = 3;
-
-/**
- * #872: count-free lede placeholder shown while a refetch is in flight. On a
- * state→state transition use-bird-data keeps the prior scope's nonzero
- * `observations` mounted until the new fetch resolves, so the lede must show
- * this neutral "updating" copy rather than the stale count. Count-free by
- * design — no number can be trusted mid-refetch. The cold-load case (count 0)
- * still returns null upstream so the row stays hidden until the first paint.
- */
-const LEDE_LOADING_PLACEHOLDER = 'Updating…';
 
 /**
  * O2 (#770): Default-expanded breakpoint for FamilyLegend, moved here from
@@ -1171,51 +1161,28 @@ export function App() {
   // was removed along with the freshness line — the lede no longer consumes a
   // freshness state and the card no longer renders a recency label.
   const ledeText = useMemo<string | null>(() => {
-    if (region === null) return null;
+    // #859: aggregated mode carries no per-observation rows, so the count comes
+    // from the EXACT bucket totals (not `observations.length`, empty at low zoom)
+    // and `speciesCount` is 0 there. Per-observation mode keeps both row-derived.
     const speciesCount = new Set(observations.map(o => o.speciesCode).filter(Boolean)).size;
-    // #859: aggregated mode no longer fabricates synthetic observations, so the
-    // sightings count comes from the EXACT bucket totals (sum of bucket.count),
-    // not `observations.length` (which is empty at low zoom). Per-observation
-    // mode keeps `observations.length`.
     const observationCount =
       mode === 'aggregated' ? totalCountFromBuckets(buckets) : observations.length;
-    // Cold-load guard (#716/#720): suppress Template 1 while the first fetch is
-    // in flight. Same discipline as the former context-strip lede's `loading` guard.
-    if (observationsLoading && observationCount === 0 && speciesCount === 0) return null;
-    // #872: state→state stale-count guard. use-bird-data keeps the PRIOR scope's
-    // `observations` mounted while the new fetch is in flight (it clears only on
-    // resolve), so during a state→state transition `observationCount` is NONZERO
-    // and the cold-load guard above (which only fires at count === 0) misses it —
-    // leaking the previous state's number until the new data lands. Branch on
-    // `observationsLoading` alone so any in-flight refetch shows a count-free
-    // placeholder rather than the stale number. (The cold-load case still
-    // returns null above so the row stays hidden until the first data arrives.)
-    if (observationsLoading) return LEDE_LOADING_PLACEHOLDER;
-    // #828: the lede is count-only. The region moved into the wordmark headline
-    // (no longer repeated in the sentence) and the time-window dropped entirely
-    // (it's discoverable via Filters). No period clause, no `${region}` — see the
-    // 5-template table in the issue and docs/design/01-spec/voice-and-content.md.
-    if (observationCount === 0 && speciesCount === 0) {
-      return noFiltersActive
-        ? 'No recent sightings'
-        : 'No matches for these filters';
-    }
-    // #852/#859: in aggregated (low-zoom / whole-state) mode there are no
-    // per-observation rows to count distinct species from — the buckets carry an
-    // EXACT total sightings count but only a capped per-family species sample.
-    // #1047 (locked product call): the lede metric follows SCOPE, not aggregation
-    // mode. An exact species count does not exist in aggregated mode (the wire
-    // intentionally omits the distinct-species set), so ALL non-zero lede
-    // templates unify on the sightings count. "N species" copy is removed from
-    // both the aggregated and the per-observation paths.
-    const speciesCommonName =
-      speciesCount === 1 ? (observations[0]?.comName ?? null) : null;
-    if (speciesCommonName) {
-      return `${formatCount(observationCount)} sightings of ${speciesCommonName}`;
-    } else if (familyName) {
-      return `${formatCount(observationCount)} sightings of ${familyName}`;
-    }
-    return `${formatCount(observationCount)} sightings`;
+    // #1175: name the ACTIVE species filter from the dictionary (mode-independent),
+    // so the qualifier survives aggregated mode where `observations[0]` is absent.
+    // The per-obs coincidental single-species name stays the fallback.
+    return craftLede({
+      region,
+      observationCount,
+      speciesCount,
+      observationsLoading,
+      noFiltersActive,
+      activeSpeciesName: state.speciesCode
+        ? (dictionary.get(state.speciesCode)?.comName ?? null)
+        : null,
+      singleObservedSpeciesName:
+        speciesCount === 1 ? (observations[0]?.comName ?? null) : null,
+      familyName: familyName ?? null,
+    });
   }, [
     region,
     observations,
@@ -1224,6 +1191,8 @@ export function App() {
     observationsLoading,
     noFiltersActive,
     familyName,
+    dictionary,
+    state.speciesCode,
   ]);
 
   // O1 (#776) — App-root polite aria-live result-settle narration (R9).
