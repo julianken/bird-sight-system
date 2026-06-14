@@ -17,8 +17,8 @@
     "db:migrate": "node-pg-migrate up -m migrations --ignore-pattern '(^\\..*)|(.*\\.md$)'",
     "db:rollback": "node-pg-migrate down -m migrations --ignore-pattern '(^\\..*)|(.*\\.md$)'",
     "db:seed": "tsx packages/db-client/src/dev-seed.ts",
-    "curate:phylopic": "node scripts/curate-phylopic.mjs",
-    "silhouette": "node scripts/silhouette.mjs"
+    "curate:phylopic": "node scripts/curation/curate-phylopic.mjs",
+    "silhouette": "node scripts/curation/silhouette.mjs"
   },
   "devDependencies": {
     "@turf/boolean-point-in-polygon": "^7.3.5",

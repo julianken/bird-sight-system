@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 DOMAIN=$(cd infra/terraform && terraform output -raw root_domain)
 API="https://api.$DOMAIN"

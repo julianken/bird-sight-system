@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 REGISTRY=$(cd infra/terraform && terraform output -raw artifact_registry_url)
 SERVICE="${1:?usage: build-push.sh <service> (read-api | ingestor)}"

@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-// scripts/purge-silhouettes-cache.sh wraps the Cloudflare cache-purge curl.
+// scripts/cache/purge-silhouettes-cache.sh wraps the Cloudflare cache-purge curl.
 // We can't safely test the live POST, but the --dry-run flag is the contract
 // CI relies on to keep the script from rotting. This spec asserts:
 //   1. The script file exists and is executable.
@@ -11,9 +11,9 @@ import { resolve } from 'node:path';
 //   3. --dry-run with both env-vars set exits 0 and prints the expected lines.
 // Resolve from the workspace dir up to the repo root so the test stays
 // portable whether vitest is invoked from the workspace or the root.
-const SCRIPT = resolve(__dirname, '../../../scripts/purge-silhouettes-cache.sh');
+const SCRIPT = resolve(__dirname, '../../../scripts/cache/purge-silhouettes-cache.sh');
 
-describe('scripts/purge-silhouettes-cache.sh', () => {
+describe('scripts/cache/purge-silhouettes-cache.sh', () => {
   it('exists and is executable', () => {
     expect(existsSync(SCRIPT)).toBe(true);
     // 0o111 = any execute bit (owner|group|other). Stricter than checking
