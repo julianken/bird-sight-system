@@ -443,7 +443,14 @@ export function createApp(deps: AppDeps): Hono {
     }
 
     const filters: Parameters<typeof getSpeciesInScope>[1] = {};
-    if (sinceResult.value !== undefined) filters.since = sinceResult.value;
+    // Default the window to 14d when `?since=` is absent. Unlike /api/observations
+    // (where an absent since means an all-history query bounded by bbox/state),
+    // this endpoint's cost is a national distinct-species scan with no bbox to
+    // prune — an unbounded all-history scan from a direct no-since hit would
+    // defeat the bounded-scan intent the species-scope cache tier documents. The
+    // frontend always sends since=14d; this hardens the direct-hit path
+    // (julianken-bot #1165 review).
+    filters.since = sinceResult.value ?? '14d';
     if (notableResult.value === true) filters.notable = true;
     if (familyResult.value !== undefined) filters.familyCode = familyResult.value;
     if (stateResult.value !== undefined) filters.stateCode = stateResult.value;

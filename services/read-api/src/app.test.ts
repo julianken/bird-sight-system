@@ -1341,6 +1341,11 @@ describe('GET /api/species-in-scope', () => {
       { speciesCode: 'sis-ghost', comName: 'Ghost Bird',
         sciName: 'Nullus avis', familyCode: 'tyrannidae',
         familyName: 'Tyrant Flycatchers', taxonOrder: 99999 },
+      // Has ONLY an observation older than 14d → appears in an all-history scan
+      // but NOT in the default 14d window (proves the no-since default below).
+      { speciesCode: 'sis-old', comName: 'Stale Crow',
+        sciName: 'Corvus vetus', familyCode: 'corvidae',
+        familyName: 'Crows, Jays, and Magpies', taxonOrder: 50000 },
     ]);
     await db.pool.query("DELETE FROM observations WHERE sub_id LIKE 'SIS-%'");
     await upsertObservations(db.pool, [
@@ -1350,10 +1355,24 @@ describe('GET /api/species-in-scope', () => {
       { subId: 'SIS-2', speciesCode: 'sis-anna', comName: "Anna's Hummingbird",
         lat: 32.30, lng: -110.99, obsDt: new Date(Date.now() - 4 * 86400_000).toISOString(),
         locId: 'L2', locName: 'AZ', howMany: 1, isNotable: true },
+      { subId: 'SIS-OLD', speciesCode: 'sis-old', comName: 'Stale Crow',
+        lat: 32.30, lng: -110.99, obsDt: new Date(Date.now() - 30 * 86400_000).toISOString(),
+        locId: 'L3', locName: 'AZ', howMany: 1, isNotable: false },
     ]);
   });
 
   type SisRow = { code: string; comName: string; familyCode: string };
+
+  it('defaults the window to 14d when ?since= is absent (excludes a >14d-old observation)', async () => {
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/species-in-scope');
+    expect(res.status).toBe(200);
+    const codes = ((await res.json()) as SisRow[]).map(r => r.code);
+    // Recent species present; the all-history-only species is excluded by the
+    // 14d default (an unbounded scan would have included sis-old).
+    expect(codes).toContain('sis-verm');
+    expect(codes).not.toContain('sis-old');
+  });
 
   it('returns represented species as {code,comName,familyCode}[], comName-sorted, excluding unobserved meta rows', async () => {
     const app = createApp({ pool: db.pool });
