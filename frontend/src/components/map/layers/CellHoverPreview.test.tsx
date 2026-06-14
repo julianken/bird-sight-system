@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { CellHoverPreview } from './CellHoverPreview.js';
-import type { SpeciesAggregate } from './adaptive-grid.js';
+import type { SpeciesAggregate } from '@/components/map/geometry/adaptive-grid.js';
 
 function species(comName: string, count: number, code: string | null = comName.slice(0, 6).toLowerCase()): SpeciesAggregate {
   return { comName, count, speciesCode: code };

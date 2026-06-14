@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ClusterListPopover } from './ClusterListPopover.js';
-import type { FamilyAggregate, SpeciesAggregate } from './adaptive-grid.js';
+import type { FamilyAggregate, SpeciesAggregate } from '@/components/map/geometry/adaptive-grid.js';
 
 function species(
   comName: string,
@@ -460,7 +460,7 @@ describe('<ClusterListPopover>', () => {
 // the <li> default, sidestepping the flex-on-<a> bbox bug) is the contract here.
 describe('E1/#565 — species-row 44px tap target (CSS contract)', () => {
   const css = readFileSync(
-    join(import.meta.dirname, '../ds/ds-primitives.css'),
+    join(import.meta.dirname, '../../ds/ds-primitives.css'),
     'utf8',
   );
 

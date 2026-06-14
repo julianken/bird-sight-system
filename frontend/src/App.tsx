@@ -24,7 +24,7 @@ import { useSpeciesDetail } from '@/data/use-species-detail.js';
 // ARTBOARD_PAD lives in the map's mask util but mask.ts imports only `geojson`
 // *types* (erased at build), so this does NOT pull the lazy maplibre chunk into
 // the entry bundle — App owns the scope→clampPad derivation (#760/#762).
-import { ARTBOARD_PAD } from '@/components/map/mask.js';
+import { ARTBOARD_PAD } from '@/components/map/geometry/mask.js';
 import { FiltersBar } from '@/components/FiltersBar.js';
 import type { FamilyOption, SpeciesOption } from '@/components/FiltersBar.js';
 import { FamilyLegend } from '@/components/FamilyLegend.js';

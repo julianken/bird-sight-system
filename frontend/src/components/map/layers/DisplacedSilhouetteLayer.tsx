@@ -1,7 +1,7 @@
 import type { Observation } from '@bird-watch/shared-types';
 import { PresentationMarker } from './PresentationMarker.js';
-import { SILHOUETTE_PX } from './deconflict.js';
-import type { SilhouetteOffsets } from './obs-derive.js';
+import { SILHOUETTE_PX } from '@/components/map/geometry/deconflict.js';
+import type { SilhouetteOffsets } from '@/components/map/geometry/obs-derive.js';
 import {
   MapMarkerHitLayer,
   type HitLayerMap,

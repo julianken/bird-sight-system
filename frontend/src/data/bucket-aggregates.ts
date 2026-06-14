@@ -1,5 +1,5 @@
 import type { AggregatedBucket, AggregatedFamily } from '@bird-watch/shared-types';
-import type { FamilyAggregate, SpeciesAggregate } from '../components/map/adaptive-grid.js';
+import type { FamilyAggregate, SpeciesAggregate } from '../components/map/geometry/adaptive-grid.js';
 import type { SpeciesDictionary } from './use-species-dictionary.js';
 import type { FamilyOption } from '../components/FiltersBar.js';
 import { prettyFamily, resolveFamilyName, type FamilyNameSource } from '../derived.js';

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { Observation } from '@bird-watch/shared-types';
-import { formatCount } from '../../lib/format-count.js';
+import { formatCount } from '../../../lib/format-count.js';
 import { POPOVER_VIEWPORT_INSET_PX } from './CellPopover.js';
 
 export interface ObservationPopoverProps {

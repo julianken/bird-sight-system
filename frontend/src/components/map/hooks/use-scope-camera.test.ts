@@ -6,9 +6,9 @@ import {
   INITIAL_VIEW,
   MIN_STATE_ONSCREEN,
   zoomAwareClampBounds,
-} from './camera-config.js';
-import { padBounds } from './mask.js';
-import type { LngLatBounds } from './mask.js';
+} from '@/components/map/geometry/camera-config.js';
+import { padBounds } from '@/components/map/geometry/mask.js';
+import type { LngLatBounds } from '@/components/map/geometry/mask.js';
 
 /* ── computeScopeBounds — pure scope bounds-math (U12 / #897) ─────────────────
    The three derived camera values factored out of MapCanvas.tsx's render body:

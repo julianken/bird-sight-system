@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import type { Observation } from '@bird-watch/shared-types';
 import { DisplacedSilhouetteLayer } from './DisplacedSilhouetteLayer.js';
-import type { SilhouetteOffsets } from './obs-derive.js';
+import type { SilhouetteOffsets } from '@/components/map/geometry/obs-derive.js';
 import type { HitLayerMap, HitTargetMarker } from './MapMarkerHitLayer.js';
 
 /* ── Mocks ───────────────────────────────────────────────────────────────────

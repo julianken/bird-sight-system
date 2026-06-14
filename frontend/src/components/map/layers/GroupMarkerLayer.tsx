@@ -1,7 +1,7 @@
 import { AdaptiveGridMarker } from './AdaptiveGridMarker.js';
 import { PresentationMarker } from './PresentationMarker.js';
-import { ClusterPill } from '../ds/ClusterPill.js';
-import type { DeconflictGroup } from './deconflict.js';
+import { ClusterPill } from '@/components/ds/ClusterPill.js';
+import type { DeconflictGroup } from '@/components/map/geometry/deconflict.js';
 
 /**
  * GroupMarkerLayer — presentational dispatch for the unified deconflict render
