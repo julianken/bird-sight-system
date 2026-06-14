@@ -377,3 +377,50 @@ describe('refreshGridAgg statement_timeout exemption (#878 prod-timeout regressi
     expect(setLocalIdx).toBeLessThan(deleteIdx);
   });
 });
+
+describe('refreshGridAgg work_mem bump (503 incident 2026-06-14 — precompute temp-file spill)', () => {
+  // At national scale this populate's hash/sort/jsonb_agg nodes spill ~430 MB
+  // to pgsql_tmp at the Cloud SQL default work_mem, pinning the db-g1-small
+  // instance's single shared vCPU + disk while it rebuilds the grid. During
+  // that window concurrent live read-path aggregations (the state/low-zoom CTE
+  // that getAggregatedGridFromCache falls through to) starve and blow the 15s
+  // statement_timeout → user-visible 503s clustered at the :00/:30 ingest+
+  // refresh ticks. A transaction-scoped work_mem bump keeps the largest nodes
+  // in memory, shrinking the spill + contention window. This test fails against
+  // the pre-fix code (no work_mem SET) and passes after.
+  it('issues `SET LOCAL work_mem` after BEGIN, before the populate', async () => {
+    const log: string[] = [];
+    const realConnect = pool.connect.bind(pool);
+    const spied = {
+      connect: async () => {
+        const client = await realConnect();
+        const realQuery = client.query.bind(client);
+        (client as unknown as { query: (...a: unknown[]) => unknown }).query = (
+          ...args: unknown[]
+        ) => {
+          const first = args[0];
+          const text =
+            typeof first === 'string'
+              ? first
+              : (first as { text?: string })?.text ?? '';
+          log.push(text);
+          return (realQuery as (...a: unknown[]) => unknown)(...args);
+        };
+        return client;
+      },
+    } as unknown as pg.Pool;
+
+    const n = await refreshGridAgg(spied);
+    expect(n).toBeGreaterThan(0);
+
+    const beginIdx = log.findIndex(q => /^\s*BEGIN/i.test(q));
+    const workMemIdx = log.findIndex(q => /SET\s+LOCAL\s+work_mem\s*=/i.test(q));
+    const deleteIdx = log.findIndex(q => /DELETE\s+FROM\s+observation_grid_agg/i.test(q));
+
+    expect(beginIdx).toBeGreaterThanOrEqual(0);
+    expect(workMemIdx).toBeGreaterThanOrEqual(0);
+    // Inside the txn (so SET LOCAL is valid) and before the heavy populate.
+    expect(workMemIdx).toBeGreaterThan(beginIdx);
+    expect(workMemIdx).toBeLessThan(deleteIdx);
+  });
+});
