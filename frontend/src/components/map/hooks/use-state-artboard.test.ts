@@ -578,6 +578,28 @@ const SYN_DARK_B: BasemapDescriptor = {
   floatColors: { outline: '#fff', halo: '#fff' },
 };
 
+// Two SAME-KIND (light) synthetic descriptors keyed by DISTINCT light ids. Used
+// by the belt-re-seed regression: a `positron`→`bright`-style change keeps
+// `[data-theme]` === 'light', so the belt observer that re-seeds the de-dup ref
+// from the ATTRIBUTE (pre-C7) would collapse the active id to its kind-bridge
+// value ('positron') and desync the ref from the actually-swapped id.
+const SYN_LIGHT_POSITRON: BasemapDescriptor = {
+  id: 'positron',
+  url: 'syn://light-positron',
+  kind: 'light',
+  landColor: '#ffffff',
+  markerHaloColor: '#ffffff',
+  floatColors: { outline: '#000', halo: '#000' },
+};
+const SYN_LIGHT_BRIGHT: BasemapDescriptor = {
+  id: 'bright',
+  url: 'syn://light-bright',
+  kind: 'light',
+  landColor: '#ffffff',
+  markerHaloColor: '#ffffff',
+  floatColors: { outline: '#000', halo: '#000' },
+};
+
 describe('useStateArtboard — id-driven basemap swap (C1.5 · #1213)', () => {
   beforeEach(() => {
     document.documentElement.removeAttribute('data-theme');
@@ -658,5 +680,50 @@ describe('useStateArtboard — id-driven basemap swap (C1.5 · #1213)', () => {
         'https://tiles.openfreemap.org/styles/dark',
       ),
     );
+  });
+
+  // ── C7 (#1219) belt-re-seed regression ────────────────────────────────────
+  // The belt MutationObserver effect re-seeds `prevThemeIdRef` on every run. C7
+  // re-seeds it from the ACTIVE THEME ID (the id the primary effect swapped to),
+  // NOT from `attrToThemeId([data-theme])`. The trap: a SAME-KIND id change keeps
+  // `[data-theme]` === 'light', so the old attribute re-seed would set the ref to
+  // 'positron' (the kind bridge) even when the live basemap is `bright` — a
+  // desync that would wrongly de-dup the next swap back to positron. With the
+  // active-id re-seed the ref stays consistent with the live basemap.
+  it('belt re-seed from the active id: a SAME-KIND id change still swaps the basemap (the desync trap)', () => {
+    // [data-theme] stays 'light' throughout — the kind never changes, so the
+    // OLD belt re-seed `attrToThemeId('light')` always produced 'positron'.
+    document.documentElement.setAttribute('data-theme', 'light');
+    const fake = makeFakeMap({ withMask: false });
+    const ref = makeRef(fake.map);
+
+    const synRegistry: Record<string, BasemapDescriptor> = {
+      positron: SYN_LIGHT_POSITRON,
+      bright: SYN_LIGHT_BRIGHT,
+    };
+    const resolver = (id: ThemeId): BasemapDescriptor =>
+      synRegistry[id as string] ?? SYN_LIGHT_POSITRON;
+
+    // Mount with the NON-positron light id `bright`. The primary effect swaps to
+    // bright and sets prevThemeIdRef='bright'. The OLD belt effect (which ran on
+    // mount) then re-seeded prevThemeIdRef = attrToThemeId('light') = 'positron'
+    // — CLOBBERING the correct 'bright' even though the live basemap is bright.
+    const { rerender } = renderHook(
+      ({ id }: { id: ThemeId }) =>
+        useStateArtboard(ref, true, null, id, resolver),
+      { initialProps: { id: 'bright' as ThemeId } },
+    );
+
+    expect(SYN_LIGHT_POSITRON.kind).toBe(SYN_LIGHT_BRIGHT.kind); // same-kind
+    expect(fake.map.setStyle).toHaveBeenCalledWith('syn://light-bright');
+    (fake.map.setStyle as ReturnType<typeof vi.fn>).mockClear();
+
+    // bright → positron: SAME kind ('light'), [data-theme] unchanged. With the
+    // OLD attribute re-seed the ref was clobbered to 'positron' at mount, so
+    // this swap is WRONGLY de-duped ('positron' === ref) and sticks on bright.
+    // With the active-id re-seed the ref tracked 'bright', so positron swaps.
+    rerender({ id: 'positron' as ThemeId });
+    expect(fake.map.setStyle).toHaveBeenCalledTimes(1);
+    expect(fake.map.setStyle).toHaveBeenCalledWith('syn://light-positron');
   });
 });

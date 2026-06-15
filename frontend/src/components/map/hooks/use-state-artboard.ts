@@ -434,11 +434,17 @@ export function useStateArtboard(
     const map = mapRef.current?.getMap();
     if (!map) return;
 
-    // Seed the de-dup ref with the current attribute's id so the first observed
-    // mutation only swaps when the id genuinely changes.
-    prevThemeIdRef.current = attrToThemeId(
-      document.documentElement.getAttribute('data-theme'),
-    );
+    // Seed the de-dup ref with the ACTIVE THEME ID — NOT `attrToThemeId(attr)`
+    // (C7 · #1219). Now that C7 lets the active id DIVERGE from `[data-theme]`
+    // (which only holds the kind), re-seeding from the attribute would collapse
+    // the active id to its kind-consistent bridge value (`'dark'`→dark, else
+    // `'positron'`). For a non-positron light id (e.g. `bright`) that desyncs
+    // the ref from the actually-swapped id, so a later attribute write that
+    // resolves to the SAME id is wrongly de-duped — sticking a swap. Seeding
+    // from `activeThemeId` (the id the primary effect already swapped to) keeps
+    // the ref consistent with the live basemap. `activeThemeId` is in the deps
+    // so this re-seeds whenever the active id changes.
+    prevThemeIdRef.current = activeThemeId;
 
     const observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
@@ -461,7 +467,7 @@ export function useStateArtboard(
     });
 
     return () => observer.disconnect();
-  }, [mapReady]);
+  }, [mapReady, activeThemeId]);
 
   return { maskTheme };
 }
