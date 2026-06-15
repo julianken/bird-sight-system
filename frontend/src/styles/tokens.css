@@ -266,6 +266,14 @@
   --dropdown-open-dur:   180ms;
   --dropdown-pre-scale:  0.96;
   --dropdown-ease:       cubic-bezier(0.22, 1, 0.36, 1);
+  /* C8 (#1220) — transitions-dev MENU-DROPDOWN recipe close phase, consumed by
+   * the `.t-dropdown` class (styles.css) on the ThemeSelector popover. The
+   * `.is-closing` exit reads --dropdown-close-dur for both the CSS transition AND
+   * the JS unmount timer (ThemeSelector reads it via getComputedStyle so they
+   * stay in sync). Re-using the existing --dropdown-open-dur / --dropdown-pre-
+   * scale / --dropdown-ease above ("add once, if not already present"). */
+  --dropdown-close-dur:    150ms;
+  --dropdown-closing-scale: 0.99;
   --modal-open-dur:      180ms;
   --modal-scale:         0.96;
   --modal-ease:          cubic-bezier(0.22, 1, 0.36, 1);

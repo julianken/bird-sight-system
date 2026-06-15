@@ -901,14 +901,14 @@ body {
 }
 
 /* ── ThemeSelector (C8 · #1220) ───────────────────────────────────────────────
-   Replaces the old binary <ThemeToggle> with a 5-theme radiogroup. Two forms:
-   - wide (≥1024): an inline SEGMENTED control of 5 pills, sitting in the
-     controls pill; the active pill is FILLED, the rest are outlined/ghost.
-   - roomy/compact (<1024): a single icon TRIGGER that opens a TRANSIENT popover
-     listing the same 5 options (anchored under the trigger; a four-corner
-     transient-layer surface, NOT a new band).
-   The ONE radiogroup markup (`.theme-selector-group`) is reused in both forms;
-   `data-form` only switches the layout (inline row vs stacked column). */
+   Replaces the old binary <ThemeToggle> with a 5-theme radiogroup. ONE form at
+   EVERY breakpoint (C8 rework): a single icon TRIGGER that opens a TRANSIENT
+   popover listing the 5 options (anchored under the trigger; a four-corner
+   transient-layer surface, NOT a new band). The earlier desktop "always-inline
+   segmented strip" is gone — the icon→popover is the only form now.
+   The popover's open/close is animated with the transitions-dev MENU-DROPDOWN
+   recipe (`.t-dropdown`, below). The radiogroup markup (`.theme-selector-group`)
+   stays a stacked column (`data-form='popover'`). */
 .theme-selector {
   display: inline-flex;
   align-items: center;
@@ -994,9 +994,10 @@ body {
   background: var(--color-bg-tint);
 }
 
-/* Transient popover (roomy/compact) — anchored under the trigger, right-edge
-   aligned so it never spills off-viewport from a top-right corner control.
-   Rides --z-popover (above map-assist overlays); tier-2 elevation. */
+/* Transient popover — anchored under the icon trigger, right-edge aligned so it
+   never spills off-viewport from a top-right corner control. Rides --z-popover
+   (above map-assist overlays); tier-2 elevation. The open/close animation is the
+   `.t-dropdown` menu-dropdown recipe below (composed on the same element). */
 .theme-selector-popover {
   position: absolute;
   inset-block-start: calc(100% + var(--space-xs));
@@ -1008,6 +1009,45 @@ body {
   box-shadow: var(--card-elevation-2);
   padding: var(--card-padding-tight);
   max-inline-size: var(--card-maxw-popover);
+}
+
+/* ── transitions-dev MENU-DROPDOWN recipe (C8 · #1220) ─────────────────────────
+   Applied (verbatim) to the ThemeSelector popover surface alongside
+   `data-origin="top-right"`. Open adds `.is-open`; close swaps to `.is-closing`,
+   then the React component unmounts the surface after --dropdown-close-dur (read
+   from getComputedStyle so the JS timer stays in sync with the CSS var). The
+   per-element prefers-reduced-motion guard from the recipe is preserved here in
+   addition to the global guard in motion.css. */
+.t-dropdown {
+  transform-origin: top left;
+  transform: scale(var(--dropdown-pre-scale));
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform var(--dropdown-open-dur) var(--dropdown-ease),
+    opacity var(--dropdown-open-dur) var(--dropdown-ease);
+  will-change: transform, opacity;
+}
+.t-dropdown[data-origin='top-right'] {
+  transform-origin: top right;
+}
+.t-dropdown.is-open {
+  transform: scale(1);
+  opacity: 1;
+  pointer-events: auto;
+}
+.t-dropdown.is-closing {
+  transform: scale(var(--dropdown-closing-scale));
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform var(--dropdown-close-dur) var(--dropdown-ease),
+    opacity var(--dropdown-close-dur) var(--dropdown-ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  .t-dropdown {
+    transition: none !important;
+  }
 }
 
 /* E2 (#1054): the full-snap `pointer-events: none` hack on the identity card +

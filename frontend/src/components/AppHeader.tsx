@@ -89,6 +89,13 @@ export interface AppHeaderProps {
   /** Open the Filters panel. <App> owns the panel state; this component is presentational. */
   onOpenFilters: () => void;
   /**
+   * Close the Filters panel. <App> owns the panel state; AppHeader calls this to
+   * enforce the single-header-popover invariant — opening the scope disclosure or
+   * the theme popover closes an open Filters panel so the header surfaces never
+   * overlap. Wired to App's `setFiltersOpen(false)`.
+   */
+  onCloseFilters: () => void;
+  /**
    * Whether the Filters panel is currently open. Drives `aria-expanded` on the
    * Filters trigger so screen readers announce the modality and its state.
    * No `aria-controls` — the sheet is conditionally rendered, so an IDREF to
@@ -158,6 +165,7 @@ export function AppHeader({
   region,
   filterCount,
   onOpenFilters,
+  onCloseFilters,
   filtersOpen,
   detailOpen,
   filtersTriggerRef,
@@ -185,6 +193,12 @@ export function AppHeader({
   // local — re-scoping is the persisted action, not the panel's open/closed
   // state, so this does NOT belong in the URL. Spec §7 (disclosure pattern).
   const [scopeOpen, setScopeOpen] = useState(false);
+  // C8 rework: theme popover open-state is OWNED here (lifted out of
+  // <ThemeSelector>, which is now a controlled disclosure) so AppHeader can
+  // enforce the single-header-popover invariant — only one of {scope, filters,
+  // theme} open at a time, never overlapping (a design tell). See the
+  // coordination handlers below.
+  const [themeOpen, setThemeOpen] = useState(false);
   const scopeRegionId = useId();
   const scopeTriggerRef = useRef<HTMLButtonElement>(null);
   const scopeRowsRef = useRef<HTMLDivElement>(null);
@@ -248,6 +262,46 @@ export function AppHeader({
     [onPickState],
   );
 
+  // ── Single-header-popover coordination (C8) ──────────────────────────────
+  // Exactly one of {scope disclosure, Filters panel, theme popover} may be open
+  // at a time — opening any one closes the other two so the header surfaces
+  // never overlap (the design tell Julian flagged). Each toggle below opens its
+  // own surface and proactively closes the siblings.
+
+  // Theme popover open-state changes from <ThemeSelector> (it is now a
+  // controlled disclosure). On the OPEN edge, close scope + filters.
+  const handleThemeOpenChange = useCallback(
+    (next: boolean) => {
+      if (next) {
+        setScopeOpen(false);
+        onCloseFilters();
+      }
+      setThemeOpen(next);
+    },
+    [onCloseFilters],
+  );
+
+  // Scope disclosure toggle (the 🔍 "Change region" trigger). On OPEN, close the
+  // theme popover + Filters panel.
+  const toggleScope = useCallback(() => {
+    setScopeOpen((wasOpen) => {
+      const next = !wasOpen;
+      if (next) {
+        setThemeOpen(false);
+        onCloseFilters();
+      }
+      return next;
+    });
+  }, [onCloseFilters]);
+
+  // Filters trigger. Open the Filters panel (App owns its state) AND close the
+  // theme popover + scope disclosure so they don't overlap the panel.
+  const handleOpenFilters = useCallback(() => {
+    setThemeOpen(false);
+    setScopeOpen(false);
+    onOpenFilters();
+  }, [onOpenFilters]);
+
   // Esc collapses + restores focus to the trigger (spec §7). NO click-outside:
   // a stray map click must not discard a half-typed ZIP. Handler lives on the
   // identity card so Esc closes from any field inside the form OR from the
@@ -305,7 +359,7 @@ export function AppHeader({
               ref={scopeTriggerRef}
               type="button"
               className="app-header-scope-toggle"
-              onClick={() => setScopeOpen(o => !o)}
+              onClick={toggleScope}
               aria-expanded={scopeOpen}
               aria-controls={scopeRegionId}
               aria-label={scopeOpen ? 'Close scope options' : 'Change region'}
@@ -432,7 +486,7 @@ export function AppHeader({
           ref={filtersTriggerRef}
           type="button"
           className="app-header-filters"
-          onClick={onOpenFilters}
+          onClick={handleOpenFilters}
           aria-label={filterTriggerLabel}
           aria-haspopup="dialog"
           aria-expanded={filtersOpen}
@@ -496,7 +550,8 @@ export function AppHeader({
         <ThemeSelector
           activeThemeId={activeThemeId}
           onSelect={onSelectTheme}
-          bp={bp}
+          open={themeOpen}
+          onOpenChange={handleThemeOpenChange}
         />
       </div>
     </header>

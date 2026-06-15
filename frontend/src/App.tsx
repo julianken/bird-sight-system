@@ -1314,6 +1314,7 @@ export function App() {
         region={region}
         filterCount={filterCount}
         onOpenFilters={() => setFiltersOpen(true)}
+        onCloseFilters={() => setFiltersOpen(false)}
         filtersOpen={filtersOpen}
         // E5 (#1057): the `?detail=` presence boolean — drives the scope
         // disclosure's auto-collapse when a species-detail surface takes over

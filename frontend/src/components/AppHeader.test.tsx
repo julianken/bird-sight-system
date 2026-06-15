@@ -8,6 +8,9 @@ const baseProps = {
   region: 'Arizona' as string | null,
   filterCount: 0,
   onOpenFilters: vi.fn(),
+  // C8 (#1220): AppHeader closes the Filters panel to enforce the single-header-
+  // popover invariant (opening scope/theme closes filters).
+  onCloseFilters: vi.fn(),
   // O4 (#780): filtersOpen drives aria-expanded on the trigger;
   // filtersTriggerRef is forwarded to the button for focus restoration.
   filtersOpen: false,
@@ -24,8 +27,10 @@ const baseProps = {
   onPickWholeUs: vi.fn(),
   onExitScope: vi.fn(),
   onResolveZip: vi.fn(),
-  // C8 (#1220): theme-selector props. The selector defaults to the wide
-  // segmented form in jsdom (no matchMedia → useBreakpoint() === 'wide').
+  // C8 (#1220): theme-selector props. The selector is a single icon→popover at
+  // every breakpoint — at rest only the trigger renders (no radiogroup until the
+  // icon is clicked). AppHeader owns the popover open-state to coordinate it with
+  // the scope disclosure + Filters panel (single-header-popover invariant).
   activeThemeId: 'positron' as const,
   onSelectTheme: vi.fn(),
 };
@@ -351,7 +356,7 @@ describe('<AppHeader>', () => {
     render(<AppHeader {...baseProps} />);
     const pill = document.querySelector('.app-header-controls-pill')!;
     // The two leading icon buttons are Filters then Credits; the theme selector
-    // follows (in jsdom's wide form it is a radiogroup, not a single button).
+    // (a single icon trigger at rest) follows.
     expect(pill.querySelector('.app-header-filters')).not.toBeNull();
     expect(pill.querySelector('.app-header-attribution')).not.toBeNull();
     const filters = pill.querySelector('.app-header-filters')!;
@@ -363,16 +368,71 @@ describe('<AppHeader>', () => {
     expect(credits.compareDocumentPosition(selector) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  // ── ThemeSelector (C8 #1220) ─────────────────────────────────────────────
+  // ── ThemeSelector (C8 #1220 icon→popover) ─────────────────────────────────
 
-  it('mounts the <ThemeSelector> radiogroup in the controls pill', () => {
+  it('renders the <ThemeSelector> as a single icon trigger at rest (no radiogroup until opened)', () => {
     render(<AppHeader {...baseProps} />);
+    // The icon trigger is in the controls pill; the radiogroup is not mounted yet.
+    expect(screen.getByRole('button', { name: /^Map theme:/ })).toBeInTheDocument();
+    expect(screen.queryByRole('radiogroup', { name: 'Map theme' })).toBeNull();
+  });
+
+  it('clicking the theme icon opens the popover with 5 options, the active one checked', async () => {
+    render(<AppHeader {...baseProps} />);
+    await userEvent.click(screen.getByRole('button', { name: /^Map theme:/ }));
     const group = screen.getByRole('radiogroup', { name: 'Map theme' });
-    expect(group).toBeInTheDocument();
-    // 5 theme options, the active one (positron) checked.
-    const radios = within(group).getAllByRole('radio');
-    expect(radios).toHaveLength(5);
+    expect(within(group).getAllByRole('radio')).toHaveLength(5);
     expect(screen.getByRole('radio', { name: 'Positron' })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  // ── Single-header-popover coordination (C8 #1220) ─────────────────────────
+  // Only one of {scope disclosure, Filters panel, theme popover} may be open at
+  // a time — opening any one closes the others (no overlapping header surfaces).
+
+  it('opening the theme popover closes an open scope disclosure (no two header popovers open)', async () => {
+    render(<AppHeader {...baseProps} {...stateProps} />);
+    const scopeTrigger = screen.getByRole('button', { name: /change region/i });
+    await userEvent.click(scopeTrigger);
+    expect(scopeTrigger).toHaveAttribute('aria-expanded', 'true');
+
+    // Now open the theme popover — the scope disclosure must collapse.
+    await userEvent.click(screen.getByRole('button', { name: /^Map theme:/ }));
+    expect(screen.getByRole('radiogroup', { name: 'Map theme' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /change region/i })).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('opening the scope disclosure closes an open theme popover', async () => {
+    render(<AppHeader {...baseProps} {...stateProps} />);
+    const themeTrigger = screen.getByRole('button', { name: /^Map theme:/ });
+    await userEvent.click(themeTrigger);
+    expect(themeTrigger).toHaveAttribute('aria-expanded', 'true');
+
+    // Open the scope disclosure — the theme popover must collapse. After opening,
+    // the scope trigger's accessible name flips to "Close scope options", so use
+    // the stable either-name matcher.
+    await userEvent.click(screen.getByRole('button', { name: /change region/i }));
+    expect(
+      screen.getByRole('button', { name: /change region|close scope options/i }),
+    ).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: /^Map theme:/ })).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('opening the theme popover closes an open Filters panel (onCloseFilters fired)', async () => {
+    const onCloseFilters = vi.fn();
+    render(<AppHeader {...baseProps} {...stateProps} filtersOpen={true} onCloseFilters={onCloseFilters} />);
+    await userEvent.click(screen.getByRole('button', { name: /^Map theme:/ }));
+    expect(onCloseFilters).toHaveBeenCalled();
+  });
+
+  it('clicking Filters closes an open theme popover (and an open scope disclosure)', async () => {
+    render(<AppHeader {...baseProps} {...stateProps} />);
+    const themeTrigger = screen.getByRole('button', { name: /^Map theme:/ });
+    await userEvent.click(themeTrigger);
+    expect(themeTrigger).toHaveAttribute('aria-expanded', 'true');
+
+    // Clicking the Filters trigger closes the theme popover (App opens the panel).
+    await userEvent.click(screen.getByRole('button', { name: /^Filters/i }));
+    expect(screen.getByRole('button', { name: /^Map theme:/ })).toHaveAttribute('aria-expanded', 'false');
   });
 
   // ── role="banner" landmark ───────────────────────────────────────────────

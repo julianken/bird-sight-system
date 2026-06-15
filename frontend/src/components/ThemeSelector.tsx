@@ -11,25 +11,37 @@
  *
  * Four-corner anchor contract (CLAUDE.md / floating-UI spec §4.3): this control's
  * resting trigger lives in the TOP-RIGHT controls pill; its expanded form is a
- * TRANSIENT-LAYER surface (segmented strip at `wide`, popover at `roomy`/
- * `compact`) — NOT a new band.
+ * TRANSIENT-LAYER surface (a popover anchored under the trigger) — NOT a new band.
  *
- * Responsive form (the three `useBreakpoint()` bands — matches the AppHeader
- * `filtersLabeled = bp === 'wide'` precedent):
- *   - `wide` (≥1024): an INLINE segmented control of 5 pills inside the pill.
- *   - `roomy` AND `compact` (`bp !== 'wide'`): a single "Theme" trigger button
- *     that opens a TRANSIENT popover listing the 5 options, anchored under the
- *     trigger — guarantees the pill never overflows at 768/1024 viewports and
- *     can't collide with the 360px identity card.
+ * Interaction (C8 rework — single icon→popover on ALL viewports):
+ *   A single THEME ICON button is the only resting form at every breakpoint.
+ *   Clicking it EXPANDS the selector open as a popover listing the 5 options.
+ *   Selecting a theme applies it AND CLOSES the popover. Esc and an outside
+ *   click also close it. (The earlier desktop "always-inline segmented strip"
+ *   form is removed — there is one form now, the icon-triggered popover.)
  *
- * ARIA — ONE role model in BOTH forms (the issue's load-bearing rule): a single
- * `role="radiogroup"` (`aria-label="Map theme"`) with `role="radio"` +
- * `aria-checked` children. Roving tabindex (only the active radio is tabbable);
- * Left/Right AND Up/Down arrows move + select (selection-follows-focus); Home/End
- * jump to first/last. The narrow popover wraps that SAME radiogroup in a
- * disclosure (`aria-haspopup`, `aria-expanded`/`aria-controls` on the trigger,
- * Esc closes + returns focus to the trigger — the scope-disclosure precedent in
- * AppHeader.tsx). A visually-hidden `aria-live` region announces the new theme.
+ * Open-state is CONTROLLED by the parent (AppHeader) via `open` + `onOpenChange`,
+ * so AppHeader can enforce the single-header-popover invariant: opening the theme
+ * popover closes the scope "Change region" disclosure and the Filters panel, and
+ * opening either of those closes this popover — only ONE header popover open at a
+ * time, never overlapping.
+ *
+ * Open/close animation — transitions-dev MENU-DROPDOWN recipe (styles.css
+ * `.t-dropdown`): the popover surface carries `.t-dropdown` + `data-origin=
+ * "top-right"`. Open adds `.is-open`; close swaps to `.is-closing` and unmounts
+ * after `--dropdown-close-dur` (read from getComputedStyle so the JS timer stays
+ * in sync with the CSS var). The recipe's per-element prefers-reduced-motion
+ * guard is preserved in CSS (alongside the global motion.css guard).
+ *
+ * ARIA: the icon trigger is a disclosure button — `aria-haspopup`,
+ * `aria-expanded`, `aria-controls` (a valid IDREF; the radiogroup is mounted
+ * through the close animation), `aria-label="Map theme: <active>"`. The popover
+ * holds a single `role="radiogroup"` (`aria-label="Map theme"`) with `role=
+ * "radio"` + `aria-checked` children. Roving tabindex (only the active radio is
+ * tabbable); Left/Right AND Up/Down arrows move + select (selection-follows-
+ * focus); Home/End jump to first/last. Focus moves into the open popover (the
+ * active radio) and returns to the trigger on close. A visually-hidden
+ * `aria-live` region announces the new theme.
  *
  * Spec: docs/design/standalone/2026-05-30-floating-ui-design-spec.md §4.3
  */
@@ -42,10 +54,27 @@ import {
   THEME_LABELS,
   type ThemeId,
 } from '@/components/map/geometry/basemap-style.js';
-import type { Breakpoint } from '../hooks/use-breakpoint.js';
 
 /** The 5 ids in registry render order (Positron · Bright · Liberty · Dark · Fiord). */
 const THEME_IDS = Object.keys(THEME_REGISTRY) as ThemeId[];
+
+/** Fallback close duration (ms) if the CSS var can't be read (jsdom). Matches
+ *  `--dropdown-close-dur` in tokens.css; the live value is read at close time so
+ *  the JS unmount timer stays in sync with the CSS transition. */
+const CLOSE_DUR_FALLBACK_MS = 150;
+
+/** Read `--dropdown-close-dur` (e.g. "150ms") off :root and parse to ms. */
+function readCloseDurationMs(el: HTMLElement | null): number {
+  if (!el || typeof getComputedStyle !== 'function') return CLOSE_DUR_FALLBACK_MS;
+  const raw = getComputedStyle(el).getPropertyValue('--dropdown-close-dur').trim();
+  if (!raw) return CLOSE_DUR_FALLBACK_MS;
+  const ms = raw.endsWith('ms')
+    ? parseFloat(raw)
+    : raw.endsWith('s')
+      ? parseFloat(raw) * 1000
+      : parseFloat(raw);
+  return Number.isFinite(ms) ? ms : CLOSE_DUR_FALLBACK_MS;
+}
 
 export interface ThemeSelectorProps {
   /** The active theme id (App-level source of truth; `useActiveThemeId`). */
@@ -57,27 +86,77 @@ export interface ThemeSelectorProps {
    * `setThemeId` returned by `useActiveThemeId` in App.tsx.
    */
   onSelect: (id: ThemeId) => void;
-  /** Current breakpoint — `wide` ⇒ inline segmented; else ⇒ trigger + popover. */
-  bp: Breakpoint;
+  /**
+   * Whether the popover is open — CONTROLLED by AppHeader so it can enforce the
+   * single-header-popover invariant (opening theme closes scope + filters, and
+   * vice versa).
+   */
+  open: boolean;
+  /** Request an open-state change. AppHeader closes the other header popovers on
+   *  the `true` edge and lets the popover open. */
+  onOpenChange: (next: boolean) => void;
 }
 
-export function ThemeSelector({ activeThemeId, onSelect, bp }: ThemeSelectorProps) {
-  const isWide = bp === 'wide';
-
-  // Disclosure state (narrow form only). Mirrors the scope-disclosure pattern in
-  // AppHeader: aria-expanded + aria-controls on the trigger, Esc closes + returns
-  // focus to the trigger, focus moves into the group on open.
-  const [open, setOpen] = useState(false);
+export function ThemeSelector({
+  activeThemeId,
+  onSelect,
+  open,
+  onOpenChange,
+}: ThemeSelectorProps) {
   const groupId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const groupRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
   const liveRef = useRef<HTMLSpanElement | null>(null);
   // Refs to each radio so roving-tabindex focus + arrow nav can move focus
   // imperatively (selection-follows-focus). Keyed by id.
   const radioRefs = useRef<Partial<Record<ThemeId, HTMLButtonElement | null>>>({});
 
+  // ── Menu-dropdown enter/exit orchestration ──────────────────────────────────
+  // `mounted` keeps the popover in the DOM through the close animation; `closing`
+  // drives the `.is-closing` exit class. Open: mount + (next frame) flip to open.
+  // Close: swap to closing, then unmount after `--dropdown-close-dur`.
+  const [mounted, setMounted] = useState(open);
+  const [closing, setClosing] = useState(false);
+  const [entered, setEntered] = useState(false);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      // Cancel any in-flight close, mount, then add `.is-open` on the next frame
+      // so the `.t-dropdown` enter transition (scale + opacity) actually plays.
+      if (closeTimerRef.current) {
+        clearTimeout(closeTimerRef.current);
+        closeTimerRef.current = null;
+      }
+      setClosing(false);
+      setMounted(true);
+      setEntered(false);
+      const raf = requestAnimationFrame(() => setEntered(true));
+      return () => cancelAnimationFrame(raf);
+    }
+    // Closing: if nothing is mounted there is nothing to animate out.
+    if (!mounted) return;
+    setEntered(false);
+    setClosing(true);
+    const dur = readCloseDurationMs(popoverRef.current ?? triggerRef.current);
+    closeTimerRef.current = setTimeout(() => {
+      setMounted(false);
+      setClosing(false);
+      closeTimerRef.current = null;
+    }, dur);
+    return () => {
+      if (closeTimerRef.current) {
+        clearTimeout(closeTimerRef.current);
+        closeTimerRef.current = null;
+      }
+    };
+    // `mounted` intentionally omitted — this effect is keyed off the `open` edge;
+    // including `mounted` would re-fire the close branch when we set it false.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
   /** Apply a theme: write [data-theme] + persist (applyTheme), then drive the
-   *  id-keyed swap (onSelect), then announce it to AT via the live region. */
+   *  id-keyed swap (onSelect), announce it to AT, and CLOSE the popover. */
   const select = useCallback(
     (id: ThemeId) => {
       applyTheme(id);
@@ -85,30 +164,57 @@ export function ThemeSelector({ activeThemeId, onSelect, bp }: ThemeSelectorProp
       if (liveRef.current) {
         liveRef.current.textContent = `${THEME_LABELS[id]} theme`;
       }
+      // Selecting a theme closes the popover and returns focus to the trigger.
+      onOpenChange(false);
+      triggerRef.current?.focus();
     },
-    [onSelect],
+    [onSelect, onOpenChange],
   );
 
-  // When the narrow popover opens, move focus to the active radio (spec §7 — the
-  // disclosure focuses its first/active control on open). Runs only on the open
-  // edge so re-renders while open don't steal focus.
+  // When the popover opens, move focus to the active radio (spec §7 — the
+  // disclosure focuses its active control on open). Keyed off `mounted && open`
+  // rather than `open` alone: the radios mount ONE render after `open` flips
+  // (the mount effect sets `mounted` true on the next commit), so focusing on
+  // the `open` edge would run before the radios exist and silently no-op. A
+  // per-open guard ref ensures we focus exactly once per open (not on every
+  // re-render while open).
+  const focusedOnOpenRef = useRef(false);
   useEffect(() => {
-    if (open && !isWide) {
-      radioRefs.current[activeThemeId]?.focus();
+    if (open && mounted) {
+      if (!focusedOnOpenRef.current) {
+        focusedOnOpenRef.current = true;
+        radioRefs.current[activeThemeId]?.focus();
+      }
+    } else if (!open) {
+      focusedOnOpenRef.current = false;
     }
     // activeThemeId intentionally omitted — focus only on the open edge.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, isWide]);
+  }, [open, mounted]);
 
-  // If we cross from narrow → wide while the popover is open, collapse it (the
-  // segmented form has no disclosure; a stuck-open state would be invisible).
+  // Outside-click closes the popover (spec §7 transient-surface dismissal).
+  // Listens only while open; a mousedown outside both the trigger and the
+  // popover collapses it. The trigger's own onClick toggles, so we exclude it
+  // here to avoid a double-toggle race.
   useEffect(() => {
-    if (isWide) setOpen(false);
-  }, [isWide]);
+    if (!open) return;
+    const onPointerDown = (e: MouseEvent) => {
+      const target = e.target as Node | null;
+      if (
+        target &&
+        (triggerRef.current?.contains(target) || popoverRef.current?.contains(target))
+      ) {
+        return;
+      }
+      onOpenChange(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [open, onOpenChange]);
 
   /** Roving-tabindex keyboard nav within the radiogroup. Left/Up → prev,
    *  Right/Down → next (wrapping), Home → first, End → last; selection follows
-   *  focus. Space/Enter re-select the focused radio (idempotent). */
+   *  focus. Space/Enter re-select the focused radio (which also closes). */
   const onRadioKeyDown = useCallback(
     (e: KeyboardEvent<HTMLButtonElement>, id: ThemeId) => {
       const idx = THEME_IDS.indexOf(id);
@@ -138,36 +244,39 @@ export function ThemeSelector({ activeThemeId, onSelect, bp }: ThemeSelectorProp
       }
       e.preventDefault();
       const nextId = THEME_IDS[nextIdx]!;
-      select(nextId);
+      // Arrow nav moves focus + previews selection but does NOT close (the
+      // popover stays open so the user can keep arrowing). Apply via applyTheme +
+      // onSelect WITHOUT the close that `select` performs.
+      applyTheme(nextId);
+      onSelect(nextId);
+      if (liveRef.current) {
+        liveRef.current.textContent = `${THEME_LABELS[nextId]} theme`;
+      }
       radioRefs.current[nextId]?.focus();
     },
-    [select],
+    [select, onSelect],
   );
 
-  // Esc on the popover collapses + restores focus to the trigger (spec §7). NO
-  // click-outside auto-close needed for a 5-item picker, but Esc is mandatory.
+  // Esc on the popover collapses + restores focus to the trigger (spec §7).
   const onGroupKeyDown = useCallback(
     (e: KeyboardEvent<HTMLDivElement>) => {
       if (e.key === 'Escape' && open) {
         e.stopPropagation();
-        setOpen(false);
+        onOpenChange(false);
         triggerRef.current?.focus();
       }
     },
-    [open],
+    [open, onOpenChange],
   );
 
-  // The radiogroup itself — IDENTICAL markup in both forms (the issue's
-  // single-role-model rule). `data-form` lets CSS lay it out inline (wide) vs
-  // stacked (popover) without changing the a11y tree.
+  // The radiogroup — stacked column of 5 options inside the popover.
   const radiogroup = (
     <div
-      ref={groupRef}
       id={groupId}
       className="theme-selector-group"
       role="radiogroup"
       aria-label="Map theme"
-      data-form={isWide ? 'segmented' : 'popover'}
+      data-form="popover"
       onKeyDown={onGroupKeyDown}
     >
       {THEME_IDS.map((id) => {
@@ -198,46 +307,47 @@ export function ThemeSelector({ activeThemeId, onSelect, bp }: ThemeSelectorProp
 
   return (
     <div className="theme-selector">
-      {isWide ? (
-        // Wide: the segmented radiogroup sits inline in the controls pill.
-        radiogroup
-      ) : (
-        // Narrow: a single trigger opens the SAME radiogroup as a transient
-        // popover anchored under it (disclosure pattern).
-        <>
-          <button
-            ref={triggerRef}
-            type="button"
-            className="theme-selector-trigger"
-            onClick={() => setOpen((o) => !o)}
-            aria-haspopup="true"
-            aria-expanded={open}
-            aria-controls={groupId}
-            aria-label={`Map theme: ${THEME_LABELS[activeThemeId]}`}
-          >
-            <svg
-              className="app-header-btn-icon"
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              {/* Palette/swatch glyph — half-filled circle reads as "theme". */}
-              <circle cx="12" cy="12" r="9" />
-              <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
-            </svg>
-          </button>
-          {open && (
-            <div className="theme-selector-popover" data-testid="theme-selector-popover">
-              {radiogroup}
-            </div>
-          )}
-        </>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="theme-selector-trigger"
+        onClick={() => onOpenChange(!open)}
+        aria-haspopup="true"
+        aria-expanded={open}
+        aria-controls={groupId}
+        aria-label={`Map theme: ${THEME_LABELS[activeThemeId]}`}
+      >
+        <svg
+          className="app-header-btn-icon"
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          {/* Palette/swatch glyph — half-filled circle reads as "theme". */}
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
+        </svg>
+      </button>
+      {mounted && (
+        // Menu-dropdown recipe surface (.t-dropdown). `.is-open` while open (and
+        // after the enter frame so the scale/opacity transition plays);
+        // `.is-closing` during the exit (the React component unmounts after
+        // --dropdown-close-dur). The template-literal ternary form keeps all three
+        // state classes statically extractable for the orphan-classname gate.
+        <div
+          ref={popoverRef}
+          className={`theme-selector-popover t-dropdown${entered && open ? ' is-open' : ''}${closing ? ' is-closing' : ''}`}
+          data-origin="top-right"
+          data-testid="theme-selector-popover"
+        >
+          {radiogroup}
+        </div>
       )}
       {/* Visually-hidden live region — a SIBLING of the controls, not a child of
           any radio (AT ignores live regions nested in interactive elements). */}

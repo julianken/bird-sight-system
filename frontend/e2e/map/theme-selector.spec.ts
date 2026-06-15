@@ -141,24 +141,79 @@ test.describe('ThemeSelector click-through (C8 #1220)', () => {
   });
 
   test('selecting each of the 5 themes flips [data-theme] kind + persists the id (no reload)', async ({ page }) => {
-    await page.setViewportSize({ width: 1440, height: 900 }); // wide → inline segmented radiogroup
+    // C8 icon→popover: a single icon trigger opens the selector at every
+    // viewport; 1440×900 is just a representative desktop size here.
+    await page.setViewportSize({ width: 1440, height: 900 });
     const app = new AppPage(page);
     await app.goto('view=map');
     await app.waitForAppReady();
     await app.waitForMapLoad();
 
     for (const t of THEMES) {
-      await app.selectTheme(t.label);
+      await app.selectTheme(t.label); // opens popover, clicks radio, popover closes
       // Chrome polarity derives from the descriptor kind.
       await expect(page.locator('html')).toHaveAttribute('data-theme', t.kind);
       // The chosen id is persisted (read by the boot script on the next load).
       const stored = await page.evaluate(() => localStorage.getItem('theme'));
       expect(stored, `localStorage['theme'] after selecting ${t.label}`).toBe(t.id);
-      // The active radio is aria-checked.
-      await expect(
-        app.themeSelectorGroup.getByRole('radio', { name: t.label, exact: true }),
-      ).toHaveAttribute('aria-checked', 'true');
+      // Re-open the popover to confirm the active radio is aria-checked (it
+      // unmounts on select, so expectActiveTheme re-opens then closes it).
+      await app.expectActiveTheme(t.label);
     }
+  });
+
+  test('the theme selector is a single icon→popover at desktop too (no always-inline strip)', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const app = new AppPage(page);
+    await app.goto('view=map');
+    await app.waitForAppReady();
+    await app.waitForMapLoad();
+
+    // At rest: only the icon trigger, collapsed; the radiogroup is not mounted.
+    await expect(app.themeSelectorTrigger).toBeVisible();
+    await expect(app.themeSelectorTrigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(app.themeSelectorGroup).toHaveCount(0);
+
+    // Click the icon → the popover expands open with the recipe surface.
+    await app.themeSelectorTrigger.click();
+    await expect(app.themeSelectorTrigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(app.themeSelectorGroup).toHaveCount(1);
+    const popover = page.getByTestId('theme-selector-popover');
+    await expect(popover).toHaveClass(/t-dropdown/);
+    await expect(popover).toHaveAttribute('data-origin', 'top-right');
+
+    // Selecting a theme closes the popover.
+    await app.themeSelectorGroup.getByRole('radio', { name: 'Dark', exact: true }).click();
+    await expect(app.themeSelectorTrigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(app.themeSelectorGroup).toHaveCount(0);
+  });
+
+  test('only one header popover is open at a time (theme ⇄ scope ⇄ filters never overlap)', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const app = new AppPage(page);
+    // Scope to a state so the scope "Change region" disclosure renders.
+    await app.goto('state=US-AZ');
+    await app.waitForAppReady();
+    await app.waitForMapLoad();
+
+    // Open the scope disclosure, then open the theme popover → scope closes.
+    await app.scopeDisclosureTrigger.click();
+    await expect(app.scopeDisclosureTrigger).toHaveAttribute('aria-expanded', 'true');
+    await app.themeSelectorTrigger.click();
+    await expect(app.themeSelectorTrigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(app.scopeDisclosureTrigger).toHaveAttribute('aria-expanded', 'false');
+
+    // Now open the scope disclosure → the theme popover closes.
+    await app.scopeDisclosureTrigger.click();
+    await expect(app.scopeDisclosureTrigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(app.themeSelectorTrigger).toHaveAttribute('aria-expanded', 'false');
+
+    // Open the theme popover again, then open Filters → the theme popover closes.
+    await app.themeSelectorTrigger.click();
+    await expect(app.themeSelectorTrigger).toHaveAttribute('aria-expanded', 'true');
+    await app.filtersTrigger.click();
+    await expect(app.themeSelectorTrigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByRole('dialog', { name: 'Filters' })).toBeVisible();
   });
 
   test('same-kind switch dark→fiord re-fetches the basemap (id-driven swap, not kind)', async ({ page }) => {
@@ -217,22 +272,20 @@ test.describe('ThemeSelector click-through (C8 #1220)', () => {
     await app.waitForMapLoad();
 
     // After reload the boot script + App seed restore liberty: [data-theme]=light
-    // (its kind) and the active radio is liberty.
+    // (its kind) and the active radio is liberty (verified via the popover).
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
     expect(await page.evaluate(() => localStorage.getItem('theme'))).toBe('liberty');
-    await expect(
-      app.themeSelectorGroup.getByRole('radio', { name: 'Liberty', exact: true }),
-    ).toHaveAttribute('aria-checked', 'true');
+    await app.expectActiveTheme('Liberty');
   });
 
-  test('narrow viewport collapses to a trigger + popover (same radiogroup)', async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 }); // compact → popover form
+  test('narrow viewport also uses the single icon → popover form', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 }); // mobile
     const app = new AppPage(page);
     await app.goto('view=map');
     await app.waitForAppReady();
     await app.waitForMapLoad();
 
-    // At rest the radiogroup is not mounted — only the trigger.
+    // At rest the radiogroup is not mounted — only the icon trigger.
     await expect(app.themeSelectorTrigger).toBeVisible();
     await expect(app.themeSelectorGroup).toHaveCount(0);
 
