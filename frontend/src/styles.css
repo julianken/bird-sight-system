@@ -1023,17 +1023,9 @@ body {
     min-height: 44px;
     padding-block: var(--space-sm);
   }
-  /* #1230 design-review nit: at ~390px the popover's right edge read a few px
-     past the controls-cluster pill's right edge. The popover anchors to
-     `.theme-selector` (the trigger wrapper), whose right edge is the pill's
-     CONTENT edge — inset from the pill's outer (border-box) right edge by the
-     pill's right padding + 1px border. Extend the popover's right edge out to
-     that outer edge so it ties cleanly to the four-corner top-right margin
-     (the pill's right edge sits at --card-inset from the viewport). Negative
-     inset-inline-end = pull right by (pill right padding + border). */
-  .theme-selector-popover {
-    inset-inline-end: calc(-1 * (var(--space-md) + 1px));
-  }
+  /* The mobile popover right-edge tie lives in an @media block AFTER the base
+     `.theme-selector-popover` rule below — it must win the cascade, and that
+     base rule (no media query) sits later in the source than this block. */
 }
 /* ≥481px (desktop / fine-pointer): the 5-row popover read a touch denser than the
    app's other floating cards (#1230 design-review nit). Give the rows a little
@@ -1114,6 +1106,24 @@ body {
   );
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+
+/* Mobile (#1230 polish): tie the popover's RIGHT edge to the four-corner
+   top-right margin (--card-inset) — the same margin the controls pill uses —
+   instead of anchoring to the trigger, which sits an uneven distance inside the
+   pill at <=480px. Placed AFTER the base rule so it wins the cascade. position:
+   fixed anchors to the viewport; the vertical start matches the "under the
+   controls cluster" anchor the base max-block-size guard reasons from; z-index:
+   --z-popover (base) keeps it above the map once it leaves the header stack. */
+@media (max-width: 480px) {
+  .theme-selector-popover {
+    position: fixed;
+    inset-inline-start: auto;
+    inset-inline-end: var(--card-inset);
+    inset-block-start: calc(
+      var(--card-inset) + var(--controls-cluster-h) + var(--card-gap)
+    );
+  }
 }
 
 /* ── transitions-dev MENU-DROPDOWN recipe (C8 · #1220) ─────────────────────────
