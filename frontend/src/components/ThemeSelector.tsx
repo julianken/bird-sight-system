@@ -257,8 +257,14 @@ export function ThemeSelector({
     [select, onSelect],
   );
 
-  // Esc on the popover collapses + restores focus to the trigger (spec §7).
-  const onGroupKeyDown = useCallback(
+  // Esc anywhere in the selector collapses the popover + restores focus to the
+  // trigger (spec §7). Bound on the `.theme-selector` WRAPPER, not just the
+  // radiogroup, so Escape works regardless of where focus sits in the
+  // disclosure — including the trigger button, which is a SIBLING of the popover
+  // (a radiogroup-only handler never sees a trigger-focused Escape, e.g. after a
+  // shift-tab back to the trigger while open). The `&& open` guard makes it a
+  // no-op when closed, so a closed-state Escape still bubbles normally.
+  const onSelectorKeyDown = useCallback(
     (e: KeyboardEvent<HTMLDivElement>) => {
       if (e.key === 'Escape' && open) {
         e.stopPropagation();
@@ -277,7 +283,6 @@ export function ThemeSelector({
       role="radiogroup"
       aria-label="Map theme"
       data-form="popover"
-      onKeyDown={onGroupKeyDown}
     >
       {THEME_IDS.map((id) => {
         const checked = id === activeThemeId;
@@ -329,7 +334,7 @@ export function ThemeSelector({
   );
 
   return (
-    <div className="theme-selector">
+    <div className="theme-selector" onKeyDown={onSelectorKeyDown}>
       <button
         ref={triggerRef}
         type="button"
