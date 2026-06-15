@@ -218,7 +218,7 @@ function isFirstLabelAnchorLayer(layer: {
  */
 export function moveMaskBelowFirstLabel(map: ArtboardMap, maskLayerId: string): void {
   if (map.getLayer(maskLayerId) == null) {
-    console.warn(
+    console.debug(
       `[artboard] ${maskLayerId} absent; cannot move below labels (deferring)`,
     );
     return;

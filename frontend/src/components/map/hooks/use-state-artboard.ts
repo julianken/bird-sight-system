@@ -333,8 +333,8 @@ export function useStateArtboard(
     // is the exact `Cannot move layer before non-existing layer` throw the
     // 3a/3b split exists to avoid.
     if (map.getLayer(MASK_LAYER_ID) == null) {
-      console.warn(
-        '[artboard] state-mask-fill not yet reconciled; deferring float/sink',
+      console.debug(
+        '[artboard] state-mask-fill not yet reconciled; deferring float/sink (self-heals on next reconcile)',
       );
       return;
     }

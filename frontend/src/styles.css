@@ -1014,13 +1014,39 @@ body {
   width: 100%;
 }
 /* ≤480px: comfortable touch rows. 44px min target + a hair more block padding so
-   the 5-row column isn't cramped to line-height. Desktop stays denser (above). */
+   the 5-row column isn't cramped to line-height. */
 @media (max-width: 480px) {
   .theme-selector-group[data-form='popover'] {
     gap: var(--space-xs);
   }
   .theme-selector-group[data-form='popover'] .theme-selector-option {
     min-height: 44px;
+    padding-block: var(--space-sm);
+  }
+  /* #1230 design-review nit: at ~390px the popover's right edge read a few px
+     past the controls-cluster pill's right edge. The popover anchors to
+     `.theme-selector` (the trigger wrapper), whose right edge is the pill's
+     CONTENT edge — inset from the pill's outer (border-box) right edge by the
+     pill's right padding + 1px border. Extend the popover's right edge out to
+     that outer edge so it ties cleanly to the four-corner top-right margin
+     (the pill's right edge sits at --card-inset from the viewport). Negative
+     inset-inline-end = pull right by (pill right padding + border). */
+  .theme-selector-popover {
+    inset-inline-end: calc(-1 * (var(--space-md) + 1px));
+  }
+}
+/* ≥481px (desktop / fine-pointer): the 5-row popover read a touch denser than the
+   app's other floating cards (#1230 design-review nit). Give the rows a little
+   more vertical breathing room — slightly larger block padding + inter-row gap —
+   so the column matches the card rhythm. Scoped above the mobile breakpoint so
+   the ≤480px coarse-pointer 44px floor + its own block padding are untouched, and
+   the row tint still spans the full row (block padding grows the tinted box, it
+   doesn't inset it). */
+@media (min-width: 481px) {
+  .theme-selector-group[data-form='popover'] {
+    gap: var(--space-sm);
+  }
+  .theme-selector-group[data-form='popover'] .theme-selector-option {
     padding-block: var(--space-sm);
   }
 }

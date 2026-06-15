@@ -3552,10 +3552,10 @@ describe('MapCanvas state-artboard mask (#762)', () => {
   it('[blocker guard] moveLayer is NOT called when state-mask-fill is absent at reconcile time', async () => {
     // Simulate the reconcile-sequencing window: react-map-gl has not re-added
     // the mask layer yet, so getLayer('state-mask-fill') returns undefined. The
-    // float/sink effect must warn-and-return, NEVER call moveLayer (which would
-    // throw `Cannot move layer before non-existing layer`).
+    // float/sink effect must debug-log-and-return, NEVER call moveLayer (which
+    // would throw `Cannot move layer before non-existing layer`).
     fakeMap.__setMaskLayerPresent(false);
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
     render(
       <MapCanvas
         observations={[]}
@@ -3573,10 +3573,10 @@ describe('MapCanvas state-artboard mask (#762)', () => {
       .map((c) => c[0]?.id)
       .filter((id): id is string => id === 'state-artboard-halo' || id === 'state-artboard-outline');
     expect(addedFloatIds).toHaveLength(0);
-    expect(warnSpy).toHaveBeenCalledWith(
+    expect(debugSpy).toHaveBeenCalledWith(
       expect.stringContaining('state-mask-fill not yet reconciled'),
     );
-    warnSpy.mockRestore();
+    debugSpy.mockRestore();
   });
 
   it('[reconcile split] the style.load HANDLER re-invokes setFilter only — never moveLayer (the stray-sink lives in the post-reconcile maskPolygon effect)', async () => {
@@ -3601,9 +3601,9 @@ describe('MapCanvas state-artboard mask (#762)', () => {
     // layer yet (getLayer('state-mask-fill') → undefined). Now fire style.load.
     // The handler re-applies LABEL isolation (setFilter); the styleEpoch bump it
     // emits re-runs the (3b) effect, which — because the mask is still absent —
-    // warn-and-returns WITHOUT moveLayer. So across the whole flush, the ONLY
-    // imperative op is setFilter: the handler never sinks, proving the split.
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // debug-logs-and-returns WITHOUT moveLayer. So across the whole flush, the
+    // ONLY imperative op is setFilter: the handler never sinks, proving the split.
+    const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
     await act(async () => {
       fakeMap.__setMaskLayerPresent(false);
       (bareHandlersAll['style.load'] ?? []).forEach((cb) => cb());
@@ -3611,7 +3611,7 @@ describe('MapCanvas state-artboard mask (#762)', () => {
     });
     expect(fakeMap.setFilter).toHaveBeenCalled(); // label isolation re-applied
     expect(fakeMap.moveLayer).not.toHaveBeenCalled(); // never from the handler
-    warnSpy.mockRestore();
+    debugSpy.mockRestore();
   });
 
   it('[theme swap] float layers are RE-ADDED after a style.load (styleEpoch re-fires the float effect once the mask is back)', async () => {

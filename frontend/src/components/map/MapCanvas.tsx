@@ -46,6 +46,7 @@ import { StatusBlock } from '@/components/ds/StatusBlock.js';
 import { GroupMarkerLayer } from './layers/GroupMarkerLayer.js';
 import { DisplacedSilhouetteLayer } from './layers/DisplacedSilhouetteLayer.js';
 import { registerSilhouetteSprite } from './geometry/silhouette-sprite.js';
+import { registerMissingImageFallback } from './geometry/missing-image-fallback.js';
 import { useSilhouetteCatalogue } from './hooks/use-silhouette-catalogue.js';
 import { useMapResize } from './hooks/use-map-resize.js';
 import { useScopeCamera } from './hooks/use-scope-camera.js';
@@ -878,6 +879,13 @@ export function MapCanvas({
     // (wired in the dedicated effect below), per the #854 / load-once contract.
     basemapHealthyRef.current = true;
     basemapErrorCountRef.current = 0;
+
+    // #947: silence the dark/fiord `circle-11` styleimagemissing warning (and any
+    // other upstream sprite-id drift) by registering a 1×1 transparent fallback
+    // for any missing icon id. The image registry + listeners survive `setStyle`,
+    // so once per map lifetime here is the right cardinality (the dominant path is
+    // bright-default load → swap to dark/fiord, well after this `load`).
+    registerMissingImageFallback(map);
 
     // Test hook (Spider v2 e2e): exposes the maplibre instance for Playwright
     // to drive easeTo and inspect sources. Not relied on by production code.

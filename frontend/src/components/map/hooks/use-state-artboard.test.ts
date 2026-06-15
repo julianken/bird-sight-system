@@ -245,8 +245,8 @@ describe('useStateArtboard — ordering invariants (P2 backfill, #884 · U13)', 
   });
 
   // ── Invariant 2: (3b) getLayer-guard defers via styleEpoch re-fire ───────
-  it('(3b) defers float/sink (warn, no moveLayer) while state-mask-fill is absent, then applies after a style.load re-fires the effect', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  it('(3b) defers float/sink (debug, no moveLayer) while state-mask-fill is absent, then applies after a style.load re-fires the effect', () => {
+    const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
     const fake = makeFakeMap({ withMask: true });
     const ref = makeRef(fake.map);
 
@@ -255,9 +255,9 @@ describe('useStateArtboard — ordering invariants (P2 backfill, #884 · U13)', 
 
     renderHook(() => useStateArtboard(ref, true, AZ_POLYGON));
 
-    // The float effect hit the getLayer guard: warn-and-return, NO moveLayer/addLayer.
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[artboard] state-mask-fill not yet reconciled; deferring float/sink',
+    // The float effect hit the getLayer guard: debug-and-return, NO moveLayer/addLayer.
+    expect(debugSpy).toHaveBeenCalledWith(
+      '[artboard] state-mask-fill not yet reconciled; deferring float/sink (self-heals on next reconcile)',
     );
     expect(
       fake.ops.some((o) => o.startsWith('moveLayer:') || o.startsWith('addLayer:')),
@@ -276,7 +276,7 @@ describe('useStateArtboard — ordering invariants (P2 backfill, #884 · U13)', 
     expect(fake.ops).toContain(`addLayer:${ARTBOARD_OUTLINE_ID}`);
     expect(fake.ops.some((o) => o.startsWith('moveLayer:'))).toBe(true);
 
-    warnSpy.mockRestore();
+    debugSpy.mockRestore();
   });
 
   // ── Invariant 3: (3b-teardown) keys on maskPolygon NOT maskTheme ─────────
