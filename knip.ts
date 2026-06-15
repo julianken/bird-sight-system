@@ -199,27 +199,16 @@ const config: KnipConfig = {
       //             Re-audit 2026-07-27: remove if those types gain import
       //             sites knip can trace, or drop the types if still unused.
       //
-      // 2026-05-10: basemap-style.ts — basemapStyleLight and basemapStyleDark
-      //             both alias the same OpenFreeMap positron URL string. Knip
-      //             correctly detects the duplicate value and reports it as a
-      //             "Duplicate exports" finding. The aliasing is INTENTIONAL
-      //             and gated on G7/G8 (family-palette × dark-tile contrast):
-      //             dark resolves to the light URL until the gate closes, at
-      //             which point basemapStyleDark switches to the real dark URL
-      //             and the duplicate goes away. Until then, both names are
-      //             part of the public mechanism contract — the MapCanvas
-      //             MutationObserver imports both names by their semantic role,
-      //             so collapsing them would force a rename when G8 closes.
-      //             Risk: masks a genuine duplicate export added later under
-      //             this file. Re-audit 2026-07-27 by confirming both names
-      //             are still consumed by MapCanvas.tsx OR the dark URL has
-      //             diverged from the light one.
+      // 2026-06-14: basemap-style.ts ignore REMOVED (C6, #1218). It silenced
+      //             the "Duplicate exports" finding for basemapStyleLight/
+      //             basemapStyleDark, which both aliased the positron URL while
+      //             G7/G8 were open. G8 closed (dark URL diverged) and C6 now
+      //             registers all 5 descriptors and DELETES the three deprecated
+      //             basemapStyle* aliases (zero callers outside the module), so
+      //             there is no duplicate export left to silence — the ignore is
+      //             retired rather than reasoned about.
       ignore: [
         'src/tokens.ts',
-        // basemap-style.ts moved to map/geometry/ in the by-kind map split.
-        // Still ignored: basemapStyleLight/basemapStyleDark intentionally alias
-        // the same positron URL (gated on G7/G8) — see the note above.
-        'src/components/map/geometry/basemap-style.ts',
         // ds/index.ts barrel deleted in the map split (it had zero importers —
         // all consumers import ds/ primitives by direct path), so the ignore
         // entry that silenced its "unused barrel" finding is gone with it.

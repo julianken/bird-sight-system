@@ -382,22 +382,14 @@ describe('enforceDarkLabelContrast — per-layer MEASURED gate (mid-luminance la
      land (fiord, `#45516E`) a label that already passes AA against that land
      must be left alone, and only a label that fails IS recolored. This proves
      the per-layer `contrastFromRgb(current, landRgb) >= AA` measurement path,
-     not just the near-black `dark` happy path. We synthesize a fiord-like
-     mid-luminance dark descriptor (NOT registered live — C6 owns that) so the
-     measurement runs against `#45516E`. */
-  const FIORD_LIKE: BasemapDescriptor = {
-    id: 'dark', // id is never branched on; only kind/landColor/darkLabelTextColors matter
-    url: 'https://example.test/fiord',
-    kind: 'dark',
-    landColor: '#45516E',
-    markerHaloColor: '#ffffff',
-    floatColors: { outline: '#e8edf4', halo: '#7fd0ff' },
-    // An AA-passing-vs-#45516E palette so a recolored label is itself ≥ AA.
-    darkLabelTextColors: { road: '#f2f2f2', place: '#e6e6e6', water: '#b8cae6' },
-  };
+     not just the near-black `dark` happy path. C6 registered the REAL fiord
+     descriptor (navy land `#45516E`, AA-passing dark-label palette), so the
+     measured-gate test now runs against `resolveDescriptor('fiord')` instead of
+     a synthetic proxy — the gate exercises the production descriptor. */
+  const FIORD_LIKE: BasemapDescriptor = resolveDescriptor('fiord');
 
   it('does NOT touch a label whose current color already passes AA vs the land', () => {
-    // `#e6e6e6` is ~5.7:1 vs `#45516E` — already passes, so it is skipped.
+    // `#e6e6e6` is ~6.3:1 vs `#45516E` — already passes, so it is skipped.
     const layers: FakeLayer[] = [
       { id: 'background', type: 'background', layout: {}, paint: { 'background-color': '#45516E' } },
       {
@@ -642,12 +634,15 @@ describe('#1217 — dark-label recolor tiers ≥ 4.5 AA vs every dark-kind land'
     }
   });
 
-  // Deferred to C6 (recorded so its implementer is warned): when fiord is
-  // registered, its dark-label water must clear ≥4.5 vs #45516E — the shared
-  // #9db4d8 = 3.75:1 fails, so fiord needs its own AA-passing water (e.g. #b8cae6).
-  it.todo(
-    'C6: fiord descriptor must declare an AA-passing dark water vs #45516E (e.g. #b8cae6 = 4.76:1)',
-  );
+  it('includes fiord (C6) — the dark-kind matrix auto-extended to it', () => {
+    // C6 registered fiord; the per-tier ≥4.5:1 matrix below now grades its
+    // own AA-passing palette (water #b8cae6 = 4.76:1) against the navy land,
+    // NOT the shared dark #9db4d8 (3.75:1, a fail vs #45516E).
+    expect(DARK_DESCRIPTORS.map((d) => d.id)).toEqual(expect.arrayContaining(['dark', 'fiord']));
+    const fiord = DARK_DESCRIPTORS.find((d) => d.id === 'fiord')!;
+    expect(fiord.darkLabelTextColors!.water).not.toBe('#9db4d8');
+    expect(contrast('#9db4d8', fiord.landColor)).toBeLessThan(AA);
+  });
 
   for (const d of DARK_DESCRIPTORS) {
     const tiers = d.darkLabelTextColors!;
