@@ -2052,6 +2052,25 @@ export function MapCanvas({
         // (state/ZIP artboard). The rerender unit assertion pins this so the
         // invariant survives #761's always-mounted lifecycle without a remount.
         renderWorldCopies={maskPolygon == null}
+        // #1230: never diff the `mapStyle` PROP change. The only prop-driven
+        // style change is the placeholder → real-style swap on first load
+        // (`useSanitizedBasemapStyle` returns `backgroundPlaceholderStyle` until
+        // `loadSanitizedStyle` resolves, then swaps in the real style). Diffing
+        // that races the placeholder's own load: when the real style arrives
+        // before the trivial placeholder has fired `style.load`, maplibre `warn`s
+        // "Unable to perform style diff: Style is not done loading. Rebuilding the
+        // style from scratch." and rebuilds anyway — an intermittent console-noise
+        // flake (caught by the state-artboard assertCleanConsole gate). The
+        // placeholder and the real style are unrelated, so a diff yields nothing;
+        // disable it and the swap is a clean, warning-free rebuild. This is the
+        // FIRST-load swap only, before any custom layers (clusters/observations/
+        // artboard) are added, so the rebuild has nothing to tear down. (We do
+        // NOT force `diff: false` on the imperative theme-swap `setStyle` in
+        // theme-state: a mid-session rebuild there briefly drops the custom
+        // layers, and an in-flight `clusters-hit` queryRenderedFeatures would log
+        // "layer does not exist". maplibre already rebuilds across different style
+        // URLs, so a theme swap doesn't hit the "not done loading" path anyway.)
+        styleDiffing={false}
         style={{ width: '100%', height: '100%' }}
         // C1.5 (#1213) + #1230: the initial basemap is a PRE-SANITIZED style
         // OBJECT for the active theme id (`useSanitizedBasemapStyle`), NOT a raw
