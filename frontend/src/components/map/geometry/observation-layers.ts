@@ -345,7 +345,20 @@ export function buildUnclusteredPointLayerSpec(descriptor: BasemapDescriptor): L
     // Epic #539 cutover: inStack filter removed alongside auto-spider.
     filter: ['!', ['has', 'point_count']],
     layout: {
-      'icon-image': ['get', 'silhouetteId'],
+      // #1232: `['coalesce', ['image', id], ['image', '_FALLBACK']]` instead of a
+      // bare `['get', 'silhouetteId']`. The `image` operator returns NULL (not a
+      // "Image \"<family>\" could not be loaded" warning) when the named sprite
+      // isn't registered, so a family whose silhouette is still mid-registration
+      // — or whose svgData/decode failed and never registered — gracefully renders
+      // the always-present `_FALLBACK` sprite instead of dirtying the console.
+      // Once the real sprite registers, the expression re-resolves to it. A bare
+      // `['get','silhouetteId']` treats the id as a REQUIRED image and warns on
+      // the cold-load registration race (the prod `procellariidae` warning, #1232).
+      'icon-image': [
+        'coalesce',
+        ['image', ['get', 'silhouetteId']],
+        ['image', FALLBACK_SILHOUETTE_ID],
+      ],
       // Scale chain (E6 / #1058): the sprite SVG has a 24-unit viewBox
       // rastered into a 64px shell (silhouette-sprite.ts), registered with
       // `pixelRatio: 2` so maplibre lays it down at 32 CSS px; ×0.85 here ≈

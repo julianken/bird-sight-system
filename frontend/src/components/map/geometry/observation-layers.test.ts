@@ -219,8 +219,15 @@ describe('layer specs', () => {
 
     const layout = spec.layout as Record<string, unknown>;
     // icon-image reads the per-feature silhouette id (resolved to a sprite
-    // registered with map.addImage(...) in MapCanvas).
-    expect(layout['icon-image']).toEqual(['get', 'silhouetteId']);
+    // registered with map.addImage(...) in MapCanvas), falling back to the
+    // always-present `_FALLBACK` sprite via `coalesce`/`image` when that sprite
+    // isn't registered — so a registration race/failure renders the fallback
+    // instead of warning (#1232).
+    expect(layout['icon-image']).toEqual([
+      'coalesce',
+      ['image', ['get', 'silhouetteId']],
+      ['image', FALLBACK_SILHOUETTE_ID],
+    ]);
     // Avoid clipping at high marker density — overlapping silhouettes
     // are an acceptable tradeoff vs dropping markers entirely.
     expect(layout['icon-allow-overlap']).toBe(true);
