@@ -302,6 +302,7 @@ export function MapCanvas({
   maskPolygon,
   clampPad,
   detailOpen = false,
+  activeThemeId: activeThemeIdProp,
 }: MapCanvasProps) {
   const aggregated = mode === 'aggregated';
   const mapRef = useRef<MapRef>(null);
@@ -520,13 +521,20 @@ export function MapCanvas({
   useMapResize(mapRef, mapWrapperRef, mapReady);
 
   // Active basemap-theme id state (C1.5 · #1213) — the reactive source of truth
-  // for the basemap swap. Seeded from the persisted `[data-theme]` attribute (the
-  // back-compat bridge, until C7's `applyTheme` owns the write path). For C1.5 the
-  // only reachable production ids are `positron`/`dark`, so the observable
-  // behavior is unchanged; this is the plumbing that lets the swap depend on the
-  // id (not the lossy `[data-theme]` attribute) so C2–C4/C8 can reach all 5 themes.
-  const { themeId: activeThemeId, descriptor: activeDescriptor } =
+  // for the basemap swap. C8 (#1220) lifts the canonical id to App.tsx
+  // (`useActiveThemeId` seeded from `resolveInitialTheme`) and threads it in as
+  // the `activeThemeId` prop, so the <ThemeSelector> and this swap share ONE
+  // source of truth and every theme — including same-kind switches and a stored
+  // `bright`/`liberty`/`fiord` — is reachable. The local `useActiveThemeId()`
+  // call is retained ONLY as the fallback seed/descriptor for legacy/test callers
+  // that omit the prop (behavior-identical to pre-C8: seeded from `[data-theme]`).
+  // When the prop is present it WINS for both the id (swap key + initial mapStyle)
+  // and the resolved descriptor (marker halo / float colors).
+  const { themeId: localThemeId, descriptor: localDescriptor } =
     useActiveThemeId();
+  const activeThemeId = activeThemeIdProp ?? localThemeId;
+  const activeDescriptor =
+    activeThemeIdProp != null ? resolveDescriptor(activeThemeIdProp) : localDescriptor;
 
   // State-artboard machinery consolidated into ONE hook (`use-state-artboard.ts`,
   // epic #884 · U13 / #898; the #760/#762/#763/#765/#849/#850 blank-map class).

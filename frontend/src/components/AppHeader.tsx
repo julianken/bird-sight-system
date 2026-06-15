@@ -30,7 +30,10 @@
  *        attribution and recency isn't worth a permanent line on a minimized card.
  *
  *   TOP-RIGHT controls pill (.app-header-controls-pill) — compact content-width card:
- *     Filters trigger (+ active-count badge) · ⓘ Credits · Theme toggle.
+ *     Filters trigger (+ active-count badge) · ⓘ Credits · Theme selector.
+ *     C8 (#1220) replaced the binary light/dark ThemeToggle with a 5-theme
+ *     <ThemeSelector> radiogroup (inline segmented at wide; a trigger + transient
+ *     popover at roomy/compact so the pill never overflows).
  *     Order: Filters first per spec §3/§5.2 (#1033 V1/V18).
  *     Filters shows a text label at ≥1024, icon-only below.
  *     ⓘ Credits is icon-only at ALL widths (#1033 V1/V18 — the always-visible
@@ -65,13 +68,14 @@
 
 import type { KeyboardEvent, RefObject } from 'react';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { ThemeToggle } from './ThemeToggle.js';
+import { ThemeSelector } from './ThemeSelector.js';
 import type { ScopedView } from './ScopeControl.js';
 import { ScopeControl } from './ScopeControl.js';
 import type { StateSummary } from '@bird-watch/shared-types';
 import type { Scope } from '../state/url-state.js';
 import { useBreakpoint } from '../hooks/use-breakpoint.js';
 import type { ScopeResolution } from '../state/scope-types.js';
+import type { ThemeId } from '@/components/map/geometry/basemap-style.js';
 
 export interface AppHeaderProps {
   /**
@@ -135,6 +139,19 @@ export interface AppHeaderProps {
   onExitScope: () => void;
   /** Resolve a ZIP code from the in-card scope control's ZIP input. */
   onResolveZip: (resolution: ScopeResolution) => void;
+  // ── Theme selector props (C8 · #1220) ───────────────────────────────────
+  /**
+   * The active basemap theme id (App-level source of truth, `useActiveThemeId`).
+   * Drives which selector option is `aria-checked` and the trigger's label.
+   */
+  activeThemeId: ThemeId;
+  /**
+   * Select a theme. The ThemeSelector calls C7's `applyTheme(id)` itself (writes
+   * `[data-theme]` + persists), then calls this to drive the id-keyed basemap
+   * swap (C1.5) — including same-kind switches. App wires this to the
+   * `setThemeId` from `useActiveThemeId`.
+   */
+  onSelectTheme: (id: ThemeId) => void;
 }
 
 export function AppHeader({
@@ -152,6 +169,8 @@ export function AppHeader({
   onPickWholeUs,
   onExitScope,
   onResolveZip,
+  activeThemeId,
+  onSelectTheme,
 }: AppHeaderProps) {
   const bp = useBreakpoint();
   const scopeActive = scope.kind !== 'unscoped';
@@ -403,7 +422,7 @@ export function AppHeader({
         )}
       </div>
 
-      {/* TOP-RIGHT: controls pill (Filters · ⓘ Credits · Theme toggle).
+      {/* TOP-RIGHT: controls pill (Filters · ⓘ Credits · Theme selector).
           Order: Filters first per spec §3/§5.2 (#1033 V1/V18); attribution
           demoted to icon-only ⓘ at all widths, label shortened to "Credits"
           (the always-visible bottom-right pill already shows eBird/OpenFreeMap
@@ -474,7 +493,11 @@ export function AppHeader({
           </svg>
         </button>
 
-        <ThemeToggle />
+        <ThemeSelector
+          activeThemeId={activeThemeId}
+          onSelect={onSelectTheme}
+          bp={bp}
+        />
       </div>
     </header>
   );

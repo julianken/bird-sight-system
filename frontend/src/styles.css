@@ -788,7 +788,16 @@ body {
      pill's left edge at every compact width (360–479px), matching spec §3
      mobile ASCII art: "Bird Maps  ⓘ ⛛ ☀" on one non-overlapping top row.
      The lede sits below the wordmark inside the card and wraps naturally
-     within the narrower column; the scope form (when expanded) does too. */
+     within the narrower column; the scope form (when expanded) does too.
+
+     C8 (#1220) re-derivation: the new ThemeSelector COLLAPSES to a single
+     icon trigger at compact/roomy (`bp !== 'wide'`) — the same one-icon
+     footprint as the old ☀ ThemeToggle — so the compact pill is still
+     Filters + Credits + Theme = 3 × 44px + gaps + padding ≈ 180px. The 180px
+     literal therefore still holds here. The pill only WIDENS to the 5-pill
+     segmented form at `wide` (≥1024), where this max-width:480px rule does not
+     apply and the desktop layout has ample room left of the pill — so no
+     overlap is introduced. */
   .app-header-identity-card {
     max-inline-size: calc(100% - var(--card-inset) - 180px - var(--card-gap));
   }
@@ -837,7 +846,8 @@ body {
   }
 }
 
-/* ThemeToggle button inside the controls pill (plain <button> via ThemeToggle).
+/* Baseline sizing + focus ring for every <button> in the controls pill —
+   Filters, Credits, and (C8 #1220) the ThemeSelector's radios/trigger.
    #1033 C52: shared baseline sizing + focus ring to match pill siblings;
    coarse-pointer 44px floor replaces the old max-width:480px floor so iPad
    portrait/landscape also get a reachable target on touch-primary devices. */
@@ -890,36 +900,114 @@ body {
   }
 }
 
-/* Recipe #09 — icon-swap: cross-fade + blur + scale between ☀ and ☾.
-   The button positions its content as a single stack; both glyph spans
-   share the same grid cell so they overlay each other.
-
-   Resting state: opacity 0, scale 0.85, blur 4px (outgoing glyph).
-   Active state ([data-active]): opacity 1, scale 1, blur 0px (incoming glyph).
-   Transition fires in both directions on every toggle.
-
-   The global motion.css guard sets transition-duration: 0ms for
-   prefers-reduced-motion users — both glyphs then resolve instantly to
-   their end-state. The active glyph ends at opacity:1 (fully visible) so
-   reduced-motion users are never stuck-hidden. */
-.theme-toggle {
-  display: inline-grid;
+/* ── ThemeSelector (C8 · #1220) ───────────────────────────────────────────────
+   Replaces the old binary <ThemeToggle> with a 5-theme radiogroup. Two forms:
+   - wide (≥1024): an inline SEGMENTED control of 5 pills, sitting in the
+     controls pill; the active pill is FILLED, the rest are outlined/ghost.
+   - roomy/compact (<1024): a single icon TRIGGER that opens a TRANSIENT popover
+     listing the same 5 options (anchored under the trigger; a four-corner
+     transient-layer surface, NOT a new band).
+   The ONE radiogroup markup (`.theme-selector-group`) is reused in both forms;
+   `data-form` only switches the layout (inline row vs stacked column). */
+.theme-selector {
+  display: inline-flex;
+  align-items: center;
+  position: relative; /* anchor for the absolutely-positioned popover */
 }
-.theme-toggle-glyph {
-  grid-area: 1 / 1;         /* stack both spans in the same cell */
-  opacity: 0;
-  transform: scale(0.85);
-  filter: blur(4px);
+
+/* The radiogroup — inline row at wide, stacked column in the popover. */
+.theme-selector-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.theme-selector-group[data-form='popover'] {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-xs);
+}
+
+/* A single theme option (role="radio"). Outlined/ghost at rest; FILLED when
+   aria-checked. Inherits the 44px coarse-pointer floor from the shared
+   `.app-header-controls-pill button` rule above. */
+.theme-selector-option {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--color-border-ui);
+  border-radius: var(--card-radius-inner);
+  padding: var(--space-xs) var(--space-sm);
+  font: inherit;
+  font-size: var(--type-sm);
+  line-height: 1.2;
+  color: var(--color-text-body);
+  cursor: pointer;
+  white-space: nowrap;
   transition:
-    opacity   var(--icon-swap-dur) var(--icon-swap-ease),
-    transform var(--icon-swap-dur) var(--icon-swap-ease),
-    filter    var(--icon-swap-dur) var(--icon-swap-ease);
-  will-change: opacity, transform, filter;
+    background var(--icon-swap-dur) var(--icon-swap-ease),
+    color var(--icon-swap-dur) var(--icon-swap-ease),
+    border-color var(--icon-swap-dur) var(--icon-swap-ease);
 }
-.theme-toggle-glyph[data-active] {
-  opacity: 1;
-  transform: scale(1);
-  filter: blur(0px);
+.theme-selector-option:hover {
+  background: var(--color-bg-tint);
+}
+.theme-selector-option:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+}
+/* Active (checked) pill: filled with the strong-text color, inverted label —
+   the same outline-driven "selected" treatment the filter badge uses, but
+   filled so the active theme reads at a glance. */
+.theme-selector-option[aria-checked='true'] {
+  background: var(--color-text-strong);
+  border-color: var(--color-text-strong);
+  color: var(--color-bg-surface);
+}
+/* In the popover the options are full-width rows, left-aligned. */
+.theme-selector-group[data-form='popover'] .theme-selector-option {
+  text-align: start;
+  width: 100%;
+}
+
+/* Narrow-form trigger — an icon button matching the pill's other controls. */
+.theme-selector-trigger {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--card-radius-inner);
+  padding: var(--space-xs) var(--space-sm);
+  color: var(--color-text-body);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  min-width: 36px;
+}
+.theme-selector-trigger:hover {
+  background: var(--color-bg-tint);
+}
+.theme-selector-trigger:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+}
+.theme-selector-trigger[aria-expanded='true'] {
+  background: var(--color-bg-tint);
+}
+
+/* Transient popover (roomy/compact) — anchored under the trigger, right-edge
+   aligned so it never spills off-viewport from a top-right corner control.
+   Rides --z-popover (above map-assist overlays); tier-2 elevation. */
+.theme-selector-popover {
+  position: absolute;
+  inset-block-start: calc(100% + var(--space-xs));
+  inset-inline-end: 0;
+  z-index: var(--z-popover);
+  background: var(--card-bg, var(--color-bg-surface));
+  border: 1px solid var(--card-border, var(--color-border-ui));
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-elevation-2);
+  padding: var(--card-padding-tight);
+  max-inline-size: var(--card-maxw-popover);
 }
 
 /* E2 (#1054): the full-snap `pointer-events: none` hack on the identity card +
@@ -2997,10 +3085,16 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
     border: 1px solid ButtonText;
   }
 
-  /* Theme toggle icon: ensure the SVG icon inherits ButtonText (forced-
-     colors UA remapping handles this automatically for SVG `fill:
-     currentColor`, but make the dependency explicit). */
-  .theme-toggle svg {
+  /* Theme selector (C8 #1220): the active radio's filled treatment relies on
+     custom bg/color which forced-colors flattens — restore the selected state
+     with a system pairing so the checked option stays distinguishable, and keep
+     the narrow-trigger SVG icon inheriting ButtonText. */
+  .theme-selector-option[aria-checked='true'] {
+    background: Highlight;
+    color: HighlightText;
+    border-color: Highlight;
+  }
+  .theme-selector-trigger svg {
     fill: ButtonText;
   }
 

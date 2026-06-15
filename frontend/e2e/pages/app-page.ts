@@ -17,8 +17,19 @@ export class AppPage {
   readonly appHeader: Locator;
   /** Filters trigger button in the controls pill (badge shows active-filter count). */
   readonly filtersTrigger: Locator;
-  /** Theme toggle button in the controls pill. */
-  readonly themeToggle: Locator;
+  /**
+   * Theme selector (C8 · #1220) — replaces the old binary theme toggle. ONE
+   * `role="radiogroup"` (`aria-label="Map theme"`) holds the 5 theme radios in
+   * both responsive forms (inline segmented at wide, popover at roomy/compact).
+   */
+  readonly themeSelectorGroup: Locator;
+  /**
+   * The narrow-form trigger (icon button, `aria-label` starts "Map theme:") that
+   * opens the popover. Present only when `bp !== 'wide'` (<1024px); at wide the
+   * segmented radiogroup is inline and there is no trigger. Specs that need the
+   * popover must `themeSelectorTrigger.click()` first.
+   */
+  readonly themeSelectorTrigger: Locator;
   /** Credits trigger (ⓘ icon-only button) in the controls pill. */
   readonly attributionTrigger: Locator;
 
@@ -137,7 +148,12 @@ export class AppPage {
     this.appHeader = page.locator('header.app-header');
     // #800: appHeaderTabs removed — no tablist in the new corner-card header.
     this.filtersTrigger = this.appHeader.getByRole('button', { name: /^Filters/ });
-    this.themeToggle = this.appHeader.getByRole('button', { name: /Switch to (light|dark) theme/ });
+    // C8 (#1220): the drifted `themeToggle` locator (regex `/Switch to (light|
+    // dark) theme/` — never matched the live "Toggle color theme" label, used by
+    // zero specs) is repointed to the new ThemeSelector radiogroup + its narrow
+    // trigger.
+    this.themeSelectorGroup = this.appHeader.getByRole('radiogroup', { name: 'Map theme' });
+    this.themeSelectorTrigger = this.appHeader.getByRole('button', { name: /^Map theme:/ });
     // #1033 V1/V18: label shortened to "Credits" (was "Credits & attribution")
     this.attributionTrigger = this.appHeader.getByRole('button', { name: /Credits/ });
 
@@ -344,5 +360,22 @@ export class AppPage {
   async submitChooserZip(zip: string): Promise<void> {
     await this.chooserZipInput.fill(zip);
     await this.chooserZipGo.click();
+  }
+
+  /**
+   * C8 (#1220): select a basemap theme through the UI, transparently handling
+   * both responsive forms. At wide (≥1024) the segmented radiogroup is inline,
+   * so the radio is clicked directly. At roomy/compact (<1024) the radiogroup
+   * lives in a popover opened by the trigger — so the trigger is clicked first
+   * (if a trigger is present), then the radio. `label` is the capitalized id
+   * ("Positron" · "Bright" · "Liberty" · "Dark" · "Fiord").
+   */
+  async selectTheme(label: string): Promise<void> {
+    const triggerCount = await this.themeSelectorTrigger.count();
+    if (triggerCount > 0 && (await this.themeSelectorTrigger.isVisible())) {
+      const expanded = await this.themeSelectorTrigger.getAttribute('aria-expanded');
+      if (expanded !== 'true') await this.themeSelectorTrigger.click();
+    }
+    await this.appHeader.getByRole('radio', { name: label, exact: true }).click();
   }
 }

@@ -3,6 +3,7 @@ import {
   BASEMAP_LIGHT,
   BASEMAP_DARK,
   THEME_REGISTRY,
+  THEME_LABELS,
   LAND_COLORS,
   resolveDescriptor,
   isLabelLayer,
@@ -176,6 +177,18 @@ describe('basemap-style', () => {
         expect(resolveDescriptor(id)).toBe(THEME_REGISTRY[id]);
         expect(resolveDescriptor(id).id).toBe(id);
       }
+    });
+  });
+
+  describe('THEME_LABELS (C8 #1220)', () => {
+    it('has a label for every registered theme id, equal to the capitalized id', () => {
+      for (const id of ALL_IDS) {
+        const expected = id.charAt(0).toUpperCase() + id.slice(1);
+        expect(THEME_LABELS[id]).toBe(expected);
+      }
+    });
+    it('covers exactly the registry ids (no orphan labels)', () => {
+      expect(Object.keys(THEME_LABELS).sort()).toEqual(Object.keys(THEME_REGISTRY).sort());
     });
   });
 

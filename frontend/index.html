@@ -75,9 +75,10 @@
       before first paint to prevent FOUC. The active THEME ID is the source of
       truth; [data-theme] is DERIVED from the id's kind. Resolution:
         1. localStorage['theme'] → a known ThemeId, or the legacy chrome values
-           'light'→'positron' / 'dark'→'dark' via the back-compat shim;
+           'light'→'bright' / 'dark'→'dark' via the back-compat shim;
         2. prefers-color-scheme: dark → the 'dark' id;
-        3. 'positron' — the light default (C7 keeps positron; C8 flips to bright).
+        3. 'bright' — the light default (C8 · #1220 flipped this from 'positron';
+           both are light-kind so [data-theme] is 'light' either way).
       Then [data-theme] = ID_TO_KIND[id].
 
       Both localStorage and matchMedia are wrapped in try/catch:
@@ -115,12 +116,12 @@
           // — fall through to the prefers-color-scheme branch.
         }
         // Resolve the active id. Back-compat shim (READ path only): legacy
-        // chrome values 'light'→'positron', 'dark'→'dark'.
+        // chrome values 'light'→'bright' (C8 · #1220 default flip), 'dark'→'dark'.
         var id = null;
         if (stored && ID_TO_KIND.hasOwnProperty(stored)) {
           id = stored;
         } else if (stored === 'light') {
-          id = 'positron';
+          id = 'bright';
         } else if (stored === 'dark') {
           id = 'dark';
         }
@@ -128,9 +129,9 @@
           try {
             id = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
               ? 'dark'
-              : 'positron';
+              : 'bright';
           } catch (e) {
-            id = 'positron';
+            id = 'bright';
           }
         }
         document.documentElement.setAttribute('data-theme', ID_TO_KIND[id]);

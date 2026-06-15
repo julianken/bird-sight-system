@@ -5,6 +5,7 @@ import type { LngLatBounds } from 'maplibre-gl';
 import type { MultiPolygon } from 'geojson';
 import type { AggregatedBucket, FamilySilhouette, Observation } from '@bird-watch/shared-types';
 import type { SpeciesDictionary } from '../data/use-species-dictionary.js';
+import type { ThemeId } from './map/geometry/basemap-style.js';
 import { ErrorBoundary } from './ErrorBoundary.js';
 
 /**
@@ -87,6 +88,14 @@ export interface MapSurfaceProps {
    * open. Optional; defaults to `false` for legacy/test callers.
    */
   detailOpen?: boolean;
+  /**
+   * #1220 (C8) — the active basemap theme id (App-level `useActiveThemeId`,
+   * seeded from `resolveInitialTheme`). Forwarded VERBATIM to <MapCanvas> so the
+   * id-keyed basemap swap shares the same source of truth the <ThemeSelector>
+   * drives. Optional — legacy/test callers omit it and MapCanvas falls back to
+   * its internal `[data-theme]`-seeded hook.
+   */
+  activeThemeId?: ThemeId;
 }
 
 /**
@@ -118,6 +127,7 @@ export function MapSurface({
   maskPolygon,
   clampPad,
   detailOpen = false,
+  activeThemeId,
 }: MapSurfaceProps) {
   /**
    * O7 (#786): GL-recovery counter. Bumping this key clears the ErrorBoundary's
@@ -184,6 +194,7 @@ export function MapSurface({
             {...(maskPolygon != null ? { maskPolygon } : {})}
             {...(clampPad !== undefined ? { clampPad } : {})}
             detailOpen={detailOpen}
+            {...(activeThemeId !== undefined ? { activeThemeId } : {})}
           />
         </React.Suspense>
       </div>

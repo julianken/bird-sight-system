@@ -24,6 +24,10 @@ const baseProps = {
   onPickWholeUs: vi.fn(),
   onExitScope: vi.fn(),
   onResolveZip: vi.fn(),
+  // C8 (#1220): theme-selector props. The selector defaults to the wide
+  // segmented form in jsdom (no matchMedia → useBreakpoint() === 'wide').
+  activeThemeId: 'positron' as const,
+  onSelectTheme: vi.fn(),
 };
 
 describe('<AppHeader>', () => {
@@ -341,24 +345,34 @@ describe('<AppHeader>', () => {
     expect(trigger).not.toHaveAttribute('aria-expanded');
   });
 
-  // ── Controls order (V1/V18 #1033): Filters · ⓘ Credits · ThemeToggle ────
+  // ── Controls order (V1/V18 #1033): Filters · ⓘ Credits · ThemeSelector ────
 
-  it('controls pill orders Filters first, then Credits (ⓘ), then ThemeToggle (#1033 V1/V18)', () => {
+  it('controls pill orders Filters first, then Credits (ⓘ), then the theme selector (#1033 V1/V18, C8 #1220)', () => {
     render(<AppHeader {...baseProps} />);
     const pill = document.querySelector('.app-header-controls-pill')!;
-    const buttons = Array.from(pill.querySelectorAll('button'));
-    // Three buttons: Filters → ⓘ Credits → ThemeToggle (Toggle color theme)
-    expect(buttons).toHaveLength(3);
-    expect(buttons[0]).toHaveAttribute('aria-label', expect.stringMatching(/^Filters/));
-    expect(buttons[1]).toHaveAttribute('aria-label', 'Credits');
-    expect(buttons[2]).toHaveAttribute('aria-label', 'Toggle color theme');
+    // The two leading icon buttons are Filters then Credits; the theme selector
+    // follows (in jsdom's wide form it is a radiogroup, not a single button).
+    expect(pill.querySelector('.app-header-filters')).not.toBeNull();
+    expect(pill.querySelector('.app-header-attribution')).not.toBeNull();
+    const filters = pill.querySelector('.app-header-filters')!;
+    const credits = pill.querySelector('.app-header-attribution')!;
+    const selector = pill.querySelector('.theme-selector')!;
+    expect(selector).not.toBeNull();
+    // DOM order: Filters before Credits before the theme selector.
+    expect(filters.compareDocumentPosition(credits) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(credits.compareDocumentPosition(selector) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  // ── ThemeToggle ─────────────────────────────────────────────────────────
+  // ── ThemeSelector (C8 #1220) ─────────────────────────────────────────────
 
-  it('mounts the <ThemeToggle> in the controls pill', () => {
+  it('mounts the <ThemeSelector> radiogroup in the controls pill', () => {
     render(<AppHeader {...baseProps} />);
-    expect(screen.getByRole('button', { name: /Toggle color theme/i })).toBeInTheDocument();
+    const group = screen.getByRole('radiogroup', { name: 'Map theme' });
+    expect(group).toBeInTheDocument();
+    // 5 theme options, the active one (positron) checked.
+    const radios = within(group).getAllByRole('radio');
+    expect(radios).toHaveLength(5);
+    expect(screen.getByRole('radio', { name: 'Positron' })).toHaveAttribute('aria-checked', 'true');
   });
 
   // ── role="banner" landmark ───────────────────────────────────────────────

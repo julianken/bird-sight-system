@@ -139,6 +139,21 @@ export const THEME_REGISTRY: Record<ThemeId, BasemapDescriptor> = {
   },
 };
 
+/**
+ * Human-facing label per theme id, for the theme selector UI (C8 · #1220). The
+ * label is the capitalized id — kept here next to `THEME_REGISTRY` so a future
+ * sixth style can't add a descriptor without a label. The selector renders these
+ * in registry order (Positron · Bright · Liberty · Dark · Fiord); a unit test
+ * pins label === capitalized id so the two never drift.
+ */
+export const THEME_LABELS: Record<ThemeId, string> = {
+  positron: 'Positron',
+  bright: 'Bright',
+  liberty: 'Liberty',
+  dark: 'Dark',
+  fiord: 'Fiord',
+};
+
 /** Look up the descriptor for a registered theme id. */
 export function resolveDescriptor(id: ThemeId): BasemapDescriptor {
   return THEME_REGISTRY[id];

@@ -103,21 +103,30 @@ export interface ActiveThemeIdState {
 }
 
 /**
- * Active-theme-id state primitive (injection seam #2). Seeds the active id from
- * the current `[data-theme]` attribute (via {@link readActiveThemeIdFromDom})
- * and exposes `setThemeId` to drive an id change. The descriptor is re-resolved
- * from the id on every change — INCLUDING between two same-kind themes.
+ * Active-theme-id state primitive (injection seam #2). Exposes `setThemeId` to
+ * drive an id change; the descriptor is re-resolved from the id on every change
+ * — INCLUDING between two same-kind themes.
+ *
+ * Seeding (C8 · #1220): when `initialId` is supplied it is the seed — this is the
+ * FULL id the app resolves at boot (`resolveInitialTheme`, which honors a stored
+ * `bright`/`liberty`/`fiord`), so a non-default light/dark theme round-trips
+ * across reload instead of collapsing to positron/dark. When `initialId` is
+ * omitted (MapCanvas's legacy call, tests) the seed falls back to the
+ * `[data-theme]` attribute via {@link readActiveThemeIdFromDom} — the lossy
+ * but kind-correct bridge that keeps the existing attribute-driven e2e green.
  *
  * @param resolver maps an id → descriptor. Defaults to the production
  *   `resolveDescriptor` (a closed `THEME_REGISTRY` lookup). Tests override it
  *   with a map of synthetic same-kind descriptors so the same-kind transition is
  *   reachable without widening `ThemeId` or touching `knip.ts`.
+ * @param initialId optional explicit seed id (App-level boot resolution).
  */
 export function useActiveThemeId(
   resolver: (id: ThemeId) => BasemapDescriptor = resolveDescriptor,
+  initialId?: ThemeId,
 ): ActiveThemeIdState {
-  const [themeId, setThemeId] = useState<ThemeId>(() =>
-    readActiveThemeIdFromDom(),
+  const [themeId, setThemeId] = useState<ThemeId>(
+    () => initialId ?? readActiveThemeIdFromDom(),
   );
   const descriptor = useMemo(() => resolver(themeId), [resolver, themeId]);
   const setThemeIdStable = useCallback((id: ThemeId) => {
