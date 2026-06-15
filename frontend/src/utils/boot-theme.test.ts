@@ -53,9 +53,9 @@ describe('resolveInitialTheme', () => {
     expect(resolveInitialTheme()).toBe('bright');
   });
 
-  it('back-compat: legacy persisted "light" maps to the "positron" id', () => {
+  it('back-compat: legacy persisted "light" maps to the "bright" id (C8 #1220 default flip)', () => {
     localStorage.setItem(THEME_STORAGE_KEY, 'light');
-    expect(resolveInitialTheme()).toBe('positron');
+    expect(resolveInitialTheme()).toBe('bright');
   });
 
   it('back-compat: legacy persisted "dark" maps to the "dark" id', () => {
@@ -76,9 +76,9 @@ describe('resolveInitialTheme', () => {
     expect(resolveInitialTheme()).toBe('dark');
   });
 
-  it('returns "positron" (the C7 light default) when localStorage is empty and OS prefers light', () => {
+  it('returns "bright" (the C8 light default) when localStorage is empty and OS prefers light', () => {
     setMatchMedia(() => false);
-    expect(resolveInitialTheme()).toBe('positron');
+    expect(resolveInitialTheme()).toBe('bright');
   });
 
   it('does not crash and falls through to OS preference when localStorage.getItem throws SecurityError', () => {
@@ -92,7 +92,7 @@ describe('resolveInitialTheme', () => {
     expect(resolveInitialTheme()).toBe('dark');
   });
 
-  it('returns "positron" as last resort when both localStorage and matchMedia throw', () => {
+  it('returns "bright" as last resort when both localStorage and matchMedia throw (C8 default)', () => {
     vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
       throw new DOMException('Storage access denied', 'SecurityError');
     });
@@ -106,7 +106,7 @@ describe('resolveInitialTheme', () => {
     });
 
     expect(() => resolveInitialTheme()).not.toThrow();
-    expect(resolveInitialTheme()).toBe('positron');
+    expect(resolveInitialTheme()).toBe('bright');
   });
 });
 
@@ -176,9 +176,11 @@ describe('applyInitialTheme', () => {
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
   });
 
-  it('legacy persisted "light" resolves to positron and writes [data-theme]=light', () => {
+  it('legacy persisted "light" resolves to bright and writes [data-theme]=light (C8 #1220)', () => {
     localStorage.setItem(THEME_STORAGE_KEY, 'light');
-    expect(applyInitialTheme()).toBe('positron');
+    // bright is light-kind, so [data-theme] stays 'light' — only the resolved id
+    // (and therefore the basemap) changes from the old positron default.
+    expect(applyInitialTheme()).toBe('bright');
     expect(document.documentElement.getAttribute('data-theme')).toBe('light');
   });
 

@@ -770,6 +770,14 @@ body {
     min-height: 44px;
     min-width: 44px;
   }
+  /* #1230 MUST-FIX #4: at mobile the top-right cluster read as jammed
+     edge-to-edge. Widen the inter-icon gap from --space-xs (4px) to --space-sm
+     (8px) so the three 44px targets have a comfortable separation. The pill is
+     still well within the 180px budget the identity-card cap (below) reserves
+     for it (3×44 + 2×8 gap + ~16 padding ≈ 164px). */
+  .app-header-controls-pill {
+    gap: var(--space-sm);
+  }
   /* #828: the region-name <h1> is .sr-only at every breakpoint now, so no
      compact-specific hide is needed (it was visible at roomy/wide pre-#828). */
 
@@ -788,7 +796,16 @@ body {
      pill's left edge at every compact width (360–479px), matching spec §3
      mobile ASCII art: "Bird Maps  ⓘ ⛛ ☀" on one non-overlapping top row.
      The lede sits below the wordmark inside the card and wraps naturally
-     within the narrower column; the scope form (when expanded) does too. */
+     within the narrower column; the scope form (when expanded) does too.
+
+     C8 (#1220) re-derivation: the new ThemeSelector COLLAPSES to a single
+     icon trigger at compact/roomy (`bp !== 'wide'`) — the same one-icon
+     footprint as the old ☀ ThemeToggle — so the compact pill is still
+     Filters + Credits + Theme = 3 × 44px + gaps + padding ≈ 180px. The 180px
+     literal therefore still holds here. The pill only WIDENS to the 5-pill
+     segmented form at `wide` (≥1024), where this max-width:480px rule does not
+     apply and the desktop layout has ample room left of the pill — so no
+     overlap is introduced. */
   .app-header-identity-card {
     max-inline-size: calc(100% - var(--card-inset) - 180px - var(--card-gap));
   }
@@ -837,7 +854,8 @@ body {
   }
 }
 
-/* ThemeToggle button inside the controls pill (plain <button> via ThemeToggle).
+/* Baseline sizing + focus ring for every <button> in the controls pill —
+   Filters, Credits, and (C8 #1220) the ThemeSelector's radios/trigger.
    #1033 C52: shared baseline sizing + focus ring to match pill siblings;
    coarse-pointer 44px floor replaces the old max-width:480px floor so iPad
    portrait/landscape also get a reachable target on touch-primary devices. */
@@ -890,36 +908,261 @@ body {
   }
 }
 
-/* Recipe #09 — icon-swap: cross-fade + blur + scale between ☀ and ☾.
-   The button positions its content as a single stack; both glyph spans
-   share the same grid cell so they overlay each other.
-
-   Resting state: opacity 0, scale 0.85, blur 4px (outgoing glyph).
-   Active state ([data-active]): opacity 1, scale 1, blur 0px (incoming glyph).
-   Transition fires in both directions on every toggle.
-
-   The global motion.css guard sets transition-duration: 0ms for
-   prefers-reduced-motion users — both glyphs then resolve instantly to
-   their end-state. The active glyph ends at opacity:1 (fully visible) so
-   reduced-motion users are never stuck-hidden. */
-.theme-toggle {
-  display: inline-grid;
+/* ── ThemeSelector (C8 · #1220) ───────────────────────────────────────────────
+   Replaces the old binary <ThemeToggle> with a 5-theme radiogroup. ONE form at
+   EVERY breakpoint (C8 rework): a single icon TRIGGER that opens a TRANSIENT
+   popover listing the 5 options (anchored under the trigger; a four-corner
+   transient-layer surface, NOT a new band). The earlier desktop "always-inline
+   segmented strip" is gone — the icon→popover is the only form now.
+   The popover's open/close is animated with the transitions-dev MENU-DROPDOWN
+   recipe (`.t-dropdown`, below). The radiogroup markup (`.theme-selector-group`)
+   stays a stacked column (`data-form='popover'`). */
+.theme-selector {
+  display: inline-flex;
+  align-items: center;
+  position: relative; /* anchor for the absolutely-positioned popover */
 }
-.theme-toggle-glyph {
-  grid-area: 1 / 1;         /* stack both spans in the same cell */
-  opacity: 0;
-  transform: scale(0.85);
-  filter: blur(4px);
+
+/* The radiogroup — inline row at wide, stacked column in the popover. */
+.theme-selector-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.theme-selector-group[data-form='popover'] {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-xs);
+}
+
+/* A single theme option (role="radio"). Three visually-DISTINCT states, by
+   design (C8 design-review #1230):
+     • rest      — no fill, NO border (a resting border read as a focus ring)
+     • :hover    — subtle bg lift (--color-bg-tint)
+     • selected  — FULL-ROW accent tint + a leading checkmark (aria-checked)
+     • :focus-visible — the 2px outline ring, RESERVED for keyboard focus only
+   Every row is a 2-column grid: a fixed checkmark gutter + the label. The
+   gutter is reserved on UNSELECTED rows too (the glyph is just invisible), so
+   every label shares one left edge — selected ≠ ragged. Inherits the 44px
+   coarse-pointer floor from the shared `.app-header-controls-pill button`. */
+.theme-selector-option {
+  appearance: none;
+  background: transparent;
+  /* No resting border — a 1px outline at rest is indistinguishable from the
+     focus ring. Selected is carried by the row tint + checkmark below. */
+  border: 1px solid transparent;
+  border-radius: var(--card-radius-inner);
+  /* 2-col grid: checkmark gutter (fixed) + label. Reserved on every row so all
+     labels align to one left edge regardless of selected state. */
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  align-items: center;
+  column-gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  font: inherit;
+  font-size: var(--type-sm);
+  line-height: 1.2;
+  color: var(--color-text-body);
+  cursor: pointer;
   transition:
-    opacity   var(--icon-swap-dur) var(--icon-swap-ease),
-    transform var(--icon-swap-dur) var(--icon-swap-ease),
-    filter    var(--icon-swap-dur) var(--icon-swap-ease);
-  will-change: opacity, transform, filter;
+    background var(--icon-swap-dur) var(--icon-swap-ease),
+    color var(--icon-swap-dur) var(--icon-swap-ease),
+    border-color var(--icon-swap-dur) var(--icon-swap-ease);
 }
-.theme-toggle-glyph[data-active] {
-  opacity: 1;
+/* Label column — left-aligned, wraps rather than overflowing the popover cap. */
+.theme-selector-option-label {
+  text-align: start;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Leading checkmark — occupies the reserved gutter on every row; only PAINTED
+   when the row is selected. Hidden (not display:none) so the gutter width is
+   stable and labels never shift between states. */
+.theme-selector-option-check {
+  grid-column: 1;
+  visibility: hidden;
+  color: var(--color-text-link);
+}
+.theme-selector-option:hover {
+  background: var(--color-bg-tint);
+}
+.theme-selector-option:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+}
+/* Selected (checked) row: a FULL-WIDTH accent tint spanning the whole row, plus
+   the leading checkmark — reads unambiguously as SELECTED, distinct from the
+   hover lift (--color-bg-tint) and the keyboard focus ring. --color-bg-inset is
+   theme-paired (light #f0ebe0 / dark #253050), a touch stronger than the hover
+   tint so selected sits clearly above hover. Label stays strong-text weight. */
+.theme-selector-option[aria-checked='true'] {
+  background: var(--color-bg-inset);
+  color: var(--color-text-strong);
+  font-weight: var(--font-weight-semibold);
+}
+.theme-selector-option[aria-checked='true'] .theme-selector-option-check {
+  visibility: visible;
+}
+/* Keep the hover lift visible on a selected row (combined hover+selected reads
+   as the inset tint, not a flat blend). */
+.theme-selector-option[aria-checked='true']:hover {
+  background: var(--color-bg-inset);
+}
+/* In the popover the options are full-width rows sharing one left + right edge. */
+.theme-selector-group[data-form='popover'] .theme-selector-option {
+  width: 100%;
+}
+/* ≤480px: comfortable touch rows. 44px min target + a hair more block padding so
+   the 5-row column isn't cramped to line-height. */
+@media (max-width: 480px) {
+  .theme-selector-group[data-form='popover'] {
+    gap: var(--space-xs);
+  }
+  .theme-selector-group[data-form='popover'] .theme-selector-option {
+    min-height: 44px;
+    padding-block: var(--space-sm);
+  }
+  /* The mobile popover right-edge tie lives in an @media block AFTER the base
+     `.theme-selector-popover` rule below — it must win the cascade, and that
+     base rule (no media query) sits later in the source than this block. */
+}
+/* ≥481px (desktop / fine-pointer): the 5-row popover read a touch denser than the
+   app's other floating cards (#1230 design-review nit). Give the rows a little
+   more vertical breathing room — slightly larger block padding + inter-row gap —
+   so the column matches the card rhythm. Scoped above the mobile breakpoint so
+   the ≤480px coarse-pointer 44px floor + its own block padding are untouched, and
+   the row tint still spans the full row (block padding grows the tinted box, it
+   doesn't inset it). */
+@media (min-width: 481px) {
+  .theme-selector-group[data-form='popover'] {
+    gap: var(--space-sm);
+  }
+  .theme-selector-group[data-form='popover'] .theme-selector-option {
+    padding-block: var(--space-sm);
+  }
+}
+
+/* Narrow-form trigger — an icon button matching the pill's other controls. */
+.theme-selector-trigger {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--card-radius-inner);
+  padding: var(--space-xs) var(--space-sm);
+  color: var(--color-text-body);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  min-width: 36px;
+}
+.theme-selector-trigger:hover {
+  background: var(--color-bg-tint);
+}
+.theme-selector-trigger:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 2px;
+}
+.theme-selector-trigger[aria-expanded='true'] {
+  background: var(--color-bg-tint);
+}
+
+/* Transient popover — anchored under the icon trigger, right-edge aligned so it
+   never spills off-viewport from a top-right corner control. Rides --z-popover
+   (above map-assist overlays); tier-2 elevation. The open/close animation is the
+   `.t-dropdown` menu-dropdown recipe below (composed on the same element). */
+.theme-selector-popover {
+  position: absolute;
+  inset-block-start: calc(100% + var(--space-xs));
+  /* Right-edge aligned to the trigger so the popover's right edge ties cleanly
+     to the controls-cluster right margin — no left overhang, no sub-pixel gap
+     (the trigger is itself the right-most pill control). */
+  inset-inline-end: 0;
+  z-index: var(--z-popover);
+  background: var(--card-bg, var(--color-bg-surface));
+  border: 1px solid var(--card-border, var(--color-border-ui));
+  /* Match the app's other floating cards (identity card, family legend): the
+     --card-radius corner + --card-padding-tight item gutter so the popover
+     reads as one of the same card family, not a bespoke surface. */
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-elevation-2);
+  padding: var(--card-padding-tight);
+  /* Floor the width so the 5 single-word rows never look pinched, but stay
+     within the popover cap. */
+  min-inline-size: 168px;
+  max-inline-size: var(--card-maxw-popover);
+  /* Short-viewport guard (#1230 polish #7): on short mobile heights (~667px)
+     the open 5-row column must never collide with the bottom-left family
+     legend. Cap the popover to the space between its top anchor (under the
+     controls pill: --card-inset + --controls-cluster-h + --card-gap) and a
+     bottom safe band that clears the legend, then scroll internally past that.
+     The 140px band ≈ the legend's collapsed header + a couple of rows + the
+     bottom --card-inset gutter — enough that the two surfaces never touch. */
+  max-block-size: calc(
+    100dvh - var(--card-inset) - var(--controls-cluster-h) - var(--card-gap) * 2
+      - 140px - env(safe-area-inset-bottom, 0px)
+  );
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Mobile (#1230 polish): tie the popover's RIGHT edge to the four-corner
+   top-right margin (--card-inset) — the same margin the controls pill uses —
+   instead of anchoring to the trigger, which sits an uneven distance inside the
+   pill at <=480px. Placed AFTER the base rule so it wins the cascade. position:
+   fixed anchors to the viewport; the vertical start matches the "under the
+   controls cluster" anchor the base max-block-size guard reasons from; z-index:
+   --z-popover (base) keeps it above the map once it leaves the header stack. */
+@media (max-width: 480px) {
+  .theme-selector-popover {
+    position: fixed;
+    inset-inline-start: auto;
+    inset-inline-end: var(--card-inset);
+    inset-block-start: calc(
+      var(--card-inset) + var(--controls-cluster-h) + var(--card-gap)
+    );
+  }
+}
+
+/* ── transitions-dev MENU-DROPDOWN recipe (C8 · #1220) ─────────────────────────
+   Applied (verbatim) to the ThemeSelector popover surface alongside
+   `data-origin="top-right"`. Open adds `.is-open`; close swaps to `.is-closing`,
+   then the React component unmounts the surface after --dropdown-close-dur (read
+   from getComputedStyle so the JS timer stays in sync with the CSS var). The
+   per-element prefers-reduced-motion guard from the recipe is preserved here in
+   addition to the global guard in motion.css. */
+.t-dropdown {
+  transform-origin: top left;
+  transform: scale(var(--dropdown-pre-scale));
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform var(--dropdown-open-dur) var(--dropdown-ease),
+    opacity var(--dropdown-open-dur) var(--dropdown-ease);
+  will-change: transform, opacity;
+}
+.t-dropdown[data-origin='top-right'] {
+  transform-origin: top right;
+}
+.t-dropdown.is-open {
   transform: scale(1);
-  filter: blur(0px);
+  opacity: 1;
+  pointer-events: auto;
+}
+.t-dropdown.is-closing {
+  transform: scale(var(--dropdown-closing-scale));
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform var(--dropdown-close-dur) var(--dropdown-ease),
+    opacity var(--dropdown-close-dur) var(--dropdown-ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  .t-dropdown {
+    transition: none !important;
+  }
 }
 
 /* E2 (#1054): the full-snap `pointer-events: none` hack on the identity card +
@@ -2797,12 +3040,17 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
 /* ── Map loading skeleton (.map-loading-skeleton) ───────────────────────────
    Loading-state placeholder while the map data fetches (MapSurface.tsx:191).
    Without a rule the bare <div> collapses to zero height and the loading state
-   is invisible. This rule contributes the shimmer `animation` only; the inline
-   `style={}` on MapSurface.tsx:195-200 sets background via `--color-bg-tint`
-   and wins on specificity, so `--color-bg-skeleton` / `--color-bg-skeleton-
-   highlight` tokens are not painted. A future cleanup could move the inline
-   styles into this rule once the skeleton component is refactored to
-   className-only. */
+   is invisible. The shimmer pulses the BACKGROUND COLOR, not the element's
+   opacity (#1230): the old opacity-pulse (1→0.6) dimmed the "Loading map…" text
+   along with the box, and axe-core color-contrast composites a dimmed element
+   over the page — at 0.6 opacity the dark text/light tint resolved to ~4.43:1
+   (below AA 4.5:1), flaking the error-screen a11y scan whenever axe sampled the
+   skeleton during a dimmed frame. A background-color pulse keeps the text fully
+   opaque (≈15:1 at every frame) while preserving the shimmer.
+   The keyframe `background-color` overrides the inline `background` shorthand on
+   MapSurface.tsx for the animation's duration (animations outrank inline author
+   styles); the 0%/100% stop equals `--color-bg-tint`, so the resting frame
+   matches the inline value with no visual jump. */
 .map-loading-skeleton {
   width: 100%;
   height: 100%;
@@ -2814,8 +3062,8 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
 }
 
 @keyframes skeleton-shimmer {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.6; }
+  0%, 100% { background-color: var(--color-bg-tint); }
+  50%      { background-color: var(--color-bg-surface); }
 }
 
 /* ── SpeciesDetailSheet snap variants — BLOCKER ────────────────────────────
@@ -2997,11 +3245,25 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
     border: 1px solid ButtonText;
   }
 
-  /* Theme toggle icon: ensure the SVG icon inherits ButtonText (forced-
-     colors UA remapping handles this automatically for SVG `fill:
-     currentColor`, but make the dependency explicit). */
-  .theme-toggle svg {
-    fill: ButtonText;
+  /* Theme selector (C8 #1220, #1230): the selected row's tint + checkmark rely
+     on custom bg/color which forced-colors flattens — restore the selected
+     state with a system pairing so the checked option stays distinguishable.
+     The checkmark inherits the option's currentColor (HighlightText) so it
+     stays visible against the Highlight fill; the narrow-trigger layers glyph
+     uses stroke (not fill), so map it to CanvasText. */
+  .theme-selector-option[aria-checked='true'] {
+    background: Highlight;
+    color: HighlightText;
+    border-color: Highlight;
+  }
+  .theme-selector-option-check {
+    color: CanvasText;
+  }
+  .theme-selector-option[aria-checked='true'] .theme-selector-option-check {
+    color: HighlightText;
+  }
+  .theme-selector-trigger svg {
+    stroke: ButtonText;
   }
 
   /* Cluster pills (map): ensure text + border remain distinguishable. */

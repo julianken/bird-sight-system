@@ -19,11 +19,14 @@
  * their choice across the key-value change.
  *
  * Resolution order (`resolveInitialTheme`):
- *   1. localStorage['theme']  → a known ThemeId, OR a legacy 'light'/'dark'
- *                               value mapped via the back-compat shim.
+ *   1. localStorage['theme']  → a known ThemeId, OR a legacy 'dark' value (and
+ *                               the legacy chrome value 'light', now mapped to
+ *                               'bright') via the back-compat shim.
  *   2. prefers-color-scheme   → 'dark' when the OS prefers dark.
- *   3. 'positron'             → safe light default (C7 keeps positron; the flip
- *                               to 'bright' is C8's job — do NOT change here).
+ *   3. 'bright'               → the light default (C8 · #1220 flipped this from
+ *                               'positron' to 'bright' per Julian's directive;
+ *                               'bright' is light-kind so [data-theme] stays
+ *                               'light' — only the resolved id + basemap change).
  *
  * Both localStorage access and matchMedia access can throw:
  *   - localStorage throws SecurityError in Safari Private Browsing and
@@ -31,7 +34,7 @@
  *   - matchMedia is undefined in older test environments.
  *
  * Storage failures are non-fatal — the theme falls through to the OS
- * preference (or the positron default), and the in-session [data-theme]
+ * preference (or the bright default), and the in-session [data-theme]
  * attribute remains the chrome source of truth until the next page load.
  *
  * Spec: docs/design/01-spec/tokens.md §Light/dark mechanic
@@ -79,12 +82,13 @@ function isThemeId(value: string | null): value is ThemeId {
 /**
  * Back-compat shim (READ path only): map a persisted value to a `ThemeId`.
  * Returns a known id unchanged; maps the legacy chrome values `'light'` →
- * `'positron'` and `'dark'` → the `'dark'` id; returns `null` for anything
- * unrecognized so the caller falls through to OS preference / default.
+ * `'bright'` (C8 · #1220 — the light default) and `'dark'` → the `'dark'` id;
+ * returns `null` for anything unrecognized so the caller falls through to OS
+ * preference / default.
  */
 function persistedToThemeId(value: string | null): ThemeId | null {
   if (isThemeId(value)) return value;
-  if (value === 'light') return 'positron'; // legacy chrome value → positron id
+  if (value === 'light') return 'bright'; // legacy chrome value → bright id (C8 default flip)
   if (value === 'dark') return 'dark'; // legacy chrome value → dark id (id === kind)
   return null;
 }
@@ -92,10 +96,10 @@ function persistedToThemeId(value: string | null): ThemeId | null {
 /**
  * Resolve the initial active `ThemeId` before first paint.
  *
- *   1. persisted `localStorage['theme']` (known id, or legacy 'light'/'dark'
- *      via the back-compat shim);
+ *   1. persisted `localStorage['theme']` (known id, or legacy 'light'→'bright' /
+ *      'dark' via the back-compat shim);
  *   2. `prefers-color-scheme: dark` → the `'dark'` id;
- *   3. `'positron'` — the light default (C7 keeps positron; C8 flips to bright).
+ *   3. `'bright'` — the light default (C8 · #1220 flipped this from 'positron').
  */
 export function resolveInitialTheme(): ThemeId {
   let stored: string | null = null;
@@ -120,7 +124,7 @@ export function resolveInitialTheme(): ThemeId {
     // matchMedia rarely throws but is defensively wrapped — fall through.
   }
 
-  return 'positron';
+  return 'bright'; // C8 · #1220 — light default flipped from 'positron' to 'bright'.
 }
 
 /**

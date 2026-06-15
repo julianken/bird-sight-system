@@ -233,8 +233,8 @@
 
   /* ds-shimmer duration — shared by .status-block__skeleton + .photo__skeleton
      (both use the same ds-shimmer keyframe; #948). adaptive-grid-pending-shimmer
-     (1.4s, reverse-direction) and skeleton-shimmer (opacity-pulse technique) are
-     intentionally excluded — different techniques, different tempos. */
+     (1.4s, reverse-direction) and skeleton-shimmer (background-color pulse;
+     #1230) are intentionally excluded — different techniques, different tempos. */
   --ds-shimmer-dur: 1.6s;
 
   /* ── Type shorthands (B1 #1040, spec §2.5) ─────────────────────────────
@@ -266,6 +266,14 @@
   --dropdown-open-dur:   180ms;
   --dropdown-pre-scale:  0.96;
   --dropdown-ease:       cubic-bezier(0.22, 1, 0.36, 1);
+  /* C8 (#1220) — transitions-dev MENU-DROPDOWN recipe close phase, consumed by
+   * the `.t-dropdown` class (styles.css) on the ThemeSelector popover. The
+   * `.is-closing` exit reads --dropdown-close-dur for both the CSS transition AND
+   * the JS unmount timer (ThemeSelector reads it via getComputedStyle so they
+   * stay in sync). Re-using the existing --dropdown-open-dur / --dropdown-pre-
+   * scale / --dropdown-ease above ("add once, if not already present"). */
+  --dropdown-close-dur:    150ms;
+  --dropdown-closing-scale: 0.99;
   --modal-open-dur:      180ms;
   --modal-scale:         0.96;
   --modal-ease:          cubic-bezier(0.22, 1, 0.36, 1);

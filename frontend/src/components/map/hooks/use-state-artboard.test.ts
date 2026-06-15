@@ -245,8 +245,8 @@ describe('useStateArtboard — ordering invariants (P2 backfill, #884 · U13)', 
   });
 
   // ── Invariant 2: (3b) getLayer-guard defers via styleEpoch re-fire ───────
-  it('(3b) defers float/sink (warn, no moveLayer) while state-mask-fill is absent, then applies after a style.load re-fires the effect', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  it('(3b) defers float/sink (debug, no moveLayer) while state-mask-fill is absent, then applies after a style.load re-fires the effect', () => {
+    const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
     const fake = makeFakeMap({ withMask: true });
     const ref = makeRef(fake.map);
 
@@ -255,9 +255,9 @@ describe('useStateArtboard — ordering invariants (P2 backfill, #884 · U13)', 
 
     renderHook(() => useStateArtboard(ref, true, AZ_POLYGON));
 
-    // The float effect hit the getLayer guard: warn-and-return, NO moveLayer/addLayer.
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[artboard] state-mask-fill not yet reconciled; deferring float/sink',
+    // The float effect hit the getLayer guard: debug-and-return, NO moveLayer/addLayer.
+    expect(debugSpy).toHaveBeenCalledWith(
+      '[artboard] state-mask-fill not yet reconciled; deferring float/sink (self-heals on next reconcile)',
     );
     expect(
       fake.ops.some((o) => o.startsWith('moveLayer:') || o.startsWith('addLayer:')),
@@ -276,7 +276,7 @@ describe('useStateArtboard — ordering invariants (P2 backfill, #884 · U13)', 
     expect(fake.ops).toContain(`addLayer:${ARTBOARD_OUTLINE_ID}`);
     expect(fake.ops.some((o) => o.startsWith('moveLayer:'))).toBe(true);
 
-    warnSpy.mockRestore();
+    debugSpy.mockRestore();
   });
 
   // ── Invariant 3: (3b-teardown) keys on maskPolygon NOT maskTheme ─────────
@@ -422,130 +422,17 @@ describe('useStateArtboard — ordering invariants (P2 backfill, #884 · U13)', 
 });
 
 /* ──────────────────────────────────────────────────────────────────────────
-   #1124 [S1] regression — restore-path re-sanitization on scope round-trip.
+   #1124 [S1] restore-path re-sanitization test REMOVED (#1230).
 
-   The S1 deliverable (basemap-null-filter.ts · #1027) clears the z14
-   "Expected value to be of type number, but found null instead." warning by
-   rewriting upstream `["<=", ["get","ref_length"], 6]` road-shield filters into
-   `["all", ["has","ref_length"], <original>]` at `style.load`.
-
-   But `useStateArtboard`'s label-isolation capture (`applyLabelIsolation` in the
-   `style.load` handler / mask-change effect) records each isolatable symbol
-   layer's RAW filter into `savedFiltersRef` — and the road-shield layers ARE
-   isolatable (they paint a `text-field`, so `isLabelLayer` matches them), so what
-   is captured is the RAW, un-sanitized `["<=", ["get","ref_length"], 6]`. The capture runs
-   BEFORE the sanitizer effect in MapCanvas, so the saved filter is never the
-   guarded shape.
-
-   On a state → us scope round-trip the teardown (`restoreLabelIsolation`) writes
-   those RAW filters back via `setFilter`. That transition fires NO `style.load`,
-   so the sanitizer never re-runs — re-introducing the warning on the national
-   map and silently undoing S1's deliverable.
-
-   The fix re-runs `sanitizeNullNumericFilters(map)` after the restore so the
-   filter written back ends up guarded again.
+   The test asserted that `useStateArtboard`'s scope → us teardown re-ran a
+   live-map `sanitizeNullNumericFilters` to re-guard road-shield filters that
+   `restoreLabelIsolation` wrote back raw. Under #1230 the style reaches the map
+   ALREADY null-guarded at the source (the constructor gets a pre-sanitized
+   OBJECT via `loadSanitizedStyle`; every `setStyle` swap routes through
+   `transformStyle`), so `applyLabelIsolation` captures the GUARDED live filters
+   and `restoreLabelIsolation` writes guarded filters back — there is no raw
+   filter to re-introduce. The band-aid (and this test guarding it) are obsolete.
    ────────────────────────────────────────────────────────────────────────── */
-
-const SHIELD_RAW_FILTER = ['<=', ['get', 'ref_length'], 6];
-const SHIELD_GUARDED_FILTER = [
-  'all',
-  ['has', 'ref_length'],
-  ['<=', ['get', 'ref_length'], 6],
-];
-
-/**
- * A minimal stateful fake map for the restore-path test: a single isolatable
- * road-shield symbol layer (it paints a `text-field` — the route number — so
- * `isLabelLayer` matches it) pre-seeded with the RAW null-prone filter, plus the
- * mask fill + a cluster layer so the float/sink half can run without throwing.
- * Backs `getFilter`/`setFilter` with a real store so the round-trip's net filter
- * is observable.
- */
-function makeShieldFakeMap() {
-  const layers: StyleLayer[] = [
-    { id: 'road_shield_us', type: 'symbol', layout: { 'text-field': ['get', 'ref'] } },
-    MASK_LAYER,
-    CLUSTER_LAYER,
-  ];
-  const filters: Record<string, unknown> = {
-    road_shield_us: SHIELD_RAW_FILTER,
-  };
-  const handlers: Record<string, Array<() => void>> = {};
-
-  const map = {
-    getStyle: () => ({ layers: layers.slice() }),
-    getFilter: vi.fn((layerId: string) => filters[layerId]),
-    setFilter: vi.fn((layerId: string, filter: unknown) => {
-      filters[layerId] = filter;
-    }),
-    getLayer: vi.fn((layerId: string) => layers.find((l) => l.id === layerId) ?? null),
-    getSource: vi.fn(() => null),
-    addSource: vi.fn(),
-    removeSource: vi.fn(),
-    moveLayer: vi.fn(),
-    addLayer: vi.fn((layer: Record<string, unknown>) => {
-      layers.push({
-        id: String(layer.id),
-        type: String(layer.type),
-        source: layer.source as string | undefined,
-      });
-    }),
-    removeLayer: vi.fn((layerId: string) => {
-      const i = layers.findIndex((l) => l.id === layerId);
-      if (i !== -1) layers.splice(i, 1);
-    }),
-    triggerRepaint: vi.fn(),
-    getRenderWorldCopies: vi.fn(() => false),
-    setRenderWorldCopies: vi.fn(),
-    setStyle: vi.fn(),
-    on: vi.fn((type: string, cb: () => void) => {
-      (handlers[type] ??= []).push(cb);
-    }),
-    off: vi.fn((type: string, cb: () => void) => {
-      handlers[type] = (handlers[type] ?? []).filter((h) => h !== cb);
-    }),
-  };
-
-  return { map, filters };
-}
-
-describe('useStateArtboard — restore-path re-sanitization (#1124 · S1)', () => {
-  beforeEach(() => {
-    document.documentElement.removeAttribute('data-theme');
-  });
-  afterEach(() => {
-    document.documentElement.removeAttribute('data-theme');
-    vi.restoreAllMocks();
-  });
-
-  it('re-guards the restored road-shield filter on a state → us scope round-trip (does NOT write back the raw null-prone shape)', () => {
-    const fake = makeShieldFakeMap();
-    const ref = makeRef(fake.map);
-
-    // Enter a state scope: applyLabelIsolation captures the RAW shield filter
-    // into savedFiltersRef and merges in the within expression.
-    const { rerender } = renderHook(
-      ({ poly }: { poly: MultiPolygon | null }) => useStateArtboard(ref, true, poly),
-      { initialProps: { poly: AZ_POLYGON as MultiPolygon | null } },
-    );
-
-    // While isolated, the live filter is the merged ['all', RAW, within] shape.
-    expect(Array.isArray(fake.filters['road_shield_us'])).toBe(true);
-
-    // Leave the state scope (state → us): poly → null tears down isolation, which
-    // calls restoreLabelIsolation to write the captured RAW filter back. No
-    // style.load fires on this transition, so the MapCanvas sanitizer never
-    // re-runs — the restore path itself must re-guard the filter.
-    act(() => {
-      rerender({ poly: null });
-    });
-
-    // The net filter on the shield layer MUST be the guarded shape, NOT the raw
-    // null-prone comparison that re-introduces the z14 warning.
-    expect(fake.filters['road_shield_us']).toEqual(SHIELD_GUARDED_FILTER);
-    expect(fake.filters['road_shield_us']).not.toEqual(SHIELD_RAW_FILTER);
-  });
-});
 
 /* ──────────────────────────────────────────────────────────────────────────
    C1.5 (#1213) — id-driven basemap swap: the END-TO-END regression guard for
@@ -628,7 +515,9 @@ describe('useStateArtboard — id-driven basemap swap (C1.5 · #1213)', () => {
     );
 
     // Initial mount swapped to darkA's url.
-    expect(fake.map.setStyle).toHaveBeenCalledWith('syn://dark-A');
+    expect(fake.map.setStyle).toHaveBeenCalledWith('syn://dark-A', {
+      transformStyle: expect.any(Function),
+    });
     (fake.map.setStyle as ReturnType<typeof vi.fn>).mockClear();
 
     // Change the id to a DIFFERENT SAME-KIND theme. SYN_DARK_A.kind === darkB.kind
@@ -639,7 +528,9 @@ describe('useStateArtboard — id-driven basemap swap (C1.5 · #1213)', () => {
     expect(SYN_DARK_A.kind).toBe(SYN_DARK_B.kind); // proves same-kind
     expect(SYN_DARK_A.url).not.toBe(SYN_DARK_B.url); // but different urls
     expect(fake.map.setStyle).toHaveBeenCalledTimes(1);
-    expect(fake.map.setStyle).toHaveBeenCalledWith('syn://dark-B');
+    expect(fake.map.setStyle).toHaveBeenCalledWith('syn://dark-B', {
+      transformStyle: expect.any(Function),
+    });
   });
 
   it('de-dups on the id: re-rendering with an UNCHANGED id does NOT re-fire setStyle', () => {
@@ -678,6 +569,7 @@ describe('useStateArtboard — id-driven basemap swap (C1.5 · #1213)', () => {
     await waitFor(() =>
       expect(fake.map.setStyle).toHaveBeenCalledWith(
         'https://tiles.openfreemap.org/styles/dark',
+        { transformStyle: expect.any(Function) },
       ),
     );
   });
@@ -715,7 +607,9 @@ describe('useStateArtboard — id-driven basemap swap (C1.5 · #1213)', () => {
     );
 
     expect(SYN_LIGHT_POSITRON.kind).toBe(SYN_LIGHT_BRIGHT.kind); // same-kind
-    expect(fake.map.setStyle).toHaveBeenCalledWith('syn://light-bright');
+    expect(fake.map.setStyle).toHaveBeenCalledWith('syn://light-bright', {
+      transformStyle: expect.any(Function),
+    });
     (fake.map.setStyle as ReturnType<typeof vi.fn>).mockClear();
 
     // bright → positron: SAME kind ('light'), [data-theme] unchanged. With the
@@ -724,6 +618,8 @@ describe('useStateArtboard — id-driven basemap swap (C1.5 · #1213)', () => {
     // With the active-id re-seed the ref tracked 'bright', so positron swaps.
     rerender({ id: 'positron' as ThemeId });
     expect(fake.map.setStyle).toHaveBeenCalledTimes(1);
-    expect(fake.map.setStyle).toHaveBeenCalledWith('syn://light-positron');
+    expect(fake.map.setStyle).toHaveBeenCalledWith('syn://light-positron', {
+      transformStyle: expect.any(Function),
+    });
   });
 });

@@ -525,14 +525,14 @@ describe('moveMaskBelowFirstLabel (isolate mode — interior labels render ON TO
     expect(map.moveLayer).not.toHaveBeenCalledWith(MASK_LAYER_ID, ARTBOARD_HALO_ID);
   });
 
-  it('warns and does NOT move when the mask layer is absent (reconcile-sequencing guard, fail open)', () => {
+  it('logs (debug) and does NOT move when the mask layer is absent (reconcile-sequencing guard, fail open)', () => {
     const layers = makeStyleLayers().filter((l) => l.id !== MASK_LAYER_ID);
     const map = makeMockMap(layers);
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
     moveMaskBelowFirstLabel(map as never, MASK_LAYER_ID);
     expect(map.moveLayer).not.toHaveBeenCalled();
-    expect(warnSpy).toHaveBeenCalled();
-    warnSpy.mockRestore();
+    expect(debugSpy).toHaveBeenCalled();
+    debugSpy.mockRestore();
   });
 
   it('leaves the mask where it is when NO basemap label layer exists (fail open, no throw)', () => {

@@ -10,9 +10,11 @@ import {
 } from 'react-map-gl/maplibre';
 import type { MapLayerMouseEvent, MapRef } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import type { StyleSpecification } from 'maplibre-gl';
 import type { AggregatedBucket, Observation } from '@bird-watch/shared-types';
 import { resolveDescriptor } from './geometry/basemap-style.js';
-import { useActiveThemeId } from './theme-state.js';
+import type { ThemeId } from './geometry/basemap-style.js';
+import { useActiveThemeId, setBasemapStyle } from './theme-state.js';
 import { INITIAL_VIEW, MIN_ZOOM } from './geometry/camera-config.js';
 import {
   buildMaskFeature,
@@ -48,7 +50,7 @@ import { useSilhouetteCatalogue } from './hooks/use-silhouette-catalogue.js';
 import { useMapResize } from './hooks/use-map-resize.js';
 import { useScopeCamera } from './hooks/use-scope-camera.js';
 import { useStateArtboard } from './hooks/use-state-artboard.js';
-import { sanitizeNullNumericFilters } from './geometry/basemap-null-filter.js';
+import { loadSanitizedStyle } from './geometry/basemap-style-sanitizer.js';
 import { enforceDarkLabelContrast } from './geometry/basemap-label-contrast.js';
 import {
   aggregateClusterFamilies,
@@ -288,6 +290,65 @@ const EMPTY_DICT: SpeciesDictionary = new Map();
 // (whose dep array includes `buckets`), spinning an infinite re-register loop.
 const EMPTY_BUCKETS: AggregatedBucket[] = [];
 
+/**
+ * A trivial, valid, background-only style painted in the active theme's land
+ * color while the real (pre-sanitized) basemap object loads (#1230). Feeding the
+ * constructor a placeholder OBJECT — never a raw URL — keeps the map ALWAYS
+ * MOUNTED (#761) and avoids the unguarded first paint that a raw `mapStyle={url}`
+ * would hand the worker. bg → basemap is the normal load appearance, not a
+ * flash: the placeholder is the same land color the basemap settles into.
+ */
+function backgroundPlaceholderStyle(themeId: ThemeId): StyleSpecification {
+  return {
+    version: 8,
+    sources: {},
+    layers: [
+      {
+        id: 'bg',
+        type: 'background',
+        paint: { 'background-color': resolveDescriptor(themeId).landColor },
+      },
+    ],
+  };
+}
+
+/**
+ * Resolve a pre-sanitized basemap STYLE OBJECT for the active theme id (#1230).
+ *
+ * The `<Map>` constructor accepts a style object but has no `transformStyle`
+ * hook (a `setStyle`-only option), so a raw `mapStyle={url}` would hand the
+ * worker an unguarded style and fire the null-numeric `warnOnce` on the first
+ * paint. This hook loads the style via `loadSanitizedStyle` (fetch → sanitize →
+ * memoized) and returns the guarded `StyleSpecification`, so the constructor
+ * never sees a raw URL. While a NEW id is still loading it keeps the previously
+ * resolved style (no flash back to the placeholder on a theme swap); the very
+ * first load shows the theme-colored `backgroundPlaceholderStyle`. Fails OPEN —
+ * a fetch error leaves the placeholder up and is logged; the live `setStyle`
+ * swap path can still retry.
+ */
+function useSanitizedBasemapStyle(themeId: ThemeId): StyleSpecification {
+  const [style, setStyle] = useState<StyleSpecification | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    loadSanitizedStyle(resolveDescriptor(themeId).url)
+      .then((resolved) => {
+        if (!cancelled) setStyle(resolved);
+      })
+      .catch((err: unknown) => {
+        // Fail OPEN: keep the last good / placeholder style up. The basemap
+        // health watchdog + Retry path own recovery; never blank the map.
+        // eslint-disable-next-line no-console
+        console.error('basemap style load failed', err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [themeId]);
+  // Keep the prior resolved style while a new id loads (no placeholder flash on
+  // swap); only the very first load falls back to the theme-colored background.
+  return style ?? backgroundPlaceholderStyle(themeId);
+}
+
 export function MapCanvas({
   observations,
   buckets = EMPTY_BUCKETS,
@@ -302,6 +363,7 @@ export function MapCanvas({
   maskPolygon,
   clampPad,
   detailOpen = false,
+  activeThemeId: activeThemeIdProp,
 }: MapCanvasProps) {
   const aggregated = mode === 'aggregated';
   const mapRef = useRef<MapRef>(null);
@@ -520,13 +582,34 @@ export function MapCanvas({
   useMapResize(mapRef, mapWrapperRef, mapReady);
 
   // Active basemap-theme id state (C1.5 · #1213) — the reactive source of truth
-  // for the basemap swap. Seeded from the persisted `[data-theme]` attribute (the
-  // back-compat bridge, until C7's `applyTheme` owns the write path). For C1.5 the
-  // only reachable production ids are `positron`/`dark`, so the observable
-  // behavior is unchanged; this is the plumbing that lets the swap depend on the
-  // id (not the lossy `[data-theme]` attribute) so C2–C4/C8 can reach all 5 themes.
-  const { themeId: activeThemeId, descriptor: activeDescriptor } =
+  // for the basemap swap. C8 (#1220) lifts the canonical id to App.tsx
+  // (`useActiveThemeId` seeded from `resolveInitialTheme`) and threads it in as
+  // the `activeThemeId` prop, so the <ThemeSelector> and this swap share ONE
+  // source of truth and every theme — including same-kind switches and a stored
+  // `bright`/`liberty`/`fiord` — is reachable. The local `useActiveThemeId()`
+  // call is retained ONLY as the fallback seed/descriptor for legacy/test callers
+  // that omit the prop (behavior-identical to pre-C8: seeded from `[data-theme]`).
+  // When the prop is present it WINS for both the id (swap key + initial mapStyle)
+  // and the resolved descriptor (marker halo / float colors).
+  const { themeId: localThemeId, descriptor: localDescriptor } =
     useActiveThemeId();
+  const activeThemeId = activeThemeIdProp ?? localThemeId;
+  const activeDescriptor =
+    activeThemeIdProp != null ? resolveDescriptor(activeThemeIdProp) : localDescriptor;
+
+  // #1230: the INITIAL `<MapView mapStyle>` gets a PRE-SANITIZED style OBJECT,
+  // never a raw URL. The constructor has no `transformStyle` hook (it is a
+  // `setStyle`-only option), so a raw URL would let the worker parse a
+  // null-prone expression and fire `warnOnce("Expected value to be of type
+  // number…")` on the first paint (bright's POI rank filters trip it the moment
+  // bright is default). The hook fetches + sanitizes + memoizes the style; until
+  // it resolves the constructor shows a solid theme-colored background (no raw
+  // URL ever reaches maplibre, the always-mounted #761 invariant holds, and
+  // bg → basemap is the normal load appearance, not a flash). Subsequent theme
+  // swaps + Retry still route through `setStyle(url, { transformStyle })`
+  // (use-state-artboard `swapBasemap` / the Retry handler) — the constructor is
+  // the only entry point that needs the object form.
+  const initialBasemapStyle = useSanitizedBasemapStyle(activeThemeId);
 
   // State-artboard machinery consolidated into ONE hook (`use-state-artboard.ts`,
   // epic #884 · U13 / #898; the #760/#762/#763/#765/#849/#850 blank-map class).
@@ -796,6 +879,14 @@ export function MapCanvas({
     basemapHealthyRef.current = true;
     basemapErrorCountRef.current = 0;
 
+    // #947: the dark/fiord `circle-11` styleimagemissing warning is fixed
+    // STRUCTURALLY, not here — the style sanitizer
+    // (`basemap-style-sanitizer.ts`, `neutralizeMissingIconImages`) strips the
+    // broken icon-image reference BEFORE the worker parses the style, at the
+    // same pre-worker chokepoint as the null-numeric guard. A `load`-time
+    // `styleimagemissing` listener could only `addImage` AFTER the worker had
+    // already `warnOnce`d, so it can never prevent the first/only warning.
+
     // Test hook (Spider v2 e2e): exposes the maplibre instance for Playwright
     // to drive easeTo and inspect sources. Not relied on by production code.
     // Env-gated to non-prod so the production bundle never leaks the
@@ -1014,33 +1105,30 @@ export function MapCanvas({
     };
   }, [mapReady]);
 
-  // ── #1027 [O8] + #1128: per-style basemap fixups at style.load ────────────
-  // Two STRUCTURAL, fail-open, idempotent passes run on the freshly-parsed
-  // style, both on initial load AND on every `style.load` (the [data-theme]
-  // `setStyle` swap / Retry re-set the style and would otherwise drop the
-  // fixups), mirroring the artboard's own `style.load` re-apply contract:
+  // ── #1128: dark-label contrast fixup at style.load ────────────────────────
+  // The null-numeric-comparison guard is NO LONGER applied here — it now runs
+  // BEFORE the worker parses the style, at every entry point: the constructor
+  // gets a pre-sanitized OBJECT (useSanitizedBasemapStyle → loadSanitizedStyle)
+  // and `setStyle` swaps/Retry route through `transformStyle`
+  // (transformStyleSanitizeNull, via setBasemapStyle). The old live-map
+  // `style.load` sweep ran AFTER the worker had already warned, so it could
+  // never stop the first warning — a redundant band-aid, now deleted (#1230).
   //
-  //   1. #1027 [O8] `sanitizeNullNumericFilters` — the stock OpenFreeMap styles
-  //      ship `[<,<=,>,>=]` comparisons over nullable data properties
-  //      (`ref_length` on road shields, `admin_level` on boundaries) that log
-  //      4× "Expected value to be of type number, but found null instead." at
-  //      z14. Wraps each in `["all", ["has", prop], <original>]`
-  //      (behaviour-preserving; see basemap-null-filter.ts).
-  //   2. #1128 `enforceDarkLabelContrast` — the dark basemap is a DIFFERENT
-  //      style (setStyle, not a CSS filter) that ships LIGHT-mode label text
-  //      colors, so at z14 every label layer fails WCAG AA against the
-  //      rgb(12,12,12) dark canvas. Recolors the failing symbol layers to
-  //      AA-passing light text + dark halo (no-op on the light style — it gates
-  //      on the measured background luminance; see basemap-label-contrast.ts).
+  // What remains is #1128 `enforceDarkLabelContrast`: the dark basemap is a
+  // DIFFERENT style (setStyle, not a CSS filter) that ships LIGHT-mode label
+  // text colors, so at z14 every label layer fails WCAG AA against the
+  // rgb(12,12,12) dark canvas. This recolors the failing symbol layers to
+  // AA-passing light text + dark halo (no-op on the light style — it gates on
+  // the measured background luminance; see basemap-label-contrast.ts). It MUST
+  // stay a live-map `style.load` pass: it measures the rendered background
+  // luminance, so it has nothing to act on until the style is committed.
+  // Re-runs on initial load AND on every `style.load` (theme swap / Retry), with
+  // the active descriptor re-resolved per theme (C2 · #1214).
   useEffect(() => {
     if (!mapReady) return;
     const map = mapRef.current?.getMap();
     if (!map) return;
     const apply = () => {
-      sanitizeNullNumericFilters(map);
-      // C2 (#1214): the recolor gates on / sources from the active basemap
-      // descriptor (kind, landColor, darkLabelTextColors) — re-resolved per
-      // theme so the swap effect re-applies with the matching descriptor.
       enforceDarkLabelContrast(map, resolveDescriptor(activeThemeId));
     };
     apply(); // mapReady ⇒ first style already parsed; fix it up now
@@ -1087,8 +1175,11 @@ export function MapCanvas({
     basemapErrorCountRef.current = 0;
     setBasemapFailed(false);
     // Guarded: if the map ref is somehow gone, the watchdog re-arm below still
-    // re-surfaces the card after the window (no silent dead-end).
-    map?.setStyle(style);
+    // re-surfaces the card after the window (no silent dead-end). #1230: routes
+    // through `setBasemapStyle` — the SAME transform-guarded setter the theme
+    // swap uses — so a Retry re-fetch of a null-prone style never re-logs the
+    // worker warning.
+    if (map) setBasemapStyle(map, style);
     setWatchdogEpoch((n) => n + 1);
   }, [activeThemeId]);
 
@@ -1961,12 +2052,33 @@ export function MapCanvas({
         // (state/ZIP artboard). The rerender unit assertion pins this so the
         // invariant survives #761's always-mounted lifecycle without a remount.
         renderWorldCopies={maskPolygon == null}
+        // #1230: never diff the `mapStyle` PROP change. The only prop-driven
+        // style change is the placeholder → real-style swap on first load
+        // (`useSanitizedBasemapStyle` returns `backgroundPlaceholderStyle` until
+        // `loadSanitizedStyle` resolves, then swaps in the real style). Diffing
+        // that races the placeholder's own load: when the real style arrives
+        // before the trivial placeholder has fired `style.load`, maplibre `warn`s
+        // "Unable to perform style diff: Style is not done loading. Rebuilding the
+        // style from scratch." and rebuilds anyway — an intermittent console-noise
+        // flake (caught by the state-artboard assertCleanConsole gate). The
+        // placeholder and the real style are unrelated, so a diff yields nothing;
+        // disable it and the swap is a clean, warning-free rebuild. This is the
+        // FIRST-load swap only, before any custom layers (clusters/observations/
+        // artboard) are added, so the rebuild has nothing to tear down. (We do
+        // NOT force `diff: false` on the imperative theme-swap `setStyle` in
+        // theme-state: a mid-session rebuild there briefly drops the custom
+        // layers, and an in-flight `clusters-hit` queryRenderedFeatures would log
+        // "layer does not exist". maplibre already rebuilds across different style
+        // URLs, so a theme swap doesn't hit the "not done loading" path anyway.)
+        styleDiffing={false}
         style={{ width: '100%', height: '100%' }}
-        // C1.5 (#1213): the initial basemap URL resolves from the active theme id
-        // (`resolveDescriptor(activeThemeId).url`), NOT the lossy `[data-theme]`
-        // attribute ternary. The id-driven swap effect in `useStateArtboard` owns
-        // every subsequent swap.
-        mapStyle={resolveDescriptor(activeThemeId).url}
+        // C1.5 (#1213) + #1230: the initial basemap is a PRE-SANITIZED style
+        // OBJECT for the active theme id (`useSanitizedBasemapStyle`), NOT a raw
+        // URL and NOT the lossy `[data-theme]` ternary — so the worker never
+        // parses a null-prone expression on the first paint. The id-driven swap
+        // effect in `useStateArtboard` owns every subsequent swap (via
+        // `setStyle(url, { transformStyle })`).
+        mapStyle={initialBasemapStyle}
         onLoad={handleLoad}
         // #854: swallow benign transient map errors (AbortErrors from tile
         // fetches cancelled mid-camera-move; OpenFreeMap CDN hiccups keyed on

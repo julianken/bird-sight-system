@@ -14,10 +14,13 @@
  *
  * `enforceDarkLabelContrast(map, descriptor)` recolors the FAILING label layers
  * to an AA-passing LIGHT text + DARK halo, preserving the light-style visual
- * hierarchy (roads brightest, place a notch muted, water tinted). It runs at
- * `style.load` — co-located with `sanitizeNullNumericFilters` (basemap-null-
- * filter.ts) — so it re-applies on initial load AND on every basemap `setStyle`
- * swap / Retry re-set, mirroring the same re-apply contract.
+ * hierarchy (roads brightest, place a notch muted, water tinted). It runs as a
+ * live-map `style.load` pass (it measures the rendered background luminance, so
+ * it has nothing to act on until the style is committed) — re-applying on
+ * initial load AND on every basemap `setStyle` swap / Retry re-set. The
+ * null-numeric guard that used to be co-located here is now applied BEFORE the
+ * worker parses the style (constructor object + `setStyle` `transformStyle`; see
+ * basemap-style-sanitizer.ts), so it no longer needs a `style.load` pass (#1230).
  *
  * #1214 (C2) decoupled this helper from hardcoded facts about two specific
  * styles. The injected `BasemapDescriptor` now carries them:

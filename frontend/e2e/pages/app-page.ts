@@ -1,4 +1,5 @@
 import type { Page, Locator } from '@playwright/test';
+import { expect } from '@playwright/test';
 import { FiltersBar } from './filters-bar.js';
 
 export class AppPage {
@@ -17,8 +18,22 @@ export class AppPage {
   readonly appHeader: Locator;
   /** Filters trigger button in the controls pill (badge shows active-filter count). */
   readonly filtersTrigger: Locator;
-  /** Theme toggle button in the controls pill. */
-  readonly themeToggle: Locator;
+  /**
+   * Theme selector (C8 · #1220, icon→popover rework) — replaces the old binary
+   * theme toggle. At EVERY breakpoint a single icon trigger opens a popover
+   * holding ONE `role="radiogroup"` (`aria-label="Map theme"`) with the 5 theme
+   * radios. The radiogroup is mounted only while the popover is open (it unmounts
+   * after the close animation), so specs must open the popover before asserting
+   * on the radios.
+   */
+  readonly themeSelectorGroup: Locator;
+  /**
+   * The icon trigger (button, `aria-label` starts "Map theme:") that opens the
+   * popover. Present at ALL breakpoints (the always-inline desktop strip was
+   * removed in the C8 rework). Specs that need the radiogroup must
+   * `themeSelectorTrigger.click()` first.
+   */
+  readonly themeSelectorTrigger: Locator;
   /** Credits trigger (ⓘ icon-only button) in the controls pill. */
   readonly attributionTrigger: Locator;
 
@@ -137,7 +152,12 @@ export class AppPage {
     this.appHeader = page.locator('header.app-header');
     // #800: appHeaderTabs removed — no tablist in the new corner-card header.
     this.filtersTrigger = this.appHeader.getByRole('button', { name: /^Filters/ });
-    this.themeToggle = this.appHeader.getByRole('button', { name: /Switch to (light|dark) theme/ });
+    // C8 (#1220): the drifted `themeToggle` locator (regex `/Switch to (light|
+    // dark) theme/` — never matched the live "Toggle color theme" label, used by
+    // zero specs) is repointed to the new ThemeSelector radiogroup + its narrow
+    // trigger.
+    this.themeSelectorGroup = this.appHeader.getByRole('radiogroup', { name: 'Map theme' });
+    this.themeSelectorTrigger = this.appHeader.getByRole('button', { name: /^Map theme:/ });
     // #1033 V1/V18: label shortened to "Credits" (was "Credits & attribution")
     this.attributionTrigger = this.appHeader.getByRole('button', { name: /Credits/ });
 
@@ -344,5 +364,39 @@ export class AppPage {
   async submitChooserZip(zip: string): Promise<void> {
     await this.chooserZipInput.fill(zip);
     await this.chooserZipGo.click();
+  }
+
+  /**
+   * C8 (#1220, icon→popover rework): select a basemap theme through the UI. At
+   * EVERY breakpoint the radiogroup lives in a popover opened by the icon
+   * trigger, so we open the popover (if not already open), then click the radio.
+   * Selecting CLOSES the popover (the recipe's exit animation then unmounts the
+   * radiogroup). `label` is the capitalized id ("Positron" · "Bright" ·
+   * "Liberty" · "Dark" · "Fiord").
+   */
+  async selectTheme(label: string): Promise<void> {
+    const expanded = await this.themeSelectorTrigger.getAttribute('aria-expanded');
+    if (expanded !== 'true') await this.themeSelectorTrigger.click();
+    await this.appHeader.getByRole('radio', { name: label, exact: true }).click();
+    // The popover closes on select; wait for the trigger to report collapsed so
+    // a follow-up open starts from a settled state (avoids a re-open race with
+    // the close animation).
+    await expect(this.themeSelectorTrigger).toHaveAttribute('aria-expanded', 'false');
+  }
+
+  /**
+   * C8 (#1220): assert which theme is currently selected by opening the popover,
+   * checking the named radio is `aria-checked`, then closing it again (Esc). Used
+   * by specs that need to verify the active option WITHOUT leaving the popover
+   * open (it unmounts on select). Returns nothing — throws on mismatch.
+   */
+  async expectActiveTheme(label: string): Promise<void> {
+    const expanded = await this.themeSelectorTrigger.getAttribute('aria-expanded');
+    if (expanded !== 'true') await this.themeSelectorTrigger.click();
+    await expect(
+      this.themeSelectorGroup.getByRole('radio', { name: label, exact: true }),
+    ).toHaveAttribute('aria-checked', 'true');
+    await this.themeSelectorTrigger.press('Escape');
+    await expect(this.themeSelectorTrigger).toHaveAttribute('aria-expanded', 'false');
   }
 }

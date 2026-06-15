@@ -5,6 +5,7 @@ import {
   type BasemapKind,
   type ThemeId,
 } from '@/components/map/geometry/basemap-style.js';
+import { transformStyleSanitizeNull } from '@/components/map/geometry/basemap-style-sanitizer.js';
 
 /**
  * Active-theme-id state + id-driven basemap-swap seam (C1.5 · #1213).
@@ -64,17 +65,45 @@ export function readActiveThemeIdFromDom(): ThemeId {
 
 /**
  * The minimal maplibre-map surface a basemap swap touches: just `setStyle`.
+ *
+ * The optional second arg carries MapLibre's `transformStyle` hook (the only
+ * `StyleSwapOptions` field the swap uses), so the swap can null-guard the
+ * fetched style BEFORE it is committed to the worker (#1230). Typed loosely
+ * (`unknown` style operands) so the structural mock in the unit test — and the
+ * real `maplibre-gl` `Map.setStyle` (whose `transformStyle` is
+ * `(prev?: StyleSpecification, next: StyleSpecification) => StyleSpecification`)
+ * — both satisfy it without importing the heavy maplibre type here.
  */
 export interface SwappableMap {
-  setStyle: (style: string) => void;
+  setStyle: (
+    style: string,
+    options?: { transformStyle?: (previous: unknown, next: unknown) => unknown },
+  ) => void;
+}
+
+/**
+ * The ONE place a basemap URL reaches `setStyle` (#1230 chokepoint). Routes
+ * every `setStyle(url, …)` through MapLibre's `transformStyle` hook so the
+ * fetched style is null-guarded BEFORE the worker commits it — so a null-prone
+ * numeric comparison in the new style (bright/liberty POI rank filters, etc.)
+ * never logs `warnOnce("Expected value to be of type number, but found null
+ * instead.")` from the worker thread. Shared by both the theme swap
+ * (`swapBasemap`) and the Retry re-set (MapCanvas), DRY'ing the only two
+ * `setStyle` entry points onto one sanitized call. (The CONSTRUCTOR's initial
+ * paint has no `transformStyle` hook and is guarded separately via a
+ * pre-sanitized style OBJECT — `loadSanitizedStyle` in the sanitizer module.)
+ */
+export function setBasemapStyle(map: SwappableMap, url: string): void {
+  map.setStyle(url, { transformStyle: transformStyleSanitizeNull });
 }
 
 /**
  * Pure, id-driven basemap swap (injection seam #1). Performs exactly ONE swap
  * from a RESOLVED descriptor:
  *
- *   - `map.setStyle(descriptor.url)` — re-points the basemap at the descriptor's
- *     URL (the url, NOT the kind, drives this), and
+ *   - `setBasemapStyle(map, descriptor.url)` — re-points the basemap at the
+ *     descriptor's URL (the url, NOT the kind, drives this) via the shared
+ *     transform-guarded setter, and
  *   - `setMaskTheme(descriptor.kind)` — re-tints the state-artboard mask fill in
  *     lockstep (consumed by the `<Layer>` `paint` prop in `MapCanvas`).
  *
@@ -88,7 +117,7 @@ export function swapBasemap(
   descriptor: BasemapDescriptor,
   setMaskTheme: (kind: BasemapKind) => void,
 ): void {
-  map.setStyle(descriptor.url);
+  setBasemapStyle(map, descriptor.url);
   setMaskTheme(descriptor.kind);
 }
 
@@ -103,21 +132,30 @@ export interface ActiveThemeIdState {
 }
 
 /**
- * Active-theme-id state primitive (injection seam #2). Seeds the active id from
- * the current `[data-theme]` attribute (via {@link readActiveThemeIdFromDom})
- * and exposes `setThemeId` to drive an id change. The descriptor is re-resolved
- * from the id on every change — INCLUDING between two same-kind themes.
+ * Active-theme-id state primitive (injection seam #2). Exposes `setThemeId` to
+ * drive an id change; the descriptor is re-resolved from the id on every change
+ * — INCLUDING between two same-kind themes.
+ *
+ * Seeding (C8 · #1220): when `initialId` is supplied it is the seed — this is the
+ * FULL id the app resolves at boot (`resolveInitialTheme`, which honors a stored
+ * `bright`/`liberty`/`fiord`), so a non-default light/dark theme round-trips
+ * across reload instead of collapsing to positron/dark. When `initialId` is
+ * omitted (MapCanvas's legacy call, tests) the seed falls back to the
+ * `[data-theme]` attribute via {@link readActiveThemeIdFromDom} — the lossy
+ * but kind-correct bridge that keeps the existing attribute-driven e2e green.
  *
  * @param resolver maps an id → descriptor. Defaults to the production
  *   `resolveDescriptor` (a closed `THEME_REGISTRY` lookup). Tests override it
  *   with a map of synthetic same-kind descriptors so the same-kind transition is
  *   reachable without widening `ThemeId` or touching `knip.ts`.
+ * @param initialId optional explicit seed id (App-level boot resolution).
  */
 export function useActiveThemeId(
   resolver: (id: ThemeId) => BasemapDescriptor = resolveDescriptor,
+  initialId?: ThemeId,
 ): ActiveThemeIdState {
-  const [themeId, setThemeId] = useState<ThemeId>(() =>
-    readActiveThemeIdFromDom(),
+  const [themeId, setThemeId] = useState<ThemeId>(
+    () => initialId ?? readActiveThemeIdFromDom(),
   );
   const descriptor = useMemo(() => resolver(themeId), [resolver, themeId]);
   const setThemeIdStable = useCallback((id: ThemeId) => {

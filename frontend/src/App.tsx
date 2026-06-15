@@ -36,6 +36,8 @@ import type { SnapState } from '@/components/SpeciesDetailSheet.js';
 import { AppHeader } from '@/components/AppHeader.js';
 import { useIsCompact } from '@/lib/use-is-compact.js';
 import { useBreakpoint } from '@/hooks/use-breakpoint.js';
+import { useActiveThemeId } from '@/components/map/theme-state.js';
+import { resolveInitialTheme } from '@/utils/boot-theme.js';
 import { AttributionModal } from '@/components/AttributionModal.js';
 import { resolveFamilyName } from '@/derived.js';
 import { filterObservationsByBounds, filterBucketsByBounds } from '@/lib/viewport-filter.js';
@@ -219,7 +221,23 @@ export function App() {
   // (`'compact'` === ≤480 inclusive) instead of a standalone `useIsPhone` hook.
   // The engine's compact tier IS the ≤480 overlay breakpoint, so this is the
   // same signal with one fewer parallel matchMedia authority to keep in sync.
-  const isPhone = useBreakpoint() === 'compact';
+  const bp = useBreakpoint();
+  const isPhone = bp === 'compact';
+
+  // ── Active basemap theme (C8 · #1220, epic #1221) ────────────────────────
+  // The active theme id is the source of truth for BOTH chrome (`[data-theme]`,
+  // derived from the descriptor kind by the FOUC script + `applyTheme`) and the
+  // basemap style (C1.5's id-keyed swap). It is lifted HERE — the common
+  // ancestor of <AppHeader> (where <ThemeSelector> drives `setThemeId`) and
+  // <MapSurface>→<MapCanvas> (where the id-keyed swap consumes it) — because the
+  // repo has no theme context. Seeded once from `resolveInitialTheme()` so a
+  // stored non-default light/dark id (`bright`/`liberty`/`fiord`) round-trips at
+  // boot (the `[data-theme]`-only seed would collapse those to positron/dark).
+  const initialThemeId = useRef(resolveInitialTheme());
+  const { themeId: activeThemeId, setThemeId } = useActiveThemeId(
+    undefined,
+    initialThemeId.current,
+  );
   // Tag the current Clarity session with the active view so dashboards can
   // filter sessions by surface (map | detail). Fires on initial mount
   // and on every view change; analytics.setView no-ops safely when Clarity
@@ -1296,6 +1314,7 @@ export function App() {
         region={region}
         filterCount={filterCount}
         onOpenFilters={() => setFiltersOpen(true)}
+        onCloseFilters={() => setFiltersOpen(false)}
         filtersOpen={filtersOpen}
         // E5 (#1057): the `?detail=` presence boolean — drives the scope
         // disclosure's auto-collapse when a species-detail surface takes over
@@ -1311,6 +1330,8 @@ export function App() {
         onPickWholeUs={onPickWholeUs}
         onExitScope={onExitScope}
         onResolveZip={onResolveZip}
+        activeThemeId={activeThemeId}
+        onSelectTheme={setThemeId}
       />
       {/* O2 (#770) — "Explore map markers" skip-link. WCAG 2.4.1 (Bypass
           Blocks): renders as the FIRST interactive App-root element after
@@ -1448,6 +1469,7 @@ export function App() {
             {...(statePolygon != null ? { maskPolygon: statePolygon } : {})}
             {...(isStateScope ? { clampPad: ARTBOARD_PAD } : {})}
             detailOpen={!!(scopeActive && state.detail)}
+            activeThemeId={activeThemeId}
           />
         </div>
       )}

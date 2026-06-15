@@ -13,6 +13,7 @@ import type { MultiPolygon } from 'geojson';
 import type { AggregatedBucket, FamilySilhouette, Observation } from '@bird-watch/shared-types';
 import type { SpeciesDictionary } from '@/data/use-species-dictionary.js';
 import type { AdaptiveTile, ResolvedGrid } from './geometry/adaptive-grid.js';
+import type { ThemeId } from './geometry/basemap-style.js';
 
 /**
  * Resolved per-cluster adaptive data — the unit the Concern B cache stores
@@ -167,6 +168,16 @@ export interface MapCanvasProps {
    * Defaults to `false` (legacy/test callers).
    */
   detailOpen?: boolean;
+  /**
+   * #1220 (C8) — the active basemap theme id, lifted to App.tsx (`useActiveThemeId`
+   * seeded from `resolveInitialTheme`) so the <ThemeSelector> in <AppHeader> and
+   * the id-keyed basemap swap here share ONE source of truth. When supplied it
+   * seeds + drives the swap (so a stored `bright`/`liberty`/`fiord` and every
+   * SAME-KIND switch reach the basemap). When OMITTED (legacy/test callers), the
+   * component falls back to an internal `useActiveThemeId()` seeded from the
+   * `[data-theme]` attribute — behavior-identical to pre-C8. Optional.
+   */
+  activeThemeId?: ThemeId;
 }
 
 /**

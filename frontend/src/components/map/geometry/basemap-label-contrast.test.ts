@@ -139,7 +139,7 @@ interface FakeLayer {
  * A maplibre map backed by an in-memory layer list with `getStyle`,
  * `getPaintProperty`, `getLayoutProperty`, `setPaintProperty` spies — mirrors
  * the surface `enforceDarkLabelContrast` touches (and the pattern in
- * basemap-null-filter.test.ts / artboard-layers.test.ts). `getStyle().layers`
+ * basemap-style-sanitizer.test.ts / artboard-layers.test.ts). `getStyle().layers`
  * carries `source` + `layout` so the helper can feed `isLabelLayer` the same
  * per-layer object it iterates.
  */
