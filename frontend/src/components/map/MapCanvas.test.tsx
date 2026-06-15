@@ -308,6 +308,28 @@ vi.mock('react-map-gl/maplibre', () => ({
 
 vi.mock('maplibre-gl/dist/maplibre-gl.css', () => ({}));
 
+/* ── Stub the basemap style sanitizer's async loader ────────────────────────
+   #1230: `useSanitizedBasemapStyle` calls `loadSanitizedStyle(url)` → `fetch`
+   to hand the constructor a pre-sanitized style OBJECT. In jsdom that would hit
+   the real OpenFreeMap CDN (slow / flaky / dirties the console on failure), so
+   we stub the loader to resolve a trivial valid background-only style
+   synchronously. The pure sanitizer functions used elsewhere keep their real
+   implementations (we only override the network-touching loader). The live
+   swap/retry path still routes through `setBasemapStyle` → the real
+   `transformStyleSanitizeNull`, which the Retry tests assert via
+   `transformStyle: expect.any(Function)`. */
+vi.mock('./geometry/basemap-style-sanitizer.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./geometry/basemap-style-sanitizer.js')>();
+  return {
+    ...actual,
+    loadSanitizedStyle: vi.fn(async () => ({
+      version: 8,
+      sources: {},
+      layers: [{ id: 'bg', type: 'background' }],
+    })),
+  };
+});
+
 /* ── Controllable ResizeObserver + rAF stubs (#737/S3) ──────────────────────
    jsdom has no ResizeObserver. MapCanvas's corrective resize effect guards on
    `typeof ResizeObserver === 'undefined'` and no-ops without it, so to exercise
@@ -3860,9 +3882,9 @@ describe('basemap watchdog (#1049 / M-12)', () => {
     });
 
     // Default (no data-theme) → light basemap URL.
-    expect(fakeMap.setStyle).toHaveBeenCalledWith(
-      modConsts.BASEMAP_LIGHT,
-    );
+    expect(fakeMap.setStyle).toHaveBeenCalledWith(modConsts.BASEMAP_LIGHT, {
+      transformStyle: expect.any(Function),
+    });
     // Card is cleared on retry (the watchdog restarts; it hasn't elapsed again).
     expect(screen.queryByText('Basemap unavailable')).not.toBeInTheDocument();
   });
@@ -3877,7 +3899,9 @@ describe('basemap watchdog (#1049 / M-12)', () => {
     act(() => {
       fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     });
-    expect(fakeMap.setStyle).toHaveBeenCalledWith(modConsts.BASEMAP_DARK);
+    expect(fakeMap.setStyle).toHaveBeenCalledWith(modConsts.BASEMAP_DARK, {
+      transformStyle: expect.any(Function),
+    });
   });
 
   it('4. happy path: `load` fires → watchdog cancelled, no card ever renders', () => {

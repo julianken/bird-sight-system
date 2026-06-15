@@ -22,10 +22,18 @@ import { THEME_REGISTRY } from './geometry/basemap-style.js';
 
 // A minimal maplibre-map spy: only the `setStyle` swap surface `swapBasemap`
 // touches. The mask-theme setter is injected separately so the pure helper can
-// run with no React.
+// run with no React. `setStyle` now receives a second options arg carrying the
+// `transformStyle` pre-worker null-guard hook (#1230).
 function makeMapSpy() {
   return {
-    setStyle: vi.fn<(style: string) => void>(),
+    setStyle: vi.fn<
+      (
+        style: string,
+        options?: {
+          transformStyle?: (previous: unknown, next: unknown) => unknown;
+        },
+      ) => void
+    >(),
   };
 }
 
@@ -81,7 +89,11 @@ describe('theme-state — swapBasemap (pure, injection-seam #1)', () => {
     swapBasemap(map, THEME_REGISTRY.dark, setMaskTheme);
 
     expect(map.setStyle).toHaveBeenCalledTimes(1);
-    expect(map.setStyle).toHaveBeenCalledWith(THEME_REGISTRY.dark.url);
+    expect(map.setStyle).toHaveBeenCalledWith(
+      THEME_REGISTRY.dark.url,
+      // #1230: the swap MUST carry the pre-worker null-guard transform.
+      expect.objectContaining({ transformStyle: expect.any(Function) }),
+    );
     expect(setMaskTheme).toHaveBeenCalledWith('dark');
   });
 
@@ -91,7 +103,29 @@ describe('theme-state — swapBasemap (pure, injection-seam #1)', () => {
     // in any registry entry and asserting setStyle gets exactly that url.
     const map = makeMapSpy();
     swapBasemap(map, SYN_DARK_A, vi.fn());
-    expect(map.setStyle).toHaveBeenCalledWith('syn://A');
+    expect(map.setStyle).toHaveBeenCalledWith('syn://A', expect.anything());
+  });
+
+  // ── #1230: the transformStyle hook actually null-guards the fetched style ──
+  it('wires a transformStyle that null-guards the incoming style BEFORE the worker', () => {
+    const map = makeMapSpy();
+    swapBasemap(map, SYN_DARK_A, vi.fn());
+    const options = map.setStyle.mock.calls[0][1];
+    expect(options?.transformStyle).toBeTypeOf('function');
+    // Feed the wired transform a bright-like null-prone POI rank filter and
+    // assert it comes back null-guarded — the exact rewrite that stops the
+    // worker `warnOnce`.
+    const rawStyle = {
+      layers: [
+        { id: 'poi_r7', type: 'symbol', filter: ['>=', ['get', 'rank'], 7] },
+      ],
+    };
+    const guarded = options!.transformStyle!(undefined, rawStyle) as typeof rawStyle;
+    expect(guarded.layers[0].filter).toEqual([
+      'all',
+      ['has', 'rank'],
+      ['>=', ['get', 'rank'], 7],
+    ]);
   });
 
   // ── Same-kind regression guard (the lossy-trigger trap) ──────────────────
@@ -109,10 +143,10 @@ describe('theme-state — swapBasemap (pure, injection-seam #1)', () => {
     expect(SYN_DARK_A.kind).toBe(SYN_DARK_B.kind); // proves they are same-kind
     expect(SYN_DARK_A.url).not.toBe(SYN_DARK_B.url); // but different urls
     expect(map.setStyle).toHaveBeenCalledTimes(2);
-    expect(map.setStyle).toHaveBeenNthCalledWith(1, 'syn://A');
+    expect(map.setStyle).toHaveBeenNthCalledWith(1, 'syn://A', expect.anything());
     // The crux: the SECOND call issued setStyle with the SECOND url. A kind-keyed
     // implementation would fail here (it would skip the second swap).
-    expect(map.setStyle).toHaveBeenNthCalledWith(2, 'syn://B');
+    expect(map.setStyle).toHaveBeenNthCalledWith(2, 'syn://B', expect.anything());
   });
 });
 
