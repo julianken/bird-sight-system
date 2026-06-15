@@ -94,6 +94,13 @@ function makeFakeMap() {
     // Stray basemap line/fill layers painted ABOVE the mask (sink targets).
     layers.push({ id: 'boundary_country', type: 'line' });
     layers.push({ id: 'landcover_glacier', type: 'fill' });
+    // The `clusters-hit` overlay layer (added at runtime by the React <Layer>;
+    // the mocked react-map-gl <Layer> renders a DOM marker but does NOT register
+    // with getLayer). Seed it so the #1231 `getLayer('clusters-hit')` guard lets
+    // the cluster reconciler's queryRenderedFeatures through — matching the real
+    // app, where the layer exists except during a transient scope/style rebuild.
+    // `source: 'observations'` + no text-field keeps it out of isLabelLayer.
+    layers.push({ id: 'clusters-hit', type: 'circle', source: 'observations' });
     return layers;
   };
   let styleLayers = baseStyleLayers();
@@ -966,6 +973,51 @@ describe('MapCanvas', () => {
     });
 
     // No idle fired since the rerender → the prior-scope markers must be gone.
+    expect(
+      document.querySelectorAll('[data-testid="adaptive-grid-marker"]').length,
+    ).toBe(0);
+  });
+
+  // #1231 — the invisible `clusters-hit` overlay layer is transiently absent
+  // while a scope flyTo / basemap rebuild tears it down and re-adds it. The
+  // reconciler's queryRenderedFeatures MUST be SKIPPED then: naming an absent
+  // layer makes maplibre log "layer 'clusters-hit' does not exist … cannot be
+  // queried", dirtying the console. The `getLayer` guard treats an absent layer
+  // as zero clusters; the next idle after it re-adds reconciles the pills.
+  it('#1231: skips the clusters-hit query (no layer-missing error) when the layer is absent', async () => {
+    const cluster = {
+      id: 1,
+      properties: { cluster_id: 1, point_count: 3 },
+      geometry: { type: 'Point', coordinates: [-110.9, 32.2] },
+    };
+    fakeMap.queryRenderedFeatures.mockImplementation(
+      (_: unknown, opts?: { layers?: string[] }) =>
+        opts?.layers?.includes('clusters-hit') ? [cluster] : [],
+    );
+    fakeMap.getSource.mockReturnValue({
+      getClusterLeaves: vi.fn().mockResolvedValue([
+        { type: 'Feature', properties: { familyCode: 'tyrannidae' } },
+      ]),
+    });
+
+    // The layer is absent from the START (the transient teardown window) so NO
+    // reconcile — initial or idle-driven — ever queries it.
+    fakeMap.removeLayer('clusters-hit');
+
+    render(<MapCanvas observations={[makeObs({ subId: 'A1' })]} silhouettes={SILHOUETTES} />);
+    await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+    await act(async () => {
+      await bareHandlers['idle']?.();
+    });
+
+    // The guard short-circuited: queryRenderedFeatures was NEVER asked for the
+    // absent clusters-hit layer (no maplibre layer-missing error), and no cluster
+    // marker reconciled.
+    const queriedClustersHit = fakeMap.queryRenderedFeatures.mock.calls.some(
+      ([, opts]: [unknown, { layers?: string[] } | undefined]) =>
+        opts?.layers?.includes('clusters-hit'),
+    );
+    expect(queriedClustersHit).toBe(false);
     expect(
       document.querySelectorAll('[data-testid="adaptive-grid-marker"]').length,
     ).toBe(0);

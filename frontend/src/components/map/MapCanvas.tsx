@@ -1319,9 +1319,19 @@ export function MapCanvas({
       // are absent). Default to [] defensively — the maplibre instance can
       // return undefined when the map isn't ready yet (race between initial
       // idle event and the style having a renderable source).
-      const features = (map.queryRenderedFeatures(undefined, {
-        layers: ['clusters-hit'],
-      }) ?? []) as Array<{
+      //
+      // Defensive `getLayer` guard (#1231, mirrors the `unclustered-point`
+      // query below): during a scope `flyTo` or a basemap rebuild the custom
+      // `clusters-hit` layer is briefly torn down/re-added, and naming an absent
+      // layer in `queryRenderedFeatures` makes maplibre `console.error` "layer
+      // 'clusters-hit' does not exist … and cannot be queried". Treat an absent
+      // layer as zero features — the next idle after the layer re-adds reconciles
+      // the pills.
+      const features = ((
+        map.getLayer && map.getLayer('clusters-hit')
+          ? map.queryRenderedFeatures(undefined, { layers: ['clusters-hit'] })
+          : []
+      ) ?? []) as Array<{
         properties?: Record<string, unknown>;
         geometry?: unknown;
         id?: number;
