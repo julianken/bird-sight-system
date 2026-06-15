@@ -3040,12 +3040,17 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
 /* ── Map loading skeleton (.map-loading-skeleton) ───────────────────────────
    Loading-state placeholder while the map data fetches (MapSurface.tsx:191).
    Without a rule the bare <div> collapses to zero height and the loading state
-   is invisible. This rule contributes the shimmer `animation` only; the inline
-   `style={}` on MapSurface.tsx:195-200 sets background via `--color-bg-tint`
-   and wins on specificity, so `--color-bg-skeleton` / `--color-bg-skeleton-
-   highlight` tokens are not painted. A future cleanup could move the inline
-   styles into this rule once the skeleton component is refactored to
-   className-only. */
+   is invisible. The shimmer pulses the BACKGROUND COLOR, not the element's
+   opacity (#1230): the old opacity-pulse (1→0.6) dimmed the "Loading map…" text
+   along with the box, and axe-core color-contrast composites a dimmed element
+   over the page — at 0.6 opacity the dark text/light tint resolved to ~4.43:1
+   (below AA 4.5:1), flaking the error-screen a11y scan whenever axe sampled the
+   skeleton during a dimmed frame. A background-color pulse keeps the text fully
+   opaque (≈15:1 at every frame) while preserving the shimmer.
+   The keyframe `background-color` overrides the inline `background` shorthand on
+   MapSurface.tsx for the animation's duration (animations outrank inline author
+   styles); the 0%/100% stop equals `--color-bg-tint`, so the resting frame
+   matches the inline value with no visual jump. */
 .map-loading-skeleton {
   width: 100%;
   height: 100%;
@@ -3057,8 +3062,8 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
 }
 
 @keyframes skeleton-shimmer {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.6; }
+  0%, 100% { background-color: var(--color-bg-tint); }
+  50%      { background-color: var(--color-bg-surface); }
 }
 
 /* ── SpeciesDetailSheet snap variants — BLOCKER ────────────────────────────

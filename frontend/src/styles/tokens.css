@@ -233,8 +233,8 @@
 
   /* ds-shimmer duration — shared by .status-block__skeleton + .photo__skeleton
      (both use the same ds-shimmer keyframe; #948). adaptive-grid-pending-shimmer
-     (1.4s, reverse-direction) and skeleton-shimmer (opacity-pulse technique) are
-     intentionally excluded — different techniques, different tempos. */
+     (1.4s, reverse-direction) and skeleton-shimmer (background-color pulse;
+     #1230) are intentionally excluded — different techniques, different tempos. */
   --ds-shimmer-dur: 1.6s;
 
   /* ── Type shorthands (B1 #1040, spec §2.5) ─────────────────────────────
