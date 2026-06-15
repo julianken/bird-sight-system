@@ -257,6 +257,113 @@ describe('sanitizeStyleNullNumeric (pure style-JSON pass)', () => {
   });
 });
 
+/* ──────────────────────────────────────────────────────────────────────────
+   #947 — the dark/fiord styles set `icon-image: ["step", ["zoom"], "circle-11",
+   9, ""]` on place_town/place_city/place_city_large, but their sprite ships
+   `circle_11` (underscore), so MapLibre `warnOnce`s `Image "circle-11" could
+   not be loaded …`. The sanitizer rewrites the hyphenated literal → "" (the same
+   "no icon" the missing sprite already yields) BEFORE the worker parses, so the
+   warning never fires. By VALUE-matching the literal, the same `sanitizeStyle*`
+   chokepoint covers the constructor (loadSanitizedStyle) + swap/retry
+   (transformStyle) paths the null-numeric guard already rides.
+   ────────────────────────────────────────────────────────────────────────── */
+describe('sanitizeStyleNullNumeric — missing icon-image neutralization (#947)', () => {
+  it('rewrites the dark/fiord `circle-11` step icon-image to "" (behaviour-preserving)', () => {
+    const style = {
+      layers: [
+        {
+          id: 'place_city',
+          type: 'symbol',
+          layout: {
+            'icon-image': ['step', ['zoom'], 'circle-11', 9, ''],
+            'text-field': ['get', 'name'], // a sibling layout key, untouched
+          },
+        },
+      ],
+    };
+    const out = sanitizeStyleNullNumeric(style);
+    expect(out).not.toBe(style); // cloned — the reference changed
+    expect(out.layers[0].layout?.['icon-image']).toEqual(['step', ['zoom'], '', 9, '']);
+    expect(out.layers[0].layout?.['text-field']).toEqual(['get', 'name']);
+    // input not mutated
+    expect(style.layers[0].layout['icon-image']).toEqual(['step', ['zoom'], 'circle-11', 9, '']);
+  });
+
+  it('leaves a present (non-missing) icon-image id UNCHANGED (same style reference)', () => {
+    const style = {
+      layers: [
+        {
+          id: 'airport',
+          type: 'symbol',
+          layout: { 'icon-image': 'airport_11' }, // exists in the sprite — not rewritten
+        },
+      ],
+    };
+    expect(sanitizeStyleNullNumeric(style)).toBe(style); // nothing to neutralize → no clone
+  });
+
+  it('only clones the layer carrying the missing ref (clean layers keep their reference)', () => {
+    const cleanLayer = {
+      id: 'airport',
+      type: 'symbol',
+      layout: { 'icon-image': 'airport_11' },
+    };
+    const style = {
+      layers: [
+        cleanLayer,
+        {
+          id: 'place_town',
+          type: 'symbol',
+          layout: { 'icon-image': ['step', ['zoom'], 'circle-11', 9, ''] },
+        },
+      ],
+    };
+    const out = sanitizeStyleNullNumeric(style);
+    expect(out.layers[0]).toBe(cleanLayer); // untouched layer not re-allocated
+    expect(out.layers[1]).not.toBe(style.layers[1]); // neutralized layer cloned
+    expect(out.layers[1].layout?.['icon-image']).toEqual(['step', ['zoom'], '', 9, '']);
+  });
+
+  it('handles a layer needing BOTH guards — one merged layout copy', () => {
+    const style = {
+      layers: [
+        {
+          id: 'place_city_large',
+          type: 'symbol',
+          layout: {
+            'icon-image': ['step', ['zoom'], 'circle-11', 9, ''],
+            'icon-size': ['case', ['>', ['get', 'rank'], 3], 2, 1], // null-prone (A)
+          },
+        },
+      ],
+    };
+    const out = sanitizeStyleNullNumeric(style);
+    const layout = out.layers[0].layout;
+    expect(layout?.['icon-image']).toEqual(['step', ['zoom'], '', 9, '']); // (B)
+    expect(layout?.['icon-size']).toEqual([
+      'case',
+      ['all', ['has', 'rank'], ['>', ['get', 'rank'], 3]],
+      2,
+      1,
+    ]); // (A)
+  });
+
+  it('is IDEMPOTENT — re-sanitizing a neutralized style is a same-reference no-op', () => {
+    const style = {
+      layers: [
+        {
+          id: 'place_city',
+          type: 'symbol',
+          layout: { 'icon-image': ['step', ['zoom'], 'circle-11', 9, ''] },
+        },
+      ],
+    };
+    const once = sanitizeStyleNullNumeric(style);
+    expect(once).not.toBe(style); // first pass neutralized + cloned
+    expect(sanitizeStyleNullNumeric(once)).toBe(once); // second pass = no-op (no 'circle-11' left)
+  });
+});
+
 describe('transformStyleSanitizeNull (maplibre TransformStyleFunction adapter)', () => {
   it('ignores `previous` and returns the sanitized `next` style', () => {
     const next = {

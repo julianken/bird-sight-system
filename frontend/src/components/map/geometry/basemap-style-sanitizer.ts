@@ -1,6 +1,15 @@
 /**
- * Basemap style sanitizer — null-numeric-comparison guard (#1027 [O8] · #1230 [C8]).
+ * Basemap style sanitizer (#1027 [O8] · #1230 [C8] · #947).
  *
+ * Repairs TWO independent classes of upstream OpenFreeMap style drift, both
+ * BEFORE the style reaches MapLibre's worker (the single chokepoint below), so
+ * the worker's `warnOnce` never fires for either:
+ *
+ *   (A) null-numeric comparisons — documented immediately below;
+ *   (B) the `circle-11` missing-icon-image reference — see
+ *       `neutralizeMissingIconImages` further down (#947).
+ *
+ * ── (A) null-numeric-comparison guard ─────────────────────────────────────────
  * The stock OpenFreeMap basemap styles ship filter / paint / layout expressions
  * that compare a numeric DATA property with a `<`/`<=`/`>`/`>=` operator. When
  * the property is absent on a feature (e.g. a road segment with no `ref` carries
@@ -216,11 +225,103 @@ function sanitizeExpressionBag(
   return changed ? next : bag;
 }
 
+/* ────────────────────────────────────────────────────────────────────────────
+   (B) Missing-icon-image neutralizer (#947).
+
+   OpenFreeMap's dark + fiord styles set, on the `place_town` / `place_city` /
+   `place_city_large` symbol layers:
+
+     "icon-image": ["step", ["zoom"], "circle-11", 9, ""]
+
+   i.e. at zoom < 9 the icon is `circle-11`. But their sprite sheet only ships
+   `circle_11` (UNDERSCORE) — an upstream hyphen/underscore drift. MapLibre's
+   worker can't resolve the hyphenated id, so it `warnOnce`s
+
+     Image "circle-11" could not be loaded. … listen for the
+     "styleimagemissing" map event.
+
+   per map lifetime. positron/bright/liberty don't reference it, so the warning
+   was dark/fiord-only — and C8's theme-swapping made dark/fiord loads (and thus
+   the warning) routine.
+
+   Why a STYLE rewrite, not a runtime `styleimagemissing` listener: the warning
+   is a WORKER-side `warnOnce` emitted DURING symbol layout, the same timing
+   class as the null-numeric warning. A main-thread `styleimagemissing` handler
+   that `addImage`s a transparent placeholder fires (if at all) only AFTER the
+   worker has already warned — it can never prevent the first (and, being
+   `warnOnce`, the only) warning. Removing the reference from the style BEFORE
+   the worker parses it is the only thing that does.
+
+   Behaviour-preserving: because the sprite lacks `circle-11`, the layer renders
+   NO icon at zoom < 9 today; rewriting the literal `"circle-11"` → `""` makes
+   the step expression resolve to "" (no icon) at every zoom — the identical
+   visual, minus the broken request. We do NOT remap to `circle_11` (the id the
+   sprite DOES carry): that would newly render town/city dots the app has never
+   shown, a visual change that belongs in design review, not a console-hygiene
+   pass.
+
+   Scoped by exact id (`MISSING_ICON_IMAGE_IDS`), not structurally: unlike a
+   null-prone comparison, "this image id is absent from the sprite" has no
+   expression SHAPE — it depends on sprite contents the sanitizer never fetches.
+   So the one known-drifted id is named, with this comment as its justification.
+   A future drift adds an id here (and a test row); a release that fixes the
+   underscore upstream makes this a silent no-op (nothing matches).
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Icon-image ids that the dark/fiord styles reference but their sprite omits
+ * (upstream hyphen/underscore drift). Each is rewritten to `""` (no icon) — the
+ * same visual the missing sprite already produces. See the block comment above.
+ */
+const MISSING_ICON_IMAGE_IDS = new Set<string>(['circle-11']);
+
+/**
+ * Recursively replace every string literal that is a known-missing icon id with
+ * `""`, anywhere inside an `icon-image` expression (it sits at a fixed slot in a
+ * `["step", …]` here, but matching by VALUE survives any expression shape).
+ * Returns the rewritten value + whether anything changed, so callers preserve
+ * referential identity (and thus idempotency) on a no-op.
+ */
+function replaceMissingIconRefs(value: unknown): { value: unknown; changed: boolean } {
+  if (typeof value === 'string') {
+    return MISSING_ICON_IMAGE_IDS.has(value)
+      ? { value: '', changed: true }
+      : { value, changed: false };
+  }
+  if (Array.isArray(value)) {
+    let changed = false;
+    const next = value.map((el) => {
+      const r = replaceMissingIconRefs(el);
+      if (r.changed) changed = true;
+      return r.value;
+    });
+    return changed ? { value: next, changed: true } : { value, changed: false };
+  }
+  return { value, changed: false };
+}
+
+/**
+ * If a `layout` bag's `icon-image` references a known-missing id, return a NEW
+ * bag with that reference neutralized to `""`; otherwise return the SAME bag
+ * reference (no-op → preserves idempotency + the changed-detection in
+ * `sanitizeStyleNullNumeric`). Only `icon-image` is inspected — that is the one
+ * layout key that names a sprite image.
+ */
+function neutralizeMissingIconImages(
+  layout: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (layout == null || layout['icon-image'] === undefined) return layout;
+  const { value, changed } = replaceMissingIconRefs(layout['icon-image']);
+  if (!changed) return layout;
+  return { ...layout, 'icon-image': value };
+}
+
 /**
  * Pure style-JSON sanitizer. Returns a style whose every layer `filter`,
  * `paint`, and `layout` has had its null-prone numeric comparisons wrapped in
- * `["all", ["has", prop], <original>]` (or the SAME style reference unchanged
- * when nothing was null-prone — idempotent, so a re-run is a no-op).
+ * `["all", ["has", prop], <original>]` AND any known-missing `icon-image`
+ * reference (e.g. `circle-11`) neutralized to `""` (or the SAME style reference
+ * unchanged when neither applied — idempotent, so a re-run is a no-op).
  *
  * Shallow-copies only the layers that actually changed (and the `layers` array
  * + top-level object when ANY did); untouched layers keep their original
@@ -233,7 +334,10 @@ export function sanitizeStyleNullNumeric<T extends SanitizableStyle>(style: T): 
   const nextLayers = style.layers.map((layer) => {
     const filter = nullSafeFilter(layer.filter);
     const paint = sanitizeExpressionBag(layer.paint);
-    const layout = sanitizeExpressionBag(layer.layout);
+    // Null-numeric guard first (A), then neutralize a missing icon-image (B) on
+    // the result — chaining on the same bag so a layer needing both yields one
+    // merged copy, and either alone still flips `layoutChanged` below.
+    const layout = neutralizeMissingIconImages(sanitizeExpressionBag(layer.layout));
     const filterChanged = filter !== null;
     const paintChanged = paint !== layer.paint;
     const layoutChanged = layout !== layer.layout;
