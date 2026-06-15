@@ -214,6 +214,29 @@ describe('<ThemeSelector>', () => {
     await waitFor(() => expect(screen.queryByRole('radiogroup')).toBeNull());
   });
 
+  it('renders the selected option with a checkmark glyph (selected ≠ focused) while keeping the radio name EXACTLY the theme label', async () => {
+    const user = userEvent.setup();
+    render(<Harness activeThemeId="liberty" />);
+    await user.click(screen.getByRole('button', { name: /^Map theme:/ }));
+
+    const active = screen.getByRole('radio', { name: 'Liberty' });
+    // The selected state is carried by markup (a leading checkmark), NOT by the
+    // focus-ring border — so the checkmark is present on (and only on) the
+    // checked row.
+    const check = active.querySelector('.theme-selector-option-check');
+    expect(check).not.toBeNull();
+    expect(check).toHaveAttribute('aria-hidden', 'true');
+
+    // The glyph must NOT contribute to the radio's accessible name / text —
+    // the e2e POM + the other unit tests look options up by exact label. The
+    // label text lives in its own span; the SVG carries no text node.
+    expect(active).toHaveAccessibleName('Liberty');
+    expect(active.textContent).toBe('Liberty');
+    expect(active.querySelector('.theme-selector-option-label')?.textContent).toBe(
+      'Liberty',
+    );
+  });
+
   it('applies the menu-dropdown recipe class + top-right origin to the popover surface', async () => {
     const user = userEvent.setup();
     render(<Harness activeThemeId="positron" />);

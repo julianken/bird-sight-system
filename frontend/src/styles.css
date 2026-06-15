@@ -770,6 +770,14 @@ body {
     min-height: 44px;
     min-width: 44px;
   }
+  /* #1230 MUST-FIX #4: at mobile the top-right cluster read as jammed
+     edge-to-edge. Widen the inter-icon gap from --space-xs (4px) to --space-sm
+     (8px) so the three 44px targets have a comfortable separation. The pill is
+     still well within the 180px budget the identity-card cap (below) reserves
+     for it (3×44 + 2×8 gap + ~16 padding ≈ 164px). */
+  .app-header-controls-pill {
+    gap: var(--space-sm);
+  }
   /* #828: the region-name <h1> is .sr-only at every breakpoint now, so no
      compact-specific hide is needed (it was visible at roomy/wide pre-#828). */
 
@@ -927,25 +935,54 @@ body {
   gap: var(--space-xs);
 }
 
-/* A single theme option (role="radio"). Outlined/ghost at rest; FILLED when
-   aria-checked. Inherits the 44px coarse-pointer floor from the shared
-   `.app-header-controls-pill button` rule above. */
+/* A single theme option (role="radio"). Three visually-DISTINCT states, by
+   design (C8 design-review #1230):
+     • rest      — no fill, NO border (a resting border read as a focus ring)
+     • :hover    — subtle bg lift (--color-bg-tint)
+     • selected  — FULL-ROW accent tint + a leading checkmark (aria-checked)
+     • :focus-visible — the 2px outline ring, RESERVED for keyboard focus only
+   Every row is a 2-column grid: a fixed checkmark gutter + the label. The
+   gutter is reserved on UNSELECTED rows too (the glyph is just invisible), so
+   every label shares one left edge — selected ≠ ragged. Inherits the 44px
+   coarse-pointer floor from the shared `.app-header-controls-pill button`. */
 .theme-selector-option {
   appearance: none;
   background: transparent;
-  border: 1px solid var(--color-border-ui);
+  /* No resting border — a 1px outline at rest is indistinguishable from the
+     focus ring. Selected is carried by the row tint + checkmark below. */
+  border: 1px solid transparent;
   border-radius: var(--card-radius-inner);
+  /* 2-col grid: checkmark gutter (fixed) + label. Reserved on every row so all
+     labels align to one left edge regardless of selected state. */
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  align-items: center;
+  column-gap: var(--space-sm);
   padding: var(--space-xs) var(--space-sm);
   font: inherit;
   font-size: var(--type-sm);
   line-height: 1.2;
   color: var(--color-text-body);
   cursor: pointer;
-  white-space: nowrap;
   transition:
     background var(--icon-swap-dur) var(--icon-swap-ease),
     color var(--icon-swap-dur) var(--icon-swap-ease),
     border-color var(--icon-swap-dur) var(--icon-swap-ease);
+}
+/* Label column — left-aligned, wraps rather than overflowing the popover cap. */
+.theme-selector-option-label {
+  text-align: start;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Leading checkmark — occupies the reserved gutter on every row; only PAINTED
+   when the row is selected. Hidden (not display:none) so the gutter width is
+   stable and labels never shift between states. */
+.theme-selector-option-check {
+  grid-column: 1;
+  visibility: hidden;
+  color: var(--color-text-link);
 }
 .theme-selector-option:hover {
   background: var(--color-bg-tint);
@@ -954,18 +991,38 @@ body {
   outline: 2px solid var(--color-text-strong);
   outline-offset: 2px;
 }
-/* Active (checked) pill: filled with the strong-text color, inverted label —
-   the same outline-driven "selected" treatment the filter badge uses, but
-   filled so the active theme reads at a glance. */
+/* Selected (checked) row: a FULL-WIDTH accent tint spanning the whole row, plus
+   the leading checkmark — reads unambiguously as SELECTED, distinct from the
+   hover lift (--color-bg-tint) and the keyboard focus ring. --color-bg-inset is
+   theme-paired (light #f0ebe0 / dark #253050), a touch stronger than the hover
+   tint so selected sits clearly above hover. Label stays strong-text weight. */
 .theme-selector-option[aria-checked='true'] {
-  background: var(--color-text-strong);
-  border-color: var(--color-text-strong);
-  color: var(--color-bg-surface);
+  background: var(--color-bg-inset);
+  color: var(--color-text-strong);
+  font-weight: var(--font-weight-semibold);
 }
-/* In the popover the options are full-width rows, left-aligned. */
+.theme-selector-option[aria-checked='true'] .theme-selector-option-check {
+  visibility: visible;
+}
+/* Keep the hover lift visible on a selected row (combined hover+selected reads
+   as the inset tint, not a flat blend). */
+.theme-selector-option[aria-checked='true']:hover {
+  background: var(--color-bg-inset);
+}
+/* In the popover the options are full-width rows sharing one left + right edge. */
 .theme-selector-group[data-form='popover'] .theme-selector-option {
-  text-align: start;
   width: 100%;
+}
+/* ≤480px: comfortable touch rows. 44px min target + a hair more block padding so
+   the 5-row column isn't cramped to line-height. Desktop stays denser (above). */
+@media (max-width: 480px) {
+  .theme-selector-group[data-form='popover'] {
+    gap: var(--space-xs);
+  }
+  .theme-selector-group[data-form='popover'] .theme-selector-option {
+    min-height: 44px;
+    padding-block: var(--space-sm);
+  }
 }
 
 /* Narrow-form trigger — an icon button matching the pill's other controls. */
@@ -1001,14 +1058,36 @@ body {
 .theme-selector-popover {
   position: absolute;
   inset-block-start: calc(100% + var(--space-xs));
+  /* Right-edge aligned to the trigger so the popover's right edge ties cleanly
+     to the controls-cluster right margin — no left overhang, no sub-pixel gap
+     (the trigger is itself the right-most pill control). */
   inset-inline-end: 0;
   z-index: var(--z-popover);
   background: var(--card-bg, var(--color-bg-surface));
   border: 1px solid var(--card-border, var(--color-border-ui));
+  /* Match the app's other floating cards (identity card, family legend): the
+     --card-radius corner + --card-padding-tight item gutter so the popover
+     reads as one of the same card family, not a bespoke surface. */
   border-radius: var(--card-radius);
   box-shadow: var(--card-elevation-2);
   padding: var(--card-padding-tight);
+  /* Floor the width so the 5 single-word rows never look pinched, but stay
+     within the popover cap. */
+  min-inline-size: 168px;
   max-inline-size: var(--card-maxw-popover);
+  /* Short-viewport guard (#1230 polish #7): on short mobile heights (~667px)
+     the open 5-row column must never collide with the bottom-left family
+     legend. Cap the popover to the space between its top anchor (under the
+     controls pill: --card-inset + --controls-cluster-h + --card-gap) and a
+     bottom safe band that clears the legend, then scroll internally past that.
+     The 140px band ≈ the legend's collapsed header + a couple of rows + the
+     bottom --card-inset gutter — enough that the two surfaces never touch. */
+  max-block-size: calc(
+    100dvh - var(--card-inset) - var(--controls-cluster-h) - var(--card-gap) * 2
+      - 140px - env(safe-area-inset-bottom, 0px)
+  );
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /* ── transitions-dev MENU-DROPDOWN recipe (C8 · #1220) ─────────────────────────
@@ -3125,17 +3204,25 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
     border: 1px solid ButtonText;
   }
 
-  /* Theme selector (C8 #1220): the active radio's filled treatment relies on
-     custom bg/color which forced-colors flattens — restore the selected state
-     with a system pairing so the checked option stays distinguishable, and keep
-     the narrow-trigger SVG icon inheriting ButtonText. */
+  /* Theme selector (C8 #1220, #1230): the selected row's tint + checkmark rely
+     on custom bg/color which forced-colors flattens — restore the selected
+     state with a system pairing so the checked option stays distinguishable.
+     The checkmark inherits the option's currentColor (HighlightText) so it
+     stays visible against the Highlight fill; the narrow-trigger layers glyph
+     uses stroke (not fill), so map it to CanvasText. */
   .theme-selector-option[aria-checked='true'] {
     background: Highlight;
     color: HighlightText;
     border-color: Highlight;
   }
+  .theme-selector-option-check {
+    color: CanvasText;
+  }
+  .theme-selector-option[aria-checked='true'] .theme-selector-option-check {
+    color: HighlightText;
+  }
   .theme-selector-trigger svg {
-    fill: ButtonText;
+    stroke: ButtonText;
   }
 
   /* Cluster pills (map): ensure text + border remain distinguishable. */

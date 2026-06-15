@@ -298,7 +298,30 @@ export function ThemeSelector({
             onClick={() => select(id)}
             onKeyDown={(e) => onRadioKeyDown(e, id)}
           >
-            {THEME_LABELS[id]}
+            {/* Leading checkmark column — reserved on EVERY row (its glyph is
+                visible only when checked) so selected and unselected rows share
+                ONE left edge for the label. aria-hidden + zero text content so
+                the radio's accessible name stays EXACTLY the theme label:
+                the e2e POM and unit tests both look options up by
+                `name: label, exact: true` / assert `textContent === label`, so
+                a glyph that contributed text would break them. The selected
+                state is carried by the full-row tint background + this glyph —
+                NOT by a border ring, which is now reserved for :focus-visible. */}
+            <svg
+              className="theme-selector-option-check"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M5 13l4 4L19 7" />
+            </svg>
+            <span className="theme-selector-option-label">{THEME_LABELS[id]}</span>
           </button>
         );
       })}
@@ -329,9 +352,13 @@ export function ThemeSelector({
           strokeLinejoin="round"
           aria-hidden="true"
         >
-          {/* Palette/swatch glyph — half-filled circle reads as "theme". */}
-          <circle cx="12" cy="12" r="9" />
-          <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
+          {/* Stacked-layers glyph — signals "map appearance / basemap style"
+              (this opens a 5-BASEMAP-STYLE menu), not a binary light/dark
+              brightness toggle. The accessible name (`Map theme: <active>`)
+              still names the active theme for AT. */}
+          <path d="M12 2 2 7l10 5 10-5-10-5Z" />
+          <path d="m2 12 10 5 10-5" />
+          <path d="m2 17 10 5 10-5" />
         </svg>
       </button>
       {mounted && (
