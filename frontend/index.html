@@ -71,41 +71,69 @@
     }
     </script>
     <!--
-      Inline blocking script: sets [data-theme] on <html> before first paint
-      to prevent FOUC. Reads localStorage['theme']; falls back to
-      prefers-color-scheme on first visit. User's explicit toggle takes
-      precedence over the OS preference after first load.
+      Inline blocking script: sets [data-theme] (chrome polarity) on <html>
+      before first paint to prevent FOUC. The active THEME ID is the source of
+      truth; [data-theme] is DERIVED from the id's kind. Resolution:
+        1. localStorage['theme'] → a known ThemeId, or the legacy chrome values
+           'light'→'positron' / 'dark'→'dark' via the back-compat shim;
+        2. prefers-color-scheme: dark → the 'dark' id;
+        3. 'positron' — the light default (C7 keeps positron; C8 flips to bright).
+      Then [data-theme] = ID_TO_KIND[id].
 
       Both localStorage and matchMedia are wrapped in try/catch:
       Safari Private Browsing and sandboxed iframes throw SecurityError
       on storage access. Without the wrap the script would abort and
       [data-theme] would never be set, producing a FOUC.
 
-      The resolution rules are mirrored in src/utils/boot-theme.ts and
-      unit-tested there; any change to the rules MUST be applied in both
-      places.
+      The resolution rules — including the ID_TO_KIND map below — are mirrored
+      in src/utils/boot-theme.ts and unit-tested there. THEME_REGISTRY (in
+      src/components/map/geometry/basemap-style.ts) is the SOURCE OF TRUTH for
+      the id→kind kinds; this object literal duplicates them because the inline
+      script can't import the module. boot-theme.test.ts imports BOTH this map
+      and the module's ID_TO_KIND and asserts equality so they can never drift.
+      Any change to the rules MUST be applied in both places.
 
-      Spec: docs/design/01-spec/tokens.md §Light/dark mechanic
+      Spec: docs/design/01-spec/tokens.md §Light/dark mechanic — Epic #1221 (C7 · #1219)
     -->
     <script>
       (function () {
-        var t = null;
+        // id → kind. SOURCE OF TRUTH: THEME_REGISTRY in
+        // src/components/map/geometry/basemap-style.ts (duplicated here because
+        // this blocking script cannot import the module; kept in sync by a test).
+        var ID_TO_KIND = {
+          positron: 'light',
+          bright: 'light',
+          liberty: 'light',
+          dark: 'dark',
+          fiord: 'dark'
+        };
+        var stored = null;
         try {
-          t = localStorage.getItem('theme');
+          stored = localStorage.getItem('theme');
         } catch (e) {
           // SecurityError (Safari Private Browsing, sandboxed iframe)
           // — fall through to the prefers-color-scheme branch.
         }
-        if (t !== 'light' && t !== 'dark') {
+        // Resolve the active id. Back-compat shim (READ path only): legacy
+        // chrome values 'light'→'positron', 'dark'→'dark'.
+        var id = null;
+        if (stored && ID_TO_KIND.hasOwnProperty(stored)) {
+          id = stored;
+        } else if (stored === 'light') {
+          id = 'positron';
+        } else if (stored === 'dark') {
+          id = 'dark';
+        }
+        if (id === null) {
           try {
-            t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+            id = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
               ? 'dark'
-              : 'light';
+              : 'positron';
           } catch (e) {
-            t = 'light';
+            id = 'positron';
           }
         }
-        document.documentElement.setAttribute('data-theme', t);
+        document.documentElement.setAttribute('data-theme', ID_TO_KIND[id]);
       })();
     </script>
   </head>

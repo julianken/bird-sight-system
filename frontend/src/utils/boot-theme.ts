@@ -1,17 +1,29 @@
 /**
- * Theme boot logic — resolves the initial [data-theme] value before first
- * paint to prevent FOUC.
+ * Theme boot + apply logic — resolves the initial theme id before first
+ * paint to prevent FOUC, and owns the single `applyTheme` write path that
+ * derives `[data-theme]` (chrome polarity) from the active descriptor's kind.
  *
  * Mirrors the inline blocking script in index.html. The inline script is
  * load-bearing (must execute before first paint, can't be a deferred
- * module), so it duplicates this logic verbatim. This module exists so
- * the resolution rules are unit-testable; any change to the rules MUST
- * be applied in both places.
+ * module), so it duplicates the RESOLUTION logic verbatim — including the
+ * id→kind lookup. This module exists so the resolution rules are
+ * unit-testable; any change to the rules MUST be applied in both places, and
+ * `ID_TO_KIND` below is the map the inline script duplicates (a test imports
+ * both and asserts equality so they can never drift).
  *
- * Resolution order:
- *   1. localStorage['theme']  → 'light' | 'dark' (explicit user preference)
- *   2. prefers-color-scheme   → OS-level preference fallback
- *   3. 'light'                → safe default when both sources fail
+ * The active THEME ID is the source of truth (C1.5 · #1213): `[data-theme]`
+ * is DERIVED from `resolveDescriptor(id).kind`. The persisted value lives under
+ * `localStorage['theme']` and is now the ID (`'positron'`, `'dark'`, …), with a
+ * back-compat shim that maps the legacy `'light'`/`'dark'` chrome values to the
+ * `'positron'`/`'dark'` ids on the READ path only — so existing users keep
+ * their choice across the key-value change.
+ *
+ * Resolution order (`resolveInitialTheme`):
+ *   1. localStorage['theme']  → a known ThemeId, OR a legacy 'light'/'dark'
+ *                               value mapped via the back-compat shim.
+ *   2. prefers-color-scheme   → 'dark' when the OS prefers dark.
+ *   3. 'positron'             → safe light default (C7 keeps positron; the flip
+ *                               to 'bright' is C8's job — do NOT change here).
  *
  * Both localStorage access and matchMedia access can throw:
  *   - localStorage throws SecurityError in Safari Private Browsing and
@@ -19,26 +31,83 @@
  *   - matchMedia is undefined in older test environments.
  *
  * Storage failures are non-fatal — the theme falls through to the OS
- * preference (or 'light' as last resort), and the in-session [data-theme]
- * attribute remains the source of truth until the next page load.
+ * preference (or the positron default), and the in-session [data-theme]
+ * attribute remains the chrome source of truth until the next page load.
  *
  * Spec: docs/design/01-spec/tokens.md §Light/dark mechanic
+ * Epic #1221 (C7 · #1219).
  */
 
-export type Theme = 'light' | 'dark';
+import {
+  THEME_REGISTRY,
+  resolveDescriptor,
+  type ThemeId,
+  type BasemapDescriptor,
+  type BasemapKind,
+} from '@/components/map/geometry/basemap-style.js';
 
-export function resolveInitialTheme(): Theme {
+/**
+ * Chrome polarity. `[data-theme]` only ever holds one of these two values —
+ * it is DERIVED from the active descriptor's `kind`. Re-exported (and re-used
+ * by `use-theme.ts`, which reads the derived attribute) as the canonical
+ * polarity type. Distinct from `ThemeId`, which names a specific basemap style.
+ */
+export type Theme = BasemapKind;
+
+/** The `localStorage` key the persisted theme id lives under (legacy key, kept). */
+export const THEME_STORAGE_KEY = 'theme';
+
+/** The known theme ids — derived from the registry so it can never go stale. */
+const KNOWN_THEME_IDS = Object.keys(THEME_REGISTRY) as ThemeId[];
+
+/**
+ * id → kind map. The single source of truth is `THEME_REGISTRY` (each
+ * descriptor's `kind`); this is the flattened lookup the chrome boot path
+ * needs. The inline blocking `<script>` in index.html DUPLICATES this object
+ * literal verbatim (it cannot import the module) — `boot-theme.test.ts` imports
+ * BOTH and asserts equality so they can never drift.
+ */
+export const ID_TO_KIND: Record<ThemeId, BasemapKind> = Object.fromEntries(
+  KNOWN_THEME_IDS.map((id) => [id, THEME_REGISTRY[id].kind]),
+) as Record<ThemeId, BasemapKind>;
+
+/** Type guard: is `value` a registered `ThemeId`? */
+function isThemeId(value: string | null): value is ThemeId {
+  return value !== null && Object.prototype.hasOwnProperty.call(ID_TO_KIND, value);
+}
+
+/**
+ * Back-compat shim (READ path only): map a persisted value to a `ThemeId`.
+ * Returns a known id unchanged; maps the legacy chrome values `'light'` →
+ * `'positron'` and `'dark'` → the `'dark'` id; returns `null` for anything
+ * unrecognized so the caller falls through to OS preference / default.
+ */
+function persistedToThemeId(value: string | null): ThemeId | null {
+  if (isThemeId(value)) return value;
+  if (value === 'light') return 'positron'; // legacy chrome value → positron id
+  if (value === 'dark') return 'dark'; // legacy chrome value → dark id (id === kind)
+  return null;
+}
+
+/**
+ * Resolve the initial active `ThemeId` before first paint.
+ *
+ *   1. persisted `localStorage['theme']` (known id, or legacy 'light'/'dark'
+ *      via the back-compat shim);
+ *   2. `prefers-color-scheme: dark` → the `'dark'` id;
+ *   3. `'positron'` — the light default (C7 keeps positron; C8 flips to bright).
+ */
+export function resolveInitialTheme(): ThemeId {
   let stored: string | null = null;
   try {
-    stored = window.localStorage.getItem('theme');
+    stored = window.localStorage.getItem(THEME_STORAGE_KEY);
   } catch {
     // SecurityError (Safari Private Browsing, sandboxed iframe) — fall
     // through to the prefers-color-scheme branch.
   }
 
-  if (stored === 'dark' || stored === 'light') {
-    return stored;
-  }
+  const fromStorage = persistedToThemeId(stored);
+  if (fromStorage !== null) return fromStorage;
 
   try {
     if (
@@ -51,11 +120,40 @@ export function resolveInitialTheme(): Theme {
     // matchMedia rarely throws but is defensively wrapped — fall through.
   }
 
-  return 'light';
+  return 'positron';
 }
 
-export function applyInitialTheme(): Theme {
-  const theme = resolveInitialTheme();
-  document.documentElement.setAttribute('data-theme', theme);
-  return theme;
+/**
+ * The single theme write path (C7 · #1219). Used by the toggle (C7) and the
+ * selector (C8): resolves the descriptor, writes `[data-theme]` from its
+ * `kind`, and persists the ID under `localStorage['theme']`. Returns the
+ * resolved descriptor so callers can drive the id-keyed basemap swap.
+ *
+ * The active-theme-id React state (`useActiveThemeId`, C1.5) reads the derived
+ * `[data-theme]` via its mount seed + the belt MutationObserver, so writing the
+ * attribute here keeps the basemap swap in lockstep without a setter injection.
+ */
+export function applyTheme(id: ThemeId): BasemapDescriptor {
+  const descriptor = resolveDescriptor(id);
+  document.documentElement.setAttribute('data-theme', descriptor.kind);
+  try {
+    window.localStorage.setItem(THEME_STORAGE_KEY, id);
+  } catch {
+    // Storage failures (Safari Private Browsing, sandboxed iframe, quota
+    // exceeded) are non-fatal — [data-theme] is the in-session source of
+    // truth; the only loss is persistence across reloads.
+  }
+  return descriptor;
+}
+
+/**
+ * Resolve the initial id and write `[data-theme]` from its descriptor kind
+ * before first paint. Does NOT persist (the resolved value may BE the persisted
+ * value, or an OS/default fallback that should not overwrite an empty store).
+ * Returns the resolved id.
+ */
+export function applyInitialTheme(): ThemeId {
+  const id = resolveInitialTheme();
+  document.documentElement.setAttribute('data-theme', ID_TO_KIND[id]);
+  return id;
 }

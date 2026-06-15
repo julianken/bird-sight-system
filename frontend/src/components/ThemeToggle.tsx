@@ -1,20 +1,31 @@
 import { useState, useCallback, useRef } from 'react';
-
-type Theme = 'light' | 'dark';
+import { applyTheme, type Theme } from '../utils/boot-theme.js';
+import type { ThemeId } from '@/components/map/geometry/basemap-style.js';
 
 function readCurrentTheme(): Theme {
   const attr = document.documentElement.getAttribute('data-theme');
   return attr === 'dark' ? 'dark' : 'light';
 }
 
+// The two themes reachable through the toggle (C7): the light/dark polarity it
+// flips between maps to these ids. The selector (C8) replaces this binary with
+// the full registry; until then the toggle is light↔dark = positron↔dark.
+const POLARITY_TO_ID: Record<Theme, ThemeId> = {
+  light: 'positron',
+  dark: 'dark',
+};
+
 /**
- * ThemeToggle — header button that flips [data-theme] on <html>.
+ * ThemeToggle — header button that flips the chrome polarity light↔dark.
  *
- * Writes both localStorage['theme'] (for persistence across page loads,
- * read by the inline blocking script in index.html) and the attribute on
- * document.documentElement (so CSS responds immediately without a reload).
+ * Routes its click through the single `applyTheme` write path (boot-theme.ts):
+ * it maps the next polarity to a ThemeId (positron↔dark), and `applyTheme`
+ * derives `[data-theme]` from that descriptor's kind and persists the ID under
+ * localStorage['theme'] (read on next load by the inline blocking script in
+ * index.html). C8 may replace this toggle with the full theme selector; until
+ * then it shares the ONE write path so chrome + basemap stay in lockstep.
  *
- * The MutationObserver in MapCanvas.tsx observes data-theme changes and
+ * The MutationObserver in `useStateArtboard` observes data-theme changes and
  * swaps the basemap style accordingly — no prop-drilling needed.
  *
  * A11y (#416): the live-region is a visually-hidden <span> sibling to the
@@ -25,7 +36,7 @@ function readCurrentTheme(): Theme {
  * has NO aria-live — that's the fix.
  *
  * Spec: docs/design/01-spec/tokens.md §Light/dark mechanic
- * Spec: docs/design/01-spec/architecture.md §Persistent chrome
+ * Spec: docs/design/01-spec/architecture.md §Persistent chrome — Epic #1221 (C7 · #1219)
  */
 export function ThemeToggle() {
   const [theme, setTheme] = useState<Theme>(readCurrentTheme);
@@ -33,14 +44,10 @@ export function ThemeToggle() {
 
   const toggle = useCallback(() => {
     const next: Theme = theme === 'light' ? 'dark' : 'light';
-    document.documentElement.setAttribute('data-theme', next);
-    try {
-      localStorage.setItem('theme', next);
-    } catch {
-      // Storage failures (Safari Private Browsing, sandboxed iframe,
-      // quota exceeded) are non-fatal — [data-theme] is the in-session
-      // source of truth, the only loss is persistence across reloads.
-    }
+    // Single write path: applyTheme resolves the descriptor, writes
+    // [data-theme] from its kind (== `next` here, positron→light / dark→dark),
+    // and persists the id. Storage failures are swallowed inside applyTheme.
+    applyTheme(POLARITY_TO_ID[next]);
     // Announce the new theme to screen readers via the sibling live region
     // (NOT via aria-live on the button — see #416).
     if (liveRef.current) {
