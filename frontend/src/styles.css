@@ -930,6 +930,13 @@ body {
   gap: 2px;
 }
 .theme-selector-group[data-form='popover'] {
+  /* `display: flex` (not the base `inline-flex`) + `width: 100%` so the group
+     fills the popover's inner content box. As an inline-flex shrink-to-fit box
+     it only reached its widest label (~102px), leaving the `width: 100%` rows
+     below pinned to that narrow track instead of spanning the popover — the
+     "cells aren't full width" report (#1230 follow-up). */
+  display: flex;
+  width: 100%;
   flex-direction: column;
   align-items: stretch;
   gap: var(--space-xs);
@@ -991,27 +998,40 @@ body {
   outline: 2px solid var(--color-text-strong);
   outline-offset: 2px;
 }
-/* Selected (checked) row: a FULL-WIDTH accent tint spanning the whole row, plus
-   the leading checkmark — reads unambiguously as SELECTED, distinct from the
-   hover lift (--color-bg-tint) and the keyboard focus ring. --color-bg-inset is
-   theme-paired (light #f0ebe0 / dark #253050), a touch stronger than the hover
-   tint so selected sits clearly above hover. Label stays strong-text weight. */
+/* Selected (checked) row: a FULL-WIDTH tint spanning the whole row, plus the
+   leading checkmark — reads unambiguously as SELECTED, distinct from the hover
+   lift (--color-bg-tint) and the keyboard focus ring. Uses the dedicated
+   --theme-option-selected-bg (light #e7ddc4 / dark #253050), which is theme-
+   paired to sit a clear step ABOVE the hover tint in BOTH modes — reusing
+   --color-bg-inset made selected≡hover in light (both resolve to #f0ebe0).
+   Label stays strong-text weight. */
 .theme-selector-option[aria-checked='true'] {
-  background: var(--color-bg-inset);
+  background: var(--theme-option-selected-bg);
   color: var(--color-text-strong);
   font-weight: var(--font-weight-semibold);
 }
 .theme-selector-option[aria-checked='true'] .theme-selector-option-check {
   visibility: visible;
 }
-/* Keep the hover lift visible on a selected row (combined hover+selected reads
-   as the inset tint, not a flat blend). */
+/* Keep the selected row reading as selected on hover (combined hover+selected
+   stays the stronger selected fill, not a flat blend with the hover tint). */
 .theme-selector-option[aria-checked='true']:hover {
-  background: var(--color-bg-inset);
+  background: var(--theme-option-selected-bg);
 }
-/* In the popover the options are full-width rows sharing one left + right edge. */
+/* In the popover the options are full-width rows sharing one left + right edge.
+   This selector (0,3,0 — two classes `.theme-selector-group` + `.theme-selector-
+   option` plus the attribute selector `[data-form='popover']`, which counts in
+   the class column) MUST also restate `display: grid` + `text-align: start`
+   because the shared `.app-header-controls-pill button` rule (0,1,1) otherwise
+   out-ranks the base `.theme-selector-option { display: grid }` (0,1,0) and
+   forces `display: inline-flex; justify-content: center`, collapsing the
+   intended 2-col layout (checkmark gutter + left-aligned label) into a centered
+   content-width pill. Restoring grid here wins the cascade and revives the
+   authored full-width row. */
 .theme-selector-group[data-form='popover'] .theme-selector-option {
   width: 100%;
+  display: grid;
+  text-align: start;
 }
 /* ≤480px: comfortable touch rows. 44px min target + a hair more block padding so
    the 5-row column isn't cramped to line-height. */

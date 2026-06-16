@@ -325,6 +325,13 @@
      is pixel-identical in light — only dark gains a new value (#253050).
      --color-text-body (#444 → #444444) on #f0ebe0 = 8.19:1 (AA). */
   --color-bg-inset:   #f0ebe0;
+  /* Theme-picker SELECTED row fill. Must sit a clear step ABOVE the hover tint
+     (--color-bg-tint #f0ebe0) so the active theme reads as selected, not merely
+     hovered — in light both --color-bg-tint and --color-bg-inset resolve to the
+     SAME #f0ebe0, so reusing inset made selected≡hover (the original #1230
+     "selected is a touch stronger" intent held only in dark). Deeper cream,
+     same hue family; --color-text-strong #1a1a1a on #e7ddc4 ≈ 12.7:1 (AAA). */
+  --theme-option-selected-bg: #e7ddc4;
 
   --color-text-strong: #1a1a1a; /* preserve existing */
   --color-text-body:   #444;    /* preserve existing — AA-tuned */
@@ -429,6 +436,11 @@
      Card-vs-chip lift: #253050 / #1b2742 = 1.14:1 (visible separation).
      Invisible predecessor was --color-bg-tint #1c2640 vs card #1b2742 = 1.01:1. */
   --color-bg-inset:   #253050;
+  /* Theme-picker SELECTED row fill (dark). #253050 already lifts a clear 1.14:1
+     above the navy card AND above the hover tint (--color-bg-tint #1c2640), so
+     dark keeps the proven inset value — only light needed a distinct, stronger
+     value. --color-text-strong #f5f7fb on #253050 ≈ 13:1 (AAA). */
+  --theme-option-selected-bg: #253050;
 
   --color-text-strong: #f5f7fb;
   --color-text-body:   #d8dee8;
