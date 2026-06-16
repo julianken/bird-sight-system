@@ -227,12 +227,21 @@ export function AppHeader({
   // fading in at its final position while the card grows past it — the latter
   // reads as two motions in different directions. Cleared on the rows' opacity
   // `transitionend` (overflow → visible at rest so the focus ring paints
-  // unclipped, #1063). A timeout backstops a missed event (e.g. reduced-motion,
-  // where a 0ms transition may not emit transitionend); it is generous
-  // (> --panel-open-dur) and harmless if it lands after the event already fired.
-  // CLOSE needs no flag — styles.css clips it via [data-open='false'].
+  // unclipped, #1063). A timeout backstops a missed transitionend; it is
+  // generous (> --panel-open-dur) and harmless if it lands after the event
+  // already fired. CLOSE needs no flag — styles.css clips it via [data-open='false'].
   useEffect(() => {
     if (!scopeOpen) {
+      setScopeOpening(false);
+      return;
+    }
+    // Reduced motion: the wipe is zeroed (the card jumps open), so there is no
+    // growing edge to clip against — skip the opening clip entirely. Otherwise
+    // the 800ms backstop would hold overflow:hidden with no wipe to justify it,
+    // deferring for ~800ms the at-rest overflow:visible the auto-focused field's
+    // ring relies on (#1063) — and transitionend is unreliable on a 0ms
+    // transition, so the backstop is the only thing that would clear it.
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) {
       setScopeOpening(false);
       return;
     }
