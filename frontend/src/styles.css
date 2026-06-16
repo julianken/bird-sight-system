@@ -564,15 +564,15 @@ body {
   border-top: 1px solid var(--color-border-ui);
 }
 
-/* Scope rows container (§4.2 / #828 / #951) — the scope form, collapsed behind
-   the 🔍 disclosure. Opening it plays catalog recipe #07 (panel-reveal): the
-   form slides a short distance into the card with transform/opacity/blur,
-   compositing cleanly (the identity card is position:absolute, so its growth
-   does not reflow the map canvas — #01 height-tween rejected, see #951). The
-   `[data-open]` hook drives the reveal with no JS class toggle. The container
-   itself is always `display:flex` — the open/close gating now lives on the
-   .t-panel-slide rules below (the old `hidden` prop + `display:none` rule are
-   removed; either left in force would clip the start frame and kill the tween). */
+/* Scope rows container (§4.2 / #828 / #951 / #975, revised 2026-06-16) — the
+   scope form, collapsed behind the 🔍 disclosure. ONE motion reveals it:
+   card-resize (#01), realized by the grid 0fr↔1fr CLIP wrapper
+   (.app-header-scope-clip, below) growing the card to its content height. The
+   rows themselves no longer slide or blur — see the crossfade note below. The
+   `[data-open]` hook drives both with no JS class toggle. The container is
+   always `display:flex` — the open/close gating lives on the opacity/visibility
+   rules below (an old `hidden` prop + `display:none` rule were removed in #951;
+   either left in force would clip the start frame and kill the tween). */
 .app-header-scope-rows {
   display: flex;
   flex-direction: column;
@@ -580,53 +580,41 @@ body {
      embedded scope form's own field gaps, so divider → select reads the same
      as every other row in the card (#837). */
   gap: var(--space-sm);
-}
 
-/* ── #951: scope disclosure open → recipe #07 (panel-reveal) ────────────────
-   Catalog snippet (~/.claude/skills/transitions-dev/07-panel-reveal.md) pasted
-   with the enumerated properties, will-change, and the same in-card overrides
-   the SpeciesDetailRail precedent uses (styles.css §#918): --panel-translate-y
-   shortened to a small in-card travel (this is a brief reveal of two/three
-   rows, not a full-height panel), --panel-open-dur / --panel-ease / --panel-blur
-   reused from tokens.css.
+  /* Soft same-clock OPACITY crossfade so the contents resolve in as the card
+     grows, rather than hard-wiping. The earlier build layered catalog #07
+     (panel-reveal: translateY(14px)→0 + blur(2px)→0) ON TOP of the height
+     growth — a SECOND, opposing motion: the content floated UP "from beneath"
+     while the card expanded DOWN, reading as two disjoint reveals. Removed; the
+     CLIP is now the sole structural motion and this fade is the only content
+     treatment (Julian, 2026-06-16).
 
-   REST = the VISIBLE open end-state (translateY(0)/opacity:1/blur(0)). The rows
-   are only offset while CLOSED ([data-open='false']) — that ordering is what
-   makes the GLOBAL reduced-motion guard (motion.css zeroes the INTERPOLATION,
-   not the start value) land the form fully visible on open instead of stuck
-   off-screen. No per-element prefers-reduced-motion query here (house policy).
+     REST = the VISIBLE open end-state (opacity:1/visibility:visible). The rows
+     are only hidden while CLOSED ([data-open='false']) — that ordering makes the
+     GLOBAL reduced-motion guard (motion.css zeroes the INTERPOLATION, not the
+     start value) land the form fully visible on open instead of stuck hidden.
+     No per-element prefers-reduced-motion query here (house policy).
 
-   Closed-state visibility:hidden (NOT inert alone, NOT opacity:0 alone): pulls
-   the collapsed form out of the a11y tree + tab order AND satisfies the e2e
-   `toBeHidden()` asserts (scope-disclosure.spec.ts :96/:97/:164/:178) — an
-   inert element still occupies layout and would fail toBeHidden(). visibility is
-   discrete (no tween), so the form's interactive surface flips on/off cleanly at
-   the open/close edges while transform/opacity/filter carry the visible motion.
-   The element is always painted (visibility, not display:none), so the
-   synchronous data-open flip tweens without a post-paint rAF. */
-.app-header-scope-rows.t-panel-slide {
-  /* A short in-card travel — a few rows revealing, not a full panel. */
-  --panel-translate-y: 14px;
-  transform: translateY(0);
+     Closed-state visibility:hidden (NOT opacity:0 alone): pulls the collapsed
+     form out of the a11y tree + tab order AND satisfies the e2e `toBeHidden()`
+     asserts (scope-disclosure.spec.ts :104/:105/:172/:215). visibility is
+     discrete (not transitioned), so the form's interactive surface flips on/off
+     cleanly at the open/close edges while opacity carries the visible fade. The
+     element is always painted (visibility, not display:none), so the synchronous
+     data-open flip tweens without a post-paint rAF. */
   opacity: 1;
-  filter: blur(0);
   visibility: visible;
-  transition:
-    transform var(--panel-open-dur) var(--panel-ease),
-    opacity   var(--panel-open-dur) var(--panel-ease),
-    filter    var(--panel-open-dur) var(--panel-ease);
-  will-change: transform, opacity, filter;
+  transition: opacity var(--panel-open-dur) var(--panel-ease);
+  will-change: opacity;
 }
-.app-header-scope-rows.t-panel-slide[data-open='false'] {
-  transform: translateY(var(--panel-translate-y));
+.app-header-scope-rows[data-open='false'] {
   opacity: 0;
-  filter: blur(var(--panel-blur));
   visibility: hidden;
 }
 
 /* ── #975: grid 0fr↔1fr CLIP wrapper — collapse the card height when closed ──
    #958 swapped the closed scope-rows lock from `display:none` to
-   `visibility:hidden` so the #07 reveal stays animatable + toBeHidden() passes.
+   `visibility:hidden` so the reveal stays animatable + toBeHidden() passes.
    But `visibility:hidden` keeps the element IN FLOW: a closed in-flow flex child
    of the vertical-column `.app-header-identity-card` still reserves the full
    ScopeControl box, so the card froze at its OPEN height — an empty band below
@@ -635,12 +623,12 @@ body {
    18-recipe catalog has no grid-template-rows tween. It is the JS-free "tween to
    content height" technique (the concrete answer to #01's "can't tween to auto",
    reviewed live in #975/#979); closed → a 0-height track, so the inner form
-   contributes ZERO layout height. The inner .t-panel-slide keeps the
-   UNCHANGED #07 transform/opacity/blur reveal on the SAME clock
-   (--panel-open-dur / --panel-ease), so both the height collapse and the visible
-   slide play together. No new per-element prefers-reduced-motion query — the
-   global motion.css guard zeroes BOTH transitions, so reduced-motion jumps the
-   track to 1fr and lands the form fully visible (rest = open). */
+   contributes ZERO layout height. The inner .app-header-scope-rows carries only
+   a soft opacity crossfade on the SAME clock (--panel-open-dur / --panel-ease),
+   so the height growth and the content fade play together as one motion. No new
+   per-element prefers-reduced-motion query — the global motion.css guard zeroes
+   BOTH transitions, so reduced-motion jumps the track to 1fr and lands the form
+   fully visible (rest = open). */
 .app-header-scope-clip {
   display: grid;
   grid-template-rows: 1fr;
@@ -670,11 +658,21 @@ body {
   margin-block-start: calc(-1 * var(--space-sm));
 }
 /* min-height:0 lets the grid item shrink below its content's min-content height
-   so the 0fr track collapses to a true 0. `overflow` IS the grid-rows clip — but
-   it also clips `outline` focus rings (drawn OUTSIDE the border-box) on the
-   first/last fields, so scope it to the CLOSED state only: once open the track is
-   content-height, nothing block-axis overflows, and dropping overflow lets a
-   keyboard focus ring paint in full. (The native <select> dropdown renders in the
+   so the 0fr track collapses to a true 0. `overflow` IS the grid-rows clip — and
+   it must be ACTIVE whenever the track is shorter than the content, i.e. CLOSED
+   *and* DURING THE OPEN TRANSITION ([data-opening]). That is what makes the
+   reveal a true accordion: the growing card edge WIPES the form into view
+   top-down. Without clipping mid-open (overflow left visible, the prior bug) the
+   full form is laid out immediately and just FADES IN AT ITS FINAL POSITION
+   while the card grows past it — content + card edge moving in different
+   directions, which reads as the disjoint "text appears from beneath" (Julian,
+   2026-06-16, follow-up to the translateY/blur removal which alone did not fix
+   it). At OPEN REST the track is content-height (nothing overflows) and
+   `data-opening` is cleared, so overflow returns to `visible` and the
+   auto-focused field's focus ring — box-shadow drawn OUTSIDE the border-box —
+   paints unclipped (#1063). CLOSE already clips via [data-open='false'].
+   `data-opening` is held for the open transition by AppHeader and cleared on the
+   rows' opacity `transitionend`. (The native <select> dropdown renders in the
    browser top layer, immune to ancestor overflow either way.)
    min-width:0 is the horizontal twin: making this a grid item gave it the default
    `min-width:auto`, which refuses to shrink below the embedded ScopeControl's
@@ -688,6 +686,25 @@ body {
 }
 .app-header-scope-clip[data-open='false'] > .app-header-scope-rows {
   overflow: hidden;
+}
+/* DURING THE OPEN TRANSITION the clip must spare the auto-focused field's focus
+   ring (a 2px box-shadow drawn OUTSIDE the field's border-box). Plain
+   overflow:hidden would clip that ring's left/right edges while the wipe runs,
+   then "pop" the clipped edge to full when overflow releases at rest — a 2-stage
+   reveal (Julian, 2026-06-16). Fix: widen the clip box ±4px horizontally with a
+   negative inline margin, offset by an equal inline padding so the content's
+   position AND width are unchanged (no shift, #842 cap unaffected — verified
+   live: select width + rows clientWidth identical with/without). The ring (2px)
+   now sits inside the widened box, so it is NOT clipped left/right; overflow:
+   hidden still clips the BOTTOM cleanly, so the wipe reveal stays intact (no
+   leaked sliver of the next row — unlike overflow-clip-margin, which leaks on
+   all edges). Block-axis is untouched, so the ring still reveals top-down WITH
+   the field. CLOSED uses plain overflow:hidden above (a 0-height row needs no
+   ring room). */
+.app-header-scope-clip[data-opening='true'] > .app-header-scope-rows {
+  overflow: hidden;
+  margin-inline: -4px;
+  padding-inline: 4px;
 }
 
 /* ── TOP-RIGHT: controls pill ───────────────────────────────────────────────
