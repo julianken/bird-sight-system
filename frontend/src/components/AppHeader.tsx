@@ -193,6 +193,12 @@ export function AppHeader({
   // local — re-scoping is the persisted action, not the panel's open/closed
   // state, so this does NOT belong in the URL. Spec §7 (disclosure pattern).
   const [scopeOpen, setScopeOpen] = useState(false);
+  // Clip-wipe reveal (2026-06-16): true only WHILE the disclosure is opening.
+  // Drives `data-opening` on the clip so styles.css keeps the form clipped by
+  // the growing card edge (a true accordion) during the open transition, then
+  // releases to `overflow:visible` at rest so the focused field's ring is
+  // unclipped (#1063). See the open-edge effect below.
+  const [scopeOpening, setScopeOpening] = useState(false);
   // C8 rework: theme popover open-state is OWNED here (lifted out of
   // <ThemeSelector>, which is now a controlled disclosure) so AppHeader can
   // enforce the single-header-popover invariant — only one of {scope, filters,
@@ -214,6 +220,43 @@ export function AppHeader({
     if (scopeOpen) {
       firstScopeFieldRef.current?.focus();
     }
+  }, [scopeOpen]);
+
+  // Clip-wipe reveal (2026-06-16): hold `data-opening` for the open transition
+  // so the form is clipped by the growing card edge (accordion) instead of
+  // fading in at its final position while the card grows past it — the latter
+  // reads as two motions in different directions. Cleared on the rows' opacity
+  // `transitionend` (overflow → visible at rest so the focus ring paints
+  // unclipped, #1063). A timeout backstops a missed transitionend; it is
+  // generous (> --panel-open-dur) and harmless if it lands after the event
+  // already fired. CLOSE needs no flag — styles.css clips it via [data-open='false'].
+  useEffect(() => {
+    if (!scopeOpen) {
+      setScopeOpening(false);
+      return;
+    }
+    // Reduced motion: the wipe is zeroed (the card jumps open), so there is no
+    // growing edge to clip against — skip the opening clip entirely. Otherwise
+    // the 800ms backstop would hold overflow:hidden with no wipe to justify it,
+    // deferring for ~800ms the at-rest overflow:visible the auto-focused field's
+    // ring relies on (#1063) — and transitionend is unreliable on a 0ms
+    // transition, so the backstop is the only thing that would clear it.
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) {
+      setScopeOpening(false);
+      return;
+    }
+    setScopeOpening(true);
+    const rows = scopeRowsRef.current;
+    const clear = (): void => setScopeOpening(false);
+    const onEnd = (e: TransitionEvent): void => {
+      if (e.target === rows && e.propertyName === 'opacity') clear();
+    };
+    rows?.addEventListener('transitionend', onEnd);
+    const fallback = window.setTimeout(clear, 800);
+    return () => {
+      rows?.removeEventListener('transitionend', onEnd);
+      window.clearTimeout(fallback);
+    };
   }, [scopeOpen]);
 
   // If the scope goes inactive (→ unscoped chooser) while the disclosure is
@@ -423,38 +466,39 @@ export function AppHeader({
           </div>
         )}
 
-        {/* Scope disclosure body (§4.2 / #828 / #951) — MOUNTED whenever scope is
-            active (so aria-controls has a valid target) but CSS-collapsed until
-            the 🔍 trigger opens it. `data-open` drives the catalog #07
-            panel-reveal (.t-panel-slide, styles.css): the rows REST at the
-            VISIBLE open end-state and are only offset (translate/opacity/blur +
-            visibility:hidden) while closed, so the global reduced-motion guard —
-            which zeroes the interpolation, not the start value — lands them
-            fully visible on open. The element is always painted (visibility,
-            not display:none), so the synchronous data-open flip tweens without a
-            post-paint rAF. visibility:hidden at rest keeps the closed form out of
-            the a11y tree + tab order AND satisfies Playwright toBeHidden() (an
-            `inert`-only rest would still occupy layout and fail those #951 asserts).
-            The Esc handler lives here so a press from any field (or the trigger)
-            collapses + restores focus. NO click-outside (a stray map click must
-            not lose a typed ZIP). The divider only renders when open — the
-            resting card is two lines. */}
+        {/* Scope disclosure body (§4.2 / #828 / #951 / #975) — MOUNTED whenever
+            scope is active (so aria-controls has a valid target) but CSS-collapsed
+            until the 🔍 trigger opens it. `data-open` drives ONE motion: the
+            card-resize CLIP (.app-header-scope-clip, styles.css) grows the card
+            height, and the rows REST at the VISIBLE open end-state, only offset
+            (opacity + visibility:hidden) while closed, so the global
+            reduced-motion guard — which zeroes the interpolation, not the start
+            value — lands them fully visible on open. The element is always painted
+            (visibility, not display:none), so the synchronous data-open flip
+            tweens without a post-paint rAF. visibility:hidden at rest keeps the
+            closed form out of the a11y tree + tab order AND satisfies Playwright
+            toBeHidden() (an `inert`-only rest would still occupy layout and fail
+            those #951 asserts). The Esc handler lives here so a press from any
+            field (or the trigger) collapses + restores focus. NO click-outside (a
+            stray map click must not lose a typed ZIP). The divider only renders
+            when open — the resting card is two lines. */}
         {scopeActive && (
-          /* #975: grid 0fr↔1fr CLIP wrapper. The inner .t-panel-slide keeps the
-             UNCHANGED #07 reveal (transform/opacity/blur + visibility); this
-             wrapper is the height-collapse mechanism. Closed → 0fr track →
-             the in-flow form contributes ZERO layout height, so the identity
-             card shrinks to wordmark + lede + padding (no empty band). The
-             id/ref/aria-controls target stays on the INNER element so the a11y
-             contract + Page-Object selectors are untouched. The residual parent
-             flex `gap` band below the lede (which would survive a 0fr collapse)
-             is cancelled by a negative top-margin on the clip WHEN CLOSED — see
-             styles.css `.app-header-scope-clip[data-open='false']`. */
-          <div className="app-header-scope-clip" data-open={scopeOpen}>
+          /* #975: grid 0fr↔1fr CLIP wrapper — the single card-resize reveal.
+             This wrapper is the height-collapse mechanism; the inner
+             .app-header-scope-rows carries only a soft opacity crossfade (+
+             visibility) on the same clock. Closed → 0fr track → the in-flow form
+             contributes ZERO layout height, so the identity card shrinks to
+             wordmark + lede + padding (no empty band). The id/ref/aria-controls
+             target stays on the INNER element so the a11y contract + Page-Object
+             selectors are untouched. The residual parent flex `gap` band below
+             the lede (which would survive a 0fr collapse) is cancelled by a
+             negative top-margin on the clip WHEN CLOSED — see styles.css
+             `.app-header-scope-clip[data-open='false']`. */
+          <div className="app-header-scope-clip" data-open={scopeOpen} data-opening={scopeOpening}>
             <div
               id={scopeRegionId}
               ref={scopeRowsRef}
-              className="app-header-scope-rows t-panel-slide"
+              className="app-header-scope-rows"
               data-open={scopeOpen}
             >
               {/* Divider only renders when open — the resting card is two lines.
