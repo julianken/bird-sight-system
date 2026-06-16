@@ -217,6 +217,31 @@ describe('<AppHeader>', () => {
     expect(clip).toHaveAttribute('data-opening', 'false');
   });
 
+  it('skips the clip-wipe under prefers-reduced-motion (no data-opening, ring stays unclipped)', async () => {
+    // Under reduced-motion the wipe is zeroed (the card jumps open), so there is
+    // no growing edge to clip against — the open-edge effect must NOT set
+    // data-opening, else the 800ms backstop would hold overflow:hidden and clip
+    // the auto-focused field's focus ring (#1063). jsdom leaves matchMedia
+    // undefined (the other tests exercise the animated path), so stub it here.
+    vi.stubGlobal('matchMedia', (q: string) => ({
+      matches: /prefers-reduced-motion/.test(q),
+      media: q,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }));
+    try {
+      render(<AppHeader {...baseProps} {...stateProps} />);
+      await userEvent.click(screen.getByRole('button', { name: /change region/i }));
+      expect(document.querySelector('.app-header-scope-clip')).toHaveAttribute('data-opening', 'false');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('Esc collapses the disclosure and restores focus to the trigger', async () => {
     render(<AppHeader {...baseProps} {...stateProps} />);
     const trigger = screen.getByRole('button', { name: /change region/i });
