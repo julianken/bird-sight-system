@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createRef } from 'react';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { AppHeader } from './AppHeader.js';
 
@@ -198,6 +198,23 @@ describe('<AppHeader>', () => {
     await userEvent.click(screen.getByRole('button', { name: /change region/i }));
     const select = screen.getByRole('combobox', { name: /switch state/i });
     expect(document.activeElement).toBe(select);
+  });
+
+  it('clips the form during the reveal (data-opening), then releases it on the opacity transitionend', async () => {
+    // The clip-wipe accordion: while opening, the clip carries data-opening so
+    // styles.css keeps the form clipped by the growing card edge (overflow:hidden
+    // + the ±4px ring-room widen). The flag clears on the reveal's opacity
+    // transitionend so overflow returns to visible at rest and the auto-focused
+    // field's ring paints unclipped (#1063). Driven deterministically here — no
+    // timing — by firing the transitionend the open-edge effect listens for.
+    render(<AppHeader {...baseProps} {...stateProps} />);
+    await userEvent.click(screen.getByRole('button', { name: /change region/i }));
+    const clip = document.querySelector('.app-header-scope-clip');
+    expect(clip).toHaveAttribute('data-opening', 'true');
+
+    const rows = document.querySelector('.app-header-scope-rows')!;
+    fireEvent.transitionEnd(rows, { propertyName: 'opacity' });
+    expect(clip).toHaveAttribute('data-opening', 'false');
   });
 
   it('Esc collapses the disclosure and restores focus to the trigger', async () => {
