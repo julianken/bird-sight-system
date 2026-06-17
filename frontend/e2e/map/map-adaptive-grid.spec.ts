@@ -227,6 +227,59 @@ test.describe('Adaptive-grid markers (epic #539)', () => {
   });
 });
 
+test.describe('Marker-convergence watchdog wiring (#1236)', () => {
+  /**
+   * Wiring guard: scope switch repopulates markers without a manual pan.
+   *
+   * This test is the end-to-end complement to the unit tests in
+   * use-marker-convergence.test.ts. It verifies the hook is actually wired into
+   * MapCanvas (the "one call line" in the removability contract) by asserting
+   * that a state→state scope switch causes new-scope markers to appear without
+   * any camera event (flyTo / pan / zoom) between the switch and the assertion.
+   *
+   * On unpatched main the markers strand until the user pans — this test would
+   * fail there. The deterministic proof is in the unit tests (the timing race is
+   * non-deterministic under SwiftShader); this guards the wiring.
+   *
+   * WebGL-guarded per the file convention: headless Chromium in some CI
+   * environments has no WebGL backend → map canvas never paints → skip.
+   */
+  test('state→state scope switch repopulates markers without a manual pan', async ({ page }) => {
+    const app = new AppPage(page);
+    // Start in AZ so there are known observations to render.
+    await app.goto('state=US-AZ');
+    await app.waitForAppReady();
+    const webglReady = await waitForMapReady(page);
+    test.skip(!webglReady, 'WebGL unavailable — map canvas did not paint');
+
+    // Fly to Tucson to get into a region with dense observations.
+    await flyToTucson(page, 10);
+
+    // Assert ≥1 adaptive-grid marker in AZ at this zoom.
+    const markers = page.locator('[data-testid=adaptive-grid-marker]');
+    await expect.poll(() => markers.count(), { timeout: 8_000 }).toBeGreaterThanOrEqual(1);
+
+    // Switch scope to CA via the in-state scope control (no flyTo/pan/zoom from
+    // the test — the convergence watchdog is what drives the marker refresh).
+    await app.openScopeDisclosure();
+    await app.switchStateViaScopeControl('US-CA');
+
+    // Wait for markers to appear for the new scope WITHOUT any manual camera move.
+    // On unpatched main this would time out because idle never re-fires on a
+    // quiescent map after the scope change. With #1236 the watchdog drives the
+    // refresh via triggerRepaint → idle → reconcile.
+    //
+    // We poll the marker count: we expect it to become non-zero (CA has data
+    // at every zoom >= 6), not necessarily equal to the AZ count.
+    await expect
+      .poll(() => markers.count(), {
+        timeout: 10_000,
+        message: 'Expected adaptive-grid markers to appear after scope switch without a manual pan',
+      })
+      .toBeGreaterThanOrEqual(1);
+  });
+});
+
 test.describe('@perf adaptive-grid (perf-gate only)', () => {
   // Tagged tests run only when invoked via `npx playwright test --grep @perf`
   // in the dedicated perf-gate CI workflow. The default `npm run test:e2e`
