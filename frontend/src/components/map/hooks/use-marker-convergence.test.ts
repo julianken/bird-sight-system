@@ -71,12 +71,14 @@ function makeMapRef(map: FakeMap) {
 
 // ---------------------------------------------------------------------------
 // A qualifying sourcedata event payload (the fast-path trigger).
+// Verified live: the worker-done event for the observations source arrives
+// with sourceDataType UNDEFINED — gate is sourceId + isSourceLoaded only.
 // ---------------------------------------------------------------------------
-function observationsContent(overrides: Partial<MapSourceDataEvent> = {}): Partial<MapSourceDataEvent> {
+function observationsLoaded(overrides: Partial<MapSourceDataEvent> = {}): Partial<MapSourceDataEvent> {
   return {
     sourceId: 'observations',
     isSourceLoaded: true,
-    sourceDataType: 'content',
+    // sourceDataType intentionally absent — matches live MapLibre behaviour.
     ...overrides,
   };
 }
@@ -170,7 +172,7 @@ describe('useMarkerConvergence', () => {
     advanceTime(100);
 
     // Fire sourcedata — should trigger repaint but NOT stamp.
-    map.__fireSourceData(observationsContent());
+    map.__fireSourceData(observationsLoaded());
     flushRaf();
     expect(map.triggerRepaint).toHaveBeenCalled();
 
@@ -197,9 +199,9 @@ describe('useMarkerConvergence', () => {
     );
 
     // Fire 3 qualifying events in one burst — should coalesce to ONE repaint.
-    map.__fireSourceData(observationsContent());
-    map.__fireSourceData(observationsContent());
-    map.__fireSourceData(observationsContent());
+    map.__fireSourceData(observationsLoaded());
+    map.__fireSourceData(observationsLoaded());
+    map.__fireSourceData(observationsLoaded());
 
     expect(map.triggerRepaint).not.toHaveBeenCalled(); // rAF pending
     flushRaf();
@@ -214,12 +216,12 @@ describe('useMarkerConvergence', () => {
       useMarkerConvergence(mapRef, true, {}, { now: fakeNow }),
     );
 
-    map.__fireSourceData(observationsContent({ sourceId: 'state-mask' }));
+    map.__fireSourceData(observationsLoaded({ sourceId: 'state-mask' }));
     flushRaf();
     expect(map.triggerRepaint).not.toHaveBeenCalled();
   });
 
-  it('sourcedata with sourceDataType=metadata → no triggerRepaint', () => {
+  it('sourcedata with undefined sourceDataType + isSourceLoaded=true → triggers repaint (live MapLibre behaviour)', () => {
     const map = makeFakeMap();
     const mapRef = makeMapRef(map);
 
@@ -227,9 +229,26 @@ describe('useMarkerConvergence', () => {
       useMarkerConvergence(mapRef, true, {}, { now: fakeNow }),
     );
 
-    map.__fireSourceData(observationsContent({ sourceDataType: 'metadata' }));
+    // Verified live: the worker-done event arrives with sourceDataType undefined.
+    // The filter gates only on sourceId + isSourceLoaded, so this must fire.
+    map.__fireSourceData(observationsLoaded()); // no sourceDataType override → undefined
     flushRaf();
-    expect(map.triggerRepaint).not.toHaveBeenCalled();
+    expect(map.triggerRepaint).toHaveBeenCalledTimes(1);
+  });
+
+  it('sourcedata with sourceDataType=metadata + isSourceLoaded=true → triggers repaint (subtype no longer gated)', () => {
+    const map = makeFakeMap();
+    const mapRef = makeMapRef(map);
+
+    renderHook(() =>
+      useMarkerConvergence(mapRef, true, {}, { now: fakeNow }),
+    );
+
+    // Under the new subtype-agnostic filter, any isSourceLoaded=true event on
+    // the observations source fires the fast-path. rAF-coalesce absorbs extra events.
+    map.__fireSourceData(observationsLoaded({ sourceDataType: 'metadata' }));
+    flushRaf();
+    expect(map.triggerRepaint).toHaveBeenCalledTimes(1);
   });
 
   it('sourcedata with isSourceLoaded=false → no triggerRepaint', () => {
@@ -240,7 +259,7 @@ describe('useMarkerConvergence', () => {
       useMarkerConvergence(mapRef, true, {}, { now: fakeNow }),
     );
 
-    map.__fireSourceData(observationsContent({ isSourceLoaded: false }));
+    map.__fireSourceData(observationsLoaded({ isSourceLoaded: false }));
     flushRaf();
     expect(map.triggerRepaint).not.toHaveBeenCalled();
   });
@@ -389,7 +408,7 @@ describe('useMarkerConvergence', () => {
     rerender({ dv: v1 });
 
     // Fire sourcedata to queue a rAF.
-    map.__fireSourceData(observationsContent());
+    map.__fireSourceData(observationsLoaded());
     expect(rafQueue).toHaveLength(1);
 
     // Now unmount — should clear pending timer, cancel pending rAF, remove listeners.

@@ -109,11 +109,11 @@ export function useMarkerConvergence(
     let sourceDataFrame = 0;
     const onSourceData = (e: MapSourceDataEvent) => {
       if (e.sourceId !== 'observations' || !e.isSourceLoaded) return;
-      // 'content' = the setData/recluster signal (MapLibre docs). If the live
-      // fast-path check (see ACs) shows this never matches for this source, drop
-      // this line and gate only on sourceId+isSourceLoaded (the canonical
-      // MapLibre HTML-cluster pattern; coalesce + watchdog absorb the extra events).
-      if (e.sourceDataType !== 'content') return;
+      // The worker-done signal for the clustered observations GeoJSON source is
+      // `isSourceLoaded` flipping true — verified live to arrive with
+      // sourceDataType UNDEFINED (the `content` subtype fires earlier, while the
+      // source is still unloaded). So gate ONLY on sourceId + isSourceLoaded (the
+      // canonical MapLibre HTML-cluster pattern); rAF-coalesce absorbs the rest.
       if (sourceDataFrame !== 0) return;
       // Drive: provoke the EXISTING idle->reconcile the instant the worker
       // finishes (re)clustering. rAF-coalesced (sourcedata is chatty).
