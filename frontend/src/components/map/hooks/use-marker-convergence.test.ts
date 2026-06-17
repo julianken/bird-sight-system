@@ -288,7 +288,7 @@ describe('useMarkerConvergence', () => {
   it('backstop: budget expiry triggers one final repaint + onTelemetry exactly once', () => {
     const map = makeFakeMap();
     const mapRef = makeMapRef(map);
-    const onTelemetry = vi.fn<[MarkerConvergenceTelemetry], void>();
+    const onTelemetry = vi.fn<(t: MarkerConvergenceTelemetry) => void>();
     const budgetMs = 1000;
     const backoffMs = [100, 200, 400, 800] as const;
 
