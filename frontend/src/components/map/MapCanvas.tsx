@@ -364,6 +364,7 @@ export function MapCanvas({
   clampPad,
   detailOpen = false,
   activeThemeId: activeThemeIdProp,
+  cameraRef,
 }: MapCanvasProps) {
   const aggregated = mode === 'aggregated';
   const mapRef = useRef<MapRef>(null);
@@ -1104,6 +1105,38 @@ export function MapCanvas({
       map.off('style.load', onStyleLoad);
     };
   }, [mapReady]);
+
+  // ── C2 (#1240): live-camera exposure ──────────────────────────────────────
+  // Populate the App-held `cameraRef` with a getter that reads the LIVE camera
+  // each time it's called (NOT a settled snapshot), so a "Copy link" click —
+  // even mid-pan, before an `idle` settles — copies exactly what the user sees.
+  // Gated on `mapReady` (the map element exists by then). Returns `null` if the
+  // map ref has gone (defensive). Cleared to `null` on unmount so a stale
+  // closure can never read a torn-down map. zoom/center/bearing/pitch all come
+  // FROM THE MAP; the capture viewport (innerWidth/innerHeight/dpr) is read by
+  // the button from globals.
+  useEffect(() => {
+    if (!cameraRef) return;
+    if (!mapReady) {
+      cameraRef.current = null;
+      return;
+    }
+    cameraRef.current = () => {
+      const map = mapRef.current?.getMap();
+      if (!map) return null;
+      const center = map.getCenter();
+      return {
+        zoom: map.getZoom(),
+        lat: center.lat,
+        lng: center.lng,
+        bearing: map.getBearing(),
+        pitch: map.getPitch(),
+      };
+    };
+    return () => {
+      cameraRef.current = null;
+    };
+  }, [cameraRef, mapReady]);
 
   // ── #1128: dark-label contrast fixup at style.load ────────────────────────
   // The null-numeric-comparison guard is NO LONGER applied here — it now runs

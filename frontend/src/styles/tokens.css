@@ -231,6 +231,37 @@
      chevron-specific retune does not perturb the theme-toggle swap. */
   --chevron-dur:         200ms;
 
+  /* ── transitions-dev recipe tokens for the "Copy link to this view" control
+     (C2 · #1240, epic #1238) ──────────────────────────────────────────────
+     Installed VERBATIM from the transitions-dev catalog `:root` defaults (09
+     icon-swap blur+scale, 10 success-check, 04 text-states-swap). The shared
+     `--icon-swap-dur`/`--icon-swap-ease` above (160ms house tuning, already
+     consumed by the theme-selector) are REUSED by recipe 09 — only the two
+     missing 09 tokens are added here. Do not re-tune (issue directive). */
+  --icon-swap-blur:        2px;
+  --icon-swap-start-scale: 0.25;
+  /* 10-success-check — the check draws on (fade + rotate + blur + Y-bob +
+     stroke-draw). The draw is the load-bearing part for the copy-confirm. */
+  --check-opacity-dur:   550ms;
+  --check-rotate-dur:    550ms;
+  --check-rotate-from:   80deg;
+  --check-bob-dur:       450ms;
+  --check-y-amount:      40px;
+  --check-blur-dur:      500ms;
+  --check-blur-from:     10px;
+  --check-path-dur:      550ms;
+  --check-path-delay:    80ms;
+  --check-ease-out:      cubic-bezier(0.22, 1, 0.36, 1);
+  --check-ease-opacity:  cubic-bezier(0.22, 1, 0.36, 1);
+  --check-ease-rotate:   cubic-bezier(0.22, 1, 0.36, 1);
+  --check-ease-bob:      cubic-bezier(0.34, 1.35, 0.64, 1);
+  --check-ease-path:     cubic-bezier(0.22, 1, 0.36, 1);
+  /* 04-text-states-swap — the "Copy link" → "Copied!" label swap (wide only). */
+  --text-swap-dur:       150ms;
+  --text-swap-translate-y: 4px;
+  --text-swap-blur:      2px;
+  --text-swap-ease:      ease-in-out;
+
   /* ds-shimmer duration — shared by .status-block__skeleton + .photo__skeleton
      (both use the same ds-shimmer keyframe; #948). adaptive-grid-pending-shimmer
      (1.4s, reverse-direction) and skeleton-shimmer (background-color pulse;

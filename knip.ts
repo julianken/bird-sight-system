@@ -209,30 +209,11 @@ const config: KnipConfig = {
       //             retired rather than reasoned about.
       ignore: [
         'src/tokens.ts',
-        // 2026-06-16 (C1, #1239 — SELF-HEALING): src/state/viewbox-link.ts is
-        //             the pure camera↔#map= hash codec (epic #1238). It has no
-        //             non-test `src` importer yet — its first production consumer
-        //             is C2 (#1240, the capture control), which is not merged.
-        //             This ignore is the AC-required guard against the file
-        //             reading as a true orphan: `knip (informational)` is a
-        //             required branch-protection check that reds the Mergify
-        //             queue on a NON-ZERO exit, and a src module with no src
-        //             consumer is a `--no-progress` unused-file finding (exit 1).
-        //             NOTE: as shipped, the co-located src/state/viewbox-link.test.ts
-        //             (a vitest target inside knip's src-only graph) already
-        //             counts as a consumer, so knip traces the file as USED and
-        //             currently emits a "Remove from ignore" CONFIGURATION HINT
-        //             for this entry (exit 0 — same harmless class as the kept
-        //             docs/plans/2026-04-22-map-v1-prototype/prototype/** entry
-        //             above; hints do not change the exit code or gate the queue).
-        //             The entry is kept deliberately so the file stays covered if
-        //             that test is ever thinned/removed before C2 lands. C2
-        //             REMOVES this entry the moment it adds the production import
-        //             (self-healing, like the tools/photo-curation entries Part B
-        //             retired). Re-audit 2026-07-27 — if #1240 has merged this is
-        //             already gone; otherwise confirm the codec is still the
-        //             intended C2 dependency before keeping it.
-        'src/state/viewbox-link.ts',
+        // 2026-06-16 (C2, #1240): the C1 self-healing ignore for
+        //   'src/state/viewbox-link.ts' is REMOVED here — this PR is the codec's
+        //   first PRODUCTION `src` consumer (CopyViewLinkButton.tsx imports
+        //   `encodeViewbox`), so knip now traces it as USED with no ignore
+        //   needed. (Self-healing, exactly as the C1 entry's comment foretold.)
         // ds/index.ts barrel deleted in the map split (it had zero importers —
         // all consumers import ds/ primitives by direct path), so the ignore
         // entry that silenced its "unused barrel" finding is gone with it.
