@@ -39,7 +39,7 @@ function makeMapSpy() {
 
 // Two SYNTHETIC descriptors that share `kind: 'dark'` but differ in `url`/`id`.
 // They need NO registry entry (BasemapDescriptor is a plain interface), so the
-// same-kind trap is exercised without widening `ThemeId` or touching knip.ts.
+// same-kind trap is exercised without widening `ThemeId`.
 const SYN_DARK_A: BasemapDescriptor = {
   id: 'dark',
   url: 'syn://A',

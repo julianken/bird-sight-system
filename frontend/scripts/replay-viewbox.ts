@@ -15,9 +15,7 @@
  * fail the `e2e` gate for having no assertions). It uses the Playwright
  * `chromium.launch()` + `browser.newContext(...)` API, importing `chromium`
  * from `@playwright/test` (which re-exports it) — never a bare `playwright`
- * package (undeclared in frontend/package.json → knip unlisted-dependency).
- * Because `frontend/scripts/**` is outside the frontend `src`-only graph, knip
- * reports this file as unused; `knip.ts` carries a dated ignore for it.
+ * package (which is undeclared in frontend/package.json).
  *
  * ─ Why the DEV SERVER, never the preview build ──────────────────────────────
  * `window.__birdMap` (the live MapLibre instance the tool drives via `jumpTo`)

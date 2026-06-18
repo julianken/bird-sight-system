@@ -41,7 +41,7 @@
  *   CENSUS_SHP   path to the unzipped .shp (default: .cache-census/cb_2023_us_state_500k.shp)
  *   SIMPLIFY_PCT mapshaper -simplify percentage (default: 5%)
  *
- * Knip: this file is intentionally unreferenced (run-once tooling); see knip.ts.
+ * This file is intentionally unreferenced (run-once tooling).
  */
 
 import { execFileSync } from 'node:child_process';

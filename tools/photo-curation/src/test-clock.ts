@@ -8,8 +8,7 @@ import type { Clock } from './pacing.js';
  * `now()` right after `gate()` to capture it; or use `sleeps` to assert the
  * exact waits requested).
  *
- * Test-only — imported by *.test.ts. (Knip ignore rule documents this so the
- * file isn't flagged as an orphan; see knip.ts.)
+ * Test-only — imported by *.test.ts.
  */
 export interface FakeClock extends Clock {
   /** Every sleep duration requested, in order. */

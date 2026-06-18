@@ -3,8 +3,7 @@
 Standalone operator tools for the frontend workspace. These are **not** specs
 (they live outside `frontend/e2e/`, so `playwright test` never runs them) and
 **not** part of the `vite build` (they live outside `src/`, so `tsc -b` never
-compiles them). Each is run by hand via an npm script and is `knip`-ignored with
-a dated rationale in `knip.ts`.
+compiles them). Each is run by hand via an npm script.
 
 ## replay-viewbox
 

@@ -176,7 +176,7 @@ export function ScopedMap({ observations, bounds, boundsKey, flyTo }: ScopedMapP
     setMapReady(true);
     // Prototype-only inspection hook so the Playwright MCP driver can read the
     // settled camera center/zoom to assert ZIP→point-inside-state. Not a
-    // production pattern — the prototype is never bundled (knip-ignored).
+    // production pattern — the prototype is never bundled.
     const m = mapRef.current?.getMap();
     if (m) (window as unknown as { __protoMap?: unknown }).__protoMap = m;
   }, []);
