@@ -85,10 +85,8 @@ import {
   buildHitMarkers,
 } from './geometry/obs-derive.js';
 // Type-only declarations extracted to MapCanvas.types.ts (epic #884, U1 / #885).
-// `MapCanvasProps` is re-exported from there and back-imported here; this keeps
-// the export knip-clean (its in-file consumer at the destructuring below is
-// covered by `ignoreExportsUsedInFile`) and leaves any future external importer
-// pointing at a stable module path.
+// `MapCanvasProps` is re-exported from there and back-imported here, leaving any
+// future external importer pointing at a stable module path.
 import type {
   MapCanvasProps,
   ResolvedAdaptiveData,

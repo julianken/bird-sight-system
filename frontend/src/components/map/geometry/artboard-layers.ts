@@ -130,8 +130,7 @@ export interface ArtboardMap {
  *
  * Kept private (not exported): the `MapCanvas.tsx` call site annotates the
  * handle with `ReturnType<typeof applyLabelIsolation>`, so this alias needs no
- * cross-file export. (Per #763: a cross-file-consumed export would be knip-clean
- * too — this is a readability choice, not a CI requirement.)
+ * cross-file export. This is a readability choice.
  */
 type SavedFilters = Record<string, unknown>;
 

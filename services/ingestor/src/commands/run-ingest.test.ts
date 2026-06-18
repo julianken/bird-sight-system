@@ -236,7 +236,7 @@ describe('runIngest — eBird 1 rps burst pacing (#999)', () => {
 
     // One state = 2 calls = exactly 1 pacing sleep at the default. This test
     // pays one real 1.5s wait to pin the default without exporting the
-    // constant (knip flags test-only exports).
+    // constant.
     const summary = await runIngest({
       pool: db.pool, apiKey: 'k', stateCodes: ['US-AZ'],
       client: fakeClient,

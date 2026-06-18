@@ -5,9 +5,9 @@
 //
 // Design notes (deliberate):
 //   • RAW built-in `fetch` against the v1beta REST endpoint — `@google/genai` is
-//     intentionally NOT a dependency. Adding an unimported SDK would trip knip;
-//     the one method we need (generateContent with inlineData + responseSchema)
-//     is a single POST. The REST shape was verified against the current
+//     intentionally NOT a dependency. The one method we need (generateContent
+//     with inlineData + responseSchema) is a single POST, so pulling in the SDK
+//     would add an unused dependency. The REST shape was verified against the current
 //     googleapis/js-genai docs (context7, 2026-06-11): `generationConfig`
 //     carries `responseMimeType: 'application/json'` + `responseSchema` (the
 //     OpenAPI-3.0 subset with UPPERCASE `type` enums), and the JSON answer is at

@@ -147,7 +147,7 @@ export interface ActiveThemeIdState {
  * @param resolver maps an id → descriptor. Defaults to the production
  *   `resolveDescriptor` (a closed `THEME_REGISTRY` lookup). Tests override it
  *   with a map of synthetic same-kind descriptors so the same-kind transition is
- *   reachable without widening `ThemeId` or touching `knip.ts`.
+ *   reachable without widening `ThemeId`.
  * @param initialId optional explicit seed id (App-level boot resolution).
  */
 export function useActiveThemeId(
