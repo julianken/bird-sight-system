@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
+import type { MutableRefObject } from 'react';
 import type { LngLatBounds } from 'maplibre-gl';
 // GeoJSON `MultiPolygon` comes from `geojson` (@types/geojson), NOT maplibre-gl
 // (5.x does not re-export it). `import type`, erased at build — see mask.ts.
 import type { MultiPolygon } from 'geojson';
 import type { AggregatedBucket, FamilySilhouette, Observation } from '@bird-watch/shared-types';
 import type { SpeciesDictionary } from '../data/use-species-dictionary.js';
+import type { ViewboxCamera } from '../state/viewbox-link.js';
 import type { ThemeId } from './map/geometry/basemap-style.js';
 import { ErrorBoundary } from './ErrorBoundary.js';
 
@@ -96,6 +98,12 @@ export interface MapSurfaceProps {
    * its internal `[data-theme]`-seeded hook.
    */
   activeThemeId?: ThemeId;
+  /**
+   * C2 (#1240) — live-camera exposure ref, forwarded VERBATIM to <MapCanvas>.
+   * MapCanvas populates `.current` with a live getter so App's "Copy link"
+   * control can read the camera at click time. Thin pass-through; optional.
+   */
+  cameraRef?: MutableRefObject<(() => ViewboxCamera | null) | null>;
 }
 
 /**
@@ -128,6 +136,7 @@ export function MapSurface({
   clampPad,
   detailOpen = false,
   activeThemeId,
+  cameraRef,
 }: MapSurfaceProps) {
   /**
    * O7 (#786): GL-recovery counter. Bumping this key clears the ErrorBoundary's
@@ -195,6 +204,7 @@ export function MapSurface({
             {...(clampPad !== undefined ? { clampPad } : {})}
             detailOpen={detailOpen}
             {...(activeThemeId !== undefined ? { activeThemeId } : {})}
+            {...(cameraRef ? { cameraRef } : {})}
           />
         </React.Suspense>
       </div>

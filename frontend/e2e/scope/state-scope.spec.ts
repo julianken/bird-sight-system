@@ -340,8 +340,13 @@ test.describe('Scope chooser + state/whole-US scope (C9, #741)', () => {
     // #828 a11y (no regression): the REGION is still announced — by the AppHeader
     // scope-change live region ("Showing Arizona."), so a screen-reader user
     // hears "Showing Arizona." then "N sightings" with no duplication.
+    // C2 (#1240): the header now also holds the CopyViewLinkButton's
+    // `.app-header-copy-status` role="status" region, so target the scope-change
+    // region by its distinguishing `.app-header-scope-status` class — a bare
+    // `span[role="status"][aria-live="polite"]` header query now matches BOTH
+    // (strict-mode violation).
     await expect(
-      app.appHeader.locator('span[role="status"][aria-live="polite"]'),
+      app.appHeader.locator('span.app-header-scope-status[role="status"][aria-live="polite"]'),
     ).toHaveText('Showing Arizona.');
   });
 

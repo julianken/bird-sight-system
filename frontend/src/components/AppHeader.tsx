@@ -30,12 +30,15 @@
  *        attribution and recency isn't worth a permanent line on a minimized card.
  *
  *   TOP-RIGHT controls pill (.app-header-controls-pill) — compact content-width card:
- *     Filters trigger (+ active-count badge) · ⓘ Credits · Theme selector.
+ *     Filters trigger (+ active-count badge) · ⓘ Credits · 🔗 Copy link · Theme selector.
  *     C8 (#1220) replaced the binary light/dark ThemeToggle with a 5-theme
- *     <ThemeSelector> radiogroup (inline segmented at wide; a trigger + transient
- *     popover at roomy/compact so the pill never overflows).
- *     Order: Filters first per spec §3/§5.2 (#1033 V1/V18).
- *     Filters shows a text label at ≥1024, icon-only below.
+ *     <ThemeSelector> radiogroup. The C8 rework (PR #1235) settled it on a single
+ *     icon TRIGGER + transient popover at EVERY breakpoint — the earlier
+ *     "inline segmented at wide" form is gone (styles.css ~:1096), so the pill
+ *     never overflows. C2 (#1240) inserts the 🔗 Copy-link pill as the 4th
+ *     control (between Credits and Theme); Theme stays last (it owns the right
+ *     edge). Order: Filters first per spec §3/§5.2 (#1033 V1/V18).
+ *     Filters + Copy link show a text label at ≥1024 (`wide`), icon-only below.
  *     ⓘ Credits is icon-only at ALL widths (#1033 V1/V18 — the always-visible
  *     bottom-right pill already carries eBird/OpenFreeMap credit).
  *
@@ -69,10 +72,12 @@
 import type { KeyboardEvent, RefObject } from 'react';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { ThemeSelector } from './ThemeSelector.js';
+import { CopyViewLinkButton } from './CopyViewLinkButton.js';
 import type { ScopedView } from './ScopeControl.js';
 import { ScopeControl } from './ScopeControl.js';
 import type { StateSummary } from '@bird-watch/shared-types';
 import type { Scope } from '../state/url-state.js';
+import type { ViewboxCamera } from '../state/viewbox-link.js';
 import { useBreakpoint } from '../hooks/use-breakpoint.js';
 import type { ScopeResolution } from '../state/scope-types.js';
 import type { ThemeId } from '@/components/map/geometry/basemap-style.js';
@@ -159,6 +164,15 @@ export interface AppHeaderProps {
    * `setThemeId` from `useActiveThemeId`.
    */
   onSelectTheme: (id: ThemeId) => void;
+  // ── Copy-view-link prop (C2 · #1240, epic #1238) ─────────────────────────
+  /**
+   * Live-camera reader for the "Copy link to this view" pill (the 4th control in
+   * the top-right cluster). App threads a getter that reads the CURRENT camera
+   * (zoom/center/bearing/pitch) at CLICK time — sourced from MapCanvas's private
+   * `getMap()` ref via an App-held `cameraRef`. Returns `null` until the map is
+   * ready / while unscoped, which makes the click a clean no-op then.
+   */
+  getCamera: () => ViewboxCamera | null;
 }
 
 export function AppHeader({
@@ -179,6 +193,7 @@ export function AppHeader({
   onResolveZip,
   activeThemeId,
   onSelectTheme,
+  getCamera,
 }: AppHeaderProps) {
   const bp = useBreakpoint();
   const scopeActive = scope.kind !== 'unscoped';
@@ -186,6 +201,9 @@ export function AppHeader({
     filterCount > 0 ? `Filters (${filterCount} active)` : 'Filters';
   // At wide (≥1024), Filters shows a text label; below it is icon-only.
   const filtersLabeled = bp === 'wide';
+  // C2 (#1240): the Copy-link pill shows its "Copy link"/"Copied!" label on the
+  // SAME `wide` flag Filters uses; icon-only below (AC 1).
+  const copyLinkLabeled = bp === 'wide';
 
   // ── Scope disclosure (#828) ──────────────────────────────────────────────
   // The scope form collapses behind a 🔍 trigger on the wordmark row and
@@ -449,9 +467,14 @@ export function AppHeader({
             context-strip lede previously provided. Renders whenever region is
             non-null (including during cold-load suppression when ledeText is null,
             matching that element's original unconditional announcement
-            semantics). */}
+            semantics).
+            C2 (#1240): the `app-header-scope-status` class is the disambiguating
+            hook. The header now holds a SECOND role="status" aria-live region —
+            the CopyViewLinkButton's `.app-header-copy-status` confirmation — so
+            specs targeting THIS region must select on this class, not the bare
+            `span[role="status"]` (which would match both). */}
         {region && (
-          <span className="sr-only" role="status" aria-live="polite">
+          <span className="sr-only app-header-scope-status" role="status" aria-live="polite">
             Showing {region}.
           </span>
         )}
@@ -590,6 +613,15 @@ export function AppHeader({
             <path d="M12 16v-4M12 8h.01" />
           </svg>
         </button>
+
+        {/* 🔗 Copy link — C2 (#1240, epic #1238). The 4th control in the cluster
+            (Filters · Credits · Copy link · Theme); Theme stays LAST (its wide
+            form owns the right edge). Reads the live camera at click time and
+            copies a `…<search>#map=…&v=…` link; clipboard only (never mutates the
+            app's own URL bar). Icon-only below `wide`, labeled at `wide` (same
+            flag Filters uses). It is a momentary action, not a disclosure — no
+            aria-haspopup/expanded/pressed (the component enforces this). */}
+        <CopyViewLinkButton getCamera={getCamera} labeled={copyLinkLabeled} />
 
         <ThemeSelector
           activeThemeId={activeThemeId}

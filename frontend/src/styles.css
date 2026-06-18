@@ -530,6 +530,22 @@ body {
   margin: 0;
 }
 
+/* sr-only live-region disambiguation hooks (C2 #1240). Both spans carry
+   .sr-only (which does the visual hiding), so these rules never paint — they
+   exist so each className has a matching CSS selector (orphan-className gate)
+   AND so the two role="status" aria-live regions in the header are
+   distinguishable by class:
+     .app-header-scope-status — the "Showing {region}." scope-change announcer
+       (AppHeader.tsx, identity card).
+     .app-header-copy-status  — the CopyViewLinkButton "Link copied" / failure
+       confirmation (controls pill).
+   See state-scope.spec.ts (targets the scope region by this class) and
+   copy-view-link.spec.ts (targets the copy region by text/testid). */
+.app-header-scope-status,
+.app-header-copy-status {
+  margin: 0;
+}
+
 /* Row 2: Lede wrapper. #828: freshness line removed — count-only lede. */
 .app-header-lede-row {
   display: flex;
@@ -789,42 +805,84 @@ body {
   }
   /* #1230 MUST-FIX #4: at mobile the top-right cluster read as jammed
      edge-to-edge. Widen the inter-icon gap from --space-xs (4px) to --space-sm
-     (8px) so the three 44px targets have a comfortable separation. The pill is
-     still well within the 180px budget the identity-card cap (below) reserves
-     for it (3×44 + 2×8 gap + ~16 padding ≈ 164px). */
+     (8px) so the touch targets have a comfortable separation.
+
+     C2 (#1240) added a 4th pill (Copy link). At 12px inline padding that made
+     the pill 226px and left the identity-card wordmark a ~1px window — "Bird
+     Maps" rendered at exactly its content width with zero margin, so a sub-pixel
+     font-metric difference between environments tipped scrollWidth (45px) past
+     clientWidth (44px) and applied an ellipsis (mobile-bundle-e.spec.ts:35).
+     Rather than thread a 1px-precise card cap, WIDEN THE WINDOW: at compact, drop
+     the pill's inline padding from --card-padding-tight (12px) to --space-sm (8px)
+     while keeping the 44px touch targets. That trims the pill 8px (226 → 218px)
+     and pushes its left edge 8px rightward (152 → 160px at 390px), recovering
+     room for both a healthy overlap clearance AND a comfortable wordmark margin.
+
+     New compact pill width (measured at 390px):
+       4 × 44px target + 3 × 8px gap (--space-sm) + 2 × 8px inline padding
+         (--space-sm) + 2 × 1px border = 176 + 24 + 16 + 2 = 218px.
+     The identity-card cap (below) reserves 230px for it (= 218px pill +
+     12px right inset; the card then clears the pill by ~6px). */
   .app-header-controls-pill {
     gap: var(--space-sm);
+    /* Block padding stays --space-sm (8px); only the inline padding tightens
+       from 12px to 8px to win back width — buttons keep their 44px floor. */
+    padding-block: var(--space-sm);
+    padding-inline: var(--space-sm);
   }
   /* #828: the region-name <h1> is .sr-only at every breakpoint now, so no
      compact-specific hide is needed (it was visible at roomy/wide pre-#828). */
 
   /* ── Compact header: identity card must not overlap the controls pill ──────
-     At <480px the controls pill (3 × 44px touch targets + pill padding + gaps
-     ≈ 180px) sits top-right at --card-inset (12px). The identity card is
-     anchored top-left at the same inset. Without a width cap the card's
-     max-inline-size of 360px extends past the pill's left edge, causing a
-     ~160px overlap (the pill sits on top of the card's wordmark row).
+     At <480px the controls pill sits top-right at --card-inset (12px). The
+     identity card is anchored top-left at the same inset. Without a width cap
+     the card's max-inline-size of 360px extends past the pill's left edge,
+     causing a large overlap (the pill sits on top of the card's wordmark row).
 
      Fix: cap the identity card at the space left of the controls pill.
-       available = 100% (viewport) − left-inset − pill-width(≈180px) − gap
-       = 100% − 12px − 180px − 8px  = 100% − 200px
+       available = 100% (viewport) − card-inset − pill-reserve(230px) − card-gap
 
-     This guarantees ≥ 8px clearance between the card's right edge and the
-     pill's left edge at every compact width (360–479px), matching spec §3
-     mobile ASCII art: "Bird Maps  ⓘ ⛛ ☀" on one non-overlapping top row.
-     The lede sits below the wordmark inside the card and wraps naturally
-     within the narrower column; the scope form (when expanded) does too.
+     Pill-reserve = the distance from the viewport's right edge to the pill's
+     LEFT edge. With the compact inline padding tightened to --space-sm (above),
+     the pill is 218px wide (measured at 390px):
+       pill width  = 4 × 44px target + 3 × 8px gap (--space-sm)
+                     + 2 × 8px inline padding (--space-sm) + 2 × 1px border
+                   = 176 + 24 + 16 + 2 = 218px
+       + 12px right inset (--card-inset)              → 230px to the pill's left
+     So pill.left = 390 − 230 = 160px, and with card-gap (8px) the cap lands the
+     card's right edge at 152px — an 8px clearance left of the pill, comfortably
+     in the middle of the available window (the geometry guard in
+     map-root-geometry.spec.ts asserts intersectX ≤ 0.5px at 390×844; measured 0).
 
-     C8 (#1220) re-derivation: the new ThemeSelector COLLAPSES to a single
-     icon trigger at compact/roomy (`bp !== 'wide'`) — the same one-icon
-     footprint as the old ☀ ThemeToggle — so the compact pill is still
-     Filters + Credits + Theme = 3 × 44px + gaps + padding ≈ 180px. The 180px
-     literal therefore still holds here. The pill only WIDENS to the 5-pill
-     segmented form at `wide` (≥1024), where this max-width:480px rule does not
-     apply and the desktop layout has ample room left of the pill — so no
-     overlap is introduced. */
+     This window-width also fixes the wordmark squeeze. At the prior 240px reserve
+     + 12px pill padding the card was 130px and "Bird Maps · USA" wrapped to its
+     content width with a ~1px margin — a sub-pixel font-metric difference tipped
+     scrollWidth (45px) past clientWidth (44px), applying an ellipsis
+     (mobile-bundle-e.spec.ts:35). The 230px reserve makes the card 140px, wide
+     enough that the full wordmark sits on ONE line (54px box) with ~86px of slack
+     (measured scrollWidth 54 == clientWidth 54, zero overflow) — no longer a
+     1px-precise knife-edge.
+
+     This matches spec §3 mobile ASCII art: "Bird Maps  ⛛ ⓘ 🔗 ☀" on one
+     non-overlapping top row. The lede sits below the wordmark inside the card
+     and wraps naturally within the narrower column; the scope form (when
+     expanded) does too.
+
+     C2 (#1240) re-derivation history: the first C2 fix raised the reserve to
+     240px for a 226px pill (12px inline padding). That cleared the overlap but
+     left the wordmark a 1px window. This follow-up trims the compact pill to
+     218px (8px inline padding) and drops the reserve to 230px so BOTH the overlap
+     clearance (8px) and the wordmark margin (~86px) sit well off any edge. The
+     180px literal that held for the 3-pill C8 cluster is long superseded.
+
+     C8 (#1220 / PR #1235 rework) note: the ThemeSelector is a single icon
+     TRIGGER + transient popover at EVERY breakpoint — one 44px footprint, the
+     earlier "inline segmented at wide" form is gone (see ~:1096) — so the
+     4th-pill math above is the full pill width at compact. At `wide` (≥1024)
+     Filters + Copy link gain text labels, but this max-width:480px rule does not
+     apply there and the desktop layout has ample room left of the pill. */
   .app-header-identity-card {
-    max-inline-size: calc(100% - var(--card-inset) - 180px - var(--card-gap));
+    max-inline-size: calc(100% - var(--card-inset) - 230px - var(--card-gap));
   }
 }
 
@@ -923,6 +981,164 @@ body {
     min-height: 44px;
     min-width: 44px;
   }
+}
+
+/* ── "Copy link to this view" control (C2 · #1240, epic #1238) ─────────────────
+   The 4th pill in the top-right cluster (Filters · Credits · Copy link · Theme).
+
+   CASCADE TRAP (cost C8/PR #1235 four CI cycles): `.app-header-copy-link` is
+   specificity (0,1,0) and LOSES to the shared `.app-header-controls-pill button`
+   (0,1,1). So the shared rule (above) OWNS resting / hover / focus-visible /
+   active / sizing — these rules add ONLY NEW properties. Verified in the COMPUTED
+   cascade, not the bundle text. */
+.app-header-copy-link {
+  /* Mirror the Filters/Credits inline-flex + 4px icon↔label gap so the labeled
+     (wide) form reads identically. These are NEW properties on this selector
+     (the shared button rule sets display:inline-flex too, but not the gap /
+     font-size); they do not contest the shared rule's resting/hover/focus. */
+  gap: 4px;
+  font-size: var(--type-sm);
+  line-height: 1.2;
+}
+
+/* The icon-swap wrapper (recipe 09) sizes to the 20px glyph cell. */
+.app-header-copy-icon {
+  /* inline-grid + the single-cell stacking come from .t-icon-swap (recipe 09);
+     this only pins the cell to the 20px glyph box so the swap has no layout
+     jitter between the link + check icons. */
+  width: 20px;
+  height: 20px;
+}
+
+/* Clipboard-failure last-resort field — a selectable, read-only input prefilled
+   with the built link. Visually compact + unobtrusive (it lives transiently
+   inside the pill during the 2600ms error dwell); the link stays reachable for a
+   manual ⌘C/Ctrl+C. NO toast, no new band (four-corner contract). */
+.app-header-copy-fallback {
+  max-inline-size: 14ch;
+  margin-inline-start: var(--space-xs);
+  padding: 2px var(--space-xs);
+  font: inherit;
+  font-size: var(--type-xs);
+  color: var(--color-text-body);
+  background: var(--color-bg-tint);
+  border: 1px solid var(--color-border-ui);
+  border-radius: var(--card-radius-inner);
+}
+
+/* ── transitions-dev recipe 09 — icon swap (link ⇄ check) ──────────────────────
+   Pasted VERBATIM from the catalog (09-icon-swap.md). Cross-fades the two icons
+   in one inline-grid cell via `data-state` a↔b. Reduced-motion block KEPT. */
+.t-icon-swap {
+  position: relative;
+  display: inline-grid;
+}
+.t-icon-swap .t-icon {
+  grid-area: 1 / 1;
+  transition:
+    opacity   var(--icon-swap-dur) var(--icon-swap-ease),
+    filter    var(--icon-swap-dur) var(--icon-swap-ease),
+    transform var(--icon-swap-dur) var(--icon-swap-ease);
+  will-change: opacity, filter, transform;
+}
+.t-icon-swap[data-state="a"] .t-icon[data-icon="a"],
+.t-icon-swap[data-state="b"] .t-icon[data-icon="b"] {
+  opacity: 1;
+  filter: blur(0);
+  transform: scale(1);
+}
+.t-icon-swap[data-state="a"] .t-icon[data-icon="b"],
+.t-icon-swap[data-state="b"] .t-icon[data-icon="a"] {
+  opacity: 0;
+  filter: blur(var(--icon-swap-blur));
+  transform: scale(var(--icon-swap-start-scale));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-icon-swap .t-icon { transition: none !important; }
+}
+
+/* ── transitions-dev recipe 10 — success check (the check draws on) ────────────
+   Pasted VERBATIM from the catalog (10-success-check.md). The wrapper drives
+   fade + rotate + blur + Y-bob; the <path> gets the stroke-draw. The
+   `stroke-dasharray`/`-offset` placeholder (20) is calibrated to the real check
+   path length `M20 6 9 17l-5-5` ≈ 21.9 → 23 (CopyViewLinkButton also re-measures
+   with getTotalLength() on mount and sets it inline). Reduced-motion block KEPT —
+   the sanctioned exception: it lands the check DRAWN (`stroke-dashoffset:0
+   !important`), not invisible. */
+.t-success-check {
+  display: inline-block;
+  transform-origin: center;
+  opacity: 0;
+  will-change: transform, opacity, filter;
+}
+.t-success-check svg { display: block; overflow: visible; }
+.t-success-check svg path {
+  stroke-dasharray: 23;
+  stroke-dashoffset: 23;
+}
+
+.t-success-check[data-state="in"] {
+  animation:
+    t-check-fade   var(--check-opacity-dur) var(--check-ease-opacity) forwards,
+    t-check-rotate var(--check-rotate-dur)  var(--check-ease-rotate)  forwards,
+    t-check-blur   var(--check-blur-dur)    var(--check-ease-out)     forwards,
+    t-check-bob    var(--check-bob-dur)     var(--check-ease-bob)     forwards;
+}
+.t-success-check[data-state="in"] svg path {
+  animation: t-check-draw var(--check-path-dur) var(--check-ease-path) var(--check-path-delay, 0ms) forwards;
+}
+
+@keyframes t-check-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes t-check-rotate {
+  from { transform: rotate(var(--check-rotate-from)); }
+  to   { transform: rotate(0deg); }
+}
+@keyframes t-check-blur {
+  from { filter: blur(var(--check-blur-from)); }
+  to   { filter: blur(0); }
+}
+@keyframes t-check-bob {
+  from { translate: 0 var(--check-y-amount); }
+  to   { translate: 0 0; }
+}
+@keyframes t-check-draw { to { stroke-dashoffset: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .t-success-check { animation: none !important; opacity: 1; }
+  .t-success-check svg path { animation: none !important; stroke-dashoffset: 0 !important; }
+}
+
+/* ── transitions-dev recipe 04 — text states swap ("Copy link" → "Copied!") ────
+   Pasted VERBATIM from the catalog (04-text-states-swap.md). Old text exits up
+   with blur; new text enters from below. CopyViewLinkButton drives the
+   .is-exit/.is-enter-start phasing in JS, reading --text-swap-dur via
+   getComputedStyle so the timer stays in sync. Reduced-motion block KEPT. */
+.t-text-swap {
+  display: inline-block;
+  transform: translateY(0);
+  filter: blur(0);
+  opacity: 1;
+  transition:
+    transform var(--text-swap-dur) var(--text-swap-ease),
+    filter    var(--text-swap-dur) var(--text-swap-ease),
+    opacity   var(--text-swap-dur) var(--text-swap-ease);
+  will-change: transform, filter, opacity;
+}
+.t-text-swap.is-exit {
+  transform: translateY(calc(var(--text-swap-translate-y) * -1));
+  filter: blur(var(--text-swap-blur));
+  opacity: 0;
+}
+.t-text-swap.is-enter-start {
+  transform: translateY(var(--text-swap-translate-y));
+  filter: blur(var(--text-swap-blur));
+  opacity: 0;
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-text-swap { transition: none !important; }
 }
 
 /* ── ThemeSelector (C8 · #1220) ───────────────────────────────────────────────

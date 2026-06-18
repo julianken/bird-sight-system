@@ -36,6 +36,14 @@ export class AppPage {
   readonly themeSelectorTrigger: Locator;
   /** Credits trigger (ⓘ icon-only button) in the controls pill. */
   readonly attributionTrigger: Locator;
+  /**
+   * C2 (#1240): the "Copy link to this view" pill — the 4th control in the
+   * top-right cluster (Filters · Credits · Copy link · Theme). Reads the live
+   * camera and copies a `…<search>#map=…&v=…` link to the clipboard. Selected by
+   * its stable `data-testid` (the aria-label flips idle→"Link copied", so a
+   * name-regex would be brittle across the confirm cycle).
+   */
+  readonly copyViewLinkButton: Locator;
 
   // --- Scope chooser (landing surface, #742) accessors (C9/D6, #741) ---
   /** The `<ScopeChooser>` landing region (visible only on the unscoped/bare URL).
@@ -160,6 +168,8 @@ export class AppPage {
     this.themeSelectorTrigger = this.appHeader.getByRole('button', { name: /^Map theme:/ });
     // #1033 V1/V18: label shortened to "Credits" (was "Credits & attribution")
     this.attributionTrigger = this.appHeader.getByRole('button', { name: /Credits/ });
+    // C2 (#1240): the Copy-link pill, by its stable testid (aria-label flips on copy).
+    this.copyViewLinkButton = this.appHeader.getByTestId('copy-view-link');
 
     // Chooser (#742) — region accessible name "Choose where to look at birds".
     this.chooser = page.getByRole('region', { name: 'Choose where to look at birds' });
@@ -248,6 +258,21 @@ export class AppPage {
    */
   async waitForMapLoad(timeout = 10_000): Promise<void> {
     await this.mapCanvas.waitFor({ state: 'visible', timeout });
+  }
+
+  /**
+   * C2 (#1240): wait until the live camera is readable — i.e. the map has loaded
+   * (`mapReady`) AND the scope-framing animation has settled. `waitForMapLoad()`
+   * only waits for the canvas to be VISIBLE, which is BEFORE the MapLibre
+   * `style.load` that installs the camera getter; clicking the Copy-link pill
+   * before then is a clean no-op (getCamera → null). `#map-layer[data-scope-
+   * fitted="true"]` flips true after SCOPE_MOVE_SETTLE_MS once the scope camera
+   * has framed — a reliable proxy that the map is ready and the camera is live.
+   */
+  async waitForCameraReady(timeout = 15_000): Promise<void> {
+    await this.page
+      .locator('#map-layer[data-scope-fitted="true"]')
+      .waitFor({ state: 'attached', timeout });
   }
 
   /**
