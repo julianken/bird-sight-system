@@ -555,4 +555,50 @@ describe('useUrlState', () => {
       expect(result.current.state.since).toBe('7d');
     });
   });
+
+  // --- #1242 (C4) — writeUrl preserves the camera viewbox hash ---
+  // The viewbox link (`#map=<z>/<lat>/<lng>`, epic #1238) lives in the URL hash.
+  // writeUrl rebuilds only pathname+search, so before the fix EVERY filter /
+  // scope / detail set() silently wiped the hash. These pin the preserve-hash
+  // contract (AC3): a set() must keep a pre-existing `#map=` in window.location.hash.
+  describe('writeUrl preserves the #map= camera hash (#1242 AC3)', () => {
+    beforeEach(() => {
+      window.history.replaceState({}, '', '/');
+    });
+
+    it('a filter change (since:1d) keeps a pre-existing #map= hash', () => {
+      window.history.replaceState({}, '', '/?state=US-AZ#map=8.000/32.22000/-110.97000');
+      const { result } = renderHook(() => useUrlState());
+      act(() => result.current.set({ since: '1d' }));
+      // The hash survives the filter write…
+      expect(window.location.hash).toBe('#map=8.000/32.22000/-110.97000');
+      // …and the new filter still landed in the search.
+      expect(window.location.search).toContain('since=1d');
+      expect(window.location.search).toContain('state=US-AZ');
+    });
+
+    it('a scope change keeps the #map= hash', () => {
+      window.history.replaceState({}, '', '/?scope=us#map=4.000/39.50000/-98.00000');
+      const { result } = renderHook(() => useUrlState());
+      act(() => result.current.set({ scope: { kind: 'state', stateCode: 'US-AZ' } }));
+      expect(window.location.hash).toBe('#map=4.000/39.50000/-98.00000');
+      expect(window.location.search).toContain('state=US-AZ');
+    });
+
+    it('a detail-surface push keeps the #map= hash', () => {
+      window.history.replaceState({}, '', '/?state=US-AZ#map=8.000/32.22000/-110.97000');
+      const { result } = renderHook(() => useUrlState());
+      act(() => result.current.set({ view: 'detail', detail: 'vermfly' }));
+      expect(window.location.hash).toBe('#map=8.000/32.22000/-110.97000');
+      expect(window.location.search).toContain('detail=vermfly');
+      expect(window.location.search).toContain('view=detail');
+    });
+
+    it('does not invent a hash when none is present (bare set stays hashless)', () => {
+      window.history.replaceState({}, '', '/?state=US-AZ');
+      const { result } = renderHook(() => useUrlState());
+      act(() => result.current.set({ since: '1d' }));
+      expect(window.location.hash).toBe('');
+    });
+  });
 });

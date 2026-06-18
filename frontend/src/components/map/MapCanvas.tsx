@@ -364,6 +364,9 @@ export function MapCanvas({
   clampPad,
   detailOpen = false,
   activeThemeId: activeThemeIdProp,
+  initialHashCamera,
+  hashCameraInScope,
+  writeBackGate,
 }: MapCanvasProps) {
   const aggregated = mode === 'aggregated';
   const mapRef = useRef<MapRef>(null);
@@ -558,7 +561,7 @@ export function MapCanvas({
   // is the mount first-paint frame. Both feed the JSX below. The hook's JSDoc
   // carries the full rationale (mapReady load-gating, flyTo-preference,
   // essential:true reduced-motion bypass, and the #848 transform-clone clobber).
-  const { clampBounds, initialViewState } = useScopeCamera(
+  const { clampBounds, initialViewState, restoredHashCamera } = useScopeCamera(
     mapRef,
     mapReady,
     bounds,
@@ -570,6 +573,12 @@ export function MapCanvas({
     // `clampBounds` change on zoom re-applies reactively via the `maxBounds`
     // prop (no remount), same mechanism as the static clamp.
     viewportSpan,
+    // #1242 (C4) — viewbox-restore: cold-load camera from `#map=` + idle write-back.
+    {
+      ...(initialHashCamera ? { camera: initialHashCamera } : {}),
+      inScope: hashCameraInScope ?? null,
+      ...(writeBackGate ? { writeBackGate } : {}),
+    },
   );
 
   // Corrective `map.resize()` on the S2 flex→fixed container transition (#737,
@@ -2041,6 +2050,22 @@ export function MapCanvas({
     <div
       ref={mapWrapperRef}
       data-testid="map-canvas"
+      // #1242 (C4) — GPU-FREE e2e restore handle. When the `#map=` hash camera
+      // is restored (in-scope), emit the APPLIED `zoom/lat/lng` (5-decimal,
+      // matching the codec) on this stable wrapper. A no-WebGL CI runner can
+      // assert the camera landed on the hash view WITHOUT a `__birdMap` GL read
+      // (which `test.skip`s on GPU-less CI). Absent when no hash was restored
+      // (no `#map=`, or an out-of-scope hash that fell back to the scope fit, so
+      // the attribute never lies about the active view). The issue pins
+      // `#map-layer` (App.tsx); the restored value is only known here, so the
+      // attribute lives on the map-canvas wrapper nested INSIDE `#map-layer`.
+      {...(restoredHashCamera
+        ? {
+            'data-hash-camera': `${restoredHashCamera.zoom.toFixed(3)}/${restoredHashCamera.lat.toFixed(
+              5,
+            )}/${restoredHashCamera.lng.toFixed(5)}`,
+          }
+        : {})}
       // #1031: programmatically focusable, but OUT of the keyboard tab order.
       // ObservationPopover.returnFocus() falls back to `.focus()`-ing this
       // wrapper when the originating marker has left the DOM/viewport; a plain

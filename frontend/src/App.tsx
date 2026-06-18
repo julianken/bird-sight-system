@@ -9,6 +9,8 @@ import { analytics } from '@/analytics.js';
 import { ApiClient, ApiError } from '@/api/client.js';
 import { useUrlState, DEFAULTS } from '@/state/url-state.js';
 import type { Scope } from '@/state/url-state.js';
+import { decodeViewbox } from '@/state/viewbox-link.js';
+import type { ViewboxCamera } from '@/state/viewbox-link.js';
 import type { ScopeResolution } from '@/state/scope-types.js';
 import { useBirdData } from '@/data/use-bird-data.js';
 import { useSilhouettes } from '@/data/use-silhouettes.js';
@@ -209,6 +211,22 @@ function focusFirstMarker(): void {
 
 export function App() {
   const { state, set } = useUrlState();
+
+  // #1242 (C4) — parse the `#map=` viewbox camera ONCE, non-reactively, at mount.
+  // The map camera is otherwise scope-derived; a copied `#map=<z>/<lat>/<lng>`
+  // link makes an exact view self-restoring (epic #1238). This MUST be a
+  // `useRef` initializer (NOT a `useMemo`/`useEffect`) so it reads the cold-load
+  // hash exactly once and never re-fires when the write-back later rewrites the
+  // hash via `replaceState` (which does NOT re-render, but a later render must
+  // not re-parse a moved camera and yank the view). `decodeViewbox` is total —
+  // any garbage degrades to `null` ("normal scope-derived load"). The validation
+  // against the active scope envelope (AC5) happens reactively below, once
+  // `/api/states` resolves the real bounds; this is just the raw parse.
+  const rawHashCameraRef = useRef<ViewboxCamera | null>(
+    decodeViewbox(window.location.hash)?.camera ?? null,
+  );
+  const rawHashCamera = rawHashCameraRef.current;
+
   const isCompact = useIsCompact();
   // O5 (#783): phone-scoped signal keyed to ≤480px (P1's overlay breakpoint).
   // Distinct from isCompact (≤1199px): the phone-scoped force-collapse signals
@@ -828,6 +846,50 @@ export function App() {
       if (scopeFittedTimerRef.current !== null) clearTimeout(scopeFittedTimerRef.current);
     };
   }, [boundsKey, flyTo?.key]);
+
+  // #1242 (C4) — validate the parsed hash camera against the RESOLVED scope
+  // envelope, the same way `readUrl` validates `?state=` against the CONUS
+  // allowlist (AC5). An out-of-scope hash (e.g. `?state=US-AZ#map=<Texas>`) must
+  // fall back to the scope `fitBounds`, NOT show the wrong region under the
+  // artboard mask. Verdict semantics (consumed by `useScopeCamera`):
+  //   - `null`  → undecided: no hash, OR a state scope whose REAL envelope has
+  //               not yet arrived from `/api/states` (the `scopeBounds` memo is
+  //               still the CONUS holding value). The hook suppresses the scope
+  //               fit while undecided so the first paint (already the hash view)
+  //               does not flash, then re-decides when this resolves.
+  //   - `true`  → the hash center lies inside the real scope envelope → restore.
+  //   - `false` → outside → fall back to the scope fit.
+  // For `?scope=us` the envelope is CONUS immediately (no holding window), so the
+  // verdict resolves on the first render.
+  const hashCameraInScope = useMemo<boolean | null>(() => {
+    if (!rawHashCamera) return null;
+    // A state scope is "holding" until its real envelope is in the states table;
+    // validating against the CONUS holding bounds could wrongly admit an
+    // out-of-state center, so defer the verdict until the real bounds resolve.
+    if (state.scope.kind === 'state') {
+      const { stateCode } = state.scope;
+      const resolved = states.some(s => s.stateCode === stateCode);
+      if (!resolved) return null;
+    }
+    if (!scopeBounds) return null;
+    const [[w, s], [e, n]] = scopeBounds;
+    const { lng, lat } = rawHashCamera;
+    return lng >= w && lng <= e && lat >= s && lat <= n;
+  }, [rawHashCamera, scopeBounds, state.scope, states]);
+
+  // #1242 (C4) — live gate inputs for the idle write-back, evaluated at `idle`
+  // time inside the hook (NOT at render time — the settle window closes between
+  // renders, so a render-time boolean would be stale). The write-back fires only
+  // on a genuine user pan: a scope is active (`scopeActiveRef`, already a live
+  // mirror) AND the programmatic-camera settle window (`scopeMoveUntilRef`,
+  // shared with the one-fetch-per-scope-change guard) has closed. Memoized so the
+  // object identity is stable across renders (the hook registers the idle
+  // listener once per map load).
+  const writeBackGate = useMemo(
+    () => ({ scopeActiveRef, scopeMoveUntilRef }),
+    [],
+  );
+
   const onViewportChange = useCallback((bounds: LngLatBounds, zoom: number) => {
     // S4 (#769) — hard scope-gate. #761 (S1) made the map persistently mounted
     // behind the chooser scrim, so a still-UNSCOPED map keeps emitting `idle`.
@@ -1470,6 +1532,9 @@ export function App() {
             {...(isStateScope ? { clampPad: ARTBOARD_PAD } : {})}
             detailOpen={!!(scopeActive && state.detail)}
             activeThemeId={activeThemeId}
+            {...(rawHashCamera ? { initialHashCamera: rawHashCamera } : {})}
+            hashCameraInScope={hashCameraInScope}
+            writeBackGate={writeBackGate}
           />
         </div>
       )}

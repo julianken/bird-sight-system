@@ -10,8 +10,10 @@
 // (5.x does not re-export them). All imports below are `import type`, erased at
 // build — see mask.ts for the same idiom.
 import type { MultiPolygon } from 'geojson';
+import type { RefObject } from 'react';
 import type { AggregatedBucket, FamilySilhouette, Observation } from '@bird-watch/shared-types';
 import type { SpeciesDictionary } from '@/data/use-species-dictionary.js';
+import type { ViewboxCamera } from '@/state/viewbox-link.js';
 import type { AdaptiveTile, ResolvedGrid } from './geometry/adaptive-grid.js';
 import type { ThemeId } from './geometry/basemap-style.js';
 
@@ -178,6 +180,28 @@ export interface MapCanvasProps {
    * `[data-theme]` attribute — behavior-identical to pre-C8. Optional.
    */
   activeThemeId?: ThemeId;
+  /**
+   * #1242 (C4) — viewbox-restore wiring, forwarded VERBATIM from App.tsx via
+   * MapSurface into `useScopeCamera`. The map camera is otherwise scope-derived;
+   * these make a copied `#map=<z>/<lat>/<lng>` link self-restoring on cold load
+   * and write the live camera back to the hash on user pan. All optional —
+   * legacy/test callers omit them and the camera stays purely scope-driven.
+   *   - `initialHashCamera` — the RAW camera App parsed ONCE (non-reactive) from
+   *     `window.location.hash`; drives the first-paint frame + the imperative
+   *     restore. `undefined` when there is no `#map=`.
+   *   - `hashCameraInScope` — App's validation verdict of that camera's center
+   *     against the resolved scope envelope (`null` while `/api/states` holds,
+   *     `true` in-scope, `false` out-of-scope → fall back to the scope fit).
+   *   - `writeBackGate` — App's live gate refs (`scopeActiveRef` +
+   *     `scopeMoveUntilRef`) for the idle write-back; evaluated at `idle` time
+   *     so the settle-window verdict is fresh, never stale-at-render.
+   */
+  initialHashCamera?: ViewboxCamera;
+  hashCameraInScope?: boolean | null;
+  writeBackGate?: {
+    scopeActiveRef: RefObject<boolean>;
+    scopeMoveUntilRef: RefObject<number>;
+  };
 }
 
 /**

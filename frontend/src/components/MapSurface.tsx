@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
+import type { RefObject } from 'react';
 import type { LngLatBounds } from 'maplibre-gl';
 // GeoJSON `MultiPolygon` comes from `geojson` (@types/geojson), NOT maplibre-gl
 // (5.x does not re-export it). `import type`, erased at build — see mask.ts.
 import type { MultiPolygon } from 'geojson';
 import type { AggregatedBucket, FamilySilhouette, Observation } from '@bird-watch/shared-types';
 import type { SpeciesDictionary } from '../data/use-species-dictionary.js';
+import type { ViewboxCamera } from '../state/viewbox-link.js';
 import type { ThemeId } from './map/geometry/basemap-style.js';
 import { ErrorBoundary } from './ErrorBoundary.js';
 
@@ -96,6 +98,19 @@ export interface MapSurfaceProps {
    * its internal `[data-theme]`-seeded hook.
    */
   activeThemeId?: ThemeId;
+  /**
+   * #1242 (C4) — viewbox-restore wiring, forwarded VERBATIM to <MapCanvas>. App
+   * parses `initialHashCamera` once from the URL hash, validates it against the
+   * resolved scope envelope (`hashCameraInScope`), and gates the idle write-back
+   * (`writeBackGate`). MapSurface is a thin pass-through; all optional
+   * (legacy/test callers omit them → no hash behavior).
+   */
+  initialHashCamera?: ViewboxCamera;
+  hashCameraInScope?: boolean | null;
+  writeBackGate?: {
+    scopeActiveRef: RefObject<boolean>;
+    scopeMoveUntilRef: RefObject<number>;
+  };
 }
 
 /**
@@ -128,6 +143,9 @@ export function MapSurface({
   clampPad,
   detailOpen = false,
   activeThemeId,
+  initialHashCamera,
+  hashCameraInScope,
+  writeBackGate,
 }: MapSurfaceProps) {
   /**
    * O7 (#786): GL-recovery counter. Bumping this key clears the ErrorBoundary's
@@ -195,6 +213,9 @@ export function MapSurface({
             {...(clampPad !== undefined ? { clampPad } : {})}
             detailOpen={detailOpen}
             {...(activeThemeId !== undefined ? { activeThemeId } : {})}
+            {...(initialHashCamera ? { initialHashCamera } : {})}
+            {...(hashCameraInScope !== undefined ? { hashCameraInScope } : {})}
+            {...(writeBackGate ? { writeBackGate } : {})}
           />
         </React.Suspense>
       </div>

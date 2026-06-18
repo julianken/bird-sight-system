@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import { ZIP_FLYTO_ZOOM } from '@/state/scope-types.js';
 import {
@@ -8,6 +8,8 @@ import {
   zoomAwareClampBounds,
 } from '@/components/map/geometry/camera-config.js';
 import type { LngLatBounds } from '@/components/map/geometry/mask.js';
+import { encodeViewbox } from '@/state/viewbox-link.js';
+import type { ViewboxCamera } from '@/state/viewbox-link.js';
 
 /**
  * Scope-camera hook (extracted verbatim from `MapCanvas.tsx`, epic #884 · U12 /
@@ -63,9 +65,26 @@ export interface ScopeCameraMap {
   ) => void;
   getCenter: () => { lng: number; lat: number };
   setMaxBounds: (bounds: LngLatBounds) => void;
-  jumpTo: (options: { center: { lng: number; lat: number }; zoom: number }) => void;
+  // #1242 (C4) — `jumpTo` gained optional `bearing`/`pitch` so the hash-camera
+  // restore can apply a rotated/tilted viewbox (the codec carries them, AC6).
+  // The scope-reframe corrector still calls it with only `{ center, zoom }`
+  // (north-up), so both fields stay optional.
+  jumpTo: (options: {
+    center: { lng: number; lat: number };
+    zoom: number;
+    bearing?: number;
+    pitch?: number;
+  }) => void;
   once: (type: 'moveend', listener: () => void) => void;
-  off: (type: 'moveend', listener: () => void) => void;
+  // #1242 (C4) — `off` now also detaches the `idle` write-back listener.
+  off: (type: 'idle' | 'moveend', listener: () => void) => void;
+  // #1242 (C4) — read-back surface for the idle write-back: the live camera the
+  // encoder serializes into the `#map=` hash. `on('idle')` registers the
+  // debounced writer; the getters read the settled camera.
+  getZoom: () => number;
+  getBearing: () => number;
+  getPitch: () => number;
+  on: (type: 'idle', listener: () => void) => void;
 }
 
 /**
@@ -76,8 +95,26 @@ export interface ScopeCameraMapRef {
   getMap: () => ScopeCameraMap;
 }
 
+/**
+ * #1242 (C4) — first-paint camera reconstructed from a `#map=` viewbox hash.
+ * Highest-precedence `initialViewState` variant: when a (raw, mount-known) hash
+ * camera is present, the FIRST PAINT lands directly on it — so a copied link's
+ * captured view shows with no CONUS/scope flash, BEFORE `/api/states` resolves
+ * and independent of the imperative effect (AC1). `longitude`/`latitude`/`zoom`
+ * (+ optional `bearing`/`pitch`, AC6) is the uncontrolled react-map-gl shape,
+ * mirroring `INITIAL_VIEW`.
+ */
+export interface HashInitialViewState {
+  longitude: number;
+  latitude: number;
+  zoom: number;
+  bearing?: number;
+  pitch?: number;
+}
+
 /** The mount `initialViewState` the `<Map>` is constructed with. */
 export type ScopeInitialViewState =
+  | HashInitialViewState
   | {
       bounds: LngLatBounds;
       fitBoundsOptions: { padding: typeof FIT_BOUNDS_PADDING; maxZoom: number };
@@ -136,20 +173,45 @@ export interface ScopeBounds {
  * @param viewportSpan live `[lngSpan, latSpan]` in degrees (from the last camera
  *                     settle) for the zoom-aware clamp; undefined at mount, where
  *                     the clamp reduces to the static `padBounds(bounds, clampPad)`.
+ * @param initialHashCamera #1242 (C4) — RAW camera parsed from a `#map=` hash
+ *                     (App.tsx, once at mount). HIGHEST PRECEDENCE for the
+ *                     first-paint `initialViewState` only: when present it frames
+ *                     the first paint on the captured view (no scope/CONUS flash),
+ *                     regardless of `bounds`. Does NOT touch `activeBounds`/
+ *                     `clampBounds` — those stay scope-derived so `maxBounds` and
+ *                     the imperative fit target remain the scope envelope (AC5).
  */
 export function computeScopeBounds(
   bounds: LngLatBounds | undefined,
   clampPad: number | undefined,
   viewportSpan?: [number, number],
+  initialHashCamera?: ViewboxCamera,
 ): ScopeBounds {
   const activeBounds = bounds ?? CONUS_BOUNDS;
   const clampBounds =
     bounds && clampPad
       ? zoomAwareClampBounds(bounds, clampPad, viewportSpan)
       : activeBounds;
-  const initialViewState: ScopeInitialViewState = bounds
-    ? { bounds, fitBoundsOptions: { padding: FIT_BOUNDS_PADDING, maxZoom: 12 } }
-    : INITIAL_VIEW;
+  // First-paint precedence: hash camera > scope bounds frame > legacy CONUS.
+  // Only the mount frame is affected; the clamp + fit target stay scope-derived.
+  let initialViewState: ScopeInitialViewState;
+  if (initialHashCamera) {
+    initialViewState = {
+      longitude: initialHashCamera.lng,
+      latitude: initialHashCamera.lat,
+      zoom: initialHashCamera.zoom,
+      ...(initialHashCamera.bearing !== undefined
+        ? { bearing: initialHashCamera.bearing }
+        : {}),
+      ...(initialHashCamera.pitch !== undefined
+        ? { pitch: initialHashCamera.pitch }
+        : {}),
+    };
+  } else if (bounds) {
+    initialViewState = { bounds, fitBoundsOptions: { padding: FIT_BOUNDS_PADDING, maxZoom: 12 } };
+  } else {
+    initialViewState = INITIAL_VIEW;
+  }
   return { activeBounds, clampBounds, initialViewState };
 }
 
@@ -191,7 +253,48 @@ export function computeScopeBounds(
  * @param viewportSpan        live `[lngSpan, latSpan]` (deg) from the last camera
  *                            settle, feeding the #1059 zoom-aware clamp; undefined
  *                            at mount (clamp falls back to the static padded value)
+ * @param hashRestore         #1242 (C4) — the viewbox-restore wiring. Optional;
+ *                            absent for legacy/test callers (no hash behavior).
+ *                            See {@link HashRestoreOptions}.
  */
+export interface HashRestoreOptions {
+  /**
+   * RAW camera parsed once from the `#map=` hash (App.tsx, non-reactive). Drives
+   * the first-paint `initialViewState` AND the imperative first-run suppression
+   * — both mount-known, so a copied link never flashes the scope/CONUS view.
+   * `undefined` when there is no `#map=` (normal scope-derived load).
+   */
+  camera?: ViewboxCamera;
+  /**
+   * VALIDATION verdict of `camera`'s center against the RESOLVED scope envelope
+   * (App.tsx, reactive — `null` while `/api/states` is still holding CONUS,
+   * `true` once validated in-scope, `false` once validated out-of-scope). The
+   * imperative restore waits for a non-null verdict so it never locks onto a
+   * transient holding-CONUS pass (AC5: an out-of-scope hash must fall back to
+   * the scope `fitBounds`, not stick under the artboard mask). Drives the
+   * effect's re-fire (it is in the dep array) so the decision lands even if the
+   * map `load` event beats `/api/states`.
+   */
+  inScope?: boolean | null;
+  /**
+   * Live gate inputs for the idle WRITE-BACK, read at `idle` time (NOT render
+   * time) so the verdict is always fresh:
+   *   - `scopeActiveRef`     — true while a scope is active (App's live mirror).
+   *   - `scopeMoveUntilRef`  — timestamp through which the programmatic-camera
+   *                            settle window is open; the write-back fires only
+   *                            once `Date.now()` has passed it.
+   * The write-back therefore fires ONLY on a genuine user pan, never during the
+   * scope reframe / hash restore animation. Absent ⇒ no write-back (legacy/test
+   * callers). Passing the two refs (rather than a pre-computed boolean) is
+   * load-bearing: a boolean computed at render time would be stale at `idle`
+   * time, since the settle window closes between renders.
+   */
+  writeBackGate?: {
+    scopeActiveRef: RefObject<boolean>;
+    scopeMoveUntilRef: RefObject<number>;
+  };
+}
+
 export function useScopeCamera(
   mapRef: RefObject<ScopeCameraMapRef | null>,
   mapReady: boolean,
@@ -201,11 +304,19 @@ export function useScopeCamera(
   clampPad: number | undefined,
   prefersReducedMotionRef: RefObject<boolean>,
   viewportSpan?: [number, number],
-): { clampBounds: LngLatBounds; initialViewState: ScopeInitialViewState } {
+  hashRestore?: HashRestoreOptions,
+): {
+  clampBounds: LngLatBounds;
+  initialViewState: ScopeInitialViewState;
+  restoredHashCamera: ViewboxCamera | null;
+} {
+  const hashCamera = hashRestore?.camera;
+  const hashInScope = hashRestore?.inScope ?? null;
   const { activeBounds, clampBounds, initialViewState } = computeScopeBounds(
     bounds,
     clampPad,
     viewportSpan,
+    hashCamera,
   );
 
   /**
@@ -217,8 +328,77 @@ export function useScopeCamera(
    */
   const initialViewStateRef = useRef(initialViewState);
 
+  // #1242 (C4) — hash-restore state. `hashSettledRef` latches the one-time
+  // decision (restore the hash OR fall back to the scope fit) so a later
+  // SAME-scope effect re-run (e.g. the #850 framing churn) can't clobber it.
+  // `mountBoundsKeyRef` pins the `boundsKey` AT MOUNT: the holding→real-envelope
+  // transition keeps the SAME key (App.tsx), so `boundsKey === mountBoundsKey`
+  // is the "still the initial scope" test (AC2 — a genuine later scope change
+  // flips the key and is NOT suppressed). `restoredCameraRef` holds the camera
+  // we actually applied, surfaced for the `data-hash-camera` e2e handle.
+  const hashSettledRef = useRef(false);
+  const mountBoundsKeyRef = useRef(boundsKey);
+  // STATE (not a ref) so a restore triggers a re-render — MapCanvas then emits
+  // the `data-hash-camera` attribute for the GPU-free e2e assertion (a ref
+  // mutation would not re-render and the attribute would never appear).
+  const [restoredHashCamera, setRestoredHashCamera] = useState<ViewboxCamera | null>(null);
+  // MIRROR of the above in a ref, for the EFFECT's internal reads. The effect
+  // must NOT depend on `restoredHashCamera` (state) — listing it would re-fire
+  // the camera effect when the restore sets it, double-running fitBounds on a
+  // genuine scope change (the clear→re-run→fitBounds-again class). A ref carries
+  // the value into the effect without participating in the trigger set.
+  const restoredHashCameraRef = useRef<ViewboxCamera | null>(null);
+  const setRestoredHashBoth = (cam: ViewboxCamera | null) => {
+    restoredHashCameraRef.current = cam;
+    setRestoredHashCamera(cam);
+  };
+
   useEffect(() => {
     if (!mapReady) return;
+    const atMountScope = boundsKey === mountBoundsKeyRef.current;
+
+    // ── #1242 (C4) third, HIGHEST-PRECEDENCE branch: restore the `#map=` hash ──
+    // Runs only on the INITIAL scope (mount-value `boundsKey` guard) and only
+    // once (`hashSettledRef`). It precedes flyTo/fitBounds so a copied link wins
+    // over the scope framing on cold load.
+    if (hashCamera && atMountScope && !hashSettledRef.current) {
+      const map = mapRef.current?.getMap();
+      if (!map) return;
+      if (hashInScope === null) {
+        // Validation pending (states table still holding CONUS). SUPPRESS the
+        // scope fit so there is no CONUS flash — the first paint already shows
+        // the hash camera. We re-run when `inScope` resolves (it is a dep).
+        return;
+      }
+      hashSettledRef.current = true;
+      if (hashInScope === true) {
+        // In-scope: lock onto the captured view. `jumpTo` (synchronous, no
+        // animation) lands exactly on it — rotation/tilt included (AC6).
+        map.jumpTo({
+          center: { lng: hashCamera.lng, lat: hashCamera.lat },
+          zoom: hashCamera.zoom,
+          ...(hashCamera.bearing !== undefined ? { bearing: hashCamera.bearing } : {}),
+          ...(hashCamera.pitch !== undefined ? { pitch: hashCamera.pitch } : {}),
+        });
+        setRestoredHashBoth(hashCamera);
+        return; // suppress the scope fitBounds on this first run (AC1)
+      }
+      // hashInScope === false → out of scope (AC5): fall through to the normal
+      // scope flyTo/fitBounds so the camera frames the scope, not the stray hash.
+    } else if (hashSettledRef.current && atMountScope && restoredHashCameraRef.current) {
+      // The hash was restored for this initial scope; a later same-scope
+      // re-run (framing churn) must NOT re-frame over it. A genuine scope change
+      // flips `boundsKey` (atMountScope false) and skips this guard (AC2).
+      return;
+    } else if (!atMountScope && restoredHashCameraRef.current) {
+      // AC2 — a GENUINE scope change reframes via fitBounds/flyTo below; the
+      // restored hash camera is now stale (the camera no longer shows it), so
+      // clear the `data-hash-camera` handle. Falls through to the scope reframe.
+      // The ref clears synchronously (no re-fire); the state clears for the
+      // attribute on the consequent render.
+      setRestoredHashBoth(null);
+    }
+
     if (boundsKey === undefined && flyTo === undefined) return;
     const map = mapRef.current?.getMap();
     if (!map) return;
@@ -362,7 +542,72 @@ export function useScopeCamera(
     // preference on the NEXT reframe while the effect stays keyed only on real
     // scope changes. The ref is intentionally NOT listed (refs are stable; ESLint
     // would not require it anyway).
-  }, [mapReady, boundsKey, flyTo?.key]);
+    //
+    // #1242 (C4): `hashInScope` IS a dep — the hash-restore branch above must
+    // re-run when the validation verdict resolves (null→true/false) so the
+    // decision lands even when the map `load` event beats `/api/states`. The
+    // mount-value `boundsKey` guard keeps that re-run scoped to the initial
+    // scope; a genuine scope change is still the `boundsKey` trigger. The
+    // restored camera is read through `restoredHashCameraRef` (NOT the state) so
+    // a restore does not re-fire the effect and double-run fitBounds.
+  }, [mapReady, boundsKey, flyTo?.key, hashCamera, hashInScope]);
 
-  return { clampBounds, initialViewState: initialViewStateRef.current };
+  // #1242 (C4) — debounced idle WRITE-BACK. A `map.on('idle')` listener
+  // serializes the live camera into the `#map=` hash via `replaceState` only
+  // (never pushState / synthetic popstate — a viewbox write must not grow the
+  // history stack or re-fire `useUrlState`'s popstate read). Idempotent: skips
+  // when the encoded hash equals the live one. Gated on `writeBackEnabledRef`
+  // (App: `scopeActive` AND past the scope-move settle window) so it fires only
+  // on genuine user pans, never during the scope reframe / hash restore.
+  const writeBackGate = hashRestore?.writeBackGate;
+  useEffect(() => {
+    if (!mapReady) return;
+    if (!writeBackGate) return;
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+    const { scopeActiveRef, scopeMoveUntilRef } = writeBackGate;
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const WRITE_DEBOUNCE_MS = 300;
+    const writeHash = () => {
+      // Evaluate the gate LIVE (the settle window closes between renders): only
+      // write on a genuine user pan — scope active AND past the camera-settle
+      // window. Never during the scope reframe / hash restore animation.
+      if (!scopeActiveRef.current) return;
+      if (Date.now() < (scopeMoveUntilRef.current ?? 0)) return;
+      const center = map.getCenter();
+      const camera: ViewboxCamera = {
+        zoom: map.getZoom(),
+        lat: center.lat,
+        lng: center.lng,
+      };
+      const bearing = map.getBearing();
+      const pitch = map.getPitch();
+      if (bearing !== 0) camera.bearing = bearing;
+      if (pitch !== 0) camera.pitch = pitch;
+      const next = `#${encodeViewbox(camera)}`;
+      // Idempotent no-op guard: skip the write (and the history churn) when the
+      // serialized camera is byte-identical to what is already in the bar.
+      if (window.location.hash === next) return;
+      window.history.replaceState(window.history.state, '', next);
+    };
+    const onIdle = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(writeHash, WRITE_DEBOUNCE_MS);
+    };
+    map.on('idle', onIdle);
+    return () => {
+      if (timer) clearTimeout(timer);
+      map.off('idle', onIdle);
+    };
+    // mapReady is the gate; writeBackEnabledRef is a stable ref (read live in
+    // writeHash). No other deps — the listener is registered once per map load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapReady]);
+
+  return {
+    clampBounds,
+    initialViewState: initialViewStateRef.current,
+    restoredHashCamera,
+  };
 }
