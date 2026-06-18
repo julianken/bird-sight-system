@@ -530,6 +530,22 @@ body {
   margin: 0;
 }
 
+/* sr-only live-region disambiguation hooks (C2 #1240). Both spans carry
+   .sr-only (which does the visual hiding), so these rules never paint — they
+   exist so each className has a matching CSS selector (orphan-className gate)
+   AND so the two role="status" aria-live regions in the header are
+   distinguishable by class:
+     .app-header-scope-status — the "Showing {region}." scope-change announcer
+       (AppHeader.tsx, identity card).
+     .app-header-copy-status  — the CopyViewLinkButton "Link copied" / failure
+       confirmation (controls pill).
+   See state-scope.spec.ts (targets the scope region by this class) and
+   copy-view-link.spec.ts (targets the copy region by text/testid). */
+.app-header-scope-status,
+.app-header-copy-status {
+  margin: 0;
+}
+
 /* Row 2: Lede wrapper. #828: freshness line removed — count-only lede. */
 .app-header-lede-row {
   display: flex;
@@ -790,9 +806,11 @@ body {
   /* #1230 MUST-FIX #4: at mobile the top-right cluster read as jammed
      edge-to-edge. Widen the inter-icon gap from --space-xs (4px) to --space-sm
      (8px) so the touch targets have a comfortable separation. C2 (#1240) added a
-     4th pill (Copy link), so the pill is now FOUR 44px targets: 4×44 + 3×8 gap +
-     ~16 padding ≈ 216px, still within the 224px budget the identity-card cap
-     (below) reserves for it. */
+     4th pill (Copy link), so the pill is now FOUR 44px targets:
+       4 × 44px target + 3 × 8px gap + 2 × 12px (--card-padding-tight inline)
+         + 2 × 1px border = 176 + 24 + 24 + 2 = 226px.
+     The identity-card cap (below) reserves 240px for it (= 226px pill +
+     12px right inset + ~2px cushion). */
   .app-header-controls-pill {
     gap: var(--space-sm);
   }
@@ -800,28 +818,36 @@ body {
      compact-specific hide is needed (it was visible at roomy/wide pre-#828). */
 
   /* ── Compact header: identity card must not overlap the controls pill ──────
-     At <480px the controls pill (4 × 44px touch targets + pill padding + gaps
-     ≈ 224px) sits top-right at --card-inset (12px). The identity card is
-     anchored top-left at the same inset. Without a width cap the card's
-     max-inline-size of 360px extends past the pill's left edge, causing a
-     large overlap (the pill sits on top of the card's wordmark row).
+     At <480px the controls pill sits top-right at --card-inset (12px). The
+     identity card is anchored top-left at the same inset. Without a width cap
+     the card's max-inline-size of 360px extends past the pill's left edge,
+     causing a large overlap (the pill sits on top of the card's wordmark row).
 
      Fix: cap the identity card at the space left of the controls pill.
-       available = 100% (viewport) − left-inset − pill-width(≈224px) − gap
-       = 100% − 12px − 224px − 8px  = 100% − 244px
+       available = 100% (viewport) − card-inset − pill-reserve(240px) − card-gap
 
-     This guarantees ≥ 8px clearance between the card's right edge and the
-     pill's left edge at every compact width (360–479px), matching spec §3
-     mobile ASCII art: "Bird Maps  ⛛ ⓘ 🔗 ☀" on one non-overlapping top row.
-     The lede sits below the wordmark inside the card and wraps naturally
-     within the narrower column; the scope form (when expanded) does too.
+     Pill-reserve = the distance from the viewport's right edge to the pill's
+     LEFT edge, plus a small cushion:
+       pill width  = 4 × 44px target + 3 × 8px gap (--space-sm at <480px)
+                     + 2 × 12px inline padding (--card-padding-tight = 8px 12px)
+                     + 2 × 1px border
+                   = 176 + 24 + 24 + 2 = 226px
+       + 12px right inset (--card-inset)             → 238px to the pill's left
+       + ~2px cushion (sub-pixel + the 44px floor)   → 240px
+     So with card-gap (8px) the card's right edge lands ≈10px left of the pill's
+     left edge — a real clearance, not a hairline (the geometry guard in
+     map-root-geometry.spec.ts asserts intersectX ≤ 0.5px at 390×844).
 
-     C2 (#1240) re-derivation: the cluster gained a 4th pill (🔗 Copy link), so
-     the compact pill is now Filters + Credits + Copy link + Theme = 4 × 44px +
-     3 × 8px gap + 2 × 8px (--space-sm) padding ≈ 216px. Rounded up to 224px for
-     safe clearance (the Theme trigger and Filters icon both fit the 44px floor;
-     none carries a label below `wide`, so 44px each is the binding width). The
-     180px literal that held for the 3-pill C8 cluster is superseded.
+     This matches spec §3 mobile ASCII art: "Bird Maps  ⛛ ⓘ 🔗 ☀" on one
+     non-overlapping top row. The lede sits below the wordmark inside the card
+     and wraps naturally within the narrower column; the scope form (when
+     expanded) does too.
+
+     C2 (#1240) re-derivation history: the prior 224px reserve under-counted the
+     pill — it used 8px (not 12px) inline padding and omitted the 1px borders,
+     landing 2px short → a ~6px overlap at 390px. The real pill is 226px; 240px
+     is 226 + the 12px right inset + a ~2px cushion. The 180px literal that held
+     for the 3-pill C8 cluster is superseded.
 
      C8 (#1220 / PR #1235 rework) note: the ThemeSelector is a single icon
      TRIGGER + transient popover at EVERY breakpoint — one 44px footprint, the
@@ -830,7 +856,7 @@ body {
      Filters + Copy link gain text labels, but this max-width:480px rule does not
      apply there and the desktop layout has ample room left of the pill. */
   .app-header-identity-card {
-    max-inline-size: calc(100% - var(--card-inset) - 224px - var(--card-gap));
+    max-inline-size: calc(100% - var(--card-inset) - 240px - var(--card-gap));
   }
 }
 

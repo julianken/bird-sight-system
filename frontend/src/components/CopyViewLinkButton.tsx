@@ -411,8 +411,18 @@ export function CopyViewLinkButton({ getCamera, labeled }: CopyViewLinkButtonPro
 
       {/* Confirmation live region — a visually-hidden role="status" SIBLING
           span (NOT aria-live on the button). Announces success / the failure
-          instruction. Matches the AppHeader scope-change announcer pattern. */}
-      <span className="sr-only" role="status" aria-live="polite">
+          instruction. Matches the AppHeader scope-change announcer pattern.
+          `app-header-copy-status` + the data-testid disambiguate it from the
+          AppHeader scope-change region (`.app-header-scope-status`): both are
+          role="status" aria-live="polite" inside `header.app-header`, so a bare
+          `span[role="status"]` header query would resolve to BOTH (strict-mode
+          violation). Specs target each region by its own class/testid. */}
+      <span
+        className="sr-only app-header-copy-status"
+        role="status"
+        aria-live="polite"
+        data-testid="copy-link-status"
+      >
         {status}
       </span>
 

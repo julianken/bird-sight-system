@@ -467,9 +467,14 @@ export function AppHeader({
             context-strip lede previously provided. Renders whenever region is
             non-null (including during cold-load suppression when ledeText is null,
             matching that element's original unconditional announcement
-            semantics). */}
+            semantics).
+            C2 (#1240): the `app-header-scope-status` class is the disambiguating
+            hook. The header now holds a SECOND role="status" aria-live region —
+            the CopyViewLinkButton's `.app-header-copy-status` confirmation — so
+            specs targeting THIS region must select on this class, not the bare
+            `span[role="status"]` (which would match both). */}
         {region && (
-          <span className="sr-only" role="status" aria-live="polite">
+          <span className="sr-only app-header-scope-status" role="status" aria-live="polite">
             Showing {region}.
           </span>
         )}
