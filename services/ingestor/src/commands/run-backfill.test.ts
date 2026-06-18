@@ -152,9 +152,9 @@ describe('runBackfill', () => {
     // eBird's limits effective 2026-06-10 include a 1 req/sec burst cap. The
     // daily 04:00 backfill previously defaulted paceMs to 0 — up to 20
     // back-to-back /historic calls with no pacing. Pin the new default
-    // behaviorally via the setTimeout spy (no exported constant — knip flags
-    // test-only exports): days=2 with the default → exactly one 1500ms pacing
-    // sleep (between the two historic calls; never before the first).
+    // behaviorally via the setTimeout spy (no exported constant): days=2 with
+    // the default → exactly one 1500ms pacing sleep (between the two historic
+    // calls; never before the first).
     server.use(
       http.get('https://api.ebird.org/v2/data/obs/US-AZ/recent/notable', () => HttpResponse.json([])),
       http.get('https://api.ebird.org/v2/data/obs/US-AZ/historic/:y/:m/:d', () => HttpResponse.json([])),

@@ -8,7 +8,7 @@
  * the `?scope=us` whole-US view and the ZIP→state resolution prototype.
  *
  * Run once with `node gen-canned.mjs`; the JSON is committed, this script is
- * not part of any build pipeline (knip-ignored — see knip.ts).
+ * not part of any build pipeline.
  */
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
