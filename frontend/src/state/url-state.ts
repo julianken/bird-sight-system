@@ -200,8 +200,20 @@ function writeUrl(state: UrlState, push: boolean = false): void {
     p.set('scope', 'us');
   }
   const q = p.toString();
-  const newUrl = q ? `${window.location.pathname}?${q}` : window.location.pathname;
-  if (newUrl !== window.location.pathname + window.location.search) {
+  // #1242 (C4) — PRESERVE `window.location.hash`. The camera viewbox link
+  // (`#map=<z>/<lat>/<lng>`, epic #1238) lives ENTIRELY in the hash; the
+  // pathname+search this function rebuilds never contains it. Before this fix
+  // `newUrl` was `pathname[?search]` with no hash, so every filter / scope /
+  // detail `set()` `replaceState`'d to a hash-LESS URL and silently wiped the
+  // viewbox — a copied link's restored camera vanished the moment the user
+  // toggled any filter. Append the live hash so it rides through unchanged. The
+  // change-guard below compares against `pathname+search+hash` for the same
+  // reason (a search-only diff would still skip the write that re-attaches the
+  // hash on a no-op search change, but a hash drift alone never triggers a
+  // write — writeUrl is never the hash's writer; the camera write-back owns it).
+  const hash = window.location.hash;
+  const newUrl = (q ? `${window.location.pathname}?${q}` : window.location.pathname) + hash;
+  if (newUrl !== window.location.pathname + window.location.search + hash) {
     if (push) {
       // Detail-surface entry: push so browser-back returns to the prior
       // surface. All other navigations replace (filter changes, tab switches,

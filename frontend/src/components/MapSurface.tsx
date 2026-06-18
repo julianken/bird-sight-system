@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { MutableRefObject } from 'react';
+import type { MutableRefObject, RefObject } from 'react';
 import type { LngLatBounds } from 'maplibre-gl';
 // GeoJSON `MultiPolygon` comes from `geojson` (@types/geojson), NOT maplibre-gl
 // (5.x does not re-export it). `import type`, erased at build — see mask.ts.
@@ -99,6 +99,19 @@ export interface MapSurfaceProps {
    */
   activeThemeId?: ThemeId;
   /**
+   * #1242 (C4) — viewbox-restore wiring, forwarded VERBATIM to <MapCanvas>. App
+   * parses `initialHashCamera` once from the URL hash, validates it against the
+   * resolved scope envelope (`hashCameraInScope`), and gates the idle write-back
+   * (`writeBackGate`). MapSurface is a thin pass-through; all optional
+   * (legacy/test callers omit them → no hash behavior).
+   */
+  initialHashCamera?: ViewboxCamera;
+  hashCameraInScope?: boolean | null;
+  writeBackGate?: {
+    scopeActiveRef: RefObject<boolean>;
+    scopeMoveUntilRef: RefObject<number>;
+  };
+  /**
    * C2 (#1240) — live-camera exposure ref, forwarded VERBATIM to <MapCanvas>.
    * MapCanvas populates `.current` with a live getter so App's "Copy link"
    * control can read the camera at click time. Thin pass-through; optional.
@@ -136,6 +149,9 @@ export function MapSurface({
   clampPad,
   detailOpen = false,
   activeThemeId,
+  initialHashCamera,
+  hashCameraInScope,
+  writeBackGate,
   cameraRef,
 }: MapSurfaceProps) {
   /**
@@ -204,6 +220,9 @@ export function MapSurface({
             {...(clampPad !== undefined ? { clampPad } : {})}
             detailOpen={detailOpen}
             {...(activeThemeId !== undefined ? { activeThemeId } : {})}
+            {...(initialHashCamera ? { initialHashCamera } : {})}
+            {...(hashCameraInScope !== undefined ? { hashCameraInScope } : {})}
+            {...(writeBackGate ? { writeBackGate } : {})}
             {...(cameraRef ? { cameraRef } : {})}
           />
         </React.Suspense>

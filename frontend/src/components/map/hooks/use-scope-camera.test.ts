@@ -1,5 +1,13 @@
-import { describe, it, expect } from 'vitest';
-import { computeScopeBounds } from './use-scope-camera.js';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
+import { renderHook } from '@testing-library/react';
+import { createRef } from 'react';
+import type { RefObject } from 'react';
+import { computeScopeBounds, useScopeCamera } from './use-scope-camera.js';
+import type {
+  ScopeCameraMap,
+  ScopeCameraMapRef,
+  HashRestoreOptions,
+} from './use-scope-camera.js';
 import {
   CONUS_BOUNDS,
   FIT_BOUNDS_PADDING,
@@ -9,6 +17,7 @@ import {
 } from '@/components/map/geometry/camera-config.js';
 import { padBounds } from '@/components/map/geometry/mask.js';
 import type { LngLatBounds } from '@/components/map/geometry/mask.js';
+import { encodeViewbox } from '@/state/viewbox-link.js';
 
 /* ── computeScopeBounds — pure scope bounds-math (U12 / #897) ─────────────────
    The three derived camera values factored out of MapCanvas.tsx's render body:
@@ -135,5 +144,313 @@ describe('computeScopeBounds', () => {
       const { initialViewState } = computeScopeBounds(undefined, undefined);
       expect(initialViewState).toBe(INITIAL_VIEW);
     });
+
+    // #1242 (C4) — a `#map=` hash camera is the HIGHEST-PRECEDENCE first-paint
+    // frame: it wins over the scope bounds frame AND the legacy CONUS view so a
+    // copied link's captured view shows with no flash. It touches ONLY the mount
+    // frame — activeBounds / clampBounds stay scope-derived (AC5).
+    describe('hash-camera precedence (#1242)', () => {
+      const HASH_CAM = { zoom: 11.5, lat: 32.221, lng: -110.974 };
+
+      it('frames the first paint on the hash camera (lng/lat/zoom) when present, over scope bounds', () => {
+        const { initialViewState } = computeScopeBounds(AZ_BOUNDS, 1.0, undefined, HASH_CAM);
+        expect(initialViewState).toEqual({
+          longitude: -110.974,
+          latitude: 32.221,
+          zoom: 11.5,
+        });
+      });
+
+      it('carries optional bearing/pitch into the first paint (AC6)', () => {
+        const { initialViewState } = computeScopeBounds(AZ_BOUNDS, 1.0, undefined, {
+          ...HASH_CAM,
+          bearing: 45,
+          pitch: 30,
+        });
+        expect(initialViewState).toEqual({
+          longitude: -110.974,
+          latitude: 32.221,
+          zoom: 11.5,
+          bearing: 45,
+          pitch: 30,
+        });
+      });
+
+      it('leaves activeBounds + clampBounds scope-derived (hash does NOT touch the fit target / clamp)', () => {
+        const { activeBounds, clampBounds } = computeScopeBounds(
+          AZ_BOUNDS,
+          1.0,
+          undefined,
+          HASH_CAM,
+        );
+        // The fit target stays the tight scope envelope and the clamp stays the
+        // padded artboard — both unaffected by the hash camera (AC5 maxBounds).
+        expect(activeBounds).toEqual(AZ_BOUNDS);
+        expect(clampBounds).toEqual(padBounds(AZ_BOUNDS, 1.0));
+      });
+
+      it('falls back to the scope bounds frame when no hash camera is supplied', () => {
+        const { initialViewState } = computeScopeBounds(AZ_BOUNDS, 1.0, undefined, undefined);
+        expect(initialViewState).toEqual({
+          bounds: AZ_BOUNDS,
+          fitBoundsOptions: { padding: FIT_BOUNDS_PADDING, maxZoom: 12 },
+        });
+      });
+    });
+  });
+});
+
+/* ── useScopeCamera — #1242 (C4) hash restore + write-back ────────────────────
+   The imperative effect's third (highest-precedence) hash branch and the
+   debounced idle write-back. A hand-rolled fake map (the narrow
+   `ScopeCameraMap` surface) spies the camera methods; `idle` listeners are
+   captured so a test can fire a settle. */
+
+/** Build a fake `ScopeCameraMap` + a ref to it, capturing the `idle` listeners. */
+function makeFakeMap(center = { lng: -110.974, lat: 32.221 }) {
+  const idleListeners: Array<() => void> = [];
+  const map = {
+    flyTo: vi.fn(),
+    cameraForBounds: vi.fn(() => ({ center: { lng: -111.93, lat: 34 }, zoom: 6 })),
+    fitBounds: vi.fn(),
+    getCenter: vi.fn(() => center),
+    setMaxBounds: vi.fn(),
+    jumpTo: vi.fn(),
+    once: vi.fn(),
+    off: vi.fn(),
+    getZoom: vi.fn(() => 11.5),
+    getBearing: vi.fn(() => 0),
+    getPitch: vi.fn(() => 0),
+    on: vi.fn((type: 'idle', listener: () => void) => {
+      if (type === 'idle') idleListeners.push(listener);
+    }),
+  } satisfies ScopeCameraMap;
+  const ref: RefObject<ScopeCameraMapRef | null> = createRef<ScopeCameraMapRef>();
+  ref.current = { getMap: () => map };
+  const fireIdle = () => idleListeners.forEach(l => l());
+  return { map, ref, fireIdle };
+}
+
+const PRM_FALSE: RefObject<boolean> = { current: false };
+// AZ_BOUNDS already declared above; a hash camera inside it.
+const AZ_HASH = { zoom: 11.5, lat: 32.221, lng: -110.974 };
+
+describe('useScopeCamera — hash restore (#1242)', () => {
+  it('jumpTo the hash camera on first run when in-scope, and SUPPRESSES the scope fitBounds (AC1)', () => {
+    const { map, ref } = makeFakeMap();
+    renderHook(() =>
+      useScopeCamera(ref, true, AZ_BOUNDS, 'US-AZ', undefined, 1.0, PRM_FALSE, undefined, {
+        camera: AZ_HASH,
+        inScope: true,
+      } satisfies HashRestoreOptions),
+    );
+    expect(map.jumpTo).toHaveBeenCalledTimes(1);
+    expect(map.jumpTo).toHaveBeenCalledWith({
+      center: { lng: AZ_HASH.lng, lat: AZ_HASH.lat },
+      zoom: AZ_HASH.zoom,
+    });
+    // The scope fit is suppressed on the first run (the hash wins).
+    expect(map.fitBounds).not.toHaveBeenCalled();
+    expect(map.flyTo).not.toHaveBeenCalled();
+  });
+
+  it('applies bearing/pitch via jumpTo when the hash carries rotation (AC6)', () => {
+    const { map, ref } = makeFakeMap();
+    renderHook(() =>
+      useScopeCamera(ref, true, AZ_BOUNDS, 'US-AZ', undefined, 1.0, PRM_FALSE, undefined, {
+        camera: { ...AZ_HASH, bearing: 45, pitch: 30 },
+        inScope: true,
+      }),
+    );
+    expect(map.jumpTo).toHaveBeenCalledWith({
+      center: { lng: AZ_HASH.lng, lat: AZ_HASH.lat },
+      zoom: AZ_HASH.zoom,
+      bearing: 45,
+      pitch: 30,
+    });
+  });
+
+  it('returns restoredHashCamera = the applied camera (drives the data-hash-camera handle)', () => {
+    const { ref } = makeFakeMap();
+    const { result } = renderHook(() =>
+      useScopeCamera(ref, true, AZ_BOUNDS, 'US-AZ', undefined, 1.0, PRM_FALSE, undefined, {
+        camera: AZ_HASH,
+        inScope: true,
+      }),
+    );
+    expect(result.current.restoredHashCamera).toEqual(AZ_HASH);
+  });
+
+  it('falls back to the scope fitBounds when the hash is OUT of scope (AC5)', () => {
+    const { map, ref } = makeFakeMap();
+    renderHook(() =>
+      useScopeCamera(ref, true, AZ_BOUNDS, 'US-AZ', undefined, 1.0, PRM_FALSE, undefined, {
+        camera: { zoom: 6, lat: 31.0, lng: -99.0 }, // a Texas center, outside AZ
+        inScope: false,
+      }),
+    );
+    // No restore — the scope fit runs instead, framing the AZ envelope.
+    expect(map.jumpTo).not.toHaveBeenCalled();
+    expect(map.fitBounds).toHaveBeenCalledTimes(1);
+    expect(map.fitBounds.mock.calls[0]?.[0]).toEqual(AZ_BOUNDS);
+  });
+
+  it('SUPPRESSES the scope fit while validation is pending (inScope=null) — no flash before /api/states (AC1)', () => {
+    const { map, ref } = makeFakeMap();
+    renderHook(() =>
+      useScopeCamera(ref, true, CONUS_BOUNDS, 'US-AZ', undefined, 1.0, PRM_FALSE, undefined, {
+        camera: AZ_HASH,
+        inScope: null,
+      }),
+    );
+    // Neither restored NOR scope-fit — the first paint (hash) holds while undecided.
+    expect(map.jumpTo).not.toHaveBeenCalled();
+    expect(map.fitBounds).not.toHaveBeenCalled();
+  });
+
+  it('restores on the holding→real transition: inScope null→true re-runs and jumps the hash (load beats /api/states)', () => {
+    const { map, ref } = makeFakeMap();
+    const props = {
+      camera: AZ_HASH as typeof AZ_HASH,
+      inScope: null as boolean | null,
+    };
+    const { rerender } = renderHook(
+      (p: { camera: typeof AZ_HASH; inScope: boolean | null }) =>
+        useScopeCamera(ref, true, CONUS_BOUNDS, 'US-AZ', undefined, 1.0, PRM_FALSE, undefined, {
+          camera: p.camera,
+          inScope: p.inScope,
+        }),
+      { initialProps: props },
+    );
+    // Pending: suppressed.
+    expect(map.jumpTo).not.toHaveBeenCalled();
+    // /api/states resolves AZ in-scope.
+    rerender({ camera: AZ_HASH, inScope: true });
+    expect(map.jumpTo).toHaveBeenCalledTimes(1);
+    expect(map.fitBounds).not.toHaveBeenCalled();
+  });
+
+  it('a genuine LATER scope change ignores the consumed hash and reframes via fitBounds (AC2)', () => {
+    const { map, ref } = makeFakeMap();
+    const { rerender } = renderHook(
+      (p: { boundsKey: string; bounds: LngLatBounds }) =>
+        useScopeCamera(ref, true, p.bounds, p.boundsKey, undefined, 1.0, PRM_FALSE, undefined, {
+          camera: AZ_HASH,
+          inScope: true,
+        }),
+      { initialProps: { boundsKey: 'US-AZ', bounds: AZ_BOUNDS } },
+    );
+    expect(map.jumpTo).toHaveBeenCalledTimes(1); // restored AZ
+    expect(map.fitBounds).not.toHaveBeenCalled();
+
+    // User switches to a different state — a new boundsKey. The hash is ignored.
+    const FL_BOUNDS: LngLatBounds = [
+      [-87.63, 24.52],
+      [-80.03, 31.0],
+    ];
+    rerender({ boundsKey: 'US-FL', bounds: FL_BOUNDS });
+    expect(map.fitBounds).toHaveBeenCalledTimes(1);
+    expect(map.fitBounds.mock.calls[0]?.[0]).toEqual(FL_BOUNDS);
+  });
+
+  it('does NOT restore until mapReady (the load gate still holds)', () => {
+    const { map, ref } = makeFakeMap();
+    const { rerender } = renderHook(
+      (p: { ready: boolean }) =>
+        useScopeCamera(ref, p.ready, AZ_BOUNDS, 'US-AZ', undefined, 1.0, PRM_FALSE, undefined, {
+          camera: AZ_HASH,
+          inScope: true,
+        }),
+      { initialProps: { ready: false } },
+    );
+    expect(map.jumpTo).not.toHaveBeenCalled();
+    rerender({ ready: true });
+    expect(map.jumpTo).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useScopeCamera — idle write-back (#1242)', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  const gate = (active: boolean, until: number) => ({
+    scopeActiveRef: { current: active } as RefObject<boolean>,
+    scopeMoveUntilRef: { current: until } as RefObject<number>,
+  });
+
+  it('writes the live camera to the hash via replaceState on idle when the gate is open', () => {
+    const replaceSpy = vi.spyOn(window.history, 'replaceState');
+    window.location.hash = '';
+    const { ref, fireIdle } = makeFakeMap({ lng: -111.5, lat: 33.0 });
+    renderHook(() =>
+      useScopeCamera(ref, true, AZ_BOUNDS, 'US-AZ', undefined, 1.0, PRM_FALSE, undefined, {
+        writeBackGate: gate(true, 0), // active + settle window already closed
+      }),
+    );
+    fireIdle();
+    vi.advanceTimersByTime(300); // debounce
+    const expected = `#${encodeViewbox({ zoom: 11.5, lat: 33.0, lng: -111.5 })}`;
+    expect(replaceSpy).toHaveBeenCalledTimes(1);
+    expect(replaceSpy.mock.calls[0]?.[2]).toBe(expected);
+    replaceSpy.mockRestore();
+  });
+
+  it('NEVER pushState (replaceState only — no history growth)', () => {
+    const pushSpy = vi.spyOn(window.history, 'pushState');
+    const { ref, fireIdle } = makeFakeMap({ lng: -111.5, lat: 33.0 });
+    renderHook(() =>
+      useScopeCamera(ref, true, AZ_BOUNDS, 'US-AZ', undefined, 1.0, PRM_FALSE, undefined, {
+        writeBackGate: gate(true, 0),
+      }),
+    );
+    fireIdle();
+    vi.advanceTimersByTime(300);
+    expect(pushSpy).not.toHaveBeenCalled();
+    pushSpy.mockRestore();
+  });
+
+  it('does NOT write while the scope-move settle window is still open (gated on scopeMoveUntilRef)', () => {
+    const replaceSpy = vi.spyOn(window.history, 'replaceState');
+    const { ref, fireIdle } = makeFakeMap();
+    renderHook(() =>
+      useScopeCamera(ref, true, AZ_BOUNDS, 'US-AZ', undefined, 1.0, PRM_FALSE, undefined, {
+        writeBackGate: gate(true, Date.now() + 5000), // window open for 5s
+      }),
+    );
+    fireIdle();
+    vi.advanceTimersByTime(300);
+    expect(replaceSpy).not.toHaveBeenCalled();
+    replaceSpy.mockRestore();
+  });
+
+  it('does NOT write while unscoped (scopeActive false)', () => {
+    const replaceSpy = vi.spyOn(window.history, 'replaceState');
+    const { ref, fireIdle } = makeFakeMap();
+    renderHook(() =>
+      useScopeCamera(ref, true, AZ_BOUNDS, 'US-AZ', undefined, 1.0, PRM_FALSE, undefined, {
+        writeBackGate: gate(false, 0),
+      }),
+    );
+    fireIdle();
+    vi.advanceTimersByTime(300);
+    expect(replaceSpy).not.toHaveBeenCalled();
+    replaceSpy.mockRestore();
+  });
+
+  it('is idempotent — skips the write when the encoded hash is unchanged', () => {
+    const { ref, fireIdle } = makeFakeMap({ lng: -111.5, lat: 33.0 });
+    // Pre-set the hash to exactly what the live camera encodes.
+    window.location.hash = `#${encodeViewbox({ zoom: 11.5, lat: 33.0, lng: -111.5 })}`;
+    const replaceSpy = vi.spyOn(window.history, 'replaceState');
+    renderHook(() =>
+      useScopeCamera(ref, true, AZ_BOUNDS, 'US-AZ', undefined, 1.0, PRM_FALSE, undefined, {
+        writeBackGate: gate(true, 0),
+      }),
+    );
+    fireIdle();
+    vi.advanceTimersByTime(300);
+    expect(replaceSpy).not.toHaveBeenCalled();
+    replaceSpy.mockRestore();
+    window.location.hash = '';
   });
 });
