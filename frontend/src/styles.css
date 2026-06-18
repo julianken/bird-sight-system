@@ -805,14 +805,30 @@ body {
   }
   /* #1230 MUST-FIX #4: at mobile the top-right cluster read as jammed
      edge-to-edge. Widen the inter-icon gap from --space-xs (4px) to --space-sm
-     (8px) so the touch targets have a comfortable separation. C2 (#1240) added a
-     4th pill (Copy link), so the pill is now FOUR 44px targets:
-       4 × 44px target + 3 × 8px gap + 2 × 12px (--card-padding-tight inline)
-         + 2 × 1px border = 176 + 24 + 24 + 2 = 226px.
-     The identity-card cap (below) reserves 240px for it (= 226px pill +
-     12px right inset + ~2px cushion). */
+     (8px) so the touch targets have a comfortable separation.
+
+     C2 (#1240) added a 4th pill (Copy link). At 12px inline padding that made
+     the pill 226px and left the identity-card wordmark a ~1px window — "Bird
+     Maps" rendered at exactly its content width with zero margin, so a sub-pixel
+     font-metric difference between environments tipped scrollWidth (45px) past
+     clientWidth (44px) and applied an ellipsis (mobile-bundle-e.spec.ts:35).
+     Rather than thread a 1px-precise card cap, WIDEN THE WINDOW: at compact, drop
+     the pill's inline padding from --card-padding-tight (12px) to --space-sm (8px)
+     while keeping the 44px touch targets. That trims the pill 8px (226 → 218px)
+     and pushes its left edge 8px rightward (152 → 160px at 390px), recovering
+     room for both a healthy overlap clearance AND a comfortable wordmark margin.
+
+     New compact pill width (measured at 390px):
+       4 × 44px target + 3 × 8px gap (--space-sm) + 2 × 8px inline padding
+         (--space-sm) + 2 × 1px border = 176 + 24 + 16 + 2 = 218px.
+     The identity-card cap (below) reserves 230px for it (= 218px pill +
+     12px right inset; the card then clears the pill by ~6px). */
   .app-header-controls-pill {
     gap: var(--space-sm);
+    /* Block padding stays --space-sm (8px); only the inline padding tightens
+       from 12px to 8px to win back width — buttons keep their 44px floor. */
+    padding-block: var(--space-sm);
+    padding-inline: var(--space-sm);
   }
   /* #828: the region-name <h1> is .sr-only at every breakpoint now, so no
      compact-specific hide is needed (it was visible at roomy/wide pre-#828). */
@@ -824,30 +840,40 @@ body {
      causing a large overlap (the pill sits on top of the card's wordmark row).
 
      Fix: cap the identity card at the space left of the controls pill.
-       available = 100% (viewport) − card-inset − pill-reserve(240px) − card-gap
+       available = 100% (viewport) − card-inset − pill-reserve(230px) − card-gap
 
      Pill-reserve = the distance from the viewport's right edge to the pill's
-     LEFT edge, plus a small cushion:
-       pill width  = 4 × 44px target + 3 × 8px gap (--space-sm at <480px)
-                     + 2 × 12px inline padding (--card-padding-tight = 8px 12px)
-                     + 2 × 1px border
-                   = 176 + 24 + 24 + 2 = 226px
-       + 12px right inset (--card-inset)             → 238px to the pill's left
-       + ~2px cushion (sub-pixel + the 44px floor)   → 240px
-     So with card-gap (8px) the card's right edge lands ≈10px left of the pill's
-     left edge — a real clearance, not a hairline (the geometry guard in
-     map-root-geometry.spec.ts asserts intersectX ≤ 0.5px at 390×844).
+     LEFT edge. With the compact inline padding tightened to --space-sm (above),
+     the pill is 218px wide (measured at 390px):
+       pill width  = 4 × 44px target + 3 × 8px gap (--space-sm)
+                     + 2 × 8px inline padding (--space-sm) + 2 × 1px border
+                   = 176 + 24 + 16 + 2 = 218px
+       + 12px right inset (--card-inset)              → 230px to the pill's left
+     So pill.left = 390 − 230 = 160px, and with card-gap (8px) the cap lands the
+     card's right edge at 152px — an 8px clearance left of the pill, comfortably
+     in the middle of the available window (the geometry guard in
+     map-root-geometry.spec.ts asserts intersectX ≤ 0.5px at 390×844; measured 0).
+
+     This window-width also fixes the wordmark squeeze. At the prior 240px reserve
+     + 12px pill padding the card was 130px and "Bird Maps · USA" wrapped to its
+     content width with a ~1px margin — a sub-pixel font-metric difference tipped
+     scrollWidth (45px) past clientWidth (44px), applying an ellipsis
+     (mobile-bundle-e.spec.ts:35). The 230px reserve makes the card 140px, wide
+     enough that the full wordmark sits on ONE line (54px box) with ~86px of slack
+     (measured scrollWidth 54 == clientWidth 54, zero overflow) — no longer a
+     1px-precise knife-edge.
 
      This matches spec §3 mobile ASCII art: "Bird Maps  ⛛ ⓘ 🔗 ☀" on one
      non-overlapping top row. The lede sits below the wordmark inside the card
      and wraps naturally within the narrower column; the scope form (when
      expanded) does too.
 
-     C2 (#1240) re-derivation history: the prior 224px reserve under-counted the
-     pill — it used 8px (not 12px) inline padding and omitted the 1px borders,
-     landing 2px short → a ~6px overlap at 390px. The real pill is 226px; 240px
-     is 226 + the 12px right inset + a ~2px cushion. The 180px literal that held
-     for the 3-pill C8 cluster is superseded.
+     C2 (#1240) re-derivation history: the first C2 fix raised the reserve to
+     240px for a 226px pill (12px inline padding). That cleared the overlap but
+     left the wordmark a 1px window. This follow-up trims the compact pill to
+     218px (8px inline padding) and drops the reserve to 230px so BOTH the overlap
+     clearance (8px) and the wordmark margin (~86px) sit well off any edge. The
+     180px literal that held for the 3-pill C8 cluster is long superseded.
 
      C8 (#1220 / PR #1235 rework) note: the ThemeSelector is a single icon
      TRIGGER + transient popover at EVERY breakpoint — one 44px footprint, the
@@ -856,7 +882,7 @@ body {
      Filters + Copy link gain text labels, but this max-width:480px rule does not
      apply there and the desktop layout has ample room left of the pill. */
   .app-header-identity-card {
-    max-inline-size: calc(100% - var(--card-inset) - 240px - var(--card-gap));
+    max-inline-size: calc(100% - var(--card-inset) - 230px - var(--card-gap));
   }
 }
 
