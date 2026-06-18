@@ -48,6 +48,8 @@ import { DisplacedSilhouetteLayer } from './layers/DisplacedSilhouetteLayer.js';
 import { registerSilhouetteSprite } from './geometry/silhouette-sprite.js';
 import { useSilhouetteCatalogue } from './hooks/use-silhouette-catalogue.js';
 import { useMapResize } from './hooks/use-map-resize.js';
+import { useMarkerConvergence } from './hooks/use-marker-convergence.js';
+import { analytics } from '../../analytics.js';
 import { useScopeCamera } from './hooks/use-scope-camera.js';
 import { useStateArtboard } from './hooks/use-state-artboard.js';
 import { loadSanitizedStyle } from './geometry/basemap-style-sanitizer.js';
@@ -778,6 +780,17 @@ export function MapCanvas({
         : observationsToGeoJson(observations, silhouettes),
     [aggregated, buckets, observations, silhouettes],
   );
+
+  // Marker-convergence watchdog (#1236) — self-contained; see use-marker-convergence.ts.
+  // Removability: this one call + that file ARE the whole feature; reconcile is untouched.
+  useMarkerConvergence(mapRef, mapReady, geojson, {
+    onTelemetry: ({ attempts, elapsedMs }) =>
+      analytics.capture('marker_convergence_backstop', {
+        attempts,
+        elapsedMs: Math.round(elapsedMs),
+        mode: aggregated ? 'aggregated' : 'observations',
+      }),
+  });
 
   // Tracks the map's current zoom for hit-target gating. The hit-layer
   // (#247, #277) renders DOM `<button>` overlays for auto-spider stacks +

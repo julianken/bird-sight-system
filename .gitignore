@@ -36,6 +36,12 @@ frontend/.playwright-out/
 frontend/.playwright-out-snapshot-gen/
 frontend/playwright-report/
 
+# replay-viewbox run output (#1241) — per-run screenshots + replay-report.json +
+# replay-diff.md the `replay:viewbox` operator tool writes (default
+# ./replay-out/<timestamp> under the frontend workspace). Operator-local and
+# regenerable — never commit.
+frontend/replay-out/
+
 # Playwright MCP runtime artifacts — may contain page snapshots of credential
 # flows (API key creation, OAuth callbacks). Never commit.
 .playwright-mcp/

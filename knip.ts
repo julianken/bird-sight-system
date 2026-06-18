@@ -214,6 +214,37 @@ const config: KnipConfig = {
         //   first PRODUCTION `src` consumer (CopyViewLinkButton.tsx imports
         //   `encodeViewbox`), so knip now traces it as USED with no ignore
         //   needed. (Self-healing, exactly as the C1 entry's comment foretold.)
+        // 2026-06-16 (C3, #1241): scripts/replay-viewbox.ts is the committed
+        //             replay-viewbox operator tool (epic #1238) — a standalone
+        //             Playwright script (chromium.launch() API) that opens N
+        //             `#map=…&v=…` viewbox links at their captured viewport +
+        //             camera and diffs the live /api/observations responses. It
+        //             lives in `scripts/` — OUTSIDE the frontend `src`-only graph
+        //             (frontend/tsconfig.json `include` is ["src"]; tsc -b +
+        //             vite build ignore `scripts/`) — and has NO test sibling (it
+        //             is an operator tool, not a spec — see #1241's "no new
+        //             @playwright/test spec"), so nothing in the src graph
+        //             imports it.
+        //             NOTE: as shipped, knip resolves the frontend
+        //             `replay:viewbox` package script (`tsx
+        //             scripts/replay-viewbox.ts`) as a project ENTRY point, so it
+        //             already traces this file as USED and currently emits a
+        //             "Remove from ignore" CONFIGURATION HINT for this entry
+        //             (exit 0 — the same harmless class as the kept
+        //             docs/plans/2026-04-22-map-v1-prototype/prototype/** and
+        //             src/state/viewbox-link.ts entries above; hints do not
+        //             change the exit code or gate the Mergify queue). The entry
+        //             is kept deliberately as the AC-required guard so the file
+        //             stays covered if knip's npm-script entry detection ever
+        //             changes or the `replay:viewbox` script is removed/renamed —
+        //             either of which would otherwise flip the file to a genuine
+        //             unused-file finding (exit 1, which reds the required
+        //             `knip (informational)` check and blocks the queue).
+        //             Risk: masks a genuine orphan if the script is abandoned
+        //             on disk after its npm script is deleted. Re-audit
+        //             2026-07-27 by confirming frontend/package.json still has a
+        //             `replay:viewbox` script pointing at this file.
+        'scripts/replay-viewbox.ts',
         // ds/index.ts barrel deleted in the map split (it had zero importers —
         // all consumers import ds/ primitives by direct path), so the ignore
         // entry that silenced its "unused barrel" finding is gone with it.
