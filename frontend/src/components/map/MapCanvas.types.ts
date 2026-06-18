@@ -9,6 +9,7 @@
 // GeoJSON structural types come from `geojson` (@types/geojson), NOT maplibre-gl
 // (5.x does not re-export them). All imports below are `import type`, erased at
 // build — see mask.ts for the same idiom.
+import type { MutableRefObject } from 'react';
 import type { MultiPolygon } from 'geojson';
 import type { RefObject } from 'react';
 import type { AggregatedBucket, FamilySilhouette, Observation } from '@bird-watch/shared-types';
@@ -202,6 +203,19 @@ export interface MapCanvasProps {
     scopeActiveRef: RefObject<boolean>;
     scopeMoveUntilRef: RefObject<number>;
   };
+  /**
+   * C2 (#1240, epic #1238) — live-camera exposure for the "Copy link to this
+   * view" control. `MapCanvas` holds the private MapLibre `getMap()` ref; the
+   * header needs to read the LIVE camera (zoom/center/bearing/pitch) at click
+   * time. Rather than convert this component to `forwardRef` (a large surface
+   * threaded through MapSurface's React.lazy boundary), App passes a ref here
+   * and MapCanvas populates `.current` with a LIVE getter that reads the map on
+   * each call — `null` until the map is ready, then a fresh `ViewboxCamera` per
+   * invocation. App reads it through the button's `getCamera` prop. Cleared to
+   * `null` on unmount so a stale closure never reads a torn-down map. Optional;
+   * legacy/test callers omit it.
+   */
+  cameraRef?: MutableRefObject<(() => ViewboxCamera | null) | null>;
 }
 
 /**

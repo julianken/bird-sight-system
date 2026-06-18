@@ -1125,6 +1125,19 @@ export function App() {
   // (current: HTMLButtonElement | null), matching AppHeaderProps.filtersTriggerRef.
   const filtersTriggerRef = useRef<HTMLButtonElement>(null);
 
+  // C2 (#1240, epic #1238) — live-camera bridge for the "Copy link to this view"
+  // control. MapCanvas (whose private `getMap()` ref owns the live camera)
+  // populates `cameraRef.current` with a getter that reads zoom/center/bearing/
+  // pitch on EACH call. `getCamera` is the stable wrapper threaded to <AppHeader>
+  // → <CopyViewLinkButton> as its `getCamera` prop, read at CLICK time — so a
+  // mid-pan click copies exactly what's on screen. Returns `null` until the map
+  // is ready (cold mount) or while unscoped (the map is idle behind the chooser
+  // and `cameraRef.current` is null), making the click a clean no-op then.
+  const cameraRef = useRef<(() => ViewboxCamera | null) | null>(null);
+  const getCamera = useCallback((): ViewboxCamera | null => {
+    return cameraRef.current?.() ?? null;
+  }, []);
+
   // O1 (#776) — camera data-attributes on #map-layer.
   // data-scope-fitted starts false on each new boundsKey/flyTo change and flips
   // true after SCOPE_MOVE_SETTLE_MS (the same window that suppresses idle refetch
@@ -1394,6 +1407,10 @@ export function App() {
         onResolveZip={onResolveZip}
         activeThemeId={activeThemeId}
         onSelectTheme={setThemeId}
+        // C2 (#1240): live-camera reader for the "Copy link to this view" pill.
+        // Reads the current camera at click time; returns null (clean no-op)
+        // until the map is ready / while unscoped.
+        getCamera={getCamera}
       />
       {/* O2 (#770) — "Explore map markers" skip-link. WCAG 2.4.1 (Bypass
           Blocks): renders as the FIRST interactive App-root element after
@@ -1535,6 +1552,9 @@ export function App() {
             {...(rawHashCamera ? { initialHashCamera: rawHashCamera } : {})}
             hashCameraInScope={hashCameraInScope}
             writeBackGate={writeBackGate}
+            // C2 (#1240): MapCanvas populates this with a live-camera getter so
+            // the "Copy link" pill (in AppHeader) reads the camera at click time.
+            cameraRef={cameraRef}
           />
         </div>
       )}

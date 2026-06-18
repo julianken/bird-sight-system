@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { RefObject } from 'react';
+import type { MutableRefObject, RefObject } from 'react';
 import type { LngLatBounds } from 'maplibre-gl';
 // GeoJSON `MultiPolygon` comes from `geojson` (@types/geojson), NOT maplibre-gl
 // (5.x does not re-export it). `import type`, erased at build — see mask.ts.
@@ -111,6 +111,12 @@ export interface MapSurfaceProps {
     scopeActiveRef: RefObject<boolean>;
     scopeMoveUntilRef: RefObject<number>;
   };
+  /**
+   * C2 (#1240) — live-camera exposure ref, forwarded VERBATIM to <MapCanvas>.
+   * MapCanvas populates `.current` with a live getter so App's "Copy link"
+   * control can read the camera at click time. Thin pass-through; optional.
+   */
+  cameraRef?: MutableRefObject<(() => ViewboxCamera | null) | null>;
 }
 
 /**
@@ -146,6 +152,7 @@ export function MapSurface({
   initialHashCamera,
   hashCameraInScope,
   writeBackGate,
+  cameraRef,
 }: MapSurfaceProps) {
   /**
    * O7 (#786): GL-recovery counter. Bumping this key clears the ErrorBoundary's
@@ -216,6 +223,7 @@ export function MapSurface({
             {...(initialHashCamera ? { initialHashCamera } : {})}
             {...(hashCameraInScope !== undefined ? { hashCameraInScope } : {})}
             {...(writeBackGate ? { writeBackGate } : {})}
+            {...(cameraRef ? { cameraRef } : {})}
           />
         </React.Suspense>
       </div>

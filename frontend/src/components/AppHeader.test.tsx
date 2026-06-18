@@ -33,6 +33,10 @@ const baseProps = {
   // the scope disclosure + Filters panel (single-header-popover invariant).
   activeThemeId: 'positron' as const,
   onSelectTheme: vi.fn(),
+  // C2 (#1240): live-camera reader for the "Copy link to this view" pill. The
+  // default returns a fixed AZ camera so the button renders + clicks in tests;
+  // tests that assert on the copy behavior live in CopyViewLinkButton.test.tsx.
+  getCamera: vi.fn(() => ({ zoom: 12.5, lat: 34.0489, lng: -111.0937 })),
 };
 
 describe('<AppHeader>', () => {
@@ -83,8 +87,11 @@ describe('<AppHeader>', () => {
 
   it('keeps the role="status" scope announcement (region still announced — no regression)', () => {
     render(<AppHeader {...baseProps} region="Arizona" />);
-    const status = screen.getByRole('status');
-    expect(status).toHaveTextContent('Showing Arizona.');
+    // C2 (#1240) added a SECOND role="status" region inside the controls pill
+    // (the Copy-link confirmation, initially empty). The scope announcement is
+    // the one carrying the "Showing {region}." text — assert that one directly.
+    const statuses = screen.getAllByRole('status');
+    expect(statuses.some((s) => s.textContent === 'Showing Arizona.')).toBe(true);
   });
 
   // ── No tablist / Map nav ────────────────────────────────────────────────
