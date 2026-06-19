@@ -287,6 +287,14 @@ export function CopyViewLinkButton({ getCamera, labeled }: CopyViewLinkButtonPro
       resetTimerRef.current = setTimeout(() => {
         setCopyState('idle');
         setStatus('');
+        // Recipe-10 exit: clear the success-check's `data-state="in"`. That
+        // state runs `t-check-fade … forwards`, which pins the check at
+        // opacity:1 with FILL-MODE forwards — and a forwards animation value
+        // overrides the icon-swap's static `opacity:0` for the now-hidden icon.
+        // So flipping the OUTER wrapper back to 'a' alone leaves the drawn check
+        // stuck on top of the link glyph; we must drop `data-state` back to
+        // 'out' here so the static `opacity:0` wins and the check fades away.
+        checkRef.current?.setAttribute('data-state', 'out');
       }, COPIED_MS);
     } else {
       // Last resort: surface the link as a selectable, prefilled field and
@@ -299,6 +307,11 @@ export function CopyViewLinkButton({ getCamera, labeled }: CopyViewLinkButtonPro
         setCopyState('idle');
         setStatus('');
         setFallbackLink(null);
+        // Symmetric with the success reset above. The check never entered 'in'
+        // on the error path (failure must not read as success), so this is a
+        // harmless no-op here — kept only so both reset callbacks return the
+        // check wrapper to a known 'out' state.
+        checkRef.current?.setAttribute('data-state', 'out');
       }, ERROR_MS);
     }
   }, [getCamera, replayCheck]);
