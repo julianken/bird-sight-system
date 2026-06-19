@@ -10,7 +10,7 @@
     "ingest:local": "tsx src/cli.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1067.0",
+    "@aws-sdk/client-s3": "^3.1072.0",
     "@bird-watch/db-client": "*",
     "@bird-watch/geo": "*",
     "@bird-watch/shared-types": "*",
@@ -23,6 +23,6 @@
     "msw": "^2.14.6",
     "testcontainers": "^11.14.0",
     "tsx": "^4.22.4",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.9"
   }
 }

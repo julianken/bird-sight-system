@@ -10,12 +10,12 @@
   },
   "dependencies": {
     "@bird-watch/shared-types": "*",
-    "pg": "^8.21.0"
+    "pg": "^8.22.0"
   },
   "devDependencies": {
     "@testcontainers/postgresql": "^10.7.0",
     "@types/pg": "^8.11.0",
     "testcontainers": "^11.14.0",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.9"
   }
 }
