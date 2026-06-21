@@ -129,7 +129,9 @@ test.describe('Copy link to this view (C2 · #1240)', () => {
     ).toHaveCount(1);
   });
 
-  test('does NOT mutate the app URL bar (clipboard only — Part 2 owns URL writes)', async ({ page }) => {
+  test('the Copy-link CLICK does not mutate the app URL bar (clipboard only — #1249 write-back owns URL writes)', async ({
+    page,
+  }) => {
     await installClipboardSpy(page);
     const app = new AppPage(page);
     await app.goto();
@@ -137,13 +139,35 @@ test.describe('Copy link to this view (C2 · #1240)', () => {
     await app.waitForMapLoad();
     await app.waitForCameraReady();
 
+    // The camera→hash write-back (#1249, use-scope-camera.ts) is an INDEPENDENT
+    // `map.on('idle')` listener that serializes the live camera into `#map=` via
+    // `replaceState` once the scope-settle window closes. It fires regardless of
+    // any Copy-link interaction. This test owns the COPY-CLICK contract — that the
+    // click is clipboard-only and does NOT itself touch `location`/`history` — so
+    // we must first let the independent write-back settle, THEN measure the URL
+    // delta caused by the click alone. Asserting "URL never contains `#map=`"
+    // (the pre-#1249 premise) is now provably wrong and races the write-back.
+    //
+    // Settle the write-back: wait until `#map=` lands on the bar (it will, on the
+    // first post-fit idle), then snapshot both the URL and the history length.
+    await expect
+      .poll(() => page.url(), { timeout: 10_000 })
+      .toContain('#map=');
     const before = page.url();
+    const lengthBefore = await page.evaluate(() => window.history.length);
+
     await app.copyViewLinkButton.click();
     await expect.poll(async () => (await readCopied(page)).length, { timeout: 5_000 }).toBe(1);
+    // Give any (illegitimate) click-driven URL write a chance to land before we
+    // assert it did NOT happen — longer than the write-back's 300ms idle debounce.
+    await page.waitForTimeout(500);
 
-    // The location must be unchanged — no `#map=` pushed onto the app's own URL.
+    // The click added nothing to the URL: the location is byte-identical to the
+    // post-write-back snapshot, and no `pushState` grew the history stack. If
+    // Copy-link ever starts writing the URL (the regression this guards), one of
+    // these fails — the value would differ, or a pushState would bump the length.
     expect(page.url()).toBe(before);
-    expect(page.url()).not.toContain('#map=');
+    expect(await page.evaluate(() => window.history.length)).toBe(lengthBefore);
   });
 
   test('icon-only below wide; labeled at wide', async ({ page }) => {
