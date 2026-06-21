@@ -20,7 +20,7 @@
     "@bird-watch/photo-quality": "*",
     "@bird-watch/shared-types": "*",
     "@eleatic/eval": "^0.1.0",
-    "better-sqlite3": "^11.8.1",
+    "better-sqlite3": "^12.11.1",
     "commander": "^15.0.0",
     "express": "^5.2.1",
     "sharp": "^0.35.2"
