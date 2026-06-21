@@ -63,10 +63,19 @@ updates:
         update-types: ["minor", "patch"]
     ignore:
       # Cloudflare provider v5 requires HCL rewrites via tf-migrate
-      # (cloudflare_record → cloudflare_dns_record, r2_bucket_binding shape,
-      # workers_script attribute renames). Closed #201. Re-enable after a
-      # coordinated v5 migration PR lands.
+      # (cloudflare_record -> cloudflare_dns_record, r2_bucket_binding shape,
+      # workers_script attribute renames). Migration plan #392 merged but the
+      # migration PR #393 was closed unmerged — v5 is NOT yet done.
+      #
+      # NOTE (#1251, 2026-06-21): versions.tf pins a RANGE constraint, so
+      # Dependabot raises these as "version requirement" updates, which
+      # update-types: [version-update:semver-major] does NOT match — that is why
+      # #201 (5.18), #343 (5.19) and #1251 (5.20) all regenerated past the old
+      # rule. The `versions` range below is what actually suppresses
+      # constraint-requirement majors; keep update-types as belt-and-suspenders.
+      # Re-enable (remove this block) only after a coordinated v5 migration lands.
       - dependency-name: "cloudflare/cloudflare"
+        versions: [">= 5.0.0"]
         update-types: ["version-update:semver-major"]
     labels:
       - "area:infra"
