@@ -43,10 +43,12 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "@types/react-dom"
         update-types: ["version-update:semver-major"]
-      # @types/node major must track the Node runtime — which is pinned to
-      # LTS via the `node` ignore on the Docker entries below. Without this
-      # rule, Dependabot proposes @types/node majors ahead of the runtime
-      # (e.g., #231 bumped it to 25 while Docker stays on 20).
+      # @types/node major must track the Node runtime — now Node 24 (LTS):
+      # CI, the `engines.node >=24` floor, and the Docker base images all sit
+      # on 24, pinned to LTS via the `node` ignore on the Docker entries
+      # below. This rule keeps @types/node at the runtime major (24) so
+      # Dependabot can't run ahead — e.g., #231 bumped it to 25 while the
+      # runtime was still on 20.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
     labels:
