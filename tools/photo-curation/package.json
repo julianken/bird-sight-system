@@ -21,7 +21,7 @@
     "@bird-watch/shared-types": "*",
     "better-sqlite3": "^11.8.1",
     "commander": "^13.1.0",
-    "eleatic": "github:julianken/eleatic#v0.1.0",
+    "eleatic": "github:julianken/eleatic#v0.2.0",
     "express": "^5.2.1",
     "sharp": "^0.35.1"
   },
