@@ -4,7 +4,7 @@
 - **Status:** Approved design; pending implementation plan
 - **Author:** Julian (brainstormed with Claude)
 - **Repo:** `julianken/bird-sight-system` (local `bird-watch/`)
-- **Artifacts produced:** a committed Playwright harness (`frontend/audits/map-consistency/`), a project agent (`.claude/agents/map-consistency-auditor.md`), and a project skill (`.claude/skills/map-consistency-audit/SKILL.md`).
+- **Artifacts produced:** a committed Playwright harness (`frontend/scripts/map-consistency/`), a project agent (`.claude/agents/map-consistency-auditor.md`), and a project skill (`.claude/skills/map-consistency-audit/SKILL.md`).
 
 ---
 
@@ -40,7 +40,7 @@ Three artifacts plus one human-in-the-loop orchestrator touchpoint.
 
 | Artifact | Path | Role |
 |---|---|---|
-| **Harness** (engine) | `frontend/audits/map-consistency/` | Standalone headless-Playwright script (run via `tsx`, **not** a `*.spec.ts`). Drives prod, captures evidence, evaluates relations, writes the brief. A subagent can run it via Bash — that is what makes it delegatable; MCP browsers cannot be driven by subagents. |
+| **Harness** (engine) | `frontend/scripts/map-consistency/` | Standalone headless-Playwright script (run via `tsx`, **not** a `*.spec.ts`). Drives prod, captures evidence, evaluates relations, writes the brief. A subagent can run it via Bash — that is what makes it delegatable; MCP browsers cannot be driven by subagents. |
 | **Agent** | `.claude/agents/map-consistency-auditor.md` | Project subagent (mirrors the `dependabot` agent). Runs the harness, applies triage judgment + carve-outs, ranks findings, writes/curates the brief, **stops for Julian's confirmation**. Tools: Bash, Read, Grep, Glob, TodoWrite (no MCP). |
 | **Skill** | `.claude/skills/map-consistency-audit/SKILL.md` | Runbook + knowledge: the MR catalog with tolerances/carve-outs, the CF pacing guard, the two-stage hash-wait protocol, the legend-expand step, the brief schema, and the triage→confirm→file flow. Loaded by the agent and the orchestrator. |
 | **Orchestrator MCP** (confirm) | — | On a flagged finding, the orchestrator opens the `#map=` repro URL in chrome-devtools/Playwright MCP, eyeballs it, and captures the canonical screenshot for the eventual ticket. Human-in-loop, after the brief, before any GitHub action. |
@@ -86,8 +86,8 @@ Each relation: definition, the comparison, tolerance, and carve-outs (conditions
 *Zooming into a sub-region must conserve the count attributed to it.*
 - **MR-0a (server truth):** pick a parent view; choose a child bbox inside it; `expected = Σ parent network counts geographically inside child bbox`. Navigate to the child bbox; `actual = child view network total`. Assert `actual == expected`.
 - **MR-0b (rendered truth):** `parentClusterCount over the child area == Σ rendered cell counts after zooming into the child bbox`.
-- **Tolerance:** exact within a same-mode drill-down (both `aggregated`, or both `observations`). Across the **zoom-6 mode switch** or when `meta.truncated`, compare within a tolerance band and annotate the cause instead of flagging.
-- **Carve-outs:** `meta.truncated` on either side; `freshestObservationAt` differs between parent and child fetch (prod ingested new data mid-sample) → annotate as freshness-skew, downgrade severity.
+- **Tolerance:** exact (tol=0) **only** for observations↔observations drill-down (discrete points). Aggregated views use **centroids**, so a boundary bucket bins all-or-nothing → aggregated (and cross-mode / `truncated` / freshness-skewed) drill-downs use a tolerance band and only flag **LOSS** (`child < parent`); a **GAIN** is parent-grid coarseness or a row-capped parent, never a conservation bug. (Refined per bot review of #1267.)
+- **Carve-outs:** `meta.truncated` on either side; aggregated-centroid binning; `freshestObservationAt` differs between parent and child fetch (prod ingested new data mid-sample) → annotate as freshness-skew, downgrade severity.
 
 ### MR-8 — Desktop ↔ mobile parity (HEADLINE)
 *Same `#map=` camera must render the same coverage on desktop (1440×900) and mobile (390×844).*
@@ -135,7 +135,7 @@ Each relation: definition, the comparison, tolerance, and carve-outs (conditions
 
 ## 6. The harness
 
-`frontend/audits/map-consistency/` (TypeScript, run with `tsx`):
+`frontend/scripts/map-consistency/` (TypeScript, run with `tsx`):
 
 | Module | Responsibility |
 |---|---|
@@ -157,12 +157,12 @@ npm run audit:map-consistency --workspace @bird-watch/frontend -- \
 - `--samples N` (required, the headline knob), `--scope US|US-XX`, `--seed`, `--zoom-ladder`, `--viewports`, `--pace-ms`, `--base-url` (default prod), `--out` (default the gitignored `out/`).
 - Browser: headless `chromium` from `@playwright/test` (already a devDep).
 
-**Placement guard:** the file lives under `frontend/audits/` (NOT `frontend/e2e/`) and is named `audit.ts`, so the Playwright test runner's `testMatch` never picks it up. `out/` is gitignored.
+**Placement guard:** the file lives under `frontend/scripts/` (NOT `frontend/e2e/`) and is named `audit.ts`, so the Playwright test runner's `testMatch` never picks it up. `out/` is gitignored.
 
 ## 7. The findings brief (primary deliverable)
 
 ```
-frontend/audits/map-consistency/out/<UTC-timestamp>-seed<N>/
+frontend/audit-out/<UTC-timestamp>-seed<N>/
   brief.md                      # human brief: run metadata + summary table + per-finding writeups
   findings.json                 # machine-readable: every number, param, verdict, carve-out applied
   findings/<finding-id>/
@@ -229,17 +229,17 @@ frontend/audits/map-consistency/out/<UTC-timestamp>-seed<N>/
 ## 14. File manifest (what implementation creates)
 
 ```
-frontend/audits/map-consistency/audit.ts
-frontend/audits/map-consistency/sampler.ts
-frontend/audits/map-consistency/camera.ts
-frontend/audits/map-consistency/capture.ts
-frontend/audits/map-consistency/relations.ts
-frontend/audits/map-consistency/relations.test.ts
-frontend/audits/map-consistency/report.ts
-frontend/audits/map-consistency/README.md
+frontend/scripts/map-consistency/audit.ts
+frontend/scripts/map-consistency/sampler.ts
+frontend/scripts/map-consistency/camera.ts
+frontend/scripts/map-consistency/capture.ts
+frontend/scripts/map-consistency/relations.ts
+frontend/scripts/map-consistency/relations.test.ts
+frontend/scripts/map-consistency/report.ts
+frontend/scripts/map-consistency/README.md
 .claude/agents/map-consistency-auditor.md
 .claude/skills/map-consistency-audit/SKILL.md
 .claude/skills/map-consistency-audit/DESIGN.md   # this file
 frontend/package.json                            # + "audit:map-consistency" script
-.gitignore                                       # + frontend/audits/map-consistency/out/
+.gitignore                                       # + frontend/audit-out/
 ```
