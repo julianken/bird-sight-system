@@ -13,10 +13,12 @@ export function mulberry32(seed: number): () => number {
 
 export interface SeedPoint { lng: number; lat: number; }
 
-/** 80% density-weighted (by count) + 20% uniform-in-extent seeded sampling from
- *  the scope's low-zoom bucket centroids — most samples land where birds are,
- *  a few land anywhere (catches "empty area shows phantom count"). */
-export function sampleSeedPoints(points: GeoPoint[], n: number, seed: number, uniformFrac = 0.2): SeedPoint[] {
+/** Pure density-weighted (by count) seeded sampling from the scope's low-zoom
+ *  bucket centroids — every sample lands on real data (a bucket centroid), so a
+ *  seed never falls in the ocean / an empty area where there's nothing to fetch.
+ *  Pass `uniformFrac > 0` to mix in uniform-in-extent samples (catches "empty
+ *  area shows phantom count") at the cost of occasional ocean/empty seeds. */
+export function sampleSeedPoints(points: GeoPoint[], n: number, seed: number, uniformFrac = 0): SeedPoint[] {
   const rnd = mulberry32(seed);
   if (points.length === 0) return [];
   const total = points.reduce((s, p) => s + p.count, 0);

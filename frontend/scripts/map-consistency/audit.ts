@@ -9,7 +9,7 @@ import { evaluateSample } from './relations.js';
 import { writeBrief } from './report.js';
 import type { FilterBundle, Recapture, Sample, ViewSnapshot, Verdict, Viewport } from './types.js';
 
-interface Opts { samples: number; scope: string; seed: number; ladder: number[]; viewports: Viewport[]; paceMs: number; baseUrl: string; out: string; }
+interface Opts { samples: number; scope: string; seed: number; ladder: number[]; viewports: Viewport[]; paceMs: number; baseUrl: string; out: string; uniformFrac: number; }
 
 const OBS_PER_VIEW = 2; // national interstitial + matched hash fetch (worst case)
 const CF_SAFE_PER_MIN = 55; // margin under Cloudflare's 60/min/IP
@@ -30,6 +30,9 @@ function parse(argv: string[]): Opts {
     paceMs: Number(get('--pace-ms', '2500')),
     baseUrl: get('--base-url', 'https://bird-maps.com')!,
     out: get('--out', path.resolve(process.cwd(), 'audit-out', `${stamp}-seed${seed}`))!,
+    // Pure density-weighted by default (uniform sampling is opt-in; it can seed an
+    // ocean/empty point with no /api/observations fetch → per-view timeout stall).
+    uniformFrac: Number(get('--uniform-frac', '0')),
   };
 }
 
@@ -86,7 +89,7 @@ async function run(o: Opts): Promise<void> {
     // camera matcher times out. The z3 seed fetch is aggregated, so its buckets carry
     // both AggregatedFamily.code AND .name → build a name→code map once here.
     const familyNameToCode = familyCodeMap(seedView.raw.responseBody);
-    const seeds = sampleSeedPoints(seedSnap.network.points, o.samples, o.seed);
+    const seeds = sampleSeedPoints(seedSnap.network.points, o.samples, o.seed, o.uniformFrac);
 
     // Helper: capture one view at a camera (paced). A transient fetch hiccup
     // (occasional cold-edge `waitForResponse` timeout) must NOT abort the whole

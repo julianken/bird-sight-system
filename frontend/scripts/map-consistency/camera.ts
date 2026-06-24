@@ -87,7 +87,7 @@ export async function openView(
     else if (m.type() === 'warning') consoleWarnings.push(m.text());
   });
   const url = buildUrl(baseUrl, p);
-  const matched = waitForMatchingObs(page, p, opts?.timeoutMs ?? 25000);
+  const matched = waitForMatchingObs(page, p, opts?.timeoutMs ?? 15000);
   await page.goto(url, { waitUntil: 'commit' });
   const response = await matched;
   // Settle long enough for the adaptive-grid markers AND the family legend list
