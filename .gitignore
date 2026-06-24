@@ -42,6 +42,12 @@ frontend/playwright-report/
 # regenerable — never commit.
 frontend/replay-out/
 
+# map-consistency audit run output (#1269) — per-run findings.json the
+# `audit:map-consistency` operator tool writes (default
+# ./audit-out/<timestamp>-seed<N> under the frontend workspace). Operator-local
+# and regenerable — never commit.
+frontend/audit-out/
+
 # Playwright MCP runtime artifacts — may contain page snapshots of credential
 # flows (API key creation, OAuth callbacks). Never commit.
 .playwright-mcp/
