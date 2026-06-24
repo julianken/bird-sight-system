@@ -35,10 +35,23 @@ export interface NetworkView {
 export interface LedeRead { text: string; firstInt: number | null; unit: 'species' | 'sightings' | null; }
 
 export interface MarkerRead {
-  /** From "Cluster: N observations, M families". null for a single-family marker. */
+  /** Which DOM form this cluster rendered as (§5.2): `grid` = the family-cell
+   *  `adaptive-grid-marker` the capture has always read; `pill` = the collapsed
+   *  `.cluster-pill` button (total count, NO family breakdown). pickGridShape
+   *  collapses a cluster to a pill above a point/family cap, so desktop's wider
+   *  bbox aggregates more points/cluster and stays a pill where mobile splits
+   *  into a grid — the reported "desktop pills don't split out" bug. */
+  kind: 'pill' | 'grid';
+  /** The marker's own total: a pill's `aria-label "N sightings"` count, or the
+   *  Σ of a grid's per-cell counts. Counts toward `renderedTotal` for both kinds. */
+  total: number;
+  /** The `cluster-pill--<x>` modifier (sky / sand / ember) for a pill; undefined for grids. */
+  color?: string;
+  /** From "Cluster: N observations, M families". null for a single-family marker
+   *  and for pills (no family breakdown). */
   markerTotal: number | null;
   familyCount: number | null;
-  /** Per-cell {family,count} from cell aria-labels. */
+  /** Per-cell {family,count} from cell aria-labels. Empty for pills (collapsed, no cells). */
   cells: FamilyCount[];
   /** True when this marker shows a mobile "+N" overflow pill
    *  ([data-testid="adaptive-grid-marker-overflow"]) — families are hidden, so

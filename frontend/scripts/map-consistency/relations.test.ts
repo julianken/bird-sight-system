@@ -1,6 +1,6 @@
 // frontend/scripts/map-consistency/relations.test.ts
 import { describe, it, expect } from 'vitest';
-import { evaluateSample, sumPointsInBbox, bboxInside, renderedFamilyCounts } from './relations.js';
+import { evaluateSample, sumPointsInBbox, bboxInside, renderedFamilyCounts, renderedTotal } from './relations.js';
 import type { Sample, ViewSnapshot, NetworkView, MarkerRead, Bbox, FilterBundle, Recapture } from './types.js';
 
 const BB: Bbox = [-111, 31, -109, 33];
@@ -9,7 +9,12 @@ function net(p: Partial<NetworkView> & { bbox: Bbox; total: number; points: Netw
   return { mode: 'observations', zoom: 9, truncated: false, freshestObservationAt: 't0', familyCounts: [], speciesCount: null, ...p };
 }
 function marker(cells: { family: string; count: number }[], overflow = false): MarkerRead {
-  return { markerTotal: cells.reduce((s, c) => s + c.count, 0), familyCount: cells.length, cells, overflow };
+  const total = cells.reduce((s, c) => s + c.count, 0);
+  return { kind: 'grid', total, markerTotal: total, familyCount: cells.length, cells, overflow };
+}
+/** A collapsed cluster-pill marker (kind:'pill', §5.2): a total count, no family cells. */
+function pill(total: number, color = 'ember'): MarkerRead {
+  return { kind: 'pill', total, color, markerTotal: total, familyCount: null, cells: [], overflow: false };
 }
 function view(o: Partial<ViewSnapshot> & { viewport: ViewSnapshot['viewport']; requestedZoom: number; network: NetworkView; markers: MarkerRead[] }): ViewSnapshot {
   return { url: `u${o.requestedZoom}-${o.viewport}`, scope: 'us', requestedCenter: { lng: -110, lat: 32 }, lede: { text: '', firstInt: null, unit: null }, legend: [], consoleErrors: [], consoleWarnings: [], ...o };
@@ -31,6 +36,11 @@ describe('helpers', () => {
   it('renderedFamilyCounts sums cells across markers', () => {
     const v = view({ viewport: 'desktop', requestedZoom: 9, network: net({ bbox: [-111, 31, -109, 33], total: 0, points: [] }), markers: [marker([{ family: 'Hawks', count: 1 }]), marker([{ family: 'Hawks', count: 2 }, { family: 'Falcons', count: 1 }])] });
     expect(renderedFamilyCounts(v)).toEqual(expect.arrayContaining([{ family: 'Hawks', count: 3 }, { family: 'Falcons', count: 1 }]));
+  });
+  it('renderedTotal counts pill totals + grid cell counts (§5.2 — pills now count)', () => {
+    // A pill (1164) + a grid (3 + 1) → 1168. Pills were previously invisible.
+    const v = view({ viewport: 'desktop', requestedZoom: 4, network: net({ bbox: [-111, 31, -109, 33], total: 1168, points: [] }), markers: [pill(1164), marker([{ family: 'Hawks', count: 3 }, { family: 'Falcons', count: 1 }])] });
+    expect(renderedTotal(v)).toBe(1168);
   });
 });
 
@@ -90,6 +100,59 @@ describe('MR-8 parity (directional pill-collapse, #1270)', () => {
   });
 });
 
+describe('MR-9 pill-split parity (the reported bug, §5.2)', () => {
+  it('flags desktop-all-pill vs mobile-all-grid at the same camera (desktop under-splits)', () => {
+    // Same camera (z6). Mobile splits every cluster into a grid (gridFraction 1.0);
+    // desktop leaves every cluster as a pill (gridFraction 0.0). Δ 1.0 > 0.2 → fail.
+    const desktop = view({
+      viewport: 'desktop', requestedZoom: 6, network: net({ mode: 'aggregated', bbox: BB, total: 3000, points: [] }),
+      markers: [pill(1164), pill(820), pill(1016)],
+    });
+    const mobile = view({
+      viewport: 'mobile', requestedZoom: 6, network: net({ mode: 'aggregated', bbox: BB, total: 3000, points: [] }),
+      markers: [marker([{ family: 'Hawks', count: 12 }]), marker([{ family: 'Falcons', count: 8 }]), marker([{ family: 'Gulls', count: 5 }])],
+    });
+    const f = evaluateSample(sampleOf(desktop, { views: [desktop, mobile] })).filter((v) => v.relation === 'MR-9' && v.status === 'fail');
+    expect(f).toHaveLength(1);
+    expect(f[0].severity).toBe('high');
+    expect(f[0].numbers).toMatchObject({ desktopGridFraction: 0, mobileGridFraction: 1 });
+    expect(f[0].symptom).toContain('under-splits');
+  });
+
+  it('passes when both viewports split all clusters into grids (equal fractions)', () => {
+    const desktop = view({
+      viewport: 'desktop', requestedZoom: 6, network: net({ mode: 'aggregated', bbox: BB, total: 30, points: [] }),
+      markers: [marker([{ family: 'Hawks', count: 12 }]), marker([{ family: 'Falcons', count: 8 }])],
+    });
+    const mobile = view({
+      viewport: 'mobile', requestedZoom: 6, network: net({ mode: 'aggregated', bbox: BB, total: 30, points: [] }),
+      markers: [marker([{ family: 'Hawks', count: 12 }]), marker([{ family: 'Falcons', count: 8 }])],
+    });
+    expect(evaluateSample(sampleOf(desktop, { views: [desktop, mobile] })).filter((v) => v.relation === 'MR-9' && v.status === 'fail')).toHaveLength(0);
+  });
+
+  it('suppresses the reverse direction (desktop splits MORE than mobile → not the bug)', () => {
+    // Desktop all-grid, mobile all-pill. gap = mobileFraction(0) − desktopFraction(1) = −1 < threshold → pass.
+    const desktop = view({
+      viewport: 'desktop', requestedZoom: 6, network: net({ mode: 'aggregated', bbox: BB, total: 30, points: [] }),
+      markers: [marker([{ family: 'Hawks', count: 12 }]), marker([{ family: 'Falcons', count: 8 }])],
+    });
+    const mobile = view({
+      viewport: 'mobile', requestedZoom: 6, network: net({ mode: 'aggregated', bbox: BB, total: 3000, points: [] }),
+      markers: [pill(1500), pill(1500)],
+    });
+    expect(evaluateSample(sampleOf(desktop, { views: [desktop, mobile] })).filter((v) => v.relation === 'MR-9' && v.status === 'fail')).toHaveLength(0);
+  });
+
+  it('passes with a carve-out when a viewport has no clusters (divide-by-zero guard)', () => {
+    const desktop = view({ viewport: 'desktop', requestedZoom: 6, network: net({ bbox: BB, total: 0, points: [] }), markers: [] });
+    const mobile = view({ viewport: 'mobile', requestedZoom: 6, network: net({ bbox: BB, total: 30, points: [] }), markers: [marker([{ family: 'Hawks', count: 30 }])] });
+    const mr9 = evaluateSample(sampleOf(desktop, { views: [desktop, mobile] })).filter((v) => v.relation === 'MR-9');
+    expect(mr9.every((v) => v.status === 'pass')).toBe(true);
+    expect(mr9.some((v) => v.carveOuts?.includes('no-clusters'))).toBe(true);
+  });
+});
+
 describe('MR-0 drill-down', () => {
   it('passes when same-mode drill-down conserves the count exactly', () => {
     const parent = view({ viewport: 'desktop', requestedZoom: 7, network: net({ bbox: [-112, 30, -108, 34], zoom: 7, total: 4, points: [{ lng: -110, lat: 32, count: 2 }, { lng: -110.5, lat: 32.1, count: 1 }, { lng: -120, lat: 40, count: 1 }] }), markers: [] });
@@ -124,6 +187,13 @@ describe('MR-1 zoom non-vanishing', () => {
   });
   it('passes when birds render', () => {
     const v = view({ viewport: 'desktop', requestedZoom: 12, network: net({ bbox: BB, total: 5, points: [] }), legend: [{ family: 'Hawks', count: 5 }], markers: [marker([{ family: 'Hawks', count: 5 }])] });
+    expect(fails(sampleOf(v), 'MR-1')).toHaveLength(0);
+  });
+  it('passes at low zoom when only cluster-pills render (§5.2 — pills are rendered, no false MR-1)', () => {
+    // The literal false-fire: network served 1164 birds, the map shows a single
+    // cluster-pill (no grid). Pre-§5.2 the capture read 0 markers → false MR-1.
+    // Now the pill counts as rendered, so MR-1 must pass.
+    const v = view({ viewport: 'mobile', requestedZoom: 4, network: net({ mode: 'aggregated', bbox: BB, total: 1164, points: [] }), markers: [pill(1164)] });
     expect(fails(sampleOf(v), 'MR-1')).toHaveLength(0);
   });
 });

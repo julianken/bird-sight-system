@@ -21,8 +21,12 @@ export function renderedFamilyCounts(view: ViewSnapshot): FamilyCount[] {
   for (const mk of view.markers) for (const c of mk.cells) m.set(c.family, (m.get(c.family) ?? 0) + c.count);
   return [...m].map(([family, count]) => ({ family, count }));
 }
+/** Σ pill totals + Σ grid cell counts (§5.2). Pills now count toward the rendered
+ *  total — they carry the bulk of the low-zoom count and were previously invisible,
+ *  causing the MR-1 false-fire and the MR-2b undercount. For a grid marker
+ *  `mk.total === Σ mk.cells.count`, so a single `mk.total` sum covers both kinds. */
 export function renderedTotal(view: ViewSnapshot): number {
-  return view.markers.reduce((s, mk) => s + mk.cells.reduce((c, cell) => c + cell.count, 0), 0);
+  return view.markers.reduce((s, mk) => s + mk.total, 0);
 }
 function familyMap(fcs: FamilyCount[]): Map<string, number> {
   return new Map(fcs.map((f) => [f.family, f.count]));
@@ -75,6 +79,68 @@ export function checkParity(desktop: ViewSnapshot, mobile: ViewSnapshot): Verdic
   return verdicts;
 }
 
+// ── MR-9: pill-split parity (desktop ↔ mobile, THE reported bug) ──────────────
+/** The user's literal bug (§5.2): "desktop pills disappear and never split out
+ *  like they do on mobile." `pickGridShape` collapses a cluster to a `.cluster-pill`
+ *  above a point/family cap, and desktop's wider bbox aggregates MORE points per
+ *  cluster → more clusters exceed the cap → desktop stays a pill where mobile splits
+ *  into a family grid.
+ *
+ *  Measured as the FRACTION of each viewport's clusters that are split into grids
+ *  (`gridFraction = #grid / (#grid + #pill)`), NOT raw counts — desktop's wider
+ *  frame sees more clusters total, so a raw `#grid` comparison conflates "more
+ *  clusters" with "under-splitting". The fraction normalizes that away. Fire when
+ *  mobile splits a MATERIALLY larger fraction than desktop:
+ *    `mobileGridFraction − desktopGridFraction > MR9_THRESHOLD`.
+ *  Severity high — this is the reported defect.
+ *
+ *  THRESHOLD (0.12) tuned from a paced live probe (2026-06-23) over LA / SF / NYC /
+ *  FL-gulf at z5–z10. The asymmetry is camera-dependent, NOT uniformly in the bug
+ *  direction: at z7–z9 in some metros desktop's wider frame pushes its OWN clusters
+ *  over the split cap too, REVERSING the gap to ~−0.12 (desktop splits a larger
+ *  fraction). The canonical bug signature ("desktop leaves clusters as pills, mobile
+ *  splits") peaked at +0.15 (NYC z8: desktop 0.09 = 5 grids/51 pills vs mobile 0.24
+ *  = 9 grids/28 pills). 0.12 sits at the reverse-direction noise FLOOR magnitude but
+ *  fires only in the positive (bug) direction, so it catches NYC-z8-class cameras
+ *  while never tripping on the benign reverse cases or near-parity high zooms. */
+export const MR9_THRESHOLD = 0.12;
+
+function gridFraction(view: ViewSnapshot): { grids: number; pills: number; fraction: number | null } {
+  const grids = view.markers.filter((m) => m.kind === 'grid').length;
+  const pills = view.markers.filter((m) => m.kind === 'pill').length;
+  const denom = grids + pills;
+  return { grids, pills, fraction: denom === 0 ? null : grids / denom };
+}
+
+export function checkPillSplitParity(desktop: ViewSnapshot, mobile: ViewSnapshot): Verdict[] {
+  const d = gridFraction(desktop);
+  const m = gridFraction(mobile);
+  // Guard divide-by-zero: a viewport with no clusters at all has no split fraction
+  // to compare, so the parity is undefined → pass with a carve-out.
+  if (d.fraction === null || m.fraction === null) {
+    return [{
+      relation: 'MR-9', status: 'pass', sampleId: '', carveOuts: ['no-clusters'],
+      numbers: { desktopGrids: d.grids, desktopPills: d.pills, mobileGrids: m.grids, mobilePills: m.pills },
+      evidence: { zoom: desktop.requestedZoom, desktopUrl: desktop.url, mobileUrl: mobile.url },
+    }];
+  }
+  const gap = m.fraction - d.fraction; // positive = mobile splits a larger fraction (desktop under-splits)
+  const fail = gap > MR9_THRESHOLD;
+  return [{
+    relation: 'MR-9', status: fail ? 'fail' : 'pass', sampleId: '',
+    severity: fail ? 'high' : undefined,
+    symptom: fail
+      ? `desktop under-splits clusters at zoom ${desktop.requestedZoom}: mobile splits ${(m.fraction * 100).toFixed(0)}% of its clusters into grids (${m.grids}/${m.grids + m.pills}) but desktop only ${(d.fraction * 100).toFixed(0)}% (${d.grids}/${d.grids + d.pills}) — Δ ${(gap * 100).toFixed(0)}pp > ${(MR9_THRESHOLD * 100).toFixed(0)}pp threshold`
+      : undefined,
+    numbers: {
+      desktopGridFraction: Number(d.fraction.toFixed(3)), mobileGridFraction: Number(m.fraction.toFixed(3)),
+      gap: Number(gap.toFixed(3)), threshold: MR9_THRESHOLD,
+      desktopGrids: d.grids, desktopPills: d.pills, mobileGrids: m.grids, mobilePills: m.pills,
+    },
+    evidence: { zoom: desktop.requestedZoom, desktopUrl: desktop.url, mobileUrl: mobile.url },
+  }];
+}
+
 // ── MR-0: drill-down bbox conservation ───────────────────────────────────────
 export function checkDrillDown(parent: ViewSnapshot, child: ViewSnapshot): Verdict[] {
   const expected = sumPointsInBbox(parent.network.points, child.network.bbox);
@@ -115,7 +181,10 @@ export function checkDrillDown(parent: ViewSnapshot, child: ViewSnapshot): Verdi
 
 // ── MR-1: zoom non-vanishing (per view) ───────────────────────────────────────
 /** The literal "zoom in → empty map though data exists" bug: network served birds
- *  but nothing rendered. `inconclusive` views are already filtered out upstream. */
+ *  but nothing rendered. `inconclusive` views are already filtered out upstream.
+ *  Uses the FULL marker set (pills + grids, §5.2): pills carry the low-zoom count
+ *  and were previously invisible to the capture, which is what produced the false
+ *  MR-1 fires at low zoom (16 pills on-screen where the capture read 0 markers). */
 export function checkZoomNonVanishing(view: ViewSnapshot): Verdict[] {
   const rendered = renderedTotal(view);
   const vanished = view.network.total > 0 && rendered === 0 && view.markers.length === 0;
@@ -143,9 +212,16 @@ export function checkConservation(view: ViewSnapshot): Verdict[] {
   // The lede leg is only comparable when a real sightings lede has been parsed —
   // skip a loading placeholder (unit null) or a species-count lede (different unit).
   const ledeComparable = lede != null && unit === 'sightings';
+  // Legend-leg guard (§5.1 amendment): assert `|Σlegend − network.total| ≤ ε` ONLY
+  // in observations mode. In aggregated mode the /api/observations response is
+  // SCOPE-WIDE (the whole region) while the legend is VIEWPORT-scoped (only the
+  // visible frame), so the two legitimately diverge — comparing them is
+  // apples-to-oranges and would false-fire. Carve it out (`aggregated-response-scopewide`).
+  // The lede leg stays UNCONDITIONAL: the lede tracks the same total either way.
+  const legendComparable = view.network.mode === 'observations';
   const legendDelta = Math.abs(legend - total);
   const ledeDelta = ledeComparable ? Math.abs((lede as number) - total) : 0;
-  const legendBad = legendDelta > eps;
+  const legendBad = legendComparable && legendDelta > eps;
   const ledeBad = ledeComparable && ledeDelta > eps;
   const fail = legendBad || ledeBad;
   const parts: string[] = [];
@@ -156,6 +232,7 @@ export function checkConservation(view: ViewSnapshot): Verdict[] {
     severity: fail ? 'high' : undefined,
     symptom: fail ? `conservation broken at zoom ${view.requestedZoom}: ${parts.join('; ')} (ε ${eps})` : undefined,
     numbers: { legendSum: legend, networkTotal: total, ledeFirstInt: lede, epsilon: eps },
+    carveOuts: legendComparable ? undefined : ['aggregated-response-scopewide'],
     evidence: { url: view.url, viewport: view.viewport, zoom: view.requestedZoom },
   }];
 }
@@ -391,7 +468,10 @@ export function evaluateSample(sample: Sample): Verdict[] {
   for (const group of byCamera.values()) {
     const desktop = group.find((v) => v.viewport === 'desktop');
     const mobile = group.find((v) => v.viewport === 'mobile');
-    if (desktop && mobile) out.push(...checkParity(desktop, mobile));
+    if (desktop && mobile) {
+      out.push(...checkParity(desktop, mobile));
+      out.push(...checkPillSplitParity(desktop, mobile));
+    }
   }
 
   for (const vp of ['desktop', 'mobile'] as const) {
