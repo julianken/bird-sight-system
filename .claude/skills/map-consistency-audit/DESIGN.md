@@ -180,6 +180,8 @@ frontend/audit-out/<UTC-timestamp>-seed<N>/
 
 **Data-preservation guarantee:** every finding is self-contained (raw payloads + DOM numbers + screenshots + repro URL), so it remains analyzable months later even though prod data has moved on.
 
+**Viewbox link is the repro primitive (epic #1238 — always include it):** each finding's repro is a `#map=` viewbox link that bakes in the camera, viewport, scope, and active filters — open it and you land on the exact broken view. Because the viewbox feature is recent and easy to forget, the convention is explicit and mandatory: `brief.md` surfaces the `#map=` link per finding (a `🔗 viewbox repro:` line), `repro.md` instructs including it, and **every ticket written from a finding (and any hand-written bird-maps map/data bug ticket) must lead with the viewbox link** as the canonical one-click reproduction.
+
 ## 8. The agent
 
 `.claude/agents/map-consistency-auditor.md` — project subagent.
