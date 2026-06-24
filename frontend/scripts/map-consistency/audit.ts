@@ -73,7 +73,8 @@ async function run(o: Opts): Promise<void> {
     const seedSnap = await captureView(seedView.page, seedView.raw, { scope: o.scope, viewport: 'desktop', zoom: 3, center: center0 });
     await seedView.page.close();
     if (seedSnap.network.freshestObservationAt) freshSeen.add(seedSnap.network.freshestObservationAt);
-    const scopeTotal = seedSnap.network.total; // scope-wide total for MR-5
+    // (#1270 §5.1) MR-5 now compares the lede to each view's OWN viewport network
+    // total, so the seed-fetch scope total is no longer threaded into samples.
     // The `?family=` URL param is a family CODE (e.g. "anatidae"), not the legend's
     // common name — passing a name yields no matching /api/observations fetch and the
     // camera matcher times out. The z3 seed fetch is aggregated, so its buckets carry
@@ -146,7 +147,7 @@ async function run(o: Opts): Promise<void> {
       const rb = await capture(seed, ra.requestedZoom, 'desktop');
       const recaptures: Recapture[] = [{ a: ra, b: rb }];
 
-      const sample: Sample = { id: `s${s + 1}`, seedPoint: seed, scope: o.scope, views, scopeTotal, recaptures, ...(filterBundle ? { filterBundle } : {}) };
+      const sample: Sample = { id: `s${s + 1}`, seedPoint: seed, scope: o.scope, views, recaptures, ...(filterBundle ? { filterBundle } : {}) };
       verdicts.push(...evaluateSample(sample));
       process.stderr.write(`sample ${s + 1}/${seeds.length} done (${verdicts.filter((v) => v.status === 'fail').length} fails so far)\n`);
     }

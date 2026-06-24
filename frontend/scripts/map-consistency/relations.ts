@@ -35,13 +35,8 @@ function legendSum(view: ViewSnapshot): number {
 function hasOverflow(view: ViewSnapshot): boolean {
   return view.markers.some((m) => m.overflow);
 }
-/** Families hidden behind an overflow pill can't be asserted on; build the set of
- *  rendered family names so MR-3 can tell "absent" from "overflow-hidden". */
-function renderedFamilySet(view: ViewSnapshot): Set<string> {
-  return new Set(renderedFamilyCounts(view).filter((f) => f.count > 0).map((f) => f.family));
-}
 
-// ── MR-8: desktop ↔ mobile parity (viewport-coverage normalized) ──────────────
+// ── MR-8: desktop ↔ mobile parity (DIRECTIONAL pill-collapse detector) ─────────
 export function checkParity(desktop: ViewSnapshot, mobile: ViewSnapshot): Verdict[] {
   // Viewport-coverage normalization (#1269): desktop (1440×900) and mobile (390×844)
   // cover DIFFERENT bboxes at the same zoom, so comparing raw rendered family SETS
@@ -49,8 +44,14 @@ export function checkParity(desktop: ViewSnapshot, mobile: ViewSnapshot): Verdic
   // families mobile's bbox excludes — empirically verified at z4: Albatrosses,
   // Southern Storm-Petrels, Tropicbirds appear in desktop's legend but not mobile's).
   // Restrict to families in BOTH viewports' (viewport-scoped, common-name) legends —
-  // the coverage-controlled common ground. A genuine pill-collapse bug = a family in
-  // BOTH legends rendered on only one side.
+  // the coverage-controlled common ground.
+  //
+  // DIRECTIONAL (#1270 §5.1): the reported bug is "desktop pills disappear, mobile
+  // splits them out" — i.e. DESKTOP under-rendering. So fire ONLY when
+  //   mobile renders F (cell>0) && desktop does NOT (cell 0).
+  // Suppress the reverse (desktop renders, mobile doesn't): that is desktop's larger
+  // 4×4 grid capacity legitimately surfacing the tail mobile's smaller grid drops —
+  // it was the 21 residual MR-8 artifacts in the first prod run, NOT a bug.
   const dLegend = familyMap(desktop.legend);
   const mLegend = familyMap(mobile.legend);
   const dRender = familyMap(renderedFamilyCounts(desktop));
@@ -60,10 +61,11 @@ export function checkParity(desktop: ViewSnapshot, mobile: ViewSnapshot): Verdic
   for (const fam of common) {
     const dShown = (dRender.get(fam) ?? 0) > 0;
     const mShown = (mRender.get(fam) ?? 0) > 0;
-    if (dShown !== mShown) {
+    // Only the desktop-under-rendering direction is a violation.
+    if (mShown && !dShown) {
       verdicts.push({
         relation: 'MR-8', status: 'fail', sampleId: '', severity: 'high',
-        symptom: `Family "${fam}" is in both viewports' data (legend desktop ${dLegend.get(fam)}, mobile ${mLegend.get(fam)}) but renders only on ${dShown ? 'desktop' : 'mobile'} — absent on ${dShown ? 'mobile' : 'desktop'}`,
+        symptom: `Family "${fam}" is in both viewports' data (legend desktop ${dLegend.get(fam)}, mobile ${mLegend.get(fam)}) and renders on mobile but NOT on desktop — desktop pill-collapse`,
         numbers: { desktopLegend: dLegend.get(fam) ?? 0, mobileLegend: mLegend.get(fam) ?? 0, desktopRendered: dRender.get(fam) ?? 0, mobileRendered: mRender.get(fam) ?? 0 },
         evidence: { family: fam, desktopUrl: desktop.url, mobileUrl: mobile.url, zoom: desktop.requestedZoom },
       });
@@ -126,53 +128,118 @@ export function checkZoomNonVanishing(view: ViewSnapshot): Verdict[] {
   }];
 }
 
-// ── MR-2: stated (Σ legend) vs rendered (per view) ────────────────────────────
-/** The "says 7, shows 3" bug: viewport-scoped legend states more than the markers
- *  render. A collapsed desktop pill gives rendered=0, stated>0 → fires. Overflow
- *  relaxes the bound (a "+N" pill legitimately hides families). */
-export function checkStatedVsRendered(view: ViewSnapshot): Verdict[] {
-  const stated = legendSum(view);
-  const rendered = renderedTotal(view);
-  const overflow = hasOverflow(view);
-  const carveOuts = overflow ? ['mobile-overflow'] : undefined;
-  // Default: rendered materially under stated. With overflow, only fail if rendered
-  // EXCEEDS stated (overflow can hide families so under-counting is expected).
-  const tol = Math.max(2, stated * 0.1);
-  const fail = overflow ? rendered > stated + tol : stated - rendered > tol;
+// ── MR-2: conservation law (per view) ─────────────────────────────────────────
+/** The reliable invariant (#1270 §5.1): the three viewport-scoped totals agree —
+ *  `Σ legend ≈ network.total ≈ lede`. The legend and the lede both report the
+ *  viewport total the network served; a divergence between any of them is a real
+ *  defect. (This SUPERSEDES the old legend-vs-rendered check — rendered cells are a
+ *  lossy capacity-limited subset, not a conservation bound; see MR-2b for the
+ *  render-completeness check that only applies where capacity is not a factor.) */
+export function checkConservation(view: ViewSnapshot): Verdict[] {
+  const legend = legendSum(view);
+  const total = view.network.total;
+  const eps = Math.max(3, Math.round(total * 0.02));
+  const { firstInt: lede, unit } = view.lede;
+  // The lede leg is only comparable when a real sightings lede has been parsed —
+  // skip a loading placeholder (unit null) or a species-count lede (different unit).
+  const ledeComparable = lede != null && unit === 'sightings';
+  const legendDelta = Math.abs(legend - total);
+  const ledeDelta = ledeComparable ? Math.abs((lede as number) - total) : 0;
+  const legendBad = legendDelta > eps;
+  const ledeBad = ledeComparable && ledeDelta > eps;
+  const fail = legendBad || ledeBad;
+  const parts: string[] = [];
+  if (legendBad) parts.push(`Σlegend ${legend} vs network.total ${total} (Δ ${legend - total})`);
+  if (ledeBad) parts.push(`lede ${lede} vs network.total ${total} (Δ ${(lede as number) - total})`);
   return [{
     relation: 'MR-2', status: fail ? 'fail' : 'pass', sampleId: '',
     severity: fail ? 'high' : undefined,
-    symptom: fail ? `legend states ${stated} but markers rendered ${rendered} at zoom ${view.requestedZoom}${overflow ? ' (overflow present)' : ''}` : undefined,
-    numbers: { stated, rendered, tolerance: Math.round(tol) },
-    carveOuts,
+    symptom: fail ? `conservation broken at zoom ${view.requestedZoom}: ${parts.join('; ')} (ε ${eps})` : undefined,
+    numbers: { legendSum: legend, networkTotal: total, ledeFirstInt: lede, epsilon: eps },
     evidence: { url: view.url, viewport: view.viewport, zoom: view.requestedZoom },
   }];
 }
 
-// ── MR-3: per-family conservation (per view) ──────────────────────────────────
-/** Reconcile legend[fam] vs rendered[fam] ONLY — both common-name keyed, so they
- *  match directly. Do NOT use network.familyCounts (code↔name mismatch in
- *  observations mode would false-fire). A family in the legend (count>0) that
- *  renders nothing (and isn't overflow-hidden) is a per-family drop. */
-export function checkFamilyConservation(view: ViewSnapshot): Verdict[] {
+// ── MR-2b: render-completeness (per view, low-total only) ─────────────────────
+/** The "says 7, shows 3" catcher (#1270 §5.1). Rendered cells are normally a
+ *  capacity-limited subset of the legend, so `Σrendered == total` is false at high
+ *  counts. BUT when `network.total ≤ 50` and NO marker is in overflow, everything
+ *  fits the adaptive grid — so the rendered cells MUST conserve the total. A
+ *  shortfall there is genuine render loss (the literal "shows fewer than there are"
+ *  bug). Skipped at high totals or any overflow (capacity-limited, expected loss). */
+export function checkRenderCompleteness(view: ViewSnapshot): Verdict[] {
+  const total = view.network.total;
   const overflow = hasOverflow(view);
-  const renderedSet = renderedFamilySet(view);
+  if (total > 50 || overflow) {
+    return [{
+      relation: 'MR-2b', status: 'pass', sampleId: '',
+      carveOuts: total > 50 ? ['capacity-limited'] : ['mobile-overflow'],
+      evidence: { url: view.url, viewport: view.viewport, zoom: view.requestedZoom, networkTotal: total },
+    }];
+  }
+  const rendered = renderedTotal(view);
+  const eps = Math.max(2, total * 0.1);
+  // Only a SHORTFALL is render loss; a rendered-over-total would be a different
+  // (and not-observed) anomaly, left to MR-2's conservation leg.
+  const fail = total - rendered > eps;
+  return [{
+    relation: 'MR-2b', status: fail ? 'fail' : 'pass', sampleId: '',
+    severity: fail ? 'high' : undefined,
+    symptom: fail ? `render loss at zoom ${view.requestedZoom}: network served ${total} but markers rendered ${rendered} (everything should fit at total ≤ 50, ε ${Math.round(eps)})` : undefined,
+    numbers: { networkTotal: total, rendered, tolerance: Math.round(eps) },
+    evidence: { url: view.url, viewport: view.viewport, zoom: view.requestedZoom },
+  }];
+}
+
+// ── MR-3: server ↔ client per-family agreement (aggregated mode only) ─────────
+/** Reconcile the client legend against the server's per-family counts (#1270 §5.1).
+ *  ONLY meaningful in aggregated mode: there `network.familyCounts` is populated and
+ *  common-name keyed, so `legend[fam] ≈ network.familyCounts[fam]` is a true
+ *  server↔client invariant. In observations mode `network.familyCounts` is empty /
+ *  code-keyed (code↔name mismatch would false-fire), so this is a no-op pass.
+ *
+ *  This SUPERSEDES the old legend-vs-rendered check, which compared the legend to
+ *  the capacity-limited rendered subset and produced 317 capacity artifacts in the
+ *  first prod run (legend 601 / rendered 0 at a high total is normal grid overflow,
+ *  not a drop).
+ *
+ *  Viewport-coverage guard (#1270 prod re-run): `network.familyCounts`/`network.total`
+ *  are RESPONSE-scoped (the whole /api/observations body), whereas the legend is
+ *  VIEWPORT-scoped (only families inside the visible frame). At low zoom on the narrow
+ *  mobile viewport the response covers a far wider bbox than the rendered frame, so the
+ *  two are scoped differently and a per-family comparison is apples-to-oranges (it
+ *  produced 166 mobile-z4 artifacts — server-national vs legend-viewport). Only run the
+ *  per-family check when conservation holds between Σlegend and network.total — i.e.
+ *  legend and network cover the SAME scope (the §5.1 "both viewport-scoped" premise). */
+export function checkFamilyConservation(view: ViewSnapshot): Verdict[] {
+  if (view.network.mode !== 'aggregated') {
+    return [{ relation: 'MR-3', status: 'pass', sampleId: '', carveOuts: ['observations-mode'], evidence: { url: view.url, viewport: view.viewport, mode: view.network.mode } }];
+  }
+  // Scope guard: skip when the legend (viewport) and network (response) totals diverge
+  // beyond the conservation ε — they cover different bboxes, so per-family is meaningless.
+  const legendTotal = legendSum(view);
+  const total = view.network.total;
+  const scopeEps = Math.max(3, Math.round(total * 0.02));
+  if (Math.abs(legendTotal - total) > scopeEps) {
+    return [{ relation: 'MR-3', status: 'pass', sampleId: '', carveOuts: ['viewport-coverage-mismatch'], numbers: { legendSum: legendTotal, networkTotal: total }, evidence: { url: view.url, viewport: view.viewport, zoom: view.requestedZoom } }];
+  }
+  const serverByFamily = familyMap(view.network.familyCounts);
+  const legendByFamily = familyMap(view.legend);
   const verdicts: Verdict[] = [];
-  for (const { family, count } of view.legend) {
-    if (count <= 0) continue;
-    if (!renderedSet.has(family)) {
-      // Overflow-hidden families are a legitimate non-render → carve out.
+  const within = (a: number, b: number) => Math.abs(a - b) <= Math.max(2, Math.max(a, b) * 0.05);
+  for (const [family, serverCount] of serverByFamily) {
+    if (serverCount <= 0) continue;
+    const legendCount = legendByFamily.get(family) ?? 0;
+    if (!within(legendCount, serverCount)) {
       verdicts.push({
-        relation: 'MR-3', status: overflow ? 'pass' : 'fail', sampleId: '',
-        severity: overflow ? undefined : 'high',
-        symptom: overflow ? undefined : `family "${family}" is in the legend (${count}) but renders no cell at zoom ${view.requestedZoom}`,
-        numbers: { legend: count, rendered: 0 },
-        carveOuts: overflow ? ['mobile-overflow'] : undefined,
+        relation: 'MR-3', status: 'fail', sampleId: '', severity: 'high',
+        symptom: `family "${family}" server count ${serverCount} ≠ client legend ${legendCount} at zoom ${view.requestedZoom}`,
+        numbers: { server: serverCount, legend: legendCount },
         evidence: { family, url: view.url, viewport: view.viewport, zoom: view.requestedZoom },
       });
     }
   }
-  if (verdicts.length === 0) verdicts.push({ relation: 'MR-3', status: 'pass', sampleId: '', evidence: { url: view.url, viewport: view.viewport, families: view.legend.length } });
+  if (verdicts.length === 0) verdicts.push({ relation: 'MR-3', status: 'pass', sampleId: '', evidence: { url: view.url, viewport: view.viewport, families: serverByFamily.size } });
   return verdicts;
 }
 
@@ -241,25 +308,26 @@ export function checkFilterConsistency(bundle: FilterBundle): Verdict[] {
   return verdicts;
 }
 
-// ── MR-5: lede vs scope-total (conditional) ───────────────────────────────────
-/** The lede states a SCOPE-WIDE total (per MR-5 / spec), NOT the viewport. Compare
- *  lede.firstInt to the seed-fetch scope total. Only evaluate a real, parsed lede;
- *  skip the loading placeholder and unit-mismatched comparisons. */
-export function checkLedeVsScope(view: ViewSnapshot, scopeTotal: number | undefined): Verdict[] {
-  if (scopeTotal == null) return [];
+// ── MR-5: lede vs VIEWPORT total (conditional) ────────────────────────────────
+/** The lede tracks the VIEWPORT total, NOT the scope (#1270 §5.1 — the earlier
+ *  "lede is scope-total" reading was the two-stage-load interstitial). Compare
+ *  lede.firstInt to `view.network.total`. Only evaluate a real, parsed sightings
+ *  lede; skip the loading placeholder and a species-count lede (different unit). */
+export function checkLedeVsScope(view: ViewSnapshot): Verdict[] {
   const { firstInt, unit } = view.lede;
   if (firstInt == null || unit == null) return []; // loading placeholder / unparsed
-  // Carve-out: a species-count lede is not comparable to a sightings scope total.
+  // Carve-out: a species-count lede is not comparable to a sightings total.
   if (unit === 'species') {
     return [{ relation: 'MR-5', status: 'pass', sampleId: '', carveOuts: ['lede-unit-species'], evidence: { url: view.url, ledeUnit: unit } }];
   }
-  const tol = Math.max(2, scopeTotal * 0.02);
-  const ok = Math.abs(firstInt - scopeTotal) <= tol;
+  const total = view.network.total;
+  const tol = Math.max(3, total * 0.02);
+  const ok = Math.abs(firstInt - total) <= tol;
   return [{
     relation: 'MR-5', status: ok ? 'pass' : 'fail', sampleId: '',
     severity: ok ? undefined : 'medium',
-    symptom: ok ? undefined : `lede states ${firstInt} ${unit} but scope total is ${scopeTotal} (Δ ${firstInt - scopeTotal})`,
-    numbers: { ledeFirstInt: firstInt, scopeTotal, tolerance: Math.round(tol) },
+    symptom: ok ? undefined : `lede states ${firstInt} ${unit} but viewport network total is ${total} (Δ ${firstInt - total})`,
+    numbers: { ledeFirstInt: firstInt, networkTotal: total, tolerance: Math.round(tol) },
     evidence: { url: view.url, viewport: view.viewport, ledeUnit: unit },
   }];
 }
@@ -333,13 +401,14 @@ export function evaluateSample(sample: Sample): Verdict[] {
         if (bboxInside(ladder[j].network.bbox, ladder[i].network.bbox)) out.push(...checkDrillDown(ladder[i], ladder[j]));
   }
 
-  // Per-view relations: MR-1/2/3/6 always; MR-5 against the scope-wide total.
+  // Per-view relations: MR-1/2/2b/3/5/6 (all viewport-scoped, per #1270 §5.1).
   for (const v of views) {
     out.push(...checkZoomNonVanishing(v));
-    out.push(...checkStatedVsRendered(v));
+    out.push(...checkConservation(v));
+    out.push(...checkRenderCompleteness(v));
     out.push(...checkFamilyConservation(v));
     out.push(...checkCleanConsole(v));
-    out.push(...checkLedeVsScope(v, sample.scopeTotal));
+    out.push(...checkLedeVsScope(v));
   }
 
   // MR-4 over the filter bundle (one per sample when captured).
@@ -376,9 +445,11 @@ function relationFiresOnView(relation: string, view: ViewSnapshot): boolean {
   const run = (vs: Verdict[]) => vs.some((x) => x.status === 'fail');
   switch (relation) {
     case 'MR-1': return run(checkZoomNonVanishing(view));
-    case 'MR-2': return run(checkStatedVsRendered(view));
+    case 'MR-2': return run(checkConservation(view));
+    case 'MR-2b': return run(checkRenderCompleteness(view));
     case 'MR-3': return run(checkFamilyConservation(view));
+    case 'MR-5': return run(checkLedeVsScope(view));
     case 'MR-6': return run(checkCleanConsole(view));
-    default: return false; // cross-view relations (MR-0/MR-5/MR-8) aren't single-view reproducible
+    default: return false; // cross-view relations (MR-0/MR-8) aren't single-view reproducible
   }
 }

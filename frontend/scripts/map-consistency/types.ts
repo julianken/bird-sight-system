@@ -80,8 +80,6 @@ export interface Sample {
   seedPoint: { lng: number; lat: number };
   scope: string;
   views: ViewSnapshot[];
-  /** Scope-wide network total from the seed fetch (MR-5 compares lede to THIS, not viewport). */
-  scopeTotal?: number;
   /** MR-4 filter probe (captured for ~one sample at a mid-ladder zoom). */
   filterBundle?: FilterBundle;
   /** MR-7 re-capture pairs (~one camera per sample captured twice). */

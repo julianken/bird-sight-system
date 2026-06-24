@@ -34,10 +34,10 @@ describe('helpers', () => {
   });
 });
 
-describe('MR-8 parity (viewport-coverage normalized)', () => {
-  it('flags a family in BOTH legends that renders on only one side (genuine pill-collapse)', () => {
-    // Falcons is in both viewports' legends (so it's in `common`) but renders only
-    // on mobile → desktop dropped it → real bug, still fails.
+describe('MR-8 parity (directional pill-collapse, #1270)', () => {
+  it('flags mobile-renders / desktop-absent (the reported desktop pill-collapse bug)', () => {
+    // Falcons is in both viewports' legends (so it's in `common`), renders on mobile
+    // but NOT on desktop → desktop under-rendered the family → real bug, fails.
     const desktop = view({
       viewport: 'desktop', requestedZoom: 9, network: net({ bbox: BB, total: 5, points: [] }),
       legend: [{ family: 'Hawks', count: 2 }, { family: 'Falcons', count: 3 }],
@@ -51,12 +51,30 @@ describe('MR-8 parity (viewport-coverage normalized)', () => {
     const fails = evaluateSample(sampleOf(desktop, { views: [desktop, mobile] })).filter((v) => v.relation === 'MR-8' && v.status === 'fail');
     expect(fails).toHaveLength(1);
     expect(fails[0].symptom).toContain('Falcons');
+    expect(fails[0].symptom).toContain('NOT on desktop');
+  });
+
+  it('SUPPRESSES desktop-renders / mobile-absent (desktop’s larger 4×4 capacity, not a bug)', () => {
+    // Falcons in both legends, renders on desktop but NOT mobile → desktop's bigger
+    // grid legitimately surfaced the tail mobile's smaller grid drops. Directional
+    // rule (#1270) suppresses this reverse direction → no MR-8 fail.
+    const desktop = view({
+      viewport: 'desktop', requestedZoom: 9, network: net({ bbox: BB, total: 5, points: [] }),
+      legend: [{ family: 'Hawks', count: 2 }, { family: 'Falcons', count: 3 }],
+      markers: [marker([{ family: 'Hawks', count: 2 }, { family: 'Falcons', count: 3 }])],
+    });
+    const mobile = view({
+      viewport: 'mobile', requestedZoom: 9, network: net({ bbox: BB, total: 5, points: [] }),
+      legend: [{ family: 'Hawks', count: 2 }, { family: 'Falcons', count: 3 }],
+      markers: [marker([{ family: 'Hawks', count: 2 }])],
+    });
+    const fails = evaluateSample(sampleOf(desktop, { views: [desktop, mobile] })).filter((v) => v.relation === 'MR-8' && v.status === 'fail');
+    expect(fails).toHaveLength(0);
   });
 
   it('suppresses a desktop-only-legend coastal family (viewport-coverage artifact #1269)', () => {
     // Albatrosses is in desktop's legend+render but NOT in mobile's legend (mobile's
-    // narrower bbox never contained it). The pre-fix engine flagged this; now it's
-    // excluded from `common` → no MR-8 fail.
+    // narrower bbox never contained it). Excluded from `common` → no MR-8 fail.
     const desktop = view({
       viewport: 'desktop', requestedZoom: 4, network: net({ bbox: BB, total: 5, points: [] }),
       legend: [{ family: 'Hawks', count: 2 }, { family: 'Albatrosses', count: 1 }],
@@ -110,32 +128,74 @@ describe('MR-1 zoom non-vanishing', () => {
   });
 });
 
-describe('MR-2 stated vs rendered', () => {
-  it('flags legend states more than markers render (says 7, shows 3)', () => {
-    const v = view({ viewport: 'desktop', requestedZoom: 9, network: net({ bbox: BB, total: 7, points: [] }), legend: [{ family: 'Hawks', count: 7 }], markers: [marker([{ family: 'Hawks', count: 3 }])] });
+describe('MR-2 conservation law (Σlegend ≈ network.total ≈ lede)', () => {
+  it('flags Σlegend diverging from network.total', () => {
+    // legend sums to 100 but network served 7 → conservation broken.
+    const v = view({ viewport: 'desktop', requestedZoom: 9, network: net({ bbox: BB, total: 7, points: [] }), legend: [{ family: 'Hawks', count: 100 }], markers: [marker([{ family: 'Hawks', count: 7 }])] });
     const f = fails(sampleOf(v), 'MR-2');
     expect(f).toHaveLength(1);
-    expect(f[0].numbers).toMatchObject({ stated: 7, rendered: 3 });
+    expect(f[0].numbers).toMatchObject({ legendSum: 100, networkTotal: 7 });
   });
-  it('passes with an overflow pill present (overflow legitimately hides families)', () => {
-    const v = view({ viewport: 'mobile', requestedZoom: 9, network: net({ bbox: BB, total: 7, points: [] }), legend: [{ family: 'Hawks', count: 7 }], markers: [marker([{ family: 'Hawks', count: 3 }], true)] });
+  it('flags the lede diverging from network.total', () => {
+    const v = view({ viewport: 'desktop', requestedZoom: 9, network: net({ bbox: BB, total: 872, points: [] }), legend: [{ family: 'Hawks', count: 869 }], lede: { text: '500 sightings', firstInt: 500, unit: 'sightings' }, markers: [marker([{ family: 'Hawks', count: 255 }])] });
+    const f = fails(sampleOf(v), 'MR-2');
+    expect(f).toHaveLength(1);
+    expect(f[0].symptom).toContain('lede 500');
+  });
+  it('PASSES the z9 conservation triple even though rendered is a lossy subset', () => {
+    // Real prod shape (#1270): lede 872 = network 872, Σlegend 869 (within ε),
+    // markers render only 255 (capacity). Old engine fired MR-2 here; now PASSES.
+    const v = view({ viewport: 'desktop', requestedZoom: 9, network: net({ bbox: BB, total: 872, points: [] }), legend: [{ family: 'Hawks', count: 869 }], lede: { text: '872 sightings', firstInt: 872, unit: 'sightings' }, markers: [marker([{ family: 'Hawks', count: 255 }])] });
     expect(fails(sampleOf(v), 'MR-2')).toHaveLength(0);
   });
 });
 
-describe('MR-3 per-family conservation', () => {
-  it('flags a legend family that renders no cell', () => {
-    const v = view({ viewport: 'desktop', requestedZoom: 9, network: net({ bbox: BB, total: 5, points: [] }), legend: [{ family: 'Hawks', count: 3 }, { family: 'Falcons', count: 2 }], markers: [marker([{ family: 'Hawks', count: 3 }])] });
-    const f = fails(sampleOf(v), 'MR-3');
+describe('MR-2b render-completeness (low-total render-loss catcher)', () => {
+  it('flags render loss at a low total (total 7, rendered 3 — "says 7, shows 3")', () => {
+    const v = view({ viewport: 'desktop', requestedZoom: 9, network: net({ bbox: BB, total: 7, points: [] }), legend: [{ family: 'Hawks', count: 7 }], markers: [marker([{ family: 'Hawks', count: 3 }])] });
+    const f = fails(sampleOf(v), 'MR-2b');
     expect(f).toHaveLength(1);
-    expect(f[0].symptom).toContain('Falcons');
+    expect(f[0].numbers).toMatchObject({ networkTotal: 7, rendered: 3 });
   });
-  it('passes when every legend family renders', () => {
-    const v = view({ viewport: 'desktop', requestedZoom: 9, network: net({ bbox: BB, total: 5, points: [] }), legend: [{ family: 'Hawks', count: 3 }, { family: 'Falcons', count: 2 }], markers: [marker([{ family: 'Hawks', count: 3 }, { family: 'Falcons', count: 2 }])] });
+  it('passes a conserved low total (everything fits the grid)', () => {
+    const v = view({ viewport: 'desktop', requestedZoom: 9, network: net({ bbox: BB, total: 7, points: [] }), legend: [{ family: 'Hawks', count: 7 }], markers: [marker([{ family: 'Hawks', count: 7 }])] });
+    expect(fails(sampleOf(v), 'MR-2b')).toHaveLength(0);
+  });
+  it('SKIPS the capacity case at a high total (legend 601 / rendered 0 → PASS, not a fail)', () => {
+    const v = view({ viewport: 'desktop', requestedZoom: 9, network: net({ bbox: BB, total: 601, points: [] }), legend: [{ family: 'Hawks', count: 601 }], markers: [] });
+    expect(fails(sampleOf(v), 'MR-2b')).toHaveLength(0);
+  });
+  it('skips when an overflow pill is present (capacity-limited)', () => {
+    const v = view({ viewport: 'mobile', requestedZoom: 9, network: net({ bbox: BB, total: 30, points: [] }), legend: [{ family: 'Hawks', count: 30 }], markers: [marker([{ family: 'Hawks', count: 3 }], true)] });
+    expect(fails(sampleOf(v), 'MR-2b')).toHaveLength(0);
+  });
+});
+
+describe('MR-3 server↔client per-family (aggregated mode only)', () => {
+  it('flags a client legend family diverging from the server count (aggregated, same scope)', () => {
+    // Σlegend (53) == network.total (53) → passes the scope guard; per-family then
+    // fires: server Hawks 30 ≠ legend Hawks 23 (counts swapped between the two families).
+    const v = view({ viewport: 'desktop', requestedZoom: 5, network: net({ mode: 'aggregated', bbox: BB, total: 53, points: [], familyCounts: [{ family: 'Hawks', count: 30 }, { family: 'Falcons', count: 23 }] }), legend: [{ family: 'Hawks', count: 23 }, { family: 'Falcons', count: 30 }], markers: [marker([{ family: 'Hawks', count: 23 }])] });
+    const f = fails(sampleOf(v), 'MR-3');
+    expect(f.length).toBeGreaterThanOrEqual(1);
+    expect(f[0].symptom).toMatch(/Hawks|Falcons/);
+  });
+  it('passes when the legend matches the server per-family counts (aggregated)', () => {
+    const v = view({ viewport: 'desktop', requestedZoom: 5, network: net({ mode: 'aggregated', bbox: BB, total: 53, points: [], familyCounts: [{ family: 'Hawks', count: 30 }, { family: 'Falcons', count: 23 }] }), legend: [{ family: 'Hawks', count: 30 }, { family: 'Falcons', count: 23 }], markers: [marker([{ family: 'Hawks', count: 30 }])] });
     expect(fails(sampleOf(v), 'MR-3')).toHaveLength(0);
   });
-  it('carves out overflow-hidden families', () => {
-    const v = view({ viewport: 'mobile', requestedZoom: 9, network: net({ bbox: BB, total: 5, points: [] }), legend: [{ family: 'Hawks', count: 3 }, { family: 'Falcons', count: 2 }], markers: [marker([{ family: 'Hawks', count: 3 }], true)] });
+  it('SKIPS via the viewport-coverage guard when legend (viewport) ≠ network total (response)', () => {
+    // The mobile-z4 artifact class (#1270 re-run): server familyCounts are national
+    // (total 298) but the legend is the narrow viewport subset (30) → different scope,
+    // skipped with a carve-out rather than fired as 100s of false per-family diffs.
+    const v = view({ viewport: 'mobile', requestedZoom: 4, network: net({ mode: 'aggregated', bbox: BB, total: 298, points: [], familyCounts: [{ family: 'Hawks', count: 200 }, { family: 'Falcons', count: 98 }] }), legend: [{ family: 'Hawks', count: 30 }], markers: [marker([{ family: 'Hawks', count: 30 }])] });
+    const v3 = evaluateSample(sampleOf(v)).filter((x) => x.relation === 'MR-3');
+    expect(v3.every((x) => x.status === 'pass')).toBe(true);
+    expect(v3.some((x) => x.carveOuts?.includes('viewport-coverage-mismatch'))).toBe(true);
+  });
+  it('SKIPS the capacity artifact: observations mode is a no-op pass (legend 601 / rendered 0)', () => {
+    // Old engine compared legend vs rendered here and fired 317 capacity artifacts.
+    const v = view({ viewport: 'desktop', requestedZoom: 9, network: net({ mode: 'observations', bbox: BB, total: 601, points: [] }), legend: [{ family: 'Hawks', count: 601 }], markers: [] });
     expect(fails(sampleOf(v), 'MR-3')).toHaveLength(0);
   });
 });
@@ -179,20 +239,24 @@ describe('MR-4 filter consistency', () => {
   });
 });
 
-describe('MR-5 lede vs scope total', () => {
-  it('flags lede materially off the scope total', () => {
-    const v = view({ viewport: 'desktop', requestedZoom: 9, network: net({ bbox: BB, total: 5, points: [] }), lede: { text: '500 sightings', firstInt: 500, unit: 'sightings' }, markers: [] });
-    const f = fails(sampleOf(v, { scopeTotal: 1000 }), 'MR-5');
+describe('MR-5 lede vs viewport total (#1270)', () => {
+  it('flags lede materially off the viewport network total', () => {
+    const v = view({ viewport: 'desktop', requestedZoom: 9, network: net({ bbox: BB, total: 1000, points: [] }), lede: { text: '500 sightings', firstInt: 500, unit: 'sightings' }, markers: [] });
+    const f = fails(sampleOf(v), 'MR-5');
     expect(f).toHaveLength(1);
-    expect(f[0].numbers).toMatchObject({ ledeFirstInt: 500, scopeTotal: 1000 });
+    expect(f[0].numbers).toMatchObject({ ledeFirstInt: 500, networkTotal: 1000 });
   });
-  it('passes when lede matches the scope total within tolerance', () => {
-    const v = view({ viewport: 'desktop', requestedZoom: 9, network: net({ bbox: BB, total: 5, points: [] }), lede: { text: '1000 sightings', firstInt: 1000, unit: 'sightings' }, markers: [] });
-    expect(fails(sampleOf(v, { scopeTotal: 1000 }), 'MR-5')).toHaveLength(0);
+  it('passes when lede matches the viewport total within tolerance (prod z9: lede 872 = network 872)', () => {
+    const v = view({ viewport: 'desktop', requestedZoom: 9, network: net({ bbox: BB, total: 872, points: [] }), lede: { text: '872 sightings', firstInt: 872, unit: 'sightings' }, markers: [] });
+    expect(fails(sampleOf(v), 'MR-5')).toHaveLength(0);
   });
-  it('carves out a species-unit lede (not comparable to a sightings scope total)', () => {
-    const v = view({ viewport: 'desktop', requestedZoom: 9, network: net({ bbox: BB, total: 5, points: [] }), lede: { text: '300 species', firstInt: 300, unit: 'species' }, markers: [] });
-    expect(fails(sampleOf(v, { scopeTotal: 1000 }), 'MR-5')).toHaveLength(0);
+  it('carves out a species-unit lede (not comparable to a sightings total)', () => {
+    const v = view({ viewport: 'desktop', requestedZoom: 9, network: net({ bbox: BB, total: 1000, points: [] }), lede: { text: '300 species', firstInt: 300, unit: 'species' }, markers: [] });
+    expect(fails(sampleOf(v), 'MR-5')).toHaveLength(0);
+  });
+  it('skips a loading-placeholder lede (no parsed unit)', () => {
+    const v = view({ viewport: 'desktop', requestedZoom: 9, network: net({ bbox: BB, total: 1000, points: [] }), markers: [] });
+    expect(fails(sampleOf(v), 'MR-5')).toHaveLength(0);
   });
 });
 
