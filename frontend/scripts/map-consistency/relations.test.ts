@@ -326,6 +326,54 @@ describe('MR-4 filter consistency', () => {
   });
 });
 
+describe('MR-10 filtered render-completeness (the "filter says N, only M render" catcher)', () => {
+  const baseUnfiltered = view({ viewport: 'desktop', requestedZoom: 7, network: net({ bbox: BB, total: 100, points: [] }), legend: [{ family: 'Hawks', count: 60 }, { family: 'Falcons', count: 40 }], markers: [] });
+
+  it('fires when a filtered view renders fewer than the stated count (stated 7, rendered 3)', () => {
+    const bundle: FilterBundle = {
+      unfiltered: baseUnfiltered,
+      byFamily: [{ family: 'Hawks', view: view({ viewport: 'desktop', requestedZoom: 7, network: net({ bbox: BB, total: 7, points: [] }), legend: [{ family: 'Hawks', count: 7 }], markers: [marker([{ family: 'Hawks', count: 3 }])] }) }],
+      bySince: [],
+    };
+    const f = fails(sampleOf(baseUnfiltered, { filterBundle: bundle }), 'MR-10');
+    expect(f).toHaveLength(1);
+    expect(f[0].severity).toBe('high');
+    expect(f[0].numbers).toMatchObject({ stated: 7, rendered: 3, delta: -4 });
+    expect(f[0].symptom).toContain('family="Hawks"');
+  });
+
+  it('passes when the filtered render conserves the stated count (stated 7, rendered 7)', () => {
+    const bundle: FilterBundle = {
+      unfiltered: baseUnfiltered,
+      byFamily: [{ family: 'Hawks', view: view({ viewport: 'desktop', requestedZoom: 7, network: net({ bbox: BB, total: 7, points: [] }), legend: [{ family: 'Hawks', count: 7 }], markers: [marker([{ family: 'Hawks', count: 7 }])] }) }],
+      bySince: [],
+    };
+    expect(fails(sampleOf(baseUnfiltered, { filterBundle: bundle }), 'MR-10')).toHaveLength(0);
+  });
+
+  it('skips an inconclusive filtered capture (the empty Tyrant-Flycatchers case stays MR-4-only, not a false render verdict)', () => {
+    const bundle: FilterBundle = {
+      unfiltered: baseUnfiltered,
+      byFamily: [{ family: 'Tyrant Flycatchers', view: view({ viewport: 'desktop', requestedZoom: 7, network: net({ bbox: BB, total: 0, points: [] }), markers: [], inconclusive: { reason: 'matched-fetch timeout' } }) }],
+      bySince: [],
+    };
+    expect(fails(sampleOf(baseUnfiltered, { filterBundle: bundle }), 'MR-10')).toHaveLength(0);
+  });
+
+  it('does NOT false-fire on a legitimately-pilled HIGH-count single family (stated 800, one pill of 800)', () => {
+    // The premise MR-10 rests on: filtered to one family, a dense cluster pills OUT
+    // with its FULL count (no overflow tail — every cluster is that one family). So a
+    // single `pill(800)` conserves the stated 800. This pins that a high-count pilled
+    // family PASSES — MR-10 must not confuse pill-collapse with render loss.
+    const bundle: FilterBundle = {
+      unfiltered: view({ viewport: 'desktop', requestedZoom: 7, network: net({ mode: 'aggregated', bbox: BB, total: 800, points: [] }), legend: [{ family: 'Gulls', count: 800 }], markers: [] }),
+      byFamily: [{ family: 'Gulls', view: view({ viewport: 'desktop', requestedZoom: 7, network: net({ mode: 'aggregated', bbox: BB, total: 800, points: [] }), legend: [{ family: 'Gulls', count: 800 }], markers: [pill(800)] }) }],
+      bySince: [],
+    };
+    expect(fails(sampleOf(baseUnfiltered, { filterBundle: bundle }), 'MR-10')).toHaveLength(0);
+  });
+});
+
 describe('MR-5 lede vs viewport total (#1270)', () => {
   it('flags lede materially off the viewport network total', () => {
     const v = view({ viewport: 'desktop', requestedZoom: 9, network: net({ bbox: BB, total: 1000, points: [] }), lede: { text: '500 sightings', firstInt: 500, unit: 'sightings' }, markers: [] });

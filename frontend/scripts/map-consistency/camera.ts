@@ -18,6 +18,14 @@ export interface RawView {
   responseBody: unknown;
   consoleErrors: string[];
   consoleWarnings: string[];
+  /** True when the matched `/api/observations` response arrived with a 200 but ZERO
+   *  results (no buckets / no data rows). This is a REAL "the filter returned 0"
+   *  signal — NOT a capture failure — so the caller must keep it (let MR-4/MR-10
+   *  flag it) rather than mark it `inconclusive`. A genuine fetch timeout throws from
+   *  `waitForMatchingObs` instead, which is the only path that becomes inconclusive.
+   *  Splitting the two is the #1274 filter-capture hardening: today an empty filter
+   *  result and a timeout look the same (the `Tyrant Flycatchers` empty snapshot). */
+  emptyMatched: boolean;
 }
 
 function buildUrl(baseUrl: string, p: OpenViewParams): string {
@@ -98,5 +106,22 @@ export async function openView(
   await page.waitForTimeout(opts?.settleMs ?? 2500); // let markers + legend re-render post-match
   const { bbox, zoom } = parseObsParams(response.url());
   const responseBody = await response.json().catch(() => null);
-  return { page, raw: { url, requestUrl: response.url(), requestBbox: bbox!, requestZoom: zoom!, responseBody, consoleErrors, consoleWarnings } };
+  // The matched fetch ARRIVED (a real 200) — classify whether its body is empty.
+  // A 200-but-empty filtered response is a genuine "filter returned 0" signal, not a
+  // capture failure: the caller keeps it (so MR-4/MR-10 can flag it) instead of
+  // marking it inconclusive (which is reserved for an actual fetch timeout/throw).
+  const emptyMatched = responseBodyIsEmpty(responseBody);
+  return { page, raw: { url, requestUrl: response.url(), requestBbox: bbox!, requestZoom: zoom!, responseBody, consoleErrors, consoleWarnings, emptyMatched } };
+}
+
+/** A matched /api/observations 200 body that carries no results — aggregated with no
+ *  buckets, or observations with no data rows. (A null/unparseable body is treated as
+ *  non-empty here: the matched fetch still arrived, so it's a parse anomaly, not a
+ *  zero-result filter — `normalizeNetwork` will surface it as `mode:'unknown'`.) */
+function responseBodyIsEmpty(body: unknown): boolean {
+  if (!body || typeof body !== 'object' || !('mode' in body)) return false;
+  const r = body as { mode?: string; buckets?: unknown[]; data?: unknown[] };
+  if (r.mode === 'aggregated') return (r.buckets?.length ?? 0) === 0;
+  if (r.mode === 'observations') return (r.data?.length ?? 0) === 0;
+  return false;
 }

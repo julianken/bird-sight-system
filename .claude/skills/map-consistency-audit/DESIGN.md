@@ -119,6 +119,13 @@ Each relation: definition, the comparison, tolerance, and carve-outs (conditions
 - **Since-window monotonicity:** at a fixed camera, `count(14d) ≥ count(7d) ≥ count(1d)` (windows are nested).
 - **Carve-out:** species/family codes with `null` joins are excluded from species-count lines by design — reconcile against the same filtered set the UI uses.
 
+### MR-10 — Filtered render-completeness (the "filter says N, only M render" catcher)
+*For each `?family=F` view, `Σ rendered marker totals ≈ view.network.total`.*
+- Filter by family F → the stated count (the server's F count at this camera = `view.network.total`) must be conserved by what RENDERS. Filtered to one family there is **no overflow tail** (every cluster is that family — a single-family cluster pills out with its full count), so `Σ marker totals == total F` when rendering is correct.
+- **Violation:** a shortfall beyond `max(2, round(stated·10%))` = the map dropped birds the filter counted — the reported "**filter says 7, only 3 render**" bug. Severity high; repro = the filtered `#map=` URL.
+- **Why it's needed:** MR-2b (render-completeness) runs ONLY on the **unfiltered** ladder; MR-4 compares filtered count NUMBERS against the unfiltered slice (legend-vs-legend), never `stated count vs Σ rendered markers`. The filtered "says N, shows M" scenario lives in that untested seam — MR-10 closes it.
+- **Carve-outs:** `inconclusive` filtered capture (capture failed — not a render verdict; MR-4 still reports the consistency miss separately); `stated == 0` (nothing to render — MR-4(a) covers the 0-vs-baseline case).
+
 ### MR-5 — Lede vs scope-total (conditional)
 *The lede equals the scope-wide total, not the viewport.*
 - Compare lede to the **scope-wide** network total, not the viewport sum. **Only** assert lede==viewport when `data-scope-fitted="true"` AND the camera ⊇ all scope data. Otherwise lede≠viewport is expected, not a bug.
@@ -146,6 +153,7 @@ Corrected relations (supersede the naive bullets above):
 - **MR-3 (server↔client family, aggregated-mode only):** in `mode:aggregated`, `legend[fam] ≈ network.familyCounts[fam]` (both common-name). Skipped in observations mode (no per-family network + code↔name mismatch). NO legend-vs-rendered.
 - **MR-5 (lede vs viewport):** `lede ≈ network.total` (viewport, not scope). `scopeTotal` dropped.
 - **MR-8 (directional pill-collapse — THE bug detector):** keep the legend-intersection; fire ONLY when `mobile renders F && desktop does NOT` (desktop under-rendering = the reported "desktop pills disappear, mobile splits out" bug). Suppress the reverse (desktop renders more = its larger 4×4 capacity — legit, was the 21 residual artifacts).
+- **MR-10 (filtered render-completeness — the "filter says N, only M render" catcher, #1274):** for each `?family=F` view, `Σ rendered marker totals ≈ view.network.total`. A real `--samples 6` run MISSED the reported "filter says 7, shows 3" bug because MR-2b runs only on the unfiltered ladder and MR-4 is legend-vs-legend — neither compares `stated count vs Σ rendered markers` on a filtered view. MR-10 closes that seam. Carve-outs: inconclusive capture, `stated == 0`. **Filter-capture hardening lands with it:** probe the **top-4** families (up from 2), distinguish a 200-but-EMPTY filtered response (a REAL "filter returned 0" signal — kept so MR-4/MR-10 flag it) from a fetch timeout (marked `inconclusive`, retried once), and bump `FILTER_BUNDLE_VIEWS` 6→8 (1 unfiltered + 4 family + 3 since) with the pacing-guard estimate.
 - **Unchanged:** MR-0, MR-1, MR-4, MR-6, MR-7. (MR-6 already caught a genuine prod CORS error on the national `zoom=3` prefetch — `No 'Access-Control-Allow-Origin'`, filed for independent follow-up.)
 
 ### 5.2 Two render modes — `cluster-pill` vs `adaptive-grid-marker` (THE actual bug surface)

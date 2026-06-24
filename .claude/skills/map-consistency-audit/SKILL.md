@@ -26,6 +26,7 @@ MR-0 drill-down conservation · MR-8 desktop↔mobile parity (headlines) ·
 MR-9 pill-split parity (desktop↔mobile cluster-split asymmetry — the reported bug) ·
 MR-1 zoom non-vanishing · MR-2 stated-vs-rendered · MR-2b render-completeness (low-total "says 7, shows 3") ·
 MR-3 per-family · MR-4 filter consistency + since-monotonicity ·
+MR-10 filtered render-completeness (the "filter says 7, shows 3" catcher) ·
 MR-5 lede-vs-viewport-total (conditional) · MR-6 clean console · MR-7 idempotence/intermittency.
 
 ## Carve-outs (do NOT flag these)

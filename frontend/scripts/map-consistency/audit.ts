@@ -17,7 +17,12 @@ interface Opts { samples: number; scope: string; seed: number; ladder: number[];
 const OBS_PER_VIEW = 2;
 const CF_SAFE_PER_MIN = 55; // margin under Cloudflare's 60/min/IP
 // C4 loop additions (paced like every other view):
-const FILTER_BUNDLE_VIEWS = 6; // 1 unfiltered + 2 family + 3 since (first sample only)
+// 1 unfiltered + 4 family (top-4 by unfiltered-legend count, #1274) + 3 since
+// (first sample only). NOTE: the at-most-one retry of a timed-out `?family=` capture
+// (#1274) is NOT counted here — it fires only on a transient miss, so the steady-state
+// projection stays at 8; an occasional retry is well within the CF margin.
+const FILTER_BUNDLE_VIEWS = 8; // 1 unfiltered + 4 family + 3 since (first sample only)
+const FILTER_TOP_FAMILIES = 4; // probe the top-4 families by unfiltered-legend count (#1274)
 const RECAPTURE_VIEWS_PER_SAMPLE = 1; // one extra capture of one camera per sample
 
 function parse(argv: string[]): Opts {
@@ -137,6 +142,25 @@ async function run(o: Opts): Promise<void> {
       }
     };
 
+    // Capture one `?family=` view, retrying ONCE on an inconclusive result (a
+    // transient matched-fetch timeout). A 200-but-EMPTY filtered response comes back
+    // NON-inconclusive (openView returns a real RawView with `emptyMatched`) — so it
+    // is KEPT as-is, never retried: that empty is a REAL "filter returned 0" signal
+    // MR-4/MR-10 must see, not a capture failure to paper over. Only an actual
+    // timeout (which throws → inconclusive snapshot) triggers the single retry. (#1274)
+    const captureFamilyWithRetry = async (
+      seed: { lng: number; lat: number },
+      zoom: number,
+      code: string,
+      persistStem: string,
+    ): Promise<ViewSnapshot> => {
+      const first = await capture(seed, zoom, 'desktop', { family: code }, persistStem);
+      if (!first.inconclusive) return first; // success (incl. a real 200-empty) — keep it
+      process.stderr.write(`  ↻ retrying family="${code}" filter capture once (first attempt: ${first.inconclusive.reason})\n`);
+      const second = await capture(seed, zoom, 'desktop', { family: code }, persistStem);
+      return second; // whatever the retry yields (success, 200-empty, or still inconclusive)
+    };
+
     const midZoom = o.ladder[Math.floor(o.ladder.length / 2)]!;
 
     // 2. For each sample, walk the ladder × viewports (paced).
@@ -151,20 +175,21 @@ async function run(o: Opts): Promise<void> {
         }
       }
 
-      // Filter bundle (first sample only): unfiltered + top-2 families + since 1d/7d/14d
-      // at a single mid-ladder desktop camera. MR-4 reconciles the variants. The
-      // legend gives common NAMES; the URL filter needs the family CODE (mapped via
-      // the seed fetch). Families with no resolvable code are skipped (can't filter).
+      // Filter bundle (first sample only): unfiltered + top-4 families (#1274) +
+      // since 1d/7d/14d at a single mid-ladder desktop camera. MR-4 reconciles the
+      // variants; MR-10 checks each filtered view's Σ rendered vs stated. The legend
+      // gives common NAMES; the URL filter needs the family CODE (mapped via the seed
+      // fetch). Families with no resolvable code are skipped (can't filter).
       let filterBundle: FilterBundle | undefined;
       if (s === 0) {
         const unfiltered = await capture(seed, midZoom, 'desktop', undefined, `${sampleId}-fb-unfiltered`);
-        const top2 = [...unfiltered.legend]
+        const top4 = [...unfiltered.legend]
           .sort((a, b) => b.count - a.count)
           .map((f) => ({ name: f.family, code: familyNameToCode.get(f.family) }))
           .filter((f): f is { name: string; code: string } => f.code != null)
-          .slice(0, 2);
+          .slice(0, FILTER_TOP_FAMILIES);
         const byFamily: FilterBundle['byFamily'] = [];
-        for (const { name, code } of top2) byFamily.push({ family: name, view: await capture(seed, midZoom, 'desktop', { family: code }, `${sampleId}-fb-family-${code}`) });
+        for (const { name, code } of top4) byFamily.push({ family: name, view: await captureFamilyWithRetry(seed, midZoom, code, `${sampleId}-fb-family-${code}`) });
         const bySince: FilterBundle['bySince'] = [];
         for (const since of ['1d', '7d', '14d'] as const) bySince.push({ since, view: await capture(seed, midZoom, 'desktop', { since }, `${sampleId}-fb-since-${since}`) });
         filterBundle = { unfiltered, byFamily, bySince };
