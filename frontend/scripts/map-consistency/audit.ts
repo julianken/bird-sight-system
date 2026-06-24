@@ -11,7 +11,10 @@ import type { FilterBundle, Recapture, Sample, ViewSnapshot, Verdict, Viewport }
 
 interface Opts { samples: number; scope: string; seed: number; ladder: number[]; viewports: Viewport[]; paceMs: number; baseUrl: string; out: string; uniformFrac: number; }
 
-const OBS_PER_VIEW = 2; // national interstitial + matched hash fetch (worst case)
+// 2 /api/observations fetches per view = the national worst case (the low-zoom
+// interstitial + the matched hash fetch). This is the intentional pacing ceiling
+// the guard sizes against — don't lower it without re-checking the CF math.
+const OBS_PER_VIEW = 2;
 const CF_SAFE_PER_MIN = 55; // margin under Cloudflare's 60/min/IP
 // C4 loop additions (paced like every other view):
 const FILTER_BUNDLE_VIEWS = 6; // 1 unfiltered + 2 family + 3 since (first sample only)
@@ -64,6 +67,9 @@ function familyCodeMap(body: unknown): Map<string, string> {
 }
 
 async function run(o: Opts): Promise<void> {
+  // Surface the resolved target host up front so a non-prod base-url isn't hammered
+  // unnoticed (the pacing guard protects prod; this makes the destination explicit).
+  process.stderr.write(`Base URL: ${o.baseUrl} (scope ${o.scope})\n`);
   pacingGuard(o);
   await mkdir(o.out, { recursive: true });
   // Persist every view's raw payload + screenshot so any finding stays reproducible

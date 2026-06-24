@@ -103,7 +103,7 @@ describe('MR-8 parity (directional pill-collapse, #1270)', () => {
 describe('MR-9 pill-split parity (the reported bug, §5.2)', () => {
   it('flags desktop-all-pill vs mobile-all-grid at the same camera (desktop under-splits)', () => {
     // Same camera (z6). Mobile splits every cluster into a grid (gridFraction 1.0);
-    // desktop leaves every cluster as a pill (gridFraction 0.0). Δ 1.0 > 0.2 → fail.
+    // desktop leaves every cluster as a pill (gridFraction 0.0). Δ 1.0 > MR9_THRESHOLD (0.12) → fail.
     const desktop = view({
       viewport: 'desktop', requestedZoom: 6, network: net({ mode: 'aggregated', bbox: BB, total: 3000, points: [] }),
       markers: [pill(1164), pill(820), pill(1016)],
@@ -173,6 +173,23 @@ describe('MR-0 drill-down', () => {
     const child = view({ viewport: 'desktop', requestedZoom: 5, network: net({ mode: 'aggregated', bbox: [-111, 31, -109, 33], zoom: 5, total: 18, points: [] }), markers: [marker([{ family: 'Hawks', count: 18 }])] });
     const sample: Sample = { id: 's4', seedPoint: { lng: -110, lat: 32 }, scope: 'us', views: [parent, child] };
     expect(evaluateSample(sample).filter((v) => v.relation.startsWith('MR-0') && v.status === 'fail')).toHaveLength(0);
+  });
+  it('MR-0b does NOT fire when a dense, grid-overflowing child renders fewer than conservation (rendered-capacity-limited)', () => {
+    // Exact obs↔obs drill-down (same mode, untruncated, fresh-aligned → tol=0): the
+    // parent counts ~600 inside the child bbox and the child returns 600, but the
+    // adaptive grid only renders a 50-bird subset behind a "+N" overflow pill. MR-0a
+    // (server-truth) conserves; MR-0b's rendered count is a lossy capacity subset, so
+    // it must PASS with the carve-out — NOT false-fire a high-severity "lost 550".
+    const parent = view({ viewport: 'desktop', requestedZoom: 7, network: net({ bbox: [-112, 30, -108, 34], zoom: 7, total: 600, points: [{ lng: -110, lat: 32, count: 600 }] }), markers: [] });
+    const child = view({ viewport: 'desktop', requestedZoom: 10, network: net({ bbox: [-111, 31, -109, 33], zoom: 10, total: 600, points: [] }), markers: [marker([{ family: 'Hawks', count: 50 }], true)] });
+    const sample: Sample = { id: 's5', seedPoint: { lng: -110, lat: 32 }, scope: 'us', views: [parent, child] };
+    const verdicts = evaluateSample(sample);
+    expect(verdicts.filter((v) => v.relation === 'MR-0b' && v.status === 'fail')).toHaveLength(0);
+    const mr0b = verdicts.find((v) => v.relation === 'MR-0b');
+    expect(mr0b?.status).toBe('pass');
+    expect(mr0b?.carveOuts).toContain('rendered-capacity-limited');
+    // MR-0a (server-truth) still conserves and passes too.
+    expect(verdicts.filter((v) => v.relation === 'MR-0a' && v.status === 'fail')).toHaveLength(0);
   });
 });
 

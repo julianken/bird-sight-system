@@ -160,7 +160,23 @@ export function checkDrillDown(parent: ViewSnapshot, child: ViewSnapshot): Verdi
   // cross-mode jump warrants the wider band (tol 155 at expected ~775 → passes).
   // Same-mode obs↔obs stays exact (tol 0).
   const tol = exact ? 0 : Math.max(3, Math.round(expected * (aggregated ? 0.2 : 0.05)));
+  // MR-0b compares against the child's RENDERED total (Σ visible cells), which
+  // excludes the "+N" overflow tail. When the child is capacity-limited (an
+  // overflow pill or simply more birds than the adaptive grid renders), that
+  // rendered count is a lossy subset, not a conservation bound — asserting it
+  // here false-fires a "lost K" even though conservation holds (mirrors the
+  // MR-2b capacity carve-out, same `hasOverflow`/`>50` guard). MR-0a's server
+  // -truth leg still asserts the real conservation. (bot review)
+  const childCapacityLimited = hasOverflow(child) || child.network.total > 50;
   const mk = (relation: string, actual: number): Verdict => {
+    if (relation === 'MR-0b' && childCapacityLimited) {
+      return {
+        relation, status: 'pass', sampleId: '',
+        carveOuts: ['rendered-capacity-limited'],
+        numbers: { expected, actual, networkTotal: child.network.total },
+        evidence: { parentUrl: parent.url, childUrl: child.url, childBbox: child.network.bbox },
+      };
+    }
     const delta = actual - expected; // negative = child shows fewer (lost birds)
     // Exact drill-down: ANY mismatch is a violation. Tolerant drill-down
     // (aggregated / cross-mode / truncation / freshness): flag LOSS beyond the
@@ -304,8 +320,19 @@ export function checkFamilyConservation(view: ViewSnapshot): Verdict[] {
   const legendByFamily = familyMap(view.legend);
   const verdicts: Verdict[] = [];
   const within = (a: number, b: number) => Math.abs(a - b) <= Math.max(2, Math.max(a, b) * 0.05);
+  // A stale aggregated payload can carry `name: null` buckets, which key by the raw
+  // family CODE (e.g. "tyrannidae") while the legend shows the colloquial name
+  // ("Tyrant Flycatchers") — `legendByFamily.get(code)` returns 0, a false
+  // "server N ≠ client 0". When a server key is absent from the legend AND looks
+  // like a raw lowercase code (no spaces, `[a-z-]+` only), it's an unresolved
+  // code↔name key, not a real divergence — skip it.
+  const looksLikeRawCode = (key: string) => /^[a-z-]+$/.test(key);
   for (const [family, serverCount] of serverByFamily) {
     if (serverCount <= 0) continue;
+    if (!legendByFamily.has(family) && looksLikeRawCode(family)) {
+      verdicts.push({ relation: 'MR-3', status: 'pass', sampleId: '', carveOuts: ['family-key-unresolved'], numbers: { server: serverCount }, evidence: { family, url: view.url, viewport: view.viewport, zoom: view.requestedZoom } });
+      continue;
+    }
     const legendCount = legendByFamily.get(family) ?? 0;
     if (!within(legendCount, serverCount)) {
       verdicts.push({
