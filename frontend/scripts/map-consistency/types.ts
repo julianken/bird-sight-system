@@ -40,6 +40,10 @@ export interface MarkerRead {
   familyCount: number | null;
   /** Per-cell {family,count} from cell aria-labels. */
   cells: FamilyCount[];
+  /** True when this marker shows a mobile "+N" overflow pill
+   *  ([data-testid="adaptive-grid-marker-overflow"]) — families are hidden, so
+   *  rendered < stated is legitimate for MR-2/MR-3 (carve-out `mobile-overflow`). */
+  overflow: boolean;
 }
 
 export interface ViewSnapshot {
@@ -58,7 +62,31 @@ export interface ViewSnapshot {
   inconclusive?: { reason: string };
 }
 
-export interface Sample { id: string; seedPoint: { lng: number; lat: number }; scope: string; views: ViewSnapshot[]; }
+/** One filter probe: an unfiltered baseline view plus its filtered variants at a
+ *  single shared camera. MR-4 reconciles the variants against the baseline. */
+export interface FilterBundle {
+  unfiltered: ViewSnapshot;
+  /** Per-family variants: `?family=<F>` at the same camera, keyed by family name. */
+  byFamily: { family: string; view: ViewSnapshot }[];
+  /** `?since=1d|7d|14d` variants at the same camera, for the monotonicity check. */
+  bySince: { since: '1d' | '7d' | '14d'; view: ViewSnapshot }[];
+}
+
+/** Two captures of the SAME camera (MR-7 idempotence / intermittency). */
+export interface Recapture { a: ViewSnapshot; b: ViewSnapshot; }
+
+export interface Sample {
+  id: string;
+  seedPoint: { lng: number; lat: number };
+  scope: string;
+  views: ViewSnapshot[];
+  /** Scope-wide network total from the seed fetch (MR-5 compares lede to THIS, not viewport). */
+  scopeTotal?: number;
+  /** MR-4 filter probe (captured for ~one sample at a mid-ladder zoom). */
+  filterBundle?: FilterBundle;
+  /** MR-7 re-capture pairs (~one camera per sample captured twice). */
+  recaptures?: Recapture[];
+}
 
 export type VerdictStatus = 'pass' | 'fail' | 'inconclusive';
 export type Severity = 'high' | 'medium' | 'low';

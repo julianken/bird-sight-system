@@ -73,7 +73,11 @@ export async function readMarkers(page: Page): Promise<MarkerRead[]> {
       const cm = ((await cells.nth(j).getAttribute('aria-label')) ?? '').match(CELL_ARIA);
       if (cm?.groups) cellOut.push({ family: cm.groups.family.trim(), count: Number(cm.groups.count) });
     }
-    out.push({ markerTotal: ma?.groups ? Number(ma.groups.total) : null, familyCount: ma?.groups ? Number(ma.groups.families) : null, cells: cellOut });
+    // Mobile markers collapse extra families into a "+N" overflow pill — its
+    // presence means rendered cells legitimately under-count the marker's
+    // families (MR-2/MR-3 carve-out `mobile-overflow`).
+    const overflow = (await mk.locator('[data-testid="adaptive-grid-marker-overflow"]').count()) > 0;
+    out.push({ markerTotal: ma?.groups ? Number(ma.groups.total) : null, familyCount: ma?.groups ? Number(ma.groups.families) : null, cells: cellOut, overflow });
   }
   return out;
 }
