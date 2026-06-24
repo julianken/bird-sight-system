@@ -133,6 +133,21 @@ Each relation: definition, the comparison, tolerance, and carve-outs (conditions
 - Re-request a settled camera; counts should be stable. Used both as its own relation (catches precompute-vs-live + cache-key drift) and to tag every other finding **deterministic vs intermittent**.
 - **Carve-out:** `freshestObservationAt` changed between the two reads → freshness-skew, not a bug.
 
+### 5.1 Relation model correction (empirical — from the first full prod run, #1270)
+
+The first `--samples` run falsified three assumptions baked into the naive relations (45→0 coastal MR-8 artifacts confirmed the viewport-normalization fix, but exposed deeper gaps). Corrected, prod-verified model:
+
+- **The conservation law (reliable):** `Σ legend ≈ network.total ≈ lede` — all three track the **viewport** total (verified z9: lede 872 = network.total 872 = legend-sum 869). **The lede tracks the viewport, NOT the scope** (this overturns the earlier "lede is scope-total" reading — that was the two-stage load *interstitial*).
+- **Rendered cells are LOSSY, not a conservation bound:** the adaptive grid renders a capacity-limited top-K-by-count subset of families (9–29% of legend at z9; ~2 cells at a z4 national cluster). So `legend == rendered` and `Σrendered == total` are false whenever families exceed grid capacity (overflow/pill drops the tail) — asserting them produced 317 MR-3 + 6 MR-2 capacity artifacts.
+
+Corrected relations (supersede the naive bullets above):
+- **MR-2 (conservation):** `|Σlegend − network.total| ≤ ε` AND `|lede − network.total| ≤ ε`, ε = max(3, total·2%). (Was legend-vs-rendered.)
+- **MR-2b (render-completeness — the "says 7, shows 3" catcher):** when `network.total ≤ 50` AND no marker overflow, `Σ rendered cell counts ≈ network.total`. At low counts everything fits the grid, so rendered must conserve; a shortfall = render loss. Skipped at high totals (capacity).
+- **MR-3 (server↔client family, aggregated-mode only):** in `mode:aggregated`, `legend[fam] ≈ network.familyCounts[fam]` (both common-name). Skipped in observations mode (no per-family network + code↔name mismatch). NO legend-vs-rendered.
+- **MR-5 (lede vs viewport):** `lede ≈ network.total` (viewport, not scope). `scopeTotal` dropped.
+- **MR-8 (directional pill-collapse — THE bug detector):** keep the legend-intersection; fire ONLY when `mobile renders F && desktop does NOT` (desktop under-rendering = the reported "desktop pills disappear, mobile splits out" bug). Suppress the reverse (desktop renders more = its larger 4×4 capacity — legit, was the 21 residual artifacts).
+- **Unchanged:** MR-0, MR-1, MR-4, MR-6, MR-7. (MR-6 already caught a genuine prod CORS error on the national `zoom=3` prefetch — `No 'Access-Control-Allow-Origin'`, filed for independent follow-up.)
+
 ## 6. The harness
 
 `frontend/scripts/map-consistency/` (TypeScript, run with `tsx`):
