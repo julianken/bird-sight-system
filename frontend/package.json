@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "replay:viewbox": "tsx scripts/replay-viewbox.ts"
+    "replay:viewbox": "tsx scripts/replay-viewbox.ts",
+    "audit:map-consistency": "tsx scripts/map-consistency/audit.ts"
   },
   "dependencies": {
     "@bird-watch/geo": "*",
