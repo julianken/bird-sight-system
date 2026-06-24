@@ -412,6 +412,44 @@ export function checkFilterConsistency(bundle: FilterBundle): Verdict[] {
   return verdicts;
 }
 
+// ── MR-10: filtered render-completeness ("filter says N, only M render") ───────
+/** The reported bug MR-2b/MR-4 structurally miss: filter by family F → the count
+ *  says N (e.g. 7) but only M < N markers render. MR-2b runs ONLY on the unfiltered
+ *  ladder; MR-4 compares filtered-count NUMBERS against the unfiltered slice
+ *  (legend-vs-legend), never `stated count vs Σ rendered markers`. This relation
+ *  closes that seam.
+ *
+ *  For each `?family=F` view, the STATED count (the server's F count at this camera =
+ *  `view.network.total`) must be conserved by what RENDERS. Filtered to one family
+ *  there is no overflow tail (every cluster is that family — a single-family cluster
+ *  pills out with its full count), so `Σ marker totals == total F` when rendering is
+ *  correct. A shortfall = the map dropped birds the filter counted — the reported
+ *  "says 7, shows 3" bug. Repro = the filtered `#map=` URL. */
+export function checkFilteredRenderCompleteness(bundle: FilterBundle): Verdict[] {
+  const verdicts: Verdict[] = [];
+  for (const { family, view } of bundle.byFamily) {
+    if (view.inconclusive) continue; // capture failed — not a render verdict
+    const stated = view.network.total;
+    if (stated === 0) continue; // nothing to render; MR-4(a) covers the 0-vs-baseline case
+    const rendered = renderedTotal(view);
+    const shortfall = stated - rendered;
+    const ok = shortfall <= Math.max(2, Math.round(stated * 0.1));
+    verdicts.push({
+      relation: 'MR-10',
+      status: ok ? 'pass' : 'fail',
+      sampleId: '',
+      severity: ok ? undefined : 'high',
+      symptom: ok
+        ? undefined
+        : `filter family="${family}": stated ${stated} sightings but only ${rendered} rendered on screen (lost ${shortfall})`,
+      numbers: { stated, rendered, delta: rendered - stated },
+      evidence: { kind: 'filtered-render-completeness', family, url: view.url },
+    });
+  }
+  if (verdicts.length === 0) verdicts.push({ relation: 'MR-10', status: 'pass', sampleId: '', evidence: { kind: 'no-filtered-views' } });
+  return verdicts;
+}
+
 // ── MR-5: lede vs VIEWPORT total (conditional) ────────────────────────────────
 /** The lede tracks the VIEWPORT total, NOT the scope (#1270 §5.1 — the earlier
  *  "lede is scope-total" reading was the two-stage-load interstitial). Compare
@@ -518,8 +556,11 @@ export function evaluateSample(sample: Sample): Verdict[] {
     out.push(...checkLedeVsScope(v));
   }
 
-  // MR-4 over the filter bundle (one per sample when captured).
-  if (sample.filterBundle) out.push(...checkFilterConsistency(sample.filterBundle));
+  // MR-4 + MR-10 over the filter bundle (one per sample when captured).
+  if (sample.filterBundle) {
+    out.push(...checkFilterConsistency(sample.filterBundle));
+    out.push(...checkFilteredRenderCompleteness(sample.filterBundle)); // MR-10
+  }
 
   // MR-7 over re-capture pairs.
   for (const rc of sample.recaptures ?? []) out.push(...checkIdempotence(rc));
