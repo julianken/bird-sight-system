@@ -91,8 +91,8 @@ Each relation: definition, the comparison, tolerance, and carve-outs (conditions
 
 ### MR-8 — Desktop ↔ mobile parity (HEADLINE)
 *Same `#map=` camera must render the same coverage on desktop (1440×900) and mobile (390×844).*
-- Compare the **family set** and **per-family rendered totals** (from cell aria-labels) between viewports at the same camera.
-- **Violation:** a family/pill present on mobile but absent on desktop (or vice-versa); a marker that renders content on mobile but is empty/collapsed on desktop.
+- Compare rendered family presence between viewports at the same camera, **restricted to families present in BOTH viewports' (viewport-scoped) legends** — the coverage-controlled common ground. *Viewport-coverage normalization is load-bearing: desktop (1440×900) and mobile (390×844) cover different geographic bboxes at the same zoom, so an un-normalized raw family-set comparison emits one-directional false positives — desktop's wider frame legitimately sees coastal/edge families mobile's bbox excludes. Proven by the first prod run (#1269); fixed in C4.*
+- **Violation:** a family present in BOTH legends (so both viewports have the data) that renders on only one side — a real rendering disparity, not a coverage difference.
 - **Emits the desktop−mobile delta per sample** as the evidence for porting mobile's split logic.
 - **Leading hypothesis (from code):** `pickGridShape(uniqueFamilies, pointCount, isMobile)` where `isMobile = containerWidth < 768`. Mobile has a `grid-overflow` 3×3+"+N" path that always renders; desktop in the same density range can fall to a bare `{tag:'pill'}` that renders empty. (`frontend/src/components/map/adaptive-grid.ts`, `MapCanvas.tsx` reconciler ~L1843.)
 - **Carve-out:** legitimate layout differences (grid shape, "+N" overflow affordance) are fine **as long as coverage is conserved** — the check is on *which families/counts render*, not pixel layout.
