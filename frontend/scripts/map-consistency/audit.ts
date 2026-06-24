@@ -6,6 +6,7 @@ import { openView } from './camera.js';
 import { captureView } from './capture.js';
 import { sampleSeedPoints } from './sampler.js';
 import { evaluateSample } from './relations.js';
+import { writeBrief } from './report.js';
 import type { FilterBundle, Recapture, Sample, ViewSnapshot, Verdict, Viewport } from './types.js';
 
 interface Opts { samples: number; scope: string; seed: number; ladder: number[]; viewports: Viewport[]; paceMs: number; baseUrl: string; out: string; }
@@ -62,8 +63,13 @@ function familyCodeMap(body: unknown): Map<string, string> {
 async function run(o: Opts): Promise<void> {
   pacingGuard(o);
   await mkdir(o.out, { recursive: true });
+  // Persist every view's raw payload + screenshot so any finding stays reproducible
+  // from disk after prod data shifts (C5 #1271). The reporter reads these dirs.
+  await mkdir(path.join(o.out, 'raw'), { recursive: true });
+  await mkdir(path.join(o.out, 'shots'), { recursive: true });
   const browser = await chromium.launch({ headless: true });
   const verdicts: Verdict[] = [];
+  const samples: Sample[] = [];
   const freshSeen = new Set<string>();
   try {
     const context = await browser.newContext();
@@ -91,11 +97,22 @@ async function run(o: Opts): Promise<void> {
       zoom: number,
       vp: Viewport,
       filters?: { since?: string; family?: string },
+      // `stem` keys the persisted raw/<stem>.json + shots/<stem>.png. Ladder views
+      // pass `${sample.id}-${vp}-z${zoom}` so the reporter (which recomputes that
+      // exact stem) can resolve a finding's evidence files; filter/recapture extras
+      // pass a suffixed stem so they don't clobber the ladder's persisted files.
+      persistStem?: string,
     ): Promise<ViewSnapshot> => {
       await sleep(o.paceMs);
       try {
         const { page, raw } = await openView(context, o.baseUrl, { scope: o.scope, center: seed, zoom, viewport: vp, ...(filters ? { filters } : {}) });
         const snap = await captureView(page, raw, { scope: o.scope, viewport: vp, zoom, center: seed });
+        // Persist evidence (raw /api/observations payload + screenshot) BEFORE close.
+        if (persistStem) {
+          await writeFile(path.join(o.out, 'raw', `${persistStem}.json`), JSON.stringify(raw.responseBody, null, 2)).catch(() => {});
+          await page.screenshot({ path: path.join(o.out, 'shots', `${persistStem}.png`), fullPage: false }).catch(() => {});
+          snap.network.rawPath = path.join('raw', `${persistStem}.json`);
+        }
         await page.close();
         if (snap.network.freshestObservationAt) freshSeen.add(snap.network.freshestObservationAt);
         return snap;
@@ -116,10 +133,12 @@ async function run(o: Opts): Promise<void> {
     // 2. For each sample, walk the ladder × viewports (paced).
     for (let s = 0; s < seeds.length; s++) {
       const seed = seeds[s]!;
+      const sampleId = `s${s + 1}`;
       const views: ViewSnapshot[] = [];
       for (const vp of o.viewports) {
         for (const zoom of o.ladder) {
-          views.push(await capture(seed, zoom, vp));
+          // Ladder views persist under the canonical stem the reporter recomputes.
+          views.push(await capture(seed, zoom, vp, undefined, `${sampleId}-${vp}-z${zoom}`));
         }
       }
 
@@ -129,25 +148,26 @@ async function run(o: Opts): Promise<void> {
       // the seed fetch). Families with no resolvable code are skipped (can't filter).
       let filterBundle: FilterBundle | undefined;
       if (s === 0) {
-        const unfiltered = await capture(seed, midZoom, 'desktop');
+        const unfiltered = await capture(seed, midZoom, 'desktop', undefined, `${sampleId}-fb-unfiltered`);
         const top2 = [...unfiltered.legend]
           .sort((a, b) => b.count - a.count)
           .map((f) => ({ name: f.family, code: familyNameToCode.get(f.family) }))
           .filter((f): f is { name: string; code: string } => f.code != null)
           .slice(0, 2);
         const byFamily: FilterBundle['byFamily'] = [];
-        for (const { name, code } of top2) byFamily.push({ family: name, view: await capture(seed, midZoom, 'desktop', { family: code }) });
+        for (const { name, code } of top2) byFamily.push({ family: name, view: await capture(seed, midZoom, 'desktop', { family: code }, `${sampleId}-fb-family-${code}`) });
         const bySince: FilterBundle['bySince'] = [];
-        for (const since of ['1d', '7d', '14d'] as const) bySince.push({ since, view: await capture(seed, midZoom, 'desktop', { since }) });
+        for (const since of ['1d', '7d', '14d'] as const) bySince.push({ since, view: await capture(seed, midZoom, 'desktop', { since }, `${sampleId}-fb-since-${since}`) });
         filterBundle = { unfiltered, byFamily, bySince };
       }
 
       // Idempotence: re-capture one camera (mid-ladder desktop) once.
       const ra = views.find((v) => v.viewport === 'desktop' && v.requestedZoom === midZoom) ?? views[0]!;
-      const rb = await capture(seed, ra.requestedZoom, 'desktop');
+      const rb = await capture(seed, ra.requestedZoom, 'desktop', undefined, `${sampleId}-recapture-z${ra.requestedZoom}`);
       const recaptures: Recapture[] = [{ a: ra, b: rb }];
 
-      const sample: Sample = { id: `s${s + 1}`, seedPoint: seed, scope: o.scope, views, recaptures, ...(filterBundle ? { filterBundle } : {}) };
+      const sample: Sample = { id: sampleId, seedPoint: seed, scope: o.scope, views, recaptures, ...(filterBundle ? { filterBundle } : {}) };
+      samples.push(sample);
       verdicts.push(...evaluateSample(sample));
       process.stderr.write(`sample ${s + 1}/${seeds.length} done (${verdicts.filter((v) => v.status === 'fail').length} fails so far)\n`);
     }
@@ -162,7 +182,10 @@ async function run(o: Opts): Promise<void> {
     verdicts,
   };
   await writeFile(path.join(o.out, 'findings.json'), JSON.stringify(findings, null, 2));
-  process.stderr.write(`\nWrote ${path.join(o.out, 'findings.json')} — ${fails.length} fails / ${verdicts.length} checks.\n`);
+  // Assemble the preserved findings brief: brief.md + one evidence bundle per fail
+  // (screenshots both viewports, raw payloads, repro.md with the #map= viewbox link).
+  await writeBrief(findings, o.out, samples);
+  process.stderr.write(`\nWrote ${path.join(o.out, 'findings.json')} + brief.md — ${fails.length} fails / ${verdicts.length} checks.\n`);
 }
 
 // ── entry: --probe <url> (C2) OR the full --samples loop ──────────────────────
