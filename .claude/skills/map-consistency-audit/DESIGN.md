@@ -141,12 +141,26 @@ The first `--samples` run falsified three assumptions baked into the naive relat
 - **Rendered cells are LOSSY, not a conservation bound:** the adaptive grid renders a capacity-limited top-K-by-count subset of families (9–29% of legend at z9; ~2 cells at a z4 national cluster). So `legend == rendered` and `Σrendered == total` are false whenever families exceed grid capacity (overflow/pill drops the tail) — asserting them produced 317 MR-3 + 6 MR-2 capacity artifacts.
 
 Corrected relations (supersede the naive bullets above):
-- **MR-2 (conservation):** `|Σlegend − network.total| ≤ ε` AND `|lede − network.total| ≤ ε`, ε = max(3, total·2%). (Was legend-vs-rendered.)
+- **MR-2 (conservation):** **lede leg (always):** `|lede − network.total| ≤ ε`. **legend leg (per-observation mode only):** `|Σlegend − network.total| ≤ ε`, ε = max(3, total·2%). The **lede tracks the API RESPONSE total** (= viewport extent in per-obs mode; = scope extent in aggregated mode, where the fetch uses the scope-envelope bbox, so the lede shows the national total). The legend is always **viewport-scoped**, so it equals the response total ONLY in per-obs mode — in aggregated mode the response is scope-wide, so skip the legend leg (carve-out `aggregated-response-scopewide`). (Same guard MR-3 needs; corrects the 2 residual MR-2 z4-mobile artifacts.)
 - **MR-2b (render-completeness — the "says 7, shows 3" catcher):** when `network.total ≤ 50` AND no marker overflow, `Σ rendered cell counts ≈ network.total`. At low counts everything fits the grid, so rendered must conserve; a shortfall = render loss. Skipped at high totals (capacity).
 - **MR-3 (server↔client family, aggregated-mode only):** in `mode:aggregated`, `legend[fam] ≈ network.familyCounts[fam]` (both common-name). Skipped in observations mode (no per-family network + code↔name mismatch). NO legend-vs-rendered.
 - **MR-5 (lede vs viewport):** `lede ≈ network.total` (viewport, not scope). `scopeTotal` dropped.
 - **MR-8 (directional pill-collapse — THE bug detector):** keep the legend-intersection; fire ONLY when `mobile renders F && desktop does NOT` (desktop under-rendering = the reported "desktop pills disappear, mobile splits out" bug). Suppress the reverse (desktop renders more = its larger 4×4 capacity — legit, was the 21 residual artifacts).
 - **Unchanged:** MR-0, MR-1, MR-4, MR-6, MR-7. (MR-6 already caught a genuine prod CORS error on the national `zoom=3` prefetch — `No 'Access-Control-Allow-Origin'`, filed for independent follow-up.)
+
+### 5.2 Two render modes — `cluster-pill` vs `adaptive-grid-marker` (THE actual bug surface)
+
+Live MCP inspection of the MR-1 candidate (`#map=4.000/36.5/-84.5&v=390x844@2`, mobile) revealed the capture was **blind to half the map.** A cluster renders in one of two DOM forms:
+
+- **`cluster-pill`** — a collapsed pill: `<button class="cluster-pill cluster-pill--ember" aria-label="1,164 sightings">1,164</button>`. Shows the total count, NO family breakdown. (16 of these were on screen where the capture read 0 markers.)
+- **`adaptive-grid-marker`** — the "split out" form: the family-silhouette grid with per-family `-cell` aria-labels.
+
+`pickGridShape` returns `{tag:'pill'}` when a cluster exceeds the family/point cap. That cap is viewport-independent, **but desktop's wider bbox aggregates MORE points per cluster** → more clusters exceed the cap → **desktop collapses to pills where mobile (narrower clusters) splits into grids.** This is precisely the reported bug: *"desktop pills disappear and never split out like they do on mobile."* The capture only ever read `adaptive-grid-marker`, so it could not see pills at all — causing the MR-1 false-fire and the "rendered = 9–29% of legend" undercount (pills hold most of the low-zoom count).
+
+**Required fixes (land in the capture + relations — task C4c):**
+1. **Capture pills.** `readMarkers` must also read `.cluster-pill` markers: `kind:'pill'`, `total` = parsed `aria-label "N sightings"`, `color` = the `cluster-pill--<x>` modifier, `cells:[]`. `adaptive-grid-marker` markers become `kind:'grid'`. Add `kind: 'pill' | 'grid'` and `total: number` to `MarkerRead`.
+2. **Conservation counts pills.** `renderedTotal` = Σ pill totals + Σ grid cell counts. This fixes MR-1 (pills count as rendered) and MR-2b (low-zoom conservation).
+3. **MR-9 (NEW — pill-split parity, the user's bug):** at the same camera, flag when **mobile splits materially more clusters than desktop** (`mobileGridMarkers − desktopGridMarkers > threshold`, i.e. desktop leaves as pills clusters mobile splits into grids). Severity high — this is the reported defect. (The implementer must empirically confirm the asymmetry direction in the smoke before fixing the threshold — capture desktop vs mobile pill/grid counts across z5–z10.)
 
 ## 6. The harness
 
