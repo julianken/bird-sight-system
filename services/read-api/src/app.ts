@@ -49,14 +49,37 @@ export function createApp(deps: AppDeps): Hono {
   // /api/species/:code (no `immutable` — see cache-headers.ts comment): Hono
   // sets `Vary: Origin`, so a spec-compliant CDN keys the cache per-Origin.
   // That means the identical JSON body is stored N× for N allowed origins
-  // (currently 3 — trivial). Uptime probes and plain `curl` hit these routes
-  // without an Origin header, so the CDN also caches a no-ACAO entry;
-  // browsers never see that entry because Cloud CDN honors Vary. The cached
-  // bodies contain no Origin-derived data, so serving any cached entry across
-  // origins would still be correct — `Vary: Origin` is purely for header
-  // correctness.
+  // (currently 3 — trivial).
+  //
+  // #1278 — no-Origin cache poisoning. Uptime probes, plain `curl`, AND the
+  // cache-warm cron (services/ingestor/src/commands/run-cache-warm.ts fetches
+  // the warmed `/api/observations?...&zoom=3` CONUS URL with NO Origin header)
+  // hit these routes without an Origin header. With a plain array `origin`,
+  // Hono's cors resolves `findAllowOrigin("")` → null and sets NO
+  // Access-Control-Allow-Origin, but STILL emits `Vary: Origin`. Cloudflare
+  // (with tiered cache) then stores that header-less body under the
+  // `Vary: Origin` "(absent)" slot for the byte-identical canonical URL the
+  // browser later requests — and a tier that collapses the empty-Origin
+  // variant serves the no-ACAO body to a real browser, producing the
+  // intermittent CORS error on the national prefetch.
+  //
+  // Fix: resolve the origin via a function so a request with NO Origin header
+  // (empty string) still yields ACAO for the canonical primary origin. The
+  // warm/probe-seeded cache entry is therefore no longer header-less, so even
+  // a Vary-variant collapse serves a body carrying a valid ACAO. An
+  // allow-listed browser Origin is still echoed exactly (unchanged); a
+  // present-but-disallowed Origin still gets no ACAO (browser blocks it,
+  // unchanged). Bodies are Origin-agnostic, so emitting the canonical ACAO on
+  // the no-Origin path is correct, not a leak.
+  const canonicalOrigin = origins[0] ?? 'https://bird-maps.com';
   app.use('*', cors({
-    origin: origins,
+    origin: (origin) => {
+      // No Origin header (cron warm / uptime probe / curl): emit ACAO for the
+      // canonical origin so the cacheable response is never header-less.
+      if (!origin) return canonicalOrigin;
+      // Present Origin: echo it only if allow-listed (else null → no ACAO).
+      return origins.includes(origin) ? origin : null;
+    },
     allowMethods: ['GET'],
     maxAge: 86400,
   }));
