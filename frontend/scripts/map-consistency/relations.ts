@@ -419,17 +419,27 @@ export function checkFilterConsistency(bundle: FilterBundle): Verdict[] {
  *  (legend-vs-legend), never `stated count vs Σ rendered markers`. This relation
  *  closes that seam.
  *
- *  For each `?family=F` view, the STATED count (the server's F count at this camera =
- *  `view.network.total`) must be conserved by what RENDERS. Filtered to one family
- *  there is no overflow tail (every cluster is that family — a single-family cluster
- *  pills out with its full count), so `Σ marker totals == total F` when rendering is
- *  correct. A shortfall = the map dropped birds the filter counted — the reported
- *  "says 7, shows 3" bug. Repro = the filtered `#map=` URL. */
+ *  STATED is the VIEWPORT-scoped legend total (`legendSum(view)` = the `?family=F`
+ *  legend's in-view count), NOT `view.network.total`. The /api/observations response
+ *  is fetched over a bbox that, at mid-zoom, is WIDER than the painted viewport, so
+ *  `network.total` (the fetch-bbox Σ) exceeds the viewport-painted markers by the
+ *  served-but-offscreen tail. Comparing that fetch total against the viewport markers
+ *  is the same scope confound the lede has (#1283): it false-fires "lost K" for
+ *  legitimately-served-but-offscreen birds (e.g. Woodpeckers fetch 168 / viewport 148
+ *  → a spurious 12% shortfall). The legend IS viewport-scoped, so legendSum-vs-rendered
+ *  is the like-with-like comparison. This mirrors MR-2's `aggregated-response-scopewide`
+ *  discipline (legend is viewport-scoped, network is response-scoped) and MR-5's
+ *  lede-vs-viewport framing. The raw fetch total is surfaced as `networkTotal` for triage.
+ *
+ *  Filtered to one family there is no overflow tail (every cluster is that family — a
+ *  single-family cluster pills out with its full count), so `Σ marker totals == legend F`
+ *  when rendering is correct. A shortfall = the map dropped birds the (viewport) filter
+ *  counted — the reported "says 7, shows 3" bug. Repro = the filtered `#map=` URL. */
 export function checkFilteredRenderCompleteness(bundle: FilterBundle): Verdict[] {
   const verdicts: Verdict[] = [];
   for (const { family, view } of bundle.byFamily) {
     if (view.inconclusive) continue; // capture failed — not a render verdict
-    const stated = view.network.total;
+    const stated = legendSum(view); // viewport-scoped, NOT the fetch-bbox network.total
     if (stated === 0) continue; // nothing to render; MR-4(a) covers the 0-vs-baseline case
     const rendered = renderedTotal(view);
     const shortfall = stated - rendered;
@@ -441,8 +451,8 @@ export function checkFilteredRenderCompleteness(bundle: FilterBundle): Verdict[]
       severity: ok ? undefined : 'high',
       symptom: ok
         ? undefined
-        : `filter family="${family}": stated ${stated} sightings but only ${rendered} rendered on screen (lost ${shortfall})`,
-      numbers: { stated, rendered, delta: rendered - stated },
+        : `filter family="${family}": legend states ${stated} in view but only ${rendered} rendered on screen (lost ${shortfall})`,
+      numbers: { stated, rendered, delta: rendered - stated, networkTotal: view.network.total },
       evidence: { kind: 'filtered-render-completeness', family, url: view.url },
     });
   }
