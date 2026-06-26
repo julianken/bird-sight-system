@@ -17,10 +17,7 @@ import { useSilhouettes } from '@/data/use-silhouettes.js';
 import { useSpeciesDictionary } from '@/data/use-species-dictionary.js';
 import { useSpeciesInScope, type SpeciesScopeFilters } from '@/data/use-species-in-scope.js';
 import { useStates } from '@/data/use-states.js';
-import {
-  familyCountsFromBuckets,
-  totalCountFromBuckets,
-} from '@/data/bucket-aggregates.js';
+import { familyCountsFromBuckets } from '@/data/bucket-aggregates.js';
 import { useStatePolygon } from '@/data/state-polygons.js';
 import { useSpeciesDetail } from '@/data/use-species-detail.js';
 // ARTBOARD_PAD lives in the map's mask util but mask.ts imports only `geojson`
@@ -48,7 +45,7 @@ import { prefetchMapCanvas } from '@/prefetch.js';
 import { SurfaceTitleSync } from '@/components/SurfaceTitleSync.js';
 import { StatusBlock } from '@/components/ds/StatusBlock.js';
 import { SheetHeader } from '@/components/ds/SheetHeader.js';
-import { craftLede } from '@/lede.js';
+import { craftLede, selectLedeCount } from '@/lede.js';
 
 const apiClient = new ApiClient({ baseUrl: import.meta.env.VITE_API_BASE_URL ?? '' });
 
@@ -762,18 +759,26 @@ export function App() {
         : observations,
     [observations, viewportBounds, mapVisible],
   );
+  // #859 F / #1283: the viewport-clipped buckets. Feeds BOTH the family legend's
+  // EXACT per-family in-view counts AND the filtered lede's in-view total
+  // (`selectLedeCount`), so the headline number and the legend agree on the same
+  // clipped data. Identity-preserving when no clipping applies (see
+  // `filterBucketsByBounds`'s null contract).
+  const viewportBuckets = useMemo(
+    () =>
+      mapVisible && viewportBounds
+        ? filterBucketsByBounds(buckets, viewportBounds)
+        : buckets,
+    [buckets, viewportBounds, mapVisible],
+  );
   // #859 F: in aggregated (low-zoom) mode the family legend reads EXACT
   // per-family counts summed from the in-view buckets' families[].count — never
   // the capped species list, never the (empty) observations array. Undefined in
   // per-observation mode so the legend falls back to counting observations.
   const legendFamilyCounts = useMemo<ReadonlyMap<string, number> | undefined>(() => {
     if (mode !== 'aggregated') return undefined;
-    const inView =
-      mapVisible && viewportBounds
-        ? filterBucketsByBounds(buckets, viewportBounds)
-        : buckets;
-    return familyCountsFromBuckets(inView);
-  }, [mode, buckets, viewportBounds, mapVisible]);
+    return familyCountsFromBuckets(viewportBuckets);
+  }, [mode, viewportBuckets]);
   // Debounced bbox derivation: MapLibre's `idle` event already fires once
   // per camera settle (not per-frame), but we add a 250ms trailing-edge
   // debounce on top so rapid pan→zoom→pan sequences only trigger a single
@@ -1258,8 +1263,21 @@ export function App() {
     // from the EXACT bucket totals (not `observations.length`, empty at low zoom)
     // and `speciesCount` is 0 there. Per-observation mode keeps both row-derived.
     const speciesCount = new Set(observations.map(o => o.speciesCode).filter(Boolean)).size;
-    const observationCount =
-      mode === 'aggregated' ? totalCountFromBuckets(buckets) : observations.length;
+    // #1283: when a family/species filter is active the lede counts the VIEWPORT
+    // (so it equals the legend's "in view" total and the markers on screen);
+    // unfiltered, it stays REGIONAL (the whole-scope fetch). selectLedeCount
+    // owns this regional-vs-clipped choice; the clipping itself stays here where
+    // the live viewportBounds lives, via viewportObservations / viewportBuckets.
+    const filterActive =
+      state.familyCode !== null || state.speciesCode !== null;
+    const observationCount = selectLedeCount({
+      mode,
+      filterActive,
+      buckets,
+      observations,
+      viewportBuckets,
+      viewportObservations,
+    });
     // #1175: name the ACTIVE species filter from the dictionary (mode-independent),
     // so the qualifier survives aggregated mode where `observations[0]` is absent.
     // The per-obs coincidental single-species name stays the fallback.
@@ -1280,12 +1298,15 @@ export function App() {
     region,
     observations,
     buckets,
+    viewportObservations,
+    viewportBuckets,
     mode,
     observationsLoading,
     noFiltersActive,
     familyName,
     dictionary,
     state.speciesCode,
+    state.familyCode,
   ]);
 
   // O1 (#776) — App-root polite aria-live result-settle narration (R9).
