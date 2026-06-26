@@ -82,29 +82,50 @@ describe('pickGridShape', () => {
     expect(pickGridShape(16, 16, false)).toEqual({ tag: 'grid', cols: 4, rows: 4 });
   });
 
-  // Pill caps — family-cap alone
+  // Pill cap — family-cap alone is now the ONLY pill trigger (#1276).
   it('family cap fires alone (17 families, 30 obs)', () => {
     expect(pickGridShape(17, 30, false)).toEqual({ tag: 'pill' });
   });
 
-  // Pill caps — count-cap alone
-  it('count cap fires alone (8 families, 65 obs)', () => {
-    expect(pickGridShape(8, 65, false)).toEqual({ tag: 'pill' });
+  // #1276 regression: pointCount no longer gates the split. The screen-pixel
+  // `point_count` is viewport-dependent (a wider desktop canvas yields denser
+  // clusters at the same camera), so gating a families-only grid on it
+  // collapsed desktop clusters to a bare count-pill that dropped every
+  // per-family silhouette. A high pointCount with few families must now render
+  // the family grid, not a pill.
+  it('#1276: high pointCount with few families → grid, NOT pill (desktop)', () => {
+    // The exact reported failure mode: a dense desktop cluster (point_count
+    // way past the old 64 cap) that carries only a handful of families.
+    expect(pickGridShape(3, 200, false)).toEqual({ tag: 'grid', cols: 2, rows: 2 });
+  });
+  it('#1276: pointCount alone never pills — 8 families, 65 obs → 3×3 grid', () => {
+    expect(pickGridShape(8, 65, false)).toEqual({ tag: 'grid', cols: 3, rows: 3 });
+  });
+  it('#1276: pointCount alone never pills — 1 family, 5000 obs → 1×1 grid', () => {
+    expect(pickGridShape(1, 5000, false)).toEqual({ tag: 'grid', cols: 1, rows: 1 });
+  });
+  it('#1276: 16 families with huge pointCount → clean 4×4, not pill', () => {
+    expect(pickGridShape(16, 9999, false)).toEqual({ tag: 'grid', cols: 4, rows: 4 });
   });
 
-  // Boundary: count=64 inclusive
-  it('count = 64 inclusive does NOT trigger pill', () => {
-    expect(pickGridShape(8, 64, false)).toEqual({ tag: 'grid', cols: 3, rows: 3 });
+  // #1276 parity: desktop and mobile pill on the SAME trigger (families > 16),
+  // and BOTH ignore pointCount. A dense mobile cluster with few families also
+  // renders a grid.
+  it('#1276: high pointCount with few families → grid on mobile too', () => {
+    expect(pickGridShape(2, 300, true)).toEqual({ tag: 'grid', cols: 2, rows: 1 });
   });
 
-  // Boundary: count=65 with families=16 (locks > vs >= mutation)
-  it('count = 65 with families = 16 → pill', () => {
-    expect(pickGridShape(16, 65, false)).toEqual({ tag: 'pill' });
-  });
-
-  // Boundary: max grid
-  it('families = 16, count = 64 → 4×4 (max grid, no pill)', () => {
+  // Boundary: family cap is exclusive at 16 regardless of pointCount.
+  it('families = 16, any pointCount → 4×4 (max grid, no pill)', () => {
     expect(pickGridShape(16, 64, false)).toEqual({ tag: 'grid', cols: 4, rows: 4 });
+    expect(pickGridShape(16, 65, false)).toEqual({ tag: 'grid', cols: 4, rows: 4 });
+  });
+
+  // Boundary: 17 families pills regardless of pointCount (locks > vs >= on the
+  // family cap, and that the family cap is the lone surviving pill trigger).
+  it('families = 17 → pill at low AND high pointCount', () => {
+    expect(pickGridShape(17, 1, false)).toEqual({ tag: 'pill' });
+    expect(pickGridShape(17, 64, false)).toEqual({ tag: 'pill' });
   });
 
   // Mobile cap

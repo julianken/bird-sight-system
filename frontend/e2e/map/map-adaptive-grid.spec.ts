@@ -60,7 +60,9 @@ test.describe('Adaptive-grid markers (epic #539)', () => {
     await flyToTucson(page, 8);
 
     // At z=8 over Tucson the supercluster aggregation produces large
-    // clusters (uniqueFamilies likely > 16 or pointCount > 64) → pill.
+    // clusters whose family diversity exceeds the 16-family cap
+    // (uniqueFamilies > 16) → pill. (Post-#1276 the family count is the ONLY
+    // pill trigger; the viewport-dependent `pointCount > 64` cap was removed.)
     const pills = page.getByRole('button', { name: /sightings$/ });
     await expect.poll(() => pills.count(), { timeout: 8_000 }).toBeGreaterThanOrEqual(1);
   });
