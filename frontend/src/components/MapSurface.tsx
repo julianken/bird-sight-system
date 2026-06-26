@@ -112,6 +112,14 @@ export interface MapSurfaceProps {
     scopeMoveUntilRef: RefObject<number>;
   };
   /**
+   * #1289 — restored-hash-camera fetch-seed callback, forwarded VERBATIM to
+   * <MapCanvas>. Fired once (with the live restored bounds + zoom) when a `#map=`
+   * deep-link camera is applied, so App can seed `debouncedBbox`/`debouncedZoom`
+   * from the restored viewport instead of the CONUS z3 seed. Thin pass-through;
+   * optional (legacy/test callers + non-deep-link loads omit it).
+   */
+  onHashCameraRestored?: (bounds: LngLatBounds, zoom: number) => void;
+  /**
    * C2 (#1240) — live-camera exposure ref, forwarded VERBATIM to <MapCanvas>.
    * MapCanvas populates `.current` with a live getter so App's "Copy link"
    * control can read the camera at click time. Thin pass-through; optional.
@@ -152,6 +160,7 @@ export function MapSurface({
   initialHashCamera,
   hashCameraInScope,
   writeBackGate,
+  onHashCameraRestored,
   cameraRef,
 }: MapSurfaceProps) {
   /**
@@ -223,6 +232,7 @@ export function MapSurface({
             {...(initialHashCamera ? { initialHashCamera } : {})}
             {...(hashCameraInScope !== undefined ? { hashCameraInScope } : {})}
             {...(writeBackGate ? { writeBackGate } : {})}
+            {...(onHashCameraRestored ? { onHashCameraRestored } : {})}
             {...(cameraRef ? { cameraRef } : {})}
           />
         </React.Suspense>

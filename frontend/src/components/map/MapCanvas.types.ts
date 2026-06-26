@@ -205,6 +205,26 @@ export interface MapCanvasProps {
     scopeMoveUntilRef: RefObject<number>;
   };
   /**
+   * #1289 — fired ONCE, with the LIVE restored bounds + integer floor zoom, the
+   * moment a `#map=` deep-link camera is applied (`restoredHashCamera` goes
+   * null→non-null in `useScopeCamera`). App seeds `debouncedBbox`/`debouncedZoom`
+   * directly from it so the observations fetch hits the RESTORED viewport instead
+   * of staying pinned to the CONUS z3 seed.
+   *
+   * Why a dedicated callback rather than the existing `onViewportChange` idle:
+   * the restore's `jumpTo` settle `idle` lands INSIDE App's `scopeMoveUntilRef`
+   * window (armed at mount when `boundsKey` is defined), where `onViewportChange`
+   * deliberately swallows the bbox/zoom commit (the scope-`fitBounds` over-fetch
+   * guard, #847). On a clean deep-link no later user gesture fires, so the seed
+   * is never superseded → 0 markers (#1289). This callback is the missing seam
+   * between the camera-restore and the data-fetch subsystems; it does NOT touch
+   * the settle window, the 250ms debounce, or the canonical-key machinery — it
+   * mirrors `onViewportChange`'s payload shape (same bounds + Math.floor(zoom)).
+   *
+   * Optional; legacy/test callers omit it (no `#map=` → never fires).
+   */
+  onHashCameraRestored?: (bounds: import('maplibre-gl').LngLatBounds, zoom: number) => void;
+  /**
    * C2 (#1240, epic #1238) — live-camera exposure for the "Copy link to this
    * view" control. `MapCanvas` holds the private MapLibre `getMap()` ref; the
    * header needs to read the LIVE camera (zoom/center/bearing/pitch) at click
