@@ -1859,7 +1859,11 @@ export function MapCanvas({
             families: merged.families,
             speciesByFamily: merged.speciesByFamily,
             overflowByFamily: merged.overflowByFamily,
-            totalCount: group.anchor.point_count,
+            // #1286: the header must reflect the MERGED group the list rows are
+            // built from — not the anchor cluster alone. `renderedTotal` is the
+            // conserved Σ point_count over all members (#1277), the same value the
+            // marker badge and the #1284 aria headline already show.
+            totalCount: group.renderedTotal,
             uniqueFamilies: merged.families.length,
             anchorEl,
             ...(group.anchor.longitude !== undefined && group.anchor.latitude !== undefined
@@ -1874,8 +1878,13 @@ export function MapCanvas({
           group,
           families,
           speciesByFamily,
-          totalCount: group.anchor.point_count,
-          uniqueFamilies: group.anchor.uniqueFamilies,
+          // #1286: as above — the header counts the whole merged group. `families`
+          // is `aggregateClusterFamilies(leaves)` over EVERY member's flattened
+          // leaves, so `families.length` is the merged unique-family count (the
+          // aggregated branch above already uses its `merged.families.length`);
+          // the anchor-only `group.anchor.uniqueFamilies` undercounts it.
+          totalCount: group.renderedTotal,
+          uniqueFamilies: families.length,
           anchorEl,
         });
       } catch {

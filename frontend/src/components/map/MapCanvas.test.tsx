@@ -12,6 +12,10 @@ import {
   MASK_FILL_LIGHT,
   MASK_FILL_DARK,
 } from './geometry/mask.js';
+// #1286: the cluster-list popover header renders `formatCount(totalCount)` /
+// `formatCount(uniqueFamilies)` — assert against the same formatter so the
+// merged-total header tests match the rendered string exactly, never a re-literal.
+import { formatCount } from '@/lib/format-count.js';
 
 /* ── Mock react-map-gl/maplibre ─────────────────────────────────────────────
    jsdom has no WebGL context so we stub Map, Source, and Layer as thin
@@ -3991,5 +3995,207 @@ describe('basemap watchdog (#1049 / M-12)', () => {
       }
     });
     expect(screen.queryByText('Basemap unavailable')).not.toBeInTheDocument();
+  });
+});
+
+/* ── #1286: cluster-list popover header shows the MERGED group's total ────────
+ *
+ * `openClusterListFromGroup` already gathers list rows from ALL merged members
+ * (it maps `getClusterLeaves` over every positive `group.memberIds` and flattens
+ * — fixed). Only the HEADER `totalCount` was wrong: it read
+ * `group.anchor.point_count` (the anchor cluster alone) instead of
+ * `group.renderedTotal` (the conserved merged total — the value the marker badge
+ * and the post-#1284 aria headline already show). The non-aggregated branch had
+ * the same family-count skew (`group.anchor.uniqueFamilies`, anchor-only) where
+ * the aggregated branch already used the merged families count.
+ *
+ * Both groups below merge TWO clusters at the SAME coordinates: the project()
+ * mock maps identical lng/lat to identical pixels, so their AABBs intersect and
+ * deconflict folds them into one component. The anchor is min(cluster_id), so
+ * `anchor.point_count` (24) and `anchor.uniqueFamilies` (anchor-only) differ from
+ * the merged `renderedTotal` (24 + 12 = 36) and merged family count — exactly the
+ * skew the header bug exhibits. `getClusterExpansionZoom <= currentZoom` routes
+ * the click into the ClusterListPopover (the camera can't escalate further).
+ */
+describe('#1286 — cluster-list popover header reflects the merged group total', () => {
+  beforeEach(() => {
+    capturedSourceProps = {};
+    capturedLayerFilters = {};
+    capturedSourcesById = {};
+    capturedLayerPaint = {};
+    registeredHandlers = {};
+    bareHandlers = {};
+    bareHandlersAll = {};
+    deferMapLoad = false;
+    deferredOnLoad = null;
+    fakeMap = makeFakeMap();
+    document.documentElement.removeAttribute('data-theme');
+    __resetAdaptiveGridCacheForTesting();
+  });
+
+  // 17 families per cluster → both clusters fall through to pill shape
+  // (uniqueFamilies > 16). Distinct family namespaces (`a*` vs `b*`) so the
+  // merged unique-family count (34) differs from each anchor's (17) — proves the
+  // family-count fold, not just the observation total.
+  function leavesForPill(prefix: string, n = 17) {
+    const leaves: Array<{ type: string; properties: Record<string, unknown> }> = [];
+    for (let i = 0; i < n; i++) {
+      leaves.push({
+        type: 'Feature',
+        properties: {
+          familyCode: `${prefix}fam${i}`,
+          speciesCode: `${prefix}sp${i}`,
+          comName: `${prefix} Species ${i}`,
+        },
+      });
+    }
+    return leaves;
+  }
+
+  it('non-aggregated: header shows renderedTotal (36) and merged families (34), not the anchor (24 / 17)', async () => {
+    // Two clusters at IDENTICAL coordinates → merge into one group.
+    // anchor = cluster_id 77 (min), point_count 24, 17 families.
+    // member = cluster_id 78, point_count 12, 17 OTHER families.
+    // renderedTotal = 36, merged unique families = 34.
+    const anchorFeat = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [-110.95, 32.25] },
+      properties: { cluster: true, cluster_id: 77, point_count: 24 },
+    };
+    const mergedFeat = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [-110.95, 32.25] },
+      properties: { cluster: true, cluster_id: 78, point_count: 12 },
+    };
+    fakeMap.queryRenderedFeatures.mockReturnValue([anchorFeat, mergedFeat]);
+
+    const getClusterLeaves = vi.fn().mockImplementation((id: number) =>
+      Promise.resolve(id === 77 ? leavesForPill('a') : leavesForPill('b')),
+    );
+    // currentZoom 22, expansion 22 → targetZoom <= currentZoom → popover opens
+    // (the #717 camera-can't-escalate path; reaches the NON-aggregated branch).
+    const getClusterExpansionZoom = vi.fn().mockResolvedValue(22);
+    fakeMap.getSource.mockReturnValue({ getClusterLeaves, getClusterExpansionZoom });
+    fakeMap.getZoom.mockReturnValue(22);
+
+    render(<MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />);
+    await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+    await act(async () => { await bareHandlers['idle']?.(); });
+    await act(async () => { await Promise.resolve(); });
+
+    // One merged group → one pill marker. Its aria-label badge already conserves
+    // the merged total (#1277): "36 sightings".
+    const pill = await waitFor(() => {
+      const found = screen
+        .queryAllByRole('button', { name: /sightings$/ })
+        .find((p) => p.classList.contains('cluster-pill'));
+      if (!found) throw new Error('merged cluster-pill not rendered');
+      return found;
+    });
+    expect(pill).toHaveAttribute('aria-label', '36 sightings');
+
+    await act(async () => {
+      fireEvent.click(pill);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const heading = await waitFor(() =>
+      screen.getByTestId('cluster-list-popover-heading'),
+    );
+    // Header MUST read the merged group total (36) and merged family count (34),
+    // NOT the anchor cluster alone (24 observations / 17 families).
+    expect(heading).toHaveTextContent(
+      `Cluster: ${formatCount(36)} observations, ${formatCount(34)} families`,
+    );
+    expect(heading.textContent).not.toContain(`${formatCount(24)} observations`);
+    expect(heading.textContent).not.toContain(`${formatCount(17)} families`);
+  });
+
+  it('aggregated: header shows renderedTotal (36), not the anchor bucket alone (24)', async () => {
+    // Aggregated mode: each cluster's marker total is `sumCount` (the summed real
+    // observation count across its buckets), and each leaf carries `familiesJson`.
+    // Two clusters at IDENTICAL coords merge → renderedTotal = 24 + 12 = 36.
+    // Each bucket carries 17 families → pill shape (uniqueFamilies > 16), so the
+    // rendered marker is a <ClusterPill> whose click passes `anchorEl`, routing
+    // into the AGGREGATED branch of openClusterListFromGroup (the only branch that
+    // opens the canvas-level ClusterListPopover for an aggregated group).
+    const anchorFamilies = Array.from({ length: 17 }, (_, i) => ({
+      code: `afam${i}`,
+      count: i === 0 ? 8 : 1, // 17 families summing to 24 observations
+      speciesCount: 1,
+      species: [{ code: `asp${i}`, count: i === 0 ? 8 : 1 }],
+    }));
+    const mergedFamilies = Array.from({ length: 17 }, (_, i) => ({
+      code: `bfam${i}`, // distinct family namespace from the anchor bucket
+      count: i === 0 ? 12 : 0,
+      speciesCount: 1,
+      species: [{ code: `bsp${i}`, count: i === 0 ? 12 : 0 }],
+    }));
+    const anchorFeat = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [-110.0, 46.0] },
+      properties: { cluster: true, cluster_id: 501, point_count: 1, sumCount: 24, sumSpeciesCount: 17 },
+    };
+    const mergedFeat = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [-110.0, 46.0] },
+      properties: { cluster: true, cluster_id: 502, point_count: 1, sumCount: 12, sumSpeciesCount: 17 },
+    };
+    fakeMap.queryRenderedFeatures.mockImplementation(
+      (_: unknown, opts?: { layers?: string[] }) =>
+        opts?.layers?.includes('clusters-hit') ? [anchorFeat, mergedFeat] : [],
+    );
+    const getClusterLeaves = vi.fn().mockImplementation((id: number) =>
+      Promise.resolve([
+        {
+          type: 'Feature',
+          properties: {
+            familiesJson: JSON.stringify(id === 501 ? anchorFamilies : mergedFamilies),
+          },
+        },
+      ]),
+    );
+    // currentZoom 4, expansion 4 → targetZoom <= currentZoom → easeTo no-ops →
+    // openClusterListFromGroup runs (aggregated branch).
+    const getClusterExpansionZoom = vi.fn().mockResolvedValue(4);
+    fakeMap.getSource.mockReturnValue({ getClusterLeaves, getClusterExpansionZoom });
+    fakeMap.getZoom.mockReturnValue(4);
+
+    render(
+      <MapCanvas
+        observations={[]}
+        buckets={[]}
+        mode="aggregated"
+        silhouettes={SILHOUETTES}
+      />,
+    );
+    await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+    await act(async () => { await fireAllIdleHandlers(); });
+    await act(async () => { await Promise.resolve(); });
+
+    // The merged group materializes as ONE pill carrying the conserved badge
+    // total (#1277): "36 sightings".
+    const pill = await waitFor(() => {
+      const found = screen
+        .queryAllByRole('button', { name: /sightings$/ })
+        .find((p) => p.classList.contains('cluster-pill'));
+      if (!found) throw new Error('merged aggregated pill not rendered');
+      return found;
+    });
+    expect(pill).toHaveAttribute('aria-label', '36 sightings');
+
+    await act(async () => {
+      fireEvent.click(pill);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const heading = await waitFor(() =>
+      screen.getByTestId('cluster-list-popover-heading'),
+    );
+    // Header MUST read the merged group total (36), NOT the anchor bucket (24).
+    expect(heading.textContent).toContain(`${formatCount(36)} observations`);
+    expect(heading.textContent).not.toContain(`${formatCount(24)} observations`);
   });
 });
