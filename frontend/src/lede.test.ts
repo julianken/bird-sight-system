@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { craftLede, LEDE_LOADING_PLACEHOLDER, type LedeInput } from './lede.js';
+import {
+  craftLede,
+  selectLedeCount,
+  LEDE_LOADING_PLACEHOLDER,
+  type LedeInput,
+} from './lede.js';
+import type { AggregatedBucket, Observation } from '@bird-watch/shared-types';
 
 // Minimal valid base — a settled, scoped, no-filter, multi-species view.
 const base: LedeInput = {
@@ -105,5 +111,123 @@ describe('craftLede', () => {
       activeSpeciesName: null,
       singleObservedSpeciesName: null,
     })).toBe('1,823 sightings');
+  });
+});
+
+// #1283: the FILTERED lede counts the VIEWPORT (equals the legend's "in view"
+// total + matches the markers); the UNFILTERED lede stays REGIONAL.
+describe('selectLedeCount', () => {
+  const bucket = (count: number): AggregatedBucket => ({
+    lat: 33.4,
+    lng: -112.1,
+    count,
+    speciesCount: 1,
+    families: [],
+  });
+  const obs = (n: number): Observation[] =>
+    Array.from({ length: n }, (_, i) => ({
+      subId: `S${i}`,
+      speciesCode: 'norcar',
+      comName: 'Northern Cardinal',
+      lat: 33.4,
+      lng: -112.1,
+      obsDt: '2026-06-01 08:00',
+      locId: 'L1',
+      locName: null,
+      howMany: 1,
+      isNotable: false,
+      silhouetteId: null,
+      familyCode: 'cardinalidae',
+    }));
+
+  // Regional totals (whole-scope fetch) vs. viewport-clipped totals.
+  const regionalBuckets = [bucket(13_000), bucket(451)]; // 13,451 (the deep-link "national" number)
+  const viewportBuckets = [bucket(163)]; // what's actually in view
+  const regionalObs = obs(900);
+  const viewportObs = obs(42);
+
+  it('aggregated + FILTER active → counts the viewport, not the regional total', () => {
+    expect(
+      selectLedeCount({
+        mode: 'aggregated',
+        filterActive: true,
+        buckets: regionalBuckets,
+        observations: regionalObs,
+        viewportBuckets,
+        viewportObservations: viewportObs,
+      }),
+    ).toBe(163);
+  });
+
+  it('aggregated + NO filter → keeps the regional total', () => {
+    expect(
+      selectLedeCount({
+        mode: 'aggregated',
+        filterActive: false,
+        buckets: regionalBuckets,
+        observations: regionalObs,
+        viewportBuckets,
+        viewportObservations: viewportObs,
+      }),
+    ).toBe(13_451);
+  });
+
+  it('observations + FILTER active → counts the viewport-clipped rows', () => {
+    expect(
+      selectLedeCount({
+        mode: 'observations',
+        filterActive: true,
+        buckets: regionalBuckets,
+        observations: regionalObs,
+        viewportBuckets,
+        viewportObservations: viewportObs,
+      }),
+    ).toBe(42);
+  });
+
+  it('observations + NO filter → counts the full regional rows', () => {
+    expect(
+      selectLedeCount({
+        mode: 'observations',
+        filterActive: false,
+        buckets: regionalBuckets,
+        observations: regionalObs,
+        viewportBuckets,
+        viewportObservations: viewportObs,
+      }),
+    ).toBe(900);
+  });
+
+  // #1283 follow-up: the helper keys ONLY off the `filterActive` boolean — it is
+  // dimension-agnostic. App.tsx widened that boolean to the negation of
+  // `noFiltersActive`, so a notable-ONLY or since-ONLY filter (no family/species)
+  // now feeds `filterActive: true` here. These assert the viewport count is
+  // selected for ANY truthy `filterActive`, locking that a non-family/species
+  // filter no longer falls back to the regional total (the legend/markers are
+  // already viewport-clipped, so the lede must agree).
+  it('aggregated + filter active for a NON-family/species dimension (notable/since) → viewport', () => {
+    expect(
+      selectLedeCount({
+        mode: 'aggregated',
+        filterActive: true, // App now sets this true for notable-only / since-only
+        buckets: regionalBuckets,
+        observations: regionalObs,
+        viewportBuckets,
+        viewportObservations: viewportObs,
+      }),
+    ).toBe(163);
+  });
+
+  it('observations + filter active for a NON-family/species dimension (notable/since) → viewport rows', () => {
+    expect(
+      selectLedeCount({
+        mode: 'observations',
+        filterActive: true, // App now sets this true for notable-only / since-only
+        buckets: regionalBuckets,
+        observations: regionalObs,
+        viewportBuckets,
+        viewportObservations: viewportObs,
+      }),
+    ).toBe(42);
   });
 });

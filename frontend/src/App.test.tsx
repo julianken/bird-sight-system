@@ -2859,6 +2859,60 @@ describe('#828: lede dedupe — count-only copy, no region, no time-window', () 
     expect(lede).not.toHaveTextContent(/your current filters/i);
   });
 
+  // #1283 follow-up (bot IMPORTANT): the "filter active → count the viewport"
+  // rule must cover EVERY filter dimension, not just family/species. The lede's
+  // `filterActive` is now the negation of the canonical `noFiltersActive`
+  // predicate, so a NOTABLE-only filter (no family/species, no non-default since)
+  // counts the viewport too. Regression: two per-observation rows, one inside the
+  // settled viewport and one outside it, with `notable: true` and no
+  // family/species. After the viewport settles to exclude the outside row, the
+  // lede must report the IN-VIEW count (1), not the regional total (2) — matching
+  // the legend/markers, which are already viewport-clipped. With the pre-fix
+  // family/species-only predicate, `filterActive` was false here and the lede
+  // showed the regional "2 sightings" while only one marker was on screen.
+  it('Notable-only filter counts the VIEWPORT, not the regional total (#1283 widening)', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: true, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'state', stateCode: 'US-AZ' },
+    };
+    // Two notable rows at DISTINCT coordinates: one in interior AZ (in view), one
+    // far west (clipped out by the settled viewport below).
+    const inView = {
+      ...obs({ speciesCode: 'vermfly' }), subId: 'S-in', lat: 33.0, lng: -111.0,
+      isNotable: true,
+    };
+    const outOfView = {
+      ...obs({ speciesCode: 'gilwoo', comName: 'Gila Woodpecker' }),
+      subId: 'S-out', lat: 33.0, lng: -120.0, isNotable: true,
+    };
+    mockGetObservations.mockResolvedValue({
+      data: [inView, outOfView],
+      meta: { freshestObservationAt: new Date().toISOString() },
+    });
+    render(<App />);
+
+    // Before the viewport settles, viewportBounds is null → both rows count
+    // (regional fallback); the lede reads the full "2 sightings".
+    const lede = await screen.findByTestId('map-lede');
+    await waitFor(() => expect(lede).toHaveTextContent('2 sightings'));
+    await waitFor(() => expect(mapSurfaceRef.onViewportChange).not.toBeNull());
+
+    // Settle a viewport that contains the interior-AZ row but excludes the far-west
+    // one. `filterObservationsByBounds` keys off `bounds.contains([lng,lat])`, so a
+    // duck-typed bounds with that method drives the clip.
+    const viewport = {
+      contains: ([lng, lat]: [number, number]) =>
+        lng >= -114 && lng <= -109 && lat >= 31 && lat <= 37,
+    } as unknown as LngLatBounds;
+    await act(async () => {
+      mapSurfaceRef.onViewportChange!(viewport, 7);
+    });
+
+    // The widened predicate now counts only the in-view row → "1 sighting".
+    await waitFor(() => expect(lede).toHaveTextContent(/\b1 sightings?\b/));
+    expect(lede).not.toHaveTextContent('2 sightings');
+  });
+
   it('drops the period clause entirely even when freshness would have been non-stale', async () => {
     // Pre-#828, a fresh (non-stale) load appended " in the last 14 days." Now the
     // clause is gone unconditionally. Use a very-fresh timestamp (would have been

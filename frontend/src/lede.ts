@@ -1,4 +1,46 @@
 import { formatCount } from './lib/format-count.js';
+import { totalCountFromBuckets } from './data/bucket-aggregates.js';
+import type { AggregatedBucket, Observation } from '@bird-watch/shared-types';
+
+/**
+ * #1283: select the count the lede displays.
+ *
+ * The UNFILTERED lede stays REGIONAL — it counts the whole scope's fetch
+ * (`totalCountFromBuckets(buckets)` in aggregated mode, `observations.length`
+ * in per-observation mode), so the headline reflects the region the user
+ * chose regardless of where the camera happens to sit.
+ *
+ * The FILTERED lede (a family or species filter is active) instead counts what
+ * is IN THE VIEWPORT, by reading the already-viewport-clipped data the legend
+ * uses (`filterObservationsByBounds` / `filterBucketsByBounds` in App.tsx). This
+ * makes "163 sightings of Woodpeckers" equal the legend's "in view" total and
+ * match what is actually painted on the map — the raw unclipped fetch
+ * over-counted vs. the markers (RCA for #1283). It also dissolves the transient
+ * national "13,451" on a filtered deep-link, because the stage-1 CONUS/z3 seed
+ * aggregate gets clipped to the seed viewport.
+ *
+ * Pure: callers pass BOTH the raw fetch arrays and the pre-clipped arrays (the
+ * clipping itself stays in App.tsx where the live `LngLatBounds` lives), so this
+ * helper never imports map state.
+ */
+export function selectLedeCount(args: {
+  mode: 'observations' | 'aggregated';
+  filterActive: boolean;
+  /** Whole-scope fetch (regional path). */
+  buckets: ReadonlyArray<AggregatedBucket>;
+  observations: ReadonlyArray<Observation>;
+  /** Viewport-clipped fetch (filtered path) — `viewportObservations` in App.tsx. */
+  viewportBuckets: ReadonlyArray<AggregatedBucket>;
+  viewportObservations: ReadonlyArray<Observation>;
+}): number {
+  const buckets = args.filterActive ? args.viewportBuckets : args.buckets;
+  const observations = args.filterActive
+    ? args.viewportObservations
+    : args.observations;
+  return args.mode === 'aggregated'
+    ? totalCountFromBuckets(buckets)
+    : observations.length;
+}
 
 // Placeholder shown while an observations refetch is in flight but a stale count
 // is still mounted (#872 state->state guard). Lived inline in App.tsx before the
