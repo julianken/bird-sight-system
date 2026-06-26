@@ -222,7 +222,21 @@ export function bucketKey(px: number, py: number, zoom: number, BUCKET_PX: numbe
   return `bucket-${qx}-${qy}-${zoom}`;
 }
 
-function ariaLabelFor(anchor: DeconflictInput, others: DeconflictInput[]): string {
+/**
+ * Build the screen-reader headline for a deconflict group's anchor marker.
+ *
+ * @param renderedTotal The conserved group total — Σ point_count over all
+ *   non-silhouette members (#1277). This is the SAME value the visible badge
+ *   shows (GroupMarkerLayer passes `g.renderedTotal` to the pill `count` /
+ *   grid `totalCount`), so the headline number and the badge number can never
+ *   diverge (#1284). Silhouettes are excluded — they paint their own displaced
+ *   marker — and stay itemized separately, OUTSIDE this total.
+ */
+function ariaLabelFor(
+  anchor: DeconflictInput,
+  others: DeconflictInput[],
+  renderedTotal: number,
+): string {
   if (others.length === 0) {
     const obsPhrase = countNoun(anchor.point_count, 'observation');
     const familyWord = anchor.uniqueFamilies === 1 ? 'family' : 'families';
@@ -233,27 +247,26 @@ function ariaLabelFor(anchor: DeconflictInput, others: DeconflictInput[]): strin
   const nearbyClusters = others.filter((o) => o.rendered.kind !== 'silhouette');
   const nearbySilhouettes = others.filter((o) => o.rendered.kind === 'silhouette');
 
-  const clusterPart =
+  // #1284: lead with the conserved total, not the anchor's point_count. When
+  // the group merged actual clusters, name how many clusters fold into that
+  // total ("across K clusters"); when only silhouettes are nearby, the total
+  // equals the anchor and the clause is omitted (avoids "across 1 clusters").
+  const headline =
     nearbyClusters.length > 0
       ? (() => {
-          const count = nearbyClusters.reduce((sum, o) => sum + o.point_count, 0);
-          const clusterWord =
-            nearbyClusters.length === 1 ? '1 cluster' : `${nearbyClusters.length} clusters`;
-          return `+${count} nearby in ${clusterWord}`;
+          const clusterCount = nearbyClusters.length + 1;
+          return `${countNoun(renderedTotal, 'observation')} across ${formatCount(clusterCount)} clusters`;
         })()
-      : null;
+      : countNoun(renderedTotal, 'observation');
 
+  // Silhouettes stay itemized OUTSIDE the total — they paint their own
+  // (displaced) marker and are excluded from renderedTotal.
   const silhouettePart =
     nearbySilhouettes.length > 0
-      ? (() => {
-          const count = nearbySilhouettes.length;
-          const obsWord = count === 1 ? 'observation' : 'observations';
-          return `+${count} nearby ${obsWord}`;
-        })()
-      : null;
+      ? `, +${countNoun(nearbySilhouettes.length, 'nearby observation')}`
+      : '';
 
-  const parts = [clusterPart, silhouettePart].filter(Boolean).join(', ');
-  return `Cluster: ${countNoun(anchor.point_count, 'observation')} (${parts}). Activate to zoom in.`;
+  return `Cluster: ${headline}${silhouettePart}. Activate to zoom in.`;
 }
 
 /**
@@ -330,7 +343,7 @@ export function buildGroups(
       renderedTotal,
       memberIds,
       key: bucketKey(anchor.px, anchor.py, zoom, BUCKET_PX),
-      ariaLabel: ariaLabelFor(anchor, others),
+      ariaLabel: ariaLabelFor(anchor, others, renderedTotal),
       leaves,
     });
   }
