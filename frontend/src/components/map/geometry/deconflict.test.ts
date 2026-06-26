@@ -132,26 +132,32 @@ describe('deconflict', () => {
     );
   });
 
-  // Test 10
-  it('aria-label for multi-member group: "Cluster: N observations (+M nearby in K clusters). Activate to zoom in."', () => {
-    // Two clusters overlap: anchor with 32 obs + nearby with 12 obs = total 44; otherCount = 12; K = 1
+  // Test 10 (#1284): merged-cluster aria headline shows the conserved
+  // renderedTotal across all clusters, NOT the anchor's point_count.
+  // Option-A phrasing: "Cluster: {renderedTotal} observations across {K} clusters."
+  it('aria-label for multi-member group shows conserved total "across K clusters" (#1284)', () => {
+    // Two clusters overlap: anchor 32 + nearby 12 = 44; K = anchor + 1 nearby = 2.
     const A = cluster(1, 100, 100, grid4x4, /* count */ 32, /* uniqueFamilies */ 16);
     const B = cluster(2, 110, 100, grid2x2, /* count */ 12, /* uniqueFamilies */ 4);
     const groups = buildGroups([A, B], 8);
     expect(groups[0].ariaLabel).toBe(
-      'Cluster: 32 observations (+12 nearby in 1 cluster). Activate to zoom in.',
+      'Cluster: 44 observations across 2 clusters. Activate to zoom in.',
     );
+    // Headline number === renderedTotal === the count GroupMarkerLayer renders.
+    expect(groups[0].ariaLabel).toContain(`${groups[0].renderedTotal} observations`);
   });
 
-  // Test 10b
-  it('aria-label for 3-member group uses plural "clusters"', () => {
+  // Test 10b (#1284)
+  it('aria-label for 3-member group shows conserved total across 3 clusters (#1284)', () => {
     const A = cluster(1, 100, 100, grid4x4, /* count */ 32, /* uniqueFamilies */ 16);
     const B = cluster(2, 110, 100, grid2x2, /* count */ 12, /* uniqueFamilies */ 4);
     const C = cluster(3, 120, 100, grid2x2, /* count */ 8, /* uniqueFamilies */ 3);
     const groups = buildGroups([A, B, C], 8);
+    // 32 + 12 + 8 = 52 conserved; 3 clusters (anchor + 2 nearby).
     expect(groups[0].ariaLabel).toBe(
-      'Cluster: 32 observations (+20 nearby in 2 clusters). Activate to zoom in.',
+      'Cluster: 52 observations across 3 clusters. Activate to zoom in.',
     );
+    expect(groups[0].ariaLabel).toContain(`${groups[0].renderedTotal} observations`);
   });
 
   // Test 11 (rewritten per julianken-bot finding — see issue #554)
@@ -434,7 +440,7 @@ describe('deconflict', () => {
   // Tests added per bot review of PR #555 (#554):
   // — partition silhouettes from clusters in the aria-label count
 
-  it('aria-label for cluster anchor + 2 silhouettes uses "nearby observations" wording', () => {
+  it('aria-label for cluster anchor + 2 silhouettes: no "across N clusters" clause (no nearby clusters), silhouettes itemized (#1284)', () => {
     const anchor = cluster(1, 100, 100, grid4x4, /* count */ 32, /* uniqueFamilies */ 16);
     const silA: DeconflictInput = {
       cluster_id: -100, px: 105, py: 100, rendered: { kind: 'silhouette' },
@@ -442,12 +448,15 @@ describe('deconflict', () => {
     };
     const silB: DeconflictInput = { ...silA, cluster_id: -101, px: 110, subId: 'OBS-BBB' };
     const groups = buildGroups([anchor, silA, silB], 8);
+    // Only silhouettes nearby → renderedTotal === anchor (32). No "across 1 clusters"
+    // (ungrammatical). Silhouettes stay itemized OUTSIDE the total.
+    expect(groups[0].renderedTotal).toBe(32);
     expect(groups[0].ariaLabel).toBe(
-      'Cluster: 32 observations (+2 nearby observations). Activate to zoom in.',
+      'Cluster: 32 observations, +2 nearby observations. Activate to zoom in.',
     );
   });
 
-  it('aria-label for cluster + 1 cluster + 1 silhouette uses mixed wording', () => {
+  it('aria-label for cluster + 1 cluster + 1 silhouette: total across 2 clusters, silhouette itemized separately (#1284)', () => {
     const anchor = cluster(1, 100, 100, grid4x4, /* count */ 32, /* uniqueFamilies */ 16);
     const otherCluster = cluster(2, 110, 100, grid2x2, /* count */ 12, /* uniqueFamilies */ 4);
     const sil: DeconflictInput = {
@@ -455,21 +464,43 @@ describe('deconflict', () => {
       point_count: 1, uniqueFamilies: 1, longitude: 0, latitude: 0, subId: 'OBS-AAA',
     };
     const groups = buildGroups([anchor, otherCluster, sil], 8);
+    // 32 + 12 = 44 conserved across 2 clusters; the silhouette (+1) stays itemized
+    // and is NOT folded into the 44.
+    expect(groups[0].renderedTotal).toBe(44);
     expect(groups[0].ariaLabel).toBe(
-      'Cluster: 32 observations (+12 nearby in 1 cluster, +1 nearby observation). Activate to zoom in.',
+      'Cluster: 44 observations across 2 clusters, +1 nearby observation. Activate to zoom in.',
     );
   });
 
-  it('aria-label singular vs plural for nearby observations', () => {
-    // single silhouette → "1 nearby observation"
+  it('aria-label singular vs plural for nearby observations: silhouette-only nearby, no "across" clause (#1284)', () => {
+    // single silhouette → "+1 nearby observation"; no nearby clusters → no "across" clause.
     const anchor1 = cluster(1, 100, 100, grid4x4, 32, 16);
     const sil1: DeconflictInput = {
       cluster_id: -100, px: 105, py: 100, rendered: { kind: 'silhouette' },
       point_count: 1, uniqueFamilies: 1, longitude: 0, latitude: 0, subId: 'X',
     };
     expect(buildGroups([anchor1, sil1], 8)[0].ariaLabel).toBe(
-      'Cluster: 32 observations (+1 nearby observation). Activate to zoom in.',
+      'Cluster: 32 observations, +1 nearby observation. Activate to zoom in.',
     );
+  });
+
+  // Test #1284 — badge↔aria parity: the headline's primary number equals
+  // renderedTotal, which is exactly the value GroupMarkerLayer renders as the
+  // pill `count` / grid `totalCount` badge. This locks the contract so the
+  // visible badge and the screen-reader headline can never diverge again.
+  it('merged-cluster aria headline number === renderedTotal === the badge value (#1284)', () => {
+    const A = cluster(1, 100, 100, grid4x4, /* count */ 24, /* uniqueFamilies */ 12);
+    const B = cluster(2, 110, 100, grid2x2, /* count */ 12, /* uniqueFamilies */ 4);
+    const C = cluster(3, 120, 100, grid2x2, /* count */ 10, /* uniqueFamilies */ 3);
+    const groups = buildGroups([A, B, C], 8);
+    expect(groups).toHaveLength(1);
+    const g = groups[0];
+    // renderedTotal is the value GroupMarkerLayer passes to ClusterPill `count`
+    // and AdaptiveGridMarker `totalCount` (see GroupMarkerLayer.tsx).
+    expect(g.renderedTotal).toBe(46); // 24 + 12 + 10
+    // The aria headline leads with that exact number, not the anchor's 24.
+    expect(g.ariaLabel.startsWith(`Cluster: ${g.renderedTotal} observations`)).toBe(true);
+    expect(g.ariaLabel).not.toContain('24 observations');
   });
 
   it('two silhouettes both overlapping the same anchor → both get offsets in different directions', () => {
