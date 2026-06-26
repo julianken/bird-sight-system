@@ -56,23 +56,51 @@ export function visibleCapacity(shape: ResolvedGrid): number {
 }
 
 const MAX_FAMILIES = 16;
-const MAX_OBSERVATIONS = 64;
 const MOBILE_GRID_OVERFLOW_VISIBLE = 8;
 
 /**
- * Pick the grid shape for a cluster, per spec §4.1.
+ * Pick the grid shape for a cluster, per spec §4.1 (amended #1276).
  *
  * Order of precedence:
- *   1. Pill fallback when uniqueFamilies > 16 OR pointCount > 64.
- *   2. Mobile cap: on isMobile, families > 8 → 3×3 grid-overflow.
- *   3. Desktop sizing table (1, 2, 3-4, 5-9, 10-16).
+ *   1. Pill fallback ONLY when uniqueFamilies > 16 (genuinely too many
+ *      families to draw — the unbounded escape valve). This is now the
+ *      SAME trigger on desktop and mobile; neither tier ever bare-pills a
+ *      cluster that carries ≤16 families.
+ *   2. Mobile cap: on isMobile, families 9–16 → 3×3 grid-overflow
+ *      (8 shown + "+N more"), the graceful overflow affordance.
+ *   3. Desktop sizing table (1, 2, 3-4, 5-9, 10-16): families ≤16 always
+ *      render in a clean grid (up to a full 4×4 showing all 16), never a
+ *      pill.
+ *
+ * #1276 root-cause fix: the pre-amendment rule ALSO pilled when
+ * `pointCount > 64` (`MAX_OBSERVATIONS`). That cap was a *viewport-independent*
+ * constant acting on a *viewport-dependent* input — supercluster's
+ * screen-pixel `point_count`, which is strictly larger on a wider desktop
+ * canvas at the same camera (clusterRadius is 50 *pixels*, so a fixed-pixel
+ * radius sweeps up more observations on the wider canvas). So a borderline
+ * cluster crossed `> 64` on desktop and collapsed to a count-only pill —
+ * dropping every per-family silhouette — exactly where mobile (smaller
+ * `point_count`) still split into a family grid: more data → less shown.
+ *
+ * The grid only ever renders *families*, never raw observation points, so
+ * gating it on `pointCount` conflated "too many dots" with "too many families
+ * to draw" — two unrelated constraints. The `point_count > 64` clause is
+ * removed; the split is now gated on `uniqueFamilies` alone, which is what the
+ * grid actually draws. Desktop's existing clean-grid table already covers all
+ * families 1–16 without a cliff (and mobile's 3×3 overflow covers 9–16), so no
+ * new overflow tier is needed — only the spurious `pointCount` gate had to go.
+ * The pill is reserved for genuinely unbounded family counts (>16).
+ *
+ * `pointCount` stays in the signature for call-site stability and spec
+ * traceability; it is no longer a gating input and is intentionally unused.
  */
 export function pickGridShape(
   uniqueFamilies: number,
   pointCount: number,
   isMobile: boolean,
 ): GridShape {
-  if (uniqueFamilies > MAX_FAMILIES || pointCount > MAX_OBSERVATIONS) {
+  void pointCount; // #1276: no longer gates the split (see doc-comment above).
+  if (uniqueFamilies > MAX_FAMILIES) {
     return { tag: 'pill' };
   }
   if (isMobile && uniqueFamilies > MOBILE_GRID_OVERFLOW_VISIBLE) {

@@ -21,7 +21,8 @@ import type { ThemeId } from './geometry/basemap-style.js';
 /**
  * Resolved per-cluster adaptive data — the unit the Concern B cache stores
  * Promises of. `kind: 'pill'` is the pill-fallback sentinel (uniqueFamilies
- * > 16 OR pointCount > 64); `kind: 'grid'` carries the shape + tiles.
+ * > 16 — the `pointCount > 64` trigger was removed in #1276; see
+ * `pickGridShape`); `kind: 'grid'` carries the shape + tiles.
  */
 export type ResolvedAdaptiveData =
   | { kind: 'pill'; uniqueFamilies: number }
