@@ -2,7 +2,7 @@ import type {
   Hotspot, Observation, ObservationsResponse, SpeciesMeta, ObservationFilters,
   FamilySilhouette, StateSummary, SpeciesDictEntry,
 } from '@bird-watch/shared-types';
-import { canonicalFetchBboxParam, serializeBbox, snapFetchBboxParam } from '@bird-watch/geo';
+import { canonicalFetchBboxParam, perObsFetchBboxParam, serializeBbox, snapFetchBboxParam } from '@bird-watch/geo';
 
 export interface ApiClientOptions {
   baseUrl?: string;
@@ -85,10 +85,24 @@ export class ApiClient {
       const useStateEnvelope =
         f.stateCode !== undefined && f.stateBbox !== undefined &&
         f.zoom !== undefined && f.zoom < 6;
+      // #1292 — at zoom >= 6 (per-observation mode) the viewport bbox was
+      // serialized via `canonicalFetchBboxParam`, which is a PASSTHROUGH at
+      // z>=6 → plain `serializeBbox` → `.toFixed(2)`. Once the viewport span
+      // drops below ~0.01° (≈ z17) that flattens W to equal E (and S to equal
+      // N) → a degenerate ZERO-AREA bbox → the server returns 0 rows → all
+      // markers vanish ("No recent sightings"). `perObsFetchBboxParam` snaps
+      // the edges OUTWARD to a fine 0.0025° grid and serializes at `.toFixed(4)`
+      // so the box can never degenerate at any zoom, stays a tight superset of
+      // the viewport (MapLibre still clips the off-screen margin — no visible
+      // change, no under-fetch), collapses nearby pans to one cache key, and
+      // stays trivially under the validate.ts 45×25 area cap. zoom < 6 keeps the
+      // aggregated `.toFixed(2)` paths EXACTLY as-is (cache-warmer key match).
       const bboxParam = useStateEnvelope
         ? snapFetchBboxParam(f.stateBbox!, f.zoom!)
         : f.zoom !== undefined
-          ? canonicalFetchBboxParam(f.bbox, f.zoom)
+          ? f.zoom >= 6
+            ? perObsFetchBboxParam(f.bbox)
+            : canonicalFetchBboxParam(f.bbox, f.zoom)
           : serializeBbox(f.bbox);
       url.searchParams.set('bbox', bboxParam);
     }

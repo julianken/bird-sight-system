@@ -213,3 +213,71 @@ export function canonicalFetchBbox(bbox: Bbox, zoom: number): Bbox {
 export function canonicalFetchBboxParam(bbox: Bbox, zoom: number): string {
   return serializeBbox(canonicalFetchBbox(bbox, zoom));
 }
+
+// ── #1292 — non-degenerate per-observation fetch bbox (zoom >= 6) ────────────
+//
+// At `zoom >= 6` the per-observation path sends the RAW viewport bbox (no
+// aggregated snap — see `snapFetchBbox`/`canonicalFetchBbox`, both passthrough
+// there). It was then serialized with the aggregated `.toFixed(2)` (0.01° grid),
+// which is FATAL once the viewport span drops below ~0.01° (≈ z17): West rounds
+// EQUAL to East (and South == North) → a degenerate ZERO-AREA bbox → the server
+// returns 0 rows → every marker vanishes. Verified live: z16 fetched
+// `-73.98,40.77,-73.96,40.78` (renders) but z17 fetched
+// `-73.97,40.78,-73.97,40.78` (W==E, S==N → "No recent sightings").
+//
+// `perObsFetchBbox` snaps the viewport EDGES outward to a fine fixed grid so the
+// serialized box can NEVER degenerate at ANY zoom, while keeping every desirable
+// property of the 2-decimal cache trick:
+//   - OUTWARD snap (floor W/S, ceil E/N) ⇒ W < E and S < N (≥ 1 grid cell) at
+//     any zoom — the degeneracy is structurally impossible.
+//   - SUPERSET ⇒ the snapped box always contains the viewport, so MapLibre still
+//     clips the off-screen margin (no visible change, no under-fetch).
+//   - CACHE REUSE ⇒ nearby pans within one cell collapse to the same key, so the
+//     organic-caching benefit of the original 2-decimal trick is preserved.
+// The box stays a TIGHT superset of the viewport (one cell of slop per edge), so
+// it is trivially under the `validate.ts` 45×25 area cap and does not perturb the
+// per-obs 10k-row truncation brake (`observations.ts`) — it is the viewport plus
+// a hair, not the whole state.
+
+/**
+ * Per-observation snap step in degrees. 0.0025° ≈ 280 m at the equator — finer
+ * than any per-observation viewport's pixel resolution, so the outward snap is
+ * imperceptible, yet coarse enough that adjacent pans share a cell (cache reuse).
+ * Chosen so the grid is LOSSLESS at `.toFixed(4)`: 0.0025 = 25 / 10000, an exact
+ * 4-decimal value, so every snapped edge round-trips through the serializer
+ * without precision drift (the same losslessness property the 0.25°/`.toFixed(2)`
+ * aggregated grid relies on).
+ */
+export const PER_OBS_STEP_DEG = 0.0025;
+
+/**
+ * Snap the `zoom >= 6` FETCH bbox edges OUTWARD to the `PER_OBS_STEP_DEG` grid.
+ * Floor W/S, ceil E/N ⇒ the result is a superset of the input that is at least
+ * one grid cell wide on each axis, so `W < E` and `S < N` always hold.
+ *
+ * Pure: no I/O, no mutation of the input.
+ */
+export function perObsFetchBbox(bbox: Bbox): Bbox {
+  const [w, s, e, n] = bbox;
+  return [
+    floorTo(w, PER_OBS_STEP_DEG),
+    floorTo(s, PER_OBS_STEP_DEG),
+    ceilTo(e, PER_OBS_STEP_DEG),
+    ceilTo(n, PER_OBS_STEP_DEG),
+  ];
+}
+
+/**
+ * `perObsFetchBbox` then serialize at the grid's `.toFixed(4)` precision (the
+ * 0.0025° step is an exact 4-decimal value, so this is lossless). This is the
+ * value `client.ts` puts in `?bbox=` at `zoom >= 6`; it can never degenerate to
+ * a zero-area box, so high-zoom markers no longer vanish (#1292). NOTE the 4-dp
+ * precision here vs `serializeBbox`'s 2-dp — the `zoom < 6` aggregated paths keep
+ * `serializeBbox` (matching the cache-warmer's centroid format), so this is a
+ * separate, per-obs-only serializer by design.
+ */
+export function perObsFetchBboxParam(bbox: Bbox): string {
+  return perObsFetchBbox(bbox)
+    .map((v) => v.toFixed(4))
+    .join(',');
+}

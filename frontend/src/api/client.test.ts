@@ -75,7 +75,7 @@ describe('ApiClient', () => {
     expect(bbox(calls[1]![0])).toBe('-130.00,20.00,-65.00,52.00');
   });
 
-  it('passes the bbox through unchanged at zoom >= 6 (per-observation mode, #868)', async () => {
+  it('serializes the bbox non-degenerately at zoom >= 6 (per-observation mode, #868/#1292)', async () => {
     const envelope = JSON.stringify({
       mode: 'observations', data: [], meta: { freshestObservationAt: null },
     });
@@ -84,10 +84,33 @@ describe('ApiClient', () => {
     await client.getObservations({ bbox: [-118.241, 33.998, -107.237, 40.051], zoom: 7 });
     const call = (fetch as unknown as { mock: { calls: [string, unknown][] } }).mock.calls[0]!;
     const url = call[0];
-    // Passthrough: only the canonical serializer applies, no grid snap.
+    // #1292 — the z>=6 path now snaps edges OUTWARD to the 0.0025° grid and
+    // serializes at .toFixed(4) (was the aggregated .toFixed(2) passthrough,
+    // which degenerated to a zero-area box below ~0.01° span ≈ z17). The box
+    // remains a tight superset of the viewport.
     expect(url).toMatch(
-      /bbox=-118\.24(?:%2C|,)34\.00(?:%2C|,)-107\.24(?:%2C|,)40\.05/,
+      /bbox=-118\.2425(?:%2C|,)33\.9975(?:%2C|,)-107\.2350(?:%2C|,)40\.0525/,
     );
+  });
+
+  it('NEVER serializes a degenerate (zero-area) bbox at high zoom — markers do not vanish (#1292)', async () => {
+    const envelope = JSON.stringify({
+      mode: 'observations', data: [], meta: { freshestObservationAt: null },
+    });
+    vi.spyOn(global, 'fetch').mockResolvedValue(new Response(envelope, { status: 200 }));
+    const client = new ApiClient({ baseUrl: '' });
+    // A z17-tight viewport over Central Park: span ~0.0002° per axis. The legacy
+    // .toFixed(2) path flattened this to `-73.97,40.78,-73.97,40.78` (W==E,
+    // S==N) → server returns 0 rows → "No recent sightings".
+    await client.getObservations({
+      bbox: [-73.9698, 40.7779, -73.9696, 40.7781],
+      zoom: 17,
+    });
+    const call = (fetch as unknown as { mock: { calls: [string, unknown][] } }).mock.calls[0]!;
+    const got = new URL(call[0], 'http://x').searchParams.get('bbox')!;
+    const [w, s, e, n] = got.split(',').map(Number);
+    expect(w).toBeLessThan(e);
+    expect(s).toBeLessThan(n);
   });
 
   it('maps stateCode to ?state= on /api/observations (#735)', async () => {
@@ -164,8 +187,9 @@ describe('ApiClient', () => {
     });
     const call = (fetch as unknown as { mock: { calls: [string, unknown][] } }).mock.calls[0]!;
     const got = new URL(call[0], 'http://x').searchParams.get('bbox');
-    // Passthrough of the VIEWPORT bbox (canonical serializer only, no envelope).
-    expect(got).toBe('-118.24,34.00,-117.24,34.50');
+    // Per-observation serialization of the VIEWPORT bbox (no envelope): edges
+    // snapped outward to 0.0025° at .toFixed(4) (#1292), NOT the fixed envelope.
+    expect(got).toBe('-118.2425,33.9975,-117.2350,34.5000');
   });
 
   it('falls back to the canonical viewport key when state-scoped but no stateBbox is known (#873)', async () => {
