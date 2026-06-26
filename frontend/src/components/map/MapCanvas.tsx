@@ -367,6 +367,7 @@ export function MapCanvas({
   initialHashCamera,
   hashCameraInScope,
   writeBackGate,
+  onHashCameraRestored,
   cameraRef,
 }: MapCanvasProps) {
   const aggregated = mode === 'aggregated';
@@ -1157,6 +1158,34 @@ export function MapCanvas({
       cameraRef.current = null;
     };
   }, [cameraRef, mapReady]);
+
+  // ── #1289: seed the observations fetch from the restored hash camera ───────
+  // When `useScopeCamera` applies a `#map=` deep-link camera (`restoredHashCamera`
+  // goes null→non-null), fire `onHashCameraRestored` ONCE with the LIVE restored
+  // bounds + integer floor zoom — exactly the payload `onViewportChange` would
+  // have committed. App seeds `debouncedBbox`/`debouncedZoom` from it so the
+  // fetch hits the restored viewport instead of staying pinned to the CONUS z3
+  // seed (whose settle `idle` App's scope-move window swallows, #847). The
+  // `firedRestoreSeedRef` one-shot guard means a later re-render that keeps
+  // `restoredHashCamera` set never re-fires; a genuine scope change CLEARS it in
+  // `useScopeCamera` (null→…→non-null only happens once per restore). The
+  // callback is read through a ref so a fresh App identity per render still wins,
+  // mirroring `onViewportChangeRef` above. This effect touches ONLY the data
+  // seed — not the camera, the settle window, or the canonical-key machinery.
+  const firedRestoreSeedRef = useRef(false);
+  const onHashCameraRestoredRef = useRef(onHashCameraRestored);
+  onHashCameraRestoredRef.current = onHashCameraRestored;
+  useEffect(() => {
+    if (!restoredHashCamera || firedRestoreSeedRef.current) return;
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+    const cb = onHashCameraRestoredRef.current;
+    if (!cb) return;
+    firedRestoreSeedRef.current = true;
+    // Live bounds/zoom of the just-applied (jumpTo) restored camera; same shape
+    // as the onViewportChange idle payload (#627 added the floor-zoom).
+    cb(map.getBounds(), Math.floor(map.getZoom()));
+  }, [restoredHashCamera]);
 
   // ── #1128: dark-label contrast fixup at style.load ────────────────────────
   // The null-numeric-comparison guard is NO LONGER applied here — it now runs

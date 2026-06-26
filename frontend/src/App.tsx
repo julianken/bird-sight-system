@@ -968,6 +968,39 @@ export function App() {
     }, 250);
   }, []);
 
+  // #1289 — seed the observations fetch from a restored `#map=` deep-link camera.
+  // ROOT CAUSE: on a deep-link the camera restores (`useScopeCamera`'s `jumpTo`)
+  // but `debouncedBbox`/`debouncedZoom` stay at the CONUS z3 SEED. The restore's
+  // settle `idle` reaches `onViewportChange` INSIDE the `scopeMoveUntilRef` window
+  // (armed at mount whenever `boundsKey` is defined), where the bbox/zoom commit
+  // is deliberately swallowed (the scope-`fitBounds` over-fetch guard, #847). On a
+  // clean deep-link no later user gesture fires, so the seed is never superseded →
+  // 0 markers at the restored high-zoom view (whose tiny rectangle shares no
+  // rows/cells with the z3 national aggregate).
+  //
+  // FIX: MapCanvas fires this callback ONCE — with the LIVE restored
+  // `map.getBounds()` + `Math.floor(map.getZoom())` — the moment the hash camera
+  // is applied (`restoredHashCamera` goes null→non-null). We seed the fetch inputs
+  // DIRECTLY here, exactly the {bbox, zoom} pair `onViewportChange` would have
+  // committed for the restored viewport. This is the missing seam between the
+  // camera-restore and data-fetch subsystems. It mirrors the #847 render-phase
+  // reseed (which targets the SCOPE envelope at z3) but targets the RESTORED
+  // camera instead — and, crucially, it does NOT touch `scopeMoveUntilRef`, the
+  // 250ms debounce, the ~1e-4° epsilon no-op guard, or the canonical-key bbox
+  // machinery (all load-bearing for the scope one-fetch invariant + CF cache
+  // hit-rate). A genuine later user pan/zoom still flows through the normal
+  // `onViewportChange` path. One-shot per restore is enforced upstream in
+  // MapCanvas (`firedRestoreSeedRef`).
+  const onHashCameraRestored = useCallback((bounds: LngLatBounds, zoom: number) => {
+    setDebouncedBbox([
+      bounds.getWest(),
+      bounds.getSouth(),
+      bounds.getEast(),
+      bounds.getNorth(),
+    ]);
+    setDebouncedZoom(zoom);
+  }, []);
+
   // #859: species code→{comName} dictionary. Loaded once (tab-lifetime cache,
   // immutable Cache-Control) and threaded to MapSurface → MapCanvas so the
   // aggregated low-zoom popovers can resolve the real common names carried (as
@@ -1583,6 +1616,10 @@ export function App() {
             {...(rawHashCamera ? { initialHashCamera: rawHashCamera } : {})}
             hashCameraInScope={hashCameraInScope}
             writeBackGate={writeBackGate}
+            // #1289: MapCanvas fires this once the `#map=` deep-link camera is
+            // applied, with the live restored bounds + zoom, so the observations
+            // fetch seeds from the restored viewport instead of the CONUS z3 seed.
+            onHashCameraRestored={onHashCameraRestored}
             // C2 (#1240): MapCanvas populates this with a live-camera getter so
             // the "Copy link" pill (in AppHeader) reads the camera at click time.
             cameraRef={cameraRef}

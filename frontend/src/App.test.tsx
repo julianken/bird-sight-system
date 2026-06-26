@@ -111,6 +111,13 @@ const {
     flyTo: undefined as
       | { center: [number, number]; zoom: number; key: string }
       | undefined,
+    // #1289: the restored-hash-camera fetch-seed callback. App passes this to
+    // MapSurface→MapCanvas; MapCanvas invokes it (with the live restored bounds +
+    // zoom) once the `#map=` hash camera is applied, so the data layer seeds the
+    // observations fetch from the restored viewport instead of the CONUS z3 seed.
+    onHashCameraRestored: null as
+      | ((bounds: unknown, zoom: number) => void)
+      | null,
     renderCount: 0,
   },
   // O8 (#784): render-count tracking for the two memoized App-root overlays.
@@ -161,12 +168,14 @@ vi.mock('./components/MapSurface.js', () => ({
     boundsKey?: string;
     scopeBounds?: [[number, number], [number, number]];
     flyTo?: { center: [number, number]; zoom: number; key: string };
+    onHashCameraRestored?: (bounds: unknown, zoom: number) => void;
   }) => {
     mapSurfaceRef.onViewportChange = props.onViewportChange ?? null;
     mapSurfaceRef.onSelectSpecies = props.onSelectSpecies ?? null;
     mapSurfaceRef.boundsKey = props.boundsKey;
     mapSurfaceRef.scopeBounds = props.scopeBounds;
     mapSurfaceRef.flyTo = props.flyTo;
+    mapSurfaceRef.onHashCameraRestored = props.onHashCameraRestored ?? null;
     mapSurfaceRef.renderCount += 1;
     return <div data-testid="map-surface-stub" />;
   },
@@ -1790,6 +1799,139 @@ describe('#847: state→state switch re-seeds debouncedBbox/zoom (render-phase)'
       expect(mockGetObservations).toHaveBeenCalledTimes(1);
     });
     expect(mockGetObservations).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('#1289: a restored `#map=` hash camera seeds the observations fetch', () => {
+  // The bug: deep-linking `#map=<highZoom>/<lat>/<lng>` restores the camera
+  // (jumpTo) but the observations fetch stays pinned to the CONUS z3 seed —
+  // `onViewportChange` swallows the restore's settle idle inside the scope-move
+  // window, and nothing else seeds `debouncedBbox`/`debouncedZoom` from the
+  // restored camera → zero markers. The fix: MapCanvas fires
+  // `onHashCameraRestored(liveBounds, liveZoom)` once the hash camera is applied,
+  // and App seeds the fetch inputs directly from it.
+  //
+  // The restored high-zoom rectangle around San Jose, CA (well inside the US
+  // scope envelope, z16). Disjoint from the z3 CONUS seed's served cell.
+  const RESTORED_BBOX: [number, number, number, number] = [
+    -121.96, 37.255, -121.945, 37.265,
+  ];
+  const RESTORED_ZOOM = 16;
+
+  function makeBounds(
+    west: number, south: number, east: number, north: number,
+  ): LngLatBounds {
+    return {
+      getWest: () => west,
+      getSouth: () => south,
+      getEast: () => east,
+      getNorth: () => north,
+    } as unknown as LngLatBounds;
+  }
+
+  beforeEach(() => {
+    __resetSilhouettesCache();
+    __resetSpeciesDictionaryCache();
+    __resetStatesCache();
+    __resetZipIndexCache();
+    mockGetHotspots.mockResolvedValue([]);
+    mockGetObservations.mockResolvedValue({ data: [], meta: { freshestObservationAt: null } });
+    mockGetSilhouettes.mockResolvedValue([]);
+    mockGetStates.mockResolvedValue([]);
+    mockGetObservations.mockClear();
+    mockGetHotspots.mockClear();
+    mockGetStates.mockClear();
+    mockGetSilhouettes.mockClear();
+    mockUrlState.set.mockClear();
+    mapSurfaceRef.onViewportChange = null;
+    mapSurfaceRef.onHashCameraRestored = null;
+    mapSurfaceRef.boundsKey = undefined;
+    mapSurfaceRef.scopeBounds = undefined;
+    mapSurfaceRef.flyTo = undefined;
+    mapSurfaceRef.renderCount = 0;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  // PRIMARY regression: a deep-linked restore must drive the observations fetch
+  // to the RESTORED bbox/zoom (zoom >= 6), not leave it pinned at the CONUS z3
+  // seed. This fails on pre-fix code: only the seed fetch ever fires.
+  it('seeds debouncedBbox/zoom from the restored camera so the fetch hits the restored viewport', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'us' },
+    };
+    render(<App />);
+
+    // The seed fetch fires first (CONUS z3 — acceptable, heavily CF-cached).
+    await waitFor(() => {
+      expect(mockGetObservations).toHaveBeenCalledTimes(1);
+    });
+    const seedCall = mockGetObservations.mock.calls[0]![0] as { zoom?: number };
+    expect(seedCall.zoom).toBe(3);
+
+    // The restore wiring must be threaded to MapSurface.
+    await waitFor(() => {
+      expect(mapSurfaceRef.onHashCameraRestored).not.toBeNull();
+    });
+
+    // Drive the restore: MapCanvas applied the hash camera and reports the LIVE
+    // restored bounds + zoom (the path that, on real code, would otherwise be
+    // swallowed by the scope-move settle window in onViewportChange).
+    await act(async () => {
+      mapSurfaceRef.onHashCameraRestored!(
+        makeBounds(...RESTORED_BBOX),
+        RESTORED_ZOOM,
+      );
+    });
+
+    // The fetch must now re-fire at the restored viewport — bbox enclosing the
+    // restored center and zoom >= 6 (per-observation mode, NOT the z3 seed).
+    await waitFor(() => {
+      const last = mockGetObservations.mock.calls.at(-1)![0] as {
+        bbox?: [number, number, number, number];
+        zoom?: number;
+      };
+      expect(last.zoom).toBe(RESTORED_ZOOM);
+      expect(last.zoom).toBeGreaterThanOrEqual(6);
+      expect(last.bbox).toEqual(RESTORED_BBOX);
+    });
+  });
+
+  // The restore seed is a ONE-SHOT: it fires exactly one extra fetch (the
+  // restored viewport), not a loop. A subsequent genuine user pan still flows
+  // through the normal onViewportChange path (asserted separately by the #690/
+  // #847 suites); here we just confirm no re-fire from a re-render.
+  it('fires the restore seed once (no double-fetch loop)', async () => {
+    mockUrlState.state = {
+      since: '14d', notable: false, speciesCode: null, familyCode: null,
+      view: 'map', scope: { kind: 'us' },
+    };
+    const { rerender } = render(<App />);
+    await waitFor(() => {
+      expect(mockGetObservations).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(mapSurfaceRef.onHashCameraRestored).not.toBeNull();
+    });
+
+    await act(async () => {
+      mapSurfaceRef.onHashCameraRestored!(
+        makeBounds(...RESTORED_BBOX),
+        RESTORED_ZOOM,
+      );
+    });
+    await waitFor(() => {
+      expect(mockGetObservations).toHaveBeenCalledTimes(2);
+    });
+
+    // A plain re-render must NOT re-fire the restore seed (the guard holds).
+    await act(async () => { rerender(<App />); });
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    expect(mockGetObservations).toHaveBeenCalledTimes(2);
   });
 });
 

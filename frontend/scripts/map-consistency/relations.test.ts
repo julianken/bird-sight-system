@@ -360,6 +360,22 @@ describe('MR-10 filtered render-completeness (the "filter says N, only M render"
     expect(fails(sampleOf(baseUnfiltered, { filterBundle: bundle }), 'MR-10')).toHaveLength(0);
   });
 
+  it('does NOT false-fire on the fetch-bbox > viewport scope confound (Woodpeckers fetch 168 / legend 148 / rendered 148)', () => {
+    // The #1283 RCA: at mid-zoom the `?family=F` /api/observations response covers a
+    // WIDER fetch bbox than the painted viewport, so `network.total` (168) exceeds the
+    // viewport-painted markers (148). The legend is viewport-scoped (148) and is the
+    // like-with-like target — every served-but-offscreen bird is NOT render loss. MR-10
+    // must compare legendSum vs rendered (148 == 148 → pass), NOT network.total vs
+    // rendered (168 vs 148 → spurious "lost 20"). Mirrors MR-2's
+    // `aggregated-response-scopewide` carve-out and MR-5's lede-vs-viewport framing.
+    const bundle: FilterBundle = {
+      unfiltered: baseUnfiltered,
+      byFamily: [{ family: 'Woodpeckers', view: view({ viewport: 'desktop', requestedZoom: 7, network: net({ bbox: BB, total: 168, points: [] }), legend: [{ family: 'Woodpeckers', count: 148 }], markers: [marker([{ family: 'Woodpeckers', count: 148 }])] }) }],
+      bySince: [],
+    };
+    expect(fails(sampleOf(baseUnfiltered, { filterBundle: bundle }), 'MR-10')).toHaveLength(0);
+  });
+
   it('does NOT false-fire on a legitimately-pilled HIGH-count single family (stated 800, one pill of 800)', () => {
     // The premise MR-10 rests on: filtered to one family, a dense cluster pills OUT
     // with its FULL count (no overflow tail — every cluster is that one family). So a
