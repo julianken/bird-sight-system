@@ -168,6 +168,68 @@ describe('deconflict', () => {
     expect(buildGroups([], 8)).toEqual([]);
   });
 
+  // ---- renderedTotal conservation (issue #1277) ----
+  //
+  // buildGroups renders ONE marker per overlap component (the anchor). The
+  // badge must reflect EVERY cluster the Union-Find absorbed, not just the
+  // anchor's point_count — otherwise a single-family filtered view silently
+  // drops the non-anchor members' counts (`Σ rendered < stated`).
+
+  // Test 13
+  it('renderedTotal sums ALL member point_counts, not just the anchor (#1277)', () => {
+    // Two single-family clusters overlap at z8: anchor 32 + nearby 12 = 44.
+    // The deconflict layer renders only the anchor marker — its badge must
+    // carry the full 44, not the anchor's 32.
+    const A = cluster(1, 100, 100, grid4x4, /* count */ 32);
+    const B = cluster(2, 110, 100, grid2x2, /* count */ 12);
+    const groups = buildGroups([A, B], 8);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].anchor.cluster_id).toBe(1);
+    expect(groups[0].anchor.point_count).toBe(32); // anchor unchanged
+    expect(groups[0].renderedTotal).toBe(44); // conserved group total
+  });
+
+  // Test 13b
+  it('renderedTotal of a solo group equals the anchor point_count (no merge → no change)', () => {
+    const A = cluster(1, 0, 0, grid4x4, /* count */ 17);
+    const B = cluster(2, 1000, 0, grid4x4, /* count */ 9); // far away, no overlap
+    const groups = buildGroups([A, B], 8);
+    expect(groups).toHaveLength(2);
+    for (const g of groups) {
+      expect(g.renderedTotal).toBe(g.anchor.point_count);
+    }
+  });
+
+  // Test 13c — the conservation invariant the RCA prescribes for the audit
+  it('Σ renderedTotal === Σ input point_count for clustered (non-silhouette) inputs (#1277)', () => {
+    // A 3-cluster chain (one merged component) + one isolated cluster.
+    const inputs = [
+      cluster(1, 100, 100, grid4x4, 32),
+      cluster(2, 110, 100, grid2x2, 12),
+      cluster(3, 120, 100, grid2x2, 8),
+      cluster(4, 1000, 100, grid4x4, 50),
+    ];
+    const groups = buildGroups(inputs, 8);
+    const sumRendered = groups.reduce((s, g) => s + g.renderedTotal, 0);
+    const sumInput = inputs.reduce((s, c) => s + c.point_count, 0);
+    expect(sumRendered).toBe(sumInput); // 32+12+8+50 = 102, conserved
+  });
+
+  // Test 13d — silhouettes are EXCLUDED so the badge doesn't double-count the
+  // separately-painted (displaced) silhouette symbol.
+  it('renderedTotal excludes silhouette members (they paint their own symbol)', () => {
+    const anchor = cluster(1, 100, 100, grid4x4, /* count */ 32, /* uniqueFamilies */ 16);
+    const sil: DeconflictInput = {
+      cluster_id: -100, px: 105, py: 100, rendered: { kind: 'silhouette' },
+      point_count: 1, uniqueFamilies: 1, longitude: 0, latitude: 0, subId: 'OBS-AAA',
+    };
+    const groups = buildGroups([anchor, sil], 8);
+    expect(groups).toHaveLength(1);
+    // Only the cluster's 32 counts toward the badge; the silhouette renders
+    // its own (displaced) marker, so adding its point_count would double-count.
+    expect(groups[0].renderedTotal).toBe(32);
+  });
+
   // ---- supporting unit tests for the primitives (intersect, aabbForShape, unionFind, bucketKey) ----
 
   it('aabbForShape — grid centered at (100, 100) for 4×4 → 50px half-extent each way', () => {

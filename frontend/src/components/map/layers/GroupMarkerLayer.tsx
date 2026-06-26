@@ -56,7 +56,12 @@ export function GroupMarkerLayer({
               anchor="center"
             >
               <ClusterPill
-                count={anchor.point_count}
+                // #1277: the pill badge reflects EVERY cluster the deconflict
+                // group absorbed, not just the anchor — otherwise a filtered
+                // view drops the non-anchor members' counts. For a solo group
+                // `renderedTotal === anchor.point_count`, so unmerged pills are
+                // unchanged.
+                count={g.renderedTotal}
                 onClick={(e) => onGroupClick(g, e.currentTarget)}
               />
             </PresentationMarker>
@@ -79,7 +84,10 @@ export function GroupMarkerLayer({
             <AdaptiveGridMarker
               shape={anchor.rendered.shape}
               tiles={anchor.tiles ?? []}
-              totalCount={anchor.point_count}
+              // #1277: conserve the group's full count — sum of every absorbed
+              // cluster, not just the anchor. For a solo group this equals
+              // `anchor.point_count`, so unmerged grid markers are unchanged.
+              totalCount={g.renderedTotal}
               uniqueFamilies={anchor.uniqueFamilies}
               ariaLabel={g.ariaLabel}
               isCoarsePointer={isCoarsePointer}

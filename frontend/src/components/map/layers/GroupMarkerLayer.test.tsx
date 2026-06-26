@@ -30,11 +30,12 @@ vi.mock('react-map-gl/maplibre', () => ({
 
 vi.mock('./AdaptiveGridMarker.js', () => ({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  AdaptiveGridMarker: ({ onClick, onDrillIn, onSelectSpecies, ariaLabel }: any) => (
+  AdaptiveGridMarker: ({ onClick, onDrillIn, onSelectSpecies, ariaLabel, totalCount }: any) => (
     <button
       type="button"
       data-testid="mock-grid-marker"
       data-aria={ariaLabel}
+      data-total={totalCount}
       data-has-drill={onDrillIn ? 'yes' : 'no'}
       data-has-select={onSelectSpecies ? 'yes' : 'no'}
       onClick={onClick}
@@ -76,8 +77,12 @@ function group(
   rendered: RenderedShape,
   over: Partial<DeconflictInput> = {},
 ): DeconflictGroup {
+  const anchor = input(rendered, over);
   return {
-    anchor: input(rendered, over),
+    anchor,
+    // Solo-group default: renderedTotal mirrors the anchor's count (#1277).
+    // Override per-test to exercise the merged-group conservation path.
+    renderedTotal: over.point_count ?? anchor.point_count,
     memberIds: [1],
     key,
     ariaLabel: `aria-${key}`,
@@ -155,6 +160,36 @@ describe('GroupMarkerLayer', () => {
     expect(screen.getAllByTestId('mock-grid-marker')).toHaveLength(1);
     // pill + grid render markers; silhouette renders none → 2 markers total.
     expect(screen.getAllByTestId('mock-marker')).toHaveLength(2);
+  });
+
+  it('pill badge reads g.renderedTotal — conserves merged member counts, not just the anchor (#1277)', () => {
+    // Anchor point_count is 32 but the deconflict group absorbed nearby
+    // clusters → renderedTotal 44. The pill badge must show 44.
+    const g = group('g-merged-pill', { kind: 'pill', count: 32 }, { point_count: 32 });
+    render(
+      <GroupMarkerLayer
+        groups={[{ ...g, renderedTotal: 44, memberIds: [1, 2] }]}
+        isCoarsePointer={false}
+        detailOpen={false}
+        onGroupClick={noop}
+        onDrillIn={noop}
+      />,
+    );
+    expect(screen.getByTestId('mock-cluster-pill')).toHaveAttribute('data-count', '44');
+  });
+
+  it('grid marker totalCount reads g.renderedTotal — conserves merged member counts (#1277)', () => {
+    const g = group('g-merged-grid', { kind: 'grid', shape: GRID_1x1 }, { point_count: 32 });
+    render(
+      <GroupMarkerLayer
+        groups={[{ ...g, renderedTotal: 51, memberIds: [1, 2] }]}
+        isCoarsePointer={false}
+        detailOpen={false}
+        onGroupClick={noop}
+        onDrillIn={noop}
+      />,
+    );
+    expect(screen.getByTestId('mock-grid-marker')).toHaveAttribute('data-total', '51');
   });
 
   it('keys each marker on g.key — stable identity under re-render (#552 churn class)', () => {
