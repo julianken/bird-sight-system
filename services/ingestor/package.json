@@ -10,7 +10,7 @@
     "ingest:local": "tsx src/cli.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1073.0",
+    "@aws-sdk/client-s3": "^3.1075.0",
     "@bird-watch/db-client": "*",
     "@bird-watch/geo": "*",
     "@bird-watch/shared-types": "*",
