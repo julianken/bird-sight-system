@@ -8,6 +8,9 @@ import {
   canonicalFetchBboxParam,
   CANONICAL_HALF_EXTENTS,
   CONUS_BOUNDS,
+  perObsFetchBbox,
+  perObsFetchBboxParam,
+  PER_OBS_STEP_DEG,
   type Bbox,
 } from './index.js';
 
@@ -509,6 +512,127 @@ describe('canonicalFetchBbox (#868 — canonical-extent keys)', () => {
       const canon = canonicalFetchBbox(phone, 5);
       const canonArea = (canon[2] - canon[0]) * (canon[3] - canon[1]);
       expect(canonArea / phoneArea).toBeLessThanOrEqual(8);
+    });
+  });
+});
+
+describe('perObsFetchBbox (#1292 — non-degenerate per-observation fetch bbox)', () => {
+  describe('non-degenerate serialization at sub-0.01° spans', () => {
+    it('a z17-tight viewport (span ~0.0002°) serializes with W < E and S < N', () => {
+      // Central Park at z17. The raw span is ~0.0002° per axis — below the
+      // .toFixed(2) (0.01°) resolution, so the legacy serializer collapses it
+      // to `-73.97,40.78,-73.97,40.78` (W==E, S==N → zero-area box → server
+      // returns 0 rows → markers vanish, #1292). The per-obs serializer must
+      // emit a STRICTLY non-degenerate string.
+      const z17: Bbox = [-73.9698, 40.7779, -73.9696, 40.7781];
+      const param = perObsFetchBboxParam(z17);
+      const [w, s, e, n] = param.split(',').map(Number);
+      expect(w).toBeLessThan(e);
+      expect(s).toBeLessThan(n);
+    });
+
+    it('a z20-tight viewport (span ~0.00001°) still serializes non-degenerate', () => {
+      const z20: Bbox = [-73.96975, 40.77795, -73.969749, 40.777951];
+      const param = perObsFetchBboxParam(z20);
+      const [w, s, e, n] = param.split(',').map(Number);
+      expect(w).toBeLessThan(e);
+      expect(s).toBeLessThan(n);
+      // At least one grid cell wide on each axis. Compare on the serialized
+      // (.toFixed(4)) values — what actually goes over the wire — so the
+      // assertion is immune to float-subtraction noise (0.00249999…).
+      expect(e - w).toBeGreaterThanOrEqual(PER_OBS_STEP_DEG - 1e-9);
+      expect(n - s).toBeGreaterThanOrEqual(PER_OBS_STEP_DEG - 1e-9);
+    });
+
+    it('the legacy serializer DOES degenerate the same z17 box (regression witness)', () => {
+      // Pins the bug this fix exists for: serializeBbox alone flattens it.
+      expect(serializeBbox([-73.9698, 40.7779, -73.9696, 40.7781])).toBe(
+        '-73.97,40.78,-73.97,40.78',
+      );
+    });
+  });
+
+  describe('outward snap → superset (never under-fetch)', () => {
+    it('snapped edges contain the input (floor W/S, ceil E/N)', () => {
+      const raw: Bbox = [-73.9698, 40.7779, -73.9696, 40.7781];
+      const out = perObsFetchBbox(raw);
+      expect(out[0]).toBeLessThanOrEqual(raw[0]); // W floored
+      expect(out[1]).toBeLessThanOrEqual(raw[1]); // S floored
+      expect(out[2]).toBeGreaterThanOrEqual(raw[2]); // E ceiled
+      expect(out[3]).toBeGreaterThanOrEqual(raw[3]); // N ceiled
+    });
+
+    it('superset property holds for randomized sub-cell viewports', () => {
+      const rng = makeRng(1292);
+      for (let i = 0; i < 500; i++) {
+        const w = -125 + rng() * 50;
+        const s = 24 + rng() * 25;
+        // Spans from ~0 up to ~0.02° — straddles the degeneracy threshold.
+        const e = w + rng() * 0.02;
+        const n = s + rng() * 0.02;
+        const raw: Bbox = [w, s, e, n];
+        const out = perObsFetchBbox(raw);
+        expect(out[0]).toBeLessThanOrEqual(raw[0]);
+        expect(out[1]).toBeLessThanOrEqual(raw[1]);
+        expect(out[2]).toBeGreaterThanOrEqual(raw[2]);
+        expect(out[3]).toBeGreaterThanOrEqual(raw[3]);
+        // And NEVER degenerate after serialization.
+        const [pw, ps, pe, pn] = perObsFetchBboxParam(raw).split(',').map(Number);
+        expect(pw).toBeLessThan(pe);
+        expect(ps).toBeLessThan(pn);
+      }
+    });
+  });
+
+  describe('grid lossless under the chosen precision', () => {
+    it('the step is lossless at the serialized precision (round-trips exactly)', () => {
+      // Every snapped edge is a PER_OBS_STEP_DEG multiple, so .toFixed(4) is
+      // exact — re-parsing the string recovers the snapped numeric edges.
+      const raw: Bbox = [-73.9698, 40.7779, -73.9696, 40.7781];
+      const out = perObsFetchBbox(raw);
+      const reparsed = perObsFetchBboxParam(raw).split(',').map(Number) as Bbox;
+      expect(reparsed).toEqual(out);
+    });
+  });
+
+  describe('cache reuse — nearby pans within one cell collapse to one key', () => {
+    it('viewports whose edges fall in one step interval → 1 key', () => {
+      const keys = new Set<string>();
+      const rng = makeRng(77);
+      for (let i = 0; i < 50; i++) {
+        // All edges inside one 0.0025° cell at Central Park.
+        const w = -73.9699 + rng() * 0.0005;
+        const s = 40.7779 + rng() * 0.0005;
+        const e = w + 0.0001;
+        const n = s + 0.0001;
+        keys.add(perObsFetchBboxParam([w, s, e, n]));
+      }
+      expect(keys.size).toBe(1);
+    });
+  });
+
+  describe('stays well under the validate.ts area cap (45×25 at z>=6)', () => {
+    it('a representative z16-ish box round-trips to a tiny area', () => {
+      const raw: Bbox = [-73.98, 40.77, -73.96, 40.78];
+      const out = perObsFetchBbox(raw);
+      const lngSpan = out[2] - out[0];
+      const latSpan = out[3] - out[1];
+      expect(lngSpan).toBeLessThanOrEqual(45);
+      expect(latSpan).toBeLessThanOrEqual(25);
+      // The snap adds at most one cell per edge, so the box stays a tight
+      // superset of the viewport (not the whole state).
+      expect(lngSpan).toBeLessThan(0.03);
+      expect(latSpan).toBeLessThan(0.02);
+    });
+  });
+
+  describe('perObsFetchBboxParam', () => {
+    it('is perObsFetchBbox + .toFixed(4) comma-joined composed', () => {
+      const raw: Bbox = [-73.9698, 40.7779, -73.9696, 40.7781];
+      const out = perObsFetchBbox(raw);
+      expect(perObsFetchBboxParam(raw)).toBe(
+        out.map((v) => v.toFixed(4)).join(','),
+      );
     });
   });
 });
