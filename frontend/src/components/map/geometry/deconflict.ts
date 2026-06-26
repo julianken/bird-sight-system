@@ -105,6 +105,20 @@ export interface DeconflictInput {
 export interface DeconflictGroup {
   /** The anchor cluster (the one whose marker actually renders). */
   anchor: DeconflictInput;
+  /**
+   * Sum of `point_count` over EVERY non-silhouette member of the group — not
+   * just the anchor (issue #1277). `buildGroups` renders one marker per overlap
+   * component (the anchor), so a naïve `anchor.point_count` badge silently drops
+   * the counts of every other cluster the Union-Find absorbed into this group.
+   * The render layer reads `renderedTotal` for the badge so a filtered view
+   * conserves its count: `Σ groups.renderedTotal === Σ inputs.point_count` over
+   * all clustered (non-silhouette) inputs.
+   *
+   * Silhouettes are EXCLUDED from this sum: each silhouette paints its own
+   * symbol (displaced, never suppressed — see `displaceSilhouettes`), so folding
+   * its `point_count` (always 1) into the anchor badge would double-count it.
+   */
+  renderedTotal: number;
   /** Real cluster_ids of every group member (1 if solo, 2+ if merged). */
   memberIds: number[];
   /** Stable React key derived from anchor's spatial bucket. */
@@ -300,11 +314,20 @@ export function buildGroups(
     }) as DeconflictInput;
     const others = members.filter((m): m is DeconflictInput => m.cluster_id !== anchor.cluster_id);
     const memberIds = members.map((m) => m.cluster_id).sort((a, b) => a - b);
+    // Conserve the count (issue #1277): the rendered marker is one anchor, but
+    // its badge must reflect EVERY cluster the component absorbed. Sum over
+    // non-silhouette members only — silhouettes render their own (displaced)
+    // symbol, so including their point_count here would double-count them.
+    const renderedTotal = members.reduce(
+      (sum, m) => (m.rendered.kind === 'silhouette' ? sum : sum + m.point_count),
+      0,
+    );
     const leaves = members
       .filter((m) => m.longitude !== undefined && m.latitude !== undefined)
       .map((m) => ({ lng: m.longitude as number, lat: m.latitude as number }));
     groups.push({
       anchor,
+      renderedTotal,
       memberIds,
       key: bucketKey(anchor.px, anchor.py, zoom, BUCKET_PX),
       ariaLabel: ariaLabelFor(anchor, others),
