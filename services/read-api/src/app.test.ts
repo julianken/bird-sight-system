@@ -1557,4 +1557,101 @@ describe('CORS middleware', () => {
     expect(res.headers.get('cache-control'))
       .toBe('public, max-age=604800');
   });
+
+  // #1278 — no-Origin cache poisoning. The cache-warm cron, uptime probes, and
+  // `curl` fetch the canonical `/api/observations` URLs with NO Origin header.
+  // Before the fix, Hono's cors set no ACAO on that path, so Cloudflare cached
+  // a header-less body under the `Vary: Origin` "(absent)" slot and (with
+  // tiered-cache variant collapse) served it to real browsers → intermittent
+  // CORS error on the national prefetch. The fix emits ACAO for the canonical
+  // origin whenever the request has no Origin header, so the warm-seeded cache
+  // entry is never header-less.
+  it('sets Access-Control-Allow-Origin to the canonical origin on a no-Origin request (#1278)', async () => {
+    delete process.env.FRONTEND_ORIGINS; // canonical = https://bird-maps.com
+    const app = createApp({ pool: db.pool });
+    // No Origin header — exactly what run-cache-warm.ts and probes send.
+    const res = await app.request('/api/hotspots');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('access-control-allow-origin'))
+      .toBe('https://bird-maps.com');
+  });
+
+  it('keeps Access-Control-Allow-Origin on a no-Origin 503 from app.onError (#1278)', async () => {
+    delete process.env.FRONTEND_ORIGINS;
+    // A pool whose query rejects with a connection error → app.onError → 503.
+    // The CORS middleware runs before route handlers, so ACAO is set on the
+    // pre-next pass and must survive the error-path response. A cron-warmed
+    // 503/5xx that lacks ACAO is the worst poison — it both fails AND is
+    // cacheable on the stale-while-revalidate window.
+    const failingPool = {
+      query: () => Promise.reject(Object.assign(new Error('connection terminated'), { code: 'ECONNREFUSED' })),
+    } as unknown as Pool;
+    const app = createApp({ pool: failingPool });
+    const res = await app.request('/api/hotspots'); // no Origin header
+    expect(res.status).toBe(503);
+    expect(res.headers.get('access-control-allow-origin'))
+      .toBe('https://bird-maps.com');
+  });
+
+  it('keeps Access-Control-Allow-Origin on an allow-listed-Origin 503 (#1278)', async () => {
+    delete process.env.FRONTEND_ORIGINS;
+    const failingPool = {
+      query: () => Promise.reject(Object.assign(new Error('connection terminated'), { code: 'ECONNREFUSED' })),
+    } as unknown as Pool;
+    const app = createApp({ pool: failingPool });
+    const res = await app.request('/api/hotspots', {
+      headers: { Origin: 'https://bird-maps.com' },
+    });
+    expect(res.status).toBe(503);
+    expect(res.headers.get('access-control-allow-origin'))
+      .toBe('https://bird-maps.com');
+  });
+
+  it('keeps Access-Control-Allow-Origin on a 429 rate-limit response (#1278)', async () => {
+    // Lock in the origin guarantee on the rate-limit short-circuit path so a
+    // future refactor can't silently move CORS after the rate-limiter. CORS is
+    // registered before rateLimitFromEnv, so the 429 (built downstream) still
+    // carries the ACAO set on the cors pre-next pass.
+    const savedOrigins = process.env.FRONTEND_ORIGINS;
+    const savedEnabled = process.env.RATE_LIMIT_ENABLED;
+    const savedBurst = process.env.READ_API_RATE_BURST;
+    const savedRefill = process.env.READ_API_RATE_REFILL_PER_SEC;
+    delete process.env.FRONTEND_ORIGINS;
+    process.env.RATE_LIMIT_ENABLED = 'true';
+    process.env.READ_API_RATE_BURST = '1';
+    process.env.READ_API_RATE_REFILL_PER_SEC = '0';
+    try {
+      const app = createApp({ pool: db.pool });
+      const headers = { Origin: 'https://bird-maps.com' };
+      // First request consumes the single burst token (200).
+      const ok = await app.request('/api/hotspots', { headers });
+      expect(ok.status).toBe(200);
+      // Second request is rate-limited.
+      const limited = await app.request('/api/hotspots', { headers });
+      expect(limited.status).toBe(429);
+      expect(limited.headers.get('access-control-allow-origin'))
+        .toBe('https://bird-maps.com');
+    } finally {
+      if (savedOrigins === undefined) delete process.env.FRONTEND_ORIGINS;
+      else process.env.FRONTEND_ORIGINS = savedOrigins;
+      if (savedEnabled === undefined) delete process.env.RATE_LIMIT_ENABLED;
+      else process.env.RATE_LIMIT_ENABLED = savedEnabled;
+      if (savedBurst === undefined) delete process.env.READ_API_RATE_BURST;
+      else process.env.READ_API_RATE_BURST = savedBurst;
+      if (savedRefill === undefined) delete process.env.READ_API_RATE_REFILL_PER_SEC;
+      else process.env.READ_API_RATE_REFILL_PER_SEC = savedRefill;
+    }
+  });
+
+  it('still omits Access-Control-Allow-Origin for a present-but-disallowed origin (#1278)', async () => {
+    // The no-Origin fix must not weaken the disallowed-origin guarantee: a
+    // browser sending a non-allow-listed Origin still gets no ACAO so the
+    // browser blocks the cross-origin read.
+    delete process.env.FRONTEND_ORIGINS;
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/hotspots', {
+      headers: { Origin: 'https://evil.example' },
+    });
+    expect(res.headers.get('access-control-allow-origin')).toBeNull();
+  });
 });
