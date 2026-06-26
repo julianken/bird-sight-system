@@ -197,4 +197,37 @@ describe('selectLedeCount', () => {
       }),
     ).toBe(900);
   });
+
+  // #1283 follow-up: the helper keys ONLY off the `filterActive` boolean — it is
+  // dimension-agnostic. App.tsx widened that boolean to the negation of
+  // `noFiltersActive`, so a notable-ONLY or since-ONLY filter (no family/species)
+  // now feeds `filterActive: true` here. These assert the viewport count is
+  // selected for ANY truthy `filterActive`, locking that a non-family/species
+  // filter no longer falls back to the regional total (the legend/markers are
+  // already viewport-clipped, so the lede must agree).
+  it('aggregated + filter active for a NON-family/species dimension (notable/since) → viewport', () => {
+    expect(
+      selectLedeCount({
+        mode: 'aggregated',
+        filterActive: true, // App now sets this true for notable-only / since-only
+        buckets: regionalBuckets,
+        observations: regionalObs,
+        viewportBuckets,
+        viewportObservations: viewportObs,
+      }),
+    ).toBe(163);
+  });
+
+  it('observations + filter active for a NON-family/species dimension (notable/since) → viewport rows', () => {
+    expect(
+      selectLedeCount({
+        mode: 'observations',
+        filterActive: true, // App now sets this true for notable-only / since-only
+        buckets: regionalBuckets,
+        observations: regionalObs,
+        viewportBuckets,
+        viewportObservations: viewportObs,
+      }),
+    ).toBe(42);
+  });
 });

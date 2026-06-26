@@ -1263,13 +1263,21 @@ export function App() {
     // from the EXACT bucket totals (not `observations.length`, empty at low zoom)
     // and `speciesCount` is 0 there. Per-observation mode keeps both row-derived.
     const speciesCount = new Set(observations.map(o => o.speciesCode).filter(Boolean)).size;
-    // #1283: when a family/species filter is active the lede counts the VIEWPORT
-    // (so it equals the legend's "in view" total and the markers on screen);
-    // unfiltered, it stays REGIONAL (the whole-scope fetch). selectLedeCount
-    // owns this regional-vs-clipped choice; the clipping itself stays here where
-    // the live viewportBounds lives, via viewportObservations / viewportBuckets.
-    const filterActive =
-      state.familyCode !== null || state.speciesCode !== null;
+    // #1283: when ANY filter is active the lede counts the VIEWPORT (so it
+    // equals the legend's "in view" total and the markers on screen); unfiltered,
+    // it stays REGIONAL (the whole-scope fetch). selectLedeCount owns this
+    // regional-vs-clipped choice; the clipping itself stays here where the live
+    // viewportBounds lives, via viewportObservations / viewportBuckets.
+    //
+    // The "filter active" test is the negation of `noFiltersActive` (the app's
+    // canonical predicate, computed once above) so it covers EVERY filter
+    // dimension — not just family/species but also the user-reachable `notable`
+    // checkbox and a non-default `since`. A narrower test left a notable-only or
+    // since-only view falling back to the regional total while the legend and
+    // markers stayed viewport-clipped — the same "lede says N, only M on screen"
+    // mismatch this issue fixed for family/species. Reusing the single source of
+    // truth keeps the two predicates from drifting apart.
+    const filterActive = !noFiltersActive;
     const observationCount = selectLedeCount({
       mode,
       filterActive,
@@ -1306,7 +1314,9 @@ export function App() {
     familyName,
     dictionary,
     state.speciesCode,
-    state.familyCode,
+    // `noFiltersActive` (above) already keys recomputation off all four filter
+    // dimensions (species/family/notable/since), so `filterActive` needs no
+    // separate `state.familyCode`/`state.notable`/`state.since` deps here.
   ]);
 
   // O1 (#776) — App-root polite aria-live result-settle narration (R9).
