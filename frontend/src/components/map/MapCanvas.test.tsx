@@ -1451,6 +1451,103 @@ describe('MapCanvas', () => {
     expect(onViewportChange).toHaveBeenCalledWith(stubBounds, expect.any(Number));
   });
 
+  /* ── #1289 — onHashCameraRestored seam (the MapCanvas FIRING half) ──
+     The #1289 fix added a one-shot seam: when `restoredHashCamera` goes
+     null→non-null (useScopeCamera applies a `#map=` deep-link camera) the
+     component fires `onHashCameraRestored(map.getBounds(), Math.floor(map.getZoom()))`
+     EXACTLY ONCE, guarded by `firedRestoreSeedRef`. App.test.tsx covers only
+     App's HANDLER (it mocks MapSurface); the firing logic here — the trigger,
+     the floor-zoom, and the one-shot guard — is the half where the regression
+     lived and was previously untested (#1291). We drive `restoredHashCamera`
+     null→non-null PURELY via props: `initialHashCamera` supplies the raw hash
+     camera and `hashCameraInScope={true}` selects useScopeCamera's in-scope
+     restore branch, which `jumpTo`s and sets `restoredHashCamera`. With
+     `boundsKey` omitted, `atMountScope` is true, so the restore branch runs the
+     instant `mapReady` flips (MockMap fires `onLoad` synchronously). The seam
+     then fires on its OWN effect pass — hence `waitFor`, not a synchronous
+     assertion. */
+
+  const HASH_CAM = { zoom: 9.7, lat: 32.25, lng: -110.9 };
+
+  describe('#1289 — onHashCameraRestored seam (restoredHashCamera null→non-null)', () => {
+    it('fires onHashCameraRestored ONCE with the live bounds + floored zoom', async () => {
+      const onHashCameraRestored = vi.fn();
+      // Same shape as the onViewportChange idle payload: the raw LngLatBounds is
+      // passed straight through, and the zoom is `Math.floor`ed (9.7 → 9).
+      const stubBounds = {
+        getWest: () => -111.2,
+        getSouth: () => 32.0,
+        getEast: () => -110.6,
+        getNorth: () => 32.5,
+        contains: () => true,
+      };
+      fakeMap.getBounds.mockReturnValue(stubBounds);
+      fakeMap.getZoom.mockReturnValue(9.7);
+
+      render(
+        <MapCanvas
+          observations={[makeObs()]}
+          silhouettes={SILHOUETTES}
+          initialHashCamera={HASH_CAM}
+          hashCameraInScope={true}
+          onHashCameraRestored={onHashCameraRestored}
+        />,
+      );
+
+      // Two effect passes: useScopeCamera sets `restoredHashCamera` when
+      // `mapReady` flips, then the seam effect fires on the next commit.
+      await waitFor(() =>
+        expect(onHashCameraRestored).toHaveBeenCalledTimes(1),
+      );
+      // The raw bounds object passes through untouched; zoom is floored.
+      expect(onHashCameraRestored).toHaveBeenCalledWith(stubBounds, 9);
+    });
+
+    it('one-shot: does NOT re-fire on a second restoredHashCamera change (firedRestoreSeedRef guard)', async () => {
+      const onHashCameraRestored = vi.fn();
+      const stubBounds = {
+        getWest: () => -111.2,
+        getSouth: () => 32.0,
+        getEast: () => -110.6,
+        getNorth: () => 32.5,
+        contains: () => true,
+      };
+      fakeMap.getBounds.mockReturnValue(stubBounds);
+      fakeMap.getZoom.mockReturnValue(9.7);
+
+      const { rerender } = render(
+        <MapCanvas
+          observations={[makeObs()]}
+          silhouettes={SILHOUETTES}
+          initialHashCamera={HASH_CAM}
+          hashCameraInScope={true}
+          onHashCameraRestored={onHashCameraRestored}
+        />,
+      );
+      await waitFor(() =>
+        expect(onHashCameraRestored).toHaveBeenCalledTimes(1),
+      );
+
+      // A subsequent commit that keeps `restoredHashCamera` set (here via a new
+      // `initialHashCamera` identity) must NOT re-fire the seam — the
+      // MapCanvas-side `firedRestoreSeedRef` one-shot has already latched. This
+      // guards the firing half against a future edit that drops the ref guard
+      // and re-seeds the fetch on every render with the camera still applied.
+      rerender(
+        <MapCanvas
+          observations={[makeObs()]}
+          silhouettes={SILHOUETTES}
+          initialHashCamera={{ ...HASH_CAM, zoom: 11 }}
+          hashCameraInScope={true}
+          onHashCameraRestored={onHashCameraRestored}
+        />,
+      );
+      await act(async () => {});
+
+      expect(onHashCameraRestored).toHaveBeenCalledTimes(1);
+    });
+  });
+
   /* ── [data-theme] MutationObserver (preserved) ──────────────────── */
 
   describe('[data-theme] MutationObserver swaps basemap', () => {
