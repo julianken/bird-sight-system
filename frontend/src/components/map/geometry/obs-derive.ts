@@ -65,7 +65,8 @@ export function buildSilhouetteRenderById(
 
 /**
  * Hit-target layer markers: render hit targets at zoom >= CLUSTER_MAX_ZOOM
- * (now 22, post-cutover) for individual observations. The adaptive-grid
+ * (now 16 = MAX_INTERACTIVE_ZOOM - 1, the supercluster de-cluster threshold)
+ * for individual observations. The adaptive-grid
  * reconciler renders 1×1 grid markers for singletons at this zoom; the
  * hit layer is the wider clickable surface that survives small marker
  * sizes. Below CLUSTER_MAX_ZOOM, observations are clustered, so the

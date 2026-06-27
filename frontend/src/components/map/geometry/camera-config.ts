@@ -80,6 +80,27 @@ export const CONUS_NARROW_BREAKPOINT_PX = 700;
  * above is unchanged.
  */
 export const MIN_ZOOM = 2;
+
+/**
+ * MAX_INTERACTIVE_ZOOM = 17 — the DELIBERATE high-end interactive zoom ceiling
+ * for bird-maps.com (research recommendation, 2026-06). Before this the camera
+ * rode MapLibre's raw default of 22; 17 is a deliberate cap because:
+ *   - the OpenFreeMap basemap is native vector z14 — overzoomed and blurry past
+ *     ~z16-17, with no satellite imagery to reward zooming deeper;
+ *   - eBird points are checklist-LOCATION centroids carrying ~1-3 km of spatial
+ *     uncertainty, so z18+ would imply a precision the source data lacks;
+ *   - clustering and the per-observation fetch both plateau by ~z16;
+ *   - comparable point-observation apps cap interactive zoom at 17-20.
+ *
+ * This is the single source of truth for the interactive ceiling. It governs
+ * the MapLibre camera `maxZoom` (the real scroll/dblclick/keyboard/pinch cap),
+ * the share-link decode clamp (`viewbox-link.ts` — a deep link to z20 reopens
+ * clamped to 17, gracefully), and the cluster-expansion fly-to cap (MapCanvas).
+ * `CLUSTER_MAX_ZOOM` (observation-layers.ts) is derived from this as
+ * `MAX_INTERACTIVE_ZOOM - 1` (= 16) so points fully de-cluster one level below
+ * the wall. Pairs with `MIN_ZOOM` above as the camera's zoom bounds.
+ */
+export const MAX_INTERACTIVE_ZOOM = 17;
 export const CONUS_BOUNDS: [[number, number], [number, number]] = [
   [-130, 20],
   [-65, 52],
