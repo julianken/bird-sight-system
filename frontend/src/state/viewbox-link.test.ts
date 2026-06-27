@@ -176,16 +176,26 @@ describe('viewbox-link codec', () => {
 
   // ── decode: clamp boundaries (clamp recoverable, do not reject) ──────────
   describe('decode — clamping', () => {
-    it('does NOT clamp a z16 link to the fitBounds cap of 12 (interactive max is 22)', () => {
+    it('does NOT clamp a z16 link to the fitBounds cap of 12 (interactive max is 17)', () => {
       // The critical AC (#1239): clamping zoom to 12 would silently defeat
       // epic #1238's exact-view premise. A z16 link must reopen at z16.
       const decoded = decodeViewbox('#map=16/34/-111');
       expect(decoded!.camera.zoom).toBe(16);
     });
 
-    it('clamps a z25 link to the interactive max CLUSTER_MAX_ZOOM (22)', () => {
+    it('keeps a z17 link at exactly the interactive max (MAX_INTERACTIVE_ZOOM = 17)', () => {
+      const decoded = decodeViewbox('#map=17/34/-111');
+      expect(decoded!.camera.zoom).toBe(17);
+    });
+
+    it('clamps a deep-link z20 down to the interactive max MAX_INTERACTIVE_ZOOM (17), gracefully — link still opens', () => {
+      const decoded = decodeViewbox('#map=20/34/-111');
+      expect(decoded!.camera.zoom).toBe(17);
+    });
+
+    it('clamps a z25 link to the interactive max MAX_INTERACTIVE_ZOOM (17)', () => {
       const decoded = decodeViewbox('#map=25/34/-111');
-      expect(decoded!.camera.zoom).toBe(22);
+      expect(decoded!.camera.zoom).toBe(17);
     });
 
     it('clamps zoom below MIN_ZOOM (2) up to 2', () => {

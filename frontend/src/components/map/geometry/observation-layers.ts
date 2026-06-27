@@ -3,6 +3,7 @@ import type { LayerProps } from 'react-map-gl/maplibre';
 import type { BasemapDescriptor } from './basemap-style.js';
 import { FAMILY_COLOR_FALLBACK } from '@/data/family-color.js';
 import { CLUSTER_TIER_BOUNDARIES } from '@/config/cluster.js';
+import { MAX_INTERACTIVE_ZOOM } from './camera-config.js';
 
 // Epic #539 cutover: `inStack` plumbing is retired. The auto-spider
 // subsystem that produced it has been deleted along with its filter
@@ -215,16 +216,21 @@ export function notableColor(): string {
 /* ── Cluster source defaults ───────────────────────────────────────────── */
 
 /**
- * Epic #539 cutover: raised from 14 → 22. Above this zoom level the
- * supercluster source stops clustering and individual observations render
- * as unclustered points. The adaptive-grid approach disambiguates
- * coincident observations via grid shape (1×1, 2×1) up to the maximum
- * sane render zoom, so clustering remains active much longer than the
- * legacy 14-cap allowed. The companion `<Source>` JSX in MapCanvas must
- * also set `maxzoom={24}` (Phase 0 finding F4) — without it MapLibre
- * warns that source maxzoom (default 18) must exceed clusterMaxZoom.
+ * supercluster `clusterMaxZoom` = the max zoom at which points are still
+ * grouped. Derived as `MAX_INTERACTIVE_ZOOM - 1` (= 16) so that points fully
+ * de-cluster exactly ONE level below the interactive wall (`MAX_INTERACTIVE_ZOOM`
+ * = 17, camera-config.ts): clustering stays active through z16, then everything
+ * separates into individual unclustered points at the z17 cap.
+ *
+ * History: epic #539 raised this from 14 → 22 so adaptive-grid disambiguation
+ * extended through the (then-uncapped) max user zoom. The 2026-06 deliberate
+ * max-zoom cap (17) supersedes that — clustering is keyed to the new ceiling.
+ *
+ * The companion `<Source>` JSX in MapCanvas sets `maxzoom={18}` (> this value):
+ * MapLibre warns if a GeoJSON source's `maxzoom` does not exceed `clusterMaxZoom`,
+ * so the source ceiling must stay above the cluster ceiling.
  */
-export const CLUSTER_MAX_ZOOM = 22;
+export const CLUSTER_MAX_ZOOM = MAX_INTERACTIVE_ZOOM - 1;
 export const CLUSTER_RADIUS = 50;
 
 /* ── Layer specs ───────────────────────────────────────────────────────── */

@@ -12,6 +12,9 @@ import {
   MASK_FILL_LIGHT,
   MASK_FILL_DARK,
 } from './geometry/mask.js';
+// Deliberate interactive zoom cap (2026-06): assert the captured `<MapView maxZoom>`
+// prop against the single-source-of-truth constant, never a re-literal.
+import { MAX_INTERACTIVE_ZOOM } from './geometry/camera-config.js';
 // #1286: the cluster-list popover header renders `formatCount(totalCount)` /
 // `formatCount(uniqueFamilies)` — assert against the same formatter so the
 // merged-total header tests match the rendered string exactly, never a re-literal.
@@ -549,11 +552,16 @@ describe('MapCanvas', () => {
     expect(data.features).toHaveLength(1);
   });
 
-  it('Source carries cluster + clusterMaxZoom=22 + maxzoom=24 (epic #539 F4)', () => {
+  it('Source carries cluster + clusterMaxZoom=16 (= MAX_INTERACTIVE_ZOOM-1) + maxzoom=18 (> clusterMaxZoom)', () => {
+    // 2026-06 deliberate max-zoom cap: clusterMaxZoom = MAX_INTERACTIVE_ZOOM-1
+    // (16) so points de-cluster one level below the z17 wall; source maxzoom
+    // (18) must exceed clusterMaxZoom or MapLibre warns. (Was 22 / 24 under the
+    // old epic-#539 clusterMaxZoom of 22.)
     render(<MapCanvas observations={[makeObs()]} silhouettes={SILHOUETTES} />);
     expect(capturedSourceProps['cluster']).toBe(true);
-    expect(capturedSourceProps['clusterMaxZoom']).toBe(22);
-    expect(capturedSourceProps['maxzoom']).toBe(24);
+    expect(capturedSourceProps['clusterMaxZoom']).toBe(MAX_INTERACTIVE_ZOOM - 1);
+    expect(capturedSourceProps['clusterMaxZoom']).toBe(16);
+    expect(capturedSourceProps['maxzoom']).toBe(18);
   });
 
   it('renders EXACTLY the five observation Layers (no maskPolygon → no state-mask-fill leak)', async () => {
@@ -1753,12 +1761,13 @@ describe('MapCanvas', () => {
     }
 
     it('#717 — max-zoom pill click opens ClusterListPopover (targetZoom <= currentZoom)', async () => {
-      // Camera at CLUSTER_MAX_ZOOM (22); supercluster has exhausted its
-      // expansion budget → returns 22 as well. The old code would silently
-      // no-op here.
+      // Camera at MAX_INTERACTIVE_ZOOM (17, the interactive cap); supercluster
+      // has exhausted its expansion budget → returns 17 as well, and the fly-to
+      // cap is MAX_INTERACTIVE_ZOOM, so targetZoom === currentZoom and easeTo is
+      // suppressed. The old code would silently no-op here.
       const { pill, getClusterExpansionZoom } = await renderPillAtMaxZoom({
-        currentZoom: 22,
-        expansionZoom: 22,
+        currentZoom: 17,
+        expansionZoom: 17,
       });
 
       await act(async () => {
@@ -3431,6 +3440,23 @@ describe('MapCanvas state-artboard mask (#762)', () => {
       />,
     );
     expect(readMapProps().minZoom).toBe(2);
+  });
+
+  it('captured maxZoom === 17 (deliberate interactive cap; was MapLibre raw default 22)', () => {
+    // The camera maxZoom is the REAL interactive ceiling (scroll/dblclick/
+    // keyboard/pinch). It must equal the share-link decode clamp
+    // (MAX_INTERACTIVE_ZOOM) so every decoded camera is a reachable position.
+    render(
+      <MapCanvas
+        observations={[]}
+        bounds={AZ_BOUNDS}
+        boundsKey="US-AZ"
+        maskPolygon={AZ_POLYGON}
+        clampPad={ARTBOARD_PAD}
+      />,
+    );
+    expect(readMapProps().maxZoom).toBe(MAX_INTERACTIVE_ZOOM);
+    expect(readMapProps().maxZoom).toBe(17);
   });
 
   it('clamp/fit decouple: maxBounds === padBounds(bounds, ARTBOARD_PAD); fit target stays the tight bbox (finding 1)', async () => {

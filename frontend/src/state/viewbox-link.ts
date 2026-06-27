@@ -1,5 +1,4 @@
-import { MIN_ZOOM } from '@/components/map/geometry/camera-config.js';
-import { CLUSTER_MAX_ZOOM } from '@/components/map/geometry/observation-layers.js';
+import { MIN_ZOOM, MAX_INTERACTIVE_ZOOM } from '@/components/map/geometry/camera-config.js';
 
 /**
  * viewbox-link — a pure, total-function codec that serializes a map camera
@@ -149,10 +148,13 @@ export function decodeViewbox(
   if (Number.isNaN(zoom) || Number.isNaN(lat) || Number.isNaN(lng)) return null;
 
   // 3. Clamp recoverable values rather than reject. Zoom ceiling is the
-  //    INTERACTIVE max (CLUSTER_MAX_ZOOM = 22), NOT the fitBounds framing cap
-  //    of 12 — a link captured at z16 must reopen at z16.
+  //    INTERACTIVE max (MAX_INTERACTIVE_ZOOM = 17, the camera `maxZoom` cap),
+  //    NOT the fitBounds framing cap of 12 — a link captured at z16 must reopen
+  //    at z16, and a hand-edited deep link to z20 clamps gracefully to 17
+  //    (it still opens, just at the wall). Must equal the camera cap so the
+  //    decoded camera is always a reachable position.
   const camera: ViewboxCamera = {
-    zoom: clamp(zoom, MIN_ZOOM, CLUSTER_MAX_ZOOM),
+    zoom: clamp(zoom, MIN_ZOOM, MAX_INTERACTIVE_ZOOM),
     lat: clamp(lat, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT),
     lng: clamp(lng, -180, 180),
   };

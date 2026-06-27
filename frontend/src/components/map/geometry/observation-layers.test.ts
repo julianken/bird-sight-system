@@ -12,6 +12,7 @@ import {
   CLUSTER_RADIUS,
   FALLBACK_SILHOUETTE_ID,
 } from './observation-layers.js';
+import { MAX_INTERACTIVE_ZOOM } from './camera-config.js';
 import { resolveDescriptor, type BasemapDescriptor } from './basemap-style.js';
 import { FAMILY_COLOR_FALLBACK } from '@/data/family-color.js';
 
@@ -426,8 +427,13 @@ describe('cluster defaults', () => {
     expect(CLUSTER_RADIUS).toBe(50);
   });
 
-  it('CLUSTER_MAX_ZOOM is 22 (epic #539 cutover: was 14, raised so adaptive-grid disambiguation extends through max user zoom)', () => {
-    expect(CLUSTER_MAX_ZOOM).toBe(22);
+  it('MAX_INTERACTIVE_ZOOM is 17 (deliberate 2026-06 cap; was MapLibre raw default 22)', () => {
+    expect(MAX_INTERACTIVE_ZOOM).toBe(17);
+  });
+
+  it('CLUSTER_MAX_ZOOM is 16 = MAX_INTERACTIVE_ZOOM - 1 (supercluster de-clusters one level below the interactive wall)', () => {
+    expect(CLUSTER_MAX_ZOOM).toBe(16);
+    expect(CLUSTER_MAX_ZOOM).toBe(MAX_INTERACTIVE_ZOOM - 1);
   });
 
   it('FALLBACK_SILHOUETTE_ID is "_FALLBACK"', () => {
