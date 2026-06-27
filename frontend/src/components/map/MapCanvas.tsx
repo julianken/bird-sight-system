@@ -353,6 +353,25 @@ function useSanitizedBasemapStyle(themeId: ThemeId): StyleSpecification {
   return style ?? backgroundPlaceholderStyle(themeId);
 }
 
+/**
+ * #1296 bot-review: re-shape a grid-singleton's per-observation leaf into a
+ * one-family `familiesJson` bucket leaf so the AGGREGATED cluster-list branch
+ * (`mergeLeafBuckets`) can fold it through the same code path as real bucket
+ * leaves. `count`/`speciesCount` are 1 (a single observation); a null
+ * `speciesCode` (spuh/slash/hybrid) yields an empty species list so the family
+ * still counts but contributes no phantom species row. Matches the shape
+ * `bucketsToGeoJson` serializes (`AggregatedFamily[]`).
+ */
+function singletonLeafToBucketLeaf(
+  leaf: ClusterLeafFeature,
+): { properties: { familiesJson: string } } {
+  const { familyCode, speciesCode } = leaf.properties;
+  if (!familyCode) return { properties: { familiesJson: '[]' } };
+  const species = speciesCode ? [{ code: speciesCode, count: 1 }] : [];
+  const family = { code: familyCode, count: 1, speciesCount: species.length, species };
+  return { properties: { familiesJson: JSON.stringify([family]) } };
+}
+
 export function MapCanvas({
   observations,
   buckets = EMPTY_BUCKETS,
@@ -487,6 +506,20 @@ export function MapCanvas({
    * they never set/clear the same `hidden` flag in one pass.
    */
   const prevGridHiddenSubIdsRef = useRef<Set<string>>(new Set());
+  /**
+   * #1296 (bot-review follow-up): the originating observation leaf for every
+   * grid-promoted singleton, keyed by its synthetic high-band pseudo-id
+   * (`GRID_SINGLE_ID_BASE + hashSubId(subId)`). That pseudo-id is NOT registered
+   * in supercluster, so when a grid-singleton deconflict-MERGES into a real
+   * cluster, `openClusterListFromGroup` cannot recover its species via
+   * `getClusterLeaves` — leaving the popover header (= `group.renderedTotal`,
+   * which counts the singleton's +1) one ahead of the enumerated species rows
+   * (the same header≠rows conservation bug class as #1286). We stash the leaf
+   * here at input-build time so the popover can fold the singleton's species
+   * into its rows, keeping `Σ rows === header`. Re-committed wholesale each
+   * reconcile pass (alongside `prevGridHiddenSubIdsRef`).
+   */
+  const gridSingletonLeavesRef = useRef<Map<number, ClusterLeafFeature>>(new Map());
   /**
    * Silhouette data lookup for the displaced-silhouette render path.
    * `silhouettesById` (below) is keyed by lowercased familyCode for the
@@ -732,6 +765,7 @@ export function MapCanvas({
     setSilhouetteOffsets(new Map());
     prevHiddenSubIdsRef.current = new Set();
     prevGridHiddenSubIdsRef.current = new Set(); // #1296
+    gridSingletonLeavesRef.current = new Map(); // #1296 bot-review
   }
 
   /**
@@ -1679,6 +1713,11 @@ export function MapCanvas({
       // #1296: subIds promoted to grid markers THIS pass — their canvas twins are
       // hidden below so the React grid marker doesn't double-render over them.
       const gridHiddenSubIds = new Set<string>();
+      // #1296 bot-review: synthetic-id → originating obs leaf for the grid markers
+      // promoted THIS pass. Committed to `gridSingletonLeavesRef` after the
+      // empty-commit guard so the popover can enumerate a merged singleton's
+      // species (see the ref's doc comment).
+      const nextGridSingletonLeaves = new Map<number, ClusterLeafFeature>();
       for (const f of unclusteredFeats) {
         const subId = f.properties?.subId;
         if (!subId || silSubIdsSeen.has(subId)) continue;
@@ -1704,7 +1743,23 @@ export function MapCanvas({
           silhouettesById,
         );
         inputs.push(input);
-        if (input.rendered.kind === 'grid') gridHiddenSubIds.add(subId);
+        if (input.rendered.kind === 'grid') {
+          gridHiddenSubIds.add(subId);
+          // #1296 bot-review: stash this obs's own leaf under the synthetic
+          // pseudo-id `buildUnclusteredInput` assigned, so a cluster-list popover
+          // opened on a group this singleton merged into can enumerate its
+          // species. Mirrors the single leaf `buildUnclusteredInput` builds.
+          nextGridSingletonLeaves.set(input.cluster_id, {
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [longitudeS, latitudeS] },
+            properties: {
+              familyCode: f.properties?.familyCode ?? null,
+              speciesCode: f.properties?.speciesCode ?? null,
+              comName: f.properties?.comName ?? '',
+              isNotable: Boolean(f.properties?.isNotable),
+            },
+          });
+        }
       }
 
       // Spec §5.3 Concern C race-safe commit: if the catalogue refreshed
@@ -1803,6 +1858,10 @@ export function MapCanvas({
         }
       }
       prevGridHiddenSubIdsRef.current = gridHiddenSubIds;
+      // #1296 bot-review: commit this pass's synthetic-id → leaf map in lockstep
+      // with the committed groups, so a click on any rendered grid-singleton
+      // resolves to the leaf that produced it.
+      gridSingletonLeavesRef.current = nextGridSingletonLeaves;
 
       // End-of-idle eviction (spec §5.3 Concern B): drop cache entries
       // for clusters that no longer appear in the viewport. Bounds
@@ -1850,6 +1909,7 @@ export function MapCanvas({
       }
       prevHiddenSubIdsRef.current = new Set();
       prevGridHiddenSubIdsRef.current = new Set();
+      gridSingletonLeavesRef.current = new Map(); // #1296 bot-review
     };
     // Re-register when the silhouettes catalogue OR the resolved
     // silhouettesById map changes, OR when the map first becomes ready.
@@ -1913,21 +1973,44 @@ export function MapCanvas({
       // positive HIGH-BAND pseudo-IDs. Neither is registered in supercluster, so
       // exclude both before requesting leaves (a bad id rejects the whole batch).
       const realIds = group.memberIds.filter((id) => id > 0 && !isSyntheticSingleId(id));
-      if (realIds.length === 0) return;
+      // #1296 bot-review: a grid-promoted singleton that deconflict-merged into
+      // this group contributes its +1 to `group.renderedTotal` (the header), so
+      // its species MUST appear in the rows too — else header reads N+1 while the
+      // enumerated rows total N (the #1286 header≠rows conservation bug, re-opened
+      // for grid singletons). Its synthetic id isn't a supercluster cluster, so
+      // recover the originating leaf we stashed at input-build time instead of
+      // `getClusterLeaves` (which would reject the whole batch on a bad id).
+      const singletonLeaves = group.memberIds
+        .filter((id) => isSyntheticSingleId(id))
+        .map((id) => gridSingletonLeavesRef.current.get(id))
+        .filter((leaf): leaf is ClusterLeafFeature => leaf !== undefined);
+      if (realIds.length === 0 && singletonLeaves.length === 0) return;
 
       try {
-        const leafBatches = await Promise.all(
-          realIds.map(
-            (id) =>
-              source.getClusterLeaves!(id, 64, 0) as Promise<ClusterLeafFeature[]>,
-          ),
-        );
-        const leaves = leafBatches.flat();
-        if (leaves.length === 0) return;
+        const leafBatches =
+          realIds.length > 0
+            ? await Promise.all(
+                realIds.map(
+                  (id) =>
+                    source.getClusterLeaves!(id, 64, 0) as Promise<ClusterLeafFeature[]>,
+                ),
+              )
+            : [];
+        const realLeaves = leafBatches.flat();
+        if (realLeaves.length === 0 && singletonLeaves.length === 0) return;
         if (aggregated) {
-          // #859: leaves are buckets — merge their real families/species.
+          // #859: real cluster leaves are buckets — merge their real
+          // families/species. #1296 bot-review: any grid-singleton member is a
+          // per-observation leaf, not a bucket, so re-shape it as a one-family
+          // `familiesJson` bucket leaf and merge it through the SAME path so the
+          // count stays conserved. (In practice this is empty in aggregated mode —
+          // bucket features carry no subId, so no obs is ever grid-promoted there —
+          // but folding keeps header==rows honest if that ever changes.)
           const merged = mergeLeafBuckets(
-            leaves as unknown as Array<{ properties?: { familiesJson?: unknown } }>,
+            [
+              ...(realLeaves as unknown as Array<{ properties?: { familiesJson?: unknown } }>),
+              ...singletonLeaves.map(singletonLeafToBucketLeaf),
+            ],
             dictionary,
           );
           setClusterList({
@@ -1948,17 +2031,21 @@ export function MapCanvas({
           });
           return;
         }
-        const families = aggregateClusterFamilies(leaves);
-        const speciesByFamily = aggregateClusterSpecies(leaves);
+        // #1296 bot-review: include the grid-singleton members' own leaves so the
+        // rows total the header (`group.renderedTotal`, which counts each +1).
+        const allLeaves = [...realLeaves, ...singletonLeaves];
+        const families = aggregateClusterFamilies(allLeaves);
+        const speciesByFamily = aggregateClusterSpecies(allLeaves);
         setClusterList({
           group,
           families,
           speciesByFamily,
           // #1286: as above — the header counts the whole merged group. `families`
-          // is `aggregateClusterFamilies(leaves)` over EVERY member's flattened
-          // leaves, so `families.length` is the merged unique-family count (the
-          // aggregated branch above already uses its `merged.families.length`);
-          // the anchor-only `group.anchor.uniqueFamilies` undercounts it.
+          // is `aggregateClusterFamilies(allLeaves)` over EVERY member's flattened
+          // leaves (incl. grid singletons), so `families.length` is the merged
+          // unique-family count (the aggregated branch above already uses its
+          // `merged.families.length`); the anchor-only `group.anchor.uniqueFamilies`
+          // undercounts it.
           totalCount: group.renderedTotal,
           uniqueFamilies: families.length,
           anchorEl,

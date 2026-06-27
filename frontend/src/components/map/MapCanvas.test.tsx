@@ -4296,3 +4296,156 @@ describe('#1286 — cluster-list popover header reflects the merged group total'
     expect(heading.textContent).not.toContain(`${formatCount(24)} observations`);
   });
 });
+
+/* ── #1296 bot-review: a grid-singleton merged into a real cluster must appear
+ *    in the cluster-list popover ROWS so Σ rows === header (renderedTotal) ─────
+ *
+ * In a FILTERED view a lone observation is promoted to a count-bearing 1×1 grid
+ * marker carrying a synthetic high-band pseudo-id; deconflict SUMS its +1 into
+ * the group's `renderedTotal` (#1296). When it deconflict-MERGES into a real
+ * supercluster cluster and the cluster-list popover opens (#717 stuck-pill /
+ * `targetZoom <= currentZoom`), the header reads `renderedTotal` (= cluster + 1)
+ * but the rows are built from `getClusterLeaves(realIds)`, which EXCLUDES the
+ * synthetic id — so pre-fix the singleton's species was DROPPED: header N+1,
+ * rows N (the #1286 header≠rows conservation bug, re-opened for grid singletons).
+ *
+ * The cluster and the singleton share IDENTICAL coords; the project() mock maps
+ * them to the same pixel → their AABBs intersect → deconflict folds them into ONE
+ * group. The cluster (17 single-obs families) wins the pill shape and the
+ * min(cluster_id) anchor; the click escalates into the cluster list because the
+ * cluster's expansion zoom == the current zoom. The fix stashes the singleton's
+ * own leaf at input-build time (keyed by its synthetic id) and folds it into the
+ * popover rows so the enumerated families total the header.
+ *
+ * This exercises the FULL MapCanvas wiring (filterActive → buildUnclusteredInput →
+ * grid promotion → reconcile-committed leaf map → openClusterListFromGroup), so a
+ * regression that stopped threading `filterActive` (no grid promotion) would also
+ * fail it — the SUGGESTION's wiring guard, paid for by the same test.
+ */
+describe('#1296 bot-review — grid-singleton member appears in the merged cluster-list', () => {
+  beforeEach(() => {
+    capturedSourceProps = {};
+    capturedLayerFilters = {};
+    capturedSourcesById = {};
+    capturedLayerPaint = {};
+    registeredHandlers = {};
+    bareHandlers = {};
+    bareHandlersAll = {};
+    deferMapLoad = false;
+    deferredOnLoad = null;
+    fakeMap = makeFakeMap();
+    document.documentElement.removeAttribute('data-theme');
+    __resetAdaptiveGridCacheForTesting();
+  });
+
+  // 17 single-obs families → the real cluster falls through to pill shape
+  // (uniqueFamilies > 16) and its 17 leaves total 17 observations (point_count 17).
+  function clusterLeaves17() {
+    return Array.from({ length: 17 }, (_, i) => ({
+      type: 'Feature',
+      properties: {
+        familyCode: `afam${i}`,
+        speciesCode: `asp${i}`,
+        comName: `A Species ${i}`,
+      },
+    }));
+  }
+
+  it('non-aggregated: the merged singleton species is enumerated and Σ family rows === header total (18), not 17', async () => {
+    const COORD: [number, number] = [-110.95, 32.25];
+    // Real cluster (17 obs across 17 families) + a FILTERED lone obs at the SAME
+    // coordinate → one merged group. renderedTotal = 17 + 1 = 18.
+    const clusterFeat = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: COORD },
+      properties: { cluster: true, cluster_id: 77, point_count: 17 },
+    };
+    const soloObs = makeObs({
+      subId: 'SOLO-1',
+      familyCode: 'zsingle',
+      speciesCode: 'zsp',
+      comName: 'Solo Phoebe',
+      lng: COORD[0],
+      lat: COORD[1],
+    });
+    // The promoted lone obs as the `unclustered-point` symbol layer paints it
+    // (per-observation properties, WITH a subId).
+    const soloFeat = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: COORD },
+      properties: {
+        subId: soloObs.subId,
+        familyCode: soloObs.familyCode,
+        speciesCode: soloObs.speciesCode,
+        comName: soloObs.comName,
+        isNotable: false,
+      },
+    };
+    fakeMap.queryRenderedFeatures.mockImplementation(
+      (_: unknown, opts?: { layers?: string[] }) => {
+        if (opts?.layers?.includes('clusters-hit')) return [clusterFeat];
+        if (opts?.layers?.includes('unclustered-point')) return [soloFeat];
+        return [];
+      },
+    );
+    // getLayer truthy for unclustered-point so the reconciler's unclustered query
+    // runs (baseStyleLayers only seeds clusters-hit).
+    fakeMap.getLayer.mockReturnValue({ id: 'unclustered-point' });
+    const getClusterLeaves = vi.fn().mockResolvedValue(clusterLeaves17());
+    // expansion zoom == current zoom → easeTo no-ops → openClusterListFromGroup.
+    const getClusterExpansionZoom = vi.fn().mockResolvedValue(22);
+    fakeMap.getSource.mockReturnValue({ getClusterLeaves, getClusterExpansionZoom });
+    fakeMap.getZoom.mockReturnValue(22);
+    // Grid promotion hides the canvas twin via feature-state; stub the setters.
+    fakeMap.setFeatureState = vi.fn();
+    fakeMap.removeFeatureState = vi.fn();
+
+    render(
+      <MapCanvas observations={[soloObs]} filterActive silhouettes={SILHOUETTES} />,
+    );
+    await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+    await act(async () => { await fireAllIdleHandlers(); });
+    await act(async () => { await Promise.resolve(); });
+
+    // The merged group renders ONE pill whose conserved badge already counts the
+    // singleton (#1296): "18 sightings".
+    const pill = await waitFor(() => {
+      const found = screen
+        .queryAllByRole('button', { name: /sightings$/ })
+        .find((p) => p.classList.contains('cluster-pill'));
+      if (!found) throw new Error('merged cluster-pill not rendered');
+      return found;
+    });
+    expect(pill).toHaveAttribute('aria-label', '18 sightings');
+
+    await act(async () => {
+      fireEvent.click(pill);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const heading = await waitFor(() =>
+      screen.getByTestId('cluster-list-popover-heading'),
+    );
+    // Header conserves the merged total (18 obs) AND the merged family count must
+    // now INCLUDE the singleton's family (18, not the 17 real-cluster families).
+    expect(heading.textContent).toContain(`${formatCount(18)} observations`);
+    expect(heading.textContent).toContain(`${formatCount(18)} families`);
+
+    // The grid-singleton's OWN family is now an enumerated row (pre-fix it was
+    // dropped — getClusterLeaves excludes the synthetic high-band id).
+    expect(
+      screen.getByTestId('cluster-list-popover-family-zsingle'),
+    ).toBeInTheDocument();
+
+    // Conservation: Σ of the per-family counts shown in the popover === the header
+    // total (18). Pre-fix the rows summed to 17 while the header read 18.
+    const popover = screen.getByTestId('cluster-list-popover');
+    const toggles = popover.querySelectorAll('.cluster-list-popover__family-toggle');
+    const rowSum = Array.from(toggles).reduce((sum, btn) => {
+      const m = /\(([\d,]+)\)\s*$/.exec(btn.textContent ?? '');
+      return sum + (m ? Number(m[1].replace(/,/g, '')) : 0);
+    }, 0);
+    expect(rowSum).toBe(18);
+  });
+});
