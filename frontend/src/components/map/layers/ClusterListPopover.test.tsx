@@ -70,6 +70,11 @@ describe('<ClusterListPopover>', () => {
   });
 
   it('renders the cluster header with total count and unique families', () => {
+    // Prop contract (#1286): this component renders whatever `totalCount` /
+    // `uniqueFamilies` it is handed — it never reads the anchor. The caller
+    // (`openClusterListFromGroup`) is responsible for passing the MERGED group
+    // total (`group.renderedTotal`) and merged family count, not the anchor
+    // cluster's. The fix lives there; this component is unchanged.
     const anchor = makeAnchor();
     render(
       <ClusterListPopover
