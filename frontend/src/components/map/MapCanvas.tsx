@@ -66,10 +66,14 @@ import {
 } from './geometry/adaptive-grid.js';
 import { type HitTargetMarker } from './layers/MapMarkerHitLayer.js';
 import {
-  hashSubId,
+  isSyntheticSingleId,
   type DeconflictGroup,
   type DeconflictInput,
 } from './geometry/deconflict.js';
+// #1296: per-feature silhouette-vs-grid input builder for VISIBLE unclustered
+// observations. In a FILTERED view a lone obs is promoted to a count-bearing
+// 1×1 grid marker so it is summed into the group's `renderedTotal`.
+import { buildUnclusteredInput } from './geometry/unclustered-input.js';
 // Reconciler pure middle (deconflict → displace → unproject → feature-state
 // diff) extracted to reconcile-viewport.ts (epic #884 · U10, #895). The shell
 // in the adaptive-grid reconciler effect below assembles `inputs` (owning both
@@ -363,6 +367,7 @@ export function MapCanvas({
   maskPolygon,
   clampPad,
   detailOpen = false,
+  filterActive = false,
   activeThemeId: activeThemeIdProp,
   initialHashCamera,
   hashCameraInScope,
@@ -471,6 +476,17 @@ export function MapCanvas({
    * silhouette would stay invisible after the displacement clears.
    */
   const prevHiddenSubIdsRef = useRef<Set<string>>(new Set());
+  /**
+   * #1296: subIds whose canvas twin was hidden on the prior pass because the
+   * observation was promoted to a count-bearing 1×1 grid marker (FILTERED views
+   * only). Tracked separately from `prevHiddenSubIdsRef` (displaced silhouettes)
+   * so each ref clears its OWN feature-state when the condition lapses (filter
+   * turned off, obs panned off-screen). The two sets are disjoint by
+   * construction — a filtered view produces grid inputs (no silhouettes to
+   * displace), an unfiltered view produces silhouettes (no grid promotion) — so
+   * they never set/clear the same `hidden` flag in one pass.
+   */
+  const prevGridHiddenSubIdsRef = useRef<Set<string>>(new Set());
   /**
    * Silhouette data lookup for the displaced-silhouette render path.
    * `silhouettesById` (below) is keyed by lowercased familyCode for the
@@ -715,6 +731,7 @@ export function MapCanvas({
     setGroups([]);
     setSilhouetteOffsets(new Map());
     prevHiddenSubIdsRef.current = new Set();
+    prevGridHiddenSubIdsRef.current = new Set(); // #1296
   }
 
   /**
@@ -1617,22 +1634,30 @@ export function MapCanvas({
         }),
       );
 
-      // ── Silhouette inputs (issue #554 scope expansion 2026-05-15) ────
+      // ── Unclustered-observation inputs (issue #554; #1296) ───────────
       //
-      // Query every visible unclustered-point feature, project its
-      // lng/lat, and push it onto the deconflict input list as a
-      // silhouette variant. The negative pseudo-cluster_id derived from
-      // the subId hash keeps silhouette ids out of the positive cluster
-      // namespace so `min(cluster_id)` tiebreaks behave; `buildGroups`
-      // additionally prefers any non-silhouette over a silhouette as
-      // the anchor (see deconflict.ts buildGroups rule).
+      // Query every visible unclustered-point feature and project its lng/lat.
+      // The PER-FEATURE input shape is decided by `buildUnclusteredInput`:
       //
-      // Defensive: the `unclustered-point` symbol layer mounts only
-      // once `spritesReady` flips true, so on a cold reconcile the
-      // layer can be absent — `getLayer` guards against the maplibre
-      // "layer does not exist in the map's style and cannot be queried
-      // for features" error. Subsequent idle reconciles after the
-      // sprite-registration effect settles will pick up the layer.
+      //   - UNFILTERED (`!filterActive`): a `silhouette` variant with a NEGATIVE
+      //     pseudo-cluster_id (`-hashSubId(subId)`). Keeps silhouette ids out of
+      //     the positive cluster namespace so `min(cluster_id)` tiebreaks behave;
+      //     `buildGroups` also prefers any non-silhouette over a silhouette as
+      //     the anchor, and EXCLUDES silhouettes from `renderedTotal` (each paints
+      //     its own displaced symbol). Lone obs stay bare canvas dots — exactly
+      //     as before (no "1"-badge spam across thousands of unfiltered birds).
+      //
+      //   - FILTERED (`filterActive`): a count-bearing 1×1 family `grid` marker
+      //     with a POSITIVE high-band id (#1296). `kind:'grid'` ⇒ `buildGroups`
+      //     SUMS its `point_count` (1) into `renderedTotal`, so a filtered
+      //     viewport's Σ renderedTotal === the obs count the lede shows — closing
+      //     the "lede says N, only M<N render, worse on zoom-in" drop. The canvas
+      //     SDF twin is hidden below (feature-state) so it doesn't double-render.
+      //
+      // Defensive: the `unclustered-point` symbol layer mounts only once
+      // `spritesReady` flips true, so on a cold reconcile the layer can be absent
+      // — `getLayer` guards against the maplibre "layer does not exist … and
+      // cannot be queried for features" error. A subsequent idle picks it up.
       const unclusteredFeats = (
         map.getLayer && map.getLayer('unclustered-point')
           ? map.queryRenderedFeatures(undefined, {
@@ -1640,11 +1665,20 @@ export function MapCanvas({
             })
           : []
       ) as Array<{
-        properties?: { subId?: string };
+        properties?: {
+          subId?: string;
+          familyCode?: string | null;
+          speciesCode?: string | null;
+          comName?: string;
+          isNotable?: boolean;
+        };
         geometry?: { type: 'Point'; coordinates: [number, number] };
         id?: number | string;
       }>;
       const silSubIdsSeen = new Set<string>();
+      // #1296: subIds promoted to grid markers THIS pass — their canvas twins are
+      // hidden below so the React grid marker doesn't double-render over them.
+      const gridHiddenSubIds = new Set<string>();
       for (const f of unclusteredFeats) {
         const subId = f.properties?.subId;
         if (!subId || silSubIdsSeen.has(subId)) continue;
@@ -1653,17 +1687,24 @@ export function MapCanvas({
         if (!geom || geom.type !== 'Point') continue;
         const [longitudeS, latitudeS] = geom.coordinates;
         const projectedS = map.project([longitudeS, latitudeS]);
-        inputs.push({
-          cluster_id: -hashSubId(subId),
-          px: projectedS.x,
-          py: projectedS.y,
-          rendered: { kind: 'silhouette' },
-          point_count: 1,
-          uniqueFamilies: 1,
-          longitude: longitudeS,
-          latitude: latitudeS,
-          subId,
-        });
+        const input = buildUnclusteredInput(
+          {
+            subId,
+            familyCode: f.properties?.familyCode ?? null,
+            speciesCode: f.properties?.speciesCode ?? null,
+            comName: f.properties?.comName ?? '',
+            isNotable: Boolean(f.properties?.isNotable),
+            longitude: longitudeS,
+            latitude: latitudeS,
+            px: projectedS.x,
+            py: projectedS.y,
+          },
+          filterActive,
+          isMobile,
+          silhouettesById,
+        );
+        inputs.push(input);
+        if (input.rendered.kind === 'grid') gridHiddenSubIds.add(subId);
       }
 
       // Spec §5.3 Concern C race-safe commit: if the catalogue refreshed
@@ -1738,6 +1779,31 @@ export function MapCanvas({
       // NOT own the ref — the shell advances it after applying the diff.
       prevHiddenSubIdsRef.current = new Set<string>(nextOffsets.keys());
 
+      // #1296: hide the canvas SDF twin of every lone observation promoted to a
+      // count-bearing 1×1 grid marker (FILTERED views). The React grid marker
+      // (GroupMarkerLayer) paints the family silhouette as an overlay (single-leaf,
+      // so AdaptiveGridMarker suppresses the count-1 badge per spec §4.3) and its
+      // count is conserved in `renderedTotal`; without this the `unclustered-point`
+      // dot would double-render under it.
+      // Reuses the SAME `hidden` feature-state the displaced-silhouette path uses
+      // (icon-opacity 0 AND notable-ring stroke-opacity 0, so the notable ring
+      // hides too) — and, unlike layout `visibility:'none'`, KEEPS the feature
+      // queryable so the next idle's `queryRenderedFeatures` still enumerates it
+      // (the same opacity-0-but-placed property the displaced path relies on).
+      // Disjoint from the displaced set above (a filtered pass has no silhouette
+      // inputs), so the two refs never fight over one feature's `hidden` flag.
+      for (const subId of gridHiddenSubIds) {
+        if (!prevGridHiddenSubIdsRef.current.has(subId)) {
+          map.setFeatureState({ source: 'observations', id: subId }, { hidden: true });
+        }
+      }
+      for (const subId of prevGridHiddenSubIdsRef.current) {
+        if (!gridHiddenSubIds.has(subId)) {
+          map.removeFeatureState({ source: 'observations', id: subId }, 'hidden');
+        }
+      }
+      prevGridHiddenSubIdsRef.current = gridHiddenSubIds;
+
       // End-of-idle eviction (spec §5.3 Concern B): drop cache entries
       // for clusters that no longer appear in the viewport. Bounds
       // worst-case memory at O(visible clusters), not O(every cluster
@@ -1769,7 +1835,13 @@ export function MapCanvas({
       map.off('idle', onIdle);
       // Clear orphaned `hidden` feature-state so silhouettes don't stay
       // invisible after the effect re-runs (e.g. catalogue swap, unmount).
-      for (const subId of prevHiddenSubIdsRef.current) {
+      // #1296: includes the grid-promoted singletons so toggling the filter OFF
+      // (a `filterActive` dep change re-runs this effect) un-hides every canvas
+      // twin before the unfiltered reconcile repaints them as silhouettes.
+      for (const subId of [
+        ...prevHiddenSubIdsRef.current,
+        ...prevGridHiddenSubIdsRef.current,
+      ]) {
         try {
           map.removeFeatureState({ source: 'observations', id: subId }, 'hidden');
         } catch {
@@ -1777,6 +1849,7 @@ export function MapCanvas({
         }
       }
       prevHiddenSubIdsRef.current = new Set();
+      prevGridHiddenSubIdsRef.current = new Set();
     };
     // Re-register when the silhouettes catalogue OR the resolved
     // silhouettesById map changes, OR when the map first becomes ready.
@@ -1787,7 +1860,9 @@ export function MapCanvas({
     // #859: `aggregated`, `buckets`, and `dictionary` are deps too — flipping
     // the data path (z<6 ↔ z>=6), swapping the bucket set, or the dictionary
     // first resolving must re-run the reconciler so markers reflect real data.
-  }, [silhouettes, silhouettesById, silhouettesVersion, mapReady, aggregated, buckets, dictionary]);
+    // #1296: `filterActive` is a dep so toggling a filter re-registers the
+    // closure with the fresh flag (and its cleanup un-hides the prior twins).
+  }, [silhouettes, silhouettesById, silhouettesVersion, mapReady, aggregated, buckets, dictionary, filterActive]);
 
   // The [data-theme] MutationObserver (basemap `setStyle` swap + mask-fill
   // re-tint via `setMaskTheme`, with the `prevThemeRef` no-op-write guard) was
@@ -1834,9 +1909,10 @@ export function MapCanvas({
         | undefined;
       if (!source?.getClusterLeaves) return;
 
-      // Silhouettes have negative pseudo-IDs and are not registered in
-      // supercluster — filter them out before requesting leaves.
-      const realIds = group.memberIds.filter((id) => id > 0);
+      // Silhouettes have negative pseudo-IDs; #1296 single-obs grid markers have
+      // positive HIGH-BAND pseudo-IDs. Neither is registered in supercluster, so
+      // exclude both before requesting leaves (a bad id rejects the whole batch).
+      const realIds = group.memberIds.filter((id) => id > 0 && !isSyntheticSingleId(id));
       if (realIds.length === 0) return;
 
       try {
@@ -1910,7 +1986,9 @@ export function MapCanvas({
         const map = mapRef.current?.getMap();
         if (!map) return;
         const source = map.getSource('observations');
-        const clusterMemberIds = memberIds.filter((id) => id > 0);
+        // Exclude silhouette (negative) and #1296 single-obs (high-band) pseudo-ids
+        // — only real supercluster ids are valid for getClusterExpansionZoom.
+        const clusterMemberIds = memberIds.filter((id) => id > 0 && !isSyntheticSingleId(id));
         if (
           clusterMemberIds.length > 0 &&
           source &&
@@ -1971,11 +2049,12 @@ export function MapCanvas({
       try {
         // Click-time-lazy: async expansion-zoom aggregation over cluster
         // members only. Silhouette pseudo-IDs are negative by construction
-        // (−hashSubId(subId)) and are not registered in supercluster's
+        // (−hashSubId(subId)); #1296 single-obs grid markers are positive but in
+        // the synthetic HIGH BAND. Neither is registered in supercluster's
         // index — passing them to getClusterExpansionZoom rejects, causing
         // the Promise.all to reject and the click to silently no-op.
-        // Bot review #554: filter to positive IDs (real cluster IDs) only.
-        const clusterMemberIds = memberIds.filter((id) => id > 0);
+        // Bot review #554: filter to real cluster IDs only.
+        const clusterMemberIds = memberIds.filter((id) => id > 0 && !isSyntheticSingleId(id));
 
         // Silhouette-only group: anchor is a silhouette, no cluster IDs
         // remain. Route to single-leaf path (open obs popover).

@@ -655,3 +655,36 @@ export function hashSubId(s: string): number {
   for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
   return Math.abs(h);
 }
+
+/**
+ * Reserved id band for SYNTHETIC single-observation grid markers (issue #1296).
+ *
+ * In a FILTERED view a lone unclustered observation is promoted from a bare
+ * canvas silhouette to a count-bearing 1×1 family grid marker so its count is
+ * conserved in the group's `renderedTotal` (the silhouette path EXCLUDES
+ * silhouettes from `renderedTotal`, so de-clustered singletons were silently
+ * dropped from the on-screen total — the bug). The promoted input carries a
+ * POSITIVE pseudo-`cluster_id` of `GRID_SINGLE_ID_BASE + hashSubId(subId)`:
+ *
+ *   - POSITIVE (vs the silhouette path's negative ids) so it reads as a real
+ *     cluster to `buildGroups` (non-silhouette → SUMMED into `renderedTotal`,
+ *     and eligible to be an anchor).
+ *   - In a HIGH band (1e9) so a real overlapping supercluster cluster — whose
+ *     ids are `(index << 5) + zoom`, bounded by the viewport's feature count and
+ *     therefore far below 1e9 in any filtered view — always wins the
+ *     `min(cluster_id)` anchor tiebreak. The lone obs never suppresses a true
+ *     cluster's richer marker; it only adds its own count.
+ *   - DISTINGUISHABLE so the click handlers can exclude it from
+ *     `getClusterLeaves` / `getClusterExpansionZoom` (it is NOT registered in
+ *     supercluster — passing it would reject the whole batch). `isSyntheticSingleId`
+ *     is the predicate those call sites filter on.
+ *
+ * `hashSubId` maxes out near `2^31`, so the band [1e9, ~3.15e9] stays well
+ * inside `Number.MAX_SAFE_INTEGER`.
+ */
+export const GRID_SINGLE_ID_BASE = 1_000_000_000;
+
+/** True when `id` is a synthetic single-observation grid pseudo-id (#1296). */
+export function isSyntheticSingleId(id: number): boolean {
+  return id >= GRID_SINGLE_ID_BASE;
+}
