@@ -173,6 +173,22 @@ export interface MapCanvasProps {
    */
   detailOpen?: boolean;
   /**
+   * #1296 — true when ANY data filter is active (`!noFiltersActive` in App.tsx:
+   * species/family/notable/since). Forwarded VERBATIM from App via MapSurface,
+   * following the `detailOpen`/#1283 viewport-filter prop pattern (the canonical
+   * predicate is computed ONCE in App; MapCanvas must NOT recompute filter state).
+   *
+   * Gates the lone-observation render path in the adaptive-grid reconciler: in a
+   * FILTERED view each visible UNCLUSTERED observation is promoted from a bare
+   * canvas silhouette to a count-bearing 1×1 family grid marker (`kind:'grid'`)
+   * so its count is SUMMED into the group's `renderedTotal` — fixing the
+   * "lede says N, only M<N render, worse on zoom-in" drop where de-clustered
+   * silhouette singletons were excluded from the on-screen total. UNFILTERED
+   * views are unchanged (lone obs stay bare silhouettes — no "1"-badge spam
+   * across thousands of birds). Defaults to `false` (legacy/test callers).
+   */
+  filterActive?: boolean;
+  /**
    * #1220 (C8) — the active basemap theme id, lifted to App.tsx (`useActiveThemeId`
    * seeded from `resolveInitialTheme`) so the <ThemeSelector> in <AppHeader> and
    * the id-keyed basemap swap here share ONE source of truth. When supplied it

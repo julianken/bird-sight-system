@@ -91,6 +91,13 @@ export interface MapSurfaceProps {
    */
   detailOpen?: boolean;
   /**
+   * #1296 — true when ANY data filter is active (`!noFiltersActive` in App).
+   * Forwarded VERBATIM to <MapCanvas> (thin pass-through) so the adaptive-grid
+   * reconciler promotes lone filtered observations to count-bearing 1×1 grid
+   * markers (conserving the on-screen total). Optional; defaults to `false`.
+   */
+  filterActive?: boolean;
+  /**
    * #1220 (C8) — the active basemap theme id (App-level `useActiveThemeId`,
    * seeded from `resolveInitialTheme`). Forwarded VERBATIM to <MapCanvas> so the
    * id-keyed basemap swap shares the same source of truth the <ThemeSelector>
@@ -156,6 +163,7 @@ export function MapSurface({
   maskPolygon,
   clampPad,
   detailOpen = false,
+  filterActive = false,
   activeThemeId,
   initialHashCamera,
   hashCameraInScope,
@@ -228,6 +236,7 @@ export function MapSurface({
             {...(maskPolygon != null ? { maskPolygon } : {})}
             {...(clampPad !== undefined ? { clampPad } : {})}
             detailOpen={detailOpen}
+            filterActive={filterActive}
             {...(activeThemeId !== undefined ? { activeThemeId } : {})}
             {...(initialHashCamera ? { initialHashCamera } : {})}
             {...(hashCameraInScope !== undefined ? { hashCameraInScope } : {})}

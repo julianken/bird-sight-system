@@ -1612,6 +1612,11 @@ export function App() {
             {...(statePolygon != null ? { maskPolygon: statePolygon } : {})}
             {...(isStateScope ? { clampPad: ARTBOARD_PAD } : {})}
             detailOpen={!!(scopeActive && state.detail)}
+            // #1296: the canonical filter predicate (covers species/family/
+            // notable/since), computed ONCE above — MapCanvas must NOT recompute
+            // it. Gates the lone-observation silhouette→grid promotion so a
+            // filtered viewport's on-screen marker total matches the lede count.
+            filterActive={!noFiltersActive}
             activeThemeId={activeThemeId}
             {...(rawHashCamera ? { initialHashCamera: rawHashCamera } : {})}
             hashCameraInScope={hashCameraInScope}
