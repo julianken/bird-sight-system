@@ -15,7 +15,7 @@ import type { AggregatedBucket, Observation } from '@bird-watch/shared-types';
 import { resolveDescriptor } from './geometry/basemap-style.js';
 import type { ThemeId } from './geometry/basemap-style.js';
 import { useActiveThemeId, setBasemapStyle } from './theme-state.js';
-import { INITIAL_VIEW, MIN_ZOOM } from './geometry/camera-config.js';
+import { INITIAL_VIEW, MIN_ZOOM, MAX_INTERACTIVE_ZOOM } from './geometry/camera-config.js';
 import {
   buildMaskFeature,
   MASK_FILL_LIGHT,
@@ -1941,8 +1941,8 @@ export function MapCanvas({
    *
    *   Multi-member case: click-time-lazy `getClusterExpansionZoom` over
    *     every memberId; easeTo target = `Math.max(...zooms)` (capped at
-   *     `CLUSTER_MAX_ZOOM`). Using max — not min — ensures the camera
-   *     reaches the zoom where the LAST overlapping cluster breaks apart,
+   *     `MAX_INTERACTIVE_ZOOM`, the camera ceiling). Using max — not min —
+   *     ensures the camera reaches the zoom where the LAST cluster breaks apart,
    *     so the user always sees real expansion. Matches the click-time-lazy
    *     pattern from the prior `handleClusterPillClick`.
    */
@@ -2086,7 +2086,7 @@ export function MapCanvas({
             const zooms = await Promise.all(
               clusterMemberIds.map((id) => src.getClusterExpansionZoom(id)),
             );
-            const targetZoom = Math.min(Math.max(...zooms), CLUSTER_MAX_ZOOM);
+            const targetZoom = Math.min(Math.max(...zooms), MAX_INTERACTIVE_ZOOM);
             const currentZoom = map.getZoom();
             const shouldEase =
               Number.isFinite(targetZoom) &&
@@ -2159,12 +2159,12 @@ export function MapCanvas({
         }
 
         // Max — not min — so the camera always reaches the zoom where every
-        // member separates. Capped at CLUSTER_MAX_ZOOM (22) for parity with
-        // the prior pill-click behavior.
+        // member separates. Capped at MAX_INTERACTIVE_ZOOM (17, the camera
+        // ceiling) — never fly past the interactive max zoom.
         const zooms = await Promise.all(
           clusterMemberIds.map((id) => src.getClusterExpansionZoom(id)),
         );
-        const targetZoom = Math.min(Math.max(...zooms), CLUSTER_MAX_ZOOM);
+        const targetZoom = Math.min(Math.max(...zooms), MAX_INTERACTIVE_ZOOM);
         const currentZoom = map.getZoom();
         // `Number.isFinite` rejects NaN (library-error guard, #717): if any
         // member's expansion zoom resolved to NaN, Math.max(NaN) === NaN,
@@ -2317,6 +2317,15 @@ export function MapCanvas({
         ref={mapRef}
         initialViewState={initialViewState}
         minZoom={MIN_ZOOM}
+        // Deliberate high-end interactive cap (2026-06 research recommendation):
+        // 17, NOT MapLibre's raw default of 22. This is the REAL interactive
+        // ceiling — it governs scroll, double-click, keyboard, and pinch zoom.
+        // The OpenFreeMap basemap is native vector z14 (blurry past ~z16-17, no
+        // satellite imagery) and eBird points are checklist-location centroids
+        // with ~1-3 km uncertainty, so z18+ implies precision the data lacks.
+        // Single source of truth in camera-config.ts; the share-link decode
+        // clamp and the cluster-expansion fly-to cap read the same constant.
+        maxZoom={MAX_INTERACTIVE_ZOOM}
         // Reactive scope clamp (#736 finding (a) + #760/#762 artboard):
         // `clampBounds` is the state envelope PADDED by `clampPad` (state scope)
         // so the user can zoom out onto the gray field, else the raw scope
@@ -2455,13 +2464,13 @@ export function MapCanvas({
           // default (2), so real Observation rows — which legitimately use `subId`
           // + the unclustered silhouette layer — are completely unchanged.
           clusterMinPoints={aggregated ? 1 : 2}
-          // Phase 0 finding F4: when clusterMaxZoom rises to 22 (epic #539
-          // cutover), maplibre warns that source `maxzoom` (default 18)
-          // must exceed clusterMaxZoom. Setting maxzoom=24 lifts the
-          // source ceiling above the cluster ceiling and silences the
-          // warning. Required to keep Gate 4 (zero console warnings)
-          // green on cold map init.
-          maxzoom={24}
+          // maplibre warns that a GeoJSON source's `maxzoom` must EXCEED
+          // `clusterMaxZoom`. With the deliberate max-zoom cap (CLUSTER_MAX_ZOOM
+          // = MAX_INTERACTIVE_ZOOM - 1 = 16) the source ceiling only needs to be
+          // > 16; 18 clears it with margin and keeps Gate 4 (zero console
+          // warnings) green on cold map init. (Was 24 when clusterMaxZoom rode
+          // the old epic-#539 value of 22.)
+          maxzoom={18}
           // promoteId="subId" surfaces the observation subId as the
           // feature.id, which is what setFeatureState({id, ...}) keys on.
           // The silhouette-displacement path (issue #554 scope expansion)

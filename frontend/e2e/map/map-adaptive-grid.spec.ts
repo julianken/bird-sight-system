@@ -148,19 +148,25 @@ test.describe('Adaptive-grid markers (epic #539)', () => {
     const webglReady = await waitForMapReady(page);
     test.skip(!webglReady, 'WebGL unavailable — map canvas did not paint');
 
-    await flyToTucson(page, 18);
+    // z=16 is CLUSTER_MAX_ZOOM (the deepest zoom at which supercluster still
+    // groups points). At z17 (= MAX_INTERACTIVE_ZOOM, the interactive cap)
+    // points fully de-cluster into individual unclustered silhouettes, so the
+    // clusters-hit-fed adaptive-grid markers vanish — z16 is the deepest zoom
+    // that still exercises the 1×1 grid path. (Was z=18 when clustering rode
+    // the old epic-#539 clusterMaxZoom of 22.)
+    await flyToTucson(page, 16);
 
-    // At high zoom a single observation should produce a 1×1 grid with
+    // At max-cluster zoom a single observation should produce a 1×1 grid with
     // a `rendered` cell (or `pending` until silhouettes load, but never
     // `fallback` unless the family genuinely has no art).
     const grids = page.locator('[data-testid=adaptive-grid-marker]');
     const gridCount = await grids.count();
     if (gridCount === 0) {
-      test.skip(true, 'No grid markers at z=18 — sparse data; AC8 covered by Phase 1 unit tests');
+      test.skip(true, 'No grid markers at z=16 — sparse data; AC8 covered by Phase 1 unit tests');
       return;
     }
     // Any 1×1 grid with a single observation must NOT be a fallback —
-    // if `fallback` cells render at z=18 the silhouette catalogue is
+    // if `fallback` cells render at z=16 the silhouette catalogue is
     // broken (Phylopic load failure or seed-data miss).
     const fallbacks = page.locator(
       '[data-testid=adaptive-grid-marker] [data-testid=adaptive-grid-marker-cell-fallback]',
