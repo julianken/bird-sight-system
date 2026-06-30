@@ -10,8 +10,11 @@ import {
   listStatesWithBbox,
   // #878 — precomputed per-scope aggregation grid.
   isPrecomputeEligible, getAggregatedGridFromCache, resolveScopeKey,
+  // #1300 (B1) — single-cell sightings-log query + its source-of-truth sentinels.
+  getCellObservations, NATIONAL_SCOPE_KEY, STANDARD_GRID_MULTIPLIERS,
+  type CellObservationsParams,
 } from '@bird-watch/db-client';
-import type { ObservationsResponse } from '@bird-watch/shared-types';
+import type { ObservationsResponse, CellObservationsResponse } from '@bird-watch/shared-types';
 import { cacheControlFor } from './cache-headers.js';
 import { rateLimitFromEnv } from './rate-limit.js';
 import {
@@ -374,6 +377,101 @@ export function createApp(deps: AppDeps): Hono {
       meta: {
         freshestObservationAt,
         ...(obsResult.truncated ? { truncated: true } : {}),
+      },
+    };
+    return c.json(body);
+  });
+
+  // #1300 (B1) — single grid-cell, single-species per-observation rows for the
+  // zoom<6 sightings log (epic #1299). A dedicated route (NOT a gate-lift of
+  // /api/observations, whose `bbox && zoom<6` contract routes to the aggregated
+  // CTE before per-observation rows can return). Thin adapter: validate params,
+  // delegate to getCellObservations (all SQL lives in db-client), return
+  // CellObservationsResponse. The frontend sends the clicked CellPopover
+  // marker's coords (a true round(coord*m)/m bucket center) as lng/lat.
+  app.get('/api/observations/cell', async c => {
+    // species — REQUIRED (the log is per-species). Same allowlist as
+    // /api/observations; absence is a 400 (not an unbounded query).
+    const speciesResult = parseSpecies(c.req.query('species'));
+    if (!speciesResult.ok) {
+      console.log(JSON.stringify(speciesResult.log));
+      return c.json({ error: speciesResult.error }, 400);
+    }
+    const speciesCode = speciesResult.value;
+    if (speciesCode === undefined) {
+      return c.json({ error: 'missing species' }, 400);
+    }
+
+    // scope — NATIONAL_SCOPE_KEY (no clip) OR a CONUS US-XX code (state clip).
+    // Compared against the NATIONAL_SCOPE_KEY export, not a hardcoded 'US', so
+    // the no-clip sentinel never drifts from the aggregated/precompute paths.
+    // Absent scope is treated as national. parseState rejects the bare national
+    // key, so it MUST be short-circuited before the state validator runs.
+    const scopeRaw = c.req.query('scope');
+    let scopeKey: string;
+    if (scopeRaw === undefined || scopeRaw === NATIONAL_SCOPE_KEY) {
+      scopeKey = NATIONAL_SCOPE_KEY;
+    } else {
+      const stateResult = parseState(scopeRaw);
+      if (!stateResult.ok) {
+        console.log(JSON.stringify(stateResult.log));
+        return c.json({ error: stateResult.error }, 400);
+      }
+      // scopeRaw was defined and not the national key, so parseState yields a
+      // normalized US-XX string here; the ?? branch is unreachable.
+      scopeKey = stateResult.value ?? NATIONAL_SCOPE_KEY;
+    }
+
+    // m — the grid multiplier. Restricted to STANDARD_GRID_MULTIPLIERS (the same
+    // set the aggregated path emits) so an arbitrary multiplier can never widen
+    // the derived cell. Number('') === 0 is finite but not in the set → 400.
+    const mRaw = c.req.query('m');
+    const m = mRaw === undefined ? NaN : Number(mRaw);
+    if (!Number.isFinite(m) || !STANDARD_GRID_MULTIPLIERS.includes(m)) {
+      return c.json({ error: 'invalid m: expected a standard grid multiplier (2|4|8)' }, 400);
+    }
+
+    // lng / lat — finite floats (the clicked cell-bucket center). Guard the
+    // empty string explicitly: Number('') === 0 would otherwise pass as finite.
+    const lngRaw = c.req.query('lng');
+    const lng = lngRaw === undefined || lngRaw.trim() === '' ? NaN : Number(lngRaw);
+    if (!Number.isFinite(lng)) {
+      return c.json({ error: 'invalid lng: expected a finite number' }, 400);
+    }
+    const latRaw = c.req.query('lat');
+    const lat = latRaw === undefined || latRaw.trim() === '' ? NaN : Number(latRaw);
+    if (!Number.isFinite(lat)) {
+      return c.json({ error: 'invalid lat: expected a finite number' }, 400);
+    }
+
+    // since — optional; same validator as /api/observations.
+    const sinceResult = parseSince(c.req.query('since'));
+    if (!sinceResult.ok) {
+      console.log(JSON.stringify(sinceResult.log));
+      return c.json({ error: sinceResult.error }, 400);
+    }
+    const since = sinceResult.value;
+
+    // Build the params with conditional optional assignment
+    // (exactOptionalPropertyTypes — never place T|undefined into an
+    // optional-but-not-undefined key via a literal/spread). limit is omitted so
+    // the query uses CELL_OBSERVATIONS_LIMIT.
+    const cellParams: CellObservationsParams = {
+      scopeKey,
+      gridMultiplier: m,
+      lngBucket: lng,
+      latBucket: lat,
+      speciesCode,
+    };
+    if (since !== undefined) cellParams.since = since;
+
+    const result = await getCellObservations(deps.pool, cellParams);
+    c.header('Cache-Control', cacheControlFor('observations'));
+    const body: CellObservationsResponse = {
+      data: result.data,
+      meta: {
+        cellObservationCount: result.cellObservationCount,
+        truncated: result.truncated,
       },
     };
     return c.json(body);
