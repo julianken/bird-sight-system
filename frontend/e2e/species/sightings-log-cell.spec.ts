@@ -1,26 +1,36 @@
 import { test, expect } from '../fixtures.js';
 import { AppPage } from '../pages/app-page.js';
-import type { CellObservationsResponse, Observation, SpeciesMeta } from '@bird-watch/shared-types';
+import type {
+  AggregatedFamily,
+  CellObservationsResponse,
+  Observation,
+  SpeciesMeta,
+} from '@bird-watch/shared-types';
 
 /**
  * #1302 (F3, epic #1299) — the zoom<6 CELL path of the Sightings Log.
  *
- * At zoom<6 the map renders the precomputed count-only grid. Clicking a single
- * aggregated bucket and selecting a species in the `<CellPopover>` threads a
- * `{kind:'cell'}` context; the log then fetches that cell's per-sighting rows
- * from `GET /api/observations/cell` (B1) and renders them, including the
- * server-truncation banner.
+ * At zoom<6 the map renders the precomputed count-only grid. The ONLY surface
+ * that represents a genuine SINGLE bucket is the `#864` raw UNCLUSTERED leaf:
+ * supercluster never emits a 1-point cluster (`getClusters` needs point_count>1;
+ * `_cluster` needs a merged neighbour, independent of `clusterMinPoints`), so a
+ * single isolated bucket is always painted unclustered and its click is handled
+ * by the `unclustered-point` map handler — which opens a `ClusterListPopover`
+ * and (post-#1302) threads a `{kind:'cell'}` context. Picking a species there
+ * fetches that cell's per-sighting rows from `GET /api/observations/cell` (B1)
+ * and renders them, including the server-truncation banner.
  *
- * DETERMINISM: reaching a genuine SINGLE aggregated bucket at a specific
- * low-zoom coordinate depends on real MapLibre/supercluster clustering, which
- * is fragile under `retries:0` / `fullyParallel` and never materializes in a
- * WebGL-less headless run. So this spec follows the same probe-and-skip
- * discipline as `sightings-log.spec.ts` and `map-adaptive-grid.spec.ts`: it
- * STUBS `/api/observations/cell` deterministically, then drives the live UI to
- * a single-bucket cell popover; if clustering does not produce one (no WebGL /
- * sparse seed), it skips. The hard mapping/truncation/0-row coverage lives in
- * the unit + RTL specs (use-sightings-rows / SightingsLog / client). The
- * orchestrator's live Playwright pass exercises the full visual path.
+ * DETERMINISM: this spec drives the REACHABLE single-bucket path directly. It
+ * does NOT rely on real canvas hit-testing to land a click on a painted SDF
+ * symbol (which never works in a WebGL-less headless run). Instead it overrides
+ * the live maplibre instance's `queryRenderedFeatures` (exposed as `__birdMap`
+ * in dev/test) to return ONE bucket feature, then `fire`s the `unclustered-point`
+ * click — the same call path a real canvas click takes. Every step after that
+ * (popover → species pick → cell fetch → log render) is real DOM + the stubbed
+ * B1 endpoint, so the rows / banner / `since` round-trip assertions are
+ * deterministic. The ONLY residual nondeterminism is whether maplibre fires
+ * `load` at all (it does not without a GPU); that single condition is guarded
+ * and `log()`d — it never silently swallows the core assertions below it.
  */
 
 const SILHOUETTES = [
@@ -51,6 +61,34 @@ const speciesMetaFixture: SpeciesMeta = {
   familyCode: 'tyrannidae',
   familyName: 'Tyrant Flycatchers',
   taxonOrder: 4400,
+};
+
+// The single isolated bucket centered at a true round(coord*m)/m grid center
+// (m=2 at the national z<6 → integer lng/lat). Its family carries the one
+// `vermfly` species so the popover row resolves to a clickable common name.
+const BUCKET_FAMILIES: AggregatedFamily[] = [
+  {
+    code: 'tyrannidae',
+    count: 7,
+    speciesCount: 1,
+    species: [{ code: 'vermfly', count: 7 }],
+    name: 'Tyrant Flycatchers',
+  },
+];
+const BUCKET_LNG = -110;
+const BUCKET_LAT = 32;
+const SINGLE_BUCKET_RESPONSE = {
+  mode: 'aggregated' as const,
+  buckets: [
+    {
+      lat: BUCKET_LAT,
+      lng: BUCKET_LNG,
+      count: 7,
+      speciesCount: 1,
+      families: BUCKET_FAMILIES,
+    },
+  ],
+  meta: { freshestObservationAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() },
 };
 
 /** Two cell rows out of a (claimed) larger set → truncated banner "latest 2 of 137". */
@@ -101,10 +139,21 @@ test.describe('Sightings Log — zoom<6 cell path (#1302)', () => {
         body: JSON.stringify(SILHOUETTES),
       });
     });
+    // ONE isolated aggregated bucket — the single-bucket case the unclustered
+    // handler owns. The bare species dictionary resolves `vermfly`'s name in the
+    // popover row.
+    await page.route('**/api/observations**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(SINGLE_BUCKET_RESPONSE),
+      });
+    });
+    await apiStub.stubSpeciesDictionary();
+    await apiStub.stubSpeciesInScope();
     await apiStub.stubSpecies('vermfly', speciesMetaFixture);
-    // Deterministically stub the B1 cell endpoint regardless of which single
-    // bucket the live clustering surfaces — the test asserts the LOG renders
-    // exactly these rows + this truncation banner once a cell is selected.
+    // Deterministically stub the B1 cell endpoint: the test asserts the LOG
+    // renders exactly these rows + this truncation banner once a cell is picked.
     await page.route('**/api/observations/cell**', async (route) => {
       await route.fulfill({
         status: 200,
@@ -124,51 +173,95 @@ test.describe('Sightings Log — zoom<6 cell path (#1302)', () => {
     await app.goto('scope=us&since=1d');
     await app.waitForAppReady();
 
-    // The adaptive-grid markers mount only after MapLibre fires `load`; in a
-    // WebGL-less headless run that never happens — tolerate via probe+skip.
-    const webglReady = await page.evaluate(() => Boolean((window as { __birdMap?: unknown }).__birdMap));
-    test.skip(!webglReady, 'WebGL unavailable — map canvas did not paint');
-
-    // Find a single-bucket adaptive-grid marker, open its CellPopover, and pick
-    // a clickable species row. A single-bucket cell is the only marker shape
-    // that threads a {kind:'cell'} context (handleGridSelectSpecies gate).
-    const gridMarker = page.locator('[data-testid=adaptive-grid-marker]').first();
-    try {
-      await gridMarker.waitFor({ state: 'visible', timeout: 8_000 });
-    } catch {
-      test.skip(true, 'No adaptive-grid markers at the national overview — sparse seed');
+    // The ONLY residual nondeterminism: the live maplibre instance (exposed as
+    // `__birdMap`) is published from the `load` handler, which never fires in a
+    // WebGL-less headless run. Everything past this point is deterministic (a
+    // direct fire of the unclustered-point handler + real DOM + the stubbed B1
+    // endpoint), so this single guard never masks the core assertions — it only
+    // tolerates the no-GPU environment, and logs exactly what it skips.
+    const webglReady = await page
+      .waitForFunction(() => Boolean((window as { __birdMap?: unknown }).__birdMap), null, {
+        timeout: 12_000,
+      })
+      .then(() => true)
+      .catch(() => false);
+    if (!webglReady) {
+      // eslint-disable-next-line no-console
+      console.log(
+        '[sightings-log-cell] SKIP: maplibre never fired `load` (no WebGL/GPU) — ' +
+          '__birdMap unavailable, so the single-bucket click cannot be driven. ' +
+          'The cell mapping/fetch/banner contract is covered deterministically by ' +
+          'the unit + RTL specs (MapCanvas / use-sightings-rows / SightingsLog / client).',
+      );
+      test.skip(true, 'WebGL unavailable — __birdMap not published');
       return;
     }
-    await gridMarker.click();
 
-    const popover = page.locator('[data-testid=cell-popover]');
-    try {
-      await popover.waitFor({ state: 'visible', timeout: 5_000 });
-    } catch {
-      test.skip(true, 'Clicked marker did not open a CellPopover (cluster, not single bucket)');
-      return;
-    }
+    // Drive the REACHABLE single-bucket path. The `unclustered-point` click is a
+    // maplibre LAYER-DELEGATED listener: maplibre stores it on
+    // `map._delegatedListeners.click` as `{ layers:['unclustered-point'],
+    // delegates:{ click } }`, where `delegates.click` is the wrapper maplibre
+    // itself calls on a real canvas click — it runs `queryRenderedFeatures(point,
+    // {layers:['unclustered-point']})` and, if a feature matches, invokes the
+    // app handler with `e.features` populated. We override `queryRenderedFeatures`
+    // to return ONE bucket feature (no subId, real familiesJson — exactly what
+    // bucketsToGeoJson writes for an unclustered bucket), then invoke that same
+    // `delegates.click` wrapper with a synthetic point/lngLat event. This is the
+    // identical call path a real canvas click takes, with no painted SDF symbol
+    // and no dependence on the bucket's on-screen pixel position — so it is fully
+    // deterministic under WebGL.
+    const drove = await page.evaluate(
+      ({ families }) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const map = (window as any).__birdMap;
+        const bucketFeature = {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [-110, 32] },
+          properties: {
+            count: 7,
+            speciesCount: 1,
+            familiesJson: JSON.stringify(families),
+            familyCode: 'tyrannidae',
+            silhouetteId: 'tyrannidae',
+            color: '#c3772d',
+          },
+        };
+        const orig = map.queryRenderedFeatures.bind(map);
+        map.queryRenderedFeatures = (point: unknown, opts?: { layers?: string[] }) =>
+          opts?.layers?.includes('unclustered-point') ? [bucketFeature] : orig(point, opts);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const delegated = (map._delegatedListeners?.click ?? []).find((d: any) =>
+          (d.layers ?? []).includes('unclustered-point'),
+        );
+        if (!delegated?.delegates?.click) return false;
+        delegated.delegates.click({
+          type: 'click',
+          target: map,
+          point: { x: 120, y: 120 },
+          lngLat: { lng: -110, lat: 32 },
+          originalEvent: new MouseEvent('click'),
+        });
+        return true;
+      },
+      { families: BUCKET_FAMILIES },
+    );
+    expect(drove, 'the unclustered-point delegated click wrapper must exist').toBe(true);
 
-    const speciesRow = popover.locator('[data-testid=cell-popover-row] button').first();
-    if ((await speciesRow.count()) === 0) {
-      test.skip(true, 'CellPopover has no clickable species row');
-      return;
-    }
-    await speciesRow.click();
+    // The unclustered handler opens the real-species ClusterListPopover.
+    const popover = page.getByTestId('cluster-list-popover');
+    await expect(popover).toBeVisible({ timeout: 8_000 });
 
-    // The detail surface opens (?detail=...). If the chosen bucket was a genuine
-    // single bucket, the cell fetch fires and the log renders. If clustering
-    // surfaced a multi-bucket marker instead (no cell context), the log is
-    // absent — skip, since that is a clustering-shape artifact, not a F3 bug.
-    await expect.poll(() => app.getUrlParams().get('detail'), { timeout: 5_000 }).not.toBeNull();
+    // Expand the family, then pick the species row → threads the {kind:'cell'}
+    // context built from the bucket's own center.
+    const familyToggle = popover.getByTestId('cluster-list-popover-family-tyrannidae');
+    await familyToggle.locator('button').first().click();
+    await popover.getByText(/Vermilion Flycatcher/).click();
+
+    // The detail surface opens (?detail=vermfly) and the cell fetch fires.
+    await expect.poll(() => app.getUrlParams().get('detail'), { timeout: 8_000 }).toBe('vermfly');
 
     const log = page.getByRole('region', { name: /sightings under this marker/i });
-    try {
-      await log.waitFor({ state: 'visible', timeout: 5_000 });
-    } catch {
-      test.skip(true, 'Selected marker was a multi-bucket cluster (no cell context threaded)');
-      return;
-    }
+    await expect(log).toBeVisible({ timeout: 8_000 });
 
     // Deterministic assertions once the cell log is mounted:
     // - exactly the two stubbed rows render,
@@ -177,20 +270,22 @@ test.describe('Sightings Log — zoom<6 cell path (#1302)', () => {
     // - howMany 4 > 1 → the ×4 count column,
     await expect(log.locator('.detail-fg-sighting-count').first()).toHaveText('×4');
     // - truncation banner uses meta.cellObservationCount (137) as M.
-    await expect(log.locator('.detail-fg-sightings-truncation')).toHaveText('Showing latest 2 of 137');
+    await expect(log.locator('.detail-fg-sightings-truncation')).toHaveText(
+      'Showing latest 2 of 137',
+    );
 
-    // The cell request carried the ACTIVE since-window (since=1d) and the
-    // single-bucket scope/grid params.
-    const cellReq = await page.evaluate(async () => {
-      // The route stub already fulfilled it; re-derive the last request URL from
-      // the performance entries as a lightweight check.
+    // The cell request carried the ACTIVE since-window (since=1d), the picked
+    // species, the bucket center, and the national scope ('US').
+    const cellReq = await page.evaluate(() => {
       const entries = performance.getEntriesByType('resource') as PerformanceResourceTiming[];
       return entries.map((e) => e.name).find((n) => n.includes('/api/observations/cell')) ?? null;
     });
-    if (cellReq) {
-      const u = new URL(cellReq);
-      expect(u.searchParams.get('since')).toBe('1d');
-      expect(u.searchParams.get('species')).toBe('vermfly');
-    }
+    expect(cellReq, 'a /api/observations/cell request must have fired').not.toBeNull();
+    const u = new URL(cellReq!);
+    expect(u.searchParams.get('since')).toBe('1d');
+    expect(u.searchParams.get('species')).toBe('vermfly');
+    expect(u.searchParams.get('scope')).toBe('US');
+    expect(Number(u.searchParams.get('lng'))).toBe(BUCKET_LNG);
+    expect(Number(u.searchParams.get('lat'))).toBe(BUCKET_LAT);
   });
 });

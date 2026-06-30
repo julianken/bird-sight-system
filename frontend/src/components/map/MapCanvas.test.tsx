@@ -2085,6 +2085,82 @@ describe('#860 — lone clustered bucket opens its real species (coarse pointer)
     });
     expect(screen.getByText(/Western Wood-Pewee/)).toBeInTheDocument();
   });
+
+  it('#1302 — a MULTI-bucket marker popover threads NO cell context (single-arg select)', async () => {
+    // TWO bucket leaves under one marker → the merged group spans >1 bucket.
+    // Its anchor is a supercluster centroid, not a true bucket center, so
+    // deriving a {kind:cell} from it is forbidden (epic #1299 Decisions §4):
+    // the species pick must keep the historical single-arg shape.
+    const clustered = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [LONE_BUCKET.lng, LONE_BUCKET.lat] },
+      properties: {
+        cluster: true,
+        cluster_id: 777,
+        point_count: 2,
+        sumCount: LONE_BUCKET.count * 2,
+        sumSpeciesCount: LONE_BUCKET.speciesCount,
+      },
+    };
+    fakeMap.queryRenderedFeatures.mockImplementation(
+      (_: unknown, opts?: { layers?: string[] }) =>
+        opts?.layers?.includes('clusters-hit') ? [clustered] : [],
+    );
+    fakeMap.getSource.mockReturnValue({
+      getClusterLeaves: vi.fn().mockResolvedValue([
+        { type: 'Feature', properties: { familiesJson: JSON.stringify(LONE_BUCKET.families) } },
+        { type: 'Feature', properties: { familiesJson: JSON.stringify(LONE_BUCKET.families) } },
+      ]),
+      getClusterExpansionZoom: vi.fn().mockResolvedValue(11),
+    });
+    fakeMap.getZoom.mockReturnValue(4);
+
+    const onSelectSpecies = vi.fn();
+    render(
+      <MapCanvasFresh
+        observations={[]}
+        buckets={[LONE_BUCKET]}
+        mode="aggregated"
+        dictionary={DICT}
+        silhouettes={SILHOUETTES}
+        boundsKey="US-AZ"
+        onSelectSpecies={onSelectSpecies}
+      />,
+    );
+
+    await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+    await act(async () => { await fireAllIdleHandlers(); });
+    await act(async () => { await Promise.resolve(); });
+
+    const marker = await waitFor(() => {
+      const btn = screen
+        .queryAllByRole('button')
+        .find((b) => b.className.includes('adaptive-grid-marker'));
+      if (!btn) throw new Error('multi-bucket marker did not render');
+      return btn;
+    });
+    await act(async () => {
+      fireEvent.click(marker);
+      await Promise.resolve();
+    });
+
+    const familyToggle = await waitFor(() =>
+      screen.getByTestId('cluster-list-popover-family-tyrannidae'),
+    );
+    await act(async () => {
+      fireEvent.click(familyToggle.querySelector('button') ?? familyToggle);
+      await Promise.resolve();
+    });
+    const row = screen.getByText(/Western Wood-Pewee/);
+    await act(async () => {
+      fireEvent.click(row.closest('button.cluster-list-popover__row-button') ?? row);
+      await Promise.resolve();
+    });
+
+    expect(onSelectSpecies).toHaveBeenCalledOnce();
+    expect(onSelectSpecies).toHaveBeenCalledWith('wewp');
+    expect(onSelectSpecies.mock.calls[0]).toHaveLength(1);
+  });
 });
 
 /* ── #864: a lone UNCLUSTERED bucket silhouette is clickable at low zoom ──────
@@ -2204,6 +2280,77 @@ describe('#864 — lone unclustered bucket silhouette opens its real species', (
     expect(link).toBeInTheDocument();
     expect(link.closest('button.cluster-list-popover__row-button')).not.toBeNull();
     expect(link.closest('[role="link"]')).toBeNull();
+  });
+
+  it('#1302 — selecting a species from the lone-bucket popover threads a {kind:cell} context (bucket center + multiplier + scope)', async () => {
+    // The lone unclustered bucket IS the only reachable single-bucket surface
+    // (supercluster never emits a 1-point cluster, so the DOM CellPopover gate
+    // is dead). Picking a species here must thread the cell context that drives
+    // the zoom<6 Sightings-Log fetch — derived from the bucket's OWN geometry.
+    const onSelectSpecies = vi.fn();
+    // zoom 4 → gridMultiplierForZoom(4) === 4 (distinct from the default-8 case
+    // so the assertion is meaningful).
+    fakeMap.getZoom.mockReturnValue(4);
+    render(
+      <MapCanvas
+        observations={[]}
+        buckets={[LONE_BUCKET]}
+        mode="aggregated"
+        dictionary={DICT}
+        silhouettes={SILHOUETTES}
+        boundsKey="US-AZ"
+        onSelectSpecies={onSelectSpecies}
+      />,
+    );
+    await waitFor(() =>
+      expect(registeredHandlers['click:unclustered-point']).toBeTypeOf('function'),
+    );
+
+    const bucketFeature = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [LONE_BUCKET.lng, LONE_BUCKET.lat] },
+      properties: {
+        count: LONE_BUCKET.count,
+        speciesCount: LONE_BUCKET.speciesCount,
+        familiesJson: JSON.stringify(LONE_BUCKET.families),
+        familyCode: 'tyrannidae',
+        silhouetteId: 'tyrannidae',
+        color: '#c3772d',
+      },
+    };
+    fakeMap.queryRenderedFeatures.mockImplementation(
+      (_: unknown, opts?: { layers?: string[] }) =>
+        opts?.layers?.includes('unclustered-point') ? [bucketFeature] : [],
+    );
+
+    const handler = registeredHandlers['click:unclustered-point'];
+    if (!handler) throw new Error('click:unclustered-point handler missing');
+    await act(async () => {
+      handler({ point: [120, 120] });
+      await Promise.resolve();
+    });
+
+    const familyToggle = await waitFor(() =>
+      screen.getByTestId('cluster-list-popover-family-tyrannidae'),
+    );
+    await act(async () => {
+      fireEvent.click(familyToggle.querySelector('button') ?? familyToggle);
+      await Promise.resolve();
+    });
+    const row = screen.getByText(/Western Wood-Pewee/);
+    await act(async () => {
+      fireEvent.click(row.closest('button.cluster-list-popover__row-button') ?? row);
+      await Promise.resolve();
+    });
+
+    expect(onSelectSpecies).toHaveBeenCalledOnce();
+    expect(onSelectSpecies).toHaveBeenCalledWith('wewp', {
+      kind: 'cell',
+      lngBucket: LONE_BUCKET.lng,
+      latBucket: LONE_BUCKET.lat,
+      gridMultiplier: 4,
+      scopeKey: 'US-AZ',
+    });
   });
 
   it('clicking an unclustered feature WITH a subId still opens the observation popover (unchanged)', async () => {
@@ -4785,26 +4932,28 @@ describe('#1301 — Sightings-Log marker-context threading', () => {
       fireEvent.click(wewpRow.querySelector('button') ?? wewpRow);
     }
 
-    it('single aggregated bucket → {kind:"cell"} whose gridMultiplier is the zoom->m single source', async () => {
+    // #1302: the AdaptiveGridMarker only renders for a supercluster CLUSTER, and
+    // supercluster NEVER emits a 1-point cluster (`getClusters` requires
+    // point_count > 1; `_cluster` requires a merged neighbour, independent of
+    // clusterMinPoints). So this marker-local ClusterListPopover ALWAYS spans ≥2
+    // buckets — its anchor is a centroid, not a true bucket center — and threads
+    // NO cell context (epic #1299 Decisions §4). A fabricated `point_count:1`
+    // cluster confirms even that degenerate (unreachable) shape threads
+    // single-arg; the GENUINE single-bucket cell context is exercised against
+    // the only REACHABLE single-bucket surface — the `#864` unclustered-point
+    // handler — in the `#864` describe block above.
+    it('a (fabricated) 1-point cluster marker threads NO cell context — single bucket is unreachable here', async () => {
       const onSelectSpecies = vi.fn();
-      // zoom 4 ⇒ gridMultiplierForZoom(4) === 4 (the read-api zoom->{2,4,8} switch).
       await openLoneBucketPopover({ pointCount: 1, zoom: 4, boundsKey: 'US-AZ', onSelectSpecies });
 
       expect(onSelectSpecies).toHaveBeenCalledTimes(1);
-      const [code, context] = onSelectSpecies.mock.calls[0];
-      expect(code).toBe('wewp');
-      expect(context).toEqual({
-        kind: 'cell',
-        lngBucket: -110.0,
-        latBucket: 46.0,
-        gridMultiplier: 4,
-        scopeKey: 'US-AZ',
-      });
+      expect(onSelectSpecies).toHaveBeenCalledWith('wewp');
+      expect(onSelectSpecies.mock.calls[0]).toHaveLength(1);
     });
 
-    it('multi-bucket aggregated cluster threads NO context (single-bucket only — Decisions §4)', async () => {
+    it('multi-bucket aggregated cluster threads NO context (Decisions §4)', async () => {
       const onSelectSpecies = vi.fn();
-      // point_count 2 ⇒ not a single bucket ⇒ no cell context (1-arg call).
+      // point_count 2 ⇒ multi-bucket ⇒ no cell context (1-arg call).
       await openLoneBucketPopover({ pointCount: 2, zoom: 3, boundsKey: 'US-AZ', onSelectSpecies });
 
       expect(onSelectSpecies).toHaveBeenCalledTimes(1);
