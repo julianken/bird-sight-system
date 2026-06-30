@@ -9,6 +9,7 @@ import { analytics } from '@/analytics.js';
 import { ApiClient, ApiError } from '@/api/client.js';
 import { useUrlState, DEFAULTS } from '@/state/url-state.js';
 import type { Scope } from '@/state/url-state.js';
+import type { SightingsContext } from '@/components/sightings-context.js';
 import { decodeViewbox } from '@/state/viewbox-link.js';
 import type { ViewboxCamera } from '@/state/viewbox-link.js';
 import type { ScopeResolution } from '@/state/scope-types.js';
@@ -1381,8 +1382,17 @@ export function App() {
   // `?detail=`; it does NOT write `?view=detail`. Old shared URLs that
   // include `?view=detail` continue to work via url-state's
   // backward-compat handling — see state/url-state.ts.
+  // #1299 (F2 #1301) — the Sightings-Log context for the open detail surface.
+  // Set on the marker click that selects the species (a zoom>=6 leaf context, or
+  // a zoom<6 single-bucket cell context wired in F3), cleared on close. App holds
+  // it (not the URL) because it is per-click marker state, not a shareable view.
+  const [sightingsContext, setSightingsContext] = useState<SightingsContext | null>(null);
+
   const onSelectSpecies = useCallback(
-    (speciesCode: string) => set({ detail: speciesCode }),
+    (speciesCode: string, context?: SightingsContext) => {
+      set({ detail: speciesCode });
+      setSightingsContext(context ?? null);
+    },
     [set],
   );
 
@@ -1393,7 +1403,10 @@ export function App() {
   // detail-view shell with no detail code. The View union is now just
   // 'map' | 'detail', so 'map' is always the surface underneath.
   const onCloseDetail = useCallback(
-    () => set({ view: state.view === 'detail' ? 'map' : state.view, detail: null }),
+    () => {
+      set({ view: state.view === 'detail' ? 'map' : state.view, detail: null });
+      setSightingsContext(null);
+    },
     [set, state.view],
   );
 
@@ -1777,6 +1790,8 @@ export function App() {
           speciesCode={state.detail}
           apiClient={apiClient}
           onClose={onCloseDetail}
+          {...(sightingsContext ? { sightingsContext } : {})}
+          since={state.since}
         />
       )}
       {scopeActive && state.detail && isCompact && (

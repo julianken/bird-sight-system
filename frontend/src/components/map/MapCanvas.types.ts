@@ -17,6 +17,7 @@ import type { SpeciesDictionary } from '@/data/use-species-dictionary.js';
 import type { ViewboxCamera } from '@/state/viewbox-link.js';
 import type { AdaptiveTile, ResolvedGrid } from './geometry/adaptive-grid.js';
 import type { ThemeId } from './geometry/basemap-style.js';
+import type { SightingsContext } from '@/components/sightings-context.js';
 
 /**
  * Resolved per-cluster adaptive data — the unit the Concern B cache stores
@@ -79,8 +80,14 @@ export interface MapCanvasProps {
    * the ObservationPopover. App.tsx wires this to
    * `set({ view: 'detail', detail: code })` via `useUrlState`. Optional
    * — when absent, the popover hides the link.
+   *
+   * #1301 — the optional second arg threads the Sightings-Log marker context
+   * (epic #1299): a zoom>=6 leaf context (from the popover / stuck-cluster
+   * seam) or a zoom<6 single-bucket cell context. Absent ⇒ the in-panel log
+   * renders nothing (the clean incremental for the zoom<6 cluster-list seam and
+   * the pre-F3 cell path).
    */
-  onSelectSpecies?: (speciesCode: string) => void;
+  onSelectSpecies?: (speciesCode: string, context?: SightingsContext) => void;
   /**
    * Issue #351: invoked on every map `idle` (camera-change settle) with
    * the current `map.getBounds()`. App.tsx threads this so the

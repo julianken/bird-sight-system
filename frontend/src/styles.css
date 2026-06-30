@@ -1676,6 +1676,78 @@ body {
   letter-spacing: var(--tracking-eyebrow);
   color: var(--color-text-muted);
 }
+
+/* Sightings Log (#1299 / F2 #1301) — a SECTION of the Transient detail surface
+   (claims no new floating corner). Inserted between the family-accent rule and
+   the taxonomy <dl>. Static, display-only rows (no count/row animation — #953).
+   Reuses existing tokens only — NO new colors. */
+.detail-fg-sightings {
+  margin: var(--space-md) 0 0;
+}
+/* Eyebrow matches .detail-fg-about-eyebrow. */
+.detail-fg-sightings-eyebrow {
+  margin: var(--space-sm) 0 2px;
+  font-size: var(--type-xs);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
+  color: var(--color-text-muted);
+}
+.detail-fg-sightings-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.detail-fg-sighting-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+  padding: var(--space-xs) 0;
+  font-size: var(--type-sm);
+  border-bottom: 1px solid rgba(127, 127, 127, 0.22);
+}
+.detail-fg-sighting-row:first-child {
+  border-top: 1px solid rgba(127, 127, 127, 0.22);
+}
+.detail-fg-sighting-time {
+  flex: none;
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-strong);
+}
+.detail-fg-sighting-location {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-body);
+}
+.detail-fg-sighting-count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+}
+.detail-fg-sighting-notable {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  font-size: var(--type-xs);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-accent-notable-fg);
+  background: var(--color-accent-notable-bg);
+  /* 1px non-text-contrast ring (WCAG 1.4.11) — the SAME --sheet-dot-ring the
+     family dot uses, so the badge reads on both card surfaces in either theme. */
+  box-shadow: 0 0 0 1px var(--sheet-dot-ring);
+}
+.detail-fg-sightings-truncation {
+  margin: var(--space-sm) 0 0;
+  font-size: var(--type-xs);
+  color: var(--color-text-muted);
+}
 .species-detail-loading { color: var(--color-text-muted); font-size: var(--type-sm); margin: 8px 0 0 0; }
 .species-detail-error {
   margin-top: 8px;

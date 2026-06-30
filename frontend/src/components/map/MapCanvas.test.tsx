@@ -4475,3 +4475,341 @@ describe('#1296 bot-review — grid-singleton member appears in the merged clust
     expect(rowSum).toBe(18);
   });
 });
+
+/* ── #1301 — Sightings-Log marker-context threading (epic #1299) ─────────────
+ *
+ * Each marker-click seam constructs a STRUCTURALLY DIFFERENT onSelectSpecies
+ * context (single Observation vs. filtered leaves vs. cell coords). These tests
+ * pin the threading so a regression turns a test red (the named seam-fragility
+ * risk). The leaf-row sorting/capping is covered at the hook/component level.
+ */
+describe('#1301 — Sightings-Log marker-context threading', () => {
+  // ── (A)+(B): static-import seams (default pointer) ──────────────────────────
+  describe('leaf seams', () => {
+    beforeEach(() => {
+      capturedSourceProps = {};
+      capturedLayerFilters = {};
+      capturedSourcesById = {};
+      capturedLayerPaint = {};
+      registeredHandlers = {};
+      bareHandlers = {};
+      bareHandlersAll = {};
+      deferMapLoad = false;
+      deferredOnLoad = null;
+      fakeMap = makeFakeMap();
+      document.documentElement.removeAttribute('data-theme');
+      __resetAdaptiveGridCacheForTesting();
+    });
+
+    it('ObservationPopover seam threads a 1-element {kind:"leaves"} context', async () => {
+      const obs = makeObs({
+        subId: 'S-POP',
+        speciesCode: 'vermfly',
+        comName: 'Vermilion Flycatcher',
+        locName: 'Sweetwater Wetlands',
+        howMany: 4,
+        isNotable: true,
+      });
+      const onSelectSpecies = vi.fn();
+      render(
+        <MapCanvas
+          observations={[obs]}
+          silhouettes={SILHOUETTES}
+          onSelectSpecies={onSelectSpecies}
+        />,
+      );
+      await waitFor(() =>
+        expect(registeredHandlers['click:unclustered-point']).toBeTypeOf('function'),
+      );
+      fakeMap.queryRenderedFeatures.mockImplementation(
+        (_: unknown, opts?: { layers?: string[] }) =>
+          opts?.layers?.includes('unclustered-point')
+            ? [
+                {
+                  type: 'Feature',
+                  geometry: { type: 'Point', coordinates: [obs.lng, obs.lat] },
+                  properties: { subId: 'S-POP' },
+                },
+              ]
+            : [],
+      );
+      const handler = registeredHandlers['click:unclustered-point'];
+      if (!handler) throw new Error('click:unclustered-point handler missing');
+      await act(async () => {
+        handler({ point: [120, 120] });
+        await Promise.resolve();
+      });
+      await screen.findByRole('dialog', { name: /Details for Vermilion Flycatcher/ });
+
+      fireEvent.click(
+        screen.getByRole('button', { name: /see species details/i }),
+      );
+
+      expect(onSelectSpecies).toHaveBeenCalledTimes(1);
+      const [code, context] = onSelectSpecies.mock.calls[0];
+      expect(code).toBe('vermfly');
+      // Exactly one row — the clicked observation, narrowed to SightingRow (no
+      // locId / silhouetteId).
+      expect(context).toEqual({
+        kind: 'leaves',
+        rows: [
+          {
+            subId: 'S-POP',
+            speciesCode: 'vermfly',
+            obsDt: obs.obsDt,
+            locName: 'Sweetwater Wetlands',
+            howMany: 4,
+            isNotable: true,
+          },
+        ],
+      });
+    });
+
+    it('zoom>=6 ClusterListPopover seam threads a {kind:"leaves"} context filtered by species', async () => {
+      const pill = {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [-110.95, 32.25] },
+        properties: { cluster: true, cluster_id: 88, point_count: 50 },
+      };
+      fakeMap.queryRenderedFeatures.mockReturnValue([pill]);
+      // 18 families ⇒ pill fallback. Tyrannidae carries TWO real sightings of the
+      // SAME species (wewp) so the species filter yields 2 rows.
+      const leaves: Array<Record<string, unknown>> = [
+        {
+          type: 'Feature',
+          properties: {
+            familyCode: 'tyrannidae',
+            speciesCode: 'wewp',
+            comName: 'Western Wood-Pewee',
+            subId: 'W1',
+            obsDt: '2026-04-15T08:00:00Z',
+            locName: 'Patch A',
+            howMany: 1,
+            isNotable: false,
+          },
+        },
+        {
+          type: 'Feature',
+          properties: {
+            familyCode: 'tyrannidae',
+            speciesCode: 'wewp',
+            comName: 'Western Wood-Pewee',
+            subId: 'W2',
+            obsDt: '2026-04-15T12:00:00Z',
+            locName: 'Patch B',
+            howMany: 2,
+            isNotable: false,
+          },
+        },
+      ];
+      for (let i = 0; i < 17; i++) {
+        leaves.push({
+          type: 'Feature',
+          properties: { familyCode: `fam${i}`, speciesCode: `sp${i}`, comName: `Species ${i}` },
+        });
+      }
+      fakeMap.getSource.mockReturnValue({
+        getClusterLeaves: vi.fn().mockResolvedValue(leaves),
+        getClusterExpansionZoom: vi.fn().mockResolvedValue(17),
+      });
+      fakeMap.getZoom.mockReturnValue(17); // zoom >= 6
+
+      const onSelectSpecies = vi.fn();
+      render(
+        <MapCanvas
+          observations={[makeObs()]}
+          silhouettes={SILHOUETTES}
+          onSelectSpecies={onSelectSpecies}
+        />,
+      );
+      await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+      await act(async () => { await bareHandlers['idle']?.(); });
+      await act(async () => { await Promise.resolve(); });
+
+      const pillBtn = await waitFor(() => {
+        const found = screen
+          .queryAllByRole('button', { name: /sightings$/ })
+          .find((p) => p.classList.contains('cluster-pill'));
+        if (!found) throw new Error('cluster-pill not rendered');
+        return found;
+      });
+      await act(async () => {
+        fireEvent.click(pillBtn);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      await screen.findByTestId('cluster-list-popover');
+
+      // Expand the tyrannidae family, then click the Western Wood-Pewee row.
+      const familyToggle = screen.getByTestId('cluster-list-popover-family-tyrannidae');
+      await act(async () => {
+        fireEvent.click(familyToggle.querySelector('button') ?? familyToggle);
+        await Promise.resolve();
+      });
+      const wewpRow = screen
+        .getAllByTestId('cluster-list-popover-row')
+        .find((r) => /Western Wood-Pewee/.test(r.textContent ?? ''));
+      if (!wewpRow) throw new Error('wewp row not rendered');
+      fireEvent.click(wewpRow.querySelector('button') ?? wewpRow);
+
+      expect(onSelectSpecies).toHaveBeenCalledTimes(1);
+      const [code, context] = onSelectSpecies.mock.calls[0];
+      expect(code).toBe('wewp');
+      expect(context.kind).toBe('leaves');
+      // Both wewp leaves; newest-first ordering is applied by the hook, not here.
+      expect(context.rows.map((r: { subId: string }) => r.subId).sort()).toEqual(['W1', 'W2']);
+      expect(context.rows.every((r: { speciesCode: string }) => r.speciesCode === 'wewp')).toBe(true);
+    });
+  });
+
+  // ── (C)+(D): aggregated cell seam (fresh module, coarse pointer) ────────────
+  describe('cell seam (aggregated)', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let MapCanvasFresh: any;
+
+    const FAMILIES = [
+      {
+        code: 'tyrannidae',
+        count: 7,
+        speciesCount: 2,
+        species: [
+          { code: 'wewp', count: 5 },
+          { code: 'sayphoebe', count: 2 },
+        ],
+      },
+    ];
+    const DICT = new Map<string, { comName: string; familyCode: string }>([
+      ['wewp', { comName: 'Western Wood-Pewee', familyCode: 'tyrannidae' }],
+      ['sayphoebe', { comName: "Say's Phoebe", familyCode: 'tyrannidae' }],
+    ]);
+
+    beforeEach(async () => {
+      capturedSourceProps = {};
+      capturedLayerFilters = {};
+      capturedSourcesById = {};
+      capturedLayerPaint = {};
+      registeredHandlers = {};
+      bareHandlers = {};
+      bareHandlersAll = {};
+      deferMapLoad = false;
+      deferredOnLoad = null;
+      fakeMap = makeFakeMap();
+      document.documentElement.removeAttribute('data-theme');
+      window.matchMedia = vi.fn().mockImplementation((q: string) => ({
+        matches: q === '(pointer: coarse)',
+        media: q,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+        onchange: null,
+        dispatchEvent: () => false,
+      })) as unknown as typeof window.matchMedia;
+      vi.resetModules();
+      const mod = await import('./MapCanvas.js');
+      MapCanvasFresh = mod.MapCanvas;
+      mod.__resetAdaptiveGridCacheForTesting();
+    });
+
+    afterEach(() => { vi.resetModules(); });
+
+    async function openLoneBucketPopover(opts: {
+      pointCount: number;
+      zoom: number;
+      boundsKey: string;
+      onSelectSpecies: ReturnType<typeof vi.fn>;
+    }) {
+      const bucket: AggregatedBucket = {
+        lat: 46.0,
+        lng: -110.0,
+        count: 7,
+        speciesCount: 2,
+        families: FAMILIES,
+      };
+      const clustered = {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [bucket.lng, bucket.lat] },
+        properties: {
+          cluster: true,
+          cluster_id: 501,
+          point_count: opts.pointCount,
+          sumCount: bucket.count,
+          sumSpeciesCount: bucket.speciesCount,
+        },
+      };
+      fakeMap.queryRenderedFeatures.mockImplementation(
+        (_: unknown, o?: { layers?: string[] }) =>
+          o?.layers?.includes('clusters-hit') ? [clustered] : [],
+      );
+      fakeMap.getSource.mockReturnValue({
+        getClusterLeaves: vi.fn().mockResolvedValue([
+          { type: 'Feature', properties: { familiesJson: JSON.stringify(bucket.families) } },
+        ]),
+        getClusterExpansionZoom: vi.fn().mockResolvedValue(11),
+      });
+      fakeMap.getZoom.mockReturnValue(opts.zoom);
+
+      render(
+        <MapCanvasFresh
+          observations={[]}
+          buckets={[bucket]}
+          mode="aggregated"
+          dictionary={DICT}
+          silhouettes={SILHOUETTES}
+          boundsKey={opts.boundsKey}
+          onSelectSpecies={opts.onSelectSpecies}
+        />,
+      );
+      await waitFor(() => expect(bareHandlers['idle']).toBeTypeOf('function'));
+      await act(async () => { await fireAllIdleHandlers(); });
+      await act(async () => { await Promise.resolve(); });
+
+      const marker = await waitFor(() => {
+        const btn = screen
+          .queryAllByRole('button')
+          .find((b) => b.className.includes('adaptive-grid-marker'));
+        if (!btn) throw new Error('lone bucket did not render an interactive marker');
+        return btn;
+      });
+      await act(async () => { fireEvent.click(marker); await Promise.resolve(); });
+      await screen.findByTestId('cluster-list-popover');
+      const familyToggle = screen.getByTestId('cluster-list-popover-family-tyrannidae');
+      await act(async () => {
+        fireEvent.click(familyToggle.querySelector('button') ?? familyToggle);
+        await Promise.resolve();
+      });
+      const wewpRow = screen
+        .getAllByTestId('cluster-list-popover-row')
+        .find((r) => /Western Wood-Pewee/.test(r.textContent ?? ''));
+      if (!wewpRow) throw new Error('wewp row not rendered');
+      fireEvent.click(wewpRow.querySelector('button') ?? wewpRow);
+    }
+
+    it('single aggregated bucket → {kind:"cell"} whose gridMultiplier is the zoom->m single source', async () => {
+      const onSelectSpecies = vi.fn();
+      // zoom 4 ⇒ gridMultiplierForZoom(4) === 4 (the read-api zoom->{2,4,8} switch).
+      await openLoneBucketPopover({ pointCount: 1, zoom: 4, boundsKey: 'US-AZ', onSelectSpecies });
+
+      expect(onSelectSpecies).toHaveBeenCalledTimes(1);
+      const [code, context] = onSelectSpecies.mock.calls[0];
+      expect(code).toBe('wewp');
+      expect(context).toEqual({
+        kind: 'cell',
+        lngBucket: -110.0,
+        latBucket: 46.0,
+        gridMultiplier: 4,
+        scopeKey: 'US-AZ',
+      });
+    });
+
+    it('multi-bucket aggregated cluster threads NO context (single-bucket only — Decisions §4)', async () => {
+      const onSelectSpecies = vi.fn();
+      // point_count 2 ⇒ not a single bucket ⇒ no cell context (1-arg call).
+      await openLoneBucketPopover({ pointCount: 2, zoom: 3, boundsKey: 'US-AZ', onSelectSpecies });
+
+      expect(onSelectSpecies).toHaveBeenCalledTimes(1);
+      expect(onSelectSpecies).toHaveBeenCalledWith('wewp');
+      expect(onSelectSpecies.mock.calls[0]).toHaveLength(1);
+    });
+  });
+});

@@ -24,8 +24,15 @@ interface GroupMarkerLayerProps {
   detailOpen: boolean;
   /** `MapCanvas.handleGroupClick` — receives the group + (for pills) the clicked element. */
   onGroupClick: (group: DeconflictGroup, anchorEl?: HTMLElement | null) => void;
-  /** `MapCanvas`'s `onSelectSpecies` prop, threaded through to grid markers. */
-  onSelectSpecies?: (speciesCode: string) => void;
+  /**
+   * `MapCanvas`'s grid-marker species-select handler (#1301). The second arg is
+   * the clicked group, so MapCanvas — which holds the map ref + scope — decides
+   * whether the marker is a genuine single aggregated bucket that yields a
+   * `{kind:'cell'}` Sightings-Log context (a multi-bucket centroid / per-obs
+   * marker yields none). This layer stays presentational: it forwards the group
+   * it already iterates and inspects no shape to pick a domain action.
+   */
+  onSelectSpecies?: (speciesCode: string, group: DeconflictGroup) => void;
   /** `MapCanvas.handleDrillInToCenter`, invoked from the grid marker's "+N more". */
   onDrillIn: (center: [number, number]) => void;
 }
@@ -95,7 +102,7 @@ export function GroupMarkerLayer({
               detailOpen={detailOpen}
               onClick={() => onGroupClick(g)}
               {...(onSelectSpecies ? {
-                onSelectSpecies: (code: string) => onSelectSpecies(code),
+                onSelectSpecies: (code: string) => onSelectSpecies(code, g),
               } : {})}
               {...(anchor.longitude !== undefined && anchor.latitude !== undefined
                 ? {

@@ -65,6 +65,15 @@ import {
   type SpeciesAggregate,
 } from './geometry/adaptive-grid.js';
 import { type HitTargetMarker } from './layers/MapMarkerHitLayer.js';
+// #1301 — Sightings-Log marker-context seam (epic #1299). The leaf/observation
+// mappers + the zoom->grid_multiplier single source live in sightings-context.
+import {
+  observationToSightingRow,
+  leafToSightingRow,
+  gridMultiplierForZoom,
+  type SightingsContext,
+  type SightingRow,
+} from '@/components/sightings-context.js';
 import {
   isSyntheticSingleId,
   type DeconflictGroup,
@@ -445,6 +454,15 @@ export function MapCanvas({
     anchorEl: HTMLElement;
     /** Camera center the "+N more" drill-in escalates into (the group anchor). */
     drillCenter?: [number, number];
+    /**
+     * #1301 — the cluster's raw leaves projected to Sightings-Log rows, stashed
+     * so the species pick can thread a `{kind:'leaves'}` context filtered by the
+     * chosen species. Present ONLY on the zoom>=6 per-observation path (each leaf
+     * is a real sighting); ABSENT on the zoom<6 aggregated path (each leaf is a
+     * bucket, not a sighting), where the species pick threads NO context (epic
+     * #1299 Decisions §4: the multi-bucket cluster-list seam is unsupported).
+     */
+    sightingRows?: SightingRow[];
   } | null>(null);
   // E1 (#1053): close the canvas-owned transient popovers on the RISING edge of
   // `detailOpen`. Opening a species detail must dismiss any open
@@ -1642,6 +1660,7 @@ export function MapCanvas({
                 py,
                 rendered: { kind: 'pill', count: pointCount },
                 point_count: pointCount,
+                bucketCount: rawPointCount,
                 uniqueFamilies: resolved.uniqueFamilies,
                 longitude,
                 latitude,
@@ -1653,6 +1672,7 @@ export function MapCanvas({
                 py,
                 rendered: { kind: 'grid', shape: resolved.shape },
                 point_count: pointCount,
+                bucketCount: rawPointCount,
                 uniqueFamilies: resolved.uniqueFamilies,
                 longitude,
                 latitude,
@@ -2036,10 +2056,15 @@ export function MapCanvas({
         const allLeaves = [...realLeaves, ...singletonLeaves];
         const families = aggregateClusterFamilies(allLeaves);
         const speciesByFamily = aggregateClusterSpecies(allLeaves);
+        // #1301 — at zoom>=6 each leaf is a real sighting, so stash the projected
+        // rows; the species pick threads a `{kind:'leaves'}` context filtered by
+        // the chosen species into the Sightings Log.
+        const sightingRows = allLeaves.map(leafToSightingRow);
         setClusterList({
           group,
           families,
           speciesByFamily,
+          sightingRows,
           // #1286: as above — the header counts the whole merged group. `families`
           // is `aggregateClusterFamilies(allLeaves)` over EVERY member's flattened
           // leaves (incl. grid singletons), so `families.length` is the merged
@@ -2224,13 +2249,74 @@ export function MapCanvas({
 
   const handlePopoverSelectSpecies = useCallback(
     (speciesCode: string) => {
-      onSelectSpecies?.(speciesCode);
+      // #1301 — the ObservationPopover seam holds exactly one full `Observation`
+      // (the clicked sighting), so the Sightings-Log context is a single-row
+      // `leaves` payload. The hook filters it by the selected species (a no-op
+      // here — it's already that species) and the log shows one row.
+      const obs = selectedObs?.obs;
+      const context: SightingsContext | undefined = obs
+        ? { kind: 'leaves', rows: [observationToSightingRow(obs)] }
+        : undefined;
+      // Call with the 2nd arg ONLY when a context exists, so seams with no
+      // context keep their historical single-arg call shape.
+      if (context) onSelectSpecies?.(speciesCode, context);
+      else onSelectSpecies?.(speciesCode);
       // Close the popover after the navigation — the user has expressed
       // intent to leave the map view; the dialog hanging open during the
       // surface switch is a stale state.
       setSelectedObs(null);
     },
-    [onSelectSpecies],
+    [onSelectSpecies, selectedObs],
+  );
+
+  /**
+   * #1301 — the per-family `<CellPopover>` species-select seam (inside an
+   * `<AdaptiveGridMarker>`, via `<GroupMarkerLayer>`). Builds a `{kind:'cell'}`
+   * Sightings-Log context ONLY for a genuine SINGLE aggregated bucket: its
+   * marker anchor IS a true `round(coord*m)/m` bucket center, so the derived
+   * cell aligns with the server's bucketing by construction. A multi-bucket
+   * cluster (anchor = supercluster centroid) or a zoom>=6 per-observation marker
+   * threads NO context — epic #1299 Decisions §4 forbids deriving a cell from a
+   * non-bucket center. INERT in F2 (`useSightingsRows` is `supported:false` for
+   * `cell`); wired now so F3 (#1302) adds the fetch without re-threading.
+   *
+   * `gridMultiplier` reads `gridMultiplierForZoom(Math.floor(map.getZoom()))` —
+   * the SINGLE frontend copy of the read-api zoom->{2,4,8} switch, fed the
+   * FLOORED integer zoom (never a raw float). `scopeKey` mirrors the server's
+   * `resolveScopeKey` base ('US' national, else the state code) off the
+   * scope-change `boundsKey` MapCanvas already holds.
+   */
+  const handleGridSelectSpecies = useCallback(
+    (speciesCode: string, group: DeconflictGroup) => {
+      if (!onSelectSpecies) return;
+      let context: SightingsContext | undefined;
+      const map = mapRef.current?.getMap();
+      const { anchor, memberIds } = group;
+      if (
+        aggregated &&
+        map &&
+        memberIds.length === 1 &&
+        // A genuine SINGLE bucket carries exactly one supercluster leaf. (The
+        // #859 sumCount overwrite makes `anchor.point_count` the summed obs count,
+        // so it cannot gate this — `bucketCount` preserves the raw leaf count.)
+        anchor.bucketCount === 1 &&
+        anchor.longitude !== undefined &&
+        anchor.latitude !== undefined
+      ) {
+        context = {
+          kind: 'cell',
+          lngBucket: anchor.longitude,
+          latBucket: anchor.latitude,
+          gridMultiplier: gridMultiplierForZoom(Math.floor(map.getZoom())),
+          scopeKey: boundsKey && boundsKey !== 'us' ? boundsKey : 'US',
+        };
+      }
+      // Call with the 2nd arg ONLY when a single-bucket cell context was built,
+      // so the per-observation / multi-bucket path keeps its single-arg shape.
+      if (context) onSelectSpecies(speciesCode, context);
+      else onSelectSpecies(speciesCode);
+    },
+    [onSelectSpecies, aggregated, boundsKey],
   );
 
   /**
@@ -2526,7 +2612,7 @@ export function MapCanvas({
           isCoarsePointer={isCoarsePointer}
           detailOpen={detailOpen}
           onGroupClick={handleGroupClick}
-          {...(onSelectSpecies ? { onSelectSpecies } : {})}
+          {...(onSelectSpecies ? { onSelectSpecies: handleGridSelectSpecies } : {})}
           onDrillIn={handleDrillInToCenter}
         />
         {/*
@@ -2574,7 +2660,17 @@ export function MapCanvas({
           onDismiss={() => setClusterList(null)}
           onSelectSpecies={(code) => {
             if (onSelectSpecies) {
-              onSelectSpecies(code);
+              // #1301 — zoom>=6 stuck-cluster seam: thread the cluster's leaves
+              // for the chosen species as a `{kind:'leaves'}` context. At zoom<6
+              // (aggregated) `sightingRows` is absent, so NO context is threaded
+              // (the multi-bucket cluster-list seam is unsupported — epic #1299
+              // Decisions §4); the log then renders nothing.
+              const rows = clusterList.sightingRows;
+              const context: SightingsContext | undefined = rows
+                ? { kind: 'leaves', rows: rows.filter((r) => r.speciesCode === code) }
+                : undefined;
+              if (context) onSelectSpecies(code, context);
+              else onSelectSpecies(code);
             }
             setClusterList(null);
           }}

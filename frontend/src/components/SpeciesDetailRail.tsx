@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import type { ApiClient } from '../api/client.js';
 import { SpeciesDetailSurface } from './SpeciesDetailSurface.js';
+import type { SightingsContext } from './sightings-context.js';
+import type { Since } from '../state/url-state.js';
 
 export interface SpeciesDetailRailProps {
   speciesCode: string;
@@ -24,6 +26,14 @@ export interface SpeciesDetailRailProps {
    * dropped focus onto <body> — a WCAG 2.4.3 regression. Restored here.)
    */
   fallbackFocusSelector?: string;
+  /**
+   * Sightings-Log context (epic #1299, F2 #1301) — threaded verbatim into the
+   * shared <SpeciesDetailSurface> so the in-panel log knows which sightings to
+   * show. App owns it (set on the marker click that opened the rail).
+   */
+  sightingsContext?: SightingsContext;
+  /** Active since-window (url-state), forwarded to the surface for the F3 cell fetch. */
+  since?: Since;
 }
 
 /**
@@ -55,6 +65,8 @@ export function SpeciesDetailRail(props: SpeciesDetailRailProps) {
     onClose,
     triggerRef,
     fallbackFocusSelector = '#main-surface',
+    sightingsContext,
+    since,
   } = props;
   const asideRef = useRef<HTMLElement | null>(null);
   const closeBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -155,6 +167,8 @@ export function SpeciesDetailRail(props: SpeciesDetailRailProps) {
         speciesCode={speciesCode}
         apiClient={apiClient}
         revealed={revealed}
+        {...(sightingsContext ? { sightingsContext } : {})}
+        {...(since !== undefined ? { since } : {})}
       />
     </aside>
   );

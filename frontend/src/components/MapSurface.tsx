@@ -8,6 +8,7 @@ import type { AggregatedBucket, FamilySilhouette, Observation } from '@bird-watc
 import type { SpeciesDictionary } from '../data/use-species-dictionary.js';
 import type { ViewboxCamera } from '../state/viewbox-link.js';
 import type { ThemeId } from './map/geometry/basemap-style.js';
+import type { SightingsContext } from './sightings-context.js';
 import { ErrorBoundary } from './ErrorBoundary.js';
 
 /**
@@ -41,7 +42,7 @@ export interface MapSurfaceProps {
    * (already exposed for map marker clicks). Optional — when
    * absent, the popover hides the "See species details" link.
    */
-  onSelectSpecies?: (speciesCode: string) => void;
+  onSelectSpecies?: (speciesCode: string, context?: SightingsContext) => void;
   /**
    * Issue #351: passthrough for MapCanvas's onViewportChange callback.
    * App.tsx threads this so it can update its `viewportBounds` state on
