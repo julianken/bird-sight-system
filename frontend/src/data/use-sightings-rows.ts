@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ApiClient } from '@/api/client.js';
 import type { Observation } from '@bird-watch/shared-types';
 import type { Since } from '@/state/url-state.js';
@@ -99,12 +99,6 @@ export function useSightingsRows(
 
   const isCellFetch = syncState === null;
 
-  const [cellState, setCellState] = useState<SightingsRowsState>({
-    ...UNSUPPORTED,
-    supported: true,
-    loading: true,
-  });
-
   // The cell branch is keyed on the exact PRIMITIVES a single fetch depends on
   // (not the `context` object) so a referentially-new-but-value-equal context
   // never re-fetches, while a real change to any field cancels the prior fetch
@@ -114,6 +108,39 @@ export function useSightingsRows(
   const latBucket = cell?.latBucket;
   const gridMultiplier = cell?.gridMultiplier;
   const scopeKey = cell?.scopeKey;
+
+  const CELL_LOADING: SightingsRowsState = { ...UNSUPPORTED, supported: true, loading: true };
+
+  const [cellState, setCellState] = useState<SightingsRowsState>(CELL_LOADING);
+
+  // STALE-PAINT FIX (R8, F3 second pass). `cellState` is useState, so when the
+  // cell fetch's identity changes (the most load-bearing case: a SAME-bucket
+  // species SWITCH), the FIRST render under the new inputs would otherwise hand
+  // back the PRIOR fetch's resolved rows for one commit — `return syncState ??
+  // cellState` returns them because `syncState` is still null (the context kind
+  // is unchanged) and the loading-reset only happens later, in the effect. That
+  // is a one-frame flash of the wrong species' rows. We reset to loading
+  // SYNCHRONOUSLY during render (the React "adjust state on prop change" pattern,
+  // https://react.dev/reference/react/useState#storing-information-from-previous-renders)
+  // the instant the fetch key changes: `setCellState` reconciles the stored
+  // state for subsequent renders, and `effectiveCellState` makes THIS render
+  // return the loading state too — so no commit ever paints stale rows. The
+  // effect below still owns the actual fetch + the cancelled-flag guard against a
+  // late resolution; this only kills the synchronous leak. The key spans every
+  // primitive the fetch depends on (incl. `since`); the leaf / unsupported arms
+  // collapse to a stable `''` so they never trigger a reset.
+  const fetchKey = isCellFetch
+    ? `${scopeKey}|${gridMultiplier}|${lngBucket}|${latBucket}|${speciesCode}|${since ?? ''}`
+    : '';
+  const prevFetchKeyRef = useRef(fetchKey);
+  let effectiveCellState = cellState;
+  if (prevFetchKeyRef.current !== fetchKey) {
+    prevFetchKeyRef.current = fetchKey;
+    if (isCellFetch) {
+      effectiveCellState = CELL_LOADING;
+      setCellState(CELL_LOADING);
+    }
+  }
 
   useEffect(() => {
     if (
@@ -163,5 +190,5 @@ export function useSightingsRows(
     };
   }, [apiClient, isCellFetch, speciesCode, since, lngBucket, latBucket, gridMultiplier, scopeKey]);
 
-  return syncState ?? cellState;
+  return syncState ?? effectiveCellState;
 }

@@ -3249,10 +3249,20 @@ aside.species-detail-rail.t-panel-slide[data-open='true'] {
     'photo'
     'identity'
     'rule'
+    'sightings'
     'taxonomy'
     'about';
   gap: var(--space-md);
   padding-top: 0;
+}
+/* The Sightings Log (#1303 / M4) is shared with the desktop Rail/Surface, which
+   are NOT grids — so the grid-area assignment is SCOPED to the sheet entry page
+   only. Without it, .detail-fg-sightings auto-places into an implicit row AFTER
+   the explicit 'about' area (the bottom of the page); the 'sightings' row above
+   places it between the family-accent rule and the taxonomy <dl>, mirroring the
+   desktop DOM order. */
+.sheet-page--entry .detail-fg-sightings {
+  grid-area: sightings;
 }
 .sheet-page--entry .sheet-fg-photo {
   /* full-bleed masthead — cancel the page side padding. Use an EXPLICIT height

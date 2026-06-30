@@ -5,7 +5,13 @@ import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SpeciesDetailSheet, resolveContentTier } from './SpeciesDetailSheet.js';
 import { ApiClient } from '../api/client.js';
-import type { SpeciesMeta, FamilySilhouette } from '@bird-watch/shared-types';
+import type {
+  SpeciesMeta,
+  FamilySilhouette,
+  CellObservationsResponse,
+  Observation,
+} from '@bird-watch/shared-types';
+import type { SightingsContext, SightingRow } from './sightings-context.js';
 import { __resetSpeciesDetailCache } from '../data/use-species-detail.js';
 import { __resetSilhouettesCache } from '../data/use-silhouettes.js';
 import { analytics } from '../analytics.js';
@@ -1053,6 +1059,258 @@ describe('<SpeciesDetailSheet>', () => {
         restore();
       }
     });
+  });
+});
+
+// ─── Sightings Log integration (M4 #1303 / epic #1299) ──────────────────────
+//
+// The desktop F2 integration mounted <SightingsLog> in SpeciesDetailSurface,
+// which mobile does NOT compose (T1 #907). M4 adds the same log to the sheet's
+// ENTRY page (the full-detent scroller), after the family-accent rule
+// (.sheet-fg-rule) and above the taxonomy <dl> (.sheet-fg-taxonomy) — the exact
+// mirror of the Surface placement. Both the zoom>=6 leaf path and the zoom<6
+// cell path must render here; the log must NOT appear on the card page (which is
+// inert + opacity:0 at full); and the bottom sentinel must stay the LAST child
+// of .sheet-fg so panel_scrolled_to_bottom is unaffected.
+describe('<SpeciesDetailSheet> — Sightings Log integration (M4 #1303)', () => {
+  let mainEl: HTMLElement;
+
+  beforeEach(() => {
+    while (document.body.firstChild) {
+      document.body.removeChild(document.body.firstChild);
+    }
+    mainEl = document.createElement('main');
+    mainEl.id = 'main-surface';
+    document.body.appendChild(mainEl);
+    __resetSpeciesDetailCache();
+    __resetSilhouettesCache();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const CELL: Extract<SightingsContext, { kind: 'cell' }> = {
+    kind: 'cell',
+    lngBucket: -110.5,
+    latBucket: 32.5,
+    gridMultiplier: 2,
+    scopeKey: 'US-AZ',
+  };
+
+  function leafRow(
+    over: Partial<SightingRow> & { subId: string; obsDt: string },
+  ): SightingRow {
+    return { speciesCode: 'vermfly', locName: null, howMany: null, isNotable: false, ...over };
+  }
+
+  function cellObs(
+    over: Partial<Observation> & { subId: string; obsDt: string },
+  ): Observation {
+    return {
+      speciesCode: 'vermfly',
+      comName: 'Vermilion Flycatcher',
+      lat: 32.27,
+      lng: -110.85,
+      locId: 'L99',
+      locName: 'Sweetwater Wetlands',
+      howMany: null,
+      isNotable: false,
+      silhouetteId: 'tyrannidae',
+      familyCode: 'tyrannidae',
+      ...over,
+    };
+  }
+
+  it('renders the leaf-path log on the ENTRY page between .sheet-fg-rule and .sheet-fg-taxonomy', async () => {
+    const context: SightingsContext = {
+      kind: 'leaves',
+      rows: [leafRow({ subId: 'A', obsDt: '2026-04-15T08:00:00Z', locName: 'Sweetwater Wetlands' })],
+    };
+    const { container } = render(
+      <SpeciesDetailSheet
+        speciesCode="vermfly"
+        apiClient={makeClient()}
+        onClose={vi.fn()}
+        mainRef={{ current: mainEl }}
+        sightingsContext={context}
+        since="7d"
+      />,
+    );
+    await screen.findByTestId('species-detail-sheet');
+    // The log section renders on the ENTRY page (the full-detent scroller). It is
+    // queried by class, not getByRole — at the opening (half) detent the entry
+    // page is aria-hidden, which is CORRECT (the log is presented only at full),
+    // so an accessibility-tree query would (rightly) not find it. The structural
+    // placement is what M4 asserts.
+    const entry = container.querySelector('.sheet-page--entry.sheet-fg');
+    expect(entry).not.toBeNull();
+    const log = await waitFor(() => {
+      const el = entry!.querySelector('.detail-fg-sightings');
+      if (!el) throw new Error('Sightings log not yet rendered on the entry page');
+      return el;
+    });
+    // The section keeps the canonical aria-label from SightingsLog.
+    expect(log.getAttribute('aria-label')).toMatch(/sightings under this marker/i);
+    // DOM order is necessary but NOT sufficient: .sheet-page--entry is a
+    // display:grid with explicit grid-template-areas, so VISUAL order is driven
+    // by the template + each item's grid-area, NOT by DOM order. The pre-fix bug
+    // had correct DOM order (rule → log → taxonomy) yet rendered the log at the
+    // BOTTOM, because .detail-fg-sightings carried no grid-area and auto-placed
+    // into an implicit row after the explicit 'about' area. So we keep the DOM
+    // sanity check AND assert the grid template that actually governs placement.
+    const rule = entry!.querySelector('.sheet-fg-rule');
+    const taxonomy = entry!.querySelector('.sheet-fg-taxonomy');
+    expect(rule).not.toBeNull();
+    expect(taxonomy).not.toBeNull();
+    expect(rule!.compareDocumentPosition(log) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(log.compareDocumentPosition(taxonomy!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The clicked-marker sighting row is present.
+    expect(container.querySelectorAll('.detail-fg-sighting-row')).toHaveLength(1);
+  });
+
+  // jsdom does not apply external stylesheets to layout, so getBoundingClientRect
+  // is always 0 and getComputedStyle won't resolve grid placement from styles.css
+  // — the only robust guard on VISUAL order is the stylesheet text itself. These
+  // assertions FAIL on the pre-fix bug (no 'sightings' row; no scoped grid-area),
+  // which the compareDocumentPosition check above could not catch.
+  it('places .detail-fg-sightings between rule and taxonomy via the entry-page grid', () => {
+    const css = readFileSync(join(import.meta.dirname, '../styles.css'), 'utf8');
+
+    // The .sheet-page--entry grid template names a 'sightings' row that sits
+    // AFTER 'rule' and BEFORE 'taxonomy'. Capture the template body and assert
+    // the row ordering on its quoted area strings.
+    const tmpl = css.match(
+      /\.sheet-page--entry\s*\{[^}]*?grid-template-areas:\s*([\s\S]*?);/,
+    );
+    expect(tmpl).not.toBeNull();
+    const rows = [...tmpl![1].matchAll(/'([^']+)'/g)].map((m) => m[1].trim());
+    expect(rows).toContain('sightings');
+    const ruleIdx = rows.indexOf('rule');
+    const sightingsIdx = rows.indexOf('sightings');
+    const taxonomyIdx = rows.indexOf('taxonomy');
+    expect(ruleIdx).toBeGreaterThanOrEqual(0);
+    expect(taxonomyIdx).toBeGreaterThanOrEqual(0);
+    expect(sightingsIdx).toBeGreaterThan(ruleIdx);
+    expect(sightingsIdx).toBeLessThan(taxonomyIdx);
+    // Every row of the template declares the same number of columns (single
+    // column here) — a mismatched count silently invalidates the whole template.
+    const colCounts = new Set(rows.map((r) => r.split(/\s+/).length));
+    expect(colCounts.size).toBe(1);
+
+    // The grid-area is SCOPED to the sheet entry page — the bare
+    // .detail-fg-sightings class is shared with the desktop Rail/Surface (NOT a
+    // grid), so a global grid-area would be wrong there.
+    expect(css).toMatch(
+      /\.sheet-page--entry\s+\.detail-fg-sightings\s*\{[^}]*grid-area:\s*sightings/,
+    );
+  });
+
+  it('does NOT render the Sightings Log on the CARD page', async () => {
+    const context: SightingsContext = {
+      kind: 'leaves',
+      rows: [leafRow({ subId: 'A', obsDt: '2026-04-15T08:00:00Z', locName: 'Sweetwater Wetlands' })],
+    };
+    const { container } = render(
+      <SpeciesDetailSheet
+        speciesCode="vermfly"
+        apiClient={makeClient()}
+        onClose={vi.fn()}
+        mainRef={{ current: mainEl }}
+        sightingsContext={context}
+        since="7d"
+      />,
+    );
+    await screen.findByTestId('species-detail-sheet');
+    await waitFor(() =>
+      expect(container.querySelector('.detail-fg-sightings')).not.toBeNull(),
+    );
+    // Exactly ONE log section in the whole sheet — never duplicated onto the card
+    // page (which is inert + opacity:0 at full; a log there would never show).
+    expect(container.querySelectorAll('.detail-fg-sightings')).toHaveLength(1);
+    const card = container.querySelector('.sheet-page--card');
+    expect(card).not.toBeNull();
+    expect(card!.querySelector('.detail-fg-sightings')).toBeNull();
+  });
+
+  it('threads the cell context + since through to the cell fetch (zoom<6 path)', async () => {
+    const fetchSpy = vi.spyOn(ApiClient.prototype, 'getCellObservations').mockResolvedValue({
+      data: [cellObs({ subId: 'C', obsDt: '2026-04-15T12:00:00Z', locName: 'Sweetwater Wetlands' })],
+      meta: { cellObservationCount: 1, truncated: false },
+    } satisfies CellObservationsResponse);
+
+    const { container } = render(
+      <SpeciesDetailSheet
+        speciesCode="vermfly"
+        apiClient={makeClient()}
+        onClose={vi.fn()}
+        mainRef={{ current: mainEl }}
+        sightingsContext={CELL}
+        since="1d"
+      />,
+    );
+    await screen.findByTestId('species-detail-sheet');
+    // The cell fetch is issued with the threaded bucket + the active since-window.
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalled());
+    expect(fetchSpy).toHaveBeenCalledWith({
+      scopeKey: 'US-AZ',
+      gridMultiplier: 2,
+      lngBucket: -110.5,
+      latBucket: 32.5,
+      speciesCode: 'vermfly',
+      since: '1d',
+    });
+    // The fetched cell row renders inside the entry-page log.
+    const entry = container.querySelector('.sheet-page--entry.sheet-fg');
+    expect(entry).not.toBeNull();
+    await waitFor(() =>
+      expect(entry!.querySelectorAll('.detail-fg-sighting-row')).toHaveLength(1),
+    );
+  });
+
+  it('renders no log when no sightingsContext is threaded (renders nothing)', async () => {
+    const { container } = render(
+      <SpeciesDetailSheet
+        speciesCode="vermfly"
+        apiClient={makeClient()}
+        onClose={vi.fn()}
+        mainRef={{ current: mainEl }}
+      />,
+    );
+    await screen.findByTestId('species-detail-sheet');
+    expect(container.querySelector('.detail-fg-sightings')).toBeNull();
+  });
+
+  it('keeps the bottom sentinel the LAST child of .sheet-fg with a long log inserted', async () => {
+    // A long leaf list inserted high on the entry page must NOT displace the
+    // sentinel from its last-child position (panel_scrolled_to_bottom invariant).
+    const rows = Array.from({ length: 40 }, (_, i) =>
+      leafRow({
+        subId: `S${i}`,
+        obsDt: `2026-04-${String(2 + (i % 27)).padStart(2, '0')}T${String(i % 24).padStart(2, '0')}:00:00Z`,
+        locName: `Patch ${i}`,
+      }),
+    );
+    const { container } = render(
+      <SpeciesDetailSheet
+        speciesCode="vermfly"
+        apiClient={makeClient()}
+        onClose={vi.fn()}
+        mainRef={{ current: mainEl }}
+        sightingsContext={{ kind: 'leaves', rows }}
+        since="7d"
+      />,
+    );
+    const sentinel = await screen.findByTestId('detail-bottom-sentinel');
+    const scroller = container.querySelector('.sheet-page--entry.sheet-fg');
+    expect(scroller).not.toBeNull();
+    await waitFor(() =>
+      expect(scroller!.querySelector('.detail-fg-sightings')).not.toBeNull(),
+    );
+    // The sentinel is still the LAST direct child of the entry-page scroller even
+    // with the (capped-at-50) log occupying space above the taxonomy.
+    expect(sentinel.parentElement).toBe(scroller);
+    expect(scroller!.lastElementChild).toBe(sentinel);
   });
 });
 

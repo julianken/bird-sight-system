@@ -1807,6 +1807,12 @@ export function App() {
           }}
           mainRef={mapLayerRef}
           onSnapChange={setSheetSnap}
+          // Sightings Log (#1299 / M4 #1303): thread the SAME marker-click
+          // context + active since-window the desktop Rail receives, so the
+          // mobile sheet's entry-page log renders for both the zoom>=6 leaf
+          // path and the zoom<6 cell path.
+          {...(sightingsContext ? { sightingsContext } : {})}
+          since={state.since}
         />
       )}
       {/* #761 (S1) — the unscoped landing chooser, hosted as an INERT,

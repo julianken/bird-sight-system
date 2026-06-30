@@ -18,9 +18,12 @@ import {
 } from '../data/family-color.js';
 import { analytics } from '../analytics.js';
 import { SpeciesDescription } from './SpeciesDescription.js';
+import { SightingsLog } from './SightingsLog.js';
+import type { SightingsContext } from './sightings-context.js';
 import { Photo } from './ds/Photo.js';
 import { SheetHeader } from './ds/SheetHeader.js';
 import type { FamilyCode } from '../config/family-palette.js';
+import type { Since } from '../state/url-state.js';
 
 export type SnapState = 'peek' | 'half' | 'full';
 
@@ -116,6 +119,21 @@ export interface SpeciesDetailSheetProps {
    * is force-collapsed on mobile when the sheet is at half or full snap.
    */
   onSnapChange?: (snap: SnapState) => void;
+  /**
+   * Sightings-Log context (epic #1299, M4 #1303) — threaded verbatim from App
+   * (set on the marker click that opened the sheet) into the entry-page
+   * <SightingsLog> so the in-panel log knows which sightings to show. Mirrors
+   * the desktop Rail→Surface threading (F2 #1301); mobile does not compose
+   * SpeciesDetailSurface (T1 #907), so the sheet receives it directly.
+   */
+  sightingsContext?: SightingsContext;
+  /**
+   * Active since-window (url-state), forwarded to <SightingsLog> for the F3
+   * zoom<6 cell fetch. Typed to admit `undefined` explicitly so an omitted prop
+   * is assignable under exactOptionalPropertyTypes (App threads `state.since`,
+   * which is always defined; this keeps the contract robust at the seam).
+   */
+  since?: Since | undefined;
 }
 
 /**
@@ -148,7 +166,8 @@ export interface SpeciesDetailSheetProps {
  *   - .sheet-fg: touch-action: pan-y (browser owns scroll)
  */
 export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
-  const { speciesCode, apiClient, onClose, mainRef, onSnapChange } = props;
+  const { speciesCode, apiClient, onClose, mainRef, onSnapChange, sightingsContext, since } =
+    props;
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const handleRef = useRef<HTMLButtonElement | null>(null);
   // F9 (#910) — focus restore on close. Capture document.activeElement on mount
@@ -998,6 +1017,27 @@ export function SpeciesDetailSheet(props: SpeciesDetailSheetProps) {
           </div>
 
           <div className="sheet-fg-rule" aria-hidden="true" style={{ background: famColor }} />
+
+          {/* Sightings Log (#1299 / M4 #1303) — per-sighting recency for the
+              clicked marker. Mirrors the desktop placement in
+              SpeciesDetailSurface (after the family-accent rule, ABOVE the
+              taxonomy <dl>): per-sighting recency outranks formal taxonomy
+              reference data. ENTRY-PAGE ONLY by construction — the entry page is
+              active solely at the full detent (page==='entry' / content==='full')
+              and is inert + aria-hidden + opacity:0 at peek/half, so no extra
+              snap guard is needed (placing it here IS the full-detent gate; the
+              card page never carries the log, so the bottom sentinel can't be
+              pushed above the fold at peek/half). Renders nothing unless a
+              marker-click context was threaded in — a zoom>=6 leaf context OR a
+              zoom<6 single-bucket cell context (F3 #1302), both supported. The
+              sentinel stays the LAST .sheet-fg child: this section is inserted
+              high (after the rule), never after the sentinel. */}
+          <SightingsLog
+            apiClient={apiClient}
+            speciesCode={speciesCode}
+            context={sightingsContext ?? null}
+            {...(since !== undefined ? { since } : {})}
+          />
 
           {/* FULL tier — taxonomy table + ABOUT prose + credits */}
           <dl className="sheet-fg-taxonomy">
