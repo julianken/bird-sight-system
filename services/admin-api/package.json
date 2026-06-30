@@ -10,11 +10,11 @@
     "dev": "tsx src/local.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1073.0",
+    "@aws-sdk/client-s3": "^3.1075.0",
     "@bird-watch/db-client": "*",
     "@bird-watch/shared-types": "*",
-    "@hono/node-server": "^2.0.5",
-    "hono": "^4.12.26",
+    "@hono/node-server": "^2.0.6",
+    "hono": "^4.12.27",
     "ipaddr.js": "^2.4.0"
   },
   "devDependencies": {
