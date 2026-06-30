@@ -1152,7 +1152,13 @@ describe('<SpeciesDetailSheet> — Sightings Log integration (M4 #1303)', () => 
     });
     // The section keeps the canonical aria-label from SightingsLog.
     expect(log.getAttribute('aria-label')).toMatch(/sightings under this marker/i);
-    // Positioned after the entry-page family-accent rule and before the taxonomy.
+    // DOM order is necessary but NOT sufficient: .sheet-page--entry is a
+    // display:grid with explicit grid-template-areas, so VISUAL order is driven
+    // by the template + each item's grid-area, NOT by DOM order. The pre-fix bug
+    // had correct DOM order (rule → log → taxonomy) yet rendered the log at the
+    // BOTTOM, because .detail-fg-sightings carried no grid-area and auto-placed
+    // into an implicit row after the explicit 'about' area. So we keep the DOM
+    // sanity check AND assert the grid template that actually governs placement.
     const rule = entry!.querySelector('.sheet-fg-rule');
     const taxonomy = entry!.querySelector('.sheet-fg-taxonomy');
     expect(rule).not.toBeNull();
@@ -1161,6 +1167,43 @@ describe('<SpeciesDetailSheet> — Sightings Log integration (M4 #1303)', () => 
     expect(log.compareDocumentPosition(taxonomy!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // The clicked-marker sighting row is present.
     expect(container.querySelectorAll('.detail-fg-sighting-row')).toHaveLength(1);
+  });
+
+  // jsdom does not apply external stylesheets to layout, so getBoundingClientRect
+  // is always 0 and getComputedStyle won't resolve grid placement from styles.css
+  // — the only robust guard on VISUAL order is the stylesheet text itself. These
+  // assertions FAIL on the pre-fix bug (no 'sightings' row; no scoped grid-area),
+  // which the compareDocumentPosition check above could not catch.
+  it('places .detail-fg-sightings between rule and taxonomy via the entry-page grid', () => {
+    const css = readFileSync(join(import.meta.dirname, '../styles.css'), 'utf8');
+
+    // The .sheet-page--entry grid template names a 'sightings' row that sits
+    // AFTER 'rule' and BEFORE 'taxonomy'. Capture the template body and assert
+    // the row ordering on its quoted area strings.
+    const tmpl = css.match(
+      /\.sheet-page--entry\s*\{[^}]*?grid-template-areas:\s*([\s\S]*?);/,
+    );
+    expect(tmpl).not.toBeNull();
+    const rows = [...tmpl![1].matchAll(/'([^']+)'/g)].map((m) => m[1].trim());
+    expect(rows).toContain('sightings');
+    const ruleIdx = rows.indexOf('rule');
+    const sightingsIdx = rows.indexOf('sightings');
+    const taxonomyIdx = rows.indexOf('taxonomy');
+    expect(ruleIdx).toBeGreaterThanOrEqual(0);
+    expect(taxonomyIdx).toBeGreaterThanOrEqual(0);
+    expect(sightingsIdx).toBeGreaterThan(ruleIdx);
+    expect(sightingsIdx).toBeLessThan(taxonomyIdx);
+    // Every row of the template declares the same number of columns (single
+    // column here) — a mismatched count silently invalidates the whole template.
+    const colCounts = new Set(rows.map((r) => r.split(/\s+/).length));
+    expect(colCounts.size).toBe(1);
+
+    // The grid-area is SCOPED to the sheet entry page — the bare
+    // .detail-fg-sightings class is shared with the desktop Rail/Surface (NOT a
+    // grid), so a global grid-area would be wrong there.
+    expect(css).toMatch(
+      /\.sheet-page--entry\s+\.detail-fg-sightings\s*\{[^}]*grid-area:\s*sightings/,
+    );
   });
 
   it('does NOT render the Sightings Log on the CARD page', async () => {
