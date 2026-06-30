@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
+import { render, renderHook, waitFor } from '@testing-library/react';
 import { ApiClient } from '@/api/client.js';
 import type { CellObservationsResponse, Observation } from '@bird-watch/shared-types';
 import type { SightingRow, SightingsContext } from '@/components/sightings-context.js';
@@ -188,6 +188,56 @@ describe('useSightingsRows — cell branch (#1302)', () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.error).toBe(boom);
     expect(result.current.rows).toEqual([]);
+    fetchSpy.mockRestore();
+  });
+
+  // R8 (F3 second pass): NO stale paint across a SAME-bucket species switch. The
+  // `cancelled` guard above only stops a stale RESOLUTION from overwriting newer
+  // state — it does nothing about the FIRST synchronous render under the new
+  // species, where (before the fix) `return syncState ?? cellState` returns the
+  // PREVIOUS species' resolved `cellState` for one commit (syncState is still
+  // null because the context kind is unchanged), painting the wrong species'
+  // rows before the loading-reset effect runs. RTL reads only the latest commit,
+  // so we record EVERY committed value and assert none under the new species
+  // carried the old species' rows. This is the render-by-render proof the fix
+  // resets the cell state SYNCHRONOUSLY (during render), not in an effect.
+  it('paints NO commit carrying the prior species rows across a same-bucket species switch', async () => {
+    let resolveFirst!: (r: CellObservationsResponse) => void;
+    const firstPromise = new Promise<CellObservationsResponse>((res) => {
+      resolveFirst = res;
+    });
+    const fetchSpy = vi
+      .spyOn(apiClient, 'getCellObservations')
+      .mockReturnValueOnce(firstPromise)
+      // The new species' fetch never resolves — any rows shown under it would be
+      // stale leakage, not a fresh resolution.
+      .mockReturnValueOnce(new Promise<CellObservationsResponse>(() => {}));
+
+    // Records (speciesCode, subIds) for EVERY render commit of the hook.
+    const commits: Array<{ code: string; subIds: string[] }> = [];
+    function Probe({ code }: { code: string }) {
+      const state = useSightingsRows(apiClient, code, CELL, '7d');
+      commits.push({ code, subIds: state.rows.map((r) => r.subId) });
+      return null;
+    }
+
+    const { rerender } = render(<Probe code="vermfly" />);
+    resolveFirst(
+      cellResponse({
+        data: [obs({ subId: 'VERM1', speciesCode: 'vermfly', obsDt: '2026-04-15T12:00:00Z' })],
+        meta: { cellObservationCount: 1, truncated: false },
+      }),
+    );
+    await waitFor(() =>
+      expect(commits.some((c) => c.code === 'vermfly' && c.subIds.includes('VERM1'))).toBe(true),
+    );
+
+    commits.length = 0;
+    rerender(<Probe code="norcar" />);
+
+    // The defect: a render under `norcar` that still carries the vermfly row.
+    const leaked = commits.filter((c) => c.code === 'norcar' && c.subIds.includes('VERM1'));
+    expect(leaked).toEqual([]);
     fetchSpy.mockRestore();
   });
 

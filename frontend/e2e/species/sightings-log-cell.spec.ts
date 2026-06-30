@@ -288,4 +288,108 @@ test.describe('Sightings Log — zoom<6 cell path (#1302)', () => {
     expect(Number(u.searchParams.get('lng'))).toBe(BUCKET_LNG);
     expect(Number(u.searchParams.get('lat'))).toBe(BUCKET_LAT);
   });
+
+  // M4 (#1303) — the MOBILE cell path. Same single-bucket → popover → species
+  // pick walk, but the surface is the bottom Sheet. The cell fetch fires when the
+  // sheet mounts (entry-page log is always mounted); expanding to FULL presents
+  // the fetched rows + truncation banner. Mirrors the desktop cell assertions.
+  test('mobile: single-bucket cell → pick species → sheet → expand to FULL renders cell sightings + banner (390×844)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const app = new AppPage(page);
+    await app.goto('scope=us&since=1d');
+    await app.waitForAppReady();
+
+    const webglReady = await page
+      .waitForFunction(() => Boolean((window as { __birdMap?: unknown }).__birdMap), null, {
+        timeout: 12_000,
+      })
+      .then(() => true)
+      .catch(() => false);
+    if (!webglReady) {
+      // eslint-disable-next-line no-console
+      console.log(
+        '[sightings-log-cell] SKIP (mobile): maplibre never fired `load` (no WebGL/GPU) — ' +
+          '__birdMap unavailable, so the single-bucket click cannot be driven. The cell ' +
+          'mapping/fetch/banner contract is covered deterministically by the unit + RTL specs.',
+      );
+      test.skip(true, 'WebGL unavailable — __birdMap not published');
+      return;
+    }
+
+    const drove = await page.evaluate(
+      ({ families }) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const map = (window as any).__birdMap;
+        const bucketFeature = {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [-110, 32] },
+          properties: {
+            count: 7,
+            speciesCount: 1,
+            familiesJson: JSON.stringify(families),
+            familyCode: 'tyrannidae',
+            silhouetteId: 'tyrannidae',
+            color: '#c3772d',
+          },
+        };
+        const orig = map.queryRenderedFeatures.bind(map);
+        map.queryRenderedFeatures = (point: unknown, opts?: { layers?: string[] }) =>
+          opts?.layers?.includes('unclustered-point') ? [bucketFeature] : orig(point, opts);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const delegated = (map._delegatedListeners?.click ?? []).find((d: any) =>
+          (d.layers ?? []).includes('unclustered-point'),
+        );
+        if (!delegated?.delegates?.click) return false;
+        delegated.delegates.click({
+          type: 'click',
+          target: map,
+          point: { x: 120, y: 120 },
+          lngLat: { lng: -110, lat: 32 },
+          originalEvent: new MouseEvent('click'),
+        });
+        return true;
+      },
+      { families: BUCKET_FAMILIES },
+    );
+    expect(drove, 'the unclustered-point delegated click wrapper must exist').toBe(true);
+
+    const popover = page.getByTestId('cluster-list-popover');
+    await expect(popover).toBeVisible({ timeout: 8_000 });
+    const familyToggle = popover.getByTestId('cluster-list-popover-family-tyrannidae');
+    await familyToggle.locator('button').first().click();
+    await popover.getByText(/Vermilion Flycatcher/).click();
+
+    await expect.poll(() => app.getUrlParams().get('detail'), { timeout: 8_000 }).toBe('vermfly');
+
+    // Mobile mounts the Sheet (opens at half). Expand to full to present the log.
+    const sheet = app.speciesDetailSheet;
+    await expect(sheet).toBeVisible({ timeout: 5_000 });
+    await page.getByRole('button', { name: /expand species detail/i }).click();
+    await expect(sheet).toHaveAttribute('data-snap-state', 'full');
+
+    const log = page.getByRole('region', { name: /sightings under this marker/i });
+    await expect(log).toBeVisible({ timeout: 8_000 });
+    await expect(log.locator('.detail-fg-sighting-row')).toHaveCount(2);
+    await expect(log.getByText('Sweetwater Wetlands')).toBeVisible();
+    await expect(log.locator('.detail-fg-sighting-count').first()).toHaveText('×4');
+    await expect(log.locator('.detail-fg-sightings-truncation')).toHaveText(
+      'Showing latest 2 of 137',
+    );
+
+    // The cell request carried the active since-window, picked species, bucket
+    // center, and national scope — identical contract to the desktop path.
+    const cellReq = await page.evaluate(() => {
+      const entries = performance.getEntriesByType('resource') as PerformanceResourceTiming[];
+      return entries.map((e) => e.name).find((n) => n.includes('/api/observations/cell')) ?? null;
+    });
+    expect(cellReq, 'a /api/observations/cell request must have fired').not.toBeNull();
+    const u = new URL(cellReq!);
+    expect(u.searchParams.get('since')).toBe('1d');
+    expect(u.searchParams.get('species')).toBe('vermfly');
+    expect(u.searchParams.get('scope')).toBe('US');
+    expect(Number(u.searchParams.get('lng'))).toBe(BUCKET_LNG);
+    expect(Number(u.searchParams.get('lat'))).toBe(BUCKET_LAT);
+  });
 });

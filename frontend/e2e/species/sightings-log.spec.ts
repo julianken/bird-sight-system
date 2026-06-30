@@ -124,4 +124,56 @@ test.describe('Sightings Log (desktop Rail) — popover seam', () => {
     // howMany 4 > 1 → the ×4 count column renders.
     await expect(log.locator('.detail-fg-sighting-count')).toHaveText('×4');
   });
+
+  // M4 (#1303) — the MOBILE equivalent: the same leaf context, but the surface
+  // is the bottom Sheet, and the log lives on the entry page (the full detent).
+  // The sheet opens at `half`, where the entry page is aria-hidden; expanding to
+  // `full` (one handle tap) presents the log. Mirrors the desktop assertion.
+  test('mobile: popover → sheet → expand to FULL renders the single sightings row (390×844)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const app = new AppPage(page);
+    await app.goto('view=map');
+    await app.waitForAppReady();
+
+    const hitLayer = page.locator('.map-marker-hit-layer');
+    try {
+      await hitLayer.waitFor({ state: 'attached', timeout: 5_000 });
+    } catch {
+      test.skip(true, 'map onLoad did not fire — likely WebGL unavailable in headless run');
+      return;
+    }
+    const hitButton = hitLayer.locator('button').first();
+    if ((await hitButton.count()) === 0) {
+      test.skip(true, 'hit-layer mounted but no markers projected');
+      return;
+    }
+
+    await hitButton.click();
+
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible({ timeout: 5_000 });
+    await dialog.getByRole('button', { name: /see species details/i }).click();
+
+    // Mobile mounts the bottom Sheet (not the Rail). It opens at `half`.
+    const sheet = app.speciesDetailSheet;
+    await expect(sheet).toBeVisible({ timeout: 5_000 });
+    await expect(sheet).toHaveAttribute('data-snap-state', 'half');
+    await expect.poll(() => app.getUrlParams().get('detail'), { timeout: 5_000 }).toBe('vermfly');
+
+    // At half the entry-page log is aria-hidden — expand to full to present it.
+    await page.getByRole('button', { name: /expand species detail/i }).click();
+    await expect(sheet).toHaveAttribute('data-snap-state', 'full');
+
+    // The entry-page Sightings Log now shows the clicked observation row.
+    const log = page.getByRole('region', { name: /sightings under this marker/i });
+    await expect(log).toBeVisible({ timeout: 5_000 });
+    await expect(log.locator('.detail-fg-sighting-row')).toHaveCount(1);
+    await expect(log.getByText('Sweetwater Wetlands')).toBeVisible();
+    await expect(log.locator('.detail-fg-sighting-count')).toHaveText('×4');
+    // It is a descendant of the sheet's entry page, not the card page.
+    await expect(sheet.locator('.sheet-page--entry .detail-fg-sightings')).toHaveCount(1);
+    await expect(sheet.locator('.sheet-page--card .detail-fg-sightings')).toHaveCount(0);
+  });
 });

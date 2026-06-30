@@ -194,4 +194,45 @@ describe('SightingsLog', () => {
     expect(container.querySelectorAll('.detail-fg-sighting-row')).toHaveLength(50);
     expect(container.querySelector('.detail-fg-sightings-truncation')).toBeNull();
   });
+
+  // R8 (F3 second pass): a same-bucket species SWITCH must NOT flash the prior
+  // species' cell rows for a commit before the new fetch starts. The cell rows
+  // live in useState; before the fix, `return syncState ?? cellState` handed the
+  // OLD species' resolved rows to the very FIRST render under the NEW species
+  // (the cell context kind is unchanged, so syncState is still null), painting a
+  // stale row tied to the wrong species before the loading-reset effect ran. The
+  // fix resets the cell state synchronously when the fetch identity changes, so
+  // the switch shows a clean loading state with no stale paint — applied in the
+  // shared hook, so it covers BOTH the desktop Rail mount and the mobile Sheet
+  // mount. The render-by-render proof (no commit under the new species carries
+  // the prior species' rows) lives in use-sightings-rows.test.tsx; this asserts
+  // the user-visible end state of the switch (loading, prior rows gone).
+  it('shows a clean loading state (no prior rows) after a same-bucket species switch', async () => {
+    const firstResponse: CellObservationsResponse = {
+      data: [cellObs({ subId: 'VERM1', obsDt: '2026-04-15T12:00:00Z', locName: 'Sweetwater Wetlands' })],
+      meta: { cellObservationCount: 1, truncated: false },
+    };
+    const fetchSpy = vi
+      .spyOn(apiClient, 'getCellObservations')
+      .mockResolvedValueOnce(firstResponse)
+      // norcar's fetch never resolves — the switch must show loading, not stale rows.
+      .mockReturnValueOnce(new Promise<CellObservationsResponse>(() => {}));
+
+    const { container, rerender } = render(
+      <SightingsLog apiClient={apiClient} speciesCode="vermfly" context={CELL} since="7d" />,
+    );
+    // First species' row paints once the fetch resolves.
+    await screen.findByText('Sweetwater Wetlands');
+    expect(container.querySelectorAll('.detail-fg-sighting-row')).toHaveLength(1);
+
+    // Same cell bucket, NEW species — the prior species' row must be gone and the
+    // static loading affordance shown (a fresh, in-flight fetch for the new code).
+    rerender(
+      <SightingsLog apiClient={apiClient} speciesCode="norcar" context={CELL} since="7d" />,
+    );
+    expect(screen.queryByText('Sweetwater Wetlands')).toBeNull();
+    expect(container.querySelectorAll('.detail-fg-sighting-row')).toHaveLength(0);
+    expect(container.querySelector('.detail-fg-sightings-loading')).not.toBeNull();
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
 });
