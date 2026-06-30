@@ -353,6 +353,78 @@ describe('ApiClient', () => {
     expect(url).not.toContain('state=');
   });
 
+  // ── #1302 (F3) — GET /api/observations/cell client method ──────────────────
+  //
+  // The low-zoom (zoom<6) sightings-log fetch. Per-species rows inside one
+  // clicked grid cell, identified by (scope, grid multiplier, lng/lat bucket).
+  // Mirrors the B1 route param names exactly (species, scope, m, lng, lat,
+  // since). The method passes NO AbortSignal (staleness is the hook's
+  // cancelled-flag job), and must NOT serialize `since` when it is undefined
+  // (exactOptionalPropertyTypes).
+  it('serializes all cell params for GET /api/observations/cell (#1302)', async () => {
+    const body = JSON.stringify({ data: [], meta: { cellObservationCount: 0, truncated: false } });
+    vi.spyOn(global, 'fetch').mockResolvedValue(new Response(body, { status: 200 }));
+    const client = new ApiClient({ baseUrl: '' });
+    await client.getCellObservations({
+      scopeKey: 'US-AZ',
+      gridMultiplier: 2,
+      lngBucket: -110.5,
+      latBucket: 32.5,
+      speciesCode: 'vermfly',
+      since: '1d',
+    });
+    const url = (fetch as unknown as { mock: { calls: [string, unknown][] } }).mock.calls[0]![0];
+    expect(url).toContain('/api/observations/cell');
+    expect(url).toContain('species=vermfly');
+    expect(url).toContain('scope=US-AZ');
+    expect(url).toContain('m=2');
+    // lng/lat negatives encode the `-` literally (URLSearchParams leaves it).
+    expect(new URL(url, 'http://x').searchParams.get('lng')).toBe('-110.5');
+    expect(new URL(url, 'http://x').searchParams.get('lat')).toBe('32.5');
+    expect(url).toContain('since=1d');
+  });
+
+  it('omits since from the cell query when undefined (exactOptionalPropertyTypes) (#1302)', async () => {
+    const body = JSON.stringify({ data: [], meta: { cellObservationCount: 0, truncated: false } });
+    vi.spyOn(global, 'fetch').mockResolvedValue(new Response(body, { status: 200 }));
+    const client = new ApiClient({ baseUrl: '' });
+    await client.getCellObservations({
+      scopeKey: 'US',
+      gridMultiplier: 8,
+      lngBucket: -112,
+      latBucket: 31.75,
+      speciesCode: 'norcar',
+    });
+    const url = (fetch as unknown as { mock: { calls: [string, unknown][] } }).mock.calls[0]![0];
+    expect(url).not.toContain('since=');
+    // Never attaches an AbortSignal (the cell fetch is not abortable, #1302).
+    const init = (fetch as unknown as { mock: { calls: [string, RequestInit | undefined][] } }).mock.calls[0]![1];
+    expect(init?.signal ?? undefined).toBeUndefined();
+  });
+
+  it('returns the CellObservationsResponse envelope verbatim (#1302)', async () => {
+    const body = JSON.stringify({
+      data: [
+        {
+          subId: 'S1', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+          lat: 32.27, lng: -110.85, obsDt: '2026-04-15T10:00:00Z', locId: 'L99',
+          locName: 'Sweetwater Wetlands', howMany: 4, isNotable: false,
+          silhouetteId: 'tyrannidae', familyCode: 'tyrannidae',
+        },
+      ],
+      meta: { cellObservationCount: 137, truncated: true },
+    });
+    vi.spyOn(global, 'fetch').mockResolvedValue(new Response(body, { status: 200 }));
+    const client = new ApiClient({ baseUrl: '' });
+    const res = await client.getCellObservations({
+      scopeKey: 'US-AZ', gridMultiplier: 2, lngBucket: -110.5, latBucket: 32.5, speciesCode: 'vermfly',
+    });
+    expect(res.data).toHaveLength(1);
+    expect(res.data[0]?.locId).toBe('L99');
+    expect(res.meta.cellObservationCount).toBe(137);
+    expect(res.meta.truncated).toBe(true);
+  });
+
   it('throws on non-2xx response', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValue(new Response('boom', { status: 500 }));
     const client = new ApiClient({ baseUrl: '' });

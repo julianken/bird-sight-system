@@ -1,10 +1,39 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
 import { ApiClient } from '@/api/client.js';
+import type { CellObservationsResponse, Observation } from '@bird-watch/shared-types';
 import type { SightingRow, SightingsContext } from './sightings-context.js';
 import { SightingsLog } from './SightingsLog.js';
 
 const apiClient = new ApiClient({ baseUrl: '' });
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+const CELL: Extract<SightingsContext, { kind: 'cell' }> = {
+  kind: 'cell',
+  lngBucket: -110.5,
+  latBucket: 32.5,
+  gridMultiplier: 2,
+  scopeKey: 'US-AZ',
+};
+
+function cellObs(over: Partial<Observation> & { subId: string; obsDt: string }): Observation {
+  return {
+    speciesCode: 'vermfly',
+    comName: 'Vermilion Flycatcher',
+    lat: 32.27,
+    lng: -110.85,
+    locId: 'L99',
+    locName: 'Sweetwater Wetlands',
+    howMany: null,
+    isNotable: false,
+    silhouetteId: 'tyrannidae',
+    familyCode: 'tyrannidae',
+    ...over,
+  };
+}
 
 function row(over: Partial<SightingRow> & { subId: string; obsDt: string }): SightingRow {
   return { speciesCode: 'vermfly', locName: null, howMany: null, isNotable: false, ...over };
@@ -22,14 +51,63 @@ describe('SightingsLog', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('renders nothing for a cell context (cell wired in F3)', () => {
-    const { container } = renderLog({
-      kind: 'cell',
-      lngBucket: -110.5,
-      latBucket: 32.5,
-      gridMultiplier: 2,
-      scopeKey: 'US-AZ',
+  it('shows a static loading affordance (no spinner/count animation) while the cell fetch is in flight', () => {
+    // Never-resolving fetch → stays in the loading state.
+    vi.spyOn(apiClient, 'getCellObservations').mockReturnValue(
+      new Promise<CellObservationsResponse>(() => {}),
+    );
+    const { container } = render(
+      <SightingsLog apiClient={apiClient} speciesCode="vermfly" context={CELL} since="7d" />,
+    );
+    const loading = container.querySelector('.detail-fg-sightings-loading');
+    expect(loading).not.toBeNull();
+    expect(loading?.textContent).toMatch(/loading sightings/i);
+    // No rows / no banner while loading.
+    expect(container.querySelector('.detail-fg-sighting-row')).toBeNull();
+    expect(container.querySelector('.detail-fg-sightings-truncation')).toBeNull();
+  });
+
+  it('renders the fetched cell rows + truncation banner using meta.cellObservationCount as M', async () => {
+    vi.spyOn(apiClient, 'getCellObservations').mockResolvedValue({
+      data: [
+        cellObs({ subId: 'C', obsDt: '2026-04-15T12:00:00Z', locName: 'Sweetwater Wetlands', howMany: 4 }),
+        cellObs({ subId: 'A', obsDt: '2026-04-15T08:00:00Z', locName: 'Patagonia' }),
+      ],
+      meta: { cellObservationCount: 137, truncated: true },
     });
+    const { container } = render(
+      <SightingsLog apiClient={apiClient} speciesCode="vermfly" context={CELL} since="7d" />,
+    );
+    const section = await screen.findByRole('region', { name: /sightings under this marker/i });
+    expect(section).toBeInTheDocument();
+    expect(container.querySelectorAll('.detail-fg-sighting-row')).toHaveLength(2);
+    // Banner reads "Showing latest N of M" with M = meta.cellObservationCount.
+    expect(container.querySelector('.detail-fg-sightings-truncation')?.textContent).toBe(
+      'Showing latest 2 of 137',
+    );
+    // No loading affordance once resolved.
+    expect(container.querySelector('.detail-fg-sightings-loading')).toBeNull();
+  });
+
+  it('renders NOTHING for a resolved 0-row cell fetch (no empty shell)', async () => {
+    vi.spyOn(apiClient, 'getCellObservations').mockResolvedValue({
+      data: [],
+      meta: { cellObservationCount: 0, truncated: false },
+    });
+    const { container } = render(
+      <SightingsLog apiClient={apiClient} speciesCode="vermfly" context={CELL} since="7d" />,
+    );
+    // Wait for the loading affordance to disappear, then assert no section.
+    await waitFor(() => expect(container.querySelector('.detail-fg-sightings-loading')).toBeNull());
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('renders NOTHING on a rejected cell fetch (the panel already has the species)', async () => {
+    vi.spyOn(apiClient, 'getCellObservations').mockRejectedValue(new Error('boom'));
+    const { container } = render(
+      <SightingsLog apiClient={apiClient} speciesCode="vermfly" context={CELL} since="7d" />,
+    );
+    await waitFor(() => expect(container.querySelector('.detail-fg-sightings-loading')).toBeNull());
     expect(container.firstChild).toBeNull();
   });
 

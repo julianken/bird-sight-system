@@ -41,10 +41,25 @@ export function SightingsLog({ apiClient, speciesCode, context, since }: Sightin
     context,
     since,
   );
-  // cell pre-F3 / no context / zoom<6 cluster-list → nothing to show.
+  // No context / cell-with-no-species / zoom<6 cluster-list → nothing to show.
   if (!supported) return null;
-  // loading/error states are refined in F3 (the cell fetch); the leaf path is synchronous.
-  if (loading || error || rows.length === 0) return null;
+  // F3 (#1302) cell path: while the per-cell fetch is in flight, show a minimal
+  // STATIC loading line — no spinner and no count animation (#953: the counts
+  // are camera-coupled and must never animate). The leaf path is synchronous so
+  // `loading` is never true there.
+  if (loading) {
+    return (
+      <section className="detail-fg-sightings" aria-label="Sightings under this marker">
+        <h2 className="detail-fg-sightings-eyebrow">Sightings here</h2>
+        <p className="detail-fg-sightings-loading">Loading sightings…</p>
+      </section>
+    );
+  }
+  // On error, render nothing — the species-detail panel already has the species;
+  // a failed per-cell fetch is non-essential supplementary recency, not a
+  // panel-blocking failure. A resolved fetch with 0 rows ALSO renders nothing
+  // (omit the section rather than show an empty shell).
+  if (error || rows.length === 0) return null;
 
   const visibleRows = rows.slice(0, MAX_VISIBLE_ROWS);
   const overflow = rows.length > MAX_VISIBLE_ROWS;

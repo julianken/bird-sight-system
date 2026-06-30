@@ -463,6 +463,17 @@ export function MapCanvas({
      * #1299 Decisions §4: the multi-bucket cluster-list seam is unsupported).
      */
     sightingRows?: SightingRow[];
+    /**
+     * #1302 — the zoom<6 SINGLE-bucket Sightings-Log context. Present ONLY when
+     * this popover represents exactly ONE aggregated bucket (the lone-bucket
+     * `#864` unclustered path): its `lng/latBucket` are that bucket's own
+     * `round(coord*m)/m` Point center, so the derived cell aligns with the
+     * server's bucketing by construction. ABSENT on the multi-bucket cluster
+     * path (anchor = supercluster centroid, not a true bucket center — epic
+     * #1299 Decisions §4 forbids deriving a cell from it) and on the zoom>=6
+     * per-observation path (which threads `{kind:'leaves'}` via `sightingRows`).
+     */
+    cellContext?: SightingsContext;
   } | null>(null);
   // E1 (#1053): close the canvas-owned transient popovers on the RISING edge of
   // `detailOpen`. Opening a species detail must dismiss any open
@@ -827,6 +838,11 @@ export function MapCanvas({
   aggregatedRef.current = aggregated;
   const dictionaryRef = useRef(dictionary);
   dictionaryRef.current = dictionary;
+  // #1302: the same handler derives a single-bucket `{kind:'cell'}` scopeKey
+  // from `boundsKey`. Read it through a ref for the same reason — the handler is
+  // registered once at load, but `boundsKey` changes on every scope switch.
+  const boundsKeyRef = useRef(boundsKey);
+  boundsKeyRef.current = boundsKey;
 
   // Sprite-registration completion gate. Flips true after `Promise.all`
   // in the sprite-registration effect resolves. The symbol layer JSX is
@@ -1020,14 +1036,18 @@ export function MapCanvas({
         return;
       }
 
-      // #864: no subId ⇒ this is an aggregated BUCKET painted unclustered (a
-      // lone bucket past clusterRadius / clusterMaxZoom that #860's
-      // clusterMinPoints=1 didn't fold into a degenerate cluster). It carries
-      // its real families/species in `familiesJson` — open the SAME real-species
-      // popover the cluster path opens (mergeLeafBuckets on this one bucket →
-      // ClusterListPopover), so a click resolves names + working links instead
-      // of no-op'ing on a dead silhouette. Gated on aggregated mode + presence
-      // of familiesJson so the per-observation path is untouched.
+      // #864: no subId ⇒ this is an aggregated BUCKET painted unclustered — a
+      // genuinely ISOLATED bucket with no neighbour within clusterRadius, which
+      // supercluster always emits as a raw leaf (clusterMinPoints=1 lowers the
+      // group-clustering threshold but never folds a lone bucket into a
+      // degenerate 1-point cluster — `_cluster` requires a merged neighbour). It
+      // carries its real families/species in `familiesJson` — open the SAME
+      // real-species popover the cluster path opens (mergeLeafBuckets on this one
+      // bucket → ClusterListPopover), so a click resolves names + working links
+      // instead of no-op'ing on a dead silhouette. This is also the ONLY
+      // reachable single-bucket surface, so #1302 threads the `{kind:'cell'}`
+      // Sightings-Log context from here (below). Gated on aggregated mode +
+      // presence of familiesJson so the per-observation path is untouched.
       const familiesJson = feature.properties?.familiesJson as
         | string
         | undefined;
@@ -1053,6 +1073,33 @@ export function MapCanvas({
           ? (geom.coordinates as [number, number])
           : undefined;
 
+      // #1302: this handler ALWAYS operates on exactly ONE bucket leaf (the
+      // clicked unclustered feature), which is the only place a genuine SINGLE
+      // bucket actually renders — supercluster never emits a 1-point cluster, so
+      // the DOM adaptive-grid `CellPopover` gate is unreachable. The clicked
+      // Point IS the bucket's own `round(coord*m)/m` center, so the derived cell
+      // aligns with the server's bucketing by construction (epic #1299 Decisions
+      // §4). Thread a `{kind:'cell'}` context so the per-sighting log fetches
+      // this cell's rows. `gridMultiplier` reads the FLOORED integer zoom (never
+      // a raw float); `scopeKey` mirrors the server's base ('US' national, else
+      // the `US-XX` state code MapCanvas already holds as `boundsKey`).
+      const cellContext: SightingsContext | undefined = center
+        ? {
+            kind: 'cell',
+            lngBucket: center[0],
+            latBucket: center[1],
+            gridMultiplier: gridMultiplierForZoom(Math.floor(map.getZoom())),
+            // 'US' is the server's NATIONAL_SCOPE_KEY base; the read-api cell
+            // route treats an absent/`US` scope as national (no clip) and a
+            // `US-XX` code as a state clip. `boundsKey` is 'us' (national) or a
+            // `US-XX` state code, so map the former to the server's 'US'.
+            scopeKey:
+              boundsKeyRef.current && boundsKeyRef.current !== 'us'
+                ? boundsKeyRef.current
+                : 'US',
+          }
+        : undefined;
+
       setClusterList({
         families: merged.families,
         speciesByFamily: merged.speciesByFamily,
@@ -1064,6 +1111,7 @@ export function MapCanvas({
         // anchorEl for .focus() on dismiss — positioning is sheet-style CSS).
         anchorEl: map.getCanvas(),
         ...(center ? { drillCenter: center } : {}),
+        ...(cellContext ? { cellContext } : {}),
       });
     });
 
@@ -2270,53 +2318,25 @@ export function MapCanvas({
   );
 
   /**
-   * #1301 — the per-family `<CellPopover>` species-select seam (inside an
-   * `<AdaptiveGridMarker>`, via `<GroupMarkerLayer>`). Builds a `{kind:'cell'}`
-   * Sightings-Log context ONLY for a genuine SINGLE aggregated bucket: its
-   * marker anchor IS a true `round(coord*m)/m` bucket center, so the derived
-   * cell aligns with the server's bucketing by construction. A multi-bucket
-   * cluster (anchor = supercluster centroid) or a zoom>=6 per-observation marker
-   * threads NO context — epic #1299 Decisions §4 forbids deriving a cell from a
-   * non-bucket center. INERT in F2 (`useSightingsRows` is `supported:false` for
-   * `cell`); wired now so F3 (#1302) adds the fetch without re-threading.
-   *
-   * `gridMultiplier` reads `gridMultiplierForZoom(Math.floor(map.getZoom()))` —
-   * the SINGLE frontend copy of the read-api zoom->{2,4,8} switch, fed the
-   * FLOORED integer zoom (never a raw float). `scopeKey` mirrors the server's
-   * `resolveScopeKey` base ('US' national, else the state code) off the
-   * scope-change `boundsKey` MapCanvas already holds.
+   * The per-family `<CellPopover>` species-select seam (inside an
+   * `<AdaptiveGridMarker>`, via `<GroupMarkerLayer>`). A `<CellPopover>` only
+   * renders inside a DOM adaptive-grid `'cell'` shape, which only exists for a
+   * supercluster CLUSTER — and supercluster never emits a 1-point cluster
+   * (`getClusters` requires `point_count > 1`; `_cluster` requires a merged
+   * neighbour with `numPoints > numPointsOrigin`, independent of
+   * `clusterMinPoints`). So a `CellPopover` ALWAYS represents ≥2 buckets, whose
+   * marker anchor is a supercluster centroid — NOT a true `round(coord*m)/m`
+   * bucket center. Epic #1299 Decisions §4 forbids deriving a cell from a
+   * non-bucket center, so this seam threads NO Sightings-Log context (single-arg
+   * call). The genuine SINGLE bucket — the only place a per-sighting cell log is
+   * reachable — renders as a RAW UNCLUSTERED leaf and is handled by the `#864`
+   * unclustered-point path above, which threads the `{kind:'cell'}` context.
    */
   const handleGridSelectSpecies = useCallback(
-    (speciesCode: string, group: DeconflictGroup) => {
-      if (!onSelectSpecies) return;
-      let context: SightingsContext | undefined;
-      const map = mapRef.current?.getMap();
-      const { anchor, memberIds } = group;
-      if (
-        aggregated &&
-        map &&
-        memberIds.length === 1 &&
-        // A genuine SINGLE bucket carries exactly one supercluster leaf. (The
-        // #859 sumCount overwrite makes `anchor.point_count` the summed obs count,
-        // so it cannot gate this — `bucketCount` preserves the raw leaf count.)
-        anchor.bucketCount === 1 &&
-        anchor.longitude !== undefined &&
-        anchor.latitude !== undefined
-      ) {
-        context = {
-          kind: 'cell',
-          lngBucket: anchor.longitude,
-          latBucket: anchor.latitude,
-          gridMultiplier: gridMultiplierForZoom(Math.floor(map.getZoom())),
-          scopeKey: boundsKey && boundsKey !== 'us' ? boundsKey : 'US',
-        };
-      }
-      // Call with the 2nd arg ONLY when a single-bucket cell context was built,
-      // so the per-observation / multi-bucket path keeps its single-arg shape.
-      if (context) onSelectSpecies(speciesCode, context);
-      else onSelectSpecies(speciesCode);
+    (speciesCode: string) => {
+      onSelectSpecies?.(speciesCode);
     },
-    [onSelectSpecies, aggregated, boundsKey],
+    [onSelectSpecies],
   );
 
   /**
@@ -2538,17 +2558,27 @@ export function MapCanvas({
           // `count`/`speciesCount`/`familiesJson` but NEVER a `subId`, so every
           // interaction path keys on `subId` (the reconciler's clustered + the
           // unclustered-silhouette input passes, and the canvas unclustered-point
-          // click handler) DROPS that lone bucket — it still canvas-paints a
-          // dominant-family silhouette, so the user gets a marker that does
-          // nothing on click. That is the "dead cell at low zoom" #859 set out to
-          // kill, reintroduced via a different mechanism (reachable at national
-          // zoom in sparse states — MT/WY/NV). Forcing clusterMinPoints=1 makes
-          // EVERY bucket a (degenerate) 1-point cluster, so even a lone one flows
-          // through the existing clustered/reconciler + bucket-popover path
-          // (getClusterLeaves → mergeLeafBuckets → grid/pill → real-species
-          // popover). Gated on `aggregated`: per-observation mode keeps maplibre's
-          // default (2), so real Observation rows — which legitimately use `subId`
-          // + the unclustered silhouette layer — are completely unchanged.
+          // click handler) DROPPED that lone bucket — it still canvas-painted a
+          // dominant-family silhouette, so the user got a marker that did nothing
+          // on click. That is the "dead cell at low zoom" #859 set out to kill,
+          // reintroduced via a different mechanism (reachable at national zoom in
+          // sparse states — MT/WY/NV).
+          //
+          // clusterMinPoints=1 lowers the threshold at which a GROUP of buckets
+          // becomes a cluster from 2 to 1 — it does NOT turn a truly isolated
+          // bucket into a degenerate 1-point cluster. supercluster only emits a
+          // cluster when `_cluster` merges a neighbour (`numPoints >
+          // numPointsOrigin`), so a bucket with NO neighbour within clusterRadius
+          // STILL renders as a raw unclustered leaf at every zoom, regardless of
+          // clusterMinPoints. That genuinely-isolated single bucket is handled by
+          // the `#864` unclustered-point click handler above (mergeLeafBuckets on
+          // the one leaf → ClusterListPopover → real-species popover, and the
+          // #1302 `{kind:'cell'}` Sightings-Log context). clusterMinPoints=1 only
+          // helps the case where ≥2 buckets fall within clusterRadius but the
+          // default-2 floor would otherwise have left a 1-neighbour group
+          // unclustered. Gated on `aggregated`: per-observation mode keeps
+          // maplibre's default (2), so real Observation rows — which legitimately
+          // use `subId` + the unclustered silhouette layer — are unchanged.
           clusterMinPoints={aggregated ? 1 : 2}
           // maplibre warns that a GeoJSON source's `maxzoom` must EXCEED
           // `clusterMaxZoom`. With the deliberate max-zoom cap (CLUSTER_MAX_ZOOM
@@ -2660,15 +2690,20 @@ export function MapCanvas({
           onDismiss={() => setClusterList(null)}
           onSelectSpecies={(code) => {
             if (onSelectSpecies) {
-              // #1301 — zoom>=6 stuck-cluster seam: thread the cluster's leaves
-              // for the chosen species as a `{kind:'leaves'}` context. At zoom<6
-              // (aggregated) `sightingRows` is absent, so NO context is threaded
-              // (the multi-bucket cluster-list seam is unsupported — epic #1299
-              // Decisions §4); the log then renders nothing.
+              // Thread the Sightings-Log context that matches the popover's zoom
+              // band:
+              //   - #1301 zoom>=6: each leaf is a real sighting, so `sightingRows`
+              //     is present → a `{kind:'leaves'}` context filtered by `code`.
+              //   - #1302 zoom<6 SINGLE bucket: the lone-bucket `#864` path
+              //     stashed a `{kind:'cell'}` context keyed to this bucket's own
+              //     center → fetch this cell's per-sighting rows for `code`.
+              //   - zoom<6 MULTI-bucket: neither is present, so NO context is
+              //     threaded (epic #1299 Decisions §4 — a centroid is not a true
+              //     bucket center); the log renders nothing.
               const rows = clusterList.sightingRows;
               const context: SightingsContext | undefined = rows
                 ? { kind: 'leaves', rows: rows.filter((r) => r.speciesCode === code) }
-                : undefined;
+                : clusterList.cellContext;
               if (context) onSelectSpecies(code, context);
               else onSelectSpecies(code);
             }
