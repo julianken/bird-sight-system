@@ -1748,6 +1748,14 @@ body {
   font-size: var(--type-xs);
   color: var(--color-text-muted);
 }
+/* #1302 (F3) — static "Loading sightings…" line shown while the zoom<6 per-cell
+   fetch is in flight. Deliberately a plain text line: no spinner, no count
+   animation (#953 — the sightings counts are camera-coupled). */
+.detail-fg-sightings-loading {
+  margin: var(--space-sm) 0 0;
+  font-size: var(--type-sm);
+  color: var(--color-text-muted);
+}
 .species-detail-loading { color: var(--color-text-muted); font-size: var(--type-sm); margin: 8px 0 0 0; }
 .species-detail-error {
   margin-top: 8px;

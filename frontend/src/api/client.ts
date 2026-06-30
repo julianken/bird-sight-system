@@ -1,6 +1,6 @@
 import type {
   Hotspot, Observation, ObservationsResponse, SpeciesMeta, ObservationFilters,
-  FamilySilhouette, StateSummary, SpeciesDictEntry,
+  FamilySilhouette, StateSummary, SpeciesDictEntry, CellObservationsResponse,
 } from '@bird-watch/shared-types';
 import { canonicalFetchBboxParam, perObsFetchBboxParam, serializeBbox, snapFetchBboxParam } from '@bird-watch/geo';
 
@@ -200,6 +200,39 @@ export class ApiClient {
     if (f.familyCode) url.searchParams.set('family', f.familyCode);
     if (f.stateCode) url.searchParams.set('state', f.stateCode);
     return this.get<SpeciesDictEntry[]>(url.pathname + url.search);
+  }
+
+  // #1302 (F3, epic #1299) — the per-species rows inside ONE clicked grid cell,
+  // backing the low-zoom (zoom<6) sightings log. The map at zoom<6 renders the
+  // precomputed grid (counts only), so the raw rows for a single species inside
+  // a single bucket must be fetched on demand. Param names mirror the B1 route
+  // (`services/read-api/src/app.ts` /api/observations/cell) exactly:
+  // species · scope · m (grid multiplier) · lng/lat bucket center · optional
+  // since-window.
+  //
+  // No AbortSignal: `get<T>` only attaches one when passed (`client.ts` `get`),
+  // and this method passes none — the fetch is intentionally NOT abortable.
+  // Staleness on a rapid species/cell change is handled entirely by the
+  // consuming hook's `cancelled` flag (use-sightings-rows.ts), NOT by
+  // AbortController. `since` is serialized ONLY when present — never as the
+  // literal string "undefined" (exactOptionalPropertyTypes: the param type's
+  // `since` is optional-but-not-undefined).
+  getCellObservations(p: {
+    scopeKey: string;
+    gridMultiplier: number;
+    lngBucket: number;
+    latBucket: number;
+    speciesCode: string;
+    since?: '1d' | '7d' | '14d';
+  }): Promise<CellObservationsResponse> {
+    const url = new URL('/api/observations/cell', 'http://x');
+    url.searchParams.set('species', p.speciesCode);
+    url.searchParams.set('scope', p.scopeKey);
+    url.searchParams.set('m', String(p.gridMultiplier));
+    url.searchParams.set('lng', String(p.lngBucket));
+    url.searchParams.set('lat', String(p.latBucket));
+    if (p.since) url.searchParams.set('since', p.since);
+    return this.get<CellObservationsResponse>(url.pathname + url.search);
   }
 
   getSilhouettes(): Promise<FamilySilhouette[]> {
