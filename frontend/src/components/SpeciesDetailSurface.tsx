@@ -5,9 +5,12 @@ import { useSilhouettes } from '../data/use-silhouettes.js';
 import { buildFamilyColorResolver, buildFamilyPathResolver, buildFamilyImgUrlResolver } from '../data/family-color.js';
 import { analytics } from '../analytics.js';
 import { SpeciesDescription } from './SpeciesDescription.js';
+import { SightingsLog } from './SightingsLog.js';
 import { Photo } from './ds/Photo.js';
 import { StatusBlock } from './ds/StatusBlock.js';
 import type { FamilyCode } from '../config/family-palette.js';
+import type { SightingsContext } from './sightings-context.js';
+import type { Since } from '../state/url-state.js';
 
 export interface SpeciesDetailSurfaceProps {
   speciesCode: string;
@@ -21,6 +24,16 @@ export interface SpeciesDetailSurfaceProps {
    * the unit tests) shows the resting end-state immediately.
    */
   revealed?: boolean;
+  /**
+   * Sightings-Log context (epic #1299, F2 #1301) — threaded from the marker
+   * click that opened the surface (via SpeciesDetailRail on desktop). Identifies
+   * WHICH sightings the in-panel log shows. Absent ⇒ the log renders nothing
+   * (e.g. the mobile Sheet does not thread it until M4 #1303, and a deep-linked
+   * detail open carries no marker context).
+   */
+  sightingsContext?: SightingsContext;
+  /** The active since-window (url-state). Unused by the leaf path; F3 forwards it to the cell fetch. */
+  since?: Since;
 }
 
 /**
@@ -46,7 +59,7 @@ export interface SpeciesDetailSurfaceProps {
  * inside the wrapper's scroll container (modal or sheet), not <main>.
  */
 export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
-  const { speciesCode, apiClient, revealed = true } = props;
+  const { speciesCode, apiClient, revealed = true, sightingsContext, since } = props;
   const detail = useSpeciesDetail(apiClient, speciesCode);
   const { loading, error, data, retry } = detail;
   // useSilhouettes provides the family-color payload. The data is cached at
@@ -220,6 +233,18 @@ export function SpeciesDetailSurface(props: SpeciesDetailSurfaceProps) {
         className="detail-fg-rule"
         aria-hidden="true"
         style={{ background: famColor }}
+      />
+
+      {/* E2. Sightings Log (#1299 / F2 #1301) — per-sighting recency for the
+          clicked marker outranks formal taxonomy reference data, so it sits
+          immediately after the family-accent rule and ABOVE the taxonomy <dl>.
+          Renders nothing unless a marker-click context was threaded in (a
+          zoom>=6 leaf context today; the zoom<6 cell path lands in F3). */}
+      <SightingsLog
+        apiClient={apiClient}
+        speciesCode={speciesCode}
+        context={sightingsContext ?? null}
+        {...(since !== undefined ? { since } : {})}
       />
 
       {/* F. Taxonomy — real <dl> so AT ties label→value. Intentionally restates

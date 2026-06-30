@@ -75,6 +75,16 @@ export interface DeconflictInput {
   rendered: RenderedShape;
   /** Total observations in this cluster. */
   point_count: number;
+  /**
+   * #1301 — the RAW supercluster `point_count` (number of LEAVES the cluster
+   * carries). In aggregated mode `point_count` above is overwritten with the
+   * summed observation count (`sumCount`, #859), which erases the leaf count; a
+   * single aggregated bucket is exactly `bucketCount === 1`. The Sightings-Log
+   * cell seam reads this to derive a `{kind:'cell'}` context ONLY for a genuine
+   * single bucket (whose anchor is a true `round(coord*m)/m` center). Optional:
+   * per-observation inputs and Task-2 unit fixtures omit it.
+   */
+  bucketCount?: number;
   /** Unique families (for aria-label aggregation). */
   uniqueFamilies: number;
   /**

@@ -145,6 +145,18 @@ export interface ClusterLeafFeature {
     comName: string;
     /** Whether this observation is in eBird's notable list. */
     isNotable?: boolean;
+    /**
+     * #1301 — the remaining fields `observationsToGeoJson` stamps onto every
+     * feature (all already on the wire; the adaptive-grid aggregation reads only
+     * `familyCode`, so these are purely additive). They back the leaf->SightingRow
+     * projection (`leafToSightingRow`) for the Sightings Log. Declared OPTIONAL so
+     * the module's existing leaf fixtures (which only set family/species/comName)
+     * still type-check; production leaves always carry them.
+     */
+    subId?: string;
+    locName?: string | null;
+    obsDt?: string;
+    howMany?: number | null;
   };
 }
 
