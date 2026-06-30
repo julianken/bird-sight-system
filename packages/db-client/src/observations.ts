@@ -563,6 +563,175 @@ export const NATIONAL_SCOPE_KEY = 'US';
  */
 export const STANDARD_GRID_MULTIPLIERS: readonly number[] = [2, 4, 8];
 
+// ── #1300 (B1) — SINGLE-CELL, SINGLE-SPECIES PER-OBSERVATION QUERY ───────────
+//
+// Backs the zoom<6 sightings log (epic #1299). At low zoom the map renders the
+// precomputed `observation_grid_agg` grid, which keeps only counts — individual
+// sightings are discarded from the render path. When a user clicks a cell
+// marker AND selects a species, the log needs the raw rows for THAT species
+// inside THAT one grid cell. The raw `observations` table still has every
+// sighting; this query fetches the bounded slice. It deliberately does NOT
+// gate-lift the existing `/api/observations` low-zoom contract (which routes
+// `bbox && zoom<6` to the aggregated CTE before per-observation rows can
+// return) — it is a separate, additive read path behind a dedicated route.
+
+export interface CellObservationsParams {
+  /** NATIONAL_SCOPE_KEY ('US', no clip) or a 'US-XX' state code (ST_Intersects polygon clip). */
+  scopeKey: string;
+  /** Grid switch value; MUST be one of STANDARD_GRID_MULTIPLIERS (2 | 4 | 8). The
+   *  route validates it against that export before calling — an arbitrary
+   *  multiplier would widen the derived cell. */
+  gridMultiplier: number;
+  /** Grid-cell center (round(coord*m)/m), as sent by the frontend (a true bucket center). */
+  lngBucket: number;
+  latBucket: number;
+  speciesCode: string;
+  since?: '1d' | '7d' | '14d';
+  /** Hard row brake; default + cap = CELL_OBSERVATIONS_LIMIT. */
+  limit?: number;
+}
+
+/**
+ * Hard row brake on the single-cell sightings-log query. `LIMIT` bounds only
+ * client materialization, NOT scan cost — `count(*) OVER ()` still windows over
+ * every matched (windowed) row in the cell to produce the exact pre-LIMIT
+ * denominator (the "latest N of M" banner's M). Kept module-local (NOT
+ * barrel-exported): the route relies on the function's default, and the
+ * perf/integration tests import this constant from the module file to assert
+ * the cap directly — so nothing outside this package needs it.
+ */
+export const CELL_OBSERVATIONS_LIMIT = 200;
+
+type CellObservationRow = {
+  sub_id: string;
+  species_code: string;
+  com_name: string | null;
+  family_code: string | null;
+  lat: number;
+  lng: number;
+  obs_dt: Date;
+  loc_id: string;
+  loc_name: string | null;
+  how_many: number | null;
+  is_notable: boolean;
+  silhouette_id: string | null;
+  total_matched: string; // count(*) OVER () — bigint, returned as a string by pg.
+};
+
+/**
+ * Builds the parameterized single-cell query + bind list for a
+ * CellObservationsParams. Split out so the perf test can run the EXACT query
+ * the function executes through `EXPLAIN (ANALYZE)` and assert its access path
+ * (the GIST `obs_geom_idx` cell envelope + the `obs_species_idx` species
+ * filter) without the SQL drifting from a hand-written copy. NOT barrel-
+ * exported — consumed only by getCellObservations and the perf test.
+ *
+ * Cell envelope: `half = 0.5 / gridMultiplier`; the cell is
+ * `[lngBucket ± half, latBucket ± half]`. Mirrors getObservations' GIST-backed
+ * bbox pattern (`geom &&` for the index prune, `ST_Intersects` for the exact
+ * boundary test) and the #733 state-polygon clip (`ST_Intersects(polygon,
+ * point)`, arg order polygon-first). The since predicate AND-s an
+ * `obs_dt >= now() - k days` filter into BOTH the returned rows AND the
+ * `count(*) OVER ()` denominator (window functions run after WHERE, before
+ * LIMIT — so the count is over the full matched, since-windowed set). All
+ * inputs are bound parameters; `gridMultiplier` is consumed only to compute the
+ * numeric envelope, never interpolated into SQL.
+ */
+export function buildCellObservationsQuery(
+  p: CellObservationsParams,
+): { sql: string; params: unknown[]; limit: number } {
+  const limit = p.limit ?? CELL_OBSERVATIONS_LIMIT;
+  const half = 0.5 / p.gridMultiplier;
+  const minLng = p.lngBucket - half;
+  const minLat = p.latBucket - half;
+  const maxLng = p.lngBucket + half;
+  const maxLat = p.latBucket + half;
+
+  const params: unknown[] = [p.speciesCode, minLng, minLat, maxLng, maxLat];
+  const conditions: string[] = [
+    'o.species_code = $1',
+    'o.geom && ST_MakeEnvelope($2, $3, $4, $5, 4326)',
+    'ST_Intersects(o.geom, ST_MakeEnvelope($2, $3, $4, $5, 4326))',
+  ];
+
+  if (p.since !== undefined) {
+    const days = parseInt(p.since.replace('d', ''), 10);
+    conditions.push(`o.obs_dt >= now() - ($${params.length + 1}::int * interval '1 day')`);
+    params.push(days);
+  }
+
+  // National scope (NATIONAL_SCOPE_KEY) applies NO clip; a 'US-XX' code applies
+  // the same ST_Intersects state-polygon clip getObservations uses. Compared
+  // against the NATIONAL_SCOPE_KEY export (NOT a hardcoded 'US') so this branch
+  // and the precompute/aggregated paths never drift from one sentinel.
+  if (p.scopeKey !== NATIONAL_SCOPE_KEY) {
+    const si = params.length + 1;
+    conditions.push(`o.geom && (SELECT geom FROM state_boundaries WHERE state_code = $${si})`);
+    conditions.push(`ST_Intersects((SELECT geom FROM state_boundaries WHERE state_code = $${si}), o.geom)`);
+    params.push(p.scopeKey);
+  }
+
+  const limitIdx = params.length + 1;
+  params.push(limit + 1); // probe one past the cap to detect truncation (mirrors getObservations).
+
+  const sql = `
+    SELECT
+      o.sub_id, o.species_code, sm.com_name, sm.family_code,
+      o.lat, o.lng, o.obs_dt, o.loc_id, o.loc_name, o.how_many,
+      o.is_notable, o.silhouette_id,
+      count(*) OVER () AS total_matched
+    FROM observations o
+    LEFT JOIN species_meta sm ON sm.species_code = o.species_code
+    WHERE ${conditions.join(' AND ')}
+    ORDER BY o.obs_dt DESC
+    LIMIT $${limitIdx}
+  `;
+
+  return { sql, params, limit };
+}
+
+/**
+ * Fetches the per-species, single-grid-cell observation rows for the sightings
+ * log (#1300). Returns the latest `data` rows (ordered `obs_dt DESC`, hard-
+ * capped at `CELL_OBSERVATIONS_LIMIT`), `truncated` (true iff matching rows
+ * exceed the cap), and `cellObservationCount` — the EXACT pre-LIMIT count of
+ * matching rows in the cell within the since-window (the "latest N of M"
+ * denominator M, from `count(*) OVER ()`). Row mapping mirrors getObservations
+ * exactly (`comName: com_name ?? species_code`, `obsDt` as ISO, `familyCode`
+ * passed through as-is).
+ */
+export async function getCellObservations(
+  pool: Pool,
+  p: CellObservationsParams,
+): Promise<{ data: Observation[]; truncated: boolean; cellObservationCount: number }> {
+  const { sql, params, limit } = buildCellObservationsQuery(p);
+  const { rows } = await pool.query<CellObservationRow>(sql, params);
+
+  // `limit + 1` came back ⇒ more rows than the cap allows; slice back and flag.
+  // (rows.length > limit ⟺ cellObservationCount > limit, since the probe LIMIT
+  // is limit+1.)
+  const truncated = rows.length > limit;
+  const capped = truncated ? rows.slice(0, limit) : rows;
+  const cellObservationCount = Number(rows[0]?.total_matched ?? 0);
+
+  const data = capped.map(r => ({
+    subId: r.sub_id,
+    speciesCode: r.species_code,
+    comName: r.com_name ?? r.species_code,
+    lat: r.lat,
+    lng: r.lng,
+    obsDt: r.obs_dt.toISOString(),
+    locId: r.loc_id,
+    locName: r.loc_name,
+    howMany: r.how_many,
+    isNotable: r.is_notable,
+    silhouetteId: r.silhouette_id,
+    familyCode: r.family_code,
+  }));
+
+  return { data, truncated, cellObservationCount };
+}
+
 /**
  * The `since` windows the precompute covers (#1209). Originally only 14d was
  * precomputed, so a `since=7d`/`1d` low-zoom state view fell through to the live
