@@ -105,7 +105,7 @@ The header gains real elevation (it has **none** today) by adopting tier 1. The 
 | **Top-right** | Controls cluster: Filters (labeled at ≥1024), Attribution, theme toggle — a compact pill group | content-width |
 | **Bottom-left** | Family legend | `--card-maxw-legend` 280px |
 | **Bottom-right** | Minimal always-visible attribution line — `OpenFreeMap · eBird` (license floor) at `--type-xs`, as a small `.map-attribution` floating island. *(#828 relocated the always-visible eBird credit here after deleting the identity-card freshness line that #830 had parked it in; the full credits — OSM / OpenMapTiles / OpenFreeMap / eBird / PhyloPic / photos — stay in the top-right ⓘ Credits modal. Future zoom/locate shares this corner.)* | content-width |
-| **Transient** | Popovers (flip/shift to stay on-screen), detail card (insets top-right region), filters panel (anchored under its trigger) | per-element caps |
+| **Transient** | Popovers (flip/shift to stay on-screen), detail card (insets top-right region; the **Sightings Log** §4.5.1 is a section *of* this card, not a new surface), filters panel (anchored under its trigger) | per-element caps |
 
 ### Desktop (1440 / 1920)
 
@@ -203,6 +203,27 @@ When a **bottom sheet** (detail or filters) is up, the legend auto-collapses to 
 - **Target (desktop):** an **inset floating card** — `top: calc(var(--card-inset) + controls-cluster-height + var(--card-gap)); right/bottom: var(--card-inset); width: clamp(360px, 38vw, 420px)`; `--card-radius` on all four corners, `--card-elevation-3`, **drop `border-left` for a floating shadow**. The map visibly wraps it on all sides — preserving the "map stays interactive beside detail" intent (#663) and never slicing the top-right controls.
 - **Target (mobile):** keep the bottom **sheet** (Apple-Maps idiom) with peek/half/full snaps, `--card-radius` top corners, `--card-elevation-3`. Reconcile its raw z (10/15/20) onto `--z-modal` (50) at full snap so the `pointer-events:none` header hack can be retired.
 - **Responsive:** anchored card ≥`--overlay-bp-compact` (480); bottom sheet below.
+
+#### 4.5.1 Sightings Log — per-sighting recency *inside* the detail surface (epic #1299)
+
+> **Ship position (design-intent-first):** this subsection records the *intended* contract ahead of the sibling code PRs that land it (B1 #1300 + F2 #1301 merged; F3 #1302 wires the zoom<6 cell path) — it documents intended, not yet-shipped, behavior, intentionally.
+
+The Sightings Log is a **section of the SpeciesDetail card**, not a new floating surface: it claims **no new corner** and adds no band. In the four-corner anchor contract (§3) it lives entirely inside the **Transient** detail card (Rail tier-3 / mobile full detent at `--z-modal` 50). It lists the *individual* sightings of the selected species under the clicked marker — recency the count-rollup popovers (§4.7) cannot show — as one static row each.
+
+- **Placement.** Immediately **after the family-accent rule, above the taxonomy `<dl>`** (desktop Surface and mobile Sheet alike). Per-sighting recency for the clicked marker outranks formal taxonomy reference data, so it sits high. On **mobile it is full-detent-only**, matching taxonomy/About (it does not appear at peek/half).
+- **Row vocabulary.** Each row reads **time · exact location · count · notable**:
+  - **time / location** formatting **mirrors `ObservationPopover`** (same locale time string, same `locName`); the section reuses `ObservationPopover` tokens — **no new colors**.
+  - **count** is a **deliberate divergence from `ObservationPopover`**: the popover shows a count whenever `howMany != null` (it will render "Count: 1"); the log shows the count column **only when `howMany > 1`**. A solo bird carries no count chrome.
+  - **notable** renders a `!` marker (aria-labelled "Notable") when `isNotable`.
+- **Row cap.** Client-side `MAX_VISIBLE_ROWS = 50` — a busy single-species cluster could otherwise materialize an arbitrarily long list in the Rail. Overflow (and the zoom<6 server-truncation case) surface a single **"latest N of M"** banner; the cap is a plain `slice` (no virtualization).
+- **Motion (#953).** Rows are **static — never animate the counts.** The sighting counts are camera-coupled (a pan/zoom changes which leaves are in view), so animating them would strobe on every map move; this section inherits the same count-animation prohibition the lede and legend carry.
+- **Zoom-fork data path.** The rows are sourced one of two ways, by the **floored integer** map zoom that produced the markers:
+  - **zoom ≥ 6 — client-side cluster leaves, no fetch.** The already-cached cluster leaves (or the single clicked observation) are filtered to the selected species and projected to a narrow `SightingRow` (six fields). Cluster leaves never carry `locId`, so a full `Observation` cannot be reconstructed — both seams (the single-observation popover seam and the cluster-leaf seam) agree on this same projection.
+  - **zoom < 6 — `GET /api/observations/cell` (single-bucket `CellPopover` seam ONLY).** When the markers are server-aggregated grid cells, the log fetches the cell's per-sighting rows: bounded `LIMIT 200` (`CELL_OBSERVATIONS_LIMIT`), `count(*) OVER ()` as the exact pre-LIMIT denominator M, `truncated` + the "latest N of M" banner, ordered `obs_dt DESC`, and matching the **map's active since-window**. The cell is identified by a `round(coord*m)/m` bucket center (the same `gridMultiplierForZoom` mapping the server uses), so the fetched cell agrees with the server's bucketing by construction.
+  - **Non-goal: the multi-bucket low-zoom `ClusterListPopover`.** A `ClusterListPopover` summarizes *many* cells; its centroid is **not** a `round(coord*m)/m` bucket center, so the single-cell route cannot serve it. The log renders nothing for that context (`supported: false`). A future cluster-bbox / multi-cell query is a **separate effort**, not part of this contract.
+- **The three decisions.** (1) **Display-only rows** — no row links, no row-level navigation. (2) **Coexists with the count-rollup popovers** (§4.7) rather than replacing them — the popovers answer "how many here", the log answers "which sightings, when, where". (3) **High placement** — directly under the family-accent rule, above formal taxonomy.
+- **No schema / migration.** B1's `GET /api/observations/cell` reads existing `observations` rows; no new table or column.
+- **Design intent reference:** Figma file `AhfeWpBSVNI2IhjMiLrmpe`.
 
 ### 4.6 Filters → anchored floating panel / bottom sheet
 
