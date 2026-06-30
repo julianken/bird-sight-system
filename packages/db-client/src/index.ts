@@ -7,6 +7,10 @@ export {
   // #878 — precomputed per-scope aggregation grid.
   refreshGridAgg, getAggregatedGridFromCache, isPrecomputeEligible,
   resolveScopeKey, NATIONAL_SCOPE_KEY, STANDARD_GRID_MULTIPLIERS,
+  // #1300 (B1) — single-cell sightings-log query (consumed by the
+  // GET /api/observations/cell route). CELL_OBSERVATIONS_LIMIT and
+  // buildCellObservationsQuery stay module-local (test-only consumers).
+  getCellObservations, type CellObservationsParams,
   type ObservationInput,
 } from './observations.js';
 export {

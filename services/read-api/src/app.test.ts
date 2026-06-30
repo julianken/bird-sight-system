@@ -1655,3 +1655,131 @@ describe('CORS middleware', () => {
     expect(res.headers.get('access-control-allow-origin')).toBeNull();
   });
 });
+
+// #1300 (B1) — the single-cell sightings-log route. A thin adapter over
+// getCellObservations: validates species/scope/m/lng/lat/since, derives the
+// cell, and returns CellObservationsResponse ({ data, meta: {
+// cellObservationCount, truncated } }). All SQL lives in db-client; this only
+// pins the route contract (param validation + the meta shape + cache tier).
+describe('GET /api/observations/cell (#1300)', () => {
+  // m=2 cell, bucket center (-111.0, 32.0) — an Arizona interior cell. half =
+  // 0.5/2 = 0.25 → envelope [-111.25, 31.75, -110.75, 32.25].
+  const CELL = 'species=vermfly&scope=US&m=2&lng=-111.0&lat=32.0';
+
+  beforeAll(async () => {
+    await upsertSpeciesMeta(db.pool, [
+      { speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        sciName: 'Pyrocephalus rubinus', familyCode: 'tyrannidae',
+        familyName: 'Tyrant Flycatchers', taxonOrder: 30501 },
+      { speciesCode: 'annhum', comName: "Anna's Hummingbird",
+        sciName: 'Calypte anna', familyCode: 'trochilidae',
+        familyName: 'Hummingbirds', taxonOrder: 6000 },
+    ]);
+    await db.pool.query('TRUNCATE observations');
+    await upsertObservations(db.pool, [
+      // Four vermfly rows AT the cell center, distinct ages (DESC + since).
+      { subId: 'C-6h', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 32.0, lng: -111.0, obsDt: new Date(Date.now() - 6 * 3_600_000).toISOString(),
+        locId: 'L1', locName: 'Center', howMany: 2, isNotable: false },
+      { subId: 'C-2d', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 32.0, lng: -111.0, obsDt: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+        locId: 'L1', locName: 'Center', howMany: 1, isNotable: false },
+      { subId: 'C-3d', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 32.0, lng: -111.0, obsDt: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+        locId: 'L1', locName: 'Center', howMany: 1, isNotable: true },
+      { subId: 'C-10d', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 32.0, lng: -111.0, obsDt: new Date(Date.now() - 10 * 86_400_000).toISOString(),
+        locId: 'L1', locName: 'Center', howMany: 1, isNotable: false },
+      // Different species, same cell → excluded by the species filter.
+      { subId: 'C-OTHER', speciesCode: 'annhum', comName: "Anna's Hummingbird",
+        lat: 32.0, lng: -111.0, obsDt: new Date(Date.now() - 1 * 86_400_000).toISOString(),
+        locId: 'L1', locName: 'Center', howMany: 1, isNotable: false },
+      // Same species, adjacent cell → outside the target envelope.
+      { subId: 'C-ADJ', speciesCode: 'vermfly', comName: 'Vermilion Flycatcher',
+        lat: 32.0, lng: -110.5, obsDt: new Date(Date.now() - 1 * 86_400_000).toISOString(),
+        locId: 'L2', locName: 'Adjacent', howMany: 1, isNotable: false },
+    ]);
+  });
+
+  type CellEnvelope = {
+    data: Array<{ subId: string; familyCode?: string | null; [k: string]: unknown }>;
+    meta: { cellObservationCount: number; truncated: boolean };
+  };
+
+  it('returns the target species in the cell with the observations cache tier', async () => {
+    const app = createApp({ pool: db.pool });
+    const res = await app.request(`/api/observations/cell?${CELL}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control'))
+      .toBe('public, s-maxage=2400, stale-while-revalidate=2400');
+    const body = await res.json() as CellEnvelope;
+    // Four center vermfly rows (annhum + adjacent excluded), newest-first.
+    expect(body.data.map(o => o.subId)).toEqual(['C-6h', 'C-2d', 'C-3d', 'C-10d']);
+    expect(body.data[0]!.familyCode).toBe('tyrannidae');
+  });
+
+  it('returns meta exactly { cellObservationCount, truncated } — no freshest field', async () => {
+    const app = createApp({ pool: db.pool });
+    const res = await app.request(`/api/observations/cell?${CELL}`);
+    const body = await res.json() as CellEnvelope;
+    expect(body.meta).toEqual({ cellObservationCount: 4, truncated: false });
+    expect('freshestObservationAt' in body.meta).toBe(false);
+  });
+
+  it('forwards since to the query (since=1d returns only the windowed rows)', async () => {
+    const app = createApp({ pool: db.pool });
+    const res = await app.request(`/api/observations/cell?${CELL}&since=1d`);
+    expect(res.status).toBe(200);
+    const body = await res.json() as CellEnvelope;
+    // Only the 6h-old row is within 1d; the denominator drops to the window.
+    expect(body.data.map(o => o.subId)).toEqual(['C-6h']);
+    expect(body.meta.cellObservationCount).toBe(1);
+  });
+
+  it('applies the state clip when scope is a US-XX code', async () => {
+    const app = createApp({ pool: db.pool });
+    // All four center rows are in Arizona, so US-AZ returns the same set.
+    const res = await app.request(`/api/observations/cell?species=vermfly&scope=US-AZ&m=2&lng=-111.0&lat=32.0`);
+    expect(res.status).toBe(200);
+    const body = await res.json() as CellEnvelope;
+    expect(body.data.map(o => o.subId)).toEqual(['C-6h', 'C-2d', 'C-3d', 'C-10d']);
+  });
+
+  it('400s when species is missing', async () => {
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/observations/cell?scope=US&m=2&lng=-111.0&lat=32.0');
+    expect(res.status).toBe(400);
+  });
+
+  it('400s when m is not in STANDARD_GRID_MULTIPLIERS (m=3)', async () => {
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/observations/cell?species=vermfly&scope=US&m=3&lng=-111.0&lat=32.0');
+    expect(res.status).toBe(400);
+  });
+
+  it.each(['abc', '', 'NaN', 'Infinity'])('400s on non-finite lng=%s', async (lng) => {
+    const app = createApp({ pool: db.pool });
+    const res = await app.request(
+      `/api/observations/cell?species=vermfly&scope=US&m=2&lng=${encodeURIComponent(lng)}&lat=32.0`,
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('400s on non-finite lat', async () => {
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/observations/cell?species=vermfly&scope=US&m=2&lng=-111.0&lat=abc');
+    expect(res.status).toBe(400);
+  });
+
+  it('400s on a bad since value', async () => {
+    const app = createApp({ pool: db.pool });
+    const res = await app.request(`/api/observations/cell?${CELL}&since=banana`);
+    expect(res.status).toBe(400);
+  });
+
+  it('400s on an invalid scope', async () => {
+    const app = createApp({ pool: db.pool });
+    const res = await app.request('/api/observations/cell?species=vermfly&scope=US-ZZ&m=2&lng=-111.0&lat=32.0');
+    expect(res.status).toBe(400);
+  });
+});

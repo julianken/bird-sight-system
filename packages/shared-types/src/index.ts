@@ -395,3 +395,29 @@ export type ObservationsResponse =
       buckets: AggregatedBucket[];
       meta: { freshestObservationAt: string | null; truncated?: boolean };
     };
+
+/**
+ * Response from GET /api/observations/cell (sightings-log epic #1299, B1
+ * #1300). The per-species, single-grid-cell per-observation rows backing the
+ * low-zoom (zoom<6) sightings log: at zoom<6 the map renders the precomputed
+ * `observation_grid_agg` grid which keeps only counts, so the raw rows for one
+ * species inside one clicked grid cell must be fetched on demand.
+ *
+ * `meta.cellObservationCount` is the EXACT count of matching rows in the cell
+ * (within the since-window) BEFORE the LIMIT — the truncation-banner
+ * denominator M (the "latest N of M" line). `meta.truncated` is true when the
+ * row brake fired (the matched count exceeds the hard `LIMIT`, so `data` is the
+ * latest N of a larger set).
+ *
+ * `meta` is exactly `{ cellObservationCount, truncated }` — there is NO
+ * freshest-timestamp field: the db function produces only those two values, and
+ * the log derives recency from the rows it already renders, so a
+ * `freshestObservationAt` key would have no producer.
+ */
+export interface CellObservationsResponse {
+  data: Observation[];
+  meta: {
+    cellObservationCount: number;
+    truncated: boolean;
+  };
+}
