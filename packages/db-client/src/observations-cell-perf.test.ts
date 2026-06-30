@@ -16,14 +16,19 @@
  *       dense single-species `m=2` (coarsest, 0.5°×0.5°) cell, so a missing
  *       index actually blows wall-clock (best-of-N min under a generous guard).
  *   (b) EXPLAIN (ANALYZE) — asserts the plan for the EXACT query
- *       getCellObservations runs (via buildCellObservationsQuery) uses an
- *       Index/Bitmap scan on `obs_geom_idx`/`obs_species_idx` and NEVER a
- *       `Seq Scan on observations`.
+ *       getCellObservations runs (via buildCellObservationsQuery) names BOTH
+ *       `obs_geom_idx` AND `obs_species_idx` (the happy-path plan is a
+ *       `BitmapAnd` of the two) and NEVER `Seq Scan on observations`. The two
+ *       index names are asserted INDEPENDENTLY — not as an
+ *       `obs_geom_idx|obs_species_idx` OR — precisely so that dropping EITHER
+ *       index flips the guard RED. An OR would stay green when one index is
+ *       dropped because the planner falls back to the surviving index.
  *
- * RED case this is designed to fail on: dropping `obs_species_idx`/`obs_geom_idx`
- * (migration 1700000006000), or any query rewrite where the `count(*) OVER ()`
- * windowed set forces a full unindexed `Seq Scan on observations`. Both flip
- * the EXPLAIN assertion (and, at this volume, the wall-clock guard) RED.
+ * RED case this is designed to fail on: dropping `obs_species_idx` OR
+ * `obs_geom_idx` (migration 1700000006000) — each independently fails its own
+ * assertion — or any query rewrite where the `count(*) OVER ()` windowed set
+ * forces a full unindexed `Seq Scan on observations`. All flip the EXPLAIN
+ * assertion (and, at this volume, the wall-clock guard) RED.
  *
  * Real-Postgres+PostGIS testcontainer (no DB mocks, per repo convention); runs
  * its OWN container so the heavy seed never touches the shared observations.test
@@ -197,10 +202,15 @@ describe('getCellObservations single-cell perf + index-usage guard (#1300)', () 
       // eslint-disable-next-line no-console
       console.log(`[#1300 cell index guard] plan:\n${plan}`);
 
-      // FALSIFIABLE: the plan must use a named index on observations and must
-      // NOT seq-scan the table. Dropping either index (or a rewrite that forces
-      // a full windowed scan) flips this RED.
-      expect(plan).toMatch(/obs_geom_idx|obs_species_idx/);
+      // FALSIFIABLE: the happy-path plan is a BitmapAnd of BOTH indexes, so the
+      // plan text must name each one INDEPENDENTLY — asserting them separately
+      // (not as an `obs_geom_idx|obs_species_idx` OR) is what makes dropping
+      // EITHER index flip this RED. Under an OR the planner falls back to the
+      // surviving index and the guard stays green even with one index gone; two
+      // separate assertions close that gap. The plan must also NOT seq-scan the
+      // table (a rewrite forcing a full windowed scan flips this RED too).
+      expect(plan).toMatch(/obs_geom_idx/);
+      expect(plan).toMatch(/obs_species_idx/);
       expect(plan).not.toMatch(/Seq Scan on observations/);
     },
     120_000,
